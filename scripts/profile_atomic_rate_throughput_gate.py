@@ -65,6 +65,24 @@ def _configure_host_devices(args: argparse.Namespace) -> None:
         os.environ["XLA_FLAGS"] = f"{existing_flags} {flag}".strip()
 
 
+def _check_pmap_identity(jax, jnp, devices) -> tuple[bool, float | None, str | None]:
+    """Verify that the visible multi-device runtime preserves an identity map."""
+
+    device_count = len(devices)
+    if device_count <= 1:
+        return False, None, "fewer than two visible JAX devices"
+    probe = jnp.arange(device_count * 8, dtype=jnp.float64).reshape((device_count, 8))
+    try:
+        identity = jax.pmap(lambda block: block, devices=devices)
+        mapped = identity(probe).block_until_ready()
+        max_abs_error = float(jnp.max(jnp.abs(mapped - probe)))
+    except Exception as exc:  # pragma: no cover - depends on optional multi-device runtimes
+        return False, None, f"pmap identity check raised {type(exc).__name__}: {exc}"
+    if max_abs_error > 1.0e-12:
+        return False, max_abs_error, f"pmap identity check failed with max_abs_error={max_abs_error:.3e}"
+    return True, max_abs_error, None
+
+
 def main() -> None:
     args = _parse_args()
     _configure_host_devices(args)
@@ -97,7 +115,12 @@ def main() -> None:
 
     pmap_rate_kernel = None
     pmap_grad_kernel = None
-    if args.enable_pmap and pmap_device_count > 1:
+    pmap_sanity_passed = None
+    pmap_sanity_max_abs_error = None
+    pmap_skip_reason = None
+    if args.enable_pmap:
+        pmap_sanity_passed, pmap_sanity_max_abs_error, pmap_skip_reason = _check_pmap_identity(jax, jnp, devices)
+    if args.enable_pmap and pmap_sanity_passed:
         pmap_rate_kernel = jax.pmap(rate_block, devices=devices)
         pmap_grad_kernel = jax.pmap(grad_block, devices=devices)
 
@@ -201,7 +224,11 @@ def main() -> None:
             for device in devices
         ],
         "host_device_count_requested": None if args.host_device_count is None else int(args.host_device_count),
-        "pmap_enabled": bool(args.enable_pmap),
+        "pmap_requested": bool(args.enable_pmap),
+        "pmap_enabled": bool(pmap_rate_kernel is not None),
+        "pmap_sanity_passed": pmap_sanity_passed,
+        "pmap_sanity_max_abs_error": pmap_sanity_max_abs_error,
+        "pmap_skip_reason": pmap_skip_reason,
         "timed_runs": int(args.timed_runs),
         "results": results,
         "differentiability_showcase": {
@@ -214,8 +241,9 @@ def main() -> None:
         },
         "interpretation": (
             "This gate measures a batched reaction-source kernel and its reverse-mode derivative. "
-            "When --enable-pmap is set and more than one local device is visible, it also measures "
-            "fixed-work pmap throughput against the single-device kernel. It is the current GPU-throughput evidence for source "
+            "When --enable-pmap is set and more than one local device is visible, it first checks a "
+            "pmap identity map and only then measures fixed-work pmap throughput against the single-device kernel. "
+            "It is the current GPU-throughput evidence for source "
             "terms; full recycling implicit output-window GPU speedup is intentionally not claimed by this gate."
         ),
     }

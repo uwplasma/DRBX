@@ -269,13 +269,37 @@ def test_batched_jvp_profiler_reports_missing_reference_input(
 ) -> None:
     module = _load_script_module("scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_missing_input")
     monkeypatch.delenv("JAX_DRB_REFERENCE_ROOT", raising=False)
-    args = SimpleNamespace(reference_root=tmp_path, input_path=None, case="dthe")
+    args = SimpleNamespace(reference_root=tmp_path / "empty-reference-root", input_path=None, case="dthe")
 
     with pytest.raises(SystemExit) as excinfo:
         module._resolve_input(args)
 
     assert "tests/integrated/1D-recycling-dthe/data/BOUT.inp" in str(excinfo.value)
     assert "--input-path /path/to/BOUT.inp" in str(excinfo.value)
+
+
+def test_batched_jvp_profiler_defaults_to_fixture_reference_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_script_module("scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_fixture_input")
+    monkeypatch.delenv("JAX_DRB_REFERENCE_ROOT", raising=False)
+    args = SimpleNamespace(reference_root=None, input_path=None, case="dthe")
+
+    assert module._resolve_reference_root(args) == module.FIXTURE_REFERENCE_ROOT.resolve()
+    assert module._resolve_input(args) == (
+        module.FIXTURE_REFERENCE_ROOT / "tests" / "integrated" / "1D-recycling-dthe" / "data" / "BOUT.inp"
+    ).resolve()
+
+
+def test_batched_jvp_profiler_prefers_env_reference_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    module = _load_script_module("scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_env_input")
+    root = tmp_path / "reference-root"
+    input_path = root / "tests" / "integrated" / "1D-recycling" / "data" / "BOUT.inp"
+    input_path.parent.mkdir(parents=True)
+    input_path.write_text("# env deck\n", encoding="utf-8")
+    monkeypatch.setenv("JAX_DRB_REFERENCE_ROOT", str(root))
+    args = SimpleNamespace(reference_root=None, input_path=None, case="hydrogen")
+
+    assert module._resolve_reference_root(args) == root.resolve()
+    assert module._resolve_input(args) == input_path.resolve()
 
 
 def test_batched_jvp_profiler_accepts_explicit_staged_input(tmp_path: Path) -> None:

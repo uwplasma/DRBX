@@ -500,9 +500,28 @@ def test_committed_gpu_profile_summaries_report_gpu_execution() -> None:
             showcase = payload["differentiability_showcase"]
             assert payload["case"] == "atomic_rate_throughput_gate"
             assert showcase["sensitivity_relative_error"] <= 1e-8
+            assert payload["pmap_requested"] is False
+            assert payload["pmap_enabled"] is False
+            assert payload["pmap_sanity_passed"] is None
         if "stellarator_drb_pytree_gpu_profile_summary" in path.as_posix():
             assert payload["campaign_passed"] is True
             assert payload["local_device_count"] >= 1
+
+
+def test_atomic_rate_throughput_summaries_record_pmap_sanity_metadata() -> None:
+    for suffix in ("atomic_rate_throughput_gate_cpu", "atomic_rate_throughput_gate_gpu"):
+        path = REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / suffix / "profile_summary.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload["case"] == "atomic_rate_throughput_gate"
+        assert "pmap_requested" in payload
+        assert "pmap_enabled" in payload
+        assert "pmap_sanity_passed" in payload
+        assert "pmap_skip_reason" in payload
+        assert payload["pmap_requested"] is False
+        assert payload["pmap_enabled"] is False
+        for result in payload["results"]:
+            assert result["pmap_device_count"] == 0
+            assert result["pmap_parity_passed"] is None
 
 
 def test_committed_jax_linearized_cpu_profiles_report_solver_status() -> None:

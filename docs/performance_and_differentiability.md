@@ -56,11 +56,14 @@ The source-term lane now also has a dedicated accelerator-throughput gate:
 batched AMJUEL/CX reaction-source surface, its reverse-mode derivative, and a
 scalar log-temperature sensitivity objective. On the office GPU run, the
 largest committed batch (`4,194,304` points) is about `2.5x` faster than the
-local CPU run for the rate surface and about `2.1x` faster for the autodiff
+local CPU run for the rate surface and about `2.0x` faster for the autodiff
 derivative. The scalar sensitivity agrees with centered finite differences at
 about `1e-10` relative error on both CPU and GPU. This is an accelerator
 speedup claim for a source kernel, not for the full output-window recycling
-solve.
+solve. The optional multi-device branch first runs an identity-map `pmap`
+sanity check and only reports pmap speedups after the real source-kernel parity
+check passes, so broken self-hosted multi-device runtimes do not create
+ambiguous performance claims.
 
 ## Current Differentiable Example Results
 

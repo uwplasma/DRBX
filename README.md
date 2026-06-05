@@ -349,7 +349,8 @@ For the new non-axisymmetric 3D lane, the current performance gate is the
 fixed-layout PyTree RHS campaign. It verifies JVP derivatives against finite
 differences, checks `vmap` against serial objective evaluation, records
 single-device batched throughput, and can run `pmap` when multiple local
-devices are visible and pass parity checks.
+devices are visible, pass an identity-map runtime sanity check, and then pass
+the real-kernel parity check.
 
 The heavier D/T/He fixed-layout recycling residual also has CPU and GPU
 profile evidence. The current GPU gate reaches the same residual norm as the
@@ -389,10 +390,13 @@ campaigns pass on the same route.
 For accelerator evidence, the source-term throughput gate now shows a real
 GPU win on the office machine for batched atomic-rate kernels: at `4,194,304`
 temperature points the GPU is about `2.5x` faster for the rate surface and
-about `2.1x` faster for its autodiff derivative. The same gate checks a
+about `2.0x` faster for its autodiff derivative. The same gate checks a
 log-temperature sensitivity objective against finite differences at about
 `1e-10` relative error. Heavy output-window recycling
 GPU speedup is still not claimed until that path exits the host/SciPy barrier.
+The optional `pmap` branch in that profiler is guarded by a device-level
+identity check before any multi-device timing is reported, so a broken
+self-hosted runtime is recorded as unavailable rather than as a speedup claim.
 
 ## Validation And Control Packages
 
