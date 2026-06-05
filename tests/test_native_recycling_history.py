@@ -1008,6 +1008,204 @@ def test_scale_adaptive_bdf_error_contributors_matches_embedded_ratio(
     )
 
 
+def test_json_ready_adaptive_bdf_trace_value_normalizes_nested_diagnostics() -> None:
+    class CustomDiagnostic:
+        def __str__(self) -> str:
+            return "custom-diagnostic"
+
+    value = recycling._json_ready_adaptive_bdf_trace_value(
+        {
+            "scalar": np.float64(1.25),
+            "array": np.array([1, 2], dtype=np.int64),
+            "nonfinite": float("inf"),
+            "tuple": (np.int64(3), float("nan")),
+            "fallback": CustomDiagnostic(),
+        }
+    )
+
+    assert value == {
+        "scalar": 1.25,
+        "array": [1, 2],
+        "nonfinite": None,
+        "tuple": [3, None],
+        "fallback": "custom-diagnostic",
+    }
+
+
+def test_write_adaptive_bdf_trace_record_records_solver_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    trace_path = tmp_path / "nested" / "trace.jsonl"
+    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL", str(trace_path))
+
+    recycling._write_adaptive_bdf_trace_record(
+        event="end",
+        trial_kind="bdf2_corrector",
+        dt=0.125,
+        use_bdf2=True,
+        step_solver_mode="sparse_jvp",
+        elapsed_seconds=1.5,
+        error_ratio=float("nan"),
+        info=SimpleNamespace(
+            residual_inf_norm=float("inf"),
+            nonlinear_iterations=4,
+            linear_iterations=9,
+            diagnostics={
+                "rhs_backend": "fixed_full_field_array",
+                "jacobian_mode": "jvp",
+                "converged": True,
+                "residual_evaluation_count": 3,
+                "residual_evaluation_seconds": 0.25,
+                "jacobian_refresh_count": 2,
+                "jacobian_assembly_seconds": 0.5,
+                "linear_solve_seconds": 0.75,
+                "line_search_seconds": 0.125,
+                "linear_solver_backend": "scipy_spsolve",
+                "linear_solver_status": "ok",
+                "linear_solver_success": False,
+                "linear_solver_reported_iterations": 7,
+                "jvp_direction_batch_count": 5,
+                "jvp_direction_build_seconds": 0.01,
+                "jvp_jacobian_total_seconds": 0.2,
+                "jvp_jacobian_linearize_seconds": 0.03,
+                "jvp_jacobian_tangent_build_seconds": 0.04,
+                "jvp_jacobian_push_seconds": 0.05,
+                "jvp_jacobian_sparse_assembly_seconds": 0.06,
+                "jvp_jacobian_batch_count": 5,
+                "jvp_jacobian_prebuilt_direction_batch_uses": 1,
+            },
+        ),
+    )
+
+    record = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert record["error_ratio"] is None
+    assert record["residual_inf_norm"] is None
+    assert record["nonlinear_iterations"] == 4
+    assert record["linear_iterations"] == 9
+    assert record["rhs_backend"] == "fixed_full_field_array"
+    assert record["jacobian_mode"] == "jvp"
+    assert record["linear_solver_success"] is False
+    assert record["jvp_jacobian_prebuilt_direction_batch_uses"] == 1
+
+
+def test_record_adaptive_bdf_error_ratios_ignore_nonfinite_maxima() -> None:
+    stats = recycling._new_adaptive_bdf_interval_stats("sparse_jvp")
+
+    recycling._record_adaptive_bdf_error_ratio(stats, float("nan"))
+    recycling._record_adaptive_bdf_accepted_error_ratio(stats, float("inf"))
+    assert stats["adaptive_bdf_last_error_ratio"] is None
+    assert stats["adaptive_bdf_max_error_ratio"] is None
+    assert stats["adaptive_bdf_last_accepted_error_ratio"] is None
+    assert stats["adaptive_bdf_max_accepted_error_ratio"] is None
+
+    recycling._record_adaptive_bdf_error_ratio(stats, 0.4)
+    recycling._record_adaptive_bdf_error_ratio(stats, 0.2)
+    recycling._record_adaptive_bdf_error_ratio(stats, 0.8)
+    recycling._record_adaptive_bdf_accepted_error_ratio(stats, 0.3)
+    recycling._record_adaptive_bdf_accepted_error_ratio(stats, 0.1)
+    recycling._record_adaptive_bdf_accepted_error_ratio(stats, 0.6)
+    assert stats["adaptive_bdf_last_error_ratio"] == 0.8
+    assert stats["adaptive_bdf_max_error_ratio"] == 0.8
+    assert stats["adaptive_bdf_last_accepted_error_ratio"] == 0.6
+    assert stats["adaptive_bdf_max_accepted_error_ratio"] == 0.6
+
+
+def test_adaptive_bdf_error_contributors_if_tracing_respects_trace_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+
+    without_trace = recycling._adaptive_bdf_error_contributors_if_tracing(
+        {"N": np.array([0.0])},
+        {},
+        {"N": np.array([1.0])},
+        {},
+        field_names=("N",),
+        feedback_names=(),
+        mesh=object(),
+        relative_tolerance=1.0,
+        absolute_tolerance=1.0e-12,
+    )
+    assert without_trace is None
+
+    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL", str(tmp_path / "trace.jsonl"))
+    contributors = recycling._adaptive_bdf_error_contributors_if_tracing(
+        {"NVd+": np.array([0.0]), "Pe": np.array([0.0]), "Nd": np.array([0.0])},
+        {},
+        {"NVd+": np.array([1.0e-3]), "Pe": np.array([1.0e-4]), "Nd": np.array([1.0e-7])},
+        {},
+        field_names=("NVd+", "Pe", "Nd"),
+        feedback_names=(),
+        mesh=object(),
+        relative_tolerance=0.0,
+        absolute_tolerance=1.0e-12,
+        field_absolute_tolerance_floors={"NVd+": 1.0e-2, "Pe": 1.0e-3, "Nd": 1.0e-6},
+    )
+
+    assert contributors is not None
+    by_name = {entry["name"]: entry for entry in contributors["fields"]}
+    assert by_name["NVd+"]["min_scale"] == pytest.approx(1.0e-2)
+    assert by_name["Pe"]["min_scale"] == pytest.approx(1.0e-3)
+    assert by_name["Nd"]["min_scale"] == pytest.approx(1.0e-6)
+    assert contributors["overall_ratio"] == pytest.approx(0.1)
+
+
+def test_scale_adaptive_bdf_error_contributors_handles_none_nonfinite_and_missing_differences() -> None:
+    assert recycling._scale_adaptive_bdf_error_contributors(None, 0.5) is None
+
+    contributors = {
+        "overall_ratio": float("inf"),
+        "component_count": 1,
+        "fields": [
+            {
+                "name": "N",
+                "rms_ratio": float("inf"),
+                "max_abs_ratio": 2.0,
+                "mean_abs_ratio": 1.0,
+                "squared_error_sum": float("inf"),
+            }
+        ],
+        "feedback": [],
+    }
+
+    scaled = recycling._scale_adaptive_bdf_error_contributors(contributors, 0.25)
+    assert scaled["overall_ratio"] == float("inf")
+    assert scaled["dominant"]["name"] == "N"
+    assert scaled["fields"][0]["rms_ratio"] == float("inf")
+    assert scaled["fields"][0]["max_abs_ratio"] == pytest.approx(0.5)
+    assert "rms_difference" not in scaled["fields"][0]
+
+
+def test_recycling_state_error_contributors_reports_nonfinite_and_empty_components(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+
+    with pytest.warns(RuntimeWarning, match="invalid value encountered"):
+        contributors = recycling._recycling_state_error_contributors(
+            {"N": np.array([1.0, 0.0]), "Empty": np.array([], dtype=np.float64)},
+            {"ctrl": 1.0},
+            {"N": np.array([np.inf, 1.0]), "Empty": np.array([], dtype=np.float64)},
+            {"ctrl": np.inf},
+            field_names=("N", "Empty"),
+            feedback_names=("ctrl",),
+            mesh=object(),
+            relative_tolerance=1.0,
+            absolute_tolerance=0.0,
+        )
+
+    by_name = {entry["name"]: entry for entry in contributors["fields"]}
+    assert contributors["overall_ratio"] == float("inf")
+    assert contributors["dominant"]["name"] == "N"
+    assert by_name["N"]["nonfinite_count"] == 1
+    assert by_name["Empty"]["component_count"] == 0
+    assert by_name["Empty"]["min_scale"] == float("inf")
+    assert contributors["feedback"][0]["nonfinite_count"] == 1
+    assert contributors["feedback"][0]["rms_difference"] == float("inf")
+
+
 def test_adaptive_bdf_trace_records_error_contributors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -1076,6 +1274,33 @@ def test_resolve_recycling_adaptive_bdf_component_atol_floor_env_fallback(
     assert resolver(None) == 0.125
     monkeypatch.setenv(env_name, "bad")
     assert resolver(None) is None
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("bad", None),
+        (None, None),
+        (-1.0, None),
+        (float("nan"), None),
+        (0.25, 0.25),
+    ],
+)
+def test_resolve_recycling_adaptive_bdf_component_atol_floor_config_validation(
+    configured: object,
+    expected: float | None,
+) -> None:
+    config = _FakeRuntimeConfig(recycling_adaptive_bdf_density_atol_floor=configured)
+    assert recycling._resolve_recycling_adaptive_bdf_density_atol_floor(config) == expected
+
+
+@pytest.mark.parametrize("env_value", ["", "   ", "0.0", "-1.0", "nan"])
+def test_resolve_recycling_adaptive_bdf_component_atol_floor_rejects_blank_or_nonpositive_env(
+    env_value: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_PRESSURE_ATOL_FLOOR", env_value)
+    assert recycling._resolve_recycling_adaptive_bdf_pressure_atol_floor(None) is None
 
 
 def test_initial_recycling_continuation_dt_uses_field_count_cutover() -> None:

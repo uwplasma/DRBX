@@ -379,6 +379,13 @@ about `152 s`. The exact commands, caveats, and latest numbers are in
 [docs/performance_and_differentiability.md](docs/performance_and_differentiability.md)
 and [docs/research_campaigns.md](docs/research_campaigns.md).
 
+The multi-ion D/T/He adaptive-BDF route is also still opt-in. The current
+passing diagnostics-only promotion-style result uses the sparse-JVP
+adaptive-BDF route plus component-wise absolute-tolerance floors; it has no
+fallbacks or unconverged substeps on the bounded local gate, but it is not a
+default solver until longer output-window reference-parity and runtime
+campaigns pass on the same route.
+
 For accelerator evidence, the source-term throughput gate now shows a real
 GPU win on the office machine for batched atomic-rate kernels: at `4,194,304`
 temperature points the GPU is about `2.5x` faster for the rate surface and
@@ -437,6 +444,12 @@ python scripts/run_research_campaign_bundle.py --campaign scheduled-fast-researc
 ```
 
 The shipping CI matrix runs on Python 3.10, 3.11, and 3.12.
+
+The GitHub coverage workflow enforces the two release-readiness coverage lanes:
+bounded closeout coverage and promoted solver/public-surface coverage. The
+separate research-campaign workflow runs the hosted `scheduled-fast-research`
+slice weekly and exposes heavier live-reference, local, GPU, adaptive-BDF, and
+profiling bundles as explicit manual lanes.
 
 Testing policy and refactor coverage goals are documented in:
 

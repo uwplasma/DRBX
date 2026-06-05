@@ -32,8 +32,7 @@ for example:
 https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png
 ```
 
-The full manifest is tracked as
-[release_artifacts_manifest.json](release_artifacts_manifest.json). Heavy
+The full manifest is tracked as `docs/release_artifacts_manifest.json`. Heavy
 test baselines are stored in
 [jax_drb_reference_baselines.zip](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip).
 
@@ -48,8 +47,10 @@ Users who want all README/docs movies and example media in a lightweight clone
 should run:
 
 ```bash
-python scripts/fetch_example_artifacts.py
+python scripts/fetch_example_artifacts.py --skip-baselines
 ```
+
+Omit `--skip-baselines` when the heavy reference baselines are also needed.
 
 Because the repository and release are private, the fetch path requires either
 `gh auth login --hostname github.com` or `GH_TOKEN`/`GITHUB_TOKEN` with access

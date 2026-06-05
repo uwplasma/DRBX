@@ -31,4 +31,7 @@ The project README remains the shortest installation and quick-start path:
 Large rendered media are release-backed so that the repository stays small.
 For the current private repository, unauthenticated readers may need repository
 access to render linked release media on ReadTheDocs; local users can restore
-the same artifacts with `python scripts/fetch_example_artifacts.py`.
+the same docs media and self-contained example payloads with
+`python scripts/fetch_example_artifacts.py --skip-baselines`, or restore the
+full media plus reference-baseline set with
+`python scripts/fetch_example_artifacts.py`.

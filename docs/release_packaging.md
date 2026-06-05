@@ -31,6 +31,12 @@ git. They are stored in the private release
 - `jax_drb_reference_baselines.zip` restores heavy validation baselines under
   `references/baselines/`.
 
+The release-hosted media map is recorded in
+`docs/release_artifacts_manifest.json`. MkDocs excludes that manifest from the
+published page tree, but it is kept in the docs directory so release reviewers
+can verify which PNG, GIF, MP4, NPZ, and baseline bundle URLs are expected for
+a given artifact tag.
+
 Users with repository access can restore both bundles from a fresh clone with:
 
 ```bash
@@ -43,7 +49,9 @@ to `uwplasma/jax_drb`. The downloader uses the GitHub CLI first because private
 release assets need authentication, then falls back to token-authenticated HTTPS.
 Set `JAX_DRB_ARTIFACT_CACHE=/path/to/cache` to reuse downloaded archives across
 checkouts, or `JAX_DRB_OFFLINE_ARTIFACTS=1` to require that artifacts already
-exist locally.
+exist locally. Use `python scripts/fetch_example_artifacts.py --skip-baselines`
+when the task only needs README/docs media and self-contained example arrays,
+not the heavier reference baselines.
 
 This artifact path is the supported self-contained user workflow. Users do not
 need to download any external plasma code to run the examples, view or
@@ -78,6 +86,12 @@ The repository includes:
 
 - [`publish-pypi.yml`](../.github/workflows/publish-pypi.yml) for package publishing
 - [`test.yml`](../.github/workflows/test.yml) for the Python 3.10, 3.11, and 3.12 test matrix
+- [`docs.yml`](../.github/workflows/docs.yml) for `tests/test_release_surface.py`
+  and `mkdocs build --strict --clean`
+- [`coverage.yml`](../.github/workflows/coverage.yml) for bounded closeout
+  coverage and promoted solver/public-surface coverage
+- [`research-campaigns.yml`](../.github/workflows/research-campaigns.yml) for
+  scheduled hosted research checks plus explicit manual heavy/local/GPU lanes
 
 The PyPI publish workflow:
 
@@ -90,6 +104,26 @@ Publishing is triggered by a published GitHub release or by manual
 `workflow_dispatch`. It is intentionally not triggered directly by tag pushes,
 so creating a version tag and then publishing its GitHub release cannot submit
 the same distribution to PyPI twice.
+
+## Coverage And Validation Lanes
+
+The release-readiness lanes are intentionally split:
+
+- `test.yml` runs the targeted shipping regression slice on Python 3.10, 3.11,
+  and 3.12.
+- `docs.yml` checks the public release surface and builds the docs strictly.
+- `coverage.yml` enforces `python scripts/run_closeout_coverage.py` and
+  `python scripts/run_promoted_solver_coverage.py`; both are `95%` gates, but
+  they cover different release risks.
+- `research-campaigns.yml` runs `scheduled-fast-research` weekly on hosted CI
+  and exposes manual bundles such as `all-ci`, `all-local`, `all-gpu`,
+  `live-reference`, `heavy-recycling-profile`, `dthe-batched-jvp-gate`, and
+  `adaptive-bdf-jax-lineax-gate`.
+
+The adaptive-BDF lanes in that workflow are promotion and health gates only.
+The default production recycling route remains the validated BDF compatibility
+path until the opt-in adaptive-BDF routes pass longer output-window,
+reference-parity, and runtime campaigns.
 
 ## Release Checklist
 
