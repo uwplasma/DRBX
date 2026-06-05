@@ -36,8 +36,12 @@ from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.runtime.run_config import RunConfiguration
 
 
-_DTHE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
-_HYDROGEN_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+_DTHE_INPUT = Path(
+    "/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp"
+)
+_HYDROGEN_INPUT = Path(
+    "/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp"
+)
 
 
 def _dthe_context():
@@ -62,13 +66,24 @@ def _dthe_context():
         feedback_names=runtime_model.feedback_names,
         mesh=mesh,
     )
-    return config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, layout
+    return (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        fields,
+        feedback_integrals,
+        layout,
+    )
 
 
 def test_fixed_state_round_trips_actual_dthe_recycling_deck() -> None:
     _, mesh, _, _, runtime_model, fields, feedback_integrals, layout = _dthe_context()
 
-    fixed_state = fixed_state_from_fields(fields, feedback_integrals=feedback_integrals, layout=layout)
+    fixed_state = fixed_state_from_fields(
+        fields, feedback_integrals=feedback_integrals, layout=layout
+    )
     packed_fixed = np.asarray(pack_fixed_state(fixed_state), dtype=np.float64)
     packed_legacy = pack_recycling_active_state(
         fields,
@@ -87,7 +102,9 @@ def test_fixed_state_round_trips_actual_dthe_recycling_deck() -> None:
 
     np.testing.assert_allclose(packed_fixed, packed_legacy, rtol=0.0, atol=0.0)
     for name in runtime_model.field_names:
-        np.testing.assert_allclose(np.asarray(restored_fields[name]), fields[name], rtol=0.0, atol=0.0)
+        np.testing.assert_allclose(
+            np.asarray(restored_fields[name]), fields[name], rtol=0.0, atol=0.0
+        )
     assert set(restored_integrals) == set(feedback_integrals)
 
 
@@ -102,13 +119,17 @@ def test_unpack_fixed_state_preserves_host_arrays_for_scipy_bridge() -> None:
         layout=layout,
     )
 
-    fixed_state = unpack_fixed_state(np.asarray(packed, dtype=np.float64), layout=layout)
+    fixed_state = unpack_fixed_state(
+        np.asarray(packed, dtype=np.float64), layout=layout
+    )
 
     assert all(isinstance(value, np.ndarray) for value in fixed_state.field_values)
     assert isinstance(fixed_state.feedback_values, np.ndarray)
 
 
-def test_fixed_array_rhs_only_allocates_zero_defaults_for_missing_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fixed_array_rhs_only_allocates_zero_defaults_for_missing_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     pytest.importorskip("jax")
     import jax.numpy as jnp
 
@@ -121,7 +142,10 @@ def test_fixed_array_rhs_only_allocates_zero_defaults_for_missing_fields(monkeyp
         },
     )()
     state = RecyclingFixedState(
-        field_values=(jnp.asarray([1.0], dtype=jnp.float64), jnp.asarray([2.0], dtype=jnp.float64)),
+        field_values=(
+            jnp.asarray([1.0], dtype=jnp.float64),
+            jnp.asarray([2.0], dtype=jnp.float64),
+        ),
         feedback_values=jnp.asarray([], dtype=jnp.float64),
     )
     original_zeros_like = fixed_residual_mod.jnp.zeros_like
@@ -146,8 +170,19 @@ def test_fixed_array_rhs_only_allocates_zero_defaults_for_missing_fields(monkeyp
 
 
 def test_fixed_host_rhs_bridge_matches_dthe_packed_rhs_oracle() -> None:
-    config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, layout = _dthe_context()
-    fixed_state = fixed_state_from_fields(fields, feedback_integrals=feedback_integrals, layout=layout)
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        fields,
+        feedback_integrals,
+        layout,
+    ) = _dthe_context()
+    fixed_state = fixed_state_from_fields(
+        fields, feedback_integrals=feedback_integrals, layout=layout
+    )
 
     def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]):
         return _compute_recycling_1d_packed_rhs(
@@ -191,7 +226,9 @@ def test_fixed_host_rhs_bridge_matches_dthe_packed_rhs_oracle() -> None:
     )
 
 
-def test_jax_linearized_recycling_step_reaches_full_fixed_residual_without_host_barrier() -> None:
+def test_jax_linearized_recycling_step_reaches_full_fixed_residual_without_host_barrier() -> (
+    None
+):
     pytest.importorskip("jax")
     if not _HYDROGEN_INPUT.exists():
         pytest.skip("Hermès hydrogen recycling reference deck is not available.")
@@ -224,7 +261,9 @@ def test_jax_linearized_recycling_step_reaches_full_fixed_residual_without_host_
     )
 
     assert info.residual_inf_norm < 1.0e-8
-    assert info.diagnostics["jacobian_refresh_count"] == 1
+    assert info.nonlinear_iterations == 0
+    assert info.diagnostics["residual_evaluation_count"] == 1
+    assert info.diagnostics["jacobian_refresh_count"] == 0
     assert info.diagnostics["jacobian_assembly_seconds"] >= 0.0
     assert info.diagnostics["jacobian_mode"] == "jax_linearized:jax_gmres"
     assert info.diagnostics["linear_solver_backend"] == "jax_gmres"
@@ -235,7 +274,9 @@ def test_jax_linearized_recycling_step_reaches_full_fixed_residual_without_host_
 
 def test_jax_linearized_recycling_step_supports_dthe_fixed_residual() -> None:
     pytest.importorskip("jax")
-    config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, _ = _dthe_context()
+    config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, _ = (
+        _dthe_context()
+    )
 
     _, _, info = advance_recycling_1d_backward_euler_step(
         config,
@@ -252,7 +293,9 @@ def test_jax_linearized_recycling_step_supports_dthe_fixed_residual() -> None:
     )
 
     assert info.residual_inf_norm < 1.0e-8
-    assert info.diagnostics["jacobian_refresh_count"] == 1
+    assert info.nonlinear_iterations == 0
+    assert info.diagnostics["residual_evaluation_count"] == 1
+    assert info.diagnostics["jacobian_refresh_count"] == 0
     assert info.diagnostics["jacobian_mode"] == "jax_linearized:jax_gmres"
     assert info.diagnostics["linear_solver_backend"] == "jax_gmres"
 
@@ -262,7 +305,9 @@ def test_backward_euler_residual_context_exposes_jvp_gate_on_dthe_deck() -> None
     import jax.numpy as jnp
 
     jax.config.update("jax_enable_x64", True)
-    config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, _ = _dthe_context()
+    config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, _ = (
+        _dthe_context()
+    )
     context = build_recycling_1d_backward_euler_residual_context(
         config,
         fields,
@@ -279,7 +324,9 @@ def test_backward_euler_residual_context_exposes_jvp_gate_on_dthe_deck() -> None
     residual = jax.jit(context.residual)
     _, jvp_value = jax.jvp(residual, (state,), (direction,))
     epsilon = 1.0e-6
-    finite_difference = (residual(state + epsilon * direction) - residual(state - epsilon * direction)) / (2.0 * epsilon)
+    finite_difference = (
+        residual(state + epsilon * direction) - residual(state - epsilon * direction)
+    ) / (2.0 * epsilon)
     relative_error = jnp.linalg.norm(jvp_value - finite_difference) / jnp.maximum(
         jnp.linalg.norm(finite_difference),
         1.0e-30,
@@ -294,11 +341,18 @@ def test_bdf2_residual_context_exposes_jvp_gate_on_dthe_deck() -> None:
     import jax.numpy as jnp
 
     jax.config.update("jax_enable_x64", True)
-    config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, _ = _dthe_context()
-    previous_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
+    config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, _ = (
+        _dthe_context()
+    )
+    previous_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in fields.items()
+    }
     for name, value in previous_fields.items():
         previous_fields[name] = value * (1.0 - 1.0e-6)
-    previous_feedback_integrals = {name: value - 1.0e-8 for name, value in feedback_integrals.items()}
+    previous_feedback_integrals = {
+        name: value - 1.0e-8 for name, value in feedback_integrals.items()
+    }
     context = build_recycling_1d_bdf2_residual_context(
         config,
         fields,
@@ -318,7 +372,9 @@ def test_bdf2_residual_context_exposes_jvp_gate_on_dthe_deck() -> None:
     residual = jax.jit(context.residual)
     _, jvp_value = jax.jvp(residual, (state,), (direction,))
     epsilon = 1.0e-6
-    finite_difference = (residual(state + epsilon * direction) - residual(state - epsilon * direction)) / (2.0 * epsilon)
+    finite_difference = (
+        residual(state + epsilon * direction) - residual(state - epsilon * direction)
+    ) / (2.0 * epsilon)
     relative_error = jnp.linalg.norm(jvp_value - finite_difference) / jnp.maximum(
         jnp.linalg.norm(finite_difference),
         1.0e-30,

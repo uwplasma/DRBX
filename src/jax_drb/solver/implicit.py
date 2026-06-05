@@ -15,7 +15,11 @@ def _uses_jax_backend(*values: object) -> bool:
         if value is None:
             continue
         module = type(value).__module__
-        if hasattr(value, "aval") or module.startswith("jax") or module.startswith("jaxlib"):
+        if (
+            hasattr(value, "aval")
+            or module.startswith("jax")
+            or module.startswith("jaxlib")
+        ):
             return True
     return False
 
@@ -113,7 +117,9 @@ def build_locality_sparsity(
 ):
     try:
         from scipy.sparse import coo_matrix
-    except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when scipy is unavailable
         raise ImportError("Sparse locality construction requires scipy.") from exc
 
     if len(active_shape) != len(radii):
@@ -133,7 +139,9 @@ def build_locality_sparsity(
             for delta in np.ndindex(tuple(2 * radius + 1 for radius in radii)):
                 neighbor_index: list[int] = []
                 valid = True
-                for axis, (coordinate, radius, raw_offset) in enumerate(zip(cell_index, radii, delta, strict=True)):
+                for axis, (coordinate, radius, raw_offset) in enumerate(
+                    zip(cell_index, radii, delta, strict=True)
+                ):
                     offset = raw_offset - radius
                     neighbor_coordinate = coordinate + offset
                     if axis in periodic_axis_set:
@@ -143,7 +151,9 @@ def build_locality_sparsity(
                         break
                     neighbor_index.append(neighbor_coordinate)
                 if valid:
-                    neighbors.add(np.ravel_multi_index(tuple(neighbor_index), active_shape))
+                    neighbors.add(
+                        np.ravel_multi_index(tuple(neighbor_index), active_shape)
+                    )
             for variable_block in range(field_count):
                 col_offset = variable_block * active_cells
                 for neighbor in neighbors:
@@ -151,7 +161,9 @@ def build_locality_sparsity(
                     col_indices.append(col_offset + neighbor)
 
     data = np.ones(len(row_indices), dtype=bool)
-    return coo_matrix((data, (row_indices, col_indices)), shape=(total_size, total_size)).tocsr()
+    return coo_matrix(
+        (data, (row_indices, col_indices)), shape=(total_size, total_size)
+    ).tocsr()
 
 
 def build_modulo_color_groups(
@@ -169,7 +181,8 @@ def build_modulo_color_groups(
         block_offset = variable_block * active_cells
         for cell_index in np.ndindex(active_shape):
             color_key = (variable_block,) + tuple(
-                coordinate % period for coordinate, period in zip(cell_index, color_periods, strict=True)
+                coordinate % period
+                for coordinate, period in zip(cell_index, color_periods, strict=True)
             )
             flattened = np.ravel_multi_index(cell_index, active_shape)
             groups.setdefault(color_key, []).append(block_offset + flattened)
@@ -189,7 +202,10 @@ def prepare_sparse_difference_quotient_plan(
     for group in color_groups:
         columns = np.asarray(group, dtype=np.int32)
         counts = np.asarray(
-            [sparsity_csc.indptr[column + 1] - sparsity_csc.indptr[column] for column in columns],
+            [
+                sparsity_csc.indptr[column + 1] - sparsity_csc.indptr[column]
+                for column in columns
+            ],
             dtype=np.int32,
         )
         starts = np.empty_like(counts)
@@ -201,7 +217,9 @@ def prepare_sparse_difference_quotient_plan(
         for index, column in enumerate(columns):
             start = int(starts[index])
             stop = start + int(counts[index])
-            rows[start:stop] = sparsity_csc.indices[sparsity_csc.indptr[column] : sparsity_csc.indptr[column + 1]]
+            rows[start:stop] = sparsity_csc.indices[
+                sparsity_csc.indptr[column] : sparsity_csc.indptr[column + 1]
+            ]
             cols[start:stop] = int(column)
         groups.append(
             SparseDifferenceQuotientGroup(
@@ -230,7 +248,9 @@ def prepare_sparse_jvp_direction_batches(
 
     try:
         import jax.numpy as jnp
-    except ImportError as exc:  # pragma: no cover - exercised only when jax is unavailable
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when jax is unavailable
         raise ImportError("Sparse JVP direction construction requires jax.") from exc
 
     groups = difference_plan.groups
@@ -249,7 +269,9 @@ def prepare_sparse_jvp_direction_batches(
             directions_flat.reshape((len(batch_groups), *state_shape)),
             dtype=dtype,
         )
-        batches.append(SparseJvpDirectionBatch(groups=tuple(batch_groups), directions=directions))
+        batches.append(
+            SparseJvpDirectionBatch(groups=tuple(batch_groups), directions=directions)
+        )
     return tuple(batches)
 
 
@@ -290,7 +312,9 @@ def prepare_sparse_jvp_workspace(
         dtype=resolved_dtype,
         batch_size=resolved_batch_size,
         sparsity=sparsity,
-        color_groups=tuple(tuple(int(column) for column in group) for group in color_groups),
+        color_groups=tuple(
+            tuple(int(column) for column in group) for group in color_groups
+        ),
         sparsity_csc=sparsity_csc,
         difference_plan=plan,
         direction_batches=direction_batches,
@@ -309,11 +333,14 @@ def _sparse_jvp_workspace_is_compatible(
         return False
     resolved_batch_size = None if batch_size is None else max(1, int(batch_size))
     return (
-        tuple(int(axis) for axis in workspace.sparsity_shape) == tuple(int(axis) for axis in sparsity.shape)
-        and tuple(int(axis) for axis in workspace.state_shape) == tuple(int(axis) for axis in state_shape)
+        tuple(int(axis) for axis in workspace.sparsity_shape)
+        == tuple(int(axis) for axis in sparsity.shape)
+        and tuple(int(axis) for axis in workspace.state_shape)
+        == tuple(int(axis) for axis in state_shape)
         and workspace.dtype == np.dtype(dtype).str
         and workspace.batch_size == resolved_batch_size
-        and int(workspace.difference_plan.nnz) == int(getattr(sparsity, "nnz", workspace.difference_plan.nnz))
+        and int(workspace.difference_plan.nnz)
+        == int(getattr(sparsity, "nnz", workspace.difference_plan.nnz))
     )
 
 
@@ -330,8 +357,12 @@ def build_sparse_difference_quotient_jacobian(
 ):
     try:
         from scipy.sparse import coo_matrix
-    except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
-        raise ImportError("Sparse difference-quotient Jacobian construction requires scipy.") from exc
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when scipy is unavailable
+        raise ImportError(
+            "Sparse difference-quotient Jacobian construction requires scipy."
+        ) from exc
 
     state_array = np.asarray(state, dtype=np.float64)
     residual0 = (
@@ -343,7 +374,9 @@ def build_sparse_difference_quotient_jacobian(
     plan = (
         difference_plan
         if difference_plan is not None
-        else prepare_sparse_difference_quotient_plan(sparsity=sparsity, color_groups=color_groups, sparsity_csc=sparsity_csc)
+        else prepare_sparse_difference_quotient_plan(
+            sparsity=sparsity, color_groups=color_groups, sparsity_csc=sparsity_csc
+        )
     )
 
     nnz = int(plan.nnz)
@@ -352,9 +385,13 @@ def build_sparse_difference_quotient_jacobian(
     data = np.empty(nnz, dtype=np.float64)
     offset = 0
 
-    def _evaluate_group(group: SparseDifferenceQuotientGroup) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _evaluate_group(
+        group: SparseDifferenceQuotientGroup,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         perturbed_state = state_array.copy()
-        steps = np.sqrt(np.finfo(np.float64).eps) * np.maximum(1.0, np.abs(state_array[group.columns]))
+        steps = np.sqrt(np.finfo(np.float64).eps) * np.maximum(
+            1.0, np.abs(state_array[group.columns])
+        )
         perturbed_state[group.columns] += steps
         perturbed_residual = np.asarray(residual(perturbed_state), dtype=np.float64)
         delta = perturbed_residual - residual0
@@ -379,7 +416,9 @@ def build_sparse_difference_quotient_jacobian(
         data[offset : offset + count] = group_data
         offset += count
 
-    return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape).tocsr()
+    return coo_matrix(
+        (data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape
+    ).tocsr()
 
 
 def build_sparse_jvp_jacobian(
@@ -408,8 +447,12 @@ def build_sparse_jvp_jacobian(
         import jax
         import jax.numpy as jnp
         from scipy.sparse import coo_matrix
-    except ImportError as exc:  # pragma: no cover - exercised only when optional deps are unavailable
-        raise ImportError("Sparse JVP Jacobian construction requires jax and scipy.") from exc
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when optional deps are unavailable
+        raise ImportError(
+            "Sparse JVP Jacobian construction requires jax and scipy."
+        ) from exc
 
     total_started_at = perf_counter()
     linearize_seconds = 0.0
@@ -418,7 +461,9 @@ def build_sparse_jvp_jacobian(
     device_execute_seconds = 0.0
     host_transfer_seconds = 0.0
     sparse_assembly_seconds = 0.0
-    sync_timing = os.environ.get("JAX_DRB_SPARSE_JVP_SYNC_TIMING", "").strip().lower() in {
+    sync_timing = os.environ.get(
+        "JAX_DRB_SPARSE_JVP_SYNC_TIMING", ""
+    ).strip().lower() in {
         "1",
         "true",
         "yes",
@@ -432,7 +477,9 @@ def build_sparse_jvp_jacobian(
     plan = (
         difference_plan
         if difference_plan is not None
-        else prepare_sparse_difference_quotient_plan(sparsity=sparsity, color_groups=color_groups, sparsity_csc=sparsity_csc)
+        else prepare_sparse_difference_quotient_plan(
+            sparsity=sparsity, color_groups=color_groups, sparsity_csc=sparsity_csc
+        )
     )
     linearize_started_at = perf_counter()
     _, linear_map = jax.linearize(residual, state_array)
@@ -485,7 +532,9 @@ def build_sparse_jvp_jacobian(
             pushed_device = jax.block_until_ready(pushed_device)
         device_elapsed = perf_counter() - execute_started_at
         transfer_started_at = perf_counter()
-        pushed_batch = np.asarray(pushed_device, dtype=np.float64).reshape(len(batch_groups), -1)
+        pushed_batch = np.asarray(pushed_device, dtype=np.float64).reshape(
+            len(batch_groups), -1
+        )
         transfer_elapsed = perf_counter() - transfer_started_at
         device_execute_seconds += device_elapsed
         host_transfer_seconds += transfer_elapsed
@@ -518,7 +567,9 @@ def build_sparse_jvp_jacobian(
                 "sync_timing": int(sync_timing),
             }
         )
-    return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape).tocsr()
+    return coo_matrix(
+        (data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape
+    ).tocsr()
 
 
 def backward_euler_residual(
@@ -551,19 +602,25 @@ def bdf2_residual(
     timestep: float,
     previous_timestep: float | None = None,
 ) -> np.ndarray:
-    previous_dt = float(timestep) if previous_timestep is None else float(previous_timestep)
+    previous_dt = (
+        float(timestep) if previous_timestep is None else float(previous_timestep)
+    )
     if previous_dt <= 0.0:
         raise ValueError("previous_timestep must be positive for BDF2 residuals.")
     step_ratio = float(timestep) / previous_dt
     previous_coefficient = ((step_ratio + 1.0) ** 2) / (2.0 * step_ratio + 1.0)
     previous_previous_coefficient = (step_ratio**2) / (2.0 * step_ratio + 1.0)
     rhs_coefficient = float(timestep) * (step_ratio + 1.0) / (2.0 * step_ratio + 1.0)
-    if _uses_jax_backend(packed_state, previous_packed_state, previous_previous_packed_state, rhs):
+    if _uses_jax_backend(
+        packed_state, previous_packed_state, previous_previous_packed_state, rhs
+    ):
         import jax.numpy as jnp
 
         packed_state_array = jnp.asarray(packed_state, dtype=jnp.float64)
         previous_array = jnp.asarray(previous_packed_state, dtype=jnp.float64)
-        previous_previous_array = jnp.asarray(previous_previous_packed_state, dtype=jnp.float64)
+        previous_previous_array = jnp.asarray(
+            previous_previous_packed_state, dtype=jnp.float64
+        )
         rhs_array = jnp.asarray(rhs, dtype=jnp.float64)
         return (
             packed_state_array
@@ -574,7 +631,9 @@ def bdf2_residual(
 
     packed_state_array = np.asarray(packed_state, dtype=np.float64)
     previous_array = np.asarray(previous_packed_state, dtype=np.float64)
-    previous_previous_array = np.asarray(previous_previous_packed_state, dtype=np.float64)
+    previous_previous_array = np.asarray(
+        previous_previous_packed_state, dtype=np.float64
+    )
     rhs_array = np.asarray(rhs, dtype=np.float64)
     return (
         packed_state_array
@@ -607,7 +666,9 @@ def solve_sparse_newton_system(
     try:
         from scipy.optimize import NoConvergence, newton_krylov
         from scipy.sparse.linalg import gmres, spsolve
-    except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when scipy is unavailable
         raise ImportError("Sparse implicit stepping requires scipy.") from exc
 
     state = np.asarray(initial_state, dtype=np.float64).copy()
@@ -693,12 +754,15 @@ def solve_sparse_newton_system(
             jacobian_parallel_workers = min(4, cpu_count) if heavy_problem else 1
     jacobian = None
     jacobian_csc = None
-    workspace_is_compatible = resolved_jacobian_mode == "jvp" and _sparse_jvp_workspace_is_compatible(
-        sparse_jvp_workspace,
-        sparsity=sparsity,
-        state_shape=tuple(state.shape),
-        dtype=np.float64,
-        batch_size=jvp_batch_size,
+    workspace_is_compatible = (
+        resolved_jacobian_mode == "jvp"
+        and _sparse_jvp_workspace_is_compatible(
+            sparse_jvp_workspace,
+            sparsity=sparsity,
+            state_shape=tuple(state.shape),
+            dtype=np.float64,
+            batch_size=jvp_batch_size,
+        )
     )
     if workspace_is_compatible:
         sparsity_csc = sparse_jvp_workspace.sparsity_csc
@@ -727,19 +791,37 @@ def solve_sparse_newton_system(
         jvp_direction_batch_count = len(jvp_direction_batches)
 
     def record_jvp_timing(timing: dict[str, float | int]) -> None:
-        nonlocal jvp_jacobian_batch_count, jvp_jacobian_linearize_seconds, jvp_jacobian_prebuilt_direction_batch_uses
-        nonlocal jvp_jacobian_device_execute_seconds, jvp_jacobian_host_transfer_seconds, jvp_jacobian_push_seconds
-        nonlocal jvp_jacobian_sparse_assembly_seconds, jvp_jacobian_tangent_build_seconds
+        nonlocal \
+            jvp_jacobian_batch_count, \
+            jvp_jacobian_linearize_seconds, \
+            jvp_jacobian_prebuilt_direction_batch_uses
+        nonlocal \
+            jvp_jacobian_device_execute_seconds, \
+            jvp_jacobian_host_transfer_seconds, \
+            jvp_jacobian_push_seconds
+        nonlocal \
+            jvp_jacobian_sparse_assembly_seconds, \
+            jvp_jacobian_tangent_build_seconds
         nonlocal jvp_jacobian_total_seconds
         jvp_jacobian_total_seconds += float(timing.get("total_seconds", 0.0))
         jvp_jacobian_linearize_seconds += float(timing.get("linearize_seconds", 0.0))
-        jvp_jacobian_tangent_build_seconds += float(timing.get("tangent_build_seconds", 0.0))
+        jvp_jacobian_tangent_build_seconds += float(
+            timing.get("tangent_build_seconds", 0.0)
+        )
         jvp_jacobian_push_seconds += float(timing.get("push_seconds", 0.0))
-        jvp_jacobian_device_execute_seconds += float(timing.get("device_execute_seconds", 0.0))
-        jvp_jacobian_host_transfer_seconds += float(timing.get("host_transfer_seconds", 0.0))
-        jvp_jacobian_sparse_assembly_seconds += float(timing.get("sparse_assembly_seconds", 0.0))
+        jvp_jacobian_device_execute_seconds += float(
+            timing.get("device_execute_seconds", 0.0)
+        )
+        jvp_jacobian_host_transfer_seconds += float(
+            timing.get("host_transfer_seconds", 0.0)
+        )
+        jvp_jacobian_sparse_assembly_seconds += float(
+            timing.get("sparse_assembly_seconds", 0.0)
+        )
         jvp_jacobian_batch_count += int(timing.get("batch_count", 0))
-        jvp_jacobian_prebuilt_direction_batch_uses += int(timing.get("prebuilt_direction_batches", 0))
+        jvp_jacobian_prebuilt_direction_batch_uses += int(
+            timing.get("prebuilt_direction_batches", 0)
+        )
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
         residual_value = evaluate_residual(state)
@@ -754,7 +836,11 @@ def solve_sparse_newton_system(
                 converged=True,
             )
 
-        if jacobian is None or nonlinear_iteration == 1 or ((nonlinear_iteration - 1) % refresh_frequency == 0):
+        if (
+            jacobian is None
+            or nonlinear_iteration == 1
+            or ((nonlinear_iteration - 1) % refresh_frequency == 0)
+        ):
             jacobian_started_at = perf_counter()
             if resolved_jacobian_mode == "jvp":
                 jacobian = build_sparse_jvp_jacobian(
@@ -788,6 +874,7 @@ def solve_sparse_newton_system(
             update = spsolve(jacobian_csc, -residual_value)
             total_linear_iterations += 1
         else:
+
             def callback(_residual_norm) -> None:
                 nonlocal linear_iterations
                 linear_iterations += 1
@@ -821,7 +908,10 @@ def solve_sparse_newton_system(
                 continue
             trial_residual = evaluate_residual(trial_state)
             trial_residual_inf_norm = float(np.max(np.abs(trial_residual)))
-            if np.isfinite(trial_residual_inf_norm) and trial_residual_inf_norm <= residual_inf_norm:
+            if (
+                np.isfinite(trial_residual_inf_norm)
+                and trial_residual_inf_norm <= residual_inf_norm
+            ):
                 candidate_state = trial_state
                 candidate_residual_inf_norm = trial_residual_inf_norm
                 accepted = True
@@ -883,7 +973,9 @@ def solve_matrix_free_newton_system(
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         from scipy.optimize import newton_krylov
-    except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when scipy is unavailable
         raise ImportError("Matrix-free implicit stepping requires scipy.") from exc
 
     residual_evaluation_count = 0
@@ -932,12 +1024,15 @@ def solve_jax_linearized_newton_system(
     linear_restart: int = 20,
     linear_maxiter: int = 20,
     linear_solver_backend: str = "jax_gmres",
+    check_initial_residual: bool = True,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         import jax
         import jax.numpy as jnp
         from jax.scipy.sparse.linalg import gmres
-    except ImportError as exc:  # pragma: no cover - exercised only when jax is unavailable
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when jax is unavailable
         raise ImportError("JAX linearized implicit stepping requires jax.") from exc
 
     state = jnp.asarray(initial_state, dtype=jnp.float64)
@@ -990,6 +1085,20 @@ def solve_jax_linearized_newton_system(
             linear_solver_reported_iterations=last_linear_solver_reported_iterations,
         )
 
+    if check_initial_residual:
+        residual_started_at = perf_counter()
+        initial_residual = residual(state)
+        initial_residual = _block(initial_residual)
+        residual_evaluation_count += 1
+        residual_evaluation_seconds += perf_counter() - residual_started_at
+        initial_residual_inf_norm = float(jnp.max(jnp.abs(initial_residual)))
+        if initial_residual_inf_norm < float(residual_tolerance):
+            return np.asarray(state, dtype=np.float64), _info(
+                residual_inf_norm=initial_residual_inf_norm,
+                nonlinear_iterations=0,
+                converged=True,
+            )
+
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
         linearize_started_at = perf_counter()
         residual_value, linear_map = jax.linearize(residual, state)
@@ -1019,7 +1128,9 @@ def solve_jax_linearized_newton_system(
         )
         update = solve_result.update
         update = _block(update)
-        status = _block(solve_result.status) if solve_result.status is not None else None
+        status = (
+            _block(solve_result.status) if solve_result.status is not None else None
+        )
         last_linear_solver_status = _normalize_linear_solver_status(status)
         last_linear_solver_success = _linear_solver_success(
             backend=linear_backend,
@@ -1046,7 +1157,10 @@ def solve_jax_linearized_newton_system(
             residual_evaluation_count += 1
             residual_evaluation_seconds += perf_counter() - residual_started_at
             trial_residual_inf_norm = float(jnp.max(jnp.abs(trial_residual)))
-            if np.isfinite(trial_residual_inf_norm) and trial_residual_inf_norm <= residual_inf_norm:
+            if (
+                np.isfinite(trial_residual_inf_norm)
+                and trial_residual_inf_norm <= residual_inf_norm
+            ):
                 candidate_state = trial_state
                 candidate_residual_inf_norm = trial_residual_inf_norm
                 accepted = True
@@ -1123,8 +1237,12 @@ def _solve_jax_linearized_update(
         try:
             import jax
             import lineax as lx
-        except ImportError as exc:  # pragma: no cover - depends on optional local install
-            raise ImportError("Lineax GMRES requires the optional lineax package.") from exc
+        except (
+            ImportError
+        ) as exc:  # pragma: no cover - depends on optional local install
+            raise ImportError(
+                "Lineax GMRES requires the optional lineax package."
+            ) from exc
 
         rhs_array = jax.numpy.asarray(rhs)
         structure = jax.ShapeDtypeStruct(rhs_array.shape, rhs_array.dtype)
@@ -1189,7 +1307,10 @@ def _linear_solver_success(
         return True
     if backend == "lineax_gmres" and "results<>" in normalized:
         return True
-    if any(token in normalized for token in ("fail", "error", "max", "singular", "breakdown")):
+    if any(
+        token in normalized
+        for token in ("fail", "error", "max", "singular", "breakdown")
+    ):
         return False
     if backend == "jax_gmres" and normalized.isdigit():
         return int(normalized) == 0

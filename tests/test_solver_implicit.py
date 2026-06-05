@@ -55,7 +55,9 @@ def test_unpack_active_fields_rejects_wrong_packed_size() -> None:
     template = np.zeros((4, 2), dtype=np.float64)
 
     with pytest.raises(ValueError, match="Packed state has size 3, expected 4"):
-        unpack_active_fields(np.ones(3, dtype=np.float64), templates=(template,), active_slices=active)
+        unpack_active_fields(
+            np.ones(3, dtype=np.float64), templates=(template,), active_slices=active
+        )
 
 
 def test_pack_unpack_active_fields_round_trip() -> None:
@@ -89,7 +91,9 @@ def test_build_locality_sparsity_respects_periodic_axis() -> None:
     active_cells = int(np.prod(active_shape))
 
     def row_columns(row: int) -> set[int]:
-        return set(sparsity.indices[sparsity.indptr[row] : sparsity.indptr[row + 1]].tolist())
+        return set(
+            sparsity.indices[sparsity.indptr[row] : sparsity.indptr[row + 1]].tolist()
+        )
 
     center = np.ravel_multi_index((1, 1, 0), active_shape)
     periodic_neighbor = np.ravel_multi_index((1, 1, 3), active_shape)
@@ -152,7 +156,11 @@ def test_sparse_difference_quotient_jacobian_matches_single_column_difference() 
         field0 = vector[: np.prod(active_shape)].reshape(active_shape)
         field1 = vector[np.prod(active_shape) :].reshape(active_shape)
         result0 = field0**2 + 0.1 * np.roll(field0, 1, axis=2) - 0.2 * field1
-        result1 = field1 + 0.3 * np.roll(field0, -1, axis=0) - 0.05 * np.roll(field1, -1, axis=2)
+        result1 = (
+            field1
+            + 0.3 * np.roll(field0, -1, axis=0)
+            - 0.05 * np.roll(field1, -1, axis=2)
+        )
         return np.concatenate([result0.ravel(), result1.ravel()])
 
     jacobian = build_sparse_difference_quotient_jacobian(
@@ -192,7 +200,11 @@ def test_sparse_difference_quotient_jacobian_parallel_matches_serial() -> None:
         field0 = vector[: np.prod(active_shape)].reshape(active_shape)
         field1 = vector[np.prod(active_shape) :].reshape(active_shape)
         result0 = field0**2 + 0.1 * np.roll(field0, 1, axis=2) - 0.2 * field1
-        result1 = field1 + 0.3 * np.roll(field0, -1, axis=0) - 0.05 * np.roll(field1, -1, axis=2)
+        result1 = (
+            field1
+            + 0.3 * np.roll(field0, -1, axis=0)
+            - 0.05 * np.roll(field1, -1, axis=2)
+        )
         return np.concatenate([result0.ravel(), result1.ravel()])
 
     serial = build_sparse_difference_quotient_jacobian(
@@ -210,7 +222,9 @@ def test_sparse_difference_quotient_jacobian_parallel_matches_serial() -> None:
         parallel_workers=2,
     )
 
-    np.testing.assert_allclose(serial.toarray(), parallel.toarray(), rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(
+        serial.toarray(), parallel.toarray(), rtol=1e-10, atol=1e-12
+    )
 
 
 def test_sparse_difference_quotient_plan_matches_unplanned_jacobian() -> None:
@@ -256,7 +270,9 @@ def test_sparse_difference_quotient_plan_matches_unplanned_jacobian() -> None:
     )
 
     assert plan.nnz == sparsity.nnz
-    np.testing.assert_allclose(planned.toarray(), unplanned.toarray(), rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(
+        planned.toarray(), unplanned.toarray(), rtol=1.0e-12, atol=1.0e-12
+    )
 
 
 def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
@@ -293,7 +309,9 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
         color_groups=color_groups,
         timing_callback=timing_payloads.append,
     )
-    plan = prepare_sparse_difference_quotient_plan(sparsity=sparsity, color_groups=color_groups)
+    plan = prepare_sparse_difference_quotient_plan(
+        sparsity=sparsity, color_groups=color_groups
+    )
     prebuilt_direction_batches = prepare_sparse_jvp_direction_batches(
         difference_plan=plan,
         state_shape=tuple(state.shape),
@@ -324,11 +342,28 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
             dtype=np.float64,
         )
 
-    np.testing.assert_allclose(jvp_jacobian.toarray(), expected * sparsity.toarray(), rtol=1.0e-12, atol=1.0e-12)
-    np.testing.assert_allclose(prebuilt_jvp_jacobian.toarray(), jvp_jacobian.toarray(), rtol=1.0e-12, atol=1.0e-12)
-    np.testing.assert_allclose(serial_jvp_jacobian.toarray(), jvp_jacobian.toarray(), rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(
+        jvp_jacobian.toarray(),
+        expected * sparsity.toarray(),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        prebuilt_jvp_jacobian.toarray(),
+        jvp_jacobian.toarray(),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        serial_jvp_jacobian.toarray(),
+        jvp_jacobian.toarray(),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
     assert active_cells > 0
-    assert sum(len(batch.groups) for batch in prebuilt_direction_batches) == len(color_groups)
+    assert sum(len(batch.groups) for batch in prebuilt_direction_batches) == len(
+        color_groups
+    )
     assert len(timing_payloads) == 1
     timing = timing_payloads[0]
     assert timing["group_count"] == len(color_groups)
@@ -414,7 +449,9 @@ def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     target = np.array([1.0, 0.5, 2.0], dtype=np.float64)
     initial = np.array([0.8, 0.7, 1.7], dtype=np.float64)
     sparsity = build_locality_sparsity(active_shape, field_count=1, radii=(0,))
-    color_groups = build_modulo_color_groups(active_shape, field_count=1, color_periods=(3,))
+    color_groups = build_modulo_color_groups(
+        active_shape, field_count=1, color_periods=(3,)
+    )
 
     def residual(state: np.ndarray) -> np.ndarray:
         return state * state - target * target
@@ -460,10 +497,16 @@ def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:
     target = jnp.array([1.0, 0.5, 2.0], dtype=jnp.float64)
     initial = np.array([0.8, 0.7, 1.7], dtype=np.float64)
     sparsity = build_locality_sparsity(active_shape, field_count=1, radii=(0,))
-    color_groups = build_modulo_color_groups(active_shape, field_count=1, color_periods=(3,))
+    color_groups = build_modulo_color_groups(
+        active_shape, field_count=1, color_periods=(3,)
+    )
 
     def residual(state):
-        return jnp.asarray(state, dtype=jnp.float64) * jnp.asarray(state, dtype=jnp.float64) - target * target
+        return (
+            jnp.asarray(state, dtype=jnp.float64)
+            * jnp.asarray(state, dtype=jnp.float64)
+            - target * target
+        )
 
     solution, info = solve_sparse_newton_system(
         residual,
@@ -487,11 +530,14 @@ def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:
     assert info.jvp_direction_batch_count > 0
     assert info.jvp_direction_build_seconds >= 0.0
     assert info.jvp_jacobian_batch_count >= info.jvp_direction_batch_count
-    assert info.jvp_jacobian_prebuilt_direction_batch_uses == info.jacobian_refresh_count
+    assert (
+        info.jvp_jacobian_prebuilt_direction_batch_uses == info.jacobian_refresh_count
+    )
     assert info.jvp_jacobian_tangent_build_seconds == pytest.approx(0.0)
     assert info.jvp_jacobian_total_seconds >= info.jvp_jacobian_linearize_seconds
     assert info.jvp_jacobian_push_seconds == pytest.approx(
-        info.jvp_jacobian_device_execute_seconds + info.jvp_jacobian_host_transfer_seconds
+        info.jvp_jacobian_device_execute_seconds
+        + info.jvp_jacobian_host_transfer_seconds
     )
 
 
@@ -503,7 +549,9 @@ def test_sparse_newton_solver_reuses_sparse_jvp_workspace() -> None:
     target = jnp.array([1.0, 0.5, 2.0], dtype=jnp.float64)
     initial = np.array([0.8, 0.7, 1.7], dtype=np.float64)
     sparsity = build_locality_sparsity(active_shape, field_count=1, radii=(0,))
-    color_groups = build_modulo_color_groups(active_shape, field_count=1, color_periods=(3,))
+    color_groups = build_modulo_color_groups(
+        active_shape, field_count=1, color_periods=(3,)
+    )
     workspace = prepare_sparse_jvp_workspace(
         sparsity=sparsity,
         color_groups=color_groups,
@@ -511,7 +559,11 @@ def test_sparse_newton_solver_reuses_sparse_jvp_workspace() -> None:
     )
 
     def residual(state):
-        return jnp.asarray(state, dtype=jnp.float64) * jnp.asarray(state, dtype=jnp.float64) - target * target
+        return (
+            jnp.asarray(state, dtype=jnp.float64)
+            * jnp.asarray(state, dtype=jnp.float64)
+            - target * target
+        )
 
     solution, info = solve_sparse_newton_system(
         residual,
@@ -534,10 +586,14 @@ def test_sparse_newton_solver_reuses_sparse_jvp_workspace() -> None:
     assert info.jvp_direction_workspace_reuses == 1
     assert info.jvp_direction_batch_count == len(workspace.direction_batches)
     assert info.jvp_direction_build_seconds == pytest.approx(0.0)
-    assert info.jvp_jacobian_prebuilt_direction_batch_uses == info.jacobian_refresh_count
+    assert (
+        info.jvp_jacobian_prebuilt_direction_batch_uses == info.jacobian_refresh_count
+    )
 
 
-def test_sparse_newton_solver_returns_immediately_when_initial_state_satisfies_residual() -> None:
+def test_sparse_newton_solver_returns_immediately_when_initial_state_satisfies_residual() -> (
+    None
+):
     pytest.importorskip("scipy")
 
     initial = np.array([1.0, 2.0], dtype=np.float64)
@@ -576,7 +632,9 @@ def test_sparse_newton_solver_uses_thread_count_from_environment(
         return scipy_sparse.eye(1, format="csr")
 
     monkeypatch.setenv("JAX_DRB_FD_JACOBIAN_THREADS", "3")
-    monkeypatch.setattr(implicit, "build_sparse_difference_quotient_jacobian", fake_build_jacobian)
+    monkeypatch.setattr(
+        implicit, "build_sparse_difference_quotient_jacobian", fake_build_jacobian
+    )
 
     solution, info = solve_sparse_newton_system(
         lambda state: state - np.array([1.0]),
@@ -696,8 +754,12 @@ def test_sparse_newton_solver_rejects_nonfinite_trial_then_uses_fallback(
 ) -> None:
     scipy_sparse = pytest.importorskip("scipy.sparse")
 
-    monkeypatch.setattr("scipy.sparse.linalg.spsolve", lambda *args, **kwargs: np.array([np.inf]))
-    monkeypatch.setattr("scipy.optimize.newton_krylov", lambda *args, **kwargs: np.array([0.5]))
+    monkeypatch.setattr(
+        "scipy.sparse.linalg.spsolve", lambda *args, **kwargs: np.array([np.inf])
+    )
+    monkeypatch.setattr(
+        "scipy.optimize.newton_krylov", lambda *args, **kwargs: np.array([0.5])
+    )
 
     solution, info = solve_sparse_newton_system(
         lambda state: state - 1.0,
@@ -720,7 +782,9 @@ def test_sparse_newton_solver_rejects_nonfinite_trial_then_uses_fallback(
     assert info.converged is False
 
 
-def test_jax_linearized_newton_solver_returns_immediately_for_satisfied_residual() -> None:
+def test_jax_linearized_newton_solver_returns_immediately_for_satisfied_residual() -> (
+    None
+):
     jnp = pytest.importorskip("jax.numpy")
 
     initial = np.array([1.0, 2.0], dtype=np.float64)
@@ -737,6 +801,8 @@ def test_jax_linearized_newton_solver_returns_immediately_for_satisfied_residual
     np.testing.assert_allclose(solution, initial)
     assert info.nonlinear_iterations == 0
     assert info.linear_iterations == 0
+    assert info.residual_evaluation_count == 1
+    assert info.jacobian_refresh_count == 0
     assert info.converged is True
 
 
@@ -761,7 +827,7 @@ def test_jax_linearized_newton_solver_can_exit_on_step_tolerance() -> None:
 
 
 def test_jax_linearized_newton_solver_recovers_known_root() -> None:
-    jax = pytest.importorskip("jax")
+    pytest.importorskip("jax")
     jnp = pytest.importorskip("jax.numpy")
 
     active_shape = (3,)
@@ -834,7 +900,10 @@ def test_jax_linearized_newton_solver_supports_lineax_gmres_backend() -> None:
     assert info.jacobian_mode == "jax_linearized:lineax_gmres"
     assert info.linear_solver_backend == "lineax_gmres"
     assert info.linear_solver_success is True
-    assert info.linear_solver_reported_iterations is None or info.linear_solver_reported_iterations >= 0
+    assert (
+        info.linear_solver_reported_iterations is None
+        or info.linear_solver_reported_iterations >= 0
+    )
 
 
 def test_sparse_newton_solver_supports_direct_linear_solve_mode() -> None:
@@ -844,7 +913,9 @@ def test_sparse_newton_solver_supports_direct_linear_solve_mode() -> None:
     target = np.array([1.0, 0.5, 2.0], dtype=np.float64)
     initial = np.array([0.8, 0.7, 1.7], dtype=np.float64)
     sparsity = build_locality_sparsity(active_shape, field_count=1, radii=(0,))
-    color_groups = build_modulo_color_groups(active_shape, field_count=1, color_periods=(3,))
+    color_groups = build_modulo_color_groups(
+        active_shape, field_count=1, color_periods=(3,)
+    )
 
     def residual(state: np.ndarray) -> np.ndarray:
         return state * state - target * target
@@ -876,7 +947,9 @@ def test_sparse_newton_solver_supports_jacobian_reuse() -> None:
     target = np.array([1.0, 0.5, 2.0], dtype=np.float64)
     initial = np.array([0.8, 0.7, 1.7], dtype=np.float64)
     sparsity = build_locality_sparsity(active_shape, field_count=1, radii=(0,))
-    color_groups = build_modulo_color_groups(active_shape, field_count=1, color_periods=(3,))
+    color_groups = build_modulo_color_groups(
+        active_shape, field_count=1, color_periods=(3,)
+    )
 
     def residual(state: np.ndarray) -> np.ndarray:
         return state * state - target * target

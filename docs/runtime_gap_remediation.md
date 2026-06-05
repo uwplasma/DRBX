@@ -289,6 +289,14 @@ the default output-window solver.
 The sparse Newton interface now exposes that derivative algorithm directly as
 `jacobian_mode="jvp"`, and the implicit-solver profile audit compares it
 against the finite-difference sparse Newton path on a transformable residual.
+
+The next low-risk runtime patch is intentionally smaller than a solver-default
+change: `solve_jax_linearized_newton_system` now evaluates the initial residual
+before calling `jax.linearize` and returns immediately when the predictor
+already satisfies the nonlinear tolerance. This removes wasted linearization on
+accepted predictor states while preserving the existing JAX-linearized Newton
+path for genuinely nonlinear updates. It does not change the production BDF
+default or make the slower fixed-JVP output-window path default.
 The audit is deliberately small: it proves the solver backend boundary, not the
 full recycling migration. The full migration still depends on moving the
 remaining recycling residual kernels out of dictionary/NumPy assembly.
