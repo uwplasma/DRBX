@@ -7,11 +7,15 @@ def configured_recycling_transient_solver_mode(config: BoutConfig) -> str | None
     for section_name in ("runtime", "jax_drb"):
         if not config.has_option(section_name, "recycling_transient_solver_mode"):
             continue
-        mode = str(config.parsed(section_name, "recycling_transient_solver_mode")).strip()
+        mode = str(
+            config.parsed(section_name, "recycling_transient_solver_mode")
+        ).strip()
         allowed = {
             "continuation",
             "bdf",
             "bdf_fixed_full_field_jvp",
+            "fixed_bdf2_jax_linearized",
+            "fixed_bdf2_jax_linearized_lineax",
             "adaptive_be",
             "adaptive_bdf",
             "adaptive_bdf_sparse_jvp",
