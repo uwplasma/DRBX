@@ -1392,6 +1392,9 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
                 "stage": "post_accepted",
                 "fields": {
                     "SNVh_parallel_viscosity": field(0.0, 0.0),
+                    "Nh": field(0.0, 0.0),
+                    "Ph": field(0.0, 0.0),
+                    "NVh": field(0.0, 0.0),
                     "Vh": field(0.0, 0.0),
                     "eta_h": field(0.0, 0.0),
                 },
@@ -1407,6 +1410,9 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
             "stages": {
                 "post_accepted": {
                     "SNVh_parallel_viscosity": field(2.0, 5.0),
+                    "Nh": field(0.1, 0.4),
+                    "Ph": field(0.2, 0.1),
+                    "NVh": field(0.3, 0.3),
                     "Vh": field(0.25, 0.5),
                     "eta_h": field(0.1, 0.2),
                 }
@@ -1438,6 +1444,15 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
     assert entry["source_max_target_adjacent_delta"] == pytest.approx(5.0)
     assert entry["max_input_target_adjacent_delta"] == pytest.approx(0.5)
     assert entry["max_input_active_delta"] == pytest.approx(0.25)
+    assert entry["state_input_fields"] == ["Nh", "Ph", "NVh"]
+    assert entry["missing_state_input_fields"] == []
+    assert entry["state_input_fields_present"] is True
+    assert entry["dominant_state_input_field"] == "Nh"
+    assert entry["max_state_input_target_adjacent_delta"] == pytest.approx(0.4)
+    assert entry["max_state_input_active_delta"] == pytest.approx(0.3)
+    assert entry["viscosity_to_state_target_ratio"] == pytest.approx(0.5)
+    assert entry["viscosity_to_state_active_ratio"] == pytest.approx(1.0 / 3.0)
+    assert register["missing_reference_state_input_fields"] == []
 
 
 def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inputs(
@@ -1488,6 +1503,10 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inpu
     entry = register["entries"][0]
     assert entry["input_fields_present"] is False
     assert entry["missing_input_fields"] == ["Vh", "eta_h"]
+    assert entry["state_input_fields_present"] is False
+    assert entry["missing_state_input_fields"] == ["Nh", "Ph", "NVh"]
+    assert entry["dominant_state_input_field"] is None
+    assert entry["viscosity_to_state_target_ratio"] is None
     assert entry["diagnosis"] == "reference_input_trace_missing"
 
 

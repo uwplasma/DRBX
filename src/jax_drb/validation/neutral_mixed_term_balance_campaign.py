@@ -902,14 +902,21 @@ def _build_parallel_viscosity_input_register(
         section = source_field[len("SNV") : -len("_parallel_viscosity")]
         velocity_field = f"V{section}"
         viscosity_field = f"eta_{section}"
+        state_fields = (f"N{section}", f"P{section}", f"NV{section}")
         source_error = field_errors[source_field]
         velocity_error = field_errors.get(velocity_field)
         viscosity_error = field_errors.get(viscosity_field)
+        state_errors = {
+            name: error
+            for name in state_fields
+            if isinstance((error := field_errors.get(name)), dict)
+        }
         input_errors = [
             error
             for error in (velocity_error, viscosity_error)
             if isinstance(error, dict)
         ]
+        state_input_errors = list(state_errors.values())
         max_input_active_delta = max(
             (float(error.get("max_active_delta", 0.0)) for error in input_errors),
             default=0.0,
@@ -921,6 +928,20 @@ def _build_parallel_viscosity_input_register(
             ),
             default=0.0,
         )
+        max_state_input_active_delta = max(
+            (
+                float(error.get("max_active_delta", 0.0))
+                for error in state_input_errors
+            ),
+            default=0.0,
+        )
+        max_state_input_target_delta = max(
+            (
+                float(error.get("max_target_adjacent_delta", 0.0))
+                for error in state_input_errors
+            ),
+            default=0.0,
+        )
         missing_inputs = [
             name
             for name, error in (
@@ -929,6 +950,19 @@ def _build_parallel_viscosity_input_register(
             )
             if error is None
         ]
+        missing_state_inputs = [
+            name for name in state_fields if name not in state_errors
+        ]
+        viscosity_target_delta = (
+            float(viscosity_error.get("max_target_adjacent_delta", 0.0))
+            if isinstance(viscosity_error, dict)
+            else 0.0
+        )
+        viscosity_active_delta = (
+            float(viscosity_error.get("max_active_delta", 0.0))
+            if isinstance(viscosity_error, dict)
+            else 0.0
+        )
         entries.append(
             {
                 "source_field": source_field,
@@ -947,6 +981,21 @@ def _build_parallel_viscosity_input_register(
                 "input_fields_present": not missing_inputs,
                 "max_input_active_delta": max_input_active_delta,
                 "max_input_target_adjacent_delta": max_input_target_delta,
+                "state_input_fields": list(state_fields),
+                "state_input_errors": state_errors,
+                "missing_state_input_fields": missing_state_inputs,
+                "state_input_fields_present": not missing_state_inputs,
+                "dominant_state_input_field": _dominant_trace_error_field(
+                    state_errors
+                ),
+                "max_state_input_active_delta": max_state_input_active_delta,
+                "max_state_input_target_adjacent_delta": max_state_input_target_delta,
+                "viscosity_to_state_target_ratio": _safe_ratio(
+                    viscosity_target_delta, max_state_input_target_delta
+                ),
+                "viscosity_to_state_active_ratio": _safe_ratio(
+                    viscosity_active_delta, max_state_input_active_delta
+                ),
                 "diagnosis": (
                     "input_drift_check_available"
                     if not missing_inputs
@@ -967,7 +1016,9 @@ def _build_parallel_viscosity_input_register(
             "against the matched operator inputs V and eta. When both input "
             "fields are present, a small input delta and large source delta "
             "points at the stencil/boundary operator; a large input delta "
-            "points first at state/history or closure drift."
+            "points first at state/history or closure drift. State-field "
+            "ratios quantify whether eta drift is directly state-sized or "
+            "amplified by accepted-step closure or boundary sequencing."
         ),
         "entries": entries,
         "missing_reference_input_fields": sorted(
@@ -977,7 +1028,35 @@ def _build_parallel_viscosity_input_register(
                 for missing in entry["missing_input_fields"]
             }
         ),
+        "missing_reference_state_input_fields": sorted(
+            {
+                missing
+                for entry in entries
+                for missing in entry["missing_state_input_fields"]
+            }
+        ),
     }
+
+
+def _dominant_trace_error_field(
+    errors: dict[str, dict[str, object]],
+) -> str | None:
+    if not errors:
+        return None
+    return max(
+        errors,
+        key=lambda name: (
+            float(errors[name].get("max_target_adjacent_delta", 0.0)),
+            float(errors[name].get("max_active_delta", 0.0)),
+            float(errors[name].get("max_guard_delta", 0.0)),
+        ),
+    )
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float | None:
+    if denominator <= 0.0:
+        return None
+    return float(numerator) / float(denominator)
 
 
 def write_neutral_mixed_accepted_step_trace_parity_json(

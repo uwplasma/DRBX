@@ -136,8 +136,11 @@ summarizes this split in `parallel_viscosity_input_register`: missing `Vh` or
 `eta_h` marks the trace as insufficient for source-input diagnosis, while
 present input fields quantify whether the leading `SNVh_parallel_viscosity`
 offender is driven by `Vh`/`eta_h` drift or by the parallel-diffusion stencil
-and boundary treatment. In the current rerun, the register is available and
-points first at `eta_h` drift.
+and boundary treatment. The same register now ranks `Nh`, `Ph`, and `NVh`
+state-input errors and reports `eta_h`/state amplification ratios. In the
+current rerun, the register is available, points first at `eta_h` drift, and
+shows that `eta_h` target-adjacent drift is about `99` times larger than the
+largest state-input drift.
 
 A final-state input-closure cross-check now reconstructs `Dnn`, `Vh`, and
 `eta_h` from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares
