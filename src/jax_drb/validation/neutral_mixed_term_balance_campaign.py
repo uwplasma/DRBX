@@ -962,6 +962,7 @@ def _neutral_mixed_series_errors(
             "time_points_compared": int(time_count),
             "series_max_abs": metrics["max_abs"],
             "series_rms": metrics["rms"],
+            "active_edge_history_trace": _active_edge_history_trace(delta, target_offsets=target_offsets),
             **{f"final_{key}": value for key, value in final_metrics.items()},
         }
         ranked.append({"field": name, **fields[name]})  # type: ignore[arg-type]
@@ -971,6 +972,37 @@ def _neutral_mixed_series_errors(
             ranked,
             key=lambda item: float(item["final_target_adjacent_max_abs"]),
             reverse=True,
+        ),
+    }
+
+
+def _active_edge_history_trace(delta: np.ndarray, *, target_offsets: np.ndarray) -> dict[str, object]:
+    if delta.ndim != 4:
+        raise ValueError(f"Expected neutral mixed history delta to have shape (time, x, y, z), got {delta.shape}.")
+    if target_offsets.size:
+        target_delta = delta[:, :, target_offsets, :]
+    else:
+        target_delta = delta
+    target_max_abs = np.max(np.abs(target_delta), axis=(1, 2, 3)) if target_delta.size else np.zeros(delta.shape[0])
+    target_rms = np.sqrt(np.mean(np.square(target_delta), axis=(1, 2, 3))) if target_delta.size else np.zeros(delta.shape[0])
+    edge_traces: list[dict[str, object]] = []
+    for offset in target_offsets:
+        edge_delta = delta[:, :, int(offset), :]
+        edge_traces.append(
+            {
+                "active_y_offset": int(offset),
+                "max_abs_by_time": np.max(np.abs(edge_delta), axis=(1, 2)).tolist(),
+                "rms_by_time": np.sqrt(np.mean(np.square(edge_delta), axis=(1, 2))).tolist(),
+            }
+        )
+    return {
+        "target_active_y_offsets": [int(value) for value in target_offsets],
+        "target_adjacent_max_abs_by_time": target_max_abs.tolist(),
+        "target_adjacent_rms_by_time": target_rms.tolist(),
+        "edge_traces": edge_traces,
+        "interpretation": (
+            "These time-indexed active-edge deltas localize whether the remaining neutral-mixed "
+            "difference is introduced at the first stored state or by the final target-band history update."
         ),
     }
 

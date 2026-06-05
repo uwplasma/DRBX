@@ -65,8 +65,8 @@ def build_hermes_offender_register_report(
         "reference_code": "hermes-3",
         "register_scope": "live Hermes rerun matrix plus committed reduced geometry comparison summary",
         "source_artifacts": {
-            "live_rerun_json": str(Path(live_rerun_json)),
-            "comparison_summary_json": None if comparison_summary_json is None else str(Path(comparison_summary_json)),
+            "live_rerun_json": _sanitize_public_path(live_rerun_json),
+            "comparison_summary_json": None if comparison_summary_json is None else _sanitize_public_path(comparison_summary_json),
         },
         "case_count": len(live_cases),
         "parity_offenders": parity_offenders,
@@ -347,7 +347,7 @@ def _component_hint(case_name: str, field_name: str) -> str:
     case = case_name.lower()
     field = field_name.lower()
     if "neutral_mixed" in case or field in {"nvh", "nh", "ph"}:
-        return "neutral mixed boundary and parallel momentum closure"
+        return "neutral mixed target-band state history and boundary sequencing"
     if "recycling" in case and field.startswith("nv"):
         return "parallel momentum, recycling source, or near-zero compare normalization"
     if field.startswith("p") or field == "pe":
@@ -364,6 +364,12 @@ def _component_hint(case_name: str, field_name: str) -> str:
 def _recommended_parity_action(case: dict[str, Any], field_name: str) -> str:
     if bool(case.get("normalization_sensitive", False)):
         return "inspect absolute error and near-zero support before changing equations"
+    case_name = str(case.get("case_name", "")).lower()
+    if "neutral_mixed" in case_name or field_name.lower() in {"nvh", "nh", "ph"}:
+        return (
+            "continue target-band state-history diagnostics; direct neutral pressure-gradient "
+            "and viscosity source formulas are already closed by written reference diagnostics"
+        )
     return f"localize {field_name or 'dominant field'} mismatch to component-level source, boundary, or closure"
 
 
@@ -420,3 +426,21 @@ def _resolve_or_default(path: str | Path | None, default_relative: str) -> Path:
 
 def _load_json(path: str | Path) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _sanitize_public_path(path: str | Path) -> str:
+    resolved = Path(path).expanduser().resolve()
+    parts = resolved.parts
+    if "hermes-3" in parts:
+        index = parts.index("hermes-3")
+        suffix = Path(*parts[index + 1 :]).as_posix() if parts[index + 1 :] else ""
+        return "<reference-root>" if not suffix else f"<reference-root>/{suffix}"
+    if "jax_drb" in parts:
+        index = parts.index("jax_drb")
+        suffix = Path(*parts[index + 1 :]).as_posix() if parts[index + 1 :] else ""
+        return "<repo-root>" if not suffix else f"<repo-root>/{suffix}"
+    home = Path.home().resolve()
+    try:
+        return f"~/{resolved.relative_to(home).as_posix()}"
+    except ValueError:
+        return resolved.as_posix()

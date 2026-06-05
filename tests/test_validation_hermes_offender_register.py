@@ -127,7 +127,9 @@ def test_build_hermes_offender_register_ranks_parity_runtime_and_memory(tmp_path
     assert report["reference_code"] == "hermes-3"
     assert report["case_count"] == 2
     assert report["parity_offenders"][0]["case_name"] == "neutral_mixed_one_step"
-    assert report["parity_offenders"][0]["component_hint"] == "neutral mixed boundary and parallel momentum closure"
+    assert report["parity_offenders"][0]["component_hint"] == "neutral mixed target-band state history and boundary sequencing"
+    assert "source formulas are already closed" in report["parity_offenders"][0]["recommended_next_action"]
+    assert "/Users/" not in json.dumps(report["source_artifacts"], sort_keys=True)
     assert report["runtime_offenders"][0]["case_name"] == "neutral_mixed_one_step"
     assert report["runtime_offenders"][0]["runtime_status"] == "native_slower"
     assert report["memory_offenders"][0]["memory_measurement_status"] == "sampled_process_tree_rss"

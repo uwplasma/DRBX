@@ -177,7 +177,7 @@
   ],
   "sweep_points": [
     {
-      "elapsed_seconds": 0.5066019161604345,
+      "elapsed_seconds": 0.7658074996434152,
       "final_field_error_register": {
         "fields": {
           "NVh": {
@@ -1716,6 +1716,69 @@
       "series_errors": {
         "fields": {
           "NVh": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.0003111601368671733
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0002742964196434133
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.0008521971388276634
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0007829094443317131
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.0008521972603300952
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0007829095541614118
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.00031116024762763877
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0002742965207013403
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                0.0,
+                0.0008521972603300952
+              ],
+              "target_adjacent_rms_by_time": [
+                0.0,
+                0.0005865943391985361
+              ]
+            },
             "final_max_abs": 0.0008840923081330086,
             "final_rms": 0.0005870281530768654,
             "final_target_adjacent_max_abs": 0.0008521972603300952,
@@ -1725,6 +1788,69 @@
             "time_points_compared": 2
           },
           "Nh": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.021075720475448367
+                  ],
+                  "rms_by_time": [
+                    5.167806939328294e-17,
+                    0.014889507392235959
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.015884569027051154
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.008112812479939798
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.015884568320814196
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.008112811847788696
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.021075720252066055
+                  ],
+                  "rms_by_time": [
+                    3.510833468576701e-17,
+                    0.01488950709582706
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.1102230246251565e-16,
+                0.021075720475448367
+              ],
+              "target_adjacent_rms_by_time": [
+                3.583229404124382e-17,
+                0.011989894644579047
+              ]
+            },
             "final_max_abs": 0.021075720475448367,
             "final_rms": 0.010252034159251473,
             "final_target_adjacent_max_abs": 0.021075720475448367,
@@ -1734,6 +1860,69 @@
             "time_points_compared": 2
           },
           "Ph": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.001850578103042011
+                  ],
+                  "rms_by_time": [
+                    5.374844106186573e-18,
+                    0.0014151716784342081
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.0013216820427263548
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    0.0007139460267847386
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.001321681974699604
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    0.0007139459553887178
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.0018505780670446115
+                  ],
+                  "rms_by_time": [
+                    4.388541835720876e-18,
+                    0.0014151716471073293
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.3877787807814457e-17,
+                0.001850578103042011
+              ],
+              "target_adjacent_rms_by_time": [
+                4.105104994197872e-18,
+                0.0011208099110237638
+              ]
+            },
             "final_max_abs": 0.001850578103042011,
             "final_rms": 0.0009429780866930959,
             "final_target_adjacent_max_abs": 0.001850578103042011,
@@ -1745,6 +1934,69 @@
         },
         "ranked_by_final_target_adjacent_max_abs": [
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.021075720475448367
+                  ],
+                  "rms_by_time": [
+                    5.167806939328294e-17,
+                    0.014889507392235959
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.015884569027051154
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.008112812479939798
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.015884568320814196
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.008112811847788696
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.021075720252066055
+                  ],
+                  "rms_by_time": [
+                    3.510833468576701e-17,
+                    0.01488950709582706
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.1102230246251565e-16,
+                0.021075720475448367
+              ],
+              "target_adjacent_rms_by_time": [
+                3.583229404124382e-17,
+                0.011989894644579047
+              ]
+            },
             "field": "Nh",
             "final_max_abs": 0.021075720475448367,
             "final_rms": 0.010252034159251473,
@@ -1755,6 +2007,69 @@
             "time_points_compared": 2
           },
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.001850578103042011
+                  ],
+                  "rms_by_time": [
+                    5.374844106186573e-18,
+                    0.0014151716784342081
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.0013216820427263548
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    0.0007139460267847386
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.001321681974699604
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    0.0007139459553887178
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.0018505780670446115
+                  ],
+                  "rms_by_time": [
+                    4.388541835720876e-18,
+                    0.0014151716471073293
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.3877787807814457e-17,
+                0.001850578103042011
+              ],
+              "target_adjacent_rms_by_time": [
+                4.105104994197872e-18,
+                0.0011208099110237638
+              ]
+            },
             "field": "Ph",
             "final_max_abs": 0.001850578103042011,
             "final_rms": 0.0009429780866930959,
@@ -1765,6 +2080,69 @@
             "time_points_compared": 2
           },
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.0003111601368671733
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0002742964196434133
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.0008521971388276634
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0007829094443317131
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.0008521972603300952
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0007829095541614118
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.00031116024762763877
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0002742965207013403
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                0.0,
+                0.0008521972603300952
+              ],
+              "target_adjacent_rms_by_time": [
+                0.0,
+                0.0005865943391985361
+              ]
+            },
             "field": "NVh",
             "final_max_abs": 0.0008840923081330086,
             "final_rms": 0.0005870281530768654,
@@ -1930,7 +2308,7 @@
       }
     },
     {
-      "elapsed_seconds": 0.40498025016859174,
+      "elapsed_seconds": 0.42334991600364447,
       "final_field_error_register": {
         "fields": {
           "NVh": {
@@ -3469,6 +3847,69 @@
       "series_errors": {
         "fields": {
           "NVh": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.00013543563902507813
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0001324021256816684
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.0004329512670806922
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0004216994248625368
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.00043295158046884595
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.00042169974395841613
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.00013543590922152776
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.00013240238684453557
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                0.0,
+                0.00043295158046884595
+              ],
+              "target_adjacent_rms_by_time": [
+                0.0,
+                0.0003125387151662744
+              ]
+            },
             "final_max_abs": 0.0005895665553539227,
             "final_rms": 0.0003659605818388802,
             "final_target_adjacent_max_abs": 0.00043295158046884595,
@@ -3478,6 +3919,69 @@
             "time_points_compared": 2
           },
           "Nh": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.006059609657491305
+                  ],
+                  "rms_by_time": [
+                    5.167806939328294e-17,
+                    0.0045653309488040816
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.005025942348362955
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.00335917478671508
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.005025938865818036
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.0033591715308278368
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.006059608755299095
+                  ],
+                  "rms_by_time": [
+                    3.510833468576701e-17,
+                    0.004565329993519248
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.1102230246251565e-16,
+                0.006059609657491305
+              ],
+              "target_adjacent_rms_by_time": [
+                3.583229404124382e-17,
+                0.004007885141912795
+              ]
+            },
             "final_max_abs": 0.006858589221094169,
             "final_rms": 0.0035715846834973425,
             "final_target_adjacent_max_abs": 0.006059609657491305,
@@ -3487,6 +3991,69 @@
             "time_points_compared": 2
           },
           "Ph": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.0005572095615909989
+                  ],
+                  "rms_by_time": [
+                    5.374844106186573e-18,
+                    0.0004251345559252735
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.000462622126592635
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    0.0003110348479357018
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.0004626217737560695
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    0.00031103452161128126
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.0005572094683173601
+                  ],
+                  "rms_by_time": [
+                    4.388541835720876e-18,
+                    0.00042513445948068595
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.3877787807814457e-17,
+                0.0005572095615909989
+              ],
+              "target_adjacent_rms_by_time": [
+                4.105104994197872e-18,
+                0.0003724794791475291
+              ]
+            },
             "final_max_abs": 0.0006009519916561762,
             "final_rms": 0.0003274516749179443,
             "final_target_adjacent_max_abs": 0.0005572095615909989,
@@ -3498,6 +4065,69 @@
         },
         "ranked_by_final_target_adjacent_max_abs": [
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.006059609657491305
+                  ],
+                  "rms_by_time": [
+                    5.167806939328294e-17,
+                    0.0045653309488040816
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.005025942348362955
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.00335917478671508
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.005025938865818036
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.0033591715308278368
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.006059608755299095
+                  ],
+                  "rms_by_time": [
+                    3.510833468576701e-17,
+                    0.004565329993519248
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.1102230246251565e-16,
+                0.006059609657491305
+              ],
+              "target_adjacent_rms_by_time": [
+                3.583229404124382e-17,
+                0.004007885141912795
+              ]
+            },
             "field": "Nh",
             "final_max_abs": 0.006858589221094169,
             "final_rms": 0.0035715846834973425,
@@ -3508,6 +4138,69 @@
             "time_points_compared": 2
           },
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.0005572095615909989
+                  ],
+                  "rms_by_time": [
+                    5.374844106186573e-18,
+                    0.0004251345559252735
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.000462622126592635
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    0.0003110348479357018
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.0004626217737560695
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    0.00031103452161128126
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.0005572094683173601
+                  ],
+                  "rms_by_time": [
+                    4.388541835720876e-18,
+                    0.00042513445948068595
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.3877787807814457e-17,
+                0.0005572095615909989
+              ],
+              "target_adjacent_rms_by_time": [
+                4.105104994197872e-18,
+                0.0003724794791475291
+              ]
+            },
             "field": "Ph",
             "final_max_abs": 0.0006009519916561762,
             "final_rms": 0.0003274516749179443,
@@ -3518,6 +4211,69 @@
             "time_points_compared": 2
           },
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.00013543563902507813
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0001324021256816684
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.0004329512670806922
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.0004216994248625368
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.00043295158046884595
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.00042169974395841613
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    0.0,
+                    0.00013543590922152776
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    0.00013240238684453557
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                0.0,
+                0.00043295158046884595
+              ],
+              "target_adjacent_rms_by_time": [
+                0.0,
+                0.0003125387151662744
+              ]
+            },
             "field": "NVh",
             "final_max_abs": 0.0005895665553539227,
             "final_rms": 0.0003659605818388802,
@@ -3683,7 +4439,7 @@
       }
     },
     {
-      "elapsed_seconds": 0.4022747501730919,
+      "elapsed_seconds": 0.4884677501395345,
       "error_message": "[0.70443997 0.70843451 0.71693801 ... 0.00109238 0.00103581 0.00096354]",
       "error_type": "NoConvergence",
       "failure_vector": {
@@ -3716,7 +4472,7 @@
       "status": "failed"
     },
     {
-      "elapsed_seconds": 0.7666993327438831,
+      "elapsed_seconds": 0.7900551669299603,
       "final_field_error_register": {
         "fields": {
           "NVh": {
@@ -5255,6 +6011,69 @@
       "series_errors": {
         "fields": {
           "NVh": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    0.0,
+                    1.4726043882026493e-05
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    9.698203637657168e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    0.0,
+                    5.1843339841683425e-05
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    3.9585739453545394e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    0.0,
+                    5.184336817451668e-05
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    3.958577155480267e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    0.0,
+                    1.4726071359115781e-05
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    9.698229996221442e-06
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                0.0,
+                5.184336817451668e-05
+              ],
+              "target_adjacent_rms_by_time": [
+                0.0,
+                2.8819155506928376e-05
+              ]
+            },
             "final_max_abs": 7.658495399904229e-05,
             "final_rms": 4.719193267112594e-05,
             "final_target_adjacent_max_abs": 5.184336817451668e-05,
@@ -5264,6 +6083,69 @@
             "time_points_compared": 2
           },
           "Nh": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0012556740488720575
+                  ],
+                  "rms_by_time": [
+                    5.167806939328294e-17,
+                    0.0007342578271258757
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0017913715085501325
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.0009868694926563563
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0017913708874559564
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.0009868690295028295
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0012556738057469818
+                  ],
+                  "rms_by_time": [
+                    3.510833468576701e-17,
+                    0.0007342576260459037
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.1102230246251565e-16,
+                0.0017913715085501325
+              ],
+              "target_adjacent_rms_by_time": [
+                3.583229404124382e-17,
+                0.0008697831188046031
+              ]
+            },
             "final_max_abs": 0.0017913715085501325,
             "final_rms": 0.0008947608773849742,
             "final_target_adjacent_max_abs": 0.0017913715085501325,
@@ -5273,6 +6155,69 @@
             "time_points_compared": 2
           },
           "Ph": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    9.531695655926042e-05
+                  ],
+                  "rms_by_time": [
+                    5.374844106186573e-18,
+                    6.398609454707258e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.00014332735679975506
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    8.490736738963886e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.00014332728406402095
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    8.490731201794859e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    9.531692875988651e-05
+                  ],
+                  "rms_by_time": [
+                    4.388541835720876e-18,
+                    6.398607065734207e-05
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.3877787807814457e-17,
+                0.00014332735679975506
+              ],
+              "target_adjacent_rms_by_time": [
+                4.105104994197872e-18,
+                7.517803902188734e-05
+              ]
+            },
             "final_max_abs": 0.00014332735679975506,
             "final_rms": 7.338968894646968e-05,
             "final_target_adjacent_max_abs": 0.00014332735679975506,
@@ -5284,6 +6229,69 @@
         },
         "ranked_by_final_target_adjacent_max_abs": [
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0012556740488720575
+                  ],
+                  "rms_by_time": [
+                    5.167806939328294e-17,
+                    0.0007342578271258757
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0017913715085501325
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.0009868694926563563
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0017913708874559564
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    0.0009868690295028295
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0012556738057469818
+                  ],
+                  "rms_by_time": [
+                    3.510833468576701e-17,
+                    0.0007342576260459037
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.1102230246251565e-16,
+                0.0017913715085501325
+              ],
+              "target_adjacent_rms_by_time": [
+                3.583229404124382e-17,
+                0.0008697831188046031
+              ]
+            },
             "field": "Nh",
             "final_max_abs": 0.0017913715085501325,
             "final_rms": 0.0008947608773849742,
@@ -5294,6 +6302,69 @@
             "time_points_compared": 2
           },
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    9.531695655926042e-05
+                  ],
+                  "rms_by_time": [
+                    5.374844106186573e-18,
+                    6.398609454707258e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.00014332735679975506
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    8.490736738963886e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    0.00014332728406402095
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    8.490731201794859e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    9.531692875988651e-05
+                  ],
+                  "rms_by_time": [
+                    4.388541835720876e-18,
+                    6.398607065734207e-05
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.3877787807814457e-17,
+                0.00014332735679975506
+              ],
+              "target_adjacent_rms_by_time": [
+                4.105104994197872e-18,
+                7.517803902188734e-05
+              ]
+            },
             "field": "Ph",
             "final_max_abs": 0.00014332735679975506,
             "final_rms": 7.338968894646968e-05,
@@ -5304,6 +6375,69 @@
             "time_points_compared": 2
           },
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    0.0,
+                    1.4726043882026493e-05
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    9.698203637657168e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    0.0,
+                    5.1843339841683425e-05
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    3.9585739453545394e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    0.0,
+                    5.184336817451668e-05
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    3.958577155480267e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    0.0,
+                    1.4726071359115781e-05
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    9.698229996221442e-06
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                0.0,
+                5.184336817451668e-05
+              ],
+              "target_adjacent_rms_by_time": [
+                0.0,
+                2.8819155506928376e-05
+              ]
+            },
             "field": "NVh",
             "final_max_abs": 7.658495399904229e-05,
             "final_rms": 4.719193267112594e-05,
@@ -5469,7 +6603,7 @@
       }
     },
     {
-      "elapsed_seconds": 0.3436390832066536,
+      "elapsed_seconds": 0.42264733416959643,
       "error_message": "[0.6730284  0.68033107 0.69615408 ... 0.00134017 0.00126845 0.00114053]",
       "error_type": "NoConvergence",
       "failure_vector": {
@@ -5502,7 +6636,7 @@
       "status": "failed"
     },
     {
-      "elapsed_seconds": 1.0288885841146111,
+      "elapsed_seconds": 1.1075443336740136,
       "final_field_error_register": {
         "fields": {
           "NVh": {
@@ -7041,6 +8175,69 @@
       "series_errors": {
         "fields": {
           "NVh": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    0.0,
+                    1.924226791392839e-06
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    1.363665706289412e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    0.0,
+                    4.046397291406758e-06
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    2.870402231455511e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    0.0,
+                    4.046398068899412e-06
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    2.8703965037116387e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    0.0,
+                    1.924225429416769e-06
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    1.363661303297256e-06
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                0.0,
+                4.046398068899412e-06
+              ],
+              "target_adjacent_rms_by_time": [
+                0.0,
+                2.2470837416240713e-06
+              ]
+            },
             "final_max_abs": 4.46733131195939e-06,
             "final_rms": 2.0015413364538566e-06,
             "final_target_adjacent_max_abs": 4.046398068899412e-06,
@@ -7050,6 +8247,69 @@
             "time_points_compared": 2
           },
           "Nh": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    7.129689839302511e-05
+                  ],
+                  "rms_by_time": [
+                    5.167806939328294e-17,
+                    4.142511951163812e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0001521091223670723
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    8.344482477288136e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0001521090748224374
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    8.344482102831804e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    7.129692014284927e-05
+                  ],
+                  "rms_by_time": [
+                    3.510833468576701e-17,
+                    4.1425123015282196e-05
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.1102230246251565e-16,
+                0.0001521091223670723
+              ],
+              "target_adjacent_rms_by_time": [
+                3.583229404124382e-17,
+                6.587518174777521e-05
+              ]
+            },
             "final_max_abs": 0.00021939053106800888,
             "final_rms": 8.330310133428889e-05,
             "final_target_adjacent_max_abs": 0.0001521091223670723,
@@ -7059,6 +8319,69 @@
             "time_points_compared": 2
           },
           "Ph": {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    5.29717787167705e-06
+                  ],
+                  "rms_by_time": [
+                    5.374844106186573e-18,
+                    3.027790419708227e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    1.5048158256009136e-05
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    8.910213312286764e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    1.5048136311451854e-05
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    8.91021070361067e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    5.297172371090952e-06
+                  ],
+                  "rms_by_time": [
+                    4.388541835720876e-18,
+                    3.0277896853431316e-06
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.3877787807814457e-17,
+                1.5048158256009136e-05
+              ],
+              "target_adjacent_rms_by_time": [
+                4.105104994197872e-18,
+                6.6542990099922916e-06
+              ]
+            },
             "final_max_abs": 2.1145845255476914e-05,
             "final_rms": 7.679017415163645e-06,
             "final_target_adjacent_max_abs": 1.5048158256009136e-05,
@@ -7070,6 +8393,69 @@
         },
         "ranked_by_final_target_adjacent_max_abs": [
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    7.129689839302511e-05
+                  ],
+                  "rms_by_time": [
+                    5.167806939328294e-17,
+                    4.142511951163812e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0001521091223670723
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    8.344482477288136e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    0.0001521090748224374
+                  ],
+                  "rms_by_time": [
+                    2.482534153247273e-17,
+                    8.344482102831804e-05
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.1102230246251565e-16,
+                    7.129692014284927e-05
+                  ],
+                  "rms_by_time": [
+                    3.510833468576701e-17,
+                    4.1425123015282196e-05
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.1102230246251565e-16,
+                0.0001521091223670723
+              ],
+              "target_adjacent_rms_by_time": [
+                3.583229404124382e-17,
+                6.587518174777521e-05
+              ]
+            },
             "field": "Nh",
             "final_max_abs": 0.00021939053106800888,
             "final_rms": 8.330310133428889e-05,
@@ -7080,6 +8466,69 @@
             "time_points_compared": 2
           },
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    5.29717787167705e-06
+                  ],
+                  "rms_by_time": [
+                    5.374844106186573e-18,
+                    3.027790419708227e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    1.5048158256009136e-05
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    8.910213312286764e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    1.5048136311451854e-05
+                  ],
+                  "rms_by_time": [
+                    3.103167691559091e-18,
+                    8.91021070361067e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    1.3877787807814457e-17,
+                    5.297172371090952e-06
+                  ],
+                  "rms_by_time": [
+                    4.388541835720876e-18,
+                    3.0277896853431316e-06
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                1.3877787807814457e-17,
+                1.5048158256009136e-05
+              ],
+              "target_adjacent_rms_by_time": [
+                4.105104994197872e-18,
+                6.6542990099922916e-06
+              ]
+            },
             "field": "Ph",
             "final_max_abs": 2.1145845255476914e-05,
             "final_rms": 7.679017415163645e-06,
@@ -7090,6 +8539,69 @@
             "time_points_compared": 2
           },
           {
+            "active_edge_history_trace": {
+              "edge_traces": [
+                {
+                  "active_y_offset": 0,
+                  "max_abs_by_time": [
+                    0.0,
+                    1.924226791392839e-06
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    1.363665706289412e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 1,
+                  "max_abs_by_time": [
+                    0.0,
+                    4.046397291406758e-06
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    2.870402231455511e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 8,
+                  "max_abs_by_time": [
+                    0.0,
+                    4.046398068899412e-06
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    2.8703965037116387e-06
+                  ]
+                },
+                {
+                  "active_y_offset": 9,
+                  "max_abs_by_time": [
+                    0.0,
+                    1.924225429416769e-06
+                  ],
+                  "rms_by_time": [
+                    0.0,
+                    1.363661303297256e-06
+                  ]
+                }
+              ],
+              "interpretation": "These time-indexed active-edge deltas localize whether the remaining neutral-mixed difference is introduced at the first stored state or by the final target-band history update.",
+              "target_active_y_offsets": [
+                0,
+                1,
+                8,
+                9
+              ],
+              "target_adjacent_max_abs_by_time": [
+                0.0,
+                4.046398068899412e-06
+              ],
+              "target_adjacent_rms_by_time": [
+                0.0,
+                2.2470837416240713e-06
+              ]
+            },
             "field": "NVh",
             "final_max_abs": 4.46733131195939e-06,
             "final_rms": 2.0015413364538566e-06,

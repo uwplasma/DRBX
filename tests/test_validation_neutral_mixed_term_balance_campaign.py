@@ -314,6 +314,10 @@ def test_neutral_mixed_substep_hybrid_report_ranks_successes_and_failures(tmp_pa
     assert failed[0]["error_type"] == "FileNotFoundError"
 
     successful = [point for point in report["sweep_points"] if point["status"] == "ok"]
+    edge_trace = successful[0]["series_errors"]["fields"]["Nh"]["active_edge_history_trace"]
+    assert edge_trace["target_active_y_offsets"] == [0, 1, 8, 9]
+    assert edge_trace["target_adjacent_max_abs_by_time"][0] == 0.0
+    assert edge_trace["target_adjacent_max_abs_by_time"][-1] == pytest.approx(2.0e-2)
     hybrid = successful[0]["hybrid_state_register"]
     assert set(hybrid["swaps"]) == {"Nh", "Ph", "NVh"}
     assert hybrid["ranked_by_pressure_gradient_target_adjacent_delta"][0]["swapped_field"] == "Ph"
@@ -366,5 +370,12 @@ def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() 
     best_hybrid = points[8]["hybrid_state_register"]
     assert best_hybrid["ranked_by_pressure_gradient_target_adjacent_delta"][0]["swapped_field"] == "Ph"
     assert best_hybrid["ranked_by_parallel_viscosity_target_adjacent_delta"][0]["swapped_field"] == "NVh"
+
+    best_trace = points[8]["series_errors"]["fields"]["Nh"]["active_edge_history_trace"]
+    assert best_trace["target_active_y_offsets"] == [0, 1, 8, 9]
+    assert best_trace["target_adjacent_max_abs_by_time"][0] == pytest.approx(0.0, abs=2.0e-16)
+    assert best_trace["target_adjacent_max_abs_by_time"][-1] == pytest.approx(
+        points[8]["series_errors"]["fields"]["Nh"]["final_target_adjacent_max_abs"]
+    )
 
     assert "/Users/" not in json.dumps(report, sort_keys=True)

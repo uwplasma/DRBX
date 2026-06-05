@@ -268,14 +268,14 @@
     {
       "capability_tier": "native_operational",
       "case_name": "neutral_mixed_one_step",
-      "component_hint": "neutral mixed boundary and parallel momentum closure",
+      "component_hint": "neutral mixed target-band state history and boundary sequencing",
       "dominant_field": "NVh",
       "family": "1D neutral",
       "normalization_sensitive": false,
       "parity_mode": "one_step",
       "rank": 7,
       "rank_metric": 0.0031128709506291364,
-      "recommended_next_action": "localize NVh mismatch to component-level source, boundary, or closure",
+      "recommended_next_action": "continue target-band state-history diagnostics; direct neutral pressure-gradient and viscosity source formulas are already closed by written reference diagnostics",
       "source": "live_rerun",
       "worst_max_abs_diff": 4.46733131195939e-06,
       "worst_relative_l2_error": 0.0021382734652996478,
@@ -419,7 +419,7 @@
     },
     {
       "case_name": "neutral_mixed_one_step",
-      "component_hint": "neutral mixed boundary and parallel momentum closure",
+      "component_hint": "neutral mixed target-band state history and boundary sequencing",
       "dominant_field": "NVh",
       "family": "1D neutral",
       "native_elapsed_seconds": 1.5164182498119771,
@@ -527,8 +527,8 @@
     }
   ],
   "source_artifacts": {
-    "comparison_summary_json": "docs/data/hermes_comparison_summary_artifacts/data/hermes_comparison_summary.json",
-    "live_rerun_json": "docs/data/hermes_live_rerun_campaign_artifacts/data/hermes_live_rerun_campaign.json"
+    "comparison_summary_json": "<repo-root>/docs/data/hermes_comparison_summary_artifacts/data/hermes_comparison_summary.json",
+    "live_rerun_json": "<repo-root>/docs/data/hermes_live_rerun_campaign_artifacts/data/hermes_live_rerun_campaign.json"
   },
   "top_offenders": {
     "memory": {

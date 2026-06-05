@@ -66,6 +66,14 @@ target-adjacent state history and boundary reconstruction that feeds those
 closed operators, not a replacement of the pressure-gradient or viscosity
 formula.
 
+The companion `series_errors` payload now stores an `active_edge_history_trace`
+for `Nh`, `Ph`, and `NVh`. This trace records the target-band maximum and RMS
+history at the first two and last two active-y cells, which is the diagnostic
+band used by the connected-y neutral-mixed parity case. It separates a true
+initial-condition offset from drift introduced by the final internal substep
+and gives future state-sequencing changes a small, Hermès-free regression
+surface before rerunning the full live reference campaign.
+
 The companion substep/hybrid diagnostic makes that conclusion reproducible
 without a live Hermès rerun. It sweeps the native
 `runtime:neutral_mixed_internal_substeps` setting against the committed
