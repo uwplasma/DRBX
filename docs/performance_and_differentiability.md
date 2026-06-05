@@ -46,10 +46,10 @@ default, and checks the same residual under `jit`, `vmap`, `jvp`, and a
 scalar-objective `grad`. This is the strongest current heavy-residual
 differentiability evidence because it exercises the multispecies recycling
 state rather than a synthetic diffusion objective. On the committed local CPU
-run with `mesh:ny=100`, the residual JVP agrees with a centered finite
-difference to about `6e-9`, the objective directional derivative agrees to
-about `1.3e-7`, and the retained batch sweep through 256 states reaches about
-`2.8x` residual throughput speedup and `2.2x` JVP throughput speedup over
+run, the residual JVP agrees with a centered finite difference to about
+`2.19e-9`, the objective directional derivative agrees to about `4.35e-8`,
+and the retained batch sweep through 256 states reaches about `5.63x`
+residual throughput speedup and `3.42x` JVP throughput speedup over
 serial same-kernel calls.
 
 The source-term lane now also has a dedicated accelerator-throughput gate:

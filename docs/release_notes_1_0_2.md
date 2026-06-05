@@ -52,9 +52,9 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
   promoted as a release claim.
 - A new batched D/T/He residual/JVP gate exercises the real fixed-layout
   recycling backward-Euler residual under `jit`, `vmap`, `jvp`, and `grad`.
-  The retained local CPU batch sweep reaches about `2.8x` residual throughput
-  speedup and about `2.2x` JVP throughput speedup, with
-  JVP/finite-difference error about `6e-9`.
+  The retained local CPU batch sweep reaches about `5.63x` residual throughput
+  speedup and about `3.42x` JVP throughput speedup, with
+  JVP/finite-difference error about `2.19e-9`.
 - A new batched atomic-rate throughput gate gives the release a measured GPU
   speedup on a fully JAX-native source kernel: at `4,194,304` temperature
   points, the office GPU is about `2.5x` faster for the rate surface and about
