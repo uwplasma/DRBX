@@ -33,8 +33,10 @@ nav:
       - Native Runtime CLI: native_runtime_cli.md
       - Restartable Diffusion Tutorial: restartable_diffusion_tutorial.md
       - Examples And Artifacts: examples.md
+      - Example Status Matrix: example_status_matrix.md
   - Physics And Numerics:
       - Physics Models: physics_models.md
+      - Equation To Code Map: equation_to_code_map.md
       - Code Structure: code_structure.md
       - Performance And Differentiability: performance_and_differentiability.md
       - Autodiff And Scaling Examples: autodiff_and_scaling_examples.md

@@ -717,7 +717,7 @@ or removed.
 The public docs are already useful, but the refactor should add much more
 developer-facing documentation on testing and code structure.
 
-### New documentation targets
+### Maintained documentation surfaces
 
 - `docs/code_structure.md`
   - package map
@@ -747,6 +747,11 @@ developer-facing documentation on testing and code structure.
   - measured before/after fixes
   - next remediation order
   - office GPU execution plan
+
+These pages now exist in the MkDocs navigation and are included in the
+release-surface checks. The remaining work is maintenance: update this set
+whenever a module is split, a physics gate is promoted, or a performance claim
+changes.
 
 ### Documentation requirements during refactor
 
