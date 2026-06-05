@@ -298,6 +298,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
                 "linear_solve_seconds": 0.75,
                 "line_search_seconds": 0.125,
                 "linear_solver_success": False,
+                "jvp_direction_workspace_reuses": 1,
             }
         ),
     )
@@ -335,6 +336,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_jacobian_refresh_count"] == 2
     assert stats["adaptive_bdf_linear_iterations"] == 7
     assert stats["adaptive_bdf_linear_solver_failed_steps"] == 1
+    assert stats["adaptive_bdf_sparse_jvp_workspace_reuses"] == 1
     assert stats["adaptive_bdf_residual_evaluation_seconds"] == pytest.approx(0.5)
     assert stats["adaptive_bdf_jacobian_assembly_seconds"] == pytest.approx(0.25)
     assert stats["adaptive_bdf_linear_solve_seconds"] == pytest.approx(0.75)
@@ -539,6 +541,75 @@ def test_adaptive_bdf_interval_uses_bdf2_when_previous_step_matches(
     assert stats["adaptive_bdf_last_error_ratio"] == pytest.approx(0.2)
     assert stats["adaptive_bdf_last_accepted_error_ratio"] == pytest.approx(0.2)
     assert stats["adaptive_bdf_max_accepted_error_ratio"] == pytest.approx(0.2)
+
+
+def test_adaptive_bdf_interval_reuses_sparse_jvp_workspace_across_trials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = object()
+    received_workspaces: list[object | None] = []
+
+    monkeypatch.setattr(recycling, "_build_recycling_sparse_jvp_workspace", lambda **kwargs: workspace)
+
+    def fake_be_step(config, fields, *, timestep, feedback_integrals, sparse_jvp_workspace=None, **kwargs):
+        received_workspaces.append(sparse_jvp_workspace)
+        return {"N": fields["N"] + 0.5}, {"ctrl": feedback_integrals["ctrl"] + 0.5}, SimpleNamespace(
+            diagnostics={
+                "converged": True,
+                "rhs_backend": "fixed_full_field_array",
+                "jacobian_mode": "jvp",
+                "jvp_direction_workspace_reuses": 1,
+            },
+            linear_iterations=0,
+        )
+
+    def fake_bdf_step(
+        config,
+        fields,
+        previous_fields,
+        *,
+        timestep,
+        feedback_integrals,
+        sparse_jvp_workspace=None,
+        **kwargs,
+    ):
+        received_workspaces.append(sparse_jvp_workspace)
+        return {"N": fields["N"] + 1.0}, {"ctrl": feedback_integrals["ctrl"] + 1.0}, SimpleNamespace(
+            diagnostics={
+                "converged": True,
+                "rhs_backend": "fixed_full_field_array",
+                "jacobian_mode": "jvp",
+                "jvp_direction_workspace_reuses": 1,
+            },
+            linear_iterations=0,
+        )
+
+    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
+    monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf_step)
+    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.6)
+
+    _, _, _, _, _, _, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
+        _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
+        _fields(),
+        runtime_model=_runtime_model(),
+        feedback_integrals={"ctrl": 0.0},
+        previous_fields=_fields(0.5),
+        previous_integrals={"ctrl": -0.5},
+        previous_dt=0.5,
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        metrics=object(),
+        dataset_scalars={},
+        output_timestep=0.5,
+        suggested_dt=0.5,
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=20,
+        step_solver_mode="sparse_jvp",
+    )
+
+    assert received_workspaces == [workspace, workspace]
+    assert stats["adaptive_bdf_sparse_jvp_workspace_reuses"] == 2
 
 
 def test_adaptive_bdf_interval_rejects_bdf2_above_promotion_threshold(
@@ -1074,6 +1145,7 @@ def test_write_adaptive_bdf_trace_record_records_solver_diagnostics(
                 "jvp_jacobian_sparse_assembly_seconds": 0.06,
                 "jvp_jacobian_batch_count": 5,
                 "jvp_jacobian_prebuilt_direction_batch_uses": 1,
+                "jvp_direction_workspace_reuses": 1,
             },
         ),
     )
@@ -1087,6 +1159,7 @@ def test_write_adaptive_bdf_trace_record_records_solver_diagnostics(
     assert record["jacobian_mode"] == "jvp"
     assert record["linear_solver_success"] is False
     assert record["jvp_jacobian_prebuilt_direction_batch_uses"] == 1
+    assert record["jvp_direction_workspace_reuses"] == 1
 
 
 def test_record_adaptive_bdf_error_ratios_ignore_nonfinite_maxima() -> None:

@@ -15,6 +15,7 @@ from jax_drb.solver import (
     pack_active_fields,
     prepare_sparse_difference_quotient_plan,
     prepare_sparse_jvp_direction_batches,
+    prepare_sparse_jvp_workspace,
     solve_jax_linearized_newton_system,
     solve_matrix_free_newton_system,
     solve_sparse_newton_system,
@@ -483,6 +484,48 @@ def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:
     assert info.jvp_jacobian_prebuilt_direction_batch_uses == info.jacobian_refresh_count
     assert info.jvp_jacobian_tangent_build_seconds == pytest.approx(0.0)
     assert info.jvp_jacobian_total_seconds >= info.jvp_jacobian_linearize_seconds
+
+
+def test_sparse_newton_solver_reuses_sparse_jvp_workspace() -> None:
+    pytest.importorskip("scipy")
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_shape = (3,)
+    target = jnp.array([1.0, 0.5, 2.0], dtype=jnp.float64)
+    initial = np.array([0.8, 0.7, 1.7], dtype=np.float64)
+    sparsity = build_locality_sparsity(active_shape, field_count=1, radii=(0,))
+    color_groups = build_modulo_color_groups(active_shape, field_count=1, color_periods=(3,))
+    workspace = prepare_sparse_jvp_workspace(
+        sparsity=sparsity,
+        color_groups=color_groups,
+        state_shape=tuple(initial.shape),
+    )
+
+    def residual(state):
+        return jnp.asarray(state, dtype=jnp.float64) * jnp.asarray(state, dtype=jnp.float64) - target * target
+
+    solution, info = solve_sparse_newton_system(
+        residual,
+        initial,
+        active_shape=active_shape,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        residual_tolerance=1.0e-10,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=8,
+        linear_restart=5,
+        linear_maxiter=20,
+        linear_rtol=1.0e-10,
+        prefer_direct_linear_solve=True,
+        jacobian_mode="jvp",
+        sparse_jvp_workspace=workspace,
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1e-9, atol=1e-9)
+    assert info.jvp_direction_workspace_reuses == 1
+    assert info.jvp_direction_batch_count == len(workspace.direction_batches)
+    assert info.jvp_direction_build_seconds == pytest.approx(0.0)
+    assert info.jvp_jacobian_prebuilt_direction_batch_uses == info.jacobian_refresh_count
 
 
 def test_sparse_newton_solver_returns_immediately_when_initial_state_satisfies_residual() -> None:

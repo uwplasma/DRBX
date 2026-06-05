@@ -15,6 +15,7 @@ import numpy as np
 from ..config.boutinp import BoutConfig, NumericResolver
 from ..solver import (
     ImplicitStepInfo,
+    SparseJvpWorkspace,
     backward_euler_residual,
     bdf2_residual,
     build_locality_sparsity,
@@ -24,6 +25,7 @@ from ..solver import (
     pack_active_fields,
     prepare_sparse_difference_quotient_plan,
     prepare_sparse_jvp_direction_batches,
+    prepare_sparse_jvp_workspace,
     solve_jax_linearized_newton_system,
     solve_matrix_free_newton_system,
     solve_sparse_newton_system,
@@ -2032,6 +2034,7 @@ def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float |
         "adaptive_bdf_fixed_full_field_rhs_solver_steps": 0,
         "adaptive_bdf_host_bridge_rhs_solver_steps": 0,
         "adaptive_bdf_sparse_jvp_jacobian_solver_steps": 0,
+        "adaptive_bdf_sparse_jvp_workspace_reuses": 0,
         "adaptive_bdf_fd_jacobian_solver_steps": 0,
         "adaptive_bdf_jax_linearized_action_solver_steps": 0,
         "adaptive_bdf_lineax_action_solver_steps": 0,
@@ -2149,6 +2152,7 @@ def _write_adaptive_bdf_trace_record(
                 "jvp_jacobian_sparse_assembly_seconds",
                 "jvp_jacobian_batch_count",
                 "jvp_jacobian_prebuilt_direction_batch_uses",
+                "jvp_direction_workspace_reuses",
             ):
                 if key in diagnostics:
                     record[key] = diagnostics[key]
@@ -2284,6 +2288,7 @@ def _record_adaptive_bdf_step_solver_info(
     for source_key, destination_key in (
         ("residual_evaluation_count", "adaptive_bdf_residual_evaluation_count"),
         ("jacobian_refresh_count", "adaptive_bdf_jacobian_refresh_count"),
+        ("jvp_direction_workspace_reuses", "adaptive_bdf_sparse_jvp_workspace_reuses"),
     ):
         stats[destination_key] = int(stats[destination_key]) + int(diagnostics.get(source_key, 0) or 0)
     stats["adaptive_bdf_linear_iterations"] = int(stats["adaptive_bdf_linear_iterations"]) + int(
@@ -2343,6 +2348,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_fixed_full_field_rhs_solver_steps",
         "adaptive_bdf_host_bridge_rhs_solver_steps",
         "adaptive_bdf_sparse_jvp_jacobian_solver_steps",
+        "adaptive_bdf_sparse_jvp_workspace_reuses",
         "adaptive_bdf_fd_jacobian_solver_steps",
         "adaptive_bdf_jax_linearized_action_solver_steps",
         "adaptive_bdf_lineax_action_solver_steps",
@@ -2438,6 +2444,16 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     stats = _new_adaptive_bdf_interval_stats(step_solver_mode)
     interval_started_at = time.perf_counter()
     field_absolute_tolerance_floors = _resolve_recycling_adaptive_bdf_field_atol_floors(config, field_names)
+    sparse_jvp_workspace = (
+        _build_recycling_sparse_jvp_workspace(
+            field_names=field_names,
+            packed_feedback_names=(),
+            mesh=mesh,
+            jvp_batch_size=_resolve_recycling_jvp_batch_size(),
+        )
+        if step_solver_mode == "sparse_jvp"
+        else None
+    )
 
     while remaining > 1.0e-12:
         dt = min(dt, remaining)
@@ -2468,6 +2484,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 field_absolute_tolerance_floors=field_absolute_tolerance_floors,
                 step_solver_mode=step_solver_mode,
                 stats=stats,
+                sparse_jvp_workspace=sparse_jvp_workspace,
             )
             _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_startup_trial_seconds", startup_started_at)
         else:
@@ -2492,6 +2509,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 solver_mode=step_solver_mode,
                 residual_tolerance=residual_tolerance,
                 max_nonlinear_iterations=max_nonlinear_iterations,
+                sparse_jvp_workspace=sparse_jvp_workspace,
             )
             be_elapsed = max(0.0, float(time.perf_counter()) - float(be_started_at))
             stats["adaptive_bdf_backward_euler_trial_seconds"] = (
@@ -2530,6 +2548,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 solver_mode=step_solver_mode,
                 residual_tolerance=residual_tolerance,
                 max_nonlinear_iterations=max_nonlinear_iterations,
+                sparse_jvp_workspace=sparse_jvp_workspace,
             )
             bdf2_elapsed = max(0.0, float(time.perf_counter()) - float(bdf2_started_at))
             stats["adaptive_bdf_bdf2_trial_seconds"] = float(stats["adaptive_bdf_bdf2_trial_seconds"]) + bdf2_elapsed
@@ -2699,6 +2718,7 @@ def _advance_recycling_1d_startup_step(
     field_absolute_tolerance_floors: dict[str, float] | None = None,
     step_solver_mode: str = "sparse",
     stats: dict[str, float | int | str | None] | None = None,
+    sparse_jvp_workspace: SparseJvpWorkspace | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], float]:
     full_started_at = time.perf_counter()
     _write_adaptive_bdf_trace_record(
@@ -2720,6 +2740,7 @@ def _advance_recycling_1d_startup_step(
         solver_mode=step_solver_mode,
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
+        sparse_jvp_workspace=sparse_jvp_workspace,
     )
     full_elapsed = max(0.0, float(time.perf_counter()) - float(full_started_at))
     if stats is not None:
@@ -2756,6 +2777,7 @@ def _advance_recycling_1d_startup_step(
         solver_mode=step_solver_mode,
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
+        sparse_jvp_workspace=sparse_jvp_workspace,
     )
     first_half_elapsed = max(0.0, float(time.perf_counter()) - float(first_half_started_at))
     if stats is not None:
@@ -2792,6 +2814,7 @@ def _advance_recycling_1d_startup_step(
         solver_mode=step_solver_mode,
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
+        sparse_jvp_workspace=sparse_jvp_workspace,
     )
     second_half_elapsed = max(0.0, float(time.perf_counter()) - float(second_half_started_at))
     if stats is not None:
@@ -3129,6 +3152,33 @@ def _initial_recycling_adaptive_bdf_dt(
         if np.isfinite(configured) and configured > 0.0:
             return min(float(timestep), configured)
     return _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
+
+
+def _build_recycling_sparse_jvp_workspace(
+    *,
+    field_names: tuple[str, ...],
+    packed_feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+    jvp_batch_size: int | None,
+) -> SparseJvpWorkspace:
+    active_shape = _recycling_active_shape(mesh)
+    sparsity = _build_recycling_residual_sparsity(
+        active_shape=active_shape,
+        field_count=len(field_names),
+        controller_count=len(packed_feedback_names),
+    )
+    color_groups = _build_recycling_color_groups(
+        active_shape=active_shape,
+        field_count=len(field_names),
+        controller_count=len(packed_feedback_names),
+    )
+    return prepare_sparse_jvp_workspace(
+        sparsity=sparsity,
+        color_groups=color_groups,
+        state_shape=(int(sparsity.shape[0]),),
+        dtype=np.float64,
+        batch_size=jvp_batch_size,
+    )
 
 
 def build_recycling_1d_backward_euler_residual_context(
@@ -3497,6 +3547,7 @@ def advance_recycling_1d_backward_euler_step(
     residual_tolerance: float = 1.0e-8,
     max_nonlinear_iterations: int = 20,
     evolve_feedback_integrals: bool = False,
+    sparse_jvp_workspace: SparseJvpWorkspace | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
     rhs_backend = (
         "fixed_full_field_array"
@@ -3525,20 +3576,31 @@ def advance_recycling_1d_backward_euler_step(
     residual = context.residual
 
     if solver_mode in {"sparse", "sparse_jvp"}:
+        workspace_compatible = (
+            solver_mode == "sparse_jvp"
+            and sparse_jvp_workspace is not None
+            and tuple(sparse_jvp_workspace.sparsity_shape) == (int(packed_previous.size), int(packed_previous.size))
+        )
+        if workspace_compatible:
+            sparsity = sparse_jvp_workspace.sparsity
+            color_groups = sparse_jvp_workspace.color_groups
+        else:
+            sparsity = _build_recycling_residual_sparsity(
+                active_shape=layout.active_shape,
+                field_count=len(field_names),
+                controller_count=len(packed_feedback_names),
+            )
+            color_groups = _build_recycling_color_groups(
+                active_shape=layout.active_shape,
+                field_count=len(field_names),
+                controller_count=len(packed_feedback_names),
+            )
         solved, info = solve_sparse_newton_system(
             residual,
             packed_initial_guess,
             active_shape=(packed_previous.size,),
-            sparsity=_build_recycling_residual_sparsity(
-                active_shape=layout.active_shape,
-                field_count=len(field_names),
-                controller_count=len(packed_feedback_names),
-            ),
-            color_groups=_build_recycling_color_groups(
-                active_shape=layout.active_shape,
-                field_count=len(field_names),
-                controller_count=len(packed_feedback_names),
-            ),
+            sparsity=sparsity,
+            color_groups=color_groups,
             residual_tolerance=residual_tolerance,
             step_tolerance=1.0e-11,
             max_nonlinear_iterations=max_nonlinear_iterations,
@@ -3549,6 +3611,7 @@ def advance_recycling_1d_backward_euler_step(
             jacobian_refresh_frequency=3 if len(field_names) > 10 else 1,
             jacobian_mode="jvp" if solver_mode == "sparse_jvp" else _resolve_recycling_sparse_jacobian_mode(),
             jvp_batch_size=_resolve_recycling_jvp_batch_size(),
+            sparse_jvp_workspace=sparse_jvp_workspace if workspace_compatible else None,
         )
     elif solver_mode == "matrix_free":
         solved, info = solve_matrix_free_newton_system(
@@ -3623,6 +3686,7 @@ def advance_recycling_1d_bdf2_step(
     residual_tolerance: float = 1.0e-8,
     max_nonlinear_iterations: int = 20,
     evolve_feedback_integrals: bool = False,
+    sparse_jvp_workspace: SparseJvpWorkspace | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
     rhs_backend = (
         "fixed_full_field_array"
@@ -3654,20 +3718,31 @@ def advance_recycling_1d_bdf2_step(
     residual = context.residual
 
     if solver_mode in {"sparse", "sparse_jvp"}:
+        workspace_compatible = (
+            solver_mode == "sparse_jvp"
+            and sparse_jvp_workspace is not None
+            and tuple(sparse_jvp_workspace.sparsity_shape) == (int(packed_previous.size), int(packed_previous.size))
+        )
+        if workspace_compatible:
+            sparsity = sparse_jvp_workspace.sparsity
+            color_groups = sparse_jvp_workspace.color_groups
+        else:
+            sparsity = _build_recycling_residual_sparsity(
+                active_shape=layout.active_shape,
+                field_count=len(field_names),
+                controller_count=len(packed_feedback_names),
+            )
+            color_groups = _build_recycling_color_groups(
+                active_shape=layout.active_shape,
+                field_count=len(field_names),
+                controller_count=len(packed_feedback_names),
+            )
         solved, info = solve_sparse_newton_system(
             residual,
             packed_initial_guess,
             active_shape=(packed_previous.size,),
-            sparsity=_build_recycling_residual_sparsity(
-                active_shape=layout.active_shape,
-                field_count=len(field_names),
-                controller_count=len(packed_feedback_names),
-            ),
-            color_groups=_build_recycling_color_groups(
-                active_shape=layout.active_shape,
-                field_count=len(field_names),
-                controller_count=len(packed_feedback_names),
-            ),
+            sparsity=sparsity,
+            color_groups=color_groups,
             residual_tolerance=residual_tolerance,
             step_tolerance=1.0e-11,
             max_nonlinear_iterations=max_nonlinear_iterations,
@@ -3678,6 +3753,7 @@ def advance_recycling_1d_bdf2_step(
             jacobian_refresh_frequency=3 if len(field_names) > 10 else 1,
             jacobian_mode="jvp" if solver_mode == "sparse_jvp" else _resolve_recycling_sparse_jacobian_mode(),
             jvp_batch_size=_resolve_recycling_jvp_batch_size(),
+            sparse_jvp_workspace=sparse_jvp_workspace if workspace_compatible else None,
         )
     elif solver_mode == "matrix_free":
         solved, info = solve_matrix_free_newton_system(
@@ -4691,6 +4767,7 @@ def _as_recycling_step_info(
         "jvp_jacobian_prebuilt_direction_batch_uses": int(
             getattr(info, "jvp_jacobian_prebuilt_direction_batch_uses", 0)
         ),
+        "jvp_direction_workspace_reuses": int(getattr(info, "jvp_direction_workspace_reuses", 0)),
     }
     if solver_mode is not None:
         diagnostics["solver_mode"] = str(solver_mode)

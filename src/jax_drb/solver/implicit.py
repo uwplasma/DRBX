@@ -48,6 +48,7 @@ class ImplicitStepInfo:
     jvp_jacobian_sparse_assembly_seconds: float = 0.0
     jvp_jacobian_batch_count: int = 0
     jvp_jacobian_prebuilt_direction_batch_uses: int = 0
+    jvp_direction_workspace_reuses: int = 0
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,21 @@ class SparseDifferenceQuotientPlan:
 class SparseJvpDirectionBatch:
     groups: tuple[SparseDifferenceQuotientGroup, ...]
     directions: object
+
+
+@dataclass(frozen=True)
+class SparseJvpWorkspace:
+    """Static sparse-JVP plan reusable across same-layout Newton solves."""
+
+    sparsity_shape: tuple[int, int]
+    state_shape: tuple[int, ...]
+    dtype: str
+    batch_size: int | None
+    sparsity: object
+    color_groups: tuple[tuple[int, ...], ...]
+    sparsity_csc: object
+    difference_plan: SparseDifferenceQuotientPlan
+    direction_batches: tuple[SparseJvpDirectionBatch, ...]
 
 
 @dataclass(frozen=True)
@@ -233,6 +249,70 @@ def prepare_sparse_jvp_direction_batches(
         )
         batches.append(SparseJvpDirectionBatch(groups=tuple(batch_groups), directions=directions))
     return tuple(batches)
+
+
+def prepare_sparse_jvp_workspace(
+    *,
+    sparsity,
+    color_groups: tuple[tuple[int, ...], ...],
+    state_shape: tuple[int, ...],
+    dtype=np.float64,
+    batch_size: int | None = None,
+    sparsity_csc=None,
+    difference_plan: SparseDifferenceQuotientPlan | None = None,
+) -> SparseJvpWorkspace:
+    """Precompute static sparse-JVP data for repeated compatible solves."""
+
+    resolved_state_shape = tuple(int(axis) for axis in state_shape)
+    resolved_batch_size = None if batch_size is None else max(1, int(batch_size))
+    resolved_dtype = np.dtype(dtype).str
+    sparsity_csc = sparsity.tocsc() if sparsity_csc is None else sparsity_csc
+    plan = (
+        difference_plan
+        if difference_plan is not None
+        else prepare_sparse_difference_quotient_plan(
+            sparsity=sparsity,
+            color_groups=color_groups,
+            sparsity_csc=sparsity_csc,
+        )
+    )
+    direction_batches = prepare_sparse_jvp_direction_batches(
+        difference_plan=plan,
+        state_shape=resolved_state_shape,
+        dtype=np.dtype(dtype),
+        batch_size=resolved_batch_size,
+    )
+    return SparseJvpWorkspace(
+        sparsity_shape=tuple(int(axis) for axis in sparsity.shape),
+        state_shape=resolved_state_shape,
+        dtype=resolved_dtype,
+        batch_size=resolved_batch_size,
+        sparsity=sparsity,
+        color_groups=tuple(tuple(int(column) for column in group) for group in color_groups),
+        sparsity_csc=sparsity_csc,
+        difference_plan=plan,
+        direction_batches=direction_batches,
+    )
+
+
+def _sparse_jvp_workspace_is_compatible(
+    workspace: SparseJvpWorkspace | None,
+    *,
+    sparsity,
+    state_shape: tuple[int, ...],
+    dtype,
+    batch_size: int | None,
+) -> bool:
+    if workspace is None:
+        return False
+    resolved_batch_size = None if batch_size is None else max(1, int(batch_size))
+    return (
+        tuple(int(axis) for axis in workspace.sparsity_shape) == tuple(int(axis) for axis in sparsity.shape)
+        and tuple(int(axis) for axis in workspace.state_shape) == tuple(int(axis) for axis in state_shape)
+        and workspace.dtype == np.dtype(dtype).str
+        and workspace.batch_size == resolved_batch_size
+        and int(workspace.difference_plan.nnz) == int(getattr(sparsity, "nnz", workspace.difference_plan.nnz))
+    )
 
 
 def build_sparse_difference_quotient_jacobian(
@@ -502,6 +582,7 @@ def solve_sparse_newton_system(
     jacobian_parallel_workers: int | None = None,
     jacobian_mode: str = "fd",
     jvp_batch_size: int | None = None,
+    sparse_jvp_workspace: SparseJvpWorkspace | None = None,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         from scipy.optimize import NoConvergence, newton_krylov
@@ -533,6 +614,7 @@ def solve_sparse_newton_system(
     jvp_jacobian_sparse_assembly_seconds = 0.0
     jvp_jacobian_batch_count = 0
     jvp_jacobian_prebuilt_direction_batch_uses = 0
+    jvp_direction_workspace_reuses = 0
 
     def evaluate_residual(candidate_state: np.ndarray) -> np.ndarray:
         nonlocal residual_evaluation_count, residual_evaluation_seconds
@@ -573,6 +655,7 @@ def solve_sparse_newton_system(
             jvp_jacobian_sparse_assembly_seconds=jvp_jacobian_sparse_assembly_seconds,
             jvp_jacobian_batch_count=jvp_jacobian_batch_count,
             jvp_jacobian_prebuilt_direction_batch_uses=jvp_jacobian_prebuilt_direction_batch_uses,
+            jvp_direction_workspace_reuses=jvp_direction_workspace_reuses,
         )
 
     refresh_frequency = max(1, int(jacobian_refresh_frequency))
@@ -586,22 +669,37 @@ def solve_sparse_newton_system(
             jacobian_parallel_workers = min(4, cpu_count) if heavy_problem else 1
     jacobian = None
     jacobian_csc = None
-    sparsity_csc = sparsity.tocsc()
-    difference_plan = prepare_sparse_difference_quotient_plan(
+    workspace_is_compatible = resolved_jacobian_mode == "jvp" and _sparse_jvp_workspace_is_compatible(
+        sparse_jvp_workspace,
         sparsity=sparsity,
-        color_groups=color_groups,
-        sparsity_csc=sparsity_csc,
+        state_shape=tuple(state.shape),
+        dtype=np.float64,
+        batch_size=jvp_batch_size,
     )
+    if workspace_is_compatible:
+        sparsity_csc = sparse_jvp_workspace.sparsity_csc
+        difference_plan = sparse_jvp_workspace.difference_plan
+    else:
+        sparsity_csc = sparsity.tocsc()
+        difference_plan = prepare_sparse_difference_quotient_plan(
+            sparsity=sparsity,
+            color_groups=color_groups,
+            sparsity_csc=sparsity_csc,
+        )
     jvp_direction_batches = None
     if resolved_jacobian_mode == "jvp":
-        direction_started_at = perf_counter()
-        jvp_direction_batches = prepare_sparse_jvp_direction_batches(
-            difference_plan=difference_plan,
-            state_shape=tuple(state.shape),
-            dtype=np.float64,
-            batch_size=jvp_batch_size,
-        )
-        jvp_direction_build_seconds += perf_counter() - direction_started_at
+        if workspace_is_compatible:
+            jvp_direction_batches = sparse_jvp_workspace.direction_batches
+            jvp_direction_workspace_reuses = 1
+        else:
+            direction_started_at = perf_counter()
+            jvp_direction_batches = prepare_sparse_jvp_direction_batches(
+                difference_plan=difference_plan,
+                state_shape=tuple(state.shape),
+                dtype=np.float64,
+                batch_size=jvp_batch_size,
+            )
+            jvp_direction_build_seconds += perf_counter() - direction_started_at
         jvp_direction_batch_count = len(jvp_direction_batches)
 
     def record_jvp_timing(timing: dict[str, float | int]) -> None:
