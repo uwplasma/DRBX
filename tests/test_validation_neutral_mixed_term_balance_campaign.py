@@ -13,7 +13,9 @@ from jax_drb.validation import (
     build_neutral_mixed_substep_hybrid_report,
     build_neutral_mixed_term_balance_campaign_report,
     create_neutral_mixed_term_balance_campaign_package,
+    run_neutral_mixed_hermes_accepted_step_trace,
     save_neutral_mixed_term_balance_campaign_plot,
+    write_neutral_mixed_accepted_step_trace_input,
     write_neutral_mixed_accepted_step_trace_parity_json,
     write_neutral_mixed_native_accepted_step_trace_json,
     write_neutral_mixed_substep_hybrid_json,
@@ -376,6 +378,72 @@ def test_write_neutral_mixed_diagnostic_input_enables_hermes_outputs(
     assert "[h]" in text
     assert "output_ddt = true" in text
     assert "diagnose = true" in text
+
+
+def test_write_neutral_mixed_accepted_step_trace_input_enables_monitor(
+    tmp_path: Path,
+) -> None:
+    source = _write_neutral_mixed_input(tmp_path / "source.inp")
+    trace_path = tmp_path / "trace" / "accepted.jsonl"
+    target = write_neutral_mixed_accepted_step_trace_input(
+        source,
+        tmp_path / "data" / "BOUT.inp",
+        trace_jsonl_path=trace_path,
+        species="h",
+    )
+
+    text = target.read_text(encoding="utf-8")
+    assert "nout = 1" in text
+    assert "[solver]" in text
+    assert "monitor_timestep = true" in text
+    assert "[hermes]" in text
+    assert "neutral_mixed_accepted_step_trace = true" in text
+    assert f"neutral_mixed_accepted_step_trace_file = {trace_path.resolve()}" in text
+    assert "neutral_mixed_accepted_step_trace_species = h" in text
+    assert trace_path.parent.exists()
+
+
+def test_run_neutral_mixed_hermes_accepted_step_trace_returns_jsonl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference_root = tmp_path / "reference"
+    source_dir = reference_root / "tests" / "integrated" / "neutral_mixed" / "data"
+    source_dir.mkdir(parents=True)
+    _write_neutral_mixed_input(source_dir / "BOUT.inp")
+    binary = tmp_path / "hermes-3"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    trace_path = tmp_path / "trace.jsonl"
+
+    def fake_run(command, **kwargs):
+        assert command == [str(binary.resolve()), "-d", "data"]
+        assert kwargs["cwd"] == (tmp_path / "work").resolve()
+        trace_path.write_text(
+            json.dumps(
+                {
+                    "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+                    "time": 0.0,
+                    "stages": {"post_accepted": {}},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stdout="ok")
+
+    monkeypatch.setattr(
+        "jax_drb.validation.neutral_mixed_term_balance_campaign.subprocess.run",
+        fake_run,
+    )
+
+    result = run_neutral_mixed_hermes_accepted_step_trace(
+        reference_root=reference_root,
+        workdir=tmp_path / "work",
+        hermes_binary=binary,
+        trace_jsonl_path=trace_path,
+    )
+
+    assert result == trace_path.resolve()
+    assert (tmp_path / "work" / "run.log").read_text(encoding="utf-8") == "ok"
 
 
 def test_neutral_mixed_substep_hybrid_report_ranks_successes_and_failures(

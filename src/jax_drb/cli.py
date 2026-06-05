@@ -324,6 +324,26 @@ def _build_parser() -> argparse.ArgumentParser:
         command=_trace_neutral_mixed_accepted_steps_command
     )
 
+    neutral_reference_trace_parser = subparsers.add_parser(
+        "trace-neutral-mixed-reference-accepted-steps",
+        help="Run a patched reference neutral-mixed case and write accepted-internal-step JSONL.",
+    )
+    neutral_reference_trace_parser.add_argument(
+        "--reference-root", type=Path, required=True
+    )
+    neutral_reference_trace_parser.add_argument("--workdir", type=Path, required=True)
+    neutral_reference_trace_parser.add_argument(
+        "--hermes-binary", type=Path, default=None
+    )
+    neutral_reference_trace_parser.add_argument("--trace-out", type=Path, default=None)
+    neutral_reference_trace_parser.add_argument("--species", default="h")
+    neutral_reference_trace_parser.add_argument(
+        "--timeout-seconds", type=float, default=120.0
+    )
+    neutral_reference_trace_parser.set_defaults(
+        command=_trace_neutral_mixed_reference_accepted_steps_command
+    )
+
     neutral_trace_compare_parser = subparsers.add_parser(
         "compare-neutral-mixed-accepted-traces",
         help="Compare native and reference accepted-internal-step traces for neutral-mixed NVh parity diagnostics.",
@@ -436,6 +456,7 @@ def _normalize_cli_argv(argv: list[str]) -> list[str]:
         "compare-neutral-mixed",
         "diagnose-neutral-mixed-substeps",
         "trace-neutral-mixed-accepted-steps",
+        "trace-neutral-mixed-reference-accepted-steps",
         "compare-neutral-mixed-accepted-traces",
         "run",
     }
@@ -1187,6 +1208,29 @@ def _trace_neutral_mixed_accepted_steps_command(args: argparse.Namespace) -> int
     print(f"trace_point_count: {report['trace_point_count']}")
     print(f"sample_y_indices: {report['sample_y_indices']}")
     print(f"json_out: {path}")
+    return 0
+
+
+def _trace_neutral_mixed_reference_accepted_steps_command(
+    args: argparse.Namespace,
+) -> int:
+    from .validation import run_neutral_mixed_hermes_accepted_step_trace
+
+    if float(args.timeout_seconds) <= 0.0:
+        print(
+            "trace-neutral-mixed-reference-accepted-steps: --timeout-seconds must be positive."
+        )
+        return 1
+    path = run_neutral_mixed_hermes_accepted_step_trace(
+        reference_root=args.reference_root,
+        workdir=args.workdir,
+        hermes_binary=args.hermes_binary,
+        trace_jsonl_path=args.trace_out,
+        timeout_seconds=float(args.timeout_seconds),
+        species=args.species,
+    )
+    print("diagnostic: neutral_mixed_reference_accepted_step_trace")
+    print(f"trace_jsonl: {path}")
     return 0
 
 

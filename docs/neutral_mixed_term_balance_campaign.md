@@ -116,14 +116,32 @@ PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps \
 ```
 
 For every accepted internal solver step from `t = 0` to the one-step output
-time, the trace should write `time`, `dt`, solver order, and both
-post-boundary/pre-RHS and post-accepted `Nh`, `Ph`, and `NVh` values at the
-active target-adjacent cells and adjacent guard cells. The same sample should
-include `ddt(Nh)`, `ddt(Ph)`, `ddt(NVh)`, and the existing direct
-`SNVh_*` source diagnostics. That is the missing information needed to
-distinguish time-integrator history drift from guard/boundary sequencing
-differences; the current JAXDRB-side artifacts alone do not isolate a unique
-safe native patch.
+time, the native trace writes `time`, `dt`, solver order, and post-accepted
+`Nh`, `Ph`, and `NVh` values at the active target-adjacent cells and adjacent
+guard cells. When a reference executable with the accepted-step monitor patch
+is available, write the matching reference JSONL with:
+
+```bash
+PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
+  --reference-root /path/to/reference-root \
+  --workdir /tmp/neutral_mixed_reference_trace \
+  --trace-out /tmp/neutral_mixed_reference_trace/accepted_steps.jsonl
+```
+
+Then compare both traces with:
+
+```bash
+PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces \
+  neutral_mixed_native_accepted_step_trace.json \
+  /tmp/neutral_mixed_reference_trace/accepted_steps.jsonl \
+  --json-out neutral_mixed_accepted_step_trace_parity.json
+```
+
+The reference JSONL should include post-boundary/pre-RHS samples, `ddt(Nh)`,
+`ddt(Ph)`, `ddt(NVh)`, and the existing direct `SNVh_*` source diagnostics.
+That is the missing information needed to distinguish time-integrator history
+drift from guard/boundary sequencing differences; the current JAXDRB-side
+artifacts alone do not isolate a unique safe native patch.
 
 Run the Hermès-free diagnostic with:
 

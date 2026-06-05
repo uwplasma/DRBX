@@ -54,6 +54,42 @@ def write_neutral_mixed_diagnostic_input(
     return target
 
 
+def write_neutral_mixed_accepted_step_trace_input(
+    source_input: str | Path,
+    target_input: str | Path,
+    *,
+    trace_jsonl_path: str | Path,
+    nout: int = 1,
+    species: str = "h",
+) -> Path:
+    """Write a reference deck configured for accepted-step neutral trace JSONL."""
+
+    source = Path(source_input).expanduser().resolve()
+    target = Path(target_input).expanduser().resolve()
+    trace_path = Path(trace_jsonl_path).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    trace_path.parent.mkdir(parents=True, exist_ok=True)
+    text = source.read_text(encoding="utf-8")
+    text = _set_root_option(text, "nout", str(int(nout)))
+    text = _set_section_option(text, "solver", "monitor_timestep", "true")
+    text = _set_section_option(text, str(species), "output_ddt", "true")
+    text = _set_section_option(text, str(species), "diagnose", "true")
+    text = _set_section_option(
+        text, "hermes", "neutral_mixed_accepted_step_trace", "true"
+    )
+    text = _set_section_option(
+        text,
+        "hermes",
+        "neutral_mixed_accepted_step_trace_file",
+        trace_path.as_posix(),
+    )
+    text = _set_section_option(
+        text, "hermes", "neutral_mixed_accepted_step_trace_species", str(species)
+    )
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
 def run_neutral_mixed_hermes_diagnostic_rerun(
     *,
     reference_root: str | Path,
@@ -99,6 +135,67 @@ def run_neutral_mixed_hermes_diagnostic_rerun(
             f"Hermès neutral-mixed diagnostic rerun did not produce {dump_path}"
         )
     return dump_path
+
+
+def run_neutral_mixed_hermes_accepted_step_trace(
+    *,
+    reference_root: str | Path,
+    workdir: str | Path,
+    hermes_binary: str | Path | None = None,
+    trace_jsonl_path: str | Path | None = None,
+    timeout_seconds: float = 120.0,
+    species: str = "h",
+) -> Path:
+    """Run a patched reference neutral-mixed case and return accepted-step JSONL."""
+
+    root = Path(reference_root).expanduser().resolve()
+    target_workdir = Path(workdir).expanduser().resolve()
+    data_dir = target_workdir / "data"
+    if target_workdir.exists():
+        shutil.rmtree(target_workdir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    source_input = root / "tests" / "integrated" / "neutral_mixed" / "data" / "BOUT.inp"
+    if not source_input.exists():
+        raise FileNotFoundError(f"Neutral mixed Hermès input not found: {source_input}")
+    trace_path = (
+        Path(trace_jsonl_path).expanduser().resolve()
+        if trace_jsonl_path is not None
+        else data_dir / "neutral_mixed_reference_accepted_step_trace.jsonl"
+    )
+    write_neutral_mixed_accepted_step_trace_input(
+        source_input,
+        data_dir / "BOUT.inp",
+        trace_jsonl_path=trace_path,
+        species=species,
+    )
+    binary = (
+        Path(hermes_binary).expanduser().resolve()
+        if hermes_binary is not None
+        else _default_hermes_binary(root)
+    )
+    completed = subprocess.run(
+        [str(binary), "-d", "data"],
+        cwd=target_workdir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+        timeout=float(timeout_seconds),
+    )
+    (target_workdir / "run.log").write_text(completed.stdout, encoding="utf-8")
+    if completed.returncode != 0:
+        tail = "\n".join(completed.stdout.splitlines()[-40:])
+        raise RuntimeError(
+            "Hermès neutral-mixed accepted-step trace run failed with exit "
+            f"code {completed.returncode}:\n{tail}"
+        )
+    if not trace_path.exists():
+        raise FileNotFoundError(
+            "Hermès neutral-mixed accepted-step trace JSONL was not produced. "
+            "This diagnostic requires a reference binary with the gated accepted-step "
+            f"trace monitor enabled. Expected: {trace_path}"
+        )
+    return trace_path
 
 
 def create_neutral_mixed_term_balance_campaign_package(
