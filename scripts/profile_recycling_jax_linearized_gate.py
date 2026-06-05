@@ -76,7 +76,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("docs") / "data" / "runtime_profile_artifacts" / "recycling_1d_jax_linearized_gate",
+        default=Path("docs")
+        / "data"
+        / "runtime_profile_artifacts"
+        / "recycling_1d_jax_linearized_gate",
     )
     parser.add_argument("--timestep", type=float, default=1.0e-6)
     parser.add_argument("--residual-tolerance", type=float, default=1.0e-6)
@@ -89,6 +92,14 @@ def _parse_args() -> argparse.Namespace:
             "BOUT.inp override such as 'mesh:ny=100'. May be repeated. "
             "Use this for heavier real-kernel CPU/GPU scaling gates without "
             "copying large input decks into the repository."
+        ),
+    )
+    parser.add_argument(
+        "--jit-residual",
+        action="store_true",
+        help=(
+            "Set runtime:recycling_jax_linear_jit_residual=true before profiling. "
+            "This is a diagnostic JAX compilation seam, not a production default."
         ),
     )
     parser.add_argument(
@@ -142,14 +153,34 @@ def _resolve_input(args: argparse.Namespace) -> Path:
     if root is None:
         raise SystemExit("--reference-root or JAX_DRB_REFERENCE_ROOT is required.")
     case_dir = "1D-recycling-dthe" if args.case == "dthe" else "1D-recycling"
-    return (root.expanduser().resolve() / "tests" / "integrated" / case_dir / "data" / "BOUT.inp").resolve()
+    return (
+        root.expanduser().resolve()
+        / "tests"
+        / "integrated"
+        / case_dir
+        / "data"
+        / "BOUT.inp"
+    ).resolve()
 
 
 def _solver_mode_for_backend(linear_solver_backend: str) -> str:
-    return "jax_linearized_lineax" if str(linear_solver_backend) == "lineax_gmres" else "jax_linearized"
+    return (
+        "jax_linearized_lineax"
+        if str(linear_solver_backend) == "lineax_gmres"
+        else "jax_linearized"
+    )
 
 
-def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str, Any], float]:
+def _effective_overrides(args: argparse.Namespace) -> list[str]:
+    overrides = list(getattr(args, "override", ()) or ())
+    if bool(getattr(args, "jit_residual", False)):
+        overrides.append("runtime:recycling_jax_linear_jit_residual=true")
+    return overrides
+
+
+def _profile_once(
+    args: argparse.Namespace, input_path: Path
+) -> tuple[dict[str, Any], float]:
     from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
     from jax_drb.native.mesh import build_structured_mesh
     from jax_drb.native.metrics import build_structured_metrics
@@ -162,8 +193,9 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
     from jax_drb.runtime.run_config import RunConfiguration
 
     config = load_bout_input(input_path)
-    if args.override:
-        config = apply_bout_overrides(config, args.override)
+    overrides = _effective_overrides(args)
+    if overrides:
+        config = apply_bout_overrides(config, overrides)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -203,7 +235,8 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
         "case": str(args.case),
         "solver_mode": solver_mode,
         "linear_solver_backend": str(args.linear_solver_backend),
-        "overrides": list(args.override),
+        "overrides": list(overrides),
+        "jit_residual_requested": bool(getattr(args, "jit_residual", False)),
         "warmup_runs": int(max(args.warmup_runs, 0)),
         "timestep": float(args.timestep),
         "residual_tolerance": float(args.residual_tolerance),
@@ -217,13 +250,17 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
         ],
         "active_size": int(info.active_size),
         "variable_cell_count": variable_cells,
-        "state_size": int(sum(variable_cells.values()) + len(runtime_model.feedback_names)),
+        "state_size": int(
+            sum(variable_cells.values()) + len(runtime_model.feedback_names)
+        ),
         "residual_inf_norm": float(info.residual_inf_norm),
         "nonlinear_iterations": int(info.nonlinear_iterations),
         "linear_iterations": int(info.linear_iterations),
         "linear_solver_status": info.diagnostics.get("linear_solver_status"),
         "linear_solver_success": info.diagnostics.get("linear_solver_success"),
-        "linear_solver_reported_iterations": info.diagnostics.get("linear_solver_reported_iterations"),
+        "linear_solver_reported_iterations": info.diagnostics.get(
+            "linear_solver_reported_iterations"
+        ),
         "diagnostics": dict(info.diagnostics),
     }
     return report, elapsed
@@ -262,7 +299,15 @@ def _run_with_optional_profile(args: argparse.Namespace, input_path: Path, jax):
         extra_report, extra_elapsed = _profile_once(args, input_path)
         timed_elapsed.append(float(extra_elapsed))
         timed_residuals.append(float(extra_report["residual_inf_norm"]))
-    return report, elapsed, profiler, trace_dir, warmup_elapsed, timed_elapsed, timed_residuals
+    return (
+        report,
+        elapsed,
+        profiler,
+        trace_dir,
+        warmup_elapsed,
+        timed_elapsed,
+        timed_residuals,
+    )
 
 
 class _NullContext:
@@ -284,21 +329,33 @@ def main() -> int:
 
     from jax_drb.runtime.memory import bytes_to_mebibytes, measure_peak_rss
 
-    profile_report, elapsed, profiler, trace_dir, warmup_elapsed, timed_elapsed, timed_residuals = _run_with_optional_profile(
-        args, input_path, jax
-    )
+    (
+        profile_report,
+        elapsed,
+        profiler,
+        trace_dir,
+        warmup_elapsed,
+        timed_elapsed,
+        timed_residuals,
+    ) = _run_with_optional_profile(args, input_path, jax)
     rss_payload = None
     rss_elapsed = None
     if args.rss_profile:
-        (rss_report, rss_elapsed), rss_measurement = measure_peak_rss(lambda: _profile_once(args, input_path))
+        (rss_report, rss_elapsed), rss_measurement = measure_peak_rss(
+            lambda: _profile_once(args, input_path)
+        )
         rss_payload = {
             "status": rss_measurement.status,
             "sample_count": int(rss_measurement.sample_count),
-            "sampling_interval_seconds": float(rss_measurement.sampling_interval_seconds),
+            "sampling_interval_seconds": float(
+                rss_measurement.sampling_interval_seconds
+            ),
             "run_seconds": float(rss_elapsed),
             "residual_inf_norm": float(rss_report["residual_inf_norm"]),
             "peak_rss_mebibytes": bytes_to_mebibytes(rss_measurement.peak_rss_bytes),
-            "peak_rss_delta_mebibytes": bytes_to_mebibytes(rss_measurement.peak_rss_delta_bytes),
+            "peak_rss_delta_mebibytes": bytes_to_mebibytes(
+                rss_measurement.peak_rss_delta_bytes
+            ),
         }
 
     cprofile_path = args.output_dir / "cprofile_top.txt"
@@ -327,13 +384,25 @@ def main() -> int:
         "warmup_run_seconds": warmup_elapsed,
         "rss_profile": rss_payload,
         "profile": profile_report,
-        "cprofile_top_path": None if profiler is None else _sanitize_public_path(cprofile_path),
-        "cprofile_binary_path": None if profiler is None else _sanitize_public_path(cprofile_binary_path),
-        "jax_trace_dir": None if trace_dir is None else _sanitize_public_path(trace_dir),
-        "device_memory_profile_path": None if memory_profile_path is None else _sanitize_public_path(memory_profile_path),
-        "xla_dump_dir": None if args.xla_dump_dir is None else _sanitize_public_path(args.xla_dump_dir),
+        "cprofile_top_path": None
+        if profiler is None
+        else _sanitize_public_path(cprofile_path),
+        "cprofile_binary_path": None
+        if profiler is None
+        else _sanitize_public_path(cprofile_binary_path),
+        "jax_trace_dir": None
+        if trace_dir is None
+        else _sanitize_public_path(trace_dir),
+        "device_memory_profile_path": None
+        if memory_profile_path is None
+        else _sanitize_public_path(memory_profile_path),
+        "xla_dump_dir": None
+        if args.xla_dump_dir is None
+        else _sanitize_public_path(args.xla_dump_dir),
         "compilation_cache_dir": (
-            None if args.compilation_cache_dir is None else _sanitize_public_path(args.compilation_cache_dir)
+            None
+            if args.compilation_cache_dir is None
+            else _sanitize_public_path(args.compilation_cache_dir)
         ),
         "interpretation": (
             "This gate profiles a real integrated recycling fixed-layout "
@@ -343,7 +412,9 @@ def main() -> int:
         ),
     }
     summary_path = args.output_dir / "profile_summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
+    )
     print(summary_path)
     if cprofile_path.exists():
         print(cprofile_path)

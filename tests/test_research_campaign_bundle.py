@@ -11,7 +11,9 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[1]
 _WORKFLOW = _REPO / ".github" / "workflows" / "research-campaigns.yml"
-_DTHE_REFERENCE_INPUT = Path("tests") / "integrated" / "1D-recycling-dthe" / "data" / "BOUT.inp"
+_DTHE_REFERENCE_INPUT = (
+    Path("tests") / "integrated" / "1D-recycling-dthe" / "data" / "BOUT.inp"
+)
 
 
 def _load_script_module(relative_path: str, module_name: str):
@@ -30,7 +32,9 @@ def _make_dthe_reference_root(tmp_path: Path) -> Path:
     input_path = reference_root / _DTHE_REFERENCE_INPUT
     input_path.parent.mkdir(parents=True)
     input_path.write_text("# minimal test deck\n", encoding="utf-8")
-    hydrogen_input = reference_root / "tests" / "integrated" / "1D-recycling" / "data" / "BOUT.inp"
+    hydrogen_input = (
+        reference_root / "tests" / "integrated" / "1D-recycling" / "data" / "BOUT.inp"
+    )
     hydrogen_input.parent.mkdir(parents=True)
     hydrogen_input.write_text("# minimal hydrogen test deck\n", encoding="utf-8")
     return reference_root
@@ -61,7 +65,9 @@ def _workflow_campaign_options() -> tuple[str, ...]:
 
 
 def test_research_campaign_defaults_to_scheduled_fast_slice() -> None:
-    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_default")
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_default"
+    )
 
     commands = module.build_campaign_commands(
         campaign_names=(),
@@ -78,7 +84,9 @@ def test_research_campaign_defaults_to_scheduled_fast_slice() -> None:
 
 
 def test_research_campaign_workflow_choices_match_supported_campaigns() -> None:
-    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_workflow")
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_workflow"
+    )
 
     supported_campaigns = set(
         module._campaign_command_map(
@@ -97,7 +105,9 @@ def test_research_campaign_workflow_choices_match_supported_campaigns() -> None:
 
 
 def test_research_campaign_live_reference_requires_reference_root() -> None:
-    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_reference")
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_reference"
+    )
 
     with pytest.raises(ValueError, match="requires --reference-root"):
         module.build_campaign_commands(
@@ -111,7 +121,9 @@ def test_research_campaign_live_reference_requires_reference_root() -> None:
 
 
 def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) -> None:
-    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_heavy")
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_heavy"
+    )
     reference_root = _make_dthe_reference_root(tmp_path)
 
     commands = module.build_campaign_commands(
@@ -136,7 +148,9 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) 
 
 
 def test_research_campaign_adaptive_bdf_gate_writes_json_report(tmp_path: Path) -> None:
-    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_adaptive_bdf")
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_adaptive_bdf"
+    )
     reference_root = _make_dthe_reference_root(tmp_path)
 
     (command,) = module.build_campaign_commands(
@@ -157,11 +171,17 @@ def test_research_campaign_adaptive_bdf_gate_writes_json_report(tmp_path: Path) 
     assert "--require-adaptive-bdf-no-fallback" in command.command
     assert "--require-adaptive-bdf-no-unconverged-substeps" in command.command
     assert "--output-json" in command.command
-    assert any("recycling_1d_adaptive_bdf_jax_lineax_gate" in part for part in command.command)
+    assert any(
+        "recycling_1d_adaptive_bdf_jax_lineax_gate" in part for part in command.command
+    )
 
 
-def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(tmp_path: Path) -> None:
-    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_gpu")
+def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_gpu"
+    )
     reference_root = _make_dthe_reference_root(tmp_path)
 
     commands = module.build_campaign_commands(
@@ -186,7 +206,10 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(tmp_path: P
     assert full_output.required_reference_inputs == ("dthe",)
     assert full_output.requires_gpu is True
     assert "recycling_dthe_one_step" in full_output.command
-    assert "runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp" in full_output.command
+    assert (
+        "runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp"
+        in full_output.command
+    )
     assert "--jax-trace" in full_output.command
     assert "--device-memory-profile" in full_output.command
     assert "--compilation-cache-dir" in full_output.command
@@ -201,10 +224,16 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(tmp_path: P
     assert "--compilation-cache-dir" in batched.command
 
 
-def test_research_campaign_gpu_bundle_requires_expected_dthe_reference_deck(tmp_path: Path) -> None:
-    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_gpu_reference")
+def test_research_campaign_gpu_bundle_requires_expected_dthe_reference_deck(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_gpu_reference"
+    )
 
-    with pytest.raises(ValueError, match="tests/integrated/1D-recycling-dthe/data/BOUT.inp"):
+    with pytest.raises(
+        ValueError, match="tests/integrated/1D-recycling-dthe/data/BOUT.inp"
+    ):
         module.build_campaign_commands(
             campaign_names=("all-gpu",),
             python_executable="python",
@@ -219,8 +248,12 @@ def test_research_campaign_command_runner_reports_timeout(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_timeout")
-    command = module.CampaignCommand(name="demo", description="demo", command=("python", "-c", "pass"))
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_timeout"
+    )
+    command = module.CampaignCommand(
+        name="demo", description="demo", command=("python", "-c", "pass")
+    )
 
     def fake_run(*args, **kwargs):
         assert str(tmp_path / "src") in kwargs["env"]["PYTHONPATH"]
@@ -239,7 +272,9 @@ def test_research_campaign_gpu_command_runner_sets_cuda_prerequisite_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_gpu_env")
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_gpu_env"
+    )
     command = module.CampaignCommand(
         name="gpu-demo",
         description="demo",
@@ -267,9 +302,13 @@ def test_batched_jvp_profiler_reports_missing_reference_input(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    module = _load_script_module("scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_missing_input")
+    module = _load_script_module(
+        "scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_missing_input"
+    )
     monkeypatch.delenv("JAX_DRB_REFERENCE_ROOT", raising=False)
-    args = SimpleNamespace(reference_root=tmp_path / "empty-reference-root", input_path=None, case="dthe")
+    args = SimpleNamespace(
+        reference_root=tmp_path / "empty-reference-root", input_path=None, case="dthe"
+    )
 
     with pytest.raises(SystemExit) as excinfo:
         module._resolve_input(args)
@@ -278,19 +317,37 @@ def test_batched_jvp_profiler_reports_missing_reference_input(
     assert "--input-path /path/to/BOUT.inp" in str(excinfo.value)
 
 
-def test_batched_jvp_profiler_defaults_to_fixture_reference_root(monkeypatch: pytest.MonkeyPatch) -> None:
-    module = _load_script_module("scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_fixture_input")
+def test_batched_jvp_profiler_defaults_to_fixture_reference_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_script_module(
+        "scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_fixture_input"
+    )
     monkeypatch.delenv("JAX_DRB_REFERENCE_ROOT", raising=False)
     args = SimpleNamespace(reference_root=None, input_path=None, case="dthe")
 
-    assert module._resolve_reference_root(args) == module.FIXTURE_REFERENCE_ROOT.resolve()
-    assert module._resolve_input(args) == (
-        module.FIXTURE_REFERENCE_ROOT / "tests" / "integrated" / "1D-recycling-dthe" / "data" / "BOUT.inp"
-    ).resolve()
+    assert (
+        module._resolve_reference_root(args) == module.FIXTURE_REFERENCE_ROOT.resolve()
+    )
+    assert (
+        module._resolve_input(args)
+        == (
+            module.FIXTURE_REFERENCE_ROOT
+            / "tests"
+            / "integrated"
+            / "1D-recycling-dthe"
+            / "data"
+            / "BOUT.inp"
+        ).resolve()
+    )
 
 
-def test_batched_jvp_profiler_prefers_env_reference_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    module = _load_script_module("scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_env_input")
+def test_batched_jvp_profiler_prefers_env_reference_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _load_script_module(
+        "scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_env_input"
+    )
     root = tmp_path / "reference-root"
     input_path = root / "tests" / "integrated" / "1D-recycling" / "data" / "BOUT.inp"
     input_path.parent.mkdir(parents=True)
@@ -303,7 +360,9 @@ def test_batched_jvp_profiler_prefers_env_reference_root(monkeypatch: pytest.Mon
 
 
 def test_batched_jvp_profiler_accepts_explicit_staged_input(tmp_path: Path) -> None:
-    module = _load_script_module("scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_staged_input")
+    module = _load_script_module(
+        "scripts/profile_recycling_batched_jvp_gate.py", "batched_jvp_staged_input"
+    )
     input_path = tmp_path / "1D-recycling-dthe" / "data" / "BOUT.inp"
     input_path.parent.mkdir(parents=True)
     input_path.write_text("# staged deck\n", encoding="utf-8")
@@ -313,7 +372,27 @@ def test_batched_jvp_profiler_accepts_explicit_staged_input(tmp_path: Path) -> N
 
 
 def test_jax_linearized_profiler_reports_lineax_solver_mode() -> None:
-    module = _load_script_module("scripts/profile_recycling_jax_linearized_gate.py", "jax_linearized_mode_mapping")
+    module = _load_script_module(
+        "scripts/profile_recycling_jax_linearized_gate.py",
+        "jax_linearized_mode_mapping",
+    )
 
     assert module._solver_mode_for_backend("jax_gmres") == "jax_linearized"
     assert module._solver_mode_for_backend("lineax_gmres") == "jax_linearized_lineax"
+
+
+def test_jax_linearized_profiler_jit_residual_appends_runtime_override() -> None:
+    module = _load_script_module(
+        "scripts/profile_recycling_jax_linearized_gate.py",
+        "jax_linearized_jit_residual_override",
+    )
+
+    args = SimpleNamespace(
+        override=["mesh:ny=64"],
+        jit_residual=True,
+    )
+
+    assert module._effective_overrides(args) == [
+        "mesh:ny=64",
+        "runtime:recycling_jax_linear_jit_residual=true",
+    ]

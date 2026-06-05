@@ -257,6 +257,12 @@ Jacobian action as a callable rather than a materialized sparse matrix. This is
 the preferred algorithmic target for future differentiable recycling kernels,
 but it is intentionally not claimed as a production speedup until the residual
 itself stops crossing the host/SciPy boundary.
+Use `scripts/profile_recycling_jax_linearized_gate.py --jit-residual` to test
+the opt-in pre-JIT residual seam on these gates. Local comparison runs showed
+that this flag is diagnostic rather than a default candidate: it can reduce
+reported linear-solve subphase time on a nontrivial D/T/He fixed-layout gate,
+but current closure rebuilding and compilation overhead still keep total
+wall-clock time from improving consistently.
 
 The current GPU evidence for the heavier fixed-layout seam lives in:
 
