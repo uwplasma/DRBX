@@ -189,7 +189,9 @@ from .recycling_fixed_residual import (
     pack_fixed_state as _pack_fixed_state,
     unpack_fixed_state as _unpack_fixed_state,
 )
-from .recycling_progress import build_recycling_progress_details as _build_recycling_progress_details
+from .recycling_progress import (
+    build_recycling_progress_details as _build_recycling_progress_details,
+)
 from .recycling_1d_state import (
     DensityFeedbackTerms as _DensityFeedbackTerms,
     ElectronBoundaryResult as _ElectronBoundaryResult,
@@ -242,8 +244,12 @@ def compute_recycling_1d_rhs(
         field_overrides=field_overrides,
         field_template_overrides=field_template_overrides,
     )
-    fields = _build_recycling_state_fields(runtime_model, field_overrides=field_overrides)
-    species = _override_species_fields(runtime_model.species_templates, fields=fields, mesh=mesh)
+    fields = _build_recycling_state_fields(
+        runtime_model, field_overrides=field_overrides
+    )
+    species = _override_species_fields(
+        runtime_model.species_templates, fields=fields, mesh=mesh
+    )
     return _compute_recycling_1d_rhs_from_species(
         config,
         species=species,
@@ -415,7 +421,9 @@ def _compute_recycling_1d_rhs_from_species(
         ion_velocity=ion_velocity,
         mesh=mesh,
         metrics=metrics,
-        gamma_i=0.0 if simple_sheath_settings is None else simple_sheath_settings.gamma_i,
+        gamma_i=0.0
+        if simple_sheath_settings is None
+        else simple_sheath_settings.gamma_i,
         lower_geometry=lower_target_geometry,
         upper_geometry=upper_target_geometry,
     )
@@ -502,7 +510,9 @@ def _compute_recycling_1d_rhs_from_species(
         variables[f"ddt({ion.momentum_name})"] = ion_rhs_terms.momentum_total[None, ...]
 
     electron_velocity = rhs_array(electron_boundary.velocity, dtype=rhs_dtype)
-    electron_fastest_wave = rhs_sqrt(rhs_maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass)
+    electron_fastest_wave = rhs_sqrt(
+        rhs_maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass
+    )
     electron_explicit_pressure_source = pressure_sources.get("e")
     if electron_explicit_pressure_source is None:
         electron_explicit_pressure_source = _explicit_pressure_source(
@@ -521,7 +531,9 @@ def _compute_recycling_1d_rhs_from_species(
         metrics=metrics,
     )
     variables[electron.pressure_name] = electron_boundary.pressure[None, ...]
-    variables[f"ddt({electron.pressure_name})"] = electron_pressure_rhs_terms.total[None, ...]
+    variables[f"ddt({electron.pressure_name})"] = electron_pressure_rhs_terms.total[
+        None, ...
+    ]
 
     for neutral in neutrals:
         neutral_state = prepared[neutral.name]
@@ -553,9 +565,15 @@ def _compute_recycling_1d_rhs_from_species(
         variables[neutral.pressure_name] = neutral_state.pressure[None, ...]
         variables[neutral.momentum_name] = neutral_state.momentum[None, ...]
         variables[f"SNV{neutral.name}"] = momentum_source[neutral.name][None, ...]
-        variables[f"ddt({neutral.density_name})"] = neutral_rhs_terms.density_total[None, ...]
-        variables[f"ddt({neutral.pressure_name})"] = neutral_rhs_terms.pressure_total[None, ...]
-        variables[f"ddt({neutral.momentum_name})"] = neutral_rhs_terms.momentum_total[None, ...]
+        variables[f"ddt({neutral.density_name})"] = neutral_rhs_terms.density_total[
+            None, ...
+        ]
+        variables[f"ddt({neutral.pressure_name})"] = neutral_rhs_terms.pressure_total[
+            None, ...
+        ]
+        variables[f"ddt({neutral.momentum_name})"] = neutral_rhs_terms.momentum_total[
+            None, ...
+        ]
 
     for name, value in diagnostics.items():
         variables[name] = value[None, ...]
@@ -577,7 +595,10 @@ def _load_simple_sheath_settings(
     resolver = NumericResolver(config)
     tnorm = float(dataset_scalars.get("Tnorm", 1.0))
     wall_potential = (
-        _evaluate_option_field(config, "sheath_boundary_simple", "wall_potential", mesh=mesh) / tnorm
+        _evaluate_option_field(
+            config, "sheath_boundary_simple", "wall_potential", mesh=mesh
+        )
+        / tnorm
         if config.has_option("sheath_boundary_simple", "wall_potential")
         else np.zeros((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
     )
@@ -588,10 +609,14 @@ def _load_simple_sheath_settings(
         gamma_i=float(resolver.resolve("sheath_boundary_simple", "gamma_i"))
         if config.has_option("sheath_boundary_simple", "gamma_i")
         else 3.5,
-        secondary_electron_coef=float(resolver.resolve("sheath_boundary_simple", "secondary_electron_coef"))
+        secondary_electron_coef=float(
+            resolver.resolve("sheath_boundary_simple", "secondary_electron_coef")
+        )
         if config.has_option("sheath_boundary_simple", "secondary_electron_coef")
         else 0.0,
-        sheath_ion_polytropic=float(resolver.resolve("sheath_boundary_simple", "sheath_ion_polytropic"))
+        sheath_ion_polytropic=float(
+            resolver.resolve("sheath_boundary_simple", "sheath_ion_polytropic")
+        )
         if config.has_option("sheath_boundary_simple", "sheath_ion_polytropic")
         else 1.0,
         lower_y=bool(config.parsed("sheath_boundary_simple", "lower_y"))
@@ -603,13 +628,19 @@ def _load_simple_sheath_settings(
         no_flow=bool(config.parsed("sheath_boundary_simple", "no_flow"))
         if config.has_option("sheath_boundary_simple", "no_flow")
         else False,
-        density_boundary_mode=float(resolver.resolve("sheath_boundary_simple", "density_boundary_mode"))
+        density_boundary_mode=float(
+            resolver.resolve("sheath_boundary_simple", "density_boundary_mode")
+        )
         if config.has_option("sheath_boundary_simple", "density_boundary_mode")
         else 1.0,
-        pressure_boundary_mode=float(resolver.resolve("sheath_boundary_simple", "pressure_boundary_mode"))
+        pressure_boundary_mode=float(
+            resolver.resolve("sheath_boundary_simple", "pressure_boundary_mode")
+        )
         if config.has_option("sheath_boundary_simple", "pressure_boundary_mode")
         else 1.0,
-        temperature_boundary_mode=float(resolver.resolve("sheath_boundary_simple", "temperature_boundary_mode"))
+        temperature_boundary_mode=float(
+            resolver.resolve("sheath_boundary_simple", "temperature_boundary_mode")
+        )
         if config.has_option("sheath_boundary_simple", "temperature_boundary_mode")
         else 1.0,
         wall_potential=np.asarray(wall_potential, dtype=np.float64),
@@ -636,8 +667,11 @@ def _load_full_sheath_settings(
         else np.ones((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
     )
     return _FullSheathSettings(
-        secondary_electron_coef=float(resolver.resolve(section, "secondary_electron_coef"))
-        if config.has_section(section) and config.has_option(section, "secondary_electron_coef")
+        secondary_electron_coef=float(
+            resolver.resolve(section, "secondary_electron_coef")
+        )
+        if config.has_section(section)
+        and config.has_option(section, "secondary_electron_coef")
         else 0.0,
         sin_alpha=np.asarray(sin_alpha, dtype=np.float64),
         lower_y=bool(config.parsed(section, "lower_y"))
@@ -663,8 +697,12 @@ def _prepare_open_field_states(
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
     preserve_dump_ion_target_state_only: bool = False,
-) -> tuple[dict[str, _PreparedSpeciesState], _IonBoundaryResult, _ElectronBoundaryResult]:
-    prepared = {name: _prepare_species_state(sp, mesh=mesh) for name, sp in species.items()}
+) -> tuple[
+    dict[str, _PreparedSpeciesState], _IonBoundaryResult, _ElectronBoundaryResult
+]:
+    prepared = {
+        name: _prepare_species_state(sp, mesh=mesh) for name, sp in species.items()
+    }
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
     use_jax_electron_density = use_jax_backend(
         species["e"].density,
@@ -673,9 +711,13 @@ def _prepare_open_field_states(
     electron_density_array = jnp.asarray if use_jax_electron_density else np.asarray
     electron_density_dtype = jnp.float64 if use_jax_electron_density else np.float64
     electron_density = (
-        jnp.zeros_like(electron_density_array(species["e"].density, dtype=electron_density_dtype))
+        jnp.zeros_like(
+            electron_density_array(species["e"].density, dtype=electron_density_dtype)
+        )
         if use_jax_electron_density
-        else np.zeros_like(electron_density_array(species["e"].density, dtype=electron_density_dtype))
+        else np.zeros_like(
+            electron_density_array(species["e"].density, dtype=electron_density_dtype)
+        )
     )
     for ion in ions:
         electron_density = electron_density + ion.charge * electron_density_array(
@@ -717,16 +759,28 @@ def _prepare_open_field_states(
         )
         if preserve_dump_target_state and not preserve_dump_ion_target_state_only:
             electron_boundary = _ElectronBoundaryResult(
-                density=_merge_target_guard_cells(prepared["e"].density, electron_boundary.density, mesh=mesh),
-                temperature=_merge_target_guard_cells(prepared["e"].temperature, electron_boundary.temperature, mesh=mesh),
-                pressure=_merge_target_guard_cells(prepared["e"].pressure, electron_boundary.pressure, mesh=mesh),
-                velocity=_merge_target_guard_cells(electron_velocity, electron_boundary.velocity, mesh=mesh),
+                density=_merge_target_guard_cells(
+                    prepared["e"].density, electron_boundary.density, mesh=mesh
+                ),
+                temperature=_merge_target_guard_cells(
+                    prepared["e"].temperature, electron_boundary.temperature, mesh=mesh
+                ),
+                pressure=_merge_target_guard_cells(
+                    prepared["e"].pressure, electron_boundary.pressure, mesh=mesh
+                ),
+                velocity=_merge_target_guard_cells(
+                    electron_velocity, electron_boundary.velocity, mesh=mesh
+                ),
                 momentum=_merge_target_guard_cells(
-                    species["e"].atomic_mass * prepared["e"].density * electron_velocity,
+                    species["e"].atomic_mass
+                    * prepared["e"].density
+                    * electron_velocity,
                     electron_boundary.momentum,
                     mesh=mesh,
                 ),
-                energy_source=np.asarray(electron_boundary.energy_source, dtype=np.float64),
+                energy_source=np.asarray(
+                    electron_boundary.energy_source, dtype=np.float64
+                ),
             )
     else:
         use_jax_electron_boundary = use_jax_backend(
@@ -735,12 +789,24 @@ def _prepare_open_field_states(
             prepared["e"].pressure,
             electron_velocity,
         )
-        electron_boundary_array = jnp.asarray if use_jax_electron_boundary else np.asarray
-        electron_boundary_dtype = jnp.float64 if use_jax_electron_boundary else np.float64
-        electron_boundary_density = electron_boundary_array(prepared["e"].density, dtype=electron_boundary_dtype)
-        electron_boundary_temperature = electron_boundary_array(prepared["e"].temperature, dtype=electron_boundary_dtype)
-        electron_boundary_pressure = electron_boundary_array(prepared["e"].pressure, dtype=electron_boundary_dtype)
-        electron_boundary_velocity = electron_boundary_array(electron_velocity, dtype=electron_boundary_dtype)
+        electron_boundary_array = (
+            jnp.asarray if use_jax_electron_boundary else np.asarray
+        )
+        electron_boundary_dtype = (
+            jnp.float64 if use_jax_electron_boundary else np.float64
+        )
+        electron_boundary_density = electron_boundary_array(
+            prepared["e"].density, dtype=electron_boundary_dtype
+        )
+        electron_boundary_temperature = electron_boundary_array(
+            prepared["e"].temperature, dtype=electron_boundary_dtype
+        )
+        electron_boundary_pressure = electron_boundary_array(
+            prepared["e"].pressure, dtype=electron_boundary_dtype
+        )
+        electron_boundary_velocity = electron_boundary_array(
+            electron_velocity, dtype=electron_boundary_dtype
+        )
         electron_boundary_momentum = electron_boundary_array(
             species["e"].atomic_mass * prepared["e"].density * electron_velocity,
             dtype=electron_boundary_dtype,
@@ -766,17 +832,27 @@ def _prepare_open_field_states(
     electron_prepared_array = jnp.asarray if use_jax_electron_prepared else np.asarray
     electron_prepared_dtype = jnp.float64 if use_jax_electron_prepared else np.float64
     electron_prepared_maximum = jnp.maximum if use_jax_electron_prepared else np.maximum
-    electron_boundary_density = electron_prepared_array(electron_boundary.density, dtype=electron_prepared_dtype)
-    electron_boundary_momentum = electron_prepared_array(electron_boundary.momentum, dtype=electron_prepared_dtype)
-    electron_reconstructed_velocity = electron_boundary_momentum / electron_prepared_maximum(
-        species["e"].atomic_mass * _soft_floor(electron_boundary_density, species["e"].density_floor),
-        1.0e-8,
+    electron_boundary_density = electron_prepared_array(
+        electron_boundary.density, dtype=electron_prepared_dtype
+    )
+    electron_boundary_momentum = electron_prepared_array(
+        electron_boundary.momentum, dtype=electron_prepared_dtype
+    )
+    electron_reconstructed_velocity = (
+        electron_boundary_momentum
+        / electron_prepared_maximum(
+            species["e"].atomic_mass
+            * _soft_floor(electron_boundary_density, species["e"].density_floor),
+            1.0e-8,
+        )
     )
     prepared["e"] = _PreparedSpeciesState(
         density=electron_boundary.density,
         pressure=electron_boundary.pressure,
         temperature=electron_boundary.temperature,
-        velocity=electron_prepared_array(electron_reconstructed_velocity, dtype=electron_prepared_dtype),
+        velocity=electron_prepared_array(
+            electron_reconstructed_velocity, dtype=electron_prepared_dtype
+        ),
         momentum=electron_boundary_momentum,
         momentum_error=electron_prepared_array(
             species["e"].atomic_mass
@@ -861,7 +937,9 @@ def _prepare_open_field_states(
                 },
                 energy_source={
                     ion.name: np.asarray(
-                        np.zeros_like(ion_boundary_state.energy_source[ion.name], dtype=np.float64)
+                        np.zeros_like(
+                            ion_boundary_state.energy_source[ion.name], dtype=np.float64
+                        )
                         if preserve_dump_ion_target_state_only
                         else ion_boundary_state.energy_source[ion.name],
                         dtype=np.float64,
@@ -872,23 +950,55 @@ def _prepare_open_field_states(
         else:
             ion_boundary = ion_boundary_state
     else:
-        use_jax_ion_boundary = use_jax_backend(*(prepared[ion.name].density for ion in ions))
+        use_jax_ion_boundary = use_jax_backend(
+            *(prepared[ion.name].density for ion in ions)
+        )
         ion_boundary_array = jnp.asarray if use_jax_ion_boundary else np.asarray
         ion_boundary_dtype = jnp.float64 if use_jax_ion_boundary else np.float64
         ion_boundary = _IonBoundaryResult(
-            density={ion.name: ion_boundary_array(prepared[ion.name].density, dtype=ion_boundary_dtype) for ion in ions},
-            pressure={ion.name: ion_boundary_array(prepared[ion.name].pressure, dtype=ion_boundary_dtype) for ion in ions},
-            temperature={
-                ion.name: ion_boundary_array(prepared[ion.name].temperature, dtype=ion_boundary_dtype)
+            density={
+                ion.name: ion_boundary_array(
+                    prepared[ion.name].density, dtype=ion_boundary_dtype
+                )
                 for ion in ions
             },
-            velocity={ion.name: ion_boundary_array(prepared[ion.name].velocity, dtype=ion_boundary_dtype) for ion in ions},
-            momentum={ion.name: ion_boundary_array(prepared[ion.name].momentum, dtype=ion_boundary_dtype) for ion in ions},
+            pressure={
+                ion.name: ion_boundary_array(
+                    prepared[ion.name].pressure, dtype=ion_boundary_dtype
+                )
+                for ion in ions
+            },
+            temperature={
+                ion.name: ion_boundary_array(
+                    prepared[ion.name].temperature, dtype=ion_boundary_dtype
+                )
+                for ion in ions
+            },
+            velocity={
+                ion.name: ion_boundary_array(
+                    prepared[ion.name].velocity, dtype=ion_boundary_dtype
+                )
+                for ion in ions
+            },
+            momentum={
+                ion.name: ion_boundary_array(
+                    prepared[ion.name].momentum, dtype=ion_boundary_dtype
+                )
+                for ion in ions
+            },
             energy_source={
                 ion.name: (
-                    jnp.zeros_like(ion_boundary_array(prepared[ion.name].density, dtype=ion_boundary_dtype))
+                    jnp.zeros_like(
+                        ion_boundary_array(
+                            prepared[ion.name].density, dtype=ion_boundary_dtype
+                        )
+                    )
                     if use_jax_ion_boundary
-                    else np.zeros_like(ion_boundary_array(prepared[ion.name].density, dtype=ion_boundary_dtype))
+                    else np.zeros_like(
+                        ion_boundary_array(
+                            prepared[ion.name].density, dtype=ion_boundary_dtype
+                        )
+                    )
                 )
                 for ion in ions
             },
@@ -901,8 +1011,12 @@ def _prepare_open_field_states(
         ion_prepared_array = jnp.asarray if use_jax_ion_prepared else np.asarray
         ion_prepared_dtype = jnp.float64 if use_jax_ion_prepared else np.float64
         ion_prepared_maximum = jnp.maximum if use_jax_ion_prepared else np.maximum
-        ion_boundary_density = ion_prepared_array(ion_boundary.density[ion.name], dtype=ion_prepared_dtype)
-        ion_boundary_momentum = ion_prepared_array(ion_boundary.momentum[ion.name], dtype=ion_prepared_dtype)
+        ion_boundary_density = ion_prepared_array(
+            ion_boundary.density[ion.name], dtype=ion_prepared_dtype
+        )
+        ion_boundary_momentum = ion_prepared_array(
+            ion_boundary.momentum[ion.name], dtype=ion_prepared_dtype
+        )
         ion_reconstructed_velocity = ion_boundary_momentum / ion_prepared_maximum(
             ion.atomic_mass * _soft_floor(ion_boundary_density, ion.density_floor),
             1.0e-8,
@@ -911,10 +1025,13 @@ def _prepare_open_field_states(
             density=ion_boundary.density[ion.name],
             pressure=ion_boundary.pressure[ion.name],
             temperature=ion_boundary.temperature[ion.name],
-            velocity=ion_prepared_array(ion_reconstructed_velocity, dtype=ion_prepared_dtype),
+            velocity=ion_prepared_array(
+                ion_reconstructed_velocity, dtype=ion_prepared_dtype
+            ),
             momentum=ion_boundary_momentum,
             momentum_error=ion_prepared_array(
-                ion.atomic_mass * ion_boundary_density * ion_reconstructed_velocity - ion_boundary_momentum,
+                ion.atomic_mass * ion_boundary_density * ion_reconstructed_velocity
+                - ion_boundary_momentum,
                 dtype=ion_prepared_dtype,
             ),
         )
@@ -941,20 +1058,32 @@ def _apply_upstream_density_feedback(
     zeros_like = jnp.zeros_like if use_jax else np.zeros_like
     maximum = jnp.maximum if use_jax else np.maximum
     square = jnp.square if use_jax else np.square
-    density_source = {name: zeros_like(sp.density, dtype=dtype) for name, sp in species.items()}
-    energy_source = {name: zeros_like(sp.density, dtype=dtype) for name, sp in species.items()}
+    density_source = {
+        name: zeros_like(sp.density, dtype=dtype) for name, sp in species.items()
+    }
+    energy_source = {
+        name: zeros_like(sp.density, dtype=dtype) for name, sp in species.items()
+    }
     diagnostics: dict[str, np.ndarray] = {}
     integral_rhs: dict[str, float] = {}
     integrals = feedback_integrals or {}
 
     for name, controller in controllers.items():
-        upstream_density = array(prepared[name].density, dtype=dtype)[mesh.xstart, mesh.ystart, 0]
+        upstream_density = array(prepared[name].density, dtype=dtype)[
+            mesh.xstart, mesh.ystart, 0
+        ]
         error = controller.density_upstream - upstream_density
         stored_integral = array(integrals.get(name, 0.0), dtype=dtype)
         integrated_error = stored_integral
         if feedback_timestep is not None:
-            previous_error = error if feedback_previous_errors is None else array(feedback_previous_errors.get(name, error), dtype=dtype)
-            integrated_error = stored_integral + float(feedback_timestep) * 0.5 * (error + previous_error)
+            previous_error = (
+                error
+                if feedback_previous_errors is None
+                else array(feedback_previous_errors.get(name, error), dtype=dtype)
+            )
+            integrated_error = stored_integral + float(feedback_timestep) * 0.5 * (
+                error + previous_error
+            )
         if controller.density_integral_positive:
             integrated_error = maximum(integrated_error, 0.0)
         proportional_term = controller.density_controller_p * error
@@ -965,12 +1094,22 @@ def _apply_upstream_density_feedback(
         source = source_multiplier * array(controller.density_source_shape, dtype=dtype)
         density_source[name] += source
         velocity = array(prepared[name].velocity, dtype=dtype)
-        energy_source[name] += 0.5 * species[name].atomic_mass * square(velocity) * source
+        energy_source[name] += (
+            0.5 * species[name].atomic_mass * square(velocity) * source
+        )
         diagnostics[f"S{name}_feedback"] = array(source, dtype=dtype)
-        diagnostics[f"density_feedback_src_mult_{name}"] = array(source_multiplier, dtype=dtype)
-        diagnostics[f"density_feedback_src_p_{name}"] = array(proportional_term, dtype=dtype)
-        diagnostics[f"density_feedback_src_i_{name}"] = array(integral_term, dtype=dtype)
-        diagnostics[f"density_feedback_src_shape_{name}"] = array(controller.density_source_shape, dtype=dtype)
+        diagnostics[f"density_feedback_src_mult_{name}"] = array(
+            source_multiplier, dtype=dtype
+        )
+        diagnostics[f"density_feedback_src_p_{name}"] = array(
+            proportional_term, dtype=dtype
+        )
+        diagnostics[f"density_feedback_src_i_{name}"] = array(
+            integral_term, dtype=dtype
+        )
+        diagnostics[f"density_feedback_src_shape_{name}"] = array(
+            controller.density_source_shape, dtype=dtype
+        )
         integral_rhs[name] = error
 
     return _DensityFeedbackTerms(
@@ -1017,7 +1156,9 @@ def _apply_ion_sheath_boundary(
     boundary_temperature: dict[str, np.ndarray] = {}
     velocity: dict[str, np.ndarray] = {}
     momentum: dict[str, np.ndarray] = {}
-    energy_source: dict[str, np.ndarray] = {ion.name: zeros_like(ion.density, dtype=dtype) for ion in ions}
+    energy_source: dict[str, np.ndarray] = {
+        ion.name: zeros_like(ion.density, dtype=dtype) for ion in ions
+    }
 
     def _copy_field(value):
         field = array(value, dtype=dtype)
@@ -1044,21 +1185,39 @@ def _apply_ion_sheath_boundary(
             1.0e-8,
         )
         if ion.noflow_lower_y:
-            density = _copy_field(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False))
-            temperature = _copy_field(apply_noflow_scalar_guards(temperature, mesh=mesh, lower_y=True, upper_y=False))
-            pressure = _copy_field(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False))
-            vel = _copy_field(apply_noflow_flow_guards(vel, mesh=mesh, lower_y=True, upper_y=False))
+            density = _copy_field(
+                apply_noflow_scalar_guards(
+                    density, mesh=mesh, lower_y=True, upper_y=False
+                )
+            )
+            temperature = _copy_field(
+                apply_noflow_scalar_guards(
+                    temperature, mesh=mesh, lower_y=True, upper_y=False
+                )
+            )
+            pressure = _copy_field(
+                apply_noflow_scalar_guards(
+                    pressure, mesh=mesh, lower_y=True, upper_y=False
+                )
+            )
+            vel = _copy_field(
+                apply_noflow_flow_guards(vel, mesh=mesh, lower_y=True, upper_y=False)
+            )
 
         momentum_field = _copy_field(ion.momentum)
         lower_y_enabled = (
             simple_settings.lower_y
             if simple_settings is not None
-            else True if full_settings is None else full_settings.lower_y
+            else True
+            if full_settings is None
+            else full_settings.lower_y
         )
         upper_y_enabled = (
             simple_settings.upper_y
             if simple_settings is not None
-            else True if full_settings is None else full_settings.upper_y
+            else True
+            if full_settings is None
+            else full_settings.upper_y
         )
 
         if mesh.has_upper_y_target and upper_y_enabled:
@@ -1070,7 +1229,13 @@ def _apply_ion_sheath_boundary(
             density = _set_y(
                 density,
                 jp,
-                limit_free(ni_m, ni_i, 0.0 if simple_settings is None else simple_settings.density_boundary_mode),
+                limit_free(
+                    ni_m,
+                    ni_i,
+                    0.0
+                    if simple_settings is None
+                    else simple_settings.density_boundary_mode,
+                ),
             )
             temperature = _set_y(
                 temperature,
@@ -1078,7 +1243,9 @@ def _apply_ion_sheath_boundary(
                 limit_free(
                     temperature[:, jm, :],
                     temperature[:, j, :],
-                    0.0 if simple_settings is None else simple_settings.temperature_boundary_mode,
+                    0.0
+                    if simple_settings is None
+                    else simple_settings.temperature_boundary_mode,
                 ),
             )
             pressure = _set_y(
@@ -1087,16 +1254,26 @@ def _apply_ion_sheath_boundary(
                 limit_free(
                     pressure[:, jm, :],
                     pressure[:, j, :],
-                    0.0 if simple_settings is None else simple_settings.pressure_boundary_mode,
+                    0.0
+                    if simple_settings is None
+                    else simple_settings.pressure_boundary_mode,
                 ),
             )
 
             nisheath = 0.5 * (density[:, jp, :] + density[:, j, :])
-            tesheath = maximum(0.5 * (te[:, jp, :] + te[:, j, :]) if jp < te.shape[1] else 0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
-            tisheath = maximum(0.5 * (temperature[:, jp, :] + temperature[:, j, :]), 1.0e-5)
+            tesheath = maximum(
+                0.5 * (te[:, jp, :] + te[:, j, :])
+                if jp < te.shape[1]
+                else 0.5 * (te[:, jm, :] + te[:, j, :]),
+                1.0e-5,
+            )
+            tisheath = maximum(
+                0.5 * (temperature[:, jp, :] + temperature[:, j, :]), 1.0e-5
+            )
             if simple_settings is not None:
                 da = (
-                    (J[:, j, :] + J[:, jp, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jp, :]))
+                    (J[:, j, :] + J[:, jp, :])
+                    / (sqrt(g22[:, j, :]) + sqrt(g22[:, jp, :]))
                     * 0.5
                     * (dx[:, j, :] + dx[:, jp, :])
                     * 0.5
@@ -1119,7 +1296,9 @@ def _apply_ion_sheath_boundary(
                 )
                 vel = _set_y(vel, jp, sheath.guard_velocity)
                 momentum_field = _set_y(momentum_field, jp, sheath.guard_momentum)
-                energy_source[ion.name] = _add_y(energy_source[ion.name], j, sheath.energy_source_delta)
+                energy_source[ion.name] = _add_y(
+                    energy_source[ion.name], j, sheath.energy_source_delta
+                )
             else:
                 nesheath = (
                     0.5 * (electron_density[:, jp, :] + electron_density[:, j, :])
@@ -1128,8 +1307,10 @@ def _apply_ion_sheath_boundary(
                 )
                 grad_ne = electron_density[:, j, :] - nesheath
                 grad_ni = density[:, j, :] - nisheath
-                source_scale = (J[:, j, :] + J[:, jp, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jp, :])) / (
-                    dy[:, j, :] * J[:, j, :]
+                source_scale = (
+                    (J[:, j, :] + J[:, jp, :])
+                    / (sqrt(g22[:, j, :]) + sqrt(g22[:, jp, :]))
+                    / (dy[:, j, :] * J[:, j, :])
                 )
                 sheath = compute_full_ion_sheath_boundary(
                     sheath_density=nisheath,
@@ -1147,7 +1328,9 @@ def _apply_ion_sheath_boundary(
                 )
                 vel = _set_y(vel, jp, sheath.guard_velocity)
                 momentum_field = _set_y(momentum_field, jp, sheath.guard_momentum)
-                energy_source[ion.name] = _add_y(energy_source[ion.name], j, sheath.energy_source_delta)
+                energy_source[ion.name] = _add_y(
+                    energy_source[ion.name], j, sheath.energy_source_delta
+                )
 
         if mesh.has_lower_y_target and lower_y_enabled:
             j = mesh.ystart
@@ -1158,7 +1341,13 @@ def _apply_ion_sheath_boundary(
             density = _set_y(
                 density,
                 jm,
-                limit_free(ni_p, ni_i, 0.0 if simple_settings is None else simple_settings.density_boundary_mode),
+                limit_free(
+                    ni_p,
+                    ni_i,
+                    0.0
+                    if simple_settings is None
+                    else simple_settings.density_boundary_mode,
+                ),
             )
             temperature = _set_y(
                 temperature,
@@ -1166,7 +1355,9 @@ def _apply_ion_sheath_boundary(
                 limit_free(
                     temperature[:, jp, :],
                     temperature[:, j, :],
-                    0.0 if simple_settings is None else simple_settings.temperature_boundary_mode,
+                    0.0
+                    if simple_settings is None
+                    else simple_settings.temperature_boundary_mode,
                 ),
             )
             pressure = _set_y(
@@ -1175,16 +1366,21 @@ def _apply_ion_sheath_boundary(
                 limit_free(
                     pressure[:, jp, :],
                     pressure[:, j, :],
-                    0.0 if simple_settings is None else simple_settings.pressure_boundary_mode,
+                    0.0
+                    if simple_settings is None
+                    else simple_settings.pressure_boundary_mode,
                 ),
             )
 
             nisheath = 0.5 * (density[:, jm, :] + density[:, j, :])
             tesheath = maximum(0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
-            tisheath = maximum(0.5 * (temperature[:, jm, :] + temperature[:, j, :]), 1.0e-5)
+            tisheath = maximum(
+                0.5 * (temperature[:, jm, :] + temperature[:, j, :]), 1.0e-5
+            )
             if simple_settings is not None:
                 da = (
-                    (J[:, j, :] + J[:, jm, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jm, :]))
+                    (J[:, j, :] + J[:, jm, :])
+                    / (sqrt(g22[:, j, :]) + sqrt(g22[:, jm, :]))
                     * 0.5
                     * (dx[:, j, :] + dx[:, jm, :])
                     * 0.5
@@ -1207,13 +1403,19 @@ def _apply_ion_sheath_boundary(
                 )
                 vel = _set_y(vel, jm, sheath.guard_velocity)
                 momentum_field = _set_y(momentum_field, jm, sheath.guard_momentum)
-                energy_source[ion.name] = _add_y(energy_source[ion.name], j, sheath.energy_source_delta)
+                energy_source[ion.name] = _add_y(
+                    energy_source[ion.name], j, sheath.energy_source_delta
+                )
             else:
-                nesheath = 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
+                nesheath = 0.5 * (
+                    electron_density[:, jm, :] + electron_density[:, j, :]
+                )
                 grad_ne = electron_density[:, j, :] - nesheath
                 grad_ni = density[:, j, :] - nisheath
-                source_scale = (J[:, j, :] + J[:, jm, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jm, :])) / (
-                    dy[:, j, :] * J[:, j, :]
+                source_scale = (
+                    (J[:, j, :] + J[:, jm, :])
+                    / (sqrt(g22[:, j, :]) + sqrt(g22[:, jm, :]))
+                    / (dy[:, j, :] * J[:, j, :])
                 )
                 sheath = compute_full_ion_sheath_boundary(
                     sheath_density=nisheath,
@@ -1231,7 +1433,9 @@ def _apply_ion_sheath_boundary(
                 )
                 vel = _set_y(vel, jm, sheath.guard_velocity)
                 momentum_field = _set_y(momentum_field, jm, sheath.guard_momentum)
-                energy_source[ion.name] = _add_y(energy_source[ion.name], j, sheath.energy_source_delta)
+                energy_source[ion.name] = _add_y(
+                    energy_source[ion.name], j, sheath.energy_source_delta
+                )
 
         boundary_density[ion.name] = density
         boundary_pressure[ion.name] = pressure
@@ -1354,7 +1558,8 @@ def _apply_electron_sheath_boundary(
                     electron_density_neighbor=density[:, neighbor, :],
                     ion_temperature_boundary=ti[:, j, :],
                     electron_temperature_boundary=temperature[:, j, :],
-                    electron_density_gradient=density[:, neighbor, :] - density[:, j, :],
+                    electron_density_gradient=density[:, neighbor, :]
+                    - density[:, j, :],
                     ion_density_gradient=ni[:, neighbor, :] - ni[:, j, :],
                     sin_alpha_neighbor=sin_alpha[:, neighbor, :],
                     atomic_mass=ion.atomic_mass,
@@ -1384,17 +1589,25 @@ def _apply_electron_sheath_boundary(
         j = mesh.yend
         jp = j + 1
         jm = j - 1
-        density = _set_y(density, jp, limit_free(density[:, jm, :], density[:, j, :], 0))
-        temperature = _set_y(temperature, jp, limit_free(temperature[:, jm, :], temperature[:, j, :], 0))
-        pressure = _set_y(pressure, jp, limit_free(pressure[:, jm, :], pressure[:, j, :], 0))
+        density = _set_y(
+            density, jp, limit_free(density[:, jm, :], density[:, j, :], 0)
+        )
+        temperature = _set_y(
+            temperature, jp, limit_free(temperature[:, jm, :], temperature[:, j, :], 0)
+        )
+        pressure = _set_y(
+            pressure, jp, limit_free(pressure[:, jm, :], pressure[:, j, :], 0)
+        )
         phi = _set_zero_current_phi(phi, j=j, neighbor=jm, ghost=jp)
         phi = _set_y(phi, jp, 2.0 * phi[:, j, :] - phi[:, jm, :])
         phi_wall = wall_potential[:, j, :]
         phisheath_raw = 0.5 * (phi[:, jp, :] + phi[:, j, :])
         tesheath = 0.5 * (temperature[:, jp, :] + temperature[:, j, :])
         nesheath = 0.5 * (density[:, jp, :] + density[:, j, :])
-        source_scale = (J[:, j, :] + J[:, jp, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jp, :])) / (
-            dy[:, j, :] * J[:, j, :]
+        source_scale = (
+            (J[:, j, :] + J[:, jp, :])
+            / (sqrt(g22[:, j, :]) + sqrt(g22[:, jp, :]))
+            / (dy[:, j, :] * J[:, j, :])
         )
         sheath = compute_full_electron_sheath_boundary(
             sheath_density=nesheath,
@@ -1419,17 +1632,25 @@ def _apply_electron_sheath_boundary(
         j = mesh.ystart
         jm = j - 1
         jp = j + 1
-        density = _set_y(density, jm, limit_free(density[:, jp, :], density[:, j, :], 0))
-        temperature = _set_y(temperature, jm, limit_free(temperature[:, jp, :], temperature[:, j, :], 0))
-        pressure = _set_y(pressure, jm, limit_free(pressure[:, jp, :], pressure[:, j, :], 0))
+        density = _set_y(
+            density, jm, limit_free(density[:, jp, :], density[:, j, :], 0)
+        )
+        temperature = _set_y(
+            temperature, jm, limit_free(temperature[:, jp, :], temperature[:, j, :], 0)
+        )
+        pressure = _set_y(
+            pressure, jm, limit_free(pressure[:, jp, :], pressure[:, j, :], 0)
+        )
         phi = _set_zero_current_phi(phi, j=j, neighbor=jp, ghost=jm)
         phi = _set_y(phi, jm, 2.0 * phi[:, j, :] - phi[:, jp, :])
         phi_wall = wall_potential[:, j, :]
         phisheath_raw = 0.5 * (phi[:, jm, :] + phi[:, j, :])
         tesheath = 0.5 * (temperature[:, jm, :] + temperature[:, j, :])
         nesheath = 0.5 * (density[:, jm, :] + density[:, j, :])
-        source_scale = (J[:, j, :] + J[:, jm, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jm, :])) / (
-            dy[:, j, :] * J[:, j, :]
+        source_scale = (
+            (J[:, j, :] + J[:, jm, :])
+            / (sqrt(g22[:, j, :]) + sqrt(g22[:, jm, :]))
+            / (dy[:, j, :] * J[:, j, :])
         )
         sheath = compute_full_electron_sheath_boundary(
             sheath_density=nesheath,
@@ -1474,12 +1695,22 @@ def _apply_electron_simple_sheath_boundary(
     settings: _SimpleSheathSettings,
 ) -> _ElectronBoundaryResult:
     density = np.array(
-        apply_noflow_scalar_guards(electron_density, mesh=mesh, lower_y=settings.lower_y, upper_y=settings.upper_y),
+        apply_noflow_scalar_guards(
+            electron_density,
+            mesh=mesh,
+            lower_y=settings.lower_y,
+            upper_y=settings.upper_y,
+        ),
         dtype=np.float64,
         copy=True,
     )
     pressure = np.array(
-        apply_noflow_scalar_guards(electron_pressure, mesh=mesh, lower_y=settings.lower_y, upper_y=settings.upper_y),
+        apply_noflow_scalar_guards(
+            electron_pressure,
+            mesh=mesh,
+            lower_y=settings.lower_y,
+            upper_y=settings.upper_y,
+        ),
         dtype=np.float64,
         copy=True,
     )
@@ -1514,21 +1745,31 @@ def _apply_electron_simple_sheath_boundary(
             ti = np.asarray(ion_state.temperature, dtype=np.float64)
             vi = np.asarray(ion_velocity[ion.name], dtype=np.float64)
             ni_guard = np.asarray(
-                limit_free(ni[:, guard, :], ni[:, j, :], settings.density_boundary_mode),
+                limit_free(
+                    ni[:, guard, :], ni[:, j, :], settings.density_boundary_mode
+                ),
                 dtype=np.float64,
             )
             ti_guard = np.asarray(
-                limit_free(ti[:, guard, :], ti[:, j, :], settings.temperature_boundary_mode),
+                limit_free(
+                    ti[:, guard, :], ti[:, j, :], settings.temperature_boundary_mode
+                ),
                 dtype=np.float64,
             )
             te_guard = np.asarray(
-                limit_free(temperature[:, guard, :], temperature[:, j, :], settings.temperature_boundary_mode),
+                limit_free(
+                    temperature[:, guard, :],
+                    temperature[:, j, :],
+                    settings.temperature_boundary_mode,
+                ),
                 dtype=np.float64,
             )
             nisheath = 0.5 * (ni_guard + ni[:, j, :])
             tesheath = np.maximum(0.5 * (te_guard + temperature[:, j, :]), 1.0e-5)
             tisheath = np.maximum(0.5 * (ti_guard + ti[:, j, :]), 1.0e-5)
-            c_i_sq = (ion_polytropic * tisheath + ion.charge * tesheath) / ion.atomic_mass
+            c_i_sq = (
+                ion_polytropic * tisheath + ion.charge * tesheath
+            ) / ion.atomic_mass
             c_i_sq = np.maximum(c_i_sq, 0.0)
             if sign < 0.0:
                 visheath = np.minimum(vi[:, j, :], -np.sqrt(c_i_sq))
@@ -1543,19 +1784,31 @@ def _apply_electron_simple_sheath_boundary(
         guard = j + 1
         ghost = j - 1
         density[:, ghost, :] = np.asarray(
-            limit_free(density[:, guard, :], density[:, j, :], settings.density_boundary_mode),
+            limit_free(
+                density[:, guard, :], density[:, j, :], settings.density_boundary_mode
+            ),
             dtype=np.float64,
         )
         temperature[:, ghost, :] = np.asarray(
-            limit_free(temperature[:, guard, :], temperature[:, j, :], settings.temperature_boundary_mode),
+            limit_free(
+                temperature[:, guard, :],
+                temperature[:, j, :],
+                settings.temperature_boundary_mode,
+            ),
             dtype=np.float64,
         )
         pressure[:, ghost, :] = np.asarray(
-            limit_free(pressure[:, guard, :], pressure[:, j, :], settings.pressure_boundary_mode),
+            limit_free(
+                pressure[:, guard, :],
+                pressure[:, j, :],
+                settings.pressure_boundary_mode,
+            ),
             dtype=np.float64,
         )
         nesheath = 0.5 * (density[:, ghost, :] + density[:, j, :])
-        tesheath = np.maximum(0.5 * (temperature[:, ghost, :] + temperature[:, j, :]), 1.0e-5)
+        tesheath = np.maximum(
+            0.5 * (temperature[:, ghost, :] + temperature[:, j, :]), 1.0e-5
+        )
         ion_sum = np.maximum(_ion_sum_at_boundary(j, guard, sign=-1.0), 1.0e-5)
         phi_boundary = tesheath * np.log(
             np.sqrt(tesheath / (electron_mass * (2.0 * math.pi)))
@@ -1565,15 +1818,26 @@ def _apply_electron_simple_sheath_boundary(
         )
         phi_boundary = phi_boundary + wall_potential[:, j, :]
         phisheath = np.maximum(phi_boundary, wall_potential[:, j, :])
-        vesheath = -np.sqrt(tesheath / (2.0 * math.pi * electron_mass)) * (1.0 - secondary_coef) * np.exp(
-            -(phisheath - wall_potential[:, j, :]) / np.maximum(tesheath, 1.0e-5)
+        vesheath = (
+            -np.sqrt(tesheath / (2.0 * math.pi * electron_mass))
+            * (1.0 - secondary_coef)
+            * np.exp(
+                -(phisheath - wall_potential[:, j, :]) / np.maximum(tesheath, 1.0e-5)
+            )
         )
         q = gamma_e * tesheath * nesheath * vesheath
         if settings.no_flow:
             vesheath = 0.0
         velocity[:, ghost, :] = 2.0 * vesheath - velocity[:, j, :]
-        momentum[:, ghost, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
-        q = q - (2.5 * tesheath + 0.5 * electron_mass * np.square(vesheath)) * nesheath * vesheath
+        momentum[:, ghost, :] = (
+            2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
+        )
+        q = (
+            q
+            - (2.5 * tesheath + 0.5 * electron_mass * np.square(vesheath))
+            * nesheath
+            * vesheath
+        )
         area = (
             (J[:, j, :] + J[:, ghost, :])
             / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, ghost, :]))
@@ -1590,19 +1854,31 @@ def _apply_electron_simple_sheath_boundary(
         guard = j - 1
         ghost = j + 1
         density[:, ghost, :] = np.asarray(
-            limit_free(density[:, guard, :], density[:, j, :], settings.density_boundary_mode),
+            limit_free(
+                density[:, guard, :], density[:, j, :], settings.density_boundary_mode
+            ),
             dtype=np.float64,
         )
         temperature[:, ghost, :] = np.asarray(
-            limit_free(temperature[:, guard, :], temperature[:, j, :], settings.temperature_boundary_mode),
+            limit_free(
+                temperature[:, guard, :],
+                temperature[:, j, :],
+                settings.temperature_boundary_mode,
+            ),
             dtype=np.float64,
         )
         pressure[:, ghost, :] = np.asarray(
-            limit_free(pressure[:, guard, :], pressure[:, j, :], settings.pressure_boundary_mode),
+            limit_free(
+                pressure[:, guard, :],
+                pressure[:, j, :],
+                settings.pressure_boundary_mode,
+            ),
             dtype=np.float64,
         )
         nesheath = 0.5 * (density[:, ghost, :] + density[:, j, :])
-        tesheath = np.maximum(0.5 * (temperature[:, ghost, :] + temperature[:, j, :]), 1.0e-5)
+        tesheath = np.maximum(
+            0.5 * (temperature[:, ghost, :] + temperature[:, j, :]), 1.0e-5
+        )
         ion_sum = np.maximum(_ion_sum_at_boundary(j, guard, sign=1.0), 1.0e-5)
         phi_boundary = tesheath * np.log(
             np.sqrt(tesheath / (electron_mass * (2.0 * math.pi)))
@@ -1612,15 +1888,26 @@ def _apply_electron_simple_sheath_boundary(
         )
         phi_boundary = phi_boundary + wall_potential[:, j, :]
         phisheath = np.maximum(phi_boundary, wall_potential[:, j, :])
-        vesheath = np.sqrt(tesheath / (2.0 * math.pi * electron_mass)) * (1.0 - secondary_coef) * np.exp(
-            -(phisheath - wall_potential[:, j, :]) / np.maximum(tesheath, 1.0e-5)
+        vesheath = (
+            np.sqrt(tesheath / (2.0 * math.pi * electron_mass))
+            * (1.0 - secondary_coef)
+            * np.exp(
+                -(phisheath - wall_potential[:, j, :]) / np.maximum(tesheath, 1.0e-5)
+            )
         )
         q = gamma_e * tesheath * nesheath * vesheath
         if settings.no_flow:
             vesheath = 0.0
         velocity[:, ghost, :] = 2.0 * vesheath - velocity[:, j, :]
-        momentum[:, ghost, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
-        q = q - (2.5 * tesheath + 0.5 * electron_mass * np.square(vesheath)) * nesheath * vesheath
+        momentum[:, ghost, :] = (
+            2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
+        )
+        q = (
+            q
+            - (2.5 * tesheath + 0.5 * electron_mass * np.square(vesheath))
+            * nesheath
+            * vesheath
+        )
         area = (
             (J[:, j, :] + J[:, ghost, :])
             / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, ghost, :]))
@@ -1680,8 +1967,13 @@ def advance_recycling_1d_implicit_history(
     )
     field_names = runtime_model.field_names
     feedback_names = runtime_model.feedback_names
-    fields = _build_recycling_state_fields(runtime_model, field_overrides=initial_fields)
-    integrals = {name: float((initial_feedback_integrals or {}).get(name, 0.0)) for name in feedback_names}
+    fields = _build_recycling_state_fields(
+        runtime_model, field_overrides=initial_fields
+    )
+    integrals = {
+        name: float((initial_feedback_integrals or {}).get(name, 0.0))
+        for name in feedback_names
+    }
 
     if solver_mode == "continuation":
         return _advance_recycling_1d_continuation_history(
@@ -1758,12 +2050,18 @@ def advance_recycling_1d_implicit_history(
             steps=steps,
             progress_callback=progress_callback,
             jacobian_mode="jvp" if solver_mode == "bdf_fixed_full_field_jvp" else None,
-            rhs_backend="fixed_full_field_array" if solver_mode == "bdf_fixed_full_field_jvp" else "host_bridge",
+            rhs_backend="fixed_full_field_array"
+            if solver_mode == "bdf_fixed_full_field_jvp"
+            else "host_bridge",
             solver_mode_label=solver_mode,
         )
 
-    variable_history = {name: [np.asarray(fields[name], dtype=np.float64)] for name in field_names}
-    feedback_history = {name: [np.asarray(0.0, dtype=np.float64)] for name in feedback_names}
+    variable_history = {
+        name: [np.asarray(fields[name], dtype=np.float64)] for name in field_names
+    }
+    feedback_history = {
+        name: [np.asarray(0.0, dtype=np.float64)] for name in feedback_names
+    }
     run_started_at = time.perf_counter()
     interval_started_at = run_started_at
 
@@ -1799,8 +2097,14 @@ def advance_recycling_1d_implicit_history(
             progress_callback(details)
 
     return Recycling1DHistoryResult(
-        variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
-        feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
+        variable_history={
+            name: np.stack(history, axis=0)
+            for name, history in variable_history.items()
+        },
+        feedback_integral_history={
+            name: np.stack(history, axis=0)
+            for name, history in feedback_history.items()
+        },
     )
 
 
@@ -1821,33 +2125,50 @@ def _advance_recycling_1d_continuation_history(
     max_nonlinear_iterations: int,
     progress_callback: RecyclingProgressCallback | None = None,
 ) -> Recycling1DHistoryResult:
-    current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
-    current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
-    variable_history = {name: [np.asarray(current_fields[name], dtype=np.float64)] for name in field_names}
-    feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
+    current_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in fields.items()
+    }
+    current_integrals = {
+        name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names
+    }
+    variable_history = {
+        name: [np.asarray(current_fields[name], dtype=np.float64)]
+        for name in field_names
+    }
+    feedback_history = {
+        name: [np.asarray(current_integrals[name], dtype=np.float64)]
+        for name in feedback_names
+    }
     suggested_dt = _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
     run_started_at = time.perf_counter()
     interval_started_at = run_started_at
 
     for interval_index in range(steps):
-        current_fields, current_integrals, suggested_dt = _advance_recycling_1d_output_interval(
-            config,
-            current_fields,
-            runtime_model=runtime_model,
-            feedback_integrals=current_integrals,
-            mesh=mesh,
-            metrics=metrics,
-            dataset_scalars=dataset_scalars,
-            output_timestep=timestep,
-            suggested_dt=suggested_dt,
-            residual_tolerance=residual_tolerance,
-            max_nonlinear_iterations=max_nonlinear_iterations,
-            startup_warmup=(interval_index == 0),
+        current_fields, current_integrals, suggested_dt = (
+            _advance_recycling_1d_output_interval(
+                config,
+                current_fields,
+                runtime_model=runtime_model,
+                feedback_integrals=current_integrals,
+                mesh=mesh,
+                metrics=metrics,
+                dataset_scalars=dataset_scalars,
+                output_timestep=timestep,
+                suggested_dt=suggested_dt,
+                residual_tolerance=residual_tolerance,
+                max_nonlinear_iterations=max_nonlinear_iterations,
+                startup_warmup=(interval_index == 0),
+            )
         )
         for name in field_names:
-            variable_history[name].append(np.asarray(current_fields[name], dtype=np.float64))
+            variable_history[name].append(
+                np.asarray(current_fields[name], dtype=np.float64)
+            )
         for name in feedback_names:
-            feedback_history[name].append(np.asarray(current_integrals[name], dtype=np.float64))
+            feedback_history[name].append(
+                np.asarray(current_integrals[name], dtype=np.float64)
+            )
         if progress_callback is not None:
             details, interval_started_at = _build_recycling_progress_details(
                 interval_index=interval_index + 1,
@@ -1862,8 +2183,14 @@ def _advance_recycling_1d_continuation_history(
             progress_callback(details)
 
     return Recycling1DHistoryResult(
-        variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
-        feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
+        variable_history={
+            name: np.stack(history, axis=0)
+            for name, history in variable_history.items()
+        },
+        feedback_integral_history={
+            name: np.stack(history, axis=0)
+            for name, history in feedback_history.items()
+        },
     )
 
 
@@ -1884,34 +2211,51 @@ def _advance_recycling_1d_adaptive_be_history(
     max_nonlinear_iterations: int,
     progress_callback: RecyclingProgressCallback | None = None,
 ) -> Recycling1DHistoryResult:
-    current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
-    current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
-    variable_history = {name: [np.asarray(current_fields[name], dtype=np.float64)] for name in field_names}
-    feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
+    current_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in fields.items()
+    }
+    current_integrals = {
+        name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names
+    }
+    variable_history = {
+        name: [np.asarray(current_fields[name], dtype=np.float64)]
+        for name in field_names
+    }
+    feedback_history = {
+        name: [np.asarray(current_integrals[name], dtype=np.float64)]
+        for name in feedback_names
+    }
     suggested_dt = min(float(timestep), 10.0 if len(field_names) > 10 else 5.0)
     run_started_at = time.perf_counter()
     interval_started_at = run_started_at
 
     for interval_index in range(steps):
-        current_fields, current_integrals, suggested_dt = _advance_recycling_1d_adaptive_be_interval(
-            config,
-            current_fields,
-            runtime_model=runtime_model,
-            feedback_integrals=current_integrals,
-            field_names=field_names,
-            feedback_names=feedback_names,
-            mesh=mesh,
-            metrics=metrics,
-            dataset_scalars=dataset_scalars,
-            output_timestep=timestep,
-            suggested_dt=suggested_dt,
-            residual_tolerance=residual_tolerance,
-            max_nonlinear_iterations=max_nonlinear_iterations,
+        current_fields, current_integrals, suggested_dt = (
+            _advance_recycling_1d_adaptive_be_interval(
+                config,
+                current_fields,
+                runtime_model=runtime_model,
+                feedback_integrals=current_integrals,
+                field_names=field_names,
+                feedback_names=feedback_names,
+                mesh=mesh,
+                metrics=metrics,
+                dataset_scalars=dataset_scalars,
+                output_timestep=timestep,
+                suggested_dt=suggested_dt,
+                residual_tolerance=residual_tolerance,
+                max_nonlinear_iterations=max_nonlinear_iterations,
+            )
         )
         for name in field_names:
-            variable_history[name].append(np.asarray(current_fields[name], dtype=np.float64))
+            variable_history[name].append(
+                np.asarray(current_fields[name], dtype=np.float64)
+            )
         for name in feedback_names:
-            feedback_history[name].append(np.asarray(current_integrals[name], dtype=np.float64))
+            feedback_history[name].append(
+                np.asarray(current_integrals[name], dtype=np.float64)
+            )
         if progress_callback is not None:
             details, interval_started_at = _build_recycling_progress_details(
                 interval_index=interval_index + 1,
@@ -1926,8 +2270,14 @@ def _advance_recycling_1d_adaptive_be_history(
             progress_callback(details)
 
     return Recycling1DHistoryResult(
-        variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
-        feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
+        variable_history={
+            name: np.stack(history, axis=0)
+            for name, history in variable_history.items()
+        },
+        feedback_integral_history={
+            name: np.stack(history, axis=0)
+            for name, history in feedback_history.items()
+        },
     )
 
 
@@ -1949,13 +2299,24 @@ def _advance_recycling_1d_adaptive_bdf_history(
     progress_callback: RecyclingProgressCallback | None = None,
     step_solver_mode: str = "sparse",
 ) -> Recycling1DHistoryResult:
-    current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
-    current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
+    current_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in fields.items()
+    }
+    current_integrals = {
+        name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names
+    }
     previous_fields: dict[str, np.ndarray] | None = None
     previous_integrals: dict[str, float] | None = None
     previous_dt: float | None = None
-    variable_history = {name: [np.asarray(current_fields[name], dtype=np.float64)] for name in field_names}
-    feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
+    variable_history = {
+        name: [np.asarray(current_fields[name], dtype=np.float64)]
+        for name in field_names
+    }
+    feedback_history = {
+        name: [np.asarray(current_integrals[name], dtype=np.float64)]
+        for name in feedback_names
+    }
     suggested_dt = _initial_recycling_adaptive_bdf_dt(
         config,
         runtime_model,
@@ -1995,11 +2356,17 @@ def _advance_recycling_1d_adaptive_bdf_history(
             step_solver_mode=step_solver_mode,
         )
         _accumulate_adaptive_bdf_interval_stats(interval_stats, step_stats)
-        interval_stats["adaptive_bdf_interval_count"] = int(interval_stats["adaptive_bdf_interval_count"]) + 1
+        interval_stats["adaptive_bdf_interval_count"] = (
+            int(interval_stats["adaptive_bdf_interval_count"]) + 1
+        )
         for name in field_names:
-            variable_history[name].append(np.asarray(current_fields[name], dtype=np.float64))
+            variable_history[name].append(
+                np.asarray(current_fields[name], dtype=np.float64)
+            )
         for name in feedback_names:
-            feedback_history[name].append(np.asarray(current_integrals[name], dtype=np.float64))
+            feedback_history[name].append(
+                np.asarray(current_integrals[name], dtype=np.float64)
+            )
         if progress_callback is not None:
             details, interval_started_at = _build_recycling_progress_details(
                 interval_index=interval_index + 1,
@@ -2014,13 +2381,21 @@ def _advance_recycling_1d_adaptive_bdf_history(
             progress_callback(details)
 
     return Recycling1DHistoryResult(
-        variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
-        feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
+        variable_history={
+            name: np.stack(history, axis=0)
+            for name, history in variable_history.items()
+        },
+        feedback_integral_history={
+            name: np.stack(history, axis=0)
+            for name, history in feedback_history.items()
+        },
         diagnostics=interval_stats,
     )
 
 
-def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float | int | str | None]:
+def _new_adaptive_bdf_interval_stats(
+    step_solver_mode: str,
+) -> dict[str, float | int | str | None]:
     return {
         "adaptive_bdf_accepted_steps": 0,
         "adaptive_bdf_rejected_steps": 0,
@@ -2096,7 +2471,10 @@ def _json_ready_adaptive_bdf_trace_value(value: object) -> object:
     if isinstance(value, (str, int, bool)) or value is None:
         return value
     if isinstance(value, dict):
-        return {str(key): _json_ready_adaptive_bdf_trace_value(item) for key, item in value.items()}
+        return {
+            str(key): _json_ready_adaptive_bdf_trace_value(item)
+            for key, item in value.items()
+        }
     if isinstance(value, (list, tuple)):
         return [_json_ready_adaptive_bdf_trace_value(item) for item in value]
     return str(value)
@@ -2133,7 +2511,9 @@ def _write_adaptive_bdf_trace_record(
         record["error_contributors"] = error_contributors
     if info is not None:
         residual_inf_norm = float(getattr(info, "residual_inf_norm", np.nan))
-        record["residual_inf_norm"] = residual_inf_norm if np.isfinite(residual_inf_norm) else None
+        record["residual_inf_norm"] = (
+            residual_inf_norm if np.isfinite(residual_inf_norm) else None
+        )
         record["nonlinear_iterations"] = int(getattr(info, "nonlinear_iterations", 0))
         record["linear_iterations"] = int(getattr(info, "linear_iterations", 0))
         diagnostics = getattr(info, "diagnostics", None)
@@ -2171,7 +2551,10 @@ def _write_adaptive_bdf_trace_record(
     if parent:
         os.makedirs(parent, exist_ok=True)
     with open(trace_path, "a", encoding="utf-8") as trace_file:
-        trace_file.write(json.dumps(_json_ready_adaptive_bdf_trace_value(record), sort_keys=True) + "\n")
+        trace_file.write(
+            json.dumps(_json_ready_adaptive_bdf_trace_value(record), sort_keys=True)
+            + "\n"
+        )
         trace_file.flush()
 
 
@@ -2187,7 +2570,9 @@ def _record_adaptive_bdf_error_ratio(
     if previous_max is None:
         stats["adaptive_bdf_max_error_ratio"] = finite_error_ratio
     else:
-        stats["adaptive_bdf_max_error_ratio"] = max(float(previous_max), finite_error_ratio)
+        stats["adaptive_bdf_max_error_ratio"] = max(
+            float(previous_max), finite_error_ratio
+        )
 
 
 def _record_adaptive_bdf_accepted_dt(
@@ -2197,8 +2582,12 @@ def _record_adaptive_bdf_accepted_dt(
     accepted_dt = float(dt)
     min_dt = stats["adaptive_bdf_min_accepted_dt"]
     max_dt = stats["adaptive_bdf_max_accepted_dt"]
-    stats["adaptive_bdf_min_accepted_dt"] = accepted_dt if min_dt is None else min(float(min_dt), accepted_dt)
-    stats["adaptive_bdf_max_accepted_dt"] = accepted_dt if max_dt is None else max(float(max_dt), accepted_dt)
+    stats["adaptive_bdf_min_accepted_dt"] = (
+        accepted_dt if min_dt is None else min(float(min_dt), accepted_dt)
+    )
+    stats["adaptive_bdf_max_accepted_dt"] = (
+        accepted_dt if max_dt is None else max(float(max_dt), accepted_dt)
+    )
 
 
 def _record_adaptive_bdf_accepted_error_ratio(
@@ -2213,7 +2602,9 @@ def _record_adaptive_bdf_accepted_error_ratio(
     if previous_max is None:
         stats["adaptive_bdf_max_accepted_error_ratio"] = finite_error_ratio
     else:
-        stats["adaptive_bdf_max_accepted_error_ratio"] = max(float(previous_max), finite_error_ratio)
+        stats["adaptive_bdf_max_accepted_error_ratio"] = max(
+            float(previous_max), finite_error_ratio
+        )
 
 
 def _adaptive_bdf_error_contributors_if_tracing(
@@ -2263,13 +2654,17 @@ def _scale_adaptive_bdf_error_contributors(
             value = float(scaled[key])
             scaled[key] = value * float(scale) if np.isfinite(value) else value
         squared = float(scaled["squared_error_sum"])
-        scaled["squared_error_sum"] = squared * float(scale) * float(scale) if np.isfinite(squared) else squared
+        scaled["squared_error_sum"] = (
+            squared * float(scale) * float(scale) if np.isfinite(squared) else squared
+        )
         return scaled
 
     fields = [_scaled_entry(dict(item)) for item in contributors.get("fields", [])]  # type: ignore[union-attr]
     feedback = [_scaled_entry(dict(item)) for item in contributors.get("feedback", [])]  # type: ignore[union-attr]
     all_contributors = [*fields, *feedback]
-    dominant = max(all_contributors, key=lambda item: float(item["rms_ratio"]), default=None)
+    dominant = max(
+        all_contributors, key=lambda item: float(item["rms_ratio"]), default=None
+    )
     overall = float(contributors.get("overall_ratio", 0.0))  # type: ignore[union-attr]
     scaled_overall = overall * float(scale) if np.isfinite(overall) else overall
     return {
@@ -2285,15 +2680,23 @@ def _record_adaptive_bdf_step_solver_info(
     stats: dict[str, float | int | str | None],
     info: Recycling1DImplicitStepInfo | object,
 ) -> None:
-    stats["adaptive_bdf_trial_solver_steps"] = int(stats["adaptive_bdf_trial_solver_steps"]) + 1
+    stats["adaptive_bdf_trial_solver_steps"] = (
+        int(stats["adaptive_bdf_trial_solver_steps"]) + 1
+    )
     diagnostics = getattr(info, "diagnostics", None)
-    converged = diagnostics.get("converged") if isinstance(diagnostics, dict) else getattr(info, "converged", None)
+    converged = (
+        diagnostics.get("converged")
+        if isinstance(diagnostics, dict)
+        else getattr(info, "converged", None)
+    )
     if converged is False:
-        stats["adaptive_bdf_unconverged_solver_steps"] = int(stats["adaptive_bdf_unconverged_solver_steps"]) + 1
+        stats["adaptive_bdf_unconverged_solver_steps"] = (
+            int(stats["adaptive_bdf_unconverged_solver_steps"]) + 1
+        )
     elif converged is None:
-        stats["adaptive_bdf_unknown_convergence_solver_steps"] = int(
-            stats["adaptive_bdf_unknown_convergence_solver_steps"]
-        ) + 1
+        stats["adaptive_bdf_unknown_convergence_solver_steps"] = (
+            int(stats["adaptive_bdf_unknown_convergence_solver_steps"]) + 1
+        )
     if not isinstance(diagnostics, dict):
         return
     for source_key, destination_key in (
@@ -2306,10 +2709,12 @@ def _record_adaptive_bdf_step_solver_info(
             "adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses",
         ),
     ):
-        stats[destination_key] = int(stats[destination_key]) + int(diagnostics.get(source_key, 0) or 0)
-    stats["adaptive_bdf_linear_iterations"] = int(stats["adaptive_bdf_linear_iterations"]) + int(
-        getattr(info, "linear_iterations", 0) or 0
-    )
+        stats[destination_key] = int(stats[destination_key]) + int(
+            diagnostics.get(source_key, 0) or 0
+        )
+    stats["adaptive_bdf_linear_iterations"] = int(
+        stats["adaptive_bdf_linear_iterations"]
+    ) + int(getattr(info, "linear_iterations", 0) or 0)
     if diagnostics.get("linear_solver_success") is False:
         stats["adaptive_bdf_linear_solver_failed_steps"] = (
             int(stats["adaptive_bdf_linear_solver_failed_steps"]) + 1
@@ -2320,38 +2725,57 @@ def _record_adaptive_bdf_step_solver_info(
         ("linear_solve_seconds", "adaptive_bdf_linear_solve_seconds"),
         ("line_search_seconds", "adaptive_bdf_line_search_seconds"),
         ("jvp_jacobian_total_seconds", "adaptive_bdf_jvp_jacobian_total_seconds"),
-        ("jvp_jacobian_linearize_seconds", "adaptive_bdf_jvp_jacobian_linearize_seconds"),
-        ("jvp_jacobian_tangent_build_seconds", "adaptive_bdf_jvp_jacobian_tangent_build_seconds"),
+        (
+            "jvp_jacobian_linearize_seconds",
+            "adaptive_bdf_jvp_jacobian_linearize_seconds",
+        ),
+        (
+            "jvp_jacobian_tangent_build_seconds",
+            "adaptive_bdf_jvp_jacobian_tangent_build_seconds",
+        ),
         ("jvp_jacobian_push_seconds", "adaptive_bdf_jvp_jacobian_push_seconds"),
-        ("jvp_jacobian_device_execute_seconds", "adaptive_bdf_jvp_jacobian_device_execute_seconds"),
-        ("jvp_jacobian_host_transfer_seconds", "adaptive_bdf_jvp_jacobian_host_transfer_seconds"),
-        ("jvp_jacobian_sparse_assembly_seconds", "adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"),
+        (
+            "jvp_jacobian_device_execute_seconds",
+            "adaptive_bdf_jvp_jacobian_device_execute_seconds",
+        ),
+        (
+            "jvp_jacobian_host_transfer_seconds",
+            "adaptive_bdf_jvp_jacobian_host_transfer_seconds",
+        ),
+        (
+            "jvp_jacobian_sparse_assembly_seconds",
+            "adaptive_bdf_jvp_jacobian_sparse_assembly_seconds",
+        ),
     ):
-        stats[destination_key] = float(stats[destination_key]) + float(diagnostics.get(source_key, 0.0) or 0.0)
+        stats[destination_key] = float(stats[destination_key]) + float(
+            diagnostics.get(source_key, 0.0) or 0.0
+        )
     rhs_backend = str(diagnostics.get("rhs_backend", ""))
     if rhs_backend == "fixed_full_field_array":
-        stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"] = int(
-            stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"]
-        ) + 1
+        stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"] = (
+            int(stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"]) + 1
+        )
     elif rhs_backend == "host_bridge":
-        stats["adaptive_bdf_host_bridge_rhs_solver_steps"] = int(
-            stats["adaptive_bdf_host_bridge_rhs_solver_steps"]
-        ) + 1
+        stats["adaptive_bdf_host_bridge_rhs_solver_steps"] = (
+            int(stats["adaptive_bdf_host_bridge_rhs_solver_steps"]) + 1
+        )
     jacobian_mode = str(diagnostics.get("jacobian_mode", ""))
     if jacobian_mode == "jvp":
-        stats["adaptive_bdf_sparse_jvp_jacobian_solver_steps"] = int(
-            stats["adaptive_bdf_sparse_jvp_jacobian_solver_steps"]
-        ) + 1
+        stats["adaptive_bdf_sparse_jvp_jacobian_solver_steps"] = (
+            int(stats["adaptive_bdf_sparse_jvp_jacobian_solver_steps"]) + 1
+        )
     elif jacobian_mode == "fd":
-        stats["adaptive_bdf_fd_jacobian_solver_steps"] = int(stats["adaptive_bdf_fd_jacobian_solver_steps"]) + 1
+        stats["adaptive_bdf_fd_jacobian_solver_steps"] = (
+            int(stats["adaptive_bdf_fd_jacobian_solver_steps"]) + 1
+        )
     elif jacobian_mode.startswith("jax_linearized:"):
-        stats["adaptive_bdf_jax_linearized_action_solver_steps"] = int(
-            stats["adaptive_bdf_jax_linearized_action_solver_steps"]
-        ) + 1
+        stats["adaptive_bdf_jax_linearized_action_solver_steps"] = (
+            int(stats["adaptive_bdf_jax_linearized_action_solver_steps"]) + 1
+        )
         if "lineax" in jacobian_mode:
-            stats["adaptive_bdf_lineax_action_solver_steps"] = int(
-                stats["adaptive_bdf_lineax_action_solver_steps"]
-            ) + 1
+            stats["adaptive_bdf_lineax_action_solver_steps"] = (
+                int(stats["adaptive_bdf_lineax_action_solver_steps"]) + 1
+            )
 
 
 def _accumulate_adaptive_bdf_interval_stats(
@@ -2404,7 +2828,9 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_jvp_jacobian_sparse_assembly_seconds",
     )
     for key in elapsed_keys:
-        total[key] = float(total.get(key, 0.0) or 0.0) + float(step.get(key, 0.0) or 0.0)
+        total[key] = float(total.get(key, 0.0) or 0.0) + float(
+            step.get(key, 0.0) or 0.0
+        )
 
     for key, reducer in (
         ("adaptive_bdf_min_accepted_dt", min),
@@ -2416,13 +2842,23 @@ def _accumulate_adaptive_bdf_interval_stats(
         if value is None:
             continue
         current = total.get(key)
-        total[key] = float(value) if current is None else reducer(float(current), float(value))
+        total[key] = (
+            float(value) if current is None else reducer(float(current), float(value))
+        )
 
     if step.get("adaptive_bdf_last_error_ratio") is not None:
-        total["adaptive_bdf_last_error_ratio"] = float(step["adaptive_bdf_last_error_ratio"])
+        total["adaptive_bdf_last_error_ratio"] = float(
+            step["adaptive_bdf_last_error_ratio"]
+        )
     if step.get("adaptive_bdf_last_accepted_error_ratio") is not None:
-        total["adaptive_bdf_last_accepted_error_ratio"] = float(step["adaptive_bdf_last_accepted_error_ratio"])
-    total["adaptive_bdf_step_solver_mode"] = str(step.get("adaptive_bdf_step_solver_mode", total["adaptive_bdf_step_solver_mode"]))
+        total["adaptive_bdf_last_accepted_error_ratio"] = float(
+            step["adaptive_bdf_last_accepted_error_ratio"]
+        )
+    total["adaptive_bdf_step_solver_mode"] = str(
+        step.get(
+            "adaptive_bdf_step_solver_mode", total["adaptive_bdf_step_solver_mode"]
+        )
+    )
 
 
 def _adaptive_bdf_minimum_dt(output_timestep: float) -> float:
@@ -2432,7 +2868,10 @@ def _adaptive_bdf_minimum_dt(output_timestep: float) -> float:
     full_window_floor = 0.25
     interval_relative_floor = output_dt / 64.0
     hard_relative_floor = output_dt / 8192.0
-    return min(output_dt, max(hard_relative_floor, min(full_window_floor, interval_relative_floor)))
+    return min(
+        output_dt,
+        max(hard_relative_floor, min(full_window_floor, interval_relative_floor)),
+    )
 
 
 def _advance_recycling_1d_adaptive_bdf_interval(
@@ -2463,19 +2902,45 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     float,
     dict[str, float | int | str | None],
 ]:
-    relative_tolerance = float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-6
-    absolute_tolerance = float(config.parsed("solver", "atol")) if config.has_option("solver", "atol") else 1.0e-9
+    relative_tolerance = (
+        float(config.parsed("solver", "rtol"))
+        if config.has_option("solver", "rtol")
+        else 1.0e-6
+    )
+    absolute_tolerance = (
+        float(config.parsed("solver", "atol"))
+        if config.has_option("solver", "atol")
+        else 1.0e-9
+    )
     remaining = float(output_timestep)
     minimum_dt = _adaptive_bdf_minimum_dt(output_timestep)
     dt = min(float(suggested_dt), remaining)
-    current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
-    current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
-    prev_fields = None if previous_fields is None else {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in previous_fields.items()}
-    prev_integrals = None if previous_integrals is None else {name: float(previous_integrals.get(name, 0.0)) for name in feedback_names}
+    current_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in fields.items()
+    }
+    current_integrals = {
+        name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names
+    }
+    prev_fields = (
+        None
+        if previous_fields is None
+        else {
+            name: np.asarray(value, dtype=np.float64, copy=True)
+            for name, value in previous_fields.items()
+        }
+    )
+    prev_integrals = (
+        None
+        if previous_integrals is None
+        else {name: float(previous_integrals.get(name, 0.0)) for name in feedback_names}
+    )
     prev_dt = previous_dt
     stats = _new_adaptive_bdf_interval_stats(step_solver_mode)
     interval_started_at = time.perf_counter()
-    field_absolute_tolerance_floors = _resolve_recycling_adaptive_bdf_field_atol_floors(config, field_names)
+    field_absolute_tolerance_floors = _resolve_recycling_adaptive_bdf_field_atol_floors(
+        config, field_names
+    )
     sparse_jvp_workspace = (
         _build_recycling_sparse_jvp_workspace(
             field_names=field_names,
@@ -2496,31 +2961,39 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             and float(prev_dt) > 0.0
         )
         if not use_bdf2:
-            stats["adaptive_bdf_startup_trials"] = int(stats["adaptive_bdf_startup_trials"]) + 1
-            startup_started_at = time.perf_counter()
-            candidate_fields, candidate_integrals, error_ratio = _advance_recycling_1d_startup_step(
-                config,
-                current_fields,
-                runtime_model=runtime_model,
-                feedback_integrals=current_integrals,
-                field_names=field_names,
-                feedback_names=feedback_names,
-                mesh=mesh,
-                metrics=metrics,
-                dataset_scalars=dataset_scalars,
-                timestep=dt,
-                residual_tolerance=residual_tolerance,
-                max_nonlinear_iterations=max_nonlinear_iterations,
-                relative_tolerance=relative_tolerance,
-                absolute_tolerance=absolute_tolerance,
-                field_absolute_tolerance_floors=field_absolute_tolerance_floors,
-                step_solver_mode=step_solver_mode,
-                stats=stats,
-                sparse_jvp_workspace=sparse_jvp_workspace,
+            stats["adaptive_bdf_startup_trials"] = (
+                int(stats["adaptive_bdf_startup_trials"]) + 1
             )
-            _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_startup_trial_seconds", startup_started_at)
+            startup_started_at = time.perf_counter()
+            candidate_fields, candidate_integrals, error_ratio = (
+                _advance_recycling_1d_startup_step(
+                    config,
+                    current_fields,
+                    runtime_model=runtime_model,
+                    feedback_integrals=current_integrals,
+                    field_names=field_names,
+                    feedback_names=feedback_names,
+                    mesh=mesh,
+                    metrics=metrics,
+                    dataset_scalars=dataset_scalars,
+                    timestep=dt,
+                    residual_tolerance=residual_tolerance,
+                    max_nonlinear_iterations=max_nonlinear_iterations,
+                    relative_tolerance=relative_tolerance,
+                    absolute_tolerance=absolute_tolerance,
+                    field_absolute_tolerance_floors=field_absolute_tolerance_floors,
+                    step_solver_mode=step_solver_mode,
+                    stats=stats,
+                    sparse_jvp_workspace=sparse_jvp_workspace,
+                )
+            )
+            _add_adaptive_bdf_elapsed(
+                stats, "adaptive_bdf_startup_trial_seconds", startup_started_at
+            )
         else:
-            stats["adaptive_bdf_bdf2_trials"] = int(stats["adaptive_bdf_bdf2_trials"]) + 1
+            stats["adaptive_bdf_bdf2_trials"] = (
+                int(stats["adaptive_bdf_bdf2_trials"]) + 1
+            )
             be_started_at = time.perf_counter()
             _write_adaptive_bdf_trace_record(
                 event="start",
@@ -2583,7 +3056,9 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 sparse_jvp_workspace=sparse_jvp_workspace,
             )
             bdf2_elapsed = max(0.0, float(time.perf_counter()) - float(bdf2_started_at))
-            stats["adaptive_bdf_bdf2_trial_seconds"] = float(stats["adaptive_bdf_bdf2_trial_seconds"]) + bdf2_elapsed
+            stats["adaptive_bdf_bdf2_trial_seconds"] = (
+                float(stats["adaptive_bdf_bdf2_trial_seconds"]) + bdf2_elapsed
+            )
             _record_adaptive_bdf_step_solver_info(stats, bdf_info)
             _write_adaptive_bdf_trace_record(
                 event="end",
@@ -2619,9 +3094,13 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 absolute_tolerance=absolute_tolerance,
                 field_absolute_tolerance_floors=field_absolute_tolerance_floors,
             )
-            _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_error_estimator_seconds", error_started_at)
+            _add_adaptive_bdf_elapsed(
+                stats, "adaptive_bdf_error_estimator_seconds", error_started_at
+            )
             error_ratio /= 3.0
-            error_contributors = _scale_adaptive_bdf_error_contributors(error_contributors, 1.0 / 3.0)
+            error_contributors = _scale_adaptive_bdf_error_contributors(
+                error_contributors, 1.0 / 3.0
+            )
             _write_adaptive_bdf_trace_record(
                 event="error_estimate",
                 trial_kind="bdf2_embedded_difference",
@@ -2631,7 +3110,10 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 error_ratio=float(error_ratio),
                 error_contributors=error_contributors,
             )
-            if np.isfinite(error_ratio) and error_ratio <= _ADAPTIVE_BDF_ACCEPTANCE_ERROR_RATIO:
+            if (
+                np.isfinite(error_ratio)
+                and error_ratio <= _ADAPTIVE_BDF_ACCEPTANCE_ERROR_RATIO
+            ):
                 candidate_fields = bdf_fields
                 candidate_integrals = bdf_integrals
             else:
@@ -2640,10 +3122,17 @@ def _advance_recycling_1d_adaptive_bdf_interval(
         order = 2 if use_bdf2 else 1
         _record_adaptive_bdf_error_ratio(stats, float(error_ratio))
 
-        if np.isfinite(error_ratio) and error_ratio <= _ADAPTIVE_BDF_ACCEPTANCE_ERROR_RATIO:
-            stats["adaptive_bdf_accepted_steps"] = int(stats["adaptive_bdf_accepted_steps"]) + 1
+        if (
+            np.isfinite(error_ratio)
+            and error_ratio <= _ADAPTIVE_BDF_ACCEPTANCE_ERROR_RATIO
+        ):
+            stats["adaptive_bdf_accepted_steps"] = (
+                int(stats["adaptive_bdf_accepted_steps"]) + 1
+            )
             if use_bdf2:
-                stats["adaptive_bdf_bdf2_accepted_steps"] = int(stats["adaptive_bdf_bdf2_accepted_steps"]) + 1
+                stats["adaptive_bdf_bdf2_accepted_steps"] = (
+                    int(stats["adaptive_bdf_bdf2_accepted_steps"]) + 1
+                )
             _record_adaptive_bdf_accepted_dt(stats, dt)
             _record_adaptive_bdf_accepted_error_ratio(stats, float(error_ratio))
             prev_fields = current_fields
@@ -2663,8 +3152,12 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             continue
 
         if dt <= minimum_dt:
-            stats["adaptive_bdf_accepted_steps"] = int(stats["adaptive_bdf_accepted_steps"]) + 1
-            stats["adaptive_bdf_minimum_dt_fallbacks"] = int(stats["adaptive_bdf_minimum_dt_fallbacks"]) + 1
+            stats["adaptive_bdf_accepted_steps"] = (
+                int(stats["adaptive_bdf_accepted_steps"]) + 1
+            )
+            stats["adaptive_bdf_minimum_dt_fallbacks"] = (
+                int(stats["adaptive_bdf_minimum_dt_fallbacks"]) + 1
+            )
             _record_adaptive_bdf_accepted_dt(stats, dt)
             _record_adaptive_bdf_accepted_error_ratio(stats, float(error_ratio))
             prev_fields = current_fields
@@ -2675,13 +3168,17 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             remaining -= dt
             continue
 
-        stats["adaptive_bdf_rejected_steps"] = int(stats["adaptive_bdf_rejected_steps"]) + 1
+        stats["adaptive_bdf_rejected_steps"] = (
+            int(stats["adaptive_bdf_rejected_steps"]) + 1
+        )
         dt = max(0.5 * dt, minimum_dt)
         prev_fields = None
         prev_integrals = None
         prev_dt = None
 
-    _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_interval_wall_seconds", interval_started_at)
+    _add_adaptive_bdf_elapsed(
+        stats, "adaptive_bdf_interval_wall_seconds", interval_started_at
+    )
     return (
         current_fields,
         current_integrals,
@@ -2710,7 +3207,9 @@ def _choose_recycling_next_dt(
     if not np.isfinite(error_ratio) or error_ratio <= 0.0:
         factor = 2.0
     else:
-        factor = _ADAPTIVE_RECYCLING_TIMESTEP_SAFETY * error_ratio ** (-1.0 / float(order + 1))
+        factor = _ADAPTIVE_RECYCLING_TIMESTEP_SAFETY * error_ratio ** (
+            -1.0 / float(order + 1)
+        )
     factor = min(max(factor, 0.5), 2.0)
     return max(min(current_dt * factor, remaining), minimum_dt)
 
@@ -2797,24 +3296,29 @@ def _advance_recycling_1d_startup_step(
         use_bdf2=False,
         step_solver_mode=step_solver_mode,
     )
-    half_fields, half_integrals, first_half_info = advance_recycling_1d_backward_euler_step(
-        config,
-        fields,
-        runtime_model=runtime_model,
-        feedback_integrals=feedback_integrals,
-        mesh=mesh,
-        metrics=metrics,
-        dataset_scalars=dataset_scalars,
-        timestep=0.5 * timestep,
-        solver_mode=step_solver_mode,
-        residual_tolerance=residual_tolerance,
-        max_nonlinear_iterations=max_nonlinear_iterations,
-        sparse_jvp_workspace=sparse_jvp_workspace,
+    half_fields, half_integrals, first_half_info = (
+        advance_recycling_1d_backward_euler_step(
+            config,
+            fields,
+            runtime_model=runtime_model,
+            feedback_integrals=feedback_integrals,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            timestep=0.5 * timestep,
+            solver_mode=step_solver_mode,
+            residual_tolerance=residual_tolerance,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+            sparse_jvp_workspace=sparse_jvp_workspace,
+        )
     )
-    first_half_elapsed = max(0.0, float(time.perf_counter()) - float(first_half_started_at))
+    first_half_elapsed = max(
+        0.0, float(time.perf_counter()) - float(first_half_started_at)
+    )
     if stats is not None:
         stats["adaptive_bdf_backward_euler_trial_seconds"] = (
-            float(stats["adaptive_bdf_backward_euler_trial_seconds"]) + first_half_elapsed
+            float(stats["adaptive_bdf_backward_euler_trial_seconds"])
+            + first_half_elapsed
         )
         _record_adaptive_bdf_step_solver_info(stats, first_half_info)
     _write_adaptive_bdf_trace_record(
@@ -2834,24 +3338,29 @@ def _advance_recycling_1d_startup_step(
         use_bdf2=False,
         step_solver_mode=step_solver_mode,
     )
-    half_fields, half_integrals, second_half_info = advance_recycling_1d_backward_euler_step(
-        config,
-        half_fields,
-        runtime_model=runtime_model,
-        feedback_integrals=half_integrals,
-        mesh=mesh,
-        metrics=metrics,
-        dataset_scalars=dataset_scalars,
-        timestep=0.5 * timestep,
-        solver_mode=step_solver_mode,
-        residual_tolerance=residual_tolerance,
-        max_nonlinear_iterations=max_nonlinear_iterations,
-        sparse_jvp_workspace=sparse_jvp_workspace,
+    half_fields, half_integrals, second_half_info = (
+        advance_recycling_1d_backward_euler_step(
+            config,
+            half_fields,
+            runtime_model=runtime_model,
+            feedback_integrals=half_integrals,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            timestep=0.5 * timestep,
+            solver_mode=step_solver_mode,
+            residual_tolerance=residual_tolerance,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+            sparse_jvp_workspace=sparse_jvp_workspace,
+        )
     )
-    second_half_elapsed = max(0.0, float(time.perf_counter()) - float(second_half_started_at))
+    second_half_elapsed = max(
+        0.0, float(time.perf_counter()) - float(second_half_started_at)
+    )
     if stats is not None:
         stats["adaptive_bdf_backward_euler_trial_seconds"] = (
-            float(stats["adaptive_bdf_backward_euler_trial_seconds"]) + second_half_elapsed
+            float(stats["adaptive_bdf_backward_euler_trial_seconds"])
+            + second_half_elapsed
         )
         _record_adaptive_bdf_step_solver_info(stats, second_half_info)
     _write_adaptive_bdf_trace_record(
@@ -2889,7 +3398,9 @@ def _advance_recycling_1d_startup_step(
         field_absolute_tolerance_floors=field_absolute_tolerance_floors,
     )
     if stats is not None:
-        _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_error_estimator_seconds", error_started_at)
+        _add_adaptive_bdf_elapsed(
+            stats, "adaptive_bdf_error_estimator_seconds", error_started_at
+        )
     _write_adaptive_bdf_trace_record(
         event="error_estimate",
         trial_kind="startup_embedded_difference",
@@ -2918,13 +3429,26 @@ def _advance_recycling_1d_adaptive_be_interval(
     residual_tolerance: float,
     max_nonlinear_iterations: int,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], float]:
-    relative_tolerance = float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-6
-    absolute_tolerance = float(config.parsed("solver", "atol")) if config.has_option("solver", "atol") else 1.0e-9
+    relative_tolerance = (
+        float(config.parsed("solver", "rtol"))
+        if config.has_option("solver", "rtol")
+        else 1.0e-6
+    )
+    absolute_tolerance = (
+        float(config.parsed("solver", "atol"))
+        if config.has_option("solver", "atol")
+        else 1.0e-9
+    )
     remaining = float(output_timestep)
     minimum_dt = max(float(output_timestep) / 8192.0, 0.25)
     dt = min(float(suggested_dt), remaining)
-    current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
-    current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
+    current_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in fields.items()
+    }
+    current_integrals = {
+        name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names
+    }
 
     while remaining > 1.0e-12:
         dt = min(dt, remaining)
@@ -2992,7 +3516,11 @@ def _advance_recycling_1d_adaptive_be_interval(
             continue
         dt = max(0.5 * dt, minimum_dt)
 
-    return current_fields, current_integrals, max(min(dt, float(output_timestep)), minimum_dt)
+    return (
+        current_fields,
+        current_integrals,
+        max(min(dt, float(output_timestep)), minimum_dt),
+    )
 
 
 def _recycling_state_error_ratio(
@@ -3014,13 +3542,20 @@ def _recycling_state_error_ratio(
     for name in field_names:
         full = np.asarray(full_fields[name], dtype=np.float64)[active_slices]
         half = np.asarray(half_fields[name], dtype=np.float64)[active_slices]
-        field_absolute_tolerance = max(float(absolute_tolerance), float(field_absolute_tolerance_floors.get(name, 0.0)))
-        scale = field_absolute_tolerance + float(relative_tolerance) * np.maximum(np.abs(full), np.abs(half))
+        field_absolute_tolerance = max(
+            float(absolute_tolerance),
+            float(field_absolute_tolerance_floors.get(name, 0.0)),
+        )
+        scale = field_absolute_tolerance + float(relative_tolerance) * np.maximum(
+            np.abs(full), np.abs(half)
+        )
         squared_terms.append(((half - full) / scale).ravel())
     for name in feedback_names:
         full = float(full_integrals.get(name, 0.0))
         half = float(half_integrals.get(name, 0.0))
-        scale = float(absolute_tolerance) + float(relative_tolerance) * max(abs(full), abs(half), 1.0)
+        scale = float(absolute_tolerance) + float(relative_tolerance) * max(
+            abs(full), abs(half), 1.0
+        )
         squared_terms.append(np.asarray([(half - full) / scale], dtype=np.float64))
     if not squared_terms:
         return 0.0
@@ -3051,8 +3586,13 @@ def _recycling_state_error_contributors(
     for name in field_names:
         full = np.asarray(full_fields[name], dtype=np.float64)[active_slices]
         half = np.asarray(half_fields[name], dtype=np.float64)[active_slices]
-        field_absolute_tolerance = max(float(absolute_tolerance), float(field_absolute_tolerance_floors.get(name, 0.0)))
-        scale = field_absolute_tolerance + float(relative_tolerance) * np.maximum(np.abs(full), np.abs(half))
+        field_absolute_tolerance = max(
+            float(absolute_tolerance),
+            float(field_absolute_tolerance_floors.get(name, 0.0)),
+        )
+        scale = field_absolute_tolerance + float(relative_tolerance) * np.maximum(
+            np.abs(full), np.abs(half)
+        )
         normalized = np.asarray((half - full) / scale, dtype=np.float64).ravel()
         difference = np.asarray(half - full, dtype=np.float64).ravel()
         scale_flat = np.asarray(scale, dtype=np.float64).ravel()
@@ -3063,7 +3603,9 @@ def _recycling_state_error_contributors(
         count = int(normalized.size)
         nonfinite_count = int(count - finite.size)
         if finite_difference.size:
-            rms_difference = float(np.sqrt(np.mean(finite_difference * finite_difference)))
+            rms_difference = float(
+                np.sqrt(np.mean(finite_difference * finite_difference))
+            )
             max_abs_difference = float(np.max(np.abs(finite_difference)))
         else:
             rms_difference = 0.0
@@ -3117,7 +3659,9 @@ def _recycling_state_error_contributors(
     for name in feedback_names:
         full = float(full_integrals.get(name, 0.0))
         half = float(half_integrals.get(name, 0.0))
-        scale = float(absolute_tolerance) + float(relative_tolerance) * max(abs(full), abs(half), 1.0)
+        scale = float(absolute_tolerance) + float(relative_tolerance) * max(
+            abs(full), abs(half), 1.0
+        )
         difference = half - full
         normalized = float((half - full) / scale)
         if np.isfinite(normalized):
@@ -3138,8 +3682,12 @@ def _recycling_state_error_contributors(
                 "rms_ratio": abs_value,
                 "max_abs_ratio": abs_value,
                 "mean_abs_ratio": abs_value,
-                "rms_difference": abs(difference) if np.isfinite(difference) else math.inf,
-                "max_abs_difference": abs(difference) if np.isfinite(difference) else math.inf,
+                "rms_difference": abs(difference)
+                if np.isfinite(difference)
+                else math.inf,
+                "max_abs_difference": abs(difference)
+                if np.isfinite(difference)
+                else math.inf,
                 "min_scale": scale if np.isfinite(scale) else math.inf,
                 "mean_scale": scale if np.isfinite(scale) else math.inf,
                 "max_scale": scale if np.isfinite(scale) else math.inf,
@@ -3148,7 +3696,9 @@ def _recycling_state_error_contributors(
         )
 
     all_contributors = [*field_contributors, *feedback_contributors]
-    dominant = max(all_contributors, key=lambda item: float(item["rms_ratio"]), default=None)
+    dominant = max(
+        all_contributors, key=lambda item: float(item["rms_ratio"]), default=None
+    )
     overall = float(np.sqrt(squared_sum / component_count)) if component_count else 0.0
     return {
         "overall_ratio": overall,
@@ -3178,7 +3728,9 @@ def _initial_recycling_adaptive_bdf_dt(
         if not config.has_option(section_name, "recycling_adaptive_bdf_initial_dt"):
             continue
         try:
-            configured = float(config.parsed(section_name, "recycling_adaptive_bdf_initial_dt"))
+            configured = float(
+                config.parsed(section_name, "recycling_adaptive_bdf_initial_dt")
+            )
         except Exception:
             continue
         if np.isfinite(configured) and configured > 0.0:
@@ -3242,14 +3794,18 @@ def build_recycling_1d_backward_euler_residual_context(
         dataset_scalars=dataset_scalars,
     )
     field_names = runtime_model.field_names
-    packed_feedback_names = runtime_model.feedback_names if evolve_feedback_integrals else ()
+    packed_feedback_names = (
+        runtime_model.feedback_names if evolve_feedback_integrals else ()
+    )
     layout = _build_recycling_packed_state_layout(
         fields=fields,
         field_names=field_names,
         feedback_names=packed_feedback_names,
         mesh=mesh,
     )
-    previous_feedback_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
+    previous_feedback_errors = _current_feedback_errors(
+        fields, controllers=runtime_model.controllers, mesh=mesh
+    )
     packed_previous = _pack_recycling_active_state(
         fields,
         feedback_integrals=feedback_integrals,
@@ -3287,7 +3843,10 @@ def build_recycling_1d_backward_euler_residual_context(
             dataset_scalars=dataset_scalars,
         )
     elif rhs_backend == "host_bridge":
-        def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
+
+        def packed_rhs(
+            state_fields: dict[str, object], state_integrals: dict[str, object]
+        ) -> object:
             return _compute_recycling_1d_packed_rhs(
                 config,
                 state_fields,
@@ -3313,7 +3872,9 @@ def build_recycling_1d_backward_euler_residual_context(
             base_feedback_integrals=feedback_integrals,
         )
     else:
-        raise ValueError(f"Unsupported recycling fixed residual rhs_backend={rhs_backend!r}.")
+        raise ValueError(
+            f"Unsupported recycling fixed residual rhs_backend={rhs_backend!r}."
+        )
     fixed_residual = _build_fixed_backward_euler_residual(
         fixed_rhs,
         layout=layout,
@@ -3367,14 +3928,18 @@ def build_recycling_1d_bdf2_residual_context(
         dataset_scalars=dataset_scalars,
     )
     field_names = runtime_model.field_names
-    packed_feedback_names = runtime_model.feedback_names if evolve_feedback_integrals else ()
+    packed_feedback_names = (
+        runtime_model.feedback_names if evolve_feedback_integrals else ()
+    )
     layout = _build_recycling_packed_state_layout(
         fields=fields,
         field_names=field_names,
         feedback_names=packed_feedback_names,
         mesh=mesh,
     )
-    previous_feedback_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
+    previous_feedback_errors = _current_feedback_errors(
+        fields, controllers=runtime_model.controllers, mesh=mesh
+    )
     packed_previous = _pack_recycling_active_state(
         fields,
         feedback_integrals=feedback_integrals,
@@ -3420,7 +3985,10 @@ def build_recycling_1d_bdf2_residual_context(
             dataset_scalars=dataset_scalars,
         )
     elif rhs_backend == "host_bridge":
-        def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
+
+        def packed_rhs(
+            state_fields: dict[str, object], state_integrals: dict[str, object]
+        ) -> object:
             return _compute_recycling_1d_packed_rhs(
                 config,
                 state_fields,
@@ -3446,7 +4014,9 @@ def build_recycling_1d_bdf2_residual_context(
             base_feedback_integrals=feedback_integrals,
         )
     else:
-        raise ValueError(f"Unsupported recycling fixed residual rhs_backend={rhs_backend!r}.")
+        raise ValueError(
+            f"Unsupported recycling fixed residual rhs_backend={rhs_backend!r}."
+        )
 
     fixed_residual = _build_fixed_bdf2_residual(
         fixed_rhs,
@@ -3490,16 +4060,18 @@ def _advance_recycling_1d_output_interval(
     trial_dt = min(float(suggested_dt), float(output_timestep))
     minimum_dt = max(float(output_timestep) / 4096.0, 1.0e-6)
     acceptance_residual = max(1.0e4 * residual_tolerance, 5.0e-3)
-    startup_window = (
-        min(25.0, float(output_timestep))
-        if startup_warmup
-        else 0.0
-    )
+    startup_window = min(25.0, float(output_timestep)) if startup_warmup else 0.0
     startup_dt = min(6.25, startup_window) if startup_window > 0.0 else 0.0
     remaining = float(output_timestep)
     elapsed = 0.0
-    current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
-    current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in runtime_model.feedback_names}
+    current_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in fields.items()
+    }
+    current_integrals = {
+        name: float(feedback_integrals.get(name, 0.0))
+        for name in runtime_model.feedback_names
+    }
     previous_fields: dict[str, np.ndarray] | None = None
     previous_integrals: dict[str, float] | None = None
     last_info: Recycling1DImplicitStepInfo | None = None
@@ -3513,19 +4085,21 @@ def _advance_recycling_1d_output_interval(
 
         while True:
             if previous_fields is None or previous_integrals is None:
-                next_fields, next_integrals, info = advance_recycling_1d_backward_euler_step(
-                    config,
-                    current_fields,
-                    runtime_model=runtime_model,
-                    feedback_integrals=current_integrals,
-                    mesh=mesh,
-                    metrics=metrics,
-                    dataset_scalars=dataset_scalars,
-                    timestep=step_dt,
-                    solver_mode="sparse",
-                    residual_tolerance=residual_tolerance,
-                    max_nonlinear_iterations=max_nonlinear_iterations,
-                    evolve_feedback_integrals=True,
+                next_fields, next_integrals, info = (
+                    advance_recycling_1d_backward_euler_step(
+                        config,
+                        current_fields,
+                        runtime_model=runtime_model,
+                        feedback_integrals=current_integrals,
+                        mesh=mesh,
+                        metrics=metrics,
+                        dataset_scalars=dataset_scalars,
+                        timestep=step_dt,
+                        solver_mode="sparse",
+                        residual_tolerance=residual_tolerance,
+                        max_nonlinear_iterations=max_nonlinear_iterations,
+                        evolve_feedback_integrals=True,
+                    )
                 )
             else:
                 next_fields, next_integrals, info = advance_recycling_1d_bdf2_step(
@@ -3546,7 +4120,10 @@ def _advance_recycling_1d_output_interval(
                 )
 
             last_info = info
-            if np.isfinite(info.residual_inf_norm) and info.residual_inf_norm <= acceptance_residual:
+            if (
+                np.isfinite(info.residual_inf_norm)
+                and info.residual_inf_norm <= acceptance_residual
+            ):
                 break
             if step_dt <= minimum_dt:
                 raise RuntimeError(
@@ -3611,7 +4188,8 @@ def advance_recycling_1d_backward_euler_step(
         workspace_compatible = (
             solver_mode == "sparse_jvp"
             and sparse_jvp_workspace is not None
-            and tuple(sparse_jvp_workspace.sparsity_shape) == (int(packed_previous.size), int(packed_previous.size))
+            and tuple(sparse_jvp_workspace.sparsity_shape)
+            == (int(packed_previous.size), int(packed_previous.size))
         )
         if workspace_compatible:
             sparsity = sparse_jvp_workspace.sparsity
@@ -3641,7 +4219,9 @@ def advance_recycling_1d_backward_euler_step(
             linear_rtol=1.0e-8,
             prefer_direct_linear_solve=True,
             jacobian_refresh_frequency=3 if len(field_names) > 10 else 1,
-            jacobian_mode="jvp" if solver_mode == "sparse_jvp" else _resolve_recycling_sparse_jacobian_mode(),
+            jacobian_mode="jvp"
+            if solver_mode == "sparse_jvp"
+            else _resolve_recycling_sparse_jacobian_mode(),
             jvp_batch_size=_resolve_recycling_jvp_batch_size(),
             sparse_jvp_workspace=sparse_jvp_workspace if workspace_compatible else None,
         )
@@ -3654,7 +4234,10 @@ def advance_recycling_1d_backward_euler_step(
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
     elif solver_mode in {"jax_linearized", "jax_linearized_lineax"}:
-        linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(config)
+        linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(
+            config
+        )
+        jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         solved, info = solve_jax_linearized_newton_system(
             residual,
             packed_initial_guess,
@@ -3669,6 +4252,7 @@ def advance_recycling_1d_backward_euler_step(
                 if solver_mode == "jax_linearized_lineax"
                 else _resolve_recycling_jax_linear_solver_backend()
             ),
+            jit_residual=jit_residual,
         )
     else:
         raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
@@ -3683,7 +4267,9 @@ def advance_recycling_1d_backward_euler_step(
     )
     sanitized_fields = _sanitize_recycling_fields(config, next_fields)
     if evolve_feedback_integrals:
-        sanitized_integrals = _sanitize_feedback_integrals(next_integrals, controllers=runtime_model.controllers)
+        sanitized_integrals = _sanitize_feedback_integrals(
+            next_integrals, controllers=runtime_model.controllers
+        )
     else:
         sanitized_integrals = _advance_feedback_integrals(
             sanitized_fields,
@@ -3693,11 +4279,15 @@ def advance_recycling_1d_backward_euler_step(
             mesh=mesh,
             timestep=timestep,
         )
-    return sanitized_fields, sanitized_integrals, _as_recycling_step_info(
-        info,
-        solver_mode=solver_mode,
-        rhs_backend=rhs_backend,
-        step_method="backward_euler",
+    return (
+        sanitized_fields,
+        sanitized_integrals,
+        _as_recycling_step_info(
+            info,
+            solver_mode=solver_mode,
+            rhs_backend=rhs_backend,
+            step_method="backward_euler",
+        ),
     )
 
 
@@ -3753,7 +4343,8 @@ def advance_recycling_1d_bdf2_step(
         workspace_compatible = (
             solver_mode == "sparse_jvp"
             and sparse_jvp_workspace is not None
-            and tuple(sparse_jvp_workspace.sparsity_shape) == (int(packed_previous.size), int(packed_previous.size))
+            and tuple(sparse_jvp_workspace.sparsity_shape)
+            == (int(packed_previous.size), int(packed_previous.size))
         )
         if workspace_compatible:
             sparsity = sparse_jvp_workspace.sparsity
@@ -3783,7 +4374,9 @@ def advance_recycling_1d_bdf2_step(
             linear_rtol=1.0e-8,
             prefer_direct_linear_solve=True,
             jacobian_refresh_frequency=3 if len(field_names) > 10 else 1,
-            jacobian_mode="jvp" if solver_mode == "sparse_jvp" else _resolve_recycling_sparse_jacobian_mode(),
+            jacobian_mode="jvp"
+            if solver_mode == "sparse_jvp"
+            else _resolve_recycling_sparse_jacobian_mode(),
             jvp_batch_size=_resolve_recycling_jvp_batch_size(),
             sparse_jvp_workspace=sparse_jvp_workspace if workspace_compatible else None,
         )
@@ -3796,7 +4389,10 @@ def advance_recycling_1d_bdf2_step(
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
     elif solver_mode in {"jax_linearized", "jax_linearized_lineax"}:
-        linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(config)
+        linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(
+            config
+        )
+        jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         solved, info = solve_jax_linearized_newton_system(
             residual,
             packed_initial_guess,
@@ -3811,6 +4407,7 @@ def advance_recycling_1d_bdf2_step(
                 if solver_mode == "jax_linearized_lineax"
                 else _resolve_recycling_jax_linear_solver_backend()
             ),
+            jit_residual=jit_residual,
         )
     else:
         raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
@@ -3825,7 +4422,9 @@ def advance_recycling_1d_bdf2_step(
     )
     sanitized_fields = _sanitize_recycling_fields(config, next_fields)
     if evolve_feedback_integrals:
-        sanitized_integrals = _sanitize_feedback_integrals(next_integrals, controllers=runtime_model.controllers)
+        sanitized_integrals = _sanitize_feedback_integrals(
+            next_integrals, controllers=runtime_model.controllers
+        )
     else:
         sanitized_integrals = _advance_feedback_integrals(
             sanitized_fields,
@@ -3835,11 +4434,15 @@ def advance_recycling_1d_bdf2_step(
             mesh=mesh,
             timestep=timestep,
         )
-    return sanitized_fields, sanitized_integrals, _as_recycling_step_info(
-        info,
-        solver_mode=solver_mode,
-        rhs_backend=rhs_backend,
-        step_method="bdf2",
+    return (
+        sanitized_fields,
+        sanitized_integrals,
+        _as_recycling_step_info(
+            info,
+            solver_mode=solver_mode,
+            rhs_backend=rhs_backend,
+            step_method="bdf2",
+        ),
     )
 
 
@@ -3883,11 +4486,24 @@ def _advance_recycling_1d_bdf_history(
         feedback_names=feedback_names,
         mesh=mesh,
     )
-    current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
-    current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
+    current_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in fields.items()
+    }
+    current_integrals = {
+        name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names
+    }
     total_time = float(timestep) * float(steps)
-    relative_tolerance = float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-6
-    absolute_tolerance = float(config.parsed("solver", "atol")) if config.has_option("solver", "atol") else 1.0e-9
+    relative_tolerance = (
+        float(config.parsed("solver", "rtol"))
+        if config.has_option("solver", "rtol")
+        else 1.0e-6
+    )
+    absolute_tolerance = (
+        float(config.parsed("solver", "atol"))
+        if config.has_option("solver", "atol")
+        else 1.0e-9
+    )
     output_times = np.linspace(0.0, total_time, steps + 1, dtype=np.float64)
     y0 = _pack_recycling_active_state(
         current_fields,
@@ -3931,7 +4547,9 @@ def _advance_recycling_1d_bdf_history(
         if jacobian_mode is None
         else str(jacobian_mode).strip().lower()
     )
-    bdf_jacobian_mode = resolved_jacobian_mode if resolved_jacobian_mode in {"fd", "jvp"} else "fd"
+    bdf_jacobian_mode = (
+        resolved_jacobian_mode if resolved_jacobian_mode in {"fd", "jvp"} else "fd"
+    )
     bdf_jvp_batch_size = _resolve_recycling_jvp_batch_size()
     jacobian_parallel_workers = _resolve_recycling_bdf_jacobian_parallel_workers()
     jvp_direction_batches = (
@@ -3945,7 +4563,9 @@ def _advance_recycling_1d_bdf_history(
         else None
     )
 
-    def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
+    def packed_rhs(
+        state_fields: dict[str, object], state_integrals: dict[str, object]
+    ) -> object:
         use_jax_state = use_jax_backend(
             *(state_fields[name] for name in state_fields),
             *(state_integrals[name] for name in state_integrals),
@@ -3993,7 +4613,10 @@ def _advance_recycling_1d_bdf_history(
             rhs_object_evaluation_seconds += time.perf_counter() - rhs_object_started_at
 
     def _evaluate_rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
-        nonlocal rhs_evaluation_count, rhs_evaluation_seconds, rhs_numpy_conversion_seconds
+        nonlocal \
+            rhs_evaluation_count, \
+            rhs_evaluation_seconds, \
+            rhs_numpy_conversion_seconds
         rhs_evaluation_started_at = time.perf_counter()
         rhs_evaluation_count += 1
         try:
@@ -4002,12 +4625,19 @@ def _advance_recycling_1d_bdf_history(
             try:
                 return np.asarray(rhs_object, dtype=np.float64)
             finally:
-                rhs_numpy_conversion_seconds += time.perf_counter() - numpy_conversion_started_at
+                rhs_numpy_conversion_seconds += (
+                    time.perf_counter() - numpy_conversion_started_at
+                )
         finally:
             rhs_evaluation_seconds += time.perf_counter() - rhs_evaluation_started_at
 
     def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
-        nonlocal rhs_cache_hit_count, rhs_cache_time, rhs_cache_state, rhs_cache_value, rhs_callback_seconds
+        nonlocal \
+            rhs_cache_hit_count, \
+            rhs_cache_time, \
+            rhs_cache_state, \
+            rhs_cache_value, \
+            rhs_callback_seconds
         rhs_callback_started_at = time.perf_counter()
         try:
             packed_array = np.asarray(packed_state, dtype=np.float64)
@@ -4030,15 +4660,24 @@ def _advance_recycling_1d_bdf_history(
             rhs_callback_seconds += time.perf_counter() - rhs_callback_started_at
 
     def jacobian(_time: float, packed_state: np.ndarray):
-        nonlocal jacobian_base_rhs_evaluation_count, jacobian_callback_count, jacobian_callback_seconds
+        nonlocal \
+            jacobian_base_rhs_evaluation_count, \
+            jacobian_callback_count, \
+            jacobian_callback_seconds
         nonlocal jvp_jacobian_batch_count, jvp_jacobian_linearize_seconds
-        nonlocal jvp_jacobian_device_execute_seconds, jvp_jacobian_host_transfer_seconds, jvp_jacobian_push_seconds
-        nonlocal jvp_jacobian_sparse_assembly_seconds, jvp_jacobian_tangent_build_seconds
+        nonlocal \
+            jvp_jacobian_device_execute_seconds, \
+            jvp_jacobian_host_transfer_seconds, \
+            jvp_jacobian_push_seconds
+        nonlocal \
+            jvp_jacobian_sparse_assembly_seconds, \
+            jvp_jacobian_tangent_build_seconds
         nonlocal jvp_jacobian_total_seconds, jvp_rhs_evaluation_count
         jacobian_started_at = time.perf_counter()
         jacobian_callback_count += 1
         try:
             if bdf_jacobian_mode == "jvp":
+
                 def evaluate_jvp_rhs(state: object) -> object:
                     nonlocal jvp_rhs_evaluation_count
                     jvp_rhs_evaluation_count += 1
@@ -4046,16 +4685,34 @@ def _advance_recycling_1d_bdf_history(
 
                 def record_jvp_timing(timing: dict[str, float | int]) -> None:
                     nonlocal jvp_jacobian_batch_count, jvp_jacobian_linearize_seconds
-                    nonlocal jvp_jacobian_device_execute_seconds, jvp_jacobian_host_transfer_seconds
-                    nonlocal jvp_jacobian_push_seconds, jvp_jacobian_sparse_assembly_seconds
-                    nonlocal jvp_jacobian_tangent_build_seconds, jvp_jacobian_total_seconds
-                    jvp_jacobian_total_seconds += float(timing.get("total_seconds", 0.0))
-                    jvp_jacobian_linearize_seconds += float(timing.get("linearize_seconds", 0.0))
-                    jvp_jacobian_tangent_build_seconds += float(timing.get("tangent_build_seconds", 0.0))
+                    nonlocal \
+                        jvp_jacobian_device_execute_seconds, \
+                        jvp_jacobian_host_transfer_seconds
+                    nonlocal \
+                        jvp_jacobian_push_seconds, \
+                        jvp_jacobian_sparse_assembly_seconds
+                    nonlocal \
+                        jvp_jacobian_tangent_build_seconds, \
+                        jvp_jacobian_total_seconds
+                    jvp_jacobian_total_seconds += float(
+                        timing.get("total_seconds", 0.0)
+                    )
+                    jvp_jacobian_linearize_seconds += float(
+                        timing.get("linearize_seconds", 0.0)
+                    )
+                    jvp_jacobian_tangent_build_seconds += float(
+                        timing.get("tangent_build_seconds", 0.0)
+                    )
                     jvp_jacobian_push_seconds += float(timing.get("push_seconds", 0.0))
-                    jvp_jacobian_device_execute_seconds += float(timing.get("device_execute_seconds", 0.0))
-                    jvp_jacobian_host_transfer_seconds += float(timing.get("host_transfer_seconds", 0.0))
-                    jvp_jacobian_sparse_assembly_seconds += float(timing.get("sparse_assembly_seconds", 0.0))
+                    jvp_jacobian_device_execute_seconds += float(
+                        timing.get("device_execute_seconds", 0.0)
+                    )
+                    jvp_jacobian_host_transfer_seconds += float(
+                        timing.get("host_transfer_seconds", 0.0)
+                    )
+                    jvp_jacobian_sparse_assembly_seconds += float(
+                        timing.get("sparse_assembly_seconds", 0.0)
+                    )
                     jvp_jacobian_batch_count += int(timing.get("batch_count", 0))
 
                 return build_sparse_jvp_jacobian(
@@ -4120,11 +4777,17 @@ def _advance_recycling_1d_bdf_history(
             layout=layout,
         )
         sample_fields = _sanitize_recycling_fields(config, sample_fields)
-        sample_integrals = _sanitize_feedback_integrals(sample_integrals, controllers=runtime_model.controllers)
+        sample_integrals = _sanitize_feedback_integrals(
+            sample_integrals, controllers=runtime_model.controllers
+        )
         for name in field_names:
-            variable_history[name].append(np.asarray(sample_fields[name], dtype=np.float64))
+            variable_history[name].append(
+                np.asarray(sample_fields[name], dtype=np.float64)
+            )
         for name in feedback_names:
-            feedback_history[name].append(np.asarray(sample_integrals[name], dtype=np.float64))
+            feedback_history[name].append(
+                np.asarray(sample_integrals[name], dtype=np.float64)
+            )
         if progress_callback is not None and column > 0:
             details, _ = _build_recycling_progress_details(
                 interval_index=column,
@@ -4141,8 +4804,14 @@ def _advance_recycling_1d_bdf_history(
             progress_callback(details)
 
     return Recycling1DHistoryResult(
-        variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
-        feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
+        variable_history={
+            name: np.stack(history, axis=0)
+            for name, history in variable_history.items()
+        },
+        feedback_integral_history={
+            name: np.stack(history, axis=0)
+            for name, history in feedback_history.items()
+        },
         diagnostics={
             "bdf_rhs_evaluation_count": int(rhs_evaluation_count),
             "bdf_rhs_cache_hit_count": int(rhs_cache_hit_count),
@@ -4152,20 +4821,34 @@ def _advance_recycling_1d_bdf_history(
             "bdf_rhs_numpy_conversion_seconds": float(rhs_numpy_conversion_seconds),
             "bdf_jacobian_callback_count": int(jacobian_callback_count),
             "bdf_jacobian_callback_seconds": float(jacobian_callback_seconds),
-            "bdf_jacobian_base_rhs_evaluation_count": int(jacobian_base_rhs_evaluation_count),
+            "bdf_jacobian_base_rhs_evaluation_count": int(
+                jacobian_base_rhs_evaluation_count
+            ),
             "bdf_jvp_rhs_evaluation_count": int(jvp_rhs_evaluation_count),
             "bdf_jvp_jacobian_batch_count": int(jvp_jacobian_batch_count),
             "bdf_jvp_jacobian_linearize_seconds": float(jvp_jacobian_linearize_seconds),
             "bdf_jvp_jacobian_push_seconds": float(jvp_jacobian_push_seconds),
-            "bdf_jvp_jacobian_device_execute_seconds": float(jvp_jacobian_device_execute_seconds),
-            "bdf_jvp_jacobian_host_transfer_seconds": float(jvp_jacobian_host_transfer_seconds),
-            "bdf_jvp_jacobian_sparse_assembly_seconds": float(jvp_jacobian_sparse_assembly_seconds),
-            "bdf_jvp_jacobian_tangent_build_seconds": float(jvp_jacobian_tangent_build_seconds),
+            "bdf_jvp_jacobian_device_execute_seconds": float(
+                jvp_jacobian_device_execute_seconds
+            ),
+            "bdf_jvp_jacobian_host_transfer_seconds": float(
+                jvp_jacobian_host_transfer_seconds
+            ),
+            "bdf_jvp_jacobian_sparse_assembly_seconds": float(
+                jvp_jacobian_sparse_assembly_seconds
+            ),
+            "bdf_jvp_jacobian_tangent_build_seconds": float(
+                jvp_jacobian_tangent_build_seconds
+            ),
             "bdf_jvp_jacobian_total_seconds": float(jvp_jacobian_total_seconds),
             "bdf_jacobian_mode": bdf_jacobian_mode,
             "bdf_rhs_backend": str(rhs_backend),
-            "bdf_jvp_batch_size": None if bdf_jvp_batch_size is None else int(bdf_jvp_batch_size),
-            "bdf_jvp_direction_batch_count": 0 if jvp_direction_batches is None else int(len(jvp_direction_batches)),
+            "bdf_jvp_batch_size": None
+            if bdf_jvp_batch_size is None
+            else int(bdf_jvp_batch_size),
+            "bdf_jvp_direction_batch_count": 0
+            if jvp_direction_batches is None
+            else int(len(jvp_direction_batches)),
             "bdf_jacobian_parallel_workers": int(jacobian_parallel_workers),
             "bdf_solve_seconds": float(max(solve_finished_at - run_started_at, 0.0)),
             "bdf_active_size": int(y0.size),
@@ -4191,10 +4874,14 @@ def _resolve_recycling_bdf_jacobian_parallel_workers() -> int:
 
 
 def _resolve_recycling_bdf_jacobian_mode() -> str:
-    env_value = os.environ.get(
-        "JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE",
-        os.environ.get("JAX_DRB_RECYCLING_JACOBIAN_MODE", "fd"),
-    ).strip().lower()
+    env_value = (
+        os.environ.get(
+            "JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE",
+            os.environ.get("JAX_DRB_RECYCLING_JACOBIAN_MODE", "fd"),
+        )
+        .strip()
+        .lower()
+    )
     aliases = {
         "finite_difference": "fd",
         "finite-difference": "fd",
@@ -4258,7 +4945,9 @@ def _resolve_recycling_adaptive_bdf_component_atol_floor(
     return configured if np.isfinite(configured) and configured > 0.0 else None
 
 
-def _resolve_recycling_adaptive_bdf_momentum_atol_floor(config: BoutConfig | None = None) -> float | None:
+def _resolve_recycling_adaptive_bdf_momentum_atol_floor(
+    config: BoutConfig | None = None,
+) -> float | None:
     return _resolve_recycling_adaptive_bdf_component_atol_floor(
         config,
         option_name="recycling_adaptive_bdf_momentum_atol_floor",
@@ -4266,7 +4955,9 @@ def _resolve_recycling_adaptive_bdf_momentum_atol_floor(config: BoutConfig | Non
     )
 
 
-def _resolve_recycling_adaptive_bdf_density_atol_floor(config: BoutConfig | None = None) -> float | None:
+def _resolve_recycling_adaptive_bdf_density_atol_floor(
+    config: BoutConfig | None = None,
+) -> float | None:
     return _resolve_recycling_adaptive_bdf_component_atol_floor(
         config,
         option_name="recycling_adaptive_bdf_density_atol_floor",
@@ -4274,7 +4965,9 @@ def _resolve_recycling_adaptive_bdf_density_atol_floor(config: BoutConfig | None
     )
 
 
-def _resolve_recycling_adaptive_bdf_pressure_atol_floor(config: BoutConfig | None = None) -> float | None:
+def _resolve_recycling_adaptive_bdf_pressure_atol_floor(
+    config: BoutConfig | None = None,
+) -> float | None:
     return _resolve_recycling_adaptive_bdf_component_atol_floor(
         config,
         option_name="recycling_adaptive_bdf_pressure_atol_floor",
@@ -4301,7 +4994,11 @@ def _resolve_recycling_adaptive_bdf_field_atol_floors(
 
 
 def _resolve_recycling_jax_linear_solver_backend() -> str:
-    env_value = os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "jax_gmres").strip().lower()
+    env_value = (
+        os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "jax_gmres")
+        .strip()
+        .lower()
+    )
     aliases = {
         "jax": "jax_gmres",
         "jax_scipy": "jax_gmres",
@@ -4338,7 +5035,37 @@ def _resolve_positive_int_runtime_option(
     return int(default)
 
 
-def _resolve_recycling_jax_linear_solver_controls(config: BoutConfig | None = None) -> tuple[int, int]:
+def _resolve_bool_runtime_option(
+    config: BoutConfig | None,
+    *,
+    option_name: str,
+    env_name: str,
+    default: bool = False,
+) -> bool:
+    truthy = {"1", "true", "yes", "on"}
+    falsey = {"0", "false", "no", "off"}
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            value = str(config.parsed(section_name, option_name)).strip().lower()
+            if value in truthy:
+                return True
+            if value in falsey:
+                return False
+    env_value = os.environ.get(env_name)
+    if env_value is not None and env_value.strip():
+        value = env_value.strip().lower()
+        if value in truthy:
+            return True
+        if value in falsey:
+            return False
+    return bool(default)
+
+
+def _resolve_recycling_jax_linear_solver_controls(
+    config: BoutConfig | None = None,
+) -> tuple[int, int]:
     return (
         _resolve_positive_int_runtime_option(
             config,
@@ -4352,6 +5079,17 @@ def _resolve_recycling_jax_linear_solver_controls(config: BoutConfig | None = No
             env_name="JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER",
             default=20,
         ),
+    )
+
+
+def _resolve_recycling_jax_linear_jit_residual(
+    config: BoutConfig | None = None,
+) -> bool:
+    return _resolve_bool_runtime_option(
+        config,
+        option_name="recycling_jax_linear_jit_residual",
+        env_name="JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL",
+        default=False,
     )
 
 
@@ -4380,10 +5118,17 @@ def _compute_recycling_1d_packed_rhs(
     if sanitize_fields:
         sanitized_fields = _sanitize_recycling_fields(config, fields)
     elif use_jax_backend(*(fields[name] for name in fields)):
-        sanitized_fields = {name: jnp.asarray(value, dtype=jnp.float64) for name, value in fields.items()}
+        sanitized_fields = {
+            name: jnp.asarray(value, dtype=jnp.float64)
+            for name, value in fields.items()
+        }
     else:
-        sanitized_fields = {name: np.asarray(value, dtype=np.float64) for name, value in fields.items()}
-    species = _override_species_fields(runtime_model.species_templates, fields=sanitized_fields, mesh=mesh)
+        sanitized_fields = {
+            name: np.asarray(value, dtype=np.float64) for name, value in fields.items()
+        }
+    species = _override_species_fields(
+        runtime_model.species_templates, fields=sanitized_fields, mesh=mesh
+    )
     result = _compute_recycling_1d_rhs_from_species(
         config,
         species=species,
@@ -4404,17 +5149,34 @@ def _compute_recycling_1d_packed_rhs(
         preserve_dump_ion_target_state_only=runtime_model.preserve_dump_ion_target_state_only,
         include_reaction_diagnostics=False,
     )
-    active_slices = layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)
-    use_jax_result = use_jax_backend(*(result.variables[f"ddt({name})"] for name in field_names))
+    active_slices = (
+        layout.active_slices
+        if layout is not None
+        else _recycling_active_domain_slices(mesh)
+    )
+    use_jax_result = use_jax_backend(
+        *(result.variables[f"ddt({name})"] for name in field_names)
+    )
     rhs_array = jnp.asarray if use_jax_result else np.asarray
     rhs_dtype = jnp.float64 if use_jax_result else np.float64
     concatenate = jnp.concatenate if use_jax_result else np.concatenate
-    empty = jnp.array([], dtype=jnp.float64) if use_jax_result else np.array([], dtype=np.float64)
+    empty = (
+        jnp.array([], dtype=jnp.float64)
+        if use_jax_result
+        else np.array([], dtype=np.float64)
+    )
     pieces = [
-        rhs_array(result.variables[f"ddt({name})"][0][active_slices], dtype=rhs_dtype).ravel()
+        rhs_array(
+            result.variables[f"ddt({name})"][0][active_slices], dtype=rhs_dtype
+        ).ravel()
         for name in field_names
     ]
-    pieces.extend(rhs_array(result.feedback_integral_rhs.get(name, 0.0), dtype=rhs_dtype).reshape(1) for name in feedback_names)
+    pieces.extend(
+        rhs_array(result.feedback_integral_rhs.get(name, 0.0), dtype=rhs_dtype).reshape(
+            1
+        )
+        for name in feedback_names
+    )
     return concatenate(pieces) if pieces else empty
 
 
@@ -4440,10 +5202,18 @@ def _build_fixed_full_field_recycling_rhs(
             base_feedback_integrals=base_feedback_integrals,
         )
         if use_jax_backend(*(full_fields[name] for name in full_fields)):
-            state_fields = {name: jnp.asarray(value, dtype=jnp.float64) for name, value in full_fields.items()}
+            state_fields = {
+                name: jnp.asarray(value, dtype=jnp.float64)
+                for name, value in full_fields.items()
+            }
         else:
-            state_fields = {name: np.asarray(value, dtype=np.float64) for name, value in full_fields.items()}
-        species = _override_species_fields(runtime_model.species_templates, fields=state_fields, mesh=mesh)
+            state_fields = {
+                name: np.asarray(value, dtype=np.float64)
+                for name, value in full_fields.items()
+            }
+        species = _override_species_fields(
+            runtime_model.species_templates, fields=state_fields, mesh=mesh
+        )
         result = _compute_recycling_1d_rhs_from_species(
             config,
             species=species,
@@ -4464,9 +5234,17 @@ def _build_fixed_full_field_recycling_rhs(
             preserve_dump_ion_target_state_only=runtime_model.preserve_dump_ion_target_state_only,
             include_reaction_diagnostics=False,
         )
-        field_rhs = tuple(result.variables[f"ddt({name})"][0][layout.active_slices] for name in layout.field_names)
-        feedback_rhs_values = tuple(result.feedback_integral_rhs.get(name, 0.0) for name in layout.feedback_names)
-        use_jax_result = use_jax_backend(*field_rhs, *feedback_rhs_values, state.feedback_values)
+        field_rhs = tuple(
+            result.variables[f"ddt({name})"][0][layout.active_slices]
+            for name in layout.field_names
+        )
+        feedback_rhs_values = tuple(
+            result.feedback_integral_rhs.get(name, 0.0)
+            for name in layout.feedback_names
+        )
+        use_jax_result = use_jax_backend(
+            *field_rhs, *feedback_rhs_values, state.feedback_values
+        )
         if use_jax_result:
             feedback_rhs = (
                 jnp.asarray(feedback_rhs_values, dtype=jnp.float64)
@@ -4474,7 +5252,9 @@ def _build_fixed_full_field_recycling_rhs(
                 else jnp.asarray([], dtype=jnp.float64)
             )
             return _RecyclingFixedState(
-                field_values=tuple(jnp.asarray(value, dtype=jnp.float64) for value in field_rhs),
+                field_values=tuple(
+                    jnp.asarray(value, dtype=jnp.float64) for value in field_rhs
+                ),
                 feedback_values=feedback_rhs,
             )
         feedback_rhs_np = (
@@ -4483,7 +5263,9 @@ def _build_fixed_full_field_recycling_rhs(
             else np.asarray([], dtype=np.float64)
         )
         return _RecyclingFixedState(
-            field_values=tuple(np.asarray(value, dtype=np.float64) for value in field_rhs),
+            field_values=tuple(
+                np.asarray(value, dtype=np.float64) for value in field_rhs
+            ),
             feedback_values=feedback_rhs_np,
         )
 
@@ -4528,7 +5310,9 @@ def _predict_recycling_packed_state(
         runtime_model=runtime_model,
         layout=layout,
     )
-    predicted = np.asarray(packed_previous, dtype=np.float64) + float(timestep) * np.asarray(rhs, dtype=np.float64)
+    predicted = np.asarray(packed_previous, dtype=np.float64) + float(
+        timestep
+    ) * np.asarray(rhs, dtype=np.float64)
     predicted_fields, predicted_integrals = _unpack_recycling_active_state(
         predicted,
         field_templates=fields,
@@ -4539,7 +5323,9 @@ def _predict_recycling_packed_state(
         layout=layout,
     )
     sanitized_fields = _sanitize_recycling_fields(config, predicted_fields)
-    sanitized_integrals = _sanitize_feedback_integrals(predicted_integrals, controllers=runtime_model.controllers)
+    sanitized_integrals = _sanitize_feedback_integrals(
+        predicted_integrals, controllers=runtime_model.controllers
+    )
     return _pack_recycling_active_state(
         sanitized_fields,
         feedback_integrals=sanitized_integrals,
@@ -4561,14 +5347,25 @@ def _pack_recycling_active_state(
 ) -> np.ndarray:
     field_block = pack_active_fields(
         tuple(fields[name] for name in field_names),
-        active_slices=(layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)),
+        active_slices=(
+            layout.active_slices
+            if layout is not None
+            else _recycling_active_domain_slices(mesh)
+        ),
     )
     if not feedback_names:
         return field_block
-    if use_jax_backend(field_block, *(feedback_integrals.get(name, 0.0) for name in feedback_names)):
-        scalar_block = jnp.asarray([feedback_integrals.get(name, 0.0) for name in feedback_names], dtype=jnp.float64)
+    if use_jax_backend(
+        field_block, *(feedback_integrals.get(name, 0.0) for name in feedback_names)
+    ):
+        scalar_block = jnp.asarray(
+            [feedback_integrals.get(name, 0.0) for name in feedback_names],
+            dtype=jnp.float64,
+        )
         return jnp.concatenate([field_block, scalar_block])
-    scalar_block = np.asarray([feedback_integrals.get(name, 0.0) for name in feedback_names], dtype=np.float64)
+    scalar_block = np.asarray(
+        [feedback_integrals.get(name, 0.0) for name in feedback_names], dtype=np.float64
+    )
     return np.concatenate([field_block, scalar_block])
 
 
@@ -4583,8 +5380,16 @@ def _unpack_recycling_active_state(
     layout: _RecyclingPackedStateLayout | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float]]:
     use_jax = use_jax_backend(packed, *(field_templates[name] for name in field_names))
-    packed_array = jnp.asarray(packed, dtype=jnp.float64) if use_jax else np.asarray(packed, dtype=np.float64)
-    field_size = layout.field_size if layout is not None else (_recycling_active_field_size(mesh) * len(field_names))
+    packed_array = (
+        jnp.asarray(packed, dtype=jnp.float64)
+        if use_jax
+        else np.asarray(packed, dtype=np.float64)
+    )
+    field_size = (
+        layout.field_size
+        if layout is not None
+        else (_recycling_active_field_size(mesh) * len(field_names))
+    )
     field_block = packed_array[:field_size]
     scalar_block = packed_array[field_size:]
     unpacked_fields = unpack_active_fields(
@@ -4592,14 +5397,28 @@ def _unpack_recycling_active_state(
         templates=(
             layout.field_templates
             if layout is not None
-            else tuple(np.asarray(field_templates[name], dtype=np.float64) for name in field_names)
+            else tuple(
+                np.asarray(field_templates[name], dtype=np.float64)
+                for name in field_names
+            )
         ),
-        active_slices=(layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)),
+        active_slices=(
+            layout.active_slices
+            if layout is not None
+            else _recycling_active_domain_slices(mesh)
+        ),
     )
-    restored_fields = {name: value for name, value in zip(field_names, unpacked_fields, strict=True)}
-    restored_integrals = {name: value if use_jax_backend(value) else float(value) for name, value in feedback_integrals.items()}
+    restored_fields = {
+        name: value for name, value in zip(field_names, unpacked_fields, strict=True)
+    }
+    restored_integrals = {
+        name: value if use_jax_backend(value) else float(value)
+        for name, value in feedback_integrals.items()
+    }
     for index, name in enumerate(feedback_names):
-        restored_integrals[name] = scalar_block[index] if use_jax else float(scalar_block[index])
+        restored_integrals[name] = (
+            scalar_block[index] if use_jax else float(scalar_block[index])
+        )
     return restored_fields, restored_integrals
 
 
@@ -4616,7 +5435,9 @@ def _predict_recycling_fields_from_rhs(
     timestep: float,
 ) -> dict[str, np.ndarray]:
     sanitized_fields = _sanitize_recycling_fields(config, fields)
-    species = _override_species_fields(runtime_model.species_templates, fields=sanitized_fields, mesh=mesh)
+    species = _override_species_fields(
+        runtime_model.species_templates, fields=sanitized_fields, mesh=mesh
+    )
     result = _compute_recycling_1d_rhs_from_species(
         config,
         species=species,
@@ -4629,16 +5450,22 @@ def _predict_recycling_fields_from_rhs(
         lower_target_geometry=runtime_model.lower_target_geometry,
         upper_target_geometry=runtime_model.upper_target_geometry,
     )
-    predicted = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in sanitized_fields.items()}
+    predicted = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in sanitized_fields.items()
+    }
     for name in field_names:
         rhs_name = f"ddt({name})"
         if rhs_name not in result.variables:
             continue
         predicted[name] = np.asarray(
-            sanitized_fields[name] + float(timestep) * np.asarray(result.variables[rhs_name][0], dtype=np.float64),
+            sanitized_fields[name]
+            + float(timestep)
+            * np.asarray(result.variables[rhs_name][0], dtype=np.float64),
             dtype=np.float64,
         )
     return _sanitize_recycling_fields(config, predicted)
+
 
 def _build_recycling_mixed_be_residual(
     packed_state: np.ndarray,
@@ -4654,9 +5481,21 @@ def _build_recycling_mixed_be_residual(
     timestep: float,
 ) -> np.ndarray:
     use_jax = use_jax_backend(packed_state, previous_packed_state, rhs_fields)
-    previous_array = jnp.asarray(previous_packed_state, dtype=jnp.float64) if use_jax else np.asarray(previous_packed_state, dtype=np.float64)
-    packed_array = jnp.asarray(packed_state, dtype=jnp.float64) if use_jax else np.asarray(packed_state, dtype=np.float64)
-    rhs_array = jnp.asarray(rhs_fields, dtype=jnp.float64) if use_jax else np.asarray(rhs_fields, dtype=np.float64)
+    previous_array = (
+        jnp.asarray(previous_packed_state, dtype=jnp.float64)
+        if use_jax
+        else np.asarray(previous_packed_state, dtype=np.float64)
+    )
+    packed_array = (
+        jnp.asarray(packed_state, dtype=jnp.float64)
+        if use_jax
+        else np.asarray(packed_state, dtype=np.float64)
+    )
+    rhs_array = (
+        jnp.asarray(rhs_fields, dtype=jnp.float64)
+        if use_jax
+        else np.asarray(rhs_fields, dtype=np.float64)
+    )
     field_size = previous_array.size - len(feedback_names)
     field_rhs = rhs_array[:field_size]
     field_block = backward_euler_residual(
@@ -4668,13 +5507,23 @@ def _build_recycling_mixed_be_residual(
     controller_rhs = rhs_array[field_size:]
     controller_block = backward_euler_residual(
         _feedback_integral_vector(feedback_integrals, feedback_names=feedback_names),
-        _feedback_integral_vector(previous_feedback_integrals, feedback_names=feedback_names),
-        controller_rhs if feedback_names else _feedback_error_vector(current_feedback_errors, feedback_names=feedback_names),
+        _feedback_integral_vector(
+            previous_feedback_integrals, feedback_names=feedback_names
+        ),
+        controller_rhs
+        if feedback_names
+        else _feedback_error_vector(
+            current_feedback_errors, feedback_names=feedback_names
+        ),
         timestep=timestep,
     )
     if not feedback_names:
         return field_block
-    return jnp.concatenate([field_block, controller_block]) if use_jax else np.concatenate([field_block, controller_block])
+    return (
+        jnp.concatenate([field_block, controller_block])
+        if use_jax
+        else np.concatenate([field_block, controller_block])
+    )
 
 
 def _build_recycling_mixed_bdf2_residual(
@@ -4692,15 +5541,29 @@ def _build_recycling_mixed_bdf2_residual(
     feedback_names: tuple[str, ...],
     timestep: float,
 ) -> np.ndarray:
-    use_jax = use_jax_backend(packed_state, previous_packed_state, previous_previous_packed_state, rhs_fields)
-    previous_array = jnp.asarray(previous_packed_state, dtype=jnp.float64) if use_jax else np.asarray(previous_packed_state, dtype=np.float64)
+    use_jax = use_jax_backend(
+        packed_state, previous_packed_state, previous_previous_packed_state, rhs_fields
+    )
+    previous_array = (
+        jnp.asarray(previous_packed_state, dtype=jnp.float64)
+        if use_jax
+        else np.asarray(previous_packed_state, dtype=np.float64)
+    )
     previous_previous_array = (
         jnp.asarray(previous_previous_packed_state, dtype=jnp.float64)
         if use_jax
         else np.asarray(previous_previous_packed_state, dtype=np.float64)
     )
-    packed_array = jnp.asarray(packed_state, dtype=jnp.float64) if use_jax else np.asarray(packed_state, dtype=np.float64)
-    rhs_array = jnp.asarray(rhs_fields, dtype=jnp.float64) if use_jax else np.asarray(rhs_fields, dtype=np.float64)
+    packed_array = (
+        jnp.asarray(packed_state, dtype=jnp.float64)
+        if use_jax
+        else np.asarray(packed_state, dtype=np.float64)
+    )
+    rhs_array = (
+        jnp.asarray(rhs_fields, dtype=jnp.float64)
+        if use_jax
+        else np.asarray(rhs_fields, dtype=np.float64)
+    )
     field_size = previous_array.size - len(feedback_names)
     field_rhs = rhs_array[:field_size]
     field_block = bdf2_residual(
@@ -4713,14 +5576,26 @@ def _build_recycling_mixed_bdf2_residual(
     controller_rhs = rhs_array[field_size:]
     controller_block = bdf2_residual(
         _feedback_integral_vector(feedback_integrals, feedback_names=feedback_names),
-        _feedback_integral_vector(previous_feedback_integrals, feedback_names=feedback_names),
-        _feedback_integral_vector(previous_previous_feedback_integrals, feedback_names=feedback_names),
-        controller_rhs if feedback_names else _feedback_error_vector(current_feedback_errors, feedback_names=feedback_names),
+        _feedback_integral_vector(
+            previous_feedback_integrals, feedback_names=feedback_names
+        ),
+        _feedback_integral_vector(
+            previous_previous_feedback_integrals, feedback_names=feedback_names
+        ),
+        controller_rhs
+        if feedback_names
+        else _feedback_error_vector(
+            current_feedback_errors, feedback_names=feedback_names
+        ),
         timestep=timestep,
     )
     if not feedback_names:
         return field_block
-    return jnp.concatenate([field_block, controller_block]) if use_jax else np.concatenate([field_block, controller_block])
+    return (
+        jnp.concatenate([field_block, controller_block])
+        if use_jax
+        else np.concatenate([field_block, controller_block])
+    )
 
 
 @lru_cache(maxsize=None)
@@ -4745,9 +5620,15 @@ def _build_recycling_residual_sparsity(
     if controller_count <= 0:
         return field_sparsity.tocsr()
 
-    field_to_controller = csr_matrix(np.ones((field_size, controller_count), dtype=bool))
-    controller_to_field = csr_matrix(np.ones((controller_count, field_size), dtype=bool))
-    controller_block = csr_matrix(np.ones((controller_count, controller_count), dtype=bool))
+    field_to_controller = csr_matrix(
+        np.ones((field_size, controller_count), dtype=bool)
+    )
+    controller_to_field = csr_matrix(
+        np.ones((controller_count, field_size), dtype=bool)
+    )
+    controller_block = csr_matrix(
+        np.ones((controller_count, controller_count), dtype=bool)
+    )
     return bmat(
         [
             [field_sparsity, field_to_controller],
@@ -4771,7 +5652,9 @@ def _build_recycling_color_groups(
         color_periods=(1, min(5, active_shape[1]), 1),
     )
     field_size = field_count * int(np.prod(active_shape))
-    controller_groups = tuple((field_size + index,) for index in range(controller_count))
+    controller_groups = tuple(
+        (field_size + index,) for index in range(controller_count)
+    )
     return field_groups + controller_groups
 
 
@@ -4784,9 +5667,13 @@ def _as_recycling_step_info(
 ) -> Recycling1DImplicitStepInfo:
     diagnostics: dict[str, float | int | bool | str | None] = {
         "residual_evaluation_count": int(getattr(info, "residual_evaluation_count", 0)),
-        "residual_evaluation_seconds": float(getattr(info, "residual_evaluation_seconds", 0.0)),
+        "residual_evaluation_seconds": float(
+            getattr(info, "residual_evaluation_seconds", 0.0)
+        ),
         "jacobian_refresh_count": int(getattr(info, "jacobian_refresh_count", 0)),
-        "jacobian_assembly_seconds": float(getattr(info, "jacobian_assembly_seconds", 0.0)),
+        "jacobian_assembly_seconds": float(
+            getattr(info, "jacobian_assembly_seconds", 0.0)
+        ),
         "linear_solve_seconds": float(getattr(info, "linear_solve_seconds", 0.0)),
         "line_search_seconds": float(getattr(info, "line_search_seconds", 0.0)),
         "fallback_used": bool(getattr(info, "fallback_used", False)),
@@ -4795,21 +5682,42 @@ def _as_recycling_step_info(
         "linear_solver_backend": getattr(info, "linear_solver_backend", None),
         "linear_solver_status": getattr(info, "linear_solver_status", None),
         "linear_solver_success": getattr(info, "linear_solver_success", None),
-        "linear_solver_reported_iterations": getattr(info, "linear_solver_reported_iterations", None),
+        "linear_solver_reported_iterations": getattr(
+            info, "linear_solver_reported_iterations", None
+        ),
         "jvp_direction_batch_count": int(getattr(info, "jvp_direction_batch_count", 0)),
-        "jvp_direction_build_seconds": float(getattr(info, "jvp_direction_build_seconds", 0.0)),
-        "jvp_jacobian_total_seconds": float(getattr(info, "jvp_jacobian_total_seconds", 0.0)),
-        "jvp_jacobian_linearize_seconds": float(getattr(info, "jvp_jacobian_linearize_seconds", 0.0)),
-        "jvp_jacobian_tangent_build_seconds": float(getattr(info, "jvp_jacobian_tangent_build_seconds", 0.0)),
-        "jvp_jacobian_push_seconds": float(getattr(info, "jvp_jacobian_push_seconds", 0.0)),
-        "jvp_jacobian_device_execute_seconds": float(getattr(info, "jvp_jacobian_device_execute_seconds", 0.0)),
-        "jvp_jacobian_host_transfer_seconds": float(getattr(info, "jvp_jacobian_host_transfer_seconds", 0.0)),
-        "jvp_jacobian_sparse_assembly_seconds": float(getattr(info, "jvp_jacobian_sparse_assembly_seconds", 0.0)),
+        "jvp_direction_build_seconds": float(
+            getattr(info, "jvp_direction_build_seconds", 0.0)
+        ),
+        "jvp_jacobian_total_seconds": float(
+            getattr(info, "jvp_jacobian_total_seconds", 0.0)
+        ),
+        "jvp_jacobian_linearize_seconds": float(
+            getattr(info, "jvp_jacobian_linearize_seconds", 0.0)
+        ),
+        "jvp_jacobian_tangent_build_seconds": float(
+            getattr(info, "jvp_jacobian_tangent_build_seconds", 0.0)
+        ),
+        "jvp_jacobian_push_seconds": float(
+            getattr(info, "jvp_jacobian_push_seconds", 0.0)
+        ),
+        "jvp_jacobian_device_execute_seconds": float(
+            getattr(info, "jvp_jacobian_device_execute_seconds", 0.0)
+        ),
+        "jvp_jacobian_host_transfer_seconds": float(
+            getattr(info, "jvp_jacobian_host_transfer_seconds", 0.0)
+        ),
+        "jvp_jacobian_sparse_assembly_seconds": float(
+            getattr(info, "jvp_jacobian_sparse_assembly_seconds", 0.0)
+        ),
         "jvp_jacobian_batch_count": int(getattr(info, "jvp_jacobian_batch_count", 0)),
         "jvp_jacobian_prebuilt_direction_batch_uses": int(
             getattr(info, "jvp_jacobian_prebuilt_direction_batch_uses", 0)
         ),
-        "jvp_direction_workspace_reuses": int(getattr(info, "jvp_direction_workspace_reuses", 0)),
+        "jvp_direction_workspace_reuses": int(
+            getattr(info, "jvp_direction_workspace_reuses", 0)
+        ),
+        "residual_jitted": bool(getattr(info, "residual_jitted", False)),
     }
     if solver_mode is not None:
         diagnostics["solver_mode"] = str(solver_mode)

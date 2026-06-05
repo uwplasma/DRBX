@@ -303,6 +303,10 @@ wraps the residual in `jax.jit` before the initial residual check and
 `ImplicitStepInfo`. This is a seam for fixed-layout recycling profiling and
 future matrix-free promotion; it remains opt-in until full output-window parity
 and runtime gates justify changing a production route.
+The recycling BE/BDF2 wrappers expose the same seam through
+`runtime:recycling_jax_linear_jit_residual=true` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL=1`, so profiling decks can pin the
+pre-JIT behavior without changing the finite-difference BDF default.
 The audit is deliberately small: it proves the solver backend boundary, not the
 full recycling migration. The full migration still depends on moving the
 remaining recycling residual kernels out of dictionary/NumPy assembly.

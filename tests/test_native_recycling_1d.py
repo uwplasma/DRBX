@@ -8,7 +8,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input, parse_bout_input
+from jax_drb.config.boutinp import (
+    apply_bout_overrides,
+    load_bout_input,
+    parse_bout_input,
+)
 import jax_drb.native.recycling_1d as recycling_1d_mod
 import jax_drb.native.runner as native_runner
 from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
@@ -162,8 +166,12 @@ def _run_open_field_case_against_committed_baseline(case_name: str):
 
 
 def test_amjuel_rate_tables_are_packaged_for_recycling_branch() -> None:
-    hydrogen_iz_coeffs, hydrogen_iz_energy_coeffs, hydrogen_iz_heating = _load_amjuel_rate("d", "iz")
-    helium_rec_coeffs, helium_rec_energy_coeffs, helium_rec_heating = _load_amjuel_rate("he", "rec")
+    hydrogen_iz_coeffs, hydrogen_iz_energy_coeffs, hydrogen_iz_heating = (
+        _load_amjuel_rate("d", "iz")
+    )
+    helium_rec_coeffs, helium_rec_energy_coeffs, helium_rec_heating = _load_amjuel_rate(
+        "he", "rec"
+    )
 
     assert hydrogen_iz_coeffs.shape == (9, 9)
     assert helium_rec_coeffs.shape == (9, 9)
@@ -174,7 +182,13 @@ def test_amjuel_rate_tables_are_packaged_for_recycling_branch() -> None:
 
 
 def test_openadas_neon_rate_tables_are_packaged_for_recycling_branch() -> None:
-    ionisation_coeffs, radiation_coeffs, log_temperature, log_density, electron_heating = _load_openadas_rate("ne", "iz")
+    (
+        ionisation_coeffs,
+        radiation_coeffs,
+        log_temperature,
+        log_density,
+        electron_heating,
+    ) = _load_openadas_rate("ne", "iz")
 
     assert ionisation_coeffs.shape == (30, 24)
     assert radiation_coeffs.shape == (30, 24)
@@ -193,7 +207,9 @@ def test_openadas_neon_rate_tables_are_packaged_for_recycling_branch() -> None:
     assert np.all(evaluated > 0.0)
 
 
-def test_apply_electron_sheath_boundary_matches_full_hermes_lower_boundary_formula() -> None:
+def test_apply_electron_sheath_boundary_matches_full_hermes_lower_boundary_formula() -> (
+    None
+):
     mesh = StructuredMesh(
         nx=1,
         ny=1,
@@ -289,7 +305,9 @@ def test_apply_electron_sheath_boundary_matches_full_hermes_lower_boundary_formu
     jp = j + 1
     jm = j - 1
     ne_center = float(electron_density[0, j, 0])
-    ne_guard = float(limit_free(electron_density[0, jp, 0], electron_density[0, j, 0], 0.0))
+    ne_guard = float(
+        limit_free(electron_density[0, jp, 0], electron_density[0, j, 0], 0.0)
+    )
     te_center = float(electron_pressure[0, j, 0] / electron_density[0, j, 0])
     te_neighbor = float((electron_pressure[0, jp, 0] / electron_density[0, jp, 0]))
     te_guard = float(limit_free(te_neighbor, te_center, 0.0))
@@ -300,15 +318,38 @@ def test_apply_electron_sheath_boundary_matches_full_hermes_lower_boundary_formu
     if abs(grad_ni) < 2.0e-3:
         grad_ne = 2.0e-3
         grad_ni = 2.0e-3
-    s_i = float(np.clip(0.5 * (3.0 * ni_center / ne_center - ni_neighbor / electron_density[0, jp, 0]), 0.0, 1.0))
+    s_i = float(
+        np.clip(
+            0.5
+            * (3.0 * ni_center / ne_center - ni_neighbor / electron_density[0, jp, 0]),
+            0.0,
+            1.0,
+        )
+    )
     c_i_sq = float(
-        np.clip(((5.0 / 3.0) * ion_temperature[0, j, 0] + s_i * te_center * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
+        np.clip(
+            (
+                (5.0 / 3.0) * ion_temperature[0, j, 0]
+                + s_i * te_center * grad_ne / grad_ni
+            )
+            / ion.atomic_mass,
+            0.0,
+            100.0,
+        )
     )
     me = 1.0 / 1836.0
-    ion_sum = float(s_i * ion.charge * full_settings.sin_alpha[0, jp, 0] * np.sqrt(c_i_sq))
-    phi_center = te_center * np.log(
-        np.sqrt(te_center / (me * (2.0 * np.pi))) * (1.0 - full_settings.secondary_electron_coef) / ion_sum
-    ) + full_settings.wall_potential[0, j, 0]
+    ion_sum = float(
+        s_i * ion.charge * full_settings.sin_alpha[0, jp, 0] * np.sqrt(c_i_sq)
+    )
+    phi_center = (
+        te_center
+        * np.log(
+            np.sqrt(te_center / (me * (2.0 * np.pi)))
+            * (1.0 - full_settings.secondary_electron_coef)
+            / ion_sum
+        )
+        + full_settings.wall_potential[0, j, 0]
+    )
     tesheath = 0.5 * (te_guard + te_center)
     nesheath = 0.5 * (ne_guard + ne_center)
     phisheath = max(phi_center, full_settings.wall_potential[0, j, 0])
@@ -317,15 +358,21 @@ def test_apply_electron_sheath_boundary_matches_full_hermes_lower_boundary_formu
         + (phisheath - full_settings.wall_potential[0, j, 0]) / max(tesheath, 1.0e-5),
         0.0,
     )
-    vesheath = -np.sqrt(tesheath / (2.0 * np.pi * me)) * (1.0 - full_settings.secondary_electron_coef) * np.exp(
-        -(phisheath - full_settings.wall_potential[0, j, 0]) / tesheath
+    vesheath = (
+        -np.sqrt(tesheath / (2.0 * np.pi * me))
+        * (1.0 - full_settings.secondary_electron_coef)
+        * np.exp(-(phisheath - full_settings.wall_potential[0, j, 0]) / tesheath)
     )
-    expected_q = ((gamma_e - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tesheath - 0.5 * me * vesheath * vesheath)
+    expected_q = (
+        gamma_e - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)
+    ) * tesheath - 0.5 * me * vesheath * vesheath
     expected_q *= nesheath * vesheath
     expected_q = min(expected_q, 0.0)
 
     assert result.velocity[0, jm, 0] == pytest.approx(2.0 * vesheath)
     assert result.energy_source[0, j, 0] == pytest.approx(expected_q)
+
+
 def test_compute_recycling_1d_rhs_applies_neutral_pressure_source_overrides() -> None:
     config = _load_reference_bout_input(_TOKAMAK_RECYCLING_INPUT)
     snapshot = load_local_reference_snapshot_cache(
@@ -342,7 +389,9 @@ def test_compute_recycling_1d_rhs_applies_neutral_pressure_source_overrides() ->
         metrics=snapshot.metrics,
         dataset_scalars=snapshot.scalar_values,
         field_overrides=snapshot.fields,
-        pressure_source_overrides={"d+": np.asarray(snapshot.optional_fields["SPd+"], dtype=np.float64)},
+        pressure_source_overrides={
+            "d+": np.asarray(snapshot.optional_fields["SPd+"], dtype=np.float64)
+        },
     )
     overridden = compute_recycling_1d_rhs(
         config,
@@ -357,7 +406,8 @@ def test_compute_recycling_1d_rhs_applies_neutral_pressure_source_overrides() ->
     )
 
     np.testing.assert_allclose(
-        np.asarray(overridden.variables["ddt(Pd)"][0]) - np.asarray(base.variables["ddt(Pd)"][0]),
+        np.asarray(overridden.variables["ddt(Pd)"][0])
+        - np.asarray(base.variables["ddt(Pd)"][0]),
         override,
     )
 
@@ -376,12 +426,20 @@ def test_compute_recycling_1d_rhs_uses_preloaded_explicit_pressure_sources(
         dataset_scalars=dataset_scalars,
     )
     species = _build_recycling_state_fields(runtime_model)
-    species = recycling_1d_mod._override_species_fields(runtime_model.species_templates, fields=species, mesh=mesh)
+    species = recycling_1d_mod._override_species_fields(
+        runtime_model.species_templates, fields=species, mesh=mesh
+    )
 
     def _unexpected_explicit_pressure_source(*args, **kwargs):
-        raise AssertionError("explicit pressure source should be loaded once and reused during RHS assembly")
+        raise AssertionError(
+            "explicit pressure source should be loaded once and reused during RHS assembly"
+        )
 
-    monkeypatch.setattr(recycling_1d_mod, "_explicit_pressure_source", _unexpected_explicit_pressure_source)
+    monkeypatch.setattr(
+        recycling_1d_mod,
+        "_explicit_pressure_source",
+        _unexpected_explicit_pressure_source,
+    )
 
     result = _compute_recycling_1d_rhs_from_species(
         config,
@@ -400,9 +458,13 @@ def test_compute_recycling_1d_rhs_uses_preloaded_explicit_pressure_sources(
 
 def test_recycling_1d_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "recycling_1d_rhs.json")
-    actual = run_curated_case("recycling_1d_rhs", reference_root=_reference_root()).payload
+    actual = run_curated_case(
+        "recycling_1d_rhs", reference_root=_reference_root()
+    ).payload
 
-    comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+    comparison = compare_summary_payloads(
+        expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9
+    )
 
     assert comparison.ok, comparison.issues
 
@@ -412,13 +474,17 @@ def test_recycling_1d_rhs_matches_array_baseline() -> None:
     result = run_curated_case("recycling_1d_rhs", reference_root=_reference_root())
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
-    comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
+    comparison = compare_array_payloads(
+        expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9
+    )
 
     assert comparison.ok, comparison.issues
 
 
 def test_recycling_1d_short_window_stays_within_operational_baseline_band() -> None:
-    entries = _run_open_field_case_against_committed_baseline("recycling_1d_short_window")
+    entries = _run_open_field_case_against_committed_baseline(
+        "recycling_1d_short_window"
+    )
 
     assert entries["Nd+"].max_abs_diff < 4.8e-2
     assert entries["Pd+"].max_abs_diff < 6.5e-2
@@ -431,76 +497,112 @@ def test_recycling_1d_short_window_stays_within_operational_baseline_band() -> N
 
 def test_tokamak_recycling_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "tokamak_recycling_rhs.json")
-    actual = run_curated_case("tokamak_recycling_rhs", reference_root=_reference_root()).payload
+    actual = run_curated_case(
+        "tokamak_recycling_rhs", reference_root=_reference_root()
+    ).payload
 
-    comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+    comparison = compare_summary_payloads(
+        expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9
+    )
 
     assert comparison.ok, comparison.issues
 
 
 def test_tokamak_recycling_rhs_matches_array_baseline() -> None:
-    expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_recycling_rhs.npz")
+    expected = load_portable_array_payload(
+        _ARRAY_BASELINE_DIR / "tokamak_recycling_rhs.npz"
+    )
     result = run_curated_case("tokamak_recycling_rhs", reference_root=_reference_root())
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
-    comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
+    comparison = compare_array_payloads(
+        expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9
+    )
 
     assert comparison.ok, comparison.issues
 
 
 def test_tokamak_recycling_dthe_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "tokamak_recycling_dthe_rhs.json")
-    actual = run_curated_case("tokamak_recycling_dthe_rhs", reference_root=_reference_root()).payload
+    actual = run_curated_case(
+        "tokamak_recycling_dthe_rhs", reference_root=_reference_root()
+    ).payload
 
-    comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+    comparison = compare_summary_payloads(
+        expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9
+    )
 
     assert comparison.ok, comparison.issues
 
 
 def test_tokamak_recycling_dthe_rhs_matches_array_baseline() -> None:
-    expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_recycling_dthe_rhs.npz")
-    result = run_curated_case("tokamak_recycling_dthe_rhs", reference_root=_reference_root())
+    expected = load_portable_array_payload(
+        _ARRAY_BASELINE_DIR / "tokamak_recycling_dthe_rhs.npz"
+    )
+    result = run_curated_case(
+        "tokamak_recycling_dthe_rhs", reference_root=_reference_root()
+    )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
-    comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
+    comparison = compare_array_payloads(
+        expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9
+    )
 
     assert comparison.ok, comparison.issues
 
 
 def test_tokamak_recycling_dthene_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "tokamak_recycling_dthene_rhs.json")
-    actual = run_curated_case("tokamak_recycling_dthene_rhs", reference_root=_reference_root()).payload
+    actual = run_curated_case(
+        "tokamak_recycling_dthene_rhs", reference_root=_reference_root()
+    ).payload
 
-    comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+    comparison = compare_summary_payloads(
+        expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9
+    )
 
     assert comparison.ok, comparison.issues
 
 
 def test_tokamak_recycling_dthene_rhs_matches_array_baseline() -> None:
-    expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_recycling_dthene_rhs.npz")
-    result = run_curated_case("tokamak_recycling_dthene_rhs", reference_root=_reference_root())
+    expected = load_portable_array_payload(
+        _ARRAY_BASELINE_DIR / "tokamak_recycling_dthene_rhs.npz"
+    )
+    result = run_curated_case(
+        "tokamak_recycling_dthene_rhs", reference_root=_reference_root()
+    )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
-    comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
+    comparison = compare_array_payloads(
+        expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9
+    )
 
     assert comparison.ok, comparison.issues
 
 
 def test_recycling_dthe_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "recycling_dthe_rhs.json")
-    actual = run_curated_case("recycling_dthe_rhs", reference_root=_reference_root()).payload
+    actual = run_curated_case(
+        "recycling_dthe_rhs", reference_root=_reference_root()
+    ).payload
 
-    comparison = compare_summary_payloads(expected, actual, scalar_rtol=5.0e-2, scalar_atol=1.0e-9)
+    comparison = compare_summary_payloads(
+        expected, actual, scalar_rtol=5.0e-2, scalar_atol=1.0e-9
+    )
 
     assert comparison.ok, comparison.issues
 
 
 def test_recycling_dthe_rhs_matches_array_baseline() -> None:
-    expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "recycling_dthe_rhs.npz")
+    expected = load_portable_array_payload(
+        _ARRAY_BASELINE_DIR / "recycling_dthe_rhs.npz"
+    )
     result = run_curated_case("recycling_dthe_rhs", reference_root=_reference_root())
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
-    comparison = compare_array_payloads(expected, actual, array_rtol=5.0e-2, array_atol=1.0e-9)
+    comparison = compare_array_payloads(
+        expected, actual, array_rtol=5.0e-2, array_atol=1.0e-9
+    )
 
     assert comparison.ok, comparison.issues
 
@@ -531,7 +633,9 @@ def test_recycling_one_step_selects_expected_transient_solver_mode(
         }
         return SimpleNamespace(variable_history=field_history)
 
-    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_advance)
+    monkeypatch.setattr(
+        native_runner, "advance_recycling_1d_implicit_history", fake_advance
+    )
 
     time_points, variables = native_runner._execute_recycling_1d_case(
         config,
@@ -548,7 +652,13 @@ def test_recycling_one_step_selects_expected_transient_solver_mode(
 
 @pytest.mark.parametrize(
     "requested_mode",
-    ["adaptive_bdf", "adaptive_bdf_jax_linearized", "sparse_jvp", "jax_linearized", "jax_linearized_lineax"],
+    [
+        "adaptive_bdf",
+        "adaptive_bdf_jax_linearized",
+        "sparse_jvp",
+        "jax_linearized",
+        "jax_linearized_lineax",
+    ],
 )
 def test_recycling_one_step_runtime_override_selects_requested_solver_mode(
     requested_mode: str,
@@ -571,7 +681,9 @@ def test_recycling_one_step_runtime_override_selects_requested_solver_mode(
         }
         return SimpleNamespace(variable_history=field_history)
 
-    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_advance)
+    monkeypatch.setattr(
+        native_runner, "advance_recycling_1d_implicit_history", fake_advance
+    )
 
     native_runner._execute_recycling_1d_case(
         config,
@@ -611,7 +723,9 @@ def test_recycling_one_step_progress_callback_receives_interval_updates(
         }
         return SimpleNamespace(variable_history=field_history)
 
-    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_advance)
+    monkeypatch.setattr(
+        native_runner, "advance_recycling_1d_implicit_history", fake_advance
+    )
 
     native_runner._execute_recycling_1d_case(
         config,
@@ -660,7 +774,9 @@ def test_recycling_progress_details_include_eta_metrics() -> None:
     assert details["live_progress"] is True
 
 
-def test_public_target_recycling_sources_skip_non_recycling_ions_with_jax_state() -> None:
+def test_public_target_recycling_sources_skip_non_recycling_ions_with_jax_state() -> (
+    None
+):
     mesh, metrics = _minimal_open_field_mesh_and_metrics()
     density = jnp.asarray([[[0.5], [2.0], [0.75]]], dtype=jnp.float64)
     velocity = jnp.asarray([[[-0.2], [1.5], [0.3]]], dtype=jnp.float64)
@@ -693,11 +809,17 @@ def test_public_target_recycling_sources_skip_non_recycling_ions_with_jax_state(
     )
 
     assert terms.diagnostics == {}
-    np.testing.assert_allclose(np.asarray(terms.density_source["d"]), 0.0, rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(np.asarray(terms.energy_source["d"]), 0.0, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(
+        np.asarray(terms.density_source["d"]), 0.0, rtol=0.0, atol=0.0
+    )
+    np.testing.assert_allclose(
+        np.asarray(terms.energy_source["d"]), 0.0, rtol=0.0, atol=0.0
+    )
 
 
-def test_public_electron_zero_current_velocity_matches_charge_weighted_ion_flux_jvp() -> None:
+def test_public_electron_zero_current_velocity_matches_charge_weighted_ion_flux_jvp() -> (
+    None
+):
     jax = pytest.importorskip("jax")
     density = jnp.asarray([[[1.0], [2.0], [3.0]]], dtype=jnp.float64)
     electron_density = jnp.asarray([[[4.0], [5.0], [6.0]]], dtype=jnp.float64)
@@ -722,21 +844,31 @@ def test_public_electron_zero_current_velocity_matches_charge_weighted_ion_flux_
         return jnp.sum(electron_velocity)
 
     value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
-    expected = jnp.sum((density * velocity_d + 2.0 * density * velocity_t) / electron_density)
+    expected = jnp.sum(
+        (density * velocity_d + 2.0 * density * velocity_t) / electron_density
+    )
 
-    np.testing.assert_allclose(np.asarray(value), np.asarray(expected), rtol=1.0e-12, atol=1.0e-12)
-    np.testing.assert_allclose(np.asarray(tangent), np.asarray(expected), rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(
+        np.asarray(value), np.asarray(expected), rtol=1.0e-12, atol=1.0e-12
+    )
+    np.testing.assert_allclose(
+        np.asarray(tangent), np.asarray(expected), rtol=1.0e-12, atol=1.0e-12
+    )
 
 
 def test_public_force_balance_gradient_jax_path_matches_centered_stencil() -> None:
     mesh, metrics = _minimal_open_field_mesh_and_metrics()
     field = jnp.asarray([[[1.0], [2.5], [4.0]]], dtype=jnp.float64)
 
-    gradient = public_grad_par_electron_force_balance_open(field, mesh=mesh, metrics=metrics)
+    gradient = public_grad_par_electron_force_balance_open(
+        field, mesh=mesh, metrics=metrics
+    )
 
     expected = np.zeros((1, 3, 1), dtype=np.float64)
     expected[:, mesh.ystart, :] = 0.5 * (4.0 - 1.0)
-    np.testing.assert_allclose(np.asarray(gradient), expected, rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(
+        np.asarray(gradient), expected, rtol=1.0e-12, atol=1.0e-12
+    )
 
 
 def test_recycling_1d_one_step_uses_committed_snapshot_without_field_templates(
@@ -791,48 +923,118 @@ def test_recycling_1d_one_step_uses_committed_snapshot_without_field_templates(
         metrics=metrics,
         fields=initial_fields,
         optional_fields={},
-        scalar_values={"Nnorm": 1.0e17, "Tnorm": 1.0, "Bnorm": 1.0, "Cs0": 1.0, "Omega_ci": 1.0, "rho_s0": 1.0},
+        scalar_values={
+            "Nnorm": 1.0e17,
+            "Tnorm": 1.0,
+            "Bnorm": 1.0,
+            "Cs0": 1.0,
+            "Omega_ci": 1.0,
+            "rho_s0": 1.0,
+        },
     )
     snapshot_cache = tmp_path / "recycling_1d_rhs_snapshot.npz"
     save_local_reference_snapshot_cache(snapshot, snapshot_cache)
     array_history_path = tmp_path / "recycling_1d_one_step.npz"
-    active = (slice(mesh.xstart, mesh.xend + 1), slice(mesh.ystart, mesh.yend + 1), slice(None))
+    active = (
+        slice(mesh.xstart, mesh.xend + 1),
+        slice(mesh.ystart, mesh.yend + 1),
+        slice(None),
+    )
     np.savez_compressed(
         array_history_path,
         **{
             "__metadata__": np.array([], dtype=np.float64),
-            "var__Nd+": np.stack([initial_fields["Nd+"][active], 2.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
-            "var__Pd+": np.stack([initial_fields["Pd+"][active], 4.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
-            "var__NVd+": np.stack([initial_fields["NVd+"][active], 5.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
-            "var__Nd": np.stack([initial_fields["Nd"][active], 6.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
-            "var__Pd": np.stack([initial_fields["Pd"][active], 7.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
-            "var__NVd": np.stack([initial_fields["NVd"][active], 8.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
-            "var__Pe": np.stack([initial_fields["Pe"][active], 9.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
+            "var__Nd+": np.stack(
+                [
+                    initial_fields["Nd+"][active],
+                    2.0 * np.ones((1, 3, 1), dtype=np.float64),
+                ],
+                axis=0,
+            ),
+            "var__Pd+": np.stack(
+                [
+                    initial_fields["Pd+"][active],
+                    4.0 * np.ones((1, 3, 1), dtype=np.float64),
+                ],
+                axis=0,
+            ),
+            "var__NVd+": np.stack(
+                [
+                    initial_fields["NVd+"][active],
+                    5.0 * np.ones((1, 3, 1), dtype=np.float64),
+                ],
+                axis=0,
+            ),
+            "var__Nd": np.stack(
+                [
+                    initial_fields["Nd"][active],
+                    6.0 * np.ones((1, 3, 1), dtype=np.float64),
+                ],
+                axis=0,
+            ),
+            "var__Pd": np.stack(
+                [
+                    initial_fields["Pd"][active],
+                    7.0 * np.ones((1, 3, 1), dtype=np.float64),
+                ],
+                axis=0,
+            ),
+            "var__NVd": np.stack(
+                [
+                    initial_fields["NVd"][active],
+                    8.0 * np.ones((1, 3, 1), dtype=np.float64),
+                ],
+                axis=0,
+            ),
+            "var__Pe": np.stack(
+                [
+                    initial_fields["Pe"][active],
+                    9.0 * np.ones((1, 3, 1), dtype=np.float64),
+                ],
+                axis=0,
+            ),
         },
     )
 
     monkeypatch.setattr(
         native_runner,
         "_open_field_snapshot_cache_path",
-        lambda case_name: snapshot_cache if case_name == "recycling_1d_rhs" else tmp_path / f"{case_name}.missing",
+        lambda case_name: (
+            snapshot_cache
+            if case_name == "recycling_1d_rhs"
+            else tmp_path / f"{case_name}.missing"
+        ),
     )
     monkeypatch.setattr(
         native_runner,
         "run_reference_case",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("reference run should not be used when open-field cache is present")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "reference run should not be used when open-field cache is present"
+            )
+        ),
     )
 
     captured: dict[str, object] = {}
-    evolved_history = {name: np.stack([value, value + 1.0], axis=0) for name, value in initial_fields.items()}
+    evolved_history = {
+        name: np.stack([value, value + 1.0], axis=0)
+        for name, value in initial_fields.items()
+    }
 
     def fake_history(*args, **kwargs):
         captured["initial_fields"] = kwargs["initial_fields"]
         captured["solver_mode"] = kwargs["solver_mode"]
-        return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
+        return SimpleNamespace(
+            variable_history=evolved_history, feedback_integral_history={}
+        )
 
-    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
+    monkeypatch.setattr(
+        native_runner, "advance_recycling_1d_implicit_history", fake_history
+    )
 
-    case = next(case for case in load_reference_cases() if case.name == "recycling_1d_one_step")
+    case = next(
+        case for case in load_reference_cases() if case.name == "recycling_1d_one_step"
+    )
     result = native_runner._run_open_field_recycling_one_step_case(
         case,
         input_path=input_path,
@@ -865,20 +1067,38 @@ def test_continuation_output_interval_uses_small_startup_substeps_on_first_open_
     def fake_be(*args, **kwargs):
         observed_steps.append(("be", float(kwargs["timestep"])))
         return (
-            {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()},
+            {
+                name: np.asarray(value, dtype=np.float64, copy=True)
+                for name, value in fields.items()
+            },
             dict(kwargs["feedback_integrals"]),
-            SimpleNamespace(residual_inf_norm=0.0, active_size=1, nonlinear_iterations=1, linear_iterations=1),
+            SimpleNamespace(
+                residual_inf_norm=0.0,
+                active_size=1,
+                nonlinear_iterations=1,
+                linear_iterations=1,
+            ),
         )
 
     def fake_bdf2(*args, **kwargs):
         observed_steps.append(("bdf2", float(kwargs["timestep"])))
         return (
-            {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()},
+            {
+                name: np.asarray(value, dtype=np.float64, copy=True)
+                for name, value in fields.items()
+            },
             dict(kwargs["feedback_integrals"]),
-            SimpleNamespace(residual_inf_norm=0.0, active_size=1, nonlinear_iterations=1, linear_iterations=1),
+            SimpleNamespace(
+                residual_inf_norm=0.0,
+                active_size=1,
+                nonlinear_iterations=1,
+                linear_iterations=1,
+            ),
         )
 
-    monkeypatch.setattr(recycling_1d_mod, "advance_recycling_1d_backward_euler_step", fake_be)
+    monkeypatch.setattr(
+        recycling_1d_mod, "advance_recycling_1d_backward_euler_step", fake_be
+    )
     monkeypatch.setattr(recycling_1d_mod, "advance_recycling_1d_bdf2_step", fake_bdf2)
 
     recycling_1d_mod._advance_recycling_1d_output_interval(
@@ -913,7 +1133,10 @@ def test_run_curated_recycling_case_applies_manifest_overrides_on_default_path(
         captured["config"] = config
         captured["kwargs"] = kwargs
         return SimpleNamespace(
-            payload={"case_name": kwargs["case_name"], "parity_mode": kwargs["parity_mode"]},
+            payload={
+                "case_name": kwargs["case_name"],
+                "parity_mode": kwargs["parity_mode"],
+            },
             variables={},
             time_points=(0.0,),
             run_config=RunConfiguration.from_config(config),
@@ -923,7 +1146,9 @@ def test_run_curated_recycling_case_applies_manifest_overrides_on_default_path(
 
     monkeypatch.setattr(native_runner, "run_config_case", fake_run_config_case)
 
-    native_runner.run_curated_case("recycling_1d_short_window", reference_root=_reference_root())
+    native_runner.run_curated_case(
+        "recycling_1d_short_window", reference_root=_reference_root()
+    )
 
     applied_config = captured["config"]
     applied_run_config = RunConfiguration.from_config(applied_config)
@@ -931,7 +1156,9 @@ def test_run_curated_recycling_case_applies_manifest_overrides_on_default_path(
     assert captured["kwargs"]["parity_mode"] == "short_window"
 
 
-def test_recycling_dthe_reaction_sources_include_cross_isotope_charge_exchange() -> None:
+def test_recycling_dthe_reaction_sources_include_cross_isotope_charge_exchange() -> (
+    None
+):
     config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -977,7 +1204,10 @@ def test_charge_exchange_collision_rates_include_both_atom_and_ion_species() -> 
     atom_temperature = prepared["d"].temperature
     ion_temperature = prepared["d+"].temperature
     teff = np.clip(
-        (atom_temperature / species["d"].atomic_mass + ion_temperature / species["d+"].atomic_mass)
+        (
+            atom_temperature / species["d"].atomic_mass
+            + ion_temperature / species["d+"].atomic_mass
+        )
         * resolved_dataset_scalars(run_config)["Tnorm"],
         0.01,
         10000.0,
@@ -994,7 +1224,9 @@ def test_charge_exchange_collision_rates_include_both_atom_and_ion_species() -> 
 
 
 def test_charge_exchange_collision_rates_apply_species_rate_multiplier() -> None:
-    config = apply_bout_overrides(_load_reference_bout_input(_DTHE_INPUT), ("d:K_cx_multiplier=3.0",))
+    config = apply_bout_overrides(
+        _load_reference_bout_input(_DTHE_INPUT), ("d:K_cx_multiplier=3.0",)
+    )
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1022,7 +1254,10 @@ def test_charge_exchange_collision_rates_apply_species_rate_multiplier() -> None
     ion_temperature_cross = prepared["t+"].temperature
     sigma_same = _hydrogen_cx_sigmav(
         np.clip(
-            (atom_temperature / species["d"].atomic_mass + ion_temperature_same / species["d+"].atomic_mass)
+            (
+                atom_temperature / species["d"].atomic_mass
+                + ion_temperature_same / species["d+"].atomic_mass
+            )
             * scalars["Tnorm"],
             0.01,
             10000.0,
@@ -1031,7 +1266,10 @@ def test_charge_exchange_collision_rates_apply_species_rate_multiplier() -> None
     )
     sigma_cross = _hydrogen_cx_sigmav(
         np.clip(
-            (atom_temperature / species["d"].atomic_mass + ion_temperature_cross / species["t+"].atomic_mass)
+            (
+                atom_temperature / species["d"].atomic_mass
+                + ion_temperature_cross / species["t+"].atomic_mass
+            )
             * scalars["Tnorm"],
             0.01,
             10000.0,
@@ -1040,7 +1278,10 @@ def test_charge_exchange_collision_rates_apply_species_rate_multiplier() -> None
     )
     sigma_cross_into_d = _hydrogen_cx_sigmav(
         np.clip(
-            (other_atom_temperature / species["t"].atomic_mass + ion_temperature_same / species["d+"].atomic_mass)
+            (
+                other_atom_temperature / species["t"].atomic_mass
+                + ion_temperature_same / species["d+"].atomic_mass
+            )
             * scalars["Tnorm"],
             0.01,
             10000.0,
@@ -1051,9 +1292,7 @@ def test_charge_exchange_collision_rates_apply_species_rate_multiplier() -> None
         prepared["d+"].density[active] * sigma_same[active]
         + prepared["t+"].density[active] * sigma_cross[active]
     )
-    expected_d_ion = 3.0 * (
-        prepared["d"].density[active] * sigma_same[active]
-    ) + (
+    expected_d_ion = 3.0 * (prepared["d"].density[active] * sigma_same[active]) + (
         prepared["t"].density[active] * sigma_cross_into_d[active]
     )
     expected_t_ion_from_d = 3.0 * prepared["d"].density[active] * sigma_cross[active]
@@ -1063,7 +1302,9 @@ def test_charge_exchange_collision_rates_apply_species_rate_multiplier() -> None
     assert float(cx_rates["t+"][active]) >= float(expected_t_ion_from_d)
 
 
-def test_prepare_open_field_states_keeps_dump_backed_ion_guards_when_preserving_ion_target_state_only() -> None:
+def test_prepare_open_field_states_keeps_dump_backed_ion_guards_when_preserving_ion_target_state_only() -> (
+    None
+):
     config = _load_reference_bout_input(_INTEGRATED_2D_RECYCLING_INPUT)
     snapshot = load_local_reference_snapshot(
         _reference_input(_INTEGRATED_2D_RECYCLING_DUMP),
@@ -1107,6 +1348,7 @@ def test_prepare_open_field_states_keeps_dump_backed_ion_guards_when_preserving_
     assert np.any(np.abs(ion_boundary_default.energy_source["d+"]) > 0.0)
     np.testing.assert_allclose(ion_boundary_ion_only.energy_source["d+"], 0.0)
 
+
 def test_ion_sheath_boundary_reconstructs_velocity_with_density_floor() -> None:
     config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
@@ -1139,7 +1381,9 @@ def test_ion_sheath_boundary_reconstructs_velocity_with_density_floor() -> None:
     )
 
     active = (mesh.xstart, mesh.yend, 0)
-    expected_velocity = momentum[active] / (ion.atomic_mass * _soft_floor(density[active], ion.density_floor))
+    expected_velocity = momentum[active] / (
+        ion.atomic_mass * _soft_floor(density[active], ion.density_floor)
+    )
     assert result.velocity["d+"][active] == pytest.approx(expected_velocity)
 
 
@@ -1231,7 +1475,11 @@ def test_ion_simple_sheath_energy_source_matches_hermes_formula() -> None:
     c_i_sq = (settings.sheath_ion_polytropic * tisheath + tesheath) / ion.atomic_mass
     visheath = -np.sqrt(c_i_sq)
     expected_q = settings.gamma_i * tisheath * nisheath * visheath
-    expected_q -= (2.5 * tisheath + 0.5 * ion.atomic_mass * visheath * visheath) * nisheath * visheath
+    expected_q -= (
+        (2.5 * tisheath + 0.5 * ion.atomic_mass * visheath * visheath)
+        * nisheath
+        * visheath
+    )
 
     assert result.energy_source["d+"][0, mesh.ystart, 0] == pytest.approx(expected_q)
     assert result.velocity["d+"][0, mesh.ystart - 1, 0] == pytest.approx(2.0 * visheath)
@@ -1288,7 +1536,9 @@ def test_compute_recycling_1d_rhs_uses_boundary_conditioned_electron_velocity_fo
         dataset_scalars=dataset_scalars,
     )
 
-    np.testing.assert_allclose(captured["electron_velocity"], electron_boundary.velocity)
+    np.testing.assert_allclose(
+        captured["electron_velocity"], electron_boundary.velocity
+    )
 
 
 def test_recycling_rhs_uses_boundary_conditioned_density_for_parallel_electric_force(
@@ -1311,7 +1561,9 @@ def test_recycling_rhs_uses_boundary_conditioned_density_for_parallel_electric_f
     )
 
     sentinel_density = np.full_like(prepared["d+"].density, 7.0, dtype=np.float64)
-    sentinel_electron_density = np.full_like(electron_boundary.density, 11.0, dtype=np.float64)
+    sentinel_electron_density = np.full_like(
+        electron_boundary.density, 11.0, dtype=np.float64
+    )
     d_state = prepared["d+"]
     modified_prepared = dict(prepared)
     modified_prepared["d+"] = d_state.__class__(
@@ -1334,7 +1586,11 @@ def test_recycling_rhs_uses_boundary_conditioned_density_for_parallel_electric_f
     monkeypatch.setattr(
         recycling_1d_mod,
         "_prepare_open_field_states",
-        lambda *args, **kwargs: (modified_prepared, ion_boundary, modified_electron_boundary),
+        lambda *args, **kwargs: (
+            modified_prepared,
+            ion_boundary,
+            modified_electron_boundary,
+        ),
     )
     monkeypatch.setattr(
         recycling_1d_mod,
@@ -1345,13 +1601,19 @@ def test_recycling_rhs_uses_boundary_conditioned_density_for_parallel_electric_f
     captured_densities: list[np.ndarray] = []
 
     def capture_parallel_force_terms(**kwargs):
-        captured_densities.append(np.asarray(kwargs["ion_density"]["d+"], dtype=np.float64))
+        captured_densities.append(
+            np.asarray(kwargs["ion_density"]["d+"], dtype=np.float64)
+        )
         return SimpleNamespace(
             epar=np.zeros_like(kwargs["electron_density"], dtype=np.float64),
             ion_momentum_source=kwargs["ion_momentum_source"],
         )
 
-    monkeypatch.setattr(recycling_1d_mod, "_assemble_electron_parallel_force_terms", capture_parallel_force_terms)
+    monkeypatch.setattr(
+        recycling_1d_mod,
+        "_assemble_electron_parallel_force_terms",
+        capture_parallel_force_terms,
+    )
 
     _compute_recycling_1d_rhs_from_species(
         config,
@@ -1368,7 +1630,9 @@ def test_recycling_rhs_uses_boundary_conditioned_density_for_parallel_electric_f
     assert not np.allclose(captured_densities[0], species["d+"].density)
 
 
-def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isotope_channels() -> None:
+def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isotope_channels() -> (
+    None
+):
     config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -1390,45 +1654,73 @@ def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isot
     )
 
     active = (mesh.xstart, mesh.ystart, 0)
-    d_same = float(prepared["d+"].density[active] * _hydrogen_cx_sigmav(
-        np.clip(
-            (prepared["d"].temperature / species["d"].atomic_mass + prepared["d+"].temperature / species["d+"].atomic_mass)
-            * dataset_scalars["Tnorm"],
-            0.01,
-            10000.0,
-        ),
-        dataset_scalars,
-    )[active])
-    d_cross = float(prepared["t+"].density[active] * _hydrogen_cx_sigmav(
-        np.clip(
-            (prepared["d"].temperature / species["d"].atomic_mass + prepared["t+"].temperature / species["t+"].atomic_mass)
-            * dataset_scalars["Tnorm"],
-            0.01,
-            10000.0,
-        ),
-        dataset_scalars,
-    )[active])
-    t_same = float(prepared["t+"].density[active] * _hydrogen_cx_sigmav(
-        np.clip(
-            (prepared["t"].temperature / species["t"].atomic_mass + prepared["t+"].temperature / species["t+"].atomic_mass)
-            * dataset_scalars["Tnorm"],
-            0.01,
-            10000.0,
-        ),
-        dataset_scalars,
-    )[active])
-    t_cross = float(prepared["d+"].density[active] * _hydrogen_cx_sigmav(
-        np.clip(
-            (prepared["t"].temperature / species["t"].atomic_mass + prepared["d+"].temperature / species["d+"].atomic_mass)
-            * dataset_scalars["Tnorm"],
-            0.01,
-            10000.0,
-        ),
-        dataset_scalars,
-    )[active])
+    d_same = float(
+        prepared["d+"].density[active]
+        * _hydrogen_cx_sigmav(
+            np.clip(
+                (
+                    prepared["d"].temperature / species["d"].atomic_mass
+                    + prepared["d+"].temperature / species["d+"].atomic_mass
+                )
+                * dataset_scalars["Tnorm"],
+                0.01,
+                10000.0,
+            ),
+            dataset_scalars,
+        )[active]
+    )
+    d_cross = float(
+        prepared["t+"].density[active]
+        * _hydrogen_cx_sigmav(
+            np.clip(
+                (
+                    prepared["d"].temperature / species["d"].atomic_mass
+                    + prepared["t+"].temperature / species["t+"].atomic_mass
+                )
+                * dataset_scalars["Tnorm"],
+                0.01,
+                10000.0,
+            ),
+            dataset_scalars,
+        )[active]
+    )
+    t_same = float(
+        prepared["t+"].density[active]
+        * _hydrogen_cx_sigmav(
+            np.clip(
+                (
+                    prepared["t"].temperature / species["t"].atomic_mass
+                    + prepared["t+"].temperature / species["t+"].atomic_mass
+                )
+                * dataset_scalars["Tnorm"],
+                0.01,
+                10000.0,
+            ),
+            dataset_scalars,
+        )[active]
+    )
+    t_cross = float(
+        prepared["d+"].density[active]
+        * _hydrogen_cx_sigmav(
+            np.clip(
+                (
+                    prepared["t"].temperature / species["t"].atomic_mass
+                    + prepared["d+"].temperature / species["d+"].atomic_mass
+                )
+                * dataset_scalars["Tnorm"],
+                0.01,
+                10000.0,
+            ),
+            dataset_scalars,
+        )[active]
+    )
 
-    assert float(cx_rates["d"][active]) == pytest.approx(d_same + d_cross, rel=1.0e-12, abs=1.0e-12)
-    assert float(cx_rates["t"][active]) == pytest.approx(t_same + t_cross, rel=1.0e-12, abs=1.0e-12)
+    assert float(cx_rates["d"][active]) == pytest.approx(
+        d_same + d_cross, rel=1.0e-12, abs=1.0e-12
+    )
+    assert float(cx_rates["t"][active]) == pytest.approx(
+        t_same + t_cross, rel=1.0e-12, abs=1.0e-12
+    )
 
 
 def test_apply_neutral_target_density_guards_extrapolates_boundary_density() -> None:
@@ -1466,7 +1758,9 @@ def test_apply_neutral_target_density_guards_extrapolates_boundary_density() -> 
     assert guarded[0, 4, 0] == pytest.approx(0.0)
 
 
-def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_density() -> None:
+def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_density() -> (
+    None
+):
     config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -1489,12 +1783,16 @@ def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_densit
     reaction_terms = _reaction_sources(
         config,
         species=species,
-        electron_density=_electron_density(tuple(sp for sp in species.values() if sp.charge > 0.0)),
+        electron_density=_electron_density(
+            tuple(sp for sp in species.values() if sp.charge > 0.0)
+        ),
         dataset_scalars=dataset_scalars,
     )
 
     active = (mesh.xstart, mesh.yend, 0)
-    expected = float(reaction_terms.diagnostics["Sd+_iz"][active] / species["d"].density[active])
+    expected = float(
+        reaction_terms.diagnostics["Sd+_iz"][active] / species["d"].density[active]
+    )
     actual = float(ionisation_rates["d"][active])
 
     assert actual == pytest.approx(expected, rel=1.0e-12, abs=1.0e-12)
@@ -1514,10 +1812,17 @@ def test_single_species_feedback_diagnostics_are_present_and_zero_initially() ->
 
     assert "Sd+_feedback" in result.variables
     assert "density_feedback_src_mult_d+" in result.variables
-    assert float(np.asarray(result.variables["density_feedback_src_mult_d+"]).reshape(-1)[0]) == 0.0
+    assert (
+        float(
+            np.asarray(result.variables["density_feedback_src_mult_d+"]).reshape(-1)[0]
+        )
+        == 0.0
+    )
 
 
-def test_multispecies_feedback_controller_detects_initial_helium_density_error() -> None:
+def test_multispecies_feedback_controller_detects_initial_helium_density_error() -> (
+    None
+):
     config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -1529,8 +1834,12 @@ def test_multispecies_feedback_controller_detects_initial_helium_density_error()
         dataset_scalars=resolved_dataset_scalars(run_config),
     )
 
-    multiplier = float(np.asarray(result.variables["density_feedback_src_mult_he+"]).reshape(-1)[0])
-    proportional = float(np.asarray(result.variables["density_feedback_src_p_he+"]).reshape(-1)[0])
+    multiplier = float(
+        np.asarray(result.variables["density_feedback_src_mult_he+"]).reshape(-1)[0]
+    )
+    proportional = float(
+        np.asarray(result.variables["density_feedback_src_p_he+"]).reshape(-1)[0]
+    )
     source = np.asarray(result.variables["She+_feedback"][0])
 
     assert multiplier == pytest.approx(495.0)
@@ -1538,7 +1847,9 @@ def test_multispecies_feedback_controller_detects_initial_helium_density_error()
     assert np.allclose(source, 0.0, rtol=0.0, atol=0.0)
 
 
-def test_recycling_source_overrides_replace_total_density_momentum_and_pressure_sources() -> None:
+def test_recycling_source_overrides_replace_total_density_momentum_and_pressure_sources() -> (
+    None
+):
     config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -1577,18 +1888,27 @@ def test_recycling_source_overrides_replace_total_density_momentum_and_pressure_
     active = (mesh.xstart, mesh.ystart, 0)
     assert float(np.asarray(result.variables["SNVd+"])[0][active]) == pytest.approx(2.5)
     assert float(np.asarray(result.variables["SNVd"])[0][active]) == pytest.approx(-1.5)
-    assert abs(
-        float(np.asarray(result.variables["ddt(Nd+)"])[0][active])
-        - float(np.asarray(baseline.variables["ddt(Nd+)"])[0][active])
-    ) > 0.5
-    assert abs(
-        float(np.asarray(result.variables["ddt(Nd)"])[0][active])
-        - float(np.asarray(baseline.variables["ddt(Nd)"])[0][active])
-    ) > 0.5
-    assert abs(
-        float(np.asarray(result.variables["ddt(Pe)"])[0][active])
-        - float(np.asarray(baseline.variables["ddt(Pe)"])[0][active])
-    ) > 1.0
+    assert (
+        abs(
+            float(np.asarray(result.variables["ddt(Nd+)"])[0][active])
+            - float(np.asarray(baseline.variables["ddt(Nd+)"])[0][active])
+        )
+        > 0.5
+    )
+    assert (
+        abs(
+            float(np.asarray(result.variables["ddt(Nd)"])[0][active])
+            - float(np.asarray(baseline.variables["ddt(Nd)"])[0][active])
+        )
+        > 0.5
+    )
+    assert (
+        abs(
+            float(np.asarray(result.variables["ddt(Pe)"])[0][active])
+            - float(np.asarray(baseline.variables["ddt(Pe)"])[0][active])
+        )
+        > 1.0
+    )
 
 
 def test_feedback_integrals_advance_with_reference_trapezoid_rule() -> None:
@@ -1601,7 +1921,9 @@ def test_feedback_integrals_advance_with_reference_trapezoid_rule() -> None:
         dataset_scalars=resolved_dataset_scalars(run_config),
     )
     fields = _build_recycling_state_fields(runtime_model)
-    previous_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
+    previous_errors = _current_feedback_errors(
+        fields, controllers=runtime_model.controllers, mesh=mesh
+    )
 
     updated = _advance_feedback_integrals(
         fields,
@@ -1638,10 +1960,15 @@ def test_backward_euler_implicit_controller_state_does_not_reapply_trapezoid_pre
     def fake_rhs_from_species(*args, **kwargs):
         captured_feedback_timestep.append(kwargs.get("feedback_timestep"))
         zeros = {
-            f"ddt({name})": np.zeros((1,) + np.asarray(fields[name]).shape, dtype=np.float64)
+            f"ddt({name})": np.zeros(
+                (1,) + np.asarray(fields[name]).shape, dtype=np.float64
+            )
             for name in field_names
         }
-        return SimpleNamespace(variables=zeros, feedback_integral_rhs={name: 0.0 for name in runtime_model.feedback_names})
+        return SimpleNamespace(
+            variables=zeros,
+            feedback_integral_rhs={name: 0.0 for name in runtime_model.feedback_names},
+        )
 
     def fake_sparse_newton_system(residual, initial_state, **kwargs):
         residual(np.asarray(initial_state, dtype=np.float64))
@@ -1652,8 +1979,14 @@ def test_backward_euler_implicit_controller_state_does_not_reapply_trapezoid_pre
             linear_iterations=0,
         )
 
-    monkeypatch.setattr(recycling_1d_mod, "_compute_recycling_1d_rhs_from_species", fake_rhs_from_species)
-    monkeypatch.setattr(recycling_1d_mod, "solve_sparse_newton_system", fake_sparse_newton_system)
+    monkeypatch.setattr(
+        recycling_1d_mod,
+        "_compute_recycling_1d_rhs_from_species",
+        fake_rhs_from_species,
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod, "solve_sparse_newton_system", fake_sparse_newton_system
+    )
 
     advance_recycling_1d_backward_euler_step(
         config,
@@ -1693,10 +2026,15 @@ def test_backward_euler_explicit_controller_update_keeps_trapezoid_predictor(
     def fake_rhs_from_species(*args, **kwargs):
         captured_feedback_timestep.append(kwargs.get("feedback_timestep"))
         zeros = {
-            f"ddt({name})": np.zeros((1,) + np.asarray(fields[name]).shape, dtype=np.float64)
+            f"ddt({name})": np.zeros(
+                (1,) + np.asarray(fields[name]).shape, dtype=np.float64
+            )
             for name in field_names
         }
-        return SimpleNamespace(variables=zeros, feedback_integral_rhs={name: 0.0 for name in runtime_model.feedback_names})
+        return SimpleNamespace(
+            variables=zeros,
+            feedback_integral_rhs={name: 0.0 for name in runtime_model.feedback_names},
+        )
 
     def fake_sparse_newton_system(residual, initial_state, **kwargs):
         residual(np.asarray(initial_state, dtype=np.float64))
@@ -1707,8 +2045,14 @@ def test_backward_euler_explicit_controller_update_keeps_trapezoid_predictor(
             linear_iterations=0,
         )
 
-    monkeypatch.setattr(recycling_1d_mod, "_compute_recycling_1d_rhs_from_species", fake_rhs_from_species)
-    monkeypatch.setattr(recycling_1d_mod, "solve_sparse_newton_system", fake_sparse_newton_system)
+    monkeypatch.setattr(
+        recycling_1d_mod,
+        "_compute_recycling_1d_rhs_from_species",
+        fake_rhs_from_species,
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod, "solve_sparse_newton_system", fake_sparse_newton_system
+    )
 
     advance_recycling_1d_backward_euler_step(
         config,
@@ -1765,8 +2109,12 @@ def test_backward_euler_sparse_solver_uses_explicit_rhs_predictor(
             linear_iterations=0,
         )
 
-    monkeypatch.setattr(recycling_1d_mod, "_compute_recycling_1d_packed_rhs", fake_packed_rhs)
-    monkeypatch.setattr(recycling_1d_mod, "solve_sparse_newton_system", fake_sparse_newton_system)
+    monkeypatch.setattr(
+        recycling_1d_mod, "_compute_recycling_1d_packed_rhs", fake_packed_rhs
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod, "solve_sparse_newton_system", fake_sparse_newton_system
+    )
 
     advance_recycling_1d_backward_euler_step(
         config,
@@ -1783,7 +2131,9 @@ def test_backward_euler_sparse_solver_uses_explicit_rhs_predictor(
 
     assert captured_initial_states
     expected = packed_previous + 25.0 * rhs
-    np.testing.assert_allclose(captured_initial_states[0], expected, rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(
+        captured_initial_states[0], expected, rtol=1.0e-12, atol=1.0e-12
+    )
 
 
 def test_bdf2_sparse_solver_uses_explicit_rhs_predictor(
@@ -1828,8 +2178,12 @@ def test_bdf2_sparse_solver_uses_explicit_rhs_predictor(
             linear_iterations=0,
         )
 
-    monkeypatch.setattr(recycling_1d_mod, "_compute_recycling_1d_packed_rhs", fake_packed_rhs)
-    monkeypatch.setattr(recycling_1d_mod, "solve_sparse_newton_system", fake_sparse_newton_system)
+    monkeypatch.setattr(
+        recycling_1d_mod, "_compute_recycling_1d_packed_rhs", fake_packed_rhs
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod, "solve_sparse_newton_system", fake_sparse_newton_system
+    )
 
     advance_recycling_1d_bdf2_step(
         config,
@@ -1848,7 +2202,9 @@ def test_bdf2_sparse_solver_uses_explicit_rhs_predictor(
 
     assert captured_initial_states
     expected = packed_previous + 25.0 * rhs
-    np.testing.assert_allclose(captured_initial_states[0], expected, rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(
+        captured_initial_states[0], expected, rtol=1.0e-12, atol=1.0e-12
+    )
 
 
 def test_runtime_model_packed_rhs_matches_uncached_path() -> None:
@@ -1904,7 +2260,9 @@ def test_dthe_rhs_without_reaction_diagnostics_preserves_evolving_rhs() -> None:
         dataset_scalars=scalars,
     )
     fields = _build_recycling_state_fields(runtime_model)
-    species = recycling_1d_mod._override_species_fields(runtime_model.species_templates, fields=fields, mesh=mesh)
+    species = recycling_1d_mod._override_species_fields(
+        runtime_model.species_templates, fields=fields, mesh=mesh
+    )
     common_kwargs = {
         "species": species,
         "controllers": runtime_model.controllers,
@@ -1951,7 +2309,9 @@ def test_dthe_rhs_without_reaction_diagnostics_preserves_evolving_rhs() -> None:
         )
 
 
-def test_dthe_packed_rhs_disables_reaction_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dthe_packed_rhs_disables_reaction_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -2075,19 +2435,33 @@ def test_recycling_adaptive_bdf_routes_bdf2_trials_through_requested_step_solver
 
     def fake_be(config, step_fields, **kwargs):
         calls.append(kwargs["solver_mode"])
-        return {name: np.asarray(value, dtype=np.float64) for name, value in step_fields.items()}, {}, SimpleNamespace(
-            residual_inf_norm=0.0
+        return (
+            {
+                name: np.asarray(value, dtype=np.float64)
+                for name, value in step_fields.items()
+            },
+            {},
+            SimpleNamespace(residual_inf_norm=0.0),
         )
 
     def fake_bdf2(config, step_fields, previous_step_fields, **kwargs):
         calls.append(kwargs["solver_mode"])
-        return {name: np.asarray(value, dtype=np.float64) for name, value in step_fields.items()}, {}, SimpleNamespace(
-            residual_inf_norm=0.0
+        return (
+            {
+                name: np.asarray(value, dtype=np.float64)
+                for name, value in step_fields.items()
+            },
+            {},
+            SimpleNamespace(residual_inf_norm=0.0),
         )
 
-    monkeypatch.setattr(recycling_1d_mod, "advance_recycling_1d_backward_euler_step", fake_be)
+    monkeypatch.setattr(
+        recycling_1d_mod, "advance_recycling_1d_backward_euler_step", fake_be
+    )
     monkeypatch.setattr(recycling_1d_mod, "advance_recycling_1d_bdf2_step", fake_bdf2)
-    monkeypatch.setattr(recycling_1d_mod, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.0)
+    monkeypatch.setattr(
+        recycling_1d_mod, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.0
+    )
 
     recycling_1d_mod._advance_recycling_1d_adaptive_bdf_interval(
         parse_bout_input(
@@ -2122,13 +2496,28 @@ def test_recycling_adaptive_bdf_routes_bdf2_trials_through_requested_step_solver
 
 def test_adaptive_bdf_step_solver_mode_maps_supported_backends() -> None:
     assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf") == "sparse"
-    assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_sparse_jvp") == "sparse_jvp"
-    assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_jax_linearized") == "jax_linearized"
-    assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_jax_linearized_lineax") == "jax_linearized_lineax"
+    assert (
+        recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_sparse_jvp")
+        == "sparse_jvp"
+    )
+    assert (
+        recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_jax_linearized")
+        == "jax_linearized"
+    )
+    assert (
+        recycling_1d_mod._adaptive_bdf_step_solver_mode(
+            "adaptive_bdf_jax_linearized_lineax"
+        )
+        == "jax_linearized_lineax"
+    )
     assert not recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs("sparse")
     assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs("sparse_jvp")
-    assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs("jax_linearized")
-    assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs("jax_linearized_lineax")
+    assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(
+        "jax_linearized"
+    )
+    assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(
+        "jax_linearized_lineax"
+    )
     with pytest.raises(ValueError, match="Unsupported adaptive BDF solver mode"):
         recycling_1d_mod._adaptive_bdf_step_solver_mode("bad")
 
@@ -2161,7 +2550,9 @@ def test_initial_recycling_adaptive_bdf_dt_ignores_invalid_override() -> None:
     ) == pytest.approx(1.0)
 
 
-def test_initial_recycling_adaptive_bdf_dt_accepts_legacy_section_and_caps_to_timestep() -> None:
+def test_initial_recycling_adaptive_bdf_dt_accepts_legacy_section_and_caps_to_timestep() -> (
+    None
+):
     runtime_model = SimpleNamespace(field_names=("Nd+",))
     config = apply_bout_overrides(
         parse_bout_input("[jax_drb]\n"),
@@ -2175,7 +2566,9 @@ def test_initial_recycling_adaptive_bdf_dt_accepts_legacy_section_and_caps_to_ti
     ) == pytest.approx(0.5)
 
 
-def test_adaptive_bdf_history_uses_configured_initial_dt(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_adaptive_bdf_history_uses_configured_initial_dt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = apply_bout_overrides(
         parse_bout_input("[runtime]\nrecycling_adaptive_bdf_initial_dt = 0.03125\n"),
         (),
@@ -2187,16 +2580,23 @@ def test_adaptive_bdf_history_uses_configured_initial_dt(monkeypatch: pytest.Mon
     def fake_interval(config, interval_fields, **kwargs):
         observed.append(float(kwargs["suggested_dt"]))
         return (
-            {name: np.asarray(value, dtype=np.float64) for name, value in interval_fields.items()},
+            {
+                name: np.asarray(value, dtype=np.float64)
+                for name, value in interval_fields.items()
+            },
             {},
             None,
             None,
             None,
             0.25,
-            recycling_1d_mod._new_adaptive_bdf_interval_stats(kwargs["step_solver_mode"]),
+            recycling_1d_mod._new_adaptive_bdf_interval_stats(
+                kwargs["step_solver_mode"]
+            ),
         )
 
-    monkeypatch.setattr(recycling_1d_mod, "_advance_recycling_1d_adaptive_bdf_interval", fake_interval)
+    monkeypatch.setattr(
+        recycling_1d_mod, "_advance_recycling_1d_adaptive_bdf_interval", fake_interval
+    )
 
     history = recycling_1d_mod._advance_recycling_1d_adaptive_bdf_history(
         config,
@@ -2219,12 +2619,16 @@ def test_adaptive_bdf_history_uses_configured_initial_dt(monkeypatch: pytest.Mon
     assert history.variable_history["Nd+"].shape[0] == 2
 
 
-def test_recycling_backend_environment_resolvers_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_recycling_backend_environment_resolvers_are_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("JAX_DRB_RECYCLING_JVP_BATCH_SIZE", raising=False)
     assert recycling_1d_mod._resolve_recycling_jvp_batch_size() is None
     monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", raising=False)
     monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", raising=False)
+    monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", raising=False)
     assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls() == (20, 20)
+    assert recycling_1d_mod._resolve_recycling_jax_linear_jit_residual() is False
     monkeypatch.delenv("JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE", raising=False)
     monkeypatch.delenv("JAX_DRB_RECYCLING_JACOBIAN_MODE", raising=False)
     assert recycling_1d_mod._resolve_recycling_bdf_jacobian_mode() == "fd"
@@ -2237,29 +2641,46 @@ def test_recycling_backend_environment_resolvers_are_bounded(monkeypatch: pytest
     monkeypatch.setenv("JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE", "finite-difference")
     assert recycling_1d_mod._resolve_recycling_bdf_jacobian_mode() == "fd"
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "lineax")
-    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_backend() == "lineax_gmres"
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_solver_backend()
+        == "lineax_gmres"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "unknown")
-    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_backend() == "jax_gmres"
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_solver_backend() == "jax_gmres"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "7")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "11")
     assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls() == (7, 11)
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "0")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "bad")
     assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls() == (1, 20)
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "yes")
+    assert recycling_1d_mod._resolve_recycling_jax_linear_jit_residual() is True
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "off")
+    assert recycling_1d_mod._resolve_recycling_jax_linear_jit_residual() is False
 
 
-def test_recycling_jax_linear_solver_controls_prefer_runtime_config(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "3")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "4")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "0")
     config = parse_bout_input(
         """
         [runtime]
         recycling_jax_linear_restart = 5
         recycling_jax_linear_maxiter = 6
+        recycling_jax_linear_jit_residual = true
         """
     )
 
-    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls(config) == (5, 6)
+    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls(config) == (
+        5,
+        6,
+    )
+    assert recycling_1d_mod._resolve_recycling_jax_linear_jit_residual(config) is True
 
 
 @pytest.mark.parametrize(
@@ -2282,33 +2703,57 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     scalars = resolved_dataset_scalars(run_config)
-    runtime_model = _build_recycling_runtime_model(config, mesh=mesh, dataset_scalars=scalars)
+    runtime_model = _build_recycling_runtime_model(
+        config, mesh=mesh, dataset_scalars=scalars
+    )
     fields = _build_recycling_state_fields(runtime_model)
     integrals = {name: 0.0 for name in runtime_model.feedback_names}
     calls: list[tuple[str, str | None]] = []
     predicted_states: list[np.ndarray] = []
     fixed_full_field_rhs_builds = 0
 
-    def fake_predict(config, predict_fields, *, feedback_integrals, field_names, feedback_names, mesh, layout, **kwargs):
-        predicted = recycling_1d_mod._pack_recycling_active_state(
-            predict_fields,
-            feedback_integrals=feedback_integrals,
-            field_names=field_names,
-            feedback_names=feedback_names,
-            mesh=mesh,
-            layout=layout,
-        ) + 0.123
+    def fake_predict(
+        config,
+        predict_fields,
+        *,
+        feedback_integrals,
+        field_names,
+        feedback_names,
+        mesh,
+        layout,
+        **kwargs,
+    ):
+        predicted = (
+            recycling_1d_mod._pack_recycling_active_state(
+                predict_fields,
+                feedback_integrals=feedback_integrals,
+                field_names=field_names,
+                feedback_names=feedback_names,
+                mesh=mesh,
+                layout=layout,
+            )
+            + 0.123
+        )
         predicted_states.append(np.asarray(predicted, dtype=np.float64))
         return predicted
 
-    original_fixed_full_field_rhs = recycling_1d_mod._build_fixed_full_field_recycling_rhs
+    original_fixed_full_field_rhs = (
+        recycling_1d_mod._build_fixed_full_field_recycling_rhs
+    )
 
     def counting_fixed_full_field_rhs(*args, **kwargs):
         nonlocal fixed_full_field_rhs_builds
         fixed_full_field_rhs_builds += 1
         return original_fixed_full_field_rhs(*args, **kwargs)
 
-    def fake_matrix_free(residual, initial_state, *, active_shape, residual_tolerance, max_nonlinear_iterations):
+    def fake_matrix_free(
+        residual,
+        initial_state,
+        *,
+        active_shape,
+        residual_tolerance,
+        max_nonlinear_iterations,
+    ):
         calls.append(("matrix_free", None))
         np.testing.assert_allclose(initial_state, predicted_states[-1])
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
@@ -2334,30 +2779,49 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             jvp_jacobian_linearize_seconds=0.003 if jacobian_mode == "jvp" else 0.0,
             jvp_jacobian_tangent_build_seconds=0.0,
             jvp_jacobian_push_seconds=0.012 if jacobian_mode == "jvp" else 0.0,
-            jvp_jacobian_sparse_assembly_seconds=0.004 if jacobian_mode == "jvp" else 0.0,
+            jvp_jacobian_sparse_assembly_seconds=0.004
+            if jacobian_mode == "jvp"
+            else 0.0,
             jvp_jacobian_batch_count=jvp_direction_batch_count,
-            jvp_jacobian_prebuilt_direction_batch_uses=1 if jacobian_mode == "jvp" else 0,
+            jvp_jacobian_prebuilt_direction_batch_uses=1
+            if jacobian_mode == "jvp"
+            else 0,
         )
 
-    def fake_jax_linearized(residual, initial_state, *, active_shape, linear_solver_backend, **kwargs):
+    def fake_jax_linearized(
+        residual, initial_state, *, active_shape, linear_solver_backend, **kwargs
+    ):
         calls.append(("jax_linearized", linear_solver_backend))
         assert kwargs["linear_restart"] == 5
         assert kwargs["linear_maxiter"] == 6
+        assert kwargs["jit_residual"] is True
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
             residual_inf_norm=0.0,
             active_shape=tuple(active_shape),
             nonlinear_iterations=1,
             linear_iterations=1,
             jacobian_mode="jvp",
+            residual_jitted=kwargs["jit_residual"],
         )
 
     monkeypatch.setattr(recycling_1d_mod, "solve_sparse_newton_system", fake_sparse)
-    monkeypatch.setattr(recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free)
-    monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
-    monkeypatch.setattr(recycling_1d_mod, "_predict_recycling_packed_state", fake_predict)
-    monkeypatch.setattr(recycling_1d_mod, "_build_fixed_full_field_recycling_rhs", counting_fixed_full_field_rhs)
+    monkeypatch.setattr(
+        recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod, "_predict_recycling_packed_state", fake_predict
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod,
+        "_build_fixed_full_field_recycling_rhs",
+        counting_fixed_full_field_rhs,
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "5")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "6")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "1")
 
     next_fields, _, info = advance_recycling_1d_backward_euler_step(
         config,
@@ -2375,7 +2839,9 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
 
     assert calls == [(expected_solver, expected_backend)]
     assert fixed_full_field_rhs_builds == (
-        1 if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode) else 0
+        1
+        if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode)
+        else 0
     )
     assert info.residual_inf_norm == pytest.approx(0.0)
     assert info.diagnostics["solver_mode"] == solver_mode
@@ -2388,7 +2854,11 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     if solver_mode == "sparse_jvp":
         assert info.diagnostics["jvp_direction_batch_count"] == 2
         assert info.diagnostics["jvp_jacobian_prebuilt_direction_batch_uses"] == 1
-        assert info.diagnostics["jvp_jacobian_tangent_build_seconds"] == pytest.approx(0.0)
+        assert info.diagnostics["jvp_jacobian_tangent_build_seconds"] == pytest.approx(
+            0.0
+        )
+    if solver_mode.startswith("jax_linearized"):
+        assert info.diagnostics["residual_jitted"] is True
     assert np.isfinite(next_fields["Nd+"]).all()
 
 
@@ -2422,10 +2892,14 @@ def test_recycling_bdf_history_can_use_sparse_jvp_jacobian_callback(
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     fields = {"Nd+": np.ones((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)}
-    runtime_model = SimpleNamespace(field_names=("Nd+",), feedback_names=(), controllers={})
+    runtime_model = SimpleNamespace(
+        field_names=("Nd+",), feedback_names=(), controllers={}
+    )
     calls: list[str] = []
 
-    def fake_packed_rhs(_config, state_fields, *, field_names, feedback_names, mesh, layout, **_kwargs):
+    def fake_packed_rhs(
+        _config, state_fields, *, field_names, feedback_names, mesh, layout, **_kwargs
+    ):
         return -recycling_1d_mod._pack_recycling_active_state(
             state_fields,
             feedback_integrals={},
@@ -2449,12 +2923,19 @@ def test_recycling_bdf_history_can_use_sparse_jvp_jacobian_callback(
         return SimpleNamespace(
             success=True,
             message="ok",
-            y=np.stack([np.asarray(y0, dtype=np.float64), np.asarray(y0, dtype=np.float64)], axis=1),
+            y=np.stack(
+                [np.asarray(y0, dtype=np.float64), np.asarray(y0, dtype=np.float64)],
+                axis=1,
+            ),
         )
 
     monkeypatch.setenv("JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE", "jvp")
-    monkeypatch.setattr(recycling_1d_mod, "_compute_recycling_1d_packed_rhs", fake_packed_rhs)
-    monkeypatch.setattr(recycling_1d_mod, "build_sparse_jvp_jacobian", fake_jvp_jacobian)
+    monkeypatch.setattr(
+        recycling_1d_mod, "_compute_recycling_1d_packed_rhs", fake_packed_rhs
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod, "build_sparse_jvp_jacobian", fake_jvp_jacobian
+    )
     monkeypatch.setattr(scipy.integrate, "solve_ivp", fake_solve_ivp)
 
     history = recycling_1d_mod._advance_recycling_1d_bdf_history(
@@ -2497,34 +2978,60 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     scalars = resolved_dataset_scalars(run_config)
-    runtime_model = _build_recycling_runtime_model(config, mesh=mesh, dataset_scalars=scalars)
+    runtime_model = _build_recycling_runtime_model(
+        config, mesh=mesh, dataset_scalars=scalars
+    )
     fields = _build_recycling_state_fields(runtime_model)
-    previous_fields = {name: np.asarray(value, dtype=np.float64) for name, value in fields.items()}
+    previous_fields = {
+        name: np.asarray(value, dtype=np.float64) for name, value in fields.items()
+    }
     integrals = {name: 0.0 for name in runtime_model.feedback_names}
     calls: list[tuple[str, str | None]] = []
     predicted_states: list[np.ndarray] = []
     fixed_full_field_rhs_builds = 0
 
-    def fake_predict(config, predict_fields, *, feedback_integrals, field_names, feedback_names, mesh, layout, **kwargs):
-        predicted = recycling_1d_mod._pack_recycling_active_state(
-            predict_fields,
-            feedback_integrals=feedback_integrals,
-            field_names=field_names,
-            feedback_names=feedback_names,
-            mesh=mesh,
-            layout=layout,
-        ) + 0.123
+    def fake_predict(
+        config,
+        predict_fields,
+        *,
+        feedback_integrals,
+        field_names,
+        feedback_names,
+        mesh,
+        layout,
+        **kwargs,
+    ):
+        predicted = (
+            recycling_1d_mod._pack_recycling_active_state(
+                predict_fields,
+                feedback_integrals=feedback_integrals,
+                field_names=field_names,
+                feedback_names=feedback_names,
+                mesh=mesh,
+                layout=layout,
+            )
+            + 0.123
+        )
         predicted_states.append(np.asarray(predicted, dtype=np.float64))
         return predicted
 
-    original_fixed_full_field_rhs = recycling_1d_mod._build_fixed_full_field_recycling_rhs
+    original_fixed_full_field_rhs = (
+        recycling_1d_mod._build_fixed_full_field_recycling_rhs
+    )
 
     def counting_fixed_full_field_rhs(*args, **kwargs):
         nonlocal fixed_full_field_rhs_builds
         fixed_full_field_rhs_builds += 1
         return original_fixed_full_field_rhs(*args, **kwargs)
 
-    def fake_matrix_free(residual, initial_state, *, active_shape, residual_tolerance, max_nonlinear_iterations):
+    def fake_matrix_free(
+        residual,
+        initial_state,
+        *,
+        active_shape,
+        residual_tolerance,
+        max_nonlinear_iterations,
+    ):
         calls.append(("matrix_free", None))
         np.testing.assert_allclose(initial_state, predicted_states[-1])
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
@@ -2545,25 +3052,40 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
             jacobian_mode=jacobian_mode,
         )
 
-    def fake_jax_linearized(residual, initial_state, *, active_shape, linear_solver_backend, **kwargs):
+    def fake_jax_linearized(
+        residual, initial_state, *, active_shape, linear_solver_backend, **kwargs
+    ):
         calls.append(("jax_linearized", linear_solver_backend))
         assert kwargs["linear_restart"] == 5
         assert kwargs["linear_maxiter"] == 6
+        assert kwargs["jit_residual"] is True
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
             residual_inf_norm=0.0,
             active_shape=tuple(active_shape),
             nonlinear_iterations=1,
             linear_iterations=1,
             jacobian_mode="jvp",
+            residual_jitted=kwargs["jit_residual"],
         )
 
     monkeypatch.setattr(recycling_1d_mod, "solve_sparse_newton_system", fake_sparse)
-    monkeypatch.setattr(recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free)
-    monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
-    monkeypatch.setattr(recycling_1d_mod, "_predict_recycling_packed_state", fake_predict)
-    monkeypatch.setattr(recycling_1d_mod, "_build_fixed_full_field_recycling_rhs", counting_fixed_full_field_rhs)
+    monkeypatch.setattr(
+        recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod, "_predict_recycling_packed_state", fake_predict
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod,
+        "_build_fixed_full_field_recycling_rhs",
+        counting_fixed_full_field_rhs,
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "5")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "6")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "1")
 
     next_fields, _, info = advance_recycling_1d_bdf2_step(
         config,
@@ -2583,7 +3105,9 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
 
     assert calls == [(expected_solver, expected_backend)]
     assert fixed_full_field_rhs_builds == (
-        1 if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode) else 0
+        1
+        if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode)
+        else 0
     )
     assert info.residual_inf_norm == pytest.approx(0.0)
     assert info.diagnostics["solver_mode"] == solver_mode
@@ -2593,11 +3117,15 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
         if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode)
         else "host_bridge"
     )
+    if solver_mode.startswith("jax_linearized"):
+        assert info.diagnostics["residual_jitted"] is True
     assert np.isfinite(next_fields["Nd+"]).all()
 
 
 @pytest.mark.slow
-def test_recycling_bdf_history_supplies_sparse_jacobian_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_recycling_bdf_history_supplies_sparse_jacobian_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -2616,7 +3144,10 @@ def test_recycling_bdf_history_supplies_sparse_jacobian_callback(monkeypatch: py
         return SimpleNamespace(
             success=True,
             message="ok",
-            y=np.stack([np.asarray(y0, dtype=np.float64), np.asarray(y0, dtype=np.float64)], axis=1),
+            y=np.stack(
+                [np.asarray(y0, dtype=np.float64), np.asarray(y0, dtype=np.float64)],
+                axis=1,
+            ),
         )
 
     import scipy.integrate
@@ -2689,7 +3220,9 @@ def test_recycling_bdf2_step_produces_finite_small_step() -> None:
 
 
 @pytest.mark.slow
-def test_recycling_backward_euler_advances_feedback_integrals_from_accepted_state() -> None:
+def test_recycling_backward_euler_advances_feedback_integrals_from_accepted_state() -> (
+    None
+):
     config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -2703,7 +3236,9 @@ def test_recycling_backward_euler_advances_feedback_integrals_from_accepted_stat
     )
     fields0 = _build_recycling_state_fields(runtime_model)
     integrals0 = {name: 0.0 for name in runtime_model.feedback_names}
-    previous_errors = _current_feedback_errors(fields0, controllers=runtime_model.controllers, mesh=mesh)
+    previous_errors = _current_feedback_errors(
+        fields0, controllers=runtime_model.controllers, mesh=mesh
+    )
     fields1, integrals1, _ = advance_recycling_1d_backward_euler_step(
         config,
         fields0,
@@ -2730,7 +3265,9 @@ def test_recycling_backward_euler_advances_feedback_integrals_from_accepted_stat
 
 
 @pytest.mark.slow
-def test_recycling_backward_euler_can_evolve_feedback_integrals_in_implicit_state() -> None:
+def test_recycling_backward_euler_can_evolve_feedback_integrals_in_implicit_state() -> (
+    None
+):
     config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -2774,5 +3311,9 @@ def test_recycling_backward_euler_can_evolve_feedback_integrals_in_implicit_stat
         evolve_feedback_integrals=False,
     )
 
-    assert np.isfinite(np.asarray(list(implicit_integrals.values()), dtype=np.float64)).all()
-    assert implicit_info.active_size == explicit_info.active_size + len(runtime_model.feedback_names)
+    assert np.isfinite(
+        np.asarray(list(implicit_integrals.values()), dtype=np.float64)
+    ).all()
+    assert implicit_info.active_size == explicit_info.active_size + len(
+        runtime_model.feedback_names
+    )
