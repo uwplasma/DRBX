@@ -19,7 +19,9 @@ Without the GitHub CLI, set `GH_TOKEN` or `GITHUB_TOKEN` to a token with access
 to `uwplasma/jax_drb`. The fetch script restores PNG/GIF/NPZ docs media under
 `docs/data/` and heavy reference baselines under `references/baselines/`. Use
 `python scripts/fetch_example_artifacts.py --skip-baselines` when you only need
-the README/docs movies and figures.
+the README/docs movies, figures, and user-facing self-contained example
+payloads. The expected release URLs are tracked in
+`docs/release_artifacts_manifest.json`.
 
 After this step, the user-facing examples and movies are self-contained: they
 use JAXDRB source code plus release-backed arrays/media and do not require users

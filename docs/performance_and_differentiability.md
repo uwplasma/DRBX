@@ -386,6 +386,19 @@ residual kernels JAX-transformable, then select between:
 - VJP/implicit-function sensitivity when the output is a scalar objective or a
   steady-state quantity of interest.
 
+The adaptive-BDF route follows the same promotion policy. The stable production
+default remains the validated BDF compatibility path. The single-species
+`recycling_1d_one_step`, `timestep=1.0` JAX-linearized adaptive-BDF gate passes
+with zero fallback, zero unconverged substeps, and
+`adaptive_bdf_max_accepted_error_ratio=9.315e-1`; the optional Lineax backend
+uses the same controller history and is only a backend comparison. The first
+passing D/T/He adaptive-BDF promotion-style result is narrower still: it uses
+the opt-in sparse-JVP adaptive-BDF route with component-wise density, pressure,
+and momentum absolute-tolerance floors. That diagnostics-only gate is useful
+evidence for the migration seam, but it does not promote adaptive BDF as the
+default until longer output-window reference-parity and performance campaigns
+pass on the same route.
+
 The first residual-kernel step is now also in place. The packaged AMJUEL,
 OpenADAS, and hydrogen charge-exchange rate helpers preserve the existing
 NumPy production path when called with NumPy arrays, but stay in JAX when
@@ -557,9 +570,9 @@ real numbers on the heavier D/T/He/Ne tokamak recycling lane:
 - the committed figure uses `16` repeated heavy solves on
   `tokamak_recycling_dthene_one_step`;
 - steady-state fixed-work ensemble speedup is about:
-  - `1.88x` from `1 -> 2` workers
-  - `3.67x` from `1 -> 4` workers
-  - `4.94x` from `1 -> 8` workers
+  - `1.94x` from `1 -> 2` workers
+  - `3.32x` from `1 -> 4` workers
+  - `4.79x` from `1 -> 8` workers
 - that is the right local-CPU scaling story for users running parameter scans,
   UQ, optimization, or repeated solver evaluations on a laptop: spread
   independent heavy solves across workers instead of expecting one warmed solve
