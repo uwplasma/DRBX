@@ -48,8 +48,8 @@ differentiability evidence because it exercises the multispecies recycling
 state rather than a synthetic diffusion objective. On the committed local CPU
 run, the residual JVP agrees with a centered finite difference to about
 `2.19e-9`, the objective directional derivative agrees to about `4.35e-8`,
-and the retained batch sweep through 256 states reaches about `5.63x`
-residual throughput speedup and `3.42x` JVP throughput speedup over
+and the retained batch sweep through 256 states reaches about `4.94x`
+residual throughput speedup and `3.11x` JVP throughput speedup over
 serial same-kernel calls.
 
 The source-term lane now also has a dedicated accelerator-throughput gate:
