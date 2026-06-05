@@ -78,6 +78,13 @@ SNVh_parallel_viscosity
 SNVh_perpendicular_viscosity
 ```
 
+When the reference `outputVars()` exposes them, the monitor also writes optional
+`Vh` and `eta_h` diagnostic-input fields. These extra fields are not part of
+the required reference schema, but they match the native accepted-step trace
+payloads added to split parallel-viscosity drift into input and stencil pieces.
+The patch reads `Vh` from the existing velocity diagnostic and exposes `eta_h`
+from the neutral viscosity field before the monitor checks for optional fields.
+
 Each field payload should follow the same compact shape used by JAXDRB native
 accepted-step traces:
 
@@ -117,9 +124,10 @@ chosen. The next implementation step is therefore to fix or further localize
 the neutral-mixed parallel-viscosity/boundary sequencing path under the
 matched-time accepted-step diagnostic before changing broader BDF sequencing.
 Native traces now also emit optional `Vh` and `eta_h` diagnostic-input fields.
-The next reference patch should write the same payloads so the remaining
-parallel-viscosity difference can be split into velocity/viscosity input drift
-and the `Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil itself.
+The reference monitor patch now writes the same payloads when those diagnostics
+are exposed by `outputVars()`, so the remaining parallel-viscosity difference
+can be split into velocity/viscosity input drift and the
+`Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil itself.
 
 ## Validation Sequence
 
