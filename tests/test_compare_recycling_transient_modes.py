@@ -44,6 +44,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "--require-bdf-pairwise-max",
             "1e-5",
             "--require-fixed-jvp-diagnostics",
+            "--require-fixed-bdf2-diagnostics",
             "--require-adaptive-bdf-no-fallback",
             "--require-adaptive-bdf-no-unconverged-substeps",
             "--require-adaptive-bdf-max-error-ratio",
@@ -72,6 +73,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     ]
     assert args.require_bdf_pairwise_max == 1.0e-5
     assert args.require_fixed_jvp_diagnostics is True
+    assert args.require_fixed_bdf2_diagnostics is True
     assert args.require_adaptive_bdf_no_fallback is True
     assert args.require_adaptive_bdf_no_unconverged_substeps is True
     assert args.require_adaptive_bdf_max_error_ratio == 0.95
@@ -87,6 +89,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert "bdf_fixed_full_field_jvp" in help_text
     assert "adaptive_bdf_jax_linearized" in help_text
     assert "fixed_bdf2_jax_linearized" in help_text
+    assert "--require-fixed-bdf2-diagnostics" in help_text
     assert "fixed full-field JVP BDF path" in normalized_help
 
 
@@ -322,6 +325,87 @@ def test_fixed_full_field_jvp_diagnostics_gate_reports_wrong_route() -> None:
         "bdf_fixed_full_field_jvp did not report bdf_jacobian_mode=jvp",
         "bdf_fixed_full_field_jvp reported finite-difference base RHS Jacobian evaluations",
         "bdf_fixed_full_field_jvp did not report any JVP RHS evaluations",
+    ]
+
+
+def test_fixed_bdf2_modes_to_validate_selects_only_fixed_bdf2_variants() -> None:
+    modes = compare_script._fixed_bdf2_modes_to_validate(
+        (
+            "bdf",
+            "fixed_bdf2_jax_linearized",
+            "adaptive_bdf",
+            "fixed_bdf2_jax_linearized_lineax",
+        )
+    )
+
+    assert modes == (
+        "fixed_bdf2_jax_linearized",
+        "fixed_bdf2_jax_linearized_lineax",
+    )
+
+
+def test_fixed_bdf2_diagnostics_gate_accepts_jax_linearized_route() -> None:
+    errors = compare_script._validate_fixed_bdf2_diagnostics(
+        "fixed_bdf2_jax_linearized",
+        {
+            "fixed_bdf2_solver_mode": "fixed_bdf2_jax_linearized",
+            "fixed_bdf2_step_solver_mode": "jax_linearized",
+            "fixed_bdf2_fixed_full_field_rhs_steps": 2,
+            "fixed_bdf2_jax_linearized_action_steps": 2,
+            "fixed_bdf2_startup_steps": 1,
+            "fixed_bdf2_bdf2_steps": 1,
+            "fixed_bdf2_evolve_feedback_integrals": True,
+            "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+        },
+    )
+
+    assert errors == []
+
+
+def test_fixed_bdf2_diagnostics_gate_accepts_lineax_route() -> None:
+    errors = compare_script._validate_fixed_bdf2_diagnostics(
+        "fixed_bdf2_jax_linearized_lineax",
+        {
+            "fixed_bdf2_solver_mode": "fixed_bdf2_jax_linearized_lineax",
+            "fixed_bdf2_step_solver_mode": "jax_linearized_lineax",
+            "fixed_bdf2_fixed_full_field_rhs_steps": 2,
+            "fixed_bdf2_jax_linearized_action_steps": 2,
+            "fixed_bdf2_lineax_action_steps": 2,
+            "fixed_bdf2_startup_steps": 1,
+            "fixed_bdf2_bdf2_steps": 1,
+            "fixed_bdf2_evolve_feedback_integrals": True,
+            "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+        },
+    )
+
+    assert errors == []
+
+
+def test_fixed_bdf2_diagnostics_gate_reports_fallback_route() -> None:
+    errors = compare_script._validate_fixed_bdf2_diagnostics(
+        "fixed_bdf2_jax_linearized_lineax",
+        {
+            "fixed_bdf2_solver_mode": "fixed_bdf2_jax_linearized",
+            "fixed_bdf2_step_solver_mode": "sparse",
+            "fixed_bdf2_fixed_full_field_rhs_steps": 0,
+            "fixed_bdf2_jax_linearized_action_steps": 0,
+            "fixed_bdf2_lineax_action_steps": 0,
+            "fixed_bdf2_startup_steps": 0,
+            "fixed_bdf2_bdf2_steps": 0,
+            "fixed_bdf2_evolve_feedback_integrals": False,
+            "fixed_bdf2_max_residual_inf_norm": "nan",
+        },
+    )
+
+    assert errors == [
+        "fixed_bdf2_jax_linearized_lineax did not report fixed_bdf2_solver_mode=fixed_bdf2_jax_linearized_lineax",
+        "fixed_bdf2_jax_linearized_lineax did not report fixed_bdf2_step_solver_mode=jax_linearized_lineax",
+        "fixed_bdf2_jax_linearized_lineax did not report any fixed-layout RHS solver steps",
+        "fixed_bdf2_jax_linearized_lineax did not report any JAX-linearized solver steps",
+        "fixed_bdf2_jax_linearized_lineax did not report any Lineax solver steps",
+        "fixed_bdf2_jax_linearized_lineax did not evolve packed feedback integrals",
+        "fixed_bdf2_jax_linearized_lineax did not report any accepted fixed BDF2 intervals",
+        "fixed_bdf2_jax_linearized_lineax did not report a finite fixed BDF2 residual norm",
     ]
 
 

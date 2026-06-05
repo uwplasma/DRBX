@@ -14,6 +14,11 @@ from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_REFERENCE_ROOT = REPO_ROOT / "tests" / "fixtures" / "reference-root"
+GATE_SOLVER_MODES = (
+    "bdf",
+    "bdf_fixed_full_field_jvp",
+    "fixed_bdf2_jax_linearized",
+)
 
 
 @dataclass(frozen=True)
@@ -61,17 +66,16 @@ def _build_case_command(
         gate_case.case,
         "--reference-root",
         str(reference_root),
-        "--mode",
-        "bdf",
-        "--mode",
-        "bdf_fixed_full_field_jvp",
         "--diagnostics-only",
         "--require-fixed-jvp-diagnostics",
+        "--require-fixed-bdf2-diagnostics",
         "--require-bdf-pairwise-max",
         f"{gate_case.pairwise_threshold:.8e}",
         "--mode-timeout-seconds",
         f"{gate_case.mode_timeout_seconds:g}",
     ]
+    for mode in GATE_SOLVER_MODES:
+        command.extend(("--mode", mode))
     for field in gate_case.fields:
         command.extend(("--field", field))
     if output_json is not None:
@@ -124,10 +128,11 @@ def _write_summary(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the self-contained recycling BDF fixed-full-field JVP promotion gate. "
-            "The gate compares the stable BDF path with the fixed-layout/JVP path and "
-            "requires both parity and diagnostic evidence before the JVP path can be "
-            "considered for wider promotion."
+            "Run the self-contained recycling BDF JAX promotion gate. "
+            "The gate compares the stable BDF path with the fixed-layout/JVP "
+            "SciPy-BDF path and the fixed-layout non-SciPy BDF2 path, then requires "
+            "both parity and diagnostic evidence before either JAX-native path can "
+            "be considered for wider promotion."
         )
     )
     parser.add_argument(

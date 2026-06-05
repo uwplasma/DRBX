@@ -35,6 +35,14 @@ SOLVER_MODES = (
     "adaptive_bdf_jax_linearized_lineax",
 )
 BDF_PAIRWISE_MODES = ("bdf", "bdf_fixed_full_field_jvp")
+FIXED_BDF2_MODES = (
+    "fixed_bdf2_jax_linearized",
+    "fixed_bdf2_jax_linearized_lineax",
+)
+FIXED_BDF2_STEP_SOLVER_MODES = {
+    "fixed_bdf2_jax_linearized": "jax_linearized",
+    "fixed_bdf2_jax_linearized_lineax": "jax_linearized_lineax",
+}
 ADAPTIVE_BDF_MODES = (
     "adaptive_bdf",
     "adaptive_bdf_sparse_jvp",
@@ -130,6 +138,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Fail unless bdf_fixed_full_field_jvp reports fixed_full_field_array "
             "RHS, JVP Jacobian mode, and zero finite-difference base-RHS Jacobian calls."
+        ),
+    )
+    parser.add_argument(
+        "--require-fixed-bdf2-diagnostics",
+        action="store_true",
+        help=(
+            "Fail unless every requested fixed_bdf2_jax_linearized mode reports "
+            "fixed-layout RHS steps, JAX-linearized Jacobian actions, and packed "
+            "feedback-integral evolution."
         ),
     )
     parser.add_argument(
@@ -394,6 +411,47 @@ def _validate_fixed_full_field_jvp_diagnostics(
     return errors
 
 
+def _fixed_bdf2_modes_to_validate(modes: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(mode for mode in modes if mode in FIXED_BDF2_MODES)
+
+
+def _validate_fixed_bdf2_diagnostics(
+    mode: str,
+    diagnostics: dict[str, object],
+) -> list[str]:
+    errors: list[str] = []
+    expected_step_solver = FIXED_BDF2_STEP_SOLVER_MODES[mode]
+    if diagnostics.get("fixed_bdf2_solver_mode") != mode:
+        errors.append(f"{mode} did not report fixed_bdf2_solver_mode={mode}")
+    if diagnostics.get("fixed_bdf2_step_solver_mode") != expected_step_solver:
+        errors.append(
+            f"{mode} did not report fixed_bdf2_step_solver_mode={expected_step_solver}"
+        )
+    if int(diagnostics.get("fixed_bdf2_fixed_full_field_rhs_steps", 0)) <= 0:
+        errors.append(f"{mode} did not report any fixed-layout RHS solver steps")
+    if int(diagnostics.get("fixed_bdf2_jax_linearized_action_steps", 0)) <= 0:
+        errors.append(f"{mode} did not report any JAX-linearized solver steps")
+    if expected_step_solver == "jax_linearized_lineax":
+        lineax_steps = int(diagnostics.get("fixed_bdf2_lineax_action_steps", 0))
+        if lineax_steps <= 0:
+            errors.append(f"{mode} did not report any Lineax solver steps")
+    if diagnostics.get("fixed_bdf2_evolve_feedback_integrals") is not True:
+        errors.append(f"{mode} did not evolve packed feedback integrals")
+    accepted_steps = int(diagnostics.get("fixed_bdf2_startup_steps", 0)) + int(
+        diagnostics.get("fixed_bdf2_bdf2_steps", 0)
+    )
+    if accepted_steps <= 0:
+        errors.append(f"{mode} did not report any accepted fixed BDF2 intervals")
+    max_residual = diagnostics.get("fixed_bdf2_max_residual_inf_norm")
+    try:
+        finite_residual = max_residual is not None and np.isfinite(float(max_residual))
+    except (TypeError, ValueError):
+        finite_residual = False
+    if not finite_residual:
+        errors.append(f"{mode} did not report a finite fixed BDF2 residual norm")
+    return errors
+
+
 def _adaptive_bdf_modes_to_validate(modes: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(mode for mode in modes if mode in ADAPTIVE_BDF_MODES)
 
@@ -613,6 +671,25 @@ def main() -> int:
         errors = _validate_fixed_full_field_jvp_diagnostics(
             mode_diagnostics.get("bdf_fixed_full_field_jvp", {})
         )
+        for error in errors:
+            print(f"gate_failure={error}")
+        if errors:
+            return 2
+    if args.require_fixed_bdf2_diagnostics:
+        fixed_bdf2_modes = _fixed_bdf2_modes_to_validate(modes)
+        if not fixed_bdf2_modes:
+            print(
+                "gate_failure=fixed BDF2 diagnostics were requested but no fixed-BDF2 mode was run"
+            )
+            return 2
+        errors = []
+        for mode in fixed_bdf2_modes:
+            errors.extend(
+                _validate_fixed_bdf2_diagnostics(
+                    mode,
+                    mode_diagnostics.get(mode, {}),
+                )
+            )
         for error in errors:
             print(f"gate_failure={error}")
         if errors:

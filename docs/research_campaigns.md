@@ -95,7 +95,10 @@ and the committed artifact reaches about `4.79x` steady-state speedup from
 `1 -> 8` worker processes on the retained `16`-solve ensemble.
 
 The GPU bundle contains three distinct lanes. The fixed-layout JAX-linearized
-gate measures the residual/JVP seam without the full output-window driver. The
+gate measures the residual/JVP seam and now includes the non-SciPy
+`fixed_bdf2_jax_linearized` output-window path with fixed-layout RHS,
+JAX-linearized actions, packed feedback-integral evolution, and finite-residual
+diagnostics. The
 `gpu-dthe-full-output-jvp-profile` lane runs `recycling_dthe_one_step` through
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`, so it is the
 production-output profile to use before claiming heavy recycling GPU speedup or
@@ -241,7 +244,9 @@ For the remaining recycling solver work, the order is therefore fixed:
   `--reference-root /path/to/reference/root` when a live reference checkout is
   available; use `--output-dir docs/data/runtime_profile_artifacts/<new-run>`
   when the run should leave per-case JSON reports and an aggregate
-  `summary.json` for release review;
+  `summary.json` for release review; the gate now also requires fixed-layout
+  BDF2 diagnostics from `fixed_bdf2_jax_linearized` so the non-SciPy
+  output-window route cannot regress silently to a host-side callback path;
 - run the adaptive-BDF JAX-linearized promotion gate only as an explicit
   rejection test until it clears without fallback:
   `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case

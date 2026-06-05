@@ -43,6 +43,11 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
   (`72.9 s` versus `10.1 s` for hydrogen, `189.3 s` versus `54.2 s` for
   D/T/He) while repeated `jax.linearize` and tangent pushes remain inside the
   SciPy BDF callback.
+- The same promotion wrapper now also runs `fixed_bdf2_jax_linearized` and
+  requires fixed-layout RHS steps, JAX-linearized action steps, packed
+  feedback-integral evolution, and a finite residual norm. That makes the
+  non-SciPy full-output BDF2 lane a real gated promotion candidate instead of
+  an ad-hoc profiler option.
 - A second opt-in output-window lane,
   `fixed_bdf2_jax_linearized` / `fixed_bdf2_jax_linearized_lineax`, now avoids
   the SciPy BDF callback entirely by taking a fixed-layout backward-Euler

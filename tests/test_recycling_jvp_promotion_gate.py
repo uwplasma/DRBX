@@ -38,11 +38,13 @@ def test_recycling_jvp_promotion_gate_builds_single_ion_command() -> None:
     ]
     assert command[command.index("--case") + 1] == "recycling_1d_one_step"
     assert command[command.index("--reference-root") + 1] == "/tmp/reference-root"
-    assert command.count("--mode") == 2
+    assert command.count("--mode") == 3
     assert "bdf" in command
     assert "bdf_fixed_full_field_jvp" in command
+    assert "fixed_bdf2_jax_linearized" in command
     assert "--diagnostics-only" in command
     assert "--require-fixed-jvp-diagnostics" in command
+    assert "--require-fixed-bdf2-diagnostics" in command
     assert command[command.index("--require-bdf-pairwise-max") + 1] == "1.00000000e-05"
     assert command[command.index("--mode-timeout-seconds") + 1] == "150"
     assert command.count("--field") == 3
