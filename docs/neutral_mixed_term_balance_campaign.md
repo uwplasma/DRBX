@@ -148,6 +148,10 @@ reference payloads also include flattened target-adjacent values, so the
 comparison reports both the legacy zone max/rms metric drift and the actual
 pointwise target-cell drift. This separates a real target-cell mismatch from a
 case where the largest value merely occurs at a different symmetric location.
+The native `grad_logPnlim*` implementation now evaluates the covariant
+`|Grad(logPnlim)|` norm with the carried metric terms `g11`, `g22`, `g33`, and
+the supported `g23` cross term, matching the reference vector norm on the
+structured metrics represented in JAXDRB.
 The comparator ignores those fields when an older reference JSONL does not
 contain the same payloads, so the addition is backward-compatible with older
 reference traces. When a reference executable with the accepted-step monitor patch is

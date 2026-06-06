@@ -478,9 +478,10 @@ def test_gradient_magnitude_matches_reference_loop() -> None:
     dx = np.asarray(metrics.dx, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     dz = np.asarray(metrics.dz, dtype=np.float64)
-    J = np.asarray(metrics.J, dtype=np.float64)
     g11 = np.asarray(metrics.g11, dtype=np.float64)
+    g22 = np.asarray(metrics.g22, dtype=np.float64)
     g33 = np.asarray(metrics.g33, dtype=np.float64)
+    g23 = np.asarray(metrics.g23, dtype=np.float64)
     for i in range(mesh.xstart, mesh.xend + 1):
         for j in range(mesh.ystart, mesh.yend + 1):
             for k in range(mesh.nz):
@@ -495,14 +496,75 @@ def test_gradient_magnitude_matches_reference_loop() -> None:
                 dfdz = (field[i, j, kp] - field[i, j, km]) / (2.0 * dz[i, j, k])
                 expected[i, j, k] = np.sqrt(
                     g11[i, j, k] * dfdx * dfdx
+                    + g22[i, j, k] * dfdy * dfdy
                     + g33[i, j, k] * dfdz * dfdz
-                    + np.square(dfdy / J[i, j, k])
+                    + 2.0 * g23[i, j, k] * dfdy * dfdz
                 )
 
     actual = _gradient_magnitude(
         field,
         mesh=mesh,
         metrics=metrics,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_gradient_magnitude_uses_covariant_g22_g23_metric_terms() -> None:
+    _, _, mesh, metrics, _, _ = _build_case(nx=8, ny=4, nz=6)
+    shaped = 0.05 * np.asarray(mesh.x, dtype=np.float64)[:, None, None]
+    shaped = shaped + 0.02 * np.asarray(mesh.y, dtype=np.float64)[None, :, None]
+    z_phase = 2.0 * np.pi * np.asarray(mesh.z, dtype=np.float64)
+    shaped = shaped + 0.03 * np.sin(z_phase)[None, None, :]
+    g22 = np.asarray(metrics.g22, dtype=np.float64).copy()
+    g23 = np.asarray(metrics.g23, dtype=np.float64).copy()
+    g22[:, :, :] = 1.7
+    g23[:, :, :] = 0.04
+    metric_with_cross = metrics.__class__(
+        dx=metrics.dx,
+        dy=metrics.dy,
+        dz=metrics.dz,
+        J=metrics.J,
+        g11=metrics.g11,
+        g33=metrics.g33,
+        g22=g22,
+        g_22=metrics.g_22,
+        g23=g23,
+        Bxy=metrics.Bxy,
+        g_23=metrics.g_23,
+    )
+
+    dx = np.asarray(metric_with_cross.dx, dtype=np.float64)
+    dy = np.asarray(metric_with_cross.dy, dtype=np.float64)
+    dz = np.asarray(metric_with_cross.dz, dtype=np.float64)
+    g11 = np.asarray(metric_with_cross.g11, dtype=np.float64)
+    g33 = np.asarray(metric_with_cross.g33, dtype=np.float64)
+    expected = np.zeros_like(shaped, dtype=np.float64)
+    for i in range(mesh.xstart, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            for k in range(mesh.nz):
+                km = (k - 1 + mesh.nz) % mesh.nz
+                kp = (k + 1) % mesh.nz
+                dfdx = (shaped[i + 1, j, k] - shaped[i - 1, j, k]) / (
+                    dx[i, j, k] + dx[i - 1, j, k]
+                )
+                dfdy = (shaped[i, j + 1, k] - shaped[i, j - 1, k]) / (
+                    dy[i, j, k] + dy[i, j - 1, k]
+                )
+                dfdz = (shaped[i, j, kp] - shaped[i, j, km]) / (
+                    2.0 * dz[i, j, k]
+                )
+                expected[i, j, k] = np.sqrt(
+                    g11[i, j, k] * dfdx * dfdx
+                    + g22[i, j, k] * dfdy * dfdy
+                    + g33[i, j, k] * dfdz * dfdz
+                    + 2.0 * g23[i, j, k] * dfdy * dfdz
+                )
+
+    actual = _gradient_magnitude(
+        shaped,
+        mesh=mesh,
+        metrics=metric_with_cross,
     )
 
     np.testing.assert_allclose(actual, expected, rtol=1.0e-12, atol=1.0e-12)

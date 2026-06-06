@@ -30,9 +30,10 @@ def gradient_magnitude(
         dx = jnp.asarray(metrics.dx, dtype=jnp.float64)
         dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
         dz = jnp.asarray(metrics.dz, dtype=jnp.float64)
-        J = jnp.asarray(metrics.J, dtype=jnp.float64)
         g11 = jnp.asarray(metrics.g11, dtype=jnp.float64)
+        g22 = jnp.asarray(metrics.g22, dtype=jnp.float64)
         g33 = jnp.asarray(metrics.g33, dtype=jnp.float64)
+        g23 = jnp.asarray(metrics.g23, dtype=jnp.float64)
 
         ix = slice(mesh.xstart, mesh.xend + 1)
         jy = slice(mesh.ystart, mesh.yend + 1)
@@ -47,17 +48,22 @@ def gradient_magnitude(
             - field_array[ix, mesh.ystart - 1 : mesh.yend, :]
         ) / (dy[ix, jy, :] + dy[ix, mesh.ystart - 1 : mesh.yend, :])
         dfdz = (jnp.roll(active_field, -1, axis=2) - jnp.roll(active_field, 1, axis=2)) / (2.0 * dz[ix, jy, :])
-        j_active = J[ix, jy, :]
-        active_result = jnp.sqrt(g11[ix, jy, :] * dfdx * dfdx + g33[ix, jy, :] * dfdz * dfdz + jnp.square(dfdy / j_active))
+        active_result = jnp.sqrt(
+            g11[ix, jy, :] * dfdx * dfdx
+            + g22[ix, jy, :] * dfdy * dfdy
+            + g33[ix, jy, :] * dfdz * dfdz
+            + 2.0 * g23[ix, jy, :] * dfdy * dfdz
+        )
         return result.at[ix, jy, :].set(active_result)
 
     result = np.zeros_like(field, dtype=np.float64)
     dx = np.asarray(metrics.dx, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     dz = np.asarray(metrics.dz, dtype=np.float64)
-    J = np.asarray(metrics.J, dtype=np.float64)
     g11 = np.asarray(metrics.g11, dtype=np.float64)
+    g22 = np.asarray(metrics.g22, dtype=np.float64)
     g33 = np.asarray(metrics.g33, dtype=np.float64)
+    g23 = np.asarray(metrics.g23, dtype=np.float64)
 
     ix = slice(mesh.xstart, mesh.xend + 1)
     jy = slice(mesh.ystart, mesh.yend + 1)
@@ -79,11 +85,11 @@ def gradient_magnitude(
     dfdz = (np.roll(active_field, -1, axis=2) - np.roll(active_field, 1, axis=2)) / (
         2.0 * np.asarray(dz[ix, jy, :], dtype=np.float64)
     )
-    j_active = np.asarray(J[ix, jy, :], dtype=np.float64)
     result[ix, jy, :] = np.sqrt(
         np.asarray(g11[ix, jy, :], dtype=np.float64) * dfdx * dfdx
+        + np.asarray(g22[ix, jy, :], dtype=np.float64) * dfdy * dfdy
         + np.asarray(g33[ix, jy, :], dtype=np.float64) * dfdz * dfdz
-        + np.square(dfdy / j_active)
+        + 2.0 * np.asarray(g23[ix, jy, :], dtype=np.float64) * dfdy * dfdz
     )
     return result
 
