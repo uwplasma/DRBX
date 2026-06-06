@@ -145,9 +145,12 @@ called research-grade.
 
 The first measured baseline for this slice was `73%` total coverage with all
 selected tests passing. The current promoted solver/public-surface audit now
-passes the `95%` gate at `95%`; the fixed-layout recycling residual and layout
-modules are included directly and each has a local reference-free `100%`
-module-coverage gate. The next coverage work should therefore be treated as
+passes the `95%` gate at `95.44%`; the fixed-layout recycling residual and
+layout modules are included directly and each has a local reference-free
+`100%` module-coverage gate. The neutral-mixed native surface now also has
+direct option-matrix gates for turning conduction and viscosity off, disabling
+the Lax wave-speed flux, disabling the diffusive flux limiter, and applying a
+diffusion cap. The next coverage work should therefore be treated as
 architecture hardening, not as percentage chasing. The remaining high-value
 targets are:
 

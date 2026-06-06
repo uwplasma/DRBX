@@ -46,7 +46,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _BASELINE_ROOT = _REPO_ROOT / "references" / "baselines"
 
 
-def _neutral_mixed_input(*, nx: int = 10, ny: int = 10, nz: int = 10) -> str:
+def _neutral_mixed_input(
+    *,
+    nx: int = 10,
+    ny: int = 10,
+    nz: int = 10,
+    section_options: str = "",
+) -> str:
     return f"""
 nout = 15
 timestep = 20
@@ -73,6 +79,7 @@ components = h
 
 [h]
 type = neutral_mixed
+{section_options}
 
 [Nh]
 function = exp(-(x - 0.5)^2 - (mesh:yn - 0.5)^2 - (mesh:zn - 0.5)^2)
@@ -82,8 +89,21 @@ function = 0.1 * Nh:function
 """
 
 
-def _build_case(*, nx: int = 10, ny: int = 10, nz: int = 10):
-    config = parse_bout_input(_neutral_mixed_input(nx=nx, ny=ny, nz=nz))
+def _build_case(
+    *,
+    nx: int = 10,
+    ny: int = 10,
+    nz: int = 10,
+    section_options: str = "",
+):
+    config = parse_bout_input(
+        _neutral_mixed_input(
+            nx=nx,
+            ny=ny,
+            nz=nz,
+            section_options=section_options,
+        )
+    )
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -156,6 +176,75 @@ def test_neutral_mixed_diffusion_diagnostics_match_production_diffusion() -> Non
         "flux_limited_diffusion"
     ][5, 5, 5]
     assert diagnostics["flux_limit_diffusion_max"][5, 5, 5] > 0.0
+
+
+def test_neutral_mixed_can_disable_conduction_and_viscosity_terms() -> None:
+    _, _, _, _, _, default_rhs = _build_case()
+    assert "parallel_conduction" in default_rhs.pressure_terms
+    assert "perpendicular_conduction" in default_rhs.pressure_terms
+    assert "parallel_viscosity" in default_rhs.momentum_terms
+    assert "perpendicular_viscosity" in default_rhs.momentum_terms
+    assert "viscous_work" in default_rhs.pressure_terms
+
+    _, _, _, _, _, disabled_rhs = _build_case(
+        section_options="""
+neutral_conduction = false
+neutral_viscosity = false
+"""
+    )
+    assert "parallel_conduction" not in disabled_rhs.pressure_terms
+    assert "perpendicular_conduction" not in disabled_rhs.pressure_terms
+    assert "parallel_viscosity" not in disabled_rhs.momentum_terms
+    assert "perpendicular_viscosity" not in disabled_rhs.momentum_terms
+    assert "viscous_work" not in disabled_rhs.pressure_terms
+    assert set(disabled_rhs.pressure_terms) == {
+        "parallel_advection",
+        "parallel_pressure_work",
+        "perpendicular_diffusion",
+    }
+    assert set(disabled_rhs.momentum_terms) == {
+        "parallel_inertia",
+        "pressure_gradient",
+        "perpendicular_diffusion",
+    }
+
+
+def test_neutral_mixed_lax_flux_and_diffusion_limit_options_are_active() -> None:
+    config, run_config, mesh, metrics, state, _ = _build_case(
+        section_options="""
+lax_flux = false
+flux_limit = -1
+diffusion_limit = 0.05
+"""
+    )
+    scalars = resolved_dataset_scalars(run_config)
+    prepared = _prepare_neutral_mixed_state(
+        config,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+    )
+    diagnostics = compute_neutral_mixed_diffusion_diagnostics(
+        prepared.temperature_limited,
+        prepared.log_pressure,
+        mesh=mesh,
+        metrics=metrics,
+        atomic_mass=1.0,
+        meters_scale=float(scalars["rho_s0"]),
+        flux_limit=-1.0,
+        diffusion_limit=0.05,
+    )
+    active = prepared.diffusion[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
+
+    np.testing.assert_allclose(prepared.sound_speed, 0.0)
+    np.testing.assert_allclose(
+        diagnostics["flux_limited_diffusion"], diagnostics["raw_diffusion"]
+    )
+    np.testing.assert_allclose(diagnostics["flux_limit_diffusion_max"], 0.0)
+    assert np.max(active) < 0.05
 
 
 def test_neutral_mixed_rhs_tracks_reference_case_center_values() -> None:
