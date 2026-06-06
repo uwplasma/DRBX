@@ -138,6 +138,15 @@ time, the native trace writes `time`, `dt`, solver order, and post-accepted
 `Nh`, `Ph`, and `NVh` values at the active target-adjacent cells and adjacent
 guard cells. It also writes native diagnostic inputs `Vh` and `eta_h`, which
 are the velocity and neutral viscosity entering the parallel-viscosity source.
+The native trace now also writes the full neutral diffusion-coefficient
+preparation ladder: `Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`,
+`Dnnh_flux_max`, `Dnnh_flux_limited`, and `Dnnh_diffusion_limited`, followed by
+the existing boundary-applied final `Dnnh`. Those fields are diagnostic-only
+and do not change the production neutral-mixed solve. Once the reference
+accepted-step monitor emits the same optional ladder, the current `Dnnh`
+offender can be assigned to temperature/pressure flooring, pressure-gradient
+magnitude, flux limiting, diffusion limiting, or boundary application rather
+than only to aggregate diffusion-coefficient drift.
 The comparator ignores those fields until the reference JSONL contains the
 same payloads, so the addition is backward-compatible with older reference
 traces. When a reference executable with the accepted-step monitor patch is

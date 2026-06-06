@@ -18,8 +18,10 @@ from ..native.mesh import build_structured_mesh
 from ..native.metrics import build_structured_metrics
 from ..native.neutral_mixed import (
     _prepare_neutral_mixed_state,
+    _section_scalar,
     _sanitize_neutral_state,
     advance_neutral_mixed_implicit_history,
+    compute_neutral_mixed_diffusion_diagnostics,
     compute_neutral_mixed_rhs,
     initialize_neutral_mixed_state,
 )
@@ -2028,8 +2030,33 @@ def _native_accepted_step_rhs_field_payloads(
         meters_scale=meters_scale,
         tnorm=tnorm,
     )
+    diffusion_diagnostics = compute_neutral_mixed_diffusion_diagnostics(
+        prepared.temperature_limited,
+        prepared.log_pressure,
+        mesh=mesh,
+        metrics=metrics,
+        atomic_mass=_section_scalar(config, section, "AA", default=1.0),
+        meters_scale=meters_scale,
+        flux_limit=_section_scalar(config, section, "flux_limit", default=0.2),
+        diffusion_limit=_section_scalar(
+            config, section, "diffusion_limit", default=-1.0
+        ),
+    )
     zeros = np.zeros_like(rhs.momentum, dtype=np.float64)
     fields = {
+        f"Tnlim{section}": diffusion_diagnostics["temperature_limited"],
+        f"logPnlim{section}": diffusion_diagnostics["log_pressure_limited"],
+        f"grad_logPnlim{section}": diffusion_diagnostics[
+            "grad_log_pressure_limited"
+        ],
+        f"Dnn{section}_raw": diffusion_diagnostics["raw_diffusion"],
+        f"Dnn{section}_flux_max": diffusion_diagnostics["flux_limit_diffusion_max"],
+        f"Dnn{section}_flux_limited": diffusion_diagnostics[
+            "flux_limited_diffusion"
+        ],
+        f"Dnn{section}_diffusion_limited": diffusion_diagnostics[
+            "diffusion_limited"
+        ],
         f"Dnn{section}": prepared.diffusion,
         f"V{section}": prepared.velocity,
         f"eta_{section}": prepared.viscosity,

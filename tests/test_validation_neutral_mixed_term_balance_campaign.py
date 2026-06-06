@@ -1026,6 +1026,13 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
         "Nh",
         "Ph",
         "NVh",
+        "Tnlimh",
+        "logPnlimh",
+        "grad_logPnlimh",
+        "Dnnh_raw",
+        "Dnnh_flux_max",
+        "Dnnh_flux_limited",
+        "Dnnh_diffusion_limited",
         "Dnnh",
         "Vh",
         "eta_h",
@@ -1037,6 +1044,9 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
         "SNVh_parallel_viscosity",
         "SNVh_perpendicular_viscosity",
     }
+    fields = report["trace_points"][0]["fields"]
+    assert fields["Dnnh_raw"]["active_metrics"]["max_abs"] > 0.0
+    assert fields["Dnnh_diffusion_limited"]["active_metrics"]["max_abs"] > 0.0
 
     path = write_neutral_mixed_native_accepted_step_trace_json(
         report, tmp_path / "native_trace.json"

@@ -836,25 +836,69 @@ def compute_neutral_mixed_diffusion(
     flux_limit: float,
     diffusion_limit: float = -1.0,
 ) -> np.ndarray:
+    return compute_neutral_mixed_diffusion_diagnostics(
+        temperature_limited,
+        log_pressure,
+        mesh=mesh,
+        metrics=metrics,
+        atomic_mass=atomic_mass,
+        meters_scale=meters_scale,
+        flux_limit=flux_limit,
+        diffusion_limit=diffusion_limit,
+    )["bounded_diffusion"]
+
+
+def compute_neutral_mixed_diffusion_diagnostics(
+    temperature_limited: np.ndarray,
+    log_pressure: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    atomic_mass: float,
+    meters_scale: float,
+    flux_limit: float,
+    diffusion_limit: float = -1.0,
+) -> dict[str, np.ndarray]:
     thermal_speed = np.sqrt(
         np.asarray(temperature_limited, dtype=np.float64) / atomic_mass
     )
     neutral_lmax = 0.1 / meters_scale
     raw_diffusion = thermal_speed * neutral_lmax
+    grad_magnitude = _gradient_magnitude(log_pressure, mesh=mesh, metrics=metrics)
 
     if flux_limit > 0.0:
-        grad_magnitude = _gradient_magnitude(log_pressure, mesh=mesh, metrics=metrics)
         diffusion_max = (
             flux_limit * thermal_speed / (grad_magnitude + (1.0 / neutral_lmax))
         )
-        diffusion = raw_diffusion * diffusion_max / (raw_diffusion + diffusion_max)
+        flux_limited_diffusion = (
+            raw_diffusion * diffusion_max / (raw_diffusion + diffusion_max)
+        )
     else:
-        diffusion = raw_diffusion
+        diffusion_max = np.zeros_like(raw_diffusion, dtype=np.float64)
+        flux_limited_diffusion = raw_diffusion
 
     if diffusion_limit > 0.0:
-        diffusion = diffusion * diffusion_limit / (diffusion + diffusion_limit)
+        limited_diffusion = (
+            flux_limited_diffusion
+            * diffusion_limit
+            / (flux_limited_diffusion + diffusion_limit)
+        )
+    else:
+        limited_diffusion = flux_limited_diffusion
 
-    return _apply_neutral_diffusion_boundaries(diffusion, mesh)
+    bounded_diffusion = _apply_neutral_diffusion_boundaries(limited_diffusion, mesh)
+    return {
+        "temperature_limited": np.asarray(temperature_limited, dtype=np.float64),
+        "log_pressure_limited": np.asarray(log_pressure, dtype=np.float64),
+        "grad_log_pressure_limited": np.asarray(grad_magnitude, dtype=np.float64),
+        "raw_diffusion": np.asarray(raw_diffusion, dtype=np.float64),
+        "flux_limit_diffusion_max": np.asarray(diffusion_max, dtype=np.float64),
+        "flux_limited_diffusion": np.asarray(
+            flux_limited_diffusion, dtype=np.float64
+        ),
+        "diffusion_limited": np.asarray(limited_diffusion, dtype=np.float64),
+        "bounded_diffusion": np.asarray(bounded_diffusion, dtype=np.float64),
+    }
 
 
 def build_neutral_mixed_transport_operators(

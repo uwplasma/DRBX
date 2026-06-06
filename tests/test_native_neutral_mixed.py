@@ -29,6 +29,8 @@ from jax_drb.native.neutral_mixed import (
     build_neutral_mixed_sparse_residual_jacobian,
     compute_neutral_mixed_bdf2_residual,
     build_neutral_mixed_transport_operators,
+    compute_neutral_mixed_diffusion,
+    compute_neutral_mixed_diffusion_diagnostics,
     compute_neutral_mixed_backward_euler_residual,
     compute_neutral_mixed_rhs,
     initialize_neutral_mixed_state,
@@ -112,6 +114,48 @@ def test_neutral_mixed_diffusion_matches_known_case_values() -> None:
     assert rhs.diffusion[5, 5, 5] == pytest.approx(
         1.170446626082471, rel=1e-12, abs=1e-12
     )
+
+
+def test_neutral_mixed_diffusion_diagnostics_match_production_diffusion() -> None:
+    config, run_config, mesh, metrics, state, _ = _build_case()
+    scalars = resolved_dataset_scalars(run_config)
+    prepared = _prepare_neutral_mixed_state(
+        config,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+    )
+
+    diagnostics = compute_neutral_mixed_diffusion_diagnostics(
+        prepared.temperature_limited,
+        prepared.log_pressure,
+        mesh=mesh,
+        metrics=metrics,
+        atomic_mass=1.0,
+        meters_scale=float(scalars["rho_s0"]),
+        flux_limit=0.2,
+        diffusion_limit=-1.0,
+    )
+    production = compute_neutral_mixed_diffusion(
+        prepared.temperature_limited,
+        prepared.log_pressure,
+        mesh=mesh,
+        metrics=metrics,
+        atomic_mass=1.0,
+        meters_scale=float(scalars["rho_s0"]),
+        flux_limit=0.2,
+        diffusion_limit=-1.0,
+    )
+
+    np.testing.assert_allclose(diagnostics["bounded_diffusion"], production)
+    np.testing.assert_allclose(diagnostics["bounded_diffusion"], prepared.diffusion)
+    assert diagnostics["raw_diffusion"][5, 5, 5] > diagnostics[
+        "flux_limited_diffusion"
+    ][5, 5, 5]
+    assert diagnostics["flux_limit_diffusion_max"][5, 5, 5] > 0.0
 
 
 def test_neutral_mixed_rhs_tracks_reference_case_center_values() -> None:

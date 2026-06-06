@@ -79,11 +79,16 @@ SNVh_perpendicular_viscosity
 ```
 
 When the reference `outputVars()` exposes them, the monitor also writes optional
-`Dnnh`, `Vh`, and `eta_h` diagnostic-input fields. These extra fields are not part of
-the required reference schema, but they match the native accepted-step trace
-payloads added to split parallel-viscosity drift into input and stencil pieces.
-The patch reads `Dnnh` and `Vh` from existing diagnostics and exposes `eta_h`
-from the neutral viscosity field before the monitor checks for optional fields.
+`Dnnh`, `Vh`, and `eta_h` diagnostic-input fields. The native accepted-step
+trace also writes a diagnostic ladder for the neutral diffusion coefficient:
+`Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`, `Dnnh_flux_max`,
+`Dnnh_flux_limited`, and `Dnnh_diffusion_limited`. These extra fields are not
+part of the required reference schema, but they are the next reference-monitor
+extension needed to split the accepted-step `Dnnh` drift into temperature
+flooring, pressure-gradient, flux-limiter, diffusion-limit, and boundary
+application pieces. The current patch reads `Dnnh` and `Vh` from existing
+diagnostics and exposes `eta_h` from the neutral viscosity field before the
+monitor checks for optional fields.
 
 Each field payload should follow the same compact shape used by JAXDRB native
 accepted-step traces:
@@ -146,6 +151,11 @@ current rerun, the register is available and points first at `Dnnh` drift:
 `Dnnh` has a target-adjacent maximum drift of about `4.46e-3`, larger than the
 `eta_h` drift of about `3.23e-3`, while `eta_h` remains about `99` times larger
 than the largest state-input drift.
+The native trace now additionally emits the `Dnnh` preparation ladder
+(`Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`, `Dnnh_flux_max`,
+`Dnnh_flux_limited`, and `Dnnh_diffusion_limited`). The live reference patch
+still needs the matching optional fields before this ladder can be compared
+accepted step by accepted step.
 
 A final-state input-closure cross-check now reconstructs `Dnn`, `Vh`, and
 `eta_h` from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares
