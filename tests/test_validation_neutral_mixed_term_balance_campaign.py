@@ -555,6 +555,10 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
     assert "Dnn_flux_max =" in text
     assert "Dnn_flux_limited = copy(Dnn);" in text
     assert "Dnn_diffusion_limited = copy(Dnn);" in text
+    assert "max_abs_index" in text
+    assert "max_abs_value" in text
+    assert "target_adjacent_shape" in text
+    assert "target_adjacent_values" in text
     assert 'state[std::string("eta_") + name]' in text
     assert 'state[std::string("grad_logPnlim") + name]' in text
     assert '      "N" + species,' not in text
@@ -1060,6 +1064,13 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
     }
     fields = report["trace_points"][0]["fields"]
     assert fields["Dnnh_raw"]["active_metrics"]["max_abs"] > 0.0
+    assert len(fields["Dnnh_raw"]["active_metrics"]["max_abs_index"]) == 3
+    assert fields["Dnnh_raw"]["target_adjacent_shape"][1] == len(
+        report["target_y_indices"]
+    )
+    assert len(fields["Dnnh_raw"]["target_adjacent_values"]) == int(
+        np.prod(fields["Dnnh_raw"]["target_adjacent_shape"])
+    )
     assert fields["Dnnh_diffusion_limited"]["active_metrics"]["max_abs"] > 0.0
 
     path = write_neutral_mixed_native_accepted_step_trace_json(
@@ -1403,6 +1414,8 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
             "active_metrics": {"max_abs": active, "rms": active},
             "target_adjacent_metrics": {"max_abs": target, "rms": target},
             "guard_metrics": {"max_abs": guard, "rms": guard},
+            "target_adjacent_shape": [1, 1, 1],
+            "target_adjacent_values": [target],
             "sample_lineout_y_indices": [0],
             "sample_lineout": [target],
         }
@@ -1518,6 +1531,15 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
     assert ladder_entry["dominant_ladder_field"] == "Dnnh_raw"
     assert ladder_entry["max_ladder_target_adjacent_delta"] == pytest.approx(4.0)
     assert ladder_entry["ranked_ladder_errors"][0]["field"] == "Dnnh_raw"
+    assert report["fields"]["Dnnh_raw"][
+        "max_target_adjacent_pointwise_delta"
+    ] == pytest.approx(4.0)
+    assert report["fields"]["Dnnh_raw"][
+        "max_target_adjacent_pointwise_delta_worst_index"
+    ]["local_index"] == [0, 0, 0]
+    assert report["fields"]["Dnnh_raw"]["max_target_adjacent_delta_worst_index"][
+        "native_index"
+    ] == []
 
 
 def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inputs(
@@ -1528,6 +1550,8 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inpu
             "active_metrics": {"max_abs": value, "rms": value},
             "target_adjacent_metrics": {"max_abs": value, "rms": value},
             "guard_metrics": {"max_abs": value, "rms": value},
+            "target_adjacent_shape": [],
+            "target_adjacent_values": [],
             "sample_lineout_y_indices": [0],
             "sample_lineout": [value],
         }

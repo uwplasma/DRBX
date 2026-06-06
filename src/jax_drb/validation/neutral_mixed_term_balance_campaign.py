@@ -2083,10 +2083,20 @@ def _native_accepted_step_field_payload(
         if guard_y_indices
         else np.asarray([], dtype=np.float64)
     )
+    x_indices = tuple(range(active_x.start, active_x.stop))
+    active_y_indices = tuple(range(active_y.start, active_y.stop))
     return {
-        "active_metrics": _array_metrics(active),
-        "target_adjacent_metrics": _array_metrics(target),
-        "guard_metrics": _array_metrics(guard),
+        "active_metrics": _array_metrics_with_indices(
+            active, x_indices=x_indices, y_indices=active_y_indices
+        ),
+        "target_adjacent_metrics": _array_metrics_with_indices(
+            target, x_indices=x_indices, y_indices=target_y_indices
+        ),
+        "guard_metrics": _array_metrics_with_indices(
+            guard, x_indices=x_indices, y_indices=guard_y_indices
+        ),
+        "target_adjacent_shape": list(target.shape),
+        "target_adjacent_values": target.reshape(-1).tolist(),
         "sample_lineout_y_indices": list(sample_y_indices),
         "sample_lineout": array[line_x, sample_y_indices, line_z].tolist()
         if sample_y_indices
@@ -2459,16 +2469,29 @@ def _normalize_accepted_trace_field_payload(
             int(value) for value in payload.get("sample_lineout_y_indices", [])
         ],
         "sample_lineout": [float(value) for value in payload.get("sample_lineout", [])],
+        "target_adjacent_shape": [
+            int(value) for value in payload.get("target_adjacent_shape", [])
+        ],
+        "target_adjacent_values": [
+            float(value) for value in payload.get("target_adjacent_values", [])
+        ],
     }
 
 
 def _normalize_metric_payload(payload: object) -> dict[str, float]:
     if not isinstance(payload, dict):
         return {"max_abs": 0.0, "rms": 0.0}
-    return {
+    normalized: dict[str, object] = {
         "max_abs": float(payload.get("max_abs", 0.0)),
         "rms": float(payload.get("rms", 0.0)),
     }
+    if isinstance(payload.get("max_abs_index"), list):
+        normalized["max_abs_index"] = [
+            int(value) for value in payload.get("max_abs_index", [])
+        ]
+    if "max_abs_value" in payload:
+        normalized["max_abs_value"] = float(payload.get("max_abs_value", 0.0))
+    return normalized  # type: ignore[return-value]
 
 
 def _compare_accepted_step_trace_points(
@@ -2516,7 +2539,8 @@ def _compare_accepted_step_trace_points(
                     "max_target_adjacent_delta": 0.0,
                     "max_guard_delta": 0.0,
                     "max_sample_lineout_delta": 0.0,
-                    "worst_ranking_key": [0.0, 0.0, 0.0, 0.0],
+                    "max_target_adjacent_pointwise_delta": 0.0,
+                    "worst_ranking_key": [0.0, 0.0, 0.0, 0.0, 0.0],
                     "worst_time": native_time,
                 },
             )
@@ -2534,7 +2558,7 @@ def _nearest_trace_point(
 
 def _compare_accepted_step_fields(
     native_point: dict[str, object], reference_point: dict[str, object]
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, object]]:
     native_fields = native_point["fields"]
     reference_fields = reference_point["fields"]
     if not isinstance(native_fields, dict) or not isinstance(reference_fields, dict):
@@ -2552,7 +2576,10 @@ def _compare_accepted_step_fields(
 
 def _compare_accepted_step_field_payload(
     native_payload: dict[str, object], reference_payload: dict[str, object]
-) -> dict[str, float]:
+) -> dict[str, object]:
+    target_pointwise = _target_adjacent_pointwise_delta(
+        native_payload, reference_payload
+    )
     return {
         "active_max_abs_delta": _metric_delta(
             native_payload, reference_payload, "active_metrics", "max_abs"
@@ -2575,6 +2602,36 @@ def _compare_accepted_step_field_payload(
         "sample_lineout_max_abs_delta": _lineout_delta(
             native_payload, reference_payload
         ),
+        "target_adjacent_pointwise_max_abs_delta": target_pointwise[
+            "max_abs_delta"
+        ],
+        "target_adjacent_pointwise_worst_index": target_pointwise["worst_index"],
+        "active_worst_index": _metric_worst_pair(
+            native_payload, reference_payload, "active_metrics"
+        ),
+        "target_adjacent_worst_index": _metric_worst_pair(
+            native_payload, reference_payload, "target_adjacent_metrics"
+        ),
+        "guard_worst_index": _metric_worst_pair(
+            native_payload, reference_payload, "guard_metrics"
+        ),
+    }
+
+
+def _metric_worst_pair(
+    native_payload: dict[str, object],
+    reference_payload: dict[str, object],
+    zone: str,
+) -> dict[str, object]:
+    native_metrics = native_payload.get(zone, {})
+    reference_metrics = reference_payload.get(zone, {})
+    if not isinstance(native_metrics, dict) or not isinstance(reference_metrics, dict):
+        return {}
+    return {
+        "native_index": native_metrics.get("max_abs_index", []),
+        "native_value": float(native_metrics.get("max_abs_value", 0.0)),
+        "reference_index": reference_metrics.get("max_abs_index", []),
+        "reference_value": float(reference_metrics.get("max_abs_value", 0.0)),
     }
 
 
@@ -2594,6 +2651,45 @@ def _metric_delta(
     )
 
 
+def _target_adjacent_pointwise_delta(
+    native_payload: dict[str, object], reference_payload: dict[str, object]
+) -> dict[str, object]:
+    native_shape = tuple(
+        int(value) for value in native_payload.get("target_adjacent_shape", [])
+    )
+    reference_shape = tuple(
+        int(value) for value in reference_payload.get("target_adjacent_shape", [])
+    )
+    native_values = np.asarray(
+        native_payload.get("target_adjacent_values", []), dtype=np.float64
+    )
+    reference_values = np.asarray(
+        reference_payload.get("target_adjacent_values", []), dtype=np.float64
+    )
+    if (
+        not native_shape
+        or native_shape != reference_shape
+        or native_values.size != reference_values.size
+        or native_values.size != int(np.prod(native_shape))
+    ):
+        return {"max_abs_delta": 0.0, "worst_index": {}}
+    delta = native_values.reshape(native_shape) - reference_values.reshape(
+        reference_shape
+    )
+    if delta.size == 0:
+        return {"max_abs_delta": 0.0, "worst_index": {}}
+    local_index = np.unravel_index(int(np.argmax(np.abs(delta))), delta.shape)
+    flat_index = int(np.ravel_multi_index(local_index, delta.shape))
+    return {
+        "max_abs_delta": float(np.abs(delta[local_index])),
+        "worst_index": {
+            "local_index": [int(value) for value in local_index],
+            "native_value": float(native_values[flat_index]),
+            "reference_value": float(reference_values[flat_index]),
+        },
+    }
+
+
 def _lineout_delta(
     native_payload: dict[str, object], reference_payload: dict[str, object]
 ) -> float:
@@ -2608,17 +2704,30 @@ def _lineout_delta(
 
 
 def _update_trace_error_aggregate(
-    aggregate: dict[str, object], point_error: dict[str, float], time_value: float
+    aggregate: dict[str, object], point_error: dict[str, object], time_value: float
 ) -> None:
     updates = {
         "max_active_delta": point_error["active_max_abs_delta"],
         "max_target_adjacent_delta": point_error["target_adjacent_max_abs_delta"],
         "max_guard_delta": point_error["guard_max_abs_delta"],
         "max_sample_lineout_delta": point_error["sample_lineout_max_abs_delta"],
+        "max_target_adjacent_pointwise_delta": point_error[
+            "target_adjacent_pointwise_max_abs_delta"
+        ],
+    }
+    zone_for_key = {
+        "max_active_delta": "active_worst_index",
+        "max_target_adjacent_delta": "target_adjacent_worst_index",
+        "max_guard_delta": "guard_worst_index",
+        "max_sample_lineout_delta": "",
+        "max_target_adjacent_pointwise_delta": "target_adjacent_pointwise_worst_index",
     }
     for key, value in updates.items():
         if float(value) > float(aggregate[key]):
             aggregate[key] = float(value)
+            zone_key = zone_for_key[key]
+            if zone_key:
+                aggregate[f"{key}_worst_index"] = point_error.get(zone_key, {})
     ranking_key = _accepted_trace_point_ranking_key(
         str(aggregate["comparison_scope"]),
         point_error,
@@ -2637,12 +2746,14 @@ def _accepted_trace_field_scope(field_name: str) -> str:
 def _accepted_trace_field_ranking_key(item: dict[str, object]) -> tuple[float, ...]:
     if item.get("comparison_scope") == "active_target_rhs_source":
         return (
+            float(item.get("max_target_adjacent_pointwise_delta", 0.0)),
             float(item["max_target_adjacent_delta"]),
             float(item["max_active_delta"]),
             float(item["max_sample_lineout_delta"]),
             float(item["max_guard_delta"]),
         )
     return (
+        float(item.get("max_target_adjacent_pointwise_delta", 0.0)),
         float(item["max_target_adjacent_delta"]),
         float(item["max_guard_delta"]),
         float(item["max_active_delta"]),
@@ -2651,16 +2762,18 @@ def _accepted_trace_field_ranking_key(item: dict[str, object]) -> tuple[float, .
 
 
 def _accepted_trace_point_ranking_key(
-    comparison_scope: str, point_error: dict[str, float]
+    comparison_scope: str, point_error: dict[str, object]
 ) -> tuple[float, ...]:
     if comparison_scope == "active_target_rhs_source":
         return (
+            float(point_error.get("target_adjacent_pointwise_max_abs_delta", 0.0)),
             float(point_error["target_adjacent_max_abs_delta"]),
             float(point_error["active_max_abs_delta"]),
             float(point_error["sample_lineout_max_abs_delta"]),
             float(point_error["guard_max_abs_delta"]),
         )
     return (
+        float(point_error.get("target_adjacent_pointwise_max_abs_delta", 0.0)),
         float(point_error["target_adjacent_max_abs_delta"]),
         float(point_error["guard_max_abs_delta"]),
         float(point_error["active_max_abs_delta"]),
@@ -2908,6 +3021,30 @@ def _array_metrics(array: np.ndarray) -> dict[str, float]:
         "max_abs": float(np.max(np.abs(value))) if value.size else 0.0,
         "rms": _rms(value) if value.size else 0.0,
     }
+
+
+def _array_metrics_with_indices(
+    array: np.ndarray,
+    *,
+    x_indices: tuple[int, ...],
+    y_indices: tuple[int, ...],
+) -> dict[str, object]:
+    value = np.asarray(array, dtype=np.float64)
+    metrics: dict[str, object] = _array_metrics(value)
+    if value.size == 0:
+        metrics["max_abs_index"] = []
+        metrics["max_abs_value"] = 0.0
+        return metrics
+    x_offset, y_offset, z_index = np.unravel_index(
+        int(np.argmax(np.abs(value))), value.shape
+    )
+    metrics["max_abs_index"] = [
+        int(x_indices[x_offset]),
+        int(y_indices[y_offset]),
+        int(z_index),
+    ]
+    metrics["max_abs_value"] = float(value[x_offset, y_offset, z_index])
+    return metrics
 
 
 def _target_offsets(active_y: slice, target_y_indices: tuple[int, ...]) -> np.ndarray:

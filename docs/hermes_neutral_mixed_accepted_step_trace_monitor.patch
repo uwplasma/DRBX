@@ -1,5 +1,20 @@
+diff --git a/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx b/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
+index 4f72e6593..f944dbe0f 100644
+--- a/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
++++ b/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
+@@ -589,6 +589,10 @@ BoutReal CvodeSolver::run(BoutReal tout) {
+                             internal_time, flag);
+       }
+
++      // Make accepted-step monitors see the state and RHS at the accepted
++      // CVODE internal time, not the previous output-time state.
++      load_vars(N_VGetArrayPointer(uvec));
++      run_rhs(internal_time);
+       // Call timestep monitor
+       call_timestep_monitors(internal_time, internal_time - last_time);
+     }
 diff --git a/hermes-3.cxx b/hermes-3.cxx
-index 0d07e095..06237877 100644
+index 0d07e095..1e5d3b45 100644
 --- a/hermes-3.cxx
 +++ b/hermes-3.cxx
 @@ -38,6 +38,7 @@
@@ -28,7 +43,7 @@ index 0d07e095..06237877 100644
 
  #include "include/recalculate_metric.hxx"
 
-@@ -93,6 +103,183 @@
+@@ -93,6 +103,220 @@
  BOUT_OVERRIDE_DEFAULT_OPTION("mesh:calcParallelSlices_on_communicate", false);
  #endif
 
@@ -38,6 +53,10 @@ index 0d07e095..06237877 100644
 +struct TraceMetrics {
 +  BoutReal max_abs = 0.0;
 +  BoutReal rms = 0.0;
++  BoutReal max_abs_value = 0.0;
++  int max_abs_x = 0;
++  int max_abs_y = 0;
++  int max_abs_z = 0;
 +};
 +
 +int clamp_trace_index(int value, int lower, int upper) {
@@ -73,6 +92,10 @@ index 0d07e095..06237877 100644
 +TraceMetrics field_metrics_on_y_indices(const Field3D& field,
 +                                        const std::vector<int>& y_indices) {
 +  BoutReal max_abs = 0.0;
++  BoutReal max_abs_value = 0.0;
++  int max_abs_x = mesh->xstart;
++  int max_abs_y = mesh->ystart;
++  int max_abs_z = 0;
 +  BoutReal sum_squares = 0.0;
 +  int count = 0;
 +  for (int x = mesh->xstart; x <= mesh->xend; ++x) {
@@ -82,6 +105,10 @@ index 0d07e095..06237877 100644
 +        const BoutReal magnitude = std::abs(value);
 +        if (magnitude > max_abs) {
 +          max_abs = magnitude;
++          max_abs_value = value;
++          max_abs_x = x;
++          max_abs_y = y;
++          max_abs_z = z;
 +        }
 +        sum_squares += value * value;
 +        ++count;
@@ -89,7 +116,23 @@ index 0d07e095..06237877 100644
 +    }
 +  }
 +  return {max_abs, count > 0 ? std::sqrt(sum_squares / static_cast<BoutReal>(count))
-+                             : 0.0};
++                             : 0.0,
++          max_abs_value, max_abs_x, max_abs_y, max_abs_z};
++}
++
++std::vector<BoutReal> field_values_on_y_indices(const Field3D& field,
++                                                const std::vector<int>& y_indices) {
++  std::vector<BoutReal> values;
++  values.reserve(static_cast<std::size_t>(mesh->xend - mesh->xstart + 1)
++                 * y_indices.size() * static_cast<std::size_t>(mesh->LocalNz));
++  for (int x = mesh->xstart; x <= mesh->xend; ++x) {
++    for (const int y : y_indices) {
++      for (int z = 0; z < mesh->LocalNz; ++z) {
++        values.push_back(field(x, y, z));
++      }
++    }
++  }
++  return values;
 +}
 +
 +std::vector<int> active_y_indices() {
@@ -136,7 +179,9 @@ index 0d07e095..06237877 100644
 +std::string json_metric_payload(const TraceMetrics& metrics) {
 +  std::ostringstream stream;
 +  stream << "{\"max_abs\":" << metrics.max_abs << ",\"rms\":" << metrics.rms
-+         << "}";
++         << ",\"max_abs_index\":[" << metrics.max_abs_x << ","
++         << metrics.max_abs_y << "," << metrics.max_abs_z
++         << "],\"max_abs_value\":" << metrics.max_abs_value << "}";
 +  return stream.str();
 +}
 +
@@ -179,12 +224,19 @@ index 0d07e095..06237877 100644
 +    lineout.push_back(field(sample_x, y, sample_z));
 +  }
 +  std::ostringstream stream;
++  const std::vector<BoutReal> target_values =
++      field_values_on_y_indices(field, target);
++  const std::vector<int> target_shape = {
++      mesh->xend - mesh->xstart + 1, static_cast<int>(target.size()),
++      mesh->LocalNz};
 +  stream << "{\"active_metrics\":"
 +         << json_metric_payload(field_metrics_on_y_indices(field, active))
 +         << ",\"target_adjacent_metrics\":"
 +         << json_metric_payload(field_metrics_on_y_indices(field, target))
 +         << ",\"guard_metrics\":"
 +         << json_metric_payload(field_metrics_on_y_indices(field, guard))
++         << ",\"target_adjacent_shape\":" << json_int_vector(target_shape)
++         << ",\"target_adjacent_values\":" << json_real_vector(target_values)
 +         << ",\"sample_lineout_y_indices\":" << json_int_vector(sample)
 +         << ",\"sample_lineout\":" << json_real_vector(lineout) << "}";
 +  return stream.str();
@@ -212,7 +264,7 @@ index 0d07e095..06237877 100644
  class DecayLengthBoundary : public BoundaryOp {
  public:
    DecayLengthBoundary() : gen(nullptr) {}
-@@ -168,6 +355,82 @@ private:
+@@ -168,6 +392,82 @@ private:
    std::shared_ptr<FieldGenerator> gen; // Generator
  };
 
@@ -295,7 +347,7 @@ index 0d07e095..06237877 100644
  int Hermes::init(bool restarting) {
 
    auto &options = Options::root()["hermes"];
-@@ -180,6 +443,10 @@ int Hermes::init(bool restarting) {
+@@ -180,6 +480,10 @@ int Hermes::init(bool restarting) {
    options["slope_limiter"] = hermes::limiter_typename;
    options["slope_limiter"].setConditionallyUsed();
 
@@ -469,18 +521,3 @@ index 55397c8f..e45e1776 100644
      set_with_attrs(state[std::string("SN") + name], Sn,
                     {{"time_dimension", "t"},
                      {"units", "m^-3 s^-1"},
-diff --git a/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx b/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
-index 4f72e6593..f944dbe0f 100644
---- a/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
-+++ b/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
-@@ -589,6 +589,10 @@ BoutReal CvodeSolver::run(BoutReal tout) {
-                             internal_time, flag);
-       }
-
-+      // Make accepted-step monitors see the state and RHS at the accepted
-+      // CVODE internal time, not the previous output-time state.
-+      load_vars(N_VGetArrayPointer(uvec));
-+      run_rhs(internal_time);
-       // Call timestep monitor
-       call_timestep_monitors(internal_time, internal_time - last_time);
-     }

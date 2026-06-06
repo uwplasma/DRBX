@@ -143,11 +143,11 @@ preparation ladder: `Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`,
 `Dnnh_flux_max`, `Dnnh_flux_limited`, and `Dnnh_diffusion_limited`, followed by
 the existing boundary-applied final `Dnnh`. Those fields are diagnostic-only
 and do not change the production neutral-mixed solve. The reference
-accepted-step monitor patch now emits the same optional ladder, so the next
-patched-reference rerun can assign the current `Dnnh` offender to
-temperature/pressure flooring, pressure-gradient magnitude, flux limiting,
-diffusion limiting, or boundary application rather than only to aggregate
-diffusion-coefficient drift.
+accepted-step monitor patch now emits the same optional ladder. Native and
+reference payloads also include flattened target-adjacent values, so the
+comparison reports both the legacy zone max/rms metric drift and the actual
+pointwise target-cell drift. This separates a real target-cell mismatch from a
+case where the largest value merely occurs at a different symmetric location.
 The comparator ignores those fields when an older reference JSONL does not
 contain the same payloads, so the addition is backward-compatible with older
 reference traces. When a reference executable with the accepted-step monitor patch is
@@ -164,12 +164,15 @@ The current live ladder rerun uses a contextual reference patch with deep-copy
 snapshots for `Dnn` before and after each limiter stage. It produced `148`
 matched accepted-step records and no missing ladder fields. The resulting
 `neutral_diffusion_ladder_register` ranks `Dnnh_flux_max` as the dominant
-target-band ladder mismatch (`5.27e-3`), followed by final `Dnnh`
-(`4.46e-3`). The raw diffusion mismatch is `6.07e-4`, which rules out the
-thermal-speed and neutral-lmax raw coefficient as the leading offender. The
-remaining target should therefore be the flux-limit cap and its near-target
-gradient/boundary sequencing, with state-history drift still tracked separately
-by the accepted-step state-input register.
+target-band ladder mismatch. The pointwise target-cell comparison confirms that
+this is not only a zone-maximum ordering artifact: at the upper target-adjacent
+cell corresponding to local target index `[0, 3, 0]`, native `Dnnh_flux_max` is
+`2.74471293` while the reference value is `2.73944`, a `5.27e-3` difference.
+The final `Dnnh` pointwise target drift is `4.46e-3`, while raw diffusion is
+`6.07e-4`. The same point shows raw diffusion and temperature are essentially
+closed, but `grad_logPnlimh` differs by about `4.48e-5`, so the next native
+patch should target the near-target `Grad(logPnlim)` stencil or pressure-guard
+sequencing before changing collision rates or the raw diffusion formula.
 
 If `--hermes-binary` is not supplied, this command now builds a cached clean
 patched reference worktree automatically before launching the trace run. That
@@ -196,9 +199,10 @@ set and can replay the reference accepted-step time grid. A local
 reference-grid comparison of `neutral_mixed_one_step` matches `148/148`
 accepted points. With timestamp mismatch removed and the reference trace
 writing `Dnnh`, `Vh`, `eta_h`, and the diffusion-preparation ladder, the largest
-remaining target-band closure drift is final `Dnnh` at about `4.46e-3`,
-followed by `eta_h` at about `3.23e-3`. The next active/target source offender
-is `SNVh_parallel_viscosity` at about `5.35e-5`. Large RHS/source guard deltas
+remaining pointwise target-band closure drift is final `Dnnh` at about
+`4.46e-3`, followed by `eta_h` at about `3.23e-3`. The next active/target source
+offender is `SNVh_parallel_viscosity` at about `1.29e-4` pointwise
+(`5.35e-5` by the legacy zone-metric comparison). Large RHS/source guard deltas
 remain reported but are not used to rank `ddt(*)` or `SNVh_*`, because those
 guard values are diagnostic-boundary semantics rather than active-domain source
 formulas. The next native parity patch should therefore target the
@@ -225,7 +229,8 @@ On the current `148/148` matched accepted-step trace, `Nh` is the dominant
 state-input drift, but the `eta_h` target-adjacent drift is about `99` times
 larger than the largest state-input drift. The diffusion ladder now shows that
 raw `Dnnh` differs by only `6.07e-4`, while the flux-limit cap differs by
-`5.27e-3` and the final boundary-applied `Dnnh` differs by `4.46e-3`. That
+`5.27e-3` and the final boundary-applied `Dnnh` differs by `4.46e-3` in the
+actual pointwise target-cell comparison. That
 separates the offender from a directly state-sized density, pressure, momentum,
 or raw-diffusion mismatch and points first at accepted-step flux-cap and
 near-target boundary sequencing before viscosity is formed.

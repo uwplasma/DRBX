@@ -97,9 +97,26 @@ accepted-step traces:
 
 ```json
 {
-  "active_metrics": {"max_abs": 0.0, "rms": 0.0},
-  "target_adjacent_metrics": {"max_abs": 0.0, "rms": 0.0},
-  "guard_metrics": {"max_abs": 0.0, "rms": 0.0},
+  "active_metrics": {
+    "max_abs": 0.0,
+    "rms": 0.0,
+    "max_abs_index": [0, 0, 0],
+    "max_abs_value": 0.0
+  },
+  "target_adjacent_metrics": {
+    "max_abs": 0.0,
+    "rms": 0.0,
+    "max_abs_index": [0, 0, 0],
+    "max_abs_value": 0.0
+  },
+  "guard_metrics": {
+    "max_abs": 0.0,
+    "rms": 0.0,
+    "max_abs_index": [0, 0, 0],
+    "max_abs_value": 0.0
+  },
+  "target_adjacent_shape": [1, 4, 1],
+  "target_adjacent_values": [0.0, 0.0, 0.0, 0.0],
   "sample_lineout_y_indices": [0, 1],
   "sample_lineout": [0.0, 0.0]
 }
@@ -113,6 +130,11 @@ index, the mid local z index, and the sorted union of target-adjacent and guard
 y indices. `Nh`, `Ph`, and `NVh` should be read from the live species state at
 the accepted internal step; `ddt(*)` and `SNVh_*` should be read from the
 diagnostic output state after `output_ddt=true` and `diagnose=true`.
+The flattened target-adjacent payload is intentionally compact but pointwise:
+the comparator reshapes it using `target_adjacent_shape` and reports the worst
+native/reference target-cell delta. This keeps legacy max/rms zone summaries
+available while avoiding false offender ranking when the largest target-band
+value occurs at a different symmetric cell.
 
 ## Current Evidence
 
@@ -146,6 +168,16 @@ followed by the flux-limited, diffusion-limited, and final boundary-applied
 (`6.07e-4`), so the remaining accepted-step offender is in the flux-limit cap
 and near-target state/boundary sequencing rather than raw neutral diffusion
 preparation.
+
+The latest pointwise target-cell rerun confirms that this is not only a
+zone-maximum ordering artifact. At the upper target-adjacent cell with local
+target index `[0, 3, 0]`, native `Dnnh_flux_max` is `2.74471293` and the
+reference value is `2.73944`, a `5.27e-3` drift. The same cell has essentially
+closed temperature and raw diffusion, but native `grad_logPnlimh` is
+`0.0130723` versus the reference value `0.0131171`. The next native parity
+patch should therefore target the near-target `Grad(logPnlim)` stencil or
+pressure-guard sequencing before changing collision rates or raw neutral
+diffusion formulas.
 
 A final-state input-closure cross-check reconstructs `Dnn`, `Vh`, and `eta_h`
 from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares those
