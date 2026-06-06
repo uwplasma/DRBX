@@ -858,6 +858,9 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         key=_accepted_trace_field_ranking_key,
         reverse=True,
     )
+    neutral_diffusion_ladder_register = _build_neutral_diffusion_ladder_register(
+        field_errors
+    )
     parallel_viscosity_input_register = (
         _build_parallel_viscosity_input_register(field_errors)
     )
@@ -874,6 +877,7 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         "time_tolerance": float(time_tolerance),
         "fields": field_errors,
         "ranked_fields": ranked,
+        "neutral_diffusion_ladder_register": neutral_diffusion_ladder_register,
         "parallel_viscosity_input_register": parallel_viscosity_input_register,
         "matched_points": matched_points,
         "interpretation": (
@@ -885,6 +889,101 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
             "guard metrics because their guard reconstruction is part of the boundary "
             "parity question; derivative and source fields are ranked by active and "
             "target-adjacent cells while still reporting guard deltas separately."
+        ),
+    }
+
+
+def _build_neutral_diffusion_ladder_register(
+    field_errors: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    """Rank neutral diffusion-preparation stages when optional traces exist."""
+
+    diffusion_suffixes = (
+        "_raw",
+        "_flux_max",
+        "_flux_limited",
+        "_diffusion_limited",
+    )
+    final_diffusion_fields = sorted(
+        name
+        for name in field_errors
+        if name.startswith("Dnn") and not name.endswith(diffusion_suffixes)
+    )
+    entries: list[dict[str, object]] = []
+    for diffusion_field in final_diffusion_fields:
+        section = diffusion_field[len("Dnn") :]
+        ladder_fields = {
+            "temperature_limited": f"Tnlim{section}",
+            "log_pressure_limited": f"logPnlim{section}",
+            "grad_log_pressure_limited": f"grad_logPnlim{section}",
+            "raw_diffusion": f"Dnn{section}_raw",
+            "flux_limit_diffusion_max": f"Dnn{section}_flux_max",
+            "flux_limited_diffusion": f"Dnn{section}_flux_limited",
+            "diffusion_limited": f"Dnn{section}_diffusion_limited",
+            "boundary_applied_diffusion": diffusion_field,
+        }
+        ladder_errors = {
+            name: error
+            for name in ladder_fields.values()
+            if isinstance((error := field_errors.get(name)), dict)
+        }
+        missing_ladder_fields = [
+            name for name in ladder_fields.values() if name not in ladder_errors
+        ]
+        ranked_ladder_errors = sorted(
+            ladder_errors.values(),
+            key=_accepted_trace_field_ranking_key,
+            reverse=True,
+        )
+        entries.append(
+            {
+                "section": section,
+                "diffusion_field": diffusion_field,
+                "ladder_fields": ladder_fields,
+                "ladder_errors": ladder_errors,
+                "ranked_ladder_errors": ranked_ladder_errors,
+                "missing_ladder_fields": missing_ladder_fields,
+                "ladder_fields_present": not missing_ladder_fields,
+                "dominant_ladder_field": _dominant_trace_error_field(
+                    ladder_errors
+                ),
+                "max_ladder_active_delta": max(
+                    (
+                        float(error.get("max_active_delta", 0.0))
+                        for error in ladder_errors.values()
+                    ),
+                    default=0.0,
+                ),
+                "max_ladder_target_adjacent_delta": max(
+                    (
+                        float(error.get("max_target_adjacent_delta", 0.0))
+                        for error in ladder_errors.values()
+                    ),
+                    default=0.0,
+                ),
+                "diagnosis": (
+                    "diffusion_ladder_check_available"
+                    if not missing_ladder_fields
+                    else "reference_diffusion_ladder_trace_missing"
+                ),
+            }
+        )
+    return {
+        "description": (
+            "Ranks the optional accepted-step neutral diffusion-preparation "
+            "ladder. A dominant raw-diffusion drift points at temperature, "
+            "collision, or neutral-lmax preparation before flux limiting; a "
+            "dominant flux-cap or limited-diffusion drift points at limiter "
+            "sequencing; a dominant boundary-applied diffusion drift points at "
+            "target or guard-cell boundary application."
+        ),
+        "entries": entries,
+        "missing_reference_ladder_fields": sorted(
+            {
+                missing
+                for entry in entries
+                for missing in entry["missing_ladder_fields"]
+            }
         ),
     }
 

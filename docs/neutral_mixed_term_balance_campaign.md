@@ -142,14 +142,15 @@ The native trace now also writes the full neutral diffusion-coefficient
 preparation ladder: `Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`,
 `Dnnh_flux_max`, `Dnnh_flux_limited`, and `Dnnh_diffusion_limited`, followed by
 the existing boundary-applied final `Dnnh`. Those fields are diagnostic-only
-and do not change the production neutral-mixed solve. Once the reference
-accepted-step monitor emits the same optional ladder, the current `Dnnh`
-offender can be assigned to temperature/pressure flooring, pressure-gradient
-magnitude, flux limiting, diffusion limiting, or boundary application rather
-than only to aggregate diffusion-coefficient drift.
-The comparator ignores those fields until the reference JSONL contains the
-same payloads, so the addition is backward-compatible with older reference
-traces. When a reference executable with the accepted-step monitor patch is
+and do not change the production neutral-mixed solve. The reference
+accepted-step monitor patch now emits the same optional ladder, so the next
+patched-reference rerun can assign the current `Dnnh` offender to
+temperature/pressure flooring, pressure-gradient magnitude, flux limiting,
+diffusion limiting, or boundary application rather than only to aggregate
+diffusion-coefficient drift.
+The comparator ignores those fields when an older reference JSONL does not
+contain the same payloads, so the addition is backward-compatible with older
+reference traces. When a reference executable with the accepted-step monitor patch is
 available, write the matching reference JSONL with:
 
 ```bash
@@ -158,6 +159,17 @@ PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
   --workdir /tmp/neutral_mixed_reference_trace \
   --trace-out /tmp/neutral_mixed_reference_trace/accepted_steps.jsonl
 ```
+
+The current live ladder rerun uses a contextual reference patch with deep-copy
+snapshots for `Dnn` before and after each limiter stage. It produced `148`
+matched accepted-step records and no missing ladder fields. The resulting
+`neutral_diffusion_ladder_register` ranks `Dnnh_flux_max` as the dominant
+target-band ladder mismatch (`5.27e-3`), followed by final `Dnnh`
+(`4.46e-3`). The raw diffusion mismatch is `6.07e-4`, which rules out the
+thermal-speed and neutral-lmax raw coefficient as the leading offender. The
+remaining target should therefore be the flux-limit cap and its near-target
+gradient/boundary sequencing, with state-history drift still tracked separately
+by the accepted-step state-input register.
 
 If `--hermes-binary` is not supplied, this command now builds a cached clean
 patched reference worktree automatically before launching the trace run. That
@@ -180,20 +192,19 @@ guard/boundary sequencing differences; JAXDRB-side final-state artifacts alone
 do not isolate a unique safe native patch. The current reference-side monitor
 has been built and run on a clean disposable checkout and writes valid JSONL.
 The native accepted-step trace now writes the same state, RHS, and source field
-set and can now replay the reference accepted-step time grid. A local
+set and can replay the reference accepted-step time grid. A local
 reference-grid comparison of `neutral_mixed_one_step` matches `148/148`
-accepted points. With the timestamp mismatch removed and the reference trace
-now writing `Dnnh`, `Vh`, and `eta_h`, the highest matched-time input drift is
-`Dnnh` at about `4.46e-3` in the target/guard comparison, followed by `eta_h`
-at about `3.23e-3`. The next active/target source offender is
-`SNVh_parallel_viscosity` at about `5.35e-5`. Large
-RHS/source guard deltas remain reported but are not used to rank `ddt(*)` or
-`SNVh_*`, because those guard values are diagnostic-boundary semantics rather
-than active-domain source formulas. The next native parity patch should
-therefore target neutral-viscosity closure preparation or boundary sequencing
-under this matched-time diagnostic instead of changing the already-closed
-pressure-gradient formula or the parallel-viscosity stencil before its inputs
-agree.
+accepted points. With timestamp mismatch removed and the reference trace
+writing `Dnnh`, `Vh`, `eta_h`, and the diffusion-preparation ladder, the largest
+remaining target-band closure drift is final `Dnnh` at about `4.46e-3`,
+followed by `eta_h` at about `3.23e-3`. The next active/target source offender
+is `SNVh_parallel_viscosity` at about `5.35e-5`. Large RHS/source guard deltas
+remain reported but are not used to rank `ddt(*)` or `SNVh_*`, because those
+guard values are diagnostic-boundary semantics rather than active-domain source
+formulas. The next native parity patch should therefore target the
+flux-limit-cap and near-target gradient/boundary sequencing under this
+matched-time diagnostic instead of changing the already-closed pressure-gradient
+formula or the parallel-viscosity stencil before its inputs agree.
 The accepted-step comparator now also writes
 `parallel_viscosity_input_register`. For each `SNV*_parallel_viscosity`
 offender this register reports the matched `V*` and `eta_*` input-field
@@ -212,12 +223,12 @@ state/history sequencing, or target-boundary reconstruction before the
 viscosity stencil is changed.
 On the current `148/148` matched accepted-step trace, `Nh` is the dominant
 state-input drift, but the `eta_h` target-adjacent drift is about `99` times
-larger than the largest state-input drift. The same rerun now includes `Dnnh`
-and shows that the diffusion-coefficient target-adjacent drift is about
-`4.46e-3`, larger than the `eta_h` drift of about `3.23e-3`. That separates the
-offender from a directly state-sized density, pressure, or momentum mismatch
-and points first at accepted-step `Dnn` preparation or target-boundary
-sequencing before viscosity is formed.
+larger than the largest state-input drift. The diffusion ladder now shows that
+raw `Dnnh` differs by only `6.07e-4`, while the flux-limit cap differs by
+`5.27e-3` and the final boundary-applied `Dnnh` differs by `4.46e-3`. That
+separates the offender from a directly state-sized density, pressure, momentum,
+or raw-diffusion mismatch and points first at accepted-step flux-cap and
+near-target boundary sequencing before viscosity is formed.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

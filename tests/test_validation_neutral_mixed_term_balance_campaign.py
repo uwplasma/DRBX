@@ -539,10 +539,24 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
     assert 'json_field_payload(get<Field3D>(species_state["momentum"]))' in text
     assert "json_field_payload(getNonFinal<Field3D>" in text
     assert "std::string json_optional_trace_field(" in text
+    assert '"Tnlim" + species,' in text
+    assert '"logPnlim" + species,' in text
+    assert '"grad_logPnlim" + species,' in text
+    assert '"Dnn" + species + "_raw",' in text
+    assert '"Dnn" + species + "_flux_max",' in text
+    assert '"Dnn" + species + "_flux_limited",' in text
+    assert '"Dnn" + species + "_diffusion_limited",' in text
     assert '"Dnn" + species,' in text
     assert '"V" + species,' in text
     assert '"eta_" + species,' in text
+    assert "Field3D Tnlim, grad_logPnlim;" in text
+    assert "Field3D Dnn_raw, Dnn_flux_max;" in text
+    assert "Dnn_raw = copy(Dnn);" in text
+    assert "Dnn_flux_max =" in text
+    assert "Dnn_flux_limited = copy(Dnn);" in text
+    assert "Dnn_diffusion_limited = copy(Dnn);" in text
     assert 'state[std::string("eta_") + name]' in text
+    assert 'state[std::string("grad_logPnlim") + name]' in text
     assert '      "N" + species,' not in text
     assert '      "P" + species,' not in text
     assert '      "NV" + species,' not in text
@@ -1407,6 +1421,13 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
                     "Nh": field(0.0, 0.0),
                     "Ph": field(0.0, 0.0),
                     "NVh": field(0.0, 0.0),
+                    "Tnlimh": field(0.0, 0.0),
+                    "logPnlimh": field(0.0, 0.0),
+                    "grad_logPnlimh": field(0.0, 0.0),
+                    "Dnnh_raw": field(0.0, 0.0),
+                    "Dnnh_flux_max": field(0.0, 0.0),
+                    "Dnnh_flux_limited": field(0.0, 0.0),
+                    "Dnnh_diffusion_limited": field(0.0, 0.0),
                     "Dnnh": field(0.0, 0.0),
                     "Vh": field(0.0, 0.0),
                     "eta_h": field(0.0, 0.0),
@@ -1426,6 +1447,13 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
                     "Nh": field(0.1, 0.4),
                     "Ph": field(0.2, 0.1),
                     "NVh": field(0.3, 0.3),
+                    "Tnlimh": field(0.01, 0.01),
+                    "logPnlimh": field(0.02, 0.02),
+                    "grad_logPnlimh": field(0.03, 0.03),
+                    "Dnnh_raw": field(4.0, 4.0),
+                    "Dnnh_flux_max": field(0.6, 0.7),
+                    "Dnnh_flux_limited": field(0.15, 0.2),
+                    "Dnnh_diffusion_limited": field(0.1, 0.1),
                     "Dnnh": field(0.05, 0.15),
                     "Vh": field(0.25, 0.5),
                     "eta_h": field(0.1, 0.2),
@@ -1480,6 +1508,16 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
     assert entry["diffusion_to_state_active_ratio"] == pytest.approx(1.0 / 6.0)
     assert register["missing_reference_state_input_fields"] == []
     assert register["missing_reference_closure_input_fields"] == []
+    ladder_register = report["neutral_diffusion_ladder_register"]
+    assert ladder_register["missing_reference_ladder_fields"] == []
+    ladder_entry = ladder_register["entries"][0]
+    assert ladder_entry["section"] == "h"
+    assert ladder_entry["diffusion_field"] == "Dnnh"
+    assert ladder_entry["ladder_fields_present"] is True
+    assert ladder_entry["diagnosis"] == "diffusion_ladder_check_available"
+    assert ladder_entry["dominant_ladder_field"] == "Dnnh_raw"
+    assert ladder_entry["max_ladder_target_adjacent_delta"] == pytest.approx(4.0)
+    assert ladder_entry["ranked_ladder_errors"][0]["field"] == "Dnnh_raw"
 
 
 def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inputs(
@@ -1540,6 +1578,7 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inpu
     assert entry["viscosity_to_state_target_ratio"] is None
     assert entry["diffusion_to_state_target_ratio"] is None
     assert entry["diagnosis"] == "reference_input_trace_missing"
+    assert report["neutral_diffusion_ladder_register"]["entries"] == []
 
 
 def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() -> None:

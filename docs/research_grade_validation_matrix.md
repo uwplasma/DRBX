@@ -97,22 +97,22 @@ traces now share the 10 required fields (`Nh`, `Ph`, `NVh`, `ddt(Nh)`,
 `SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity`), and the native
 trace can replay the reference adaptive accepted-step time grid. A local
 reference-grid comparison of `neutral_mixed_one_step` currently matches
-`148/148` accepted points. With timestamps aligned and the optional `Vh` and
-`Dnnh`, `Vh`, and `eta_h` input traces present, the leading target-adjacent
-offender is now `Dnnh` diffusion-coefficient drift rather than a missing
-pressure-gradient source formula.
+`148/148` accepted points. With timestamps aligned and optional `Dnnh`, `Vh`,
+`eta_h`, and `Dnnh` ladder traces present, the leading target-adjacent offender
+is now the `Dnnh_flux_max` flux-limit cap rather than a missing
+pressure-gradient source formula or raw neutral-diffusion coefficient.
 The final-state input-closure diagnostic now reconstructs `Dnn`, `Vh`, and
 `eta_h` from a reference dump and matches those reference diagnostics to
-roundoff. The accepted-step comparator also ranks `Dnn`, `Nh`, `Ph`, and `NVh`
-state-input errors and reports that the current `Dnnh` target-adjacent drift is
-about `4.46e-3`, larger than the `eta_h` drift of about `3.23e-3`; `eta_h` is
-still about `99` times larger than the largest state-input drift. The
-parallel-viscosity source therefore remains an accepted-step diffusion-closure
-or boundary-sequencing offender rather than a formula-level closure mismatch.
+roundoff. The accepted-step comparator reports raw `Dnnh` target drift of
+`6.07e-4`, `Dnnh_flux_max` target drift of `5.27e-3`, final `Dnnh` target drift
+of `4.46e-3`, and `eta_h` target drift of about `3.23e-3`; `eta_h` is still
+about `99` times larger than the largest state-input drift. The
+parallel-viscosity source therefore remains an accepted-step flux-cap or
+boundary-sequencing offender rather than a formula-level closure mismatch.
 
 | Open lane | Current evidence | Command surface | Publication-ready output |
 | --- | --- | --- | --- |
-| `neutral_mixed_eta_h_boundary` | Clean patched reference checkout writes valid JSONL; native/reference traces share the 10 required state, RHS, and source fields; native replay on the reference accepted-step grid matches `148/148` points. Native and reference traces both emit `Dnnh`, `Vh`, and `eta_h`; the current comparator ranks `Dnnh` input drift as the leading target/guard offender (`4.46e-3`), followed by `eta_h` (`3.23e-3`) and `SNVh_parallel_viscosity` (`5.35e-5`). The final-state input-closure report matches reference `Dnn`, `Vh`, and `eta_h` diagnostics to roundoff, and the accepted-step state-driver register shows `eta_h` target drift is about `99x` larger than the dominant state-input drift. | `PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps --reference-trace-jsonl ...`; `PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps ...`; `PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces ...`; `build_neutral_mixed_reference_input_closure_report(...)`. | Target-band accepted-step figure and JSON report comparing `Nh`, `Ph`, `NVh`, `Dnnh`, `Vh`, `eta_h`, `ddt(*)`, `SNVh`, and `SNVh_*` on the reference time grid with active/guard metrics separated, plus final-state input-closure JSON for `Dnn`, `Vh`, and `eta_h`. |
+| `neutral_mixed_eta_h_boundary` | Clean patched reference checkout writes valid JSONL; native/reference traces share the 10 required state, RHS, and source fields; native replay on the reference accepted-step grid matches `148/148` points. Native and reference traces both emit `Dnnh`, `Vh`, `eta_h`, and the `Dnnh` preparation ladder. The current comparator ranks `Dnnh_flux_max` as the leading target-band ladder offender (`5.27e-3`), followed by final `Dnnh` (`4.46e-3`), `eta_h` (`3.23e-3`), and `SNVh_parallel_viscosity` (`5.35e-5`); raw `Dnnh` is smaller (`6.07e-4`). The final-state input-closure report matches reference `Dnn`, `Vh`, and `eta_h` diagnostics to roundoff, and the accepted-step state-driver register shows `eta_h` target drift is about `99x` larger than the dominant state-input drift. | `PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps --reference-trace-jsonl ...`; `PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps ...`; `PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces ...`; `build_neutral_mixed_reference_input_closure_report(...)`. | Target-band accepted-step figure and JSON report comparing `Nh`, `Ph`, `NVh`, `Dnnh`, `Dnnh_flux_max`, `Vh`, `eta_h`, `ddt(*)`, `SNVh`, and `SNVh_*` on the reference time grid with active/guard metrics separated, plus final-state input-closure JSON for `Dnn`, `Vh`, and `eta_h`. |
 | `recycling_fixed_bdf2_jax_promotion` | Fixed-layout RHS diagnostics, JAX-linearized action counts, packed feedback-integral evolution, and lightweight promotion gates exist; full output-window promotion and live-reference profiling remain open. | `PYTHONPATH=src python scripts/run_recycling_jvp_promotion_gate.py`; `PYTHONPATH=src python scripts/profile_recycling_jax_linearized_gate.py --case dthe`. | Promotion summary JSON, mode-compare JSON, cProfile/RSS/JAX-trace bundle, and a reviewer-facing parity/runtime figure for the fixed-layout recycling lane. |
 | `tokamak_target_profile_balance` | Direct-tokamak recycling observable campaign reports target density, target momentum-flux proxies, neutral buildup, and target electron-temperature proxy differences; upper-target near-zero momentum proxies remain in the offender register. | `PYTHONPATH=src python examples/engineering/tokamak_recycling_observable_campaign_demo.py`. | Target/neutral profile figure, JSON/NPZ artifact bundle, total target-power and source/radiation balance tables, and restart/provenance checks from native analysis utilities. |
 | `vmec_extender_fci_geometry_promotion` | Native imported-field, selected-field, reduced FCI, metric-MMS, sheath/recycling, vorticity, and PyTree RHS gates exist, and the VMEC-extender synthetic import example is clean-clone runnable. Full non-axisymmetric imported-field turbulence claims still need independent connection-length validation and imported-grid/timestep sensitivity. | `PYTHONPATH=src python examples/geometry-3D/stellarator-fci/validation_campaign_demo.py`; `.venv/bin/pytest -q tests/test_geometry_fci_maps.py tests/test_validation_stellarator_fci_campaigns.py`; `PYTHONPATH=src python examples/geometry-3D/vmec-extender/imported_field_demo.py`. | Poincare/connection-length/refinement reports, conservative-operator MMS figure, reduced-turbulence diagnostics, clean-clone VMEC-extender smoke artifacts, and polished non-axisymmetric movie artifacts. |

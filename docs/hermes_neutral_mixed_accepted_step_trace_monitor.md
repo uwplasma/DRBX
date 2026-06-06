@@ -79,16 +79,18 @@ SNVh_perpendicular_viscosity
 ```
 
 When the reference `outputVars()` exposes them, the monitor also writes optional
-`Dnnh`, `Vh`, and `eta_h` diagnostic-input fields. The native accepted-step
-trace also writes a diagnostic ladder for the neutral diffusion coefficient:
-`Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`, `Dnnh_flux_max`,
-`Dnnh_flux_limited`, and `Dnnh_diffusion_limited`. These extra fields are not
-part of the required reference schema, but they are the next reference-monitor
-extension needed to split the accepted-step `Dnnh` drift into temperature
-flooring, pressure-gradient, flux-limiter, diffusion-limit, and boundary
-application pieces. The current patch reads `Dnnh` and `Vh` from existing
-diagnostics and exposes `eta_h` from the neutral viscosity field before the
-monitor checks for optional fields.
+`Dnnh`, `Vh`, and `eta_h` diagnostic-input fields. The accepted-step monitor
+patch now extends the reference neutral-mixed component with the same
+diagnostic ladder that the native trace writes for the neutral diffusion
+coefficient: `Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`,
+`Dnnh_flux_max`, `Dnnh_flux_limited`, and `Dnnh_diffusion_limited`. These
+fields are still optional rather than part of the required reference schema,
+but a patched reference rerun can now split the accepted-step `Dnnh` drift into
+temperature flooring, pressure-gradient magnitude, flux limiting, diffusion
+limiting, and final boundary application. The patch reads `Dnnh` and `Vh` from
+diagnostics, exposes `eta_h` from the neutral viscosity field, and exposes the
+pre-boundary diffusion-preparation ladder before the monitor checks for
+optional fields.
 
 Each field payload should follow the same compact shape used by JAXDRB native
 accepted-step traces:
@@ -121,50 +123,35 @@ with `148` accepted CVODE records. The same clean auto-build path was rerun
 with the optional diagnostic-input fields enabled; the produced JSONL includes
 `Dnnh`, `Vh`, and `eta_h` alongside the required state, RHS, and `SNVh_*`
 source fields.
-Native accepted-step traces now emit the same 10 required fields as the
-reference trace and can replay the reference accepted time grid. A local
-matched-grid comparison now matches `148/148` accepted points. With the
-timestamp mismatch removed, the highest input drift is `Dnnh` at about
-`4.46e-3` in the target/guard comparison, followed by `eta_h` at about
-`3.23e-3`. The next active/target source-path offender is
-`SNVh_parallel_viscosity` at about `5.35e-5`. RHS/source guard
-metrics are still large and should be treated as diagnostic-boundary semantics
-until a guard-specific reference definition is chosen. The next implementation
-step is therefore to fix or further localize `Dnn` diffusion-coefficient
-preparation, neutral-viscosity closure preparation, or target-boundary
-sequencing under the matched-time accepted-step diagnostic before changing
-broader BDF sequencing or the parallel-viscosity stencil.
-Native traces now also emit optional `Dnnh`, `Vh`, and `eta_h` diagnostic-input fields.
-The reference monitor patch now writes the same payloads when those diagnostics
-are exposed by `outputVars()`, so the remaining parallel-viscosity difference
-can be split into diffusion, velocity, viscosity input drift and the
-`Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil itself. The comparator
-summarizes this split in `parallel_viscosity_input_register`: missing `Vh` or
-`eta_h` marks the trace as insufficient for direct source-input diagnosis, while
-missing `Dnnh` marks the trace as insufficient for closure-input diagnosis.
-Present input fields quantify whether the leading `SNVh_parallel_viscosity`
-offender is driven by `Dnnh`/`Vh`/`eta_h` drift or by the parallel-diffusion
-stencil and boundary treatment. The same register now ranks `Nh`, `Ph`, and
-`NVh` state-input errors, ranks the `Dnnh`/`Vh`/`eta_h` closure-input fields,
-and reports both `Dnnh`/state and `eta_h`/state amplification ratios. In the
-current rerun, the register is available and points first at `Dnnh` drift:
-`Dnnh` has a target-adjacent maximum drift of about `4.46e-3`, larger than the
-`eta_h` drift of about `3.23e-3`, while `eta_h` remains about `99` times larger
-than the largest state-input drift.
-The native trace now additionally emits the `Dnnh` preparation ladder
-(`Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`, `Dnnh_flux_max`,
-`Dnnh_flux_limited`, and `Dnnh_diffusion_limited`). The live reference patch
-still needs the matching optional fields before this ladder can be compared
-accepted step by accepted step.
+Native accepted-step traces emit the same 10 required fields as the reference
+trace and can replay the reference accepted time grid. A local matched-grid
+comparison matches `148/148` accepted points. With timestamp mismatch removed,
+the comparator can now separate state inputs, closure inputs, and source terms.
+The `parallel_viscosity_input_register` shows final `Dnnh` as the dominant
+closure-input drift (`4.46e-3` target-adjacent), followed by `eta_h`
+(`3.23e-3`), while `SNVh_parallel_viscosity` is `5.35e-5` in the active/target
+source comparison.
 
-A final-state input-closure cross-check now reconstructs `Dnn`, `Vh`, and
-`eta_h` from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares
-those arrays with the reference `BOUT.dmp.0.nc` diagnostics. This closes the
-neutral diffusion, velocity, and viscosity input formulas to roundoff on the
-current reference final state, including target-adjacent and guard cells. The
-remaining accepted-step offender should therefore be treated as a `Dnn`
-preparation or boundary-sequencing issue until a matched accepted-step dump
-shows otherwise.
+Native and reference traces now also emit the `Dnnh` preparation ladder
+(`Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`, `Dnnh_flux_max`,
+`Dnnh_flux_limited`, and `Dnnh_diffusion_limited`). The contextual reference
+patch uses BOUT++ `copy(Dnn)` snapshots for the pre-limiter and post-limiter
+diffusion fields; ordinary `Field3D` assignment shares field storage and would
+turn the raw-diffusion diagnostic into a view of the later limited field. A live
+patched-reference rerun with this deep-copy patch produced `148` accepted-step
+records with no missing ladder fields. The matched native/reference comparison
+identifies `Dnnh_flux_max` as the dominant target-band ladder field (`5.27e-3`),
+followed by the flux-limited, diffusion-limited, and final boundary-applied
+`Dnnh` fields (`4.46e-3`). The raw diffusion mismatch is much smaller
+(`6.07e-4`), so the remaining accepted-step offender is in the flux-limit cap
+and near-target state/boundary sequencing rather than raw neutral diffusion
+preparation.
+
+A final-state input-closure cross-check reconstructs `Dnn`, `Vh`, and `eta_h`
+from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares those
+arrays with the reference `BOUT.dmp.0.nc` diagnostics. This closes the neutral
+diffusion, velocity, and viscosity input formulas to roundoff on the current
+reference final state, including target-adjacent and guard cells.
 
 ## Validation Sequence
 
