@@ -1040,6 +1040,10 @@ def _build_parallel_viscosity_input_register(
             ),
             default=0.0,
         )
+        max_input_target_pointwise_delta = max(
+            (_trace_target_pointwise_delta(error) for error in input_errors),
+            default=0.0,
+        )
         max_closure_input_active_delta = max(
             (
                 float(error.get("max_active_delta", 0.0))
@@ -1050,6 +1054,13 @@ def _build_parallel_viscosity_input_register(
         max_closure_input_target_delta = max(
             (
                 float(error.get("max_target_adjacent_delta", 0.0))
+                for error in closure_input_errors.values()
+            ),
+            default=0.0,
+        )
+        max_closure_input_target_pointwise_delta = max(
+            (
+                _trace_target_pointwise_delta(error)
                 for error in closure_input_errors.values()
             ),
             default=0.0,
@@ -1066,6 +1077,10 @@ def _build_parallel_viscosity_input_register(
                 float(error.get("max_target_adjacent_delta", 0.0))
                 for error in state_input_errors
             ),
+            default=0.0,
+        )
+        max_state_input_target_pointwise_delta = max(
+            (_trace_target_pointwise_delta(error) for error in state_input_errors),
             default=0.0,
         )
         missing_inputs = [
@@ -1092,6 +1107,11 @@ def _build_parallel_viscosity_input_register(
             if isinstance(viscosity_error, dict)
             else 0.0
         )
+        viscosity_target_pointwise_delta = (
+            _trace_target_pointwise_delta(viscosity_error)
+            if isinstance(viscosity_error, dict)
+            else 0.0
+        )
         viscosity_active_delta = (
             float(viscosity_error.get("max_active_delta", 0.0))
             if isinstance(viscosity_error, dict)
@@ -1099,6 +1119,11 @@ def _build_parallel_viscosity_input_register(
         )
         diffusion_target_delta = (
             float(diffusion_error.get("max_target_adjacent_delta", 0.0))
+            if isinstance(diffusion_error, dict)
+            else 0.0
+        )
+        diffusion_target_pointwise_delta = (
+            _trace_target_pointwise_delta(diffusion_error)
             if isinstance(diffusion_error, dict)
             else 0.0
         )
@@ -1117,6 +1142,9 @@ def _build_parallel_viscosity_input_register(
                 "source_max_target_adjacent_delta": float(
                     source_error.get("max_target_adjacent_delta", 0.0)
                 ),
+                "source_max_target_adjacent_pointwise_delta": (
+                    _trace_target_pointwise_delta(source_error)
+                ),
                 "diffusion_field": diffusion_field,
                 "diffusion_error": diffusion_error,
                 "velocity_field": velocity_field,
@@ -1129,12 +1157,18 @@ def _build_parallel_viscosity_input_register(
                 "closure_input_fields_present": not missing_closure_inputs,
                 "max_input_active_delta": max_input_active_delta,
                 "max_input_target_adjacent_delta": max_input_target_delta,
+                "max_input_target_adjacent_pointwise_delta": (
+                    max_input_target_pointwise_delta
+                ),
                 "closure_input_errors": closure_input_errors,
                 "dominant_closure_input_field": _dominant_trace_error_field(
                     closure_input_errors
                 ),
                 "max_closure_input_active_delta": max_closure_input_active_delta,
                 "max_closure_input_target_adjacent_delta": max_closure_input_target_delta,
+                "max_closure_input_target_adjacent_pointwise_delta": (
+                    max_closure_input_target_pointwise_delta
+                ),
                 "state_input_fields": list(state_fields),
                 "state_input_errors": state_errors,
                 "missing_state_input_fields": missing_state_inputs,
@@ -1144,14 +1178,25 @@ def _build_parallel_viscosity_input_register(
                 ),
                 "max_state_input_active_delta": max_state_input_active_delta,
                 "max_state_input_target_adjacent_delta": max_state_input_target_delta,
+                "max_state_input_target_adjacent_pointwise_delta": (
+                    max_state_input_target_pointwise_delta
+                ),
                 "viscosity_to_state_target_ratio": _safe_ratio(
                     viscosity_target_delta, max_state_input_target_delta
+                ),
+                "viscosity_to_state_target_pointwise_ratio": _safe_ratio(
+                    viscosity_target_pointwise_delta,
+                    max_state_input_target_pointwise_delta,
                 ),
                 "viscosity_to_state_active_ratio": _safe_ratio(
                     viscosity_active_delta, max_state_input_active_delta
                 ),
                 "diffusion_to_state_target_ratio": _safe_ratio(
                     diffusion_target_delta, max_state_input_target_delta
+                ),
+                "diffusion_to_state_target_pointwise_ratio": _safe_ratio(
+                    diffusion_target_pointwise_delta,
+                    max_state_input_target_pointwise_delta,
                 ),
                 "diffusion_to_state_active_ratio": _safe_ratio(
                     diffusion_active_delta, max_state_input_active_delta
@@ -1165,6 +1210,7 @@ def _build_parallel_viscosity_input_register(
         )
     entries.sort(
         key=lambda entry: (
+            float(entry["source_max_target_adjacent_pointwise_delta"]),
             float(entry["source_max_target_adjacent_delta"]),
             float(entry["source_max_active_delta"]),
         ),
@@ -1177,9 +1223,11 @@ def _build_parallel_viscosity_input_register(
             "inputs Dnn, V, and eta. When direct inputs are present, a small "
             "input delta and large source delta points at the stencil/boundary "
             "operator; a large closure-input delta points first at state/history "
-            "or closure drift. State-field ratios quantify whether Dnn or eta "
-            "drift is directly state-sized or amplified by accepted-step closure "
-            "or boundary sequencing."
+            "or closure drift. Pointwise target ratios use flattened "
+            "target-adjacent payloads when available; legacy target ratios remain "
+            "for older max/rms-only traces. State-field ratios quantify whether "
+            "Dnn or eta drift is directly state-sized or amplified by accepted-step "
+            "closure or boundary sequencing."
         ),
         "entries": entries,
         "missing_reference_input_fields": sorted(
@@ -1214,10 +1262,20 @@ def _dominant_trace_error_field(
     return max(
         errors,
         key=lambda name: (
+            _trace_target_pointwise_delta(errors[name]),
             float(errors[name].get("max_target_adjacent_delta", 0.0)),
             float(errors[name].get("max_active_delta", 0.0)),
             float(errors[name].get("max_guard_delta", 0.0)),
         ),
+    )
+
+
+def _trace_target_pointwise_delta(error: dict[str, object]) -> float:
+    return float(
+        error.get(
+            "max_target_adjacent_pointwise_delta",
+            error.get("max_target_adjacent_delta", 0.0),
+        )
     )
 
 

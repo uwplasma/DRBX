@@ -1505,19 +1505,29 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
     assert set(entry["closure_input_errors"]) == {"Dnnh", "Vh", "eta_h"}
     assert entry["dominant_closure_input_field"] == "Vh"
     assert entry["max_closure_input_target_adjacent_delta"] == pytest.approx(0.5)
+    assert entry["max_closure_input_target_adjacent_pointwise_delta"] == pytest.approx(
+        0.5
+    )
     assert entry["max_closure_input_active_delta"] == pytest.approx(0.25)
     assert entry["source_max_target_adjacent_delta"] == pytest.approx(5.0)
+    assert entry["source_max_target_adjacent_pointwise_delta"] == pytest.approx(5.0)
     assert entry["max_input_target_adjacent_delta"] == pytest.approx(0.5)
+    assert entry["max_input_target_adjacent_pointwise_delta"] == pytest.approx(0.5)
     assert entry["max_input_active_delta"] == pytest.approx(0.25)
     assert entry["state_input_fields"] == ["Nh", "Ph", "NVh"]
     assert entry["missing_state_input_fields"] == []
     assert entry["state_input_fields_present"] is True
     assert entry["dominant_state_input_field"] == "Nh"
     assert entry["max_state_input_target_adjacent_delta"] == pytest.approx(0.4)
+    assert entry["max_state_input_target_adjacent_pointwise_delta"] == pytest.approx(
+        0.4
+    )
     assert entry["max_state_input_active_delta"] == pytest.approx(0.3)
     assert entry["viscosity_to_state_target_ratio"] == pytest.approx(0.5)
+    assert entry["viscosity_to_state_target_pointwise_ratio"] == pytest.approx(0.5)
     assert entry["viscosity_to_state_active_ratio"] == pytest.approx(1.0 / 3.0)
     assert entry["diffusion_to_state_target_ratio"] == pytest.approx(0.375)
+    assert entry["diffusion_to_state_target_pointwise_ratio"] == pytest.approx(0.375)
     assert entry["diffusion_to_state_active_ratio"] == pytest.approx(1.0 / 6.0)
     assert register["missing_reference_state_input_fields"] == []
     assert register["missing_reference_closure_input_fields"] == []

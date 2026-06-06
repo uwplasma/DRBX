@@ -226,11 +226,12 @@ owner is accepted-step neutral diffusion-coefficient preparation,
 state/history sequencing, or target-boundary reconstruction before the
 viscosity stencil is changed.
 On the current `148/148` matched accepted-step trace, `Nh` is the dominant
-state-input drift, but the `eta_h` target-adjacent drift is about `99` times
-larger than the largest state-input drift. The diffusion ladder now shows that
-raw `Dnnh` differs by only `6.07e-4`, while the flux-limit cap differs by
-`5.27e-3` and the final boundary-applied `Dnnh` differs by `4.46e-3` in the
-actual pointwise target-cell comparison. That
+state-input drift, but the `eta_h` pointwise target-adjacent drift is about
+`49` times larger than the largest pointwise state-input drift (`99` times by
+the legacy zone metric). The diffusion ladder now shows that raw `Dnnh` differs
+by only `6.07e-4`, while the flux-limit cap differs by `5.27e-3` and the final
+boundary-applied `Dnnh` differs by `4.46e-3` in the actual pointwise target-cell
+comparison. That
 separates the offender from a directly state-sized density, pressure, momentum,
 or raw-diffusion mismatch and points first at accepted-step flux-cap and
 near-target boundary sequencing before viscosity is formed.

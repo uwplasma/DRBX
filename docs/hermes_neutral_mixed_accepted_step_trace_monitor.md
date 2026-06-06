@@ -151,8 +151,8 @@ comparison matches `148/148` accepted points. With timestamp mismatch removed,
 the comparator can now separate state inputs, closure inputs, and source terms.
 The `parallel_viscosity_input_register` shows final `Dnnh` as the dominant
 closure-input drift (`4.46e-3` target-adjacent), followed by `eta_h`
-(`3.23e-3`), while `SNVh_parallel_viscosity` is `5.35e-5` in the active/target
-source comparison.
+(`3.23e-3`), while `SNVh_parallel_viscosity` is `1.29e-4` pointwise
+(`5.35e-5` by the legacy zone-summary active/target comparison).
 
 Native and reference traces now also emit the `Dnnh` preparation ladder
 (`Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`, `Dnnh_flux_max`,
