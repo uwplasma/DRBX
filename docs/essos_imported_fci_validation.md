@@ -30,7 +30,11 @@ PYTHONPATH=src .venv/bin/python \
 ```
 
 Use `--dry-run` to confirm the resolved artifact paths and grid settings
-without importing ESSOS or writing files. Pass `--coil-json-path`,
+without importing ESSOS. Add `--dry-run-artifacts` to write a self-contained
+JSON contract under the resolved artifact root; that contract records the live
+artifact paths, grid/refinement settings, required report fields, required NPZ
+array keys, and the connection-length/refinement/consumed-map diagnostic schema
+without reading the coil JSON or VMEC wout file. Pass `--coil-json-path`,
 `--vmec-wout-path`, or `--essos-root` when the external checkout is not located
 at the default `~/local/ESSOS`. Set `--map-source` to one of three imported-map
 semantics:
@@ -106,6 +110,12 @@ perpendicular metric diffusion, ionisation, recombination, and charge exchange
 on the same imported maps. The report records endpoint fractions, magnetic
 field modulation, connection-length statistics, target heat-load contrast,
 particle balance residuals, current residuals, and neutral momentum balance.
+The imported-map diagnostics now separately report connection-length finite and
+nonnegative fractions, radial connection-length means, grid/refinement metadata,
+map-coordinate displacement proxies, and a consumed-map check requiring the
+sheath endpoint count to match the forward-plus-backward FCI boundary masks.
+For `vmec` maps this consumed-map count must be zero; for `coil` and `hybrid`
+maps it must be nonzero and exactly consumed by the sheath/recycling masks.
 
 ## Current Artifacts
 

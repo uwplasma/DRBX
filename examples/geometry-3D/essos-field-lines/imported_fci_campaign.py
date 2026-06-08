@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Sequence
 
 from jax_drb.runtime import configure_jax_runtime
-from jax_drb.validation import create_essos_imported_fci_campaign_package
+from jax_drb.validation.essos_imported_fci_campaign import (
+    create_essos_imported_fci_campaign_package,
+    create_essos_imported_fci_dry_run_artifact_package,
+)
 
 DEFAULT_OUTPUT_ROOTS = {
     "coil": Path("docs/data/essos_imported_fci_artifacts"),
@@ -84,11 +87,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the resolved runs without importing ESSOS or writing artifacts.",
+        help="Print the resolved runs without importing ESSOS; writes only if --dry-run-artifacts is also set.",
+    )
+    parser.add_argument(
+        "--dry-run-artifacts",
+        action="store_true",
+        help="With --dry-run, write a self-contained JSON contract under each resolved artifact root.",
     )
     args = parser.parse_args(argv)
     if args.all_map_sources and (args.output_root is not None or args.case_label is not None):
         parser.error("--all-map-sources uses source-specific default output roots and case labels")
+    if args.dry_run_artifacts and not args.dry_run:
+        parser.error("--dry-run-artifacts requires --dry-run")
     return args
 
 
@@ -131,6 +141,27 @@ def _print_dry_run(settings: ImportedFciRunSettings) -> None:
     )
 
 
+def write_dry_run_artifact(settings: ImportedFciRunSettings) -> None:
+    artifacts = create_essos_imported_fci_dry_run_artifact_package(
+        output_root=settings.output_root,
+        case_label=settings.case_label,
+        coil_json_path=settings.coil_json_path,
+        vmec_wout_path=settings.vmec_wout_path,
+        essos_root=settings.essos_root,
+        map_source=settings.map_source,
+        nx=settings.nx,
+        ny=settings.ny,
+        nz=settings.nz,
+        rho_min=settings.rho_min,
+        rho_max=settings.rho_max,
+        maxtime=settings.maxtime,
+        times_to_trace=settings.times_to_trace,
+        trace_tolerance=settings.trace_tolerance,
+        precision=settings.precision,
+    )
+    print(f"wrote dry-run contract: {artifacts.contract_json_path}")
+
+
 def run_campaign(settings: ImportedFciRunSettings) -> None:
     configure_jax_runtime(precision=settings.precision)
     artifacts = create_essos_imported_fci_campaign_package(
@@ -161,6 +192,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     for item in settings:
         if args.dry_run:
             _print_dry_run(item)
+            if args.dry_run_artifacts:
+                write_dry_run_artifact(item)
         else:
             run_campaign(item)
     return 0
