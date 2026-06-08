@@ -348,6 +348,12 @@ def _build_parser() -> argparse.ArgumentParser:
     neutral_reference_trace_parser.add_argument("--trace-out", type=Path, default=None)
     neutral_reference_trace_parser.add_argument("--species", default="h")
     neutral_reference_trace_parser.add_argument(
+        "--cvode-max-order",
+        type=int,
+        default=None,
+        help="Optional solver:cvode_max_order for constrained reference campaigns, for example 2 to match native BDF2 replay.",
+    )
+    neutral_reference_trace_parser.add_argument(
         "--timeout-seconds", type=float, default=120.0
     )
     neutral_reference_trace_parser.set_defaults(
@@ -365,6 +371,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     neutral_trace_compare_parser.add_argument(
         "--time-tolerance", type=float, default=1.0e-8
+    )
+    neutral_trace_compare_parser.add_argument(
+        "--reference-cvode-max-order",
+        type=int,
+        default=None,
+        help="Configured solver:cvode_max_order used for the reference JSONL, recorded in the parity JSON.",
     )
     neutral_trace_compare_parser.add_argument("--json-out", type=Path, required=True)
     neutral_trace_compare_parser.set_defaults(
@@ -1237,6 +1249,12 @@ def _trace_neutral_mixed_reference_accepted_steps_command(
             "trace-neutral-mixed-reference-accepted-steps: --timeout-seconds must be positive."
         )
         return 1
+    cvode_max_order = getattr(args, "cvode_max_order", None)
+    if cvode_max_order is not None and int(cvode_max_order) <= 0:
+        print(
+            "trace-neutral-mixed-reference-accepted-steps: --cvode-max-order must be positive."
+        )
+        return 1
     path = run_neutral_mixed_hermes_accepted_step_trace(
         reference_root=args.reference_root,
         workdir=args.workdir,
@@ -1244,8 +1262,11 @@ def _trace_neutral_mixed_reference_accepted_steps_command(
         trace_jsonl_path=args.trace_out,
         timeout_seconds=float(args.timeout_seconds),
         species=args.species,
+        cvode_max_order=cvode_max_order,
     )
     print("diagnostic: neutral_mixed_reference_accepted_step_trace")
+    if cvode_max_order is not None:
+        print(f"cvode_max_order: {int(cvode_max_order)}")
     print(f"trace_jsonl: {path}")
     return 0
 
@@ -1261,11 +1282,18 @@ def _compare_neutral_mixed_accepted_traces_command(args: argparse.Namespace) -> 
             "compare-neutral-mixed-accepted-traces: --time-tolerance must be positive."
         )
         return 1
+    reference_cvode_max_order = getattr(args, "reference_cvode_max_order", None)
+    if reference_cvode_max_order is not None and int(reference_cvode_max_order) <= 0:
+        print(
+            "compare-neutral-mixed-accepted-traces: --reference-cvode-max-order must be positive."
+        )
+        return 1
     report = build_neutral_mixed_accepted_step_trace_parity_report(
         native_trace_json=args.native_trace_json,
         reference_trace_json=args.reference_trace_json,
         reference_stage=args.reference_stage,
         time_tolerance=float(args.time_tolerance),
+        reference_cvode_max_order=reference_cvode_max_order,
     )
     path = write_neutral_mixed_accepted_step_trace_parity_json(report, args.json_out)
     print(f"diagnostic: {report['diagnostic']}")

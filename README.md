@@ -85,6 +85,19 @@ Inspect a deck without running it:
 jax_drb inspect path/to/input.toml
 ```
 
+Learn which model family, dimension, fluid closure, and boundary family to
+choose before building a deck:
+
+```bash
+PYTHONPATH=src python examples/model_selection_guide.py
+```
+
+The guide is a lightweight dry run by default. It explains diffusion/reduced
+transport, drift-reduced Braginskii open-field models, one-fluid versus
+two-fluid choices, 1D/2D/3D tradeoffs, and diffusion/sheath/recycling/neutral
+boundary families while writing parse-checked starter decks under
+`output/model_selection_guide/`.
+
 Resume from a restart bundle:
 
 ```bash

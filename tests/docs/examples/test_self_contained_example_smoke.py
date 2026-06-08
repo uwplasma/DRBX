@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -56,6 +57,7 @@ def _run_example(
         "autodiff_diffusion_sensitivity_demo.py",
         "autodiff_diffusion_inverse_design_demo.py",
         "strong_scaling_diffusion_demo.py",
+        "model_selection_guide.py",
     ],
 )
 def test_docs_argparse_examples_expose_subprocess_help(relative_script: str) -> None:
@@ -105,6 +107,35 @@ def test_restartable_diffusion_tutorial_lightweight_subprocess_smoke(tmp_path: P
     assert (output_root / "data" / "restartable_diffusion_analysis.json").exists()
     assert (output_root / "images" / "restartable_diffusion_density_snapshots.png").stat().st_size > 0
     assert (output_root / "images" / "restartable_diffusion_restart_consistency.png").stat().st_size > 0
+
+
+def test_model_selection_guide_writes_parse_checked_starter_decks(tmp_path: Path) -> None:
+    output_root = tmp_path / "model_selection"
+
+    _run_example(
+        [
+            sys.executable,
+            str(EXAMPLES_ROOT / "model_selection_guide.py"),
+            "--output-root",
+            str(output_root),
+            "--quiet",
+        ],
+        cwd=REPO_ROOT,
+        timeout=30,
+    )
+
+    summary_path = output_root / "model_selection_summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+
+    assert (output_root / "diffusion_start.toml").exists()
+    assert (output_root / "open_field_concept.toml").exists()
+    assert (output_root / "model_selection_guide.md").exists()
+    assert "diffusion / scalar reduced transport" in {entry["name"] for entry in payload["model_families"]}
+    assert payload["generated_decks"][0]["components"] == [
+        "h:evolve_density",
+        "h:evolve_pressure",
+        "h:anomalous_diffusion",
+    ]
 
 
 def test_diverted_tokamak_release_array_examples_are_subprocess_self_contained(

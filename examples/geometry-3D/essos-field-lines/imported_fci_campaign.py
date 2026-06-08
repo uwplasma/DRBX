@@ -1,15 +1,37 @@
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from jax_drb.runtime import configure_jax_runtime
 from jax_drb.validation.essos_imported_fci_campaign import (
     create_essos_imported_fci_campaign_package,
     create_essos_imported_fci_dry_run_artifact_package,
 )
+
+
+# SIMSOPT-style user parameters: edit these first, then run this file.
+RUN_EXAMPLE = True
+DRY_RUN = True
+WRITE_DRY_RUN_ARTIFACTS = False
+
+MAP_SOURCES_TO_RUN = ("coil",)
+OUTPUT_ROOT: Path | None = None
+CASE_LABEL: str | None = None
+COIL_JSON_PATH: Path | None = None
+VMEC_WOUT_PATH: Path | None = None
+ESSOS_ROOT: Path | None = None
+
+NX = 5
+NY = 8
+NZ = 20
+RHO_MIN = 0.12
+RHO_MAX = 0.34
+TIMES_TO_TRACE = 360
+MAXTIME = 80.0
+TRACE_TOLERANCE = 1.0e-8
+PRECISION = "float64"
+
 
 DEFAULT_OUTPUT_ROOTS = {
     "coil": Path("docs/data/essos_imported_fci_artifacts"),
@@ -26,6 +48,8 @@ MAP_SOURCES = tuple(DEFAULT_OUTPUT_ROOTS)
 
 @dataclass(frozen=True)
 class ImportedFciRunSettings:
+    """Resolved settings for one imported-field FCI validation artifact."""
+
     map_source: str
     output_root: Path
     case_label: str
@@ -43,91 +67,63 @@ class ImportedFciRunSettings:
     precision: str
 
 
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Regenerate the ESSOS-imported non-axisymmetric FCI SOL validation package. "
-            "The command needs an ESSOS checkout unless --dry-run is used."
+def build_run_settings(
+    *,
+    map_sources: tuple[str, ...] = MAP_SOURCES_TO_RUN,
+    output_root: Path | None = OUTPUT_ROOT,
+    case_label: str | None = CASE_LABEL,
+    coil_json_path: Path | None = COIL_JSON_PATH,
+    vmec_wout_path: Path | None = VMEC_WOUT_PATH,
+    essos_root: Path | None = ESSOS_ROOT,
+    nx: int = NX,
+    ny: int = NY,
+    nz: int = NZ,
+    rho_min: float = RHO_MIN,
+    rho_max: float = RHO_MAX,
+    times_to_trace: int = TIMES_TO_TRACE,
+    maxtime: float = MAXTIME,
+    trace_tolerance: float = TRACE_TOLERANCE,
+    precision: str = PRECISION,
+) -> tuple[ImportedFciRunSettings, ...]:
+    """Resolve top-level parameters into one setting object per map source."""
+
+    requested_sources = tuple(map_sources)
+    if not requested_sources:
+        raise ValueError("map_sources must contain at least one source.")
+    unknown = sorted(set(requested_sources) - set(MAP_SOURCES))
+    if unknown:
+        raise ValueError(f"Unknown imported FCI map sources: {unknown!r}.")
+    if len(requested_sources) > 1 and (output_root is not None or case_label is not None):
+        raise ValueError(
+            "Use source-specific default output roots and case labels when running multiple map sources."
         )
-    )
-    parser.add_argument(
-        "--map-source",
-        choices=MAP_SOURCES,
-        default="coil",
-        help="Imported map semantics: coil endpoint maps, closed VMEC-coordinate maps, or hybrid VMEC maps with coil endpoint masks.",
-    )
-    parser.add_argument(
-        "--all-map-sources",
-        action="store_true",
-        help="Run coil, VMEC-coordinate, and hybrid artifacts with their source-specific default output roots.",
-    )
-    parser.add_argument(
-        "--output-root",
-        type=Path,
-        default=None,
-        help="Artifact root for a single map source. Omit to use the docs/data default for that source.",
-    )
-    parser.add_argument(
-        "--case-label",
-        default=None,
-        help="File stem for a single map-source artifact. Omit to use the docs/data default for that source.",
-    )
-    parser.add_argument("--coil-json-path", type=Path, default=None)
-    parser.add_argument("--vmec-wout-path", type=Path, default=None)
-    parser.add_argument("--essos-root", type=Path, default=None)
-    parser.add_argument("--nx", type=int, default=5)
-    parser.add_argument("--ny", type=int, default=8)
-    parser.add_argument("--nz", type=int, default=20)
-    parser.add_argument("--rho-min", type=float, default=0.12)
-    parser.add_argument("--rho-max", type=float, default=0.34)
-    parser.add_argument("--times-to-trace", type=int, default=360)
-    parser.add_argument("--maxtime", type=float, default=80.0)
-    parser.add_argument("--trace-tolerance", type=float, default=1.0e-8)
-    parser.add_argument("--precision", choices=("float32", "float64"), default="float64")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print the resolved runs without importing ESSOS; writes only if --dry-run-artifacts is also set.",
-    )
-    parser.add_argument(
-        "--dry-run-artifacts",
-        action="store_true",
-        help="With --dry-run, write a self-contained JSON contract under each resolved artifact root.",
-    )
-    args = parser.parse_args(argv)
-    if args.all_map_sources and (args.output_root is not None or args.case_label is not None):
-        parser.error("--all-map-sources uses source-specific default output roots and case labels")
-    if args.dry_run_artifacts and not args.dry_run:
-        parser.error("--dry-run-artifacts requires --dry-run")
-    return args
-
-
-def build_run_settings(args: argparse.Namespace) -> tuple[ImportedFciRunSettings, ...]:
-    sources = MAP_SOURCES if args.all_map_sources else (args.map_source,)
-    return tuple(_settings_for_source(args, source) for source in sources)
-
-
-def _settings_for_source(args: argparse.Namespace, map_source: str) -> ImportedFciRunSettings:
-    return ImportedFciRunSettings(
-        map_source=map_source,
-        output_root=args.output_root if args.output_root is not None else DEFAULT_OUTPUT_ROOTS[map_source],
-        case_label=args.case_label if args.case_label is not None else DEFAULT_CASE_LABELS[map_source],
-        coil_json_path=args.coil_json_path,
-        vmec_wout_path=args.vmec_wout_path,
-        essos_root=args.essos_root,
-        nx=args.nx,
-        ny=args.ny,
-        nz=args.nz,
-        rho_min=args.rho_min,
-        rho_max=args.rho_max,
-        times_to_trace=args.times_to_trace,
-        maxtime=args.maxtime,
-        trace_tolerance=args.trace_tolerance,
-        precision=args.precision,
+    return tuple(
+        ImportedFciRunSettings(
+            map_source=source,
+            output_root=(
+                Path(output_root)
+                if output_root is not None
+                else DEFAULT_OUTPUT_ROOTS[source]
+            ),
+            case_label=case_label if case_label is not None else DEFAULT_CASE_LABELS[source],
+            coil_json_path=coil_json_path,
+            vmec_wout_path=vmec_wout_path,
+            essos_root=essos_root,
+            nx=int(nx),
+            ny=int(ny),
+            nz=int(nz),
+            rho_min=float(rho_min),
+            rho_max=float(rho_max),
+            times_to_trace=int(times_to_trace),
+            maxtime=float(maxtime),
+            trace_tolerance=float(trace_tolerance),
+            precision=str(precision),
+        )
+        for source in requested_sources
     )
 
 
-def _print_dry_run(settings: ImportedFciRunSettings) -> None:
+def print_dry_run(settings: ImportedFciRunSettings) -> None:
     print(
         "dry-run imported FCI campaign: "
         f"map_source={settings.map_source}, "
@@ -186,18 +182,23 @@ def run_campaign(settings: ImportedFciRunSettings) -> None:
     print(f"wrote plot: {artifacts.plot_png_path}")
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
-    settings = build_run_settings(args)
+def run_resolved_campaigns(
+    settings: tuple[ImportedFciRunSettings, ...],
+    *,
+    dry_run: bool = DRY_RUN,
+    dry_run_artifacts: bool = WRITE_DRY_RUN_ARTIFACTS,
+) -> None:
+    """Run or dry-run all resolved imported-FCI artifact settings."""
+
     for item in settings:
-        if args.dry_run:
-            _print_dry_run(item)
-            if args.dry_run_artifacts:
+        if dry_run:
+            print_dry_run(item)
+            if dry_run_artifacts:
                 write_dry_run_artifact(item)
         else:
             run_campaign(item)
-    return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if RUN_EXAMPLE:
+    RESOLVED_RUN_SETTINGS = build_run_settings()
+    run_resolved_campaigns(RESOLVED_RUN_SETTINGS)
