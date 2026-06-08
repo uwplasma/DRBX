@@ -325,6 +325,27 @@ opt-in migration seam that routes the same D/T/He residual through
 `--rhs-backend host_bridge` is retained only for comparisons against the older
 host bridge.
 
+Each refreshed `profile_summary.json` now records per-batch
+`*_states_per_second` fields and a top-level `throughput_summary`. That summary
+identifies the batch sizes swept, the largest batch, the best residual/JVP
+speedups against serial same-kernel calls, and the best batched or pmap JVP
+throughput in `states_per_second`. This keeps the local profiling contract
+reviewer-usable without requiring a separate notebook to interpret raw sample
+lists.
+
+For a bounded local smoke refresh that does not spend CI minutes or require a
+private reference checkout:
+
+```bash
+PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
+  --case dthe \
+  --batch-sizes 1,2 \
+  --timed-runs 1 \
+  --disable-pmap \
+  --skip-objective-grad-check \
+  --output-dir tmp/profiles/recycling_dthe_batched_jvp_gate_smoke
+```
+
 The retained local CPU artifact now sweeps batches through 256 states and
 shows about `4.94x` residual throughput speedup and `3.11x` JVP throughput
 speedup over serial same-kernel calls, with batched/serial residual and JVP
