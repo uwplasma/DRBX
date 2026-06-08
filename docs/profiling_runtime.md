@@ -126,23 +126,24 @@ about `3.7e-3` to `4.2e-3 s`, and a bounded current-code
 `recycling_dthe_one_step --skip-cprofile` timing completed in `44.60 s` on
 this MacBook. The env-enabled promoted parity gate completed in `44.66 s`.
 
-The refreshed full cProfile/RSS bundle after adding RHS phase counters to the
-production BDF callback was:
+The refreshed full cProfile/RSS bundle after the active-array startup-step and
+neutral ladder-diagnostic pass was:
 
-- command: `profile_curated_case.py recycling_dthe_one_step --warm-runs 0 --timed-runs 1 --cprofile-top 50 --rss-profile`
-- cProfile run: `68.64 s` wall, `1.67e8` Python function calls
-- separate unprofiled RSS run: `48.82 s`
-- peak sampled process-tree RSS: `228.9 MiB`
+- command: `run_research_campaign_bundle.py --campaign heavy-recycling-profile --reference-root /Users/rogerio/local/hermes-3 --output-root /tmp/jax_drb_research_campaigns --timeout-seconds 420`
+- wrapped profiler command: `profile_curated_case.py recycling_dthe_one_step --warm-runs 0 --timed-runs 1 --cprofile-top 35 --rss-profile`
+- cProfile run: `68.20 s` wall, `1.67e8` Python function calls
+- separate unprofiled RSS run: `49.65 s`
+- peak sampled process-tree RSS: `227.6 MiB`
 - BDF callback counts visible in the profile: `11838` packed RHS evaluations,
   `86` Jacobian callbacks, and `8428` finite-difference color-group
   perturbation residuals
-- unprofiled BDF phase counters: `48.77 s` solve time, `46.41 s` fixed-layout
-  RHS object evaluation time, `33.60 s` Jacobian callback time, and only about
+- unprofiled BDF phase counters: `49.60 s` solve time, `47.16 s` fixed-layout
+  RHS object evaluation time, `34.18 s` Jacobian callback time, and only about
   `2e-3 s` in RHS NumPy conversion
 - top cumulative costs: sparse finite-difference Jacobian construction
-  `47.0 s`, packed RHS `64.5 s`, species RHS assembly `62.2 s`, reaction
-  sources `10.3 s`, fixed-layout D/T/He reaction sources `9.1 s`, collision
-  closure `8.7 s`, open-field state preparation `7.2 s`, and the remaining
+  `46.8 s`, packed RHS `64.2 s`, species RHS assembly `61.6 s`, reaction
+  sources `10.4 s`, fixed-layout D/T/He reaction sources `9.1 s`, collision
+  closure `8.6 s`, open-field state preparation `7.1 s`, and the remaining
   backend dispatch/type-detection helpers inside the repeated host-side RHS
   loop
 
