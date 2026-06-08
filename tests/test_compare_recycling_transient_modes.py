@@ -43,6 +43,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "adaptive_bdf_jax_linearized",
             "--mode",
             "fixed_bdf2_jax_linearized",
+            "--mode",
+            "fixed_bdf2_active_array_jax_linearized",
             "--require-bdf-pairwise-max",
             "1e-5",
             "--require-fixed-jvp-diagnostics",
@@ -75,6 +77,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
         "bdf_active_array_jvp",
         "adaptive_bdf_jax_linearized",
         "fixed_bdf2_jax_linearized",
+        "fixed_bdf2_active_array_jax_linearized",
     ]
     assert args.require_bdf_pairwise_max == 1.0e-5
     assert args.require_fixed_jvp_diagnostics is True
@@ -96,6 +99,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert "bdf_active_array_jvp" in help_text
     assert "adaptive_bdf_jax_linearized" in help_text
     assert "fixed_bdf2_jax_linearized" in help_text
+    assert "fixed_bdf2_active_array_jax_linearized" in help_text
     assert "--require-fixed-bdf2-diagnostics" in help_text
     assert "fixed-layout JVP BDF paths" in normalized_help
 
@@ -169,6 +173,7 @@ def test_default_modes_include_fixed_full_field_jvp_after_bdf() -> None:
         "bdf_fixed_full_field_jvp",
         "bdf_active_array_jvp",
         "fixed_bdf2_jax_linearized",
+        "fixed_bdf2_active_array_jax_linearized",
         "adaptive_be",
         "adaptive_bdf",
     )
@@ -177,6 +182,7 @@ def test_default_modes_include_fixed_full_field_jvp_after_bdf() -> None:
         "bdf_fixed_full_field_jvp",
         "bdf_active_array_jvp",
         "fixed_bdf2_jax_linearized",
+        "fixed_bdf2_active_array_jax_linearized",
         "adaptive_be",
         "adaptive_bdf",
     )
@@ -411,12 +417,14 @@ def test_fixed_bdf2_modes_to_validate_selects_only_fixed_bdf2_variants() -> None
             "fixed_bdf2_jax_linearized",
             "adaptive_bdf",
             "fixed_bdf2_jax_linearized_lineax",
+            "fixed_bdf2_active_array_jax_linearized",
         )
     )
 
     assert modes == (
         "fixed_bdf2_jax_linearized",
         "fixed_bdf2_jax_linearized_lineax",
+        "fixed_bdf2_active_array_jax_linearized",
     )
 
 
@@ -457,6 +465,24 @@ def test_fixed_bdf2_diagnostics_gate_accepts_lineax_route() -> None:
     assert errors == []
 
 
+def test_fixed_bdf2_diagnostics_gate_accepts_active_array_route() -> None:
+    errors = compare_script._validate_fixed_bdf2_diagnostics(
+        "fixed_bdf2_active_array_jax_linearized",
+        {
+            "fixed_bdf2_solver_mode": "fixed_bdf2_active_array_jax_linearized",
+            "fixed_bdf2_step_solver_mode": "active_array_jax_linearized",
+            "fixed_bdf2_active_array_rhs_steps": 2,
+            "fixed_bdf2_jax_linearized_action_steps": 2,
+            "fixed_bdf2_startup_steps": 1,
+            "fixed_bdf2_bdf2_steps": 1,
+            "fixed_bdf2_evolve_feedback_integrals": True,
+            "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+        },
+    )
+
+    assert errors == []
+
+
 def test_fixed_bdf2_diagnostics_gate_reports_fallback_route() -> None:
     errors = compare_script._validate_fixed_bdf2_diagnostics(
         "fixed_bdf2_jax_linearized_lineax",
@@ -476,7 +502,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_fallback_route() -> None:
     assert errors == [
         "fixed_bdf2_jax_linearized_lineax did not report fixed_bdf2_solver_mode=fixed_bdf2_jax_linearized_lineax",
         "fixed_bdf2_jax_linearized_lineax did not report fixed_bdf2_step_solver_mode=jax_linearized_lineax",
-        "fixed_bdf2_jax_linearized_lineax did not report any fixed-layout RHS solver steps",
+        "fixed_bdf2_jax_linearized_lineax did not report any fixed_full_field_array fixed-layout RHS steps",
         "fixed_bdf2_jax_linearized_lineax did not report any JAX-linearized solver steps",
         "fixed_bdf2_jax_linearized_lineax did not report any Lineax solver steps",
         "fixed_bdf2_jax_linearized_lineax did not evolve packed feedback integrals",

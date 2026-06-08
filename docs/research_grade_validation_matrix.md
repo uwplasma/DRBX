@@ -98,14 +98,15 @@ traces now share the 10 required fields (`Nh`, `Ph`, `NVh`, `ddt(Nh)`,
 trace can replay the reference adaptive accepted-step time grid. A local
 reference-grid comparison of `neutral_mixed_one_step` currently matches
 `148/148` accepted points. With timestamps aligned and optional `Dnnh`, `Vh`,
-`eta_h`, and `Dnnh` ladder traces present, the leading target-adjacent offender
-is now the `Dnnh_flux_max` flux-limit cap rather than a missing
-pressure-gradient source formula or raw neutral-diffusion coefficient. The
-accepted-step monitor now also writes flattened target-adjacent and guard-band
-values, so this claim is based on pointwise cell differences rather than only
-differences between zone max/rms summaries. Limiter ladder fields are labeled
-`active_target_preboundary_diagnostic`; their guard values are retained for
-forensics but are not promoted as final boundary-condition evidence.
+`eta_h`, `Dnnh` ladder traces, and reference `solver.order` values present, the
+leading target-adjacent offender is now the `Dnnh_flux_max` flux-limit cap
+rather than a missing pressure-gradient source formula or raw neutral-diffusion
+coefficient. The accepted-step monitor now also writes flattened
+target-adjacent and guard-band values, so this claim is based on pointwise cell
+differences rather than only differences between zone max/rms summaries.
+Limiter ladder fields are labeled `active_target_preboundary_diagnostic`;
+their guard values are retained for forensics but are not promoted as final
+boundary-condition evidence.
 The native `grad_logPnlim*` implementation now evaluates the covariant
 `|Grad(logPnlim)|` norm with the carried `g11`, `g22`, `g33`, and supported
 `g23` metric terms, removing metric-norm semantics as a formula-level blocker.
@@ -118,16 +119,19 @@ about `3.23e-3`; `eta_h` is still about `49` times larger than the largest
 pointwise state-input drift (`99` times by the legacy zone metric). At the
 worst upper-target cell, native `grad_logPnlimh` is
 `0.0130723` while the reference value is `0.0131171`. A direct algebraic check
-at the worst cell closes the flux-cap formula itself, so the next parity patch
-belongs in accepted-step state-history sequencing feeding the near-target
-gradient before the flux cap is formed. The parallel-viscosity source therefore
-remains an accepted-step
+at the worst cell closes the flux-cap formula itself. The same rerun reports
+`147` comparable solver-order points, `137` native/reference solver-order
+mismatches, and the worst `Dnnh_flux_max` point at
+`t = 2.9901189387441356` compares native BDF2 with reference order `5` at the
+same `dt`. The next parity patch therefore belongs in variable-order
+accepted-step state-history replay feeding the near-target gradient before the
+flux cap is formed. The parallel-viscosity source remains an accepted-step
 flux-cap or boundary-sequencing offender rather than a formula-level closure
 mismatch.
 
 | Open lane | Current evidence | Command surface | Publication-ready output |
 | --- | --- | --- | --- |
-| `neutral_mixed_eta_h_boundary` | Clean patched reference checkout writes valid JSONL; native/reference traces share the 10 required state, RHS, and source fields; native replay on the reference accepted-step grid matches `148/148` points. Native and reference traces both emit `Dnnh`, `Vh`, `eta_h`, the `Dnnh` preparation ladder, and flattened target-adjacent values. The native `Grad(logPnlim)` norm now carries the structured metric terms (`g11`, `g22`, `g33`, and supported `g23`) used by the reference. The current comparator ranks `Dnnh_flux_max` as the leading pointwise target-band ladder offender (`5.27e-3` at local target index `[0, 3, 0]`), followed by final `Dnnh` (`4.46e-3`), `eta_h` (`3.23e-3`), and `SNVh_parallel_viscosity` (`1.29e-4` pointwise); raw `Dnnh` is smaller (`6.07e-4`). The final-state input-closure report matches reference `Dnn`, `Vh`, and `eta_h` diagnostics to roundoff, and the accepted-step state-driver register shows `eta_h` target drift is about `49x` larger than the dominant pointwise state-input drift (`99x` by the legacy zone metric). | `PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps --reference-trace-jsonl ...`; `PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps ...`; `PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces ...`; `build_neutral_mixed_reference_input_closure_report(...)`. | Target-band accepted-step figure and JSON report comparing `Nh`, `Ph`, `NVh`, `Dnnh`, `Dnnh_flux_max`, `Vh`, `eta_h`, `ddt(*)`, `SNVh`, and `SNVh_*` on the reference time grid with active/guard metrics and pointwise target deltas separated, plus final-state input-closure JSON for `Dnn`, `Vh`, and `eta_h`. |
+| `neutral_mixed_eta_h_boundary` | Clean patched reference checkout writes valid JSONL; native/reference traces share the 10 required state, RHS, and source fields; native replay on the reference accepted-step grid matches `148/148` points. Native and reference traces both emit `Dnnh`, `Vh`, `eta_h`, the `Dnnh` preparation ladder, flattened target-adjacent values, and reference solver order. The native `Grad(logPnlim)` norm now carries the structured metric terms (`g11`, `g22`, `g33`, and supported `g23`) used by the reference. The current comparator ranks `Dnnh_flux_max` as the leading pointwise target-band ladder offender (`5.27e-3` at local target index `[0, 3, 0]`), followed by final `Dnnh` (`4.46e-3`), `eta_h` (`3.23e-3`), and `SNVh_parallel_viscosity` (`1.29e-4` pointwise); raw `Dnnh` is smaller (`6.07e-4`). Solver-order metadata shows `137/147` comparable accepted steps use a different native/reference order, with the worst point comparing native BDF2 against reference order `5`; the final-state input-closure report matches reference `Dnn`, `Vh`, and `eta_h` diagnostics to roundoff, and the accepted-step state-driver register shows `eta_h` target drift is about `49x` larger than the dominant pointwise state-input drift (`99x` by the legacy zone metric). | `PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps --reference-trace-jsonl ...`; `PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps ...`; `PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces ...`; `build_neutral_mixed_reference_input_closure_report(...)`. | Target-band accepted-step figure and JSON report comparing `Nh`, `Ph`, `NVh`, `Dnnh`, `Dnnh_flux_max`, `Vh`, `eta_h`, solver order, `ddt(*)`, `SNVh`, and `SNVh_*` on the reference time grid with active/guard metrics and pointwise target deltas separated, plus final-state input-closure JSON for `Dnn`, `Vh`, and `eta_h`. |
 | `recycling_fixed_bdf2_jax_promotion` | Fixed-layout RHS diagnostics, JAX-linearized action counts, packed feedback-integral evolution, and lightweight promotion gates exist; full output-window promotion and live-reference profiling remain open. | `PYTHONPATH=src python scripts/run_recycling_jvp_promotion_gate.py`; `PYTHONPATH=src python scripts/profile_recycling_jax_linearized_gate.py --case dthe`. | Promotion summary JSON, mode-compare JSON, cProfile/RSS/JAX-trace bundle, and a reviewer-facing parity/runtime figure for the fixed-layout recycling lane. |
 | `tokamak_target_profile_balance` | Direct-tokamak recycling observable campaign reports target density, target momentum-flux proxies, neutral buildup, and target electron-temperature proxy differences; upper-target near-zero momentum proxies remain in the offender register. | `PYTHONPATH=src python examples/engineering/tokamak_recycling_observable_campaign_demo.py`. | Target/neutral profile figure, JSON/NPZ artifact bundle, total target-power and source/radiation balance tables, and restart/provenance checks from native analysis utilities. |
 | `vmec_extender_fci_geometry_promotion` | Native imported-field, selected-field, reduced FCI, metric-MMS, sheath/recycling, vorticity, and PyTree RHS gates exist, and the VMEC-extender synthetic import example is clean-clone runnable. ESSOS imported-FCI routing now also has a self-contained dry-run artifact contract plus live report diagnostics for connection-length health, grid/refinement metadata, and exact sheath consumption of forward/backward map masks. Full non-axisymmetric imported-field turbulence claims still need independent connection-length validation and imported-grid/timestep sensitivity. | `PYTHONPATH=src python examples/geometry-3D/stellarator-fci/validation_campaign_demo.py`; `.venv/bin/pytest -q tests/test_geometry_fci_maps.py tests/test_validation_stellarator_fci_campaigns.py`; `PYTHONPATH=src python examples/geometry-3D/vmec-extender/imported_field_demo.py`; `PYTHONPATH=src python examples/geometry-3D/essos-field-lines/imported_fci_campaign.py --dry-run --dry-run-artifacts --all-map-sources`. | Poincare/connection-length/refinement reports, conservative-operator MMS figure, reduced-turbulence diagnostics, clean-clone VMEC-extender smoke artifacts, source-aware imported FCI command routing with dry-run schema artifacts, consumed-map diagnostics, and polished non-axisymmetric movie artifacts. |

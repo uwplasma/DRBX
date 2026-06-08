@@ -29,6 +29,8 @@ SOLVER_MODES = (
     "bdf_active_array_jvp",
     "fixed_bdf2_jax_linearized",
     "fixed_bdf2_jax_linearized_lineax",
+    "fixed_bdf2_active_array_jax_linearized",
+    "fixed_bdf2_active_array_jax_linearized_lineax",
     "adaptive_be",
     "adaptive_bdf",
     "adaptive_bdf_sparse_jvp",
@@ -44,10 +46,22 @@ BDF_PAIRWISE_CANDIDATE_MODES = tuple(BDF_JVP_BACKENDS)
 FIXED_BDF2_MODES = (
     "fixed_bdf2_jax_linearized",
     "fixed_bdf2_jax_linearized_lineax",
+    "fixed_bdf2_active_array_jax_linearized",
+    "fixed_bdf2_active_array_jax_linearized_lineax",
 )
 FIXED_BDF2_STEP_SOLVER_MODES = {
     "fixed_bdf2_jax_linearized": "jax_linearized",
     "fixed_bdf2_jax_linearized_lineax": "jax_linearized_lineax",
+    "fixed_bdf2_active_array_jax_linearized": "active_array_jax_linearized",
+    "fixed_bdf2_active_array_jax_linearized_lineax": (
+        "active_array_jax_linearized_lineax"
+    ),
+}
+FIXED_BDF2_RHS_BACKENDS = {
+    "fixed_bdf2_jax_linearized": "fixed_full_field_array",
+    "fixed_bdf2_jax_linearized_lineax": "fixed_full_field_array",
+    "fixed_bdf2_active_array_jax_linearized": "active_array",
+    "fixed_bdf2_active_array_jax_linearized_lineax": "active_array",
 }
 ADAPTIVE_BDF_MODES = (
     "adaptive_bdf",
@@ -80,8 +94,10 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=SOLVER_MODES,
         help=(
             "Solver modes to compare. May be repeated. Use bdf_fixed_full_field_jvp "
-            "or bdf_active_array_jvp to exercise the fixed-layout JVP BDF paths; defaults include the main "
-            "supported set for the case."
+            "or bdf_active_array_jvp to exercise the fixed-layout JVP BDF paths; "
+            "use fixed_bdf2_active_array_jax_linearized for the non-SciPy "
+            "active-array fixed-BDF2 path. Defaults include the main supported "
+            "set for the case."
         ),
     )
     parser.add_argument(
@@ -151,9 +167,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--require-fixed-bdf2-diagnostics",
         action="store_true",
         help=(
-            "Fail unless every requested fixed_bdf2_jax_linearized mode reports "
-            "fixed-layout RHS steps, JAX-linearized Jacobian actions, and packed "
-            "feedback-integral evolution."
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "the expected fixed-layout RHS backend, JAX-linearized Jacobian "
+            "actions, and packed feedback-integral evolution."
         ),
     )
     parser.add_argument(
@@ -240,6 +256,7 @@ def _default_modes(case_name: str) -> tuple[str, ...]:
             "bdf_fixed_full_field_jvp",
             "bdf_active_array_jvp",
             "fixed_bdf2_jax_linearized",
+            "fixed_bdf2_active_array_jax_linearized",
             "adaptive_be",
             "adaptive_bdf",
         )
@@ -248,6 +265,7 @@ def _default_modes(case_name: str) -> tuple[str, ...]:
         "bdf_fixed_full_field_jvp",
         "bdf_active_array_jvp",
         "fixed_bdf2_jax_linearized",
+        "fixed_bdf2_active_array_jax_linearized",
         "adaptive_be",
         "adaptive_bdf",
     )
@@ -471,14 +489,21 @@ def _validate_fixed_bdf2_diagnostics(
 ) -> list[str]:
     errors: list[str] = []
     expected_step_solver = FIXED_BDF2_STEP_SOLVER_MODES[mode]
+    expected_rhs_backend = FIXED_BDF2_RHS_BACKENDS[mode]
     if diagnostics.get("fixed_bdf2_solver_mode") != mode:
         errors.append(f"{mode} did not report fixed_bdf2_solver_mode={mode}")
     if diagnostics.get("fixed_bdf2_step_solver_mode") != expected_step_solver:
         errors.append(
             f"{mode} did not report fixed_bdf2_step_solver_mode={expected_step_solver}"
         )
-    if int(diagnostics.get("fixed_bdf2_fixed_full_field_rhs_steps", 0)) <= 0:
-        errors.append(f"{mode} did not report any fixed-layout RHS solver steps")
+    if expected_rhs_backend == "fixed_full_field_array":
+        rhs_steps = int(diagnostics.get("fixed_bdf2_fixed_full_field_rhs_steps", 0))
+    else:
+        rhs_steps = int(diagnostics.get("fixed_bdf2_active_array_rhs_steps", 0))
+    if rhs_steps <= 0:
+        errors.append(
+            f"{mode} did not report any {expected_rhs_backend} fixed-layout RHS steps"
+        )
     if int(diagnostics.get("fixed_bdf2_jax_linearized_action_steps", 0)) <= 0:
         errors.append(f"{mode} did not report any JAX-linearized solver steps")
     if expected_step_solver == "jax_linearized_lineax":

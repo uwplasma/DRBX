@@ -18,6 +18,7 @@ GATE_SOLVER_MODES = (
     "bdf",
     "bdf_fixed_full_field_jvp",
     "fixed_bdf2_jax_linearized",
+    "fixed_bdf2_active_array_jax_linearized",
 )
 EXPERIMENTAL_GATE_SOLVER_MODES = ("bdf_active_array_jvp",)
 

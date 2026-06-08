@@ -519,9 +519,11 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
 
     assert "load_vars(N_VGetArrayPointer(uvec));" in text
     assert "run_rhs(internal_time);" in text
+    assert "CVodeGetLastOrder(cvode_mem, &accepted_order);" in text
     assert "int timestepMonitor(BoutReal simtime, BoutReal dt) override;" in text
     assert "Hermes::timestepMonitor(BoutReal simtime, BoutReal dt)" in text
     assert "neutral_mixed_accepted_step_trace" in text
+    assert "neutral_mixed_accepted_step_trace_solver_order" in text
     assert 'options["neutral_mixed_accepted_step_trace"].setConditionallyUsed();' in text
     assert (
         'options["neutral_mixed_accepted_step_trace_file"].setConditionallyUsed();'
@@ -531,7 +533,12 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
         'options["neutral_mixed_accepted_step_trace_species"].setConditionallyUsed();'
         in text
     )
+    assert (
+        'options["neutral_mixed_accepted_step_trace_solver_order"].setConditionallyUsed();'
+        in text
+    )
     assert 'auto& species_state = state["species"][species];' in text
+    assert '\\"solver\\":{\\"order\\":' in text
     assert "std::vector<int> sample_y_indices()" in text
     assert '\\"stages\\":{\\"post_accepted\\"' in text
     assert 'json_field_payload(get<Field3D>(species_state["density"]))' in text
@@ -1302,6 +1309,14 @@ def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(
 
     assert report["diagnostic"] == "neutral_mixed_accepted_step_trace_parity"
     assert report["matched_trace_point_count"] == 2
+    assert report["solver_order_comparable_count"] == 1
+    assert report["solver_order_mismatch_count"] == 0
+    assert report["max_solver_order_abs_delta"] == 0
+    assert report["matched_points"][0]["solver_order_comparable"] is False
+    assert report["matched_points"][1]["solver_order"] == 1
+    assert report["matched_points"][1]["reference_solver_order"] == 1
+    assert report["matched_points"][1]["solver_order_delta"] == 0
+    assert report["matched_points"][1]["solver_order_comparable"] is True
     assert report["fields"]["NVh"]["max_active_delta"] == pytest.approx(2.0)
     assert report["fields"]["NVh"]["max_target_adjacent_delta"] == pytest.approx(4.0)
     assert report["fields"]["NVh"]["max_guard_delta"] == pytest.approx(1.0)

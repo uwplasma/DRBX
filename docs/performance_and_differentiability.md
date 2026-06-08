@@ -750,12 +750,21 @@ same BDF timestepper. Use
 active-array migration seam; it is diagnostic evidence for the future PyTree RHS
 default, not a faster production mode yet.
 The next non-SciPy output-window promotion lane is
-`runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized` or
-`fixed_bdf2_jax_linearized_lineax`. These modes take a fixed-layout
+`runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized`,
+`fixed_bdf2_jax_linearized_lineax`, or
+`fixed_bdf2_active_array_jax_linearized`. These modes take a fixed-layout
 backward-Euler startup step, then fixed-layout BDF2 output steps, and evolve
-controller integrals inside the packed residual state. They are still opt-in
-research gates; they exist to measure JAX-linearized full-output behavior
-without the `solve_ivp` callback barrier before any default solver change.
+controller integrals inside the packed residual state. The active-array variant
+routes the same output-window path through `build_fixed_array_rhs`, avoiding the
+full-field reconstruction seam used by the compatibility fixed-full-field
+variant. They are still opt-in research gates; they exist to measure
+JAX-linearized full-output behavior without the `solve_ivp` callback barrier
+before any default solver change. On the local `recycling_1d_one_step`
+diagnostics-only fixture at the full `timestep = 5000`, both fixed-full-field
+and active-array fixed-BDF2 routes currently expose the same large nonlinear
+residual (`fixed_bdf2_max_residual_inf_norm` about `1.93e29`), so the next
+promotion blocker is fixed-BDF2 timestep/nonlinear convergence rather than an
+active-array RHS parity failure.
 
 The adaptive BDF history result now reports solver-health diagnostics for these
 opt-in paths: accepted and rejected internal steps, minimum-`dt` fallbacks,

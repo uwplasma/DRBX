@@ -864,6 +864,11 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
     parallel_viscosity_input_register = (
         _build_parallel_viscosity_input_register(field_errors)
     )
+    comparable_solver_order_deltas = [
+        int(point.get("solver_order_delta", 0))
+        for point in matched_points
+        if bool(point.get("solver_order_comparable", False))
+    ]
     return {
         "diagnostic": "neutral_mixed_accepted_step_trace_parity",
         "requires_hermes": True,
@@ -874,6 +879,13 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         "reference_trace_json": _sanitize_public_path(Path(reference_trace_json)),
         "trace_point_count": len(native_points),
         "matched_trace_point_count": len(matched_points),
+        "solver_order_comparable_count": len(comparable_solver_order_deltas),
+        "solver_order_mismatch_count": sum(
+            1 for delta in comparable_solver_order_deltas if delta != 0
+        ),
+        "max_solver_order_abs_delta": max(
+            (abs(delta) for delta in comparable_solver_order_deltas), default=0
+        ),
         "time_tolerance": float(time_tolerance),
         "fields": field_errors,
         "ranked_fields": ranked,
@@ -2580,6 +2592,11 @@ def _compare_accepted_step_trace_points(
             ):
                 continue
         point_errors = _compare_accepted_step_fields(native_point, reference_point)
+        native_solver_order = int(native_point.get("solver_order", 0))
+        reference_solver_order = int(reference_point.get("solver_order", 0))
+        solver_order_comparable = (
+            native_solver_order > 0 and reference_solver_order > 0
+        )
         matched_points.append(
             {
                 "native_index": int(native_point["index"]),
@@ -2588,6 +2605,10 @@ def _compare_accepted_step_trace_points(
                 "reference_time": float(reference_point["time"]),
                 "dt": float(native_point.get("dt", 0.0)),
                 "reference_dt": float(reference_point.get("dt", 0.0)),
+                "solver_order": native_solver_order,
+                "reference_solver_order": reference_solver_order,
+                "solver_order_delta": native_solver_order - reference_solver_order,
+                "solver_order_comparable": solver_order_comparable,
                 "field_errors": point_errors,
             }
         )

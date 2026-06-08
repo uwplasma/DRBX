@@ -245,8 +245,10 @@ For the remaining recycling solver work, the order is therefore fixed:
   available; use `--output-dir docs/data/runtime_profile_artifacts/<new-run>`
   when the run should leave per-case JSON reports and an aggregate
   `summary.json` for release review; the gate now also requires fixed-layout
-  BDF2 diagnostics from `fixed_bdf2_jax_linearized` so the non-SciPy
-  output-window route cannot regress silently to a host-side callback path;
+  BDF2 diagnostics from `fixed_bdf2_jax_linearized` and
+  `fixed_bdf2_active_array_jax_linearized` so neither the fixed-full-field nor
+  active-array non-SciPy output-window route can regress silently to a host-side
+  callback path;
 - run the adaptive-BDF JAX-linearized promotion gate only as an explicit
   rejection test until it clears without fallback:
   `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case

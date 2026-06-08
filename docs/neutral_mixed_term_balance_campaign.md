@@ -159,7 +159,12 @@ the supported `g23` cross term, matching the reference vector norm on the
 structured metrics represented in JAXDRB.
 The comparator ignores those fields when an older reference JSONL does not
 contain the same payloads, so the addition is backward-compatible with older
-reference traces. When a reference executable with the accepted-step monitor patch is
+reference traces. The trace parity report also counts native/reference solver
+order mismatches using the reference `solver.order` value written from
+`CVodeGetLastOrder`, excluding the synthetic native initial state at `t = 0`
+from the aggregate order count. A BDF2 native replay should not be interpreted
+as a physics-term mismatch when the reference accepted step used a different
+multistep order. When a reference executable with the accepted-step monitor patch is
 available, write the matching reference JSONL with:
 
 ```bash
@@ -250,10 +255,14 @@ state-input drift, but the `eta_h` pointwise target-adjacent drift is about
 the legacy zone metric). The diffusion ladder now shows that raw `Dnnh` differs
 by only `6.07e-4`, while the flux-limit cap differs by `5.27e-3` and the final
 boundary-applied `Dnnh` differs by `4.46e-3` in the actual pointwise target-cell
-comparison. That
-separates the offender from a directly state-sized density, pressure, momentum,
-or raw-diffusion mismatch and points first at accepted-step flux-cap and
-near-target boundary sequencing before viscosity is formed.
+comparison. The same accepted-step rerun reports `147` comparable solver-order
+points, `137` native/reference solver-order mismatches, and a maximum order
+delta of `3`; the worst `Dnnh_flux_max` point at
+`t = 2.9901189387441356` compares native BDF2 against reference order `5` with
+the same `dt`. That separates the offender from a directly state-sized density,
+pressure, momentum, raw-diffusion, or local flux-cap formula mismatch and
+points first at variable-order accepted-step state/history replay before
+viscosity or boundary formulas are changed.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

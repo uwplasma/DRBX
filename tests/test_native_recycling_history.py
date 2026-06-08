@@ -83,6 +83,14 @@ def test_implicit_history_rejects_negative_steps() -> None:
             "fixed_bdf2_jax_linearized_lineax",
             "_advance_recycling_1d_fixed_bdf2_history",
         ),
+        (
+            "fixed_bdf2_active_array_jax_linearized",
+            "_advance_recycling_1d_fixed_bdf2_history",
+        ),
+        (
+            "fixed_bdf2_active_array_jax_linearized_lineax",
+            "_advance_recycling_1d_fixed_bdf2_history",
+        ),
     ),
 )
 def test_implicit_history_dispatches_solver_modes(
@@ -135,6 +143,14 @@ def test_implicit_history_dispatches_solver_modes(
             "jax_linearized_lineax"
             if solver_mode.endswith("_lineax")
             else "jax_linearized"
+        )
+        assert calls["kwargs"]["step_solver_mode"] == expected_step_solver
+        assert calls["kwargs"]["solver_mode_label"] == solver_mode
+    if solver_mode.startswith("fixed_bdf2_active_array_jax_linearized"):
+        expected_step_solver = (
+            "active_array_jax_linearized_lineax"
+            if solver_mode.endswith("_lineax")
+            else "active_array_jax_linearized"
         )
         assert calls["kwargs"]["step_solver_mode"] == expected_step_solver
         assert calls["kwargs"]["solver_mode_label"] == solver_mode
@@ -316,6 +332,97 @@ def test_fixed_bdf2_jax_linearized_history_uses_startup_bdf2_and_packed_feedback
     assert diagnostics["fixed_bdf2_lineax_action_steps"] == 3
     assert diagnostics["fixed_bdf2_residual_jitted_steps"] == 3
     assert diagnostics["fixed_bdf2_evolve_feedback_integrals"] is True
+
+
+def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    step_modes: list[str] = []
+
+    def make_info() -> recycling.Recycling1DImplicitStepInfo:
+        return recycling.Recycling1DImplicitStepInfo(
+            residual_inf_norm=1.0e-12,
+            active_size=1,
+            nonlinear_iterations=1,
+            linear_iterations=2,
+            diagnostics={
+                "rhs_backend": "active_array",
+                "solver_mode": "active_array_jax_linearized",
+                "residual_evaluation_count": 3,
+                "jacobian_refresh_count": 0,
+                "linear_solve_seconds": 0.25,
+                "residual_evaluation_seconds": 0.125,
+                "residual_jitted": True,
+            },
+        )
+
+    def fake_backward_euler_step(
+        config,
+        fields,
+        *,
+        feedback_integrals,
+        solver_mode,
+        **kwargs,
+    ):
+        step_modes.append(str(solver_mode))
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info(),
+        )
+
+    def fake_bdf2_step(
+        config,
+        fields,
+        previous_fields,
+        *,
+        feedback_integrals,
+        solver_mode,
+        **kwargs,
+    ):
+        step_modes.append(str(solver_mode))
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info(),
+        )
+
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_backward_euler_step
+    )
+    monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf2_step)
+
+    result = recycling._advance_recycling_1d_fixed_bdf2_history(
+        _FakeConfig(),
+        _fields(),
+        runtime_model=_runtime_model(),
+        feedback_integrals={"ctrl": 0.0},
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        metrics=object(),
+        dataset_scalars={},
+        timestep=0.5,
+        steps=2,
+        residual_tolerance=1.0e-7,
+        max_nonlinear_iterations=3,
+        step_solver_mode="active_array_jax_linearized",
+        solver_mode_label="fixed_bdf2_active_array_jax_linearized",
+    )
+
+    assert step_modes == ["active_array_jax_linearized", "active_array_jax_linearized"]
+    diagnostics = result.diagnostics
+    assert diagnostics["fixed_bdf2_solver_mode"] == (
+        "fixed_bdf2_active_array_jax_linearized"
+    )
+    assert diagnostics["fixed_bdf2_step_solver_mode"] == "active_array_jax_linearized"
+    assert diagnostics["fixed_bdf2_startup_steps"] == 1
+    assert diagnostics["fixed_bdf2_bdf2_steps"] == 1
+    assert diagnostics["fixed_bdf2_fixed_full_field_rhs_steps"] == 0
+    assert diagnostics["fixed_bdf2_active_array_rhs_steps"] == 2
+    assert diagnostics["fixed_bdf2_jax_linearized_action_steps"] == 2
+    assert diagnostics["fixed_bdf2_residual_jitted_steps"] == 2
+    np.testing.assert_allclose(result.variable_history["N"][:, 0], [1.0, 2.0, 3.0])
 
 
 def test_adaptive_be_history_accumulates_interval_results_and_progress(

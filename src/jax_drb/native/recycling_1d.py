@@ -2060,7 +2060,15 @@ def advance_recycling_1d_implicit_history(
             solver_mode_label=solver_mode,
         )
 
-    if solver_mode in {"fixed_bdf2_jax_linearized", "fixed_bdf2_jax_linearized_lineax"}:
+    fixed_bdf2_step_modes = {
+        "fixed_bdf2_jax_linearized": "jax_linearized",
+        "fixed_bdf2_jax_linearized_lineax": "jax_linearized_lineax",
+        "fixed_bdf2_active_array_jax_linearized": "active_array_jax_linearized",
+        "fixed_bdf2_active_array_jax_linearized_lineax": (
+            "active_array_jax_linearized_lineax"
+        ),
+    }
+    if solver_mode in fixed_bdf2_step_modes:
         return _advance_recycling_1d_fixed_bdf2_history(
             config,
             fields,
@@ -2076,11 +2084,7 @@ def advance_recycling_1d_implicit_history(
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
             progress_callback=progress_callback,
-            step_solver_mode=(
-                "jax_linearized_lineax"
-                if solver_mode == "fixed_bdf2_jax_linearized_lineax"
-                else "jax_linearized"
-            ),
+            step_solver_mode=fixed_bdf2_step_modes[solver_mode],
             solver_mode_label=solver_mode,
         )
 
@@ -2282,6 +2286,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_total_jacobian_refresh_count": 0,
         "fixed_bdf2_total_linear_solve_seconds": 0.0,
         "fixed_bdf2_total_residual_evaluation_seconds": 0.0,
+        "fixed_bdf2_active_array_rhs_steps": 0,
         "fixed_bdf2_residual_jitted_steps": 0,
         "fixed_bdf2_evolve_feedback_integrals": True,
     }
@@ -2315,11 +2320,16 @@ def _advance_recycling_1d_fixed_bdf2_history(
             diagnostics["fixed_bdf2_fixed_full_field_rhs_steps"] = (
                 int(diagnostics["fixed_bdf2_fixed_full_field_rhs_steps"]) + 1
             )
-        if str(info.diagnostics.get("solver_mode", "")).startswith("jax_linearized"):
+        if info.diagnostics.get("rhs_backend") == "active_array":
+            diagnostics["fixed_bdf2_active_array_rhs_steps"] = (
+                int(diagnostics["fixed_bdf2_active_array_rhs_steps"]) + 1
+            )
+        step_solver_mode_name = str(info.diagnostics.get("solver_mode", ""))
+        if "jax_linearized" in step_solver_mode_name:
             diagnostics["fixed_bdf2_jax_linearized_action_steps"] = (
                 int(diagnostics["fixed_bdf2_jax_linearized_action_steps"]) + 1
             )
-        if "lineax" in str(info.diagnostics.get("solver_mode", "")):
+        if "lineax" in step_solver_mode_name:
             diagnostics["fixed_bdf2_lineax_action_steps"] = (
                 int(diagnostics["fixed_bdf2_lineax_action_steps"]) + 1
             )
@@ -3442,8 +3452,19 @@ def _adaptive_bdf_step_solver_mode(history_solver_mode: str) -> str:
     raise ValueError(f"Unsupported adaptive BDF solver mode {history_solver_mode!r}.")
 
 
+def _recycling_solver_rhs_backend(solver_mode: str) -> str:
+    if solver_mode in {"sparse_jvp", "jax_linearized", "jax_linearized_lineax"}:
+        return "fixed_full_field_array"
+    if solver_mode in {
+        "active_array_jax_linearized",
+        "active_array_jax_linearized_lineax",
+    }:
+        return "active_array"
+    return "host_bridge"
+
+
 def _recycling_solver_uses_fixed_full_field_rhs(solver_mode: str) -> bool:
-    return solver_mode in {"sparse_jvp", "jax_linearized", "jax_linearized_lineax"}
+    return _recycling_solver_rhs_backend(solver_mode) == "fixed_full_field_array"
 
 
 def _advance_recycling_1d_startup_step(
@@ -4398,11 +4419,7 @@ def advance_recycling_1d_backward_euler_step(
     evolve_feedback_integrals: bool = False,
     sparse_jvp_workspace: SparseJvpWorkspace | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
-    rhs_backend = (
-        "fixed_full_field_array"
-        if _recycling_solver_uses_fixed_full_field_rhs(solver_mode)
-        else "host_bridge"
-    )
+    rhs_backend = _recycling_solver_rhs_backend(solver_mode)
     context = build_recycling_1d_backward_euler_residual_context(
         config,
         fields,
@@ -4473,7 +4490,12 @@ def advance_recycling_1d_backward_euler_step(
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
-    elif solver_mode in {"jax_linearized", "jax_linearized_lineax"}:
+    elif solver_mode in {
+        "jax_linearized",
+        "jax_linearized_lineax",
+        "active_array_jax_linearized",
+        "active_array_jax_linearized_lineax",
+    }:
         linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(
             config
         )
@@ -4489,7 +4511,7 @@ def advance_recycling_1d_backward_euler_step(
             linear_maxiter=linear_maxiter,
             linear_solver_backend=(
                 "lineax_gmres"
-                if solver_mode == "jax_linearized_lineax"
+                if solver_mode.endswith("_lineax")
                 else _resolve_recycling_jax_linear_solver_backend()
             ),
             jit_residual=jit_residual,
@@ -4550,11 +4572,7 @@ def advance_recycling_1d_bdf2_step(
     evolve_feedback_integrals: bool = False,
     sparse_jvp_workspace: SparseJvpWorkspace | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
-    rhs_backend = (
-        "fixed_full_field_array"
-        if _recycling_solver_uses_fixed_full_field_rhs(solver_mode)
-        else "host_bridge"
-    )
+    rhs_backend = _recycling_solver_rhs_backend(solver_mode)
     context = build_recycling_1d_bdf2_residual_context(
         config,
         fields,
@@ -4628,7 +4646,12 @@ def advance_recycling_1d_bdf2_step(
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
-    elif solver_mode in {"jax_linearized", "jax_linearized_lineax"}:
+    elif solver_mode in {
+        "jax_linearized",
+        "jax_linearized_lineax",
+        "active_array_jax_linearized",
+        "active_array_jax_linearized_lineax",
+    }:
         linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(
             config
         )
@@ -4644,7 +4667,7 @@ def advance_recycling_1d_bdf2_step(
             linear_maxiter=linear_maxiter,
             linear_solver_backend=(
                 "lineax_gmres"
-                if solver_mode == "jax_linearized_lineax"
+                if solver_mode.endswith("_lineax")
                 else _resolve_recycling_jax_linear_solver_backend()
             ),
             jit_residual=jit_residual,

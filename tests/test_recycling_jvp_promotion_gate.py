@@ -38,11 +38,12 @@ def test_recycling_jvp_promotion_gate_builds_single_ion_command() -> None:
     ]
     assert command[command.index("--case") + 1] == "recycling_1d_one_step"
     assert command[command.index("--reference-root") + 1] == "/tmp/reference-root"
-    assert command.count("--mode") == 3
+    assert command.count("--mode") == 4
     assert "bdf" in command
     assert "bdf_fixed_full_field_jvp" in command
     assert "bdf_active_array_jvp" not in command
     assert "fixed_bdf2_jax_linearized" in command
+    assert "fixed_bdf2_active_array_jax_linearized" in command
     assert "--diagnostics-only" in command
     assert "--require-fixed-jvp-diagnostics" in command
     assert "--require-fixed-bdf2-diagnostics" in command
@@ -65,7 +66,7 @@ def test_recycling_jvp_promotion_gate_can_opt_into_active_array_jvp() -> None:
         include_active_array_jvp=True,
     )
 
-    assert command.count("--mode") == 4
+    assert command.count("--mode") == 5
     assert "bdf_active_array_jvp" in command
 
 

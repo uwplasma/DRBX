@@ -25,10 +25,11 @@ The accepted-step monitor itself is captured as a reproducible patch artifact:
 Apply it to a clean, disposable reference-code checkout rather than to a
 working tree with unrelated local edits. The patch has two responsibilities:
 refreshing the CVODE accepted-step state and RHS before timestep monitors run,
-and adding a gated JSONL monitor in the reference application. The monitor
-registers its three input options during initialization so BOUT++ input
-validation does not reject trace-enabled decks before the first accepted step.
-Both reference patches are line-numbered `git apply` patches. Apply the direct
+exporting the CVODE method order used by each accepted internal step, and
+adding a gated JSONL monitor in the reference application. The monitor
+registers its input options during initialization so BOUT++ input validation
+does not reject trace-enabled decks before the first accepted step. Both
+reference patches are line-numbered `git apply` patches. Apply the direct
 source-term diagnostic patch first, then the accepted-step monitor patch.
 
 ## Required Reference Changes
@@ -61,9 +62,10 @@ neutral_mixed_accepted_step_trace_species = h
 ```
 
 3. On rank zero, append one JSON object per accepted internal step. Each record
-   must contain `time`, `dt`, a monotone `step_index`, and a `stages`
-   dictionary with a `post_accepted` payload. The JAXDRB runner validates the
-   following field set before returning successfully:
+   must contain `time`, `dt`, a monotone `step_index`, a `solver.order` value
+   from `CVodeGetLastOrder`, and a `stages` dictionary with a `post_accepted`
+   payload. The JAXDRB runner validates the following field set before
+   returning successfully:
 
 ```text
 Nh
