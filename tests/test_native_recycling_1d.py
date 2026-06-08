@@ -2550,6 +2550,7 @@ def test_initial_recycling_adaptive_bdf_dt_honors_runtime_override() -> None:
         config,
         runtime_model,
         timestep=1.0,
+        step_solver_mode="active_array_jax_linearized",
     ) == pytest.approx(0.03125)
 
 
@@ -2581,6 +2582,30 @@ def test_initial_recycling_adaptive_bdf_dt_accepts_legacy_section_and_caps_to_ti
         runtime_model,
         timestep=0.5,
     ) == pytest.approx(0.5)
+
+
+def test_initial_recycling_adaptive_bdf_dt_damps_jax_linearized_defaults() -> None:
+    runtime_model = SimpleNamespace(field_names=("Nd+",) * 12)
+    config = parse_bout_input("[runtime]\n")
+
+    assert recycling_1d_mod._initial_recycling_adaptive_bdf_dt(
+        config,
+        runtime_model,
+        timestep=1.0,
+        step_solver_mode="sparse",
+    ) == pytest.approx(1.0)
+    assert recycling_1d_mod._initial_recycling_adaptive_bdf_dt(
+        config,
+        runtime_model,
+        timestep=1.0,
+        step_solver_mode="active_array_jax_linearized",
+    ) == pytest.approx(1.0 / 16.0)
+    assert recycling_1d_mod._initial_recycling_adaptive_bdf_dt(
+        config,
+        runtime_model,
+        timestep=1.0,
+        step_solver_mode="jax_linearized_lineax",
+    ) == pytest.approx(1.0 / 16.0)
 
 
 def test_adaptive_bdf_history_uses_configured_initial_dt(

@@ -669,6 +669,134 @@ def build_essos_imported_fci_map_diagnostics(
     }
 
 
+def build_essos_imported_connection_length_refinement_diagnostics(
+    connection_levels: tuple[np.ndarray, ...] | list[np.ndarray],
+    labels: tuple[str, ...] | list[str] | None = None,
+    *,
+    convergence_threshold: float = 0.35,
+    linf_threshold: float = 0.75,
+    minimum_observed_order: float = 0.5,
+) -> dict[str, Any]:
+    """Compare nested imported connection-length grids by conservative restriction.
+
+    The single-grid face-jump diagnostic is useful for QA, but a publication
+    refinement claim needs repeated imported maps. This helper restricts each
+    fine connection-length grid to the adjacent coarse grid by block averages and
+    reports normalized errors and observed order.
+    """
+
+    levels = [np.asarray(level, dtype=np.float64) for level in connection_levels]
+    if len(levels) < 2:
+        raise ValueError("Connection-length refinement diagnostics require at least two levels.")
+    for index, level in enumerate(levels):
+        if level.ndim != 3:
+            raise ValueError(
+                "Connection-length refinement levels must be three-dimensional; "
+                f"level {index} has shape {level.shape}."
+            )
+
+    if labels is None:
+        level_labels = [f"level_{index}" for index in range(len(levels))]
+    else:
+        level_labels = [str(label) for label in labels]
+        if len(level_labels) != len(levels):
+            raise ValueError("Connection-length refinement labels must match level count.")
+
+    pair_reports: list[dict[str, Any]] = []
+    for index, (coarse, fine) in enumerate(zip(levels, levels[1:])):
+        restricted = _restrict_connection_length_to_coarse_grid(
+            fine=fine,
+            coarse_shape=coarse.shape,
+        )
+        finite_mask = np.isfinite(coarse) & np.isfinite(restricted)
+        diff = coarse - restricted
+        finite_diff = diff[finite_mask]
+        scale = _connection_length_pair_scale(coarse, restricted)
+        normalized = np.abs(finite_diff) / scale if finite_diff.size else np.asarray([], dtype=np.float64)
+        ratio = min(
+            fine.shape[axis] / coarse.shape[axis]
+            for axis in range(3)
+        )
+        pair_reports.append(
+            {
+                "coarse_label": level_labels[index],
+                "fine_label": level_labels[index + 1],
+                "coarse_shape": [int(value) for value in coarse.shape],
+                "fine_shape": [int(value) for value in fine.shape],
+                "refinement_ratio_min": float(ratio),
+                "finite_fraction": float(np.mean(finite_mask)),
+                "absolute_rms_error": (
+                    float(np.sqrt(np.mean(np.square(finite_diff))))
+                    if finite_diff.size
+                    else None
+                ),
+                "absolute_linf_error": (
+                    float(np.max(np.abs(finite_diff))) if finite_diff.size else None
+                ),
+                "normalized_rms_error": (
+                    float(np.sqrt(np.mean(np.square(normalized))))
+                    if normalized.size
+                    else None
+                ),
+                "normalized_p95_error": _optional_percentile(normalized, 95.0),
+                "normalized_linf_error": (
+                    float(np.max(normalized)) if normalized.size else None
+                ),
+            }
+        )
+
+    observed_orders: list[dict[str, Any]] = []
+    for previous, current in zip(pair_reports, pair_reports[1:]):
+        previous_error = previous["normalized_rms_error"]
+        current_error = current["normalized_rms_error"]
+        ratio = current["refinement_ratio_min"]
+        if (
+            previous_error is None
+            or current_error is None
+            or previous_error <= 0.0
+            or current_error <= 0.0
+            or ratio <= 1.0
+        ):
+            order = None
+        else:
+            order = float(np.log(previous_error / current_error) / np.log(ratio))
+        observed_orders.append(
+            {
+                "coarse_pair": f"{previous['coarse_label']}->{previous['fine_label']}",
+                "fine_pair": f"{current['coarse_label']}->{current['fine_label']}",
+                "observed_order": order,
+            }
+        )
+
+    last_pair = pair_reports[-1]
+    last_rms = last_pair["normalized_rms_error"]
+    last_linf = last_pair["normalized_linf_error"]
+    finite_pairs = all(pair["finite_fraction"] == 1.0 for pair in pair_reports)
+    order_values = [
+        float(item["observed_order"])
+        for item in observed_orders
+        if item["observed_order"] is not None
+    ]
+    order_passed = not order_values or min(order_values) >= float(minimum_observed_order)
+    error_passed = (
+        last_rms is not None
+        and last_linf is not None
+        and float(last_rms) <= float(convergence_threshold)
+        and float(last_linf) <= float(linf_threshold)
+    )
+    return {
+        "diagnostic": "essos_imported_connection_length_refinement",
+        "level_count": len(levels),
+        "level_labels": level_labels,
+        "pair_reports": pair_reports,
+        "observed_orders": observed_orders,
+        "convergence_threshold": float(convergence_threshold),
+        "linf_threshold": float(linf_threshold),
+        "minimum_observed_order": float(minimum_observed_order),
+        "passed": bool(finite_pairs and error_passed and order_passed),
+    }
+
+
 def save_essos_imported_fci_campaign_plot(
     report: dict[str, Any],
     arrays: dict[str, np.ndarray],
@@ -933,6 +1061,40 @@ def _connection_length_resolution_diagnostics(
         "advisory_threshold": threshold,
         "passed": bool(finite_face_fraction == 1.0 and p95 <= threshold),
     }
+
+
+def _restrict_connection_length_to_coarse_grid(
+    *,
+    fine: np.ndarray,
+    coarse_shape: tuple[int, int, int],
+) -> np.ndarray:
+    if len(coarse_shape) != 3:
+        raise ValueError(f"Coarse connection-length shape must be 3D; got {coarse_shape}.")
+    fine_shape = tuple(int(value) for value in fine.shape)
+    ratios = []
+    for coarse_size, fine_size in zip(coarse_shape, fine_shape):
+        if coarse_size <= 0 or fine_size <= 0 or fine_size % coarse_size != 0:
+            raise ValueError(
+                "Connection-length refinement levels must be nested by integer "
+                f"ratios; coarse={coarse_shape}, fine={fine_shape}."
+            )
+        ratios.append(fine_size // coarse_size)
+    nx, ny, nz = coarse_shape
+    rx, ry, rz = ratios
+    return fine.reshape(nx, rx, ny, ry, nz, rz).mean(axis=(1, 3, 5))
+
+
+def _connection_length_pair_scale(coarse: np.ndarray, restricted: np.ndarray) -> float:
+    values = np.concatenate(
+        [
+            np.asarray(coarse, dtype=np.float64).reshape(-1),
+            np.asarray(restricted, dtype=np.float64).reshape(-1),
+        ]
+    )
+    finite_values = np.abs(values[np.isfinite(values)])
+    if finite_values.size == 0:
+        return 1.0
+    return max(float(np.median(finite_values)), 1.0e-30)
 
 
 def _normalized_connection_neighbor_jumps(values: np.ndarray, *, axis: int, periodic: bool) -> np.ndarray:

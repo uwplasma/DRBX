@@ -1625,6 +1625,14 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
     assert ladder_entry["ladder_fields_present"] is True
     assert ladder_entry["diagnosis"] == "diffusion_ladder_check_available"
     assert ladder_entry["dominant_ladder_field"] == "Dnnh_raw"
+    assert ladder_entry["dominant_ladder_transition"]["from_field"] == "grad_logPnlimh"
+    assert ladder_entry["dominant_ladder_transition"]["to_field"] == "Dnnh_raw"
+    assert ladder_entry["dominant_ladder_transition"][
+        "target_pointwise_delta_after"
+    ] == pytest.approx(4.0)
+    assert ladder_entry["dominant_ladder_transition"][
+        "target_pointwise_delta_increase"
+    ] == pytest.approx(3.97)
     assert ladder_entry["max_ladder_target_adjacent_delta"] == pytest.approx(4.0)
     assert ladder_entry["ranked_ladder_errors"][0]["field"] == "Dnnh_raw"
     assert report["fields"]["Dnnh_raw"][
@@ -1643,6 +1651,78 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
     assert report["fields"]["Dnnh_raw"]["max_guard_pointwise_delta_worst_index"][
         "local_index"
     ] == [0, 0, 0]
+
+
+def test_neutral_diffusion_ladder_register_ranks_flux_cap_transition(
+    tmp_path: Path,
+) -> None:
+    def field(target: float) -> dict[str, object]:
+        return {
+            "active_metrics": {"max_abs": target, "rms": target},
+            "target_adjacent_metrics": {"max_abs": target, "rms": target},
+            "target_adjacent_shape": [1, 1, 1],
+            "target_adjacent_values": [target],
+            "guard_metrics": {"max_abs": 0.0, "rms": 0.0},
+            "sample_lineout_y_indices": [0],
+            "sample_lineout": [target],
+        }
+
+    native_trace = {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "trace_points": [
+            {
+                "index": 0,
+                "time": 0.0,
+                "dt": 0.0,
+                "stage": "post_accepted",
+                "fields": {
+                    "Tnlimh": field(0.0),
+                    "logPnlimh": field(0.0),
+                    "grad_logPnlimh": field(0.0),
+                    "Dnnh_raw": field(0.0),
+                    "Dnnh_flux_max": field(0.0),
+                    "Dnnh_flux_limited": field(0.0),
+                    "Dnnh_diffusion_limited": field(0.0),
+                    "Dnnh": field(0.0),
+                },
+            }
+        ],
+    }
+    reference_record = {
+        "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+        "step_index": 0,
+        "time": 0.0,
+        "dt": 0.0,
+        "stages": {
+            "post_accepted": {
+                "Tnlimh": field(0.01),
+                "logPnlimh": field(0.02),
+                "grad_logPnlimh": field(0.03),
+                "Dnnh_raw": field(0.05),
+                "Dnnh_flux_max": field(0.70),
+                "Dnnh_flux_limited": field(0.72),
+                "Dnnh_diffusion_limited": field(0.73),
+                "Dnnh": field(0.74),
+            }
+        },
+    }
+    native_path = tmp_path / "native_trace.json"
+    reference_path = tmp_path / "reference_trace.jsonl"
+    native_path.write_text(json.dumps(native_trace), encoding="utf-8")
+    reference_path.write_text(json.dumps(reference_record) + "\n", encoding="utf-8")
+
+    report = build_neutral_mixed_accepted_step_trace_parity_report(
+        native_trace_json=native_path,
+        reference_trace_json=reference_path,
+        time_tolerance=1.0e-12,
+    )
+
+    ladder_entry = report["neutral_diffusion_ladder_register"]["entries"][0]
+    transition = ladder_entry["dominant_ladder_transition"]
+    assert transition["from_field"] == "Dnnh_raw"
+    assert transition["to_field"] == "Dnnh_flux_max"
+    assert transition["target_pointwise_delta_increase"] == pytest.approx(0.65)
+    assert transition["target_pointwise_amplification"] == pytest.approx(14.0)
     assert report["fields"]["Dnnh_raw"]["max_target_adjacent_delta_worst_index"][
         "native_index"
     ] == []

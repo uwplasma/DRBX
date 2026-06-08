@@ -806,6 +806,13 @@ The adaptive BDF controller uses a conservative accepted-step threshold of
 Those values are deliberately aligned with the promotion gate rather than the
 looser mathematical `error <= 1` acceptance boundary, because the JAX-linearized
 path is still an opt-in research backend.
+For JAX-linearized adaptive modes, including the active-array route, the
+default first internal step is also damped to at most one sixteenth of the
+requested output window. An explicit
+`runtime:recycling_adaptive_bdf_initial_dt` or legacy
+`jax_drb:recycling_adaptive_bdf_initial_dt` setting still takes precedence.
+This change targets the startup rejected-trial cost observed in the active
+array bridge without changing the validated sparse production default.
 The matrix-free BE/BDF2 trial solvers also start from the same explicit
 predictor used by the sparse and JAX-linearized paths, rather than from the
 previous state. That keeps the native solver variants comparable and avoids an
@@ -907,6 +914,14 @@ solver because the full output-window recycling path still needs the same
 parity and runtime gates. This remains a bounded solver-health result rather
 than a full parity claim; the committed reference one-step deck still uses the
 full `timestep=5000` output interval.
+The active-array version of the same bounded gate now uses the damped
+JAX-linearized startup step by default and completed locally in about `103 s`,
+with `21` accepted substeps, `2` rejected trials, `49` active-array
+RHS/JAX-linearized trial solves, zero fallback, zero unconverged implicit
+substeps, and `adaptive_bdf_max_accepted_error_ratio=9.315e-1`. This improves
+on the earlier `161 s`, `6`-rejection, `61`-trial route-health run, but it
+still remains opt-in until the full output-window and D/T/He heavy cases pass
+the same parity/runtime gates.
 
 There is also an optional Lineax evaluation seam for transformable gates:
 `solver_mode="jax_linearized_lineax"` or

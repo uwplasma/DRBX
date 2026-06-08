@@ -2565,6 +2565,7 @@ def _advance_recycling_1d_adaptive_bdf_history(
         config,
         runtime_model,
         timestep=timestep,
+        step_solver_mode=step_solver_mode,
     )
     interval_stats = _new_adaptive_bdf_interval_stats(step_solver_mode)
     interval_stats["adaptive_bdf_interval_count"] = 0
@@ -3988,6 +3989,7 @@ def _initial_recycling_adaptive_bdf_dt(
     runtime_model: _RecyclingRuntimeModel,
     *,
     timestep: float,
+    step_solver_mode: str = "sparse",
 ) -> float:
     for section_name in ("runtime", "jax_drb"):
         if not config.has_option(section_name, "recycling_adaptive_bdf_initial_dt"):
@@ -4000,7 +4002,10 @@ def _initial_recycling_adaptive_bdf_dt(
             continue
         if np.isfinite(configured) and configured > 0.0:
             return min(float(timestep), configured)
-    return _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
+    base_dt = _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
+    if "jax_linearized" in str(step_solver_mode):
+        return min(base_dt, max(float(timestep) / 16.0, _adaptive_bdf_minimum_dt(timestep)))
+    return base_dt
 
 
 def _build_recycling_sparse_jvp_workspace(

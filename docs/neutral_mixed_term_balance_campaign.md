@@ -273,7 +273,10 @@ configured order-ceiling violations, and `within_configured_max_order = true`.
 The leading offender did not move to the pressure-gradient or viscosity
 formulas: `Dnnh_flux_max` remains first, with a target-adjacent drift of about
 `5.13e-3`; final `Dnnh`, diffusion-limited `Dnnh`, flux-limited `Dnnh`, and
-`eta_h` follow. The practical conclusion is that variable CVODE order is no
+`eta_h` follow. The ladder-transition register now identifies the dominant
+max-order-2 jump as `Dnnh_raw -> Dnnh_flux_max`: target-pointwise error rises
+from about `2.83e-4` to about `5.13e-3`, while the raw-diffusion formula itself
+stays much closer. The practical conclusion is that variable CVODE order is no
 longer the dominant explanation for the neutral NVh mismatch. The remaining
 patch should compare accepted-step state/history sequencing and the near-target
 `Grad(logPnlim)`/flux-limit-cap preparation directly against this max-order-2

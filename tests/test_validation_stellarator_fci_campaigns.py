@@ -7,6 +7,7 @@ import sys
 
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from jax_drb.geometry import FciMaps, identity_fci_maps
 from jax_drb.validation import (
@@ -20,7 +21,10 @@ from jax_drb.validation import (
     create_stellarator_sol_showcase_package,
     create_stellarator_vorticity_campaign_package,
 )
-from jax_drb.validation.essos_imported_fci_campaign import build_essos_imported_fci_map_diagnostics
+from jax_drb.validation.essos_imported_fci_campaign import (
+    build_essos_imported_connection_length_refinement_diagnostics,
+    build_essos_imported_fci_map_diagnostics,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -174,6 +178,43 @@ def test_imported_fci_connection_length_resolution_diagnostics_are_advisory() ->
     assert rough_resolution["passed"] is False
     assert rough_resolution["normalized_face_jump_p95"] > smooth_resolution["normalized_face_jump_p95"]
     assert rough_resolution["underresolved_face_fraction"] > 0.5
+
+
+def test_imported_fci_connection_length_refinement_diagnostics_rank_nested_grids() -> None:
+    def smooth_connection(shape: tuple[int, int, int]) -> np.ndarray:
+        x = (np.arange(shape[0], dtype=np.float64) + 0.5) / shape[0]
+        y = (np.arange(shape[1], dtype=np.float64) + 0.5) / shape[1]
+        z = (np.arange(shape[2], dtype=np.float64) + 0.5) / shape[2]
+        xx, yy, zz = np.meshgrid(x, y, z, indexing="ij")
+        return 10.0 + 0.2 * xx + 0.03 * np.sin(2.0 * np.pi * yy) + 0.02 * np.cos(2.0 * np.pi * zz)
+
+    high = smooth_connection((16, 16, 32))
+    mid_truth = high.reshape(8, 2, 8, 2, 16, 2).mean(axis=(1, 3, 5))
+    coarse_truth = mid_truth.reshape(4, 2, 4, 2, 8, 2).mean(axis=(1, 3, 5))
+    coarse = coarse_truth + 0.02
+    mid = mid_truth + 0.005
+
+    report = build_essos_imported_connection_length_refinement_diagnostics(
+        [coarse, mid, high],
+        labels=["coarse", "medium", "fine"],
+        convergence_threshold=0.01,
+        linf_threshold=0.01,
+    )
+
+    assert report["passed"] is True
+    assert report["pair_reports"][0]["normalized_rms_error"] > report["pair_reports"][1]["normalized_rms_error"]
+    assert report["observed_orders"][0]["observed_order"] > 1.0
+
+
+def test_imported_fci_connection_length_refinement_rejects_non_nested_grids() -> None:
+    coarse = np.ones((4, 4, 8), dtype=np.float64)
+    non_nested = np.ones((7, 8, 16), dtype=np.float64)
+
+    with pytest.raises(ValueError, match="nested by integer ratios"):
+        build_essos_imported_connection_length_refinement_diagnostics(
+            [coarse, non_nested],
+            labels=["coarse", "bad"],
+        )
 
 
 def _load_imported_fci_campaign_example():

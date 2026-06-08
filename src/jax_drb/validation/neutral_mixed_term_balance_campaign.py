@@ -975,6 +975,10 @@ def _build_neutral_diffusion_ladder_register(
             key=_accepted_trace_field_ranking_key,
             reverse=True,
         )
+        ladder_transitions = _neutral_diffusion_ladder_transitions(
+            ladder_fields=ladder_fields,
+            ladder_errors=ladder_errors,
+        )
         entries.append(
             {
                 "section": section,
@@ -982,10 +986,14 @@ def _build_neutral_diffusion_ladder_register(
                 "ladder_fields": ladder_fields,
                 "ladder_errors": ladder_errors,
                 "ranked_ladder_errors": ranked_ladder_errors,
+                "ladder_transitions": ladder_transitions,
                 "missing_ladder_fields": missing_ladder_fields,
                 "ladder_fields_present": not missing_ladder_fields,
                 "dominant_ladder_field": _dominant_trace_error_field(
                     ladder_errors
+                ),
+                "dominant_ladder_transition": _dominant_ladder_transition(
+                    ladder_transitions
                 ),
                 "max_ladder_active_delta": max(
                     (
@@ -1026,6 +1034,75 @@ def _build_neutral_diffusion_ladder_register(
             }
         ),
     }
+
+
+def _neutral_diffusion_ladder_transitions(
+    *,
+    ladder_fields: dict[str, str],
+    ladder_errors: dict[str, dict[str, object]],
+) -> list[dict[str, object]]:
+    ordered_stages = (
+        "temperature_limited",
+        "log_pressure_limited",
+        "grad_log_pressure_limited",
+        "raw_diffusion",
+        "flux_limit_diffusion_max",
+        "flux_limited_diffusion",
+        "diffusion_limited",
+        "boundary_applied_diffusion",
+    )
+    transitions: list[dict[str, object]] = []
+    for previous_stage, current_stage in zip(ordered_stages, ordered_stages[1:]):
+        previous_field = ladder_fields[previous_stage]
+        current_field = ladder_fields[current_stage]
+        previous_error = ladder_errors.get(previous_field)
+        current_error = ladder_errors.get(current_field)
+        if not isinstance(previous_error, dict) or not isinstance(current_error, dict):
+            continue
+        previous_target = _trace_target_pointwise_delta(previous_error)
+        current_target = _trace_target_pointwise_delta(current_error)
+        previous_active = float(previous_error.get("max_active_delta", 0.0))
+        current_active = float(current_error.get("max_active_delta", 0.0))
+        previous_guard = float(previous_error.get("max_guard_delta", 0.0))
+        current_guard = float(current_error.get("max_guard_delta", 0.0))
+        transitions.append(
+            {
+                "from_stage": previous_stage,
+                "to_stage": current_stage,
+                "from_field": previous_field,
+                "to_field": current_field,
+                "target_pointwise_delta_before": previous_target,
+                "target_pointwise_delta_after": current_target,
+                "target_pointwise_delta_increase": current_target - previous_target,
+                "target_pointwise_amplification": _safe_ratio(
+                    current_target, previous_target
+                ),
+                "active_delta_before": previous_active,
+                "active_delta_after": current_active,
+                "active_delta_increase": current_active - previous_active,
+                "active_amplification": _safe_ratio(current_active, previous_active),
+                "guard_delta_before": previous_guard,
+                "guard_delta_after": current_guard,
+                "guard_delta_increase": current_guard - previous_guard,
+                "guard_amplification": _safe_ratio(current_guard, previous_guard),
+            }
+        )
+    transitions.sort(
+        key=lambda item: (
+            float(item["target_pointwise_delta_increase"]),
+            float(item["target_pointwise_delta_after"]),
+            float(item["active_delta_increase"]),
+            float(item["active_delta_after"]),
+        ),
+        reverse=True,
+    )
+    return transitions
+
+
+def _dominant_ladder_transition(
+    transitions: list[dict[str, object]],
+) -> dict[str, object] | None:
+    return transitions[0] if transitions else None
 
 
 def _build_parallel_viscosity_input_register(

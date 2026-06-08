@@ -116,7 +116,15 @@ count to match the forward-plus-backward FCI boundary masks. The resolution
 diagnostics record normalized neighbor jumps, per-axis 95th-percentile jumps,
 an underresolved-face fraction, and an advisory pass flag. They catch obviously
 grid-scale connection-length roughness before a live imported run is promoted,
-but they are not a replacement for a future multi-grid refinement campaign.
+but they are not a replacement for a multi-grid refinement campaign.
+For that promotion step, `build_essos_imported_connection_length_refinement_diagnostics`
+compares nested connection-length grids after conservative block restriction of
+each fine grid to the adjacent coarse grid. The report records normalized RMS,
+95th-percentile, and \(L_\infty\) errors for every coarse/fine pair plus the
+observed order when three or more levels are supplied. Imported-field
+turbulence movies should not be used as publication evidence until this
+multi-grid connection-length gate passes on the same `coil`, `vmec`, or
+`hybrid` map source used by the movie.
 For `vmec` maps the consumed-map count must be zero; for `coil` and `hybrid`
 maps it must be nonzero and exactly consumed by the sheath/recycling masks.
 

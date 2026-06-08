@@ -179,6 +179,10 @@ followed by the flux-limited, diffusion-limited, and final boundary-applied
 (`6.07e-4`), so the remaining accepted-step offender is in the flux-limit cap
 and near-target state/boundary sequencing rather than raw neutral diffusion
 preparation.
+On the controlled max-order-2 rerun, the same interpretation holds: the native
+replay matches `309/309` accepted times with zero solver-order mismatches, and
+the ladder-transition register ranks `Dnnh_raw -> Dnnh_flux_max` first, with
+target-pointwise error rising from about `2.83e-4` to about `5.13e-3`.
 
 The latest pointwise target-cell and guard-cell rerun confirms that this is not
 only a zone-maximum ordering artifact. At the upper target-adjacent cell with

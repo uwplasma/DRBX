@@ -273,13 +273,17 @@ For the remaining recycling solver work, the order is therefore fixed:
   `adaptive_bdf_jax_linearized` and `adaptive_bdf_jax_linearized_lineax`;
 - the active-array adaptive-BDF route now has the same controlled gate surface:
   `adaptive_bdf_active_array_jax_linearized` completed the local
-  `recycling_1d_one_step`, `timestep=1.0` diagnostics run in about `161 s`,
-  used `61` active-array RHS/JAX-linearized trial solves, and reported zero
+  `recycling_1d_one_step`, `timestep=1.0` diagnostics run in about `103 s`,
+  used `49` active-array RHS/JAX-linearized trial solves, and reported zero
   fallback accepts, zero unconverged implicit substeps, and zero failed linear
   solves. Its maximum accepted-step error ratio was `9.315e-1`, while rejected
-  trials raised the all-trial maximum error ratio to about `1.16e2`. Treat this
-  as route and controller-health evidence, not a full promotion pass, until the
-  rejected-trial cost and heavy-window runtime are reduced;
+  trials raised the all-trial maximum error ratio to about `2.99`. The improved
+  run is the result of damping the default first internal step for
+  JAX-linearized adaptive modes to at most one sixteenth of the output window
+  unless an explicit `recycling_adaptive_bdf_initial_dt` override is supplied.
+  Treat this as route and controller-health evidence, not a full promotion
+  pass, until the full output window and D/T/He heavy cases clear the same
+  runtime/parity gates;
 - keep the Lineax seam as an opt-in backend comparison. The current
   `timestep=1.0` adaptive-BDF gate has identical controller diagnostics for
   `adaptive_bdf_jax_linearized` and `adaptive_bdf_jax_linearized_lineax`
