@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
+import sys
 
 from jax_drb.validation import (
     create_stellarator_fci_geometry_campaign_package,
@@ -14,6 +16,46 @@ from jax_drb.validation import (
     create_stellarator_sol_showcase_package,
     create_stellarator_vorticity_campaign_package,
 )
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_imported_fci_example_cli_resolves_source_specific_artifact_defaults(capsys) -> None:
+    module = _load_imported_fci_campaign_example()
+
+    args = module.parse_args(["--all-map-sources", "--dry-run", "--nx", "3", "--ny", "4", "--nz", "8"])
+    settings = module.build_run_settings(args)
+
+    assert [item.map_source for item in settings] == ["coil", "vmec", "hybrid"]
+    assert [item.case_label for item in settings] == [
+        "essos_imported_fci_campaign",
+        "essos_imported_fci_vmec_campaign",
+        "essos_imported_fci_hybrid_campaign",
+    ]
+    assert [str(item.output_root) for item in settings] == [
+        "docs/data/essos_imported_fci_artifacts",
+        "docs/data/essos_imported_fci_vmec_artifacts",
+        "docs/data/essos_imported_fci_hybrid_artifacts",
+    ]
+    assert all((item.nx, item.ny, item.nz) == (3, 4, 8) for item in settings)
+
+    assert module.main(["--map-source", "hybrid", "--dry-run", "--output-root", "tmp/hybrid", "--case-label", "custom"]) == 0
+    captured = capsys.readouterr()
+    assert "map_source=hybrid" in captured.out
+    assert "output_root=tmp/hybrid" in captured.out
+    assert "case_label=custom" in captured.out
+
+
+def _load_imported_fci_campaign_example():
+    module_path = REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_fci_campaign.py"
+    spec = importlib.util.spec_from_file_location("imported_fci_campaign_example", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_stellarator_fci_geometry_campaign_generates_passing_artifacts(tmp_path: Path) -> None:

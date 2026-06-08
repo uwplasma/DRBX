@@ -15,15 +15,25 @@ geometry source checkout:
 ```bash
 JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
 PYTHONPATH=src .venv/bin/python \
-  examples/geometry-3D/essos-field-lines/imported_fci_campaign.py
+  examples/geometry-3D/essos-field-lines/imported_fci_campaign.py \
+  --map-source hybrid
 ```
 
-The example follows the same SIMSOPT-style pattern as the other geometry
-drivers: edit constants near the top of
-`examples/geometry-3D/essos-field-lines/imported_fci_campaign.py`. Set
-`COIL_JSON_PATH`, `VMEC_WOUT_PATH`, or `ESSOS_ROOT` when the external checkout
-is not located at the default `~/local/ESSOS`. Set `MAP_SOURCE` to one of three
-imported-map semantics:
+Use `--all-map-sources` to regenerate the published `coil`, `vmec`, and
+`hybrid` artifact directories in one run:
+
+```bash
+JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
+PYTHONPATH=src .venv/bin/python \
+  examples/geometry-3D/essos-field-lines/imported_fci_campaign.py \
+  --all-map-sources
+```
+
+Use `--dry-run` to confirm the resolved artifact paths and grid settings
+without importing ESSOS or writing files. Pass `--coil-json-path`,
+`--vmec-wout-path`, or `--essos-root` when the external checkout is not located
+at the default `~/local/ESSOS`. Set `--map-source` to one of three imported-map
+semantics:
 
 - `coil` traces the external Biot-Savart coil field to adjacent toroidal
   planes and keeps the resulting open-field endpoint masks.
@@ -34,6 +44,11 @@ imported-map semantics:
   endpoint masks, connection-length proxy, and \(|B|\) modulation. This is the
   intended bridge for open-field SOL closure tests while the VMEC map supplies
   smooth non-axisymmetric interpolation coordinates.
+
+The command chooses source-specific defaults, so `--map-source vmec` writes
+`docs/data/essos_imported_fci_vmec_artifacts/` and `--map-source hybrid` writes
+`docs/data/essos_imported_fci_hybrid_artifacts/` unless `--output-root` or
+`--case-label` is supplied for a single-source run.
 
 ## Geometry Import
 
