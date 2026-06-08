@@ -96,6 +96,9 @@ For `jax_drb`, the high-value test taxonomy is now:
   and Braginskii closures;
 - transient parity ladders for RHS, one-step, short-window, restart, and
   selected longer diagnostic windows;
+- pointwise target-adjacent accepted-step diagnostics for neutral-mixed
+  closures, including the `Dnnh` ladder, `Vh`/`eta_h` inputs, covariant
+  `Grad(logPnlim)` metric norm, and active-versus-guard source ranking;
 - physics gates for conservation, source balance, target power, core/SOL
   volume integrals, connection length, endpoint masks, radial flux, spectra,
   skewness, and profile lineouts;

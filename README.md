@@ -237,6 +237,14 @@ reference parity, CPU scaling, and differentiability plots, lives in
 that separates primary scientific evidence from supporting engineering gates is
 [docs/research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md).
 
+The neutral-mixed validation docs now separate pointwise target-cell drift from
+legacy zone max/rms summaries. The current accepted-step trace matches
+`148/148` reference-grid points, writes the `Dnnh` preparation ladder plus
+`Vh`/`eta_h`, and uses the covariant `Grad(logPnlim)` metric norm with the
+carried metric terms. The remaining neutral-mixed blocker is therefore
+near-target gradient/pressure-guard and flux-limit-cap sequencing, not a
+missing pressure-gradient or viscosity source formula.
+
 ![Fluid 1D MMS convergence](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png)
 
 ![Stellarator SOL diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
