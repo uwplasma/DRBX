@@ -2017,6 +2017,8 @@ def advance_recycling_1d_implicit_history(
         "adaptive_bdf_sparse_jvp",
         "adaptive_bdf_jax_linearized",
         "adaptive_bdf_jax_linearized_lineax",
+        "adaptive_bdf_active_array_jax_linearized",
+        "adaptive_bdf_active_array_jax_linearized_lineax",
     }:
         return _advance_recycling_1d_adaptive_bdf_history(
             config,
@@ -2288,6 +2290,9 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_total_residual_evaluation_seconds": 0.0,
         "fixed_bdf2_active_array_rhs_steps": 0,
         "fixed_bdf2_residual_jitted_steps": 0,
+        "fixed_bdf2_unconverged_solver_steps": 0,
+        "fixed_bdf2_unknown_convergence_solver_steps": 0,
+        "fixed_bdf2_linear_solver_failed_steps": 0,
         "fixed_bdf2_evolve_feedback_integrals": True,
     }
     run_started_at = time.perf_counter()
@@ -2336,6 +2341,19 @@ def _advance_recycling_1d_fixed_bdf2_history(
         if bool(info.diagnostics.get("residual_jitted", False)):
             diagnostics["fixed_bdf2_residual_jitted_steps"] = (
                 int(diagnostics["fixed_bdf2_residual_jitted_steps"]) + 1
+            )
+        converged = info.diagnostics.get("converged")
+        if converged is False:
+            diagnostics["fixed_bdf2_unconverged_solver_steps"] = (
+                int(diagnostics["fixed_bdf2_unconverged_solver_steps"]) + 1
+            )
+        elif converged is None:
+            diagnostics["fixed_bdf2_unknown_convergence_solver_steps"] = (
+                int(diagnostics["fixed_bdf2_unknown_convergence_solver_steps"]) + 1
+            )
+        if info.diagnostics.get("linear_solver_success") is False:
+            diagnostics["fixed_bdf2_linear_solver_failed_steps"] = (
+                int(diagnostics["fixed_bdf2_linear_solver_failed_steps"]) + 1
             )
         key = (
             "fixed_bdf2_startup_steps"
@@ -2633,6 +2651,7 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_unconverged_solver_steps": 0,
         "adaptive_bdf_unknown_convergence_solver_steps": 0,
         "adaptive_bdf_fixed_full_field_rhs_solver_steps": 0,
+        "adaptive_bdf_active_array_rhs_solver_steps": 0,
         "adaptive_bdf_host_bridge_rhs_solver_steps": 0,
         "adaptive_bdf_sparse_jvp_jacobian_solver_steps": 0,
         "adaptive_bdf_sparse_jvp_workspace_reuses": 0,
@@ -2981,6 +3000,10 @@ def _record_adaptive_bdf_step_solver_info(
         stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"] = (
             int(stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"]) + 1
         )
+    elif rhs_backend == "active_array":
+        stats["adaptive_bdf_active_array_rhs_solver_steps"] = (
+            int(stats["adaptive_bdf_active_array_rhs_solver_steps"]) + 1
+        )
     elif rhs_backend == "host_bridge":
         stats["adaptive_bdf_host_bridge_rhs_solver_steps"] = (
             int(stats["adaptive_bdf_host_bridge_rhs_solver_steps"]) + 1
@@ -3019,6 +3042,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_unconverged_solver_steps",
         "adaptive_bdf_unknown_convergence_solver_steps",
         "adaptive_bdf_fixed_full_field_rhs_solver_steps",
+        "adaptive_bdf_active_array_rhs_solver_steps",
         "adaptive_bdf_host_bridge_rhs_solver_steps",
         "adaptive_bdf_sparse_jvp_jacobian_solver_steps",
         "adaptive_bdf_sparse_jvp_workspace_reuses",
@@ -3449,6 +3473,10 @@ def _adaptive_bdf_step_solver_mode(history_solver_mode: str) -> str:
         return "jax_linearized"
     if history_solver_mode == "adaptive_bdf_jax_linearized_lineax":
         return "jax_linearized_lineax"
+    if history_solver_mode == "adaptive_bdf_active_array_jax_linearized":
+        return "active_array_jax_linearized"
+    if history_solver_mode == "adaptive_bdf_active_array_jax_linearized_lineax":
+        return "active_array_jax_linearized_lineax"
     raise ValueError(f"Unsupported adaptive BDF solver mode {history_solver_mode!r}.")
 
 

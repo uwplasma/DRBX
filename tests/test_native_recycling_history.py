@@ -75,6 +75,14 @@ def test_implicit_history_rejects_negative_steps() -> None:
         ("continuation", "_advance_recycling_1d_continuation_history"),
         ("adaptive_be", "_advance_recycling_1d_adaptive_be_history"),
         ("adaptive_bdf", "_advance_recycling_1d_adaptive_bdf_history"),
+        (
+            "adaptive_bdf_active_array_jax_linearized",
+            "_advance_recycling_1d_adaptive_bdf_history",
+        ),
+        (
+            "adaptive_bdf_active_array_jax_linearized_lineax",
+            "_advance_recycling_1d_adaptive_bdf_history",
+        ),
         ("bdf", "_advance_recycling_1d_bdf_history"),
         ("bdf_fixed_full_field_jvp", "_advance_recycling_1d_bdf_history"),
         ("bdf_active_array_jvp", "_advance_recycling_1d_bdf_history"),
@@ -138,6 +146,13 @@ def test_implicit_history_dispatches_solver_modes(
         assert calls["kwargs"]["jacobian_mode"] == "jvp"
         assert calls["kwargs"]["rhs_backend"] == "active_array"
         assert calls["kwargs"]["solver_mode_label"] == "bdf_active_array_jvp"
+    if solver_mode.startswith("adaptive_bdf_active_array_jax_linearized"):
+        expected_step_solver = (
+            "active_array_jax_linearized_lineax"
+            if solver_mode.endswith("_lineax")
+            else "active_array_jax_linearized"
+        )
+        assert calls["kwargs"]["step_solver_mode"] == expected_step_solver
     if solver_mode.startswith("fixed_bdf2_jax_linearized"):
         expected_step_solver = (
             "jax_linearized_lineax"
@@ -353,6 +368,8 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
                 "linear_solve_seconds": 0.25,
                 "residual_evaluation_seconds": 0.125,
                 "residual_jitted": True,
+                "converged": True,
+                "linear_solver_success": True,
             },
         )
 
@@ -422,6 +439,9 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
     assert diagnostics["fixed_bdf2_active_array_rhs_steps"] == 2
     assert diagnostics["fixed_bdf2_jax_linearized_action_steps"] == 2
     assert diagnostics["fixed_bdf2_residual_jitted_steps"] == 2
+    assert diagnostics["fixed_bdf2_unconverged_solver_steps"] == 0
+    assert diagnostics["fixed_bdf2_unknown_convergence_solver_steps"] == 0
+    assert diagnostics["fixed_bdf2_linear_solver_failed_steps"] == 0
     np.testing.assert_allclose(result.variable_history["N"][:, 0], [1.0, 2.0, 3.0])
 
 
@@ -657,6 +677,16 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
         SimpleNamespace(
             diagnostics={
                 "converged": True,
+                "rhs_backend": "active_array",
+                "jacobian_mode": "jax_linearized:jax_gmres",
+            }
+        ),
+    )
+    recycling._record_adaptive_bdf_step_solver_info(
+        stats,
+        SimpleNamespace(
+            diagnostics={
+                "converged": True,
                 "rhs_backend": "host_bridge",
                 "jacobian_mode": "fd",
             }
@@ -664,12 +694,13 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     )
     recycling._record_adaptive_bdf_step_solver_info(stats, SimpleNamespace())
 
-    assert stats["adaptive_bdf_trial_solver_steps"] == 4
+    assert stats["adaptive_bdf_trial_solver_steps"] == 5
     assert stats["adaptive_bdf_unconverged_solver_steps"] == 1
     assert stats["adaptive_bdf_unknown_convergence_solver_steps"] == 1
     assert stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"] == 2
+    assert stats["adaptive_bdf_active_array_rhs_solver_steps"] == 1
     assert stats["adaptive_bdf_host_bridge_rhs_solver_steps"] == 1
-    assert stats["adaptive_bdf_jax_linearized_action_solver_steps"] == 1
+    assert stats["adaptive_bdf_jax_linearized_action_solver_steps"] == 2
     assert stats["adaptive_bdf_sparse_jvp_jacobian_solver_steps"] == 1
     assert stats["adaptive_bdf_fd_jacobian_solver_steps"] == 1
     assert stats["adaptive_bdf_residual_evaluation_count"] == 3

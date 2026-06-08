@@ -50,6 +50,7 @@ _IMPORTED_FCI_REQUIRED_REPORT_FIELDS = (
     "connection_length_mean",
     "connection_length_max",
     "connection_length_diagnostics",
+    "connection_length_resolution_diagnostics",
     "refinement_diagnostics",
     "consumed_map_diagnostics",
     "map_diagnostics_passed",
@@ -74,6 +75,19 @@ _IMPORTED_FCI_DIAGNOSTIC_SCHEMA = {
         "coefficient_of_variation",
         "zero_fraction",
         "radial_mean_profile",
+    ],
+    "connection_length_resolution_diagnostics": [
+        "finite_face_fraction",
+        "normalized_face_jump_mean",
+        "normalized_face_jump_p95",
+        "normalized_face_jump_max",
+        "underresolved_face_fraction",
+        "minimum_cells_per_connection_scale",
+        "radial_normalized_jump_p95",
+        "toroidal_normalized_jump_p95",
+        "poloidal_normalized_jump_p95",
+        "advisory_threshold",
+        "passed",
     ],
     "refinement_diagnostics": [
         "shape",
@@ -420,6 +434,7 @@ def build_essos_imported_fci_campaign(
         "connection_length_mean": float(np.mean(connection)),
         "connection_length_max": float(np.max(connection)),
         "connection_length_diagnostics": map_diagnostics["connection_length_diagnostics"],
+        "connection_length_resolution_diagnostics": map_diagnostics["connection_length_resolution_diagnostics"],
         "refinement_diagnostics": map_diagnostics["refinement_diagnostics"],
         "consumed_map_diagnostics": map_diagnostics["consumed_map_diagnostics"],
         "map_diagnostics_passed": bool(map_diagnostics["passed"]),
@@ -551,6 +566,7 @@ def build_essos_imported_fci_map_diagnostics(
         "zero_fraction": float(np.mean(finite_connection & (np.abs(connection) <= 1.0e-14))),
         "radial_mean_profile": radial_mean_profile,
     }
+    connection_resolution_diagnostics = _connection_length_resolution_diagnostics(connection)
 
     x_index = np.broadcast_to(np.arange(nx, dtype=np.float64)[:, None, None], shape)
     z_index = np.broadcast_to(np.arange(nz, dtype=np.float64)[None, None, :], shape)
@@ -646,6 +662,7 @@ def build_essos_imported_fci_map_diagnostics(
     return {
         "map_source": map_source,
         "connection_length_diagnostics": connection_diagnostics,
+        "connection_length_resolution_diagnostics": connection_resolution_diagnostics,
         "refinement_diagnostics": refinement_diagnostics,
         "consumed_map_diagnostics": consumed_map_diagnostics,
         "passed": bool(connection_passed and refinement_passed and consumed_map_passed),
@@ -850,6 +867,10 @@ def _imported_fci_acceptance_contract(map_source: str) -> dict[str, list[str]]:
     return {
         "common": [
             "connection-length diagnostics are finite and nonnegative",
+            (
+                "single-grid connection-length resolution diagnostics report "
+                "grid-scale roughness as an advisory pre-refinement check"
+            ),
             "map coordinate diagnostics are finite at the declared grid refinement",
             "particle recycling, current balance, neutral particle, and neutral momentum residuals close",
             "report JSON contains every required diagnostic field and arrays NPZ contains every required key",
@@ -862,6 +883,79 @@ def _periodic_cell_delta(delta: np.ndarray, period: float) -> np.ndarray:
     if period <= 0.0:
         return delta
     return np.mod(delta + 0.5 * period, period) - 0.5 * period
+
+
+def _connection_length_resolution_diagnostics(
+    connection: np.ndarray,
+    *,
+    advisory_threshold: float = 0.5,
+) -> dict[str, Any]:
+    """Estimate whether a single imported connection-length grid is resolved.
+
+    This is intentionally an advisory single-grid diagnostic. A production
+    refinement claim still needs repeated imported runs at multiple grids.
+    """
+
+    values = np.asarray(connection, dtype=np.float64)
+    radial_jumps = _normalized_connection_neighbor_jumps(values, axis=0, periodic=False)
+    toroidal_jumps = _normalized_connection_neighbor_jumps(values, axis=1, periodic=True)
+    poloidal_jumps = _normalized_connection_neighbor_jumps(values, axis=2, periodic=True)
+    all_jumps = np.concatenate([radial_jumps, toroidal_jumps, poloidal_jumps])
+    finite_jumps = all_jumps[np.isfinite(all_jumps)]
+    threshold = float(advisory_threshold)
+    if finite_jumps.size == 0:
+        return {
+            "finite_face_fraction": 0.0,
+            "normalized_face_jump_mean": None,
+            "normalized_face_jump_p95": None,
+            "normalized_face_jump_max": None,
+            "underresolved_face_fraction": 1.0,
+            "minimum_cells_per_connection_scale": None,
+            "radial_normalized_jump_p95": _optional_percentile(radial_jumps, 95.0),
+            "toroidal_normalized_jump_p95": _optional_percentile(toroidal_jumps, 95.0),
+            "poloidal_normalized_jump_p95": _optional_percentile(poloidal_jumps, 95.0),
+            "advisory_threshold": threshold,
+            "passed": False,
+        }
+
+    p95 = float(np.percentile(finite_jumps, 95.0))
+    finite_face_fraction = float(finite_jumps.size / max(all_jumps.size, 1))
+    return {
+        "finite_face_fraction": finite_face_fraction,
+        "normalized_face_jump_mean": float(np.mean(finite_jumps)),
+        "normalized_face_jump_p95": p95,
+        "normalized_face_jump_max": float(np.max(finite_jumps)),
+        "underresolved_face_fraction": float(np.mean(finite_jumps > threshold)),
+        "minimum_cells_per_connection_scale": float(1.0 / max(p95, 1.0e-30)),
+        "radial_normalized_jump_p95": _optional_percentile(radial_jumps, 95.0),
+        "toroidal_normalized_jump_p95": _optional_percentile(toroidal_jumps, 95.0),
+        "poloidal_normalized_jump_p95": _optional_percentile(poloidal_jumps, 95.0),
+        "advisory_threshold": threshold,
+        "passed": bool(finite_face_fraction == 1.0 and p95 <= threshold),
+    }
+
+
+def _normalized_connection_neighbor_jumps(values: np.ndarray, *, axis: int, periodic: bool) -> np.ndarray:
+    if values.shape[axis] < 2:
+        return np.asarray([], dtype=np.float64)
+    if periodic:
+        left = values
+        right = np.roll(values, -1, axis=axis)
+    else:
+        left = np.take(values, indices=range(values.shape[axis] - 1), axis=axis)
+        right = np.take(values, indices=range(1, values.shape[axis]), axis=axis)
+    scale = 0.5 * (np.abs(left) + np.abs(right))
+    floor = _connection_length_scale_floor(values)
+    jumps = np.abs(right - left) / np.maximum(scale, floor)
+    return jumps.reshape(-1)
+
+
+def _connection_length_scale_floor(values: np.ndarray) -> float:
+    finite_values = np.abs(np.asarray(values, dtype=np.float64))
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if finite_values.size == 0:
+        return 1.0e-30
+    return max(float(np.median(finite_values)) * 1.0e-12, 1.0e-30)
 
 
 def _optional_percentile(values: np.ndarray, percentile: float) -> float | None:

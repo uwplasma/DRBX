@@ -8,36 +8,33 @@ VMEC-shaped metric for the imported logical grid, and then evaluates JAX-native
 sheath/recycling and neutral reaction-diffusion closures on those maps.
 
 The published FCI validation figures and arrays are restored by
-`python scripts/fetch_example_artifacts.py --skip-baselines`. Regenerating the
-import from the external coil geometry is a developer workflow and requires the
-geometry source checkout:
+`python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
+script follows the same top-level-parameter style as the SIMSOPT examples:
+edit `MAP_SOURCES_TO_RUN`, `DRY_RUN`, `WRITE_DRY_RUN_ARTIFACTS`, grid size, and
+optional external input paths at the top of
+`examples/geometry-3D/essos-field-lines/imported_fci_campaign.py`, then run the
+file. Regenerating the import from the external coil geometry is a developer
+workflow and requires the geometry source checkout:
 
 ```bash
-JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
 PYTHONPATH=src .venv/bin/python \
-  examples/geometry-3D/essos-field-lines/imported_fci_campaign.py \
-  --map-source hybrid
+  examples/geometry-3D/essos-field-lines/imported_fci_campaign.py
 ```
 
-Use `--all-map-sources` to regenerate the published `coil`, `vmec`, and
-`hybrid` artifact directories in one run:
+By default the script performs a safe dry run for `coil`. Set
+`MAP_SOURCES_TO_RUN = ("coil", "vmec", "hybrid")` to regenerate the published
+`coil`, `vmec`, and `hybrid` artifact directories in one run. Set
+`MAP_SOURCES_TO_RUN = ("hybrid",)`, `OUTPUT_ROOT = Path("tmp/hybrid")`, and
+`CASE_LABEL = "custom"` for a custom single-map artifact root.
 
-```bash
-JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
-PYTHONPATH=src .venv/bin/python \
-  examples/geometry-3D/essos-field-lines/imported_fci_campaign.py \
-  --all-map-sources
-```
-
-Use `--dry-run` to confirm the resolved artifact paths and grid settings
-without importing ESSOS. Add `--dry-run-artifacts` to write a self-contained
-JSON contract under the resolved artifact root; that contract records the live
-artifact paths, grid/refinement settings, required report fields, required NPZ
-array keys, and the connection-length/refinement/consumed-map diagnostic schema
-without reading the coil JSON or VMEC wout file. Pass `--coil-json-path`,
-`--vmec-wout-path`, or `--essos-root` when the external checkout is not located
-at the default `~/local/ESSOS`. Set `--map-source` to one of three imported-map
-semantics:
+Set `WRITE_DRY_RUN_ARTIFACTS = True` to write a self-contained JSON contract
+under the resolved artifact root; that contract records the live artifact
+paths, grid/refinement settings, required report fields, required NPZ array
+keys, and the connection-length/refinement/consumed-map diagnostic schema
+without reading the coil JSON or VMEC wout file. Set `COIL_JSON_PATH`,
+`VMEC_WOUT_PATH`, or `ESSOS_ROOT` when the external checkout is not located at
+the default path used by the importer. `MAP_SOURCES_TO_RUN` accepts three
+imported-map semantics:
 
 - `coil` traces the external Biot-Savart coil field to adjacent toroidal
   planes and keeps the resulting open-field endpoint masks.
@@ -49,10 +46,11 @@ semantics:
   intended bridge for open-field SOL closure tests while the VMEC map supplies
   smooth non-axisymmetric interpolation coordinates.
 
-The command chooses source-specific defaults, so `--map-source vmec` writes
-`docs/data/essos_imported_fci_vmec_artifacts/` and `--map-source hybrid` writes
-`docs/data/essos_imported_fci_hybrid_artifacts/` unless `--output-root` or
-`--case-label` is supplied for a single-source run.
+The script chooses source-specific defaults, so `MAP_SOURCES_TO_RUN = ("vmec",)`
+writes `docs/data/essos_imported_fci_vmec_artifacts/` and
+`MAP_SOURCES_TO_RUN = ("hybrid",)` writes
+`docs/data/essos_imported_fci_hybrid_artifacts/` unless `OUTPUT_ROOT` or
+`CASE_LABEL` is set for a custom single-source run.
 
 ## Geometry Import
 
@@ -112,9 +110,14 @@ field modulation, connection-length statistics, target heat-load contrast,
 particle balance residuals, current residuals, and neutral momentum balance.
 The imported-map diagnostics now separately report connection-length finite and
 nonnegative fractions, radial connection-length means, grid/refinement metadata,
-map-coordinate displacement proxies, and a consumed-map check requiring the
-sheath endpoint count to match the forward-plus-backward FCI boundary masks.
-For `vmec` maps this consumed-map count must be zero; for `coil` and `hybrid`
+single-grid connection-length resolution diagnostics, map-coordinate
+displacement proxies, and a consumed-map check requiring the sheath endpoint
+count to match the forward-plus-backward FCI boundary masks. The resolution
+diagnostics record normalized neighbor jumps, per-axis 95th-percentile jumps,
+an underresolved-face fraction, and an advisory pass flag. They catch obviously
+grid-scale connection-length roughness before a live imported run is promoted,
+but they are not a replacement for a future multi-grid refinement campaign.
+For `vmec` maps the consumed-map count must be zero; for `coil` and `hybrid`
 maps it must be nonzero and exactly consumed by the sheath/recycling masks.
 
 ## Current Artifacts

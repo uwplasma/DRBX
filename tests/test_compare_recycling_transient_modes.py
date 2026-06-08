@@ -483,6 +483,52 @@ def test_fixed_bdf2_diagnostics_gate_accepts_active_array_route() -> None:
     assert errors == []
 
 
+def test_fixed_bdf2_diagnostics_gate_accepts_active_array_lineax_route() -> None:
+    errors = compare_script._validate_fixed_bdf2_diagnostics(
+        "fixed_bdf2_active_array_jax_linearized_lineax",
+        {
+            "fixed_bdf2_solver_mode": "fixed_bdf2_active_array_jax_linearized_lineax",
+            "fixed_bdf2_step_solver_mode": "active_array_jax_linearized_lineax",
+            "fixed_bdf2_active_array_rhs_steps": 2,
+            "fixed_bdf2_jax_linearized_action_steps": 2,
+            "fixed_bdf2_lineax_action_steps": 2,
+            "fixed_bdf2_startup_steps": 1,
+            "fixed_bdf2_bdf2_steps": 1,
+            "fixed_bdf2_evolve_feedback_integrals": True,
+            "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+        },
+    )
+
+    assert errors == []
+
+
+def test_fixed_bdf2_diagnostics_gate_rejects_unhealthy_solver_status() -> None:
+    errors = compare_script._validate_fixed_bdf2_diagnostics(
+        "fixed_bdf2_active_array_jax_linearized",
+        {
+            "fixed_bdf2_solver_mode": "fixed_bdf2_active_array_jax_linearized",
+            "fixed_bdf2_step_solver_mode": "active_array_jax_linearized",
+            "fixed_bdf2_active_array_rhs_steps": 2,
+            "fixed_bdf2_jax_linearized_action_steps": 2,
+            "fixed_bdf2_startup_steps": 1,
+            "fixed_bdf2_bdf2_steps": 1,
+            "fixed_bdf2_evolve_feedback_integrals": True,
+            "fixed_bdf2_unconverged_solver_steps": 1,
+            "fixed_bdf2_unknown_convergence_solver_steps": 1,
+            "fixed_bdf2_linear_solver_failed_steps": 1,
+            "fixed_bdf2_max_residual_inf_norm": 1.0e-2,
+        },
+        max_residual_inf_norm=1.0e-5,
+    )
+
+    assert errors == [
+        "fixed_bdf2_active_array_jax_linearized reported 1 unconverged fixed BDF2 implicit steps",
+        "fixed_bdf2_active_array_jax_linearized reported 1 unknown-convergence fixed BDF2 implicit steps",
+        "fixed_bdf2_active_array_jax_linearized reported 1 failed fixed BDF2 linear solves",
+        "fixed_bdf2_active_array_jax_linearized fixed_bdf2_max_residual_inf_norm=1.00000000e-02 exceeds 1.00000000e-05",
+    ]
+
+
 def test_fixed_bdf2_diagnostics_gate_reports_fallback_route() -> None:
     errors = compare_script._validate_fixed_bdf2_diagnostics(
         "fixed_bdf2_jax_linearized_lineax",
@@ -519,12 +565,17 @@ def test_adaptive_bdf_modes_to_validate_selects_only_adaptive_bdf_variants() -> 
             "adaptive_be",
             "adaptive_bdf",
             "adaptive_bdf_jax_linearized",
+            "adaptive_bdf_active_array_jax_linearized",
             "bdf_fixed_full_field_jvp",
             "bdf_active_array_jvp",
         )
     )
 
-    assert modes == ("adaptive_bdf", "adaptive_bdf_jax_linearized")
+    assert modes == (
+        "adaptive_bdf",
+        "adaptive_bdf_jax_linearized",
+        "adaptive_bdf_active_array_jax_linearized",
+    )
 
 
 def test_adaptive_bdf_diagnostics_gate_accepts_stable_jax_linearized_route() -> None:
@@ -561,6 +612,53 @@ def test_adaptive_bdf_diagnostics_gate_accepts_sparse_jvp_route() -> None:
             "adaptive_bdf_unconverged_solver_steps": 0,
             "adaptive_bdf_fixed_full_field_rhs_solver_steps": 3,
             "adaptive_bdf_sparse_jvp_jacobian_solver_steps": 3,
+            "adaptive_bdf_max_error_ratio": 0.75,
+            "adaptive_bdf_max_accepted_error_ratio": 0.75,
+        },
+        require_no_fallback=True,
+        require_no_unconverged_substeps=True,
+        max_error_ratio=0.95,
+        max_accepted_error_ratio=0.95,
+    )
+
+    assert errors == []
+
+
+def test_adaptive_bdf_diagnostics_gate_accepts_active_array_route() -> None:
+    errors = compare_script._validate_adaptive_bdf_diagnostics(
+        "adaptive_bdf_active_array_jax_linearized",
+        {
+            "adaptive_bdf_step_solver_mode": "active_array_jax_linearized",
+            "adaptive_bdf_interval_count": 1,
+            "adaptive_bdf_accepted_steps": 3,
+            "adaptive_bdf_minimum_dt_fallbacks": 0,
+            "adaptive_bdf_unconverged_solver_steps": 0,
+            "adaptive_bdf_active_array_rhs_solver_steps": 3,
+            "adaptive_bdf_jax_linearized_action_solver_steps": 3,
+            "adaptive_bdf_max_error_ratio": 0.75,
+            "adaptive_bdf_max_accepted_error_ratio": 0.75,
+        },
+        require_no_fallback=True,
+        require_no_unconverged_substeps=True,
+        max_error_ratio=0.95,
+        max_accepted_error_ratio=0.95,
+    )
+
+    assert errors == []
+
+
+def test_adaptive_bdf_diagnostics_gate_accepts_active_array_lineax_route() -> None:
+    errors = compare_script._validate_adaptive_bdf_diagnostics(
+        "adaptive_bdf_active_array_jax_linearized_lineax",
+        {
+            "adaptive_bdf_step_solver_mode": "active_array_jax_linearized_lineax",
+            "adaptive_bdf_interval_count": 1,
+            "adaptive_bdf_accepted_steps": 3,
+            "adaptive_bdf_minimum_dt_fallbacks": 0,
+            "adaptive_bdf_unconverged_solver_steps": 0,
+            "adaptive_bdf_active_array_rhs_solver_steps": 3,
+            "adaptive_bdf_jax_linearized_action_solver_steps": 3,
+            "adaptive_bdf_lineax_action_solver_steps": 3,
             "adaptive_bdf_max_error_ratio": 0.75,
             "adaptive_bdf_max_accepted_error_ratio": 0.75,
         },

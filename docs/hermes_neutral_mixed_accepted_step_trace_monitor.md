@@ -11,7 +11,8 @@ PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
   --hermes-binary /path/to/hermes-3 \
   --workdir /tmp/ref_trace \
   --trace-out /tmp/ref_trace/accepted_steps.jsonl \
-  --species h
+  --species h \
+  --cvode-max-order 2
 ```
 
 The direct source-term patch in
@@ -54,6 +55,7 @@ call_timestep_monitors(internal_time, internal_time - last_time);
 ```ini
 [solver]
 monitor_timestep = true
+cvode_max_order = 2
 
 [hermes]
 neutral_mixed_accepted_step_trace = true
@@ -221,11 +223,13 @@ PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
   --workdir /tmp/ref_trace \
   --trace-out /tmp/ref_trace/accepted_steps.jsonl \
   --timeout-seconds 180 \
-  --species h
+  --species h \
+  --cvode-max-order 2
 
 PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces \
   /tmp/native_trace.json \
   /tmp/ref_trace/accepted_steps.jsonl \
+  --reference-cvode-max-order 2 \
   --json-out /tmp/neutral_trace_parity.json \
   --time-tolerance 1e-7
 ```
@@ -236,3 +240,28 @@ When `--hermes-binary` is omitted, JAXDRB prepares a cached clean reference
 worktree under the system temporary directory, applies both reference patches,
 builds `hermes-3`, and runs that patched binary. Passing `--hermes-binary`
 keeps the old explicit-binary behavior for already patched developer builds.
+
+## Controlled Max-Order-2 Reference Lane
+
+The native accepted-step replay is BDF2 after startup, while CVODE may choose a
+higher method order. To isolate reference-backed parity from variable-order
+history effects, generate a constrained reference trace with
+`--cvode-max-order 2`. The runner writes `solver:cvode_max_order = 2` into the
+staged `BOUT.inp` and then validates that no emitted `solver.order` exceeds
+the configured ceiling. A violation fails the run instead of producing an
+ambiguous trace.
+
+Record the same control in the parity report:
+
+```bash
+PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces \
+  /tmp/native_trace.json \
+  /tmp/ref_trace/accepted_steps.jsonl \
+  --reference-cvode-max-order 2 \
+  --json-out /tmp/neutral_trace_parity.json
+```
+
+The resulting JSON includes `native_solver_order_summary`,
+`reference_solver_order_summary`, and `reference_solver_control`, including the
+configured `cvode_max_order`, observed reference max order, and any ceiling
+violations found in the trace.

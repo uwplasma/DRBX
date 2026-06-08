@@ -110,11 +110,15 @@ Allowed values are:
 - `bdf_active_array_jvp`
 - `fixed_bdf2_jax_linearized`
 - `fixed_bdf2_jax_linearized_lineax`
+- `fixed_bdf2_active_array_jax_linearized`
+- `fixed_bdf2_active_array_jax_linearized_lineax`
 - `adaptive_be`
 - `adaptive_bdf`
 - `adaptive_bdf_sparse_jvp`
 - `adaptive_bdf_jax_linearized`
 - `adaptive_bdf_jax_linearized_lineax`
+- `adaptive_bdf_active_array_jax_linearized`
+- `adaptive_bdf_active_array_jax_linearized_lineax`
 
 That switch is meant for controlled solver sweeps on the open-field/tokamak recycling one-step lanes. The `fixed_bdf2_jax_linearized` modes are opt-in promotion lanes that avoid the SciPy full-output BDF callback: they use a fixed-layout backward-Euler startup step and fixed-layout BDF2 steps with controller integrals packed into the residual state. The curated runner still keeps its default case-specific solver choice unless the deck asks for a different mode.
 

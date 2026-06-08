@@ -36,6 +36,8 @@ SOLVER_MODES = (
     "adaptive_bdf_sparse_jvp",
     "adaptive_bdf_jax_linearized",
     "adaptive_bdf_jax_linearized_lineax",
+    "adaptive_bdf_active_array_jax_linearized",
+    "adaptive_bdf_active_array_jax_linearized_lineax",
 )
 BDF_BASE_MODE = "bdf"
 BDF_JVP_BACKENDS = {
@@ -68,12 +70,26 @@ ADAPTIVE_BDF_MODES = (
     "adaptive_bdf_sparse_jvp",
     "adaptive_bdf_jax_linearized",
     "adaptive_bdf_jax_linearized_lineax",
+    "adaptive_bdf_active_array_jax_linearized",
+    "adaptive_bdf_active_array_jax_linearized_lineax",
 )
 ADAPTIVE_BDF_STEP_SOLVER_MODES = {
     "adaptive_bdf": "sparse",
     "adaptive_bdf_sparse_jvp": "sparse_jvp",
     "adaptive_bdf_jax_linearized": "jax_linearized",
     "adaptive_bdf_jax_linearized_lineax": "jax_linearized_lineax",
+    "adaptive_bdf_active_array_jax_linearized": "active_array_jax_linearized",
+    "adaptive_bdf_active_array_jax_linearized_lineax": (
+        "active_array_jax_linearized_lineax"
+    ),
+}
+ADAPTIVE_BDF_RHS_BACKENDS = {
+    "adaptive_bdf": "host_bridge",
+    "adaptive_bdf_sparse_jvp": "fixed_full_field_array",
+    "adaptive_bdf_jax_linearized": "fixed_full_field_array",
+    "adaptive_bdf_jax_linearized_lineax": "fixed_full_field_array",
+    "adaptive_bdf_active_array_jax_linearized": "active_array",
+    "adaptive_bdf_active_array_jax_linearized_lineax": "active_array",
 }
 
 
@@ -170,6 +186,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
             "the expected fixed-layout RHS backend, JAX-linearized Jacobian "
             "actions, and packed feedback-integral evolution."
+        ),
+    )
+    parser.add_argument(
+        "--require-fixed-bdf2-max-residual",
+        type=float,
+        default=1.0e-5,
+        help=(
+            "Maximum allowed fixed_bdf2_max_residual_inf_norm when "
+            "--require-fixed-bdf2-diagnostics is used."
         ),
     )
     parser.add_argument(
@@ -486,6 +511,8 @@ def _fixed_bdf2_modes_to_validate(modes: tuple[str, ...]) -> tuple[str, ...]:
 def _validate_fixed_bdf2_diagnostics(
     mode: str,
     diagnostics: dict[str, object],
+    *,
+    max_residual_inf_norm: float | None = 1.0e-5,
 ) -> list[str]:
     errors: list[str] = []
     expected_step_solver = FIXED_BDF2_STEP_SOLVER_MODES[mode]
@@ -506,10 +533,29 @@ def _validate_fixed_bdf2_diagnostics(
         )
     if int(diagnostics.get("fixed_bdf2_jax_linearized_action_steps", 0)) <= 0:
         errors.append(f"{mode} did not report any JAX-linearized solver steps")
-    if expected_step_solver == "jax_linearized_lineax":
+    if "lineax" in expected_step_solver:
         lineax_steps = int(diagnostics.get("fixed_bdf2_lineax_action_steps", 0))
         if lineax_steps <= 0:
             errors.append(f"{mode} did not report any Lineax solver steps")
+    unconverged_count = int(diagnostics.get("fixed_bdf2_unconverged_solver_steps", 0))
+    if unconverged_count != 0:
+        errors.append(
+            f"{mode} reported {unconverged_count} unconverged fixed BDF2 implicit steps"
+        )
+    unknown_count = int(
+        diagnostics.get("fixed_bdf2_unknown_convergence_solver_steps", 0)
+    )
+    if unknown_count != 0:
+        errors.append(
+            f"{mode} reported {unknown_count} unknown-convergence fixed BDF2 implicit steps"
+        )
+    linear_failed_count = int(
+        diagnostics.get("fixed_bdf2_linear_solver_failed_steps", 0)
+    )
+    if linear_failed_count != 0:
+        errors.append(
+            f"{mode} reported {linear_failed_count} failed fixed BDF2 linear solves"
+        )
     if diagnostics.get("fixed_bdf2_evolve_feedback_integrals") is not True:
         errors.append(f"{mode} did not evolve packed feedback integrals")
     accepted_steps = int(diagnostics.get("fixed_bdf2_startup_steps", 0)) + int(
@@ -526,6 +572,12 @@ def _validate_fixed_bdf2_diagnostics(
         finite_residual = False
     if not finite_residual:
         errors.append(f"{mode} did not report a finite fixed BDF2 residual norm")
+    elif max_residual_inf_norm is not None:
+        residual_float = float(max_residual)
+        if residual_float > float(max_residual_inf_norm):
+            errors.append(
+                f"{mode} fixed_bdf2_max_residual_inf_norm={residual_float:.8e} exceeds {float(max_residual_inf_norm):.8e}"
+            )
     return errors
 
 
@@ -552,13 +604,22 @@ def _validate_adaptive_bdf_diagnostics(
         errors.append(f"{mode} did not report any adaptive BDF output intervals")
     if int(diagnostics.get("adaptive_bdf_accepted_steps", 0)) <= 0:
         errors.append(f"{mode} did not report any accepted adaptive BDF substeps")
-    if mode != "adaptive_bdf":
-        fixed_rhs_steps = int(
+    expected_rhs_backend = ADAPTIVE_BDF_RHS_BACKENDS[mode]
+    if expected_rhs_backend == "fixed_full_field_array":
+        rhs_steps = int(
             diagnostics.get("adaptive_bdf_fixed_full_field_rhs_solver_steps", 0)
         )
-        if fixed_rhs_steps <= 0:
+        if rhs_steps <= 0:
             errors.append(
                 f"{mode} did not report any fixed_full_field_array adaptive BDF solver steps"
+            )
+    elif expected_rhs_backend == "active_array":
+        rhs_steps = int(
+            diagnostics.get("adaptive_bdf_active_array_rhs_solver_steps", 0)
+        )
+        if rhs_steps <= 0:
+            errors.append(
+                f"{mode} did not report any active_array adaptive BDF solver steps"
             )
     if mode == "adaptive_bdf_sparse_jvp":
         sparse_jvp_steps = int(
@@ -568,7 +629,7 @@ def _validate_adaptive_bdf_diagnostics(
             errors.append(
                 f"{mode} did not report any sparse-JVP Jacobian adaptive BDF solver steps"
             )
-    elif expected_step_solver.startswith("jax_linearized"):
+    elif "jax_linearized" in expected_step_solver:
         action_steps = int(
             diagnostics.get("adaptive_bdf_jax_linearized_action_solver_steps", 0)
         )
@@ -656,6 +717,11 @@ def _run_with_mode_timeout(timeout_seconds: float | None, callback):
 
 def main() -> int:
     args = _parse_args()
+    if (
+        args.require_fixed_bdf2_max_residual is not None
+        and float(args.require_fixed_bdf2_max_residual) <= 0.0
+    ):
+        raise ValueError("--require-fixed-bdf2-max-residual must be positive.")
     case, input_path = resolve_reference_case(
         args.case, reference_root=args.reference_root
     )
@@ -777,6 +843,9 @@ def main() -> int:
                 _validate_fixed_bdf2_diagnostics(
                     mode,
                     mode_diagnostics.get(mode, {}),
+                    max_residual_inf_norm=float(
+                        args.require_fixed_bdf2_max_residual
+                    ),
                 )
             )
         for error in errors:

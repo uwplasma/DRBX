@@ -26,11 +26,15 @@ from jax_drb.validation.essos_imported_fci_campaign import build_essos_imported_
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_imported_fci_example_cli_resolves_source_specific_artifact_defaults(capsys) -> None:
+def test_imported_fci_example_resolves_source_specific_artifact_defaults(capsys) -> None:
     module = _load_imported_fci_campaign_example()
 
-    args = module.parse_args(["--all-map-sources", "--dry-run", "--nx", "3", "--ny", "4", "--nz", "8"])
-    settings = module.build_run_settings(args)
+    settings = module.build_run_settings(
+        map_sources=("coil", "vmec", "hybrid"),
+        nx=3,
+        ny=4,
+        nz=8,
+    )
 
     assert [item.map_source for item in settings] == ["coil", "vmec", "hybrid"]
     assert [item.case_label for item in settings] == [
@@ -45,7 +49,12 @@ def test_imported_fci_example_cli_resolves_source_specific_artifact_defaults(cap
     ]
     assert all((item.nx, item.ny, item.nz) == (3, 4, 8) for item in settings)
 
-    assert module.main(["--map-source", "hybrid", "--dry-run", "--output-root", "tmp/hybrid", "--case-label", "custom"]) == 0
+    custom_settings = module.build_run_settings(
+        map_sources=("hybrid",),
+        output_root=Path("tmp/hybrid"),
+        case_label="custom",
+    )
+    module.run_resolved_campaigns(custom_settings, dry_run=True)
     captured = capsys.readouterr()
     assert "map_source=hybrid" in captured.out
     assert "output_root=tmp/hybrid" in captured.out
@@ -56,27 +65,15 @@ def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, 
     module = _load_imported_fci_campaign_example()
     output_root = tmp_path / "imported_fci_contract"
 
-    assert (
-        module.main(
-            [
-                "--map-source",
-                "hybrid",
-                "--dry-run",
-                "--dry-run-artifacts",
-                "--output-root",
-                str(output_root),
-                "--case-label",
-                "custom_imported_fci",
-                "--nx",
-                "3",
-                "--ny",
-                "4",
-                "--nz",
-                "8",
-            ]
-        )
-        == 0
+    settings = module.build_run_settings(
+        map_sources=("hybrid",),
+        output_root=output_root,
+        case_label="custom_imported_fci",
+        nx=3,
+        ny=4,
+        nz=8,
     )
+    module.run_resolved_campaigns(settings, dry_run=True, dry_run_artifacts=True)
 
     captured = capsys.readouterr()
     contract_path = output_root / "data" / "custom_imported_fci_dry_run_contract.json"
@@ -91,6 +88,8 @@ def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, 
     assert contract["planned_artifacts"]["report_json"].endswith("custom_imported_fci.json")
     assert contract["planned_artifacts"]["dry_run_contract_json"].endswith("custom_imported_fci_dry_run_contract.json")
     assert "connection_length_diagnostics" in contract["required_report_fields"]
+    assert "connection_length_resolution_diagnostics" in contract["required_report_fields"]
+    assert "connection_length_resolution_diagnostics" in contract["diagnostic_schema"]
     assert "refinement_diagnostics" in contract["diagnostic_schema"]
     assert "consumed_map_diagnostics" in contract["diagnostic_schema"]
     assert contract["external_inputs"]["not_read_in_dry_run"] is True
@@ -129,6 +128,52 @@ def test_imported_fci_map_diagnostics_verify_consumed_endpoint_masks() -> None:
     assert diagnostics["consumed_map_diagnostics"]["endpoint_count_matches_boundary_masks"] is True
     assert diagnostics["consumed_map_diagnostics"]["orphan_endpoint_fraction"] == 0.0
     assert diagnostics["consumed_map_diagnostics"]["unconsumed_boundary_fraction"] == 0.0
+
+
+def test_imported_fci_connection_length_resolution_diagnostics_are_advisory() -> None:
+    base_maps = identity_fci_maps(nx=4, ny=5, nz=8, dphi=0.25)
+    forward_boundary = np.zeros(base_maps.shape, dtype=bool)
+    backward_boundary = np.zeros(base_maps.shape, dtype=bool)
+    forward_boundary[0, :, :] = True
+    backward_boundary[-1, :, :] = True
+    maps = FciMaps(
+        forward_x=base_maps.forward_x,
+        forward_z=base_maps.forward_z,
+        backward_x=base_maps.backward_x,
+        backward_z=base_maps.backward_z,
+        forward_boundary=jnp.asarray(forward_boundary),
+        backward_boundary=jnp.asarray(backward_boundary),
+        dphi=base_maps.dphi,
+    )
+    endpoint_count = forward_boundary.astype(np.float64) + backward_boundary.astype(np.float64)
+    radial = np.linspace(0.0, 1.0, base_maps.shape[0], dtype=np.float64)[:, None, None]
+    toroidal = np.linspace(0.0, 2.0 * np.pi, base_maps.shape[1], endpoint=False, dtype=np.float64)[None, :, None]
+    poloidal = np.linspace(0.0, 2.0 * np.pi, base_maps.shape[2], endpoint=False, dtype=np.float64)[None, None, :]
+    smooth_connection = 10.0 + 0.2 * radial + 0.05 * np.cos(toroidal) + 0.03 * np.sin(poloidal)
+    checkerboard = np.indices(base_maps.shape).sum(axis=0) % 2
+    rough_connection = 1.0 + 9.0 * checkerboard.astype(np.float64)
+
+    smooth = build_essos_imported_fci_map_diagnostics(
+        maps=maps,
+        connection_length=smooth_connection,
+        endpoint_count=endpoint_count,
+        map_source="hybrid",
+    )
+    rough = build_essos_imported_fci_map_diagnostics(
+        maps=maps,
+        connection_length=rough_connection,
+        endpoint_count=endpoint_count,
+        map_source="hybrid",
+    )
+
+    smooth_resolution = smooth["connection_length_resolution_diagnostics"]
+    rough_resolution = rough["connection_length_resolution_diagnostics"]
+    assert smooth_resolution["passed"] is True
+    assert smooth_resolution["underresolved_face_fraction"] == 0.0
+    assert rough["passed"] is True
+    assert rough_resolution["passed"] is False
+    assert rough_resolution["normalized_face_jump_p95"] > smooth_resolution["normalized_face_jump_p95"]
+    assert rough_resolution["underresolved_face_fraction"] > 0.5
 
 
 def _load_imported_fci_campaign_example():

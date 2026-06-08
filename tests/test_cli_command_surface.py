@@ -653,6 +653,7 @@ def test_compare_neutral_mixed_accepted_traces_command_writes_report(
                 reference_trace_json=tmp_path / "reference.jsonl",
                 reference_stage="post_accepted",
                 time_tolerance=1.0e-8,
+                reference_cvode_max_order=2,
                 json_out=tmp_path / "trace_parity.json",
             )
         )
@@ -660,6 +661,7 @@ def test_compare_neutral_mixed_accepted_traces_command_writes_report(
     )
     assert captured["reference_stage"] == "post_accepted"
     assert captured["time_tolerance"] == 1.0e-8
+    assert captured["reference_cvode_max_order"] == 2
     output = capsys.readouterr().out
     assert "neutral_mixed_accepted_step_trace_parity" in output
     assert "matched_trace_point_count: 2" in output
@@ -672,6 +674,7 @@ def test_compare_neutral_mixed_accepted_traces_command_writes_report(
                 reference_trace_json=tmp_path / "reference.jsonl",
                 reference_stage="post_accepted",
                 time_tolerance=0.0,
+                reference_cvode_max_order=None,
                 json_out=tmp_path / "trace_parity.json",
             )
         )
@@ -703,6 +706,7 @@ def test_trace_neutral_mixed_reference_accepted_steps_command_writes_jsonl(
                 hermes_binary=tmp_path / "hermes-3",
                 trace_out=tmp_path / "reference_trace.jsonl",
                 species="h",
+                cvode_max_order=2,
                 timeout_seconds=30.0,
             )
         )
@@ -710,8 +714,10 @@ def test_trace_neutral_mixed_reference_accepted_steps_command_writes_jsonl(
     )
     assert captured["species"] == "h"
     assert captured["trace_jsonl_path"] == tmp_path / "reference_trace.jsonl"
+    assert captured["cvode_max_order"] == 2
     output = capsys.readouterr().out
     assert "neutral_mixed_reference_accepted_step_trace" in output
+    assert "cvode_max_order: 2" in output
     assert "trace_jsonl:" in output
 
     assert (
@@ -722,6 +728,7 @@ def test_trace_neutral_mixed_reference_accepted_steps_command_writes_jsonl(
                 hermes_binary=None,
                 trace_out=None,
                 species="h",
+                cvode_max_order=None,
                 timeout_seconds=0.0,
             )
         )

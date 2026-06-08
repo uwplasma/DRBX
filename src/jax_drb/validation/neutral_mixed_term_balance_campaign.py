@@ -69,17 +69,23 @@ def write_neutral_mixed_accepted_step_trace_input(
     trace_jsonl_path: str | Path,
     nout: int = 1,
     species: str = "h",
+    cvode_max_order: int | None = None,
 ) -> Path:
     """Write a reference deck configured for accepted-step neutral trace JSONL."""
 
     source = Path(source_input).expanduser().resolve()
     target = Path(target_input).expanduser().resolve()
     trace_path = Path(trace_jsonl_path).expanduser().resolve()
+    resolved_cvode_max_order = _normalize_cvode_max_order(cvode_max_order)
     target.parent.mkdir(parents=True, exist_ok=True)
     trace_path.parent.mkdir(parents=True, exist_ok=True)
     text = source.read_text(encoding="utf-8")
     text = _set_root_option(text, "nout", str(int(nout)))
     text = _set_section_option(text, "solver", "monitor_timestep", "true")
+    if resolved_cvode_max_order is not None:
+        text = _set_section_option(
+            text, "solver", "cvode_max_order", str(resolved_cvode_max_order)
+        )
     text = _set_section_option(text, str(species), "output_ddt", "true")
     text = _set_section_option(text, str(species), "diagnose", "true")
     text = _set_section_option(
@@ -153,6 +159,7 @@ def run_neutral_mixed_hermes_accepted_step_trace(
     trace_jsonl_path: str | Path | None = None,
     timeout_seconds: float = 120.0,
     species: str = "h",
+    cvode_max_order: int | None = None,
 ) -> Path:
     """Run a patched reference neutral-mixed case and return accepted-step JSONL."""
 
@@ -170,11 +177,13 @@ def run_neutral_mixed_hermes_accepted_step_trace(
         if trace_jsonl_path is not None
         else data_dir / "neutral_mixed_reference_accepted_step_trace.jsonl"
     )
+    resolved_cvode_max_order = _normalize_cvode_max_order(cvode_max_order)
     write_neutral_mixed_accepted_step_trace_input(
         source_input,
         data_dir / "BOUT.inp",
         trace_jsonl_path=trace_path,
         species=species,
+        cvode_max_order=resolved_cvode_max_order,
     )
     binary = (
         Path(hermes_binary).expanduser().resolve()
@@ -206,6 +215,12 @@ def run_neutral_mixed_hermes_accepted_step_trace(
     _validate_neutral_mixed_reference_accepted_step_trace_schema(
         trace_path, species=species
     )
+    if resolved_cvode_max_order is not None:
+        _validate_accepted_step_solver_order_ceiling(
+            trace_path,
+            cvode_max_order=resolved_cvode_max_order,
+            preferred_stage=_ACCEPTED_TRACE_STAGE,
+        )
     return trace_path
 
 
@@ -832,6 +847,7 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
     reference_trace_json: str | Path,
     reference_stage: str = "post_accepted",
     time_tolerance: float = 1.0e-8,
+    reference_cvode_max_order: int | None = None,
 ) -> dict[str, object]:
     """Compare native and reference accepted-step traces at matched internal times.
 
@@ -848,6 +864,9 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
     )
     native_points = native_report["trace_points"]
     reference_points = reference_report["trace_points"]
+    resolved_reference_cvode_max_order = _normalize_cvode_max_order(
+        reference_cvode_max_order
+    )
     matched_points, field_errors = _compare_accepted_step_trace_points(
         native_points,
         reference_points,
@@ -885,6 +904,15 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         ),
         "max_solver_order_abs_delta": max(
             (abs(delta) for delta in comparable_solver_order_deltas), default=0
+        ),
+        "native_solver_order_summary": _accepted_step_solver_order_summary(
+            native_points
+        ),
+        "reference_solver_order_summary": _accepted_step_solver_order_summary(
+            reference_points
+        ),
+        "reference_solver_control": _accepted_step_solver_control_payload(
+            reference_points, cvode_max_order=resolved_reference_cvode_max_order
         ),
         "time_tolerance": float(time_tolerance),
         "fields": field_errors,
@@ -2316,6 +2344,111 @@ def _accepted_step_time_grid_from_reference_trace(
         "final_time": float(final_time),
         "target_final_time": float(target_final_time),
     }
+
+
+def _normalize_cvode_max_order(cvode_max_order: int | None) -> int | None:
+    if cvode_max_order is None:
+        return None
+    resolved = int(cvode_max_order)
+    if resolved <= 0:
+        raise ValueError("cvode_max_order must be positive.")
+    return resolved
+
+
+def _accepted_step_solver_order_summary(
+    points: list[dict[str, object]],
+) -> dict[str, object]:
+    orders = [int(point.get("solver_order", 0)) for point in points]
+    comparable_orders = [order for order in orders if order > 0]
+    return {
+        "trace_point_count": len(points),
+        "comparable_count": len(comparable_orders),
+        "zero_or_missing_count": len(orders) - len(comparable_orders),
+        "min_order": min(comparable_orders) if comparable_orders else None,
+        "max_order": max(comparable_orders) if comparable_orders else None,
+        "unique_orders": sorted(set(comparable_orders)),
+    }
+
+
+def _accepted_step_solver_control_payload(
+    points: list[dict[str, object]],
+    *,
+    cvode_max_order: int | None,
+) -> dict[str, object]:
+    summary = _accepted_step_solver_order_summary(points)
+    exceeding_points = (
+        _accepted_step_solver_order_ceiling_violations(
+            points, cvode_max_order=cvode_max_order
+        )
+        if cvode_max_order is not None
+        else []
+    )
+    return {
+        "cvode_max_order": cvode_max_order,
+        "observed_max_solver_order": summary["max_order"],
+        "within_configured_max_order": (
+            not exceeding_points if cvode_max_order is not None else None
+        ),
+        "exceeding_point_count": len(exceeding_points),
+        "exceeding_points": exceeding_points[:8],
+    }
+
+
+def _validate_accepted_step_solver_order_ceiling(
+    path: str | Path,
+    *,
+    cvode_max_order: int,
+    preferred_stage: str,
+) -> None:
+    report = _load_accepted_step_trace_records(path, preferred_stage=preferred_stage)
+    missing_order_points = [
+        {
+            "index": int(point.get("index", 0)),
+            "time": float(point.get("time", 0.0)),
+        }
+        for point in report["trace_points"]
+        if int(point.get("solver_order", 0)) <= 0
+    ]
+    if missing_order_points:
+        preview = ", ".join(
+            f"index={point['index']} time={point['time']:.16g}"
+            for point in missing_order_points[:8]
+        )
+        raise ValueError(
+            "Hermès neutral-mixed accepted-step trace is missing positive "
+            f"solver.order values required to validate solver:cvode_max_order={int(cvode_max_order)}. "
+            f"Missing or zero-order points: {preview}."
+        )
+    violations = _accepted_step_solver_order_ceiling_violations(
+        report["trace_points"], cvode_max_order=cvode_max_order
+    )
+    if violations:
+        preview = ", ".join(
+            f"index={point['index']} time={point['time']:.16g} order={point['solver_order']}"
+            for point in violations[:8]
+        )
+        raise ValueError(
+            "Hermès neutral-mixed accepted-step trace exceeded configured "
+            f"solver:cvode_max_order={int(cvode_max_order)}. Violations: {preview}."
+        )
+
+
+def _accepted_step_solver_order_ceiling_violations(
+    points: list[dict[str, object]],
+    *,
+    cvode_max_order: int,
+) -> list[dict[str, object]]:
+    max_order = _normalize_cvode_max_order(cvode_max_order)
+    assert max_order is not None
+    return [
+        {
+            "index": int(point.get("index", 0)),
+            "time": float(point.get("time", 0.0)),
+            "solver_order": int(point.get("solver_order", 0)),
+        }
+        for point in points
+        if int(point.get("solver_order", 0)) > max_order
+    ]
 
 
 def _load_accepted_step_trace_records(

@@ -125,7 +125,9 @@ The first native lane now consists of:
 - `src/jax_drb/validation/essos_imported_fci_campaign.py`, which converts a
   scaled VMEC Landreman-Paul QA shell into fixed-shape FCI maps through
   `coil`, `vmec`, or `hybrid` map sources, then runs JAXDRB sheath/recycling
-  and neutral closure gates on the selected maps.
+  and neutral closure gates on the selected maps. Its report now includes
+  advisory single-grid connection-length resolution diagnostics that flag
+  grid-scale roughness before a live imported run is promoted.
 - `src/jax_drb/validation/essos_imported_pytree_campaign.py`, which drives
   the fixed-layout JAXDRB PyTree RHS, `jax.jvp`, and `jax.vmap` diagnostics
   from the same ESSOS-imported field-line maps.
@@ -150,6 +152,10 @@ geometry lanes: open coil-traced maps, closed VMEC-coordinate maps, and a
 hybrid map that uses VMEC-coordinate interpolation with coil endpoint masks.
 All three lanes feed the same JAX-native sheath/recycling and neutral kernels
 used by the analytic non-axisymmetric validation suite.
+The imported FCI report now separates finite/nonnegative connection-length
+checks, single-grid connection-length roughness diagnostics, map-coordinate
+refinement metadata, and endpoint-mask consumption. This is a pre-refinement
+quality gate rather than the full multi-grid imported refinement campaign.
 The imported PyTree/JVP artifacts live in
 `docs/data/essos_imported_pytree_artifacts/`,
 `docs/data/essos_imported_pytree_vmec_artifacts/`, and

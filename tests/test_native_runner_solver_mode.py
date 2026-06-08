@@ -70,6 +70,10 @@ def test_configured_recycling_transient_solver_mode_reads_runtime_override() -> 
         "bdf_active_array_jvp",
         "fixed_bdf2_jax_linearized",
         "fixed_bdf2_jax_linearized_lineax",
+        "fixed_bdf2_active_array_jax_linearized",
+        "fixed_bdf2_active_array_jax_linearized_lineax",
+        "adaptive_bdf_active_array_jax_linearized",
+        "adaptive_bdf_active_array_jax_linearized_lineax",
     ),
 )
 def test_configured_recycling_transient_solver_mode_accepts_jax_bdf_opt_ins(

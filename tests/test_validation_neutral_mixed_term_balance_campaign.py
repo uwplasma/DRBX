@@ -130,6 +130,41 @@ function = 0.1 * Nh:function
     return path
 
 
+def _minimal_reference_accepted_step_record(
+    *, order: int = 1, time: float = 0.0, step_index: int = 0
+) -> dict[str, object]:
+    return {
+        "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+        "step_index": int(step_index),
+        "time": float(time),
+        "dt": float(time),
+        "solver": {"order": int(order)},
+        "stages": {
+            "post_accepted": {
+                name: {
+                    "active_metrics": {"max_abs": 0.0, "rms": 0.0},
+                    "target_adjacent_metrics": {"max_abs": 0.0, "rms": 0.0},
+                    "guard_metrics": {"max_abs": 0.0, "rms": 0.0},
+                    "sample_lineout_y_indices": [0],
+                    "sample_lineout": [0.0],
+                }
+                for name in (
+                    "Nh",
+                    "Ph",
+                    "NVh",
+                    "ddt(Nh)",
+                    "ddt(Ph)",
+                    "ddt(NVh)",
+                    "SNVh",
+                    "SNVh_pressure_gradient",
+                    "SNVh_parallel_viscosity",
+                    "SNVh_perpendicular_viscosity",
+                )
+            }
+        },
+    }
+
+
 def _write_neutral_mixed_input_closure_dump(
     input_path: Path,
     dump_path: Path,
@@ -498,17 +533,33 @@ def test_write_neutral_mixed_accepted_step_trace_input_enables_monitor(
         tmp_path / "data" / "BOUT.inp",
         trace_jsonl_path=trace_path,
         species="h",
+        cvode_max_order=2,
     )
 
     text = target.read_text(encoding="utf-8")
     assert "nout = 1" in text
     assert "[solver]" in text
     assert "monitor_timestep = true" in text
+    assert "cvode_max_order = 2" in text
     assert "[hermes]" in text
     assert "neutral_mixed_accepted_step_trace = true" in text
     assert f"neutral_mixed_accepted_step_trace_file = {trace_path.resolve()}" in text
     assert "neutral_mixed_accepted_step_trace_species = h" in text
     assert trace_path.parent.exists()
+
+
+def test_write_neutral_mixed_accepted_step_trace_input_rejects_invalid_cvode_order(
+    tmp_path: Path,
+) -> None:
+    source = _write_neutral_mixed_input(tmp_path / "source.inp")
+
+    with pytest.raises(ValueError, match="cvode_max_order must be positive"):
+        write_neutral_mixed_accepted_step_trace_input(
+            source,
+            tmp_path / "data" / "BOUT.inp",
+            trace_jsonl_path=tmp_path / "trace" / "accepted.jsonl",
+            cvode_max_order=0,
+        )
 
 
 def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -> None:
@@ -621,39 +672,10 @@ def test_run_neutral_mixed_hermes_accepted_step_trace_returns_jsonl(
     def fake_run(command, **kwargs):
         assert command == [str(binary.resolve()), "-d", "data"]
         assert kwargs["cwd"] == (tmp_path / "work").resolve()
+        staged_input = tmp_path / "work" / "data" / "BOUT.inp"
+        assert "cvode_max_order = 2" in staged_input.read_text(encoding="utf-8")
         trace_path.write_text(
-            json.dumps(
-                {
-                    "diagnostic": "neutral_mixed_reference_accepted_step_trace",
-                    "time": 0.0,
-                    "stages": {
-                        "post_accepted": {
-                            name: {
-                                "active_metrics": {"max_abs": 0.0, "rms": 0.0},
-                                "target_adjacent_metrics": {
-                                    "max_abs": 0.0,
-                                    "rms": 0.0,
-                                },
-                                "guard_metrics": {"max_abs": 0.0, "rms": 0.0},
-                                "sample_lineout_y_indices": [0],
-                                "sample_lineout": [0.0],
-                            }
-                            for name in (
-                                "Nh",
-                                "Ph",
-                                "NVh",
-                                "ddt(Nh)",
-                                "ddt(Ph)",
-                                "ddt(NVh)",
-                                "SNVh",
-                                "SNVh_pressure_gradient",
-                                "SNVh_parallel_viscosity",
-                                "SNVh_perpendicular_viscosity",
-                            )
-                        }
-                    },
-                }
-            )
+            json.dumps(_minimal_reference_accepted_step_record(order=2))
             + "\n",
             encoding="utf-8",
         )
@@ -669,10 +691,44 @@ def test_run_neutral_mixed_hermes_accepted_step_trace_returns_jsonl(
         workdir=tmp_path / "work",
         hermes_binary=binary,
         trace_jsonl_path=trace_path,
+        cvode_max_order=2,
     )
 
     assert result == trace_path.resolve()
     assert (tmp_path / "work" / "run.log").read_text(encoding="utf-8") == "ok"
+
+
+def test_run_neutral_mixed_hermes_accepted_step_trace_rejects_order_above_control(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference_root = tmp_path / "reference"
+    source_dir = reference_root / "tests" / "integrated" / "neutral_mixed" / "data"
+    source_dir.mkdir(parents=True)
+    _write_neutral_mixed_input(source_dir / "BOUT.inp")
+    binary = tmp_path / "hermes-3"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    trace_path = tmp_path / "trace.jsonl"
+
+    def fake_run(command, **kwargs):
+        trace_path.write_text(
+            json.dumps(_minimal_reference_accepted_step_record(order=3)) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stdout="ok")
+
+    monkeypatch.setattr(
+        "jax_drb.validation.neutral_mixed_term_balance_campaign.subprocess.run",
+        fake_run,
+    )
+
+    with pytest.raises(ValueError, match="solver:cvode_max_order=2"):
+        run_neutral_mixed_hermes_accepted_step_trace(
+            reference_root=reference_root,
+            workdir=tmp_path / "work",
+            hermes_binary=binary,
+            trace_jsonl_path=trace_path,
+            cvode_max_order=2,
+        )
 
 
 def test_run_neutral_mixed_hermes_accepted_step_trace_requires_schema(
@@ -1304,6 +1360,7 @@ def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(
     report = build_neutral_mixed_accepted_step_trace_parity_report(
         native_trace_json=native_path,
         reference_trace_json=reference_path,
+        reference_cvode_max_order=2,
         time_tolerance=1.0e-12,
     )
 
@@ -1312,6 +1369,12 @@ def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(
     assert report["solver_order_comparable_count"] == 1
     assert report["solver_order_mismatch_count"] == 0
     assert report["max_solver_order_abs_delta"] == 0
+    assert report["native_solver_order_summary"]["max_order"] == 1
+    assert report["reference_solver_order_summary"]["max_order"] == 1
+    assert report["reference_solver_control"]["cvode_max_order"] == 2
+    assert report["reference_solver_control"]["observed_max_solver_order"] == 1
+    assert report["reference_solver_control"]["within_configured_max_order"] is True
+    assert report["reference_solver_control"]["exceeding_point_count"] == 0
     assert report["matched_points"][0]["solver_order_comparable"] is False
     assert report["matched_points"][1]["solver_order"] == 1
     assert report["matched_points"][1]["reference_solver_order"] == 1

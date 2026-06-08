@@ -655,6 +655,8 @@ def test_recycling_one_step_selects_expected_transient_solver_mode(
     [
         "adaptive_bdf",
         "adaptive_bdf_jax_linearized",
+        "adaptive_bdf_active_array_jax_linearized",
+        "fixed_bdf2_active_array_jax_linearized",
         "sparse_jvp",
         "jax_linearized",
         "jax_linearized_lineax",
@@ -2510,6 +2512,18 @@ def test_adaptive_bdf_step_solver_mode_maps_supported_backends() -> None:
         )
         == "jax_linearized_lineax"
     )
+    assert (
+        recycling_1d_mod._adaptive_bdf_step_solver_mode(
+            "adaptive_bdf_active_array_jax_linearized"
+        )
+        == "active_array_jax_linearized"
+    )
+    assert (
+        recycling_1d_mod._adaptive_bdf_step_solver_mode(
+            "adaptive_bdf_active_array_jax_linearized_lineax"
+        )
+        == "active_array_jax_linearized_lineax"
+    )
     assert not recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs("sparse")
     assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs("sparse_jvp")
     assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(
@@ -2517,6 +2531,9 @@ def test_adaptive_bdf_step_solver_mode_maps_supported_backends() -> None:
     )
     assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(
         "jax_linearized_lineax"
+    )
+    assert not recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(
+        "active_array_jax_linearized"
     )
     with pytest.raises(ValueError, match="Unsupported adaptive BDF solver mode"):
         recycling_1d_mod._adaptive_bdf_step_solver_mode("bad")

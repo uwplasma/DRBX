@@ -724,7 +724,12 @@ JAX-linearized Jacobian actions directly to GMRES. The adaptive BDF controller
 can route its trial BE/BDF2 steps through the same seam with
 `solver_mode="adaptive_bdf_sparse_jvp"`,
 `solver_mode="adaptive_bdf_jax_linearized"` or
-`solver_mode="adaptive_bdf_jax_linearized_lineax"`.
+`solver_mode="adaptive_bdf_jax_linearized_lineax"`. The active-array
+counterparts,
+`solver_mode="adaptive_bdf_active_array_jax_linearized"` and
+`solver_mode="adaptive_bdf_active_array_jax_linearized_lineax"`, use the same
+adaptive controller but route the implicit trial residual through
+`build_fixed_array_rhs` instead of the fixed-full-field compatibility adapter.
 These variants are promoted as controlled solver gates, not yet as the default
 production backend. The environment variable
 `JAX_DRB_RECYCLING_JACOBIAN_MODE=jvp` can select the sparse-JVP Jacobian for
@@ -752,15 +757,22 @@ default, not a faster production mode yet.
 The next non-SciPy output-window promotion lane is
 `runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized`,
 `fixed_bdf2_jax_linearized_lineax`, or
-`fixed_bdf2_active_array_jax_linearized`. These modes take a fixed-layout
-backward-Euler startup step, then fixed-layout BDF2 output steps, and evolve
-controller integrals inside the packed residual state. The active-array variant
-routes the same output-window path through `build_fixed_array_rhs`, avoiding the
-full-field reconstruction seam used by the compatibility fixed-full-field
-variant. They are still opt-in research gates; they exist to measure
-JAX-linearized full-output behavior without the `solve_ivp` callback barrier
-before any default solver change. On the local `recycling_1d_one_step`
-diagnostics-only fixture at the full `timestep = 5000`, both fixed-full-field
+`fixed_bdf2_active_array_jax_linearized`, with matching `_lineax` variants.
+These modes take a fixed-layout backward-Euler startup step, then fixed-layout
+BDF2 output steps, and evolve controller integrals inside the packed residual
+state. The active-array variants route the same output-window path through
+`build_fixed_array_rhs`, avoiding the full-field reconstruction seam used by
+the compatibility fixed-full-field variant. They are still opt-in research
+gates; they exist to measure JAX-linearized full-output behavior without the
+`solve_ivp` callback barrier before any default solver change. The promotion
+gate now also rejects unconverged steps, unknown convergence status, failed
+inner linear solves, and fixed-BDF2 residuals above the configured threshold, so
+large finite residuals cannot pass as healthy diagnostics. On the local
+`recycling_1d_one_step` diagnostics-only fixture at `timestep = 10`, the
+`fixed_bdf2_active_array_jax_linearized` route passes this gate with
+`fixed_bdf2_max_residual_inf_norm = 4.02e-6`, two active-array RHS steps, zero
+unconverged steps, zero unknown-convergence steps, and zero failed linear
+solves. On the same fixture at the full `timestep = 5000`, both fixed-full-field
 and active-array fixed-BDF2 routes currently expose the same large nonlinear
 residual (`fixed_bdf2_max_residual_inf_norm` about `1.93e29`), so the next
 promotion blocker is fixed-BDF2 timestep/nonlinear convergence rather than an
@@ -771,8 +783,9 @@ opt-in paths: accepted and rejected internal steps, minimum-`dt` fallbacks,
 startup versus BDF2 trials, accepted-`dt` bounds, the last and maximum embedded
 error ratios, the step solver backend used by the controller, and route
 provenance counters for `fixed_full_field_array` versus `host_bridge`
-residuals, sparse-JVP Jacobian steps, finite-difference Jacobian steps, and
-JAX-linearized action steps. It also aggregates wall-clock buckets for startup
+residuals, the active-array RHS path, sparse-JVP Jacobian steps,
+finite-difference Jacobian steps, and JAX-linearized action steps. It also
+aggregates wall-clock buckets for startup
 trials, backward-Euler predictor solves, BDF2 corrector solves, embedded-error
 estimation, residual evaluation, Jacobian/linearization, Krylov solves, and
 line search, plus residual-evaluation, Jacobian-refresh, and linear-iteration

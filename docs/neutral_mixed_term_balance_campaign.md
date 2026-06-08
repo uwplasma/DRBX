@@ -171,8 +171,16 @@ available, write the matching reference JSONL with:
 PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
   --reference-root /path/to/reference-root \
   --workdir /tmp/neutral_mixed_reference_trace \
-  --trace-out /tmp/neutral_mixed_reference_trace/accepted_steps.jsonl
+  --trace-out /tmp/neutral_mixed_reference_trace/accepted_steps.jsonl \
+  --cvode-max-order 2
 ```
+
+`--cvode-max-order 2` stages `solver:cvode_max_order = 2` in the generated
+reference `BOUT.inp` so the CVODE accepted-step trace is constrained to the
+same maximum method order as the native BDF2 replay. The runner validates the
+emitted `solver.order` values and fails if any accepted reference step exceeds
+the configured ceiling. Omit the option only when intentionally auditing the
+stock variable-order reference lane.
 
 The current live ladder rerun uses a contextual reference patch with deep-copy
 snapshots for `Dnn` before and after each limiter stage. It produced `148`
@@ -209,6 +217,7 @@ Then compare both traces with:
 PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces \
   neutral_mixed_native_accepted_step_trace.json \
   /tmp/neutral_mixed_reference_trace/accepted_steps.jsonl \
+  --reference-cvode-max-order 2 \
   --json-out neutral_mixed_accepted_step_trace_parity.json
 ```
 
@@ -234,7 +243,12 @@ flux-limit-cap and near-target gradient/boundary sequencing under this
 matched-time diagnostic instead of changing the already-closed pressure-gradient
 formula or the parallel-viscosity stencil before its inputs agree.
 The accepted-step comparator now also writes
-`parallel_viscosity_input_register`. For each `SNV*_parallel_viscosity`
+`native_solver_order_summary`, `reference_solver_order_summary`,
+`reference_solver_control`, and `parallel_viscosity_input_register`.
+`reference_solver_control` records the configured `cvode_max_order`, the
+observed reference max solver order, whether the trace stayed within the
+configured ceiling, and a bounded list of violating points if it did not. For
+each `SNV*_parallel_viscosity`
 offender this register reports the matched `V*` and `eta_*` input-field
 errors, ranks the matched `Dnn*`, `V*`, and `eta_*` closure inputs separately
 from the `N*`, `P*`, and `NV*` state inputs, lists missing input fields, and
@@ -249,6 +263,21 @@ now makes that explicit through `dominant_closure_input_field`,
 owner is accepted-step neutral diffusion-coefficient preparation,
 state/history sequencing, or target-boundary reconstruction before the
 viscosity stencil is changed.
+
+A controlled max-order-2 reference rerun is now available as the preferred
+neutral NVh parity lane. The staged reference deck used
+`solver:cvode_max_order = 2`, emitted `309` accepted points, and the native
+replay matched all `309/309` accepted times with zero solver-order mismatches.
+The reference solver-control payload reported observed max order `2`, no
+configured order-ceiling violations, and `within_configured_max_order = true`.
+The leading offender did not move to the pressure-gradient or viscosity
+formulas: `Dnnh_flux_max` remains first, with a target-adjacent drift of about
+`5.13e-3`; final `Dnnh`, diffusion-limited `Dnnh`, flux-limited `Dnnh`, and
+`eta_h` follow. The practical conclusion is that variable CVODE order is no
+longer the dominant explanation for the neutral NVh mismatch. The remaining
+patch should compare accepted-step state/history sequencing and the near-target
+`Grad(logPnlim)`/flux-limit-cap preparation directly against this max-order-2
+trace before changing local source-term formulas.
 On the current `148/148` matched accepted-step trace, `Nh` is the dominant
 state-input drift, but the `eta_h` pointwise target-adjacent drift is about
 `49` times larger than the largest pointwise state-input drift (`99` times by
