@@ -11,6 +11,73 @@ from .array_backend import use_jax_backend
 from .recycling_layout import RecyclingPackedStateLayout
 
 
+def _active_cell_count(layout: RecyclingPackedStateLayout) -> int:
+    return int(np.prod(layout.active_shape, dtype=np.int64))
+
+
+def _expected_field_size(layout: RecyclingPackedStateLayout) -> int:
+    return _active_cell_count(layout) * len(layout.field_names)
+
+
+def _expected_packed_size(layout: RecyclingPackedStateLayout) -> int:
+    return _expected_field_size(layout) + len(layout.feedback_names)
+
+
+def _static_shape(value: object) -> tuple[int, ...]:
+    shape = getattr(value, "shape", None)
+    if shape is None:
+        shape = np.shape(value)
+    return tuple(int(axis) for axis in shape)
+
+
+def _validate_packed_vector(
+    packed_array: object,
+    *,
+    layout: RecyclingPackedStateLayout,
+) -> None:
+    if packed_array.ndim != 1:
+        raise ValueError(
+            f"Packed fixed state must be one-dimensional, got shape {tuple(packed_array.shape)}."
+        )
+    expected_field_size = _expected_field_size(layout)
+    if int(layout.field_size) != expected_field_size:
+        raise ValueError(
+            "Layout field_size does not match active_shape and field_names: "
+            f"got {int(layout.field_size)}, expected {expected_field_size}."
+        )
+    expected_size = _expected_packed_size(layout)
+    if int(packed_array.size) != expected_size:
+        raise ValueError(
+            f"Packed fixed state has size {int(packed_array.size)}, expected {expected_size}."
+        )
+
+
+def _validate_fixed_state_shapes(
+    state: "RecyclingFixedState",
+    *,
+    layout: RecyclingPackedStateLayout,
+) -> None:
+    if len(state.field_values) != len(layout.field_names):
+        raise ValueError(
+            "Fixed state field count does not match layout: "
+            f"got {len(state.field_values)}, expected {len(layout.field_names)}."
+        )
+    expected_field_shape = tuple(layout.active_shape)
+    for name, value in zip(layout.field_names, state.field_values, strict=True):
+        shape = _static_shape(value)
+        if shape != expected_field_shape:
+            raise ValueError(
+                f"Fixed state field {name!r} has shape {shape}, expected {expected_field_shape}."
+            )
+    expected_feedback_shape = (len(layout.feedback_names),)
+    feedback_shape = _static_shape(state.feedback_values)
+    if feedback_shape != expected_feedback_shape:
+        raise ValueError(
+            "Fixed state feedback_values has shape "
+            f"{feedback_shape}, expected {expected_feedback_shape}."
+        )
+
+
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class RecyclingFixedState:
@@ -79,7 +146,8 @@ def unpack_fixed_state(packed: object, *, layout: RecyclingPackedStateLayout) ->
         packed_array = jnp.asarray(packed, dtype=jnp.float64)
     else:
         packed_array = np.asarray(packed, dtype=np.float64)
-    active_cell_count = int(layout.field_size // max(len(layout.field_names), 1)) if layout.field_names else 0
+    _validate_packed_vector(packed_array, layout=layout)
+    active_cell_count = _active_cell_count(layout)
     field_values = []
     offset = 0
     for _name in layout.field_names:
@@ -176,16 +244,35 @@ def build_fixed_array_rhs(
     """
 
     def rhs(state: RecyclingFixedState) -> RecyclingFixedState:
+        _validate_fixed_state_shapes(state, layout=layout)
         fields = fixed_state_to_field_dict(state, layout=layout)
         field_rhs = field_rhs_function(fields, state.feedback_values)
+        unknown_fields = set(field_rhs) - set(layout.field_names)
+        if unknown_fields:
+            unknown = ", ".join(repr(name) for name in sorted(unknown_fields))
+            raise ValueError(f"Field RHS returned unknown layout entries: {unknown}.")
         rhs_values = []
         for name, value in zip(layout.field_names, state.field_values, strict=True):
-            rhs_value = field_rhs[name] if name in field_rhs else jnp.zeros_like(value)
-            rhs_values.append(jnp.asarray(rhs_value, dtype=jnp.float64))
+            if name in field_rhs:
+                rhs_array = jnp.asarray(field_rhs[name], dtype=jnp.float64)
+                if tuple(rhs_array.shape) != tuple(layout.active_shape):
+                    raise ValueError(
+                        f"Field RHS for {name!r} has shape {tuple(rhs_array.shape)}, "
+                        f"expected {tuple(layout.active_shape)}."
+                    )
+            else:
+                rhs_array = jnp.zeros_like(value, dtype=jnp.float64)
+            rhs_values.append(rhs_array)
         if feedback_rhs_function is None:
             feedback_rhs = jnp.zeros_like(state.feedback_values, dtype=jnp.float64)
         else:
             feedback_rhs = jnp.asarray(feedback_rhs_function(fields, state.feedback_values), dtype=jnp.float64)
+            expected_feedback_shape = (len(layout.feedback_names),)
+            if tuple(feedback_rhs.shape) != expected_feedback_shape:
+                raise ValueError(
+                    "Feedback RHS has shape "
+                    f"{tuple(feedback_rhs.shape)}, expected {expected_feedback_shape}."
+                )
         return RecyclingFixedState(field_values=tuple(rhs_values), feedback_values=feedback_rhs)
 
     return rhs

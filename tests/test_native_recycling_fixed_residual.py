@@ -159,6 +159,7 @@ def test_fixed_array_rhs_only_allocates_zero_defaults_for_missing_fields(
         {
             "field_names": ("A", "B"),
             "feedback_names": (),
+            "active_shape": (1,),
         },
     )()
     state = RecyclingFixedState(
@@ -187,6 +188,101 @@ def test_fixed_array_rhs_only_allocates_zero_defaults_for_missing_fields(
     np.testing.assert_allclose(np.asarray(result.field_values[0]), np.asarray([2.0]))
     np.testing.assert_allclose(np.asarray(result.field_values[1]), np.asarray([0.0]))
     assert zero_shapes == [(1,)]
+
+
+def test_unpack_fixed_state_rejects_static_layout_contract_mismatches() -> None:
+    layout = type(
+        "Layout",
+        (),
+        {
+            "field_names": ("A",),
+            "feedback_names": ("controller",),
+            "active_shape": (2,),
+            "field_size": 2,
+            "active_slices": (slice(None),),
+            "field_templates": (np.zeros(2, dtype=np.float64),),
+        },
+    )()
+
+    with pytest.raises(ValueError, match="one-dimensional"):
+        unpack_fixed_state(np.ones((3, 1), dtype=np.float64), layout=layout)
+    with pytest.raises(ValueError, match="has size 2, expected 3"):
+        unpack_fixed_state(np.ones(2, dtype=np.float64), layout=layout)
+
+    bad_layout = type(
+        "Layout",
+        (),
+        {
+            "field_names": ("A",),
+            "feedback_names": (),
+            "active_shape": (2,),
+            "field_size": 3,
+            "active_slices": (slice(None),),
+            "field_templates": (np.zeros(2, dtype=np.float64),),
+        },
+    )()
+    with pytest.raises(ValueError, match="field_size does not match"):
+        unpack_fixed_state(np.ones(2, dtype=np.float64), layout=bad_layout)
+
+
+def test_fixed_array_rhs_rejects_static_shape_and_key_mismatches() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    layout = type(
+        "Layout",
+        (),
+        {
+            "field_names": ("A", "B"),
+            "feedback_names": ("controller",),
+            "active_shape": (2,),
+        },
+    )()
+    state = RecyclingFixedState(
+        field_values=(
+            jnp.asarray([1.0, 2.0], dtype=jnp.float64),
+            jnp.asarray([3.0, 4.0], dtype=jnp.float64),
+        ),
+        feedback_values=jnp.asarray([0.5], dtype=jnp.float64),
+    )
+
+    unknown_key_rhs = build_fixed_array_rhs(
+        lambda fields, _feedback: {"typo": fields["A"]},
+        layout=layout,
+        feedback_rhs_function=lambda _fields, feedback: feedback,
+    )
+    with pytest.raises(ValueError, match="unknown layout entries: 'typo'"):
+        unknown_key_rhs(state)
+
+    bad_field_shape_rhs = build_fixed_array_rhs(
+        lambda _fields, _feedback: {"A": jnp.ones((2, 1), dtype=jnp.float64)},
+        layout=layout,
+        feedback_rhs_function=lambda _fields, feedback: feedback,
+    )
+    with pytest.raises(ValueError, match=r"Field RHS for 'A' has shape \(2, 1\)"):
+        bad_field_shape_rhs(state)
+
+    bad_feedback_shape_rhs = build_fixed_array_rhs(
+        lambda fields, _feedback: {"A": fields["A"]},
+        layout=layout,
+        feedback_rhs_function=lambda _fields, _feedback: jnp.ones(
+            (1, 1), dtype=jnp.float64
+        ),
+    )
+    with pytest.raises(ValueError, match=r"Feedback RHS has shape \(1, 1\)"):
+        bad_feedback_shape_rhs(state)
+
+    bad_state = RecyclingFixedState(
+        field_values=(state.field_values[0],),
+        feedback_values=state.feedback_values,
+    )
+    valid_rhs = build_fixed_array_rhs(
+        lambda fields, _feedback: {"A": fields["A"]},
+        layout=layout,
+        feedback_rhs_function=lambda _fields, feedback: feedback,
+    )
+    with pytest.raises(ValueError, match="field count does not match"):
+        valid_rhs(bad_state)
 
 
 def test_fixed_host_rhs_bridge_matches_dthe_packed_rhs_oracle() -> None:
