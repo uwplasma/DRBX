@@ -41,6 +41,66 @@ def _median_seconds(samples: list[float]) -> float:
     return float(np.median(np.asarray(samples, dtype=np.float64)))
 
 
+def _states_per_second(batch_size: int, seconds: float | None) -> float | None:
+    if seconds is None:
+        return None
+    seconds = float(seconds)
+    if seconds <= 0.0:
+        return None
+    return float(batch_size) / seconds
+
+
+def _best_metric(
+    batch_results: list[dict[str, object]], metric_name: str, value_name: str
+) -> dict[str, object] | None:
+    candidates: list[tuple[float, int]] = []
+    for index, result in enumerate(batch_results):
+        value = result.get(metric_name)
+        if value is None or isinstance(value, bool):
+            continue
+        metric_value = float(value)
+        if not np.isfinite(metric_value):
+            continue
+        candidates.append((metric_value, index))
+    if not candidates:
+        return None
+    _, best_index = max(candidates, key=lambda item: item[0])
+    best = batch_results[best_index]
+    return {
+        "batch_size": int(best["batch_size"]),
+        value_name: float(best[metric_name]),
+    }
+
+
+def summarize_recycling_batched_jvp_scaling(
+    batch_results: list[dict[str, object]],
+) -> dict[str, object]:
+    """Summarize the scaling envelope from per-batch profiler measurements."""
+
+    batch_sizes = [int(result["batch_size"]) for result in batch_results]
+    return {
+        "batch_count": len(batch_results),
+        "batch_sizes": batch_sizes,
+        "max_batch_size": None if not batch_sizes else max(batch_sizes),
+        "throughput_units": "states_per_second",
+        "best_residual_speedup_vs_serial": _best_metric(
+            batch_results, "residual_speedup_vs_serial", "speedup"
+        ),
+        "best_jvp_speedup_vs_serial": _best_metric(
+            batch_results, "jvp_speedup_vs_serial", "speedup"
+        ),
+        "best_batched_residual_throughput": _best_metric(
+            batch_results, "batched_residual_states_per_second", "states_per_second"
+        ),
+        "best_batched_jvp_throughput": _best_metric(
+            batch_results, "batched_jvp_states_per_second", "states_per_second"
+        ),
+        "best_pmap_jvp_throughput": _best_metric(
+            batch_results, "pmap_jvp_states_per_second", "states_per_second"
+        ),
+    }
+
+
 def _norm(value) -> float:
     import jax.numpy as jnp
 
@@ -315,11 +375,23 @@ def profile_recycling_batched_jvp_problem(
                 "batch_size": int(batch_size),
                 "serial_residual_seconds_median": float(serial_residual_seconds),
                 "batched_residual_seconds_median": float(batched_residual_seconds),
+                "serial_residual_states_per_second": _states_per_second(
+                    batch_size, serial_residual_seconds
+                ),
+                "batched_residual_states_per_second": _states_per_second(
+                    batch_size, batched_residual_seconds
+                ),
                 "residual_speedup_vs_serial": float(
                     serial_residual_seconds / max(batched_residual_seconds, 1.0e-30)
                 ),
                 "serial_jvp_seconds_median": float(serial_jvp_seconds),
                 "batched_jvp_seconds_median": float(batched_jvp_seconds),
+                "serial_jvp_states_per_second": _states_per_second(
+                    batch_size, serial_jvp_seconds
+                ),
+                "batched_jvp_states_per_second": _states_per_second(
+                    batch_size, batched_jvp_seconds
+                ),
                 "jvp_speedup_vs_serial": float(
                     serial_jvp_seconds / max(batched_jvp_seconds, 1.0e-30)
                 ),
@@ -336,6 +408,9 @@ def profile_recycling_batched_jvp_problem(
                 "pmap_device_count": int(pmap_device_count),
                 "pmap_batch_size": int(pmap_batch_size),
                 "pmap_jvp_seconds_median": pmap_jvp_seconds,
+                "pmap_jvp_states_per_second": _states_per_second(
+                    pmap_batch_size, pmap_jvp_seconds
+                ),
                 "pmap_jvp_samples": None
                 if pmap_jvp_samples is None
                 else [float(value) for value in pmap_jvp_samples],
@@ -377,6 +452,7 @@ def profile_recycling_batched_jvp_problem(
             "objective_directional_relative_error": objective_directional_relative_error,
         },
         "batch_results": batch_results,
+        "throughput_summary": summarize_recycling_batched_jvp_scaling(batch_results),
         "interpretation": (
             "This gate measures the real fixed-layout D/T/He recycling residual under jit, vmap, jvp, grad, "
             "and optional pmap after a multi-device identity sanity check. It is the current differentiable "

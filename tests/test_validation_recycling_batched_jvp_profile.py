@@ -9,6 +9,7 @@ import jax_drb.validation.recycling_batched_jvp_profile as profile_module
 from jax_drb.validation.recycling_batched_jvp_profile import (
     _check_pmap_identity,
     build_recycling_batched_jvp_problem,
+    summarize_recycling_batched_jvp_scaling,
 )
 
 
@@ -57,6 +58,71 @@ def test_recycling_batched_jvp_pmap_identity_helper_rejects_corrupt_map() -> Non
     assert passed is False
     assert max_abs_error > 0.0
     assert "pmap identity check failed" in str(skip_reason)
+
+
+def test_recycling_batched_jvp_scaling_summary_selects_best_metrics() -> None:
+    summary = summarize_recycling_batched_jvp_scaling(
+        [
+            {
+                "batch_size": 1,
+                "residual_speedup_vs_serial": 1.0,
+                "jvp_speedup_vs_serial": 1.0,
+                "batched_residual_states_per_second": 10.0,
+                "batched_jvp_states_per_second": 8.0,
+                "pmap_jvp_states_per_second": None,
+            },
+            {
+                "batch_size": 4,
+                "residual_speedup_vs_serial": 2.5,
+                "jvp_speedup_vs_serial": 3.0,
+                "batched_residual_states_per_second": 25.0,
+                "batched_jvp_states_per_second": 20.0,
+                "pmap_jvp_states_per_second": 18.0,
+            },
+        ]
+    )
+
+    assert summary["batch_count"] == 2
+    assert summary["batch_sizes"] == [1, 4]
+    assert summary["max_batch_size"] == 4
+    assert summary["throughput_units"] == "states_per_second"
+    assert summary["best_residual_speedup_vs_serial"] == {
+        "batch_size": 4,
+        "speedup": 2.5,
+    }
+    assert summary["best_jvp_speedup_vs_serial"] == {
+        "batch_size": 4,
+        "speedup": 3.0,
+    }
+    assert summary["best_batched_residual_throughput"] == {
+        "batch_size": 4,
+        "states_per_second": 25.0,
+    }
+    assert summary["best_batched_jvp_throughput"] == {
+        "batch_size": 4,
+        "states_per_second": 20.0,
+    }
+    assert summary["best_pmap_jvp_throughput"] == {
+        "batch_size": 4,
+        "states_per_second": 18.0,
+    }
+
+
+def test_recycling_batched_jvp_scaling_summary_handles_no_pmap_results() -> None:
+    summary = summarize_recycling_batched_jvp_scaling(
+        [
+            {
+                "batch_size": 1,
+                "residual_speedup_vs_serial": 1.0,
+                "jvp_speedup_vs_serial": 1.0,
+                "batched_residual_states_per_second": 10.0,
+                "batched_jvp_states_per_second": 8.0,
+                "pmap_jvp_states_per_second": None,
+            }
+        ]
+    )
+
+    assert summary["best_pmap_jvp_throughput"] is None
 
 
 def test_recycling_batched_jvp_problem_uses_fixed_full_field_backend_by_default(
