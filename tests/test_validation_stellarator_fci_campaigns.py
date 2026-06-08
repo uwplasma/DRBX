@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 import sys
 
+import jax.numpy as jnp
+import numpy as np
+
+from jax_drb.geometry import FciMaps, identity_fci_maps
 from jax_drb.validation import (
     create_stellarator_fci_geometry_campaign_package,
     create_stellarator_fci_operator_campaign_package,
@@ -16,6 +20,7 @@ from jax_drb.validation import (
     create_stellarator_sol_showcase_package,
     create_stellarator_vorticity_campaign_package,
 )
+from jax_drb.validation.essos_imported_fci_campaign import build_essos_imported_fci_map_diagnostics
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +50,85 @@ def test_imported_fci_example_cli_resolves_source_specific_artifact_defaults(cap
     assert "map_source=hybrid" in captured.out
     assert "output_root=tmp/hybrid" in captured.out
     assert "case_label=custom" in captured.out
+
+
+def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, capsys) -> None:
+    module = _load_imported_fci_campaign_example()
+    output_root = tmp_path / "imported_fci_contract"
+
+    assert (
+        module.main(
+            [
+                "--map-source",
+                "hybrid",
+                "--dry-run",
+                "--dry-run-artifacts",
+                "--output-root",
+                str(output_root),
+                "--case-label",
+                "custom_imported_fci",
+                "--nx",
+                "3",
+                "--ny",
+                "4",
+                "--nz",
+                "8",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    contract_path = output_root / "data" / "custom_imported_fci_dry_run_contract.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+
+    assert "wrote dry-run contract" in captured.out
+    assert contract["self_contained"] is True
+    assert contract["requires_essos_runtime"] is False
+    assert contract["live_run_requires_essos_runtime"] is True
+    assert contract["map_source"] == "hybrid"
+    assert contract["grid"]["shape"] == [3, 4, 8]
+    assert contract["planned_artifacts"]["report_json"].endswith("custom_imported_fci.json")
+    assert contract["planned_artifacts"]["dry_run_contract_json"].endswith("custom_imported_fci_dry_run_contract.json")
+    assert "connection_length_diagnostics" in contract["required_report_fields"]
+    assert "refinement_diagnostics" in contract["diagnostic_schema"]
+    assert "consumed_map_diagnostics" in contract["diagnostic_schema"]
+    assert contract["external_inputs"]["not_read_in_dry_run"] is True
+    assert contract["passed"] is True
+
+
+def test_imported_fci_map_diagnostics_verify_consumed_endpoint_masks() -> None:
+    base_maps = identity_fci_maps(nx=3, ny=4, nz=8, dphi=0.25)
+    forward_boundary = np.zeros(base_maps.shape, dtype=bool)
+    backward_boundary = np.zeros(base_maps.shape, dtype=bool)
+    forward_boundary[0, :, :] = True
+    backward_boundary[-1, :, :] = True
+    maps = FciMaps(
+        forward_x=base_maps.forward_x,
+        forward_z=base_maps.forward_z,
+        backward_x=base_maps.backward_x,
+        backward_z=base_maps.backward_z,
+        forward_boundary=jnp.asarray(forward_boundary),
+        backward_boundary=jnp.asarray(backward_boundary),
+        dphi=base_maps.dphi,
+    )
+    endpoint_count = forward_boundary.astype(np.float64) + backward_boundary.astype(np.float64)
+    connection_length = np.linspace(0.0, 1.0, num=int(np.prod(base_maps.shape)), dtype=np.float64).reshape(base_maps.shape)
+
+    diagnostics = build_essos_imported_fci_map_diagnostics(
+        maps=maps,
+        connection_length=connection_length,
+        endpoint_count=endpoint_count,
+        map_source="hybrid",
+    )
+
+    assert diagnostics["passed"] is True
+    assert diagnostics["connection_length_diagnostics"]["finite_fraction"] == 1.0
+    assert diagnostics["connection_length_diagnostics"]["nonnegative_fraction"] == 1.0
+    assert diagnostics["refinement_diagnostics"]["shape"] == [3, 4, 8]
+    assert diagnostics["consumed_map_diagnostics"]["endpoint_count_matches_boundary_masks"] is True
+    assert diagnostics["consumed_map_diagnostics"]["orphan_endpoint_fraction"] == 0.0
+    assert diagnostics["consumed_map_diagnostics"]["unconsumed_boundary_fraction"] == 0.0
 
 
 def _load_imported_fci_campaign_example():

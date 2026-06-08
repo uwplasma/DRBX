@@ -20,6 +20,88 @@ class EssosImportedFciCampaignArtifacts:
     plot_png_path: Path
 
 
+@dataclass(frozen=True)
+class EssosImportedFciDryRunArtifacts:
+    contract_json_path: Path
+
+
+_IMPORTED_FCI_ARRAY_KEYS = (
+    "major_radius_section",
+    "vertical_section",
+    "magnetic_field_section",
+    "endpoint_count_toroidal",
+    "connection_toroidal",
+    "heat_load_toroidal",
+    "ionisation_toroidal",
+    "radial_grid",
+    "radial_profiles",
+    "summary",
+)
+_IMPORTED_FCI_REQUIRED_REPORT_FIELDS = (
+    "case",
+    "source",
+    "map_source",
+    "geometry",
+    "forward_boundary_fraction",
+    "backward_boundary_fraction",
+    "target_fraction",
+    "magnetic_field_modulation",
+    "connection_length_min",
+    "connection_length_mean",
+    "connection_length_max",
+    "connection_length_diagnostics",
+    "refinement_diagnostics",
+    "consumed_map_diagnostics",
+    "map_diagnostics_passed",
+    "particle_recycling_relative_error",
+    "current_balance_relative_error",
+    "neutral_particle_relative_error",
+    "neutral_momentum_relative_error",
+    "neutral_diffusion_relative_integral",
+    "passed",
+)
+_IMPORTED_FCI_DIAGNOSTIC_SCHEMA = {
+    "connection_length_diagnostics": [
+        "finite_fraction",
+        "nonnegative_fraction",
+        "min",
+        "p05",
+        "median",
+        "p95",
+        "max",
+        "mean",
+        "std",
+        "coefficient_of_variation",
+        "zero_fraction",
+        "radial_mean_profile",
+    ],
+    "refinement_diagnostics": [
+        "shape",
+        "cell_count",
+        "dphi",
+        "radial_points",
+        "toroidal_planes",
+        "poloidal_points",
+        "forward_map_coordinate_finite_fraction",
+        "backward_map_coordinate_finite_fraction",
+        "mean_bidirectional_abs_radial_shift_cells",
+        "mean_bidirectional_abs_poloidal_shift_cells",
+        "p95_bidirectional_abs_poloidal_shift_cells",
+    ],
+    "consumed_map_diagnostics": [
+        "expected_endpoint_count_sum",
+        "consumed_endpoint_count_sum",
+        "endpoint_count_linf_error",
+        "endpoint_count_matches_boundary_masks",
+        "target_cell_fraction",
+        "boundary_cell_fraction",
+        "orphan_endpoint_fraction",
+        "unconsumed_boundary_fraction",
+        "double_endpoint_fraction",
+    ],
+}
+
+
 def create_essos_imported_fci_campaign_package(
     *,
     output_root: str | Path,
@@ -70,6 +152,122 @@ def create_essos_imported_fci_campaign_package(
         arrays_npz_path=arrays_npz_path,
         plot_png_path=plot_png_path,
     )
+
+
+def create_essos_imported_fci_dry_run_artifact_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_imported_fci_campaign",
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    map_source: str = "coil",
+    nx: int = 5,
+    ny: int = 8,
+    nz: int = 20,
+    rho_min: float = 0.12,
+    rho_max: float = 0.34,
+    maxtime: float = 80.0,
+    times_to_trace: int = 360,
+    trace_tolerance: float = 1.0e-8,
+    precision: str = "float64",
+) -> EssosImportedFciDryRunArtifacts:
+    """Write a self-contained dry-run contract for the imported FCI campaign."""
+
+    root = Path(output_root)
+    data_dir = root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    contract = build_essos_imported_fci_dry_run_artifact_contract(
+        output_root=root,
+        case_label=case_label,
+        coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
+        essos_root=essos_root,
+        map_source=map_source,
+        nx=nx,
+        ny=ny,
+        nz=nz,
+        rho_min=rho_min,
+        rho_max=rho_max,
+        maxtime=maxtime,
+        times_to_trace=times_to_trace,
+        trace_tolerance=trace_tolerance,
+        precision=precision,
+    )
+    contract_json_path = data_dir / f"{case_label}_dry_run_contract.json"
+    contract_json_path.write_text(json.dumps(contract, indent=2, sort_keys=True), encoding="utf-8")
+    return EssosImportedFciDryRunArtifacts(contract_json_path=contract_json_path)
+
+
+def build_essos_imported_fci_dry_run_artifact_contract(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_imported_fci_campaign",
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    map_source: str = "coil",
+    nx: int = 5,
+    ny: int = 8,
+    nz: int = 20,
+    rho_min: float = 0.12,
+    rho_max: float = 0.34,
+    maxtime: float = 80.0,
+    times_to_trace: int = 360,
+    trace_tolerance: float = 1.0e-8,
+    precision: str = "float64",
+) -> dict[str, Any]:
+    """Return the ESSOS-imported FCI artifact contract without importing ESSOS."""
+
+    map_source = _normalize_imported_fci_map_source(map_source)
+    _validate_imported_fci_grid(nx=nx, ny=ny, nz=nz)
+    root = Path(output_root)
+    data_dir = root / "data"
+    images_dir = root / "images"
+    return {
+        "case": "essos_imported_vmec_qa_fci_dry_run_contract",
+        "schema_version": 1,
+        "self_contained": True,
+        "execution_mode": "dry_run",
+        "requires_essos_runtime": False,
+        "live_run_requires_essos_runtime": True,
+        "map_source": map_source,
+        "case_label": str(case_label),
+        "output_root": str(root),
+        "precision": str(precision),
+        "planned_artifacts": {
+            "report_json": str(data_dir / f"{case_label}.json"),
+            "arrays_npz": str(data_dir / f"{case_label}.npz"),
+            "plot_png": str(images_dir / f"{case_label}.png"),
+            "dry_run_contract_json": str(data_dir / f"{case_label}_dry_run_contract.json"),
+        },
+        "grid": {
+            "shape": [int(nx), int(ny), int(nz)],
+            "cell_count": int(nx) * int(ny) * int(nz),
+            "nx": int(nx),
+            "ny": int(ny),
+            "nz": int(nz),
+            "rho_min": float(rho_min),
+            "rho_max": float(rho_max),
+        },
+        "trace": {
+            "maxtime": float(maxtime),
+            "times_to_trace": int(times_to_trace),
+            "trace_tolerance": float(trace_tolerance),
+        },
+        "external_inputs": {
+            "coil_json_path": _path_to_optional_string(coil_json_path),
+            "vmec_wout_path": _path_to_optional_string(vmec_wout_path),
+            "essos_root": _path_to_optional_string(essos_root),
+            "not_read_in_dry_run": True,
+        },
+        "map_semantics": _imported_fci_map_semantics(map_source),
+        "required_report_fields": list(_IMPORTED_FCI_REQUIRED_REPORT_FIELDS),
+        "required_array_keys": list(_IMPORTED_FCI_ARRAY_KEYS),
+        "diagnostic_schema": _IMPORTED_FCI_DIAGNOSTIC_SCHEMA,
+        "acceptance_contract": _imported_fci_acceptance_contract(map_source),
+        "passed": True,
+    }
 
 
 def build_essos_imported_fci_campaign(
@@ -199,6 +397,12 @@ def build_essos_imported_fci_campaign(
         else 0.0
     )
     actual_map_source = str(geometry.metadata.get("map_source", "coil"))
+    map_diagnostics = build_essos_imported_fci_map_diagnostics(
+        maps=geometry.maps,
+        connection_length=connection,
+        endpoint_count=endpoint_count,
+        map_source=actual_map_source,
+    )
 
     report: dict[str, Any] = {
         "case": "essos_imported_vmec_qa_fci_sheath_neutral_gate",
@@ -215,6 +419,10 @@ def build_essos_imported_fci_campaign(
         "connection_length_min": float(np.min(connection)),
         "connection_length_mean": float(np.mean(connection)),
         "connection_length_max": float(np.max(connection)),
+        "connection_length_diagnostics": map_diagnostics["connection_length_diagnostics"],
+        "refinement_diagnostics": map_diagnostics["refinement_diagnostics"],
+        "consumed_map_diagnostics": map_diagnostics["consumed_map_diagnostics"],
+        "map_diagnostics_passed": bool(map_diagnostics["passed"]),
         "total_particle_loss": total_particle_loss,
         "total_target_heat_load": total_heat_load,
         "particle_recycling_relative_error": particle_recycling_relative_error,
@@ -240,6 +448,7 @@ def build_essos_imported_fci_campaign(
             and neutral_particle_relative_error < 1.0e-12
             and neutral_momentum_relative_error < 1.0e-12
             and neutral_diffusion_relative_integral < 5.0e-2
+            and bool(map_diagnostics["passed"])
         )
     else:
         report["passed"] = (
@@ -257,6 +466,7 @@ def build_essos_imported_fci_campaign(
             and neutral_momentum_relative_error < 1.0e-12
             and neutral_diffusion_relative_integral < 5.0e-2
             and heat_load_contrast > 1.01
+            and bool(map_diagnostics["passed"])
         )
 
     major_radius = np.sqrt(np.asarray(geometry.coordinates_x, dtype=np.float64) ** 2 + np.asarray(geometry.coordinates_y, dtype=np.float64) ** 2)
@@ -291,6 +501,155 @@ def build_essos_imported_fci_campaign(
         ),
     }
     return report, arrays
+
+
+def build_essos_imported_fci_map_diagnostics(
+    *,
+    maps: Any,
+    connection_length: np.ndarray,
+    endpoint_count: np.ndarray,
+    map_source: str,
+) -> dict[str, Any]:
+    """Summarize imported-map health and whether sheath masks consumed it exactly."""
+
+    map_source = _normalize_imported_fci_map_source(map_source)
+    connection = np.asarray(connection_length, dtype=np.float64)
+    forward_x = np.asarray(maps.forward_x, dtype=np.float64)
+    forward_z = np.asarray(maps.forward_z, dtype=np.float64)
+    backward_x = np.asarray(maps.backward_x, dtype=np.float64)
+    backward_z = np.asarray(maps.backward_z, dtype=np.float64)
+    forward_boundary = np.asarray(maps.forward_boundary, dtype=bool)
+    backward_boundary = np.asarray(maps.backward_boundary, dtype=bool)
+    endpoint = np.asarray(endpoint_count, dtype=np.float64)
+    shape = tuple(int(value) for value in forward_x.shape)
+    expected_shape = connection.shape
+    if shape != expected_shape or endpoint.shape != expected_shape:
+        raise ValueError(
+            "Imported FCI diagnostics require map, connection-length, and endpoint-count arrays "
+            f"with the same shape; got map={shape}, connection={expected_shape}, endpoint={endpoint.shape}."
+        )
+
+    nx, ny, nz = shape
+    finite_connection = np.isfinite(connection)
+    finite_connection_values = connection[finite_connection]
+    nonnegative_connection = finite_connection & (connection >= 0.0)
+    radial_mean_profile = [
+        _optional_float(np.mean(values[np.isfinite(values)])) if np.any(np.isfinite(values)) else None
+        for values in connection.reshape((nx, -1))
+    ]
+    connection_diagnostics = {
+        "finite_fraction": float(np.mean(finite_connection)),
+        "nonnegative_fraction": float(np.mean(nonnegative_connection)),
+        "min": _optional_percentile(finite_connection_values, 0.0),
+        "p05": _optional_percentile(finite_connection_values, 5.0),
+        "median": _optional_percentile(finite_connection_values, 50.0),
+        "p95": _optional_percentile(finite_connection_values, 95.0),
+        "max": _optional_percentile(finite_connection_values, 100.0),
+        "mean": _optional_float(np.mean(finite_connection_values)) if finite_connection_values.size else None,
+        "std": _optional_float(np.std(finite_connection_values)) if finite_connection_values.size else None,
+        "coefficient_of_variation": _coefficient_of_variation(finite_connection_values),
+        "zero_fraction": float(np.mean(finite_connection & (np.abs(connection) <= 1.0e-14))),
+        "radial_mean_profile": radial_mean_profile,
+    }
+
+    x_index = np.broadcast_to(np.arange(nx, dtype=np.float64)[:, None, None], shape)
+    z_index = np.broadcast_to(np.arange(nz, dtype=np.float64)[None, None, :], shape)
+    forward_finite = np.isfinite(forward_x) & np.isfinite(forward_z)
+    backward_finite = np.isfinite(backward_x) & np.isfinite(backward_z)
+    forward_valid = forward_finite & ~forward_boundary
+    backward_valid = backward_finite & ~backward_boundary
+    forward_dx = forward_x - x_index
+    backward_dx = backward_x - x_index
+    forward_dz = _periodic_cell_delta(forward_z - z_index, float(nz))
+    backward_dz = _periodic_cell_delta(backward_z - z_index, float(nz))
+    bidirectional_abs_dx = np.concatenate(
+        [
+            np.abs(forward_dx[forward_valid]).reshape(-1),
+            np.abs(backward_dx[backward_valid]).reshape(-1),
+        ]
+    )
+    bidirectional_abs_dz = np.concatenate(
+        [
+            np.abs(forward_dz[forward_valid]).reshape(-1),
+            np.abs(backward_dz[backward_valid]).reshape(-1),
+        ]
+    )
+    refinement_diagnostics = {
+        "shape": [int(nx), int(ny), int(nz)],
+        "cell_count": int(np.prod(shape)),
+        "dphi": float(maps.dphi),
+        "radial_points": int(nx),
+        "toroidal_planes": int(ny),
+        "poloidal_points": int(nz),
+        "forward_map_coordinate_finite_fraction": float(np.mean(forward_finite)),
+        "backward_map_coordinate_finite_fraction": float(np.mean(backward_finite)),
+        "forward_nonboundary_fraction": float(np.mean(~forward_boundary)),
+        "backward_nonboundary_fraction": float(np.mean(~backward_boundary)),
+        "mean_bidirectional_abs_radial_shift_cells": (
+            _optional_float(np.mean(bidirectional_abs_dx)) if bidirectional_abs_dx.size else None
+        ),
+        "max_bidirectional_abs_radial_shift_cells": (
+            _optional_float(np.max(bidirectional_abs_dx)) if bidirectional_abs_dx.size else None
+        ),
+        "mean_bidirectional_abs_poloidal_shift_cells": (
+            _optional_float(np.mean(bidirectional_abs_dz)) if bidirectional_abs_dz.size else None
+        ),
+        "p95_bidirectional_abs_poloidal_shift_cells": _optional_percentile(bidirectional_abs_dz, 95.0),
+        "max_bidirectional_abs_poloidal_shift_cells": (
+            _optional_float(np.max(bidirectional_abs_dz)) if bidirectional_abs_dz.size else None
+        ),
+    }
+
+    expected_endpoint = forward_boundary.astype(np.float64) + backward_boundary.astype(np.float64)
+    endpoint_error = endpoint - expected_endpoint
+    endpoint_linf_error = float(np.max(np.abs(endpoint_error))) if endpoint_error.size else 0.0
+    expected_endpoint_count_sum = float(np.sum(expected_endpoint))
+    consumed_endpoint_count_sum = float(np.sum(endpoint))
+    boundary_cells = expected_endpoint > 0.0
+    target_cells = endpoint > 0.0
+    consumed_map_diagnostics = {
+        "expected_endpoint_count_sum": expected_endpoint_count_sum,
+        "consumed_endpoint_count_sum": consumed_endpoint_count_sum,
+        "endpoint_count_linf_error": endpoint_linf_error,
+        "endpoint_count_matches_boundary_masks": bool(endpoint_linf_error <= 1.0e-12),
+        "target_cell_fraction": float(np.mean(target_cells)),
+        "boundary_cell_fraction": float(np.mean(boundary_cells)),
+        "orphan_endpoint_fraction": float(np.mean(target_cells & ~boundary_cells)),
+        "unconsumed_boundary_fraction": float(np.mean(boundary_cells & ~target_cells)),
+        "double_endpoint_fraction": float(np.mean(endpoint >= 2.0 - 1.0e-12)),
+        "forward_boundary_fraction": float(np.mean(forward_boundary)),
+        "backward_boundary_fraction": float(np.mean(backward_boundary)),
+    }
+    connection_passed = (
+        connection_diagnostics["finite_fraction"] == 1.0
+        and connection_diagnostics["nonnegative_fraction"] == 1.0
+    )
+    refinement_passed = (
+        refinement_diagnostics["forward_map_coordinate_finite_fraction"] == 1.0
+        and refinement_diagnostics["backward_map_coordinate_finite_fraction"] == 1.0
+        and nx >= 2
+        and ny >= 2
+        and nz >= 4
+    )
+    if map_source == "vmec":
+        consumed_map_passed = (
+            consumed_map_diagnostics["endpoint_count_matches_boundary_masks"]
+            and expected_endpoint_count_sum <= 1.0e-12
+            and consumed_endpoint_count_sum <= 1.0e-12
+        )
+    else:
+        consumed_map_passed = (
+            consumed_map_diagnostics["endpoint_count_matches_boundary_masks"]
+            and expected_endpoint_count_sum > 0.0
+            and consumed_endpoint_count_sum > 0.0
+        )
+    return {
+        "map_source": map_source,
+        "connection_length_diagnostics": connection_diagnostics,
+        "refinement_diagnostics": refinement_diagnostics,
+        "consumed_map_diagnostics": consumed_map_diagnostics,
+        "passed": bool(connection_passed and refinement_passed and consumed_map_passed),
+    }
 
 
 def save_essos_imported_fci_campaign_plot(
@@ -419,3 +778,110 @@ def save_essos_imported_fci_campaign_plot(
     fig.savefig(resolved, dpi=190)
     plt.close(fig)
     return resolved
+
+
+def _normalize_imported_fci_map_source(map_source: str) -> str:
+    normalized = str(map_source).strip().lower().replace("-", "_")
+    aliases = {
+        "essos": "coil",
+        "essos_coil": "coil",
+        "coil_map": "coil",
+        "vmec_map": "vmec",
+        "hybrid_map": "hybrid",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {"coil", "vmec", "hybrid"}:
+        raise ValueError("map_source must be one of 'coil', 'vmec', or 'hybrid'")
+    return normalized
+
+
+def _validate_imported_fci_grid(*, nx: int, ny: int, nz: int) -> None:
+    if int(nx) < 2 or int(ny) < 2 or int(nz) < 4:
+        raise ValueError("ESSOS imported FCI dry-run contract requires nx >= 2, ny >= 2, and nz >= 4")
+
+
+def _path_to_optional_string(path: str | Path | None) -> str | None:
+    return None if path is None else str(Path(path))
+
+
+def _imported_fci_map_semantics(map_source: str) -> dict[str, Any]:
+    descriptions = {
+        "coil": {
+            "map_coordinates": "ESSOS Biot-Savart coil-traced adjacent-plane endpoints",
+            "endpoint_masks": "ESSOS coil-trace exits and radial-edge hits",
+            "connection_length": "coil-trace exit length when available, otherwise adjacent-plane arc length",
+            "expected_target_behavior": "open-field sheath/recycling endpoints are present",
+        },
+        "vmec": {
+            "map_coordinates": "VMEC-coordinate RK4 adjacent-plane map at fixed flux surface",
+            "endpoint_masks": "closed-field control with endpoint masks disabled",
+            "connection_length": "bidirectional VMEC-coordinate adjacent-plane arc length",
+            "expected_target_behavior": "zero sheath target endpoints",
+        },
+        "hybrid": {
+            "map_coordinates": "VMEC-coordinate RK4 adjacent-plane map at fixed flux surface",
+            "endpoint_masks": "ESSOS coil-trace exits and radial-edge hits",
+            "connection_length": "coil-trace exit length when available, otherwise adjacent-plane arc length",
+            "expected_target_behavior": "open-field sheath/recycling endpoints consumed on VMEC map coordinates",
+        },
+    }
+    return descriptions[_normalize_imported_fci_map_source(map_source)]
+
+
+def _imported_fci_acceptance_contract(map_source: str) -> dict[str, list[str]]:
+    map_source = _normalize_imported_fci_map_source(map_source)
+    source_specific = {
+        "coil": [
+            "forward and backward boundary masks are both nonzero",
+            "sheath endpoint counts exactly match forward plus backward map boundary masks",
+            "target heat load and particle loss are positive",
+        ],
+        "vmec": [
+            "forward and backward boundary masks are zero",
+            "sheath endpoint counts are zero",
+            "neutral and metric-diffusion diagnostics remain finite on the closed map",
+        ],
+        "hybrid": [
+            "VMEC-coordinate maps remain finite while coil-derived endpoint masks are nonzero",
+            "sheath endpoint counts exactly match forward plus backward coil boundary masks",
+            "target heat load and particle loss are positive on the consumed hybrid map",
+        ],
+    }
+    return {
+        "common": [
+            "connection-length diagnostics are finite and nonnegative",
+            "map coordinate diagnostics are finite at the declared grid refinement",
+            "particle recycling, current balance, neutral particle, and neutral momentum residuals close",
+            "report JSON contains every required diagnostic field and arrays NPZ contains every required key",
+        ],
+        "source_specific": source_specific[map_source],
+    }
+
+
+def _periodic_cell_delta(delta: np.ndarray, period: float) -> np.ndarray:
+    if period <= 0.0:
+        return delta
+    return np.mod(delta + 0.5 * period, period) - 0.5 * period
+
+
+def _optional_percentile(values: np.ndarray, percentile: float) -> float | None:
+    finite_values = np.asarray(values, dtype=np.float64)
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if finite_values.size == 0:
+        return None
+    return float(np.percentile(finite_values, percentile))
+
+
+def _optional_float(value: float | np.floating[Any]) -> float:
+    return float(value)
+
+
+def _coefficient_of_variation(values: np.ndarray) -> float | None:
+    finite_values = np.asarray(values, dtype=np.float64)
+    finite_values = finite_values[np.isfinite(finite_values)]
+    if finite_values.size == 0:
+        return None
+    mean = float(np.mean(finite_values))
+    if abs(mean) <= 1.0e-30:
+        return None
+    return float(np.std(finite_values) / abs(mean))
