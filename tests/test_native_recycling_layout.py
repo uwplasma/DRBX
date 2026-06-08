@@ -16,10 +16,12 @@ from jax_drb.native.recycling_fixed_residual import (
     build_fixed_bdf2_residual,
     build_fixed_full_field_array_rhs,
     build_fixed_host_rhs_bridge,
+    fixed_residual_jvp_batch_action,
     fixed_residual_jvp_action,
     fixed_state_from_fields,
     fixed_state_to_feedback_integrals,
     fixed_state_to_full_fields,
+    linearize_fixed_residual_batched_action,
     linearize_fixed_residual_action,
     pack_fixed_state,
     unpack_fixed_state,
@@ -407,11 +409,40 @@ def test_fixed_residual_linearize_and_jvp_actions_match_dense_jacobian() -> None
     residual_value, action = linearize_fixed_residual_action(residual, candidate)
     action_value = action(direction)
     jvp_value = fixed_residual_jvp_action(residual, candidate, direction)
-    dense_value = jax.jacfwd(residual)(candidate) @ direction
+    dense_jacobian = jax.jacfwd(residual)(candidate)
+    dense_value = dense_jacobian @ direction
+    direction_batch = jnp.stack(
+        (
+            direction,
+            jnp.cos(jnp.arange(candidate.size, dtype=jnp.float64) * 0.13),
+            jnp.zeros_like(direction),
+        )
+    )
+    batched_residual_value, batched_action = linearize_fixed_residual_batched_action(
+        residual,
+        candidate,
+    )
+    batched_action_value = batched_action(direction_batch)
+    batched_jvp_value = fixed_residual_jvp_batch_action(
+        residual,
+        candidate,
+        direction_batch,
+    )
+    jitted_batched_action_value = jax.jit(batched_action)(direction_batch)
+    dense_batch_value = jax.vmap(lambda tangent: dense_jacobian @ tangent)(
+        direction_batch
+    )
 
     assert residual_value.shape == candidate.shape
+    assert batched_residual_value.shape == candidate.shape
     np.testing.assert_allclose(np.asarray(action_value), np.asarray(dense_value), rtol=1.0e-12, atol=1.0e-12)
     np.testing.assert_allclose(np.asarray(jvp_value), np.asarray(dense_value), rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(batched_action_value), np.asarray(dense_batch_value), rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(batched_jvp_value), np.asarray(dense_batch_value), rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(jitted_batched_action_value), np.asarray(dense_batch_value), rtol=1.0e-12, atol=1.0e-12)
+
+    with pytest.raises(ValueError, match="leading batch axis"):
+        batched_action(direction)
 
 
 def test_fixed_recycling_backward_euler_residual_is_jax_linearizable() -> None:

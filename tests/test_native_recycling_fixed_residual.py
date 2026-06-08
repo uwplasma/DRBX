@@ -21,6 +21,7 @@ from jax_drb.native.recycling_fixed_residual import (
     build_fixed_array_rhs,
     build_fixed_backward_euler_residual,
     build_fixed_host_rhs_bridge,
+    fixed_residual_jvp_batch_action,
     fixed_state_from_fields,
     fixed_state_to_feedback_integrals,
     fixed_state_to_full_fields,
@@ -479,6 +480,11 @@ def test_active_array_fixture_residual_supports_jit_jvp_and_vmap() -> None:
     state = jnp.asarray(oracle.packed_initial_guess, dtype=jnp.float64)
     direction = jnp.sin(jnp.arange(state.size, dtype=jnp.float64) * 0.017)
     direction = direction / jnp.maximum(jnp.linalg.norm(direction), 1.0e-30)
+    second_direction = jnp.cos(jnp.arange(state.size, dtype=jnp.float64) * 0.011)
+    second_direction = second_direction / jnp.maximum(
+        jnp.linalg.norm(second_direction),
+        1.0e-30,
+    )
 
     active_residual = jax.jit(active.residual)
     oracle_residual = jax.jit(oracle.residual)
@@ -500,6 +506,33 @@ def test_active_array_fixture_residual_supports_jit_jvp_and_vmap() -> None:
         1.0e-30,
     )
     assert float(relative_error) < 1.0e-6
+
+    tangent_batch = jnp.stack(
+        (
+            direction,
+            second_direction,
+            0.25 * direction - 0.5 * second_direction,
+        )
+    )
+    serial_jvps = jnp.stack(
+        tuple(
+            jax.jvp(active_residual, (state,), (tangent_batch[index],))[1]
+            for index in range(tangent_batch.shape[0])
+        )
+    )
+    batched_jvp = jax.jit(
+        lambda base_state, tangents: fixed_residual_jvp_batch_action(
+            active_residual,
+            base_state,
+            tangents,
+        )
+    )(state, tangent_batch)
+    np.testing.assert_allclose(
+        np.asarray(batched_jvp, dtype=np.float64),
+        np.asarray(serial_jvps, dtype=np.float64),
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
 
     batch = jnp.stack((state, state + 1.0e-9 * direction))
     np.testing.assert_allclose(

@@ -382,6 +382,40 @@ def linearize_fixed_residual_action(
     return residual_value, apply_action
 
 
+def linearize_fixed_residual_batched_action(
+    residual_function: Callable[[object], jax.Array],
+    packed_state: object,
+) -> tuple[jax.Array, Callable[[object], jax.Array]]:
+    """Return residual value and a batched linearized Jacobian action.
+
+    The returned action expects a leading batch axis on the tangent array and
+    pushes all tangents through the same ``jax.linearize`` result with
+    ``jax.vmap``. This is the fixed-layout residual counterpart to the solver's
+    colored sparse-JVP batches, but without materializing a sparse matrix.
+    """
+
+    state_array = jnp.asarray(packed_state, dtype=jnp.float64)
+    residual_value, linear_action = jax.linearize(residual_function, state_array)
+    state_shape = tuple(state_array.shape)
+
+    def apply_batched_action(tangent_batch: object) -> jax.Array:
+        tangent_batch_array = jnp.asarray(tangent_batch, dtype=jnp.float64)
+        tangent_batch_shape = tuple(tangent_batch_array.shape)
+        if len(tangent_batch_shape) != len(state_shape) + 1:
+            raise ValueError(
+                "Batched residual tangent array must include exactly one leading "
+                f"batch axis, got shape {tangent_batch_shape} for state shape {state_shape}."
+            )
+        if tangent_batch_shape[1:] != state_shape:
+            raise ValueError(
+                "Batched residual tangent entries have shape "
+                f"{tangent_batch_shape[1:]}, expected {state_shape}."
+            )
+        return jax.vmap(linear_action)(tangent_batch_array)
+
+    return residual_value, apply_batched_action
+
+
 def fixed_residual_jvp_action(
     residual_function: Callable[[object], jax.Array],
     packed_state: object,
@@ -395,3 +429,17 @@ def fixed_residual_jvp_action(
         (jnp.asarray(tangent, dtype=jnp.float64),),
     )
     return tangent_out
+
+
+def fixed_residual_jvp_batch_action(
+    residual_function: Callable[[object], jax.Array],
+    packed_state: object,
+    tangent_batch: object,
+) -> jax.Array:
+    """Apply the residual Jacobian to a batch of tangents with one linearization."""
+
+    _, batched_action = linearize_fixed_residual_batched_action(
+        residual_function,
+        packed_state,
+    )
+    return batched_action(tangent_batch)

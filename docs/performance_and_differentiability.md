@@ -483,11 +483,12 @@ The first fixed-layout residual container is now also in-tree as
 It stores active-domain field blocks and controller scalars as a JAX PyTree and
 provides transformable backward-Euler and BDF2 residual builders. Focused tests
 check active recycling pack/unpack under `jax.jvp`, the fixed-layout residual
-Jacobian action, the host-oracle bridge against the D/T/He deck, and the new
-active-array RHS adapter that lets source/closure/boundary terms enter without
-full guard-cell dictionary reconstruction. This is the state-layout bridge for
-the heavy residual migration; it is not yet a claim that the full
-Hermès-compatible recycling history is end-to-end differentiable.
+Jacobian action, batched linearized tangent pushes against dense and serial JVP
+oracles, the host-oracle bridge against the D/T/He deck, and the new active-array
+RHS adapter that lets source/closure/boundary terms enter without full
+guard-cell dictionary reconstruction. This is the state-layout bridge for the
+heavy residual migration; it is not yet a claim that the full Hermès-compatible
+recycling history is end-to-end differentiable.
 The latest bridge test runs this fixed state on the actual Hermès
 `1D-recycling-dthe` deck: it reconstructs full guard-cell fields, calls the
 current packed RHS oracle through `build_fixed_host_rhs_bridge`, and verifies
