@@ -183,9 +183,15 @@ closed, but `grad_logPnlimh` differs by about `4.48e-5`. A June 8, 2026 guard
 payload rerun shows large pre-boundary guard deltas in `grad_logPnlimh` and the
 intermediate limiter fields, while final boundary-applied `Dnnh` has matching
 target and guard pointwise drift (`4.46e-3`). The next native patch should
-therefore target the near-target `Grad(logPnlim)` stencil or
-pressure-guard/accepted-state sequencing before changing collision rates or the
-raw diffusion formula.
+therefore target accepted-state history feeding the near-target
+`Grad(logPnlim)` stencil before changing collision rates or the raw diffusion
+formula. A direct check at the worst `Dnnh_flux_max` target cell closes the
+flux-cap algebra on both sides: the recorded cap is reproduced by
+`flux_limit sqrt(Tnlim/AA)/(grad_logPnlim + 1/lmax)` when `lmax` is inferred
+from the local raw diffusion. The same point already has native `Ph`, `Nh`,
+and `logPnlimh` above the reference by `6.69e-6`, `6.50e-5`, and `9.36e-5`,
+respectively, so the remaining blocker is accepted-step state-history
+sequencing rather than a missing flux-cap term.
 
 If `--hermes-binary` is not supplied, this command now builds a cached clean
 patched reference worktree automatically before launching the trace run. That

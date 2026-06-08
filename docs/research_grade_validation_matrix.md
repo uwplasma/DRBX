@@ -117,9 +117,11 @@ pointwise target drift of `4.46e-3`, and `eta_h` pointwise target drift of
 about `3.23e-3`; `eta_h` is still about `49` times larger than the largest
 pointwise state-input drift (`99` times by the legacy zone metric). At the
 worst upper-target cell, native `grad_logPnlimh` is
-`0.0130723` while the reference value is `0.0131171`, so the next parity patch
-belongs in the near-target gradient/pressure-guard path before the flux cap is
-formed. The parallel-viscosity source therefore remains an accepted-step
+`0.0130723` while the reference value is `0.0131171`. A direct algebraic check
+at the worst cell closes the flux-cap formula itself, so the next parity patch
+belongs in accepted-step state-history sequencing feeding the near-target
+gradient before the flux cap is formed. The parallel-viscosity source therefore
+remains an accepted-step
 flux-cap or boundary-sequencing offender rather than a formula-level closure
 mismatch.
 

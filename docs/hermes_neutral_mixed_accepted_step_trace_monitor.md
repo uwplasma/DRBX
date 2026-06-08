@@ -185,9 +185,17 @@ closed temperature and raw diffusion, but native `grad_logPnlimh` is
 shows that `grad_logPnlimh` and intermediate limiter fields carry large
 pre-boundary guard deltas, while final boundary-applied `Dnnh` has a guard
 pointwise drift equal to its target pointwise drift (`4.46e-3`). The next
-native parity patch should therefore target the near-target `Grad(logPnlim)`
-stencil or pressure-guard/accepted-state sequencing before changing collision
-rates or raw neutral diffusion formulas.
+native parity patch should therefore target the accepted-state history feeding
+the near-target `Grad(logPnlim)` stencil before changing collision rates or raw
+neutral diffusion formulas. A direct algebraic check at the worst
+`Dnnh_flux_max` point closes the flux-cap formula itself: both native and
+reference records satisfy
+`Dmax = flux_limit sqrt(Tnlim/AA)/(grad_logPnlim + 1/lmax)` when `lmax` is
+inferred from the local raw diffusion. The input drift at that cell is already
+visible in the state: native `Ph` is larger than the reference by
+`6.69e-6`, native `Nh` by `6.50e-5`, and native `logPnlimh` by `9.36e-5`.
+That points to accepted-step state-history sequencing, not a missing term in
+the diffusion cap.
 
 A final-state input-closure cross-check reconstructs `Dnn`, `Vh`, and `eta_h`
 from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares those
