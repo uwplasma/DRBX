@@ -101,9 +101,11 @@ reference-grid comparison of `neutral_mixed_one_step` currently matches
 `eta_h`, and `Dnnh` ladder traces present, the leading target-adjacent offender
 is now the `Dnnh_flux_max` flux-limit cap rather than a missing
 pressure-gradient source formula or raw neutral-diffusion coefficient. The
-accepted-step monitor now also writes flattened target-adjacent values, so this
-claim is based on pointwise target-cell differences rather than only differences
-between zone max/rms summaries.
+accepted-step monitor now also writes flattened target-adjacent and guard-band
+values, so this claim is based on pointwise cell differences rather than only
+differences between zone max/rms summaries. Limiter ladder fields are labeled
+`active_target_preboundary_diagnostic`; their guard values are retained for
+forensics but are not promoted as final boundary-condition evidence.
 The native `grad_logPnlim*` implementation now evaluates the covariant
 `|Grad(logPnlim)|` norm with the carried `g11`, `g22`, `g33`, and supported
 `g23` metric terms, removing metric-norm semantics as a formula-level blocker.

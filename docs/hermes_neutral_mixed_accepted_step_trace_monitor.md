@@ -117,6 +117,8 @@ accepted-step traces:
   },
   "target_adjacent_shape": [1, 4, 1],
   "target_adjacent_values": [0.0, 0.0, 0.0, 0.0],
+  "guard_shape": [1, 4, 1],
+  "guard_values": [0.0, 0.0, 0.0, 0.0],
   "sample_lineout_y_indices": [0, 1],
   "sample_lineout": [0.0, 0.0]
 }
@@ -134,7 +136,12 @@ The flattened target-adjacent payload is intentionally compact but pointwise:
 the comparator reshapes it using `target_adjacent_shape` and reports the worst
 native/reference target-cell delta. This keeps legacy max/rms zone summaries
 available while avoiding false offender ranking when the largest target-band
-value occurs at a different symmetric cell.
+value occurs at a different symmetric cell. The flattened guard payload uses
+the same convention for the guard band. It is primarily forensic: final
+boundary-applied fields should have meaningful guard comparisons, while
+pre-boundary limiter ladder diagnostics should be ranked by active and
+target-adjacent cells because the reference snapshots are taken before the
+final `Dnn.applyBoundary()` call.
 
 ## Current Evidence
 
@@ -169,15 +176,18 @@ followed by the flux-limited, diffusion-limited, and final boundary-applied
 and near-target state/boundary sequencing rather than raw neutral diffusion
 preparation.
 
-The latest pointwise target-cell rerun confirms that this is not only a
-zone-maximum ordering artifact. At the upper target-adjacent cell with local
-target index `[0, 3, 0]`, native `Dnnh_flux_max` is `2.74471293` and the
+The latest pointwise target-cell and guard-cell rerun confirms that this is not
+only a zone-maximum ordering artifact. At the upper target-adjacent cell with
+local target index `[0, 3, 0]`, native `Dnnh_flux_max` is `2.74471293` and the
 reference value is `2.73944`, a `5.27e-3` drift. The same cell has essentially
 closed temperature and raw diffusion, but native `grad_logPnlimh` is
-`0.0130723` versus the reference value `0.0131171`. The next native parity
-patch should therefore target the near-target `Grad(logPnlim)` stencil or
-pressure-guard sequencing before changing collision rates or raw neutral
-diffusion formulas.
+`0.0130723` versus the reference value `0.0131171`. The new guard payload also
+shows that `grad_logPnlimh` and intermediate limiter fields carry large
+pre-boundary guard deltas, while final boundary-applied `Dnnh` has a guard
+pointwise drift equal to its target pointwise drift (`4.46e-3`). The next
+native parity patch should therefore target the near-target `Grad(logPnlim)`
+stencil or pressure-guard/accepted-state sequencing before changing collision
+rates or raw neutral diffusion formulas.
 
 A final-state input-closure cross-check reconstructs `Dnn`, `Vh`, and `eta_h`
 from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares those

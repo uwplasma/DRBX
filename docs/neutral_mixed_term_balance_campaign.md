@@ -144,10 +144,15 @@ preparation ladder: `Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`,
 the existing boundary-applied final `Dnnh`. Those fields are diagnostic-only
 and do not change the production neutral-mixed solve. The reference
 accepted-step monitor patch now emits the same optional ladder. Native and
-reference payloads also include flattened target-adjacent values, so the
-comparison reports both the legacy zone max/rms metric drift and the actual
-pointwise target-cell drift. This separates a real target-cell mismatch from a
-case where the largest value merely occurs at a different symmetric location.
+reference payloads also include flattened target-adjacent and guard-band
+values, so the comparison reports both the legacy zone max/rms metric drift and
+the actual pointwise target-cell or guard-cell drift. This separates a real
+target-cell mismatch from a case where the largest value merely occurs at a
+different symmetric cell. The comparator also labels ladder fields such as
+`Dnnh_flux_max` as `active_target_preboundary_diagnostic`: guard values are
+still reported, but the field is ranked by active and target-adjacent cells
+because the reference snapshots are taken before the final diffusion boundary
+application.
 The native `grad_logPnlim*` implementation now evaluates the covariant
 `|Grad(logPnlim)|` norm with the carried metric terms `g11`, `g22`, `g33`, and
 the supported `g23` cross term, matching the reference vector norm on the
@@ -174,9 +179,13 @@ cell corresponding to local target index `[0, 3, 0]`, native `Dnnh_flux_max` is
 `2.74471293` while the reference value is `2.73944`, a `5.27e-3` difference.
 The final `Dnnh` pointwise target drift is `4.46e-3`, while raw diffusion is
 `6.07e-4`. The same point shows raw diffusion and temperature are essentially
-closed, but `grad_logPnlimh` differs by about `4.48e-5`, so the next native
-patch should target the near-target `Grad(logPnlim)` stencil or pressure-guard
-sequencing before changing collision rates or the raw diffusion formula.
+closed, but `grad_logPnlimh` differs by about `4.48e-5`. A June 8, 2026 guard
+payload rerun shows large pre-boundary guard deltas in `grad_logPnlimh` and the
+intermediate limiter fields, while final boundary-applied `Dnnh` has matching
+target and guard pointwise drift (`4.46e-3`). The next native patch should
+therefore target the near-target `Grad(logPnlim)` stencil or
+pressure-guard/accepted-state sequencing before changing collision rates or the
+raw diffusion formula.
 
 If `--hermes-binary` is not supplied, this command now builds a cached clean
 patched reference worktree automatically before launching the trace run. That

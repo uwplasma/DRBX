@@ -2155,6 +2155,8 @@ def _native_accepted_step_field_payload(
         ),
         "target_adjacent_shape": list(target.shape),
         "target_adjacent_values": target.reshape(-1).tolist(),
+        "guard_shape": list(guard.shape),
+        "guard_values": guard.reshape(-1).tolist(),
         "sample_lineout_y_indices": list(sample_y_indices),
         "sample_lineout": array[line_x, sample_y_indices, line_z].tolist()
         if sample_y_indices
@@ -2533,6 +2535,8 @@ def _normalize_accepted_trace_field_payload(
         "target_adjacent_values": [
             float(value) for value in payload.get("target_adjacent_values", [])
         ],
+        "guard_shape": [int(value) for value in payload.get("guard_shape", [])],
+        "guard_values": [float(value) for value in payload.get("guard_values", [])],
     }
 
 
@@ -2598,7 +2602,8 @@ def _compare_accepted_step_trace_points(
                     "max_guard_delta": 0.0,
                     "max_sample_lineout_delta": 0.0,
                     "max_target_adjacent_pointwise_delta": 0.0,
-                    "worst_ranking_key": [0.0, 0.0, 0.0, 0.0, 0.0],
+                    "max_guard_pointwise_delta": 0.0,
+                    "worst_ranking_key": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                     "worst_time": native_time,
                 },
             )
@@ -2638,6 +2643,7 @@ def _compare_accepted_step_field_payload(
     target_pointwise = _target_adjacent_pointwise_delta(
         native_payload, reference_payload
     )
+    guard_pointwise = _guard_pointwise_delta(native_payload, reference_payload)
     return {
         "active_max_abs_delta": _metric_delta(
             native_payload, reference_payload, "active_metrics", "max_abs"
@@ -2664,6 +2670,8 @@ def _compare_accepted_step_field_payload(
             "max_abs_delta"
         ],
         "target_adjacent_pointwise_worst_index": target_pointwise["worst_index"],
+        "guard_pointwise_max_abs_delta": guard_pointwise["max_abs_delta"],
+        "guard_pointwise_worst_index": guard_pointwise["worst_index"],
         "active_worst_index": _metric_worst_pair(
             native_payload, reference_payload, "active_metrics"
         ),
@@ -2712,17 +2720,41 @@ def _metric_delta(
 def _target_adjacent_pointwise_delta(
     native_payload: dict[str, object], reference_payload: dict[str, object]
 ) -> dict[str, object]:
+    return _pointwise_payload_delta(
+        native_payload,
+        reference_payload,
+        shape_key="target_adjacent_shape",
+        values_key="target_adjacent_values",
+    )
+
+
+def _guard_pointwise_delta(
+    native_payload: dict[str, object], reference_payload: dict[str, object]
+) -> dict[str, object]:
+    return _pointwise_payload_delta(
+        native_payload,
+        reference_payload,
+        shape_key="guard_shape",
+        values_key="guard_values",
+    )
+
+
+def _pointwise_payload_delta(
+    native_payload: dict[str, object],
+    reference_payload: dict[str, object],
+    *,
+    shape_key: str,
+    values_key: str,
+) -> dict[str, object]:
     native_shape = tuple(
-        int(value) for value in native_payload.get("target_adjacent_shape", [])
+        int(value) for value in native_payload.get(shape_key, [])
     )
     reference_shape = tuple(
-        int(value) for value in reference_payload.get("target_adjacent_shape", [])
+        int(value) for value in reference_payload.get(shape_key, [])
     )
-    native_values = np.asarray(
-        native_payload.get("target_adjacent_values", []), dtype=np.float64
-    )
+    native_values = np.asarray(native_payload.get(values_key, []), dtype=np.float64)
     reference_values = np.asarray(
-        reference_payload.get("target_adjacent_values", []), dtype=np.float64
+        reference_payload.get(values_key, []), dtype=np.float64
     )
     if (
         not native_shape
@@ -2772,6 +2804,7 @@ def _update_trace_error_aggregate(
         "max_target_adjacent_pointwise_delta": point_error[
             "target_adjacent_pointwise_max_abs_delta"
         ],
+        "max_guard_pointwise_delta": point_error["guard_pointwise_max_abs_delta"],
     }
     zone_for_key = {
         "max_active_delta": "active_worst_index",
@@ -2779,6 +2812,7 @@ def _update_trace_error_aggregate(
         "max_guard_delta": "guard_worst_index",
         "max_sample_lineout_delta": "",
         "max_target_adjacent_pointwise_delta": "target_adjacent_pointwise_worst_index",
+        "max_guard_pointwise_delta": "guard_pointwise_worst_index",
     }
     for key, value in updates.items():
         if float(value) > float(aggregate[key]):
@@ -2798,21 +2832,36 @@ def _update_trace_error_aggregate(
 def _accepted_trace_field_scope(field_name: str) -> str:
     if field_name.startswith("ddt(") or field_name.startswith("SNV"):
         return "active_target_rhs_source"
+    if (
+        field_name.startswith("Tnlim")
+        or field_name.startswith("logPnlim")
+        or field_name.startswith("grad_logPnlim")
+        or "_raw" in field_name
+        or "_flux_max" in field_name
+        or "_flux_limited" in field_name
+        or "_diffusion_limited" in field_name
+    ):
+        return "active_target_preboundary_diagnostic"
     return "state_with_guard_boundary"
 
 
 def _accepted_trace_field_ranking_key(item: dict[str, object]) -> tuple[float, ...]:
-    if item.get("comparison_scope") == "active_target_rhs_source":
+    if item.get("comparison_scope") in {
+        "active_target_rhs_source",
+        "active_target_preboundary_diagnostic",
+    }:
         return (
             float(item.get("max_target_adjacent_pointwise_delta", 0.0)),
             float(item["max_target_adjacent_delta"]),
             float(item["max_active_delta"]),
             float(item["max_sample_lineout_delta"]),
+            float(item.get("max_guard_pointwise_delta", 0.0)),
             float(item["max_guard_delta"]),
         )
     return (
         float(item.get("max_target_adjacent_pointwise_delta", 0.0)),
         float(item["max_target_adjacent_delta"]),
+        float(item.get("max_guard_pointwise_delta", 0.0)),
         float(item["max_guard_delta"]),
         float(item["max_active_delta"]),
         float(item["max_sample_lineout_delta"]),
@@ -2822,17 +2871,22 @@ def _accepted_trace_field_ranking_key(item: dict[str, object]) -> tuple[float, .
 def _accepted_trace_point_ranking_key(
     comparison_scope: str, point_error: dict[str, object]
 ) -> tuple[float, ...]:
-    if comparison_scope == "active_target_rhs_source":
+    if comparison_scope in {
+        "active_target_rhs_source",
+        "active_target_preboundary_diagnostic",
+    }:
         return (
             float(point_error.get("target_adjacent_pointwise_max_abs_delta", 0.0)),
             float(point_error["target_adjacent_max_abs_delta"]),
             float(point_error["active_max_abs_delta"]),
             float(point_error["sample_lineout_max_abs_delta"]),
+            float(point_error.get("guard_pointwise_max_abs_delta", 0.0)),
             float(point_error["guard_max_abs_delta"]),
         )
     return (
         float(point_error.get("target_adjacent_pointwise_max_abs_delta", 0.0)),
         float(point_error["target_adjacent_max_abs_delta"]),
+        float(point_error.get("guard_pointwise_max_abs_delta", 0.0)),
         float(point_error["guard_max_abs_delta"]),
         float(point_error["active_max_abs_delta"]),
         float(point_error["sample_lineout_max_abs_delta"]),

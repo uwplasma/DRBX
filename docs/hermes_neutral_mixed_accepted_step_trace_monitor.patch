@@ -43,7 +43,7 @@ index 0d07e095..1e5d3b45 100644
 
  #include "include/recalculate_metric.hxx"
 
-@@ -93,6 +103,220 @@
+@@ -93,6 +103,227 @@
  BOUT_OVERRIDE_DEFAULT_OPTION("mesh:calcParallelSlices_on_communicate", false);
  #endif
 
@@ -226,8 +226,13 @@ index 0d07e095..1e5d3b45 100644
 +  std::ostringstream stream;
 +  const std::vector<BoutReal> target_values =
 +      field_values_on_y_indices(field, target);
++  const std::vector<BoutReal> guard_values =
++      field_values_on_y_indices(field, guard);
 +  const std::vector<int> target_shape = {
 +      mesh->xend - mesh->xstart + 1, static_cast<int>(target.size()),
++      mesh->LocalNz};
++  const std::vector<int> guard_shape = {
++      mesh->xend - mesh->xstart + 1, static_cast<int>(guard.size()),
 +      mesh->LocalNz};
 +  stream << "{\"active_metrics\":"
 +         << json_metric_payload(field_metrics_on_y_indices(field, active))
@@ -237,6 +242,8 @@ index 0d07e095..1e5d3b45 100644
 +         << json_metric_payload(field_metrics_on_y_indices(field, guard))
 +         << ",\"target_adjacent_shape\":" << json_int_vector(target_shape)
 +         << ",\"target_adjacent_values\":" << json_real_vector(target_values)
++         << ",\"guard_shape\":" << json_int_vector(guard_shape)
++         << ",\"guard_values\":" << json_real_vector(guard_values)
 +         << ",\"sample_lineout_y_indices\":" << json_int_vector(sample)
 +         << ",\"sample_lineout\":" << json_real_vector(lineout) << "}";
 +  return stream.str();
