@@ -96,7 +96,7 @@ and the committed artifact reaches about `4.79x` steady-state speedup from
 
 The GPU bundle contains three distinct lanes. The fixed-layout JAX-linearized
 gate measures the residual/JVP seam and now includes the non-SciPy
-`fixed_bdf2_jax_linearized` output-window path with fixed-layout RHS,
+`fixed_bdf2_jax_linearized` bounded-step path with fixed-layout RHS,
 JAX-linearized actions, packed feedback-integral evolution, and finite-residual
 diagnostics. The
 `gpu-dthe-full-output-jvp-profile` lane runs `recycling_dthe_one_step` through
@@ -244,11 +244,16 @@ For the remaining recycling solver work, the order is therefore fixed:
   `--reference-root /path/to/reference/root` when a live reference checkout is
   available; use `--output-dir docs/data/runtime_profile_artifacts/<new-run>`
   when the run should leave per-case JSON reports and an aggregate
-  `summary.json` for release review; the gate now also requires fixed-layout
-  BDF2 diagnostics from `fixed_bdf2_jax_linearized` and
-  `fixed_bdf2_active_array_jax_linearized` so neither the fixed-full-field nor
-  active-array non-SciPy output-window route can regress silently to a host-side
-  callback path;
+  `summary.json` for release review; the wrapper now writes separate
+  `bdf_jvp` and `fixed_bdf2` phase reports, so full-output BDF/JVP parity
+  remains distinct from bounded-step fixed-BDF2 residual diagnostics;
+- keep fixed-BDF2 promotion honest: the default bounded fixed-BDF2 phase runs
+  on the hydrogen fixture at `timestep = 10`, where the JAX-linearized and
+  active-array variants pass the residual/status gate. The D/T/He fixed-BDF2
+  route is still excluded from the default gate because a local `timestep = 1`
+  run produced `fixed_bdf2_max_residual_inf_norm = 7.32`; that residual must be
+  reduced with damping, adaptive substepping, or a better nonlinear preconditioner
+  before it can be treated as production evidence;
 - run the adaptive-BDF JAX-linearized promotion gate only as an explicit
   rejection test until it clears without fallback:
   `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case

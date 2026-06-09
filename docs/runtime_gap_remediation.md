@@ -278,10 +278,10 @@ JAX-linearized/matrix-free nonlinear solver after parity is preserved.
 
 The June 2026 self-contained promotion gate confirms the same conclusion on
 both the hydrogen and D/T/He fixture decks. The hydrogen gate matched default
-`bdf` within `7.6e-6` but took about `60.7 s` versus `8.2 s`; the D/T/He gate
-matched within `2.3e-7` but took about `157.0 s` versus `46.5 s`. In the D/T/He
-fixed-JVP run, repeated JAX linearization consumed about `91.0 s` and tangent
-pushes about `51.0 s`, while sparse assembly and host transfer were
+`bdf` within `7.20e-6` but took about `62.7 s` versus `9.07 s`; the D/T/He gate
+matched within `1.02e-6` but took about `195.7 s` versus `62.6 s`. In the
+D/T/He fixed-JVP run, repeated JAX linearization consumed about `113.0 s` and
+tangent pushes about `63.4 s`, while sparse assembly and host transfer were
 negligible. This is strong parity evidence for the fixed-layout callback seam,
 but it is negative performance evidence for making `bdf_fixed_full_field_jvp`
 the default output-window solver.
@@ -307,13 +307,16 @@ The recycling BE/BDF2 wrappers expose the same seam through
 `runtime:recycling_jax_linear_jit_residual=true` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL=1`, so profiling decks can pin the
 pre-JIT behavior without changing the finite-difference BDF default.
-The next opt-in full-output lane is
+The next opt-in non-SciPy lane is
 `runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized` or the
 `fixed_bdf2_jax_linearized_lineax` variant. It bypasses the SciPy `solve_ivp`
 callback by taking a fixed-layout backward-Euler startup step followed by
 fixed-layout BDF2 output steps, with controller integrals evolved inside the
-packed residual state. It is a promotion gate, not a default solver, until
-output-window parity and runtime evidence are refreshed.
+packed residual state. The self-contained wrapper currently treats this as a
+bounded-step diagnostic, not as a full-output production gate: the hydrogen
+fixture passes at `timestep = 10`, while the full `timestep = 5000` output
+window and the D/T/He bounded route still need nonlinear-convergence work before
+default promotion.
 The audit is deliberately small: it proves the solver backend boundary, not the
 full recycling migration. The full migration still depends on moving the
 remaining recycling residual kernels out of dictionary/NumPy assembly.

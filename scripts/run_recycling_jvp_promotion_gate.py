@@ -14,9 +14,11 @@ from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_REFERENCE_ROOT = REPO_ROOT / "tests" / "fixtures" / "reference-root"
-GATE_SOLVER_MODES = (
+BDF_JVP_GATE_SOLVER_MODES = (
     "bdf",
     "bdf_fixed_full_field_jvp",
+)
+FIXED_BDF2_GATE_SOLVER_MODES = (
     "fixed_bdf2_jax_linearized",
     "fixed_bdf2_active_array_jax_linearized",
 )
@@ -30,6 +32,7 @@ class RecyclingJvpGateCase:
     pairwise_threshold: float
     mode_timeout_seconds: float
     steps: int
+    fixed_bdf2_timestep: float | None = None
 
 
 GATE_CASES = {
@@ -39,6 +42,7 @@ GATE_CASES = {
         pairwise_threshold=1.0e-5,
         mode_timeout_seconds=300.0,
         steps=2,
+        fixed_bdf2_timestep=10.0,
     ),
     "recycling_dthe_one_step": RecyclingJvpGateCase(
         case="recycling_dthe_one_step",
@@ -64,6 +68,8 @@ def _build_case_command(
     python_executable: str,
     output_json: Path | None = None,
     include_active_array_jvp: bool = False,
+    gate_phase: str = "bdf_jvp",
+    fixed_bdf2_timestep: float | None = None,
 ) -> list[str]:
     command = [
         python_executable,
@@ -73,18 +79,35 @@ def _build_case_command(
         "--reference-root",
         str(reference_root),
         "--diagnostics-only",
-        "--require-fixed-jvp-diagnostics",
-        "--require-fixed-bdf2-diagnostics",
-        "--require-bdf-pairwise-max",
-        f"{gate_case.pairwise_threshold:.8e}",
         "--mode-timeout-seconds",
         f"{gate_case.mode_timeout_seconds:g}",
         "--steps",
         str(gate_case.steps),
     ]
-    solver_modes = GATE_SOLVER_MODES + (
-        EXPERIMENTAL_GATE_SOLVER_MODES if include_active_array_jvp else ()
-    )
+    if gate_phase == "bdf_jvp":
+        command.extend(
+            (
+                "--require-fixed-jvp-diagnostics",
+                "--require-bdf-pairwise-max",
+                f"{gate_case.pairwise_threshold:.8e}",
+            )
+        )
+        solver_modes = BDF_JVP_GATE_SOLVER_MODES + (
+            EXPERIMENTAL_GATE_SOLVER_MODES if include_active_array_jvp else ()
+        )
+    elif gate_phase == "fixed_bdf2":
+        if fixed_bdf2_timestep is None:
+            raise ValueError("fixed_bdf2_timestep is required for fixed_bdf2 gates.")
+        command.extend(
+            (
+                "--require-fixed-bdf2-diagnostics",
+                "--timestep",
+                f"{float(fixed_bdf2_timestep):g}",
+            )
+        )
+        solver_modes = FIXED_BDF2_GATE_SOLVER_MODES
+    else:
+        raise ValueError(f"Unknown recycling JVP gate phase: {gate_phase}")
     for mode in solver_modes:
         command.extend(("--mode", mode))
     for field in gate_case.fields:
@@ -177,6 +200,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-timestep",
+        type=float,
+        default=None,
+        help=(
+            "Override the bounded fixed-BDF2 diagnostic timestep. By default only "
+            "cases with a validated case-specific bounded timestep run this phase; "
+            "the D/T/He fixture remains a tracked fixed-BDF2 convergence blocker."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
@@ -200,42 +233,63 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     case_reports: list[dict[str, object]] = []
     for gate_case in _selected_cases(args.cases or ()):
-        case_output_json = (
-            output_dir / f"{gate_case.case}.json" if output_dir is not None else None
+        phase_specs: list[tuple[str, float | None]] = [("bdf_jvp", None)]
+        bounded_timestep = (
+            float(args.fixed_bdf2_timestep)
+            if args.fixed_bdf2_timestep is not None
+            else gate_case.fixed_bdf2_timestep
         )
-        command = _build_case_command(
-            gate_case,
-            reference_root=reference_root,
-            python_executable=sys.executable,
-            output_json=case_output_json,
-            include_active_array_jvp=bool(args.include_active_array_jvp),
-        )
-        print(f"gate_case={gate_case.case}")
-        print("command=" + " ".join(command))
-        report: dict[str, object] = {
-            "case": gate_case.case,
-            "fields": list(gate_case.fields),
-            "pairwise_threshold": gate_case.pairwise_threshold,
-            "mode_timeout_seconds": gate_case.mode_timeout_seconds,
-            "steps": gate_case.steps,
-            "include_active_array_jvp": bool(args.include_active_array_jvp),
-            "command": command,
-            "output_json": case_output_json,
-            "returncode": 0,
-        }
-        if args.dry_run:
-            case_reports.append(report)
-            continue
-        completed = subprocess.run(command, cwd=REPO_ROOT, env=env)
-        report["returncode"] = int(completed.returncode)
-        if case_output_json is not None and case_output_json.exists():
-            report["case_report"] = json.loads(
-                case_output_json.read_text(encoding="utf-8")
+        if bounded_timestep is not None:
+            if float(bounded_timestep) <= 0.0:
+                raise ValueError("--fixed-bdf2-timestep must be positive.")
+            phase_specs.append(("fixed_bdf2", float(bounded_timestep)))
+        for gate_phase, fixed_bdf2_timestep in phase_specs:
+            case_output_json = (
+                output_dir / f"{gate_case.case}.{gate_phase}.json"
+                if output_dir is not None
+                else None
             )
-        case_reports.append(report)
-        if completed.returncode != 0:
-            failures += 1
-            print(f"gate_failure={gate_case.case} returncode={completed.returncode}")
+            command = _build_case_command(
+                gate_case,
+                reference_root=reference_root,
+                python_executable=sys.executable,
+                output_json=case_output_json,
+                include_active_array_jvp=bool(args.include_active_array_jvp),
+                gate_phase=gate_phase,
+                fixed_bdf2_timestep=fixed_bdf2_timestep,
+            )
+            print(f"gate_case={gate_case.case}")
+            print(f"gate_phase={gate_phase}")
+            print("command=" + " ".join(command))
+            report: dict[str, object] = {
+                "case": gate_case.case,
+                "phase": gate_phase,
+                "fields": list(gate_case.fields),
+                "pairwise_threshold": gate_case.pairwise_threshold,
+                "mode_timeout_seconds": gate_case.mode_timeout_seconds,
+                "steps": gate_case.steps,
+                "include_active_array_jvp": bool(args.include_active_array_jvp),
+                "fixed_bdf2_timestep": fixed_bdf2_timestep,
+                "command": command,
+                "output_json": case_output_json,
+                "returncode": 0,
+            }
+            if args.dry_run:
+                case_reports.append(report)
+                continue
+            completed = subprocess.run(command, cwd=REPO_ROOT, env=env)
+            report["returncode"] = int(completed.returncode)
+            if case_output_json is not None and case_output_json.exists():
+                report["case_report"] = json.loads(
+                    case_output_json.read_text(encoding="utf-8")
+                )
+            case_reports.append(report)
+            if completed.returncode != 0:
+                failures += 1
+                print(
+                    f"gate_failure={gate_case.case} phase={gate_phase} "
+                    f"returncode={completed.returncode}"
+                )
     if output_dir is not None:
         summary_path = _write_summary(
             output_dir,

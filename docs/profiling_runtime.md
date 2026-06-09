@@ -129,7 +129,7 @@ this MacBook. The env-enabled promoted parity gate completed in `44.66 s`.
 The refreshed full cProfile/RSS bundle after the active-array startup-step and
 neutral ladder-diagnostic pass was:
 
-- command: `run_research_campaign_bundle.py --campaign heavy-recycling-profile --reference-root /Users/rogerio/local/hermes-3 --output-root /tmp/jax_drb_research_campaigns --timeout-seconds 420`
+- command: `run_research_campaign_bundle.py --campaign heavy-recycling-profile --reference-root /path/to/reference/root --output-root /tmp/jax_drb_research_campaigns --timeout-seconds 420`
 - wrapped profiler command: `profile_curated_case.py recycling_dthe_one_step --warm-runs 0 --timed-runs 1 --cprofile-top 35 --rss-profile`
 - cProfile run: `68.20 s` wall, `1.67e8` Python function calls
 - separate unprofiled RSS run: `49.65 s`

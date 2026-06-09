@@ -23,7 +23,7 @@ def _load_module():
     return module
 
 
-def test_recycling_jvp_promotion_gate_builds_single_ion_command() -> None:
+def test_recycling_jvp_promotion_gate_builds_single_ion_bdf_jvp_command() -> None:
     module = _load_module()
     gate_case = module.GATE_CASES["recycling_1d_one_step"]
     command = module._build_case_command(
@@ -38,15 +38,13 @@ def test_recycling_jvp_promotion_gate_builds_single_ion_command() -> None:
     ]
     assert command[command.index("--case") + 1] == "recycling_1d_one_step"
     assert command[command.index("--reference-root") + 1] == "/tmp/reference-root"
-    assert command.count("--mode") == 4
+    assert command.count("--mode") == 2
     assert "bdf" in command
     assert "bdf_fixed_full_field_jvp" in command
     assert "bdf_active_array_jvp" not in command
-    assert "fixed_bdf2_jax_linearized" in command
-    assert "fixed_bdf2_active_array_jax_linearized" in command
     assert "--diagnostics-only" in command
     assert "--require-fixed-jvp-diagnostics" in command
-    assert "--require-fixed-bdf2-diagnostics" in command
+    assert "--require-fixed-bdf2-diagnostics" not in command
     assert command[command.index("--require-bdf-pairwise-max") + 1] == "1.00000000e-05"
     assert command[command.index("--mode-timeout-seconds") + 1] == "300"
     assert command[command.index("--steps") + 1] == "2"
@@ -54,6 +52,33 @@ def test_recycling_jvp_promotion_gate_builds_single_ion_command() -> None:
     assert "Pe" in command
     assert "Nd+" in command
     assert "Pd+" in command
+
+
+def test_recycling_jvp_promotion_gate_builds_bounded_fixed_bdf2_command() -> None:
+    module = _load_module()
+    gate_case = module.GATE_CASES["recycling_1d_one_step"]
+    command = module._build_case_command(
+        gate_case,
+        reference_root=Path("/tmp/reference-root"),
+        python_executable="python",
+        gate_phase="fixed_bdf2",
+        fixed_bdf2_timestep=10.0,
+    )
+
+    modes = [
+        command[index + 1]
+        for index, item in enumerate(command)
+        if item == "--mode"
+    ]
+    assert modes == [
+        "fixed_bdf2_jax_linearized",
+        "fixed_bdf2_active_array_jax_linearized",
+    ]
+    assert "--require-fixed-jvp-diagnostics" not in command
+    assert "--require-fixed-bdf2-diagnostics" in command
+    assert "--require-bdf-pairwise-max" not in command
+    assert command[command.index("--timestep") + 1] == "10"
+    assert command.count("--field") == 3
 
 
 def test_recycling_jvp_promotion_gate_can_opt_into_active_array_jvp() -> None:
@@ -66,7 +91,7 @@ def test_recycling_jvp_promotion_gate_can_opt_into_active_array_jvp() -> None:
         include_active_array_jvp=True,
     )
 
-    assert command.count("--mode") == 5
+    assert command.count("--mode") == 3
     assert "bdf_active_array_jvp" in command
 
 
@@ -124,9 +149,16 @@ def test_recycling_jvp_promotion_gate_writes_dry_run_summary(tmp_path: Path) -> 
     assert summary["dry_run"] is True
     assert summary["all_cases_passed"] is True
     assert summary["reference_root"] == str(reference_root.resolve())
-    assert len(summary["case_reports"]) == 1
-    case_report = summary["case_reports"][0]
-    assert case_report["case"] == "recycling_1d_one_step"
-    assert case_report["returncode"] == 0
-    assert case_report["output_json"].endswith("recycling_1d_one_step.json")
-    assert "--output-json" in case_report["command"]
+    case_reports = summary["case_reports"]
+    assert len(case_reports) == 2
+    assert [report["phase"] for report in case_reports] == ["bdf_jvp", "fixed_bdf2"]
+    assert all(report["case"] == "recycling_1d_one_step" for report in case_reports)
+    assert all(report["returncode"] == 0 for report in case_reports)
+    assert case_reports[0]["output_json"].endswith(
+        "recycling_1d_one_step.bdf_jvp.json"
+    )
+    assert case_reports[1]["output_json"].endswith(
+        "recycling_1d_one_step.fixed_bdf2.json"
+    )
+    assert case_reports[1]["fixed_bdf2_timestep"] == 10.0
+    assert all("--output-json" in report["command"] for report in case_reports)

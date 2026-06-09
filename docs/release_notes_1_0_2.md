@@ -34,26 +34,28 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
 - A new self-contained wrapper,
   `scripts/run_recycling_jvp_promotion_gate.py`, runs that gate on the
   committed hydrogen and D/T/He lightweight fixture decks. The current local
-  results pass with worst BDF-vs-fixed-JVP active-mesh deltas of `7.59e-6`
-  and `2.20e-7`, respectively. The BDF bridge now prebuilds sparse-JVP
+  results pass with worst BDF-vs-fixed-JVP active-mesh deltas of `7.20e-6`
+  and `1.02e-6`, respectively. The BDF bridge now prebuilds sparse-JVP
   tangent batches once per solve, and the refreshed gate reports
   `bdf_jvp_jacobian_tangent_build_seconds=0` with
   `bdf_jvp_direction_batch_count=1` for both fixture decks. The fixed-JVP
   route is still opt-in because the same runs are slower than default BDF
-  (`72.9 s` versus `10.1 s` for hydrogen, `189.3 s` versus `54.2 s` for
+  (`62.7 s` versus `9.07 s` for hydrogen, `195.7 s` versus `62.6 s` for
   D/T/He) while repeated `jax.linearize` and tangent pushes remain inside the
   SciPy BDF callback.
-- The same promotion wrapper now also runs `fixed_bdf2_jax_linearized` and
-  requires fixed-layout RHS steps, JAX-linearized action steps, packed
-  feedback-integral evolution, and a finite residual norm. That makes the
-  non-SciPy full-output BDF2 lane a real gated promotion candidate instead of
-  an ad-hoc profiler option.
+- The same promotion wrapper now separates the full-output BDF/JVP parity phase
+  from the bounded-step `fixed_bdf2_jax_linearized` diagnostic phase. The
+  bounded phase requires fixed-layout RHS steps, JAX-linearized action steps,
+  packed feedback-integral evolution, healthy solver-status counters, and a
+  finite residual norm below the configured threshold. This keeps the non-SciPy
+  BDF2 lane gated without implying it is validated at the production output
+  cadence.
 - A second opt-in output-window lane,
   `fixed_bdf2_jax_linearized` / `fixed_bdf2_jax_linearized_lineax`, now avoids
   the SciPy BDF callback entirely by taking a fixed-layout backward-Euler
   startup step and fixed-layout BDF2 steps with controller integrals packed
-  into the residual state. It is exposed for promotion and profiling gates,
-  not as the production default.
+  into the residual state. It is exposed for bounded-step promotion and
+  profiling gates, not as the production default.
 - The D/T/He JAX-linearized GMRES profiling script now supports repeated
   BOUT.inp overrides and warmup runs, so heavier real-kernel CPU/GPU gates can
   be reproduced without committing large input decks.
