@@ -27,6 +27,21 @@ By default the script performs a safe dry run for `coil`. Set
 `MAP_SOURCES_TO_RUN = ("hybrid",)`, `OUTPUT_ROOT = Path("tmp/hybrid")`, and
 `CASE_LABEL = "custom"` for a custom single-map artifact root.
 
+The multi-grid connection-length refinement machinery also has a clean-clone
+example that does not require the external geometry checkout:
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py
+```
+
+That script runs a manufactured non-axisymmetric nested-grid gate and writes a
+JSON/NPZ/PNG package under
+`docs/data/essos_imported_connection_length_refinement_artifacts/`. Live
+`coil`, `vmec`, or `hybrid` connection-length arrays can be passed to the same
+`create_essos_imported_connection_length_refinement_package` API once repeated
+imported traces are available.
+
 Set `WRITE_DRY_RUN_ARTIFACTS = True` to write a self-contained JSON contract
 under the resolved artifact root; that contract records the live artifact
 paths, grid/refinement settings, required report fields, required NPZ array
@@ -121,9 +136,12 @@ For that promotion step, `build_essos_imported_connection_length_refinement_diag
 compares nested connection-length grids after conservative block restriction of
 each fine grid to the adjacent coarse grid. The report records normalized RMS,
 95th-percentile, and \(L_\infty\) errors for every coarse/fine pair plus the
-observed order when three or more levels are supplied. Imported-field
-turbulence movies should not be used as publication evidence until this
-multi-grid connection-length gate passes on the same `coil`, `vmec`, or
+observed order when three or more levels are supplied. The self-contained
+`imported_connection_length_refinement_demo.py` campaign exercises that exact
+report and plotting path with manufactured nested grids, so CI can protect the
+refinement logic even without the external field-line runtime. Imported-field
+turbulence movies should not be used as publication evidence until the same
+multi-grid connection-length gate passes on the live `coil`, `vmec`, or
 `hybrid` map source used by the movie.
 For `vmec` maps the consumed-map count must be zero; for `coil` and `hybrid`
 maps it must be nonzero and exactly consumed by the sheath/recycling masks.
@@ -164,3 +182,6 @@ It drives the fixed-layout drift-reduced Braginskii PyTree RHS, `jax.jvp`, and
 - `docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.json`
 - `docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.npz`
 - `docs/data/essos_imported_fci_hybrid_artifacts/images/essos_imported_fci_hybrid_campaign.png`
+- `docs/data/essos_imported_connection_length_refinement_artifacts/data/essos_imported_connection_length_refinement.json`
+- `docs/data/essos_imported_connection_length_refinement_artifacts/data/essos_imported_connection_length_refinement.npz`
+- `docs/data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png`

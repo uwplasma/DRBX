@@ -164,9 +164,13 @@ from .vmec_extender_sol_smoke_campaign import (
 )
 from .essos_imported_fci_campaign import (
     EssosImportedFciCampaignArtifacts,
+    EssosImportedConnectionLengthRefinementArtifacts,
     build_essos_imported_connection_length_refinement_diagnostics,
+    build_essos_imported_connection_length_refinement_campaign,
     build_essos_imported_fci_campaign,
+    create_essos_imported_connection_length_refinement_package,
     create_essos_imported_fci_campaign_package,
+    save_essos_imported_connection_length_refinement_plot,
     save_essos_imported_fci_campaign_plot,
 )
 from .essos_imported_pytree_campaign import (
