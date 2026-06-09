@@ -233,6 +233,21 @@ Omega = - div_perp((n / B^2) grad_perp phi)
 with a mean-free conjugate-gradient inversion on the metric-weighted
 perpendicular operator. This is the numerical seam needed before replacing
 the reduced radial-flux proxy with a true \(E\times B\) transport diagnostic.
+The native nonlinear advection seam now exposes the logical perpendicular
+bracket used by the pedagogical vorticity example:
+
+```text
+{phi, f}_{s,theta}
+  = (partial_theta phi partial_s f - partial_s phi partial_theta f) / B.
+```
+
+The corresponding manufactured-solution test verifies convergence on a
+periodic identity metric, zero bracket for a constant advected field, and
+vanishing domain-mean bracket to roundoff. This is the physics-backed path for
+nonlinear density, pressure, and vorticity advection in the example suite.
+The older scalar `nonlinear_transfer` used in the showcase movie remains a
+reduced visualization gate; it should not be cited as a Braginskii
+vorticity/Poisson-bracket derivation.
 
 ## Validation Metrics
 
