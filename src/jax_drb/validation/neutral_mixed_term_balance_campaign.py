@@ -967,8 +967,30 @@ def _build_neutral_diffusion_ladder_register(
             for name in ladder_fields.values()
             if isinstance((error := field_errors.get(name)), dict)
         }
+        state_fields = (f"N{section}", f"P{section}", f"NV{section}")
+        state_errors = {
+            name: error
+            for name in state_fields
+            if isinstance((error := field_errors.get(name)), dict)
+        }
+        limiter_input_fields = (
+            ladder_fields["temperature_limited"],
+            ladder_fields["log_pressure_limited"],
+            ladder_fields["grad_log_pressure_limited"],
+        )
+        limiter_input_errors = {
+            name: error
+            for name in limiter_input_fields
+            if isinstance((error := field_errors.get(name)), dict)
+        }
         missing_ladder_fields = [
             name for name in ladder_fields.values() if name not in ladder_errors
+        ]
+        missing_state_fields = [
+            name for name in state_fields if name not in state_errors
+        ]
+        missing_limiter_input_fields = [
+            name for name in limiter_input_fields if name not in limiter_input_errors
         ]
         ranked_ladder_errors = sorted(
             ladder_errors.values(),
@@ -985,6 +1007,20 @@ def _build_neutral_diffusion_ladder_register(
                 "diffusion_field": diffusion_field,
                 "ladder_fields": ladder_fields,
                 "ladder_errors": ladder_errors,
+                "state_input_fields": list(state_fields),
+                "state_input_errors": state_errors,
+                "missing_state_input_fields": missing_state_fields,
+                "state_input_fields_present": not missing_state_fields,
+                "dominant_state_input_field": _dominant_trace_error_field(
+                    state_errors
+                ),
+                "limiter_input_fields": list(limiter_input_fields),
+                "limiter_input_errors": limiter_input_errors,
+                "missing_limiter_input_fields": missing_limiter_input_fields,
+                "limiter_input_fields_present": not missing_limiter_input_fields,
+                "dominant_limiter_input_field": _dominant_trace_error_field(
+                    limiter_input_errors
+                ),
                 "ranked_ladder_errors": ranked_ladder_errors,
                 "ladder_transitions": ladder_transitions,
                 "missing_ladder_fields": missing_ladder_fields,
@@ -1009,6 +1045,92 @@ def _build_neutral_diffusion_ladder_register(
                     ),
                     default=0.0,
                 ),
+                "max_state_input_active_delta": max(
+                    (
+                        float(error.get("max_active_delta", 0.0))
+                        for error in state_errors.values()
+                    ),
+                    default=0.0,
+                ),
+                "max_state_input_target_adjacent_delta": max(
+                    (
+                        float(error.get("max_target_adjacent_delta", 0.0))
+                        for error in state_errors.values()
+                    ),
+                    default=0.0,
+                ),
+                "max_state_input_target_adjacent_pointwise_delta": max(
+                    (
+                        _trace_target_pointwise_delta(error)
+                        for error in state_errors.values()
+                    ),
+                    default=0.0,
+                ),
+                "max_limiter_input_active_delta": max(
+                    (
+                        float(error.get("max_active_delta", 0.0))
+                        for error in limiter_input_errors.values()
+                    ),
+                    default=0.0,
+                ),
+                "max_limiter_input_target_adjacent_delta": max(
+                    (
+                        float(error.get("max_target_adjacent_delta", 0.0))
+                        for error in limiter_input_errors.values()
+                    ),
+                    default=0.0,
+                ),
+                "max_limiter_input_target_adjacent_pointwise_delta": max(
+                    (
+                        _trace_target_pointwise_delta(error)
+                        for error in limiter_input_errors.values()
+                    ),
+                    default=0.0,
+                ),
+                "limiter_to_state_target_pointwise_ratio": _safe_ratio(
+                    max(
+                        (
+                            _trace_target_pointwise_delta(error)
+                            for error in limiter_input_errors.values()
+                        ),
+                        default=0.0,
+                    ),
+                    max(
+                        (
+                            _trace_target_pointwise_delta(error)
+                            for error in state_errors.values()
+                        ),
+                        default=0.0,
+                    ),
+                ),
+                "flux_cap_to_limiter_target_pointwise_ratio": _safe_ratio(
+                    _trace_target_pointwise_delta(
+                        ladder_errors.get(
+                            ladder_fields["flux_limit_diffusion_max"], {}
+                        )
+                    ),
+                    max(
+                        (
+                            _trace_target_pointwise_delta(error)
+                            for error in limiter_input_errors.values()
+                        ),
+                        default=0.0,
+                    ),
+                ),
+                "flux_cap_to_state_target_pointwise_ratio": _safe_ratio(
+                    _trace_target_pointwise_delta(
+                        ladder_errors.get(
+                            ladder_fields["flux_limit_diffusion_max"], {}
+                        )
+                    ),
+                    max(
+                        (
+                            _trace_target_pointwise_delta(error)
+                            for error in state_errors.values()
+                        ),
+                        default=0.0,
+                    ),
+                ),
                 "diagnosis": (
                     "diffusion_ladder_check_available"
                     if not missing_ladder_fields
@@ -1031,6 +1153,20 @@ def _build_neutral_diffusion_ladder_register(
                 missing
                 for entry in entries
                 for missing in entry["missing_ladder_fields"]
+            }
+        ),
+        "missing_reference_state_input_fields": sorted(
+            {
+                missing
+                for entry in entries
+                for missing in entry["missing_state_input_fields"]
+            }
+        ),
+        "missing_reference_limiter_input_fields": sorted(
+            {
+                missing
+                for entry in entries
+                for missing in entry["missing_limiter_input_fields"]
             }
         ),
     }

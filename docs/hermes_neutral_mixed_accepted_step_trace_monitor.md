@@ -205,6 +205,17 @@ visible in the state: native `Ph` is larger than the reference by
 That points to accepted-step state-history sequencing, not a missing term in
 the diffusion cap.
 
+The parity report now records the same conclusion as structured data. Each
+`neutral_diffusion_ladder_register` entry includes the state-input fields
+(`N*`, `P*`, `NV*`), limiter-input fields (`Tnlim*`, `logPnlim*`,
+`grad_logPnlim*`), the dominant state and limiter input offenders, and the
+target-pointwise amplification ratios from state inputs to limiter inputs and
+from limiter inputs to `Dnn*_flux_max`. This is the next hard gate before a
+model patch: if a rerun shows the limiter-input drift is already present in the
+accepted state, patch accepted-state/history sequencing; if the state fields
+close but `grad_logPnlim*` remains open, patch the near-target gradient stencil
+or boundary preparation.
+
 A final-state input-closure cross-check reconstructs `Dnn`, `Vh`, and `eta_h`
 from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares those
 arrays with the reference `BOUT.dmp.0.nc` diagnostics. This closes the neutral

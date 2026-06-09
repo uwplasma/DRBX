@@ -1634,6 +1634,35 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
         "target_pointwise_delta_increase"
     ] == pytest.approx(3.97)
     assert ladder_entry["max_ladder_target_adjacent_delta"] == pytest.approx(4.0)
+    assert ladder_entry["state_input_fields"] == ["Nh", "Ph", "NVh"]
+    assert ladder_entry["missing_state_input_fields"] == []
+    assert ladder_entry["state_input_fields_present"] is True
+    assert ladder_entry["dominant_state_input_field"] == "Nh"
+    assert ladder_entry[
+        "max_state_input_target_adjacent_pointwise_delta"
+    ] == pytest.approx(0.4)
+    assert ladder_entry["limiter_input_fields"] == [
+        "Tnlimh",
+        "logPnlimh",
+        "grad_logPnlimh",
+    ]
+    assert ladder_entry["missing_limiter_input_fields"] == []
+    assert ladder_entry["limiter_input_fields_present"] is True
+    assert ladder_entry["dominant_limiter_input_field"] == "grad_logPnlimh"
+    assert ladder_entry[
+        "max_limiter_input_target_adjacent_pointwise_delta"
+    ] == pytest.approx(0.03)
+    assert ladder_entry["limiter_to_state_target_pointwise_ratio"] == pytest.approx(
+        0.075
+    )
+    assert ladder_entry[
+        "flux_cap_to_limiter_target_pointwise_ratio"
+    ] == pytest.approx(0.7 / 0.03)
+    assert ladder_entry["flux_cap_to_state_target_pointwise_ratio"] == pytest.approx(
+        0.7 / 0.4
+    )
+    assert ladder_register["missing_reference_state_input_fields"] == []
+    assert ladder_register["missing_reference_limiter_input_fields"] == []
     assert ladder_entry["ranked_ladder_errors"][0]["field"] == "Dnnh_raw"
     assert report["fields"]["Dnnh_raw"][
         "max_target_adjacent_pointwise_delta"

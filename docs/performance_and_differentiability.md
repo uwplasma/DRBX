@@ -787,7 +787,15 @@ BDF2 corrector steps, zero unconverged steps, zero unknown-convergence steps,
 and zero failed linear solves. The same diagnostic is intentionally not a
 runtime win yet: the local fixed-full-field run took `98.9 s` and the
 active-array run took `117.6 s`, both dominated by `5200` inner linear
-iterations. On the hydrogen fixture at the full `timestep = 5000`, both
+iterations. A follow-up active-array GMRES-control probe with
+`runtime:recycling_jax_linear_restart=10`,
+`runtime:recycling_jax_linear_maxiter=20`, and the same internal substep
+policy converged cleanly but slowed to `136.8 s`, with `100.1 s` in linear
+solves and `36.5 s` in residual evaluations. This negative result rules out
+simple restart reduction as the next promotion path; the next runtime work
+needs a real preconditioner, a cheaper residual/JVP kernel, or a better
+startup/nonlinear damping policy. On the hydrogen fixture at the full
+`timestep = 5000`, both
 fixed-full-field and active-array fixed-BDF2 routes currently expose the same
 large nonlinear residual (`fixed_bdf2_max_residual_inf_norm` about `1.93e29`),
 so the next promotion blocker is fixed-BDF2 nonlinear/linear solver efficiency

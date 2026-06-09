@@ -255,7 +255,12 @@ For the remaining recycling solver work, the order is therefore fixed:
   with `fixed_bdf2_max_residual_inf_norm = 3.77e-9`, four internal substeps,
   zero unconverged steps, and zero failed inner linear solves. The full-output
   lane still needs a production substep policy and a lower-cost Krylov or
-  preconditioned solve before it can be treated as speedup evidence;
+  preconditioned solve before it can be treated as speedup evidence. A local
+  active-array control run with `runtime:recycling_jax_linear_restart=10` and
+  `runtime:recycling_jax_linear_maxiter=20` remained correct but slowed to
+  about `136.8 s`, so future sweeps should prioritize preconditioning,
+  nonlinear damping/startup policy, or residual/JVP kernel cost rather than
+  simple GMRES restart reduction;
 - run the adaptive-BDF JAX-linearized promotion gate only as an explicit
   rejection test until it clears without fallback:
   `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case
