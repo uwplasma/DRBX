@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import asdict, dataclass
@@ -433,8 +434,71 @@ def _read_artifact_bundle(bundle_url: str) -> bytes:
     if "://" not in bundle_url and candidate.exists():
         return candidate.read_bytes()
 
-    with urllib.request.urlopen(bundle_url, timeout=60) as response:
-        return response.read()
+    cache_path = _artifact_bundle_cache_path(bundle_url)
+    if cache_path is not None and cache_path.exists():
+        cached = cache_path.read_bytes()
+        if cached:
+            return cached
+
+    timeout = _artifact_bundle_download_timeout()
+    attempts = _artifact_bundle_download_attempts()
+    last_error: BaseException | None = None
+    for _ in range(attempts):
+        try:
+            with urllib.request.urlopen(bundle_url, timeout=timeout) as response:
+                bundle_bytes = response.read()
+            if cache_path is not None and bundle_bytes:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    "wb",
+                    delete=False,
+                    dir=cache_path.parent,
+                    prefix=f"{cache_path.name}.",
+                    suffix=".tmp",
+                ) as handle:
+                    handle.write(bundle_bytes)
+                    temporary_path = Path(handle.name)
+                temporary_path.replace(cache_path)
+            return bundle_bytes
+        except (TimeoutError, OSError, urllib.error.URLError) as exc:
+            last_error = exc
+    raise RuntimeError(
+        f"Failed to download artifact bundle after {attempts} attempts: {bundle_url}"
+    ) from last_error
+
+
+def _artifact_bundle_cache_path(bundle_url: str) -> Path | None:
+    if bundle_url.startswith("file://"):
+        return None
+    cache_root = os.environ.get("JAX_DRB_ARTIFACT_CACHE_DIR")
+    if cache_root is None or not cache_root.strip():
+        cache_dir = Path.home() / ".cache" / "jax_drb" / "artifact_bundles"
+    else:
+        cache_dir = Path(cache_root).expanduser()
+    digest = hashlib.sha256(bundle_url.encode("utf-8")).hexdigest()
+    return cache_dir / f"{digest}.zip"
+
+
+def _artifact_bundle_download_timeout() -> float:
+    env_value = os.environ.get("JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT")
+    if env_value is None or not env_value.strip():
+        return 120.0
+    try:
+        value = float(env_value)
+    except ValueError:
+        return 120.0
+    return value if np.isfinite(value) and value > 0.0 else 120.0
+
+
+def _artifact_bundle_download_attempts() -> int:
+    env_value = os.environ.get("JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS")
+    if env_value is None or not env_value.strip():
+        return 3
+    try:
+        value = int(env_value)
+    except ValueError:
+        return 3
+    return max(1, value)
 
 
 def _reference_command(

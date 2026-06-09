@@ -445,6 +445,122 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
     np.testing.assert_allclose(result.variable_history["N"][:, 0], [1.0, 2.0, 3.0])
 
 
+def test_fixed_bdf2_history_uses_internal_substeps_without_extra_output_states(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, float, float | None]] = []
+    events: list[dict[str, object]] = []
+
+    def make_info() -> recycling.Recycling1DImplicitStepInfo:
+        return recycling.Recycling1DImplicitStepInfo(
+            residual_inf_norm=1.0e-12,
+            active_size=1,
+            nonlinear_iterations=1,
+            linear_iterations=1,
+            diagnostics={
+                "rhs_backend": "active_array",
+                "solver_mode": "active_array_jax_linearized",
+                "residual_jitted": True,
+                "converged": True,
+                "linear_solver_success": True,
+            },
+        )
+
+    def fake_backward_euler_step(
+        config,
+        fields,
+        *,
+        feedback_integrals,
+        timestep,
+        **kwargs,
+    ):
+        calls.append(("be", float(timestep), None))
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info(),
+        )
+
+    def fake_bdf2_step(
+        config,
+        fields,
+        previous_fields,
+        *,
+        feedback_integrals,
+        previous_feedback_integrals,
+        timestep,
+        previous_timestep,
+        **kwargs,
+    ):
+        calls.append(("bdf2", float(timestep), float(previous_timestep)))
+        assert previous_feedback_integrals["ctrl"] < feedback_integrals["ctrl"]
+        assert np.asarray(previous_fields["N"]).shape == np.asarray(fields["N"]).shape
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info(),
+        )
+
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_backward_euler_step
+    )
+    monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf2_step)
+    monkeypatch.setattr(
+        recycling,
+        "_build_recycling_progress_details",
+        lambda **kwargs: (
+            {
+                "interval_index": kwargs["interval_index"],
+                "accepted_dt": kwargs["accepted_dt"],
+                "stored_states": kwargs["stored_states"],
+            },
+            kwargs["interval_started_at"],
+        ),
+    )
+
+    result = recycling._advance_recycling_1d_fixed_bdf2_history(
+        _FakeRuntimeConfig(recycling_fixed_bdf2_max_internal_timestep=0.5),
+        _fields(),
+        runtime_model=_runtime_model(),
+        feedback_integrals={"ctrl": 0.0},
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        metrics=object(),
+        dataset_scalars={},
+        timestep=1.0,
+        steps=2,
+        residual_tolerance=1.0e-7,
+        max_nonlinear_iterations=3,
+        progress_callback=events.append,
+        step_solver_mode="active_array_jax_linearized",
+        solver_mode_label="fixed_bdf2_active_array_jax_linearized",
+    )
+
+    assert calls == [
+        ("be", 0.5, None),
+        ("bdf2", 0.5, 0.5),
+        ("bdf2", 0.5, 0.5),
+        ("bdf2", 0.5, 0.5),
+    ]
+    np.testing.assert_allclose(result.variable_history["N"][:, 0], [1.0, 3.0, 5.0])
+    np.testing.assert_allclose(
+        result.feedback_integral_history["ctrl"], [0.0, 2.0, 4.0]
+    )
+    assert events == [
+        {"interval_index": 1, "accepted_dt": 0.5, "stored_states": 2},
+        {"interval_index": 2, "accepted_dt": 0.5, "stored_states": 3},
+    ]
+    diagnostics = result.diagnostics
+    assert diagnostics["fixed_bdf2_startup_steps"] == 1
+    assert diagnostics["fixed_bdf2_bdf2_steps"] == 3
+    assert diagnostics["fixed_bdf2_internal_substeps"] == 4
+    assert diagnostics["fixed_bdf2_max_output_substeps"] == 2
+    assert diagnostics["fixed_bdf2_max_internal_timestep"] == 0.5
+    assert diagnostics["fixed_bdf2_active_array_rhs_steps"] == 4
+    assert diagnostics["fixed_bdf2_jax_linearized_action_steps"] == 4
+
+
 def test_adaptive_be_history_accumulates_interval_results_and_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2043,6 +2159,34 @@ def test_resolve_recycling_adaptive_bdf_component_atol_floor_rejects_blank_or_no
 ) -> None:
     monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_PRESSURE_ATOL_FLOOR", env_value)
     assert recycling._resolve_recycling_adaptive_bdf_pressure_atol_floor(None) is None
+
+
+def test_resolve_recycling_fixed_bdf2_max_internal_timestep_prefers_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_FIXED_BDF2_MAX_INTERNAL_TIMESTEP", "0.25")
+    config = _FakeRuntimeConfig(recycling_fixed_bdf2_max_internal_timestep=0.5)
+
+    assert recycling._resolve_recycling_fixed_bdf2_max_internal_timestep(config) == 0.5
+
+
+def test_resolve_recycling_fixed_bdf2_max_internal_timestep_env_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_FIXED_BDF2_MAX_INTERNAL_TIMESTEP", "0.125")
+    assert recycling._resolve_recycling_fixed_bdf2_max_internal_timestep(None) == 0.125
+
+    monkeypatch.setenv("JAX_DRB_RECYCLING_FIXED_BDF2_MAX_INTERNAL_TIMESTEP", "bad")
+    assert recycling._resolve_recycling_fixed_bdf2_max_internal_timestep(None) is None
+
+
+@pytest.mark.parametrize("value", ["", "   ", "0.0", "-1.0", "nan"])
+def test_resolve_recycling_fixed_bdf2_max_internal_timestep_rejects_invalid_env(
+    value: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_FIXED_BDF2_MAX_INTERNAL_TIMESTEP", value)
+    assert recycling._resolve_recycling_fixed_bdf2_max_internal_timestep(None) is None
 
 
 def test_initial_recycling_continuation_dt_uses_field_count_cutover() -> None:

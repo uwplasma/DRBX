@@ -92,8 +92,12 @@ def test_recycling_jvp_promotion_gate_has_bounded_dthe_fixed_bdf2_phase() -> Non
         fixed_bdf2_timestep=gate_case.fixed_bdf2_timestep,
     )
 
-    assert gate_case.fixed_bdf2_timestep == 0.5
-    assert command[command.index("--timestep") + 1] == "0.5"
+    assert gate_case.fixed_bdf2_timestep == 1.0
+    assert gate_case.fixed_bdf2_max_internal_timestep == 0.5
+    assert command[command.index("--timestep") + 1] == "1"
+    assert command[command.index("--override") + 1] == (
+        "runtime:recycling_fixed_bdf2_max_internal_timestep=0.5"
+    )
     assert "fixed_bdf2_jax_linearized" in command
     assert "fixed_bdf2_active_array_jax_linearized" in command
     assert command.count("--field") == 4

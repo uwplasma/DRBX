@@ -58,15 +58,25 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
   profiling gates, not as the production default.
 - JAX-linearized and sparse Newton health reporting no longer treats a tiny
   Newton update as convergence unless the nonlinear residual is also below
-  tolerance. The D/T/He fixed-BDF2 diagnostic therefore reports the current
-  blocker as an unconverged implicit step instead of a false healthy solve.
-- The self-contained promotion wrapper now includes a bounded D/T/He fixed-BDF2
-  phase at `timestep = 0.5`; both fixed-full-field and active-array
-  JAX-linearized routes pass that residual/status gate, while the larger
-  `timestep = 1` and full-output lanes remain explicit convergence blockers.
+  tolerance. This prevents large-residual fixed-BDF2 steps from passing as
+  healthy solves.
+- The self-contained promotion wrapper now includes a D/T/He fixed-BDF2 phase
+  at `timestep = 1` with
+  `runtime:recycling_fixed_bdf2_max_internal_timestep=0.5`; both
+  fixed-full-field and active-array JAX-linearized routes pass that
+  residual/status gate with `fixed_bdf2_max_residual_inf_norm = 3.77e-9`, zero
+  unconverged steps, and zero failed inner linear solves. The gate is still
+  treated as opt-in research evidence because the local run is dominated by
+  inner GMRES work rather than delivering a speedup.
 - The D/T/He JAX-linearized GMRES profiling script now supports repeated
   BOUT.inp overrides and warmup runs, so heavier real-kernel CPU/GPU gates can
   be reproduced without committing large input decks.
+- Reference artifact bundles are now downloaded with retry and cached under
+  `~/.cache/jax_drb/artifact_bundles` by default, with
+  `JAX_DRB_ARTIFACT_CACHE_DIR`, `JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT`, and
+  `JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS` available for CI or cluster overrides.
+  This keeps live integrated-reference gates from redownloading the same mesh
+  bundle for every output-window test.
 - Larger matched D/T/He GMRES profile artifacts compare CPU and office-GPU
   runs at `ny=100` and `ny=200`. They close to the same residuals, but the
   current GPU path is slower despite lower sampled RSS, so GPU speedup is not

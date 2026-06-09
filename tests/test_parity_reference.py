@@ -15,6 +15,7 @@ from netCDF4 import Dataset
 import jax_drb.parity.reference as reference_module
 from jax_drb.parity.reference import (
     _assert_artifacts_exist,
+    _read_artifact_bundle,
     _prepare_workdir,
     _reference_command,
     _run_reference_binary,
@@ -792,6 +793,72 @@ def test_stage_case_artifacts_handles_local_files_existing_targets_and_missing_m
     )
     with pytest.raises(FileNotFoundError, match="Artifact 'missing.nc' not found"):
         _stage_case_artifacts(missing_member_case, tmp_path / "run-missing-member")
+
+
+def test_read_artifact_bundle_caches_remote_download(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cache_dir = tmp_path / "artifact-cache"
+    monkeypatch.setenv("JAX_DRB_ARTIFACT_CACHE_DIR", str(cache_dir))
+    calls: list[str] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"bundle-bytes"
+
+    def fake_urlopen(url: str, *, timeout: float):
+        calls.append(f"{url}|{timeout:g}")
+        return _Response()
+
+    monkeypatch.setattr(reference_module.urllib.request, "urlopen", fake_urlopen)
+
+    assert _read_artifact_bundle("https://example.test/reference.zip") == b"bundle-bytes"
+    monkeypatch.setattr(
+        reference_module.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("cache miss")),
+    )
+    assert _read_artifact_bundle("https://example.test/reference.zip") == b"bundle-bytes"
+    assert calls == ["https://example.test/reference.zip|120"]
+    assert len(tuple(cache_dir.glob("*.zip"))) == 1
+
+
+def test_read_artifact_bundle_retries_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_ARTIFACT_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS", "2")
+    attempts = 0
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"after-retry"
+
+    def fake_urlopen(url: str, *, timeout: float):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TimeoutError("slow artifact")
+        return _Response()
+
+    monkeypatch.setattr(reference_module.urllib.request, "urlopen", fake_urlopen)
+
+    assert _read_artifact_bundle("https://example.test/retry.zip") == b"after-retry"
+    assert attempts == 2
 
 
 def test_prepare_workdir_rejects_artifact_bundle_hash_mismatch(tmp_path: Path) -> None:

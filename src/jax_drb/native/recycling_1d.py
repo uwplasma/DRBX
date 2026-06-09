@@ -2265,6 +2265,8 @@ def _advance_recycling_1d_fixed_bdf2_history(
     }
     previous_fields: dict[str, np.ndarray] | None = None
     previous_integrals: dict[str, float] | None = None
+    previous_timestep: float | None = None
+    max_internal_timestep = _resolve_recycling_fixed_bdf2_max_internal_timestep(config)
     variable_history = {
         name: [np.asarray(current_fields[name], dtype=np.float64)]
         for name in field_names
@@ -2294,6 +2296,11 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_unknown_convergence_solver_steps": 0,
         "fixed_bdf2_linear_solver_failed_steps": 0,
         "fixed_bdf2_evolve_feedback_integrals": True,
+        "fixed_bdf2_internal_substeps": 0,
+        "fixed_bdf2_max_output_substeps": 1,
+        "fixed_bdf2_max_internal_timestep": None
+        if max_internal_timestep is None
+        else float(max_internal_timestep),
     }
     run_started_at = time.perf_counter()
     interval_started_at = run_started_at
@@ -2363,47 +2370,66 @@ def _advance_recycling_1d_fixed_bdf2_history(
         diagnostics[key] = int(diagnostics[key]) + 1
 
     for interval_index in range(steps):
-        if interval_index == 0 or previous_fields is None or previous_integrals is None:
-            next_fields, next_integrals, info = (
-                advance_recycling_1d_backward_euler_step(
+        output_substeps = 1
+        if max_internal_timestep is not None:
+            output_substeps = max(
+                1, int(np.ceil(float(timestep) / float(max_internal_timestep)))
+            )
+        internal_timestep = float(timestep) / float(output_substeps)
+        diagnostics["fixed_bdf2_max_output_substeps"] = max(
+            int(diagnostics["fixed_bdf2_max_output_substeps"]), output_substeps
+        )
+
+        for _ in range(output_substeps):
+            if (
+                previous_fields is None
+                or previous_integrals is None
+                or previous_timestep is None
+            ):
+                next_fields, next_integrals, info = (
+                    advance_recycling_1d_backward_euler_step(
+                        config,
+                        current_fields,
+                        runtime_model=runtime_model,
+                        feedback_integrals=current_integrals,
+                        mesh=mesh,
+                        metrics=metrics,
+                        dataset_scalars=dataset_scalars,
+                        timestep=internal_timestep,
+                        solver_mode=step_solver_mode,
+                        residual_tolerance=residual_tolerance,
+                        max_nonlinear_iterations=max_nonlinear_iterations,
+                        evolve_feedback_integrals=True,
+                    )
+                )
+                record_step(info, method="backward_euler")
+            else:
+                next_fields, next_integrals, info = advance_recycling_1d_bdf2_step(
                     config,
                     current_fields,
+                    previous_fields,
                     runtime_model=runtime_model,
                     feedback_integrals=current_integrals,
+                    previous_feedback_integrals=previous_integrals,
                     mesh=mesh,
                     metrics=metrics,
                     dataset_scalars=dataset_scalars,
-                    timestep=timestep,
+                    timestep=internal_timestep,
+                    previous_timestep=previous_timestep,
                     solver_mode=step_solver_mode,
                     residual_tolerance=residual_tolerance,
                     max_nonlinear_iterations=max_nonlinear_iterations,
                     evolve_feedback_integrals=True,
                 )
+                record_step(info, method="bdf2")
+            diagnostics["fixed_bdf2_internal_substeps"] = (
+                int(diagnostics["fixed_bdf2_internal_substeps"]) + 1
             )
-            record_step(info, method="backward_euler")
-        else:
-            next_fields, next_integrals, info = advance_recycling_1d_bdf2_step(
-                config,
-                current_fields,
-                previous_fields,
-                runtime_model=runtime_model,
-                feedback_integrals=current_integrals,
-                previous_feedback_integrals=previous_integrals,
-                mesh=mesh,
-                metrics=metrics,
-                dataset_scalars=dataset_scalars,
-                timestep=timestep,
-                previous_timestep=timestep,
-                solver_mode=step_solver_mode,
-                residual_tolerance=residual_tolerance,
-                max_nonlinear_iterations=max_nonlinear_iterations,
-                evolve_feedback_integrals=True,
-            )
-            record_step(info, method="bdf2")
-        previous_fields = current_fields
-        previous_integrals = current_integrals
-        current_fields = next_fields
-        current_integrals = next_integrals
+            previous_fields = current_fields
+            previous_integrals = current_integrals
+            previous_timestep = internal_timestep
+            current_fields = next_fields
+            current_integrals = next_integrals
         for name in field_names:
             variable_history[name].append(
                 np.asarray(current_fields[name], dtype=np.float64)
@@ -2417,7 +2443,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
                 interval_index=interval_index + 1,
                 steps=steps,
                 solver_mode=solver_mode_label,
-                accepted_dt=float(timestep),
+                accepted_dt=float(internal_timestep),
                 stored_states=len(next(iter(variable_history.values()))),
                 output_timestep=timestep,
                 run_started_at=run_started_at,
@@ -5237,6 +5263,29 @@ def _resolve_recycling_jvp_batch_size() -> int | None:
         return max(1, int(env_value))
     except ValueError:
         return None
+
+
+def _resolve_recycling_fixed_bdf2_max_internal_timestep(
+    config: BoutConfig | None = None,
+) -> float | None:
+    option_name = "recycling_fixed_bdf2_max_internal_timestep"
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            try:
+                configured = float(config.parsed(section_name, option_name))
+            except (TypeError, ValueError):
+                return None
+            return configured if np.isfinite(configured) and configured > 0.0 else None
+    env_value = os.environ.get("JAX_DRB_RECYCLING_FIXED_BDF2_MAX_INTERNAL_TIMESTEP")
+    if env_value is None or not env_value.strip():
+        return None
+    try:
+        configured = float(env_value)
+    except ValueError:
+        return None
+    return configured if np.isfinite(configured) and configured > 0.0 else None
 
 
 def _resolve_recycling_adaptive_bdf_component_atol_floor(

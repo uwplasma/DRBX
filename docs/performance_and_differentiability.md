@@ -385,9 +385,10 @@ requires `fixed_bdf2_fixed_full_field_rhs_steps > 0`,
 failed or unknown solver-status counters, and a finite residual norm below the
 configured threshold. The default bounded fixed-BDF2 diagnostic currently runs
 on the hydrogen fixture at `timestep = 10` and on the D/T/He fixture at
-`timestep = 0.5`. The D/T/He bounded phase is intentionally shorter because a
-local `timestep = 1` run still reported `fixed_bdf2_unconverged_solver_steps = 1`
-and `fixed_bdf2_max_residual_inf_norm = 7.32`.
+`timestep = 1` with the explicit opt-in override
+`runtime:recycling_fixed_bdf2_max_internal_timestep=0.5`. That override splits
+each output interval into two internal implicit substeps while keeping the same
+stored output cadence.
 
 The June 5, 2026 two-output-window `recycling_1d_one_step` local gate passed
 with worst active-mesh `bdf` versus `bdf_fixed_full_field_jvp` delta
@@ -779,18 +780,19 @@ large finite residuals cannot pass as healthy diagnostics. On the local
 `fixed_bdf2_max_residual_inf_norm = 4.02e-6`, two active-array RHS steps, zero
 unconverged steps, zero unknown-convergence steps, and zero failed linear
 solves. The D/T/He fixture now also has a bounded fixed-BDF2 diagnostic at
-`timestep = 0.5`; both fixed-full-field and active-array routes pass there with
-`fixed_bdf2_max_residual_inf_norm = 1.87e-11`, zero unconverged steps, zero
-unknown-convergence steps, and zero failed linear solves. At `timestep = 1`,
-the fixed-full-field route correctly reports
-`fixed_bdf2_unconverged_solver_steps = 1` together with
-`fixed_bdf2_max_residual_inf_norm = 7.32`, so multi-ion fixed-BDF2 still needs
-adaptive substepping or nonlinear damping before full-output promotion. On
-the hydrogen fixture at the full `timestep = 5000`, both fixed-full-field
-and active-array fixed-BDF2 routes currently expose the same large nonlinear
-residual (`fixed_bdf2_max_residual_inf_norm` about `1.93e29`), so the next
-promotion blocker is fixed-BDF2 timestep/nonlinear convergence rather than an
-active-array RHS parity failure.
+`timestep = 1` using two internal `0.5` substeps per output interval. Both
+fixed-full-field and active-array routes pass there with
+`fixed_bdf2_max_residual_inf_norm = 3.77e-9`, four internal substeps, three
+BDF2 corrector steps, zero unconverged steps, zero unknown-convergence steps,
+and zero failed linear solves. The same diagnostic is intentionally not a
+runtime win yet: the local fixed-full-field run took `98.9 s` and the
+active-array run took `117.6 s`, both dominated by `5200` inner linear
+iterations. On the hydrogen fixture at the full `timestep = 5000`, both
+fixed-full-field and active-array fixed-BDF2 routes currently expose the same
+large nonlinear residual (`fixed_bdf2_max_residual_inf_norm` about `1.93e29`),
+so the next promotion blocker is fixed-BDF2 nonlinear/linear solver efficiency
+and full-output-window substepping policy rather than an active-array RHS
+parity failure.
 
 The adaptive BDF history result now reports solver-health diagnostics for these
 opt-in paths: accepted and rejected internal steps, minimum-`dt` fallbacks,

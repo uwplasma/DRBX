@@ -33,6 +33,7 @@ class RecyclingJvpGateCase:
     mode_timeout_seconds: float
     steps: int
     fixed_bdf2_timestep: float | None = None
+    fixed_bdf2_max_internal_timestep: float | None = None
 
 
 GATE_CASES = {
@@ -50,7 +51,8 @@ GATE_CASES = {
         pairwise_threshold=2.0e-5,
         mode_timeout_seconds=600.0,
         steps=2,
-        fixed_bdf2_timestep=0.5,
+        fixed_bdf2_timestep=1.0,
+        fixed_bdf2_max_internal_timestep=0.5,
     ),
 }
 
@@ -106,6 +108,14 @@ def _build_case_command(
                 f"{float(fixed_bdf2_timestep):g}",
             )
         )
+        if gate_case.fixed_bdf2_max_internal_timestep is not None:
+            command.extend(
+                (
+                    "--override",
+                    "runtime:recycling_fixed_bdf2_max_internal_timestep="
+                    f"{float(gate_case.fixed_bdf2_max_internal_timestep):g}",
+                )
+            )
         solver_modes = FIXED_BDF2_GATE_SOLVER_MODES
     else:
         raise ValueError(f"Unknown recycling JVP gate phase: {gate_phase}")
@@ -207,7 +217,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=(
             "Override the bounded fixed-BDF2 diagnostic timestep. By default only "
             "cases with a validated case-specific bounded timestep run this phase; "
-            "the D/T/He fixture remains a tracked fixed-BDF2 convergence blocker."
+            "cases may also add a validated fixed-BDF2 internal-substep override."
         ),
     )
     parser.add_argument(
