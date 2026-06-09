@@ -384,10 +384,10 @@ requires `fixed_bdf2_fixed_full_field_rhs_steps > 0`,
 `fixed_bdf2_evolve_feedback_integrals=true`, `fixed_bdf2_bdf2_steps > 0`, zero
 failed or unknown solver-status counters, and a finite residual norm below the
 configured threshold. The default bounded fixed-BDF2 diagnostic currently runs
-only on the hydrogen fixture at `timestep = 10`; the D/T/He fixed-BDF2 route is
-left as a tracked convergence blocker because a local `timestep = 1` run still
-reported `fixed_bdf2_unconverged_solver_steps = 1` and
-`fixed_bdf2_max_residual_inf_norm = 7.32`.
+on the hydrogen fixture at `timestep = 10` and on the D/T/He fixture at
+`timestep = 0.5`. The D/T/He bounded phase is intentionally shorter because a
+local `timestep = 1` run still reported `fixed_bdf2_unconverged_solver_steps = 1`
+and `fixed_bdf2_max_residual_inf_norm = 7.32`.
 
 The June 5, 2026 two-output-window `recycling_1d_one_step` local gate passed
 with worst active-mesh `bdf` versus `bdf_fixed_full_field_jvp` delta
@@ -778,11 +778,14 @@ large finite residuals cannot pass as healthy diagnostics. On the local
 `fixed_bdf2_active_array_jax_linearized` route passes this gate with
 `fixed_bdf2_max_residual_inf_norm = 4.02e-6`, two active-array RHS steps, zero
 unconverged steps, zero unknown-convergence steps, and zero failed linear
-solves. The D/T/He fixture is not included in the default bounded fixed-BDF2
-phase yet; at `timestep = 1`, the fixed-full-field route now correctly reports
+solves. The D/T/He fixture now also has a bounded fixed-BDF2 diagnostic at
+`timestep = 0.5`; both fixed-full-field and active-array routes pass there with
+`fixed_bdf2_max_residual_inf_norm = 1.87e-11`, zero unconverged steps, zero
+unknown-convergence steps, and zero failed linear solves. At `timestep = 1`,
+the fixed-full-field route correctly reports
 `fixed_bdf2_unconverged_solver_steps = 1` together with
-`fixed_bdf2_max_residual_inf_norm = 7.32`, so multi-ion fixed-BDF2 needs
-additional nonlinear damping or adaptive substepping before promotion. On
+`fixed_bdf2_max_residual_inf_norm = 7.32`, so multi-ion fixed-BDF2 still needs
+adaptive substepping or nonlinear damping before full-output promotion. On
 the hydrogen fixture at the full `timestep = 5000`, both fixed-full-field
 and active-array fixed-BDF2 routes currently expose the same large nonlinear
 residual (`fixed_bdf2_max_residual_inf_norm` about `1.93e29`), so the next
