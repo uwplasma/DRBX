@@ -42,6 +42,8 @@ JSON/NPZ/PNG package under
 `create_essos_imported_connection_length_refinement_package` API once repeated
 imported traces are available.
 
+![Manufactured nested-grid connection-length refinement](data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png)
+
 Set `WRITE_DRY_RUN_ARTIFACTS = True` to write a self-contained JSON contract
 under the resolved artifact root; that contract records the live artifact
 paths, grid/refinement settings, required report fields, required NPZ array
