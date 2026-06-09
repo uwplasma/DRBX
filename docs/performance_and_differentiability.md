@@ -362,33 +362,38 @@ agreement with lower call count and memory use. The current self-contained gate 
 hydrogen and D/T/He one-step decks from the committed lightweight fixture root
 unless `JAX_DRB_REFERENCE_ROOT` or `--reference-root` points to a live reference
 checkout. Add `--output-dir docs/data/runtime_profile_artifacts/<new-run>` for
-release or paper audits; the wrapper writes one JSON report per case plus an
-aggregate `summary.json` with commands, thresholds, return codes, timings,
+release or paper audits; the wrapper writes one JSON report per case and gate
+phase plus an aggregate `summary.json` with commands, thresholds, return codes, timings,
 diagnostics, and pairwise deltas. The latest two-output-window hydrogen gate
 passes with worst active-mesh BDF-vs-fixed-JVP delta `7.20e-6` under the
-`1e-5` threshold; the prior D/T/He gate passed with worst delta `2.20e-7` under
-the `2e-5` threshold and still needs the same two-output-window rerun. The
+`1e-5` threshold; the refreshed two-output-window D/T/He gate passes with worst
+delta `1.02e-6` under the `2e-5` threshold. The
 default wrapper still runs the stable BDF/JVP compatibility bridge and requires
 it to report the expected RHS backend, `bdf_jacobian_mode="jvp"`, zero
 finite-difference base-RHS Jacobian calls, positive JVP RHS calls, and prebuilt
-direction-batch reuse. It also runs two output windows, so the fixed-BDF2 lane
-must report at least one actual `fixed_bdf2_bdf2_steps` corrector rather than
-only the startup backward-Euler step. The experimental `--include-active-array-jvp`
+direction-batch reuse. The full-output parity phase intentionally stays separate
+from the non-SciPy fixed-BDF2 phase because the raw fixed-BDF2 stepper is not
+validated at the production output cadence. The experimental
+`--include-active-array-jvp`
 flag adds the active-array bridge to the same diagnostics, but current timeout
 evidence keeps it out of the default gate.
-The wrapper now also runs the non-SciPy `fixed_bdf2_jax_linearized`
-output-window lane and requires `fixed_bdf2_fixed_full_field_rhs_steps > 0`,
+For cases with a validated bounded step, the wrapper also runs the non-SciPy
+`fixed_bdf2_jax_linearized` lane with an explicit `--timestep` override and
+requires `fixed_bdf2_fixed_full_field_rhs_steps > 0`,
 `fixed_bdf2_jax_linearized_action_steps > 0`,
-`fixed_bdf2_evolve_feedback_integrals=true`, `fixed_bdf2_bdf2_steps > 0`, and a
-finite residual norm. This keeps the full-output JAX-linearized path under the
-same reproducible gate as the SciPy-BDF JVP bridge.
+`fixed_bdf2_evolve_feedback_integrals=true`, `fixed_bdf2_bdf2_steps > 0`, zero
+failed or unknown solver-status counters, and a finite residual norm below the
+configured threshold. The default bounded fixed-BDF2 diagnostic currently runs
+only on the hydrogen fixture at `timestep = 10`; the D/T/He fixed-BDF2 route is
+left as a tracked convergence blocker because a local `timestep = 1` run still
+reported `fixed_bdf2_max_residual_inf_norm = 7.32`.
 
 The June 5, 2026 two-output-window `recycling_1d_one_step` local gate passed
 with worst active-mesh `bdf` versus `bdf_fixed_full_field_jvp` delta
 `7.20e-6`, below the `1e-5` threshold. The JVP bridge reported one prebuilt
 direction batch and reused it on all `106` Jacobian callbacks; tangent
 construction time was zero, while JAX linearization and device execution still
-accounted for most of the `64.5 s` fixed-JVP runtime versus `9.87 s` for the
+accounted for most of the `62.7 s` fixed-JVP runtime versus `9.07 s` for the
 default BDF route. The same run also proved that `fixed_bdf2_jax_linearized`
 executes a real BDF2 corrector (`fixed_bdf2_bdf2_steps=1`), but its maximum
 residual norm was about `1.93e29`. That lane is therefore useful for routing,
@@ -772,7 +777,11 @@ large finite residuals cannot pass as healthy diagnostics. On the local
 `fixed_bdf2_active_array_jax_linearized` route passes this gate with
 `fixed_bdf2_max_residual_inf_norm = 4.02e-6`, two active-array RHS steps, zero
 unconverged steps, zero unknown-convergence steps, and zero failed linear
-solves. On the same fixture at the full `timestep = 5000`, both fixed-full-field
+solves. The D/T/He fixture is not included in the default bounded fixed-BDF2
+phase yet; at `timestep = 1`, both fixed-full-field and active-array routes
+reported `fixed_bdf2_max_residual_inf_norm = 7.32`, so multi-ion fixed-BDF2
+needs additional nonlinear damping or adaptive substepping before promotion. On
+the hydrogen fixture at the full `timestep = 5000`, both fixed-full-field
 and active-array fixed-BDF2 routes currently expose the same large nonlinear
 residual (`fixed_bdf2_max_residual_inf_norm` about `1.93e29`), so the next
 promotion blocker is fixed-BDF2 timestep/nonlinear convergence rather than an
