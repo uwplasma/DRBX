@@ -16,6 +16,7 @@ from jax_drb.geometry import (
 )
 from jax_drb.validation import (
     create_essos_fieldline_import_package,
+    create_essos_imported_connection_length_refinement_package,
     create_essos_imported_drb_movie_package,
     create_essos_imported_fci_campaign_package,
     create_essos_imported_pytree_campaign_package,
@@ -32,6 +33,27 @@ def _has_essos_landreman_runtime() -> bool:
     except FileNotFoundError:
         return False
     return essos_runtime_available()
+
+
+def test_imported_connection_length_refinement_campaign_is_self_contained(tmp_path: Path) -> None:
+    artifacts = create_essos_imported_connection_length_refinement_package(
+        output_root=tmp_path / "connection_length_refinement",
+        level_shapes=((4, 6, 8), (8, 12, 16), (16, 24, 32)),
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    arrays = np.load(artifacts.arrays_npz_path)
+
+    assert report["passed"] is True
+    assert report["manufactured"] is True
+    assert report["diagnostics"]["level_count"] == 3
+    assert report["finest_normalized_rms_error"] < 0.02
+    assert report["finest_normalized_linf_error"] < 0.05
+    assert report["minimum_observed_order_actual"] > 1.5
+    assert arrays["level_0"].shape == (4, 6, 8)
+    assert arrays["level_2"].shape == (16, 24, 32)
+    assert arrays["pair_normalized_rms_error"][1] < arrays["pair_normalized_rms_error"][0]
+    assert artifacts.plot_png_path.exists()
 
 
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")

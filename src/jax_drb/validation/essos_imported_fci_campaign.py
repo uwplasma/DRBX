@@ -25,6 +25,13 @@ class EssosImportedFciDryRunArtifacts:
     contract_json_path: Path
 
 
+@dataclass(frozen=True)
+class EssosImportedConnectionLengthRefinementArtifacts:
+    report_json_path: Path
+    arrays_npz_path: Path
+    plot_png_path: Path
+
+
 _IMPORTED_FCI_ARRAY_KEYS = (
     "major_radius_section",
     "vertical_section",
@@ -211,6 +218,165 @@ def create_essos_imported_fci_dry_run_artifact_package(
     contract_json_path = data_dir / f"{case_label}_dry_run_contract.json"
     contract_json_path.write_text(json.dumps(contract, indent=2, sort_keys=True), encoding="utf-8")
     return EssosImportedFciDryRunArtifacts(contract_json_path=contract_json_path)
+
+
+def create_essos_imported_connection_length_refinement_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_imported_connection_length_refinement",
+    connection_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
+    labels: tuple[str, ...] | list[str] | None = None,
+    level_shapes: tuple[tuple[int, int, int], ...] = (
+        (4, 6, 8),
+        (8, 12, 16),
+        (16, 24, 32),
+    ),
+    convergence_threshold: float = 0.02,
+    linf_threshold: float = 0.05,
+    minimum_observed_order: float = 1.5,
+) -> EssosImportedConnectionLengthRefinementArtifacts:
+    """Write a self-contained nested-grid connection-length refinement gate.
+
+    By default this uses a deterministic manufactured non-axisymmetric
+    connection-length field. Live imported coil, VMEC, or hybrid campaigns can
+    pass their own nested ``connection_levels`` and reuse the same diagnostics,
+    plot, and JSON schema.
+    """
+
+    root = Path(output_root)
+    data_dir = root / "data"
+    images_dir = root / "images"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    report, arrays = build_essos_imported_connection_length_refinement_campaign(
+        connection_levels=connection_levels,
+        labels=labels,
+        level_shapes=level_shapes,
+        convergence_threshold=convergence_threshold,
+        linf_threshold=linf_threshold,
+        minimum_observed_order=minimum_observed_order,
+    )
+    report_json_path = data_dir / f"{case_label}.json"
+    report_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    arrays_npz_path = data_dir / f"{case_label}.npz"
+    np.savez_compressed(arrays_npz_path, **arrays)
+    plot_png_path = images_dir / f"{case_label}.png"
+    save_essos_imported_connection_length_refinement_plot(report, arrays, plot_png_path)
+    return EssosImportedConnectionLengthRefinementArtifacts(
+        report_json_path=report_json_path,
+        arrays_npz_path=arrays_npz_path,
+        plot_png_path=plot_png_path,
+    )
+
+
+def build_essos_imported_connection_length_refinement_campaign(
+    *,
+    connection_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
+    labels: tuple[str, ...] | list[str] | None = None,
+    level_shapes: tuple[tuple[int, int, int], ...] = (
+        (4, 6, 8),
+        (8, 12, 16),
+        (16, 24, 32),
+    ),
+    convergence_threshold: float = 0.02,
+    linf_threshold: float = 0.05,
+    minimum_observed_order: float = 1.5,
+) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
+    """Build report and arrays for nested connection-length refinement."""
+
+    if connection_levels is None:
+        levels = _manufactured_connection_length_levels(level_shapes)
+        level_labels = [f"manufactured_{shape[0]}x{shape[1]}x{shape[2]}" for shape in level_shapes]
+        source = "manufactured non-axisymmetric connection-length refinement gate"
+        manufactured = True
+    else:
+        levels = [np.asarray(level, dtype=np.float64) for level in connection_levels]
+        level_labels = (
+            [f"level_{index}" for index in range(len(levels))]
+            if labels is None
+            else [str(label) for label in labels]
+        )
+        source = "user-supplied imported connection-length refinement gate"
+        manufactured = False
+
+    diagnostics = build_essos_imported_connection_length_refinement_diagnostics(
+        levels,
+        labels=level_labels,
+        convergence_threshold=convergence_threshold,
+        linf_threshold=linf_threshold,
+        minimum_observed_order=minimum_observed_order,
+    )
+    observed_orders = [
+        item["observed_order"]
+        for item in diagnostics["observed_orders"]
+        if item["observed_order"] is not None
+    ]
+    last_pair = diagnostics["pair_reports"][-1]
+    report = {
+        "case": "essos_imported_connection_length_refinement",
+        "source": source,
+        "manufactured": manufactured,
+        "diagnostics": diagnostics,
+        "level_shapes": [[int(value) for value in level.shape] for level in levels],
+        "finest_normalized_rms_error": last_pair["normalized_rms_error"],
+        "finest_normalized_linf_error": last_pair["normalized_linf_error"],
+        "minimum_observed_order_actual": min(observed_orders) if observed_orders else None,
+        "passed": bool(diagnostics["passed"]),
+    }
+    arrays: dict[str, np.ndarray] = {
+        "summary": np.asarray(
+            [
+                float(last_pair["normalized_rms_error"] or np.nan),
+                float(last_pair["normalized_linf_error"] or np.nan),
+                float(min(observed_orders) if observed_orders else np.nan),
+            ],
+            dtype=np.float64,
+        ),
+        "pair_normalized_rms_error": np.asarray(
+            [pair["normalized_rms_error"] for pair in diagnostics["pair_reports"]],
+            dtype=np.float64,
+        ),
+        "pair_normalized_linf_error": np.asarray(
+            [pair["normalized_linf_error"] for pair in diagnostics["pair_reports"]],
+            dtype=np.float64,
+        ),
+        "observed_order": np.asarray(observed_orders, dtype=np.float64),
+    }
+    for index, level in enumerate(levels):
+        arrays[f"level_{index}"] = np.asarray(level, dtype=np.float64)
+        arrays[f"level_{index}_radial_mean"] = np.mean(level, axis=(1, 2))
+        arrays[f"level_{index}_toroidal_mean"] = np.mean(level, axis=0)
+    return report, arrays
+
+
+def _manufactured_connection_length_levels(
+    level_shapes: tuple[tuple[int, int, int], ...],
+) -> list[np.ndarray]:
+    if len(level_shapes) < 2:
+        raise ValueError("At least two manufactured connection-length levels are required.")
+    return [
+        _manufactured_connection_length_level(tuple(int(value) for value in shape))
+        for shape in level_shapes
+    ]
+
+
+def _manufactured_connection_length_level(shape: tuple[int, int, int]) -> np.ndarray:
+    if len(shape) != 3 or any(value <= 0 for value in shape):
+        raise ValueError(f"Connection-length level shape must contain three positive values; got {shape!r}.")
+    nx, ny, nz = shape
+    radial = (np.arange(nx, dtype=np.float64) + 0.5) / float(nx)
+    toroidal = 2.0 * np.pi * (np.arange(ny, dtype=np.float64) + 0.5) / float(ny)
+    poloidal = 2.0 * np.pi * (np.arange(nz, dtype=np.float64) + 0.5) / float(nz)
+    rho, phi, theta = np.meshgrid(radial, toroidal, poloidal, indexing="ij")
+    connection = (
+        10.0
+        + 1.3 * rho
+        + 0.8 * np.sin(2.0 * np.pi * rho) * np.cos(phi - 0.3)
+        + 0.45 * np.cos(5.0 * phi - 2.0 * theta)
+        + 0.25 * np.sin(theta + phi)
+    )
+    return np.asarray(connection, dtype=np.float64)
 
 
 def build_essos_imported_fci_dry_run_artifact_contract(
@@ -795,6 +961,94 @@ def build_essos_imported_connection_length_refinement_diagnostics(
         "minimum_observed_order": float(minimum_observed_order),
         "passed": bool(finite_pairs and error_passed and order_passed),
     }
+
+
+def save_essos_imported_connection_length_refinement_plot(
+    report: dict[str, Any],
+    arrays: dict[str, np.ndarray],
+    path: str | Path,
+) -> Path:
+    """Save a publication-style plot for nested connection-length refinement."""
+
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics = report["diagnostics"]
+    level_count = int(diagnostics["level_count"])
+    coarsest = np.asarray(arrays["level_0"], dtype=np.float64)
+    finest = np.asarray(arrays[f"level_{level_count - 1}"], dtype=np.float64)
+    pair_indices = np.arange(len(diagnostics["pair_reports"]), dtype=np.float64)
+    pair_labels = [
+        f"{_format_grid_shape(pair['coarse_shape'])}\n-> {_format_grid_shape(pair['fine_shape'])}"
+        for pair in diagnostics["pair_reports"]
+    ]
+    rms = np.asarray(arrays["pair_normalized_rms_error"], dtype=np.float64)
+    linf = np.asarray(arrays["pair_normalized_linf_error"], dtype=np.float64)
+
+    fig, axes = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    coarse_image = axes[0, 0].imshow(
+        np.mean(coarsest, axis=0).T,
+        origin="lower",
+        aspect="auto",
+        cmap="viridis",
+    )
+    axes[0, 0].set_title("coarse mean connection length")
+    axes[0, 0].set_xlabel("toroidal index")
+    axes[0, 0].set_ylabel("poloidal index")
+    fig.colorbar(coarse_image, ax=axes[0, 0], label="connection length")
+
+    fine_image = axes[0, 1].imshow(
+        np.mean(finest, axis=0).T,
+        origin="lower",
+        aspect="auto",
+        cmap="viridis",
+    )
+    axes[0, 1].set_title("finest mean connection length")
+    axes[0, 1].set_xlabel("toroidal index")
+    axes[0, 1].set_ylabel("poloidal index")
+    fig.colorbar(fine_image, ax=axes[0, 1], label="connection length")
+
+    axes[1, 0].plot(pair_indices, rms, "o-", lw=2.0, label="RMS")
+    axes[1, 0].plot(pair_indices, linf, "s--", lw=2.0, label="Linf")
+    axes[1, 0].axhline(
+        float(diagnostics["convergence_threshold"]),
+        color="0.35",
+        lw=1.0,
+        ls=":",
+        label="RMS threshold",
+    )
+    axes[1, 0].set_xticks(pair_indices, pair_labels)
+    axes[1, 0].set_yscale("log")
+    axes[1, 0].set_title("restricted fine-grid error")
+    axes[1, 0].set_ylabel("normalized error")
+    axes[1, 0].grid(alpha=0.25)
+    axes[1, 0].legend(frameon=False, fontsize=8)
+
+    for index in range(level_count):
+        radial = np.asarray(arrays[f"level_{index}_radial_mean"], dtype=np.float64)
+        x = np.linspace(0.0, 1.0, radial.size)
+        axes[1, 1].plot(x, radial, lw=1.8, label=diagnostics["level_labels"][index])
+    axes[1, 1].set_title("radial mean connection length")
+    axes[1, 1].set_xlabel("normalized radius")
+    axes[1, 1].set_ylabel("connection length")
+    axes[1, 1].grid(alpha=0.25)
+    axes[1, 1].legend(frameon=False, fontsize=7)
+
+    order = report.get("minimum_observed_order_actual")
+    order_text = "n/a" if order is None else f"{float(order):.2f}"
+    fig.suptitle(
+        "Imported-field connection-length refinement gate: "
+        f"passed={report['passed']}, "
+        f"finest RMS={report['finest_normalized_rms_error']:.2e}, "
+        f"observed order={order_text}",
+        fontsize=13,
+    )
+    fig.savefig(resolved, dpi=180)
+    plt.close(fig)
+    return resolved
+
+
+def _format_grid_shape(shape: list[int] | tuple[int, ...]) -> str:
+    return "x".join(str(int(value)) for value in shape)
 
 
 def save_essos_imported_fci_campaign_plot(
