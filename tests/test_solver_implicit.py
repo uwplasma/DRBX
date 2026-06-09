@@ -713,6 +713,39 @@ def test_sparse_newton_solver_can_exit_on_step_tolerance() -> None:
     assert info.residual_inf_norm <= 1.0e-12
 
 
+def test_sparse_newton_solver_does_not_converge_on_stagnated_large_residual(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scipy_sparse = pytest.importorskip("scipy.sparse")
+
+    monkeypatch.setattr(
+        "scipy.sparse.linalg.spsolve", lambda *args, **kwargs: np.array([0.0])
+    )
+    monkeypatch.setattr(
+        "scipy.optimize.newton_krylov", lambda *args, **kwargs: np.array([0.0])
+    )
+
+    solution, info = solve_sparse_newton_system(
+        lambda state: np.ones_like(state),
+        np.array([0.0]),
+        active_shape=(1,),
+        sparsity=scipy_sparse.eye(1, format="csr"),
+        color_groups=((0,),),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0,
+        max_nonlinear_iterations=4,
+        linear_restart=2,
+        linear_maxiter=4,
+        linear_rtol=1.0e-10,
+        prefer_direct_linear_solve=True,
+    )
+
+    np.testing.assert_allclose(solution, np.array([0.0]))
+    assert info.residual_inf_norm == pytest.approx(1.0)
+    assert info.fallback_used is True
+    assert info.converged is False
+
+
 def test_sparse_newton_solver_uses_newton_krylov_fallback_after_rejected_line_search(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -824,6 +857,27 @@ def test_jax_linearized_newton_solver_can_exit_on_step_tolerance() -> None:
     assert info.nonlinear_iterations == 1
     assert info.residual_inf_norm <= 1.0e-12
     assert info.converged is True
+
+
+def test_jax_linearized_newton_solver_does_not_converge_on_stagnated_large_residual() -> (
+    None
+):
+    jnp = pytest.importorskip("jax.numpy")
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.ones_like(state),
+        np.array([0.0], dtype=np.float64),
+        active_shape=(1,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0,
+        max_nonlinear_iterations=4,
+        linear_restart=2,
+        linear_maxiter=4,
+    )
+
+    np.testing.assert_allclose(solution, np.array([0.0]))
+    assert info.residual_inf_norm == pytest.approx(1.0)
+    assert info.converged is False
 
 
 def test_jax_linearized_newton_solver_recovers_known_root() -> None:

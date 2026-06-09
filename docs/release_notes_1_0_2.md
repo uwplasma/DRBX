@@ -56,6 +56,10 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
   startup step and fixed-layout BDF2 steps with controller integrals packed
   into the residual state. It is exposed for bounded-step promotion and
   profiling gates, not as the production default.
+- JAX-linearized and sparse Newton health reporting no longer treats a tiny
+  Newton update as convergence unless the nonlinear residual is also below
+  tolerance. The D/T/He fixed-BDF2 diagnostic therefore reports the current
+  blocker as an unconverged implicit step instead of a false healthy solve.
 - The D/T/He JAX-linearized GMRES profiling script now supports repeated
   BOUT.inp overrides and warmup runs, so heavier real-kernel CPU/GPU gates can
   be reproduced without committing large input decks.

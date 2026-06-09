@@ -928,18 +928,16 @@ def solve_sparse_newton_system(
         if candidate_residual_inf_norm < best_residual_inf_norm:
             best_state = np.array(state, copy=True)
             best_residual_inf_norm = candidate_residual_inf_norm
-        if float(np.max(np.abs(step_scale * update))) < float(step_tolerance):
-            return state, build_info(
-                residual_inf_norm=candidate_residual_inf_norm,
-                nonlinear_iterations=nonlinear_iteration,
-                converged=True,
-            )
         if candidate_residual_inf_norm < float(residual_tolerance):
             return state, build_info(
                 residual_inf_norm=candidate_residual_inf_norm,
                 nonlinear_iterations=nonlinear_iteration,
                 converged=True,
             )
+        if float(np.max(np.abs(step_scale * update))) < float(step_tolerance):
+            # A tiny update with a large residual is stagnation, not convergence.
+            # Let the sparse path try its Newton-Krylov fallback below.
+            break
 
     fallback_used = True
     fallback_started_at = perf_counter()
@@ -1155,6 +1153,10 @@ def solve_jax_linearized_newton_system(
         line_search_started_at = perf_counter()
         while step_scale >= 1.0 / 64.0:
             trial_state = state + step_scale * update
+            finite_trial = _block(jnp.all(jnp.isfinite(trial_state)))
+            if not bool(finite_trial):
+                step_scale *= 0.5
+                continue
             residual_started_at = perf_counter()
             trial_residual = residual(trial_state)
             trial_residual = _block(trial_residual)
@@ -1176,18 +1178,15 @@ def solve_jax_linearized_newton_system(
             break
 
         state = candidate_state
-        if float(jnp.max(jnp.abs(step_scale * update))) < float(step_tolerance):
-            return np.asarray(state, dtype=np.float64), _info(
-                residual_inf_norm=candidate_residual_inf_norm,
-                nonlinear_iterations=nonlinear_iteration,
-                converged=True,
-            )
         if candidate_residual_inf_norm < float(residual_tolerance):
             return np.asarray(state, dtype=np.float64), _info(
                 residual_inf_norm=candidate_residual_inf_norm,
                 nonlinear_iterations=nonlinear_iteration,
                 converged=True,
             )
+        if float(jnp.max(jnp.abs(step_scale * update))) < float(step_tolerance):
+            # Small-step termination must not mask a failed nonlinear residual.
+            break
 
     residual_started_at = perf_counter()
     final_residual = residual(state)
