@@ -93,6 +93,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "validation_campaign_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "landreman_paul_qa_import.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_fci_campaign.py",
+    REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_connection_length_refinement_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_pytree_campaign.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_drb_movie_campaign.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "vmec_fieldline_surface_campaign.py",
