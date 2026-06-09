@@ -81,6 +81,24 @@ def test_recycling_jvp_promotion_gate_builds_bounded_fixed_bdf2_command() -> Non
     assert command.count("--field") == 3
 
 
+def test_recycling_jvp_promotion_gate_has_bounded_dthe_fixed_bdf2_phase() -> None:
+    module = _load_module()
+    gate_case = module.GATE_CASES["recycling_dthe_one_step"]
+    command = module._build_case_command(
+        gate_case,
+        reference_root=Path("/tmp/reference-root"),
+        python_executable="python",
+        gate_phase="fixed_bdf2",
+        fixed_bdf2_timestep=gate_case.fixed_bdf2_timestep,
+    )
+
+    assert gate_case.fixed_bdf2_timestep == 0.5
+    assert command[command.index("--timestep") + 1] == "0.5"
+    assert "fixed_bdf2_jax_linearized" in command
+    assert "fixed_bdf2_active_array_jax_linearized" in command
+    assert command.count("--field") == 4
+
+
 def test_recycling_jvp_promotion_gate_can_opt_into_active_array_jvp() -> None:
     module = _load_module()
     gate_case = module.GATE_CASES["recycling_1d_one_step"]

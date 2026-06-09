@@ -50,6 +50,7 @@ GATE_CASES = {
         pairwise_threshold=2.0e-5,
         mode_timeout_seconds=600.0,
         steps=2,
+        fixed_bdf2_timestep=0.5,
     ),
 }
 

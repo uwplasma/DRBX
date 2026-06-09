@@ -248,13 +248,13 @@ For the remaining recycling solver work, the order is therefore fixed:
   `bdf_jvp` and `fixed_bdf2` phase reports, so full-output BDF/JVP parity
   remains distinct from bounded-step fixed-BDF2 residual diagnostics;
 - keep fixed-BDF2 promotion honest: the default bounded fixed-BDF2 phase runs
-  on the hydrogen fixture at `timestep = 10`, where the JAX-linearized and
-  active-array variants pass the residual/status gate. The D/T/He fixed-BDF2
-  route is still excluded from the default gate because a local `timestep = 1`
-  run produced `fixed_bdf2_unconverged_solver_steps = 1` and
-  `fixed_bdf2_max_residual_inf_norm = 7.32`; that residual must be reduced with
-  damping, adaptive substepping, or a better nonlinear preconditioner before it
-  can be treated as production evidence;
+  on the hydrogen fixture at `timestep = 10` and the D/T/He fixture at
+  `timestep = 0.5`, where the JAX-linearized and active-array variants pass the
+  residual/status gate. The D/T/He full-output lane is still blocked because a
+  local `timestep = 1` run produced `fixed_bdf2_unconverged_solver_steps = 1`
+  and `fixed_bdf2_max_residual_inf_norm = 7.32`; that residual must be reduced
+  with damping, adaptive substepping, or a better nonlinear preconditioner before
+  it can be treated as production evidence;
 - run the adaptive-BDF JAX-linearized promotion gate only as an explicit
   rejection test until it clears without fallback:
   `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case
