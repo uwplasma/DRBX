@@ -10,6 +10,7 @@ from jax_drb.native.fci import (
     conservative_perp_diffusion_xz,
     fci_yup,
     grad_parallel_fci,
+    logical_exb_bracket_xz,
     metric_weighted_scalar_laplacian_3d,
 )
 from jax_drb.native.fci_sheath_recycling import compute_fci_sheath_recycling, fci_sheath_recycling_field_rhs
@@ -111,6 +112,48 @@ def test_metric_weighted_scalar_laplacian_3d_matches_cartesian_mms() -> None:
     slope, _ = np.polyfit(np.log(1.0 / resolutions.astype(np.float64)), np.log(np.asarray(errors)), 1)
     assert float(slope) > 1.7
     assert errors[-1] < 0.35 * errors[0]
+
+
+def test_logical_exb_bracket_xz_matches_periodic_cartesian_mms() -> None:
+    errors = []
+    resolutions = np.asarray([16, 24, 32], dtype=np.int64)
+    for resolution in resolutions:
+        metric = _identity_metric_3d(nx=resolution, ny=4, nz=2 * resolution)
+        x = jnp.arange(resolution, dtype=jnp.float64) / float(resolution)
+        y = jnp.arange(4, dtype=jnp.float64)
+        z = 2.0 * jnp.pi * jnp.arange(2 * resolution, dtype=jnp.float64) / float(2 * resolution)
+        X, _, Z = jnp.meshgrid(x, y, z, indexing="ij")
+        phi = jnp.sin(2.0 * jnp.pi * X) * jnp.cos(Z)
+        field = jnp.cos(2.0 * jnp.pi * X) * jnp.sin(2.0 * Z)
+        exact = (
+            2.0 * jnp.pi * jnp.square(jnp.sin(2.0 * jnp.pi * X)) * jnp.sin(Z) * jnp.sin(2.0 * Z)
+            - 4.0 * jnp.pi * jnp.square(jnp.cos(2.0 * jnp.pi * X)) * jnp.cos(Z) * jnp.cos(2.0 * Z)
+        )
+
+        actual = logical_exb_bracket_xz(phi, field, metric, periodic_x=True, periodic_z=True)
+        errors.append(float(jnp.sqrt(jnp.mean(jnp.square(actual - exact)))))
+
+        assert float(jnp.abs(jnp.mean(actual))) < 1.0e-12
+        assert (
+            float(
+                jnp.max(
+                    jnp.abs(
+                        logical_exb_bracket_xz(
+                            phi,
+                            jnp.ones_like(field),
+                            metric,
+                            periodic_x=True,
+                            periodic_z=True,
+                        )
+                    )
+                )
+            )
+            < 1.0e-12
+        )
+
+    slope, _ = np.polyfit(np.log(1.0 / resolutions.astype(np.float64)), np.log(np.asarray(errors)), 1)
+    assert float(slope) > 1.6
+    assert errors[-1] < 0.45 * errors[0]
 
 
 def test_fci_sheath_recycling_promotes_to_fixed_layout_rhs() -> None:

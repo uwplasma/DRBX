@@ -8,7 +8,10 @@ advances the JAX-native `FciDrbState` on those fixed-layout maps with sheath
 losses where endpoints are present, target recycling, neutral
 reaction/diffusion, charge exchange, metric-weighted vorticity diffusion, a
 compact potential solve, and reduced nonlinear/interchange forcing used only
-for this visualization gate.
+for this visualization gate. The movie advection wrapper now calls the same
+tested logical \(E\times B\) bracket helper used by the pedagogical
+stellarator vorticity example, but the normalization and forcing amplitudes
+remain movie-gate controls rather than calibrated transport coefficients.
 
 This is intentionally labeled as a reduced QA-coil transient movie, not yet as
 a promoted long-time turbulence validation. Promotion to a headline turbulence

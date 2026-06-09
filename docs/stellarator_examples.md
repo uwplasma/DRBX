@@ -22,6 +22,7 @@ operator, plotting, and artifact APIs used by the regression campaigns.
 | --- | --- | --- |
 | [`geometry_plotting_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py) | Build a deterministic non-axisymmetric geometry, export arrays, and plot surfaces, \(|B|\), connection length, and curvature-weighted FCI displacement. | [`build_synthetic_stellarator_geometry`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/geometry/stellarator.py), [`build_stellarator_fci_geometry_report`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_fci_geometry_campaign.py), [`save_stellarator_fci_geometry_plot`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_fci_geometry_campaign.py) |
 | [`linear_mode_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/linear_mode_demo.py) | Evolve a single field-aligned mode with linear drive, damping, parallel FCI diffusion, and perpendicular diffusion. | [`laplace_parallel_fci`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`laplace_perp_xz`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`save_stellarator_sol_snapshot_panel`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py) |
+| [`vorticity_bracket_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py) | Compose the JAX-native DRB RHS with a vorticity/potential solve and a tested logical \(E\times B\) bracket. | [`compute_fci_drb_rhs`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci_drb_rhs.py), [`logical_exb_bracket_xz`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`save_stellarator_sol_diagnostics_panel`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py) |
 | [`nonlinear_turbulence_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py) | Run the compact nonlinear reduced SOL benchmark and write snapshot, diagnostic, 3D poster, and GIF movie artifacts. | [`simulate_reduced_stellarator_sol_dynamics`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py), [`build_stellarator_sol_showcase_report`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py), [`save_stellarator_sol_3d_movie`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py) |
 | [`turbulent_profile_analysis_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py) | Analyze the nonlinear SOL history with radial fluctuation profiles, RMS intensity, transport-proxy profiles, connection-length weighting, and nonlinear energy traces. | [`build_synthetic_stellarator_geometry`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/geometry/stellarator.py), NumPy/Matplotlib postprocessing of the NPZ history written by `nonlinear_turbulence_demo.py` |
 | [`validation_campaign_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/validation_campaign_demo.py) | Regenerate the full promoted stellarator validation package. | Campaign builders in [`jax_drb.validation`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/__init__.py) |
@@ -29,6 +30,7 @@ operator, plotting, and artifact APIs used by the regression campaigns.
 Run an example with:
 
 ```bash
+PYTHONPATH=src python examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py
 PYTHONPATH=src python examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py
 PYTHONPATH=src python examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py
 ```
@@ -142,6 +144,29 @@ script exports the history as NPZ and uses the same plotting functions as the
 nonlinear campaign, allowing users to compare linear growth/decay against the
 nonlinear example without changing plotting code.
 
+## Vorticity and Bracket Example
+
+[`vorticity_bracket_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py)
+is the recommended first script for nonlinear stellarator physics. It builds a
+full `FciDrbState`, calls
+[`compute_fci_drb_rhs`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci_drb_rhs.py)
+for sheath/recycling, neutral reaction-diffusion, charge exchange, vorticity
+diffusion, and potential inversion, then advects density, pressure, and
+vorticity with the tested logical bracket
+[`logical_exb_bracket_xz`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py):
+
+```text
+{phi, f}_{s,theta}
+  = (partial_theta phi partial_s f - partial_s phi partial_theta f) / B.
+```
+
+This is the discrete \(E\times B\) nonlinear coupling used by the compact
+non-axisymmetric demonstration. The coefficients in the example are labeled as
+explicit timestep/model strengths, not fitted physical constants. For
+publication-grade turbulence claims, use this script as a starting point and
+then run grid-refinement, timestep-sensitivity, and reference-comparison
+campaigns before interpreting the resulting transport metrics.
+
 ## Nonlinear Reduced Turbulence Example
 
 [`nonlinear_turbulence_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py)
@@ -160,11 +185,13 @@ partial_t n_tilde
   - gamma n_tilde^3.
 ```
 
-Here \(C\) is a curvature proxy, \(N\) is a conservative nonlinear transfer
-proxy, and the cubic term prevents the compact explicit run from becoming an
-unbounded drive test. The outputs include R-Z panels at multiple toroidal
-angles, fluctuation RMS, skewness, radial-flux proxy, a toroidal-poloidal
-spectrum, and a 3D opened-surface view.
+Here \(C\) is a curvature proxy, \(N\) is a reduced nonlinear transfer proxy
+used for fast movie QA, and the cubic term prevents the compact explicit run
+from becoming an unbounded drive test. Use `vorticity_bracket_demo.py` when the
+goal is to inspect nonlinear coupling through a potential/vorticity solve
+rather than a scalar visualization benchmark. The outputs include R-Z panels
+at multiple toroidal angles, fluctuation RMS, skewness, radial-flux proxy, a
+toroidal-poloidal spectrum, and a 3D opened-surface view.
 
 The result diagnostics are patterned after the stellarator SOL literature,
 where fluctuation levels, skewness, coherent structures, spectra, radial flux,

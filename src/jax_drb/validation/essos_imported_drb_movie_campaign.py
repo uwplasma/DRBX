@@ -22,7 +22,7 @@ from ..geometry import (
     build_essos_vmec_scaled_qa_coordinates,
     resolve_essos_landreman_qa_wout,
 )
-from ..native.fci import conservative_perp_diffusion_xz
+from ..native.fci import conservative_perp_diffusion_xz, logical_exb_bracket_xz
 from ..native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
 from ..native.fci_neutral import compute_fci_neutral_reaction_diffusion
 from ..native.fci_sheath_recycling import compute_fci_sheath_recycling
@@ -1129,11 +1129,7 @@ def _seed_movie_multimode_fluctuations(state: FciDrbState, geometry: EssosImport
 
 
 def _logical_exb_advection(potential: jax.Array, field: jax.Array, geometry: EssosImportedFciGeometry) -> jax.Array:
-    dphi_dr = _radial_derivative(potential, geometry)
-    dphi_dtheta = _poloidal_derivative(potential, geometry)
-    df_dr = _radial_derivative(field, geometry)
-    df_dtheta = _poloidal_derivative(field, geometry)
-    bracket = dphi_dtheta * df_dr - dphi_dr * df_dtheta
+    bracket = logical_exb_bracket_xz(potential, field, geometry.metric)
     scale = jnp.maximum(jnp.mean(jnp.abs(bracket)), 1.0e-8)
     return bracket / scale
 
@@ -1145,12 +1141,6 @@ def _radial_derivative(field: jax.Array, geometry: EssosImportedFciGeometry) -> 
     first = (values[1, :, :] - values[0, :, :]) / jnp.maximum(spacing[0, :, :], 1.0e-30)
     last = (values[-1, :, :] - values[-2, :, :]) / jnp.maximum(spacing[-1, :, :], 1.0e-30)
     return centered.at[0, :, :].set(first).at[-1, :, :].set(last)
-
-
-def _poloidal_derivative(field: jax.Array, geometry: EssosImportedFciGeometry) -> jax.Array:
-    values = jnp.asarray(field, dtype=jnp.float64)
-    spacing = jnp.asarray(geometry.metric.dz, dtype=jnp.float64)
-    return (jnp.roll(values, -1, axis=2) - jnp.roll(values, 1, axis=2)) / jnp.maximum(2.0 * spacing, 1.0e-30)
 
 
 def _normalized_minor_radius_jax(geometry: EssosImportedFciGeometry) -> jax.Array:

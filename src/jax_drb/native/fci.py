@@ -179,6 +179,39 @@ def conservative_perp_diffusion_xz(
     return (div_x + div_z) / jnp.maximum(jac, 1.0e-30)
 
 
+def logical_exb_bracket_xz(
+    potential: jnp.ndarray,
+    field: jnp.ndarray,
+    metric: MetricTensor3D,
+    *,
+    periodic_x: bool = False,
+    periodic_z: bool = True,
+    b_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Return the logical perpendicular ``E x B`` bracket ``{phi, f}``.
+
+    This is the geometry-facing nonlinear advection seam for reduced
+    non-axisymmetric tests. In the logical radial/poloidal plane it evaluates
+
+    ``(d_z phi d_x f - d_x phi d_z f) / B``
+
+    with the grid spacing stored in ``metric``. The toroidal/FCI direction is
+    not differentiated here; field-line coupling enters through the FCI
+    operators and the potential/vorticity solve.
+    """
+
+    phi = jnp.asarray(potential, dtype=jnp.float64)
+    values = jnp.asarray(field, dtype=jnp.float64)
+    dphi_dx = _first_derivative_3d(phi, metric.dx, axis=0, periodic=periodic_x)
+    dphi_dz = _first_derivative_3d(phi, metric.dz, axis=2, periodic=periodic_z)
+    df_dx = _first_derivative_3d(values, metric.dx, axis=0, periodic=periodic_x)
+    df_dz = _first_derivative_3d(values, metric.dz, axis=2, periodic=periodic_z)
+    return (dphi_dz * df_dx - dphi_dx * df_dz) / jnp.maximum(
+        jnp.asarray(metric.Bxy, dtype=jnp.float64),
+        float(b_floor),
+    )
+
+
 def metric_weighted_scalar_laplacian_3d(
     field: jnp.ndarray,
     metric: MetricTensor3D,

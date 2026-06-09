@@ -112,6 +112,10 @@ The first native lane now consists of:
   writes the neutral diffusion/reaction conservation artifact.
 - `src/jax_drb/validation/stellarator_vorticity_campaign.py`, which writes
   the vorticity inversion and radial \(E\times B\) proxy artifact.
+- `src/jax_drb/native/fci.py::logical_exb_bracket_xz`, which provides the
+  first tested JAX-native perpendicular \(E\times B\) bracket seam for
+  pedagogical nonlinear stellarator examples and imported-geometry movie
+  advection.
 - `src/jax_drb/validation/stellarator_drb_pytree_campaign.py`, which writes
   the fixed-layout PyTree RHS, JVP, batched-objective, and multi-device
   profiling artifact.
