@@ -281,20 +281,18 @@ longer the dominant explanation for the neutral NVh mismatch. The remaining
 patch should compare accepted-step state/history sequencing and the near-target
 `Grad(logPnlim)`/flux-limit-cap preparation directly against this max-order-2
 trace before changing local source-term formulas.
-On the current `148/148` matched accepted-step trace, `Nh` is the dominant
-state-input drift, but the `eta_h` pointwise target-adjacent drift is about
-`49` times larger than the largest pointwise state-input drift (`99` times by
-the legacy zone metric). The diffusion ladder now shows that raw `Dnnh` differs
-by only `6.07e-4`, while the flux-limit cap differs by `5.27e-3` and the final
-boundary-applied `Dnnh` differs by `4.46e-3` in the actual pointwise target-cell
-comparison. The same accepted-step rerun reports `147` comparable solver-order
-points, `137` native/reference solver-order mismatches, and a maximum order
-delta of `3`; the worst `Dnnh_flux_max` point at
-`t = 2.9901189387441356` compares native BDF2 against reference order `5` with
-the same `dt`. That separates the offender from a directly state-sized density,
-pressure, momentum, raw-diffusion, or local flux-cap formula mismatch and
-points first at variable-order accepted-step state/history replay before
-viscosity or boundary formulas are changed.
+The June 9, 2026 max-order-2 rerun with the state-to-limiter amplification
+register matched `309/309` accepted-step points with zero solver-order
+mismatches. `Nh` is the dominant state-input drift (`6.83e-5` pointwise
+target-adjacent), `logPnlimh` is the dominant limiter input (`9.94e-5`), and
+the `Dnnh_raw -> Dnnh_flux_max` transition amplifies the target-pointwise error
+from `2.83e-4` to `5.13e-3`. Final boundary-applied `Dnnh` differs by
+`4.35e-3`. The resulting flux-cap amplification ratios are about `51.6x`
+relative to the limiter input and `75.0x` relative to the state input. That
+separates the offender from a directly state-sized density, pressure, momentum,
+raw-diffusion, or local source-term formula mismatch and points first at
+accepted-step state/history feeding neutral pressure/log-pressure preparation,
+with the near-target `Grad(logPnlim)` stencil as the secondary check.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

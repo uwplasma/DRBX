@@ -95,39 +95,35 @@ alignment to term-level offender reduction: native and reference accepted-step
 traces now share the 10 required fields (`Nh`, `Ph`, `NVh`, `ddt(Nh)`,
 `ddt(Ph)`, `ddt(NVh)`, `SNVh`, `SNVh_pressure_gradient`,
 `SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity`), and the native
-trace can replay the reference adaptive accepted-step time grid. A local
-reference-grid comparison of `neutral_mixed_one_step` currently matches
-`148/148` accepted points. With timestamps aligned and optional `Dnnh`, `Vh`,
-`eta_h`, `Dnnh` ladder traces, and reference `solver.order` values present, the
-leading target-adjacent offender is now the `Dnnh_flux_max` flux-limit cap
-rather than a missing pressure-gradient source formula or raw neutral-diffusion
-coefficient. The accepted-step monitor now also writes flattened
-target-adjacent and guard-band values, so this claim is based on pointwise cell
-differences rather than only differences between zone max/rms summaries.
-Limiter ladder fields are labeled `active_target_preboundary_diagnostic`;
-their guard values are retained for forensics but are not promoted as final
-boundary-condition evidence.
+trace can replay the reference adaptive accepted-step time grid. The preferred
+max-order-2 reference-grid comparison of `neutral_mixed_one_step` now matches
+`309/309` accepted points with zero solver-order mismatches. With timestamps
+aligned and optional `Dnnh`, `Vh`, `eta_h`, `Dnnh` ladder traces, target/guard
+payloads, reference `solver.order` values, and the new state-to-limiter
+amplification register present, the leading target-adjacent offender is still
+the `Dnnh_flux_max` flux-limit cap rather than a missing pressure-gradient
+source formula or raw neutral-diffusion coefficient. The accepted-step monitor
+now also writes flattened target-adjacent and guard-band values, so this claim
+is based on pointwise cell differences rather than only differences between
+zone max/rms summaries. Limiter ladder fields are labeled
+`active_target_preboundary_diagnostic`; their guard values are retained for
+forensics but are not promoted as final boundary-condition evidence.
 The native `grad_logPnlim*` implementation now evaluates the covariant
 `|Grad(logPnlim)|` norm with the carried `g11`, `g22`, `g33`, and supported
 `g23` metric terms, removing metric-norm semantics as a formula-level blocker.
 The final-state input-closure diagnostic now reconstructs `Dnn`, `Vh`, and
 `eta_h` from a reference dump and matches those reference diagnostics to
-roundoff. The accepted-step comparator reports raw `Dnnh` target drift of
-`6.07e-4`, `Dnnh_flux_max` pointwise target drift of `5.27e-3`, final `Dnnh`
-pointwise target drift of `4.46e-3`, and `eta_h` pointwise target drift of
-about `3.23e-3`; `eta_h` is still about `49` times larger than the largest
-pointwise state-input drift (`99` times by the legacy zone metric). At the
-worst upper-target cell, native `grad_logPnlimh` is
-`0.0130723` while the reference value is `0.0131171`. A direct algebraic check
-at the worst cell closes the flux-cap formula itself. The same rerun reports
-`147` comparable solver-order points, `137` native/reference solver-order
-mismatches, and the worst `Dnnh_flux_max` point at
-`t = 2.9901189387441356` compares native BDF2 with reference order `5` at the
-same `dt`. The next parity patch therefore belongs in variable-order
-accepted-step state-history replay feeding the near-target gradient before the
-flux cap is formed. The parallel-viscosity source remains an accepted-step
-flux-cap or boundary-sequencing offender rather than a formula-level closure
-mismatch.
+roundoff. The June 9, 2026 max-order-2 comparator reports `Dnnh_flux_max`
+pointwise target drift of `5.13e-3`, final `Dnnh` pointwise target drift of
+`4.35e-3`, raw `Dnnh` drift of `2.83e-4`, dominant state-input drift in `Nh`
+of `6.83e-5`, and dominant limiter-input drift in `logPnlimh` of `9.94e-5`.
+The state-to-limiter register reports amplification of about `51.6x` from
+limiter input to flux cap and about `75.0x` from state input to flux cap. The
+next parity patch therefore belongs in accepted-step state/history sequencing
+feeding neutral pressure/log-pressure preparation, with the near-target
+`Grad(logPnlim)` stencil as the secondary check. The parallel-viscosity source
+remains an accepted-step flux-cap or boundary-sequencing offender rather than a
+formula-level closure mismatch.
 
 | Open lane | Current evidence | Command surface | Publication-ready output |
 | --- | --- | --- | --- |

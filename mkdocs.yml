@@ -43,6 +43,7 @@ nav:
       - Profiling Runtime: profiling_runtime.md
       - Runtime Gap Remediation: runtime_gap_remediation.md
   - Geometry:
+      - Connection Length: connection_length.md
       - Stellarator Examples: stellarator_examples.md
       - Stellarator FCI Validation: stellarator_fci_validation.md
       - VMEC Extender Edge Fields: vmec_extender_edge_fields.md

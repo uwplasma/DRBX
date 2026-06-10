@@ -216,6 +216,20 @@ accepted state, patch accepted-state/history sequencing; if the state fields
 close but `grad_logPnlim*` remains open, patch the near-target gradient stencil
 or boundary preparation.
 
+The June 9, 2026 rerun of the same max-order-2 lane with this amplification
+register produced `309` reference accepted-step records and the native replay
+matched `309/309` points with zero solver-order mismatches. The leading
+target-adjacent offender remains `Dnnh_flux_max` with pointwise drift
+`5.12775405e-3`; final `Dnnh`, diffusion-limited `Dnnh`, and flux-limited
+`Dnnh` are all `4.34931095e-3`. The state-to-limiter register identifies `Nh`
+as the dominant state input (`6.83373024e-5`) and `logPnlimh` as the dominant
+limiter input (`9.94412691e-5`). The flux cap amplifies the limiter-input
+drift by about `51.6x` and the state-input drift by about `75.0x`. This
+narrows the next parity patch to accepted-step state/history sequencing that
+feeds neutral pressure/log-pressure preparation, with a secondary check on the
+near-target `Grad(logPnlim)` stencil; it does not support changing the local
+pressure-gradient, viscosity, or raw diffusion formulas.
+
 A final-state input-closure cross-check reconstructs `Dnn`, `Vh`, and `eta_h`
 from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares those
 arrays with the reference `BOUT.dmp.0.nc` diagnostics. This closes the neutral

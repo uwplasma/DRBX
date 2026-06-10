@@ -17,6 +17,9 @@ For a step-by-step, user-editable version of the same workflow, start with
 figure to a runnable script, links the source code functions used by the
 examples, and separates the linear mode, nonlinear reduced-turbulence, and
 geometry plotting cases.
+For the distinction between synthetic connection-length proxies, imported
+wall-hit lengths, adjacent-plane arc lengths, and effective \(L_\parallel\)
+closures, see [Connection Length](connection_length.md).
 
 The focused regression gate is:
 

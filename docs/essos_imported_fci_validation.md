@@ -41,6 +41,9 @@ JSON/NPZ/PNG package under
 `coil`, `vmec`, or `hybrid` connection-length arrays can be passed to the same
 `create_essos_imported_connection_length_refinement_package` API once repeated
 imported traces are available.
+For definitions of one-sided, target-to-target, and effective parallel
+connection length, and for the exact code paths used by each geometry source,
+see [Connection Length](connection_length.md).
 
 ![Manufactured nested-grid connection-length refinement](data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png)
 

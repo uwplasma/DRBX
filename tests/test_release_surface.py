@@ -35,6 +35,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "stellarator_vmec_scaffold_demo.md",
     REPO_ROOT / "docs" / "stellarator_vmec_selected_field_demo.md",
     REPO_ROOT / "docs" / "stellarator_vmec_native_selected_field_demo.md",
+    REPO_ROOT / "docs" / "connection_length.md",
     REPO_ROOT / "docs" / "essos_fieldline_import.md",
     REPO_ROOT / "docs" / "essos_imported_fci_validation.md",
     REPO_ROOT / "docs" / "essos_imported_pytree_validation.md",
