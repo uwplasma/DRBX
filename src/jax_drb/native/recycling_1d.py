@@ -2670,6 +2670,7 @@ def _new_adaptive_bdf_interval_stats(
     return {
         "adaptive_bdf_accepted_steps": 0,
         "adaptive_bdf_rejected_steps": 0,
+        "adaptive_bdf_reused_history_after_rejection": 0,
         "adaptive_bdf_minimum_dt_fallbacks": 0,
         "adaptive_bdf_startup_trials": 0,
         "adaptive_bdf_bdf2_trials": 0,
@@ -3061,6 +3062,7 @@ def _accumulate_adaptive_bdf_interval_stats(
     count_keys = (
         "adaptive_bdf_accepted_steps",
         "adaptive_bdf_rejected_steps",
+        "adaptive_bdf_reused_history_after_rejection",
         "adaptive_bdf_minimum_dt_fallbacks",
         "adaptive_bdf_startup_trials",
         "adaptive_bdf_bdf2_trials",
@@ -3217,6 +3219,11 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     interval_started_at = time.perf_counter()
     field_absolute_tolerance_floors = _resolve_recycling_adaptive_bdf_field_atol_floors(
         config, field_names
+    )
+    reuse_rejected_bdf2_history = (
+        _resolve_recycling_adaptive_bdf_reuse_rejected_history(
+            config, step_solver_mode=step_solver_mode
+        )
     )
     sparse_jvp_workspace = (
         _build_recycling_sparse_jvp_workspace(
@@ -3449,9 +3456,14 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             int(stats["adaptive_bdf_rejected_steps"]) + 1
         )
         dt = max(0.5 * dt, minimum_dt)
-        prev_fields = None
-        prev_integrals = None
-        prev_dt = None
+        if use_bdf2 and reuse_rejected_bdf2_history:
+            stats["adaptive_bdf_reused_history_after_rejection"] = (
+                int(stats["adaptive_bdf_reused_history_after_rejection"]) + 1
+            )
+        else:
+            prev_fields = None
+            prev_integrals = None
+            prev_dt = None
 
     _add_adaptive_bdf_elapsed(
         stats, "adaptive_bdf_interval_wall_seconds", interval_started_at
@@ -5381,6 +5393,19 @@ def _resolve_recycling_adaptive_bdf_field_atol_floors(
         elif density_floor is not None and name.startswith("N"):
             floors[name] = float(density_floor)
     return floors
+
+
+def _resolve_recycling_adaptive_bdf_reuse_rejected_history(
+    config: BoutConfig | None = None,
+    *,
+    step_solver_mode: str = "sparse",
+) -> bool:
+    return _resolve_bool_runtime_option(
+        config,
+        option_name="recycling_adaptive_bdf_reuse_rejected_history",
+        env_name="JAX_DRB_RECYCLING_ADAPTIVE_BDF_REUSE_REJECTED_HISTORY",
+        default="jax_linearized" in str(step_solver_mode),
+    )
 
 
 def _resolve_recycling_jax_linear_solver_backend() -> str:

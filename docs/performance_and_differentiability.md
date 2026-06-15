@@ -928,20 +928,22 @@ promotion gate.
 With these checks, the local single-species gate has now been extended to a
 `timestep=1.0` diagnostic output window on the reference recycling deck. The
 current variable-step BDF2 controller completed the in-tree JAX GMRES run in
-about `174 s`, took `21` accepted substeps and `6` rejected trials, reported
-`61` implicit trial solves, reused BDF2 history on `20` trial solves, accepted
-`19` of those BDF2 trials, and had zero fallback, zero unconverged substeps,
-and `adaptive_bdf_max_accepted_error_ratio=9.315e-1`. The previous
+about `108 s`, took `21` accepted substeps and `3` rejected trials, reported
+`50` implicit trial solves, reused valid BDF2 history after `2` rejected
+trials, accepted `20` BDF2 correctors, and had zero fallback, zero unconverged
+substeps, zero failed linear solves, and
+`adaptive_bdf_max_accepted_error_ratio=9.315e-1`. Earlier retained artifacts
+for the same gate needed `61` trial solves and about `174 s`, while the older
 constant-step-history-reset controller needed `207` trial solves and about
-`259 s` on the same gate, so the new history policy removes most restart
-overhead without loosening the embedded-error acceptance policy. On the same
-`timestep=1.0` gate, `adaptive_bdf_jax_linearized_lineax` produced the same
-controller diagnostics and ran in about `152 s` on this local CPU. This is
-useful backend evidence, but not yet enough to change the default production
-solver because the full output-window recycling path still needs the same
-parity and runtime gates. This remains a bounded solver-health result rather
-than a full parity claim; the committed reference one-step deck still uses the
-full `timestep=5000` output interval.
+`259 s`. The rejected-history reuse policy therefore removes restart overhead
+without loosening the embedded-error acceptance policy. On the same
+`timestep=1.0` gate, `adaptive_bdf_jax_linearized_lineax` now ran in about
+`91 s` but reported `41` failed inner linear solves; it is faster but remains
+negative promotion evidence until the backend reports clean linear convergence.
+The JAX GMRES result is therefore the current bounded solver-health reference,
+not a default-production solver claim, because the committed reference one-step
+deck still uses the full `timestep=5000` output interval and the D/T/He heavy
+case must pass the same parity/runtime gates.
 The active-array version of the same bounded gate now uses the damped
 JAX-linearized startup step by default and completed locally in about `103 s`,
 with `21` accepted substeps, `2` rejected trials, `49` active-array
@@ -957,7 +959,8 @@ There is also an optional Lineax evaluation seam for transformable gates:
 update through a Lineax GMRES `FunctionLinearOperator`. This is intentionally
 not a required dependency and not the default; it gives a controlled way to
 compare JAX-native Krylov backends once the residual itself is free of host
-barriers.
+barriers. Current promotion gates must treat Lineax speedups as unusable when
+`adaptive_bdf_linear_solver_failed_steps` is nonzero.
 
 The JAX-GMRES path also has an opt-in row-scaling preconditioner hook through
 `runtime:recycling_jax_linear_preconditioner=state_scale` or

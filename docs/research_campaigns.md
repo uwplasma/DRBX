@@ -274,10 +274,12 @@ For the remaining recycling solver work, the order is therefore fixed:
   the current local result for this gate is a pass at `timestep=1.0` with zero
   fallback, zero unconverged substeps, and
   `adaptive_bdf_max_accepted_error_ratio=9.315e-1`; the variable-step BDF2
-  controller used `21` accepted steps, `6` rejected trials, `61` implicit trial
-  solves, `20` BDF2 trial solves, and `19` accepted BDF2 trial solves, so
-  increase the timeout on laptops because the measured wall time was about
-  `174 s`. The same gate now also requires route provenance:
+  controller used `21` accepted steps, `3` rejected trials, `50` implicit trial
+  solves, `22` BDF2 trial solves, `20` accepted BDF2 correctors, and reused
+  valid BDF history after `2` rejected trials. Increase the timeout on laptops
+  because the measured wall time was about `108 s`, with the linear solve still
+  accounting for about `86 s`. The same gate now also requires route
+  provenance:
   `adaptive_bdf_fixed_full_field_rhs_solver_steps` must be positive for every
   opt-in JAX/JVP adaptive mode, `adaptive_bdf_sparse_jvp_jacobian_solver_steps`
   must be positive for `adaptive_bdf_sparse_jvp`, and
@@ -299,11 +301,12 @@ For the remaining recycling solver work, the order is therefore fixed:
 - keep the Lineax seam as an opt-in backend comparison. The current
   `timestep=1.0` adaptive-BDF gate has identical controller diagnostics for
   `adaptive_bdf_jax_linearized` and `adaptive_bdf_jax_linearized_lineax`
-  (`21` accepted substeps, `6` rejected trials, `61` implicit trial solves,
+  (`21` accepted substeps, `3` rejected trials, `50` implicit trial solves,
   zero fallback, zero unconverged substeps,
   `adaptive_bdf_max_accepted_error_ratio=9.315e-1`). On the local CPU, Lineax
-  GMRES ran in about `152 s` versus about `174 s` for the in-tree JAX GMRES
-  path, which is useful evidence but not a default-solver promotion;
+  GMRES ran in about `91 s` versus about `108 s` for the in-tree JAX GMRES
+  path, but it reported `41` failed inner linear solves. Treat that as negative
+  promotion evidence until the backend is made convergence-clean;
 - report `bdf_jvp_jacobian_linearize_seconds`,
   `bdf_jvp_jacobian_push_seconds`, and
   `bdf_jvp_jacobian_total_seconds` for any fixed-JVP run, and also check
