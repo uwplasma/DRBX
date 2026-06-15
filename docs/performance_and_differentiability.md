@@ -354,17 +354,21 @@ surface. The history diagnostics record
 and `bdf_jacobian_mode="jvp"` so profile artifacts identify the route
 explicitly. The active-array bridge is intentionally opt-in through
 `scripts/run_recycling_jvp_promotion_gate.py --include-active-array-jvp`: the
-current local fixture run timed out before completing that mode at the default
-150 s per-mode budget. Both routes therefore remain parity/runtime experiments
-rather than defaults until full output-window campaigns show equal reference
-agreement with lower call count and memory use. The current self-contained gate is:
+current local fixture run exceeded the stable BDF baseline by more than an
+order of magnitude before completing that mode. Both routes therefore remain
+parity/runtime experiments rather than defaults until full output-window
+campaigns show equal reference agreement with lower call count and memory use.
+The current self-contained gate is:
 `PYTHONPATH=src python scripts/run_recycling_jvp_promotion_gate.py`. It runs the
 hydrogen and D/T/He one-step decks from the committed lightweight fixture root
 unless `JAX_DRB_REFERENCE_ROOT` or `--reference-root` points to a live reference
 checkout. Add `--output-dir docs/data/runtime_profile_artifacts/<new-run>` for
 release or paper audits; the wrapper writes one JSON report per case and gate
 phase plus an aggregate `summary.json` with commands, thresholds, return codes, timings,
-diagnostics, and pairwise deltas. The latest two-output-window hydrogen gate
+diagnostics, and pairwise deltas. Use `--mode-timeout-seconds <seconds>` for
+bounded experimental probes, especially when adding
+`--include-active-array-jvp`, so a slow migration route does not consume a full
+promotion run. The latest two-output-window hydrogen gate
 passes with worst active-mesh BDF-vs-fixed-JVP delta `7.20e-6` under the
 `1e-5` threshold; the refreshed two-output-window D/T/He gate passes with worst
 delta `1.02e-6` under the `2e-5` threshold. The
