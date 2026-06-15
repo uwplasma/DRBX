@@ -2434,13 +2434,15 @@ def test_recycling_adaptive_bdf_routes_bdf2_trials_through_requested_step_solver
     fields = {"Nd+": np.ones((1, 4, 1), dtype=np.float64)}
     previous_fields = {"Nd+": np.full((1, 4, 1), 0.9, dtype=np.float64)}
     calls: list[str] = []
+    be_predictor = {"Nd+": np.full((1, 4, 1), 1.25, dtype=np.float64)}
+    bdf2_initial_guesses: list[dict[str, np.ndarray] | None] = []
 
     def fake_be(config, step_fields, **kwargs):
         calls.append(kwargs["solver_mode"])
         return (
             {
                 name: np.asarray(value, dtype=np.float64)
-                for name, value in step_fields.items()
+                for name, value in be_predictor.items()
             },
             {},
             SimpleNamespace(residual_inf_norm=0.0),
@@ -2448,6 +2450,7 @@ def test_recycling_adaptive_bdf_routes_bdf2_trials_through_requested_step_solver
 
     def fake_bdf2(config, step_fields, previous_step_fields, **kwargs):
         calls.append(kwargs["solver_mode"])
+        bdf2_initial_guesses.append(kwargs.get("initial_guess_fields"))
         return (
             {
                 name: np.asarray(value, dtype=np.float64)
@@ -2494,6 +2497,63 @@ def test_recycling_adaptive_bdf_routes_bdf2_trials_through_requested_step_solver
     )
 
     assert calls == ["jax_linearized", "jax_linearized"]
+    assert len(bdf2_initial_guesses) == 1
+    assert bdf2_initial_guesses[0] is not None
+    np.testing.assert_allclose(
+        bdf2_initial_guesses[0]["Nd+"],
+        be_predictor["Nd+"],
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+def test_recycling_bdf2_be_initial_guess_resolver_honors_runtime_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("JAX_DRB_RECYCLING_BDF2_USE_BE_INITIAL_GUESS", raising=False)
+    config = parse_bout_input("[runtime]\n")
+
+    assert (
+        recycling_1d_mod._resolve_recycling_bdf2_use_be_initial_guess(
+            config,
+            step_solver_mode="jax_linearized",
+        )
+        is True
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_bdf2_use_be_initial_guess(
+            config,
+            step_solver_mode="active_array_jax_linearized",
+        )
+        is True
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_bdf2_use_be_initial_guess(
+            config,
+            step_solver_mode="sparse",
+        )
+        is False
+    )
+
+    disabled_config = parse_bout_input(
+        "[runtime]\nrecycling_bdf2_use_be_initial_guess = false\n"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_bdf2_use_be_initial_guess(
+            disabled_config,
+            step_solver_mode="jax_linearized",
+        )
+        is False
+    )
+
+    monkeypatch.setenv("JAX_DRB_RECYCLING_BDF2_USE_BE_INITIAL_GUESS", "1")
+    assert (
+        recycling_1d_mod._resolve_recycling_bdf2_use_be_initial_guess(
+            config,
+            step_solver_mode="sparse",
+        )
+        is True
+    )
 
 
 def test_adaptive_bdf_step_solver_mode_maps_supported_backends() -> None:

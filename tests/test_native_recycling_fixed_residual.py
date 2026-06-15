@@ -442,6 +442,60 @@ def test_active_array_bdf2_residual_matches_full_field_oracle_on_dthe_deck() -> 
     )
 
 
+def test_bdf2_residual_context_accepts_supplied_initial_guess_fields() -> None:
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        fields,
+        feedback_integrals,
+        _,
+    ) = _dthe_fixture_context()
+    previous_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True) * (1.0 - 1.0e-6)
+        for name, value in fields.items()
+    }
+    previous_feedback_integrals = {
+        name: value - 1.0e-8 for name, value in feedback_integrals.items()
+    }
+    initial_guess_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True) * (1.0 + 2.0e-5)
+        for name, value in fields.items()
+    }
+
+    context = build_recycling_1d_bdf2_residual_context(
+        config,
+        fields,
+        previous_fields,
+        runtime_model=runtime_model,
+        feedback_integrals=feedback_integrals,
+        previous_feedback_integrals=previous_feedback_integrals,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=1.0e-6,
+        previous_timestep=1.25e-6,
+        initial_guess_fields=initial_guess_fields,
+    )
+    expected = pack_recycling_active_state(
+        initial_guess_fields,
+        feedback_integrals=feedback_integrals,
+        field_names=runtime_model.field_names,
+        feedback_names=(),
+        mesh=mesh,
+        layout=context.layout,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(context.packed_initial_guess, dtype=np.float64),
+        np.asarray(expected, dtype=np.float64),
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
 def test_active_array_fixture_residual_supports_jit_jvp_and_vmap() -> None:
     jax = pytest.importorskip("jax")
     import jax.numpy as jnp

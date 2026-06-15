@@ -2675,6 +2675,7 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_startup_trials": 0,
         "adaptive_bdf_bdf2_trials": 0,
         "adaptive_bdf_bdf2_accepted_steps": 0,
+        "adaptive_bdf_bdf2_be_initial_guess_enabled": 0,
         "adaptive_bdf_trial_solver_steps": 0,
         "adaptive_bdf_unconverged_solver_steps": 0,
         "adaptive_bdf_unknown_convergence_solver_steps": 0,
@@ -3147,6 +3148,10 @@ def _accumulate_adaptive_bdf_interval_stats(
         total["adaptive_bdf_last_accepted_error_ratio"] = float(
             step["adaptive_bdf_last_accepted_error_ratio"]
         )
+    total["adaptive_bdf_bdf2_be_initial_guess_enabled"] = max(
+        int(total.get("adaptive_bdf_bdf2_be_initial_guess_enabled", 0) or 0),
+        int(step.get("adaptive_bdf_bdf2_be_initial_guess_enabled", 0) or 0),
+    )
     total["adaptive_bdf_step_solver_mode"] = str(
         step.get(
             "adaptive_bdf_step_solver_mode", total["adaptive_bdf_step_solver_mode"]
@@ -3239,6 +3244,11 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             config, step_solver_mode=step_solver_mode
         )
     )
+    use_be_initial_guess = _resolve_recycling_bdf2_use_be_initial_guess(
+        config,
+        step_solver_mode=step_solver_mode,
+    )
+    stats["adaptive_bdf_bdf2_be_initial_guess_enabled"] = int(use_be_initial_guess)
     sparse_jvp_workspace = (
         _build_recycling_sparse_jvp_workspace(
             field_names=field_names,
@@ -3352,6 +3362,10 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 residual_tolerance=residual_tolerance,
                 max_nonlinear_iterations=max_nonlinear_iterations,
                 sparse_jvp_workspace=sparse_jvp_workspace,
+                initial_guess_fields=be_fields if use_be_initial_guess else None,
+                initial_guess_feedback_integrals=be_integrals
+                if use_be_initial_guess
+                else None,
             )
             bdf2_elapsed = max(0.0, float(time.perf_counter()) - float(bdf2_started_at))
             stats["adaptive_bdf_bdf2_trial_seconds"] = (
@@ -4246,6 +4260,8 @@ def build_recycling_1d_bdf2_residual_context(
     previous_timestep: float | None = None,
     evolve_feedback_integrals: bool = False,
     rhs_backend: str = "host_bridge",
+    initial_guess_fields: dict[str, np.ndarray] | None = None,
+    initial_guess_feedback_integrals: dict[str, float] | None = None,
 ) -> Recycling1DBackwardEulerResidualContext:
     """Build the fixed-layout variable-step BDF2 residual for recycling.
 
@@ -4290,20 +4306,32 @@ def build_recycling_1d_bdf2_residual_context(
         mesh=mesh,
         layout=layout,
     )
-    packed_initial_guess = _predict_recycling_packed_state(
-        config,
-        fields,
-        runtime_model=runtime_model,
-        feedback_integrals=feedback_integrals,
-        feedback_previous_errors=previous_feedback_errors,
-        field_names=field_names,
-        feedback_names=packed_feedback_names,
-        mesh=mesh,
-        metrics=metrics,
-        dataset_scalars=dataset_scalars,
-        timestep=timestep,
-        layout=layout,
-    )
+    if initial_guess_fields is None:
+        packed_initial_guess = _predict_recycling_packed_state(
+            config,
+            fields,
+            runtime_model=runtime_model,
+            feedback_integrals=feedback_integrals,
+            feedback_previous_errors=previous_feedback_errors,
+            field_names=field_names,
+            feedback_names=packed_feedback_names,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            timestep=timestep,
+            layout=layout,
+        )
+    else:
+        packed_initial_guess = _pack_recycling_active_state(
+            initial_guess_fields,
+            feedback_integrals=initial_guess_feedback_integrals
+            if initial_guess_feedback_integrals is not None
+            else feedback_integrals,
+            field_names=field_names,
+            feedback_names=packed_feedback_names,
+            mesh=mesh,
+            layout=layout,
+        )
 
     feedback_timestep = None if packed_feedback_names else timestep
     if rhs_backend == "active_array":
@@ -4668,6 +4696,8 @@ def advance_recycling_1d_bdf2_step(
     max_nonlinear_iterations: int = 20,
     evolve_feedback_integrals: bool = False,
     sparse_jvp_workspace: SparseJvpWorkspace | None = None,
+    initial_guess_fields: dict[str, np.ndarray] | None = None,
+    initial_guess_feedback_integrals: dict[str, float] | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
     rhs_backend = _recycling_solver_rhs_backend(solver_mode)
     context = build_recycling_1d_bdf2_residual_context(
@@ -4684,6 +4714,8 @@ def advance_recycling_1d_bdf2_step(
         previous_timestep=previous_timestep,
         evolve_feedback_integrals=evolve_feedback_integrals,
         rhs_backend=rhs_backend,
+        initial_guess_fields=initial_guess_fields,
+        initial_guess_feedback_integrals=initial_guess_feedback_integrals,
     )
     runtime_model = context.runtime_model
     field_names = context.field_names
@@ -5420,6 +5452,19 @@ def _resolve_recycling_adaptive_bdf_reuse_rejected_history(
         config,
         option_name="recycling_adaptive_bdf_reuse_rejected_history",
         env_name="JAX_DRB_RECYCLING_ADAPTIVE_BDF_REUSE_REJECTED_HISTORY",
+        default="jax_linearized" in str(step_solver_mode),
+    )
+
+
+def _resolve_recycling_bdf2_use_be_initial_guess(
+    config: BoutConfig | None = None,
+    *,
+    step_solver_mode: str = "sparse",
+) -> bool:
+    return _resolve_bool_runtime_option(
+        config,
+        option_name="recycling_bdf2_use_be_initial_guess",
+        env_name="JAX_DRB_RECYCLING_BDF2_USE_BE_INITIAL_GUESS",
         default="jax_linearized" in str(step_solver_mode),
     )
 

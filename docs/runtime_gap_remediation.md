@@ -317,6 +317,14 @@ repeat those knobs without a changed residual or preconditioner. The
 `linearized_diag` diagnostic is also opt-in: it builds an exact JVP-derived
 Jacobian diagonal after `jax.linearize`, but the first fixed-layout hydrogen
 probe spent enough time building the diagonal that it did not improve the gate.
+The follow-up BDF2 initial-guess cleanup is similarly bounded: JAX-linearized
+adaptive-BDF modes now pass the embedded backward-Euler predictor into the
+BDF2 corrector initial state. The hydrogen `recycling_1d_one_step`,
+`timestep=1.0` gate completed cleanly in `106.3 s` with `42` fixed-layout
+JAX-linearized trial solves and no failed substeps, but still spent `85.4 s`
+in Krylov linear solves. This keeps the seam useful for convergence studies
+while confirming that the next performance patch must reduce Krylov work or
+residual/JVP kernel cost, not only alter initial guesses.
 The next opt-in non-SciPy lane is
 `runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized` or the
 `fixed_bdf2_jax_linearized_lineax` variant. It bypasses the SciPy `solve_ivp`
