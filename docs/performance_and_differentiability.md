@@ -971,15 +971,27 @@ barriers. Current promotion gates must treat Lineax speedups as unusable when
 The native JAX BiCGSTAB backend is similarly opt-in; it is useful as an
 algorithmic probe but not a current speedup lane on the retained hydrogen gate.
 
-The JAX-GMRES path also has an opt-in row-scaling preconditioner hook through
-`runtime:recycling_jax_linear_preconditioner=state_scale` or
-`JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER=state_scale`. This is a diagnostic
-seam, not a promoted accelerator. On the June 15, 2026 local hydrogen
-fixed-layout gate, the unpreconditioned solve ran in `2.96 s`, while the
-state-scale preconditioned solve ran in `7.25 s` with the same residual norm
-and solver status. That negative evidence keeps the current preconditioner
-off by default and points the next performance work toward block physics
-preconditioning, cheaper residual/JVP kernels, and heavy D/T/He profiling.
+The JAX-GMRES path also has opt-in preconditioner hooks through
+`runtime:recycling_jax_linear_preconditioner=<name>` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER=<name>`. The current diagnostic
+names are `state_scale`, which scales each packed residual row by the matching
+initial-state magnitude, and `field_scale`, which scales each fixed-layout
+field block by a conservative RMS field scale while leaving feedback rows
+separate. These are diagnostic seams, not promoted accelerators. On the
+June 15, 2026 local hydrogen fixed-layout gate, the unpreconditioned solve ran
+in `2.96 s`, while `state_scale` ran in `7.25 s` with the same residual norm
+and solver status. A follow-up `field_scale` fixed-layout probe at
+`timestep=1.0` ran in `3.38 s`, reached the full `400` GMRES update budget,
+and did not improve the residual. On the adaptive hydrogen
+`adaptive_bdf_jax_linearized`, `timestep=1.0` gate, `field_scale` completed
+cleanly but slowed to `111.8 s` and reported `9` unknown inner linear statuses,
+whereas the retained unpreconditioned run is about `108 s` with clean solver
+status. A lower `maxiter=8` JAX-GMRES budget also slowed to `116.6 s`, and
+`runtime:recycling_jax_linear_jit_residual=true` exceeded a `220 s` guard on
+the same gate. This negative evidence keeps all current preconditioner and JIT
+variants off by default and points the next performance work toward a true
+physics preconditioner, fewer accepted trial solves, or a cheaper residual/JVP
+kernel before spending more D/T/He wall time.
 
 The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:

@@ -2713,6 +2713,11 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
         == "state_scale"
     )
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "block-scale")
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
+        == "field_scale"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "unknown")
     assert recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name() is None
 
@@ -2757,6 +2762,74 @@ def test_recycling_state_scale_preconditioner_scales_packed_rows() -> None:
     )
 
 
+def test_recycling_field_scale_preconditioner_scales_field_blocks() -> None:
+    layout = SimpleNamespace(
+        active_shape=(2,),
+        field_names=("Nd+", "Pe"),
+        feedback_names=("density_error",),
+    )
+    preconditioner = recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+        np.asarray([3.0, 4.0, 0.0, 8.0, -10.0], dtype=np.float64),
+        name="field_scale",
+        layout=layout,
+    )
+
+    assert preconditioner is not None
+    np.testing.assert_allclose(
+        np.asarray(
+            preconditioner(np.asarray([5.0, 5.0, 8.0, 8.0, 20.0], dtype=np.float64))
+        ),
+        np.asarray(
+            [
+                5.0 / np.sqrt(12.5),
+                5.0 / np.sqrt(12.5),
+                8.0 / np.sqrt(32.0),
+                8.0 / np.sqrt(32.0),
+                2.0,
+            ],
+            dtype=np.float64,
+        ),
+    )
+
+
+def test_recycling_field_scale_preconditioner_handles_no_feedback_and_empty_layout() -> None:
+    no_feedback_layout = SimpleNamespace(
+        active_shape=(2,),
+        field_names=("Nd+",),
+        feedback_names=(),
+    )
+    no_feedback_preconditioner = (
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([0.25, -0.5], dtype=np.float64),
+            name="field_scale",
+            layout=no_feedback_layout,
+        )
+    )
+    assert no_feedback_preconditioner is not None
+    np.testing.assert_allclose(
+        np.asarray(
+            no_feedback_preconditioner(np.asarray([2.0, -3.0], dtype=np.float64))
+        ),
+        np.asarray([2.0, -3.0], dtype=np.float64),
+    )
+
+    empty_layout = SimpleNamespace(
+        active_shape=(0,),
+        field_names=("Nd+",),
+        feedback_names=(),
+    )
+    empty_preconditioner = recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+        np.asarray([], dtype=np.float64),
+        name="field_scale",
+        layout=empty_layout,
+    )
+    assert empty_preconditioner is not None
+    np.testing.assert_allclose(
+        np.asarray(empty_preconditioner(np.asarray([], dtype=np.float64))),
+        np.asarray([], dtype=np.float64),
+    )
+
+
 def test_recycling_runtime_option_resolvers_reject_invalid_preconditioner_and_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2781,6 +2854,11 @@ def test_recycling_runtime_option_resolvers_reject_invalid_preconditioner_and_co
         recycling_1d_mod._build_recycling_jax_linear_preconditioner(
             np.asarray([1.0], dtype=np.float64),
             name="unsupported",
+        )
+    with pytest.raises(ValueError, match="layout is required"):
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([1.0], dtype=np.float64),
+            name="field_scale",
         )
 
 

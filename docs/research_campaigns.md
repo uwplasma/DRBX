@@ -167,7 +167,14 @@ completed startup trials used `153.3 s`, only one completed substep reported
 linear-solver success, and the remaining Lineax statuses reported iterative
 breakdown or non-finite output. Future promotion gates must therefore check
 `adaptive_bdf_linear_solver_failed_steps == 0`, not only nonlinear convergence
-and embedded-error ratios. The strongest measured path is now
+and embedded-error ratios. A later hydrogen adaptive-BDF control confirmed the
+same conclusion on the cheaper full-controller gate: opt-in `field_scale`
+preconditioning completed but slowed to `111.8 s` with `9` unknown inner linear
+statuses, a lower `JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER=8` budget slowed to
+`116.6 s`, and `runtime:recycling_jax_linear_jit_residual=true` timed out at a
+`220 s` guard. Do not spend the next D/T/He campaign allocation on these
+specific knobs unless the residual or preconditioner implementation changes.
+The strongest measured path is now
 `adaptive_bdf_sparse_jvp`: in the same 180-second trace window it completed
 `96` implicit trials, reached BDF2, and reduced average completed-trial cost to
 about `1.8 s`, with sparse linear solves near milliseconds. That route still

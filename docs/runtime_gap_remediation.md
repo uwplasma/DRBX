@@ -307,6 +307,13 @@ The recycling BE/BDF2 wrappers expose the same seam through
 `runtime:recycling_jax_linear_jit_residual=true` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL=1`, so profiling decks can pin the
 pre-JIT behavior without changing the finite-difference BDF default.
+They also expose opt-in JAX-GMRES row-scaling probes through
+`runtime:recycling_jax_linear_preconditioner=state_scale` or `field_scale`
+and the matching `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER` environment
+variable. These remain diagnostics only. The June 15, 2026 hydrogen adaptive
+BDF gate showed that `field_scale`, lower `maxiter=8`, and residual JIT did
+not improve wall time or solver status, so the next runtime patch should not
+repeat those knobs without a changed residual or preconditioner.
 The next opt-in non-SciPy lane is
 `runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized` or the
 `fixed_bdf2_jax_linearized_lineax` variant. It bypasses the SciPy `solve_ivp`

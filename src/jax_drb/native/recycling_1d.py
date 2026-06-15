@@ -4608,6 +4608,7 @@ def advance_recycling_1d_backward_euler_step(
             linear_preconditioner=_build_recycling_jax_linear_preconditioner(
                 packed_initial_guess,
                 name=preconditioner_name,
+                layout=layout,
             ),
             linear_preconditioner_name=preconditioner_name,
             jit_residual=jit_residual,
@@ -4775,6 +4776,7 @@ def advance_recycling_1d_bdf2_step(
             linear_preconditioner=_build_recycling_jax_linear_preconditioner(
                 packed_initial_guess,
                 name=preconditioner_name,
+                layout=layout,
             ),
             linear_preconditioner_name=preconditioner_name,
             jit_residual=jit_residual,
@@ -5469,6 +5471,11 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "state_scale": "state_scale",
         "row_scale": "state_scale",
         "jacobi": "state_scale",
+        "field": "field_scale",
+        "field_scale": "field_scale",
+        "field_rms": "field_scale",
+        "block": "field_scale",
+        "block_scale": "field_scale",
     }
     return aliases.get(normalized)
 
@@ -5477,20 +5484,56 @@ def _build_recycling_jax_linear_preconditioner(
     packed_initial_guess: object,
     *,
     name: str | None,
+    layout: _RecyclingPackedStateLayout | None = None,
 ) -> Callable[[object], object] | None:
     if name is None:
         return None
-    if name != "state_scale":
+    if name not in {"state_scale", "field_scale"}:
         raise ValueError(f"Unsupported recycling JAX preconditioner {name!r}.")
-    scale = jnp.maximum(
-        jnp.abs(jnp.asarray(packed_initial_guess, dtype=jnp.float64)),
-        1.0,
-    )
+    packed_guess = jnp.asarray(packed_initial_guess, dtype=jnp.float64)
+    if name == "state_scale":
+        scale = jnp.maximum(jnp.abs(packed_guess), 1.0)
+    else:
+        if layout is None:
+            raise ValueError(
+                "layout is required for recycling field_scale preconditioner."
+            )
+        scale = _recycling_field_scale_preconditioner_vector(
+            packed_guess,
+            layout=layout,
+        )
 
     def preconditioner(vector: object) -> object:
         return jnp.asarray(vector, dtype=jnp.float64) / scale
 
     return preconditioner
+
+
+def _recycling_field_scale_preconditioner_vector(
+    packed_initial_guess: object,
+    *,
+    layout: _RecyclingPackedStateLayout,
+) -> object:
+    """Return conservative block row scales for packed fixed-layout residuals."""
+
+    packed_guess = jnp.asarray(packed_initial_guess, dtype=jnp.float64)
+    active_cell_count = int(np.prod(tuple(layout.active_shape), dtype=np.int64))
+    field_scales: list[object] = []
+    offset = 0
+    for _field_name in layout.field_names:
+        block = packed_guess[offset : offset + active_cell_count]
+        if active_cell_count:
+            block_scale = jnp.sqrt(jnp.mean(jnp.square(block)))
+            block_scale = jnp.maximum(block_scale, 1.0)
+            field_scales.append(jnp.full_like(block, block_scale))
+        offset += active_cell_count
+    feedback_count = len(tuple(layout.feedback_names))
+    if feedback_count:
+        feedback_block = packed_guess[offset : offset + feedback_count]
+        field_scales.append(jnp.maximum(jnp.abs(feedback_block), 1.0))
+    if not field_scales:
+        return jnp.ones_like(packed_guess)
+    return jnp.concatenate(tuple(field_scales))
 
 
 def _resolve_positive_int_runtime_option(
