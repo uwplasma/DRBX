@@ -254,7 +254,9 @@ The neutral-mixed validation docs now separate pointwise target-cell drift from
 legacy zone max/rms summaries. The current accepted-step trace matches
 `309/309` max-order-2 reference-grid points, writes the `Dnnh` preparation
 ladder plus `Vh`/`eta_h`, records reference solver order, and uses the
-covariant `Grad(logPnlim)` metric norm with the carried metric terms. The
+covariant `Grad(logPnlim)` metric norm with the carried metric terms. Native
+and reference monitor traces now also expose optional `grad_logPnlim*_x/y/z`
+component diagnostics for the next max-order-2 rerun. The
 remaining neutral-mixed blocker is accepted-step state/history sequencing
 feeding neutral pressure/log-pressure preparation and the near-target
 flux-limit cap, not a missing pressure-gradient or viscosity source formula.
