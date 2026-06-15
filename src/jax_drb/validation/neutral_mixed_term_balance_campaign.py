@@ -1048,6 +1048,9 @@ def _build_accepted_step_state_history_register(
         for name in (
             f"Tnlim{section}",
             f"logPnlim{section}",
+            f"grad_logPnlim{section}_x",
+            f"grad_logPnlim{section}_y",
+            f"grad_logPnlim{section}_z",
             f"grad_logPnlim{section}",
         )
         if isinstance((error := field_errors.get(name)), dict)
@@ -1164,6 +1167,9 @@ def _accepted_step_state_history_fields(section: str) -> tuple[str, ...]:
         f"NV{section}",
         f"Tnlim{section}",
         f"logPnlim{section}",
+        f"grad_logPnlim{section}_x",
+        f"grad_logPnlim{section}_y",
+        f"grad_logPnlim{section}_z",
         f"grad_logPnlim{section}",
         f"Dnn{section}_raw",
         f"Dnn{section}_flux_max",
@@ -1304,6 +1310,15 @@ def _build_neutral_diffusion_ladder_register(
         limiter_input_fields = (
             ladder_fields["temperature_limited"],
             ladder_fields["log_pressure_limited"],
+            *(
+                field
+                for field in (
+                    f"grad_logPnlim{section}_x",
+                    f"grad_logPnlim{section}_y",
+                    f"grad_logPnlim{section}_z",
+                )
+                if field in field_errors
+            ),
             ladder_fields["grad_log_pressure_limited"],
         )
         limiter_input_errors = {
@@ -2812,6 +2827,15 @@ def _native_accepted_step_rhs_field_payloads(
     fields = {
         f"Tnlim{section}": diffusion_diagnostics["temperature_limited"],
         f"logPnlim{section}": diffusion_diagnostics["log_pressure_limited"],
+        f"grad_logPnlim{section}_x": diffusion_diagnostics[
+            "grad_log_pressure_limited_x"
+        ],
+        f"grad_logPnlim{section}_y": diffusion_diagnostics[
+            "grad_log_pressure_limited_y"
+        ],
+        f"grad_logPnlim{section}_z": diffusion_diagnostics[
+            "grad_log_pressure_limited_z"
+        ],
         f"grad_logPnlim{section}": diffusion_diagnostics[
             "grad_log_pressure_limited"
         ],

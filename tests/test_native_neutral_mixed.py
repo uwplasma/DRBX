@@ -17,6 +17,7 @@ from jax_drb.native.neutral_mixed_boundaries import (
 from jax_drb.native.neutral_mixed import (
     _div_a_grad_perp_flows,
     _div_par_k_grad_par_open,
+    _gradient_components,
     _gradient_magnitude,
     _grad_par_open,
     advance_neutral_mixed_implicit_history,
@@ -172,6 +173,21 @@ def test_neutral_mixed_diffusion_diagnostics_match_production_diffusion() -> Non
 
     np.testing.assert_allclose(diagnostics["bounded_diffusion"], production)
     np.testing.assert_allclose(diagnostics["bounded_diffusion"], prepared.diffusion)
+    grad_x = diagnostics["grad_log_pressure_limited_x"]
+    grad_y = diagnostics["grad_log_pressure_limited_y"]
+    grad_z = diagnostics["grad_log_pressure_limited_z"]
+    reconstructed_magnitude = np.sqrt(
+        np.asarray(metrics.g11, dtype=np.float64) * grad_x * grad_x
+        + np.asarray(metrics.g22, dtype=np.float64) * grad_y * grad_y
+        + np.asarray(metrics.g33, dtype=np.float64) * grad_z * grad_z
+        + 2.0 * np.asarray(metrics.g23, dtype=np.float64) * grad_y * grad_z
+    )
+    np.testing.assert_allclose(
+        diagnostics["grad_log_pressure_limited"],
+        reconstructed_magnitude,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
     assert diagnostics["raw_diffusion"][5, 5, 5] > diagnostics[
         "flux_limited_diffusion"
     ][5, 5, 5]
@@ -501,13 +517,30 @@ def test_gradient_magnitude_matches_reference_loop() -> None:
                     + 2.0 * g23[i, j, k] * dfdy * dfdz
                 )
 
-    actual = _gradient_magnitude(
+    component_x, component_y, component_z = _gradient_components(
         field,
         mesh=mesh,
         metrics=metrics,
     )
+    actual = _gradient_magnitude(field, mesh=mesh, metrics=metrics)
 
     np.testing.assert_allclose(actual, expected, rtol=1.0e-12, atol=1.0e-12)
+    for i in range(mesh.xstart, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            for k in range(mesh.nz):
+                km = (k - 1 + mesh.nz) % mesh.nz
+                kp = (k + 1) % mesh.nz
+                assert component_x[i, j, k] == pytest.approx(
+                    (field[i + 1, j, k] - field[i - 1, j, k])
+                    / (dx[i, j, k] + dx[i - 1, j, k])
+                )
+                assert component_y[i, j, k] == pytest.approx(
+                    (field[i, j + 1, k] - field[i, j - 1, k])
+                    / (dy[i, j, k] + dy[i, j - 1, k])
+                )
+                assert component_z[i, j, k] == pytest.approx(
+                    (field[i, j, kp] - field[i, j, km]) / (2.0 * dz[i, j, k])
+                )
 
 
 def test_gradient_magnitude_uses_covariant_g22_g23_metric_terms() -> None:

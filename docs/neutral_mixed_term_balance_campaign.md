@@ -267,10 +267,10 @@ viscosity stencil is changed.
 `accepted_step_state_history_register` then selects the dominant neutral
 diffusion ladder offender, finds its worst target-adjacent local index, and
 writes a compact time window of matched native/reference values for `N*`,
-`P*`, `NV*`, limiter inputs, diffusion-ladder fields, `V*`, `eta_*`, and
-`SNV*_parallel_viscosity`. This makes the state-to-flux-cap amplification path
-reproducible from the JSON report without loading the full trace payloads into
-an ad hoc analysis script.
+`P*`, `NV*`, limiter inputs, optional covariant `Grad(logPnlim)` components,
+diffusion-ladder fields, `V*`, `eta_*`, and `SNV*_parallel_viscosity`. This
+makes the state-to-flux-cap amplification path reproducible from the JSON
+report without loading the full trace payloads into an ad hoc analysis script.
 
 A controlled max-order-2 reference rerun is now available as the preferred
 neutral NVh parity lane. The staged reference deck used
@@ -305,7 +305,11 @@ the state input. That separates the offender from a directly state-sized
 density, pressure, momentum, raw-diffusion, or local source-term formula
 mismatch and points first at accepted-step state/history feeding neutral
 pressure/log-pressure preparation, with the near-target `Grad(logPnlim)`
-stencil as the secondary check.
+stencil as the secondary check. The current native trace and reference-monitor
+patch now also expose `grad_logPnlim*_x`, `grad_logPnlim*_y`, and
+`grad_logPnlim*_z` so the next max-order-2 rerun can decide whether the
+remaining cap mismatch is in component derivatives, metric contraction, or the
+pressure state being differentiated.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

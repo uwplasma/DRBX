@@ -277,7 +277,7 @@ index 0d07e095..1e5d3b45 100644
  class DecayLengthBoundary : public BoundaryOp {
  public:
    DecayLengthBoundary() : gen(nullptr) {}
-@@ -168,6 +392,87 @@ private:
+@@ -168,6 +392,90 @@ private:
    std::shared_ptr<FieldGenerator> gen; // Generator
  };
 
@@ -333,6 +333,9 @@ index 0d07e095..1e5d3b45 100644
 +  const std::vector<std::string> optional_input_fields = {
 +      "Tnlim" + species,
 +      "logPnlim" + species,
++      "grad_logPnlim" + species + "_x",
++      "grad_logPnlim" + species + "_y",
++      "grad_logPnlim" + species + "_z",
 +      "grad_logPnlim" + species,
 +      "Dnn" + species + "_raw",
 +      "Dnn" + species + "_flux_max",
@@ -365,7 +368,7 @@ index 0d07e095..1e5d3b45 100644
  int Hermes::init(bool restarting) {
 
    auto &options = Options::root()["hermes"];
-@@ -180,6 +480,11 @@ int Hermes::init(bool restarting) {
+@@ -180,6 +483,11 @@ int Hermes::init(bool restarting) {
    options["slope_limiter"] = hermes::limiter_typename;
    options["slope_limiter"].setConditionallyUsed();
 
@@ -393,15 +396,16 @@ diff --git a/include/neutral_mixed.hxx b/include/neutral_mixed.hxx
 index 098eac29..4e2579e1 100644
 --- a/include/neutral_mixed.hxx
 +++ b/include/neutral_mixed.hxx
-@@ -36,6 +36,7 @@ private:
+@@ -36,6 +36,8 @@ private:
    Field3D Vn;                     ///< Neutral parallel velocity
    Field3D Tn;                     ///< Neutral temperature
    Field3D Nnlim, Pnlim, logPnlim; // Limited in regions of low density
 +  Field3D Tnlim, grad_logPnlim;   ///< Diffusion diagnostic ingredients
++  Field3D grad_logPnlim_x, grad_logPnlim_y, grad_logPnlim_z; ///< Gradient components
 
    BoutReal AA; ///< Atomic mass (proton = 1)
 
-@@ -44,6 +45,8 @@ private:
+@@ -44,6 +46,8 @@ private:
        diffusion_collisions_mode; ///< Collision selection, either afn or multispecies
    Field3D nu;                    ///< Collisionality to use for diffusion
    Field3D Dnn;                   ///< Diffusion coefficient
@@ -414,7 +418,7 @@ diff --git a/src/neutral_mixed.cxx b/src/neutral_mixed.cxx
 index 55397c8f..e45e1776 100644
 --- a/src/neutral_mixed.cxx
 +++ b/src/neutral_mixed.cxx
-@@ -324,11 +324,12 @@ void NeutralMixed::finally(const Options& state) {
+@@ -324,11 +324,16 @@ void NeutralMixed::finally(const Options& state) {
    // Nnlim Used where division by neutral density is needed
    Nnlim = softFloor(Nn, density_floor);
    // Tnlim used where positivity of Tn is required
@@ -424,11 +428,15 @@ index 55397c8f..e45e1776 100644
    Pnlim = softFloor(Pn, pressure_floor);
    logPnlim = log(Pnlim);
    logPnlim.applyBoundary();
-+  grad_logPnlim = abs(Grad(logPnlim));
++  Vector3D grad_logPnlim_vector = Grad(logPnlim);
++  grad_logPnlim_x = grad_logPnlim_vector.x;
++  grad_logPnlim_y = grad_logPnlim_vector.y;
++  grad_logPnlim_z = grad_logPnlim_vector.z;
++  grad_logPnlim = abs(grad_logPnlim_vector);
    ///////////////////////////////////////////////////////
    // Calculate cross-field diffusion from collision frequency
    //
-@@ -408,15 +409,18 @@ void NeutralMixed::finally(const Options& state) {
+@@ -408,15 +413,18 @@ void NeutralMixed::finally(const Options& state) {
        Dnn = (Tnlim / AA) / Rnn;
      }
    }
@@ -450,7 +458,7 @@ index 55397c8f..e45e1776 100644
 
    if (diffusion_limit > 0.0) {
      // Impose an upper limit on the diffusion coefficient
-@@ -424,6 +428,7 @@ void NeutralMixed::finally(const Options& state) {
+@@ -424,6 +432,7 @@ void NeutralMixed::finally(const Options& state) {
        Dnn[i] = Dnn[i] * diffusion_limit / (Dnn[i] + diffusion_limit);
      }
    }
@@ -458,7 +466,7 @@ index 55397c8f..e45e1776 100644
 
    mesh->communicate(Dnn);
    Dnn.clearParallelSlices();
-@@ -719,6 +724,15 @@ void NeutralMixed::outputVars(Options& state) {
+@@ -719,6 +728,15 @@ void NeutralMixed::outputVars(Options& state) {
                    {"long_name", name + " parallel velocity"},
                    {"source", "neutral_mixed"}});
 
@@ -474,7 +482,7 @@ index 55397c8f..e45e1776 100644
    if (output_ddt) {
      set_with_attrs(
          state[std::string("ddt(N") + name + std::string(")")], ddt(Nn),
-@@ -753,6 +767,65 @@ void NeutralMixed::outputVars(Options& state) {
+@@ -753,6 +771,92 @@ void NeutralMixed::outputVars(Options& state) {
                      {"standard_name", "diffusion coefficient"},
                      {"long_name", name + " diffusion coefficient"},
                      {"source", "neutral_mixed"}});
@@ -492,6 +500,33 @@ index 55397c8f..e45e1776 100644
 +                    {"conversion", 1.0},
 +                    {"standard_name", "log limited neutral pressure"},
 +                    {"long_name", name + " log limited neutral pressure"},
++                    {"species", name},
++                    {"source", "neutral_mixed"}});
++    set_with_attrs(state[std::string("grad_logPnlim") + name + std::string("_x")],
++                   grad_logPnlim_x,
++                   {{"time_dimension", "t"},
++                    {"units", "normalised"},
++                    {"conversion", 1.0},
++                    {"standard_name", "limited neutral log-pressure gradient x"},
++                    {"long_name", name + " limited neutral log-pressure gradient x"},
++                    {"species", name},
++                    {"source", "neutral_mixed"}});
++    set_with_attrs(state[std::string("grad_logPnlim") + name + std::string("_y")],
++                   grad_logPnlim_y,
++                   {{"time_dimension", "t"},
++                    {"units", "normalised"},
++                    {"conversion", 1.0},
++                    {"standard_name", "limited neutral log-pressure gradient y"},
++                    {"long_name", name + " limited neutral log-pressure gradient y"},
++                    {"species", name},
++                    {"source", "neutral_mixed"}});
++    set_with_attrs(state[std::string("grad_logPnlim") + name + std::string("_z")],
++                   grad_logPnlim_z,
++                   {{"time_dimension", "t"},
++                    {"units", "normalised"},
++                    {"conversion", 1.0},
++                    {"standard_name", "limited neutral log-pressure gradient z"},
++                    {"long_name", name + " limited neutral log-pressure gradient z"},
 +                    {"species", name},
 +                    {"source", "neutral_mixed"}});
 +    set_with_attrs(state[std::string("grad_logPnlim") + name], grad_logPnlim,

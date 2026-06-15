@@ -19,61 +19,87 @@ def last_parallel_flow() -> np.ndarray:
     return np.asarray(_last_parallel_flow, dtype=np.float64)
 
 
-def gradient_magnitude(
+def gradient_components(
     field: np.ndarray,
     *,
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if use_jax_backend(field):
-        result = jnp.zeros_like(jnp.asarray(field, dtype=jnp.float64), dtype=jnp.float64)
+        template = jnp.asarray(field, dtype=jnp.float64)
+        dfdx_result = jnp.zeros_like(template, dtype=jnp.float64)
+        dfdy_result = jnp.zeros_like(template, dtype=jnp.float64)
+        dfdz_result = jnp.zeros_like(template, dtype=jnp.float64)
         dx = jnp.asarray(metrics.dx, dtype=jnp.float64)
         dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
         dz = jnp.asarray(metrics.dz, dtype=jnp.float64)
-        g11 = jnp.asarray(metrics.g11, dtype=jnp.float64)
-        g22 = jnp.asarray(metrics.g22, dtype=jnp.float64)
-        g33 = jnp.asarray(metrics.g33, dtype=jnp.float64)
-        g23 = jnp.asarray(metrics.g23, dtype=jnp.float64)
 
         ix = slice(mesh.xstart, mesh.xend + 1)
         jy = slice(mesh.ystart, mesh.yend + 1)
-        field_array = jnp.asarray(field, dtype=jnp.float64)
-        active_field = field_array[ix, jy, :]
+        active_field = template[ix, jy, :]
         dfdx = (
-            field_array[mesh.xstart + 1 : mesh.xend + 2, mesh.ystart : mesh.yend + 1, :]
-            - field_array[mesh.xstart - 1 : mesh.xend, mesh.ystart : mesh.yend + 1, :]
-        ) / (dx[ix, jy, :] + dx[mesh.xstart - 1 : mesh.xend, mesh.ystart : mesh.yend + 1, :])
-        dfdy = (
-            field_array[ix, mesh.ystart + 1 : mesh.yend + 2, :]
-            - field_array[ix, mesh.ystart - 1 : mesh.yend, :]
-        ) / (dy[ix, jy, :] + dy[ix, mesh.ystart - 1 : mesh.yend, :])
-        dfdz = (jnp.roll(active_field, -1, axis=2) - jnp.roll(active_field, 1, axis=2)) / (2.0 * dz[ix, jy, :])
-        active_result = jnp.sqrt(
-            g11[ix, jy, :] * dfdx * dfdx
-            + g22[ix, jy, :] * dfdy * dfdy
-            + g33[ix, jy, :] * dfdz * dfdz
-            + 2.0 * g23[ix, jy, :] * dfdy * dfdz
+            template[
+                mesh.xstart + 1 : mesh.xend + 2,
+                mesh.ystart : mesh.yend + 1,
+                :,
+            ]
+            - template[
+                mesh.xstart - 1 : mesh.xend,
+                mesh.ystart : mesh.yend + 1,
+                :,
+            ]
+        ) / (
+            dx[ix, jy, :]
+            + dx[mesh.xstart - 1 : mesh.xend, mesh.ystart : mesh.yend + 1, :]
         )
-        return result.at[ix, jy, :].set(active_result)
+        dfdy = (
+            template[ix, mesh.ystart + 1 : mesh.yend + 2, :]
+            - template[ix, mesh.ystart - 1 : mesh.yend, :]
+        ) / (
+            dy[ix, jy, :] + dy[ix, mesh.ystart - 1 : mesh.yend, :]
+        )
+        dfdz = (
+            jnp.roll(active_field, -1, axis=2) - jnp.roll(active_field, 1, axis=2)
+        ) / (2.0 * dz[ix, jy, :])
+        return (
+            dfdx_result.at[ix, jy, :].set(dfdx),
+            dfdy_result.at[ix, jy, :].set(dfdy),
+            dfdz_result.at[ix, jy, :].set(dfdz),
+        )
 
-    result = np.zeros_like(field, dtype=np.float64)
+    dfdx_result = np.zeros_like(field, dtype=np.float64)
+    dfdy_result = np.zeros_like(field, dtype=np.float64)
+    dfdz_result = np.zeros_like(field, dtype=np.float64)
     dx = np.asarray(metrics.dx, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     dz = np.asarray(metrics.dz, dtype=np.float64)
-    g11 = np.asarray(metrics.g11, dtype=np.float64)
-    g22 = np.asarray(metrics.g22, dtype=np.float64)
-    g33 = np.asarray(metrics.g33, dtype=np.float64)
-    g23 = np.asarray(metrics.g23, dtype=np.float64)
 
     ix = slice(mesh.xstart, mesh.xend + 1)
     jy = slice(mesh.ystart, mesh.yend + 1)
     active_field = np.asarray(field[ix, jy, :], dtype=np.float64)
     dfdx = (
-        np.asarray(field[mesh.xstart + 1 : mesh.xend + 2, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
-        - np.asarray(field[mesh.xstart - 1 : mesh.xend, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
+        np.asarray(
+            field[
+                mesh.xstart + 1 : mesh.xend + 2,
+                mesh.ystart : mesh.yend + 1,
+                :,
+            ],
+            dtype=np.float64,
+        )
+        - np.asarray(
+            field[
+                mesh.xstart - 1 : mesh.xend,
+                mesh.ystart : mesh.yend + 1,
+                :,
+            ],
+            dtype=np.float64,
+        )
     ) / (
         np.asarray(dx[ix, jy, :], dtype=np.float64)
-        + np.asarray(dx[mesh.xstart - 1 : mesh.xend, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
+        + np.asarray(
+            dx[mesh.xstart - 1 : mesh.xend, mesh.ystart : mesh.yend + 1, :],
+            dtype=np.float64,
+        )
     )
     dfdy = (
         np.asarray(field[ix, mesh.ystart + 1 : mesh.yend + 2, :], dtype=np.float64)
@@ -85,13 +111,41 @@ def gradient_magnitude(
     dfdz = (np.roll(active_field, -1, axis=2) - np.roll(active_field, 1, axis=2)) / (
         2.0 * np.asarray(dz[ix, jy, :], dtype=np.float64)
     )
-    result[ix, jy, :] = np.sqrt(
-        np.asarray(g11[ix, jy, :], dtype=np.float64) * dfdx * dfdx
-        + np.asarray(g22[ix, jy, :], dtype=np.float64) * dfdy * dfdy
-        + np.asarray(g33[ix, jy, :], dtype=np.float64) * dfdz * dfdz
-        + 2.0 * np.asarray(g23[ix, jy, :], dtype=np.float64) * dfdy * dfdz
+    dfdx_result[ix, jy, :] = dfdx
+    dfdy_result[ix, jy, :] = dfdy
+    dfdz_result[ix, jy, :] = dfdz
+    return dfdx_result, dfdy_result, dfdz_result
+
+
+def gradient_magnitude(
+    field: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> np.ndarray:
+    dfdx, dfdy, dfdz = gradient_components(field, mesh=mesh, metrics=metrics)
+    if use_jax_backend(dfdx, dfdy, dfdz):
+        g11 = jnp.asarray(metrics.g11, dtype=jnp.float64)
+        g22 = jnp.asarray(metrics.g22, dtype=jnp.float64)
+        g33 = jnp.asarray(metrics.g33, dtype=jnp.float64)
+        g23 = jnp.asarray(metrics.g23, dtype=jnp.float64)
+        return jnp.sqrt(
+            g11 * dfdx * dfdx
+            + g22 * dfdy * dfdy
+            + g33 * dfdz * dfdz
+            + 2.0 * g23 * dfdy * dfdz
+        )
+
+    g11 = np.asarray(metrics.g11, dtype=np.float64)
+    g22 = np.asarray(metrics.g22, dtype=np.float64)
+    g33 = np.asarray(metrics.g33, dtype=np.float64)
+    g23 = np.asarray(metrics.g23, dtype=np.float64)
+    return np.sqrt(
+        g11 * dfdx * dfdx
+        + g22 * dfdy * dfdy
+        + g33 * dfdz * dfdz
+        + 2.0 * g23 * dfdy * dfdz
     )
-    return result
 
 
 def div_par_mod_open(

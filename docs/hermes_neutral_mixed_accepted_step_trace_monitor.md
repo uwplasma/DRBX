@@ -87,14 +87,15 @@ When the reference `outputVars()` exposes them, the monitor also writes optional
 patch now extends the reference neutral-mixed component with the same
 diagnostic ladder that the native trace writes for the neutral diffusion
 coefficient: `Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`,
-`Dnnh_flux_max`, `Dnnh_flux_limited`, and `Dnnh_diffusion_limited`. These
-fields are still optional rather than part of the required reference schema,
-but a patched reference rerun can now split the accepted-step `Dnnh` drift into
-temperature flooring, pressure-gradient magnitude, flux limiting, diffusion
-limiting, and final boundary application. The patch reads `Dnnh` and `Vh` from
-diagnostics, exposes `eta_h` from the neutral viscosity field, and exposes the
-pre-boundary diffusion-preparation ladder before the monitor checks for
-optional fields.
+`grad_logPnlimh_x`, `grad_logPnlimh_y`, `grad_logPnlimh_z`, `Dnnh_flux_max`,
+`Dnnh_flux_limited`, and `Dnnh_diffusion_limited`. These fields are still
+optional rather than part of the required reference schema, but a patched
+reference rerun can now split the accepted-step `Dnnh` drift into temperature
+flooring, pressure-gradient components, pressure-gradient magnitude, flux
+limiting, diffusion limiting, and final boundary application. The patch reads
+`Dnnh` and `Vh` from diagnostics, exposes `eta_h` from the neutral viscosity
+field, and exposes the pre-boundary diffusion-preparation ladder before the
+monitor checks for optional fields.
 
 Each field payload should follow the same compact shape used by JAXDRB native
 accepted-step traces:
@@ -167,7 +168,11 @@ closure-input drift (`4.46e-3` target-adjacent), followed by `eta_h`
 
 Native and reference traces now also emit the `Dnnh` preparation ladder
 (`Tnlimh`, `logPnlimh`, `grad_logPnlimh`, `Dnnh_raw`, `Dnnh_flux_max`,
-`Dnnh_flux_limited`, and `Dnnh_diffusion_limited`). The contextual reference
+`Dnnh_flux_limited`, and `Dnnh_diffusion_limited`). The next monitor revision
+also emits optional covariant components `grad_logPnlimh_x`,
+`grad_logPnlimh_y`, and `grad_logPnlimh_z`, which let the parity report
+separate component-derivative errors from metric-contraction errors in
+`abs(Grad(logPnlim))`. The contextual reference
 patch uses BOUT++ `copy(Dnn)` snapshots for the pre-limiter and post-limiter
 diffusion fields; ordinary `Field3D` assignment shares field storage and would
 turn the raw-diffusion diagnostic into a view of the later limited field. A live

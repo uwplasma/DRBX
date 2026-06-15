@@ -38,6 +38,7 @@ from .neutral_mixed_operators import (
     div_par_k_grad_par_open as _div_par_k_grad_par_open,
     div_par_mod_open as _div_par_mod_open,
     grad_par_open as _grad_par_open,
+    gradient_components as _gradient_components,
     gradient_magnitude as _gradient_magnitude,
 )
 from .neutral_mixed_state import (
@@ -864,7 +865,15 @@ def compute_neutral_mixed_diffusion_diagnostics(
     )
     neutral_lmax = 0.1 / meters_scale
     raw_diffusion = thermal_speed * neutral_lmax
-    grad_magnitude = _gradient_magnitude(log_pressure, mesh=mesh, metrics=metrics)
+    grad_x, grad_y, grad_z = _gradient_components(
+        log_pressure, mesh=mesh, metrics=metrics
+    )
+    grad_magnitude = np.sqrt(
+        np.asarray(metrics.g11, dtype=np.float64) * grad_x * grad_x
+        + np.asarray(metrics.g22, dtype=np.float64) * grad_y * grad_y
+        + np.asarray(metrics.g33, dtype=np.float64) * grad_z * grad_z
+        + 2.0 * np.asarray(metrics.g23, dtype=np.float64) * grad_y * grad_z
+    )
 
     if flux_limit > 0.0:
         diffusion_max = (
@@ -890,6 +899,9 @@ def compute_neutral_mixed_diffusion_diagnostics(
     return {
         "temperature_limited": np.asarray(temperature_limited, dtype=np.float64),
         "log_pressure_limited": np.asarray(log_pressure, dtype=np.float64),
+        "grad_log_pressure_limited_x": np.asarray(grad_x, dtype=np.float64),
+        "grad_log_pressure_limited_y": np.asarray(grad_y, dtype=np.float64),
+        "grad_log_pressure_limited_z": np.asarray(grad_z, dtype=np.float64),
         "grad_log_pressure_limited": np.asarray(grad_magnitude, dtype=np.float64),
         "raw_diffusion": np.asarray(raw_diffusion, dtype=np.float64),
         "flux_limit_diffusion_max": np.asarray(diffusion_max, dtype=np.float64),
