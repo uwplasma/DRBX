@@ -138,6 +138,13 @@ trial timestep but keeps the last valid accepted-step history instead of
 forcing a startup backward-Euler trial. This reduces restart overhead without
 changing the embedded-error acceptance criterion.
 
+For JAX-linearized promotion experiments, the inner matrix-free Krylov backend
+can be selected with `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER`. Supported values are
+`jax_gmres` (default), `lineax_gmres` when the optional Lineax package is
+installed, and `jax_bicgstab`. The BiCGSTAB path is diagnostic: local JAX does
+not report an inner success flag for that solver, so adaptive-BDF diagnostics
+count those steps under `adaptive_bdf_unknown_linear_solver_steps`.
+
 Current status:
 
 - `float64` is the default and the most complete runtime mode.
