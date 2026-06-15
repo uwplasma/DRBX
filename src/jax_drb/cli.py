@@ -329,6 +329,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     neutral_trace_parser.add_argument("--reference-stage", default="post_accepted")
     neutral_trace_parser.add_argument("--time-tolerance", type=float, default=1.0e-8)
+    neutral_trace_parser.add_argument(
+        "--solver-mode",
+        choices=("matrix_free", "sparse"),
+        default="matrix_free",
+        help="Native implicit solver used while replaying accepted-step times.",
+    )
+    neutral_trace_parser.add_argument(
+        "--residual-tolerance", type=float, default=1.0e-8
+    )
+    neutral_trace_parser.add_argument("--step-tolerance", type=float, default=1.0e-10)
+    neutral_trace_parser.add_argument(
+        "--max-nonlinear-iterations", type=int, default=8
+    )
+    neutral_trace_parser.add_argument("--linear-restart", type=int, default=20)
+    neutral_trace_parser.add_argument("--linear-maxiter", type=int, default=200)
+    neutral_trace_parser.add_argument("--linear-rtol", type=float, default=1.0e-8)
     neutral_trace_parser.add_argument("--json-out", type=Path, required=True)
     neutral_trace_parser.set_defaults(
         command=_trace_neutral_mixed_accepted_steps_command
@@ -1220,6 +1236,28 @@ def _trace_neutral_mixed_accepted_steps_command(args: argparse.Namespace) -> int
     if float(args.time_tolerance) <= 0.0:
         print("trace-neutral-mixed-accepted-steps: --time-tolerance must be positive.")
         return 1
+    if float(getattr(args, "residual_tolerance", 1.0e-8)) <= 0.0:
+        print(
+            "trace-neutral-mixed-accepted-steps: --residual-tolerance must be positive."
+        )
+        return 1
+    if float(getattr(args, "step_tolerance", 1.0e-10)) <= 0.0:
+        print("trace-neutral-mixed-accepted-steps: --step-tolerance must be positive.")
+        return 1
+    if int(getattr(args, "max_nonlinear_iterations", 8)) <= 0:
+        print(
+            "trace-neutral-mixed-accepted-steps: --max-nonlinear-iterations must be positive."
+        )
+        return 1
+    if int(getattr(args, "linear_restart", 20)) <= 0:
+        print("trace-neutral-mixed-accepted-steps: --linear-restart must be positive.")
+        return 1
+    if int(getattr(args, "linear_maxiter", 200)) <= 0:
+        print("trace-neutral-mixed-accepted-steps: --linear-maxiter must be positive.")
+        return 1
+    if float(getattr(args, "linear_rtol", 1.0e-8)) <= 0.0:
+        print("trace-neutral-mixed-accepted-steps: --linear-rtol must be positive.")
+        return 1
     report = build_neutral_mixed_native_accepted_step_trace_report(
         reference_root=args.reference_root,
         case_name=args.case_name,
@@ -1229,6 +1267,13 @@ def _trace_neutral_mixed_accepted_steps_command(args: argparse.Namespace) -> int
         reference_trace_json=args.reference_trace_json,
         reference_stage=args.reference_stage,
         time_tolerance=float(args.time_tolerance),
+        solver_mode=getattr(args, "solver_mode", "matrix_free"),
+        residual_tolerance=float(getattr(args, "residual_tolerance", 1.0e-8)),
+        step_tolerance=float(getattr(args, "step_tolerance", 1.0e-10)),
+        max_nonlinear_iterations=int(getattr(args, "max_nonlinear_iterations", 8)),
+        linear_restart=int(getattr(args, "linear_restart", 20)),
+        linear_maxiter=int(getattr(args, "linear_maxiter", 200)),
+        linear_rtol=float(getattr(args, "linear_rtol", 1.0e-8)),
     )
     path = write_neutral_mixed_native_accepted_step_trace_json(report, args.json_out)
     print(f"diagnostic: {report['diagnostic']}")

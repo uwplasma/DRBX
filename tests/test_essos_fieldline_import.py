@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -15,13 +16,35 @@ from jax_drb.geometry import (
     resolve_essos_landreman_qa_wout,
 )
 from jax_drb.validation import (
+    build_essos_imported_connection_length_refinement_diagnostics,
+    build_live_essos_imported_connection_length_levels,
     create_essos_fieldline_import_package,
     create_essos_imported_connection_length_refinement_package,
+    create_live_essos_imported_connection_length_refinement_package,
     create_essos_imported_drb_movie_package,
     create_essos_imported_fci_campaign_package,
     create_essos_imported_pytree_campaign_package,
     create_essos_vmec_fieldline_surface_package,
 )
+import jax_drb.validation.essos_imported_fci_campaign as imported_fci_campaign
+
+
+def _logical_coordinates(shape: tuple[int, int, int]) -> dict[str, np.ndarray]:
+    nx, ny, nz = shape
+    rho = np.linspace(0.12, 0.34, nx)
+    phi = np.linspace(0.0, 2.0 * np.pi, ny, endpoint=False)
+    theta = np.linspace(0.0, 2.0 * np.pi, nz, endpoint=False)
+    minor_radius, toroidal_angle, poloidal_angle = np.meshgrid(
+        rho,
+        phi,
+        theta,
+        indexing="ij",
+    )
+    return {
+        "minor_radius": minor_radius,
+        "toroidal_angle": toroidal_angle,
+        "poloidal_angle": poloidal_angle,
+    }
 
 
 def _has_essos_landreman_runtime() -> bool:
@@ -54,6 +77,139 @@ def test_imported_connection_length_refinement_campaign_is_self_contained(tmp_pa
     assert arrays["level_2"].shape == (16, 24, 32)
     assert arrays["pair_normalized_rms_error"][1] < arrays["pair_normalized_rms_error"][0]
     assert artifacts.plot_png_path.exists()
+
+
+def test_connection_length_refinement_can_use_coordinate_interpolation() -> None:
+    coarse_coordinates = _logical_coordinates((3, 4, 8))
+    fine_coordinates = _logical_coordinates((6, 8, 16))
+    coarse = 10.0 + 2.0 * coarse_coordinates["minor_radius"]
+    fine = 10.0 + 2.0 * fine_coordinates["minor_radius"]
+
+    block_report = build_essos_imported_connection_length_refinement_diagnostics(
+        (coarse, fine),
+        convergence_threshold=1.0e-12,
+        linf_threshold=1.0e-12,
+    )
+    coordinate_report = build_essos_imported_connection_length_refinement_diagnostics(
+        (coarse, fine),
+        coordinate_levels=(coarse_coordinates, fine_coordinates),
+        convergence_threshold=1.0e-12,
+        linf_threshold=1.0e-12,
+    )
+
+    assert block_report["restriction_method"] == "block_average"
+    assert coordinate_report["restriction_method"] == "coordinate_interpolation"
+    assert block_report["passed"] is False
+    assert coordinate_report["passed"] is True
+    assert coordinate_report["pair_reports"][0]["normalized_linf_error"] < 1.0e-14
+
+
+def test_live_imported_connection_length_refinement_uses_geometry_levels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, int, int, int]] = []
+
+    def fake_geometry(**kwargs):
+        nx = int(kwargs["nx"])
+        ny = int(kwargs["ny"])
+        nz = int(kwargs["nz"])
+        map_source = str(kwargs["map_source"])
+        calls.append((map_source, nx, ny, nz))
+        coordinates = _logical_coordinates((nx, ny, nz))
+        level = 12.5 + 0.1 * coordinates["minor_radius"]
+        return SimpleNamespace(
+            connection_length=level,
+            maps=SimpleNamespace(dphi=2.0 * np.pi / float(ny)),
+            minor_radius=coordinates["minor_radius"],
+            toroidal_angle=coordinates["toroidal_angle"],
+            poloidal_angle=coordinates["poloidal_angle"],
+            metadata={
+                "map_source": map_source,
+                "shape": [nx, ny, nz],
+                "geometry_family": "test_imported_geometry",
+            },
+        )
+
+    monkeypatch.setattr(
+        imported_fci_campaign,
+        "build_essos_imported_fci_geometry",
+        fake_geometry,
+    )
+
+    levels = build_live_essos_imported_connection_length_levels(
+        map_source="hybrid",
+        level_shapes=((2, 2, 4), (4, 4, 8)),
+    )
+
+    assert calls == [("hybrid", 2, 2, 4), ("hybrid", 4, 4, 8)]
+    assert levels.labels == ("hybrid_2x2x4", "hybrid_4x4x8")
+    assert levels.levels[0].shape == (2, 2, 4)
+    assert levels.coordinates[0]["minor_radius"].shape == (2, 2, 4)
+    assert levels.metadata[0]["geometry_family"] == "test_imported_geometry"
+
+    artifacts = create_live_essos_imported_connection_length_refinement_package(
+        output_root=tmp_path / "live_connection_length_refinement",
+        map_source="hybrid",
+        level_shapes=((2, 2, 4), (4, 4, 8)),
+    )
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+
+    assert report["live_imported"] is True
+    assert report["manufactured"] is False
+    assert report["map_source"] == "hybrid"
+    assert report["source"] == "live imported connection-length refinement gate"
+    assert report["diagnostics"]["level_labels"] == [
+        "hybrid_2x2x4",
+        "hybrid_4x4x8",
+    ]
+    assert report["diagnostics"]["restriction_method"] == "coordinate_interpolation"
+    assert report["passed"] is True
+    assert artifacts.arrays_npz_path.exists()
+    assert artifacts.plot_png_path.exists()
+
+
+def test_live_imported_connection_length_refinement_can_use_step_length_per_radian(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_geometry(**kwargs):
+        nx = int(kwargs["nx"])
+        ny = int(kwargs["ny"])
+        nz = int(kwargs["nz"])
+        coordinates = _logical_coordinates((nx, ny, nz))
+        dphi = 2.0 * np.pi / float(ny)
+        level_per_radian = 3.0 + 0.2 * coordinates["minor_radius"]
+        return SimpleNamespace(
+            connection_length=dphi * level_per_radian,
+            maps=SimpleNamespace(dphi=dphi),
+            minor_radius=coordinates["minor_radius"],
+            toroidal_angle=coordinates["toroidal_angle"],
+            poloidal_angle=coordinates["poloidal_angle"],
+            metadata={
+                "map_source": kwargs["map_source"],
+                "shape": [nx, ny, nz],
+                "geometry_family": "test_imported_geometry",
+            },
+        )
+
+    monkeypatch.setattr(
+        imported_fci_campaign,
+        "build_essos_imported_fci_geometry",
+        fake_geometry,
+    )
+
+    artifacts = create_live_essos_imported_connection_length_refinement_package(
+        output_root=tmp_path / "live_connection_length_refinement_per_radian",
+        map_source="vmec",
+        connection_quantity="parallel_step_per_toroidal_radian",
+        level_shapes=((2, 2, 4), (4, 4, 8)),
+        convergence_threshold=1.0e-12,
+        linf_threshold=1.0e-12,
+    )
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+
+    assert report["connection_quantity"] == "parallel_step_per_toroidal_radian"
+    assert report["diagnostics"]["restriction_method"] == "coordinate_interpolation"
+    assert report["passed"] is True
 
 
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")

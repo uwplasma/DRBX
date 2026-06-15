@@ -149,10 +149,18 @@ checks the connection-length arrays before they are used for physics claims.
 `build_essos_imported_fci_map_diagnostics(...)` verifies finite and
 nonnegative values, records radial means, and computes single-grid neighbor
 jump diagnostics. `build_essos_imported_connection_length_refinement_diagnostics(...)`
-then compares nested grids by conservatively restricting each fine grid to the
-coarser grid and reporting normalized RMS, 95th-percentile, and
-\(L_\infty\) errors plus an observed order when three or more levels are
-available. The clean-clone example
+then compares nested grids by restricting each fine grid to the coarser grid
+and reporting normalized RMS, 95th-percentile, and \(L_\infty\) errors plus an
+observed order when three or more levels are available. Manufactured examples
+use conservative block restriction. Live imported levels can instead use
+coordinate-aware restriction, which interpolates the fine grid at the coarse
+\((\rho,\phi,\theta)\) points before forming the difference. For the closed
+VMEC adjacent-plane map, the grid-invariant refinement quantity is
+\(L_{\parallel,\Delta\phi}/\Delta\phi\), the parallel step length per toroidal
+radian, because the raw adjacent-plane step length changes when the toroidal
+spacing is refined. Open-field maps still need a separate target-to-target
+gate because target-exit lengths and adjacent-plane fallback lengths have
+different grid-scaling behavior. The clean-clone example
 [`examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py`](../examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py)
 exercises that exact refinement path on manufactured non-axisymmetric data.
 
@@ -165,9 +173,10 @@ turbulence only when all of the following are true:
 - Endpoint masks used by sheath/recycling exactly match the imported
   forward/backward map boundary masks.
 - Single-grid roughness diagnostics do not show unresolved grid-scale jumps.
-- A live multi-grid coil, VMEC, or hybrid refinement campaign passes the same
-  conservative restriction test currently demonstrated by the manufactured
-  clean-clone example.
+- A live multi-grid control passes with the correct quantity: VMEC
+  adjacent-step maps use parallel step length per toroidal radian, while
+  open-field coil/hybrid maps must separate target-to-target exit length from
+  adjacent-step fallback length.
 - The turbulence figure or movie reports which connection-length definition was
   used: wall-hit/exit length, adjacent-plane arc length, or synthetic proxy.
 
