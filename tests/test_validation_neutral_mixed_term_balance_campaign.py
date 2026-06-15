@@ -1061,6 +1061,13 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
         assert kwargs["store_internal_substeps"] is True
         assert kwargs["internal_substeps"] == 2
         assert kwargs["accepted_step_time_points"] is None
+        assert kwargs["solver_mode"] == "matrix_free"
+        assert kwargs["residual_tolerance"] == pytest.approx(1.0e-8)
+        assert kwargs["step_tolerance"] == pytest.approx(1.0e-10)
+        assert kwargs["max_nonlinear_iterations"] == 8
+        assert kwargs["linear_restart"] == 20
+        assert kwargs["linear_maxiter"] == 200
+        assert kwargs["linear_rtol"] == pytest.approx(1.0e-8)
         return SimpleNamespace(
             density_history=base[[0, -1]],
             pressure_history=2.0 * base[[0, -1]],
@@ -1091,6 +1098,15 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
     assert report["diagnostic"] == "neutral_mixed_native_accepted_step_trace"
     assert report["requires_hermes"] is False
     assert report["time_grid_source"] == "uniform_internal_substeps"
+    assert report["native_solver_configuration"] == {
+        "solver_mode": "matrix_free",
+        "residual_tolerance": 1.0e-8,
+        "step_tolerance": 1.0e-10,
+        "max_nonlinear_iterations": 8,
+        "linear_restart": 20,
+        "linear_maxiter": 200,
+        "linear_rtol": 1.0e-8,
+    }
     assert report["reference_trace_json"] is None
     assert report["reference_trace_point_count"] == 0
     assert report["trace_point_count"] == 3
@@ -1191,6 +1207,13 @@ def test_neutral_mixed_native_accepted_step_trace_replays_reference_time_grid(
             kwargs["accepted_step_time_points"],
             np.asarray([5.0, 20.0], dtype=np.float64),
         )
+        assert kwargs["solver_mode"] == "sparse"
+        assert kwargs["residual_tolerance"] == pytest.approx(1.0e-11)
+        assert kwargs["step_tolerance"] == pytest.approx(1.0e-12)
+        assert kwargs["max_nonlinear_iterations"] == 12
+        assert kwargs["linear_restart"] == 10
+        assert kwargs["linear_maxiter"] == 100
+        assert kwargs["linear_rtol"] == pytest.approx(1.0e-10)
         shape = (3, mesh.nx, mesh.local_ny, mesh.nz)
         base = np.ones(shape, dtype=np.float64)
         return SimpleNamespace(
@@ -1220,9 +1243,20 @@ def test_neutral_mixed_native_accepted_step_trace_replays_reference_time_grid(
         steps=1,
         reference_trace_json=reference_trace,
         time_tolerance=1.0e-9,
+        solver_mode="sparse",
+        residual_tolerance=1.0e-11,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=12,
+        linear_restart=10,
+        linear_maxiter=100,
+        linear_rtol=1.0e-10,
     )
 
     assert report["time_grid_source"] == "reference_accepted_steps"
+    assert report["native_solver_configuration"]["solver_mode"] == "sparse"
+    assert report["native_solver_configuration"]["residual_tolerance"] == pytest.approx(
+        1.0e-11
+    )
     assert report["reference_trace_point_count"] == 2
     assert str(report["reference_trace_json"]).endswith("reference_trace.jsonl")
     assert report["time_points"] == pytest.approx([0.0, 5.0, 20.0])

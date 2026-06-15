@@ -32,6 +32,15 @@ class EssosImportedConnectionLengthRefinementArtifacts:
     plot_png_path: Path
 
 
+@dataclass(frozen=True)
+class EssosImportedConnectionLengthLevels:
+    levels: tuple[np.ndarray, ...]
+    labels: tuple[str, ...]
+    metadata: tuple[dict[str, Any], ...]
+    coordinates: tuple[dict[str, np.ndarray], ...] = ()
+    quantity: str = "raw_connection_length"
+
+
 _IMPORTED_FCI_ARRAY_KEYS = (
     "major_radius_section",
     "vertical_section",
@@ -225,6 +234,7 @@ def create_essos_imported_connection_length_refinement_package(
     output_root: str | Path,
     case_label: str = "essos_imported_connection_length_refinement",
     connection_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
+    coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None = None,
     labels: tuple[str, ...] | list[str] | None = None,
     level_shapes: tuple[tuple[int, int, int], ...] = (
         (4, 6, 8),
@@ -251,6 +261,7 @@ def create_essos_imported_connection_length_refinement_package(
 
     report, arrays = build_essos_imported_connection_length_refinement_campaign(
         connection_levels=connection_levels,
+        coordinate_levels=coordinate_levels,
         labels=labels,
         level_shapes=level_shapes,
         convergence_threshold=convergence_threshold,
@@ -270,9 +281,162 @@ def create_essos_imported_connection_length_refinement_package(
     )
 
 
+def create_live_essos_imported_connection_length_refinement_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_imported_connection_length_refinement_live",
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    map_source: str = "hybrid",
+    connection_quantity: str = "raw_connection_length",
+    level_shapes: tuple[tuple[int, int, int], ...] = (
+        (3, 4, 6),
+        (6, 8, 12),
+    ),
+    rho_min: float = 0.12,
+    rho_max: float = 0.34,
+    maxtime: float = 40.0,
+    times_to_trace: int = 160,
+    trace_tolerance: float = 1.0e-8,
+    convergence_threshold: float = 0.05,
+    linf_threshold: float = 0.15,
+    minimum_observed_order: float = 0.0,
+) -> EssosImportedConnectionLengthRefinementArtifacts:
+    """Write a live imported connection-length refinement gate.
+
+    This wraps the manufactured refinement diagnostics with actual imported
+    coil, VMEC, or hybrid geometry levels. The default thresholds are advisory
+    because two live levels verify restriction consistency but cannot establish
+    a robust observed order.
+    """
+
+    live_levels = build_live_essos_imported_connection_length_levels(
+        coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
+        essos_root=essos_root,
+        map_source=map_source,
+        connection_quantity=connection_quantity,
+        level_shapes=level_shapes,
+        rho_min=rho_min,
+        rho_max=rho_max,
+        maxtime=maxtime,
+        times_to_trace=times_to_trace,
+        trace_tolerance=trace_tolerance,
+    )
+    artifacts = create_essos_imported_connection_length_refinement_package(
+        output_root=output_root,
+        case_label=case_label,
+        connection_levels=live_levels.levels,
+        coordinate_levels=live_levels.coordinates,
+        labels=live_levels.labels,
+        convergence_threshold=convergence_threshold,
+        linf_threshold=linf_threshold,
+        minimum_observed_order=minimum_observed_order,
+    )
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    report["source"] = "live imported connection-length refinement gate"
+    report["map_source"] = str(map_source)
+    report["connection_quantity"] = live_levels.quantity
+    report["geometry_metadata"] = list(live_levels.metadata)
+    report["live_imported"] = True
+    artifacts.report_json_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    with np.load(artifacts.arrays_npz_path) as data:
+        arrays = {key: np.asarray(data[key]) for key in data.files}
+    save_essos_imported_connection_length_refinement_plot(
+        report,
+        arrays,
+        artifacts.plot_png_path,
+    )
+    return artifacts
+
+
+def build_live_essos_imported_connection_length_levels(
+    *,
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    map_source: str = "hybrid",
+    connection_quantity: str = "raw_connection_length",
+    level_shapes: tuple[tuple[int, int, int], ...] = (
+        (3, 4, 6),
+        (6, 8, 12),
+    ),
+    rho_min: float = 0.12,
+    rho_max: float = 0.34,
+    maxtime: float = 40.0,
+    times_to_trace: int = 160,
+    trace_tolerance: float = 1.0e-8,
+) -> EssosImportedConnectionLengthLevels:
+    """Build nested live imported connection-length arrays for refinement tests."""
+
+    if len(level_shapes) < 2:
+        raise ValueError("At least two level_shapes are required for live refinement.")
+    connection_quantity = _normalize_connection_refinement_quantity(connection_quantity)
+    levels: list[np.ndarray] = []
+    labels: list[str] = []
+    metadata: list[dict[str, Any]] = []
+    coordinate_levels: list[dict[str, np.ndarray]] = []
+    for shape in level_shapes:
+        if len(shape) != 3:
+            raise ValueError(f"Each live refinement shape must be (nx, ny, nz), got {shape!r}.")
+        nx, ny, nz = (int(value) for value in shape)
+        geometry = build_essos_imported_fci_geometry(
+            coil_json_path=coil_json_path,
+            vmec_wout_path=vmec_wout_path,
+            essos_root=essos_root,
+            map_source=map_source,
+            nx=nx,
+            ny=ny,
+            nz=nz,
+            rho_min=rho_min,
+            rho_max=rho_max,
+            maxtime=maxtime,
+            times_to_trace=times_to_trace,
+            trace_tolerance=trace_tolerance,
+        )
+        connection = _connection_level_for_refinement_quantity(
+            geometry,
+            quantity=connection_quantity,
+        )
+        if connection.shape != (nx, ny, nz):
+            raise ValueError(
+                "Imported connection-length shape mismatch: "
+                f"expected {(nx, ny, nz)}, got {connection.shape}."
+            )
+        levels.append(connection)
+        coordinates = _connection_length_geometry_coordinates(geometry)
+        if coordinates:
+            coordinates = {
+                key: np.asarray(value, dtype=np.float64)
+                for key, value in coordinates.items()
+            }
+        labels.append(f"{map_source}_{nx}x{ny}x{nz}")
+        level_metadata = dict(geometry.metadata)
+        level_metadata["connection_refinement_quantity"] = connection_quantity
+        metadata.append(level_metadata)
+        if coordinates:
+            coordinate_levels.append(coordinates)
+    coordinate_tuple: tuple[dict[str, np.ndarray], ...]
+    if len(coordinate_levels) == len(levels):
+        coordinate_tuple = tuple(coordinate_levels)
+    else:
+        coordinate_tuple = ()
+    return EssosImportedConnectionLengthLevels(
+        levels=tuple(levels),
+        labels=tuple(labels),
+        metadata=tuple(metadata),
+        coordinates=coordinate_tuple,
+        quantity=connection_quantity,
+    )
+
+
 def build_essos_imported_connection_length_refinement_campaign(
     *,
     connection_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
+    coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None = None,
     labels: tuple[str, ...] | list[str] | None = None,
     level_shapes: tuple[tuple[int, int, int], ...] = (
         (4, 6, 8),
@@ -303,6 +467,7 @@ def build_essos_imported_connection_length_refinement_campaign(
     diagnostics = build_essos_imported_connection_length_refinement_diagnostics(
         levels,
         labels=level_labels,
+        coordinate_levels=coordinate_levels,
         convergence_threshold=convergence_threshold,
         linf_threshold=linf_threshold,
         minimum_observed_order=minimum_observed_order,
@@ -347,6 +512,13 @@ def build_essos_imported_connection_length_refinement_campaign(
         arrays[f"level_{index}"] = np.asarray(level, dtype=np.float64)
         arrays[f"level_{index}_radial_mean"] = np.mean(level, axis=(1, 2))
         arrays[f"level_{index}_toroidal_mean"] = np.mean(level, axis=0)
+    coordinate_payloads = _normalize_connection_coordinate_levels(
+        coordinate_levels,
+        expected_shapes=[level.shape for level in levels],
+    )
+    for index, coordinates in enumerate(coordinate_payloads):
+        for key, values in coordinates.items():
+            arrays[f"level_{index}_{key}"] = np.asarray(values, dtype=np.float64)
     return report, arrays
 
 
@@ -839,6 +1011,7 @@ def build_essos_imported_connection_length_refinement_diagnostics(
     connection_levels: tuple[np.ndarray, ...] | list[np.ndarray],
     labels: tuple[str, ...] | list[str] | None = None,
     *,
+    coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None = None,
     convergence_threshold: float = 0.35,
     linf_threshold: float = 0.75,
     minimum_observed_order: float = 0.5,
@@ -846,9 +1019,11 @@ def build_essos_imported_connection_length_refinement_diagnostics(
     """Compare nested imported connection-length grids by conservative restriction.
 
     The single-grid face-jump diagnostic is useful for QA, but a publication
-    refinement claim needs repeated imported maps. This helper restricts each
-    fine connection-length grid to the adjacent coarse grid by block averages and
-    reports normalized errors and observed order.
+    refinement claim needs repeated imported maps. By default this helper
+    restricts each fine connection-length grid to the adjacent coarse grid by
+    block averages. Live imported grids may also pass logical coordinates, in
+    which case the fine level is interpolated at the coarse coordinates before
+    errors and observed order are computed.
     """
 
     levels = [np.asarray(level, dtype=np.float64) for level in connection_levels]
@@ -867,13 +1042,28 @@ def build_essos_imported_connection_length_refinement_diagnostics(
         level_labels = [str(label) for label in labels]
         if len(level_labels) != len(levels):
             raise ValueError("Connection-length refinement labels must match level count.")
+    coordinate_payloads = _normalize_connection_coordinate_levels(
+        coordinate_levels,
+        expected_shapes=[level.shape for level in levels],
+    )
+    use_coordinate_restriction = bool(coordinate_payloads)
+    restriction_method = (
+        "coordinate_interpolation" if use_coordinate_restriction else "block_average"
+    )
 
     pair_reports: list[dict[str, Any]] = []
     for index, (coarse, fine) in enumerate(zip(levels, levels[1:])):
-        restricted = _restrict_connection_length_to_coarse_grid(
-            fine=fine,
-            coarse_shape=coarse.shape,
-        )
+        if use_coordinate_restriction:
+            restricted = _sample_connection_length_at_coarse_coordinates(
+                fine=fine,
+                fine_coordinates=coordinate_payloads[index + 1],
+                coarse_coordinates=coordinate_payloads[index],
+            )
+        else:
+            restricted = _restrict_connection_length_to_coarse_grid(
+                fine=fine,
+                coarse_shape=coarse.shape,
+            )
         finite_mask = np.isfinite(coarse) & np.isfinite(restricted)
         diff = coarse - restricted
         finite_diff = diff[finite_mask]
@@ -889,6 +1079,7 @@ def build_essos_imported_connection_length_refinement_diagnostics(
                 "fine_label": level_labels[index + 1],
                 "coarse_shape": [int(value) for value in coarse.shape],
                 "fine_shape": [int(value) for value in fine.shape],
+                "restriction_method": restriction_method,
                 "refinement_ratio_min": float(ratio),
                 "finite_fraction": float(np.mean(finite_mask)),
                 "absolute_rms_error": (
@@ -952,6 +1143,7 @@ def build_essos_imported_connection_length_refinement_diagnostics(
     )
     return {
         "diagnostic": "essos_imported_connection_length_refinement",
+        "restriction_method": restriction_method,
         "level_count": len(levels),
         "level_labels": level_labels,
         "pair_reports": pair_reports,
@@ -983,6 +1175,9 @@ def save_essos_imported_connection_length_refinement_plot(
     ]
     rms = np.asarray(arrays["pair_normalized_rms_error"], dtype=np.float64)
     linf = np.asarray(arrays["pair_normalized_linf_error"], dtype=np.float64)
+    quantity_label = _connection_quantity_plot_label(
+        str(report.get("connection_quantity", "raw_connection_length"))
+    )
 
     fig, axes = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
     coarse_image = axes[0, 0].imshow(
@@ -991,10 +1186,10 @@ def save_essos_imported_connection_length_refinement_plot(
         aspect="auto",
         cmap="viridis",
     )
-    axes[0, 0].set_title("coarse mean connection length")
+    axes[0, 0].set_title(f"coarse mean {quantity_label}")
     axes[0, 0].set_xlabel("toroidal index")
     axes[0, 0].set_ylabel("poloidal index")
-    fig.colorbar(coarse_image, ax=axes[0, 0], label="connection length")
+    fig.colorbar(coarse_image, ax=axes[0, 0], label=quantity_label)
 
     fine_image = axes[0, 1].imshow(
         np.mean(finest, axis=0).T,
@@ -1002,10 +1197,10 @@ def save_essos_imported_connection_length_refinement_plot(
         aspect="auto",
         cmap="viridis",
     )
-    axes[0, 1].set_title("finest mean connection length")
+    axes[0, 1].set_title(f"finest mean {quantity_label}")
     axes[0, 1].set_xlabel("toroidal index")
     axes[0, 1].set_ylabel("poloidal index")
-    fig.colorbar(fine_image, ax=axes[0, 1], label="connection length")
+    fig.colorbar(fine_image, ax=axes[0, 1], label=quantity_label)
 
     axes[1, 0].plot(pair_indices, rms, "o-", lw=2.0, label="RMS")
     axes[1, 0].plot(pair_indices, linf, "s--", lw=2.0, label="Linf")
@@ -1027,16 +1222,16 @@ def save_essos_imported_connection_length_refinement_plot(
         radial = np.asarray(arrays[f"level_{index}_radial_mean"], dtype=np.float64)
         x = np.linspace(0.0, 1.0, radial.size)
         axes[1, 1].plot(x, radial, lw=1.8, label=diagnostics["level_labels"][index])
-    axes[1, 1].set_title("radial mean connection length")
+    axes[1, 1].set_title(f"radial mean {quantity_label}")
     axes[1, 1].set_xlabel("normalized radius")
-    axes[1, 1].set_ylabel("connection length")
+    axes[1, 1].set_ylabel(quantity_label)
     axes[1, 1].grid(alpha=0.25)
     axes[1, 1].legend(frameon=False, fontsize=7)
 
     order = report.get("minimum_observed_order_actual")
     order_text = "n/a" if order is None else f"{float(order):.2f}"
     fig.suptitle(
-        "Imported-field connection-length refinement gate: "
+        f"Imported-field {quantity_label} refinement gate: "
         f"passed={report['passed']}, "
         f"finest RMS={report['finest_normalized_rms_error']:.2e}, "
         f"observed order={order_text}",
@@ -1045,6 +1240,13 @@ def save_essos_imported_connection_length_refinement_plot(
     fig.savefig(resolved, dpi=180)
     plt.close(fig)
     return resolved
+
+
+def _connection_quantity_plot_label(quantity: str) -> str:
+    normalized = _normalize_connection_refinement_quantity(quantity)
+    if normalized == "parallel_step_per_toroidal_radian":
+        return "parallel step length per radian"
+    return "connection length"
 
 
 def _format_grid_shape(shape: list[int] | tuple[int, ...]) -> str:
@@ -1315,6 +1517,180 @@ def _connection_length_resolution_diagnostics(
         "advisory_threshold": threshold,
         "passed": bool(finite_face_fraction == 1.0 and p95 <= threshold),
     }
+
+
+def _connection_length_geometry_coordinates(geometry: Any) -> dict[str, np.ndarray]:
+    coordinates: dict[str, np.ndarray] = {}
+    for key, attribute in (
+        ("minor_radius", "minor_radius"),
+        ("toroidal_angle", "toroidal_angle"),
+        ("poloidal_angle", "poloidal_angle"),
+    ):
+        if hasattr(geometry, attribute):
+            coordinates[key] = np.asarray(getattr(geometry, attribute), dtype=np.float64)
+    return coordinates if len(coordinates) == 3 else {}
+
+
+def _normalize_connection_refinement_quantity(value: str) -> str:
+    normalized = str(value).strip().lower().replace("-", "_")
+    aliases = {
+        "raw": "raw_connection_length",
+        "connection_length": "raw_connection_length",
+        "raw_connection_length": "raw_connection_length",
+        "per_radian": "parallel_step_per_toroidal_radian",
+        "per_toroidal_radian": "parallel_step_per_toroidal_radian",
+        "parallel_step_per_radian": "parallel_step_per_toroidal_radian",
+        "parallel_step_per_toroidal_radian": "parallel_step_per_toroidal_radian",
+    }
+    if normalized not in aliases:
+        raise ValueError(
+            "connection_quantity must be 'raw_connection_length' or "
+            "'parallel_step_per_toroidal_radian'."
+        )
+    return aliases[normalized]
+
+
+def _connection_level_for_refinement_quantity(
+    geometry: Any,
+    *,
+    quantity: str,
+) -> np.ndarray:
+    connection = np.asarray(geometry.connection_length, dtype=np.float64)
+    if quantity == "raw_connection_length":
+        return connection
+    if quantity == "parallel_step_per_toroidal_radian":
+        if not hasattr(geometry, "maps") or not hasattr(geometry.maps, "dphi"):
+            raise ValueError(
+                "parallel_step_per_toroidal_radian requires geometry.maps.dphi."
+            )
+        dphi = abs(float(geometry.maps.dphi))
+        if dphi <= 0.0:
+            raise ValueError("geometry.maps.dphi must be positive for refinement.")
+        return connection / dphi
+    raise ValueError(f"Unsupported connection refinement quantity {quantity!r}.")
+
+
+def _normalize_connection_coordinate_levels(
+    coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None,
+    *,
+    expected_shapes: list[tuple[int, ...]],
+) -> tuple[dict[str, np.ndarray], ...]:
+    if coordinate_levels is None:
+        return ()
+    if len(coordinate_levels) != len(expected_shapes):
+        raise ValueError("Coordinate level count must match connection level count.")
+    normalized: list[dict[str, np.ndarray]] = []
+    for index, (coordinates, expected_shape) in enumerate(zip(coordinate_levels, expected_shapes)):
+        payload: dict[str, np.ndarray] = {}
+        for key in ("minor_radius", "toroidal_angle", "poloidal_angle"):
+            if key not in coordinates:
+                raise ValueError(f"Coordinate level {index} is missing {key!r}.")
+            values = np.asarray(coordinates[key], dtype=np.float64)
+            if values.shape != expected_shape:
+                raise ValueError(
+                    f"Coordinate level {index} key {key!r} has shape {values.shape}; "
+                    f"expected {expected_shape}."
+                )
+            payload[key] = values
+        normalized.append(payload)
+    return tuple(normalized)
+
+
+def _sample_connection_length_at_coarse_coordinates(
+    *,
+    fine: np.ndarray,
+    fine_coordinates: dict[str, np.ndarray],
+    coarse_coordinates: dict[str, np.ndarray],
+) -> np.ndarray:
+    fine = np.asarray(fine, dtype=np.float64)
+    fine_rho = _coordinate_axis(fine_coordinates["minor_radius"], axis=0)
+    fine_phi = _coordinate_axis(fine_coordinates["toroidal_angle"], axis=1)
+    fine_theta = _coordinate_axis(fine_coordinates["poloidal_angle"], axis=2)
+    coarse_rho = np.asarray(coarse_coordinates["minor_radius"], dtype=np.float64)
+    coarse_phi = np.asarray(coarse_coordinates["toroidal_angle"], dtype=np.float64)
+    coarse_theta = np.asarray(coarse_coordinates["poloidal_angle"], dtype=np.float64)
+
+    x0, x1, wx = _linear_axis_indices(fine_rho, coarse_rho)
+    y0, y1, wy = _periodic_axis_indices(fine_phi, coarse_phi, period=2.0 * np.pi)
+    z0, z1, wz = _periodic_axis_indices(fine_theta, coarse_theta, period=2.0 * np.pi)
+
+    c000 = fine[x0, y0, z0]
+    c100 = fine[x1, y0, z0]
+    c010 = fine[x0, y1, z0]
+    c110 = fine[x1, y1, z0]
+    c001 = fine[x0, y0, z1]
+    c101 = fine[x1, y0, z1]
+    c011 = fine[x0, y1, z1]
+    c111 = fine[x1, y1, z1]
+    c00 = (1.0 - wx) * c000 + wx * c100
+    c10 = (1.0 - wx) * c010 + wx * c110
+    c01 = (1.0 - wx) * c001 + wx * c101
+    c11 = (1.0 - wx) * c011 + wx * c111
+    c0 = (1.0 - wy) * c00 + wy * c10
+    c1 = (1.0 - wy) * c01 + wy * c11
+    return (1.0 - wz) * c0 + wz * c1
+
+
+def _coordinate_axis(values: np.ndarray, *, axis: int) -> np.ndarray:
+    array = np.asarray(values, dtype=np.float64)
+    if array.ndim == 1:
+        return array
+    if array.ndim != 3:
+        raise ValueError(f"Coordinate arrays must be 1D or 3D, got shape {array.shape}.")
+    if axis == 0:
+        return np.asarray(array[:, 0, 0], dtype=np.float64)
+    if axis == 1:
+        return np.asarray(array[0, :, 0], dtype=np.float64)
+    if axis == 2:
+        return np.asarray(array[0, 0, :], dtype=np.float64)
+    raise ValueError(f"Unsupported coordinate axis {axis}.")
+
+
+def _linear_axis_indices(axis_values: np.ndarray, targets: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    axis_values = np.asarray(axis_values, dtype=np.float64)
+    if axis_values.ndim != 1 or axis_values.size == 0:
+        raise ValueError("Linear interpolation axis must be a non-empty 1D array.")
+    if axis_values.size == 1:
+        zeros = np.zeros_like(targets, dtype=int)
+        weights = np.zeros_like(targets, dtype=np.float64)
+        return zeros, zeros, weights
+    if np.any(np.diff(axis_values) <= 0.0):
+        raise ValueError("Linear interpolation axis must be strictly increasing.")
+    coordinate = np.interp(
+        np.asarray(targets, dtype=np.float64),
+        axis_values,
+        np.arange(axis_values.size, dtype=np.float64),
+        left=np.nan,
+        right=np.nan,
+    )
+    x0 = np.floor(coordinate).astype(int)
+    x0 = np.clip(x0, 0, axis_values.size - 1)
+    x1 = np.clip(x0 + 1, 0, axis_values.size - 1)
+    weights = np.where(np.isfinite(coordinate), coordinate - x0.astype(np.float64), np.nan)
+    weights = np.where(x0 == x1, 0.0, weights)
+    return x0, x1, weights
+
+
+def _periodic_axis_indices(
+    axis_values: np.ndarray,
+    targets: np.ndarray,
+    *,
+    period: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    axis_values = np.asarray(axis_values, dtype=np.float64)
+    if axis_values.ndim != 1 or axis_values.size == 0:
+        raise ValueError("Periodic interpolation axis must be a non-empty 1D array.")
+    if axis_values.size == 1:
+        zeros = np.zeros_like(targets, dtype=int)
+        weights = np.zeros_like(targets, dtype=np.float64)
+        return zeros, zeros, weights
+    spacing = float(period) / float(axis_values.size)
+    coordinate = np.mod(np.asarray(targets, dtype=np.float64) - axis_values[0], float(period))
+    coordinate = coordinate / max(spacing, 1.0e-30)
+    x0 = np.floor(coordinate).astype(int) % axis_values.size
+    x1 = (x0 + 1) % axis_values.size
+    weights = coordinate - np.floor(coordinate)
+    return x0, x1, np.asarray(weights, dtype=np.float64)
 
 
 def _restrict_connection_length_to_coarse_grid(

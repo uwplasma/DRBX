@@ -584,6 +584,13 @@ def test_trace_neutral_mixed_accepted_steps_command_writes_report(
                 reference_trace_json=tmp_path / "reference_trace.jsonl",
                 reference_stage="post_accepted",
                 time_tolerance=1.0e-9,
+                solver_mode="sparse",
+                residual_tolerance=1.0e-11,
+                step_tolerance=1.0e-12,
+                max_nonlinear_iterations=12,
+                linear_restart=10,
+                linear_maxiter=100,
+                linear_rtol=1.0e-10,
                 json_out=tmp_path / "native_trace.json",
             )
         )
@@ -594,6 +601,13 @@ def test_trace_neutral_mixed_accepted_steps_command_writes_report(
     assert captured["reference_trace_json"] == tmp_path / "reference_trace.jsonl"
     assert captured["reference_stage"] == "post_accepted"
     assert captured["time_tolerance"] == pytest.approx(1.0e-9)
+    assert captured["solver_mode"] == "sparse"
+    assert captured["residual_tolerance"] == pytest.approx(1.0e-11)
+    assert captured["step_tolerance"] == pytest.approx(1.0e-12)
+    assert captured["max_nonlinear_iterations"] == 12
+    assert captured["linear_restart"] == 10
+    assert captured["linear_maxiter"] == 100
+    assert captured["linear_rtol"] == pytest.approx(1.0e-10)
     output = capsys.readouterr().out
     assert "neutral_mixed_native_accepted_step_trace" in output
     assert "trace_point_count: 9" in output

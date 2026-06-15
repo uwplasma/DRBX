@@ -746,6 +746,13 @@ def build_neutral_mixed_native_accepted_step_trace_report(
     reference_trace_json: str | Path | None = None,
     reference_stage: str = _ACCEPTED_TRACE_STAGE,
     time_tolerance: float = 1.0e-8,
+    solver_mode: str = "matrix_free",
+    residual_tolerance: float = 1.0e-8,
+    step_tolerance: float = 1.0e-10,
+    max_nonlinear_iterations: int = 8,
+    linear_restart: int = 20,
+    linear_maxiter: int = 200,
+    linear_rtol: float = 1.0e-8,
 ) -> dict[str, object]:
     """Run JAXDRB neutral-mixed implicit history with accepted-step tracing enabled."""
 
@@ -800,13 +807,13 @@ def build_neutral_mixed_native_accepted_step_trace_report(
         timestep=float(run_config.time.timestep),
         steps=int(steps),
         internal_substeps=int(internal_substeps),
-        solver_mode="matrix_free",
-        residual_tolerance=1.0e-8,
-        step_tolerance=1.0e-10,
-        max_nonlinear_iterations=8,
-        linear_restart=20,
-        linear_maxiter=200,
-        linear_rtol=1.0e-8,
+        solver_mode=str(solver_mode),
+        residual_tolerance=float(residual_tolerance),
+        step_tolerance=float(step_tolerance),
+        max_nonlinear_iterations=int(max_nonlinear_iterations),
+        linear_restart=int(linear_restart),
+        linear_maxiter=int(linear_maxiter),
+        linear_rtol=float(linear_rtol),
         store_internal_substeps=True,
         accepted_step_time_points=reference_time_grid,
     )
@@ -829,6 +836,13 @@ def build_neutral_mixed_native_accepted_step_trace_report(
         reference_trace_point_count=reference_trace_point_count,
         time_grid_final_time=time_grid_final_time,
         target_final_time=target_final_time,
+        solver_mode=str(solver_mode),
+        residual_tolerance=float(residual_tolerance),
+        step_tolerance=float(step_tolerance),
+        max_nonlinear_iterations=int(max_nonlinear_iterations),
+        linear_restart=int(linear_restart),
+        linear_maxiter=int(linear_maxiter),
+        linear_rtol=float(linear_rtol),
     )
 
 
@@ -2226,6 +2240,13 @@ def _native_accepted_step_trace_report_from_history(
     reference_trace_point_count: int = 0,
     time_grid_final_time: float | None = None,
     target_final_time: float | None = None,
+    solver_mode: str = "matrix_free",
+    residual_tolerance: float = 1.0e-8,
+    step_tolerance: float = 1.0e-10,
+    max_nonlinear_iterations: int = 8,
+    linear_restart: int = 20,
+    linear_maxiter: int = 200,
+    linear_rtol: float = 1.0e-8,
 ) -> dict[str, object]:
     time_points = history.accepted_step_time_points
     accepted_dt = history.accepted_step_dt
@@ -2339,6 +2360,15 @@ def _native_accepted_step_trace_report_from_history(
         "target_final_time": float(target_final_time)
         if target_final_time is not None
         else None,
+        "native_solver_configuration": {
+            "solver_mode": str(solver_mode),
+            "residual_tolerance": float(residual_tolerance),
+            "step_tolerance": float(step_tolerance),
+            "max_nonlinear_iterations": int(max_nonlinear_iterations),
+            "linear_restart": int(linear_restart),
+            "linear_maxiter": int(linear_maxiter),
+            "linear_rtol": float(linear_rtol),
+        },
         "trace_point_count": int(time_points.size),
         "active_x_indices": list(range(int(mesh.xstart), int(mesh.xend) + 1)),
         "active_y_indices": list(range(int(mesh.ystart), int(mesh.yend) + 1)),

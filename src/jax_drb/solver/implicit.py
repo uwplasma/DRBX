@@ -1158,7 +1158,7 @@ def solve_jax_linearized_newton_system(
                 step_scale *= 0.5
                 continue
             residual_started_at = perf_counter()
-            trial_residual = residual(trial_state)
+            trial_residual = residual_function(trial_state)
             trial_residual = _block(trial_residual)
             residual_evaluation_count += 1
             residual_evaluation_seconds += perf_counter() - residual_started_at
@@ -1189,7 +1189,7 @@ def solve_jax_linearized_newton_system(
             break
 
     residual_started_at = perf_counter()
-    final_residual = residual(state)
+    final_residual = residual_function(state)
     final_residual = _block(final_residual)
     residual_evaluation_count += 1
     residual_evaluation_seconds += perf_counter() - residual_started_at

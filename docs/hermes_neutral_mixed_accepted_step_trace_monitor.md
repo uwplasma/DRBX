@@ -230,6 +230,18 @@ feeds neutral pressure/log-pressure preparation, with a secondary check on the
 near-target `Grad(logPnlim)` stencil; it does not support changing the local
 pressure-gradient, viscosity, or raw diffusion formulas.
 
+A June 15, 2026 native replay repeated the same reference-time comparison with
+the matrix-free native nonlinear residual tolerance tightened from `1e-8` to
+`1e-11`. The maximum native accepted-step residual dropped to `9.76e-12`, but
+the leading `Dnnh_flux_max` target-adjacent drift remained
+`5.12775158e-3`. This is negative evidence for a loose nonlinear-solve
+tolerance explanation. A sparse finite-difference Newton replay was also
+started as a solver-method control, but it spent several minutes in repeated
+Jacobian residual assembly and was interrupted; that path is not a practical
+parity diagnostic for this lane. The next physics patch therefore remains
+accepted-state/history preparation or the near-target `Grad(logPnlim)` stencil,
+not a simple solver tolerance/backend switch.
+
 A final-state input-closure cross-check reconstructs `Dnn`, `Vh`, and `eta_h`
 from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares those
 arrays with the reference `BOUT.dmp.0.nc` diagnostics. This closes the neutral
@@ -246,6 +258,17 @@ PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps \
   --case-name neutral_mixed_one_step \
   --internal-substeps 8 \
   --json-out /tmp/native_trace.json
+
+PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps \
+  --reference-root /path/to/reference-root \
+  --case-name neutral_mixed_one_step \
+  --reference-trace-jsonl /tmp/ref_trace/accepted_steps.jsonl \
+  --solver-mode matrix_free \
+  --residual-tolerance 1e-11 \
+  --step-tolerance 1e-12 \
+  --max-nonlinear-iterations 60 \
+  --linear-rtol 1e-10 \
+  --json-out /tmp/native_trace_tight.json
 
 PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
   --reference-root /path/to/reference-root \
