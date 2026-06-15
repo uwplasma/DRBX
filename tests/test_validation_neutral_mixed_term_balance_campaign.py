@@ -165,6 +165,29 @@ def _minimal_reference_accepted_step_record(
     }
 
 
+def _active_trace_field_payload(values: np.ndarray, mesh) -> dict[str, object]:
+    active = np.asarray(values, dtype=np.float64)[
+        mesh.xstart : mesh.xend + 1,
+        mesh.ystart : mesh.yend + 1,
+        :,
+    ]
+    max_abs = float(np.max(np.abs(active))) if active.size else 0.0
+    rms = float(np.sqrt(np.mean(active * active))) if active.size else 0.0
+    return {
+        "active_metrics": {"max_abs": max_abs, "rms": rms},
+        "active_shape": list(active.shape),
+        "active_values": active.reshape(-1).tolist(),
+        "target_adjacent_metrics": {"max_abs": 0.0, "rms": 0.0},
+        "guard_metrics": {"max_abs": 0.0, "rms": 0.0},
+        "target_adjacent_shape": [],
+        "target_adjacent_values": [],
+        "guard_shape": [],
+        "guard_values": [],
+        "sample_lineout_y_indices": [],
+        "sample_lineout": [],
+    }
+
+
 def _write_neutral_mixed_input_closure_dump(
     input_path: Path,
     dump_path: Path,
@@ -615,6 +638,8 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
     assert "Dnn_diffusion_limited = copy(Dnn);" in text
     assert "max_abs_index" in text
     assert "max_abs_value" in text
+    assert "active_shape" in text
+    assert "active_values" in text
     assert "target_adjacent_shape" in text
     assert "target_adjacent_values" in text
     assert "guard_shape" in text
@@ -1149,6 +1174,10 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
     fields = report["trace_points"][0]["fields"]
     assert fields["Dnnh_raw"]["active_metrics"]["max_abs"] > 0.0
     assert len(fields["Dnnh_raw"]["active_metrics"]["max_abs_index"]) == 3
+    assert fields["Dnnh_raw"]["active_shape"][1] == len(report["active_y_indices"])
+    assert len(fields["Dnnh_raw"]["active_values"]) == int(
+        np.prod(fields["Dnnh_raw"]["active_shape"])
+    )
     assert fields["Dnnh_raw"]["target_adjacent_shape"][1] == len(
         report["target_y_indices"]
     )
@@ -1435,12 +1464,72 @@ def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(
     assert report["fields"]["NVh"]["max_sample_lineout_delta"] == pytest.approx(3.0)
     assert report["ranked_fields"][0]["field"] == "NVh"
     assert report["parallel_viscosity_input_register"]["entries"] == []
+    assert (
+        report["reference_active_state_residual_register"]["reason"]
+        == "input_path_unavailable"
+    )
 
     path = write_neutral_mixed_accepted_step_trace_parity_json(
         report, tmp_path / "trace_parity.json"
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["diagnostic"] == "neutral_mixed_accepted_step_trace_parity"
+
+
+def test_neutral_mixed_accepted_step_trace_parity_evaluates_reference_active_state_residual(
+    tmp_path: Path,
+) -> None:
+    input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
+    config = term_module.load_bout_input(input_path)
+    run_config = term_module.RunConfiguration.from_config(config)
+    mesh = term_module.build_structured_mesh(config, run_config)
+    state = term_module.initialize_neutral_mixed_state(config, section="h", mesh=mesh)
+    fields = {
+        "Nh": _active_trace_field_payload(state.density, mesh),
+        "Ph": _active_trace_field_payload(state.pressure, mesh),
+        "NVh": _active_trace_field_payload(state.momentum, mesh),
+    }
+    native_trace = {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "input_path": str(input_path),
+        "section": "h",
+        "trace_points": [
+            {
+                "index": 0,
+                "time": 1.0e-6,
+                "dt": 1.0e-6,
+                "solver_order": 1,
+                "stage": "post_accepted",
+                "fields": fields,
+            }
+        ],
+    }
+    reference_record = {
+        "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+        "step_index": 0,
+        "time": 1.0e-6,
+        "dt": 1.0e-6,
+        "solver": {"order": 1},
+        "stages": {"post_accepted": fields},
+    }
+    native_path = tmp_path / "native_trace.json"
+    reference_path = tmp_path / "reference_trace.jsonl"
+    native_path.write_text(json.dumps(native_trace), encoding="utf-8")
+    reference_path.write_text(json.dumps(reference_record) + "\n", encoding="utf-8")
+
+    report = build_neutral_mixed_accepted_step_trace_parity_report(
+        native_trace_json=native_path,
+        reference_trace_json=reference_path,
+        input_path=input_path,
+        time_tolerance=1.0e-12,
+    )
+
+    register = report["reference_active_state_residual_register"]
+    assert register["available"] is True
+    assert register["evaluated_point_count"] == 1
+    assert register["section"] == "h"
+    assert register["worst_entry"]["residual_kind"] == "backward_euler"
+    assert register["worst_entry"]["residual_inf_norm"] >= 0.0
 
 
 def test_neutral_mixed_accepted_step_trace_parity_does_not_match_initial_to_startup(

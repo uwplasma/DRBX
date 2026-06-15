@@ -21,9 +21,12 @@ from ..native.neutral_mixed import (
     _section_scalar,
     _sanitize_neutral_state,
     advance_neutral_mixed_implicit_history,
+    compute_neutral_mixed_backward_euler_residual,
+    compute_neutral_mixed_bdf2_residual,
     compute_neutral_mixed_diffusion_diagnostics,
     compute_neutral_mixed_rhs,
     initialize_neutral_mixed_state,
+    pack_neutral_mixed_active_state,
 )
 from ..native.neutral_mixed_state import NeutralMixedState
 from ..native.units import resolved_dataset_scalars
@@ -865,6 +868,7 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
     reference_stage: str = "post_accepted",
     time_tolerance: float = 1.0e-8,
     reference_cvode_max_order: int | None = None,
+    input_path: str | Path | None = None,
 ) -> dict[str, object]:
     """Compare native and reference accepted-step traces at matched internal times.
 
@@ -912,6 +916,12 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         matched_points=matched_points,
         field_errors=field_errors,
     )
+    reference_residual_register = _build_reference_active_state_residual_register(
+        native_report=native_report,
+        reference_points=reference_points,
+        matched_points=matched_points,
+        input_path=input_path,
+    )
     comparable_solver_order_deltas = [
         int(point.get("solver_order_delta", 0))
         for point in matched_points
@@ -950,6 +960,7 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         "parallel_viscosity_input_register": parallel_viscosity_input_register,
         "accepted_step_state_history_register": accepted_step_state_history_register,
         "accepted_step_error_onset_register": accepted_step_error_onset_register,
+        "reference_active_state_residual_register": reference_residual_register,
         "matched_points": matched_points,
         "interpretation": (
             "This accepted-internal-step parity report compares native and reference "
@@ -1057,6 +1068,258 @@ def _build_accepted_step_error_onset_register(
         "fields": field_entries,
         "category_dominant_fields": category_entries,
     }
+
+
+def _build_reference_active_state_residual_register(
+    *,
+    native_report: dict[str, object],
+    reference_points: list[dict[str, object]],
+    matched_points: list[dict[str, object]],
+    input_path: str | Path | None,
+) -> dict[str, object]:
+    """Evaluate native neutral residuals directly on reference accepted states."""
+
+    resolved_input = _resolve_trace_input_path(input_path, native_report=native_report)
+    if resolved_input is None:
+        return {
+            "available": False,
+            "reason": "input_path_unavailable",
+            "description": (
+                "Native residuals on reference accepted states require the input "
+                "deck used to build mesh, metrics, and normalization scalars."
+            ),
+        }
+    if not resolved_input.exists():
+        return {
+            "available": False,
+            "reason": "input_path_not_found",
+            "input_path": _sanitize_public_path(resolved_input),
+        }
+    if not reference_points:
+        return {"available": False, "reason": "no_reference_points"}
+    if not matched_points:
+        return {"available": False, "reason": "no_matched_points"}
+
+    config = load_bout_input(resolved_input)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    section = str(
+        native_report.get("section")
+        or (run_config.components[0].section if run_config.components else "h")
+    )
+    initial_state = initialize_neutral_mixed_state(config, section=section, mesh=mesh)
+
+    state_cache: dict[int, NeutralMixedState] = {-1: initial_state}
+    skipped: list[dict[str, object]] = []
+    entries: list[dict[str, object]] = []
+    for matched_point in matched_points:
+        reference_index = int(matched_point.get("reference_index", -1))
+        if reference_index < 0 or reference_index >= len(reference_points):
+            continue
+        state = _reference_state_from_active_trace_payload(
+            reference_points[reference_index],
+            section=section,
+            template=initial_state,
+            mesh=mesh,
+        )
+        if state is None:
+            skipped.append(
+                {
+                    "reference_index": reference_index,
+                    "time": float(matched_point.get("time", 0.0)),
+                    "reason": "missing_full_active_state_payload",
+                }
+            )
+            continue
+        state_cache[reference_index] = state
+        previous_state = (
+            initial_state
+            if reference_index == 0
+            else state_cache.get(reference_index - 1)
+        )
+        if previous_state is None:
+            skipped.append(
+                {
+                    "reference_index": reference_index,
+                    "time": float(matched_point.get("time", 0.0)),
+                    "reason": "missing_previous_reference_state",
+                }
+            )
+            continue
+        timestep = float(
+            matched_point.get("reference_dt", matched_point.get("dt", 0.0))
+        )
+        solver_order = int(matched_point.get("reference_solver_order", 0))
+        if solver_order <= 1 or reference_index < 2:
+            residual = compute_neutral_mixed_backward_euler_residual(
+                pack_neutral_mixed_active_state(state, mesh=mesh),
+                pack_neutral_mixed_active_state(previous_state, mesh=mesh),
+                config=config,
+                template_state=state,
+                section=section,
+                mesh=mesh,
+                metrics=metrics,
+                meters_scale=float(scalars["rho_s0"]),
+                tnorm=float(scalars["Tnorm"]),
+                timestep=timestep,
+            )
+            residual_kind = "backward_euler"
+        else:
+            previous_previous_state = state_cache.get(reference_index - 2)
+            if previous_previous_state is None:
+                skipped.append(
+                    {
+                        "reference_index": reference_index,
+                        "time": float(matched_point.get("time", 0.0)),
+                        "reason": "missing_previous_previous_reference_state",
+                    }
+                )
+                continue
+            previous_timestep = float(
+                reference_points[reference_index - 1].get("dt", timestep)
+            )
+            residual = compute_neutral_mixed_bdf2_residual(
+                pack_neutral_mixed_active_state(state, mesh=mesh),
+                pack_neutral_mixed_active_state(previous_state, mesh=mesh),
+                pack_neutral_mixed_active_state(previous_previous_state, mesh=mesh),
+                config=config,
+                template_state=state,
+                section=section,
+                mesh=mesh,
+                metrics=metrics,
+                meters_scale=float(scalars["rho_s0"]),
+                tnorm=float(scalars["Tnorm"]),
+                timestep=timestep,
+                previous_timestep=previous_timestep,
+            )
+            residual_kind = "bdf2"
+        residual_array = np.asarray(residual, dtype=np.float64)
+        entries.append(
+            {
+                "native_index": int(matched_point.get("native_index", 0)),
+                "reference_index": reference_index,
+                "time": float(matched_point.get("time", 0.0)),
+                "dt": timestep,
+                "solver_order": solver_order,
+                "residual_kind": residual_kind,
+                "residual_inf_norm": float(np.max(np.abs(residual_array))),
+                "residual_rms": _rms(residual_array),
+            }
+        )
+    if not entries:
+        return {
+            "available": False,
+            "reason": "no_full_active_reference_states",
+            "input_path": _sanitize_public_path(resolved_input),
+            "skipped_points": skipped[:8],
+        }
+    worst_entry = max(entries, key=lambda entry: float(entry["residual_inf_norm"]))
+    return {
+        "available": True,
+        "description": (
+            "Native BE/BDF2 residual norms evaluated directly on reference "
+            "accepted-step states reconstructed from full active N/P/NV payloads. "
+            "Large residuals indicate a remaining RHS/boundary mismatch; small "
+            "residuals with state drift indicate state-history or nonlinear-solver "
+            "sequencing."
+        ),
+        "input_path": _sanitize_public_path(resolved_input),
+        "section": section,
+        "evaluated_point_count": len(entries),
+        "skipped_point_count": len(skipped),
+        "max_residual_inf_norm": float(worst_entry["residual_inf_norm"]),
+        "max_residual_time": float(worst_entry["time"]),
+        "worst_entry": worst_entry,
+        "entries": entries,
+        "skipped_points": skipped[:8],
+    }
+
+
+def _resolve_trace_input_path(
+    input_path: str | Path | None,
+    *,
+    native_report: dict[str, object],
+) -> Path | None:
+    raw_value: str | Path | None = input_path
+    if raw_value is None:
+        candidate = native_report.get("input_path")
+        raw_value = str(candidate) if candidate else None
+    if raw_value is None:
+        return None
+    raw_text = str(raw_value)
+    if raw_text.startswith("<repo-root>/"):
+        return repo_root() / raw_text[len("<repo-root>/") :]
+    if raw_text == "<repo-root>":
+        return repo_root()
+    if raw_text.startswith("<reference-root>/"):
+        root = default_reference_root()
+        if root is None:
+            return None
+        return root / raw_text[len("<reference-root>/") :]
+    if raw_text == "<reference-root>":
+        return default_reference_root()
+    return Path(raw_text).expanduser().resolve()
+
+
+def _reference_state_from_active_trace_payload(
+    point: dict[str, object],
+    *,
+    section: str,
+    template: NeutralMixedState,
+    mesh,
+) -> NeutralMixedState | None:
+    fields = point.get("fields")
+    if not isinstance(fields, dict):
+        return None
+    density = _field_from_active_trace_payload(
+        fields.get(f"N{section}"),
+        template=template.density,
+        mesh=mesh,
+    )
+    pressure = _field_from_active_trace_payload(
+        fields.get(f"P{section}"),
+        template=template.pressure,
+        mesh=mesh,
+    )
+    momentum = _field_from_active_trace_payload(
+        fields.get(f"NV{section}"),
+        template=template.momentum,
+        mesh=mesh,
+    )
+    if density is None or pressure is None or momentum is None:
+        return None
+    return _sanitize_neutral_state(
+        NeutralMixedState(density=density, pressure=pressure, momentum=momentum),
+        mesh,
+    )
+
+
+def _field_from_active_trace_payload(
+    payload: object,
+    *,
+    template: np.ndarray,
+    mesh,
+) -> np.ndarray | None:
+    if not isinstance(payload, dict):
+        return None
+    shape = tuple(int(value) for value in payload.get("active_shape", []))
+    values = np.asarray(payload.get("active_values", []), dtype=np.float64)
+    expected_shape = (
+        int(mesh.xend - mesh.xstart + 1),
+        int(mesh.yend - mesh.ystart + 1),
+        int(mesh.nz),
+    )
+    if shape != expected_shape or values.size != int(np.prod(expected_shape)):
+        return None
+    field = np.asarray(template, dtype=np.float64).copy()
+    field[
+        mesh.xstart : mesh.xend + 1,
+        mesh.ystart : mesh.yend + 1,
+        :,
+    ] = values.reshape(expected_shape)
+    return field
 
 
 def _accepted_step_error_onset_entry(
@@ -2943,6 +3206,8 @@ def _native_accepted_step_field_payload(
         "active_metrics": _array_metrics_with_indices(
             active, x_indices=x_indices, y_indices=active_y_indices
         ),
+        "active_shape": list(active.shape),
+        "active_values": active.reshape(-1).tolist(),
         "target_adjacent_metrics": _array_metrics_with_indices(
             target, x_indices=x_indices, y_indices=target_y_indices
         ),
@@ -3247,6 +3512,8 @@ def _load_accepted_step_trace_records(
             if "trace_points" in payload:
                 return {
                     "diagnostic": str(payload.get("diagnostic", "accepted_step_trace")),
+                    "input_path": payload.get("input_path"),
+                    "section": payload.get("section"),
                     "trace_points": [
                         _normalize_accepted_trace_point(
                             point, preferred_stage=preferred_stage
@@ -3441,6 +3708,8 @@ def _normalize_accepted_trace_field_payload(
 ) -> dict[str, object]:
     return {
         "active_metrics": _normalize_metric_payload(payload.get("active_metrics")),
+        "active_shape": [int(value) for value in payload.get("active_shape", [])],
+        "active_values": [float(value) for value in payload.get("active_values", [])],
         "target_adjacent_metrics": _normalize_metric_payload(
             payload.get("target_adjacent_metrics")
         ),

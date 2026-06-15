@@ -915,6 +915,36 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
     assert info.linear_solver_reported_iterations is None
 
 
+def test_jax_linearized_newton_solver_accepts_left_preconditioner() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([1.0, 2.0], dtype=jnp.float64)
+    weights = jnp.array([1000.0, 0.01], dtype=jnp.float64)
+
+    def residual(state):
+        return weights * (jnp.asarray(state) - target)
+
+    def preconditioner(vector):
+        return jnp.asarray(vector) / weights
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        np.array([0.5, 1.5], dtype=np.float64),
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_restart=4,
+        linear_maxiter=4,
+        linear_preconditioner=preconditioner,
+        linear_preconditioner_name="test_scale",
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is True
+    assert info.linear_preconditioner == "test_scale"
+
+
 def test_jax_linearized_newton_solver_can_prejit_residual() -> None:
     pytest.importorskip("jax")
     jnp = pytest.importorskip("jax.numpy")

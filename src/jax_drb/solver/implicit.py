@@ -43,6 +43,7 @@ class ImplicitStepInfo:
     linear_solver_status: int | float | str | None = None
     linear_solver_success: bool | None = None
     linear_solver_reported_iterations: int | None = None
+    linear_preconditioner: str | None = None
     jvp_direction_batch_count: int = 0
     jvp_direction_build_seconds: float = 0.0
     jvp_jacobian_total_seconds: float = 0.0
@@ -1023,6 +1024,8 @@ def solve_jax_linearized_newton_system(
     linear_restart: int = 20,
     linear_maxiter: int = 20,
     linear_solver_backend: str = "jax_gmres",
+    linear_preconditioner: Callable[[object], object] | None = None,
+    linear_preconditioner_name: str | None = None,
     check_initial_residual: bool = True,
     jit_residual: bool = False,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
@@ -1084,6 +1087,9 @@ def solve_jax_linearized_newton_system(
             linear_solver_status=last_linear_solver_status,
             linear_solver_success=last_linear_solver_success,
             linear_solver_reported_iterations=last_linear_solver_reported_iterations,
+            linear_preconditioner=linear_preconditioner_name
+            if linear_preconditioner is not None
+            else None,
             residual_jitted=bool(jit_residual),
         )
 
@@ -1127,6 +1133,7 @@ def solve_jax_linearized_newton_system(
             linear_restart=int(linear_restart),
             linear_maxiter=int(linear_maxiter),
             jax_gmres=gmres,
+            preconditioner=linear_preconditioner,
         )
         update = solve_result.update
         update = _block(update)
@@ -1225,6 +1232,7 @@ def _solve_jax_linearized_update(
     linear_restart: int,
     linear_maxiter: int,
     jax_gmres,
+    preconditioner=None,
 ):
     if backend == "jax_gmres":
         update, status = jax_gmres(
@@ -1234,6 +1242,7 @@ def _solve_jax_linearized_update(
             atol=0.0,
             restart=int(linear_restart),
             maxiter=int(linear_maxiter),
+            M=preconditioner,
         )
         return JaxLinearizedUpdateResult(update=update, backend=backend, status=status)
     if backend == "lineax_gmres":

@@ -4559,6 +4559,16 @@ def advance_recycling_1d_backward_euler_step(
             config
         )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
+        linear_backend = (
+            "lineax_gmres"
+            if solver_mode.endswith("_lineax")
+            else _resolve_recycling_jax_linear_solver_backend()
+        )
+        preconditioner_name = (
+            _resolve_recycling_jax_linear_preconditioner_name(config)
+            if linear_backend == "jax_gmres"
+            else None
+        )
         solved, info = solve_jax_linearized_newton_system(
             residual,
             packed_initial_guess,
@@ -4568,11 +4578,12 @@ def advance_recycling_1d_backward_euler_step(
             max_nonlinear_iterations=max_nonlinear_iterations,
             linear_restart=linear_restart,
             linear_maxiter=linear_maxiter,
-            linear_solver_backend=(
-                "lineax_gmres"
-                if solver_mode.endswith("_lineax")
-                else _resolve_recycling_jax_linear_solver_backend()
+            linear_solver_backend=linear_backend,
+            linear_preconditioner=_build_recycling_jax_linear_preconditioner(
+                packed_initial_guess,
+                name=preconditioner_name,
             ),
+            linear_preconditioner_name=preconditioner_name,
             jit_residual=jit_residual,
         )
     else:
@@ -4715,6 +4726,16 @@ def advance_recycling_1d_bdf2_step(
             config
         )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
+        linear_backend = (
+            "lineax_gmres"
+            if solver_mode.endswith("_lineax")
+            else _resolve_recycling_jax_linear_solver_backend()
+        )
+        preconditioner_name = (
+            _resolve_recycling_jax_linear_preconditioner_name(config)
+            if linear_backend == "jax_gmres"
+            else None
+        )
         solved, info = solve_jax_linearized_newton_system(
             residual,
             packed_initial_guess,
@@ -4724,11 +4745,12 @@ def advance_recycling_1d_bdf2_step(
             max_nonlinear_iterations=max_nonlinear_iterations,
             linear_restart=linear_restart,
             linear_maxiter=linear_maxiter,
-            linear_solver_backend=(
-                "lineax_gmres"
-                if solver_mode.endswith("_lineax")
-                else _resolve_recycling_jax_linear_solver_backend()
+            linear_solver_backend=linear_backend,
+            linear_preconditioner=_build_recycling_jax_linear_preconditioner(
+                packed_initial_guess,
+                name=preconditioner_name,
             ),
+            linear_preconditioner_name=preconditioner_name,
             jit_residual=jit_residual,
         )
     else:
@@ -5376,6 +5398,58 @@ def _resolve_recycling_jax_linear_solver_backend() -> str:
         "lineax_gmres": "lineax_gmres",
     }
     return aliases.get(env_value, "jax_gmres")
+
+
+def _resolve_recycling_jax_linear_preconditioner_name(
+    config: BoutConfig | None = None,
+) -> str | None:
+    """Resolve the opt-in JAX GMRES left-preconditioner for recycling solves."""
+
+    option_name = "recycling_jax_linear_preconditioner"
+    raw_value: str | None = None
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            raw_value = str(config.parsed(section_name, option_name))
+            break
+    if raw_value is None:
+        raw_value = os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER")
+    if raw_value is None or not raw_value.strip():
+        return None
+    normalized = raw_value.strip().lower().replace("-", "_")
+    aliases = {
+        "0": None,
+        "false": None,
+        "no": None,
+        "none": None,
+        "off": None,
+        "state": "state_scale",
+        "state_scale": "state_scale",
+        "row_scale": "state_scale",
+        "jacobi": "state_scale",
+    }
+    return aliases.get(normalized)
+
+
+def _build_recycling_jax_linear_preconditioner(
+    packed_initial_guess: object,
+    *,
+    name: str | None,
+) -> Callable[[object], object] | None:
+    if name is None:
+        return None
+    if name != "state_scale":
+        raise ValueError(f"Unsupported recycling JAX preconditioner {name!r}.")
+    scale = jnp.maximum(
+        jnp.abs(jnp.asarray(packed_initial_guess, dtype=jnp.float64)),
+        1.0,
+    )
+
+    def preconditioner(vector: object) -> object:
+        return jnp.asarray(vector, dtype=jnp.float64) / scale
+
+    return preconditioner
 
 
 def _resolve_positive_int_runtime_option(
@@ -6116,6 +6190,7 @@ def _as_recycling_step_info(
         "linear_solver_reported_iterations": getattr(
             info, "linear_solver_reported_iterations", None
         ),
+        "linear_preconditioner": getattr(info, "linear_preconditioner", None),
         "jvp_direction_batch_count": int(getattr(info, "jvp_direction_batch_count", 0)),
         "jvp_direction_build_seconds": float(
             getattr(info, "jvp_direction_build_seconds", 0.0)

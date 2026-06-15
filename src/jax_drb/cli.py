@@ -383,6 +383,15 @@ def _build_parser() -> argparse.ArgumentParser:
     neutral_trace_compare_parser.add_argument("native_trace_json", type=Path)
     neutral_trace_compare_parser.add_argument("reference_trace_json", type=Path)
     neutral_trace_compare_parser.add_argument(
+        "--input-path",
+        type=Path,
+        default=None,
+        help=(
+            "Optional BOUT.inp used to rebuild mesh/metrics for native residuals "
+            "on full-active reference accepted states."
+        ),
+    )
+    neutral_trace_compare_parser.add_argument(
         "--reference-stage", default="post_accepted"
     )
     neutral_trace_compare_parser.add_argument(
@@ -1339,6 +1348,7 @@ def _compare_neutral_mixed_accepted_traces_command(args: argparse.Namespace) -> 
         reference_stage=args.reference_stage,
         time_tolerance=float(args.time_tolerance),
         reference_cvode_max_order=reference_cvode_max_order,
+        input_path=args.input_path,
     )
     path = write_neutral_mixed_accepted_step_trace_parity_json(report, args.json_out)
     print(f"diagnostic: {report['diagnostic']}")

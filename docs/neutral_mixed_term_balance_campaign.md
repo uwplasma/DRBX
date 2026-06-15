@@ -182,6 +182,20 @@ emitted `solver.order` values and fails if any accepted reference step exceeds
 the configured ceiling. Omit the option only when intentionally auditing the
 stock variable-order reference lane.
 
+Recent reference monitor patches also emit `active_shape` and `active_values`
+for every traced field. When the comparator is given the corresponding
+`BOUT.inp` through `--input-path`, it reconstructs the full active reference
+`Nh`, `Ph`, and `NVh` states and evaluates the native backward-Euler or
+variable-step BDF2 residual directly on those reference accepted states. The
+result appears in `reference_active_state_residual_register`. A large residual
+there means the remaining parity offender is still a native RHS, boundary, or
+closure mismatch. A small residual there, combined with visible final-state
+drift, means the RHS is locally compatible with the reference state and the
+next patch should target accepted-state history preparation, nonlinear
+tolerance, or multistep sequencing. Older reference traces that do not contain
+full active payloads remain valid; their report marks this register as
+unavailable instead of failing.
+
 The current live ladder rerun uses a contextual reference patch with deep-copy
 snapshots for `Dnn` before and after each limiter stage. It produced `148`
 matched accepted-step records and no missing ladder fields. The resulting
@@ -217,6 +231,7 @@ Then compare both traces with:
 PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces \
   neutral_mixed_native_accepted_step_trace.json \
   /tmp/neutral_mixed_reference_trace/accepted_steps.jsonl \
+  --input-path /tmp/neutral_mixed_reference_trace/reference_run/data/BOUT.inp \
   --reference-cvode-max-order 2 \
   --json-out neutral_mixed_accepted_step_trace_parity.json
 ```

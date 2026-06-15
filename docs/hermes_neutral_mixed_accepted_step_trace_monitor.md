@@ -108,6 +108,8 @@ accepted-step traces:
     "max_abs_index": [0, 0, 0],
     "max_abs_value": 0.0
   },
+  "active_shape": [1, 8, 1],
+  "active_values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
   "target_adjacent_metrics": {
     "max_abs": 0.0,
     "rms": 0.0,
@@ -147,6 +149,15 @@ boundary-applied fields should have meaningful guard comparisons, while
 pre-boundary limiter ladder diagnostics should be ranked by active and
 target-adjacent cells because the reference snapshots are taken before the
 final `Dnn.applyBoundary()` call.
+The flattened active payload is larger but still small for the accepted-step
+debug monitor. It lets JAXDRB reconstruct the full active `Nh`, `Ph`, and
+`NVh` reference state at each accepted step and evaluate the native backward
+Euler or variable-step BDF2 residual directly on that reference state. The
+resulting `reference_active_state_residual_register` separates a remaining
+operator or boundary mismatch from a solver sequencing error: a large native
+residual on the reference state points to RHS/boundary algebra, while a small
+native residual with visible state drift points to accepted-state history,
+nonlinear tolerance, or multistep order preparation.
 
 ## Current Evidence
 

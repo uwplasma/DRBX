@@ -230,10 +230,15 @@ index 0d07e095..1e5d3b45 100644
 +    lineout.push_back(field(sample_x, y, sample_z));
 +  }
 +  std::ostringstream stream;
++  const std::vector<BoutReal> active_values =
++      field_values_on_y_indices(field, active);
 +  const std::vector<BoutReal> target_values =
 +      field_values_on_y_indices(field, target);
 +  const std::vector<BoutReal> guard_values =
 +      field_values_on_y_indices(field, guard);
++  const std::vector<int> active_shape = {
++      mesh->xend - mesh->xstart + 1, static_cast<int>(active.size()),
++      mesh->LocalNz};
 +  const std::vector<int> target_shape = {
 +      mesh->xend - mesh->xstart + 1, static_cast<int>(target.size()),
 +      mesh->LocalNz};
@@ -242,6 +247,8 @@ index 0d07e095..1e5d3b45 100644
 +      mesh->LocalNz};
 +  stream << "{\"active_metrics\":"
 +         << json_metric_payload(field_metrics_on_y_indices(field, active))
++         << ",\"active_shape\":" << json_int_vector(active_shape)
++         << ",\"active_values\":" << json_real_vector(active_values)
 +         << ",\"target_adjacent_metrics\":"
 +         << json_metric_payload(field_metrics_on_y_indices(field, target))
 +         << ",\"guard_metrics\":"
