@@ -244,7 +244,8 @@ matched-time diagnostic instead of changing the already-closed pressure-gradient
 formula or the parallel-viscosity stencil before its inputs agree.
 The accepted-step comparator now also writes
 `native_solver_order_summary`, `reference_solver_order_summary`,
-`reference_solver_control`, and `parallel_viscosity_input_register`.
+`reference_solver_control`, `parallel_viscosity_input_register`, and
+`accepted_step_state_history_register`.
 `reference_solver_control` records the configured `cvode_max_order`, the
 observed reference max solver order, whether the trace stayed within the
 configured ceiling, and a bounded list of violating points if it did not. For
@@ -263,6 +264,13 @@ now makes that explicit through `dominant_closure_input_field`,
 owner is accepted-step neutral diffusion-coefficient preparation,
 state/history sequencing, or target-boundary reconstruction before the
 viscosity stencil is changed.
+`accepted_step_state_history_register` then selects the dominant neutral
+diffusion ladder offender, finds its worst target-adjacent local index, and
+writes a compact time window of matched native/reference values for `N*`,
+`P*`, `NV*`, limiter inputs, diffusion-ladder fields, `V*`, `eta_*`, and
+`SNV*_parallel_viscosity`. This makes the state-to-flux-cap amplification path
+reproducible from the JSON report without loading the full trace payloads into
+an ad hoc analysis script.
 
 A controlled max-order-2 reference rerun is now available as the preferred
 neutral NVh parity lane. The staged reference deck used
@@ -281,18 +289,23 @@ longer the dominant explanation for the neutral NVh mismatch. The remaining
 patch should compare accepted-step state/history sequencing and the near-target
 `Grad(logPnlim)`/flux-limit-cap preparation directly against this max-order-2
 trace before changing local source-term formulas.
-The June 9, 2026 max-order-2 rerun with the state-to-limiter amplification
-register matched `309/309` accepted-step points with zero solver-order
-mismatches. `Nh` is the dominant state-input drift (`6.83e-5` pointwise
-target-adjacent), `logPnlimh` is the dominant limiter input (`9.94e-5`), and
-the `Dnnh_raw -> Dnnh_flux_max` transition amplifies the target-pointwise error
-from `2.83e-4` to `5.13e-3`. Final boundary-applied `Dnnh` differs by
-`4.35e-3`. The resulting flux-cap amplification ratios are about `51.6x`
-relative to the limiter input and `75.0x` relative to the state input. That
-separates the offender from a directly state-sized density, pressure, momentum,
-raw-diffusion, or local source-term formula mismatch and points first at
-accepted-step state/history feeding neutral pressure/log-pressure preparation,
-with the near-target `Grad(logPnlim)` stencil as the secondary check.
+The June 15, 2026 tight native replay keeps that same conclusion after lowering
+the native accepted-step residual tolerance. The
+`accepted_step_state_history_register` matches `309/309` accepted-step points
+with zero solver-order mismatches and identifies `Dnnh_flux_max` at
+`t = 2.7536261188` and local target-adjacent index `[5, 3, 0]` as the dominant
+point. At that point `Nh` is high by `6.70e-5`, `Ph` by `6.62e-6`, `NVh` by
+`2.04e-6`, `logPnlimh` by `9.18e-5`, `grad_logPnlimh` by `-4.51e-5`,
+`Dnnh_flux_max` by `5.13e-3`, final `Dnnh` by `4.35e-3`, `eta_h` by
+`3.13e-3`, and `SNVh_parallel_viscosity` by `-1.07e-5`. Across the full trace,
+the dominant state-input drift remains `Nh` (`6.83e-5`) and the dominant
+limiter input remains `logPnlimh` (`9.94e-5`), giving flux-cap amplification
+ratios of about `51.6x` relative to the limiter input and `75.0x` relative to
+the state input. That separates the offender from a directly state-sized
+density, pressure, momentum, raw-diffusion, or local source-term formula
+mismatch and points first at accepted-step state/history feeding neutral
+pressure/log-pressure preparation, with the near-target `Grad(logPnlim)`
+stencil as the secondary check.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

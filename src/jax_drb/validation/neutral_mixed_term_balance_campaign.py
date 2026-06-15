@@ -897,6 +897,14 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
     parallel_viscosity_input_register = (
         _build_parallel_viscosity_input_register(field_errors)
     )
+    accepted_step_state_history_register = (
+        _build_accepted_step_state_history_register(
+            native_points=native_points,
+            reference_points=reference_points,
+            matched_points=matched_points,
+            field_errors=field_errors,
+        )
+    )
     comparable_solver_order_deltas = [
         int(point.get("solver_order_delta", 0))
         for point in matched_points
@@ -933,6 +941,7 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         "ranked_fields": ranked,
         "neutral_diffusion_ladder_register": neutral_diffusion_ladder_register,
         "parallel_viscosity_input_register": parallel_viscosity_input_register,
+        "accepted_step_state_history_register": accepted_step_state_history_register,
         "matched_points": matched_points,
         "interpretation": (
             "This accepted-internal-step parity report compares native and reference "
@@ -945,6 +954,311 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
             "target-adjacent cells while still reporting guard deltas separately."
         ),
     }
+
+
+def _build_accepted_step_state_history_register(
+    *,
+    native_points: list[dict[str, object]],
+    reference_points: list[dict[str, object]],
+    matched_points: list[dict[str, object]],
+    field_errors: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    """Record the state and limiter values feeding the worst diffusion offender."""
+
+    dominant_field = _dominant_neutral_diffusion_history_field(field_errors)
+    if dominant_field is None:
+        return {
+            "description": (
+                "Tracks matched accepted-step state/history values at the "
+                "target-adjacent point that feeds the dominant neutral diffusion "
+                "offender. No neutral diffusion ladder field was present in this "
+                "trace."
+            ),
+            "available": False,
+            "dominant_field": None,
+            "entries": [],
+        }
+
+    section = _neutral_diffusion_section_from_field(dominant_field)
+    if not section:
+        return {
+            "description": (
+                "Tracks matched accepted-step state/history values at the "
+                "target-adjacent point that feeds the dominant neutral diffusion "
+                "offender."
+            ),
+            "available": False,
+            "dominant_field": dominant_field,
+            "entries": [],
+            "diagnosis": "unrecognized_neutral_diffusion_field",
+        }
+
+    dominant_error = field_errors[dominant_field]
+    worst_time = float(dominant_error.get("worst_time", 0.0))
+    center_position = _matched_point_position_for_time(matched_points, worst_time)
+    if center_position is None:
+        return {
+            "description": (
+                "Tracks matched accepted-step state/history values at the "
+                "target-adjacent point that feeds the dominant neutral diffusion "
+                "offender."
+            ),
+            "available": False,
+            "dominant_field": dominant_field,
+            "section": section,
+            "entries": [],
+            "diagnosis": "dominant_time_not_matched",
+        }
+
+    center_point = matched_points[center_position]
+    center_field_error = {}
+    if isinstance(center_point.get("field_errors"), dict):
+        center_field_error = center_point["field_errors"].get(dominant_field, {})
+    local_index = _accepted_step_target_local_index(center_field_error)
+    if not local_index:
+        local_index = _accepted_step_target_local_index(dominant_error)
+
+    native_by_index = {
+        int(point.get("index", 0)): point for point in native_points
+    }
+    reference_by_index = {
+        int(point.get("index", 0)): point for point in reference_points
+    }
+    fields = _accepted_step_state_history_fields(section)
+    start = max(0, center_position - 4)
+    stop = min(len(matched_points), center_position + 3)
+    entries = [
+        _accepted_step_state_history_entry(
+            matched_point,
+            native_by_index=native_by_index,
+            reference_by_index=reference_by_index,
+            fields=fields,
+            local_index=local_index,
+        )
+        for matched_point in matched_points[start:stop]
+    ]
+
+    state_errors = {
+        name: error
+        for name in (f"N{section}", f"P{section}", f"NV{section}")
+        if isinstance((error := field_errors.get(name)), dict)
+    }
+    limiter_errors = {
+        name: error
+        for name in (
+            f"Tnlim{section}",
+            f"logPnlim{section}",
+            f"grad_logPnlim{section}",
+        )
+        if isinstance((error := field_errors.get(name)), dict)
+    }
+    dominant_target = _trace_target_pointwise_delta(dominant_error)
+    max_state_target = max(
+        (_trace_target_pointwise_delta(error) for error in state_errors.values()),
+        default=0.0,
+    )
+    max_limiter_target = max(
+        (_trace_target_pointwise_delta(error) for error in limiter_errors.values()),
+        default=0.0,
+    )
+    return {
+        "description": (
+            "Matched accepted-step state/history register for the target-adjacent "
+            "cell that feeds the dominant neutral diffusion offender. This is the "
+            "diagnostic to inspect before changing pressure guards, neutral "
+            "diffusion caps, or source terms: it distinguishes small accumulated "
+            "state/history drift from local algebraic errors amplified by the "
+            "flux-cap ladder."
+        ),
+        "available": True,
+        "dominant_field": dominant_field,
+        "section": section,
+        "worst_time": worst_time,
+        "center_native_index": int(center_point.get("native_index", 0)),
+        "center_reference_index": int(center_point.get("reference_index", 0)),
+        "target_adjacent_local_index": local_index,
+        "tracked_fields": list(fields),
+        "entries": entries,
+        "dominant_target_pointwise_delta": dominant_target,
+        "max_state_target_pointwise_delta": max_state_target,
+        "max_limiter_target_pointwise_delta": max_limiter_target,
+        "dominant_state_input_field": _dominant_trace_error_field(state_errors),
+        "dominant_limiter_input_field": _dominant_trace_error_field(limiter_errors),
+        "dominant_to_state_target_pointwise_ratio": _safe_ratio(
+            dominant_target, max_state_target
+        ),
+        "dominant_to_limiter_target_pointwise_ratio": _safe_ratio(
+            dominant_target, max_limiter_target
+        ),
+        "diagnosis": (
+            "state_history_amplification_register_available"
+            if entries and local_index
+            else "target_pointwise_payload_missing"
+        ),
+    }
+
+
+def _dominant_neutral_diffusion_history_field(
+    field_errors: dict[str, dict[str, object]],
+) -> str | None:
+    candidates = {
+        name: error
+        for name, error in field_errors.items()
+        if name.startswith("Dnn")
+        and (
+            name.endswith("_flux_max")
+            or name.endswith("_flux_limited")
+            or name.endswith("_diffusion_limited")
+            or name.endswith("_raw")
+            or "_" not in name[len("Dnn") :]
+        )
+    }
+    return _dominant_trace_error_field(candidates)
+
+
+def _neutral_diffusion_section_from_field(field_name: str) -> str:
+    if not field_name.startswith("Dnn"):
+        return ""
+    section = field_name[len("Dnn") :]
+    for suffix in (
+        "_diffusion_limited",
+        "_flux_limited",
+        "_flux_max",
+        "_raw",
+    ):
+        if section.endswith(suffix):
+            return section[: -len(suffix)]
+    return section
+
+
+def _matched_point_position_for_time(
+    matched_points: list[dict[str, object]], time_value: float
+) -> int | None:
+    if not matched_points:
+        return None
+    return min(
+        range(len(matched_points)),
+        key=lambda index: abs(
+            float(matched_points[index].get("time", 0.0)) - time_value
+        ),
+    )
+
+
+def _accepted_step_target_local_index(error: object) -> list[int]:
+    if not isinstance(error, dict):
+        return []
+    for key in (
+        "target_adjacent_pointwise_worst_index",
+        "max_target_adjacent_pointwise_delta_worst_index",
+    ):
+        worst = error.get(key)
+        if isinstance(worst, dict) and isinstance(worst.get("local_index"), list):
+            return [int(value) for value in worst["local_index"]]
+    return []
+
+
+def _accepted_step_state_history_fields(section: str) -> tuple[str, ...]:
+    return (
+        f"N{section}",
+        f"P{section}",
+        f"NV{section}",
+        f"Tnlim{section}",
+        f"logPnlim{section}",
+        f"grad_logPnlim{section}",
+        f"Dnn{section}_raw",
+        f"Dnn{section}_flux_max",
+        f"Dnn{section}_flux_limited",
+        f"Dnn{section}_diffusion_limited",
+        f"Dnn{section}",
+        f"V{section}",
+        f"eta_{section}",
+        f"SNV{section}_parallel_viscosity",
+    )
+
+
+def _accepted_step_state_history_entry(
+    matched_point: dict[str, object],
+    *,
+    native_by_index: dict[int, dict[str, object]],
+    reference_by_index: dict[int, dict[str, object]],
+    fields: tuple[str, ...],
+    local_index: list[int],
+) -> dict[str, object]:
+    native_index = int(matched_point.get("native_index", 0))
+    reference_index = int(matched_point.get("reference_index", 0))
+    native_point = native_by_index.get(native_index, {})
+    reference_point = reference_by_index.get(reference_index, {})
+    native_fields = native_point.get("fields", {})
+    reference_fields = reference_point.get("fields", {})
+    field_entries: dict[str, object] = {}
+    if isinstance(native_fields, dict) and isinstance(reference_fields, dict):
+        for name in fields:
+            native_payload = native_fields.get(name)
+            reference_payload = reference_fields.get(name)
+            if isinstance(native_payload, dict) and isinstance(reference_payload, dict):
+                field_entries[name] = _accepted_step_target_value_pair(
+                    native_payload, reference_payload, local_index=local_index
+                )
+            else:
+                field_entries[name] = {
+                    "available": False,
+                    "reason": "field_missing_from_native_or_reference_trace",
+                }
+    return {
+        "native_index": native_index,
+        "reference_index": reference_index,
+        "time": float(matched_point.get("time", 0.0)),
+        "reference_time": float(matched_point.get("reference_time", 0.0)),
+        "dt": float(matched_point.get("dt", 0.0)),
+        "reference_dt": float(matched_point.get("reference_dt", 0.0)),
+        "solver_order": int(matched_point.get("solver_order", 0)),
+        "reference_solver_order": int(matched_point.get("reference_solver_order", 0)),
+        "fields": field_entries,
+    }
+
+
+def _accepted_step_target_value_pair(
+    native_payload: dict[str, object],
+    reference_payload: dict[str, object],
+    *,
+    local_index: list[int],
+) -> dict[str, object]:
+    if not local_index:
+        return {"available": False, "reason": "target_local_index_missing"}
+    native_value = _accepted_step_target_payload_value(
+        native_payload, local_index=local_index
+    )
+    reference_value = _accepted_step_target_payload_value(
+        reference_payload, local_index=local_index
+    )
+    if native_value is None or reference_value is None:
+        return {
+            "available": False,
+            "reason": "target_payload_missing_or_shape_mismatch",
+        }
+    return {
+        "available": True,
+        "native_value": native_value,
+        "reference_value": reference_value,
+        "delta": native_value - reference_value,
+    }
+
+
+def _accepted_step_target_payload_value(
+    payload: dict[str, object], *, local_index: list[int]
+) -> float | None:
+    shape = tuple(int(value) for value in payload.get("target_adjacent_shape", []))
+    values = np.asarray(payload.get("target_adjacent_values", []), dtype=np.float64)
+    if (
+        not shape
+        or len(shape) != len(local_index)
+        or values.size != int(np.prod(shape))
+    ):
+        return None
+    index = tuple(int(value) for value in local_index)
+    if any(value < 0 or value >= extent for value, extent in zip(index, shape)):
+        return None
+    return float(values.reshape(shape)[index])
 
 
 def _build_neutral_diffusion_ladder_register(
@@ -2561,7 +2875,7 @@ def _accepted_step_time_grid_from_reference_trace(
             raise ValueError(
                 f"Accepted-step reference trace contains a non-finite time at index {index}."
             )
-        if abs(time_value) <= time_tolerance:
+        if time_value == 0.0:
             continue
         if time_value <= 0.0:
             raise ValueError(
@@ -2951,22 +3265,36 @@ def _compare_accepted_step_trace_points(
     time_tolerance: float,
 ) -> tuple[list[dict[str, object]], dict[str, dict[str, object]]]:
     reference_by_time = {
-        round(float(point["time"]) / max(time_tolerance, 1.0e-30)): point
-        for point in reference_points
+        round(float(point["time"]) / max(time_tolerance, 1.0e-30)): index
+        for index, point in enumerate(reference_points)
     }
     field_errors: dict[str, dict[str, object]] = {}
     matched_points: list[dict[str, object]] = []
+    used_reference_indices: set[int] = set()
     for native_point in native_points:
         native_time = float(native_point["time"])
         key = round(native_time / max(time_tolerance, 1.0e-30))
-        reference_point = reference_by_time.get(key)
-        if reference_point is None:
-            reference_point = _nearest_trace_point(reference_points, native_time)
+        reference_index = reference_by_time.get(key)
+        if reference_index is not None:
+            reference_point = reference_points[reference_index]
             if (
-                reference_point is None
-                or abs(float(reference_point["time"]) - native_time) > time_tolerance
+                reference_index in used_reference_indices
+                or (native_time == 0.0 and float(reference_point["time"]) != 0.0)
             ):
+                reference_index = None
+        if reference_index is None:
+            reference_index = _nearest_trace_point_index(
+                reference_points,
+                native_time,
+                used_indices=used_reference_indices,
+                require_exact_zero=native_time == 0.0,
+            )
+            if reference_index is None:
                 continue
+        reference_point = reference_points[reference_index]
+        if abs(float(reference_point["time"]) - native_time) > time_tolerance:
+            continue
+        used_reference_indices.add(reference_index)
         point_errors = _compare_accepted_step_fields(native_point, reference_point)
         native_solver_order = int(native_point.get("solver_order", 0))
         reference_solver_order = int(reference_point.get("solver_order", 0))
@@ -3008,12 +3336,25 @@ def _compare_accepted_step_trace_points(
     return matched_points, field_errors
 
 
-def _nearest_trace_point(
-    points: list[dict[str, object]], time_value: float
-) -> dict[str, object] | None:
-    if not points:
+def _nearest_trace_point_index(
+    points: list[dict[str, object]],
+    time_value: float,
+    *,
+    used_indices: set[int],
+    require_exact_zero: bool = False,
+) -> int | None:
+    candidates = [
+        index
+        for index, point in enumerate(points)
+        if index not in used_indices
+        and (not require_exact_zero or float(point["time"]) == 0.0)
+    ]
+    if not candidates:
         return None
-    return min(points, key=lambda point: abs(float(point["time"]) - time_value))
+    return min(
+        candidates,
+        key=lambda index: abs(float(points[index]["time"]) - time_value),
+    )
 
 
 def _compare_accepted_step_fields(

@@ -1194,6 +1194,8 @@ def test_neutral_mixed_native_accepted_step_trace_replays_reference_time_grid(
                 }
             )
             for time_value, dt_value, order in (
+                (0.0, 0.0, 0),
+                (1.0e-12, 1.0e-12, 1),
                 (5.0, 5.0, 1),
                 (20.0, 15.0, 2),
             )
@@ -1205,7 +1207,7 @@ def test_neutral_mixed_native_accepted_step_trace_replays_reference_time_grid(
         mesh = kwargs["mesh"]
         np.testing.assert_allclose(
             kwargs["accepted_step_time_points"],
-            np.asarray([5.0, 20.0], dtype=np.float64),
+            np.asarray([1.0e-12, 5.0, 20.0], dtype=np.float64),
         )
         assert kwargs["solver_mode"] == "sparse"
         assert kwargs["residual_tolerance"] == pytest.approx(1.0e-11)
@@ -1214,22 +1216,28 @@ def test_neutral_mixed_native_accepted_step_trace_replays_reference_time_grid(
         assert kwargs["linear_restart"] == 10
         assert kwargs["linear_maxiter"] == 100
         assert kwargs["linear_rtol"] == pytest.approx(1.0e-10)
-        shape = (3, mesh.nx, mesh.local_ny, mesh.nz)
+        shape = (4, mesh.nx, mesh.local_ny, mesh.nz)
         base = np.ones(shape, dtype=np.float64)
         return SimpleNamespace(
             density_history=base[[0, -1]],
             pressure_history=2.0 * base[[0, -1]],
             momentum_history=3.0 * base[[0, -1]],
-            accepted_step_time_points=np.asarray([0.0, 5.0, 20.0], dtype=np.float64),
-            accepted_step_dt=np.asarray([0.0, 5.0, 15.0], dtype=np.float64),
-            accepted_step_order=np.asarray([0, 1, 2], dtype=np.int32),
+            accepted_step_time_points=np.asarray(
+                [0.0, 1.0e-12, 5.0, 20.0], dtype=np.float64
+            ),
+            accepted_step_dt=np.asarray(
+                [0.0, 1.0e-12, 5.0, 15.0], dtype=np.float64
+            ),
+            accepted_step_order=np.asarray([0, 1, 1, 2], dtype=np.int32),
             accepted_step_density_history=base,
             accepted_step_pressure_history=2.0 * base,
             accepted_step_momentum_history=3.0 * base,
             accepted_step_residual_inf_norm=np.asarray(
-                [0.0, 1.0e-10, 2.0e-10], dtype=np.float64
+                [0.0, 1.0e-12, 1.0e-10, 2.0e-10], dtype=np.float64
             ),
-            accepted_step_nonlinear_iterations=np.asarray([0, 2, 3], dtype=np.int32),
+            accepted_step_nonlinear_iterations=np.asarray(
+                [0, 1, 2, 3], dtype=np.int32
+            ),
         )
 
     monkeypatch.setattr(
@@ -1257,9 +1265,9 @@ def test_neutral_mixed_native_accepted_step_trace_replays_reference_time_grid(
     assert report["native_solver_configuration"]["residual_tolerance"] == pytest.approx(
         1.0e-11
     )
-    assert report["reference_trace_point_count"] == 2
     assert str(report["reference_trace_json"]).endswith("reference_trace.jsonl")
-    assert report["time_points"] == pytest.approx([0.0, 5.0, 20.0])
+    assert report["reference_trace_point_count"] == 4
+    assert report["time_points"] == pytest.approx([0.0, 1.0e-12, 5.0, 20.0])
 
 
 def test_neutral_mixed_native_accepted_step_trace_rejects_reference_final_time_mismatch(
@@ -1426,6 +1434,84 @@ def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["diagnostic"] == "neutral_mixed_accepted_step_trace_parity"
+
+
+def test_neutral_mixed_accepted_step_trace_parity_does_not_match_initial_to_startup(
+    tmp_path: Path,
+) -> None:
+    def field(value: float) -> dict[str, object]:
+        return {
+            "active_metrics": {"max_abs": value, "rms": value},
+            "target_adjacent_metrics": {"max_abs": value, "rms": value},
+            "guard_metrics": {"max_abs": value, "rms": value},
+            "sample_lineout_y_indices": [0],
+            "sample_lineout": [value],
+        }
+
+    native_trace = {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "trace_points": [
+            {
+                "index": 0,
+                "time": 0.0,
+                "dt": 0.0,
+                "solver_order": 0,
+                "stage": "post_accepted",
+                "fields": {"Nh": field(0.0)},
+            },
+            {
+                "index": 1,
+                "time": 1.0e-12,
+                "dt": 1.0e-12,
+                "solver_order": 1,
+                "stage": "post_accepted",
+                "fields": {"Nh": field(1.0)},
+            },
+            {
+                "index": 2,
+                "time": 1.0,
+                "dt": 1.0,
+                "solver_order": 2,
+                "stage": "post_accepted",
+                "fields": {"Nh": field(2.0)},
+            },
+        ],
+    }
+    reference_records = [
+        {
+            "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+            "step_index": 0,
+            "time": 1.0e-12,
+            "dt": 1.0e-12,
+            "solver": {"order": 1},
+            "stages": {"post_accepted": {"Nh": field(1.0)}},
+        },
+        {
+            "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+            "step_index": 1,
+            "time": 1.0,
+            "dt": 1.0,
+            "solver": {"order": 2},
+            "stages": {"post_accepted": {"Nh": field(2.0)}},
+        },
+    ]
+    native_path = tmp_path / "native_trace.json"
+    reference_path = tmp_path / "reference_trace.jsonl"
+    native_path.write_text(json.dumps(native_trace), encoding="utf-8")
+    reference_path.write_text(
+        "\n".join(json.dumps(record) for record in reference_records) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_neutral_mixed_accepted_step_trace_parity_report(
+        native_trace_json=native_path,
+        reference_trace_json=reference_path,
+        time_tolerance=1.0e-8,
+    )
+
+    assert report["matched_trace_point_count"] == 2
+    assert [point["native_index"] for point in report["matched_points"]] == [1, 2]
+    assert [point["reference_index"] for point in report["matched_points"]] == [0, 1]
 
 
 def test_neutral_mixed_accepted_step_trace_parity_ranks_rhs_by_active_target(
@@ -1789,6 +1875,115 @@ def test_neutral_diffusion_ladder_register_ranks_flux_cap_transition(
     assert report["fields"]["Dnnh_raw"]["max_target_adjacent_delta_worst_index"][
         "native_index"
     ] == []
+
+
+def test_neutral_mixed_accepted_step_trace_parity_reports_state_history_window(
+    tmp_path: Path,
+) -> None:
+    def field(value: float) -> dict[str, object]:
+        return {
+            "active_metrics": {"max_abs": abs(value), "rms": abs(value)},
+            "target_adjacent_metrics": {"max_abs": abs(value), "rms": abs(value)},
+            "target_adjacent_shape": [1, 1, 1],
+            "target_adjacent_values": [value],
+            "guard_metrics": {"max_abs": 0.0, "rms": 0.0},
+            "sample_lineout_y_indices": [0],
+            "sample_lineout": [value],
+        }
+
+    def fields(*, state: float, limiter: float, flux_cap: float) -> dict[str, object]:
+        return {
+            "Nh": field(state),
+            "Ph": field(0.5 * state),
+            "NVh": field(0.25 * state),
+            "Tnlimh": field(0.1 * limiter),
+            "logPnlimh": field(limiter),
+            "grad_logPnlimh": field(0.5 * limiter),
+            "Dnnh_raw": field(0.05),
+            "Dnnh_flux_max": field(flux_cap),
+            "Dnnh_flux_limited": field(0.9 * flux_cap),
+            "Dnnh_diffusion_limited": field(0.8 * flux_cap),
+            "Dnnh": field(0.7 * flux_cap),
+            "Vh": field(0.01),
+            "eta_h": field(0.02),
+            "SNVh_parallel_viscosity": field(0.03),
+        }
+
+    native_trace = {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "trace_points": [
+            {
+                "index": 0,
+                "time": 0.0,
+                "dt": 0.0,
+                "solver_order": 0,
+                "stage": "post_accepted",
+                "fields": fields(state=0.0, limiter=0.0, flux_cap=0.0),
+            },
+            {
+                "index": 1,
+                "time": 1.0,
+                "dt": 1.0,
+                "solver_order": 1,
+                "stage": "post_accepted",
+                "fields": fields(state=0.01, limiter=0.02, flux_cap=0.70),
+            },
+            {
+                "index": 2,
+                "time": 2.0,
+                "dt": 1.0,
+                "solver_order": 2,
+                "stage": "post_accepted",
+                "fields": fields(state=0.005, limiter=0.01, flux_cap=0.25),
+            },
+        ],
+    }
+    reference_records = [
+        {
+            "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+            "step_index": index,
+            "time": float(index),
+            "dt": 1.0 if index else 0.0,
+            "solver": {"order": index},
+            "stages": {
+                "post_accepted": fields(state=0.0, limiter=0.0, flux_cap=0.0)
+            },
+        }
+        for index in range(3)
+    ]
+    native_path = tmp_path / "native_trace.json"
+    reference_path = tmp_path / "reference_trace.jsonl"
+    native_path.write_text(json.dumps(native_trace), encoding="utf-8")
+    reference_path.write_text(
+        "\n".join(json.dumps(record) for record in reference_records) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_neutral_mixed_accepted_step_trace_parity_report(
+        native_trace_json=native_path,
+        reference_trace_json=reference_path,
+        time_tolerance=1.0e-12,
+    )
+
+    register = report["accepted_step_state_history_register"]
+    assert register["available"] is True
+    assert register["dominant_field"] == "Dnnh_flux_max"
+    assert register["section"] == "h"
+    assert register["worst_time"] == pytest.approx(1.0)
+    assert register["target_adjacent_local_index"] == [0, 0, 0]
+    assert register["dominant_state_input_field"] == "Nh"
+    assert register["dominant_limiter_input_field"] == "logPnlimh"
+    assert register["dominant_to_state_target_pointwise_ratio"] == pytest.approx(70.0)
+    assert register["dominant_to_limiter_target_pointwise_ratio"] == pytest.approx(
+        35.0
+    )
+    assert [entry["native_index"] for entry in register["entries"]] == [0, 1, 2]
+    center_entry = register["entries"][1]
+    assert center_entry["solver_order"] == 1
+    assert center_entry["reference_solver_order"] == 1
+    assert center_entry["fields"]["Nh"]["delta"] == pytest.approx(0.01)
+    assert center_entry["fields"]["logPnlimh"]["delta"] == pytest.approx(0.02)
+    assert center_entry["fields"]["Dnnh_flux_max"]["delta"] == pytest.approx(0.70)
 
 
 def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inputs(
