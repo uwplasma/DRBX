@@ -2689,6 +2689,11 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_solver_backend()
         == "lineax_gmres"
     )
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "bicgstab")
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_solver_backend()
+        == "jax_bicgstab"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "unknown")
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_solver_backend() == "jax_gmres"

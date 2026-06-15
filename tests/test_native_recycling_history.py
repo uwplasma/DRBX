@@ -803,6 +803,27 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
         SimpleNamespace(
             diagnostics={
                 "converged": True,
+                "rhs_backend": "active_array",
+                "jacobian_mode": "jax_linearized:lineax_gmres",
+            }
+        ),
+    )
+    recycling._record_adaptive_bdf_step_solver_info(
+        stats,
+        SimpleNamespace(
+            diagnostics={
+                "converged": True,
+                "rhs_backend": "fixed_full_field_array",
+                "jacobian_mode": "jax_linearized:jax_bicgstab",
+                "linear_solver_success": None,
+            }
+        ),
+    )
+    recycling._record_adaptive_bdf_step_solver_info(
+        stats,
+        SimpleNamespace(
+            diagnostics={
+                "converged": True,
                 "rhs_backend": "host_bridge",
                 "jacobian_mode": "fd",
             }
@@ -810,19 +831,22 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     )
     recycling._record_adaptive_bdf_step_solver_info(stats, SimpleNamespace())
 
-    assert stats["adaptive_bdf_trial_solver_steps"] == 5
+    assert stats["adaptive_bdf_trial_solver_steps"] == 7
     assert stats["adaptive_bdf_unconverged_solver_steps"] == 1
     assert stats["adaptive_bdf_unknown_convergence_solver_steps"] == 1
-    assert stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"] == 2
-    assert stats["adaptive_bdf_active_array_rhs_solver_steps"] == 1
+    assert stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"] == 3
+    assert stats["adaptive_bdf_active_array_rhs_solver_steps"] == 2
     assert stats["adaptive_bdf_host_bridge_rhs_solver_steps"] == 1
-    assert stats["adaptive_bdf_jax_linearized_action_solver_steps"] == 2
+    assert stats["adaptive_bdf_jax_linearized_action_solver_steps"] == 4
+    assert stats["adaptive_bdf_lineax_action_solver_steps"] == 1
+    assert stats["adaptive_bdf_bicgstab_action_solver_steps"] == 1
     assert stats["adaptive_bdf_sparse_jvp_jacobian_solver_steps"] == 1
     assert stats["adaptive_bdf_fd_jacobian_solver_steps"] == 1
     assert stats["adaptive_bdf_residual_evaluation_count"] == 3
     assert stats["adaptive_bdf_jacobian_refresh_count"] == 2
     assert stats["adaptive_bdf_linear_iterations"] == 7
     assert stats["adaptive_bdf_linear_solver_failed_steps"] == 1
+    assert stats["adaptive_bdf_unknown_linear_solver_steps"] == 1
     assert stats["adaptive_bdf_sparse_jvp_workspace_reuses"] == 1
     assert stats["adaptive_bdf_jvp_jacobian_batch_count"] == 2
     assert stats["adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses"] == 1
@@ -873,6 +897,8 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     step["adaptive_bdf_jvp_jacobian_batch_count"] = 12
     step["adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses"] = 13
     step["adaptive_bdf_reused_history_after_rejection"] = 14
+    step["adaptive_bdf_bicgstab_action_solver_steps"] = 15
+    step["adaptive_bdf_unknown_linear_solver_steps"] = 16
 
     recycling._accumulate_adaptive_bdf_interval_stats(total, step)
 
@@ -907,6 +933,8 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     assert total["adaptive_bdf_jvp_jacobian_batch_count"] == 12
     assert total["adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses"] == 13
     assert total["adaptive_bdf_reused_history_after_rejection"] == 14
+    assert total["adaptive_bdf_bicgstab_action_solver_steps"] == 15
+    assert total["adaptive_bdf_unknown_linear_solver_steps"] == 16
 
 
 def test_adaptive_bdf_rejected_history_reuse_defaults_and_overrides(

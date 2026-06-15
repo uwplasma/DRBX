@@ -945,6 +945,29 @@ def test_jax_linearized_newton_solver_accepts_left_preconditioner() -> None:
     assert info.linear_preconditioner == "test_scale"
 
 
+def test_jax_linearized_newton_solver_supports_bicgstab_backend() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([0.75, 1.25], dtype=jnp.float64)
+    initial = np.array([0.5, 1.0], dtype=np.float64)
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - target,
+        initial,
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_solver_backend="jax_bicgstab",
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
+    assert info.residual_inf_norm < 1.0e-12
+    assert info.jacobian_mode == "jax_linearized:jax_bicgstab"
+    assert info.linear_solver_backend == "jax_bicgstab"
+    assert info.linear_solver_success is None
+
+
 def test_jax_linearized_newton_solver_can_prejit_residual() -> None:
     pytest.importorskip("jax")
     jnp = pytest.importorskip("jax.numpy")

@@ -1032,7 +1032,7 @@ def solve_jax_linearized_newton_system(
     try:
         import jax
         import jax.numpy as jnp
-        from jax.scipy.sparse.linalg import gmres
+        from jax.scipy.sparse.linalg import bicgstab, gmres
     except (
         ImportError
     ) as exc:  # pragma: no cover - exercised only when jax is unavailable
@@ -1133,6 +1133,7 @@ def solve_jax_linearized_newton_system(
             linear_restart=int(linear_restart),
             linear_maxiter=int(linear_maxiter),
             jax_gmres=gmres,
+            jax_bicgstab=bicgstab,
             preconditioner=linear_preconditioner,
         )
         update = solve_result.update
@@ -1214,6 +1215,8 @@ def _resolve_jax_linear_solver_backend(name: str) -> str:
         "jax_scipy": "jax_gmres",
         "gmres": "jax_gmres",
         "jax_gmres": "jax_gmres",
+        "bicgstab": "jax_bicgstab",
+        "jax_bicgstab": "jax_bicgstab",
         "lineax": "lineax_gmres",
         "lineax_gmres": "lineax_gmres",
     }
@@ -1232,6 +1235,7 @@ def _solve_jax_linearized_update(
     linear_restart: int,
     linear_maxiter: int,
     jax_gmres,
+    jax_bicgstab,
     preconditioner=None,
 ):
     if backend == "jax_gmres":
@@ -1242,6 +1246,16 @@ def _solve_jax_linearized_update(
             atol=0.0,
             restart=int(linear_restart),
             maxiter=int(linear_maxiter),
+            M=preconditioner,
+        )
+        return JaxLinearizedUpdateResult(update=update, backend=backend, status=status)
+    if backend == "jax_bicgstab":
+        update, status = jax_bicgstab(
+            linear_map,
+            rhs,
+            tol=float(residual_tolerance),
+            atol=0.0,
+            maxiter=max(1, int(linear_restart) * int(linear_maxiter)),
             M=preconditioner,
         )
         return JaxLinearizedUpdateResult(update=update, backend=backend, status=status)

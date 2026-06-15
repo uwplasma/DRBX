@@ -120,6 +120,9 @@ def main() -> int:
     python_executable = sys.executable
     env = os.environ.copy()
     env["PYTHONPATH"] = str(REPO_ROOT / "src")
+    # Coverage must be deterministic and must not depend on local MPI/reference
+    # installations. Live external parity remains a separate campaign lane.
+    env.setdefault("JAX_DRB_USE_FIXTURE_REFERENCE_ROOT", "1")
     erase_command = [python_executable, "-m", "coverage", "erase"]
     pytest_command = _build_pytest_command(python_executable=python_executable)
     report_command = _build_report_command(python_executable=python_executable)

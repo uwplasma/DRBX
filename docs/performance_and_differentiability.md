@@ -940,6 +940,13 @@ without loosening the embedded-error acceptance policy. On the same
 `timestep=1.0` gate, `adaptive_bdf_jax_linearized_lineax` now ran in about
 `91 s` but reported `41` failed inner linear solves; it is faster but remains
 negative promotion evidence until the backend reports clean linear convergence.
+The alternative JAX BiCGSTAB backend is available through
+`JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER=bicgstab`; on the same hydrogen gate it
+ran in about `108 s`, essentially matching JAX GMRES, and local JAX reports no
+inner success flag for this solver, so diagnostics count those linear updates
+as unknown-status rather than promotion-clean. A bounded `1D-recycling-dthe`
+adaptive JAX-linearized run with the same controller policy still exceeded a
+`360 s` guard before producing a completed mode report.
 The JAX GMRES result is therefore the current bounded solver-health reference,
 not a default-production solver claim, because the committed reference one-step
 deck still uses the full `timestep=5000` output interval and the D/T/He heavy
@@ -961,6 +968,8 @@ not a required dependency and not the default; it gives a controlled way to
 compare JAX-native Krylov backends once the residual itself is free of host
 barriers. Current promotion gates must treat Lineax speedups as unusable when
 `adaptive_bdf_linear_solver_failed_steps` is nonzero.
+The native JAX BiCGSTAB backend is similarly opt-in; it is useful as an
+algorithmic probe but not a current speedup lane on the retained hydrogen gate.
 
 The JAX-GMRES path also has an opt-in row-scaling preconditioner hook through
 `runtime:recycling_jax_linear_preconditioner=state_scale` or

@@ -307,6 +307,17 @@ For the remaining recycling solver work, the order is therefore fixed:
   GMRES ran in about `91 s` versus about `108 s` for the in-tree JAX GMRES
   path, but it reported `41` failed inner linear solves. Treat that as negative
   promotion evidence until the backend is made convergence-clean;
+- keep the native JAX BiCGSTAB seam as a diagnostic backend only. With
+  `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER=bicgstab`, the same hydrogen
+  `timestep=1.0` gate ran in about `108 s`, effectively matching JAX GMRES,
+  and local JAX does not report an inner success flag for BiCGSTAB. Diagnostics
+  therefore expose `adaptive_bdf_bicgstab_action_solver_steps` and
+  `adaptive_bdf_unknown_linear_solver_steps`, but this backend is not a current
+  promotion speedup;
+- do not spend more full D/T/He adaptive-JAX wall time before reducing
+  per-trial cost. A post-history-reuse `1D-recycling-dthe`, `timestep=1.0`
+  adaptive JAX-linearized gate still exceeded a `360 s` guard before writing a
+  completed mode report;
 - report `bdf_jvp_jacobian_linearize_seconds`,
   `bdf_jvp_jacobian_push_seconds`, and
   `bdf_jvp_jacobian_total_seconds` for any fixed-JVP run, and also check

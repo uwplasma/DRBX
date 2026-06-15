@@ -2685,11 +2685,13 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_sparse_jvp_workspace_reuses": 0,
         "adaptive_bdf_fd_jacobian_solver_steps": 0,
         "adaptive_bdf_jax_linearized_action_solver_steps": 0,
+        "adaptive_bdf_bicgstab_action_solver_steps": 0,
         "adaptive_bdf_lineax_action_solver_steps": 0,
         "adaptive_bdf_residual_evaluation_count": 0,
         "adaptive_bdf_jacobian_refresh_count": 0,
         "adaptive_bdf_linear_iterations": 0,
         "adaptive_bdf_linear_solver_failed_steps": 0,
+        "adaptive_bdf_unknown_linear_solver_steps": 0,
         "adaptive_bdf_jvp_jacobian_batch_count": 0,
         "adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses": 0,
         "adaptive_bdf_interval_wall_seconds": 0.0,
@@ -2992,6 +2994,12 @@ def _record_adaptive_bdf_step_solver_info(
         stats["adaptive_bdf_linear_solver_failed_steps"] = (
             int(stats["adaptive_bdf_linear_solver_failed_steps"]) + 1
         )
+    elif "linear_solver_success" in diagnostics and diagnostics.get(
+        "linear_solver_success"
+    ) is None:
+        stats["adaptive_bdf_unknown_linear_solver_steps"] = (
+            int(stats["adaptive_bdf_unknown_linear_solver_steps"]) + 1
+        )
     for source_key, destination_key in (
         ("residual_evaluation_seconds", "adaptive_bdf_residual_evaluation_seconds"),
         ("jacobian_assembly_seconds", "adaptive_bdf_jacobian_assembly_seconds"),
@@ -3053,6 +3061,10 @@ def _record_adaptive_bdf_step_solver_info(
             stats["adaptive_bdf_lineax_action_solver_steps"] = (
                 int(stats["adaptive_bdf_lineax_action_solver_steps"]) + 1
             )
+        if "bicgstab" in jacobian_mode:
+            stats["adaptive_bdf_bicgstab_action_solver_steps"] = (
+                int(stats["adaptive_bdf_bicgstab_action_solver_steps"]) + 1
+            )
 
 
 def _accumulate_adaptive_bdf_interval_stats(
@@ -3077,11 +3089,13 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_sparse_jvp_workspace_reuses",
         "adaptive_bdf_fd_jacobian_solver_steps",
         "adaptive_bdf_jax_linearized_action_solver_steps",
+        "adaptive_bdf_bicgstab_action_solver_steps",
         "adaptive_bdf_lineax_action_solver_steps",
         "adaptive_bdf_residual_evaluation_count",
         "adaptive_bdf_jacobian_refresh_count",
         "adaptive_bdf_linear_iterations",
         "adaptive_bdf_linear_solver_failed_steps",
+        "adaptive_bdf_unknown_linear_solver_steps",
         "adaptive_bdf_jvp_jacobian_batch_count",
         "adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses",
     )
@@ -5419,6 +5433,8 @@ def _resolve_recycling_jax_linear_solver_backend() -> str:
         "jax_scipy": "jax_gmres",
         "gmres": "jax_gmres",
         "jax_gmres": "jax_gmres",
+        "bicgstab": "jax_bicgstab",
+        "jax_bicgstab": "jax_bicgstab",
         "lineax": "lineax_gmres",
         "lineax_gmres": "lineax_gmres",
     }
