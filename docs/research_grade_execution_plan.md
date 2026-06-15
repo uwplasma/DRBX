@@ -97,6 +97,16 @@ That temporal ordering supports accumulated accepted-state/scalar-limiter
 drift before cap amplification rather than a standalone late-time cap formula
 error.
 
+June 15, 2026 update for the JAX-native recycling row: a local lightweight
+promotion-gate rerun on `recycling_1d_one_step` remains negative default-promotion
+evidence. The stable SciPy-BDF baseline completed in `8.9 s`, while
+`bdf_fixed_full_field_jvp` took `61.6 s` with the time dominated by JAX
+linearization (`37.5 s`) and device execution (`20.4 s`). The active-array JVP
+mode exceeded the baseline by more than an order of magnitude and was
+interrupted before completion. The next performance patch should therefore
+reduce residual/JVP kernel cost or add an effective preconditioner before
+promoting JVP-backed BDF routes.
+
 ## External Literature And Code Baseline
 
 The validation and engineering standard should be set by the major edge/SOL
