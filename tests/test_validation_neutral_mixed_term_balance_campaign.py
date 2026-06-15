@@ -1212,6 +1212,10 @@ def test_neutral_mixed_native_accepted_step_trace_replays_reference_time_grid(
             kwargs["accepted_step_time_points"],
             np.asarray([1.0e-12, 5.0, 20.0], dtype=np.float64),
         )
+        np.testing.assert_array_equal(
+            kwargs["accepted_step_solver_orders"],
+            np.asarray([1, 1, 2], dtype=np.int32),
+        )
         assert kwargs["solver_mode"] == "sparse"
         assert kwargs["residual_tolerance"] == pytest.approx(1.0e-11)
         assert kwargs["step_tolerance"] == pytest.approx(1.0e-12)
@@ -1902,6 +1906,9 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_state_history_window(
             "Tnlimh": field(0.1 * limiter),
             "logPnlimh": field(limiter),
             "grad_logPnlimh": field(0.5 * limiter),
+            "grad_logPnlimh_x": field(0.25 * limiter),
+            "grad_logPnlimh_y": field(2.0 * limiter),
+            "grad_logPnlimh_z": field(0.125 * limiter),
             "Dnnh_raw": field(0.05),
             "Dnnh_flux_max": field(flux_cap),
             "Dnnh_flux_limited": field(0.9 * flux_cap),
@@ -1976,16 +1983,21 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_state_history_window(
     assert register["target_adjacent_local_index"] == [0, 0, 0]
     assert register["dominant_state_input_field"] == "Nh"
     assert register["dominant_limiter_input_field"] == "logPnlimh"
+    assert register["dominant_gradient_component_field"] == "grad_logPnlimh_y"
     assert register["dominant_to_state_target_pointwise_ratio"] == pytest.approx(70.0)
     assert register["dominant_to_limiter_target_pointwise_ratio"] == pytest.approx(
         35.0
     )
+    assert register[
+        "dominant_to_gradient_component_target_pointwise_ratio"
+    ] == pytest.approx(17.5)
     assert [entry["native_index"] for entry in register["entries"]] == [0, 1, 2]
     center_entry = register["entries"][1]
     assert center_entry["solver_order"] == 1
     assert center_entry["reference_solver_order"] == 1
     assert center_entry["fields"]["Nh"]["delta"] == pytest.approx(0.01)
     assert center_entry["fields"]["logPnlimh"]["delta"] == pytest.approx(0.02)
+    assert center_entry["fields"]["grad_logPnlimh_y"]["delta"] == pytest.approx(0.04)
     assert center_entry["fields"]["Dnnh_flux_max"]["delta"] == pytest.approx(0.70)
 
 

@@ -780,6 +780,7 @@ def build_neutral_mixed_native_accepted_step_trace_report(
     metrics = build_structured_metrics(config, run_config, mesh)
     scalars = resolved_dataset_scalars(run_config)
     reference_time_grid: np.ndarray | None = None
+    reference_solver_orders: np.ndarray | None = None
     reference_trace_point_count = 0
     time_grid_source = "uniform_internal_substeps"
     if reference_trace_json is not None:
@@ -790,6 +791,7 @@ def build_neutral_mixed_native_accepted_step_trace_report(
             time_tolerance=float(time_tolerance),
         )
         reference_time_grid = time_grid["time_points"]
+        reference_solver_orders = time_grid["solver_orders"]
         reference_trace_point_count = int(time_grid["trace_point_count"])
         time_grid_source = "reference_accepted_steps"
         time_grid_final_time = float(time_grid["final_time"])
@@ -816,6 +818,7 @@ def build_neutral_mixed_native_accepted_step_trace_report(
         linear_rtol=float(linear_rtol),
         store_internal_substeps=True,
         accepted_step_time_points=reference_time_grid,
+        accepted_step_solver_orders=reference_solver_orders,
     )
     return _native_accepted_step_trace_report_from_history(
         history,
@@ -1048,10 +1051,16 @@ def _build_accepted_step_state_history_register(
         for name in (
             f"Tnlim{section}",
             f"logPnlim{section}",
+            f"grad_logPnlim{section}",
+        )
+        if isinstance((error := field_errors.get(name)), dict)
+    }
+    gradient_component_errors = {
+        name: error
+        for name in (
             f"grad_logPnlim{section}_x",
             f"grad_logPnlim{section}_y",
             f"grad_logPnlim{section}_z",
-            f"grad_logPnlim{section}",
         )
         if isinstance((error := field_errors.get(name)), dict)
     }
@@ -1062,6 +1071,13 @@ def _build_accepted_step_state_history_register(
     )
     max_limiter_target = max(
         (_trace_target_pointwise_delta(error) for error in limiter_errors.values()),
+        default=0.0,
+    )
+    max_component_target = max(
+        (
+            _trace_target_pointwise_delta(error)
+            for error in gradient_component_errors.values()
+        ),
         default=0.0,
     )
     return {
@@ -1085,13 +1101,20 @@ def _build_accepted_step_state_history_register(
         "dominant_target_pointwise_delta": dominant_target,
         "max_state_target_pointwise_delta": max_state_target,
         "max_limiter_target_pointwise_delta": max_limiter_target,
+        "max_gradient_component_target_pointwise_delta": max_component_target,
         "dominant_state_input_field": _dominant_trace_error_field(state_errors),
         "dominant_limiter_input_field": _dominant_trace_error_field(limiter_errors),
+        "dominant_gradient_component_field": _dominant_trace_error_field(
+            gradient_component_errors
+        ),
         "dominant_to_state_target_pointwise_ratio": _safe_ratio(
             dominant_target, max_state_target
         ),
         "dominant_to_limiter_target_pointwise_ratio": _safe_ratio(
             dominant_target, max_limiter_target
+        ),
+        "dominant_to_gradient_component_target_pointwise_ratio": _safe_ratio(
+            dominant_target, max_component_target
         ),
         "diagnosis": (
             "state_history_amplification_register_available"
@@ -2893,6 +2916,7 @@ def _accepted_step_time_grid_from_reference_trace(
     report = _load_accepted_step_trace_records(path, preferred_stage=preferred_stage)
     trace_points = report["trace_points"]
     accepted_times: list[float] = []
+    solver_orders: list[int] = []
     for index, point in enumerate(trace_points):
         time_value = float(point["time"])
         if not np.isfinite(time_value):
@@ -2910,6 +2934,12 @@ def _accepted_step_time_grid_from_reference_trace(
                 "Accepted-step reference trace times must be strictly increasing."
             )
         accepted_times.append(time_value)
+        solver_order = int(point.get("solver_order", 0))
+        if solver_order < 0:
+            raise ValueError(
+                "Accepted-step reference trace solver order must be non-negative."
+            )
+        solver_orders.append(solver_order)
     if not accepted_times:
         raise ValueError("Accepted-step reference trace contains no positive times.")
     final_time = accepted_times[-1]
@@ -2921,6 +2951,9 @@ def _accepted_step_time_grid_from_reference_trace(
         )
     return {
         "time_points": np.asarray(accepted_times, dtype=np.float64),
+        "solver_orders": np.asarray(solver_orders, dtype=np.int32)
+        if solver_orders and all(order > 0 for order in solver_orders)
+        else None,
         "trace_point_count": len(trace_points),
         "final_time": float(final_time),
         "target_final_time": float(target_final_time),

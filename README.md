@@ -254,12 +254,16 @@ The neutral-mixed validation docs now separate pointwise target-cell drift from
 legacy zone max/rms summaries. The current accepted-step trace matches
 `309/309` max-order-2 reference-grid points, writes the `Dnnh` preparation
 ladder plus `Vh`/`eta_h`, records reference solver order, and uses the
-covariant `Grad(logPnlim)` metric norm with the carried metric terms. Native
-and reference monitor traces now also expose optional `grad_logPnlim*_x/y/z`
-component diagnostics for the next max-order-2 rerun. The
-remaining neutral-mixed blocker is accepted-step state/history sequencing
-feeding neutral pressure/log-pressure preparation and the near-target
-flux-limit cap, not a missing pressure-gradient or viscosity source formula.
+covariant `Grad(logPnlim)` metric norm with the carried metric terms. The
+latest component-enabled rerun explicitly replays the reference startup order
+sequence and removes the only solver-order mismatch. It still leaves
+`Dnnh_flux_max` as a `5.13e-3` target-cell cap drift driven by `logPnlimh`
+and scalar `grad_logPnlimh` preparation, while optional
+`grad_logPnlim*_x/y/z` fields are treated as diagnostic components rather than
+the scalar cap input. The remaining neutral-mixed blocker is therefore
+CVODE-style accepted-step state/history preparation feeding the neutral
+pressure/log-pressure limiter, not a missing pressure-gradient, viscosity, or
+raw diffusion source formula.
 
 ![Fluid 1D MMS convergence](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png)
 

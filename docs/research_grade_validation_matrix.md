@@ -119,9 +119,13 @@ pointwise target drift of `5.13e-3`, final `Dnnh` pointwise target drift of
 of `6.83e-5`, and dominant limiter-input drift in `logPnlimh` of `9.94e-5`.
 The state-to-limiter register reports amplification of about `51.6x` from
 limiter input to flux cap and about `75.0x` from state input to flux cap. The
-next parity patch therefore belongs in accepted-step state/history sequencing
-feeding neutral pressure/log-pressure preparation, with the near-target
-`Grad(logPnlim)` stencil as the secondary check. The parallel-viscosity source
+June 15 component diagnostics and explicit reference-order replay reduce the
+solver-order mismatch count to zero without reducing the dominant cap drift.
+Optional `grad_logPnlim*_x/y/z` fields are retained as diagnostic components;
+the cap uses the scalar `abs(Grad(logPnlim))`, whose remaining drift follows
+the scalar `logPnlimh`/state-history error. The next parity patch therefore
+belongs in a closer CVODE-style accepted-step state/history replay feeding
+neutral pressure/log-pressure preparation. The parallel-viscosity source
 remains an accepted-step flux-cap or boundary-sequencing offender rather than a
 formula-level closure mismatch.
 

@@ -247,6 +247,18 @@ parity diagnostic for this lane. The next physics patch therefore remains
 accepted-state/history preparation or the near-target `Grad(logPnlim)` stencil,
 not a simple solver tolerance/backend switch.
 
+A component-enabled June 15 rerun then replayed the reference solver-order
+sequence during native accepted-step diagnostics. That removes the only
+native/reference startup order mismatch, so the matched trace remains
+`309/309` with zero solver-order mismatches. It does not reduce the dominant
+cap drift: `Dnnh_flux_max` stays at `5.12775159e-3`, while the scalar limiter
+input drift remains `logPnlimh = 9.94406305e-5` and scalar
+`grad_logPnlimh` is O(`1e-5`). The optional `grad_logPnlim*_x/y/z` fields are
+therefore diagnostic component evidence, not the scalar cap input. The
+remaining parity owner is a closer CVODE-style accepted-step state/history
+replay feeding `Pnlim`/`logPnlim`, rather than a change to the neutral
+pressure-gradient, viscosity, raw diffusion, or local cap formula.
+
 A final-state input-closure cross-check reconstructs `Dnn`, `Vh`, and `eta_h`
 from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares those
 arrays with the reference `BOUT.dmp.0.nc` diagnostics. This closes the neutral

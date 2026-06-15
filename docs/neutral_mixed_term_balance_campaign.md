@@ -290,26 +290,26 @@ patch should compare accepted-step state/history sequencing and the near-target
 `Grad(logPnlim)`/flux-limit-cap preparation directly against this max-order-2
 trace before changing local source-term formulas.
 The June 15, 2026 tight native replay keeps that same conclusion after lowering
-the native accepted-step residual tolerance. The
-`accepted_step_state_history_register` matches `309/309` accepted-step points
-with zero solver-order mismatches and identifies `Dnnh_flux_max` at
-`t = 2.7536261188` and local target-adjacent index `[5, 3, 0]` as the dominant
-point. At that point `Nh` is high by `6.70e-5`, `Ph` by `6.62e-6`, `NVh` by
-`2.04e-6`, `logPnlimh` by `9.18e-5`, `grad_logPnlimh` by `-4.51e-5`,
-`Dnnh_flux_max` by `5.13e-3`, final `Dnnh` by `4.35e-3`, `eta_h` by
-`3.13e-3`, and `SNVh_parallel_viscosity` by `-1.07e-5`. Across the full trace,
-the dominant state-input drift remains `Nh` (`6.83e-5`) and the dominant
-limiter input remains `logPnlimh` (`9.94e-5`), giving flux-cap amplification
-ratios of about `51.6x` relative to the limiter input and `75.0x` relative to
-the state input. That separates the offender from a directly state-sized
-density, pressure, momentum, raw-diffusion, or local source-term formula
-mismatch and points first at accepted-step state/history feeding neutral
-pressure/log-pressure preparation, with the near-target `Grad(logPnlim)`
-stencil as the secondary check. The current native trace and reference-monitor
-patch now also expose `grad_logPnlim*_x`, `grad_logPnlim*_y`, and
-`grad_logPnlim*_z` so the next max-order-2 rerun can decide whether the
-remaining cap mismatch is in component derivatives, metric contraction, or the
-pressure state being differentiated.
+the native accepted-step residual tolerance. A follow-up component-enabled
+rerun replayed the reference startup order sequence (`1, 1, 2, ...`) and
+removed the only native/reference solver-order mismatch. The
+`accepted_step_state_history_register` still matches `309/309` accepted-step
+points and identifies `Dnnh_flux_max` at `t = 2.7536261188` and local
+target-adjacent index `[5, 3, 0]` as the dominant point. At that point `Nh` is
+high by `6.70e-5`, `Ph` by `6.62e-6`, `NVh` by `2.04e-6`, `logPnlimh` by
+`9.18e-5`, scalar `grad_logPnlimh` by `-4.51e-5`, `Dnnh_flux_max` by
+`5.13e-3`, final `Dnnh` by `4.35e-3`, `eta_h` by `3.13e-3`, and
+`SNVh_parallel_viscosity` by `-1.07e-5`. Across the full trace, the dominant
+state-input drift remains `Nh` (`6.83e-5`) and the dominant scalar limiter
+input remains `logPnlimh` (`9.94e-5`), giving flux-cap amplification ratios of
+about `51.6x` relative to the scalar limiter input and `75.0x` relative to the
+state input. Optional `grad_logPnlim*_x/y/z` component fields are now reported
+separately; they expose coordinate-component differences, but the cap itself
+uses the scalar `abs(Grad(logPnlim))`. That separates the offender from a
+directly state-sized density, pressure, momentum, raw-diffusion, component
+gradient, or local source-term formula mismatch and points first at a closer
+CVODE-style accepted-step state/history replay for the neutral
+pressure/log-pressure limiter.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

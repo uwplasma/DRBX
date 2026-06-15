@@ -137,20 +137,32 @@ def advance_neutral_mixed_implicit_history(
     linear_rtol: float = 1.0e-8,
     store_internal_substeps: bool = False,
     accepted_step_time_points: Sequence[float] | np.ndarray | None = None,
+    accepted_step_solver_orders: Sequence[int] | np.ndarray | None = None,
 ) -> NeutralMixedHistoryResult:
     if steps < 0:
         raise ValueError("steps must be non-negative")
     if internal_substeps <= 0:
         raise ValueError("internal_substeps must be positive")
-    explicit_schedule: tuple[tuple[float, float], ...] | None = None
+    explicit_schedule: tuple[tuple[float, float, int | None], ...] | None = None
     if accepted_step_time_points is not None:
         supplied_times = np.asarray(accepted_step_time_points, dtype=np.float64)
+        supplied_orders: np.ndarray | None = None
+        if accepted_step_solver_orders is not None:
+            supplied_orders = np.asarray(accepted_step_solver_orders, dtype=np.int32)
+            if supplied_orders.ndim != 1:
+                raise ValueError("accepted_step_solver_orders must be one-dimensional")
+            if supplied_orders.shape != supplied_times.shape:
+                raise ValueError(
+                    "accepted_step_solver_orders must match accepted_step_time_points length"
+                )
         if supplied_times.ndim != 1:
             raise ValueError("accepted_step_time_points must be one-dimensional")
         if not np.all(np.isfinite(supplied_times)):
             raise ValueError("accepted_step_time_points must be finite")
         if supplied_times.size > 0 and supplied_times[0] == 0.0:
             supplied_times = supplied_times[1:]
+            if supplied_orders is not None:
+                supplied_orders = supplied_orders[1:]
         if supplied_times.size == 0:
             raise ValueError("accepted_step_time_points must include at least one positive time")
         if supplied_times[0] <= 0.0:
@@ -158,9 +170,31 @@ def advance_neutral_mixed_implicit_history(
         dt_values = np.diff(np.concatenate((np.asarray([0.0]), supplied_times)))
         if np.any(dt_values <= 0.0):
             raise ValueError("accepted_step_time_points must be strictly increasing")
+        if supplied_orders is not None:
+            if supplied_orders.size != supplied_times.size:
+                raise ValueError(
+                    "accepted_step_solver_orders must match positive accepted-step times"
+                )
+            if np.any(supplied_orders <= 0):
+                raise ValueError("accepted_step_solver_orders must be positive")
+            if np.any(supplied_orders > 2):
+                raise ValueError(
+                    "accepted_step_solver_orders above 2 are not supported by the native BDF2 replay"
+                )
         explicit_schedule = tuple(
-            (float(dt_value), float(time_value))
-            for dt_value, time_value in zip(dt_values, supplied_times, strict=True)
+            (
+                float(dt_value),
+                float(time_value),
+                int(solver_order) if supplied_orders is not None else None,
+            )
+            for dt_value, time_value, solver_order in zip(
+                dt_values,
+                supplied_times,
+                supplied_orders
+                if supplied_orders is not None
+                else np.full_like(supplied_times, fill_value=-1, dtype=np.int32),
+                strict=True,
+            )
         )
         store_internal_substeps = True
 
@@ -231,14 +265,15 @@ def advance_neutral_mixed_implicit_history(
     current_time = 0.0
     if explicit_schedule is None:
         output_step_schedules = (
-            tuple((sub_timestep, None) for _ in range(internal_substeps))
+            tuple((sub_timestep, None, None) for _ in range(internal_substeps))
             for _ in range(steps)
         )
     else:
         output_step_schedules = (explicit_schedule,)
     for step_schedule in output_step_schedules:
-        for step_dt, target_time in step_schedule:
-            if previous_state is None:
+        for step_dt, target_time, requested_solver_order in step_schedule:
+            use_backward_euler = previous_state is None or requested_solver_order == 1
+            if use_backward_euler:
                 next_state, step_info = advance_neutral_mixed_backward_euler_step(
                     config,
                     current_state,

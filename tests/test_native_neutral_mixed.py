@@ -1329,11 +1329,12 @@ def test_neutral_mixed_explicit_accepted_time_grid_uses_variable_step_bdf2(
         internal_substeps=99,
         solver_mode="matrix_free",
         accepted_step_time_points=np.asarray([0.25, 1.0, 2.0], dtype=np.float64),
+        accepted_step_solver_orders=np.asarray([1, 1, 2], dtype=np.int32),
     )
 
     assert calls == [
         ("be", 0.25, None),
-        ("bdf2", 0.75, 0.25),
+        ("be", 0.75, None),
         ("bdf2", 1.0, 0.75),
     ]
     np.testing.assert_allclose(
@@ -1343,7 +1344,7 @@ def test_neutral_mixed_explicit_accepted_time_grid_uses_variable_step_bdf2(
         history.accepted_step_dt, np.asarray([0.0, 0.25, 0.75, 1.0])
     )
     np.testing.assert_array_equal(
-        history.accepted_step_order, np.asarray([0, 1, 2, 2], dtype=np.int32)
+        history.accepted_step_order, np.asarray([0, 1, 1, 2], dtype=np.int32)
     )
     assert history.density_history.shape[0] == 2
     np.testing.assert_allclose(
