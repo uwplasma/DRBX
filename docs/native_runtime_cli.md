@@ -122,6 +122,22 @@ Allowed values are:
 
 That switch is meant for controlled solver sweeps on the open-field/tokamak recycling one-step lanes. The `fixed_bdf2_jax_linearized` modes are opt-in promotion lanes that avoid the SciPy full-output BDF callback: they use a fixed-layout backward-Euler startup step and fixed-layout BDF2 steps with controller integrals packed into the residual state. The curated runner still keeps its default case-specific solver choice unless the deck asks for a different mode.
 
+The JAX-linearized adaptive-BDF modes also support an explicit rejected-history
+policy:
+
+```toml
+[runtime]
+recycling_adaptive_bdf_reuse_rejected_history = true
+```
+
+The same setting is available through
+`JAX_DRB_RECYCLING_ADAPTIVE_BDF_REUSE_REJECTED_HISTORY`. It defaults to
+`true` only for JAX-linearized adaptive-BDF modes and to `false` for the legacy
+sparse compatibility mode. When enabled, a rejected BDF2 trial halves the next
+trial timestep but keeps the last valid accepted-step history instead of
+forcing a startup backward-Euler trial. This reduces restart overhead without
+changing the embedded-error acceptance criterion.
+
 Current status:
 
 - `float64` is the default and the most complete runtime mode.
