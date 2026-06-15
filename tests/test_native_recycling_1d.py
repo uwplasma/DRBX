@@ -2718,6 +2718,11 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
         == "field_scale"
     )
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "jvp-diag")
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
+        == "linearized_diag"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "unknown")
     assert recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name() is None
 
@@ -2827,6 +2832,16 @@ def test_recycling_field_scale_preconditioner_handles_no_feedback_and_empty_layo
     np.testing.assert_allclose(
         np.asarray(empty_preconditioner(np.asarray([], dtype=np.float64))),
         np.asarray([], dtype=np.float64),
+    )
+
+
+def test_recycling_linearized_diagonal_preconditioner_is_solver_built() -> None:
+    assert (
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([1.0], dtype=np.float64),
+            name="linearized_diag",
+        )
+        is None
     )
 
 

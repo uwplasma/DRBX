@@ -989,9 +989,14 @@ whereas the retained unpreconditioned run is about `108 s` with clean solver
 status. A lower `maxiter=8` JAX-GMRES budget also slowed to `116.6 s`, and
 `runtime:recycling_jax_linear_jit_residual=true` exceeded a `220 s` guard on
 the same gate. This negative evidence keeps all current preconditioner and JIT
-variants off by default and points the next performance work toward a true
-physics preconditioner, fewer accepted trial solves, or a cheaper residual/JVP
-kernel before spending more D/T/He wall time.
+variants off by default. The solver also exposes a bounded
+`linearized_diag` diagnostic that builds an exact JVP-derived Jacobian diagonal
+after `jax.linearize`; on the same fixed-layout `timestep=1.0` gate it ran in
+`3.66 s`, spent `0.36 s` building the diagonal, and still reached the full
+`400` GMRES update budget. That closes simple row, block, and diagonal
+preconditioning as current speedup lanes and points the next performance work
+toward fewer accepted trial solves, lower residual/JVP kernel cost, or a
+stronger physics preconditioner before spending more D/T/He wall time.
 
 The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:

@@ -5476,6 +5476,9 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "field_rms": "field_scale",
         "block": "field_scale",
         "block_scale": "field_scale",
+        "linearized_diag": "linearized_diag",
+        "jvp_diag": "linearized_diag",
+        "jacobian_diag": "linearized_diag",
     }
     return aliases.get(normalized)
 
@@ -5487,6 +5490,8 @@ def _build_recycling_jax_linear_preconditioner(
     layout: _RecyclingPackedStateLayout | None = None,
 ) -> Callable[[object], object] | None:
     if name is None:
+        return None
+    if name == "linearized_diag":
         return None
     if name not in {"state_scale", "field_scale"}:
         raise ValueError(f"Unsupported recycling JAX preconditioner {name!r}.")
@@ -6275,6 +6280,12 @@ def _as_recycling_step_info(
             info, "linear_solver_reported_iterations", None
         ),
         "linear_preconditioner": getattr(info, "linear_preconditioner", None),
+        "linear_preconditioner_build_seconds": float(
+            getattr(info, "linear_preconditioner_build_seconds", 0.0)
+        ),
+        "linear_preconditioner_build_count": int(
+            getattr(info, "linear_preconditioner_build_count", 0)
+        ),
         "jvp_direction_batch_count": int(getattr(info, "jvp_direction_batch_count", 0)),
         "jvp_direction_build_seconds": float(
             getattr(info, "jvp_direction_build_seconds", 0.0)

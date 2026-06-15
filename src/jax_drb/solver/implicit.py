@@ -44,6 +44,8 @@ class ImplicitStepInfo:
     linear_solver_success: bool | None = None
     linear_solver_reported_iterations: int | None = None
     linear_preconditioner: str | None = None
+    linear_preconditioner_build_seconds: float = 0.0
+    linear_preconditioner_build_count: int = 0
     jvp_direction_batch_count: int = 0
     jvp_direction_build_seconds: float = 0.0
     jvp_jacobian_total_seconds: float = 0.0
@@ -1046,6 +1048,8 @@ def solve_jax_linearized_newton_system(
     jacobian_assembly_seconds = 0.0
     linear_solve_seconds = 0.0
     line_search_seconds = 0.0
+    linear_preconditioner_build_seconds = 0.0
+    linear_preconditioner_build_count = 0
     linear_backend = _resolve_jax_linear_solver_backend(linear_solver_backend)
     jacobian_mode = f"jax_linearized:{linear_backend}"
     last_linear_solver_status: int | float | str | None = None
@@ -1089,7 +1093,10 @@ def solve_jax_linearized_newton_system(
             linear_solver_reported_iterations=last_linear_solver_reported_iterations,
             linear_preconditioner=linear_preconditioner_name
             if linear_preconditioner is not None
+            or _is_dynamic_jax_linear_preconditioner(linear_preconditioner_name)
             else None,
+            linear_preconditioner_build_seconds=linear_preconditioner_build_seconds,
+            linear_preconditioner_build_count=linear_preconditioner_build_count,
             residual_jitted=bool(jit_residual),
         )
 
@@ -1124,6 +1131,18 @@ def solve_jax_linearized_newton_system(
                 converged=True,
             )
 
+        effective_preconditioner = linear_preconditioner
+        if _is_dynamic_jax_linear_preconditioner(linear_preconditioner_name):
+            preconditioner_started_at = perf_counter()
+            effective_preconditioner = _build_jax_linearized_diagonal_preconditioner(
+                linear_map,
+                state,
+            )
+            linear_preconditioner_build_seconds += (
+                perf_counter() - preconditioner_started_at
+            )
+            linear_preconditioner_build_count += 1
+
         linear_solve_started_at = perf_counter()
         solve_result = _solve_jax_linearized_update(
             linear_map,
@@ -1134,7 +1153,7 @@ def solve_jax_linearized_newton_system(
             linear_maxiter=int(linear_maxiter),
             jax_gmres=gmres,
             jax_bicgstab=bicgstab,
-            preconditioner=linear_preconditioner,
+            preconditioner=effective_preconditioner,
         )
         update = solve_result.update
         update = _block(update)
@@ -1224,6 +1243,70 @@ def _resolve_jax_linear_solver_backend(name: str) -> str:
         return aliases[normalized]
     except KeyError as exc:
         raise ValueError(f"Unsupported JAX linear solver backend {name!r}.") from exc
+
+
+def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:
+    return str(name or "").strip().lower().replace("-", "_") in {
+        "linearized_diag",
+        "jvp_diag",
+        "jacobian_diag",
+    }
+
+
+def _safe_diagonal_denominator(diagonal, *, floor: float):
+    try:
+        import jax.numpy as jnp
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when jax is unavailable
+        raise ImportError("JAX diagonal preconditioning requires jax.") from exc
+
+    abs_diagonal = jnp.abs(diagonal)
+    sign = jnp.where(diagonal < 0.0, -1.0, 1.0)
+    return jnp.where(abs_diagonal >= float(floor), diagonal, sign * float(floor))
+
+
+def _build_jax_linearized_diagonal_preconditioner(
+    linear_map,
+    prototype_state,
+    *,
+    floor: float = 1.0e-12,
+    max_size: int = 2048,
+):
+    """Build an opt-in inverse-Jacobian diagonal preconditioner from JVPs."""
+
+    try:
+        import jax
+        import jax.numpy as jnp
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when jax is unavailable
+        raise ImportError("JAX diagonal preconditioning requires jax.") from exc
+
+    prototype = jnp.asarray(prototype_state, dtype=jnp.float64)
+    flat_size = int(prototype.size)
+    if flat_size == 0:
+        safe_diagonal = jnp.ones_like(prototype, dtype=jnp.float64)
+    else:
+        if flat_size > int(max_size):
+            raise ValueError(
+                "linearized_diag preconditioner is bounded to systems with "
+                f"at most {int(max_size)} unknowns; got {flat_size}."
+            )
+        basis = jnp.eye(flat_size, dtype=prototype.dtype).reshape(
+            (flat_size,) + tuple(prototype.shape)
+        )
+        action_matrix = jax.vmap(
+            lambda tangent: jnp.ravel(linear_map(tangent))
+        )(basis)
+        diagonal = jnp.diag(action_matrix).reshape(tuple(prototype.shape))
+        safe_diagonal = _safe_diagonal_denominator(diagonal, floor=float(floor))
+    safe_diagonal = jax.block_until_ready(safe_diagonal)
+
+    def preconditioner(vector):
+        return jnp.asarray(vector, dtype=jnp.float64) / safe_diagonal
+
+    return preconditioner
 
 
 def _solve_jax_linearized_update(

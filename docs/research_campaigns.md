@@ -172,8 +172,11 @@ same conclusion on the cheaper full-controller gate: opt-in `field_scale`
 preconditioning completed but slowed to `111.8 s` with `9` unknown inner linear
 statuses, a lower `JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER=8` budget slowed to
 `116.6 s`, and `runtime:recycling_jax_linear_jit_residual=true` timed out at a
-`220 s` guard. Do not spend the next D/T/He campaign allocation on these
-specific knobs unless the residual or preconditioner implementation changes.
+`220 s` guard. The exact JVP-derived `linearized_diag` diagnostic also failed
+to improve the cheap fixed-layout probe: it ran in `3.66 s`, with `0.36 s` in
+diagonal construction and the same full GMRES update budget. Do not spend the
+next D/T/He campaign allocation on these specific knobs unless the residual or
+preconditioner implementation changes.
 The strongest measured path is now
 `adaptive_bdf_sparse_jvp`: in the same 180-second trace window it completed
 `96` implicit trials, reached BDF2, and reduced average completed-trial cost to

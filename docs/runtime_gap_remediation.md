@@ -313,7 +313,10 @@ and the matching `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER` environment
 variable. These remain diagnostics only. The June 15, 2026 hydrogen adaptive
 BDF gate showed that `field_scale`, lower `maxiter=8`, and residual JIT did
 not improve wall time or solver status, so the next runtime patch should not
-repeat those knobs without a changed residual or preconditioner.
+repeat those knobs without a changed residual or preconditioner. The
+`linearized_diag` diagnostic is also opt-in: it builds an exact JVP-derived
+Jacobian diagonal after `jax.linearize`, but the first fixed-layout hydrogen
+probe spent enough time building the diagonal that it did not improve the gate.
 The next opt-in non-SciPy lane is
 `runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized` or the
 `fixed_bdf2_jax_linearized_lineax` variant. It bypasses the SciPy `solve_ivp`

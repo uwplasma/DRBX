@@ -945,6 +945,34 @@ def test_jax_linearized_newton_solver_accepts_left_preconditioner() -> None:
     assert info.linear_preconditioner == "test_scale"
 
 
+def test_jax_linearized_newton_solver_builds_linearized_diagonal_preconditioner() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([1.0, -2.0], dtype=jnp.float64)
+    weights = jnp.array([1000.0, -0.25], dtype=jnp.float64)
+
+    def residual(state):
+        return weights * (jnp.asarray(state) - target)
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        np.array([0.0, 0.0], dtype=np.float64),
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_restart=4,
+        linear_maxiter=4,
+        linear_preconditioner_name="linearized_diag",
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is True
+    assert info.linear_preconditioner == "linearized_diag"
+    assert info.linear_preconditioner_build_count >= 1
+    assert info.linear_preconditioner_build_seconds >= 0.0
+
+
 def test_jax_linearized_newton_solver_supports_bicgstab_backend() -> None:
     jnp = pytest.importorskip("jax.numpy")
 
