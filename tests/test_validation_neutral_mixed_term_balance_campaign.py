@@ -1999,6 +1999,16 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_state_history_window(
     assert center_entry["fields"]["logPnlimh"]["delta"] == pytest.approx(0.02)
     assert center_entry["fields"]["grad_logPnlimh_y"]["delta"] == pytest.approx(0.04)
     assert center_entry["fields"]["Dnnh_flux_max"]["delta"] == pytest.approx(0.70)
+    onset = report["accepted_step_error_onset_register"]
+    assert onset["available"] is True
+    assert onset["metric"] == "target_adjacent_pointwise_max_abs_delta"
+    dominant_diffusion = onset["category_dominant_fields"]["diffusion_ladder"]
+    assert dominant_diffusion["field"] == "Dnnh_flux_max"
+    assert dominant_diffusion["max_target_pointwise_delta"] == pytest.approx(0.70)
+    state_onset = onset["category_dominant_fields"]["state"]
+    assert state_onset["field"] == "Nh"
+    assert state_onset["first_above_absolute_floor"]["time"] == pytest.approx(1.0)
+    assert state_onset["first_above_relative_threshold"]["solver_order"] == 1
 
 
 def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inputs(

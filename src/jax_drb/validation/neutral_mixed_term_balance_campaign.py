@@ -908,6 +908,10 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
             field_errors=field_errors,
         )
     )
+    accepted_step_error_onset_register = _build_accepted_step_error_onset_register(
+        matched_points=matched_points,
+        field_errors=field_errors,
+    )
     comparable_solver_order_deltas = [
         int(point.get("solver_order_delta", 0))
         for point in matched_points
@@ -945,6 +949,7 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         "neutral_diffusion_ladder_register": neutral_diffusion_ladder_register,
         "parallel_viscosity_input_register": parallel_viscosity_input_register,
         "accepted_step_state_history_register": accepted_step_state_history_register,
+        "accepted_step_error_onset_register": accepted_step_error_onset_register,
         "matched_points": matched_points,
         "interpretation": (
             "This accepted-internal-step parity report compares native and reference "
@@ -956,6 +961,162 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
             "parity question; derivative and source fields are ranked by active and "
             "target-adjacent cells while still reporting guard deltas separately."
         ),
+    }
+
+
+def _build_accepted_step_error_onset_register(
+    *,
+    matched_points: list[dict[str, object]],
+    field_errors: dict[str, dict[str, object]],
+    relative_threshold: float = 0.1,
+    absolute_floor: float = 1.0e-12,
+) -> dict[str, object]:
+    """Summarize when accepted-step parity errors first become visible."""
+
+    tracked_fields = tuple(
+        field
+        for field in (
+            "Nh",
+            "Ph",
+            "NVh",
+            "Tnlimh",
+            "logPnlimh",
+            "grad_logPnlimh",
+            "grad_logPnlimh_x",
+            "grad_logPnlimh_y",
+            "grad_logPnlimh_z",
+            "Dnnh_raw",
+            "Dnnh_flux_max",
+            "Dnnh_flux_limited",
+            "Dnnh_diffusion_limited",
+            "Dnnh",
+            "Vh",
+            "eta_h",
+            "SNVh_pressure_gradient",
+            "SNVh_parallel_viscosity",
+            "SNVh_perpendicular_viscosity",
+        )
+        if field in field_errors
+    )
+    field_entries = [
+        _accepted_step_error_onset_entry(
+            field,
+            matched_points=matched_points,
+            relative_threshold=relative_threshold,
+            absolute_floor=absolute_floor,
+        )
+        for field in tracked_fields
+    ]
+    field_entries = [entry for entry in field_entries if entry["available"]]
+    category_map = {
+        "state": ("Nh", "Ph", "NVh"),
+        "scalar_limiter": ("Tnlimh", "logPnlimh", "grad_logPnlimh"),
+        "gradient_component": (
+            "grad_logPnlimh_x",
+            "grad_logPnlimh_y",
+            "grad_logPnlimh_z",
+        ),
+        "diffusion_ladder": (
+            "Dnnh_raw",
+            "Dnnh_flux_max",
+            "Dnnh_flux_limited",
+            "Dnnh_diffusion_limited",
+            "Dnnh",
+        ),
+        "velocity_viscosity": ("Vh", "eta_h"),
+        "momentum_source": (
+            "SNVh_pressure_gradient",
+            "SNVh_parallel_viscosity",
+            "SNVh_perpendicular_viscosity",
+        ),
+    }
+    entries_by_field = {str(entry["field"]): entry for entry in field_entries}
+    category_entries = {}
+    for category, fields in category_map.items():
+        candidates = [
+            entries_by_field[field] for field in fields if field in entries_by_field
+        ]
+        if candidates:
+            category_entries[category] = max(
+                candidates,
+                key=lambda entry: float(entry["max_target_pointwise_delta"]),
+            )
+    return {
+        "description": (
+            "Onset register for accepted-step parity errors. It records the first "
+            "matched step above an absolute floor and above a relative fraction of "
+            "each field's own maximum target-adjacent pointwise error. Use this "
+            "before changing source formulas: early state/limiter onset points to "
+            "state-history preparation, while late ladder-only onset points to local "
+            "flux-cap or boundary algebra."
+        ),
+        "available": bool(field_entries),
+        "metric": "target_adjacent_pointwise_max_abs_delta",
+        "relative_threshold": float(relative_threshold),
+        "absolute_floor": float(absolute_floor),
+        "fields": field_entries,
+        "category_dominant_fields": category_entries,
+    }
+
+
+def _accepted_step_error_onset_entry(
+    field: str,
+    *,
+    matched_points: list[dict[str, object]],
+    relative_threshold: float,
+    absolute_floor: float,
+) -> dict[str, object]:
+    series = []
+    for matched_point in matched_points:
+        field_errors = matched_point.get("field_errors", {})
+        if not isinstance(field_errors, dict):
+            continue
+        error = field_errors.get(field)
+        if not isinstance(error, dict):
+            continue
+        value = float(error.get("target_adjacent_pointwise_max_abs_delta", 0.0))
+        series.append(
+            {
+                "native_index": int(matched_point.get("native_index", 0)),
+                "reference_index": int(matched_point.get("reference_index", 0)),
+                "time": float(matched_point.get("time", 0.0)),
+                "solver_order": int(matched_point.get("solver_order", 0)),
+                "reference_solver_order": int(
+                    matched_point.get("reference_solver_order", 0)
+                ),
+                "target_pointwise_delta": value,
+            }
+        )
+    if not series:
+        return {"field": field, "available": False}
+    max_entry = max(series, key=lambda entry: entry["target_pointwise_delta"])
+    max_delta = float(max_entry["target_pointwise_delta"])
+    absolute_entry = next(
+        (
+            entry
+            for entry in series
+            if float(entry["target_pointwise_delta"]) > absolute_floor
+        ),
+        None,
+    )
+    relative_floor = max_delta * float(relative_threshold)
+    relative_entry = next(
+        (
+            entry
+            for entry in series
+            if float(entry["target_pointwise_delta"]) >= relative_floor
+            and float(entry["target_pointwise_delta"]) > absolute_floor
+        ),
+        None,
+    )
+    return {
+        "field": field,
+        "available": True,
+        "max_target_pointwise_delta": max_delta,
+        "max_time": float(max_entry["time"]),
+        "max_native_index": int(max_entry["native_index"]),
+        "first_above_absolute_floor": absolute_entry,
+        "first_above_relative_threshold": relative_entry,
     }
 
 

@@ -90,7 +90,12 @@ mismatches from one to zero, but the leading cap drift remains
 cap uses the scalar `abs(Grad(logPnlim))`. The remaining parity owner is a
 closer CVODE-style accepted-step state/history replay feeding
 `Pnlim`/`logPnlim`, not neutral pressure-gradient, viscosity, raw-diffusion,
-or local cap algebra.
+or local cap algebra. A follow-up onset register built from the same trace
+shows the first 10% relative target-adjacent onset in scalar `logPnlimh` at
+`t = 0.454`, in `Nh` at `t = 0.673`, and in `Dnnh_flux_max` at `t = 0.851`.
+That temporal ordering supports accumulated accepted-state/scalar-limiter
+drift before cap amplification rather than a standalone late-time cap formula
+error.
 
 ## External Literature And Code Baseline
 

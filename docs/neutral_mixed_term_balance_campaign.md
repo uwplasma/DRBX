@@ -310,6 +310,16 @@ directly state-sized density, pressure, momentum, raw-diffusion, component
 gradient, or local source-term formula mismatch and points first at a closer
 CVODE-style accepted-step state/history replay for the neutral
 pressure/log-pressure limiter.
+The accepted-step comparator now also writes an
+`accepted_step_error_onset_register`. On the component/order-replay trace, the
+first 10% relative onset appears in scalar `logPnlimh` at `t = 0.454`, in
+`Nh` at `t = 0.673`, and in `Dnnh_flux_max` at `t = 0.851`, all after the
+startup steps have reached order 2. The ordering is important: the cap drift
+does not first appear as an isolated late-time algebraic jump; it follows
+accumulated accepted-state and scalar-limiter drift. The next high-value
+reference patch should therefore emit enough full active-field state to test
+the native residual on reference accepted states, or emulate CVODE's accepted
+state/history update more closely, before changing neutral source terms.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.
