@@ -252,12 +252,12 @@ that separates primary scientific evidence from supporting engineering gates is
 
 The neutral-mixed validation docs now separate pointwise target-cell drift from
 legacy zone max/rms summaries. The current accepted-step trace matches
-`148/148` reference-grid points, writes the `Dnnh` preparation ladder plus
-`Vh`/`eta_h`, records reference solver order, and uses the covariant
-`Grad(logPnlim)` metric norm with the carried metric terms. The remaining
-neutral-mixed blocker is variable-order accepted-step history replay feeding
-the near-target flux-limit cap, not a missing pressure-gradient or viscosity
-source formula.
+`309/309` max-order-2 reference-grid points, writes the `Dnnh` preparation
+ladder plus `Vh`/`eta_h`, records reference solver order, and uses the
+covariant `Grad(logPnlim)` metric norm with the carried metric terms. The
+remaining neutral-mixed blocker is accepted-step state/history sequencing
+feeding neutral pressure/log-pressure preparation and the near-target
+flux-limit cap, not a missing pressure-gradient or viscosity source formula.
 
 ![Fluid 1D MMS convergence](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png)
 
