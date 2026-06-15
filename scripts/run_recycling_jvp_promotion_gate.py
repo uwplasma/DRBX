@@ -73,7 +73,15 @@ def _build_case_command(
     include_active_array_jvp: bool = False,
     gate_phase: str = "bdf_jvp",
     fixed_bdf2_timestep: float | None = None,
+    mode_timeout_seconds: float | None = None,
 ) -> list[str]:
+    resolved_mode_timeout = (
+        gate_case.mode_timeout_seconds
+        if mode_timeout_seconds is None
+        else float(mode_timeout_seconds)
+    )
+    if resolved_mode_timeout <= 0.0:
+        raise ValueError("mode_timeout_seconds must be positive.")
     command = [
         python_executable,
         str(REPO_ROOT / "scripts" / "compare_recycling_transient_modes.py"),
@@ -83,7 +91,7 @@ def _build_case_command(
         str(reference_root),
         "--diagnostics-only",
         "--mode-timeout-seconds",
-        f"{gate_case.mode_timeout_seconds:g}",
+        f"{resolved_mode_timeout:g}",
         "--steps",
         str(gate_case.steps),
     ]
@@ -221,6 +229,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--mode-timeout-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Override the per-mode timeout forwarded to compare_recycling_transient_modes.py. "
+            "Useful for bounded experimental active-array JVP probes."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
@@ -268,6 +285,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 include_active_array_jvp=bool(args.include_active_array_jvp),
                 gate_phase=gate_phase,
                 fixed_bdf2_timestep=fixed_bdf2_timestep,
+                mode_timeout_seconds=args.mode_timeout_seconds,
+            )
+            resolved_mode_timeout = (
+                gate_case.mode_timeout_seconds
+                if args.mode_timeout_seconds is None
+                else float(args.mode_timeout_seconds)
             )
             print(f"gate_case={gate_case.case}")
             print(f"gate_phase={gate_phase}")
@@ -277,7 +300,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "phase": gate_phase,
                 "fields": list(gate_case.fields),
                 "pairwise_threshold": gate_case.pairwise_threshold,
-                "mode_timeout_seconds": gate_case.mode_timeout_seconds,
+                "mode_timeout_seconds": resolved_mode_timeout,
                 "steps": gate_case.steps,
                 "include_active_array_jvp": bool(args.include_active_array_jvp),
                 "fixed_bdf2_timestep": fixed_bdf2_timestep,

@@ -117,6 +117,19 @@ def test_recycling_jvp_promotion_gate_can_opt_into_active_array_jvp() -> None:
     assert "bdf_active_array_jvp" in command
 
 
+def test_recycling_jvp_promotion_gate_can_override_mode_timeout() -> None:
+    module = _load_module()
+    gate_case = module.GATE_CASES["recycling_1d_one_step"]
+    command = module._build_case_command(
+        gate_case,
+        reference_root=Path("/tmp/reference-root"),
+        python_executable="python",
+        mode_timeout_seconds=45.0,
+    )
+
+    assert command[command.index("--mode-timeout-seconds") + 1] == "45"
+
+
 def test_recycling_jvp_promotion_gate_builds_command_with_json_report() -> None:
     module = _load_module()
     gate_case = module.GATE_CASES["recycling_dthe_one_step"]
@@ -161,6 +174,8 @@ def test_recycling_jvp_promotion_gate_writes_dry_run_summary(tmp_path: Path) -> 
             "--dry-run",
             "--output-dir",
             str(output_dir),
+            "--mode-timeout-seconds",
+            "12.5",
         ]
     )
 
@@ -183,4 +198,5 @@ def test_recycling_jvp_promotion_gate_writes_dry_run_summary(tmp_path: Path) -> 
         "recycling_1d_one_step.fixed_bdf2.json"
     )
     assert case_reports[1]["fixed_bdf2_timestep"] == 10.0
+    assert all(report["mode_timeout_seconds"] == 12.5 for report in case_reports)
     assert all("--output-json" in report["command"] for report in case_reports)
