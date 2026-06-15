@@ -959,6 +959,16 @@ not a required dependency and not the default; it gives a controlled way to
 compare JAX-native Krylov backends once the residual itself is free of host
 barriers.
 
+The JAX-GMRES path also has an opt-in row-scaling preconditioner hook through
+`runtime:recycling_jax_linear_preconditioner=state_scale` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER=state_scale`. This is a diagnostic
+seam, not a promoted accelerator. On the June 15, 2026 local hydrogen
+fixed-layout gate, the unpreconditioned solve ran in `2.96 s`, while the
+state-scale preconditioned solve ran in `7.25 s` with the same residual norm
+and solver status. That negative evidence keeps the current preconditioner
+off by default and points the next performance work toward block physics
+preconditioning, cheaper residual/JVP kernels, and heavy D/T/He profiling.
+
 The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:
 

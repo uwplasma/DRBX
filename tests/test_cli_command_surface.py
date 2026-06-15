@@ -665,6 +665,7 @@ def test_compare_neutral_mixed_accepted_traces_command_writes_report(
             argparse.Namespace(
                 native_trace_json=tmp_path / "native.json",
                 reference_trace_json=tmp_path / "reference.jsonl",
+                input_path=tmp_path / "BOUT.inp",
                 reference_stage="post_accepted",
                 time_tolerance=1.0e-8,
                 reference_cvode_max_order=2,
@@ -676,6 +677,7 @@ def test_compare_neutral_mixed_accepted_traces_command_writes_report(
     assert captured["reference_stage"] == "post_accepted"
     assert captured["time_tolerance"] == 1.0e-8
     assert captured["reference_cvode_max_order"] == 2
+    assert captured["input_path"] == tmp_path / "BOUT.inp"
     output = capsys.readouterr().out
     assert "neutral_mixed_accepted_step_trace_parity" in output
     assert "matched_trace_point_count: 2" in output
@@ -686,6 +688,7 @@ def test_compare_neutral_mixed_accepted_traces_command_writes_report(
             argparse.Namespace(
                 native_trace_json=tmp_path / "native.json",
                 reference_trace_json=tmp_path / "reference.jsonl",
+                input_path=None,
                 reference_stage="post_accepted",
                 time_tolerance=0.0,
                 reference_cvode_max_order=None,
