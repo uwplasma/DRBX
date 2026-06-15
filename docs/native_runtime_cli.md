@@ -138,6 +138,22 @@ trial timestep but keeps the last valid accepted-step history instead of
 forcing a startup backward-Euler trial. This reduces restart overhead without
 changing the embedded-error acceptance criterion.
 
+The same modes can also reuse the just-computed backward-Euler predictor as the
+initial state for the BDF2 corrector:
+
+```toml
+[runtime]
+recycling_bdf2_use_be_initial_guess = true
+```
+
+The matching environment variable is
+`JAX_DRB_RECYCLING_BDF2_USE_BE_INITIAL_GUESS`. The default is `true` for
+JAX-linearized adaptive-BDF modes and `false` for the sparse compatibility
+mode. This is a convergence-path heuristic only: it does not alter the
+backward-Euler or BDF2 residual equations, and current promotion gates still
+show that the JAX-linearized output-window route is dominated by inner Krylov
+linear solves.
+
 For JAX-linearized promotion experiments, the inner matrix-free Krylov backend
 can be selected with `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER`. Supported values are
 `jax_gmres` (default), `lineax_gmres` when the optional Lineax package is

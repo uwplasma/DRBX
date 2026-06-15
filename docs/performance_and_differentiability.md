@@ -845,6 +845,19 @@ The matrix-free BE/BDF2 trial solvers also start from the same explicit
 predictor used by the sparse and JAX-linearized paths, rather than from the
 previous state. That keeps the native solver variants comparable and avoids an
 unnecessary convergence penalty in the matrix-free lane.
+For JAX-linearized adaptive-BDF modes, the BDF2 corrector now also reuses the
+just-computed backward-Euler embedded predictor as its initial guess by
+default. This is controlled by
+`runtime:recycling_bdf2_use_be_initial_guess` or
+`JAX_DRB_RECYCLING_BDF2_USE_BE_INITIAL_GUESS`. The June 15, 2026 hydrogen
+`recycling_1d_one_step`, `timestep=1.0` gate completed with this path enabled
+in `106.3 s`, used `42` fixed-layout JAX-linearized trial solves, took `19`
+accepted internal steps, rejected one trial, and reported zero failed or
+unconverged implicit substeps. The retained artifact is
+`docs/data/runtime_profile_artifacts/recycling_1d_adaptive_bdf_be_initial_guess_gate.json`.
+This is useful cleanup and clean convergence evidence, but it is not a
+meaningful speedup: the same run still spent `85.4 s` in Krylov linear solves
+and used `16,800` inner linear iterations.
 The current multi-ion traces show a clear split between solver routes:
 JAX-linearized GMRES is dominated by Krylov linear solves, Lineax reports inner
 linear-solver breakdown on most completed substeps, and sparse-JVP reaches BDF2
