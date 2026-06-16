@@ -999,6 +999,80 @@ def test_jax_linearized_newton_solver_builds_linearized_diagonal_preconditioner(
     assert info.linear_preconditioner_build_seconds >= 0.0
 
 
+def test_jax_linearized_newton_solver_builds_local_block_preconditioner() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    # Packed field-major state: [field0 cells..., field1 cells...].
+    blocks = jnp.array(
+        [
+            [[4.0, 1.0], [2.0, 3.0]],
+            [[5.0, -1.0], [1.0, 2.0]],
+        ],
+        dtype=jnp.float64,
+    )
+    target_by_cell = jnp.array([[1.0, -2.0], [0.5, 3.0]], dtype=jnp.float64)
+    target = np.asarray(target_by_cell.T.reshape((-1,)))
+
+    def residual(state):
+        by_cell = jnp.asarray(state).reshape((2, 2)).T
+        local_residual = jnp.einsum("cij,cj->ci", blocks, by_cell - target_by_cell)
+        return local_residual.T.reshape((-1,))
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        np.zeros(4, dtype=np.float64),
+        active_shape=(4,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_restart=2,
+        linear_maxiter=4,
+        linear_preconditioner_name="local_block_diag",
+        linear_preconditioner_context={
+            "active_cell_count": 2,
+            "field_count": 2,
+            "feedback_count": 0,
+        },
+    )
+
+    np.testing.assert_allclose(solution, target, rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is True
+    assert info.linear_preconditioner == "local_block_diag"
+    assert info.linear_preconditioner_build_count >= 1
+    assert info.linear_preconditioner_build_seconds >= 0.0
+
+
+def test_jax_linearized_newton_solver_reuses_dynamic_preconditioner() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([1.0, -2.0], dtype=jnp.float64)
+    weights = jnp.array([4.0, 2.0], dtype=jnp.float64)
+
+    def residual(state):
+        # Smooth nonlinear residual requires more than one Newton update from
+        # the deliberately poor initial state.
+        delta = jnp.asarray(state) - target
+        return weights * delta + 0.1 * delta * delta
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        np.array([4.0, 3.0], dtype=np.float64),
+        active_shape=(2,),
+        residual_tolerance=1.0e-10,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=6,
+        linear_restart=2,
+        linear_maxiter=4,
+        linear_preconditioner_name="linearized_diag",
+        linear_preconditioner_context={"refresh_frequency": 100},
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-7, atol=1.0e-7)
+    assert info.converged is True
+    assert info.nonlinear_iterations > 1
+    assert info.linear_preconditioner_build_count == 1
+
+
 def test_jax_linearized_newton_solver_supports_bicgstab_backend() -> None:
     jnp = pytest.importorskip("jax.numpy")
 

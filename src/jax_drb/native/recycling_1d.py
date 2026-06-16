@@ -2290,6 +2290,9 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_total_jacobian_refresh_count": 0,
         "fixed_bdf2_total_linear_solve_seconds": 0.0,
         "fixed_bdf2_total_residual_evaluation_seconds": 0.0,
+        "fixed_bdf2_linear_preconditioner": None,
+        "fixed_bdf2_total_linear_preconditioner_build_count": 0,
+        "fixed_bdf2_total_linear_preconditioner_build_seconds": 0.0,
         "fixed_bdf2_active_array_rhs_steps": 0,
         "fixed_bdf2_residual_jitted_steps": 0,
         "fixed_bdf2_unconverged_solver_steps": 0,
@@ -2328,6 +2331,18 @@ def _advance_recycling_1d_fixed_bdf2_history(
         diagnostics["fixed_bdf2_total_residual_evaluation_seconds"] = float(
             diagnostics["fixed_bdf2_total_residual_evaluation_seconds"]
         ) + float(info.diagnostics.get("residual_evaluation_seconds", 0.0))
+        if info.diagnostics.get("linear_preconditioner") is not None:
+            diagnostics["fixed_bdf2_linear_preconditioner"] = str(
+                info.diagnostics["linear_preconditioner"]
+            )
+        diagnostics["fixed_bdf2_total_linear_preconditioner_build_count"] = int(
+            diagnostics["fixed_bdf2_total_linear_preconditioner_build_count"]
+        ) + int(info.diagnostics.get("linear_preconditioner_build_count", 0) or 0)
+        diagnostics["fixed_bdf2_total_linear_preconditioner_build_seconds"] = float(
+            diagnostics["fixed_bdf2_total_linear_preconditioner_build_seconds"]
+        ) + float(
+            info.diagnostics.get("linear_preconditioner_build_seconds", 0.0) or 0.0
+        )
         if info.diagnostics.get("rhs_backend") == "fixed_full_field_array":
             diagnostics["fixed_bdf2_fixed_full_field_rhs_steps"] = (
                 int(diagnostics["fixed_bdf2_fixed_full_field_rhs_steps"]) + 1
@@ -2692,6 +2707,8 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_jacobian_refresh_count": 0,
         "adaptive_bdf_linear_iterations": 0,
         "adaptive_bdf_linear_solver_tolerance": None,
+        "adaptive_bdf_linear_preconditioner": None,
+        "adaptive_bdf_linear_preconditioner_build_count": 0,
         "adaptive_bdf_linear_solver_failed_steps": 0,
         "adaptive_bdf_unknown_linear_solver_steps": 0,
         "adaptive_bdf_jvp_jacobian_batch_count": 0,
@@ -2705,6 +2722,7 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_jacobian_assembly_seconds": 0.0,
         "adaptive_bdf_linear_solve_seconds": 0.0,
         "adaptive_bdf_line_search_seconds": 0.0,
+        "adaptive_bdf_linear_preconditioner_build_seconds": 0.0,
         "adaptive_bdf_jvp_jacobian_total_seconds": 0.0,
         "adaptive_bdf_jvp_jacobian_linearize_seconds": 0.0,
         "adaptive_bdf_jvp_jacobian_tangent_build_seconds": 0.0,
@@ -2810,6 +2828,9 @@ def _write_adaptive_bdf_trace_record(
                 "linear_solver_status",
                 "linear_solver_success",
                 "linear_solver_reported_iterations",
+                "linear_preconditioner",
+                "linear_preconditioner_build_count",
+                "linear_preconditioner_build_seconds",
                 "jvp_direction_batch_count",
                 "jvp_direction_build_seconds",
                 "jvp_jacobian_total_seconds",
@@ -3007,11 +3028,22 @@ def _record_adaptive_bdf_step_solver_info(
         stats["adaptive_bdf_linear_solver_tolerance"] = float(
             diagnostics["linear_solver_tolerance"]
         )
+    if diagnostics.get("linear_preconditioner") is not None:
+        stats["adaptive_bdf_linear_preconditioner"] = str(
+            diagnostics["linear_preconditioner"]
+        )
+    stats["adaptive_bdf_linear_preconditioner_build_count"] = int(
+        stats["adaptive_bdf_linear_preconditioner_build_count"]
+    ) + int(diagnostics.get("linear_preconditioner_build_count", 0) or 0)
     for source_key, destination_key in (
         ("residual_evaluation_seconds", "adaptive_bdf_residual_evaluation_seconds"),
         ("jacobian_assembly_seconds", "adaptive_bdf_jacobian_assembly_seconds"),
         ("linear_solve_seconds", "adaptive_bdf_linear_solve_seconds"),
         ("line_search_seconds", "adaptive_bdf_line_search_seconds"),
+        (
+            "linear_preconditioner_build_seconds",
+            "adaptive_bdf_linear_preconditioner_build_seconds",
+        ),
         ("jvp_jacobian_total_seconds", "adaptive_bdf_jvp_jacobian_total_seconds"),
         (
             "jvp_jacobian_linearize_seconds",
@@ -3101,6 +3133,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_residual_evaluation_count",
         "adaptive_bdf_jacobian_refresh_count",
         "adaptive_bdf_linear_iterations",
+        "adaptive_bdf_linear_preconditioner_build_count",
         "adaptive_bdf_linear_solver_failed_steps",
         "adaptive_bdf_unknown_linear_solver_steps",
         "adaptive_bdf_jvp_jacobian_batch_count",
@@ -3119,6 +3152,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_jacobian_assembly_seconds",
         "adaptive_bdf_linear_solve_seconds",
         "adaptive_bdf_line_search_seconds",
+        "adaptive_bdf_linear_preconditioner_build_seconds",
         "adaptive_bdf_jvp_jacobian_total_seconds",
         "adaptive_bdf_jvp_jacobian_linearize_seconds",
         "adaptive_bdf_jvp_jacobian_tangent_build_seconds",
@@ -3161,6 +3195,10 @@ def _accumulate_adaptive_bdf_interval_stats(
     if step.get("adaptive_bdf_linear_solver_tolerance") is not None:
         total["adaptive_bdf_linear_solver_tolerance"] = float(
             step["adaptive_bdf_linear_solver_tolerance"]
+        )
+    if step.get("adaptive_bdf_linear_preconditioner") is not None:
+        total["adaptive_bdf_linear_preconditioner"] = str(
+            step["adaptive_bdf_linear_preconditioner"]
         )
     total["adaptive_bdf_step_solver_mode"] = str(
         step.get(
@@ -4654,6 +4692,13 @@ def advance_recycling_1d_backward_euler_step(
                 layout=layout,
             ),
             linear_preconditioner_name=preconditioner_name,
+            linear_preconditioner_context=(
+                _recycling_jax_linear_preconditioner_context(
+                    preconditioner_name,
+                    config=config,
+                    layout=layout,
+                )
+            ),
             jit_residual=jit_residual,
         )
     else:
@@ -4831,6 +4876,13 @@ def advance_recycling_1d_bdf2_step(
                 layout=layout,
             ),
             linear_preconditioner_name=preconditioner_name,
+            linear_preconditioner_context=(
+                _recycling_jax_linear_preconditioner_context(
+                    preconditioner_name,
+                    config=config,
+                    layout=layout,
+                )
+            ),
             jit_residual=jit_residual,
         )
     else:
@@ -5544,6 +5596,11 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "linearized_diag": "linearized_diag",
         "jvp_diag": "linearized_diag",
         "jacobian_diag": "linearized_diag",
+        "local_block": "local_block_diag",
+        "local_block_diag": "local_block_diag",
+        "block_jacobi": "local_block_diag",
+        "cell_block": "local_block_diag",
+        "physics_block": "local_block_diag",
     }
     return aliases.get(normalized)
 
@@ -5556,7 +5613,7 @@ def _build_recycling_jax_linear_preconditioner(
 ) -> Callable[[object], object] | None:
     if name is None:
         return None
-    if name == "linearized_diag":
+    if name in {"linearized_diag", "local_block_diag"}:
         return None
     if name not in {"state_scale", "field_scale"}:
         raise ValueError(f"Unsupported recycling JAX preconditioner {name!r}.")
@@ -5577,6 +5634,39 @@ def _build_recycling_jax_linear_preconditioner(
         return jnp.asarray(vector, dtype=jnp.float64) / scale
 
     return preconditioner
+
+
+def _recycling_jax_linear_preconditioner_context(
+    name: str | None,
+    *,
+    config: BoutConfig | None = None,
+    layout: _RecyclingPackedStateLayout | None,
+) -> dict[str, object] | None:
+    if name != "local_block_diag":
+        return None
+    if layout is None:
+        raise ValueError(
+            "layout is required for recycling local_block_diag preconditioner."
+        )
+    return {
+        "active_cell_count": int(np.prod(tuple(layout.active_shape), dtype=np.int64)),
+        "field_count": len(tuple(layout.field_names)),
+        "feedback_count": len(tuple(layout.feedback_names)),
+        "refresh_frequency": _resolve_recycling_jax_linear_preconditioner_refresh(
+            config
+        ),
+    }
+
+
+def _resolve_recycling_jax_linear_preconditioner_refresh(
+    config: BoutConfig | None = None,
+) -> int:
+    return _resolve_positive_int_runtime_option(
+        config,
+        option_name="recycling_jax_linear_preconditioner_refresh",
+        env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_REFRESH",
+        default=1,
+    )
 
 
 def _recycling_field_scale_preconditioner_vector(

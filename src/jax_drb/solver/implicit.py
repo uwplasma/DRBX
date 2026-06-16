@@ -82,6 +82,9 @@ class SparseDifferenceQuotientPlan:
 class SparseJvpDirectionBatch:
     groups: tuple[SparseDifferenceQuotientGroup, ...]
     directions: object
+    gather_batch_indices: object
+    gather_rows: object
+    gather_counts: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -274,10 +277,39 @@ def prepare_sparse_jvp_direction_batches(
             directions_flat.reshape((len(batch_groups), *state_shape)),
             dtype=dtype,
         )
+        gather_batch_indices, gather_rows, gather_counts = (
+            _build_sparse_jvp_batch_gather_plan(list(batch_groups))
+        )
         batches.append(
-            SparseJvpDirectionBatch(groups=tuple(batch_groups), directions=directions)
+            SparseJvpDirectionBatch(
+                groups=tuple(batch_groups),
+                directions=directions,
+                gather_batch_indices=gather_batch_indices,
+                gather_rows=gather_rows,
+                gather_counts=gather_counts,
+            )
         )
     return tuple(batches)
+
+
+def _build_sparse_jvp_batch_gather_plan(
+    batch_groups: list[SparseDifferenceQuotientGroup],
+) -> tuple[np.ndarray, np.ndarray, tuple[int, ...]]:
+    batch_indices: list[int] = []
+    rows: list[int] = []
+    counts: list[int] = []
+    for batch_index, group in enumerate(batch_groups):
+        group_rows = np.asarray(group.rows, dtype=np.int32)
+        count = int(group_rows.size)
+        counts.append(count)
+        if count:
+            batch_indices.extend([batch_index] * count)
+            rows.extend(int(row) for row in group_rows)
+    return (
+        np.asarray(batch_indices, dtype=np.int32),
+        np.asarray(rows, dtype=np.int32),
+        tuple(counts),
+    )
 
 
 def prepare_sparse_jvp_workspace(
@@ -474,6 +506,14 @@ def build_sparse_jvp_jacobian(
         "yes",
         "on",
     }
+    gather_on_device = os.environ.get(
+        "JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE", "0"
+    ).strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
 
     state_array = jnp.asarray(state, dtype=jnp.float64)
     state_shape = tuple(state_array.shape)
@@ -512,6 +552,7 @@ def build_sparse_jvp_jacobian(
                     "state_size": int(state_size),
                     "nnz": int(plan.nnz),
                     "sync_timing": int(sync_timing),
+                    "gather_on_device": int(gather_on_device),
                 }
             )
         return coo_matrix((data, (row_indices, col_indices)), shape=plan.shape).tocsr()
@@ -537,20 +578,40 @@ def build_sparse_jvp_jacobian(
             pushed_device = jax.block_until_ready(pushed_device)
         device_elapsed = perf_counter() - execute_started_at
         transfer_started_at = perf_counter()
-        pushed_batch = np.asarray(pushed_device, dtype=np.float64).reshape(
-            len(batch_groups), -1
-        )
+        if gather_on_device:
+            pushed_flat = jnp.reshape(pushed_device, (len(batch_groups), -1))
+            gather_rows = jnp.asarray(direction_batch.gather_rows, dtype=jnp.int32)
+            gather_batch_indices = jnp.asarray(
+                direction_batch.gather_batch_indices, dtype=jnp.int32
+            )
+            gathered_device = pushed_flat[gather_batch_indices, gather_rows]
+            if sync_timing:
+                gathered_device = jax.block_until_ready(gathered_device)
+            gathered_batch = np.asarray(gathered_device, dtype=np.float64)
+            pushed_batch = None
+        else:
+            pushed_batch = np.asarray(pushed_device, dtype=np.float64).reshape(
+                len(batch_groups), -1
+            )
+            gathered_batch = None
         transfer_elapsed = perf_counter() - transfer_started_at
         device_execute_seconds += device_elapsed
         host_transfer_seconds += transfer_elapsed
         push_seconds += device_elapsed + transfer_elapsed
         assembly_started_at = perf_counter()
+        gather_offset = 0
         for batch_index, group in enumerate(batch_groups):
-            pushed = pushed_batch[batch_index]
-            count = len(group.rows)
+            count = int(direction_batch.gather_counts[batch_index])
             row_indices[offset : offset + count] = group.rows
             col_indices[offset : offset + count] = group.cols
-            np.take(pushed, group.rows, out=data[offset : offset + count])
+            if gather_on_device:
+                data[offset : offset + count] = gathered_batch[
+                    gather_offset : gather_offset + count
+                ]
+                gather_offset += count
+            else:
+                pushed = pushed_batch[batch_index]
+                np.take(pushed, group.rows, out=data[offset : offset + count])
             offset += count
         sparse_assembly_seconds += perf_counter() - assembly_started_at
 
@@ -570,6 +631,7 @@ def build_sparse_jvp_jacobian(
                 "nnz": int(plan.nnz),
                 "prebuilt_direction_batches": int(prebuilt_directions),
                 "sync_timing": int(sync_timing),
+                "gather_on_device": int(gather_on_device),
             }
         )
     return coo_matrix(
@@ -1030,6 +1092,7 @@ def solve_jax_linearized_newton_system(
     linear_solver_backend: str = "jax_gmres",
     linear_preconditioner: Callable[[object], object] | None = None,
     linear_preconditioner_name: str | None = None,
+    linear_preconditioner_context: dict[str, object] | None = None,
     check_initial_residual: bool = True,
     jit_residual: bool = False,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
@@ -1052,6 +1115,12 @@ def solve_jax_linearized_newton_system(
     line_search_seconds = 0.0
     linear_preconditioner_build_seconds = 0.0
     linear_preconditioner_build_count = 0
+    cached_dynamic_preconditioner = None
+    dynamic_preconditioner_refresh_frequency = (
+        _dynamic_jax_linear_preconditioner_refresh_frequency(
+            linear_preconditioner_context
+        )
+    )
     linear_backend = _resolve_jax_linear_solver_backend(linear_solver_backend)
     resolved_linear_tolerance = (
         float(residual_tolerance)
@@ -1141,15 +1210,27 @@ def solve_jax_linearized_newton_system(
 
         effective_preconditioner = linear_preconditioner
         if _is_dynamic_jax_linear_preconditioner(linear_preconditioner_name):
-            preconditioner_started_at = perf_counter()
-            effective_preconditioner = _build_jax_linearized_diagonal_preconditioner(
-                linear_map,
-                state,
+            should_refresh_preconditioner = (
+                cached_dynamic_preconditioner is None
+                or (nonlinear_iteration - 1)
+                % dynamic_preconditioner_refresh_frequency
+                == 0
             )
-            linear_preconditioner_build_seconds += (
-                perf_counter() - preconditioner_started_at
-            )
-            linear_preconditioner_build_count += 1
+            if should_refresh_preconditioner:
+                preconditioner_started_at = perf_counter()
+                cached_dynamic_preconditioner = (
+                    _build_jax_linearized_dynamic_preconditioner(
+                        linear_preconditioner_name,
+                        linear_map,
+                        state,
+                        context=linear_preconditioner_context,
+                    )
+                )
+                linear_preconditioner_build_seconds += (
+                    perf_counter() - preconditioner_started_at
+                )
+                linear_preconditioner_build_count += 1
+            effective_preconditioner = cached_dynamic_preconditioner
 
         linear_solve_started_at = perf_counter()
         solve_result = _solve_jax_linearized_update(
@@ -1259,7 +1340,24 @@ def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:
         "linearized_diag",
         "jvp_diag",
         "jacobian_diag",
+        "local_block_diag",
+        "local_block",
+        "block_jacobi",
+        "cell_block",
+        "physics_block",
     }
+
+
+def _dynamic_jax_linear_preconditioner_refresh_frequency(
+    context: dict[str, object] | None,
+) -> int:
+    if context is None:
+        return 1
+    try:
+        value = int(context.get("refresh_frequency", 1))
+    except (TypeError, ValueError):
+        return 1
+    return max(1, value)
 
 
 def _safe_diagonal_denominator(diagonal, *, floor: float):
@@ -1314,6 +1412,149 @@ def _build_jax_linearized_diagonal_preconditioner(
 
     def preconditioner(vector):
         return jnp.asarray(vector, dtype=jnp.float64) / safe_diagonal
+
+    return preconditioner
+
+
+def _build_jax_linearized_dynamic_preconditioner(
+    name: str | None,
+    linear_map,
+    prototype_state,
+    *,
+    context: dict[str, object] | None = None,
+):
+    normalized = str(name or "").strip().lower().replace("-", "_")
+    if normalized in {"linearized_diag", "jvp_diag", "jacobian_diag"}:
+        return _build_jax_linearized_diagonal_preconditioner(linear_map, prototype_state)
+    if normalized in {
+        "local_block_diag",
+        "local_block",
+        "block_jacobi",
+        "cell_block",
+        "physics_block",
+    }:
+        if context is None:
+            raise ValueError(
+                "local_block_diag preconditioner requires active_cell_count and "
+                "field_count in linear_preconditioner_context."
+            )
+        return _build_jax_linearized_local_block_preconditioner(
+            linear_map,
+            prototype_state,
+            active_cell_count=int(context.get("active_cell_count", 0)),
+            field_count=int(context.get("field_count", 0)),
+            feedback_count=int(context.get("feedback_count", 0)),
+            floor=float(context.get("floor", 1.0e-10)),
+            max_unknowns=int(context.get("max_unknowns", 4096)),
+        )
+    raise ValueError(f"Unsupported dynamic JAX preconditioner {name!r}.")
+
+
+def _build_jax_linearized_local_block_preconditioner(
+    linear_map,
+    prototype_state,
+    *,
+    active_cell_count: int,
+    field_count: int,
+    feedback_count: int = 0,
+    floor: float = 1.0e-10,
+    max_unknowns: int = 4096,
+):
+    """Build a same-cell multiphysics block-Jacobi preconditioner from JVPs.
+
+    The packed recycling state is field-major.  This preconditioner extracts the
+    local field-by-equation Jacobian block at each active cell using a batched
+    JVP, inverts those small dense blocks on device, and leaves global transport
+    couplings to the outer Krylov iteration.
+    """
+
+    try:
+        import jax
+        import jax.numpy as jnp
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when jax is unavailable
+        raise ImportError("JAX block preconditioning requires jax.") from exc
+
+    prototype = jnp.asarray(prototype_state, dtype=jnp.float64)
+    flat_size = int(prototype.size)
+    active_cell_count = int(active_cell_count)
+    field_count = int(field_count)
+    feedback_count = int(feedback_count)
+    field_unknown_count = active_cell_count * field_count
+    if active_cell_count < 0 or field_count < 0 or feedback_count < 0:
+        raise ValueError("local_block_diag preconditioner counts must be non-negative.")
+    if flat_size != field_unknown_count + feedback_count:
+        raise ValueError(
+            "local_block_diag preconditioner context does not match packed state: "
+            f"state has {flat_size} entries, expected "
+            f"{field_unknown_count + feedback_count}."
+        )
+    if field_unknown_count == 0:
+        return lambda vector: jnp.asarray(vector, dtype=jnp.float64)
+    if field_unknown_count > int(max_unknowns):
+        raise ValueError(
+            "local_block_diag preconditioner is bounded to field blocks with at "
+            f"most {int(max_unknowns)} unknowns; got {field_unknown_count}."
+        )
+
+    directions = jnp.eye(
+        field_unknown_count,
+        flat_size,
+        dtype=prototype.dtype,
+    ).reshape((field_unknown_count,) + tuple(prototype.shape))
+    action_matrix = jax.vmap(lambda tangent: jnp.ravel(linear_map(tangent)))(
+        directions
+    )
+    actions_by_cell_column = action_matrix.reshape(
+        (field_count, active_cell_count, flat_size)
+    ).transpose((1, 0, 2))
+    row_indices = (
+        jnp.arange(field_count, dtype=jnp.int32)[None, :] * active_cell_count
+        + jnp.arange(active_cell_count, dtype=jnp.int32)[:, None]
+    )
+    block_columns = []
+    for column in range(field_count):
+        action_rows = actions_by_cell_column[:, column, :]
+        block_columns.append(
+            jnp.take_along_axis(action_rows, row_indices, axis=1)
+        )
+    blocks = jnp.stack(tuple(block_columns), axis=2)
+    eye = jnp.eye(field_count, dtype=prototype.dtype)
+    block_scale = jnp.maximum(jnp.max(jnp.abs(blocks), axis=(1, 2)), 1.0)
+    regularized_blocks = blocks + (
+        float(floor) * block_scale[:, None, None] * eye[None, :, :]
+    )
+    diagonal = jnp.diagonal(regularized_blocks, axis1=1, axis2=2)
+    safe_diagonal = _safe_diagonal_denominator(diagonal, floor=float(floor))
+    regularized_blocks, safe_diagonal = jax.block_until_ready(
+        (regularized_blocks, safe_diagonal)
+    )
+
+    def preconditioner(vector):
+        flat_vector = jnp.ravel(jnp.asarray(vector, dtype=jnp.float64))
+        field_vector = flat_vector[:field_unknown_count]
+        rhs_by_cell = field_vector.reshape(
+            (field_count, active_cell_count)
+        ).transpose((1, 0))
+        solved_by_cell = jnp.linalg.solve(
+            regularized_blocks,
+            rhs_by_cell[..., None],
+        )[..., 0]
+        diagonal_fallback = rhs_by_cell / safe_diagonal
+        solved_by_cell = jnp.where(
+            jnp.all(jnp.isfinite(solved_by_cell), axis=1, keepdims=True),
+            solved_by_cell,
+            diagonal_fallback,
+        )
+        solved_fields = solved_by_cell.transpose((1, 0)).reshape((field_unknown_count,))
+        if feedback_count:
+            solved = jnp.concatenate(
+                (solved_fields, flat_vector[field_unknown_count:]), axis=0
+            )
+        else:
+            solved = solved_fields
+        return solved.reshape(tuple(prototype.shape))
 
     return preconditioner
 

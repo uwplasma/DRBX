@@ -2797,6 +2797,11 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
         == "linearized_diag"
     )
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "block-jacobi")
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
+        == "local_block_diag"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "unknown")
     assert recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name() is None
 
@@ -2926,7 +2931,7 @@ def test_recycling_field_scale_preconditioner_handles_no_feedback_and_empty_layo
     )
 
 
-def test_recycling_linearized_diagonal_preconditioner_is_solver_built() -> None:
+def test_recycling_dynamic_jax_preconditioners_are_solver_built() -> None:
     assert (
         recycling_1d_mod._build_recycling_jax_linear_preconditioner(
             np.asarray([1.0], dtype=np.float64),
@@ -2934,6 +2939,51 @@ def test_recycling_linearized_diagonal_preconditioner_is_solver_built() -> None:
         )
         is None
     )
+    assert (
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([1.0], dtype=np.float64),
+            name="local_block_diag",
+        )
+        is None
+    )
+
+
+def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> None:
+    layout = SimpleNamespace(
+        active_shape=(3,),
+        field_names=("Nd+", "Pe", "NVd+"),
+        feedback_names=("density_error", "power_error"),
+    )
+
+    assert recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+        "state_scale",
+        layout=layout,
+    ) is None
+    assert recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+        "local_block_diag",
+        layout=layout,
+    ) == {
+        "active_cell_count": 3,
+        "field_count": 3,
+        "feedback_count": 2,
+        "refresh_frequency": 1,
+    }
+    config = parse_bout_input(
+        """
+        [runtime]
+        recycling_jax_linear_preconditioner_refresh = 4
+        """
+    )
+    assert recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+        "local_block_diag",
+        config=config,
+        layout=layout,
+    )["refresh_frequency"] == 4
+    with pytest.raises(ValueError, match="layout is required"):
+        recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+            "local_block_diag",
+            layout=None,
+        )
 
 
 def test_recycling_runtime_option_resolvers_reject_invalid_preconditioner_and_config(

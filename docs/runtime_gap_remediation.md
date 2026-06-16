@@ -308,9 +308,16 @@ The recycling BE/BDF2 wrappers expose the same seam through
 `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL=1`, so profiling decks can pin the
 pre-JIT behavior without changing the finite-difference BDF default.
 They also expose opt-in JAX-GMRES row-scaling probes through
-`runtime:recycling_jax_linear_preconditioner=state_scale` or `field_scale`
-and the matching `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER` environment
-variable. These remain diagnostics only. The June 15, 2026 hydrogen adaptive
+`runtime:recycling_jax_linear_preconditioner=state_scale`, `field_scale`, or
+`local_block_diag` and the matching
+`JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER` environment variable. The
+`local_block_diag` path is the current physics/block preconditioner probe: it
+uses the JAX-linearized residual to assemble same-cell field-coupling blocks
+with JVPs, solves those small blocks on device, and treats off-cell transport
+coupling through the outer Krylov iteration. The optional
+`runtime:recycling_jax_linear_preconditioner_refresh` control reuses the
+dynamic block preconditioner within one implicit solve. These remain
+diagnostics only. The June 15, 2026 hydrogen adaptive
 BDF gate showed that `field_scale`, lower `maxiter=8`, and residual JIT did
 not improve wall time or solver status, so the next runtime patch should not
 repeat those knobs without a changed residual or preconditioner. The
@@ -331,6 +338,18 @@ nonlinear/adaptive gate through
 factor `10` completed cleanly in `103.9 s`, while factor `100` completed in
 `105.3 s`. This is a small, bounded improvement and useful diagnostic, but the
 run remains dominated by JAX-linearized Krylov solves.
+The June 16, 2026 local-block probe closed the first physics/block
+preconditioner pass without default promotion. The matched fixed-BDF2 hydrogen
+gate took `13.15 s` without a preconditioner, `13.27 s` when rebuilding
+same-cell JVP blocks every nonlinear update, and `13.02 s` with dynamic-block
+reuse. The full adaptive-BDF hydrogen gate passed the same no-fallback and
+accepted-error gates in `137.2 s` with rebuild-every-update local blocks and
+`113.5 s` with local-block reuse, but this still trails the retained
+unpreconditioned tolerance-factor gate. The sparse-JVP Jacobian builder now
+also has an opt-in device-gather path that copies only structurally needed JVP
+rows to the host sparse assembler; the small hydrogen gate did not benefit
+(`1.596 s` with gather versus `1.551 s` without), so this remains a large-case
+profiling knob rather than a default.
 The next opt-in non-SciPy lane is
 `runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized` or the
 `fixed_bdf2_jax_linearized_lineax` variant. It bypasses the SciPy `solve_ivp`

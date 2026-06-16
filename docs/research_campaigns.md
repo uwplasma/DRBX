@@ -185,6 +185,21 @@ small controlled improvement and useful diagnostic, not enough to justify a
 heavy D/T/He allocation by itself. Do not spend the next D/T/He campaign
 allocation on these specific knobs unless the residual, preconditioner, or
 Krylov algorithm itself changes.
+The June 16, 2026 physics/block-preconditioner probe changed the residual
+seam, but still did not justify default promotion. The new
+`local_block_diag`/`block_jacobi` preconditioner builds same-cell field
+Jacobian blocks from JVPs after `jax.linearize`; this is the closest local JAX
+analogue of a block-Jacobi field preconditioner while preserving the true
+matrix-free residual in GMRES. It is unit-tested and passes the hydrogen
+fixed-BDF2 and adaptive-BDF gates. The measured fixed-BDF2 gate was effectively
+neutral (`13.15 s` unpreconditioned, `13.27 s` with rebuild-every-update local
+blocks, `13.02 s` with block reuse), and the adaptive hydrogen gate remained
+slower than the retained unpreconditioned tolerance-factor run (`137.2 s`
+rebuild, `113.5 s` reuse, versus `103.9 s`). The sparse-JVP device-gather
+probe is also implemented and tested, but the small gate was negative
+promotion evidence (`1.596 s` gather, `1.551 s` default full transfer). Future
+campaigns should therefore treat both knobs as profiling controls for larger
+systems or GPUs, not as default solver improvements.
 The strongest measured path is now
 `adaptive_bdf_sparse_jvp`: in the same 180-second trace window it completed
 `96` implicit trials, reached BDF2, and reduced average completed-trial cost to

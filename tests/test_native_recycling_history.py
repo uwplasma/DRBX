@@ -370,6 +370,9 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
                 "residual_jitted": True,
                 "converged": True,
                 "linear_solver_success": True,
+                "linear_preconditioner": "local_block_diag",
+                "linear_preconditioner_build_count": 2,
+                "linear_preconditioner_build_seconds": 0.125,
             },
         )
 
@@ -439,6 +442,11 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
     assert diagnostics["fixed_bdf2_active_array_rhs_steps"] == 2
     assert diagnostics["fixed_bdf2_jax_linearized_action_steps"] == 2
     assert diagnostics["fixed_bdf2_residual_jitted_steps"] == 2
+    assert diagnostics["fixed_bdf2_linear_preconditioner"] == "local_block_diag"
+    assert diagnostics["fixed_bdf2_total_linear_preconditioner_build_count"] == 4
+    assert diagnostics[
+        "fixed_bdf2_total_linear_preconditioner_build_seconds"
+    ] == pytest.approx(0.25)
     assert diagnostics["fixed_bdf2_unconverged_solver_steps"] == 0
     assert diagnostics["fixed_bdf2_unknown_convergence_solver_steps"] == 0
     assert diagnostics["fixed_bdf2_linear_solver_failed_steps"] == 0
@@ -766,6 +774,9 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
                 "line_search_seconds": 0.125,
                 "linear_solver_tolerance": 1.0e-5,
                 "linear_solver_success": False,
+                "linear_preconditioner": "local_block_diag",
+                "linear_preconditioner_build_count": 2,
+                "linear_preconditioner_build_seconds": 0.075,
                 "jvp_direction_workspace_reuses": 1,
                 "jvp_jacobian_batch_count": 2,
                 "jvp_jacobian_prebuilt_direction_batch_uses": 1,
@@ -847,6 +858,11 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_jacobian_refresh_count"] == 2
     assert stats["adaptive_bdf_linear_iterations"] == 7
     assert stats["adaptive_bdf_linear_solver_tolerance"] == pytest.approx(1.0e-5)
+    assert stats["adaptive_bdf_linear_preconditioner"] == "local_block_diag"
+    assert stats["adaptive_bdf_linear_preconditioner_build_count"] == 2
+    assert stats["adaptive_bdf_linear_preconditioner_build_seconds"] == pytest.approx(
+        0.075
+    )
     assert stats["adaptive_bdf_linear_solver_failed_steps"] == 1
     assert stats["adaptive_bdf_unknown_linear_solver_steps"] == 1
     assert stats["adaptive_bdf_sparse_jvp_workspace_reuses"] == 1
@@ -885,6 +901,9 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     step["adaptive_bdf_jacobian_assembly_seconds"] = 5.0
     step["adaptive_bdf_linear_solve_seconds"] = 6.0
     step["adaptive_bdf_line_search_seconds"] = 7.0
+    step["adaptive_bdf_linear_preconditioner"] = "local_block_diag"
+    step["adaptive_bdf_linear_preconditioner_build_count"] = 17
+    step["adaptive_bdf_linear_preconditioner_build_seconds"] = 7.5
     step["adaptive_bdf_jvp_jacobian_total_seconds"] = 8.0
     step["adaptive_bdf_jvp_jacobian_linearize_seconds"] = 9.0
     step["adaptive_bdf_jvp_jacobian_tangent_build_seconds"] = 10.0
@@ -914,6 +933,11 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     assert total["adaptive_bdf_jacobian_assembly_seconds"] == pytest.approx(5.0)
     assert total["adaptive_bdf_linear_solve_seconds"] == pytest.approx(6.0)
     assert total["adaptive_bdf_line_search_seconds"] == pytest.approx(7.0)
+    assert total["adaptive_bdf_linear_preconditioner"] == "local_block_diag"
+    assert total["adaptive_bdf_linear_preconditioner_build_count"] == 17
+    assert total["adaptive_bdf_linear_preconditioner_build_seconds"] == pytest.approx(
+        7.5
+    )
     assert total["adaptive_bdf_jvp_jacobian_total_seconds"] == pytest.approx(8.0)
     assert total["adaptive_bdf_jvp_jacobian_linearize_seconds"] == pytest.approx(9.0)
     assert total["adaptive_bdf_jvp_jacobian_tangent_build_seconds"] == pytest.approx(
