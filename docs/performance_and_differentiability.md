@@ -999,7 +999,15 @@ The JAX-GMRES path also has opt-in preconditioner hooks through
 names are `state_scale`, which scales each packed residual row by the matching
 initial-state magnitude, and `field_scale`, which scales each fixed-layout
 field block by a conservative RMS field scale while leaving feedback rows
-separate. These are diagnostic seams, not promoted accelerators. On the
+separate. The `local_block_diag`/`block_jacobi` option is a stronger physics
+preconditioner probe: after `jax.linearize`, it builds same-cell dense
+field-by-equation Jacobian blocks with batched JVPs, inverts those small blocks
+on device, and leaves transport/off-cell coupling to the outer JAX GMRES
+iteration. The companion
+`runtime:recycling_jax_linear_preconditioner_refresh=<n>` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_REFRESH=<n>` control lets a run
+reuse this approximate dynamic preconditioner across Newton updates inside one
+implicit solve. These are diagnostic seams, not promoted accelerators. On the
 June 15, 2026 local hydrogen fixed-layout gate, the unpreconditioned solve ran
 in `2.96 s`, while `state_scale` ran in `7.25 s` with the same residual norm
 and solver status. A follow-up `field_scale` fixed-layout probe at
@@ -1015,10 +1023,27 @@ variants off by default. The solver also exposes a bounded
 `linearized_diag` diagnostic that builds an exact JVP-derived Jacobian diagonal
 after `jax.linearize`; on the same fixed-layout `timestep=1.0` gate it ran in
 `3.66 s`, spent `0.36 s` building the diagonal, and still reached the full
-`400` GMRES update budget. That closes simple row, block, and diagonal
-preconditioning as current speedup lanes and points the next performance work
-toward fewer accepted trial solves, lower residual/JVP kernel cost, or a
-stronger physics preconditioner before spending more D/T/He wall time.
+`400` GMRES update budget. The local-block probe is correct but not a current
+default speedup: the matched two-step fixed-BDF2 hydrogen gate ran in `13.15 s`
+without preconditioning, `13.27 s` with local blocks rebuilt on every nonlinear
+update, and `13.02 s` with block reuse. On the full adaptive hydrogen
+`timestep=1.0` gate, rebuilding local blocks completed in `137.2 s`, while
+reusing blocks inside each implicit solve completed in `113.5 s`; both passed
+the fallback/convergence/error gates, but both remain slower than the retained
+unpreconditioned tolerance-factor gate at `103.9 s`. That closes simple row,
+field, diagonal, and same-cell block-Jacobi preconditioning as default speedup
+lanes and points the next performance work toward fewer accepted trial solves,
+lower residual/JVP kernel cost, or a transport-aware preconditioner with
+off-cell coupling before spending more D/T/He wall time.
+
+The sparse-JVP Jacobian builder also has an opt-in host-transfer reduction
+probe through `JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE=1`. When enabled, each
+color batch gathers only structurally nonzero pushed rows on device before
+copying data to the host sparse assembler. The promoted small hydrogen gate is
+not large enough to benefit: the device-gather run took `1.596 s`, while the
+default full-transfer run took `1.551 s`. The path remains useful for larger
+CPU/GPU profiling, but it is off by default because the measured local gate
+does not justify changing the production behavior.
 
 The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:
