@@ -40,6 +40,7 @@ class ImplicitStepInfo:
     jacobian_mode: str = "fd"
     converged: bool | None = None
     linear_solver_backend: str | None = None
+    linear_solver_tolerance: float | None = None
     linear_solver_status: int | float | str | None = None
     linear_solver_success: bool | None = None
     linear_solver_reported_iterations: int | None = None
@@ -1025,6 +1026,7 @@ def solve_jax_linearized_newton_system(
     max_nonlinear_iterations: int,
     linear_restart: int = 20,
     linear_maxiter: int = 20,
+    linear_tolerance: float | None = None,
     linear_solver_backend: str = "jax_gmres",
     linear_preconditioner: Callable[[object], object] | None = None,
     linear_preconditioner_name: str | None = None,
@@ -1051,6 +1053,11 @@ def solve_jax_linearized_newton_system(
     linear_preconditioner_build_seconds = 0.0
     linear_preconditioner_build_count = 0
     linear_backend = _resolve_jax_linear_solver_backend(linear_solver_backend)
+    resolved_linear_tolerance = (
+        float(residual_tolerance)
+        if linear_tolerance is None
+        else max(float(linear_tolerance), np.finfo(np.float64).tiny)
+    )
     jacobian_mode = f"jax_linearized:{linear_backend}"
     last_linear_solver_status: int | float | str | None = None
     last_linear_solver_success: bool | None = None
@@ -1088,6 +1095,7 @@ def solve_jax_linearized_newton_system(
             jacobian_mode=jacobian_mode,
             converged=bool(converged),
             linear_solver_backend=linear_backend,
+            linear_solver_tolerance=float(resolved_linear_tolerance),
             linear_solver_status=last_linear_solver_status,
             linear_solver_success=last_linear_solver_success,
             linear_solver_reported_iterations=last_linear_solver_reported_iterations,
@@ -1149,6 +1157,7 @@ def solve_jax_linearized_newton_system(
             -residual_value,
             backend=linear_backend,
             residual_tolerance=float(residual_tolerance),
+            linear_tolerance=float(resolved_linear_tolerance),
             linear_restart=int(linear_restart),
             linear_maxiter=int(linear_maxiter),
             jax_gmres=gmres,
@@ -1315,6 +1324,7 @@ def _solve_jax_linearized_update(
     *,
     backend: str,
     residual_tolerance: float,
+    linear_tolerance: float,
     linear_restart: int,
     linear_maxiter: int,
     jax_gmres,
@@ -1325,7 +1335,7 @@ def _solve_jax_linearized_update(
         update, status = jax_gmres(
             linear_map,
             rhs,
-            tol=float(residual_tolerance),
+            tol=float(linear_tolerance),
             atol=0.0,
             restart=int(linear_restart),
             maxiter=int(linear_maxiter),
@@ -1336,7 +1346,7 @@ def _solve_jax_linearized_update(
         update, status = jax_bicgstab(
             linear_map,
             rhs,
-            tol=float(residual_tolerance),
+            tol=float(linear_tolerance),
             atol=0.0,
             maxiter=max(1, int(linear_restart) * int(linear_maxiter)),
             M=preconditioner,
@@ -1357,7 +1367,7 @@ def _solve_jax_linearized_update(
         structure = jax.ShapeDtypeStruct(rhs_array.shape, rhs_array.dtype)
         operator = lx.FunctionLinearOperator(linear_map, structure)
         solver = lx.GMRES(
-            rtol=float(residual_tolerance),
+            rtol=float(linear_tolerance),
             atol=0.0,
             restart=int(linear_restart),
             max_steps=max(1, int(linear_restart) * int(linear_maxiter)),

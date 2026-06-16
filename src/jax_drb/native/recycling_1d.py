@@ -2691,6 +2691,7 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_residual_evaluation_count": 0,
         "adaptive_bdf_jacobian_refresh_count": 0,
         "adaptive_bdf_linear_iterations": 0,
+        "adaptive_bdf_linear_solver_tolerance": None,
         "adaptive_bdf_linear_solver_failed_steps": 0,
         "adaptive_bdf_unknown_linear_solver_steps": 0,
         "adaptive_bdf_jvp_jacobian_batch_count": 0,
@@ -2805,6 +2806,7 @@ def _write_adaptive_bdf_trace_record(
                 "linear_solve_seconds",
                 "line_search_seconds",
                 "linear_solver_backend",
+                "linear_solver_tolerance",
                 "linear_solver_status",
                 "linear_solver_success",
                 "linear_solver_reported_iterations",
@@ -3001,6 +3003,10 @@ def _record_adaptive_bdf_step_solver_info(
         stats["adaptive_bdf_unknown_linear_solver_steps"] = (
             int(stats["adaptive_bdf_unknown_linear_solver_steps"]) + 1
         )
+    if diagnostics.get("linear_solver_tolerance") is not None:
+        stats["adaptive_bdf_linear_solver_tolerance"] = float(
+            diagnostics["linear_solver_tolerance"]
+        )
     for source_key, destination_key in (
         ("residual_evaluation_seconds", "adaptive_bdf_residual_evaluation_seconds"),
         ("jacobian_assembly_seconds", "adaptive_bdf_jacobian_assembly_seconds"),
@@ -3152,6 +3158,10 @@ def _accumulate_adaptive_bdf_interval_stats(
         int(total.get("adaptive_bdf_bdf2_be_initial_guess_enabled", 0) or 0),
         int(step.get("adaptive_bdf_bdf2_be_initial_guess_enabled", 0) or 0),
     )
+    if step.get("adaptive_bdf_linear_solver_tolerance") is not None:
+        total["adaptive_bdf_linear_solver_tolerance"] = float(
+            step["adaptive_bdf_linear_solver_tolerance"]
+        )
     total["adaptive_bdf_step_solver_mode"] = str(
         step.get(
             "adaptive_bdf_step_solver_mode", total["adaptive_bdf_step_solver_mode"]
@@ -4612,6 +4622,10 @@ def advance_recycling_1d_backward_euler_step(
         linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(
             config
         )
+        linear_tolerance = _resolve_recycling_jax_linear_tolerance(
+            config,
+            residual_tolerance=residual_tolerance,
+        )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         linear_backend = (
             "lineax_gmres"
@@ -4632,6 +4646,7 @@ def advance_recycling_1d_backward_euler_step(
             max_nonlinear_iterations=max_nonlinear_iterations,
             linear_restart=linear_restart,
             linear_maxiter=linear_maxiter,
+            linear_tolerance=linear_tolerance,
             linear_solver_backend=linear_backend,
             linear_preconditioner=_build_recycling_jax_linear_preconditioner(
                 packed_initial_guess,
@@ -4784,6 +4799,10 @@ def advance_recycling_1d_bdf2_step(
         linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(
             config
         )
+        linear_tolerance = _resolve_recycling_jax_linear_tolerance(
+            config,
+            residual_tolerance=residual_tolerance,
+        )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         linear_backend = (
             "lineax_gmres"
@@ -4804,6 +4823,7 @@ def advance_recycling_1d_bdf2_step(
             max_nonlinear_iterations=max_nonlinear_iterations,
             linear_restart=linear_restart,
             linear_maxiter=linear_maxiter,
+            linear_tolerance=linear_tolerance,
             linear_solver_backend=linear_backend,
             linear_preconditioner=_build_recycling_jax_linear_preconditioner(
                 packed_initial_guess,
@@ -5611,6 +5631,34 @@ def _resolve_positive_int_runtime_option(
     return int(default)
 
 
+def _resolve_positive_float_runtime_option(
+    config: BoutConfig | None,
+    *,
+    option_name: str,
+    env_name: str,
+    default: float,
+) -> float:
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            try:
+                value = float(config.parsed(section_name, option_name))
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(value) and value > 0.0:
+                return value
+    env_value = os.environ.get(env_name)
+    if env_value is not None and env_value.strip():
+        try:
+            value = float(env_value)
+        except ValueError:
+            return float(default)
+        if np.isfinite(value) and value > 0.0:
+            return value
+    return float(default)
+
+
 def _resolve_bool_runtime_option(
     config: BoutConfig | None,
     *,
@@ -5655,6 +5703,25 @@ def _resolve_recycling_jax_linear_solver_controls(
             env_name="JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER",
             default=20,
         ),
+    )
+
+
+def _resolve_recycling_jax_linear_tolerance(
+    config: BoutConfig | None = None,
+    *,
+    residual_tolerance: float,
+) -> float:
+    """Resolve the inner JAX Krylov tolerance without changing outer gates."""
+
+    factor = _resolve_positive_float_runtime_option(
+        config,
+        option_name="recycling_jax_linear_tolerance_factor",
+        env_name="JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR",
+        default=1.0,
+    )
+    return max(
+        float(residual_tolerance) * float(factor),
+        np.finfo(np.float64).tiny,
     )
 
 
@@ -6319,6 +6386,7 @@ def _as_recycling_step_info(
         "jacobian_mode": str(getattr(info, "jacobian_mode", "")),
         "converged": getattr(info, "converged", None),
         "linear_solver_backend": getattr(info, "linear_solver_backend", None),
+        "linear_solver_tolerance": getattr(info, "linear_solver_tolerance", None),
         "linear_solver_status": getattr(info, "linear_solver_status", None),
         "linear_solver_success": getattr(info, "linear_solver_success", None),
         "linear_solver_reported_iterations": getattr(

@@ -1,0 +1,80 @@
+{
+  "adaptive_bdf_gate_errors": {
+    "adaptive_bdf_jax_linearized": []
+  },
+  "bdf_pairwise_worst": {
+    "delta": null,
+    "field": null
+  },
+  "case": "recycling_1d_one_step",
+  "configured_timestep": 5000.0,
+  "diagnostics_only": true,
+  "fields": [
+    "Pe"
+  ],
+  "max_nonlinear_iterations": 30,
+  "mode_diagnostics": {
+    "adaptive_bdf_jax_linearized": {
+      "adaptive_bdf_accepted_steps": 19,
+      "adaptive_bdf_active_array_rhs_solver_steps": 0,
+      "adaptive_bdf_backward_euler_trial_seconds": 59.276760954001475,
+      "adaptive_bdf_bdf2_accepted_steps": 18,
+      "adaptive_bdf_bdf2_be_initial_guess_enabled": 1,
+      "adaptive_bdf_bdf2_trial_seconds": 44.558756665001965,
+      "adaptive_bdf_bdf2_trials": 18,
+      "adaptive_bdf_bicgstab_action_solver_steps": 0,
+      "adaptive_bdf_error_estimator_seconds": 0.0008448750013485551,
+      "adaptive_bdf_fd_jacobian_solver_steps": 0,
+      "adaptive_bdf_fixed_full_field_rhs_solver_steps": 42,
+      "adaptive_bdf_host_bridge_rhs_solver_steps": 0,
+      "adaptive_bdf_interval_count": 1,
+      "adaptive_bdf_interval_wall_seconds": 103.83706345900009,
+      "adaptive_bdf_jacobian_assembly_seconds": 15.838697497000794,
+      "adaptive_bdf_jacobian_refresh_count": 42,
+      "adaptive_bdf_jax_linearized_action_solver_steps": 42,
+      "adaptive_bdf_jvp_jacobian_batch_count": 0,
+      "adaptive_bdf_jvp_jacobian_device_execute_seconds": 0.0,
+      "adaptive_bdf_jvp_jacobian_host_transfer_seconds": 0.0,
+      "adaptive_bdf_jvp_jacobian_linearize_seconds": 0.0,
+      "adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses": 0,
+      "adaptive_bdf_jvp_jacobian_push_seconds": 0.0,
+      "adaptive_bdf_jvp_jacobian_sparse_assembly_seconds": 0.0,
+      "adaptive_bdf_jvp_jacobian_tangent_build_seconds": 0.0,
+      "adaptive_bdf_jvp_jacobian_total_seconds": 0.0,
+      "adaptive_bdf_last_accepted_error_ratio": 0.0,
+      "adaptive_bdf_last_error_ratio": 0.0,
+      "adaptive_bdf_line_search_seconds": 2.0842664570000125,
+      "adaptive_bdf_linear_iterations": 16800,
+      "adaptive_bdf_linear_solve_seconds": 83.45159812600104,
+      "adaptive_bdf_linear_solver_failed_steps": 0,
+      "adaptive_bdf_linear_solver_tolerance": 0.0001,
+      "adaptive_bdf_lineax_action_solver_steps": 0,
+      "adaptive_bdf_max_accepted_dt": 0.07967137981829572,
+      "adaptive_bdf_max_accepted_error_ratio": 0.9315419311426189,
+      "adaptive_bdf_max_error_ratio": 2.992211225618249,
+      "adaptive_bdf_min_accepted_dt": 0.027521223876656724,
+      "adaptive_bdf_minimum_dt_fallbacks": 0,
+      "adaptive_bdf_rejected_steps": 1,
+      "adaptive_bdf_residual_evaluation_count": 126,
+      "adaptive_bdf_residual_evaluation_seconds": 20.165043872997558,
+      "adaptive_bdf_reused_history_after_rejection": 0,
+      "adaptive_bdf_sparse_jvp_jacobian_solver_steps": 0,
+      "adaptive_bdf_sparse_jvp_workspace_reuses": 0,
+      "adaptive_bdf_startup_trial_seconds": 16.964176541999223,
+      "adaptive_bdf_startup_trials": 2,
+      "adaptive_bdf_step_solver_mode": "jax_linearized",
+      "adaptive_bdf_trial_solver_steps": 42,
+      "adaptive_bdf_unconverged_solver_steps": 0,
+      "adaptive_bdf_unknown_convergence_solver_steps": 0,
+      "adaptive_bdf_unknown_linear_solver_steps": 1
+    }
+  },
+  "mode_elapsed_seconds": {
+    "adaptive_bdf_jax_linearized": 103.87772483400022
+  },
+  "modes": [
+    "adaptive_bdf_jax_linearized"
+  ],
+  "steps": 1,
+  "timestep": 1.0
+}

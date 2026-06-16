@@ -2730,7 +2730,13 @@ def test_recycling_backend_environment_resolvers_are_bounded(
     monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", raising=False)
     monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", raising=False)
     monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", raising=False)
+    monkeypatch.delenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR", raising=False
+    )
     assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls() == (20, 20)
+    assert recycling_1d_mod._resolve_recycling_jax_linear_tolerance(
+        residual_tolerance=1.0e-8
+    ) == pytest.approx(1.0e-8)
     assert recycling_1d_mod._resolve_recycling_jax_linear_jit_residual() is False
     assert recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name() is None
     monkeypatch.delenv("JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE", raising=False)
@@ -2764,6 +2770,14 @@ def test_recycling_backend_environment_resolvers_are_bounded(
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "0")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "bad")
     assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls() == (1, 20)
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR", "100")
+    assert recycling_1d_mod._resolve_recycling_jax_linear_tolerance(
+        residual_tolerance=1.0e-8
+    ) == pytest.approx(1.0e-6)
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR", "bad")
+    assert recycling_1d_mod._resolve_recycling_jax_linear_tolerance(
+        residual_tolerance=1.0e-8
+    ) == pytest.approx(1.0e-8)
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "yes")
     assert recycling_1d_mod._resolve_recycling_jax_linear_jit_residual() is True
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "off")
@@ -2798,6 +2812,7 @@ def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
         [runtime]
         recycling_jax_linear_restart = 5
         recycling_jax_linear_maxiter = 6
+        recycling_jax_linear_tolerance_factor = 12.5
         recycling_jax_linear_jit_residual = true
         recycling_jax_linear_preconditioner = state-scale
         """
@@ -2808,10 +2823,26 @@ def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
         6,
     )
     assert recycling_1d_mod._resolve_recycling_jax_linear_jit_residual(config) is True
+    assert recycling_1d_mod._resolve_recycling_jax_linear_tolerance(
+        config,
+        residual_tolerance=1.0e-8,
+    ) == pytest.approx(1.25e-7)
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name(config)
         == "state_scale"
     )
+    fallback_config = parse_bout_input(
+        """
+        [runtime]
+        recycling_jax_linear_tolerance_factor = bad
+        [jax_drb]
+        recycling_jax_linear_tolerance_factor = 4
+        """
+    )
+    assert recycling_1d_mod._resolve_recycling_jax_linear_tolerance(
+        fallback_config,
+        residual_tolerance=2.0e-8,
+    ) == pytest.approx(8.0e-8)
 
 
 def test_recycling_state_scale_preconditioner_scales_packed_rows() -> None:
@@ -3048,6 +3079,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
         calls.append(("jax_linearized", linear_solver_backend))
         assert kwargs["linear_restart"] == 5
         assert kwargs["linear_maxiter"] == 6
+        assert kwargs["linear_tolerance"] == pytest.approx(1.0e-7)
         assert kwargs["jit_residual"] is True
         if linear_solver_backend == "jax_gmres":
             assert kwargs["linear_preconditioner_name"] == "state_scale"
@@ -3062,6 +3094,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             linear_iterations=1,
             jacobian_mode="jvp",
             residual_jitted=kwargs["jit_residual"],
+            linear_solver_tolerance=kwargs["linear_tolerance"],
             linear_preconditioner=kwargs["linear_preconditioner_name"],
         )
 
@@ -3082,6 +3115,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "5")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "6")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR", "10")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "1")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "state_scale")
 
@@ -3121,6 +3155,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
         )
     if solver_mode.startswith("jax_linearized"):
         assert info.diagnostics["residual_jitted"] is True
+        assert info.diagnostics["linear_solver_tolerance"] == pytest.approx(1.0e-7)
         assert info.diagnostics["linear_preconditioner"] == (
             "state_scale" if expected_backend == "jax_gmres" else None
         )

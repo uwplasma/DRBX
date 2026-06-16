@@ -325,6 +325,12 @@ JAX-linearized trial solves and no failed substeps, but still spent `85.4 s`
 in Krylov linear solves. This keeps the seam useful for convergence studies
 while confirming that the next performance patch must reduce Krylov work or
 residual/JVP kernel cost, not only alter initial guesses.
+The inner-tolerance sweep now separates JAX Krylov tolerance from the outer
+nonlinear/adaptive gate through
+`runtime:recycling_jax_linear_tolerance_factor`. On the same hydrogen gate,
+factor `10` completed cleanly in `103.9 s`, while factor `100` completed in
+`105.3 s`. This is a small, bounded improvement and useful diagnostic, but the
+run remains dominated by JAX-linearized Krylov solves.
 The next opt-in non-SciPy lane is
 `runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized` or the
 `fixed_bdf2_jax_linearized_lineax` variant. It bypasses the SciPy `solve_ivp`

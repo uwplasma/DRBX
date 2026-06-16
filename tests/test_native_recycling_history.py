@@ -764,6 +764,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
                 "jacobian_assembly_seconds": 0.25,
                 "linear_solve_seconds": 0.75,
                 "line_search_seconds": 0.125,
+                "linear_solver_tolerance": 1.0e-5,
                 "linear_solver_success": False,
                 "jvp_direction_workspace_reuses": 1,
                 "jvp_jacobian_batch_count": 2,
@@ -845,6 +846,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_residual_evaluation_count"] == 3
     assert stats["adaptive_bdf_jacobian_refresh_count"] == 2
     assert stats["adaptive_bdf_linear_iterations"] == 7
+    assert stats["adaptive_bdf_linear_solver_tolerance"] == pytest.approx(1.0e-5)
     assert stats["adaptive_bdf_linear_solver_failed_steps"] == 1
     assert stats["adaptive_bdf_unknown_linear_solver_steps"] == 1
     assert stats["adaptive_bdf_sparse_jvp_workspace_reuses"] == 1
@@ -893,6 +895,7 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     step["adaptive_bdf_residual_evaluation_count"] = 8
     step["adaptive_bdf_jacobian_refresh_count"] = 9
     step["adaptive_bdf_linear_iterations"] = 10
+    step["adaptive_bdf_linear_solver_tolerance"] = 1.0e-4
     step["adaptive_bdf_linear_solver_failed_steps"] = 11
     step["adaptive_bdf_jvp_jacobian_batch_count"] = 12
     step["adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses"] = 13
@@ -929,6 +932,7 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     assert total["adaptive_bdf_residual_evaluation_count"] == 8
     assert total["adaptive_bdf_jacobian_refresh_count"] == 9
     assert total["adaptive_bdf_linear_iterations"] == 10
+    assert total["adaptive_bdf_linear_solver_tolerance"] == pytest.approx(1.0e-4)
     assert total["adaptive_bdf_linear_solver_failed_steps"] == 11
     assert total["adaptive_bdf_jvp_jacobian_batch_count"] == 12
     assert total["adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses"] == 13

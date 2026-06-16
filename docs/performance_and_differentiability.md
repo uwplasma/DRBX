@@ -858,6 +858,15 @@ unconverged implicit substeps. The retained artifact is
 This is useful cleanup and clean convergence evidence, but it is not a
 meaningful speedup: the same run still spent `85.4 s` in Krylov linear solves
 and used `16,800` inner linear iterations.
+The JAX-linearized solver now also records and exposes a separate inner Krylov
+tolerance, controlled by `runtime:recycling_jax_linear_tolerance_factor` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR`. This preserves the outer
+nonlinear/adaptive-BDF gates while allowing bounded inner-solve sweeps. On the
+same hydrogen `timestep=1.0` gate, factor `10` completed cleanly in `103.9 s`
+with zero failed substeps and the same accepted-error bound, while factor `100`
+completed in `105.3 s`. Both runs still used the same `42` JAX-linearized
+trial solves and remained Krylov dominated, so factor `10` is the current best
+bounded probe rather than a default-promotion result.
 The current multi-ion traces show a clear split between solver routes:
 JAX-linearized GMRES is dominated by Krylov linear solves, Lineax reports inner
 linear-solver breakdown on most completed substeps, and sparse-JVP reaches BDF2

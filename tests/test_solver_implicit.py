@@ -910,9 +910,35 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
     assert info.linear_solve_seconds >= 0.0
     assert info.converged is True
     assert info.linear_solver_backend == "jax_gmres"
+    assert info.linear_solver_tolerance == pytest.approx(1.0e-10)
     assert info.linear_solver_status == 0
     assert info.linear_solver_success is True
     assert info.linear_solver_reported_iterations is None
+
+
+def test_jax_linearized_newton_solver_reports_custom_linear_tolerance() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([1.0, -0.5], dtype=jnp.float64)
+
+    def residual(state):
+        return jnp.asarray(state) - target
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        np.array([0.0, 0.0], dtype=np.float64),
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        linear_tolerance=1.0e-5,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=3,
+        linear_restart=4,
+        linear_maxiter=4,
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is True
+    assert info.linear_solver_tolerance == pytest.approx(1.0e-5)
 
 
 def test_jax_linearized_newton_solver_accepts_left_preconditioner() -> None:

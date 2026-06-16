@@ -178,9 +178,13 @@ diagonal construction and the same full GMRES update budget. The subsequent
 backward-Euler-predictor initial-guess cleanup completed the cheaper hydrogen
 `adaptive_bdf_jax_linearized`, `timestep=1.0` gate cleanly in `106.3 s`, but
 the run still spent `85.4 s` in Krylov linear solves and used `16,800` inner
-linear iterations. Do not spend the next D/T/He campaign allocation on these
-specific knobs unless the residual, preconditioner, or Krylov algorithm itself
-changes.
+linear iterations. A follow-up inner-tolerance sweep added
+`runtime:recycling_jax_linear_tolerance_factor`; factor `10` completed the same
+gate cleanly in `103.9 s`, while factor `100` slowed to `105.3 s`. This is a
+small controlled improvement and useful diagnostic, not enough to justify a
+heavy D/T/He allocation by itself. Do not spend the next D/T/He campaign
+allocation on these specific knobs unless the residual, preconditioner, or
+Krylov algorithm itself changes.
 The strongest measured path is now
 `adaptive_bdf_sparse_jvp`: in the same 180-second trace window it completed
 `96` implicit trials, reached BDF2, and reduced average completed-trial cost to

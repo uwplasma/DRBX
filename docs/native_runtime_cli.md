@@ -154,6 +154,21 @@ backward-Euler or BDF2 residual equations, and current promotion gates still
 show that the JAX-linearized output-window route is dominated by inner Krylov
 linear solves.
 
+The inner JAX Krylov tolerance can be swept independently from the outer
+nonlinear residual gate:
+
+```toml
+[runtime]
+recycling_jax_linear_tolerance_factor = 10
+```
+
+The matching environment variable is
+`JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR`. The effective Krylov
+tolerance is `solver.rtol * recycling_jax_linear_tolerance_factor`; the default
+factor is `1`, preserving the historical behavior. This knob is for controlled
+promotion studies only. The adaptive-BDF residual, embedded-error, fallback,
+and linear-solver-health gates still determine whether a run is acceptable.
+
 For JAX-linearized promotion experiments, the inner matrix-free Krylov backend
 can be selected with `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER`. Supported values are
 `jax_gmres` (default), `lineax_gmres` when the optional Lineax package is
