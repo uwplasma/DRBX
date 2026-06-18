@@ -5714,6 +5714,12 @@ def _recycling_jax_linear_preconditioner_context(
             env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_LINE_UNKNOWNS",
             default=512,
         )
+        context["max_batch_unknowns"] = _resolve_positive_int_runtime_option(
+            config,
+            option_name="recycling_jax_linear_preconditioner_max_batch_unknowns",
+            env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_BATCH_UNKNOWNS",
+            default=2048,
+        )
         context["max_total_unknowns"] = _resolve_positive_int_runtime_option(
             config,
             option_name="recycling_jax_linear_preconditioner_max_total_unknowns",

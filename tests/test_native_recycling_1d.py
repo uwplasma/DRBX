@@ -3043,6 +3043,7 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         "refresh_frequency": 1,
         "parallel_axis": 0,
         "max_line_unknowns": 512,
+        "max_batch_unknowns": 2048,
         "max_total_unknowns": 8192,
     }
     config = parse_bout_input(
@@ -3050,6 +3051,7 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         [runtime]
         recycling_jax_linear_preconditioner_refresh = 4
         recycling_jax_linear_preconditioner_max_line_unknowns = 64
+        recycling_jax_linear_preconditioner_max_batch_unknowns = 128
         recycling_jax_linear_preconditioner_max_total_unknowns = 1024
         """
     )
@@ -3067,6 +3069,7 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
     )
     assert configured_parallel_context["refresh_frequency"] == 4
     assert configured_parallel_context["max_line_unknowns"] == 64
+    assert configured_parallel_context["max_batch_unknowns"] == 128
     assert configured_parallel_context["max_total_unknowns"] == 1024
     with pytest.raises(ValueError, match="layout is required"):
         recycling_1d_mod._recycling_jax_linear_preconditioner_context(

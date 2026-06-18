@@ -926,6 +926,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   linear-solver steps. The gate still takes about `16.45 s` and remains
   dominated by JVP Jacobian assembly, so this is solver-health evidence rather
   than a speedup claim.
+- 2026-06-18: Batched the exact JVP-derived `parallel_line` preconditioner
+  build across multiple field-line blocks with a bounded
+  `max_batch_unknowns` control. This improves the infrastructure for future
+  2D/3D transport preconditioners, but the current 1D hydrogen gate remains
+  negative default-promotion evidence: with residual JIT, skipped initial
+  residual check, and batched JAX GMRES, the same-worktree medians were
+  `3.07 s` unpreconditioned, `3.79 s` with `parallel_line`, and `3.76 s` with
+  `parallel_line` plus preconditioner reuse, all with the same residual band
+  and full `800` GMRES update budget. The next performance step remains
+  reducing residual/JVP cost or developing a Schur/transport preconditioner
+  that measurably reduces iteration count.
 
 ## Definition Of Done
 

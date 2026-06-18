@@ -615,6 +615,55 @@ def test_parallel_line_preconditioner_inverts_field_line_block() -> None:
     )
 
 
+def test_parallel_line_preconditioner_batches_multiple_field_lines() -> None:
+    pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_shape = (2, 3)
+    field_count = 1
+    active_cells = int(np.prod(active_shape))
+    line_indices = implicit_mod._field_major_line_indices(
+        active_shape=active_shape,
+        field_count=field_count,
+        parallel_axis=1,
+    )
+    matrix = np.eye(active_cells, dtype=np.float64)
+    for indices in line_indices:
+        block = np.asarray(
+            [
+                [4.0, -0.5, 0.0],
+                [-0.25, 5.0, -0.25],
+                [0.0, -0.5, 4.5],
+            ],
+            dtype=np.float64,
+        )
+        matrix[np.ix_(indices, indices)] = block
+    matrix = jnp.asarray(matrix, dtype=jnp.float64)
+    state = jnp.zeros(active_cells, dtype=jnp.float64)
+
+    def linear_map(vector):
+        return matrix @ jnp.ravel(vector)
+
+    preconditioner = implicit_mod._build_jax_linearized_parallel_line_preconditioner(
+        linear_map,
+        state,
+        active_shape=active_shape,
+        field_count=field_count,
+        feedback_count=0,
+        parallel_axis=1,
+        max_batch_unknowns=3,
+    )
+    rhs = jnp.asarray([1.0, -2.0, 0.5, 0.25, -0.75, 1.5], dtype=jnp.float64)
+    solved = preconditioner(rhs)
+
+    np.testing.assert_allclose(
+        np.asarray(linear_map(solved)),
+        np.asarray(rhs),
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
+
+
 def test_parallel_line_preconditioner_rejects_mismatched_context() -> None:
     pytest.importorskip("jax.numpy")
 

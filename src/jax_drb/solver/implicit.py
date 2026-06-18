@@ -1543,6 +1543,7 @@ def _build_jax_linearized_dynamic_preconditioner(
             parallel_axis=int(context.get("parallel_axis", 0)),
             floor=float(context.get("floor", 1.0e-10)),
             max_line_unknowns=int(context.get("max_line_unknowns", 512)),
+            max_batch_unknowns=int(context.get("max_batch_unknowns", 2048)),
             max_total_unknowns=int(context.get("max_total_unknowns", 8192)),
         )
     raise ValueError(f"Unsupported dynamic JAX preconditioner {name!r}.")
@@ -1718,6 +1719,7 @@ def _build_jax_linearized_parallel_line_preconditioner(
     parallel_axis: int = 0,
     floor: float = 1.0e-10,
     max_line_unknowns: int = 512,
+    max_batch_unknowns: int = 2048,
     max_total_unknowns: int = 8192,
 ):
     """Build a JVP-derived line-block preconditioner along the parallel axis.
@@ -1777,19 +1779,39 @@ def _build_jax_linearized_parallel_line_preconditioner(
 
     line_indices = jnp.asarray(line_indices_np, dtype=jnp.int32)
     blocks: list[object] = []
-    for line_indices_one in line_indices_np:
+    max_lines_per_batch = max(1, int(max_batch_unknowns) // line_unknown_count)
+    column_coordinates = jnp.arange(line_unknown_count, dtype=jnp.int32)
+    for batch_start in range(0, int(line_indices_np.shape[0]), max_lines_per_batch):
+        batch_indices_np = line_indices_np[
+            batch_start : batch_start + max_lines_per_batch
+        ]
+        batch_indices = jnp.asarray(batch_indices_np, dtype=jnp.int32)
+        batch_line_count = int(batch_indices_np.shape[0])
         directions = jnp.zeros(
-            (line_unknown_count, flat_size),
+            (batch_line_count, line_unknown_count, flat_size),
             dtype=prototype.dtype,
-        ).at[jnp.arange(line_unknown_count), jnp.asarray(line_indices_one)].set(1.0)
-        directions = directions.reshape((line_unknown_count,) + tuple(prototype.shape))
+        ).at[
+            jnp.arange(batch_line_count, dtype=jnp.int32)[:, None],
+            column_coordinates[None, :],
+            batch_indices,
+        ].set(1.0)
+        directions = directions.reshape(
+            (batch_line_count * line_unknown_count,) + tuple(prototype.shape)
+        )
         action_rows = jax.vmap(lambda tangent: jnp.ravel(linear_map(tangent)))(
             directions
         )
-        line_block = action_rows[:, jnp.asarray(line_indices_one)].T
-        blocks.append(line_block)
+        action_rows = action_rows.reshape(
+            (batch_line_count, line_unknown_count, flat_size)
+        )
+        selected_rows = jnp.take_along_axis(
+            action_rows,
+            batch_indices[:, None, :],
+            axis=2,
+        )
+        blocks.append(jnp.transpose(selected_rows, (0, 2, 1)))
 
-    block_array = jnp.stack(tuple(blocks), axis=0)
+    block_array = jnp.concatenate(tuple(blocks), axis=0)
     eye = jnp.eye(line_unknown_count, dtype=prototype.dtype)
     block_scale = jnp.maximum(jnp.max(jnp.abs(block_array), axis=(1, 2)), 1.0)
     regularized_blocks = block_array + (
