@@ -1260,6 +1260,14 @@ Use this log for concise decision records. Do not paste terminal output here.
   not claim a speedup; it closes a promotion-gate gap by ensuring future
   preconditioner campaigns cannot silently fall back to an unpreconditioned
   path.
+- 2026-06-18: Ran the new required-preconditioner gate on the lightweight
+  `recycling_1d_one_step` fixed-BDF2 fixture with `local_block_diag`,
+  `timestep=10`, and `steps=2`. The fixed-full-field route passed with
+  residual `1.90e-6`, `9` preconditioner builds, `0` failed linear solves, and
+  `22.7 s`; the active-array route passed with the same residual/build count,
+  `0` failed linear solves, and `30.3 s`. Both routes still consumed the full
+  `3600` JAX-GMRES update budget, so this is promotion-gate correctness
+  evidence rather than performance-promotion evidence.
 
 ## Definition Of Done
 
