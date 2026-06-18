@@ -67,6 +67,7 @@ _IMPORTED_FCI_REQUIRED_REPORT_FIELDS = (
     "connection_length_max",
     "connection_length_diagnostics",
     "connection_length_resolution_diagnostics",
+    "endpoint_length_diagnostics",
     "refinement_diagnostics",
     "consumed_map_diagnostics",
     "map_diagnostics_passed",
@@ -103,6 +104,13 @@ _IMPORTED_FCI_DIAGNOSTIC_SCHEMA = {
         "toroidal_normalized_jump_p95",
         "poloidal_normalized_jump_p95",
         "advisory_threshold",
+        "passed",
+    ],
+    "endpoint_length_diagnostics": [
+        "endpoint_cell_count",
+        "target_exit_finite_endpoint_fraction",
+        "target_exit_nonnegative_finite_fraction",
+        "adjacent_step_finite_nonendpoint_fraction",
         "passed",
     ],
     "refinement_diagnostics": [
@@ -789,6 +797,18 @@ def build_essos_imported_fci_campaign(
     map_diagnostics = build_essos_imported_fci_map_diagnostics(
         maps=geometry.maps,
         connection_length=connection,
+        adjacent_step_length=np.asarray(geometry.adjacent_step_length, dtype=np.float64)
+        if geometry.adjacent_step_length is not None
+        else None,
+        target_exit_length=np.asarray(geometry.target_exit_length, dtype=np.float64)
+        if geometry.target_exit_length is not None
+        else None,
+        forward_target_exit_length=np.asarray(geometry.forward_target_exit_length, dtype=np.float64)
+        if geometry.forward_target_exit_length is not None
+        else None,
+        backward_target_exit_length=np.asarray(geometry.backward_target_exit_length, dtype=np.float64)
+        if geometry.backward_target_exit_length is not None
+        else None,
         endpoint_count=endpoint_count,
         map_source=actual_map_source,
     )
@@ -810,6 +830,7 @@ def build_essos_imported_fci_campaign(
         "connection_length_max": float(np.max(connection)),
         "connection_length_diagnostics": map_diagnostics["connection_length_diagnostics"],
         "connection_length_resolution_diagnostics": map_diagnostics["connection_length_resolution_diagnostics"],
+        "endpoint_length_diagnostics": map_diagnostics["endpoint_length_diagnostics"],
         "refinement_diagnostics": map_diagnostics["refinement_diagnostics"],
         "consumed_map_diagnostics": map_diagnostics["consumed_map_diagnostics"],
         "map_diagnostics_passed": bool(map_diagnostics["passed"]),
@@ -897,6 +918,10 @@ def build_essos_imported_fci_map_diagnostics(
     *,
     maps: Any,
     connection_length: np.ndarray,
+    adjacent_step_length: np.ndarray | None = None,
+    target_exit_length: np.ndarray | None = None,
+    forward_target_exit_length: np.ndarray | None = None,
+    backward_target_exit_length: np.ndarray | None = None,
     endpoint_count: np.ndarray,
     map_source: str,
 ) -> dict[str, Any]:
@@ -1011,6 +1036,16 @@ def build_essos_imported_fci_map_diagnostics(
         "forward_boundary_fraction": float(np.mean(forward_boundary)),
         "backward_boundary_fraction": float(np.mean(backward_boundary)),
     }
+    endpoint_length_diagnostics = _endpoint_length_diagnostics(
+        map_source=map_source,
+        expected_endpoint=expected_endpoint,
+        forward_boundary=forward_boundary,
+        backward_boundary=backward_boundary,
+        adjacent_step_length=adjacent_step_length,
+        target_exit_length=target_exit_length,
+        forward_target_exit_length=forward_target_exit_length,
+        backward_target_exit_length=backward_target_exit_length,
+    )
     connection_passed = (
         connection_diagnostics["finite_fraction"] == 1.0
         and connection_diagnostics["nonnegative_fraction"] == 1.0
@@ -1038,9 +1073,15 @@ def build_essos_imported_fci_map_diagnostics(
         "map_source": map_source,
         "connection_length_diagnostics": connection_diagnostics,
         "connection_length_resolution_diagnostics": connection_resolution_diagnostics,
+        "endpoint_length_diagnostics": endpoint_length_diagnostics,
         "refinement_diagnostics": refinement_diagnostics,
         "consumed_map_diagnostics": consumed_map_diagnostics,
-        "passed": bool(connection_passed and refinement_passed and consumed_map_passed),
+        "passed": bool(
+            connection_passed
+            and refinement_passed
+            and consumed_map_passed
+            and endpoint_length_diagnostics["passed"]
+        ),
     }
 
 
@@ -1554,6 +1595,91 @@ def _periodic_cell_delta(delta: np.ndarray, period: float) -> np.ndarray:
     if period <= 0.0:
         return delta
     return np.mod(delta + 0.5 * period, period) - 0.5 * period
+
+
+def _endpoint_length_diagnostics(
+    *,
+    map_source: str,
+    expected_endpoint: np.ndarray,
+    forward_boundary: np.ndarray,
+    backward_boundary: np.ndarray,
+    adjacent_step_length: np.ndarray | None,
+    target_exit_length: np.ndarray | None,
+    forward_target_exit_length: np.ndarray | None,
+    backward_target_exit_length: np.ndarray | None,
+) -> dict[str, Any]:
+    """Summarize wall-hit and adjacent-step lengths separately."""
+
+    endpoint_mask = np.asarray(expected_endpoint, dtype=np.float64) > 0.0
+    nonendpoint_mask = ~endpoint_mask
+    endpoint_count = int(np.sum(endpoint_mask))
+    nonendpoint_count = int(np.sum(nonendpoint_mask))
+    target_exit = _optional_array_like(target_exit_length, expected_endpoint.shape)
+    forward_exit = _optional_array_like(forward_target_exit_length, expected_endpoint.shape)
+    backward_exit = _optional_array_like(backward_target_exit_length, expected_endpoint.shape)
+    adjacent = _optional_array_like(adjacent_step_length, expected_endpoint.shape)
+
+    target_finite = np.isfinite(target_exit)
+    target_values = target_exit[target_finite]
+    forward_finite = np.isfinite(forward_exit)
+    backward_finite = np.isfinite(backward_exit)
+    adjacent_finite = np.isfinite(adjacent)
+    target_nonnegative = target_finite & (target_exit >= 0.0)
+    adjacent_nonnegative = adjacent_finite & (adjacent >= 0.0)
+    source = _normalize_imported_fci_map_source(map_source)
+    if source == "vmec":
+        passed = bool(endpoint_count == 0 and _fraction(adjacent_finite, nonendpoint_mask) == 1.0)
+    else:
+        passed = bool(
+            endpoint_count > 0
+            and _fraction(target_finite, endpoint_mask) > 0.0
+            and _fraction(target_nonnegative, target_finite) == 1.0
+            and _fraction(adjacent_nonnegative, adjacent_finite) == 1.0
+        )
+    return {
+        "endpoint_cell_count": endpoint_count,
+        "nonendpoint_cell_count": nonendpoint_count,
+        "target_exit_finite_fraction": float(np.mean(target_finite)),
+        "target_exit_finite_endpoint_fraction": _fraction(target_finite, endpoint_mask),
+        "target_exit_finite_nonendpoint_fraction": _fraction(target_finite, nonendpoint_mask),
+        "target_exit_nonnegative_finite_fraction": _fraction(target_nonnegative, target_finite),
+        "target_exit_min": _optional_percentile(target_values, 0.0),
+        "target_exit_median": _optional_percentile(target_values, 50.0),
+        "target_exit_max": _optional_percentile(target_values, 100.0),
+        "forward_exit_finite_forward_boundary_fraction": _fraction(
+            forward_finite,
+            np.asarray(forward_boundary, dtype=bool),
+        ),
+        "backward_exit_finite_backward_boundary_fraction": _fraction(
+            backward_finite,
+            np.asarray(backward_boundary, dtype=bool),
+        ),
+        "adjacent_step_finite_fraction": float(np.mean(adjacent_finite)),
+        "adjacent_step_finite_nonendpoint_fraction": _fraction(adjacent_finite, nonendpoint_mask),
+        "adjacent_step_nonnegative_finite_fraction": _fraction(
+            adjacent_nonnegative,
+            adjacent_finite,
+        ),
+        "passed": passed,
+    }
+
+
+def _optional_array_like(values: np.ndarray | None, shape: tuple[int, ...]) -> np.ndarray:
+    if values is None:
+        return np.full(shape, np.nan, dtype=np.float64)
+    array = np.asarray(values, dtype=np.float64)
+    if array.shape != shape:
+        raise ValueError(
+            f"Endpoint-length diagnostic array shape mismatch: expected {shape}, got {array.shape}."
+        )
+    return array
+
+
+def _fraction(mask: np.ndarray, where: np.ndarray) -> float | None:
+    where_bool = np.asarray(where, dtype=bool)
+    if not np.any(where_bool):
+        return None
+    return float(np.mean(np.asarray(mask, dtype=bool)[where_bool]))
 
 
 def _connection_length_resolution_diagnostics(

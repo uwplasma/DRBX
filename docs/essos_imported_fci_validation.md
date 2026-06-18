@@ -166,8 +166,15 @@ particle balance residuals, current residuals, and neutral momentum balance.
 The imported-map diagnostics now separately report connection-length finite and
 nonnegative fractions, radial connection-length means, grid/refinement metadata,
 single-grid connection-length resolution diagnostics, map-coordinate
-displacement proxies, and a consumed-map check requiring the sheath endpoint
-count to match the forward-plus-backward FCI boundary masks. The resolution
+displacement proxies, a consumed-map check requiring the sheath endpoint count
+to match the forward-plus-backward FCI boundary masks, and an endpoint-length
+diagnostic. For open-field `coil` and `hybrid` maps the endpoint-length gate
+requires finite, nonnegative `target_exit_length` values on a nonzero subset of
+endpoint cells and finite, nonnegative `adjacent_step_length` values where the
+adjacent map exists. It also records forward- and backward-direction coverage
+separately, so later campaigns can tighten the promotion threshold from
+"present and physical" to directional wall-hit coverage on all relevant target
+cells. The resolution
 diagnostics record normalized neighbor jumps, per-axis 95th-percentile jumps,
 an underresolved-face fraction, and an advisory pass flag. They catch obviously
 grid-scale connection-length roughness before a live imported run is promoted,

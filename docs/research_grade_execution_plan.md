@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 70% | Promote endpoint, pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
+| 3D stellarator imported-field/VMEC SOL | 71% | Tighten directional endpoint/wall-hit coverage, pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 86% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 90% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag. |
@@ -1491,6 +1491,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   `Linf=0.998`, order `6.8e-3`). Next 3D work should keep hybrid
   adjacent-map refinement as the promotable map lane and treat pure-coil
   endpoint/exit length as a separate wall-hit/sheath-source validation lane.
+- 2026-06-18: Added an endpoint-length diagnostic to the imported FCI map
+  report. The ESSOS geometry bridge now stores forward and backward
+  target-exit lengths separately and combines them into a shortest finite
+  `target_exit_length` for wall-hit diagnostics. Open-field `coil` and
+  `hybrid` map reports now require finite, nonnegative target-exit lengths on a
+  nonzero endpoint subset and finite, nonnegative adjacent-step lengths where
+  the adjacent map exists; missing endpoint lengths fail the synthetic gate.
+  A live ESSOS-gated imported-FCI test passes with the new report field. This
+  moves endpoint validation from an implicit mask-only check to an explicit
+  length-availability gate. The next 3D endpoint task is stricter directional
+  wall-hit coverage and target-label validation before movie promotion.
 
 ## Definition Of Done
 

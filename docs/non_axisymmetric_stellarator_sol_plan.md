@@ -179,8 +179,11 @@ separate raw, adjacent-step, and target-exit length arrays. Live VMEC and
 hybrid `parallel_step_per_toroidal_radian` probes pass a three-level observed
 order gate with finest RMS `5.90e-2`, finest \(L_\infty\) `1.18e-1`, and
 observed order `1.20`; raw coil/hybrid length and pure coil adjacent-step
-probes remain negative evidence. A full imported-field turbulence movie still
-needs the same live gate plus endpoint, timestep, and nonlinear refinement
+probes remain negative evidence. Endpoint diagnostics now also require finite,
+nonnegative target-exit lengths on a nonzero subset of endpoint cells and
+finite, nonnegative adjacent-step lengths where adjacent interpolation exists.
+A full imported-field turbulence movie still needs the same live gate plus
+stricter directional endpoint coverage, timestep, and nonlinear refinement
 checks before promotion from documentation bridge to publication evidence.
 The imported PyTree/JVP artifacts live in
 `docs/data/essos_imported_pytree_artifacts/`,
@@ -493,7 +496,7 @@ gates should be added in this order:
 4. Field-line/Poincare/connection-length promotion:
    compare the `jax_drb`-consumed map against the source geometry artifact for
    closed, open, and hybrid regions; plot Poincare sections, connection-length
-   histograms, endpoint masks, and target labels.
+   histograms, endpoint masks, target-exit length maps, and target labels.
 5. Reduced seeded-filament propagation in the rotating-ellipse and imported QA
    geometry, reporting center-of-mass motion, skewness, fluctuation amplitude,
    radial flux proxy, and connection-length localization.
