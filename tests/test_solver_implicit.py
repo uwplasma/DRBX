@@ -1599,10 +1599,53 @@ def test_jax_linearized_newton_solver_reports_line_search_damping() -> None:
     assert info.converged is False
     assert info.residual_inf_norm == pytest.approx(0.5)
     assert info.line_search_initial_step_scale == pytest.approx(0.5)
+    assert info.line_search_mode == "backtracking"
     assert info.line_search_last_step_scale == pytest.approx(0.5)
     assert info.line_search_trial_count == 1
     assert info.linear_operator_call_count > 0
     assert info.linear_operator_dispatch_seconds >= 0.0
+
+
+def test_jax_linearized_newton_solver_full_step_skips_trial_residual() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([1.0], dtype=jnp.float64)
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - target,
+        np.array([0.0], dtype=np.float64),
+        active_shape=(1,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_restart=4,
+        linear_maxiter=4,
+        check_initial_residual=False,
+        line_search_mode="full_step",
+    )
+
+    np.testing.assert_allclose(solution, np.array([1.0]), rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is True
+    assert info.residual_inf_norm < 1.0e-12
+    assert info.line_search_mode == "full_step"
+    assert info.line_search_last_step_scale == pytest.approx(1.0)
+    assert info.line_search_trial_count == 1
+    assert info.residual_evaluation_count == 2
+
+
+def test_jax_linearized_newton_solver_rejects_bad_line_search_mode() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    with pytest.raises(ValueError, match="line_search_mode"):
+        solve_jax_linearized_newton_system(
+            lambda state: jnp.asarray(state),
+            np.array([0.0], dtype=np.float64),
+            active_shape=(1,),
+            residual_tolerance=1.0e-12,
+            step_tolerance=1.0e-12,
+            max_nonlinear_iterations=1,
+            line_search_mode="bad",
+        )
 
 
 @pytest.mark.parametrize("bad_scale", [float("nan"), -0.5, 0.0])

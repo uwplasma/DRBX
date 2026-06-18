@@ -223,6 +223,14 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-line-search-mode",
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "this line-search mode, for example backtracking or full_step."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-bdf2-max-linear-iterations",
         type=int,
         default=None,
@@ -592,6 +600,7 @@ def _validate_fixed_bdf2_diagnostics(
     required_linear_preconditioner: str | None = None,
     required_linear_solver_backend: str | None = None,
     require_linear_operator_jitted: bool = False,
+    required_line_search_mode: str | None = None,
     max_linear_iterations: int | None = None,
     max_linear_operator_calls: int | None = None,
     max_preconditioner_builds: int | None = None,
@@ -688,6 +697,19 @@ def _validate_fixed_bdf2_diagnostics(
             errors.append(
                 f"{mode} did not report JIT-wrapped linear operators on every "
                 f"JAX-linearized step: {jitted_steps}/{linearized_steps}"
+            )
+    if required_line_search_mode is not None:
+        expected_mode = _canonical_line_search_mode(required_line_search_mode)
+        reported_mode = diagnostics.get("fixed_bdf2_line_search_mode")
+        reported_name = (
+            None
+            if reported_mode is None
+            else _canonical_line_search_mode(str(reported_mode))
+        )
+        if reported_name != expected_mode:
+            errors.append(
+                f"{mode} did not report fixed_bdf2_line_search_mode={expected_mode}; "
+                f"reported {reported_name}"
             )
     if max_linear_iterations is not None:
         errors.extend(
@@ -867,6 +889,23 @@ def _canonical_linear_solver_backend(name: str) -> str:
         "jax_bicgstab": "jax_bicgstab",
         "lineax": "lineax_gmres",
         "lineax_gmres": "lineax_gmres",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _canonical_line_search_mode(name: str) -> str:
+    normalized = str(name).strip().lower().replace("-", "_")
+    aliases = {
+        "": "backtracking",
+        "default": "backtracking",
+        "backtrack": "backtracking",
+        "backtracking": "backtracking",
+        "line_search": "backtracking",
+        "full": "full_step",
+        "fullstep": "full_step",
+        "full_step": "full_step",
+        "none": "full_step",
+        "off": "full_step",
     }
     return aliases.get(normalized, normalized)
 
@@ -1142,6 +1181,9 @@ def main() -> int:
                     ),
                     require_linear_operator_jitted=bool(
                         args.require_fixed_bdf2_linear_operator_jitted
+                    ),
+                    required_line_search_mode=(
+                        args.require_fixed_bdf2_line_search_mode
                     ),
                     max_linear_iterations=(
                         args.require_fixed_bdf2_max_linear_iterations

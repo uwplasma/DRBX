@@ -1599,6 +1599,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   operator calls. Timing was not robust enough to promote BiCGSTAB (`19.25 s`
   cold, `14.88 s` warmed), so this is a reproducibility/screening fix rather
   than a performance promotion.
+- 2026-06-18: Added and gated an opt-in JAX-linearized full-step line-search
+  mode for recycling. `runtime:recycling_jax_linear_line_search_mode=full_step`
+  / `JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE=full_step` accepts finite
+  Newton updates without an immediate trial-residual evaluation, fixed-output
+  BDF2 histories report `fixed_bdf2_line_search_mode`, and the comparison
+  harness can require it with `--require-fixed-bdf2-line-search-mode`. Focused
+  solver/recycling/history/harness tests passed (`81 passed`). The bounded
+  hydrogen active-array gate preserved residual `2.90e-6` and `35` operator
+  calls, and reduced standalone residual evaluations from the recent
+  backtracking evidence (`14`) to `11`, but it increased JAX linearizations
+  from `7` to `11` and ran at `16.34 s`. This is negative promotion evidence:
+  full-step mode remains an opt-in profiling seam, and default backtracking
+  stays in place.
 - 2026-06-18: Added an opt-in JAX-linearized linear-operator JIT seam for the
   matrix-free recycling solver. `runtime:recycling_jax_linear_jit_linear_operator`
   / `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR` now wraps the

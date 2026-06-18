@@ -2286,6 +2286,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_solver_mode": str(solver_mode_label),
         "fixed_bdf2_step_solver_mode": str(step_solver_mode),
         "fixed_bdf2_initial_residual_mode": None,
+        "fixed_bdf2_line_search_mode": None,
         "fixed_bdf2_initial_guess_policy": str(initial_guess_policy),
         "fixed_bdf2_history_initial_guess_steps": 0,
         "fixed_bdf2_history_initial_guess_fallback_steps": 0,
@@ -2403,6 +2404,10 @@ def _advance_recycling_1d_fixed_bdf2_history(
         if info.diagnostics.get("initial_residual_mode") is not None:
             diagnostics["fixed_bdf2_initial_residual_mode"] = str(
                 info.diagnostics["initial_residual_mode"]
+            )
+        if info.diagnostics.get("line_search_mode") is not None:
+            diagnostics["fixed_bdf2_line_search_mode"] = str(
+                info.diagnostics["line_search_mode"]
             )
         if info.diagnostics.get("linear_solver_backend") is not None:
             diagnostics["fixed_bdf2_linear_solver_backend"] = str(
@@ -4788,6 +4793,7 @@ def advance_recycling_1d_backward_euler_step(
             residual_tolerance=residual_tolerance,
         )
         linear_solve_method = _resolve_recycling_jax_linear_gmres_solve_method(config)
+        line_search_mode = _resolve_recycling_jax_linear_line_search_mode(config)
         line_search_initial_step_scale = (
             _resolve_recycling_jax_linear_line_search_initial_step_scale(config)
         )
@@ -4839,6 +4845,7 @@ def advance_recycling_1d_backward_euler_step(
             initial_residual_mode=initial_residual_mode,
             jit_residual=jit_residual,
             jit_linear_operator=jit_linear_operator,
+            line_search_mode=line_search_mode,
             line_search_initial_step_scale=line_search_initial_step_scale,
         )
     else:
@@ -4990,6 +4997,7 @@ def advance_recycling_1d_bdf2_step(
             residual_tolerance=residual_tolerance,
         )
         linear_solve_method = _resolve_recycling_jax_linear_gmres_solve_method(config)
+        line_search_mode = _resolve_recycling_jax_linear_line_search_mode(config)
         line_search_initial_step_scale = (
             _resolve_recycling_jax_linear_line_search_initial_step_scale(config)
         )
@@ -5041,6 +5049,7 @@ def advance_recycling_1d_bdf2_step(
             initial_residual_mode=initial_residual_mode,
             jit_residual=jit_residual,
             jit_linear_operator=jit_linear_operator,
+            line_search_mode=line_search_mode,
             line_search_initial_step_scale=line_search_initial_step_scale,
         )
     else:
@@ -6134,6 +6143,35 @@ def _resolve_recycling_jax_linear_line_search_initial_step_scale(
     return min(float(value), 1.0)
 
 
+def _resolve_recycling_jax_linear_line_search_mode(
+    config: BoutConfig | None = None,
+) -> str:
+    option_name = "recycling_jax_linear_line_search_mode"
+    raw_value: str | None = None
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            raw_value = str(config.parsed(section_name, option_name))
+            break
+    if raw_value is None:
+        raw_value = os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE")
+    normalized = str(raw_value or "backtracking").strip().lower().replace("-", "_")
+    aliases = {
+        "": "backtracking",
+        "default": "backtracking",
+        "backtrack": "backtracking",
+        "backtracking": "backtracking",
+        "line_search": "backtracking",
+        "full": "full_step",
+        "fullstep": "full_step",
+        "full_step": "full_step",
+        "none": "full_step",
+        "off": "full_step",
+    }
+    return aliases.get(normalized, "backtracking")
+
+
 def _resolve_recycling_jax_linear_jit_residual(
     config: BoutConfig | None = None,
 ) -> bool:
@@ -6901,6 +6939,7 @@ def _as_recycling_step_info(
         "line_search_initial_step_scale": float(
             getattr(info, "line_search_initial_step_scale", 1.0)
         ),
+        "line_search_mode": str(getattr(info, "line_search_mode", "backtracking")),
         "fallback_used": bool(getattr(info, "fallback_used", False)),
         "jacobian_mode": str(getattr(info, "jacobian_mode", "")),
         "converged": getattr(info, "converged", None),

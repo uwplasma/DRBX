@@ -56,6 +56,7 @@ class ImplicitStepInfo:
     linear_preconditioner_build_count: int = 0
     linear_preconditioner_apply_count: int = 0
     linear_preconditioner_apply_seconds: float = 0.0
+    line_search_mode: str = "backtracking"
     jvp_direction_batch_count: int = 0
     jvp_direction_build_seconds: float = 0.0
     jvp_jacobian_total_seconds: float = 0.0
@@ -1151,6 +1152,7 @@ def solve_jax_linearized_newton_system(
     initial_residual_mode: str = "residual",
     jit_residual: bool = False,
     jit_linear_operator: bool = False,
+    line_search_mode: str = "backtracking",
     line_search_initial_step_scale: float = 1.0,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
@@ -1208,6 +1210,7 @@ def solve_jax_linearized_newton_system(
     resolved_initial_residual_mode = _resolve_jax_linear_initial_residual_mode(
         initial_residual_mode
     )
+    resolved_line_search_mode = _resolve_jax_linear_line_search_mode(line_search_mode)
     residual_function = jax.jit(residual) if bool(jit_residual) else residual
     known_state_residual_inf_norm: float | None = None
 
@@ -1263,6 +1266,7 @@ def solve_jax_linearized_newton_system(
             linear_preconditioner_build_count=linear_preconditioner_build_count,
             linear_preconditioner_apply_seconds=linear_preconditioner_apply_seconds,
             linear_preconditioner_apply_count=linear_preconditioner_apply_count,
+            line_search_mode=resolved_line_search_mode,
             residual_jitted=bool(jit_residual),
             check_initial_residual=bool(check_initial_residual),
             initial_residual_mode=resolved_initial_residual_mode,
@@ -1380,6 +1384,23 @@ def solve_jax_linearized_newton_system(
         total_linear_iterations += int(linear_restart) * int(linear_maxiter)
         update = jnp.asarray(update, dtype=jnp.float64)
 
+        if resolved_line_search_mode == "full_step":
+            line_search_started_at = perf_counter()
+            step_scale = float(resolved_line_search_initial_step_scale)
+            trial_state = state + step_scale * update
+            finite_trial = _block(jnp.all(jnp.isfinite(trial_state)))
+            line_search_trial_count += 1
+            line_search_seconds += perf_counter() - line_search_started_at
+            if not bool(finite_trial):
+                break
+            line_search_last_step_scale = float(step_scale)
+            state = trial_state
+            known_state_residual_inf_norm = None
+            if float(jnp.max(jnp.abs(step_scale * update))) < float(step_tolerance):
+                # Small-step termination still requires a final residual check.
+                break
+            continue
+
         accepted = False
         step_scale = float(resolved_line_search_initial_step_scale)
         candidate_state = state
@@ -1455,6 +1476,28 @@ def _resolve_jax_linear_initial_residual_mode(name: str) -> str:
     if normalized not in aliases:
         raise ValueError(
             "initial_residual_mode must be 'residual' or 'linearize', "
+            f"got {name!r}."
+        )
+    return aliases[normalized]
+
+
+def _resolve_jax_linear_line_search_mode(name: str) -> str:
+    normalized = str(name or "backtracking").strip().lower().replace("-", "_")
+    aliases = {
+        "": "backtracking",
+        "default": "backtracking",
+        "backtrack": "backtracking",
+        "backtracking": "backtracking",
+        "line_search": "backtracking",
+        "full": "full_step",
+        "fullstep": "full_step",
+        "full_step": "full_step",
+        "none": "full_step",
+        "off": "full_step",
+    }
+    if normalized not in aliases:
+        raise ValueError(
+            "line_search_mode must be 'backtracking' or 'full_step', "
             f"got {name!r}."
         )
     return aliases[normalized]
