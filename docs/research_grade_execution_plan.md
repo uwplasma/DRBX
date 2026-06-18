@@ -522,6 +522,10 @@ long work logs here.
   became a redirect. Footprint audit: `.git` about `30M`, one pack
   `8.96 MiB`, largest tracked file about `328 KiB`; large local footprint is
   ignored development data, not tracked release media.
+- 2026-06-18: Audited repository-owned Markdown files for competing plan
+  language. `runtime_gap_remediation.md`, `research_directions.md`,
+  `parity_matrix.md`, and `testing_strategy.md` now defer to this file for
+  execution order and release standards.
 
 ## External Literature And Code Baseline
 
