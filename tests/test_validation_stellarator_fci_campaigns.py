@@ -204,6 +204,30 @@ def test_imported_fci_connection_length_refinement_diagnostics_rank_nested_grids
     assert report["passed"] is True
     assert report["pair_reports"][0]["normalized_rms_error"] > report["pair_reports"][1]["normalized_rms_error"]
     assert report["observed_orders"][0]["observed_order"] > 1.0
+    assert report["monotonic_rms_error_reduction"] is True
+    assert report["monotonic_linf_error_reduction"] is True
+    assert report["rms_error_reduction_factors"][0] > 1.0
+    assert report["linf_error_reduction_factors"][0] > 1.0
+
+
+def test_imported_fci_connection_length_refinement_requires_monotonic_error_reduction() -> None:
+    high = np.ones((16, 16, 32), dtype=np.float64)
+    mid_truth = high.reshape(8, 2, 8, 2, 16, 2).mean(axis=(1, 3, 5))
+    coarse_truth = mid_truth.reshape(4, 2, 4, 2, 8, 2).mean(axis=(1, 3, 5))
+    coarse = coarse_truth + 0.002
+    mid = mid_truth + 0.05
+
+    report = build_essos_imported_connection_length_refinement_diagnostics(
+        [coarse, mid, high],
+        labels=["coarse", "medium", "fine"],
+        convergence_threshold=0.50,
+        linf_threshold=0.50,
+        minimum_observed_order=0.0,
+    )
+
+    assert report["passed"] is False
+    assert report["monotonic_rms_error_reduction"] is False
+    assert report["monotonic_linf_error_reduction"] is False
 
 
 def test_imported_fci_connection_length_refinement_rejects_non_nested_grids() -> None:

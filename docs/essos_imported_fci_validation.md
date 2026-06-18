@@ -49,6 +49,14 @@ For definitions of one-sided, target-to-target, and effective parallel
 connection length, and for the exact code paths used by each geometry source,
 see [Connection Length](connection_length.md).
 
+The self-contained gate now records more than the finest-grid error. It stores
+successive RMS and \(L_\infty\) error-reduction factors and explicitly requires
+monotonic error reduction when three or more nested levels are available. The
+current manufactured artifact passes with finest normalized RMS
+`6.71e-3`, finest normalized \(L_\infty\) `1.14e-2`, observed order `1.78`,
+minimum RMS reduction factor `3.45`, and minimum \(L_\infty\) reduction factor
+`3.31`.
+
 The first live June 15, 2026 checks are intentionally retained as negative
 promotion evidence. A `hybrid` run on `(3, 4, 6) -> (6, 8, 12)` returned
 normalized RMS `0.43` and \(L_\infty\) `1.10`; a finer
@@ -162,7 +170,9 @@ nested connection-length grids either after conservative block restriction or,
 when live coordinate payloads are supplied, by interpolating the fine grid at
 the coarse logical coordinates. The report records normalized RMS,
 95th-percentile, and \(L_\infty\) errors for every coarse/fine pair plus the
-observed order when three or more levels are supplied. The self-contained
+observed order when three or more levels are supplied. It also records
+successive RMS and \(L_\infty\) error-reduction factors and requires monotonic
+error reduction for three-or-more-level refinement claims. The self-contained
 `imported_connection_length_refinement_demo.py` campaign exercises that exact
 report and plotting path with manufactured nested grids, so CI can protect the
 refinement logic even without the external field-line runtime. Imported-field
