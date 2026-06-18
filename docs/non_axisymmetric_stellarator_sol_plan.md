@@ -174,10 +174,14 @@ reduction and records reduction factors; the current artifact reports finest
 RMS `6.71e-3`, finest \(L_\infty\) `1.14e-2`, observed order `1.78`, and
 minimum reduction factors `3.45` and `3.31`. The clean-clone gate also sets
 `require_observed_order=True`, so a two-level live check remains diagnostic
-rather than publication-grade convergence evidence. The checked-in live imported
-artifacts are still single-grid campaign outputs; the multi-grid diagnostic
-must pass on a fresh `coil`, `vmec`, or `hybrid` sweep before an imported-field
-turbulence movie is promoted from documentation bridge to publication evidence.
+rather than publication-grade convergence evidence. The importer now preserves
+separate raw, adjacent-step, and target-exit length arrays. Live VMEC and
+hybrid `parallel_step_per_toroidal_radian` probes pass a three-level observed
+order gate with finest RMS `5.90e-2`, finest \(L_\infty\) `1.18e-1`, and
+observed order `1.20`; raw coil/hybrid length and pure coil adjacent-step
+probes remain negative evidence. A full imported-field turbulence movie still
+needs the same live gate plus endpoint, timestep, and nonlinear refinement
+checks before promotion from documentation bridge to publication evidence.
 The imported PyTree/JVP artifacts live in
 `docs/data/essos_imported_pytree_artifacts/`,
 `docs/data/essos_imported_pytree_vmec_artifacts/`, and

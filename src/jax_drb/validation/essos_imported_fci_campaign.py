@@ -1329,6 +1329,10 @@ def _connection_quantity_plot_label(quantity: str) -> str:
     normalized = _normalize_connection_refinement_quantity(quantity)
     if normalized == "parallel_step_per_toroidal_radian":
         return "parallel step length per radian"
+    if normalized == "adjacent_step_length":
+        return "adjacent step length"
+    if normalized == "target_exit_length":
+        return "target-exit length"
     return "connection length"
 
 
@@ -1620,6 +1624,14 @@ def _normalize_connection_refinement_quantity(value: str) -> str:
         "raw": "raw_connection_length",
         "connection_length": "raw_connection_length",
         "raw_connection_length": "raw_connection_length",
+        "adjacent_step": "adjacent_step_length",
+        "adjacent_step_length": "adjacent_step_length",
+        "adjacent_plane_step": "adjacent_step_length",
+        "adjacent_plane_step_length": "adjacent_step_length",
+        "target_exit": "target_exit_length",
+        "target_exit_length": "target_exit_length",
+        "exit_length": "target_exit_length",
+        "wall_hit_length": "target_exit_length",
         "per_radian": "parallel_step_per_toroidal_radian",
         "per_toroidal_radian": "parallel_step_per_toroidal_radian",
         "parallel_step_per_radian": "parallel_step_per_toroidal_radian",
@@ -1627,7 +1639,8 @@ def _normalize_connection_refinement_quantity(value: str) -> str:
     }
     if normalized not in aliases:
         raise ValueError(
-            "connection_quantity must be 'raw_connection_length' or "
+            "connection_quantity must be 'raw_connection_length', "
+            "'adjacent_step_length', 'target_exit_length', or "
             "'parallel_step_per_toroidal_radian'."
         )
     return aliases[normalized]
@@ -1641,6 +1654,14 @@ def _connection_level_for_refinement_quantity(
     connection = np.asarray(geometry.connection_length, dtype=np.float64)
     if quantity == "raw_connection_length":
         return connection
+    if quantity == "adjacent_step_length":
+        if not hasattr(geometry, "adjacent_step_length") or geometry.adjacent_step_length is None:
+            raise ValueError("adjacent_step_length requires geometry.adjacent_step_length.")
+        return np.asarray(geometry.adjacent_step_length, dtype=np.float64)
+    if quantity == "target_exit_length":
+        if not hasattr(geometry, "target_exit_length") or geometry.target_exit_length is None:
+            raise ValueError("target_exit_length requires geometry.target_exit_length.")
+        return np.asarray(geometry.target_exit_length, dtype=np.float64)
     if quantity == "parallel_step_per_toroidal_radian":
         if not hasattr(geometry, "maps") or not hasattr(geometry.maps, "dphi"):
             raise ValueError(
@@ -1649,6 +1670,8 @@ def _connection_level_for_refinement_quantity(
         dphi = abs(float(geometry.maps.dphi))
         if dphi <= 0.0:
             raise ValueError("geometry.maps.dphi must be positive for refinement.")
+        if hasattr(geometry, "adjacent_step_length") and geometry.adjacent_step_length is not None:
+            connection = np.asarray(geometry.adjacent_step_length, dtype=np.float64)
         return connection / dphi
     raise ValueError(f"Unsupported connection refinement quantity {quantity!r}.")
 

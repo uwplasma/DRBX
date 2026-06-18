@@ -17,8 +17,10 @@ CASE_LABEL = "essos_imported_connection_length_refinement"
 LIVE_IMPORT = False
 MAP_SOURCE = "hybrid"  # "coil", "vmec", or "hybrid" when LIVE_IMPORT = True
 CONNECTION_QUANTITY = "raw_connection_length"
-# Use "parallel_step_per_toroidal_radian" for closed VMEC step-length
+# Use "parallel_step_per_toroidal_radian" for VMEC or hybrid adjacent-map
 # refinement, where raw adjacent-plane length changes with toroidal spacing.
+# Use "target_exit_length" only for endpoint/wall-hit diagnostics, not as a
+# substitute for adjacent-map convergence.
 
 LEVEL_SHAPES = (
     (4, 6, 8),

@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 69% | Promote live connection-length, endpoint, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
+| 3D stellarator imported-field/VMEC SOL | 70% | Promote endpoint, pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 86% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 90% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag. |
@@ -1477,6 +1477,20 @@ Use this log for concise decision records. Do not paste terminal output here.
   accidental two-level promotion gap; the remaining 3D blocker is still a fresh
   live `coil`/`vmec`/`hybrid` multi-grid sweep with the correct connection
   quantity and endpoint semantics.
+- 2026-06-18: Split imported-field connection-length semantics in the ESSOS
+  geometry bridge. The geometry object now keeps `raw_connection_length`,
+  `adjacent_step_length`, and `target_exit_length` separately, and refinement
+  gates can select `adjacent_step_length`, `target_exit_length`, or
+  `parallel_step_per_toroidal_radian`. A live local three-level VMEC probe and
+  a hybrid VMEC-map/coil-mask probe both pass the observed-order gate using
+  `parallel_step_per_toroidal_radian`: finest RMS `5.90e-2`, finest
+  \(L_\infty\) `1.18e-1`, observed order `1.20`, minimum RMS factor `2.30`,
+  and minimum \(L_\infty\) factor `1.69`. Raw coil/hybrid length remains a
+  negative control (`RMS=0.356`, `Linf=2.52`, order `0.137`), and pure
+  coil adjacent-step tracing remains unresolved (`RMS=0.953`,
+  `Linf=0.998`, order `6.8e-3`). Next 3D work should keep hybrid
+  adjacent-map refinement as the promotable map lane and treat pure-coil
+  endpoint/exit length as a separate wall-hit/sheath-source validation lane.
 
 ## Definition Of Done
 
