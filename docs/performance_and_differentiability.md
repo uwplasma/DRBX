@@ -1067,6 +1067,18 @@ noise-equivalent (`4.98 s` default versus `4.99 s` with the check disabled), so
 this is a host/device-barrier reduction seam rather than a default speedup
 claim.
 
+The generic JAX-linearized solver now also reuses the already-known residual
+norm for the final accepted state when a bounded solve exits because the
+nonlinear iteration budget was exhausted. This removes a redundant final
+residual evaluation and host/device synchronization without changing the
+reported residual. On the same bounded hydrogen gate with residual JIT, skipped
+initial residual check, and the default batched JAX GMRES solve method, the
+residual-evaluation count dropped from `5` to `4` with identical residual norm
+(`8.815424126680732e-05`) and clean GMRES status. The three-run median was
+`3.08 s` versus the retained `2.98 s` comparison artifact, so this patch should
+be treated as deterministic residual-count cleanup rather than a measured
+runtime win.
+
 The JAX GMRES wrapper now also forwards the optional JAX
 `solve_method={"batched","incremental"}` control through
 `runtime:recycling_jax_linear_gmres_solve_method=<method>`,
