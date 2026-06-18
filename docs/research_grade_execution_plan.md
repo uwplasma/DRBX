@@ -18,9 +18,11 @@ Active repository:
 - working tree: a local checkout of `https://github.com/uwplasma/jax_drb`
 - remote: `https://github.com/uwplasma/jax_drb.git`
 - branch: `main`
-- audit base commit: `5c9a821 Add opt-in JAX block preconditioner diagnostics`
-- unrelated local change intentionally left untouched:
-  `docs/data/detachment_controller_campaign_artifacts/data/detachment_controller_campaign.json`
+- audit base commit: `8804a73 Record closeout coverage after solver controls`
+- local planning-pass caveat: there is one pre-existing uncommitted source edit
+  in `src/jax_drb/solver/implicit.py` from the previous solver lane. This plan
+  pass intentionally does not inspect, change, test, stage, or commit that code
+  edit.
 
 Recent history is concentrated in four work streams:
 
@@ -81,6 +83,19 @@ When these files disagree, this file wins. New work should update this file
 first, then update the subordinate technical page only if implementation detail
 belongs there.
 
+Current plan-authority audit:
+
+- `plan_jax_drb.md` is a redirect only.
+- `docs/refactoring_plan.md` is a source/test architecture appendix only.
+- `docs/geometry_roadmap.md` is a geometry-adapter architecture appendix only.
+- `docs/non_axisymmetric_stellarator_sol_plan.md` is the equation and validation
+  appendix for the non-axisymmetric SOL lane only.
+- `docs/runtime_gap_remediation.md`, `docs/research_directions.md`,
+  `docs/parity_matrix.md`, `docs/testing_strategy.md`, and validation-gallery
+  pages are status/evidence appendices, not execution plans.
+- Hosted CI should not be polled repeatedly while billing blocks job startup.
+  Use the local gates in this file until GitHub Actions can start jobs again.
+
 ## Current Completion Snapshot
 
 This snapshot is an execution aid, not a substitute for the exit criteria
@@ -133,6 +148,28 @@ This is the single backlog to follow when closing the code for release and for
 the first full publication package. Subordinate pages may contain equations,
 schemas, or implementation details, but they should not introduce a competing
 execution order.
+
+### Single Ordered Execution Plan
+
+The next implementation pass should follow this order unless a blocker makes a
+later independent lane cheaper to advance in parallel. Progress should be logged
+in the execution log at the end of this file, with links to the relevant docs,
+tests, scripts, plots, and artifacts.
+
+| Order | Lane | Concrete objective | Required evidence before promotion |
+| ---: | --- | --- | --- |
+| 1 | Plan authority and release hygiene | Keep this file as the only execution plan; keep all other planning Markdown files as redirects or technical appendices; avoid repeated hosted-CI polling while Actions are billing-blocked. | `git status` review, plan-log entry, local release-gate command list, and no accidental staging of unrelated source/artifact edits. |
+| 2 | Effective preconditioning | Build a real physics preconditioner for the JAX-linearized recycling residual, not another backend-only swap. Candidate order is same-cell block-Jacobi as baseline, parallel-line transport blocks, neutral/plasma Schur-style blocks, and reduced sparse/LU-like blocks only if memory remains bounded. | Same-case hydrogen and D/T/He residual parity, no failed linear solves, bounded nonlinear iterations, cProfile/RSS/JAX trace, and wall-time comparison against the stable sparse finite-difference baseline. Negative evidence must stay documented and opt-in. |
+| 3 | JAX-native recycling residual | Promote fixed-layout collisions, neutral diffusion, sheath/no-flow/zero-current reconstruction, target recycling, scalar feedback, multispecies D/T/He reaction accumulation, BE/BDF2 residual assembly, and accepted-step history handling into transformable kernels. | JVP versus finite-difference checks, `jit`/`vmap`/`grad` gates on promoted objectives, fixed-BDF2 hydrogen and D/T/He gates, adaptive-BDF hydrogen gate, and a clear default/opt-in decision. |
+| 4 | Reference-backed parity | Close the neutral `NVh` offender through accepted-step state/history sequencing feeding `Pnlim`, `logPnlim`, and `Grad(logPnlim)` preparation before changing formulas. Maintain term-level diagnostics for pressure-gradient, viscosity, diffusion, reaction, boundary, and target terms. | Clean reference rerun or committed fixture, matched native/reference accepted-step traces, offender register ranked by field/term/location/norm/runtime/memory, and regression tests for every closed offender. |
+| 5 | Tokamak diverted simulations | Make diverted tokamak examples self-contained: release-hosted `tokamak.nc`/`BOUT.dmp*.nc` or native-generated fixtures, movie generation, profile analysis, target/SOL turbulent diagnostics, recycling and detachment plots, and no user requirement to install reference codes. | Clean-clone examples, target and OMP profiles, target heat/particle flux, source/radiation/neutral maps, detachment metrics, runtime reports, and README/docs figures generated by documented scripts. |
+| 6 | Drift-reduced Braginskii model surface | Expose diffusion-only, 1D open-field fluid, electrostatic DRB, vorticity/potential, Boussinesq, non-Boussinesq, selected electromagnetic, sheath/recycling/neutrals, open-field, and closed-field choices through documented APIs and examples. | Equation-to-code map for every promoted term, limiting-case tests, MMS/conservation/parity gates, Boussinesq versus non-Boussinesq plots, and explicit labeling for any pedagogical reduced closure. |
+| 7 | Neutral/recycling/sheath/detachment physics | Document and validate neutral density, pressure, momentum where enabled, diffusion, ionization, recombination, charge exchange, radiation, floors, flux limits, reflection, pumping, recycling, and sheath coupling. | Term-by-term neutral source parity, target recycling accounting, sheath heat-transmission gates, no-flow and zero-current reconstruction tests, detachment scan monotonicity, and docs with all symbols and normalizations. |
+| 8 | 3D stellarator geometry | Promote non-axisymmetric SOL geometry through VMEC, VMEC-extender, ESSOS-imported coil maps, hybrid VMEC/coil maps, HSX, NCSX, Landreman-Paul QA, and Dommaschk potentials. Use BSTING/BOUT++/Zoidberg workflows as implementation references while keeping `jax_drb` ownership of imported arrays and validation. | Boundary/surface plots, Poincare/field-line plots, connection-length maps, endpoint masks, FCI operator MMS, grid/time refinement, source-fieldline versus consumed-map agreement, and polished non-axisymmetric movies only after gates pass. |
+| 9 | Open and closed field-line physics | Run first 3D close/open field-line simulations for stellarators, including closed-region linear/nonlinear tests and open-region sheath/recycling/neutral target-response tests. | Connection-length convergence, target-to-target and one-sided connection-length definitions, endpoint-mask convergence, profile/fluctuation/flux diagnostics, and comparison with literature-style stellarator SOL figures. |
+| 10 | Performance and scaling | Separate single-solve latency from throughput. Use real heavy recycling kernels for CPU/GPU timing after solver changes, and use batched/sharded ensembles for strong-scaling demonstrations on Mac CPUs and GPUs. | Same-machine CPU profiles, memory/RSS reports, JAX trace/XLA evidence, single-GPU and multi-GPU bundles on promoted kernels, strong-scaling plots, and no scaling claim based only on toy kernels. |
+| 11 | Documentation and examples | Make docs pedagogical enough to understand the code without the paper. Keep README concise, push extended validation galleries into docs, and make every user-facing example SIMSOPT-style with top-level parameters and imported API calls. | `mkdocs build --strict --clean`, complete input/output reference, example status matrix, equations/derivations/code links/citations, and clean-clone tokamak and stellarator tutorials that regenerate advertised plots/movies. |
+| 12 | Coverage and release | Keep meaningful promoted-surface coverage above `95%` with physics, numerical, autodiff, parity, regression, CLI, and failure-mode tests. Keep the repo lightweight and package artifacts small. | `scripts/run_promoted_solver_coverage.py`, `scripts/run_closeout_coverage.py`, footprint audit, wheel/sdist audit, release notes, tag, GitHub release, and PyPI workflow once hosted CI can run. |
 
 ### Review-Ready Master Roadmap
 
@@ -518,6 +555,17 @@ Proof gates:
 Use this log for concise decision records only. Do not copy terminal output or
 long work logs here.
 
+- 2026-06-18: Performed a planning-only consolidation pass. The active
+  backlog now has a single ordered execution table covering plan authority,
+  effective preconditioning, JAX-native recycling, reference-backed parity,
+  diverted tokamak self-contained demos, full drift-reduced Braginskii model
+  choices, neutral/recycling/sheath/detachment physics, VMEC/VMEC-extender/
+  ESSOS/HSX/NCSX/Landreman-Paul-QA/Dommaschk stellarator geometry, open/closed
+  field-line physics, performance/scaling, docs/examples, coverage, footprint,
+  and release. Older phase notes were demoted to a detailed checklist, stale
+  pre-slimming repository-size blockers were converted into release-footprint
+  audit criteria, and hosted CI polling was explicitly deferred while GitHub
+  Actions are billing-blocked.
 - 2026-06-18: Consolidated plan authority into this file; `plan_jax_drb.md`
   became a redirect. Footprint audit: `.git` about `30M`, one pack
   `8.96 MiB`, largest tracked file about `328 KiB`; large local footprint is
@@ -843,7 +891,7 @@ Implication for `jax_drb`:
   parameter-scan throughput. JAX is strongest when a family of solves can be
   batched or sharded rather than driven through host-side loops.
 
-## Current Strengths
+## Supporting Audit Context
 
 The codebase already has several strong surfaces:
 
@@ -868,32 +916,31 @@ The codebase already has several strong surfaces:
 - the validation layer has a common publication-quality figure helper and
   stores machine-readable JSON/NPZ/PNG artifacts for promoted campaigns
 
-## Current Gaps And Risks
+The sections below preserve detailed audit context for future implementers.
+They are not a second execution plan. When a statement below appears more
+specific than the ordered backlog above, treat it as evidence or background
+unless it is also listed in the ordered backlog or current completion snapshot.
+
+## Supporting Gaps And Risks
 
 ### Repository Hygiene
 
-The current repository is too heavy for a clean research release:
+History slimming has already removed the former heavy-media and legacy-code
+blobs from the active release branch. Current footprint work is therefore a
+release-gate audit, not a fresh history-rewrite project unless a new large
+tracked file or pack-growth regression appears.
 
-- pre-slimming `.git` was about `428M`, with about `411M` in pack files
-- pre-slimming working tree was about `1.7G`
-- pre-slimming `docs/data` was about `22M`
-- `references` is about `26M`
-- the tracked `legacy/` tree was about `26M` and has been moved out of the
-  active release branch
-- the largest historical blobs are old GIFs and legacy/readme assets, including
-  one historical `examples/assets/readme/drb2d_kh.gif` object of about
-  `63.45 MiB`
-- current large tracked baselines include several multi-MB NPZ/GIF artifacts
-  that are scientifically useful but should be explicitly classified as
-  release artifacts, optional artifacts, or externally hosted artifacts
+Before every tag, classify all data into three groups:
 
-This is a blocker for a lightweight public research code. The next cleanup must
-separate three classes of data:
+- minimal baseline artifacts required by fast local and CI gates;
+- documentation/demo artifacts that are small enough to keep tracked or are
+  release-hosted with stable links;
+- heavy research artifacts that live in GitHub releases, external storage, or
+  the paper/benchmark artifact repository.
 
-- minimal baseline artifacts required by fast CI
-- documentation/demo artifacts useful for users
-- heavy research artifacts that should live in releases, external storage, or
-  the paper/benchmark artifact repository
+The ship rule is that the main branch remains fast to clone, the wheel/sdist do
+not contain local traces or large generated dumps, and README/docs media are
+compressed or release-hosted.
 
 ### Paper And Legacy Material In The Code Repo
 
@@ -910,7 +957,7 @@ The target rule is:
 - keep reusable validation code and tested scientific figure generators
 - move manuscript drafting, paper planning, paper-only panel composition, and
   historical logs out of the code release branch
-- keep `legacy/` only if it is moved to a separate archival branch or external
+- keep any legacy material only on a separate archival branch or external
   archive; it should not be imported or shipped as part of the active package
 
 ### Architecture
@@ -1410,9 +1457,13 @@ Target state:
   - artifact-free install check
   - PyPI publish on semver tag
 
-## Active Execution Sequence
+## Detailed Phase Checklist
 
-### Phase 0: CI, Plan, And Release Hygiene
+The single ordered execution plan above defines the order. This checklist keeps
+older phase-level details that are still useful when executing those lanes, but
+it must not override the ordered backlog or completion snapshot.
+
+### Phase 0: Plan And Release Hygiene
 
 Deliverables:
 
@@ -1421,7 +1472,8 @@ Deliverables:
 - fix stale repository URLs in user-facing docs
 - decide which current docs/artifacts are release-critical versus paper-only
 - keep the artifact-pruning and history-rewrite checklist current
-- keep GitHub docs/test/coverage green on `main`
+- keep local docs/test/coverage gates green while GitHub Actions are
+  billing-blocked; check hosted CI periodically after billing is restored
 - record every new validation gate in this plan, the validation matrix, and the
   relevant docs page before claiming it in the README
 
@@ -1430,8 +1482,9 @@ Exit criteria:
 - public docs point to the active plan
 - release-surface tests pass
 - no accidental edits to unrelated local artifacts
-- latest pushed head has green docs/test/coverage, or the failing workflow has
-  a documented root cause and a local reproduction
+- local docs/test/coverage gates pass, or the failing gate has a documented
+  root cause and a local reproduction; hosted CI failures caused by
+  account-level billing are recorded but not treated as code failures
 
 ### Phase 1: Reference-Side Diagnostics And Offender Register
 
