@@ -145,7 +145,7 @@ and tests all move together.
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 91% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
 | Effective preconditioning | 42% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
-| Performance and scaling | 58% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
+| Performance and scaling | 59% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -1418,6 +1418,20 @@ Use this log for concise decision records. Do not paste terminal output here.
   keeps full dense line inversion as negative promotion evidence on local CPU;
   future transport preconditioners should be cheaper approximate line or
   neutral/plasma Schur actions.
+- 2026-06-18: Added matrix-free linear-operator call diagnostics to the
+  JAX-linearized solver. `ImplicitStepInfo` and recycling diagnostics now
+  report `linear_operator_call_count` and `linear_operator_dispatch_seconds`
+  for Python-visible calls to the Krylov linearized operator, excluding dynamic
+  preconditioner construction and line-search residuals. The D/T/He local gate
+  now requires `--require-min-linear-operator-calls=1`. A wrapper verification
+  against `/Users/rogerio/local/hermes-3` passed in `16.8 s`; the profiled
+  solve took `6.81 s`, the RSS sample run took `8.88 s`, residual was `7.315`,
+  clean JAX-GMRES status was preserved, and diagnostics reported `5` operator
+  calls, `1.16 s` operator-dispatch time, `5.24 s` linear-solve time, `1.30 s`
+  JAX-linearization time, two residual evaluations, and one line-search trial.
+  This does not solve preconditioning, but it gives future Schur/transport and
+  residual-kernel changes a direct work-count gate instead of relying only on
+  the configured `restart * maxiter` budget.
 
 ## Definition Of Done
 

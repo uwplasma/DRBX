@@ -56,6 +56,10 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "2",
             "--require-max-line-search-trials",
             "1",
+            "--require-min-linear-operator-calls",
+            "1",
+            "--require-max-linear-operator-calls",
+            "500",
             "--require-min-linear-iterations",
             "1",
             "--require-min-nonlinear-iterations",
@@ -78,6 +82,8 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.require_max_residual_inf_norm == 7.4
     assert args.require_max_residual_evaluations == 2
     assert args.require_max_line_search_trials == 1
+    assert args.require_min_linear_operator_calls == 1
+    assert args.require_max_linear_operator_calls == 500
     assert args.require_min_linear_iterations == 1
     assert args.require_min_nonlinear_iterations == 1
     assert args.require_max_preconditioner_builds == 2
@@ -103,6 +109,8 @@ def test_help_documents_preconditioner_and_budget_gates(
     assert "--require-max-residual-inf-norm" in help_text
     assert "--require-max-residual-evaluations" in help_text
     assert "--require-max-line-search-trials" in help_text
+    assert "--require-min-linear-operator-calls" in help_text
+    assert "--require-max-linear-operator-calls" in help_text
     assert "--require-min-linear-iterations" in help_text
     assert "--require-min-nonlinear-iterations" in help_text
     assert "--require-max-preconditioner-builds" in help_text
@@ -177,6 +185,14 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "--require-max-line-search-trials must be nonnegative",
         ),
         (
+            {"require_min_linear_operator_calls": -1},
+            "--require-min-linear-operator-calls must be nonnegative",
+        ),
+        (
+            {"require_max_linear_operator_calls": -1},
+            "--require-max-linear-operator-calls must be nonnegative",
+        ),
+        (
             {"require_min_linear_iterations": -1},
             "--require-min-linear-iterations must be nonnegative",
         ),
@@ -201,6 +217,8 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "require_max_residual_inf_norm": None,
             "require_max_residual_evaluations": None,
             "require_max_line_search_trials": None,
+            "require_min_linear_operator_calls": None,
+            "require_max_linear_operator_calls": None,
             "require_min_linear_iterations": None,
             "require_min_nonlinear_iterations": None,
             "require_max_preconditioner_builds": None,
@@ -220,6 +238,8 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
         require_max_residual_inf_norm=7.4,
         require_max_residual_evaluations=2,
         require_max_line_search_trials=1,
+        require_min_linear_operator_calls=1,
+        require_max_linear_operator_calls=500,
         require_min_linear_iterations=1,
         require_min_nonlinear_iterations=1,
         require_max_preconditioner_builds=2,
@@ -234,6 +254,7 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
             "linear_preconditioner_build_seconds": 0.125,
             "residual_evaluation_count": 2,
             "line_search_trial_count": 1,
+            "linear_operator_call_count": 128,
         },
     }
 
@@ -248,6 +269,8 @@ def test_profile_gate_errors_accept_static_preconditioner_without_builds() -> No
         require_max_residual_inf_norm=None,
         require_max_residual_evaluations=None,
         require_max_line_search_trials=None,
+        require_min_linear_operator_calls=None,
+        require_max_linear_operator_calls=None,
         require_min_linear_iterations=None,
         require_min_nonlinear_iterations=None,
         require_max_preconditioner_builds=None,
@@ -268,6 +291,8 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
         require_max_residual_inf_norm=7.4,
         require_max_residual_evaluations=2,
         require_max_line_search_trials=1,
+        require_min_linear_operator_calls=1,
+        require_max_linear_operator_calls=2,
         require_min_linear_iterations=1,
         require_min_nonlinear_iterations=1,
         require_max_preconditioner_builds=2,
@@ -282,6 +307,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
             "linear_preconditioner_build_seconds": float("nan"),
             "residual_evaluation_count": 4,
             "line_search_trial_count": 3,
+            "linear_operator_call_count": 3,
         },
     }
 
@@ -299,6 +325,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
     )
     assert "profile reported 4 residual evaluations, exceeding 2" in errors
     assert "profile reported 3 line-search trials, exceeding 1" in errors
+    assert "profile reported 3 linear-operator calls, exceeding 2" in errors
     assert "profile reported 3 preconditioner builds, exceeding 2" in errors
 
 
@@ -310,6 +337,8 @@ def test_profile_gate_errors_reject_noop_profiles() -> None:
         require_max_residual_inf_norm=None,
         require_max_residual_evaluations=None,
         require_max_line_search_trials=None,
+        require_min_linear_operator_calls=1,
+        require_max_linear_operator_calls=None,
         require_min_linear_iterations=1,
         require_min_nonlinear_iterations=1,
         require_max_preconditioner_builds=None,
@@ -321,6 +350,7 @@ def test_profile_gate_errors_reject_noop_profiles() -> None:
     }
 
     assert module._profile_gate_errors(profile_report, args) == [
+        "profile did not report linear_operator_call_count",
         "profile reported 0 linear iterations, below 1",
         "profile reported 0 nonlinear iterations, below 1",
     ]

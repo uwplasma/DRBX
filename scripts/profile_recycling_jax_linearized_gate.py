@@ -244,6 +244,25 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--require-min-linear-operator-calls",
+        type=int,
+        default=None,
+        help=(
+            "Fail after profiling when diagnostics.linear_operator_call_count "
+            "is below this nonnegative floor. This proves the matrix-free "
+            "linearized operator was exercised."
+        ),
+    )
+    parser.add_argument(
+        "--require-max-linear-operator-calls",
+        type=int,
+        default=None,
+        help=(
+            "Fail after profiling when diagnostics.linear_operator_call_count "
+            "exceeds this nonnegative budget."
+        ),
+    )
+    parser.add_argument(
         "--require-min-linear-iterations",
         type=int,
         default=None,
@@ -326,6 +345,16 @@ def _validate_args(args: argparse.Namespace) -> None:
     if args.require_max_line_search_trials is not None:
         if int(args.require_max_line_search_trials) < 0:
             raise SystemExit("--require-max-line-search-trials must be nonnegative.")
+    if args.require_min_linear_operator_calls is not None:
+        if int(args.require_min_linear_operator_calls) < 0:
+            raise SystemExit(
+                "--require-min-linear-operator-calls must be nonnegative."
+            )
+    if args.require_max_linear_operator_calls is not None:
+        if int(args.require_max_linear_operator_calls) < 0:
+            raise SystemExit(
+                "--require-max-linear-operator-calls must be nonnegative."
+            )
     if args.require_min_linear_iterations is not None:
         if int(args.require_min_linear_iterations) < 0:
             raise SystemExit("--require-min-linear-iterations must be nonnegative.")
@@ -623,6 +652,32 @@ def _profile_gate_errors(
                 source=diagnostics,
             )
         )
+    min_linear_operator_calls = getattr(
+        args, "require_min_linear_operator_calls", None
+    )
+    if min_linear_operator_calls is not None:
+        errors.extend(
+            _validate_minimum_integer_value(
+                profile_report,
+                key="linear_operator_call_count",
+                minimum=int(min_linear_operator_calls),
+                label="linear-operator calls",
+                source=diagnostics,
+            )
+        )
+    max_linear_operator_calls = getattr(
+        args, "require_max_linear_operator_calls", None
+    )
+    if max_linear_operator_calls is not None:
+        errors.extend(
+            _validate_maximum_integer_value(
+                profile_report,
+                key="linear_operator_call_count",
+                maximum=int(max_linear_operator_calls),
+                label="linear-operator calls",
+                source=diagnostics,
+            )
+        )
     min_linear_iterations = getattr(args, "require_min_linear_iterations", None)
     if min_linear_iterations is not None:
         errors.extend(
@@ -873,6 +928,8 @@ def main() -> int:
             "max_residual_inf_norm": args.require_max_residual_inf_norm,
             "max_residual_evaluations": args.require_max_residual_evaluations,
             "max_line_search_trials": args.require_max_line_search_trials,
+            "min_linear_operator_calls": args.require_min_linear_operator_calls,
+            "max_linear_operator_calls": args.require_max_linear_operator_calls,
             "min_linear_iterations": args.require_min_linear_iterations,
             "min_nonlinear_iterations": args.require_min_nonlinear_iterations,
             "max_preconditioner_builds": args.require_max_preconditioner_builds,

@@ -48,6 +48,8 @@ class ImplicitStepInfo:
     linear_solver_success: bool | None = None
     linear_solver_reported_iterations: int | None = None
     linear_solver_solve_method: str | None = None
+    linear_operator_call_count: int = 0
+    linear_operator_dispatch_seconds: float = 0.0
     linear_preconditioner: str | None = None
     linear_preconditioner_build_seconds: float = 0.0
     linear_preconditioner_build_count: int = 0
@@ -1192,6 +1194,8 @@ def solve_jax_linearized_newton_system(
     last_linear_solver_status: int | float | str | None = None
     last_linear_solver_success: bool | None = None
     last_linear_solver_reported_iterations: int | None = None
+    linear_operator_call_count = 0
+    linear_operator_dispatch_seconds = 0.0
     resolved_solve_method = _resolve_jax_gmres_solve_method(linear_solver_solve_method)
     residual_function = jax.jit(residual) if bool(jit_residual) else residual
     known_state_residual_inf_norm: float | None = None
@@ -1237,6 +1241,8 @@ def solve_jax_linearized_newton_system(
             linear_solver_solve_method=(
                 resolved_solve_method if linear_backend == "jax_gmres" else None
             ),
+            linear_operator_call_count=linear_operator_call_count,
+            linear_operator_dispatch_seconds=linear_operator_dispatch_seconds,
             linear_preconditioner=linear_preconditioner_name
             if linear_preconditioner is not None
             or _is_dynamic_jax_linear_preconditioner(linear_preconditioner_name)
@@ -1304,9 +1310,17 @@ def solve_jax_linearized_newton_system(
                 linear_preconditioner_build_count += 1
             effective_preconditioner = cached_dynamic_preconditioner
 
+        def counted_linear_map(tangent):
+            nonlocal linear_operator_call_count, linear_operator_dispatch_seconds
+            operator_started_at = perf_counter()
+            result = linear_map(tangent)
+            linear_operator_dispatch_seconds += perf_counter() - operator_started_at
+            linear_operator_call_count += 1
+            return result
+
         linear_solve_started_at = perf_counter()
         solve_result = _solve_jax_linearized_update(
-            linear_map,
+            counted_linear_map,
             -residual_value,
             backend=linear_backend,
             residual_tolerance=float(residual_tolerance),

@@ -1445,6 +1445,8 @@ def test_jax_linearized_newton_solver_reports_line_search_damping() -> None:
     assert info.line_search_initial_step_scale == pytest.approx(0.5)
     assert info.line_search_last_step_scale == pytest.approx(0.5)
     assert info.line_search_trial_count == 1
+    assert info.linear_operator_call_count > 0
+    assert info.linear_operator_dispatch_seconds >= 0.0
 
 
 @pytest.mark.parametrize("bad_scale", [float("nan"), -0.5, 0.0])

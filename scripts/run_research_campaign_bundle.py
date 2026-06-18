@@ -199,6 +199,8 @@ def _campaign_command_map(
                 "2",
                 "--require-max-line-search-trials",
                 "1",
+                "--require-min-linear-operator-calls",
+                "1",
                 "--rss-profile",
                 "--skip-cprofile",
             ),

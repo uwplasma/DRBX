@@ -6596,6 +6596,12 @@ def _as_recycling_step_info(
             info, "linear_solver_reported_iterations", None
         ),
         "linear_solver_solve_method": getattr(info, "linear_solver_solve_method", None),
+        "linear_operator_call_count": int(
+            getattr(info, "linear_operator_call_count", 0)
+        ),
+        "linear_operator_dispatch_seconds": float(
+            getattr(info, "linear_operator_dispatch_seconds", 0.0)
+        ),
         "linear_preconditioner": getattr(info, "linear_preconditioner", None),
         "linear_preconditioner_build_seconds": float(
             getattr(info, "linear_preconditioner_build_seconds", 0.0)

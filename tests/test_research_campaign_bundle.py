@@ -169,6 +169,9 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) 
     assert gate.command[
         gate.command.index("--require-max-line-search-trials") + 1
     ] == "1"
+    assert gate.command[
+        gate.command.index("--require-min-linear-operator-calls") + 1
+    ] == "1"
     assert "--skip-cprofile" in gate.command
 
 
