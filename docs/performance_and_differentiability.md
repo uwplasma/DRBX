@@ -1081,14 +1081,21 @@ count. The lower-level compare script also exposes
 `--require-adaptive-bdf-linear-preconditioner=<name>` for manual campaigns.
 These gates are deliberately stricter than a runtime-only override: they fail
 if a preconditioner request silently falls back to an unpreconditioned or
-Lineax path. A bounded local run on `recycling_1d_one_step` with
+Lineax path. Use
+`--fixed-bdf2-linear-preconditioner-refresh=<n>` on the wrapper to forward
+`runtime:recycling_jax_linear_preconditioner_refresh=<n>` and test reuse inside
+each implicit solve. A bounded local run on `recycling_1d_one_step` with
 `--timestep=10`, `--steps=2`, and `local_block_diag` passed these new gates on
 both fixed-BDF2 routes. The fixed-full-field route reported residual
 `1.90e-6`, `9` preconditioner builds, zero failed linear solves, and
 `22.7 s`; the active-array route reported the same residual and build count,
 zero failed linear solves, and `30.3 s`. Both routes still used the full
-`3600` JAX-GMRES update budget, so the result is correctness and diagnostic
-evidence for the preconditioner seam rather than speedup evidence.
+`3600` JAX-GMRES update budget. With refresh set to `100`, the same gate
+reduced builds from `9` to `2`, ran in `18.9 s` for the fixed-full-field route
+and `23.4 s` for the active-array route, preserved zero failed linear solves,
+and kept the residual below the `1e-5` gate. This is useful opt-in reuse
+evidence, but it is not a default-promotion result because the Krylov budget
+remains saturated.
 
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or
