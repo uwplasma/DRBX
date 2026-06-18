@@ -120,6 +120,23 @@ writes `docs/data/essos_imported_fci_vmec_artifacts/` and
 `MAP_SOURCES_TO_RUN = ("hybrid",)` writes
 `docs/data/essos_imported_fci_hybrid_artifacts/` unless `OUTPUT_ROOT` or
 `CASE_LABEL` is set for a custom single-source run.
+
+The committed report JSON can also be audited without rerunning the external
+geometry import:
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  examples/geometry-3D/essos-field-lines/imported_artifact_schema_audit.py
+```
+
+The audit compares the checked-in JSON reports against the fields produced by
+the current validation code. It is useful before promoting README figures or
+paper plots because it flags stale reports whose PNG/movie assets may still
+exist but whose JSON no longer contains the current connection-length,
+endpoint, target-label, refinement, or consumed-map diagnostics. As of the
+June 18, 2026 audit, the three committed imported-FCI reports are stale against
+the newer diagnostic schema and should be regenerated before being used as
+fresh publication evidence.
 Quick regeneration keeps `REQUIRE_CONNECTION_RESOLUTION = False`, so the
 single-grid roughness diagnostic is recorded but remains advisory. Promotion
 runs for publication figures, README movies, or release evidence should set
