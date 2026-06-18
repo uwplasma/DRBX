@@ -1113,6 +1113,22 @@ current bounded fixture evidence for preconditioner reuse; heavier recycling
 and D/T/He gates still need the same budgeted treatment before default
 promotion.
 
+The real-kernel JAX-linearized profiling script has the same control surface
+for heavier runs. `scripts/profile_recycling_jax_linearized_gate.py` accepts
+`--linear-preconditioner=<name>` and
+`--linear-preconditioner-refresh=<n>` to forward the corresponding runtime
+options into the profiled solve. It also accepts
+`--require-linear-preconditioner=<name>`,
+`--require-max-linear-iterations=<n>`, and
+`--require-max-preconditioner-builds=<n>`. These gates are evaluated after the
+profile is written, recorded in `profile_summary.json`, and return a nonzero
+status if the reported diagnostics miss the requested preconditioner or exceed
+the requested budgets. Dynamic JVP-derived preconditioners such as
+`linearized_diag`, `local_block_diag`, and `parallel_line` must report at least
+one finite preconditioner build when they are required. This lets local CPU and
+office-GPU D/T/He campaigns distinguish a solver-correctness pass from a
+performance-promotion pass without hiding failed budget evidence.
+
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL=0` for profiling decks that
