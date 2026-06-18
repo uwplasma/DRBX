@@ -1322,6 +1322,8 @@ def test_jax_linearized_newton_solver_accepts_left_preconditioner() -> None:
     np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
     assert info.converged is True
     assert info.linear_preconditioner == "test_scale"
+    assert info.linear_preconditioner_apply_count >= 1
+    assert info.linear_preconditioner_apply_seconds >= 0.0
 
 
 def test_jax_linearized_newton_solver_builds_linearized_diagonal_preconditioner() -> None:

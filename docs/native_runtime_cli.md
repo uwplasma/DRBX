@@ -187,6 +187,11 @@ The same diagnostics report `linear_operator_call_count` and
 matrix-free linearized operator during the Krylov solve. These are profiling
 diagnostics for solver studies; the full `linear_solve_seconds` value remains
 the end-to-end wall-time measurement because JAX device work can be asynchronous.
+When a JAX-GMRES preconditioner is enabled, the same reports include
+`linear_preconditioner_build_count`, `linear_preconditioner_build_seconds`,
+`linear_preconditioner_apply_count`, and
+`linear_preconditioner_apply_seconds`; fixed-BDF2 and adaptive-BDF histories
+aggregate those as `fixed_bdf2_total_*` and `adaptive_bdf_*` fields.
 
 Fixed-output BDF2 JAX-linearized histories use
 `runtime:recycling_jax_linear_initial_residual_mode=linearize` by default. This

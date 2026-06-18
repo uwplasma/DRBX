@@ -53,6 +53,8 @@ class ImplicitStepInfo:
     linear_preconditioner: str | None = None
     linear_preconditioner_build_seconds: float = 0.0
     linear_preconditioner_build_count: int = 0
+    linear_preconditioner_apply_count: int = 0
+    linear_preconditioner_apply_seconds: float = 0.0
     jvp_direction_batch_count: int = 0
     jvp_direction_build_seconds: float = 0.0
     jvp_jacobian_total_seconds: float = 0.0
@@ -1180,6 +1182,8 @@ def solve_jax_linearized_newton_system(
     )
     linear_preconditioner_build_seconds = 0.0
     linear_preconditioner_build_count = 0
+    linear_preconditioner_apply_seconds = 0.0
+    linear_preconditioner_apply_count = 0
     cached_dynamic_preconditioner = None
     dynamic_preconditioner_refresh_frequency = (
         _dynamic_jax_linear_preconditioner_refresh_frequency(
@@ -1254,6 +1258,8 @@ def solve_jax_linearized_newton_system(
             else None,
             linear_preconditioner_build_seconds=linear_preconditioner_build_seconds,
             linear_preconditioner_build_count=linear_preconditioner_build_count,
+            linear_preconditioner_apply_seconds=linear_preconditioner_apply_seconds,
+            linear_preconditioner_apply_count=linear_preconditioner_apply_count,
             residual_jitted=bool(jit_residual),
             check_initial_residual=bool(check_initial_residual),
             initial_residual_mode=resolved_initial_residual_mode,
@@ -1324,6 +1330,20 @@ def solve_jax_linearized_newton_system(
             linear_operator_call_count += 1
             return result
 
+        counted_preconditioner = None
+        if effective_preconditioner is not None:
+
+            def counted_preconditioner(vector):
+                nonlocal linear_preconditioner_apply_count
+                nonlocal linear_preconditioner_apply_seconds
+                preconditioner_apply_started_at = perf_counter()
+                result = effective_preconditioner(vector)
+                linear_preconditioner_apply_seconds += (
+                    perf_counter() - preconditioner_apply_started_at
+                )
+                linear_preconditioner_apply_count += 1
+                return result
+
         linear_solve_started_at = perf_counter()
         solve_result = _solve_jax_linearized_update(
             counted_linear_map,
@@ -1336,7 +1356,7 @@ def solve_jax_linearized_newton_system(
             jax_gmres=gmres,
             jax_bicgstab=bicgstab,
             gmres_solve_method=resolved_solve_method,
-            preconditioner=effective_preconditioner,
+            preconditioner=counted_preconditioner,
         )
         update = solve_result.update
         update = _block(update)
