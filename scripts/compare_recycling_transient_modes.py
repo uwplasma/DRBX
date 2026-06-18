@@ -206,6 +206,27 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-max-linear-iterations",
+        type=int,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_total_linear_iterations at or below this value. Use this "
+            "as a performance-promotion gate; it is intentionally separate from "
+            "the correctness diagnostics gate."
+        ),
+    )
+    parser.add_argument(
+        "--require-fixed-bdf2-max-preconditioner-builds",
+        type=int,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_total_linear_preconditioner_build_count at or below this "
+            "value. This is useful when testing dynamic-preconditioner reuse."
+        ),
+    )
+    parser.add_argument(
         "--require-adaptive-bdf-linear-preconditioner",
         default=None,
         help=(
@@ -530,6 +551,8 @@ def _validate_fixed_bdf2_diagnostics(
     *,
     max_residual_inf_norm: float | None = 1.0e-5,
     required_linear_preconditioner: str | None = None,
+    max_linear_iterations: int | None = None,
+    max_preconditioner_builds: int | None = None,
 ) -> list[str]:
     errors: list[str] = []
     expected_step_solver = FIXED_BDF2_STEP_SOLVER_MODES[mode]
@@ -604,6 +627,26 @@ def _validate_fixed_bdf2_diagnostics(
                 name_key="fixed_bdf2_linear_preconditioner",
                 count_key="fixed_bdf2_total_linear_preconditioner_build_count",
                 seconds_key="fixed_bdf2_total_linear_preconditioner_build_seconds",
+            )
+        )
+    if max_linear_iterations is not None:
+        errors.extend(
+            _validate_maximum_integer_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_total_linear_iterations",
+                maximum=int(max_linear_iterations),
+                label="fixed BDF2 linear iterations",
+            )
+        )
+    if max_preconditioner_builds is not None:
+        errors.extend(
+            _validate_maximum_integer_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_total_linear_preconditioner_build_count",
+                maximum=int(max_preconditioner_builds),
+                label="fixed BDF2 preconditioner builds",
             )
         )
     return errors
@@ -765,6 +808,33 @@ def _validate_required_linear_preconditioner(
     return errors
 
 
+def _validate_maximum_integer_diagnostic(
+    mode: str,
+    diagnostics: dict[str, object],
+    *,
+    key: str,
+    maximum: int,
+    label: str,
+) -> list[str]:
+    errors: list[str] = []
+    if int(maximum) < 0:
+        errors.append(f"{mode} received a negative {label} gate")
+        return errors
+    try:
+        reported = int(diagnostics[key])
+    except KeyError:
+        errors.append(f"{mode} did not report {key}")
+        return errors
+    except (TypeError, ValueError):
+        errors.append(f"{mode} did not report an integer {key}")
+        return errors
+    if reported > int(maximum):
+        errors.append(
+            f"{mode} reported {reported} {label}, exceeding {int(maximum)}"
+        )
+    return errors
+
+
 class _ModeTimeoutError(TimeoutError):
     pass
 
@@ -798,6 +868,20 @@ def main() -> int:
         and float(args.require_fixed_bdf2_max_residual) <= 0.0
     ):
         raise ValueError("--require-fixed-bdf2-max-residual must be positive.")
+    if (
+        args.require_fixed_bdf2_max_linear_iterations is not None
+        and int(args.require_fixed_bdf2_max_linear_iterations) < 0
+    ):
+        raise ValueError(
+            "--require-fixed-bdf2-max-linear-iterations must be nonnegative."
+        )
+    if (
+        args.require_fixed_bdf2_max_preconditioner_builds is not None
+        and int(args.require_fixed_bdf2_max_preconditioner_builds) < 0
+    ):
+        raise ValueError(
+            "--require-fixed-bdf2-max-preconditioner-builds must be nonnegative."
+        )
     case, input_path = resolve_reference_case(
         args.case, reference_root=args.reference_root
     )
@@ -924,6 +1008,12 @@ def main() -> int:
                     ),
                     required_linear_preconditioner=(
                         args.require_fixed_bdf2_linear_preconditioner
+                    ),
+                    max_linear_iterations=(
+                        args.require_fixed_bdf2_max_linear_iterations
+                    ),
+                    max_preconditioner_builds=(
+                        args.require_fixed_bdf2_max_preconditioner_builds
                     ),
                 )
             )

@@ -1096,6 +1096,22 @@ and `23.4 s` for the active-array route, preserved zero failed linear solves,
 and kept the residual below the `1e-5` gate. This is useful opt-in reuse
 evidence, but it is not a default-promotion result because the Krylov budget
 remains saturated.
+For that reason, performance campaigns should add explicit budget gates rather
+than relying on correctness diagnostics alone. The compare script provides
+`--require-fixed-bdf2-max-linear-iterations=<n>` and
+`--require-fixed-bdf2-max-preconditioner-builds=<n>`, and the wrapper forwards
+the same checks as `--fixed-bdf2-max-linear-iterations=<n>` and
+`--fixed-bdf2-max-preconditioner-builds=<n>`. A run that passes residual,
+fallback, and preconditioner-name checks but exceeds these budgets is a valid
+solver-correctness result and a failed performance-promotion result.
+The bounded refresh-100 `recycling_1d_one_step` rerun passes these stricter
+budget gates with `--require-fixed-bdf2-max-linear-iterations=3200` and
+`--require-fixed-bdf2-max-preconditioner-builds=2`: the fixed-full-field route
+ran in `18.9 s`, the active-array route ran in `22.5 s`, both reported
+residual `3.76e-6`, and both kept failed linear solves at zero. This is the
+current bounded fixture evidence for preconditioner reuse; heavier recycling
+and D/T/He gates still need the same budgeted treatment before default
+promotion.
 
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or

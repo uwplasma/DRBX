@@ -1279,6 +1279,26 @@ Use this log for concise decision records. Do not paste terminal output here.
   Because the JAX-GMRES update budget remains saturated, this stays opt-in and
   the next real performance target is reducing Krylov iterations through a
   stronger Schur/transport preconditioner or cheaper residual/JVP kernels.
+- 2026-06-18: Added optional fixed-BDF2 performance-promotion gates for
+  total JAX-GMRES budget and dynamic-preconditioner build count. The lower-level
+  compare script now accepts
+  `--require-fixed-bdf2-max-linear-iterations=<n>` and
+  `--require-fixed-bdf2-max-preconditioner-builds=<n>`; the promotion wrapper
+  forwards them as `--fixed-bdf2-max-linear-iterations=<n>` and
+  `--fixed-bdf2-max-preconditioner-builds=<n>`. These gates intentionally
+  separate solver-correctness evidence from performance-promotion evidence:
+  the current refresh-100 local-block gate is correct and faster than rebuilding
+  blocks, but still fails the stricter "reduced Krylov budget" standard until a
+  stronger Schur/transport preconditioner or cheaper residual/JVP path lands.
+- 2026-06-18: Ran the stricter bounded performance gate on
+  `recycling_1d_one_step` with `local_block_diag`, refresh `100`,
+  `--require-fixed-bdf2-max-linear-iterations=3200`, and
+  `--require-fixed-bdf2-max-preconditioner-builds=2`. Both fixed-full-field and
+  active-array fixed-BDF2 routes passed with residual `3.76e-6`, zero failed
+  linear solves, exactly `3200` linear iterations, and exactly `2`
+  preconditioner builds. Timings were `18.9 s` and `22.5 s`. This promotes
+  preconditioner reuse as a bounded opt-in fixture gate, not as heavy-kernel or
+  default-solver evidence.
 
 ## Definition Of Done
 

@@ -93,6 +93,8 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
         fixed_bdf2_timestep=10.0,
         fixed_bdf2_linear_preconditioner="local_block_diag",
         fixed_bdf2_linear_preconditioner_refresh=100,
+        fixed_bdf2_max_linear_iterations=3200,
+        fixed_bdf2_max_preconditioner_builds=2,
     )
 
     overrides = [
@@ -111,6 +113,12 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
     assert command[
         command.index("--require-fixed-bdf2-linear-preconditioner") + 1
     ] == "local_block_diag"
+    assert command[
+        command.index("--require-fixed-bdf2-max-linear-iterations") + 1
+    ] == "3200"
+    assert command[
+        command.index("--require-fixed-bdf2-max-preconditioner-builds") + 1
+    ] == "2"
 
 
 def test_recycling_jvp_promotion_gate_rejects_invalid_preconditioner_refresh() -> None:
@@ -131,6 +139,35 @@ def test_recycling_jvp_promotion_gate_rejects_invalid_preconditioner_refresh() -
         assert "fixed_bdf2_linear_preconditioner_refresh must be positive" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected ValueError")
+
+
+def test_recycling_jvp_promotion_gate_rejects_invalid_performance_budgets() -> None:
+    module = _load_module()
+    gate_case = module.GATE_CASES["recycling_1d_one_step"]
+
+    for kwargs, expected in (
+        (
+            {"fixed_bdf2_max_linear_iterations": -1},
+            "fixed_bdf2_max_linear_iterations must be nonnegative",
+        ),
+        (
+            {"fixed_bdf2_max_preconditioner_builds": -1},
+            "fixed_bdf2_max_preconditioner_builds must be nonnegative",
+        ),
+    ):
+        try:
+            module._build_case_command(
+                gate_case,
+                reference_root=Path("/tmp/reference-root"),
+                python_executable="python",
+                gate_phase="fixed_bdf2",
+                fixed_bdf2_timestep=10.0,
+                **kwargs,
+            )
+        except ValueError as exc:
+            assert expected in str(exc)
+        else:  # pragma: no cover
+            raise AssertionError("expected ValueError")
 
 
 def test_recycling_jvp_promotion_gate_has_bounded_dthe_fixed_bdf2_phase() -> None:

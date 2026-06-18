@@ -76,6 +76,8 @@ def _build_case_command(
     mode_timeout_seconds: float | None = None,
     fixed_bdf2_linear_preconditioner: str | None = None,
     fixed_bdf2_linear_preconditioner_refresh: int | None = None,
+    fixed_bdf2_max_linear_iterations: int | None = None,
+    fixed_bdf2_max_preconditioner_builds: int | None = None,
 ) -> list[str]:
     resolved_mode_timeout = (
         gate_case.mode_timeout_seconds
@@ -150,6 +152,28 @@ def _build_case_command(
                     "--override",
                     "runtime:recycling_fixed_bdf2_max_internal_timestep="
                     f"{float(gate_case.fixed_bdf2_max_internal_timestep):g}",
+                )
+            )
+        if fixed_bdf2_max_linear_iterations is not None:
+            max_linear_iterations = int(fixed_bdf2_max_linear_iterations)
+            if max_linear_iterations < 0:
+                raise ValueError("fixed_bdf2_max_linear_iterations must be nonnegative.")
+            command.extend(
+                (
+                    "--require-fixed-bdf2-max-linear-iterations",
+                    str(max_linear_iterations),
+                )
+            )
+        if fixed_bdf2_max_preconditioner_builds is not None:
+            max_preconditioner_builds = int(fixed_bdf2_max_preconditioner_builds)
+            if max_preconditioner_builds < 0:
+                raise ValueError(
+                    "fixed_bdf2_max_preconditioner_builds must be nonnegative."
+                )
+            command.extend(
+                (
+                    "--require-fixed-bdf2-max-preconditioner-builds",
+                    str(max_preconditioner_builds),
                 )
             )
         solver_modes = FIXED_BDF2_GATE_SOLVER_MODES
@@ -278,6 +302,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-max-linear-iterations",
+        type=int,
+        default=None,
+        help=(
+            "Forward --require-fixed-bdf2-max-linear-iterations to the fixed-BDF2 "
+            "compare phase. This should be used only for performance-promotion "
+            "campaigns, not correctness-only gates."
+        ),
+    )
+    parser.add_argument(
+        "--fixed-bdf2-max-preconditioner-builds",
+        type=int,
+        default=None,
+        help=(
+            "Forward --require-fixed-bdf2-max-preconditioner-builds to the fixed-BDF2 "
+            "compare phase. Useful for proving dynamic-preconditioner reuse."
+        ),
+    )
+    parser.add_argument(
         "--mode-timeout-seconds",
         type=float,
         default=None,
@@ -341,6 +384,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fixed_bdf2_linear_preconditioner_refresh=(
                     args.fixed_bdf2_linear_preconditioner_refresh
                 ),
+                fixed_bdf2_max_linear_iterations=(
+                    args.fixed_bdf2_max_linear_iterations
+                ),
+                fixed_bdf2_max_preconditioner_builds=(
+                    args.fixed_bdf2_max_preconditioner_builds
+                ),
             )
             resolved_mode_timeout = (
                 gate_case.mode_timeout_seconds
@@ -364,6 +413,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "fixed_bdf2_linear_preconditioner_refresh": (
                     args.fixed_bdf2_linear_preconditioner_refresh
+                ),
+                "fixed_bdf2_max_linear_iterations": (
+                    args.fixed_bdf2_max_linear_iterations
+                ),
+                "fixed_bdf2_max_preconditioner_builds": (
+                    args.fixed_bdf2_max_preconditioner_builds
                 ),
                 "command": command,
                 "output_json": case_output_json,
