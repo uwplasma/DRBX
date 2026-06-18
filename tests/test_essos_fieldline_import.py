@@ -217,7 +217,9 @@ def test_live_imported_connection_length_refinement_can_use_step_length_per_radi
         dphi = 2.0 * np.pi / float(ny)
         level_per_radian = 3.0 + 0.2 * coordinates["minor_radius"]
         return SimpleNamespace(
-            connection_length=dphi * level_per_radian,
+            connection_length=99.0 + dphi * level_per_radian,
+            adjacent_step_length=dphi * level_per_radian,
+            target_exit_length=50.0 + coordinates["minor_radius"],
             maps=SimpleNamespace(dphi=dphi),
             minor_radius=coordinates["minor_radius"],
             toroidal_angle=coordinates["toroidal_angle"],
@@ -244,10 +246,12 @@ def test_live_imported_connection_length_refinement_can_use_step_length_per_radi
         linf_threshold=1.0e-12,
     )
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    arrays = np.load(artifacts.arrays_npz_path)
 
     assert report["connection_quantity"] == "parallel_step_per_toroidal_radian"
     assert report["diagnostics"]["restriction_method"] == "coordinate_interpolation"
     assert report["passed"] is True
+    assert np.max(arrays["level_0"]) < 4.0
 
 
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")
@@ -293,6 +297,10 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     assert geometry.metadata["surface_nonaxisymmetric_major_rms"] > 1.0e-2
     assert np.all(np.isfinite(np.asarray(geometry.magnetic_field_magnitude)))
     assert np.all(np.isfinite(np.asarray(geometry.connection_length)))
+    assert geometry.adjacent_step_length is not None
+    assert geometry.target_exit_length is not None
+    assert np.any(np.isfinite(np.asarray(geometry.adjacent_step_length)))
+    assert np.any(np.isfinite(np.asarray(geometry.target_exit_length)))
     assert 0.05 < float(np.mean(np.asarray(geometry.maps.forward_boundary, dtype=bool))) < 0.95
     assert 0.05 < float(np.mean(np.asarray(geometry.maps.backward_boundary, dtype=bool))) < 0.95
 

@@ -66,6 +66,8 @@ class EssosImportedFciGeometry:
     poloidal_angle: jnp.ndarray
     magnetic_field_magnitude: jnp.ndarray
     connection_length: jnp.ndarray
+    adjacent_step_length: jnp.ndarray | None
+    target_exit_length: jnp.ndarray | None
     metric: MetricTensor3D
     maps: FciMaps
     metadata: dict[str, Any]
@@ -393,6 +395,8 @@ def build_essos_imported_fci_geometry(
         maps = coil_data["maps"]
         bmag = coil_data["bmag"]
         connection_length = coil_data["connection_length"]
+        adjacent_step_length = coil_data["adjacent_step_length"]
+        target_exit_length = coil_data["target_exit_length"]
         field_model = "essos.fields.BiotSavart"
         tracing_model = "essos.dynamics.Tracing(FieldLineAdaptative)"
     elif map_source == "vmec":
@@ -400,6 +404,8 @@ def build_essos_imported_fci_geometry(
         maps = vmec_data["maps"]
         bmag = vmec_data["bmag"]
         connection_length = vmec_data["connection_length"]
+        adjacent_step_length = vmec_data["connection_length"]
+        target_exit_length = np.full_like(connection_length, np.nan, dtype=np.float64)
         field_model = "essos.fields.Vmec"
         tracing_model = "vmec_coordinate_rk4_map"
     else:
@@ -416,6 +422,8 @@ def build_essos_imported_fci_geometry(
         )
         bmag = coil_data["bmag"]
         connection_length = coil_data["connection_length"]
+        adjacent_step_length = vmec_data["connection_length"]
+        target_exit_length = coil_data["target_exit_length"]
         field_model = "hybrid: VMEC map coordinates with Biot-Savart |B| and target masks"
         tracing_model = "vmec_coordinate_rk4_map + essos.dynamics.Tracing(FieldLineAdaptative) masks"
 
@@ -441,6 +449,8 @@ def build_essos_imported_fci_geometry(
         poloidal_angle=jnp.asarray(theta, dtype=jnp.float64),
         magnetic_field_magnitude=jnp.asarray(bmag, dtype=jnp.float64),
         connection_length=jnp.asarray(connection_length, dtype=jnp.float64),
+        adjacent_step_length=jnp.asarray(adjacent_step_length, dtype=jnp.float64),
+        target_exit_length=jnp.asarray(target_exit_length, dtype=jnp.float64),
         metric=metric,
         maps=maps,
         metadata={
@@ -585,6 +595,8 @@ def _build_essos_coil_fci_map_data(
         "maps": maps,
         "bmag": bmag,
         "connection_length": connection_length,
+        "adjacent_step_length": adjacent_length,
+        "target_exit_length": exit_length.reshape(shape),
         "current_sign": float(forward_current_sign),
     }
 

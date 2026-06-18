@@ -64,20 +64,21 @@ artifact passes with finest normalized RMS
 minimum RMS reduction factor `3.45`, and minimum \(L_\infty\) reduction factor
 `3.31`.
 
-The first live June 15, 2026 checks are intentionally retained as negative
-promotion evidence. A `hybrid` run on `(3, 4, 6) -> (6, 8, 12)` returned
-normalized RMS `0.43` and \(L_\infty\) `1.10`; a finer
-`(4, 6, 8) -> (8, 12, 16)` hybrid run returned RMS `0.49` and
-\(L_\infty\) `2.75`; a VMEC control returned RMS `0.65` and
-\(L_\infty\) `0.78`. These values are not publication-grade convergence
-evidence. They show that the live path runs, but raw adjacent-plane length is
-not always a grid-invariant quantity. A follow-up coordinate-aware VMEC control
-using `parallel_step_per_toroidal_radian` passes on `(3, 4, 6) -> (6, 8, 12)`
-with normalized RMS `0.136` and \(L_\infty\) `0.199`. The remaining live
-promotion blocker is the open-field `coil`/`hybrid` quantity: those arrays mix
-target-exit lengths with adjacent-plane fallback lengths, so the next gate must
-separate target-to-target connection length from adjacent-map step length before
-imported-field turbulence movies are used as validation evidence.
+The first live June 15, 2026 raw-length checks are intentionally retained as
+negative promotion evidence. Raw `coil` and `hybrid` runs on
+`(3, 4, 6) -> (6, 8, 12) -> (12, 16, 24)` returned normalized RMS `0.356`,
+\(L_\infty\) `2.52`, observed order `0.137`, and non-monotonic
+\(L_\infty\) error. Those values show that the mixed raw length is not a
+grid-invariant refinement quantity. After the importer was split into
+`raw_connection_length`, `adjacent_step_length`, and `target_exit_length`, live
+VMEC and hybrid controls using `parallel_step_per_toroidal_radian` pass the same
+three-level observed-order gate with normalized RMS `5.90e-2`,
+\(L_\infty\) `1.18e-1`, observed order `1.20`, minimum RMS reduction factor
+`2.30`, and minimum \(L_\infty\) reduction factor `1.69`. Pure coil
+adjacent-step tracing still fails at this resolution with normalized RMS
+`0.953`, \(L_\infty\) `0.998`, and observed order `6.8e-3`; it remains a
+separate field-line tracing refinement problem rather than evidence against
+the hybrid VMEC-map/coil-mask lane.
 
 ![Manufactured nested-grid connection-length refinement](data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png)
 
@@ -181,7 +182,11 @@ observed order when three or more levels are supplied. It also records
 successive RMS and \(L_\infty\) error-reduction factors and requires monotonic
 error reduction for three-or-more-level refinement claims. Promotion runs can
 set `require_observed_order=True`, which makes two-level reports fail even when
-the finest-grid error is small. The self-contained
+the finest-grid error is small. For live imported geometry, the available
+quantities are `raw_connection_length`, `adjacent_step_length`,
+`target_exit_length`, and `parallel_step_per_toroidal_radian`; only the
+adjacent-step quantities are appropriate for FCI-map convergence. The
+self-contained
 `imported_connection_length_refinement_demo.py` campaign exercises that exact
 report and plotting path with manufactured nested grids, so CI can protect the
 refinement logic even without the external field-line runtime. Imported-field
