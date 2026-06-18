@@ -167,17 +167,22 @@ The imported-map diagnostics now separately report connection-length finite and
 nonnegative fractions, radial connection-length means, grid/refinement metadata,
 single-grid connection-length resolution diagnostics, map-coordinate
 displacement proxies, a consumed-map check requiring the sheath endpoint count
-to match the forward-plus-backward FCI boundary masks, and an endpoint-length
-diagnostic. For open-field `coil` and `hybrid` maps the endpoint-length gate
+to match the forward-plus-backward FCI boundary masks, a direction-aware target
+label diagnostic, and an endpoint-length diagnostic. The target labels use
+`0` for closed/non-target cells, `1` for forward exits, `2` for backward exits,
+and `3` for bidirectional exits; the report verifies that these labels exactly
+reconstruct the endpoint counts consumed by the sheath and recycling closures.
+For open-field `coil` and `hybrid` maps the endpoint-length gate
 requires finite, nonnegative `target_exit_length` values on a nonzero subset of
 endpoint cells and finite, nonnegative `adjacent_step_length` values where the
 adjacent map exists. It also records forward- and backward-direction coverage
 separately, so later campaigns can tighten the promotion threshold from
 "present and physical" to directional wall-hit coverage on all relevant target
 cells. The compact NPZ and PNG artifacts now include `target_exit_toroidal` and
-`adjacent_step_toroidal`; the summary plot shows the target-exit map for
-open-field artifacts and falls back to the connection-length proxy for closed
-VMEC maps. The resolution
+`adjacent_step_toroidal`, plus `target_label_toroidal`; the summary plot shows
+directional target labels and the target-exit map for open-field artifacts, and
+falls back to endpoint counts and the connection-length proxy for closed VMEC
+maps. The resolution
 diagnostics record normalized neighbor jumps, per-axis 95th-percentile jumps,
 an underresolved-face fraction, and an advisory pass flag. They catch obviously
 grid-scale connection-length roughness before a live imported run is promoted,
