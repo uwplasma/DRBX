@@ -51,6 +51,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "--require-fixed-bdf2-diagnostics",
             "--require-fixed-bdf2-linear-preconditioner",
             "local-block",
+            "--require-fixed-bdf2-linear-solver-backend",
+            "bicgstab",
             "--require-fixed-bdf2-max-linear-iterations",
             "3600",
             "--require-fixed-bdf2-max-preconditioner-builds",
@@ -93,6 +95,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.require_fixed_jvp_diagnostics is True
     assert args.require_fixed_bdf2_diagnostics is True
     assert args.require_fixed_bdf2_linear_preconditioner == "local-block"
+    assert args.require_fixed_bdf2_linear_solver_backend == "bicgstab"
     assert args.require_fixed_bdf2_max_linear_iterations == 3600
     assert args.require_fixed_bdf2_max_preconditioner_builds == 2
     assert args.require_fixed_bdf2_max_preconditioner_applies == 40
@@ -117,6 +120,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert "fixed_bdf2_active_array_jax_linearized" in help_text
     assert "--require-fixed-bdf2-diagnostics" in help_text
     assert "--require-fixed-bdf2-linear-preconditioner" in help_text
+    assert "--require-fixed-bdf2-linear-solver-backend" in help_text
     assert "--require-fixed-bdf2-max-linear-iterations" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-builds" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-applies" in help_text
@@ -500,16 +504,43 @@ def test_fixed_bdf2_diagnostics_gate_accepts_active_array_route() -> None:
             "fixed_bdf2_linear_preconditioner": "local_block_diag",
             "fixed_bdf2_total_linear_preconditioner_build_count": 2,
             "fixed_bdf2_total_linear_preconditioner_build_seconds": 0.125,
+            "fixed_bdf2_linear_solver_backend": "jax_gmres",
             "fixed_bdf2_total_linear_iterations": 3200,
             "fixed_bdf2_total_linear_operator_call_count": 96,
         },
         required_linear_preconditioner="local-block-diag",
+        required_linear_solver_backend="gmres",
         max_linear_iterations=3600,
         max_linear_operator_calls=128,
         max_preconditioner_builds=2,
     )
 
     assert errors == []
+
+
+def test_fixed_bdf2_diagnostics_gate_reports_wrong_linear_backend() -> None:
+    errors = compare_script._validate_fixed_bdf2_diagnostics(
+        "fixed_bdf2_active_array_jax_linearized",
+        {
+            "fixed_bdf2_solver_mode": "fixed_bdf2_active_array_jax_linearized",
+            "fixed_bdf2_step_solver_mode": "active_array_jax_linearized",
+            "fixed_bdf2_active_array_rhs_steps": 2,
+            "fixed_bdf2_jax_linearized_action_steps": 2,
+            "fixed_bdf2_startup_steps": 1,
+            "fixed_bdf2_bdf2_steps": 1,
+            "fixed_bdf2_evolve_feedback_integrals": True,
+            "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+            "fixed_bdf2_linear_solver_backend": "jax_gmres",
+        },
+        required_linear_solver_backend="bicgstab",
+    )
+
+    assert errors == [
+        (
+            "fixed_bdf2_active_array_jax_linearized did not report "
+            "fixed_bdf2_linear_solver_backend=jax_bicgstab; reported jax_gmres"
+        )
+    ]
 
 
 def test_fixed_bdf2_diagnostics_gate_accepts_active_array_lineax_route() -> None:

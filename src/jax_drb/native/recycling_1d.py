@@ -2313,6 +2313,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_unconverged_solver_steps": 0,
         "fixed_bdf2_unknown_convergence_solver_steps": 0,
         "fixed_bdf2_linear_solver_failed_steps": 0,
+        "fixed_bdf2_linear_solver_backend": None,
         "fixed_bdf2_evolve_feedback_integrals": True,
         "fixed_bdf2_internal_substeps": 0,
         "fixed_bdf2_max_output_substeps": 1,
@@ -2397,6 +2398,10 @@ def _advance_recycling_1d_fixed_bdf2_history(
         if info.diagnostics.get("initial_residual_mode") is not None:
             diagnostics["fixed_bdf2_initial_residual_mode"] = str(
                 info.diagnostics["initial_residual_mode"]
+            )
+        if info.diagnostics.get("linear_solver_backend") is not None:
+            diagnostics["fixed_bdf2_linear_solver_backend"] = str(
+                info.diagnostics["linear_solver_backend"]
             )
         converged = info.diagnostics.get("converged")
         if converged is False:
@@ -4792,7 +4797,7 @@ def advance_recycling_1d_backward_euler_step(
         linear_backend = (
             "lineax_gmres"
             if solver_mode.endswith("_lineax")
-            else _resolve_recycling_jax_linear_solver_backend()
+            else _resolve_recycling_jax_linear_solver_backend(config)
         )
         preconditioner_name = (
             _resolve_recycling_jax_linear_preconditioner_name(config)
@@ -4992,7 +4997,7 @@ def advance_recycling_1d_bdf2_step(
         linear_backend = (
             "lineax_gmres"
             if solver_mode.endswith("_lineax")
-            else _resolve_recycling_jax_linear_solver_backend()
+            else _resolve_recycling_jax_linear_solver_backend(config)
         )
         preconditioner_name = (
             _resolve_recycling_jax_linear_preconditioner_name(config)
@@ -5746,12 +5751,20 @@ def _resolve_recycling_bdf2_use_be_initial_guess(
     )
 
 
-def _resolve_recycling_jax_linear_solver_backend() -> str:
-    env_value = (
-        os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "jax_gmres")
-        .strip()
-        .lower()
-    )
+def _resolve_recycling_jax_linear_solver_backend(
+    config: BoutConfig | None = None,
+) -> str:
+    option_name = "recycling_jax_linear_solver"
+    raw_value: object | None = None
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            raw_value = config.parsed(section_name, option_name)
+            break
+    if raw_value is None:
+        raw_value = os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "jax_gmres")
+    normalized = str(raw_value or "jax_gmres").strip().lower().replace("-", "_")
     aliases = {
         "jax": "jax_gmres",
         "jax_scipy": "jax_gmres",
@@ -5762,7 +5775,7 @@ def _resolve_recycling_jax_linear_solver_backend() -> str:
         "lineax": "lineax_gmres",
         "lineax_gmres": "lineax_gmres",
     }
-    return aliases.get(env_value, "jax_gmres")
+    return aliases.get(normalized, "jax_gmres")
 
 
 def _resolve_recycling_jax_linear_gmres_solve_method(

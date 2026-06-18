@@ -377,6 +377,7 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
                 "converged": True,
                 "linear_solver_success": True,
                 "linear_preconditioner": "local_block_diag",
+                "linear_solver_backend": "jax_gmres",
                 "linear_preconditioner_build_count": 2,
                 "linear_preconditioner_build_seconds": 0.125,
                 "linear_preconditioner_apply_count": 5,
@@ -470,6 +471,7 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
     assert diagnostics["fixed_bdf2_unconverged_solver_steps"] == 0
     assert diagnostics["fixed_bdf2_unknown_convergence_solver_steps"] == 0
     assert diagnostics["fixed_bdf2_linear_solver_failed_steps"] == 0
+    assert diagnostics["fixed_bdf2_linear_solver_backend"] == "jax_gmres"
     assert diagnostics["fixed_bdf2_initial_guess_policy"] == "rhs_predictor"
     assert diagnostics["fixed_bdf2_history_initial_guess_steps"] == 0
     assert diagnostics["fixed_bdf2_history_initial_guess_fallback_steps"] == 0

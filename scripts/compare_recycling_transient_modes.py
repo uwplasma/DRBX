@@ -206,6 +206,15 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-linear-solver-backend",
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "this JAX-linearized linear solver backend, for example jax_gmres or "
+            "jax_bicgstab."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-bdf2-max-linear-iterations",
         type=int,
         default=None,
@@ -573,6 +582,7 @@ def _validate_fixed_bdf2_diagnostics(
     *,
     max_residual_inf_norm: float | None = 1.0e-5,
     required_linear_preconditioner: str | None = None,
+    required_linear_solver_backend: str | None = None,
     max_linear_iterations: int | None = None,
     max_linear_operator_calls: int | None = None,
     max_preconditioner_builds: int | None = None,
@@ -651,6 +661,15 @@ def _validate_fixed_bdf2_diagnostics(
                 name_key="fixed_bdf2_linear_preconditioner",
                 count_key="fixed_bdf2_total_linear_preconditioner_build_count",
                 seconds_key="fixed_bdf2_total_linear_preconditioner_build_seconds",
+            )
+        )
+    if required_linear_solver_backend is not None:
+        errors.extend(
+            _validate_required_linear_solver_backend(
+                mode,
+                diagnostics,
+                required_linear_solver_backend=required_linear_solver_backend,
+                key="fixed_bdf2_linear_solver_backend",
             )
         )
     if max_linear_iterations is not None:
@@ -818,6 +837,40 @@ def _validate_adaptive_bdf_diagnostics(
 
 def _canonical_preconditioner_name(name: str) -> str:
     return str(name).strip().lower().replace("-", "_")
+
+
+def _canonical_linear_solver_backend(name: str) -> str:
+    normalized = str(name).strip().lower().replace("-", "_")
+    aliases = {
+        "jax": "jax_gmres",
+        "jax_scipy": "jax_gmres",
+        "gmres": "jax_gmres",
+        "jax_gmres": "jax_gmres",
+        "bicgstab": "jax_bicgstab",
+        "jax_bicgstab": "jax_bicgstab",
+        "lineax": "lineax_gmres",
+        "lineax_gmres": "lineax_gmres",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _validate_required_linear_solver_backend(
+    mode: str,
+    diagnostics: dict[str, object],
+    *,
+    required_linear_solver_backend: str,
+    key: str,
+) -> list[str]:
+    expected = _canonical_linear_solver_backend(required_linear_solver_backend)
+    reported = diagnostics.get(key)
+    reported_name = (
+        None if reported is None else _canonical_linear_solver_backend(str(reported))
+    )
+    if reported_name != expected:
+        return [
+            f"{mode} did not report {key}={expected}; reported {reported_name}"
+        ]
+    return []
 
 
 def _validate_required_linear_preconditioner(
@@ -1066,6 +1119,9 @@ def main() -> int:
                     ),
                     required_linear_preconditioner=(
                         args.require_fixed_bdf2_linear_preconditioner
+                    ),
+                    required_linear_solver_backend=(
+                        args.require_fixed_bdf2_linear_solver_backend
                     ),
                     max_linear_iterations=(
                         args.require_fixed_bdf2_max_linear_iterations

@@ -1587,6 +1587,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   promotion evidence rather than a default solver change. This reinforces the
   P3 direction: reduce residual/JVP action cost or build an actually
   Krylov-effective transport/Schur preconditioner.
+- 2026-06-18: Closed a JAX-linearized backend-control gap: recycling now honors
+  `runtime:recycling_jax_linear_solver` / `jax_drb:recycling_jax_linear_solver`
+  in addition to `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER`, fixed-output BDF2
+  summaries report `fixed_bdf2_linear_solver_backend`, and the comparison
+  harness can enforce it with
+  `--require-fixed-bdf2-linear-solver-backend`. The bounded hydrogen
+  active-array gate now proves configured backend selection: GMRES reported
+  `jax_gmres`, residual `2.90e-6`, `35` operator calls, and `15.63 s`;
+  BiCGSTAB reported `jax_bicgstab`, residual `2.90e-6`, and the same `35`
+  operator calls. Timing was not robust enough to promote BiCGSTAB (`19.25 s`
+  cold, `14.88 s` warmed), so this is a reproducibility/screening fix rather
+  than a performance promotion.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic

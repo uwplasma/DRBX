@@ -1313,6 +1313,19 @@ calls). A subsequent default-policy repeat reported `rhs_predictor`, residual
 is therefore retained as an opt-in diagnostic rather than a default runtime
 change.
 
+The same fixed-BDF2 diagnostics now report
+`fixed_bdf2_linear_solver_backend`, and the comparison harness can require it
+with `--require-fixed-bdf2-linear-solver-backend`. This closes a reproducibility
+gap in backend studies: `runtime:recycling_jax_linear_solver=bicgstab` now
+selects `jax_bicgstab` from input overrides rather than requiring a shell-only
+environment variable. On the bounded two-window hydrogen active-array gate,
+configured GMRES passed with residual `2.90e-6`, `35` operator calls, and
+`15.63 s`; configured BiCGSTAB also passed and reported `jax_bicgstab`, residual
+`2.90e-6`, and the same `35` operator calls, but timings were noisy across
+repeats (`19.25 s` in the cold comparison and `14.88 s` in the warmed gate).
+Because the operator-count budget did not improve, this is a reproducibility and
+screening improvement rather than a backend-promotion result.
+
 The generic JAX-linearized solver now also reuses the already-known residual
 norm for the final accepted state when a bounded solve exits because the
 nonlinear iteration budget was exhausted. This removes a redundant final

@@ -221,11 +221,14 @@ currently keep `rhs_predictor` as the default because history extrapolation did
 not reduce Krylov work on the active-array recycling fixture.
 
 For JAX-linearized promotion experiments, the inner matrix-free Krylov backend
-can be selected with `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER`. Supported values are
-`jax_gmres` (default), `lineax_gmres` when the optional Lineax package is
-installed, and `jax_bicgstab`. The BiCGSTAB path is diagnostic: local JAX does
-not report an inner success flag for that solver, so adaptive-BDF diagnostics
-count those steps under `adaptive_bdf_unknown_linear_solver_steps`.
+can be selected with `runtime:recycling_jax_linear_solver=<backend>` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER`. Supported values are `jax_gmres`
+(default), `lineax_gmres` when the optional Lineax package is installed, and
+`jax_bicgstab`. The fixed-BDF2 comparison gate can require the selected backend
+with `--require-fixed-bdf2-linear-solver-backend`. The BiCGSTAB path is
+diagnostic: local JAX does not report an inner success flag for that solver, so
+adaptive-BDF diagnostics count those steps under
+`adaptive_bdf_unknown_linear_solver_steps`.
 
 Current status:
 

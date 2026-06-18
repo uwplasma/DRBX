@@ -3191,18 +3191,23 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
 def test_recycling_runtime_option_resolvers_reject_invalid_preconditioner_and_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", raising=False)
     monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", raising=False)
     monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", raising=False)
     monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", raising=False)
     config = parse_bout_input(
         """
         [runtime]
+        recycling_jax_linear_solver = invalid
         recycling_jax_linear_restart = invalid
         recycling_jax_linear_maxiter = invalid
         recycling_jax_linear_jit_residual = false
         """
     )
 
+    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_backend(config) == (
+        "jax_gmres"
+    )
     assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls(config) == (
         20,
         20,
@@ -3218,6 +3223,27 @@ def test_recycling_runtime_option_resolvers_reject_invalid_preconditioner_and_co
             np.asarray([1.0], dtype=np.float64),
             name="field_scale",
         )
+
+
+def test_recycling_jax_linear_solver_backend_prefers_runtime_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "lineax")
+    config = parse_bout_input(
+        """
+        [runtime]
+        recycling_jax_linear_solver = bicgstab
+        """
+    )
+
+    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_backend(config) == (
+        "jax_bicgstab"
+    )
+
+    env_config = parse_bout_input("[runtime]\n")
+    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_backend(env_config) == (
+        "lineax_gmres"
+    )
 
 
 @pytest.mark.parametrize(
