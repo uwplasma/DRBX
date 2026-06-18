@@ -1,6 +1,16 @@
 # Parity Matrix
 
-This document tracks the parity buildout against the private reference implementation. Historical legacy material is archived outside the active release branch and is not part of the active implementation plan. For visual snapshots of the validated slices, see [docs/validation_gallery.md](docs/validation_gallery.md).
+!!! note "Plan authority"
+    This page is a subordinate parity appendix. The active execution plan is
+    [research_grade_execution_plan.md](research_grade_execution_plan.md). If
+    this page conflicts with that plan, follow the execution plan and update
+    this appendix afterward.
+
+This document tracks the parity buildout against the private reference
+implementation. Historical legacy material is archived outside the active
+release branch and is not part of the consolidated execution plan. For visual
+snapshots of the validated slices, see
+[docs/validation_gallery.md](docs/validation_gallery.md).
 
 ## Stage 1: Configuration And Runtime Skeleton
 

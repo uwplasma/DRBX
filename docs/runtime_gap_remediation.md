@@ -1,7 +1,14 @@
 # Runtime And Fidelity Gap Remediation
 
-This document is the execution plan for the current worst runtime and
-native-versus-Hermès mismatch cases.
+!!! note "Plan authority"
+    This page is a subordinate technical appendix for runtime and parity
+    offender details. The active execution plan is
+    [research_grade_execution_plan.md](research_grade_execution_plan.md). If
+    this page conflicts with that plan, follow the execution plan and update
+    this appendix afterward.
+
+This document records the current worst runtime and native-versus-Hermès
+mismatch cases that feed the consolidated execution plan.
 
 It is based on the refreshed same-machine live rerun matrix in:
 
