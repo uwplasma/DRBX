@@ -641,6 +641,9 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
     assert "max_abs_value" in text
     assert "active_shape" in text
     assert "active_values" in text
+    assert "std::string json_metric_payload(const TraceMetrics& metrics)" in text
+    assert "std::string json_real_vector(const std::vector<BoutReal>& values)" in text
+    assert text.count("std::setprecision(17)") >= 3
     assert "target_adjacent_shape" in text
     assert "target_adjacent_values" in text
     assert "guard_shape" in text

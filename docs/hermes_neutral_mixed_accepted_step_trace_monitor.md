@@ -276,6 +276,20 @@ arrays with the reference `BOUT.dmp.0.nc` diagnostics. This closes the neutral
 diffusion, velocity, and viscosity input formulas to roundoff on the current
 reference final state, including target-adjacent and guard cells.
 
+A June 18, 2026 precision rerun fixed the reference monitor serialization:
+the top-level accepted-step stream already used 17 significant digits, but the
+nested `json_metric_payload` and `json_real_vector` helpers created independent
+streams and therefore truncated active-state payloads to default precision. The
+patch now sets `std::setprecision(17)` inside each helper. A new reference trace
+with `309` matched accepted steps keeps zero solver-order mismatches. It changes
+the residual diagnostic from a density-roundoff artifact to the physically
+relevant small `NVh` residual: the largest native residual evaluated on
+reference accepted states is `2.76e-6`, localized at the target-adjacent neutral
+momentum row. The dominant state-history drift is still the near-target
+`Grad(logPnlimh)`/`Dnnh_flux_max` ladder, so the next code patch should target
+accepted-state/history preparation before changing local neutral pressure,
+viscosity, or raw diffusion formulas.
+
 ## Validation Sequence
 
 After rebuilding the reference executable, generate and compare traces:

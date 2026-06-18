@@ -1106,6 +1106,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   now verifies the recount-aware forward and reverse patch checks. Hosted
   Actions should be rechecked periodically, but the current zero-step failures
   remain runner/account-startup evidence rather than repo-code evidence.
+- 2026-06-18: Rechecked the latest hosted `test`, `coverage`, and `docs`
+  Actions runs for commit `3edf668`. Every failed job still has an empty step
+  list and the same GitHub annotation: the job was not started because recent
+  account payments failed or the spending limit must be increased. This closes
+  the actionable CI lane for now; no repo-side CI failure is available to fix
+  until GitHub runners can start again.
+- 2026-06-18: Tightened the neutral-mixed accepted-step reference monitor patch
+  by setting 17-digit precision inside the nested JSON helper streams. The
+  high-precision rerun keeps `309/309` matched accepted steps and zero
+  solver-order mismatches, and it moves the reference-state residual diagnostic
+  away from density-roundoff noise to a small target-adjacent `NVh` residual
+  (`2.76e-6`). The dominant parity lane remains accepted-state/history
+  preparation feeding `Grad(logPnlimh)` and the `Dnnh_flux_max` limiter ladder.
 - 2026-06-18: Refined the master plan into an execution checklist with
   explicit working rules, lane completion criteria, milestone map, and immediate
   next work package. Confirmed that `plan_jax_drb.md` is only a redirect and

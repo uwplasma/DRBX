@@ -184,6 +184,7 @@ index 0d07e095..1e5d3b45 100644
 +
 +std::string json_metric_payload(const TraceMetrics& metrics) {
 +  std::ostringstream stream;
++  stream << std::setprecision(17);
 +  stream << "{\"max_abs\":" << metrics.max_abs << ",\"rms\":" << metrics.rms
 +         << ",\"max_abs_index\":[" << metrics.max_abs_x << ","
 +         << metrics.max_abs_y << "," << metrics.max_abs_z
@@ -206,6 +207,7 @@ index 0d07e095..1e5d3b45 100644
 +
 +std::string json_real_vector(const std::vector<BoutReal>& values) {
 +  std::ostringstream stream;
++  stream << std::setprecision(17);
 +  stream << "[";
 +  for (std::size_t index = 0; index < values.size(); ++index) {
 +    if (index > 0) {
