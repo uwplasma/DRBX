@@ -40,6 +40,8 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "100",
             "--require-linear-preconditioner",
             "local_block_diag",
+            "--require-initial-residual-mode",
+            "linearize",
             "--linear-restart",
             "20",
             "--linear-maxiter",
@@ -78,6 +80,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.linear_tolerance_factor == 10.0
     assert args.line_search_initial_step_scale == 0.25
     assert args.require_linear_preconditioner == "local_block_diag"
+    assert args.require_initial_residual_mode == "linearize"
     assert args.require_max_linear_iterations == 3200
     assert args.require_max_residual_inf_norm == 7.4
     assert args.require_max_residual_evaluations == 2
@@ -105,6 +108,7 @@ def test_help_documents_preconditioner_and_budget_gates(
     assert "--linear-tolerance-factor" in help_text
     assert "--line-search-initial-step-scale" in help_text
     assert "--require-linear-preconditioner" in help_text
+    assert "--require-initial-residual-mode" in help_text
     assert "--require-max-linear-iterations" in help_text
     assert "--require-max-residual-inf-norm" in help_text
     assert "--require-max-residual-evaluations" in help_text
@@ -161,6 +165,10 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "--require-linear-preconditioner must be nonempty",
         ),
         (
+            {"require_initial_residual_mode": "bad"},
+            "--require-initial-residual-mode must be 'residual' or 'linearize'",
+        ),
+        (
             {"initial_residual_mode": "bad"},
             "--initial-residual-mode must be 'residual' or 'linearize'",
         ),
@@ -215,6 +223,7 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "linear_preconditioner": None,
             "linear_preconditioner_refresh": None,
             "require_linear_preconditioner": None,
+            "require_initial_residual_mode": None,
             "initial_residual_mode": None,
             "linear_restart": None,
             "linear_maxiter": None,
@@ -241,6 +250,7 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
     module = _load_module()
     args = SimpleNamespace(
         require_linear_preconditioner="local-block-diag",
+        require_initial_residual_mode="linearized",
         require_max_linear_iterations=3200,
         require_max_residual_inf_norm=7.4,
         require_max_residual_evaluations=2,
@@ -257,6 +267,7 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
         "residual_inf_norm": 7.315,
         "diagnostics": {
             "linear_preconditioner": "local_block_diag",
+            "initial_residual_mode": "linearize",
             "linear_preconditioner_build_count": 2,
             "linear_preconditioner_build_seconds": 0.125,
             "residual_evaluation_count": 2,
@@ -272,6 +283,7 @@ def test_profile_gate_errors_accept_static_preconditioner_without_builds() -> No
     module = _load_module()
     args = SimpleNamespace(
         require_linear_preconditioner="state-scale",
+        require_initial_residual_mode=None,
         require_max_linear_iterations=None,
         require_max_residual_inf_norm=None,
         require_max_residual_evaluations=None,
@@ -294,6 +306,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
     module = _load_module()
     args = SimpleNamespace(
         require_linear_preconditioner="parallel-line",
+        require_initial_residual_mode="linearize",
         require_max_linear_iterations=10,
         require_max_residual_inf_norm=7.4,
         require_max_residual_evaluations=2,
@@ -310,6 +323,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
         "residual_inf_norm": 8.1,
         "diagnostics": {
             "linear_preconditioner": "local_block_diag",
+            "initial_residual_mode": "residual",
             "linear_preconditioner_build_count": 3,
             "linear_preconditioner_build_seconds": float("nan"),
             "residual_evaluation_count": 4,
@@ -321,6 +335,10 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
     errors = module._profile_gate_errors(profile_report, args)
 
     assert "profile did not report linear_preconditioner=parallel_line" in errors
+    assert (
+        "profile reported diagnostics.initial_residual_mode=residual, "
+        "expected linearize"
+    ) in errors
     assert (
         "profile did not report finite nonnegative "
         "linear_preconditioner_build_seconds"
@@ -340,6 +358,7 @@ def test_profile_gate_errors_reject_noop_profiles() -> None:
     module = _load_module()
     args = SimpleNamespace(
         require_linear_preconditioner=None,
+        require_initial_residual_mode=None,
         require_max_linear_iterations=None,
         require_max_residual_inf_norm=None,
         require_max_residual_evaluations=None,

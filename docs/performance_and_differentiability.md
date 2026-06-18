@@ -1267,7 +1267,10 @@ JAX-linearized recycling gate, the safer `linearize` mode passed with
 residual norm `7.315`, clean JAX-GMRES status `0`, median timed run `6.97 s`,
 and sampled peak RSS delta `525 MiB`. That evidence supports the profiling
 surface but does not promote the full output-window recycling solve to the
-default path.
+default path. The profile script can now also require this mode with
+`--require-initial-residual-mode linearize`, and the local D/T/He research
+bundle uses that gate so future profiles cannot silently fall back to the
+standalone residual path.
 
 The generic JAX-linearized solver now also reuses the already-known residual
 norm for the final accepted state when a bounded solve exits because the

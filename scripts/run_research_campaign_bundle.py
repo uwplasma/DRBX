@@ -188,6 +188,8 @@ def _campaign_command_map(
                 "0.25",
                 "--initial-residual-mode",
                 "linearize",
+                "--require-initial-residual-mode",
+                "linearize",
                 "--require-min-nonlinear-iterations",
                 "1",
                 "--require-min-linear-iterations",

@@ -218,6 +218,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--require-initial-residual-mode",
+        choices=("residual", "linearize"),
+        default=None,
+        help=(
+            "Fail after profiling unless diagnostics.initial_residual_mode "
+            "matches this mode. Use this to prove a profile exercised the "
+            "safety-preserving linearized initial-residual check instead of "
+            "silently falling back to the standalone residual path."
+        ),
+    )
+    parser.add_argument(
         "--require-max-linear-iterations",
         type=int,
         default=None,
@@ -323,6 +334,15 @@ def _validate_args(args: argparse.Namespace) -> None:
         args.require_linear_preconditioner
     ).strip():
         raise SystemExit("--require-linear-preconditioner must be nonempty.")
+    required_initial_residual_mode = getattr(
+        args, "require_initial_residual_mode", None
+    )
+    if required_initial_residual_mode is not None:
+        mode = str(required_initial_residual_mode).strip().lower().replace("-", "_")
+        if mode not in {"residual", "linearize"}:
+            raise SystemExit(
+                "--require-initial-residual-mode must be 'residual' or 'linearize'."
+            )
     initial_residual_mode = getattr(args, "initial_residual_mode", None)
     if initial_residual_mode is not None:
         mode = str(initial_residual_mode).strip().lower().replace("-", "_")
@@ -499,6 +519,27 @@ def _canonical_preconditioner_name(name: str) -> str:
     return str(name).strip().lower().replace("-", "_")
 
 
+def _canonical_initial_residual_mode(name: str) -> str:
+    normalized = str(name or "residual").strip().lower().replace("-", "_")
+    aliases = {
+        "": "residual",
+        "default": "residual",
+        "residual": "residual",
+        "standalone": "residual",
+        "separate": "residual",
+        "linearize": "linearize",
+        "linearized": "linearize",
+        "linearization": "linearize",
+        "jacobian": "linearize",
+    }
+    if normalized not in aliases:
+        raise ValueError(
+            "initial residual mode must be 'residual' or 'linearize', "
+            f"got {name!r}."
+        )
+    return aliases[normalized]
+
+
 def _is_dynamic_preconditioner_name(name: str) -> bool:
     return _canonical_preconditioner_name(name) in {
         "linearized_diag",
@@ -545,6 +586,35 @@ def _validate_required_linear_preconditioner(
                 "linear_preconditioner_build_seconds"
             )
     return errors
+
+
+def _validate_required_initial_residual_mode(
+    profile_report: dict[str, Any],
+    required_initial_residual_mode: str,
+) -> list[str]:
+    try:
+        expected = _canonical_initial_residual_mode(required_initial_residual_mode)
+    except ValueError as exc:
+        return [str(exc)]
+    diagnostics = profile_report.get("diagnostics", {})
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+    reported = diagnostics.get("initial_residual_mode")
+    if reported is None:
+        return ["profile did not report diagnostics.initial_residual_mode"]
+    try:
+        reported_mode = _canonical_initial_residual_mode(str(reported))
+    except ValueError:
+        return [
+            "profile reported invalid diagnostics.initial_residual_mode="
+            f"{reported!r}"
+        ]
+    if reported_mode != expected:
+        return [
+            "profile reported diagnostics.initial_residual_mode="
+            f"{reported_mode}, expected {expected}"
+        ]
+    return []
 
 
 def _validate_maximum_integer_value(
@@ -627,6 +697,16 @@ def _profile_gate_errors(
         errors.extend(
             _validate_required_linear_preconditioner(
                 profile_report, str(required_preconditioner)
+            )
+        )
+    required_initial_residual_mode = getattr(
+        args, "require_initial_residual_mode", None
+    )
+    if required_initial_residual_mode is not None:
+        errors.extend(
+            _validate_required_initial_residual_mode(
+                profile_report,
+                str(required_initial_residual_mode),
             )
         )
     max_linear_iterations = getattr(args, "require_max_linear_iterations", None)
@@ -948,6 +1028,7 @@ def main() -> int:
         "profile": profile_report,
         "gate_requirements": {
             "linear_preconditioner": args.require_linear_preconditioner,
+            "initial_residual_mode": args.require_initial_residual_mode,
             "max_linear_iterations": args.require_max_linear_iterations,
             "max_residual_inf_norm": args.require_max_residual_inf_norm,
             "max_residual_evaluations": args.require_max_residual_evaluations,

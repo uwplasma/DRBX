@@ -1539,6 +1539,14 @@ Use this log for concise decision records. Do not paste terminal output here.
   budget, clean solver status `0`, median timed run `6.97 s`, and sampled peak
   RSS delta `525 MiB`. This is measured host/device-barrier evidence, not yet a
   full-output-window default-promotion result.
+- 2026-06-18: Hardened the JAX-linearized recycling profiler with
+  `--require-initial-residual-mode=<mode>`. The local D/T/He research bundle now
+  both requests and requires `linearize`, so the safety-preserving initial
+  residual path is part of the profile gate rather than an unchecked override.
+  A live rerun with the required gate passed with `gate_errors=[]`, reported
+  `initial_residual_mode=linearize`, `check_initial_residual=true`, residual
+  evaluations `2`, one line-search trial, residual norm `7.315`, and median
+  timed run `7.09 s`.
 
 ## Definition Of Done
 
