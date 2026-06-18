@@ -922,6 +922,12 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         matched_points=matched_points,
         input_path=input_path,
     )
+    reference_rhs_register = _build_reference_active_state_rhs_register(
+        native_report=native_report,
+        reference_points=reference_points,
+        matched_points=matched_points,
+        input_path=input_path,
+    )
     comparable_solver_order_deltas = [
         int(point.get("solver_order_delta", 0))
         for point in matched_points
@@ -961,6 +967,7 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         "accepted_step_state_history_register": accepted_step_state_history_register,
         "accepted_step_error_onset_register": accepted_step_error_onset_register,
         "reference_active_state_residual_register": reference_residual_register,
+        "reference_active_state_rhs_register": reference_rhs_register,
         "matched_points": matched_points,
         "interpretation": (
             "This accepted-internal-step parity report compares native and reference "
@@ -1245,6 +1252,241 @@ def _build_reference_active_state_residual_register(
         "worst_entry": worst_entry,
         "entries": entries,
         "skipped_points": skipped[:8],
+    }
+
+
+def _build_reference_active_state_rhs_register(
+    *,
+    native_report: dict[str, object],
+    reference_points: list[dict[str, object]],
+    matched_points: list[dict[str, object]],
+    input_path: str | Path | None,
+) -> dict[str, object]:
+    """Compare native RHS/source payloads evaluated on reference accepted states."""
+
+    resolved_input = _resolve_trace_input_path(input_path, native_report=native_report)
+    if resolved_input is None:
+        return {
+            "available": False,
+            "reason": "input_path_unavailable",
+            "description": (
+                "Native RHS evaluation on reference accepted states requires the "
+                "input deck used to build mesh, metrics, and normalization scalars."
+            ),
+        }
+    if not resolved_input.exists():
+        return {
+            "available": False,
+            "reason": "input_path_not_found",
+            "input_path": _sanitize_public_path(resolved_input),
+        }
+    if not reference_points:
+        return {"available": False, "reason": "no_reference_points"}
+    if not matched_points:
+        return {"available": False, "reason": "no_matched_points"}
+
+    config = load_bout_input(resolved_input)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    section = str(
+        native_report.get("section")
+        or (run_config.components[0].section if run_config.components else "h")
+    )
+    template_state = initialize_neutral_mixed_state(config, section=section, mesh=mesh)
+    active_x = slice(mesh.xstart, mesh.xend + 1)
+    active_y = slice(mesh.ystart, mesh.yend + 1)
+    target_y_indices = _target_adjacent_y_indices(mesh)
+    guard_y_indices = _neutral_mixed_guard_y_indices(mesh)
+    sample_y_indices = tuple(sorted(set(target_y_indices).union(guard_y_indices)))
+    line_x = int(mesh.xstart + max((mesh.xend - mesh.xstart) // 2, 0))
+    line_z = int(mesh.nz // 2)
+
+    skipped: list[dict[str, object]] = []
+    entries: list[dict[str, object]] = []
+    aggregate_fields: dict[str, dict[str, object]] = {}
+    for matched_point in matched_points:
+        reference_index = int(matched_point.get("reference_index", -1))
+        if reference_index < 0 or reference_index >= len(reference_points):
+            continue
+        reference_point = reference_points[reference_index]
+        reference_fields = reference_point.get("fields", {})
+        if not isinstance(reference_fields, dict):
+            skipped.append(
+                {
+                    "reference_index": reference_index,
+                    "time": float(matched_point.get("time", 0.0)),
+                    "reason": "reference_fields_unavailable",
+                }
+            )
+            continue
+        state = _reference_state_from_active_trace_payload(
+            reference_point,
+            section=section,
+            template=template_state,
+            mesh=mesh,
+        )
+        if state is None:
+            skipped.append(
+                {
+                    "reference_index": reference_index,
+                    "time": float(matched_point.get("time", 0.0)),
+                    "reason": "missing_full_active_state_payload",
+                }
+            )
+            continue
+        native_fields = _native_accepted_step_rhs_field_payloads(
+            config,
+            state,
+            section=section,
+            mesh=mesh,
+            metrics=metrics,
+            meters_scale=float(scalars["rho_s0"]),
+            tnorm=float(scalars["Tnorm"]),
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            guard_y_indices=guard_y_indices,
+            sample_y_indices=sample_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+        )
+        point_errors = _compare_accepted_step_fields(
+            {"fields": native_fields},
+            {"fields": reference_fields},
+        )
+        ranked_point_fields = sorted(
+            (
+                _accepted_step_point_error_entry(name, error)
+                for name, error in point_errors.items()
+            ),
+            key=_accepted_trace_field_ranking_key,
+            reverse=True,
+        )
+        entries.append(
+            {
+                "native_index": int(matched_point.get("native_index", 0)),
+                "reference_index": reference_index,
+                "time": float(matched_point.get("time", 0.0)),
+                "dt": float(matched_point.get("reference_dt", 0.0)),
+                "solver_order": int(matched_point.get("reference_solver_order", 0)),
+                "ranked_fields": ranked_point_fields[:8],
+            }
+        )
+        for name, error in point_errors.items():
+            aggregate = aggregate_fields.setdefault(
+                name,
+                {
+                    "field": name,
+                    "comparison_scope": _accepted_trace_field_scope(name),
+                    "max_active_delta": 0.0,
+                    "max_target_adjacent_delta": 0.0,
+                    "max_guard_delta": 0.0,
+                    "max_sample_lineout_delta": 0.0,
+                    "max_target_adjacent_pointwise_delta": 0.0,
+                    "max_guard_pointwise_delta": 0.0,
+                    "worst_ranking_key": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "worst_time": float(matched_point.get("time", 0.0)),
+                },
+            )
+            _update_trace_error_aggregate(
+                aggregate, error, float(matched_point.get("time", 0.0))
+            )
+    if not entries:
+        return {
+            "available": False,
+            "reason": "no_full_active_reference_states",
+            "input_path": _sanitize_public_path(resolved_input),
+            "skipped_points": skipped[:8],
+        }
+    ranked_fields = sorted(
+        aggregate_fields.values(),
+        key=_accepted_trace_field_ranking_key,
+        reverse=True,
+    )
+    ranked_source_preboundary_fields = [
+        item
+        for item in ranked_fields
+        if not str(item.get("field", "")).startswith("ddt(")
+    ]
+    worst_entry = max(
+        entries,
+        key=lambda entry: _accepted_trace_field_ranking_key(
+            entry["ranked_fields"][0]
+        )
+        if entry["ranked_fields"]
+        else (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+    )
+    return {
+        "available": True,
+        "description": (
+            "Native neutral RHS/source/preboundary payloads evaluated on "
+            "reference accepted-step states and compared directly with reference "
+            "trace payloads. This isolates local operator/boundary algebra from "
+            "time-discretization and accepted-state history differences."
+        ),
+        "input_path": _sanitize_public_path(resolved_input),
+        "section": section,
+        "evaluated_point_count": len(entries),
+        "skipped_point_count": len(skipped),
+        "fields": aggregate_fields,
+        "ranked_fields": ranked_fields,
+        "ranked_source_preboundary_fields": ranked_source_preboundary_fields,
+        "dominant_field": str(ranked_fields[0]["field"]) if ranked_fields else "",
+        "dominant_source_preboundary_field": (
+            str(ranked_source_preboundary_fields[0]["field"])
+            if ranked_source_preboundary_fields
+            else ""
+        ),
+        "max_source_preboundary_target_adjacent_pointwise_delta": (
+            float(
+                ranked_source_preboundary_fields[0].get(
+                    "max_target_adjacent_pointwise_delta", 0.0
+                )
+            )
+            if ranked_source_preboundary_fields
+            else 0.0
+        ),
+        "worst_entry": worst_entry,
+        "entries": entries,
+        "skipped_points": skipped[:8],
+    }
+
+
+def _accepted_step_point_error_entry(
+    field_name: str, error: dict[str, object]
+) -> dict[str, object]:
+    """Convert one point-level trace comparison into aggregate-style keys."""
+
+    return {
+        "field": field_name,
+        "comparison_scope": _accepted_trace_field_scope(field_name),
+        "max_active_delta": float(error.get("active_max_abs_delta", 0.0)),
+        "max_target_adjacent_delta": float(
+            error.get("target_adjacent_max_abs_delta", 0.0)
+        ),
+        "max_guard_delta": float(error.get("guard_max_abs_delta", 0.0)),
+        "max_sample_lineout_delta": float(
+            error.get("sample_lineout_max_abs_delta", 0.0)
+        ),
+        "max_target_adjacent_pointwise_delta": float(
+            error.get("target_adjacent_pointwise_max_abs_delta", 0.0)
+        ),
+        "max_guard_pointwise_delta": float(
+            error.get("guard_pointwise_max_abs_delta", 0.0)
+        ),
+        "max_active_delta_worst_index": error.get("active_worst_index", {}),
+        "max_target_adjacent_delta_worst_index": error.get(
+            "target_adjacent_worst_index", {}
+        ),
+        "max_guard_delta_worst_index": error.get("guard_worst_index", {}),
+        "max_target_adjacent_pointwise_delta_worst_index": error.get(
+            "target_adjacent_pointwise_worst_index", {}
+        ),
+        "max_guard_pointwise_delta_worst_index": error.get(
+            "guard_pointwise_worst_index", {}
+        ),
     }
 
 

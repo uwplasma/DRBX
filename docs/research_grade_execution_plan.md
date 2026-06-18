@@ -1119,6 +1119,16 @@ Use this log for concise decision records. Do not paste terminal output here.
   away from density-roundoff noise to a small target-adjacent `NVh` residual
   (`2.76e-6`). The dominant parity lane remains accepted-state/history
   preparation feeding `Grad(logPnlimh)` and the `Dnnh_flux_max` limiter ladder.
+- 2026-06-18: Added a `reference_active_state_rhs_register` to the accepted-step
+  parity report. It reconstructs each reference accepted state and evaluates the
+  native neutral RHS/source/preboundary payloads on that state, separating local
+  operator algebra from time-discretization history. On the high-precision
+  max-order-2 trace the source/preboundary target-adjacent mismatch closes to
+  roundoff (`1.42e-14`), including `grad_logPnlimh_y`, `Dnnh_flux_max`, `Dnnh`,
+  `eta_h`, and the `SNVh_*` terms. The all-field RHS-on-reference ranking is
+  dominated by `ddt(NVh)` at about `1.42e-4`, so the next neutral `NVh` patch
+  should target accepted-step time-derivative/state-history sequencing rather
+  than local pressure-gradient, viscosity, or diffusion-limit formulas.
 - 2026-06-18: Refined the master plan into an execution checklist with
   explicit working rules, lane completion criteria, milestone map, and immediate
   next work package. Confirmed that `plan_jax_drb.md` is only a redirect and

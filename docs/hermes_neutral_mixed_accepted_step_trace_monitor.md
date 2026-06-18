@@ -290,6 +290,19 @@ momentum row. The dominant state-history drift is still the near-target
 accepted-state/history preparation before changing local neutral pressure,
 viscosity, or raw diffusion formulas.
 
+The same June 18 report now includes a
+`reference_active_state_rhs_register`: JAXDRB reconstructs each reference
+accepted state, reevaluates the native neutral RHS/source/preboundary payloads
+on that state, and compares those fields directly with the reference trace. On
+the high-precision max-order-2 trace the source/preboundary target-adjacent
+ranking closes to roundoff (`1.42e-14` maximum), including
+`grad_logPnlimh_y`, `Dnnh_raw`, `Dnnh_flux_max`, final `Dnnh`, `eta_h`, and the
+`SNVh_*` pressure-gradient/viscosity terms. The all-field RHS-on-reference
+ranking is instead dominated by `ddt(NVh)` at about `1.42e-4` target-pointwise.
+That separates local neutral-operator algebra from the remaining mismatch and
+points the next patch at accepted-step time-derivative/state-history
+sequencing.
+
 ## Validation Sequence
 
 After rebuilding the reference executable, generate and compare traces:

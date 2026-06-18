@@ -1508,6 +1508,10 @@ def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(
         report["reference_active_state_residual_register"]["reason"]
         == "input_path_unavailable"
     )
+    assert (
+        report["reference_active_state_rhs_register"]["reason"]
+        == "input_path_unavailable"
+    )
 
     path = write_neutral_mixed_accepted_step_trace_parity_json(
         report, tmp_path / "trace_parity.json"
@@ -1576,6 +1580,115 @@ def test_neutral_mixed_accepted_step_trace_parity_evaluates_reference_active_sta
     assert set(field_register["fields"]) == {"Nh", "Ph", "NVh"}
     assert field_register["dominant_field"] in {"Nh", "Ph", "NVh"}
     assert set(register["worst_entry"]["field_residuals"]) == {"Nh", "Ph", "NVh"}
+
+
+def test_neutral_mixed_accepted_step_trace_parity_evaluates_rhs_on_reference_state(
+    tmp_path: Path,
+) -> None:
+    input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
+    config = term_module.load_bout_input(input_path)
+    run_config = term_module.RunConfiguration.from_config(config)
+    mesh = term_module.build_structured_mesh(config, run_config)
+    metrics = term_module.build_structured_metrics(config, run_config, mesh)
+    scalars = term_module.resolved_dataset_scalars(run_config)
+    state = term_module.initialize_neutral_mixed_state(config, section="h", mesh=mesh)
+    state_fields = {
+        "Nh": _active_trace_field_payload(state.density, mesh),
+        "Ph": _active_trace_field_payload(state.pressure, mesh),
+        "NVh": _active_trace_field_payload(state.momentum, mesh),
+    }
+    active_x = slice(mesh.xstart, mesh.xend + 1)
+    active_y = slice(mesh.ystart, mesh.yend + 1)
+    target_y_indices = term_module._target_adjacent_y_indices(mesh)
+    guard_y_indices = term_module._neutral_mixed_guard_y_indices(mesh)
+    sample_y_indices = tuple(sorted(set(target_y_indices).union(guard_y_indices)))
+    rhs_fields = term_module._native_accepted_step_rhs_field_payloads(
+        config,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        active_x=active_x,
+        active_y=active_y,
+        target_y_indices=target_y_indices,
+        guard_y_indices=guard_y_indices,
+        sample_y_indices=sample_y_indices,
+        line_x=int(mesh.xstart),
+        line_z=0,
+    )
+    reference_fields = json.loads(json.dumps({**state_fields, **rhs_fields}))
+    target_values = reference_fields["ddt(NVh)"]["target_adjacent_values"]
+    if target_values:
+        target_values[0] += 0.125
+    reference_fields["ddt(NVh)"]["target_adjacent_metrics"]["max_abs"] += 0.125
+    native_trace = {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "input_path": str(input_path),
+        "section": "h",
+        "trace_points": [
+            {
+                "index": 0,
+                "time": 1.0e-6,
+                "dt": 1.0e-6,
+                "solver_order": 1,
+                "stage": "post_accepted",
+                "fields": state_fields,
+            }
+        ],
+    }
+    reference_record = {
+        "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+        "step_index": 0,
+        "time": 1.0e-6,
+        "dt": 1.0e-6,
+        "solver": {"order": 1},
+        "stages": {"post_accepted": reference_fields},
+    }
+    native_path = tmp_path / "native_trace.json"
+    reference_path = tmp_path / "reference_trace.jsonl"
+    native_path.write_text(json.dumps(native_trace), encoding="utf-8")
+    reference_path.write_text(json.dumps(reference_record) + "\n", encoding="utf-8")
+
+    report = build_neutral_mixed_accepted_step_trace_parity_report(
+        native_trace_json=native_path,
+        reference_trace_json=reference_path,
+        input_path=input_path,
+        time_tolerance=1.0e-12,
+    )
+
+    register = report["reference_active_state_rhs_register"]
+    assert register["available"] is True
+    assert register["evaluated_point_count"] == 1
+    assert register["section"] == "h"
+    assert register["dominant_field"] == "ddt(NVh)"
+    assert register["fields"]["ddt(NVh)"][
+        "max_target_adjacent_pointwise_delta"
+    ] == pytest.approx(0.125)
+    assert register["ranked_fields"][0]["field"] == "ddt(NVh)"
+    assert register["dominant_source_preboundary_field"] in {
+        "Tnlimh",
+        "logPnlimh",
+        "grad_logPnlimh",
+        "grad_logPnlimh_x",
+        "grad_logPnlimh_y",
+        "grad_logPnlimh_z",
+        "Dnnh_raw",
+        "Dnnh_flux_max",
+        "Dnnh_flux_limited",
+        "Dnnh_diffusion_limited",
+        "Dnnh",
+        "Vh",
+        "eta_h",
+        "SNVh",
+        "SNVh_pressure_gradient",
+        "SNVh_parallel_viscosity",
+        "SNVh_perpendicular_viscosity",
+    }
+    assert not register["ranked_source_preboundary_fields"][0]["field"].startswith(
+        "ddt("
+    )
 
 
 def test_neutral_mixed_reference_state_residual_field_metrics_split_pack_order(

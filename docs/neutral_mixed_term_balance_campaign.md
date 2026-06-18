@@ -338,6 +338,16 @@ state/history update more closely, before changing neutral source terms.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.
+The June 18, 2026 high-precision trace also adds a
+`reference_active_state_rhs_register`, which evaluates native
+RHS/source/preboundary payloads on the reference accepted states themselves.
+This register is the clearest local-operator gate so far: source/preboundary
+target-adjacent differences are at roundoff (`1.42e-14` maximum), including the
+neutral pressure-gradient, parallel viscosity, raw diffusion, flux-limit cap,
+bounded diffusion, velocity, and viscosity inputs. The remaining all-field
+accepted-step discrepancy is dominated by `ddt(NVh)`, so the next parity work
+should reproduce the reference accepted-step time-derivative/state-history
+sequencing rather than change local neutral source formulas.
 A separate final-state input-closure gate now compares native `Dnn`, `Vh`, and
 `eta_h` reconstructions against a reference-style `BOUT.dmp.0.nc` dump. The
 public API entry point is
