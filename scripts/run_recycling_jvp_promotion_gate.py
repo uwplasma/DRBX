@@ -75,6 +75,7 @@ def _build_case_command(
     fixed_bdf2_timestep: float | None = None,
     mode_timeout_seconds: float | None = None,
     fixed_bdf2_linear_preconditioner: str | None = None,
+    fixed_bdf2_linear_preconditioner_refresh: int | None = None,
 ) -> list[str]:
     resolved_mode_timeout = (
         gate_case.mode_timeout_seconds
@@ -130,6 +131,19 @@ def _build_case_command(
                     preconditioner_name,
                 )
             )
+            if fixed_bdf2_linear_preconditioner_refresh is not None:
+                refresh = int(fixed_bdf2_linear_preconditioner_refresh)
+                if refresh <= 0:
+                    raise ValueError(
+                        "fixed_bdf2_linear_preconditioner_refresh must be positive."
+                    )
+                command.extend(
+                    (
+                        "--override",
+                        "runtime:recycling_jax_linear_preconditioner_refresh="
+                        f"{refresh}",
+                    )
+                )
         if gate_case.fixed_bdf2_max_internal_timestep is not None:
             command.extend(
                 (
@@ -253,6 +267,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-linear-preconditioner-refresh",
+        type=int,
+        default=None,
+        help=(
+            "When --fixed-bdf2-linear-preconditioner is set, forward this positive "
+            "refresh interval as runtime:recycling_jax_linear_preconditioner_refresh. "
+            "Use values larger than one to test preconditioner reuse inside each "
+            "implicit solve."
+        ),
+    )
+    parser.add_argument(
         "--mode-timeout-seconds",
         type=float,
         default=None,
@@ -313,6 +338,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fixed_bdf2_linear_preconditioner=(
                     args.fixed_bdf2_linear_preconditioner
                 ),
+                fixed_bdf2_linear_preconditioner_refresh=(
+                    args.fixed_bdf2_linear_preconditioner_refresh
+                ),
             )
             resolved_mode_timeout = (
                 gate_case.mode_timeout_seconds
@@ -333,6 +361,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "fixed_bdf2_timestep": fixed_bdf2_timestep,
                 "fixed_bdf2_linear_preconditioner": (
                     args.fixed_bdf2_linear_preconditioner
+                ),
+                "fixed_bdf2_linear_preconditioner_refresh": (
+                    args.fixed_bdf2_linear_preconditioner_refresh
                 ),
                 "command": command,
                 "output_json": case_output_json,

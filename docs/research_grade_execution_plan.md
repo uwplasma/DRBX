@@ -1268,6 +1268,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   `0` failed linear solves, and `30.3 s`. Both routes still consumed the full
   `3600` JAX-GMRES update budget, so this is promotion-gate correctness
   evidence rather than performance-promotion evidence.
+- 2026-06-18: Added
+  `--fixed-bdf2-linear-preconditioner-refresh=<n>` to
+  `scripts/run_recycling_jvp_promotion_gate.py` so the bounded fixed-BDF2 gate
+  can reproduce preconditioner reuse without manual overrides. On the same
+  `recycling_1d_one_step` gate, `local_block_diag` with refresh `100` reduced
+  preconditioner builds from `9` to `2`, improved fixed-full-field time from
+  `22.7 s` to `18.9 s`, improved active-array time from `30.3 s` to `23.4 s`,
+  preserved zero failed linear solves, and kept the residual below `1e-5`.
+  Because the JAX-GMRES update budget remains saturated, this stays opt-in and
+  the next real performance target is reducing Krylov iterations through a
+  stronger Schur/transport preconditioner or cheaper residual/JVP kernels.
 
 ## Definition Of Done
 

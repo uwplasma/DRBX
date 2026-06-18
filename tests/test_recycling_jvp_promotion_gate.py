@@ -92,19 +92,45 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
         gate_phase="fixed_bdf2",
         fixed_bdf2_timestep=10.0,
         fixed_bdf2_linear_preconditioner="local_block_diag",
+        fixed_bdf2_linear_preconditioner_refresh=100,
     )
 
+    overrides = [
+        command[index + 1]
+        for index, item in enumerate(command[:-1])
+        if item == "--override"
+    ]
     assert (
         "runtime:recycling_jax_linear_preconditioner=local_block_diag"
-        in [
-            command[index + 1]
-            for index, item in enumerate(command[:-1])
-            if item == "--override"
-        ]
+        in overrides
+    )
+    assert (
+        "runtime:recycling_jax_linear_preconditioner_refresh=100"
+        in overrides
     )
     assert command[
         command.index("--require-fixed-bdf2-linear-preconditioner") + 1
     ] == "local_block_diag"
+
+
+def test_recycling_jvp_promotion_gate_rejects_invalid_preconditioner_refresh() -> None:
+    module = _load_module()
+    gate_case = module.GATE_CASES["recycling_1d_one_step"]
+
+    try:
+        module._build_case_command(
+            gate_case,
+            reference_root=Path("/tmp/reference-root"),
+            python_executable="python",
+            gate_phase="fixed_bdf2",
+            fixed_bdf2_timestep=10.0,
+            fixed_bdf2_linear_preconditioner="local_block_diag",
+            fixed_bdf2_linear_preconditioner_refresh=0,
+        )
+    except ValueError as exc:
+        assert "fixed_bdf2_linear_preconditioner_refresh must be positive" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected ValueError")
 
 
 def test_recycling_jvp_promotion_gate_has_bounded_dthe_fixed_bdf2_phase() -> None:
