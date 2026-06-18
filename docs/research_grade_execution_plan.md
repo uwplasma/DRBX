@@ -1552,6 +1552,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   linear-operator calls to stay inside explicit budgets. This closes the
   diagnostics gap between "the preconditioner was requested" and "the
   preconditioner actually reduced Krylov work cheaply enough to promote."
+- 2026-06-18: Re-ran the bounded hydrogen active-array fixed-BDF2 gate with
+  `parallel_line` reuse under the new build/apply/operator-call gates. The run
+  passed correctness but took `16.03 s`, reported the same `25` linear-operator
+  calls as the unpreconditioned reference, built two preconditioners, and
+  applied them `35` times with `0.168 s` Python-visible apply dispatch. The
+  matching unpreconditioned gate took `11.06 s` with the same operator-call
+  count. This rules out the current exact line-block preconditioner as a
+  promotion candidate on the bounded gate; the next effective-preconditioning
+  implementation should either reduce residual/JVP action cost directly or use
+  a cheaper Schur/transport approximation that demonstrably lowers
+  linear-operator calls.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic
