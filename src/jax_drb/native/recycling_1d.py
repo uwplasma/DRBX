@@ -2284,6 +2284,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
     diagnostics: dict[str, float | int | bool | str | None] = {
         "fixed_bdf2_solver_mode": str(solver_mode_label),
         "fixed_bdf2_step_solver_mode": str(step_solver_mode),
+        "fixed_bdf2_initial_residual_mode": None,
         "fixed_bdf2_startup_steps": 0,
         "fixed_bdf2_bdf2_steps": 0,
         "fixed_bdf2_fixed_full_field_rhs_steps": 0,
@@ -2379,6 +2380,10 @@ def _advance_recycling_1d_fixed_bdf2_history(
             diagnostics["fixed_bdf2_residual_jitted_steps"] = (
                 int(diagnostics["fixed_bdf2_residual_jitted_steps"]) + 1
             )
+        if info.diagnostics.get("initial_residual_mode") is not None:
+            diagnostics["fixed_bdf2_initial_residual_mode"] = str(
+                info.diagnostics["initial_residual_mode"]
+            )
         converged = info.diagnostics.get("converged")
         if converged is False:
             diagnostics["fixed_bdf2_unconverged_solver_steps"] = (
@@ -2410,6 +2415,9 @@ def _advance_recycling_1d_fixed_bdf2_history(
             int(diagnostics["fixed_bdf2_max_output_substeps"]), output_substeps
         )
 
+        initial_residual_mode_default = (
+            "linearize" if "jax_linearized" in str(step_solver_mode) else "residual"
+        )
         for _ in range(output_substeps):
             if (
                 previous_fields is None
@@ -2430,6 +2438,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
                         residual_tolerance=residual_tolerance,
                         max_nonlinear_iterations=max_nonlinear_iterations,
                         evolve_feedback_integrals=True,
+                        initial_residual_mode_default=initial_residual_mode_default,
                     )
                 )
                 record_step(info, method="backward_euler")
@@ -2450,6 +2459,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
                     residual_tolerance=residual_tolerance,
                     max_nonlinear_iterations=max_nonlinear_iterations,
                     evolve_feedback_integrals=True,
+                    initial_residual_mode_default=initial_residual_mode_default,
                 )
                 record_step(info, method="bdf2")
             diagnostics["fixed_bdf2_internal_substeps"] = (
@@ -4613,6 +4623,7 @@ def advance_recycling_1d_backward_euler_step(
     max_nonlinear_iterations: int = 20,
     evolve_feedback_integrals: bool = False,
     sparse_jvp_workspace: SparseJvpWorkspace | None = None,
+    initial_residual_mode_default: str = "residual",
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
     rhs_backend = _recycling_solver_rhs_backend(solver_mode)
     context = build_recycling_1d_backward_euler_residual_context(
@@ -4707,7 +4718,8 @@ def advance_recycling_1d_backward_euler_step(
             config
         )
         initial_residual_mode = _resolve_recycling_jax_linear_initial_residual_mode(
-            config
+            config,
+            default=initial_residual_mode_default,
         )
         linear_backend = (
             "lineax_gmres"
@@ -4806,6 +4818,7 @@ def advance_recycling_1d_bdf2_step(
     sparse_jvp_workspace: SparseJvpWorkspace | None = None,
     initial_guess_fields: dict[str, np.ndarray] | None = None,
     initial_guess_feedback_integrals: dict[str, float] | None = None,
+    initial_residual_mode_default: str = "residual",
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
     rhs_backend = _recycling_solver_rhs_backend(solver_mode)
     context = build_recycling_1d_bdf2_residual_context(
@@ -4905,7 +4918,8 @@ def advance_recycling_1d_bdf2_step(
             config
         )
         initial_residual_mode = _resolve_recycling_jax_linear_initial_residual_mode(
-            config
+            config,
+            default=initial_residual_mode_default,
         )
         linear_backend = (
             "lineax_gmres"
@@ -6022,6 +6036,8 @@ def _resolve_recycling_jax_linear_check_initial_residual(
 
 def _resolve_recycling_jax_linear_initial_residual_mode(
     config: BoutConfig | None = None,
+    *,
+    default: str = "residual",
 ) -> str:
     """Resolve how JAX-linearized recycling performs the initial residual check."""
 
@@ -6035,7 +6051,7 @@ def _resolve_recycling_jax_linear_initial_residual_mode(
     env_value = os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE")
     if env_value is not None and env_value.strip():
         return _canonical_recycling_jax_linear_initial_residual_mode(env_value)
-    return "residual"
+    return _canonical_recycling_jax_linear_initial_residual_mode(default)
 
 
 def _canonical_recycling_jax_linear_initial_residual_mode(name: str) -> str:

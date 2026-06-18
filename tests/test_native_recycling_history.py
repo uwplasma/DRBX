@@ -244,6 +244,7 @@ def test_fixed_bdf2_jax_linearized_history_uses_startup_bdf2_and_packed_feedback
                 "linear_solve_seconds": 0.5,
                 "residual_evaluation_seconds": 0.25,
                 "residual_jitted": True,
+                "initial_residual_mode": "linearize",
             },
         )
 
@@ -257,6 +258,7 @@ def test_fixed_bdf2_jax_linearized_history_uses_startup_bdf2_and_packed_feedback
         **kwargs,
     ):
         calls.append(("be", solver_mode, evolve_feedback_integrals))
+        assert kwargs["initial_residual_mode_default"] == "linearize"
         assert feedback_integrals == {"ctrl": 0.0}
         return (
             {"N": fields["N"] + 1.0},
@@ -277,6 +279,7 @@ def test_fixed_bdf2_jax_linearized_history_uses_startup_bdf2_and_packed_feedback
         **kwargs,
     ):
         calls.append(("bdf2", solver_mode, evolve_feedback_integrals))
+        assert kwargs["initial_residual_mode_default"] == "linearize"
         assert previous_timestep == 0.5
         assert previous_feedback_integrals["ctrl"] < feedback_integrals["ctrl"]
         assert np.asarray(previous_fields["N"]).shape == np.asarray(fields["N"]).shape
@@ -347,6 +350,7 @@ def test_fixed_bdf2_jax_linearized_history_uses_startup_bdf2_and_packed_feedback
     assert diagnostics["fixed_bdf2_lineax_action_steps"] == 3
     assert diagnostics["fixed_bdf2_residual_jitted_steps"] == 3
     assert diagnostics["fixed_bdf2_evolve_feedback_integrals"] is True
+    assert diagnostics["fixed_bdf2_initial_residual_mode"] == "linearize"
 
 
 def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
@@ -375,6 +379,7 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
                 "linear_preconditioner": "local_block_diag",
                 "linear_preconditioner_build_count": 2,
                 "linear_preconditioner_build_seconds": 0.125,
+                "initial_residual_mode": "linearize",
             },
         )
 
@@ -387,6 +392,7 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
         **kwargs,
     ):
         step_modes.append(str(solver_mode))
+        assert kwargs["initial_residual_mode_default"] == "linearize"
         return (
             {"N": fields["N"] + 1.0},
             {"ctrl": feedback_integrals["ctrl"] + 1.0},
@@ -403,6 +409,7 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
         **kwargs,
     ):
         step_modes.append(str(solver_mode))
+        assert kwargs["initial_residual_mode_default"] == "linearize"
         return (
             {"N": fields["N"] + 1.0},
             {"ctrl": feedback_integrals["ctrl"] + 1.0},
@@ -444,6 +451,7 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
     assert diagnostics["fixed_bdf2_active_array_rhs_steps"] == 2
     assert diagnostics["fixed_bdf2_jax_linearized_action_steps"] == 2
     assert diagnostics["fixed_bdf2_residual_jitted_steps"] == 2
+    assert diagnostics["fixed_bdf2_initial_residual_mode"] == "linearize"
     assert diagnostics["fixed_bdf2_linear_preconditioner"] == "local_block_diag"
     assert diagnostics["fixed_bdf2_total_linear_preconditioner_build_count"] == 4
     assert diagnostics[
@@ -489,6 +497,7 @@ def test_fixed_bdf2_history_uses_internal_substeps_without_extra_output_states(
         **kwargs,
     ):
         calls.append(("be", float(timestep), None))
+        assert kwargs["initial_residual_mode_default"] == "linearize"
         return (
             {"N": fields["N"] + 1.0},
             {"ctrl": feedback_integrals["ctrl"] + 1.0},
@@ -507,6 +516,7 @@ def test_fixed_bdf2_history_uses_internal_substeps_without_extra_output_states(
         **kwargs,
     ):
         calls.append(("bdf2", float(timestep), float(previous_timestep)))
+        assert kwargs["initial_residual_mode_default"] == "linearize"
         assert previous_feedback_integrals["ctrl"] < feedback_integrals["ctrl"]
         assert np.asarray(previous_fields["N"]).shape == np.asarray(fields["N"]).shape
         return (
@@ -605,6 +615,7 @@ def test_fixed_bdf2_history_uses_automatic_jax_internal_substeps(
         **kwargs,
     ):
         calls.append(("be", float(timestep), None))
+        assert kwargs["initial_residual_mode_default"] == "linearize"
         return (
             {"N": fields["N"] + 1.0},
             {"ctrl": feedback_integrals["ctrl"] + 1.0},
@@ -623,6 +634,7 @@ def test_fixed_bdf2_history_uses_automatic_jax_internal_substeps(
         **kwargs,
     ):
         calls.append(("bdf2", float(timestep), float(previous_timestep)))
+        assert kwargs["initial_residual_mode_default"] == "linearize"
         return (
             {"N": fields["N"] + 1.0},
             {"ctrl": feedback_integrals["ctrl"] + 1.0},
@@ -2509,6 +2521,44 @@ def test_resolve_recycling_fixed_bdf2_max_internal_timestep_rejects_invalid_env(
 ) -> None:
     monkeypatch.setenv("JAX_DRB_RECYCLING_FIXED_BDF2_MAX_INTERNAL_TIMESTEP", value)
     assert recycling._resolve_recycling_fixed_bdf2_max_internal_timestep(None) is None
+
+
+def test_resolve_recycling_jax_initial_residual_mode_uses_caller_default() -> None:
+    assert (
+        recycling._resolve_recycling_jax_linear_initial_residual_mode(
+            _FakeRuntimeConfig(),
+            default="linearized",
+        )
+        == "linearize"
+    )
+
+
+def test_resolve_recycling_jax_initial_residual_mode_prefers_config_over_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE", "linearize")
+
+    assert (
+        recycling._resolve_recycling_jax_linear_initial_residual_mode(
+            _FakeRuntimeConfig(recycling_jax_linear_initial_residual_mode="residual"),
+            default="linearize",
+        )
+        == "residual"
+    )
+
+
+def test_resolve_recycling_jax_initial_residual_mode_prefers_env_over_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE", "residual")
+
+    assert (
+        recycling._resolve_recycling_jax_linear_initial_residual_mode(
+            _FakeRuntimeConfig(),
+            default="linearize",
+        )
+        == "residual"
+    )
 
 
 def test_resolve_recycling_fixed_bdf2_internal_timestep_policy_prefers_explicit_config(

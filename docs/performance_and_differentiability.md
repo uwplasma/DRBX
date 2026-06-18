@@ -1253,13 +1253,15 @@ preconditioner for the current JAX-GMRES implementation; future transport
 preconditioners should be cheaper approximate line/Schur solves rather than
 dense inversion of the full active line.
 
-The recycling wrappers also expose
+The recycling wrappers expose
 `runtime:recycling_jax_linear_initial_residual_mode=linearize` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE=linearize` for profiling
-decks that are not expected to start converged. The generic solver keeps the
-standalone initial residual check enabled by default because it avoids
-unnecessary linearization when a predictor already satisfies the nonlinear
-tolerance. The `linearize` mode keeps that convergence check but obtains the
+decks that are not expected to start converged. Direct one-step and adaptive
+JAX-linearized modes keep the standalone initial residual check enabled by
+default because it avoids unnecessary linearization when a predictor already
+satisfies the nonlinear tolerance. Fixed-output BDF2 JAX-linearized histories
+now use `linearize` as their default, while still honoring deck and environment
+overrides. The `linearize` mode keeps the convergence check but obtains the
 first residual norm from the first JAX linearization, avoiding the duplicate
 standalone residual call on non-converged heavy solves. The profiling script
 exposes this as `--initial-residual-mode linearize`; the older
@@ -1269,12 +1271,12 @@ hydrogen `timestep=1.0` JAX-linearized gates, removing the standalone initial
 residual call reduced the deterministic residual-evaluation count from `6` to
 `5` with identical residual norm, so this remains a host/device-barrier
 reduction seam rather than a default speedup claim. On the bounded D/T/He
-JAX-linearized recycling gate, the safer `linearize` mode passed with
-`check_initial_residual=true`, residual evaluations `2`, one line-search trial,
-residual norm `7.315`, clean JAX-GMRES status `0`, median timed run `6.97 s`,
-and sampled peak RSS delta `525 MiB`. That evidence supports the profiling
-surface but does not promote the full output-window recycling solve to the
-default path. The profile script can now also require this mode with
+fixed-BDF2 active-array gate, this default reduces residual evaluations from
+`21` to `19`, keeps residual `1.87e-11` and `45` linear-operator calls, and
+improves wall time from the post-single-pass `66.4 s` evidence to `63.5 s`.
+That evidence supports the fixed-BDF2 JAX-linearized history default but does
+not promote the full output-window recycling solve to the package default. The
+profile script can also require this mode with
 `--require-initial-residual-mode linearize`, and the local D/T/He research
 bundle uses that gate so future profiles cannot silently fall back to the
 standalone residual path.

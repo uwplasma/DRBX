@@ -143,9 +143,9 @@ and tests all move together.
 | Plan authority and release hygiene | 95% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 95% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the active-array duplicate field/feedback RHS cost is closed, but Krylov/preconditioner cost remains. |
+| JAX-native recycling solver | 96% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; duplicate active-array RHS work and fixed-BDF2 standalone initial residuals are closed, but Krylov/preconditioner cost remains. |
 | Effective preconditioning | 44% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
-| Performance and scaling | 62% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
+| Performance and scaling | 63% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -1521,6 +1521,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   default-promotion route on bounded recycling gates; P3 should prioritize a
   transport/Schur preconditioner or a cheaper residual action that measurably
   reduces Krylov operator calls.
+- 2026-06-18: Promoted the safety-preserving `linearize` initial-residual mode
+  to the default for fixed-output BDF2 JAX-linearized recycling histories while
+  preserving deck/env overrides and leaving direct one-step/adaptive defaults
+  unchanged. Fixed-BDF2 reports `fixed_bdf2_initial_residual_mode` in its
+  diagnostics. Focused tests pass (`124 passed`). The bounded hydrogen
+  active-array gate now runs without an explicit override at `11.07 s`, with
+  residual `9.01e-10`, `25` operator calls, and residual evaluations reduced
+  from `12` to `10`. The bounded D/T/He active-array gate now runs at
+  `63.5 s`, with residual `1.87e-11`, `45` operator calls, and residual
+  evaluations reduced from the post-single-pass `21` evidence to `19`. This is
+  a real host/device-barrier reduction for the opt-in fixed-BDF2 lane, but the
+  remaining blocker is still Krylov/preconditioner cost.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic
