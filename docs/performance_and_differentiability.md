@@ -1115,20 +1115,25 @@ promotion.
 
 The real-kernel JAX-linearized profiling script has the same control surface
 for heavier runs. `scripts/profile_recycling_jax_linearized_gate.py` accepts
+`--linear-restart=<n>`, `--linear-maxiter=<n>`, and
+`--linear-tolerance-factor=<factor>` for reproducible Krylov-budget sweeps
+without hand-written BOUT overrides. It also accepts
 `--linear-preconditioner=<name>` and
 `--linear-preconditioner-refresh=<n>` to forward the corresponding runtime
 options into the profiled solve. It also accepts
 `--require-linear-preconditioner=<name>`,
+`--require-max-residual-inf-norm=<x>`,
 `--require-min-nonlinear-iterations=<n>`,
 `--require-min-linear-iterations=<n>`,
 `--require-max-linear-iterations=<n>`, and
 `--require-max-preconditioner-builds=<n>`. These gates are evaluated after the
 profile is written, recorded in `profile_summary.json`, and return a nonzero
-status if the reported diagnostics miss the requested preconditioner or exceed
-the requested floors or budgets. The minimum-iteration gates are important for
-heavy decks because a tiny timestep can converge at the predictor and otherwise
-produce a misleading "passed" profile without exercising Newton, JVP, or Krylov
-work. Dynamic JVP-derived preconditioners such as
+status if the reported diagnostics miss the requested preconditioner, exceed
+the requested residual ceiling, or exceed the requested iteration floors or
+budgets. The minimum-iteration gates are important for heavy decks because a
+tiny timestep can converge at the predictor and otherwise produce a misleading
+"passed" profile without exercising Newton, JVP, or Krylov work. Dynamic
+JVP-derived preconditioners such as
 `linearized_diag`, `local_block_diag`, and `parallel_line` must report at least
 one finite preconditioner build when they are required. This lets local CPU and
 office-GPU D/T/He campaigns distinguish a solver-correctness pass from a
@@ -1141,6 +1146,17 @@ local-block run spent `1.65 s` building one preconditioner. This is a
 correctness pass for the heavy preconditioner diagnostics and a negative
 performance-promotion result, so the next preconditioning work must reduce the
 Krylov budget or residual/JVP cost instead of merely adding local dense blocks.
+A follow-up sweep reached the same conclusion for cheaper controls. On the
+same D/T/He gate, `field_scale` took `8.01 s`, `linearized_diag` took `8.31 s`,
+and `state_scale` took `27.42 s`; all retained the full `400` update budget.
+Reducing the unpreconditioned Krylov budget to `10 x 10` updates gave a similar
+residual (`7.316` instead of `7.315`) but did not speed up the local CPU run
+(`8.49 s`), while `5 x 10` updates both slowed down (`27.84 s`) and worsened
+the residual (`8.09`). Incremental GMRES at `10 x 10` was also slower
+(`26.46 s`). The retained local campaign therefore keeps the measured-fast
+`20 x 20` batched JAX-GMRES control and adds
+`--require-max-residual-inf-norm=7.4` so future budget sweeps cannot pass by
+silently degrading the nonlinear residual.
 
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or

@@ -142,6 +142,34 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--linear-restart",
+        type=int,
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_restart=<n>. This is a "
+            "first-class equivalent of --override for reproducible Krylov-budget "
+            "sweeps."
+        ),
+    )
+    parser.add_argument(
+        "--linear-maxiter",
+        type=int,
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_maxiter=<n>. The reported "
+            "linear-iteration budget is restart * maxiter."
+        ),
+    )
+    parser.add_argument(
+        "--linear-tolerance-factor",
+        type=float,
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_tolerance_factor=<factor>. "
+            "The inner Krylov tolerance remains residual_tolerance * factor."
+        ),
+    )
+    parser.add_argument(
         "--linear-preconditioner",
         default=None,
         help=(
@@ -175,6 +203,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=(
             "Fail after profiling when reported linear_iterations exceeds this "
             "nonnegative budget."
+        ),
+    )
+    parser.add_argument(
+        "--require-max-residual-inf-norm",
+        type=float,
+        default=None,
+        help=(
+            "Fail after profiling when profile.residual_inf_norm exceeds this "
+            "finite nonnegative ceiling. Use this with Krylov-budget sweeps so a "
+            "shorter run cannot pass by degrading the nonlinear residual."
         ),
     )
     parser.add_argument(
@@ -230,6 +268,22 @@ def _validate_args(args: argparse.Namespace) -> None:
     if args.require_max_linear_iterations is not None:
         if int(args.require_max_linear_iterations) < 0:
             raise SystemExit("--require-max-linear-iterations must be nonnegative.")
+    if args.linear_restart is not None:
+        if int(args.linear_restart) <= 0:
+            raise SystemExit("--linear-restart must be positive.")
+    if args.linear_maxiter is not None:
+        if int(args.linear_maxiter) <= 0:
+            raise SystemExit("--linear-maxiter must be positive.")
+    if args.linear_tolerance_factor is not None:
+        factor = float(args.linear_tolerance_factor)
+        if not math.isfinite(factor) or factor <= 0.0:
+            raise SystemExit("--linear-tolerance-factor must be finite and positive.")
+    if args.require_max_residual_inf_norm is not None:
+        ceiling = float(args.require_max_residual_inf_norm)
+        if not math.isfinite(ceiling) or ceiling < 0.0:
+            raise SystemExit(
+                "--require-max-residual-inf-norm must be finite and nonnegative."
+            )
     if args.require_min_linear_iterations is not None:
         if int(args.require_min_linear_iterations) < 0:
             raise SystemExit("--require-min-linear-iterations must be nonnegative.")
@@ -297,6 +351,24 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
         overrides.append(
             f"runtime:recycling_jax_linear_gmres_solve_method={gmres_solve_method}"
         )
+    linear_restart = getattr(args, "linear_restart", None)
+    if linear_restart is not None:
+        restart = int(linear_restart)
+        if restart <= 0:
+            raise ValueError("linear_restart must be positive.")
+        overrides.append(f"runtime:recycling_jax_linear_restart={restart}")
+    linear_maxiter = getattr(args, "linear_maxiter", None)
+    if linear_maxiter is not None:
+        maxiter = int(linear_maxiter)
+        if maxiter <= 0:
+            raise ValueError("linear_maxiter must be positive.")
+        overrides.append(f"runtime:recycling_jax_linear_maxiter={maxiter}")
+    tolerance_factor = getattr(args, "linear_tolerance_factor", None)
+    if tolerance_factor is not None:
+        factor = float(tolerance_factor)
+        if not math.isfinite(factor) or factor <= 0.0:
+            raise ValueError("linear_tolerance_factor must be finite and positive.")
+        overrides.append(f"runtime:recycling_jax_linear_tolerance_factor={factor:.17g}")
     linear_preconditioner = getattr(args, "linear_preconditioner", None)
     if linear_preconditioner is not None:
         name = str(linear_preconditioner).strip()
@@ -389,6 +461,33 @@ def _validate_maximum_integer_value(
     return []
 
 
+def _validate_maximum_float_value(
+    profile_report: dict[str, Any],
+    *,
+    key: str,
+    maximum: float,
+    label: str,
+    source: dict[str, Any] | None = None,
+) -> list[str]:
+    if not math.isfinite(float(maximum)) or float(maximum) < 0.0:
+        return [f"profile received an invalid {label} gate"]
+    values = profile_report if source is None else source
+    try:
+        reported = float(values[key])
+    except KeyError:
+        return [f"profile did not report {key}"]
+    except (TypeError, ValueError):
+        return [f"profile did not report a finite {key}"]
+    if not math.isfinite(reported):
+        return [f"profile did not report a finite {key}"]
+    if reported > float(maximum):
+        return [
+            f"profile reported {reported:.8e} {label}, "
+            f"exceeding {float(maximum):.8e}"
+        ]
+    return []
+
+
 def _validate_minimum_integer_value(
     profile_report: dict[str, Any],
     *,
@@ -430,6 +529,16 @@ def _profile_gate_errors(
                 key="linear_iterations",
                 maximum=int(max_linear_iterations),
                 label="linear iterations",
+            )
+        )
+    max_residual_inf_norm = getattr(args, "require_max_residual_inf_norm", None)
+    if max_residual_inf_norm is not None:
+        errors.extend(
+            _validate_maximum_float_value(
+                profile_report,
+                key="residual_inf_norm",
+                maximum=float(max_residual_inf_norm),
+                label="residual inf-norm",
             )
         )
     min_linear_iterations = getattr(args, "require_min_linear_iterations", None)
@@ -682,6 +791,7 @@ def main() -> int:
         "gate_requirements": {
             "linear_preconditioner": args.require_linear_preconditioner,
             "max_linear_iterations": args.require_max_linear_iterations,
+            "max_residual_inf_norm": args.require_max_residual_inf_norm,
             "min_linear_iterations": args.require_min_linear_iterations,
             "min_nonlinear_iterations": args.require_min_nonlinear_iterations,
             "max_preconditioner_builds": args.require_max_preconditioner_builds,

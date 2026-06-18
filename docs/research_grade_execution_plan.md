@@ -145,7 +145,7 @@ and tests all move together.
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 90% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
 | Effective preconditioning | 42% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
-| Performance and scaling | 56% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
+| Performance and scaling | 57% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -1354,6 +1354,26 @@ Use this log for concise decision records. Do not paste terminal output here.
   took `7.86 s`, the RSS sample run took `11.76 s`, the peak RSS delta was
   `683 MiB`, and the solver reported one nonlinear iteration, `400` linear
   iterations, residual `7.315`, and clean JAX-GMRES status.
+- 2026-06-18: Ran the remaining cheap D/T/He JAX-linearized preconditioner and
+  Krylov-control probes on the same `timestep=1.0` gate. `field_scale`
+  completed in `8.01 s`, `linearized_diag` in `8.31 s`, `state_scale` in
+  `27.42 s`, and all retained the full `400` update budget. Reducing the
+  unpreconditioned control to `10 x 10` updates gave residual `7.316` but did
+  not speed up the local CPU run (`8.49 s`), while `5 x 10` updates slowed to
+  `27.84 s` and worsened the residual to `8.09`; incremental GMRES at
+  `10 x 10` was also slow (`26.46 s`). The profiler now exposes
+  `--linear-restart`, `--linear-maxiter`, and
+  `--linear-tolerance-factor` as first-class sweep controls, plus
+  `--require-max-residual-inf-norm` as a quality gate. The local
+  `dthe-jax-linearized-gate` keeps the measured-fast `20 x 20` batched GMRES
+  path and now requires residual below `7.4`. A wrapper verification passed in
+  `18.9 s`; the profiled solve took `7.46 s`, the RSS sample run took
+  `10.29 s`, the peak RSS delta was `830 MiB`, and the summary reported
+  residual `7.315 < 7.4`, one nonlinear iteration, `400` linear iterations, and
+  clean JAX-GMRES status. This closes simple scalar, diagonal, local-block, and
+  reduced-budget probes as default speedup lanes; the next implementation
+  target remains residual/JVP kernel cost or a real transport/Schur
+  preconditioner.
 
 ## Definition Of Done
 
