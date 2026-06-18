@@ -470,7 +470,167 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
     assert diagnostics["fixed_bdf2_unconverged_solver_steps"] == 0
     assert diagnostics["fixed_bdf2_unknown_convergence_solver_steps"] == 0
     assert diagnostics["fixed_bdf2_linear_solver_failed_steps"] == 0
+    assert diagnostics["fixed_bdf2_initial_guess_policy"] == "rhs_predictor"
+    assert diagnostics["fixed_bdf2_history_initial_guess_steps"] == 0
+    assert diagnostics["fixed_bdf2_history_initial_guess_fallback_steps"] == 0
     np.testing.assert_allclose(result.variable_history["N"][:, 0], [1.0, 2.0, 3.0])
+
+
+def test_fixed_bdf2_history_passes_history_extrapolated_initial_guess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bdf2_initial_guesses: list[tuple[float, float]] = []
+
+    def make_info() -> recycling.Recycling1DImplicitStepInfo:
+        return recycling.Recycling1DImplicitStepInfo(
+            residual_inf_norm=1.0e-12,
+            active_size=1,
+            nonlinear_iterations=1,
+            linear_iterations=1,
+            diagnostics={
+                "rhs_backend": "active_array",
+                "solver_mode": "active_array_jax_linearized",
+                "converged": True,
+                "linear_solver_success": True,
+                "initial_residual_mode": "linearize",
+            },
+        )
+
+    def fake_backward_euler_step(config, fields, *, feedback_integrals, **kwargs):
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info(),
+        )
+
+    def fake_bdf2_step(
+        config,
+        fields,
+        previous_fields,
+        *,
+        feedback_integrals,
+        previous_feedback_integrals,
+        initial_guess_fields,
+        initial_guess_feedback_integrals,
+        **kwargs,
+    ):
+        del previous_fields, previous_feedback_integrals, kwargs
+        bdf2_initial_guesses.append(
+            (
+                float(np.asarray(initial_guess_fields["N"])[0]),
+                float(initial_guess_feedback_integrals["ctrl"]),
+            )
+        )
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info(),
+        )
+
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_backward_euler_step
+    )
+    monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf2_step)
+
+    result = recycling._advance_recycling_1d_fixed_bdf2_history(
+        _FakeRuntimeConfig(
+            recycling_fixed_bdf2_initial_guess_policy="history_extrapolation"
+        ),
+        _fields(),
+        runtime_model=_runtime_model(),
+        feedback_integrals={"ctrl": 0.0},
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        metrics=object(),
+        dataset_scalars={},
+        timestep=0.5,
+        steps=2,
+        residual_tolerance=1.0e-7,
+        max_nonlinear_iterations=3,
+        step_solver_mode="active_array_jax_linearized",
+        solver_mode_label="fixed_bdf2_active_array_jax_linearized",
+    )
+
+    assert bdf2_initial_guesses == [(3.0, 2.0)]
+    diagnostics = result.diagnostics
+    assert diagnostics["fixed_bdf2_initial_guess_policy"] == "history_extrapolation"
+    assert diagnostics["fixed_bdf2_history_initial_guess_steps"] == 1
+    assert diagnostics["fixed_bdf2_history_initial_guess_fallback_steps"] == 0
+
+
+def test_fixed_bdf2_history_can_use_rhs_predictor_initial_guess_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bdf2_initial_guesses: list[object] = []
+
+    def make_info() -> recycling.Recycling1DImplicitStepInfo:
+        return recycling.Recycling1DImplicitStepInfo(
+            residual_inf_norm=1.0e-12,
+            active_size=1,
+            nonlinear_iterations=1,
+            linear_iterations=1,
+            diagnostics={
+                "rhs_backend": "active_array",
+                "solver_mode": "active_array_jax_linearized",
+                "converged": True,
+                "linear_solver_success": True,
+            },
+        )
+
+    def fake_backward_euler_step(config, fields, *, feedback_integrals, **kwargs):
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info(),
+        )
+
+    def fake_bdf2_step(
+        config,
+        fields,
+        previous_fields,
+        *,
+        feedback_integrals,
+        initial_guess_fields,
+        initial_guess_feedback_integrals,
+        **kwargs,
+    ):
+        del config, previous_fields, initial_guess_feedback_integrals, kwargs
+        bdf2_initial_guesses.append(initial_guess_fields)
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info(),
+        )
+
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_backward_euler_step
+    )
+    monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf2_step)
+
+    result = recycling._advance_recycling_1d_fixed_bdf2_history(
+        _FakeRuntimeConfig(recycling_fixed_bdf2_initial_guess_policy="rhs_predictor"),
+        _fields(),
+        runtime_model=_runtime_model(),
+        feedback_integrals={"ctrl": 0.0},
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        metrics=object(),
+        dataset_scalars={},
+        timestep=0.5,
+        steps=2,
+        residual_tolerance=1.0e-7,
+        max_nonlinear_iterations=3,
+        step_solver_mode="active_array_jax_linearized",
+        solver_mode_label="fixed_bdf2_active_array_jax_linearized",
+    )
+
+    assert bdf2_initial_guesses == [None]
+    diagnostics = result.diagnostics
+    assert diagnostics["fixed_bdf2_initial_guess_policy"] == "rhs_predictor"
+    assert diagnostics["fixed_bdf2_history_initial_guess_steps"] == 0
+    assert diagnostics["fixed_bdf2_history_initial_guess_fallback_steps"] == 0
 
 
 def test_fixed_bdf2_history_uses_internal_substeps_without_extra_output_states(
@@ -2619,6 +2779,45 @@ def test_resolve_recycling_fixed_bdf2_internal_timestep_policy_can_disable_autom
 
     assert cap is None
     assert policy == "disabled"
+
+
+def test_resolve_recycling_fixed_bdf2_initial_guess_policy_prefers_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_FIXED_BDF2_INITIAL_GUESS_POLICY",
+        "history_extrapolation",
+    )
+
+    assert (
+        recycling._resolve_recycling_fixed_bdf2_initial_guess_policy(
+            _FakeRuntimeConfig(recycling_fixed_bdf2_initial_guess_policy="legacy")
+        )
+        == "rhs_predictor"
+    )
+
+
+def test_resolve_recycling_fixed_bdf2_initial_guess_policy_uses_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_FIXED_BDF2_INITIAL_GUESS_POLICY",
+        "extrapolate",
+    )
+
+    assert (
+        recycling._resolve_recycling_fixed_bdf2_initial_guess_policy(None)
+        == "history_extrapolation"
+    )
+
+
+def test_resolve_recycling_fixed_bdf2_initial_guess_policy_defaults_for_invalid() -> None:
+    assert (
+        recycling._resolve_recycling_fixed_bdf2_initial_guess_policy(
+            _FakeRuntimeConfig(recycling_fixed_bdf2_initial_guess_policy="unknown")
+        )
+        == "rhs_predictor"
+    )
 
 
 def test_initial_recycling_continuation_dt_uses_field_count_cutover() -> None:

@@ -1572,6 +1572,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   the next useful solver work is a cheaper fixed-BDF2 residual/JVP action or a
   different preconditioner structure, not toggling residual JIT, GMRES QR mode,
   or nominal GMRES budget controls.
+- 2026-06-18: Added an explicit fixed-output BDF2 initial-guess policy and
+  diagnostics. `runtime:recycling_fixed_bdf2_initial_guess_policy=rhs_predictor`
+  remains the default because the bounded hydrogen active-array gate favors it:
+  at one output window, history extrapolation and the RHS predictor are
+  statistically tied (`12.498 s` versus `12.520 s`, both `25` operator calls),
+  while the two-window gate favors the RHS predictor (`17.10 s`, `35` calls)
+  over history extrapolation (`19.40 s`, `40` calls). A subsequent
+  default-policy repeat reported `rhs_predictor`, residual `2.90e-6`, `35`
+  operator calls, and `15.84 s`. The opt-in `history_extrapolation` policy is
+  still available and reports
+  `fixed_bdf2_history_initial_guess_steps` /
+  `fixed_bdf2_history_initial_guess_fallback_steps`, but it is negative
+  promotion evidence rather than a default solver change. This reinforces the
+  P3 direction: reduce residual/JVP action cost or build an actually
+  Krylov-effective transport/Schur preconditioner.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic

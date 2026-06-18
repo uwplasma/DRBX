@@ -1294,6 +1294,25 @@ profile script can also require this mode with
 bundle uses that gate so future profiles cannot silently fall back to the
 standalone residual path.
 
+Fixed-output BDF2 histories also expose
+`runtime:recycling_fixed_bdf2_initial_guess_policy` for profiling BDF2 corrector
+seeds. The default remains `rhs_predictor`, which uses the existing explicit
+RHS predictor in the residual context. The `history_extrapolation` policy seeds
+the corrector from the two accepted states as
+\[
+u^{n+1}_{0}=u^n+\frac{\Delta t_n}{\Delta t_{n-1}}\left(u^n-u^{n-1}\right),
+\]
+with the same field and feedback-integral sanitizers used after accepted
+implicit steps. The bounded hydrogen active-array gate showed parity but no
+promotion evidence: at one output window the two policies were indistinguishable
+(`12.498 s` for history extrapolation versus `12.520 s` for the RHS predictor,
+both `25` linear-operator calls), while the two-window gate favored the RHS
+predictor (`17.10 s`, `35` calls) over history extrapolation (`19.40 s`, `40`
+calls). A subsequent default-policy repeat reported `rhs_predictor`, residual
+`2.90e-6`, `35` operator calls, and `15.84 s`. The history-extrapolation policy
+is therefore retained as an opt-in diagnostic rather than a default runtime
+change.
+
 The generic JAX-linearized solver now also reuses the already-known residual
 norm for the final accepted state when a bounded solve exits because the
 nonlinear iteration budget was exhausted. This removes a redundant final

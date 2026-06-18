@@ -207,6 +207,19 @@ behavior with `runtime:recycling_jax_linear_initial_residual_mode=residual` or
 `linearize`, or with
 `JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE`.
 
+Fixed-output BDF2 histories also report the initial-guess policy used for BDF2
+corrector steps. The default policy is `rhs_predictor`, set with
+`runtime:recycling_fixed_bdf2_initial_guess_policy=rhs_predictor`, which builds
+the Newton seed from the explicit RHS predictor inside the BDF2 residual context.
+The opt-in `history_extrapolation` policy uses the two previous accepted states
+to seed \(u^{n+1}\approx u^n+\Delta t_n(u^n-u^{n-1})/\Delta t_{n-1}\), then
+applies the same density/pressure and feedback-integral sanitizers as the
+production path. The matching environment variable is
+`JAX_DRB_RECYCLING_FIXED_BDF2_INITIAL_GUESS_POLICY`. This is a solver-seeding
+control only; it does not change the BDF2 residual equation. Local bounded gates
+currently keep `rhs_predictor` as the default because history extrapolation did
+not reduce Krylov work on the active-array recycling fixture.
+
 For JAX-linearized promotion experiments, the inner matrix-free Krylov backend
 can be selected with `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER`. Supported values are
 `jax_gmres` (default), `lineax_gmres` when the optional Lineax package is

@@ -2266,6 +2266,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
     previous_fields: dict[str, np.ndarray] | None = None
     previous_integrals: dict[str, float] | None = None
     previous_timestep: float | None = None
+    initial_guess_policy = _resolve_recycling_fixed_bdf2_initial_guess_policy(config)
     max_internal_timestep, internal_timestep_policy = (
         _resolve_recycling_fixed_bdf2_internal_timestep_policy(
             config,
@@ -2285,6 +2286,9 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_solver_mode": str(solver_mode_label),
         "fixed_bdf2_step_solver_mode": str(step_solver_mode),
         "fixed_bdf2_initial_residual_mode": None,
+        "fixed_bdf2_initial_guess_policy": str(initial_guess_policy),
+        "fixed_bdf2_history_initial_guess_steps": 0,
+        "fixed_bdf2_history_initial_guess_fallback_steps": 0,
         "fixed_bdf2_startup_steps": 0,
         "fixed_bdf2_bdf2_steps": 0,
         "fixed_bdf2_fixed_full_field_rhs_steps": 0,
@@ -2453,6 +2457,44 @@ def _advance_recycling_1d_fixed_bdf2_history(
                 )
                 record_step(info, method="backward_euler")
             else:
+                initial_guess_fields = None
+                initial_guess_feedback_integrals = None
+                if initial_guess_policy == "history_extrapolation":
+                    (
+                        initial_guess_fields,
+                        initial_guess_feedback_integrals,
+                    ) = _extrapolate_recycling_bdf2_initial_guess(
+                        config,
+                        current_fields,
+                        previous_fields,
+                        current_integrals=current_integrals,
+                        previous_integrals=previous_integrals,
+                        field_names=field_names,
+                        feedback_names=feedback_names,
+                        timestep=internal_timestep,
+                        previous_timestep=previous_timestep,
+                        runtime_model=runtime_model,
+                    )
+                    if initial_guess_fields is None:
+                        diagnostics[
+                            "fixed_bdf2_history_initial_guess_fallback_steps"
+                        ] = (
+                            int(
+                                diagnostics[
+                                    "fixed_bdf2_history_initial_guess_fallback_steps"
+                                ]
+                            )
+                            + 1
+                        )
+                    else:
+                        diagnostics["fixed_bdf2_history_initial_guess_steps"] = (
+                            int(
+                                diagnostics[
+                                    "fixed_bdf2_history_initial_guess_steps"
+                                ]
+                            )
+                            + 1
+                        )
                 next_fields, next_integrals, info = advance_recycling_1d_bdf2_step(
                     config,
                     current_fields,
@@ -2470,6 +2512,8 @@ def _advance_recycling_1d_fixed_bdf2_history(
                     max_nonlinear_iterations=max_nonlinear_iterations,
                     evolve_feedback_integrals=True,
                     initial_residual_mode_default=initial_residual_mode_default,
+                    initial_guess_fields=initial_guess_fields,
+                    initial_guess_feedback_integrals=initial_guess_feedback_integrals,
                 )
                 record_step(info, method="bdf2")
             diagnostics["fixed_bdf2_internal_substeps"] = (
@@ -5571,6 +5615,38 @@ def _resolve_recycling_fixed_bdf2_internal_timestep_policy(
     return resolved, "automatic_jax_linearized"
 
 
+def _resolve_recycling_fixed_bdf2_initial_guess_policy(
+    config: BoutConfig | None = None,
+) -> str:
+    option_name = "recycling_fixed_bdf2_initial_guess_policy"
+    raw_value: object | None = None
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            raw_value = config.parsed(section_name, option_name)
+            break
+    if raw_value is None:
+        raw_value = os.environ.get(
+            "JAX_DRB_RECYCLING_FIXED_BDF2_INITIAL_GUESS_POLICY"
+        )
+    normalized = str(raw_value or "rhs_predictor").strip().lower()
+    normalized = normalized.replace("-", "_")
+    aliases = {
+        "history": "history_extrapolation",
+        "history_extrapolate": "history_extrapolation",
+        "history_extrapolation": "history_extrapolation",
+        "bdf2": "history_extrapolation",
+        "extrapolate": "history_extrapolation",
+        "extrapolation": "history_extrapolation",
+        "predictor": "rhs_predictor",
+        "rhs": "rhs_predictor",
+        "rhs_predictor": "rhs_predictor",
+        "legacy": "rhs_predictor",
+    }
+    return aliases.get(normalized, "rhs_predictor")
+
+
 def _resolve_recycling_adaptive_bdf_component_atol_floor(
     config: BoutConfig | None,
     *,
@@ -6387,6 +6463,60 @@ def _predict_recycling_packed_state(
         mesh=mesh,
         layout=layout,
     )
+
+
+def _extrapolate_recycling_bdf2_initial_guess(
+    config: BoutConfig,
+    current_fields: dict[str, np.ndarray],
+    previous_fields: dict[str, np.ndarray],
+    *,
+    current_integrals: dict[str, float],
+    previous_integrals: dict[str, float],
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    timestep: float,
+    previous_timestep: float,
+    runtime_model: _RecyclingRuntimeModel,
+) -> tuple[dict[str, np.ndarray] | None, dict[str, float] | None]:
+    current_dt = float(timestep)
+    previous_dt = float(previous_timestep)
+    if (
+        not np.isfinite(current_dt)
+        or not np.isfinite(previous_dt)
+        or current_dt <= 0.0
+        or previous_dt <= 0.0
+    ):
+        return None, None
+    ratio = current_dt / previous_dt
+    guessed_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in current_fields.items()
+    }
+    for name in field_names:
+        current = np.asarray(current_fields[name], dtype=np.float64)
+        previous = np.asarray(previous_fields[name], dtype=np.float64)
+        guessed = current + ratio * (current - previous)
+        if not np.all(np.isfinite(guessed)):
+            return None, None
+        guessed_fields[name] = np.asarray(guessed, dtype=np.float64)
+    sanitized_fields = _sanitize_recycling_fields(config, guessed_fields)
+    if any(not np.all(np.isfinite(value)) for value in sanitized_fields.values()):
+        return None, None
+
+    guessed_integrals = {
+        name: float(value) for name, value in current_integrals.items()
+    }
+    for name in feedback_names:
+        current = float(current_integrals.get(name, 0.0))
+        previous = float(previous_integrals.get(name, 0.0))
+        guessed = current + ratio * (current - previous)
+        if not np.isfinite(guessed):
+            return None, None
+        guessed_integrals[name] = guessed
+    sanitized_integrals = _sanitize_feedback_integrals(
+        guessed_integrals, controllers=runtime_model.controllers
+    )
+    return sanitized_fields, sanitized_integrals
 
 
 def _pack_recycling_active_state(
