@@ -145,7 +145,7 @@ and tests all move together.
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 91% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
 | Effective preconditioning | 42% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
-| Performance and scaling | 59% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
+| Performance and scaling | 60% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -1432,6 +1432,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   This does not solve preconditioning, but it gives future Schur/transport and
   residual-kernel changes a direct work-count gate instead of relying only on
   the configured `restart * maxiter` budget.
+- 2026-06-18: Refreshed the D/T/He cProfile/RSS bundle with operator-call
+  diagnostics enabled. The cProfile-instrumented gate passed in `12.67 s`; the
+  separate RSS sample took `8.97 s`. Diagnostics reported residual `7.315`,
+  clean JAX-GMRES status, `5` linear-operator calls, `2.47 s`
+  operator-dispatch time, `9.54 s` total linear-solve time, `2.64 s`
+  JAX-linearization time, two residual evaluations, and one line-search trial.
+  The cProfile rows are dominated by JAX `custom_linear_solve`/`gmres`,
+  tracing/cache-miss paths, and the fixed-layout residual linearization through
+  `recycling_fixed_residual.residual` and
+  `_compute_recycling_1d_rhs_from_species`. The next speedup implementation
+  should therefore target fixed-layout residual/JVP kernel cost,
+  solve-compilation amortization, or a preconditioner that reduces actual
+  matrix-free operator work, not additional line-search tuning.
 
 ## Definition Of Done
 
