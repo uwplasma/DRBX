@@ -145,7 +145,7 @@ and tests all move together.
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 90% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
 | Effective preconditioning | 42% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
-| Performance and scaling | 55% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
+| Performance and scaling | 56% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -1339,6 +1339,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   local dense blocks on D/T/He and strengthens the next-step requirement:
   develop a Schur/transport preconditioner or cheaper residual/JVP kernel that
   actually reduces Krylov work.
+- 2026-06-18: Added no-op rejection gates to the real-kernel JAX-linearized
+  recycling profiler. `scripts/profile_recycling_jax_linearized_gate.py` now
+  supports `--require-min-nonlinear-iterations=<n>` and
+  `--require-min-linear-iterations=<n>`, records those floors in
+  `profile_summary.json`, and returns nonzero if a supposedly heavy profile
+  exits before Newton/JAX-GMRES work. The local `dthe-jax-linearized-gate` in
+  `scripts/run_research_campaign_bundle.py` now uses `timestep=1.0`, skips the
+  redundant initial residual check, requires at least one nonlinear and one
+  linear iteration, and caps the current one-step linear budget at `400`. This
+  turns the D/T/He research-campaign command into a real heavy-kernel profiling
+  gate instead of a tiny-timestep residual-check artifact. A local wrapper run
+  against `/Users/rogerio/local/hermes-3` passed in `20.8 s`; the profiled solve
+  took `7.86 s`, the RSS sample run took `11.76 s`, the peak RSS delta was
+  `683 MiB`, and the solver reported one nonlinear iteration, `400` linear
+  iterations, residual `7.315`, and clean JAX-GMRES status.
 
 ## Definition Of Done
 

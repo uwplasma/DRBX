@@ -178,6 +178,25 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--require-min-linear-iterations",
+        type=int,
+        default=None,
+        help=(
+            "Fail after profiling when reported linear_iterations is below this "
+            "nonnegative floor. Use this to prove the profile exercised the "
+            "JAX-linearized Krylov path instead of exiting at the predictor."
+        ),
+    )
+    parser.add_argument(
+        "--require-min-nonlinear-iterations",
+        type=int,
+        default=None,
+        help=(
+            "Fail after profiling when reported nonlinear_iterations is below this "
+            "nonnegative floor. Use this to reject no-op residual-check profiles."
+        ),
+    )
+    parser.add_argument(
         "--require-max-preconditioner-builds",
         type=int,
         default=None,
@@ -211,6 +230,14 @@ def _validate_args(args: argparse.Namespace) -> None:
     if args.require_max_linear_iterations is not None:
         if int(args.require_max_linear_iterations) < 0:
             raise SystemExit("--require-max-linear-iterations must be nonnegative.")
+    if args.require_min_linear_iterations is not None:
+        if int(args.require_min_linear_iterations) < 0:
+            raise SystemExit("--require-min-linear-iterations must be nonnegative.")
+    if args.require_min_nonlinear_iterations is not None:
+        if int(args.require_min_nonlinear_iterations) < 0:
+            raise SystemExit(
+                "--require-min-nonlinear-iterations must be nonnegative."
+            )
     if args.require_max_preconditioner_builds is not None:
         if int(args.require_max_preconditioner_builds) < 0:
             raise SystemExit(
@@ -362,6 +389,28 @@ def _validate_maximum_integer_value(
     return []
 
 
+def _validate_minimum_integer_value(
+    profile_report: dict[str, Any],
+    *,
+    key: str,
+    minimum: int,
+    label: str,
+    source: dict[str, Any] | None = None,
+) -> list[str]:
+    if int(minimum) < 0:
+        return [f"profile received a negative {label} floor"]
+    values = profile_report if source is None else source
+    try:
+        reported = int(values[key])
+    except KeyError:
+        return [f"profile did not report {key}"]
+    except (TypeError, ValueError):
+        return [f"profile did not report an integer {key}"]
+    if reported < int(minimum):
+        return [f"profile reported {reported} {label}, below {int(minimum)}"]
+    return []
+
+
 def _profile_gate_errors(
     profile_report: dict[str, Any], args: argparse.Namespace
 ) -> list[str]:
@@ -381,6 +430,26 @@ def _profile_gate_errors(
                 key="linear_iterations",
                 maximum=int(max_linear_iterations),
                 label="linear iterations",
+            )
+        )
+    min_linear_iterations = getattr(args, "require_min_linear_iterations", None)
+    if min_linear_iterations is not None:
+        errors.extend(
+            _validate_minimum_integer_value(
+                profile_report,
+                key="linear_iterations",
+                minimum=int(min_linear_iterations),
+                label="linear iterations",
+            )
+        )
+    min_nonlinear_iterations = getattr(args, "require_min_nonlinear_iterations", None)
+    if min_nonlinear_iterations is not None:
+        errors.extend(
+            _validate_minimum_integer_value(
+                profile_report,
+                key="nonlinear_iterations",
+                minimum=int(min_nonlinear_iterations),
+                label="nonlinear iterations",
             )
         )
     max_preconditioner_builds = getattr(
@@ -613,6 +682,8 @@ def main() -> int:
         "gate_requirements": {
             "linear_preconditioner": args.require_linear_preconditioner,
             "max_linear_iterations": args.require_max_linear_iterations,
+            "min_linear_iterations": args.require_min_linear_iterations,
+            "min_nonlinear_iterations": args.require_min_nonlinear_iterations,
             "max_preconditioner_builds": args.require_max_preconditioner_builds,
         },
         "gate_passed": not bool(gate_errors),

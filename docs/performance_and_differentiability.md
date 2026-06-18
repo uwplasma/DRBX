@@ -1119,11 +1119,16 @@ for heavier runs. `scripts/profile_recycling_jax_linearized_gate.py` accepts
 `--linear-preconditioner-refresh=<n>` to forward the corresponding runtime
 options into the profiled solve. It also accepts
 `--require-linear-preconditioner=<name>`,
+`--require-min-nonlinear-iterations=<n>`,
+`--require-min-linear-iterations=<n>`,
 `--require-max-linear-iterations=<n>`, and
 `--require-max-preconditioner-builds=<n>`. These gates are evaluated after the
 profile is written, recorded in `profile_summary.json`, and return a nonzero
 status if the reported diagnostics miss the requested preconditioner or exceed
-the requested budgets. Dynamic JVP-derived preconditioners such as
+the requested floors or budgets. The minimum-iteration gates are important for
+heavy decks because a tiny timestep can converge at the predictor and otherwise
+produce a misleading "passed" profile without exercising Newton, JVP, or Krylov
+work. Dynamic JVP-derived preconditioners such as
 `linearized_diag`, `local_block_diag`, and `parallel_line` must report at least
 one finite preconditioner build when they are required. This lets local CPU and
 office-GPU D/T/He campaigns distinguish a solver-correctness pass from a

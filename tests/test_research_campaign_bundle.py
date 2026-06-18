@@ -144,6 +144,17 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) 
     assert gate.name == "dthe-jax-linearized-gate"
     assert "--case" in gate.command
     assert "dthe" in gate.command
+    assert gate.command[gate.command.index("--timestep") + 1] == "1.0"
+    assert "--skip-initial-residual-check" in gate.command
+    assert gate.command[
+        gate.command.index("--require-min-nonlinear-iterations") + 1
+    ] == "1"
+    assert gate.command[
+        gate.command.index("--require-min-linear-iterations") + 1
+    ] == "1"
+    assert gate.command[
+        gate.command.index("--require-max-linear-iterations") + 1
+    ] == "400"
     assert "--skip-cprofile" in gate.command
 
 

@@ -42,6 +42,10 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "local_block_diag",
             "--require-max-linear-iterations",
             "3200",
+            "--require-min-linear-iterations",
+            "1",
+            "--require-min-nonlinear-iterations",
+            "1",
             "--require-max-preconditioner-builds",
             "2",
         ]
@@ -53,6 +57,8 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.linear_preconditioner_refresh == 100
     assert args.require_linear_preconditioner == "local_block_diag"
     assert args.require_max_linear_iterations == 3200
+    assert args.require_min_linear_iterations == 1
+    assert args.require_min_nonlinear_iterations == 1
     assert args.require_max_preconditioner_builds == 2
 
 
@@ -69,6 +75,8 @@ def test_help_documents_preconditioner_and_budget_gates(
     assert "--linear-preconditioner-refresh" in help_text
     assert "--require-linear-preconditioner" in help_text
     assert "--require-max-linear-iterations" in help_text
+    assert "--require-min-linear-iterations" in help_text
+    assert "--require-min-nonlinear-iterations" in help_text
     assert "--require-max-preconditioner-builds" in help_text
 
 
@@ -111,6 +119,14 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "--require-max-linear-iterations must be nonnegative",
         ),
         (
+            {"require_min_linear_iterations": -1},
+            "--require-min-linear-iterations must be nonnegative",
+        ),
+        (
+            {"require_min_nonlinear_iterations": -1},
+            "--require-min-nonlinear-iterations must be nonnegative",
+        ),
+        (
             {"require_max_preconditioner_builds": -1},
             "--require-max-preconditioner-builds must be nonnegative",
         ),
@@ -120,6 +136,8 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "linear_preconditioner_refresh": None,
             "require_linear_preconditioner": None,
             "require_max_linear_iterations": None,
+            "require_min_linear_iterations": None,
+            "require_min_nonlinear_iterations": None,
             "require_max_preconditioner_builds": None,
         }
         values.update(kwargs)
@@ -134,10 +152,13 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
     args = SimpleNamespace(
         require_linear_preconditioner="local-block-diag",
         require_max_linear_iterations=3200,
+        require_min_linear_iterations=1,
+        require_min_nonlinear_iterations=1,
         require_max_preconditioner_builds=2,
     )
     profile_report = {
         "linear_iterations": 3200,
+        "nonlinear_iterations": 1,
         "diagnostics": {
             "linear_preconditioner": "local_block_diag",
             "linear_preconditioner_build_count": 2,
@@ -153,6 +174,8 @@ def test_profile_gate_errors_accept_static_preconditioner_without_builds() -> No
     args = SimpleNamespace(
         require_linear_preconditioner="state-scale",
         require_max_linear_iterations=None,
+        require_min_linear_iterations=None,
+        require_min_nonlinear_iterations=None,
         require_max_preconditioner_builds=None,
     )
     profile_report = {
@@ -168,10 +191,13 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
     args = SimpleNamespace(
         require_linear_preconditioner="parallel-line",
         require_max_linear_iterations=10,
+        require_min_linear_iterations=1,
+        require_min_nonlinear_iterations=1,
         require_max_preconditioner_builds=2,
     )
     profile_report = {
         "linear_iterations": 24,
+        "nonlinear_iterations": 1,
         "diagnostics": {
             "linear_preconditioner": "local_block_diag",
             "linear_preconditioner_build_count": 3,
@@ -188,3 +214,24 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
     ) in errors
     assert "profile reported 24 linear iterations, exceeding 10" in errors
     assert "profile reported 3 preconditioner builds, exceeding 2" in errors
+
+
+def test_profile_gate_errors_reject_noop_profiles() -> None:
+    module = _load_module()
+    args = SimpleNamespace(
+        require_linear_preconditioner=None,
+        require_max_linear_iterations=None,
+        require_min_linear_iterations=1,
+        require_min_nonlinear_iterations=1,
+        require_max_preconditioner_builds=None,
+    )
+    profile_report = {
+        "linear_iterations": 0,
+        "nonlinear_iterations": 0,
+        "diagnostics": {},
+    }
+
+    assert module._profile_gate_errors(profile_report, args) == [
+        "profile reported 0 linear iterations, below 1",
+        "profile reported 0 nonlinear iterations, below 1",
+    ]
