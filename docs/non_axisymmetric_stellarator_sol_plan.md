@@ -1,5 +1,12 @@
 # Non-Axisymmetric Stellarator SOL Implementation Plan
 
+!!! note "Plan authority"
+    This page is a subordinate technical appendix for equations, geometry
+    details, and validation gates. The active execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    appendix afterward.
+
 This document records the staged path for native non-axisymmetric
 scrape-off-layer calculations in `jax_drb`. The goal is not only to produce a
 visually plausible 3D movie, but to make the geometry, operators, validation

@@ -1,5 +1,12 @@
 # JAXDRB Refactoring Plan
 
+!!! note "Plan authority"
+    This page is a subordinate technical appendix for source/test structure.
+    The active execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    roadmap conflicts with that plan, follow the execution plan and update this
+    appendix afterward.
+
 This document is the clean engineering roadmap for bringing `jax_drb` to a
 research-grade, maintainable, and fully auditable state without changing the
 scientific claim boundary or breaking the existing promoted parity surface.

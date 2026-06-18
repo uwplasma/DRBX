@@ -1,5 +1,11 @@
 # Geometry Roadmap
 
+!!! note "Plan authority"
+    This page is a subordinate technical appendix. The active execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    roadmap conflicts with that plan, follow the execution plan and update this
+    appendix afterward.
+
 This page records how the `jax_drb` 3D program should stay geometry-agnostic while still shipping benchmark-specific validation packages.
 
 For the detailed implementation plan for native non-axisymmetric stellarator SOL turbulence, including FCI metrics, equations, validation gates, and README movie targets, see [Non-Axisymmetric Stellarator SOL Implementation Plan](non_axisymmetric_stellarator_sol_plan.md).
