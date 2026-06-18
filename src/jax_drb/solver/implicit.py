@@ -67,6 +67,7 @@ class ImplicitStepInfo:
     jvp_direction_workspace_reuses: int = 0
     residual_jitted: bool = False
     check_initial_residual: bool = True
+    initial_residual_mode: str = "residual"
 
 
 @dataclass(frozen=True)
@@ -1144,6 +1145,7 @@ def solve_jax_linearized_newton_system(
     linear_preconditioner_name: str | None = None,
     linear_preconditioner_context: dict[str, object] | None = None,
     check_initial_residual: bool = True,
+    initial_residual_mode: str = "residual",
     jit_residual: bool = False,
     line_search_initial_step_scale: float = 1.0,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
@@ -1197,6 +1199,9 @@ def solve_jax_linearized_newton_system(
     linear_operator_call_count = 0
     linear_operator_dispatch_seconds = 0.0
     resolved_solve_method = _resolve_jax_gmres_solve_method(linear_solver_solve_method)
+    resolved_initial_residual_mode = _resolve_jax_linear_initial_residual_mode(
+        initial_residual_mode
+    )
     residual_function = jax.jit(residual) if bool(jit_residual) else residual
     known_state_residual_inf_norm: float | None = None
 
@@ -1251,9 +1256,10 @@ def solve_jax_linearized_newton_system(
             linear_preconditioner_build_count=linear_preconditioner_build_count,
             residual_jitted=bool(jit_residual),
             check_initial_residual=bool(check_initial_residual),
+            initial_residual_mode=resolved_initial_residual_mode,
         )
 
-    if check_initial_residual:
+    if check_initial_residual and resolved_initial_residual_mode == "residual":
         residual_started_at = perf_counter()
         initial_residual = residual_function(state)
         initial_residual = _block(initial_residual)
@@ -1407,6 +1413,27 @@ def solve_jax_linearized_newton_system(
         nonlinear_iterations=int(max_nonlinear_iterations),
         converged=float(known_state_residual_inf_norm) < float(residual_tolerance),
     )
+
+
+def _resolve_jax_linear_initial_residual_mode(name: str) -> str:
+    normalized = str(name or "residual").strip().lower().replace("-", "_")
+    aliases = {
+        "": "residual",
+        "default": "residual",
+        "residual": "residual",
+        "standalone": "residual",
+        "separate": "residual",
+        "linearize": "linearize",
+        "linearized": "linearize",
+        "linearization": "linearize",
+        "jacobian": "linearize",
+    }
+    if normalized not in aliases:
+        raise ValueError(
+            "initial_residual_mode must be 'residual' or 'linearize', "
+            f"got {name!r}."
+        )
+    return aliases[normalized]
 
 
 def _resolve_jax_linear_solver_backend(name: str) -> str:

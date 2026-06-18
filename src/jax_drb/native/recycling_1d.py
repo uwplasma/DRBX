@@ -4677,6 +4677,9 @@ def advance_recycling_1d_backward_euler_step(
         check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
             config
         )
+        initial_residual_mode = _resolve_recycling_jax_linear_initial_residual_mode(
+            config
+        )
         linear_backend = (
             "lineax_gmres"
             if solver_mode.endswith("_lineax")
@@ -4713,6 +4716,7 @@ def advance_recycling_1d_backward_euler_step(
                 )
             ),
             check_initial_residual=check_initial_residual,
+            initial_residual_mode=initial_residual_mode,
             jit_residual=jit_residual,
             line_search_initial_step_scale=line_search_initial_step_scale,
         )
@@ -4871,6 +4875,9 @@ def advance_recycling_1d_bdf2_step(
         check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
             config
         )
+        initial_residual_mode = _resolve_recycling_jax_linear_initial_residual_mode(
+            config
+        )
         linear_backend = (
             "lineax_gmres"
             if solver_mode.endswith("_lineax")
@@ -4907,6 +4914,7 @@ def advance_recycling_1d_bdf2_step(
                 )
             ),
             check_initial_residual=check_initial_residual,
+            initial_residual_mode=initial_residual_mode,
             jit_residual=jit_residual,
             line_search_initial_step_scale=line_search_initial_step_scale,
         )
@@ -5930,6 +5938,45 @@ def _resolve_recycling_jax_linear_check_initial_residual(
     )
 
 
+def _resolve_recycling_jax_linear_initial_residual_mode(
+    config: BoutConfig | None = None,
+) -> str:
+    """Resolve how JAX-linearized recycling performs the initial residual check."""
+
+    option_name = "recycling_jax_linear_initial_residual_mode"
+    for section_name in ("runtime", "jax_drb"):
+        if config is None or not config.has_option(section_name, option_name):
+            continue
+        value = str(config.parsed(section_name, option_name)).strip().lower()
+        if value:
+            return _canonical_recycling_jax_linear_initial_residual_mode(value)
+    env_value = os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE")
+    if env_value is not None and env_value.strip():
+        return _canonical_recycling_jax_linear_initial_residual_mode(env_value)
+    return "residual"
+
+
+def _canonical_recycling_jax_linear_initial_residual_mode(name: str) -> str:
+    normalized = str(name or "residual").strip().lower().replace("-", "_")
+    aliases = {
+        "": "residual",
+        "default": "residual",
+        "residual": "residual",
+        "standalone": "residual",
+        "separate": "residual",
+        "linearize": "linearize",
+        "linearized": "linearize",
+        "linearization": "linearize",
+        "jacobian": "linearize",
+    }
+    if normalized not in aliases:
+        raise ValueError(
+            "recycling_jax_linear_initial_residual_mode must be 'residual' "
+            f"or 'linearize', got {name!r}."
+        )
+    return aliases[normalized]
+
+
 def _compute_recycling_1d_packed_rhs(
     config: BoutConfig,
     fields: dict[str, np.ndarray],
@@ -6644,6 +6691,9 @@ def _as_recycling_step_info(
         "residual_jitted": bool(getattr(info, "residual_jitted", False)),
         "check_initial_residual": bool(
             getattr(info, "check_initial_residual", True)
+        ),
+        "initial_residual_mode": str(
+            getattr(info, "initial_residual_mode", "residual")
         ),
     }
     if solver_mode is not None:

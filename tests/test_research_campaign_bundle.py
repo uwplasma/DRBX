@@ -150,7 +150,10 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) 
     assert gate.command[
         gate.command.index("--line-search-initial-step-scale") + 1
     ] == "0.25"
-    assert "--skip-initial-residual-check" in gate.command
+    assert "--skip-initial-residual-check" not in gate.command
+    assert gate.command[gate.command.index("--initial-residual-mode") + 1] == (
+        "linearize"
+    )
     assert gate.command[
         gate.command.index("--require-min-nonlinear-iterations") + 1
     ] == "1"

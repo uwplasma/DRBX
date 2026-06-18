@@ -1084,6 +1084,58 @@ def test_jax_linearized_newton_solver_can_skip_initial_residual_check() -> None:
     assert info.converged is True
 
 
+def test_jax_linearized_newton_solver_can_check_initial_residual_by_linearizing() -> (
+    None
+):
+    jnp = pytest.importorskip("jax.numpy")
+
+    call_count = 0
+
+    def residual(state):
+        nonlocal call_count
+        call_count += 1
+        return jnp.asarray(state) * jnp.asarray(state) - 2.0
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        np.array([1.0], dtype=np.float64),
+        active_shape=(1,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=1,
+        linear_restart=4,
+        linear_maxiter=4,
+        initial_residual_mode="linearize",
+    )
+
+    np.testing.assert_allclose(solution, np.array([1.5]), rtol=1.0e-12)
+    assert info.converged is False
+    assert info.nonlinear_iterations == 1
+    assert info.residual_inf_norm == pytest.approx(0.25)
+    assert info.check_initial_residual is True
+    assert info.initial_residual_mode == "linearize"
+    assert info.residual_evaluation_count == 2
+    assert info.jacobian_refresh_count == 1
+    assert call_count == 2
+
+
+def test_jax_linearized_newton_solver_rejects_unknown_initial_residual_mode() -> (
+    None
+):
+    jnp = pytest.importorskip("jax.numpy")
+
+    with pytest.raises(ValueError, match="initial_residual_mode"):
+        solve_jax_linearized_newton_system(
+            lambda state: jnp.asarray(state),
+            np.array([1.0], dtype=np.float64),
+            active_shape=(1,),
+            residual_tolerance=1.0e-12,
+            step_tolerance=1.0e-12,
+            max_nonlinear_iterations=1,
+            initial_residual_mode="unknown",
+        )
+
+
 def test_jax_linearized_newton_solver_reuses_known_final_residual() -> None:
     jnp = pytest.importorskip("jax.numpy")
 

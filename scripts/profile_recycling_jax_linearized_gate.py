@@ -114,6 +114,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--initial-residual-mode",
+        choices=("residual", "linearize"),
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_initial_residual_mode=<mode>. "
+            "Use 'linearize' to keep the initial convergence check but obtain it "
+            "from the first JAX linearization, avoiding the standalone residual "
+            "call on known non-converged heavy solves."
+        ),
+    )
+    parser.add_argument(
         "--warmup-runs",
         type=int,
         default=0,
@@ -312,6 +323,13 @@ def _validate_args(args: argparse.Namespace) -> None:
         args.require_linear_preconditioner
     ).strip():
         raise SystemExit("--require-linear-preconditioner must be nonempty.")
+    initial_residual_mode = getattr(args, "initial_residual_mode", None)
+    if initial_residual_mode is not None:
+        mode = str(initial_residual_mode).strip().lower().replace("-", "_")
+        if mode not in {"residual", "linearize"}:
+            raise SystemExit(
+                "--initial-residual-mode must be 'residual' or 'linearize'."
+            )
     if args.require_max_linear_iterations is not None:
         if int(args.require_max_linear_iterations) < 0:
             raise SystemExit("--require-max-linear-iterations must be nonnegative.")
@@ -417,6 +435,12 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
         overrides.append("runtime:recycling_jax_linear_jit_residual=true")
     if bool(getattr(args, "skip_initial_residual_check", False)):
         overrides.append("runtime:recycling_jax_linear_check_initial_residual=false")
+    initial_residual_mode = getattr(args, "initial_residual_mode", None)
+    if initial_residual_mode is not None:
+        mode = str(initial_residual_mode).strip().lower().replace("-", "_")
+        if mode not in {"residual", "linearize"}:
+            raise ValueError("initial_residual_mode must be 'residual' or 'linearize'.")
+        overrides.append(f"runtime:recycling_jax_linear_initial_residual_mode={mode}")
     gmres_solve_method = getattr(args, "gmres_solve_method", None)
     if gmres_solve_method:
         overrides.append(

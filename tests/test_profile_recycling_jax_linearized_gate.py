@@ -122,6 +122,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
         override=["mesh:ny=64"],
         jit_residual=True,
         skip_initial_residual_check=True,
+        initial_residual_mode="linearize",
         gmres_solve_method="incremental",
         linear_preconditioner="local_block_diag",
         linear_preconditioner_refresh=100,
@@ -135,6 +136,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
         "mesh:ny=64",
         "runtime:recycling_jax_linear_jit_residual=true",
         "runtime:recycling_jax_linear_check_initial_residual=false",
+        "runtime:recycling_jax_linear_initial_residual_mode=linearize",
         "runtime:recycling_jax_linear_gmres_solve_method=incremental",
         "runtime:recycling_jax_linear_restart=20",
         "runtime:recycling_jax_linear_maxiter=10",
@@ -157,6 +159,10 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
         (
             {"require_linear_preconditioner": ""},
             "--require-linear-preconditioner must be nonempty",
+        ),
+        (
+            {"initial_residual_mode": "bad"},
+            "--initial-residual-mode must be 'residual' or 'linearize'",
         ),
         (
             {"require_max_linear_iterations": -1},
@@ -209,6 +215,7 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "linear_preconditioner": None,
             "linear_preconditioner_refresh": None,
             "require_linear_preconditioner": None,
+            "initial_residual_mode": None,
             "linear_restart": None,
             "linear_maxiter": None,
             "linear_tolerance_factor": None,
