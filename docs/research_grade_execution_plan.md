@@ -1,65 +1,119 @@
 # Research-Grade Execution Plan
 
-This is the active engineering and validation plan for turning `jax_drb` into a
-research-grade, low-overhead, end-to-end differentiable edge/SOL plasma code
-that can be shipped to external researchers without relying on private context.
+This is the single authoritative execution plan for making JAXDRB a
+research-grade, lightweight, documented, validated, performant, differentiable
+scrape-off-layer and edge-plasma code. It consolidates the older refactoring,
+geometry, validation, runtime, parity, documentation, and release notes into one
+ordered plan.
 
-This plan consolidates the refactoring roadmap, validation matrix, profiling
-notes, documentation status, comparison-code audit, and recent git history. It
-is intentionally not a work log. It defines the target state, the evidence
-needed for that target state, and the next execution sequence.
+## Plan Authority
 
-## Current Repository State
+This file is the only active plan. All implementation work should update this
+file first, then update a subordinate technical page only when the extra detail
+belongs there.
 
-Audit date: 2026-06-18.
+Subordinate pages:
 
-Active repository:
+- [refactoring_plan.md](refactoring_plan.md): source and test architecture
+  appendix.
+- [testing_strategy.md](testing_strategy.md): test policy and evidence-layer
+  appendix.
+- [runtime_gap_remediation.md](runtime_gap_remediation.md): parity, runtime,
+  and memory offender appendix.
+- [geometry_roadmap.md](geometry_roadmap.md): reusable 3D geometry architecture
+  appendix.
+- [non_axisymmetric_stellarator_sol_plan.md](non_axisymmetric_stellarator_sol_plan.md):
+  stellarator geometry, FCI, and validation appendix.
+- [vmec_extender_edge_fields.md](vmec_extender_edge_fields.md): VMEC-extender
+  import-contract appendix.
+- [parity_matrix.md](parity_matrix.md): historical parity buildout appendix.
+- [research_directions.md](research_directions.md): research-context appendix.
+- `../plan_jax_drb.md`: compatibility redirect to this file.
 
-- working tree: a local checkout of `https://github.com/uwplasma/jax_drb`
-- remote: `https://github.com/uwplasma/jax_drb.git`
-- branch: `main`
-- audit base commit: `8804a73 Record closeout coverage after solver controls`
-- local planning-pass caveat: there is one pre-existing uncommitted source edit
-  in `src/jax_drb/solver/implicit.py` from the previous solver lane. This plan
-  pass intentionally does not inspect, change, test, stage, or commit that code
-  edit.
+If any subordinate page conflicts with this file, follow this file and update
+the subordinate page after the implementation decision is made.
 
-Recent history is concentrated in four work streams:
+This planning pass is intentionally not a code/test implementation pass. A
+pre-existing uncommitted source edit is present in
+`src/jax_drb/solver/implicit.py` from the previous sparse solver-health lane and
+is outside the scope of this plan-only pass.
 
-- solver/runtime performance: sparse finite-difference Jacobian threading,
-  reaction/source allocation cleanup, cached target-boundary geometry, runtime
-  ETA reporting, profiling scripts, persistent compilation-cache support
-- validation evidence: live reference rerun matrix, neutral-mixed boundary
-  mismatch audit, MMS convergence package, reaction/collision/neutral/target
-  campaigns, local CPU scaling, differentiability/UQ figures
-- architecture extraction: recycling layout, setup, state preparation, atomic
-  rates, reactions, collisions, neutral diffusion, target recycling,
-  anomalous diffusion, runner helpers, cache/reference/compare helpers
-- release hardening: Python 3.10-3.12 workflow, PyPI publish workflow, MIT
-  license, release-surface path sanitation, runtime install dependency cleanup
+Hosted GitHub Actions should not be polled repeatedly while hosted runners are
+blocked by account billing/spending-limit state. Use local release gates during
+development and check hosted CI periodically after billing is restored.
 
-The current codebase is not empty scaffolding. It already has a meaningful
-native and reference-backed validation surface. The remaining problem is that
-the strongest evidence and the most maintainable architecture do not yet line
-up perfectly: the highest-fidelity recycling lanes still carry host-side
-implicit-solver bottlenecks, the largest files remain too broad, and the 3D
-stellarator/imported-field lane still needs longer, grid-sensitive validation
-before it can support broad non-axisymmetric turbulence claims.
+## Target Claim Boundary
 
-The June 18, 2026 footprint audit reports `.git` at about `30M`, with one pack
-of `8.96 MiB` and no tracked file larger than about `328 KiB`. The local
-working tree is much larger because of untracked or ignored development
-artifacts (`.venv`, `profiles`, `tmp`, local JAX traces, and artifact-cache
-zips). Release work should therefore preserve the small git history, keep
-heavy generated traces/media on releases or external artifact storage, and
-avoid confusing local scratch data with clone footprint.
+The release target is not simply "examples run." The target is a codebase that
+an external researcher can clone, install, run, audit, and cite.
 
-The current release head has local docs/test coverage evidence. The latest
-GitHub Actions docs/test/coverage jobs did not start because the hosted-runner
-account is billing/spending-limit blocked; the annotations are workflow-startup
-failures, not repository test failures. Until billing is restored, the local
-release gates below are the active CI substitute and must be kept green before
-any tag:
+JAXDRB should support the following promoted claim classes only when the listed
+evidence exists:
+
+- Drift-reduced Braginskii edge/SOL models with clearly documented equations,
+  closures, normalizations, and implementation locations.
+- Open-field and closed-field simulations in tokamak and stellarator geometry.
+- Sheath, recycling, neutral, detachment, and target-response physics with
+  equation-level and component-level tests.
+- Diverted tokamak examples that are self-contained for users and can generate
+  movies, target profiles, neutral/source plots, and turbulent diagnostics.
+- 3D non-axisymmetric stellarator examples for VMEC, VMEC-extender,
+  ESSOS-imported coil maps, hybrid VMEC/coil maps, HSX, NCSX,
+  Landreman-Paul QA, and Dommaschk potentials.
+- JAX-native residual and differentiability lanes where host-side SciPy or
+  reference-code barriers are absent from the promoted objective.
+- CPU and GPU performance claims tied to real heavy kernels, profiler evidence,
+  memory evidence, and fidelity-preserving comparisons.
+- Documentation and examples that teach users how to select models, geometries,
+  boundary conditions, input files, outputs, plotting, validation, profiling,
+  and differentiability workflows.
+
+Unpromoted examples, reduced forcing terms, and visualization-only movies must
+be explicitly labeled as reduced, pedagogical, exploratory, or scaffolded. A
+movie is never a validation gate by itself.
+
+## Current Completion Snapshot
+
+Audit date: 2026-06-18. Percentages are approximate and evidence-based. A lane
+moves only when implementation, validation, plots or diagnostics, documentation,
+and tests all move together.
+
+| Lane | Completion | Current blocker |
+| --- | ---: | --- |
+| Plan authority and release hygiene | 92% | Keep this file current and prevent new competing roadmap files. |
+| Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
+| Reference-backed parity | 98.5% | Close remaining neutral `NVh` accepted-step state/history sequencing feeding `Pnlim`, `logPnlim`, and `Grad(logPnlim)`. |
+| JAX-native recycling solver | 88% | Make a JAX-transformable full-output recycling path faster and stable enough for default or documented opt-in promotion. |
+| Effective preconditioning | 35% | Move beyond negative row/field/local-block evidence to a transport-aware or Schur-style preconditioner with same-case speedup. |
+| Performance and scaling | 52% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only compact-kernel throughput. |
+| Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
+| Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
+| Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
+| 3D stellarator imported-field/VMEC SOL | 67% | Promote live connection-length, endpoint, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
+| Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
+| Docs and examples | 86% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
+| Repo footprint | 90% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag. |
+
+## Ordered Execution Plan
+
+This order should be followed unless a lane is blocked and a later independent
+lane can progress without broadening unsupported claims.
+
+### 1. Freeze Planning, Claim Boundaries, And Release Hygiene
+
+Objective:
+
+Keep the project moving from one plan, one claim boundary, and one definition
+of done.
+
+Steps:
+
+1. Keep this file as the active plan and keep `plan_jax_drb.md` as a redirect.
+2. Add every implementation decision, validation gate, and negative benchmark
+   result to the execution log before broadening a README/docs claim.
+3. Keep hosted CI checks periodic while runner billing is blocked; do not spend
+   time polling jobs that fail before steps start.
+4. Before any tag, run local release gates:
 
 ```bash
 PYTHONPATH=src python scripts/run_closeout_coverage.py
@@ -68,929 +122,436 @@ PYTHONPATH=src python scripts/run_fast_research_checks.py
 PYTHONPATH=src mkdocs build --strict --clean
 ```
 
-The active plan is this file. All other plan-like documents are subordinate:
+Promotion evidence:
 
-- [refactoring_plan.md](refactoring_plan.md) records detailed architecture
-  split targets only.
-- [geometry_roadmap.md](geometry_roadmap.md) records geometry-adapter design
-  rules only.
-- [non_axisymmetric_stellarator_sol_plan.md](non_axisymmetric_stellarator_sol_plan.md)
-  records equations and validation detail for the stellarator/FCI lane only.
-- `plan_jax_drb.md` is an older VMEC-extender handoff retained as a redirect
-  for traceability and must not be treated as an active plan.
+- clean `git status` review;
+- no staged unrelated source, generated dump, trace, or media artifact;
+- plan log entry for the work being promoted;
+- local release gates green or a documented, locally reproducible failure.
 
-When these files disagree, this file wins. New work should update this file
-first, then update the subordinate technical page only if implementation detail
-belongs there.
+### 2. Close Reference-Backed Parity At Component Level
 
-Current plan-authority audit:
+Objective:
 
-- `plan_jax_drb.md` is a redirect only.
-- `docs/refactoring_plan.md` is a source/test architecture appendix only.
-- `docs/geometry_roadmap.md` is a geometry-adapter architecture appendix only.
-- `docs/non_axisymmetric_stellarator_sol_plan.md` is the equation and validation
-  appendix for the non-axisymmetric SOL lane only.
-- `docs/runtime_gap_remediation.md`, `docs/research_directions.md`,
-  `docs/parity_matrix.md`, `docs/testing_strategy.md`, and validation-gallery
-  pages are status/evidence appendices, not execution plans.
-- Hosted CI should not be polled repeatedly while billing blocks job startup.
-  Use the local gates in this file until GitHub Actions can start jobs again.
+Use reference comparisons as component diagnostics, not only final-state
+aggregate plots.
 
-## Current Completion Snapshot
+Current state:
 
-This snapshot is an execution aid, not a substitute for the exit criteria
-below. Percentages are approximate and evidence-based: a lane moves only when
-there is code, a reproducible command, a test or campaign artifact, and
-documentation matching the claim.
+- Many RHS, one-step, short-window, and campaign gates exist.
+- Direct neutral-mixed `SNVh_*` pressure-gradient and viscosity source formulas
+  are closed against written reference diagnostics.
+- The remaining neutral `NVh` offender is localized to accepted-step
+  state/history sequencing feeding neutral pressure/log-pressure preparation,
+  with near-target `Grad(logPnlim)` as a secondary stencil check.
 
-| Lane | Status | Completion | Next blocking evidence |
-| --- | --- | ---: | --- |
-| CI/CD and docs release surface | Local release-surface and targeted shipping slices pass after public-path sanitization; hosted Actions are currently blocked before job startup by account billing/spending-limit status. | 80% | Billing restored, then green docs, test, and coverage on the latest `main` head. |
-| Meaningful promoted coverage | Local closeout and promoted-solver coverage gates exceed the `95%` target on promoted surfaces. The June 9, 2026 promoted slice includes fixed residual active-array `jit`/`jvp`/`vmap` gates, the neutral diffusion-preparation diagnostic helper, direct neutral-mixed option-matrix gates for conduction, viscosity, Lax wave speed, flux limiting, and diffusion caps, plus the fixed-BDF2 internal-substep history and artifact-cache reliability gates. It passes with `554` tests and reports `95.19%` unrounded total coverage on the promoted target files, while the bounded closeout slice remains at `97%`. | 96% | Keep the gates green after every solver/geometry promotion; avoid adding coverage-only smoke tests. |
-| Reference-backed parity | Many RHS, one-step, and campaign gates exist; neutral-mixed direct `SNVh_*` source formulas are now closed. The accepted-step reference-monitor path auto-builds a clean patched checkout, links the patched `hermes-3`, runs the neutral-mixed reference case, writes JSONL, and passes the schema gate. Native traces replay the reference adaptive accepted-step time grid. The contextual reference-monitor patch deep-copies the `Dnnh` preparation ladder (`Tnlimh`, `logPnlimh`, `grad_logPnlimh`, raw diffusion, flux-limit maximum, flux-limited diffusion, and diffusion-limited pre-boundary diffusion), emits pointwise target-adjacent and guard payloads, and a live rerun with those fields produced no missing ladder diagnostics. The monitor and native trace now also expose optional covariant `grad_logPnlim*_x/y/z` component diagnostics, and the component-enabled max-order-2 rerun confirms those are diagnostic components rather than the scalar cap input. The June 9, 2026 controlled max-order-2 reference rerun with the state-to-limiter amplification register produced `309` accepted-step records; native replay matched `309/309` points with zero solver-order mismatches, observed reference max order `2`, and no configured order-ceiling violations. The leading offender remains `Dnnh_flux_max`, with target-adjacent drift `5.12775405e-3`, followed by final `Dnnh` at `4.34931095e-3`. The report now writes `accepted_step_state_history_register`, which identifies `Nh` as the dominant state input (`6.83367928e-5`) and `logPnlimh` as the dominant limiter input (`9.94406306e-5`), with about `51.6x` limiter-to-flux-cap and `75.0x` state-to-flux-cap amplification. A June 15, 2026 tight native replay lowered the native accepted-step residual to `9.76e-12` but left `Dnnh_flux_max` at `5.12775158e-3`, and a sparse finite-difference Newton replay was too slow to be a practical parity path. The state-history window at `t = 2.7536261188` and local target-adjacent index `[5, 3, 0]` records `Nh` drift `6.70e-5`, `logPnlimh` drift `9.18e-5`, `grad_logPnlimh` drift `-4.51e-5`, final `Dnnh` drift `4.35e-3`, and `SNVh_parallel_viscosity` drift `-1.07e-5`. This closes solver tolerance/backend switching as the primary explanation and localizes the remaining neutral NVh parity work to accepted-step state/history sequencing feeding neutral pressure/log-pressure preparation, with near-target `Grad(logPnlim)` as the secondary stencil check rather than the pressure-gradient, viscosity, raw diffusion, or local cap algebra. The final-state input-closure diagnostic verifies that native `Dnn`, `Vh`, and `eta_h` reconstructed from a reference dump match the reference final-state fields to roundoff. | 98.5% | Implement a closer CVODE-style accepted-step state/history replay for neutral pressure/log-pressure preparation; only touch near-target gradient stencils or source formulas if that state-history replay fails to close the scalar cap drift. |
-| JAX-native recycling solver | Fixed-layout residual, JVP checks, and fixed-BDF2 diagnostics are present and gated on lightweight fixtures. The fixed residual contract now rejects packed-state rank/length mismatches, layout field-size inconsistencies, unknown active-array RHS keys, wrong RHS field shapes, wrong feedback shapes, and field/feedback shape mismatches before they can enter traced residuals. The opt-in `bdf_active_array_jvp` full-output bridge routes SciPy BDF through `rhs_backend="active_array"` and grouped JVPs, while `bdf_fixed_full_field_jvp` remains the compatibility bridge. The self-contained promotion wrapper now separates the full-output BDF/JVP parity phase from the non-SciPy fixed-BDF2 residual phase: full-output parity still runs on hydrogen and D/T/He, while fixed-BDF2 now runs on hydrogen at `timestep = 10` and D/T/He at `timestep = 1` with `runtime:recycling_fixed_bdf2_max_internal_timestep=0.5`. The D/T/He `timestep = 1` route now passes in both fixed-full-field and active-array modes with `fixed_bdf2_max_residual_inf_norm = 3.77e-9`, four internal substeps, three BDF2 correctors, zero unconverged steps, and zero failed linear solves; the corrected solver-health gate still prevents large residuals from passing as convergence. The adaptive-BDF JAX-linearized path now reaches the full controller and, on a local hydrogen `timestep=1` fixture, completed with `50` fixed-layout RHS/JAX-linearized trial solves in about `108 s`, no fallbacks, no unconverged substeps, no failed linear solves, `3` rejected trials, `2` rejected-history reuses, and max accepted error ratio `9.31e-1`; this improves the previous retained artifact with `61` trial solves and about `174 s`. The matched Lineax backend ran in about `91 s` but reported `41` failed inner linear solves, while the new native JAX BiCGSTAB backend also ran in about `108 s` and reports unknown inner linear-solver status, so backend switching is not a clean promotion path yet. A post-patch `1D-recycling-dthe`, `timestep=1` adaptive JAX-linearized gate still exceeded a `360 s` guard before a completed mode report. Full output-window default promotion is not complete because full `timestep = 5000` fixed-BDF2 still needs a substep policy and the local `timestep = 1` D/T/He gate is slow (`98.9 s` fixed-full-field, `117.6 s` active-array, `5200` inner linear iterations). A June 9, 2026 active-array GMRES-control probe with `restart=10`, `maxiter=20`, and the same internal substep policy converged cleanly but slowed to `136.8 s`, so simple restart reduction is not viable. The JAX-linearized solver now uses the selected jitted residual consistently in line search and final residual checks, removing one host/path inconsistency for the fixed-BDF2 JAX lane. A June 15, 2026 opt-in `state_scale` JAX-GMRES left-preconditioner hook is implemented and unit-tested, but the first real hydrogen fixed-layout probe is negative evidence: the unpreconditioned gate ran in `2.96 s`, while `runtime:recycling_jax_linear_preconditioner=state_scale` ran in `7.25 s` with the same residual and solver status. A follow-up layout-aware `field_scale` preconditioner hook is now unit-tested, but it is also negative promotion evidence: the fixed-layout `timestep=1` probe ran in `3.38 s`, the adaptive hydrogen `timestep=1` gate ran in `111.8 s` with `9` unknown inner linear statuses, lower `maxiter=8` slowed to `116.6 s`, and residual JIT timed out at `220 s`. The exact JVP-derived `linearized_diag` diagnostic is also implemented and tested, but the first fixed-layout probe ran in `3.66 s`, spent `0.36 s` building the diagonal, and still reached the full GMRES update budget. The BDF2 corrector can now reuse the embedded backward-Euler predictor as its initial guess for JAX-linearized adaptive-BDF modes; the hydrogen `timestep=1` gate completed cleanly in `106.3 s` with `42` fixed-layout trial solves and no failed substeps, but still spent `85.4 s` in Krylov solves. A new inner-tolerance factor separates JAX Krylov tolerance from the outer nonlinear/adaptive-BDF gates; factor `10` completed the same gate cleanly in `103.9 s`, while factor `100` slowed to `105.3 s`. The June 16, 2026 physics/block-preconditioner pass added the opt-in `local_block_diag`/`block_jacobi` preconditioner, which builds same-cell field-coupling blocks from JVPs and applies small dense block solves inside JAX GMRES. It is unit-tested and passes hydrogen fixed-BDF2/adaptive-BDF gates, but it is not a default speedup: fixed-BDF2 took `13.15 s` unpreconditioned, `13.27 s` with rebuild-every-update local blocks, and `13.02 s` with block reuse; adaptive BDF took `137.2 s` with local-block rebuild and `113.5 s` with reuse, both slower than the retained unpreconditioned tolerance-factor gate. The sparse-JVP device-gather probe is likewise opt-in and correct but not default-promoted on the small hydrogen gate (`1.596 s` gather versus `1.551 s` full transfer). | 88% | Keep JAX GMRES as the current clean opt-in path. Do not default-promote Lineax, BiCGSTAB, state-scale, field-scale, linearized-diagonal, local-block, sparse-JVP device-gather, low-`maxiter`, residual-JIT, or initial-guess-only variants. Use the tolerance factor only as a measured sweep knob. The next real blocker is a transport-aware preconditioner or fewer accepted trial solves, followed by D/T/He parity, cProfile/RSS, JAX trace, and GPU evidence showing a runtime win rather than only transformability. |
-| Performance and scaling | Local CPU ensemble scaling and real fixed-layout JVP profiling exist; the recycling batched-JVP profile now reports per-batch state throughput and a top-level throughput summary. The latest heavy fixed-BDF2 active-array control sweep was negative evidence: fewer GMRES restart vectors reduced the conservative iteration budget but increased wall time. Heavy default solver and GPU scaling remain incomplete. | 52% | Same-machine heavy recycling profiles after each solver switch, plus a GPU bundle on promoted kernels after the residual/JVP cost is reduced. |
-| 3D imported-field and VMEC-extender SOL | Import, selected-field, reduced FCI, and smoke campaign gates exist. The VMEC-extender synthetic import example now runs from a clean temporary directory, and the analytic FCI SOL lane remains the strongest self-contained 3D evidence. The imported-FCI example now has CLI routing for coil, VMEC, and hybrid map sources, including dry-run coverage, advisory single-grid connection-length roughness diagnostics, and a clean-clone nested connection-length refinement campaign using manufactured non-axisymmetric levels. The refinement example is now part of the release surface, renders its validation plot in the docs, and regenerates a small JSON/NPZ/PNG artifact package from a clean clone. A dedicated connection-length documentation page now defines one-sided, target-to-target, and effective parallel connection length and maps those definitions to synthetic, coil, VMEC, and hybrid code paths. The live imported connection-length API now loops over coil, VMEC, or hybrid nested grids and can compare non-collocated grids with coordinate interpolation. First raw live checks remain negative promotion evidence: hybrid `(3,4,6)->(6,8,12)` gave RMS `0.43` and \(L_\infty\) `1.10`, hybrid `(4,6,8)->(8,12,16)` gave RMS `0.49` and \(L_\infty\) `2.75`, and raw VMEC `(4,6,8)->(8,12,16)` gave RMS `0.65` and \(L_\infty\) `0.78`. The corrected closed-VMEC quantity, parallel step length per toroidal radian, now passes the live coordinate-aware `(3,4,6)->(6,8,12)` control with RMS `0.136` and \(L_\infty\) `0.199`. Broad imported-field turbulence claims still require a separate open-field target-to-target connection-length refinement gate for coil/hybrid maps, consumed-map/source-fieldline agreement, and imported-field grid/time refinement. | 67% | Split open-field refinement into target-exit connection length and adjacent-step fallback diagnostics, then regenerate smooth non-axisymmetric movies only from gates that pass those checks. |
-| Code architecture split | Several recycling/runner helper modules have been extracted and tested, but `recycling_1d.py`, `neutral_mixed.py`, and `runner.py` remain too broad. | 60% | Behavior-preserving extraction into narrow recycling, neutral, and runner subpackages with direct tests. |
-| Documentation and examples | ReadTheDocs and equation/code/validation docs exist; neutral-mixed docs now describe pointwise target and guard accepted-step payloads, pre-boundary ladder scopes, max-order-2 reference control, tight native replay controls, and the current flux-cap offender. A new SIMSOPT-style `examples/model_selection_guide.py` teaches users how to choose diffusion, drift-reduced Braginskii, 2D turbulence, and 3D FCI lanes while writing parse-checked starter decks. The imported connection-length refinement demo is now indexed as a self-contained manufactured validation example, can be switched to live coil/VMEC/hybrid mode from top-level parameters, and exposes the live `connection_quantity` selector for raw connection length versus VMEC parallel step length per toroidal radian. The new connection-length page gives equations, history, code paths, and promotion rules for parallel connection length. Examples need to stay synchronized with every promoted artifact and geometry lane. | 86% | One clean-clone tokamak and one clean-clone stellarator tutorial that regenerate the advertised turbulence plots/movies without private reference checkouts. |
-| Repository footprint | Large history/media were pruned earlier and release-hosted media are used for docs. The June 5, 2026 local audit reports `.git` at `24M`, one pack at `8.96 MiB`, and no tracked file larger than `328K`; the large local working-tree footprint is from untracked `.venv`, artifact-cache, profile, and generated-doc data. | 90% | Repeat the same `.git` pack-size and tracked-large-file audit immediately before release tagging. |
+Steps:
 
-June 15, 2026 update for the reference-backed parity row: the
-component-enabled max-order-2 rerun is complete. Native accepted-step replay
-now honors the reference startup order sequence and reduces solver-order
-mismatches from one to zero, but the leading cap drift remains
-`Dnnh_flux_max = 5.12775159e-3`. The scalar limiter input owner is
-`logPnlimh` (`9.94406305e-5`) with about `51.6x` cap amplification; optional
-`grad_logPnlim*_x/y/z` component fields are reported separately because the
-cap uses the scalar `abs(Grad(logPnlim))`. The remaining parity owner is a
-closer CVODE-style accepted-step state/history replay feeding
-`Pnlim`/`logPnlim`, not neutral pressure-gradient, viscosity, raw-diffusion,
-or local cap algebra. A follow-up onset register built from the same trace
-shows the first 10% relative target-adjacent onset in scalar `logPnlimh` at
-`t = 0.454`, in `Nh` at `t = 0.673`, and in `Dnnh_flux_max` at `t = 0.851`.
-That temporal ordering supports accumulated accepted-state/scalar-limiter
-drift before cap amplification rather than a standalone late-time cap formula
-error.
+1. Preserve clean reference rerun mode through `JAX_DRB_REFERENCE_ROOT`.
+2. Keep users independent of reference-code installation by using committed
+   lightweight fixtures and release-hosted artifacts for examples.
+3. Add richer accepted-step reference monitor output with full active-field
+   accepted states, scalar limiter inputs, guard-cell history, target-adjacent
+   stencils, and component source terms.
+4. Test native residual pieces directly on reference accepted states before
+   changing formulas.
+5. Patch state/history replay first. Only change the near-target
+   `Grad(logPnlim)` stencil if the state/history patch fails to close the
+   scalar flux-cap drift.
+6. Maintain an offender register ranked by case, field, term, location,
+   absolute error, relative/scaled error, runtime, memory proxy, and artifact.
+7. Every closed offender gets a regression test and a docs note linking the
+   equation, implementation function, reference field, and plot/report.
 
-June 15, 2026 update for the JAX-native recycling row: a local lightweight
-promotion-gate rerun on `recycling_1d_one_step` remains negative default-promotion
-evidence. The stable SciPy-BDF baseline completed in `8.9 s`, while
-`bdf_fixed_full_field_jvp` took `61.6 s` with the time dominated by JAX
-linearization (`37.5 s`) and device execution (`20.4 s`). The active-array JVP
-mode exceeded the baseline by more than an order of magnitude and was
-interrupted before completion. The next performance patch should therefore
-reduce residual/JVP kernel cost or add an effective preconditioner before
-promoting JVP-backed BDF routes.
+Promotion evidence:
 
-## Unified Finalization Backlog
+- matched native/reference accepted-step traces on the same time grid;
+- term-level source comparison for pressure-gradient, viscosity, diffusion,
+  reaction, boundary, target, and sheath contributions;
+- absolute and relative errors reported together, especially for near-zero
+  fields;
+- clean reference provenance, not a dirty exploratory checkout;
+- offender register updated after the fix.
 
-This is the single backlog to follow when closing the code for release and for
-the first full publication package. Subordinate pages may contain equations,
-schemas, or implementation details, but they should not introduce a competing
-execution order.
+### 3. Finish The JAX-Native Recycling Solver Backbone
 
-### Single Ordered Execution Plan
+Objective:
 
-The next implementation pass should follow this order unless a blocker makes a
-later independent lane cheaper to advance in parallel. Progress should be logged
-in the execution log at the end of this file, with links to the relevant docs,
-tests, scripts, plots, and artifacts.
+Move the heavy recycling path from host-side residual loops and sparse
+finite-difference Jacobian assembly toward a transformable fixed-layout JAX
+residual with JVP/Jacobian-action and eventually matrix-free solves.
 
-| Order | Lane | Concrete objective | Required evidence before promotion |
-| ---: | --- | --- | --- |
-| 1 | Plan authority and release hygiene | Keep this file as the only execution plan; keep all other planning Markdown files as redirects or technical appendices; avoid repeated hosted-CI polling while Actions are billing-blocked. | `git status` review, plan-log entry, local release-gate command list, and no accidental staging of unrelated source/artifact edits. |
-| 2 | Effective preconditioning | Build a real physics preconditioner for the JAX-linearized recycling residual, not another backend-only swap. Candidate order is same-cell block-Jacobi as baseline, parallel-line transport blocks, neutral/plasma Schur-style blocks, and reduced sparse/LU-like blocks only if memory remains bounded. | Same-case hydrogen and D/T/He residual parity, no failed linear solves, bounded nonlinear iterations, cProfile/RSS/JAX trace, and wall-time comparison against the stable sparse finite-difference baseline. Negative evidence must stay documented and opt-in. |
-| 3 | JAX-native recycling residual | Promote fixed-layout collisions, neutral diffusion, sheath/no-flow/zero-current reconstruction, target recycling, scalar feedback, multispecies D/T/He reaction accumulation, BE/BDF2 residual assembly, and accepted-step history handling into transformable kernels. | JVP versus finite-difference checks, `jit`/`vmap`/`grad` gates on promoted objectives, fixed-BDF2 hydrogen and D/T/He gates, adaptive-BDF hydrogen gate, and a clear default/opt-in decision. |
-| 4 | Reference-backed parity | Close the neutral `NVh` offender through accepted-step state/history sequencing feeding `Pnlim`, `logPnlim`, and `Grad(logPnlim)` preparation before changing formulas. Maintain term-level diagnostics for pressure-gradient, viscosity, diffusion, reaction, boundary, and target terms. | Clean reference rerun or committed fixture, matched native/reference accepted-step traces, offender register ranked by field/term/location/norm/runtime/memory, and regression tests for every closed offender. |
-| 5 | Tokamak diverted simulations | Make diverted tokamak examples self-contained: release-hosted `tokamak.nc`/`BOUT.dmp*.nc` or native-generated fixtures, movie generation, profile analysis, target/SOL turbulent diagnostics, recycling and detachment plots, and no user requirement to install reference codes. | Clean-clone examples, target and OMP profiles, target heat/particle flux, source/radiation/neutral maps, detachment metrics, runtime reports, and README/docs figures generated by documented scripts. |
-| 6 | Drift-reduced Braginskii model surface | Expose diffusion-only, 1D open-field fluid, electrostatic DRB, vorticity/potential, Boussinesq, non-Boussinesq, selected electromagnetic, sheath/recycling/neutrals, open-field, and closed-field choices through documented APIs and examples. | Equation-to-code map for every promoted term, limiting-case tests, MMS/conservation/parity gates, Boussinesq versus non-Boussinesq plots, and explicit labeling for any pedagogical reduced closure. |
-| 7 | Neutral/recycling/sheath/detachment physics | Document and validate neutral density, pressure, momentum where enabled, diffusion, ionization, recombination, charge exchange, radiation, floors, flux limits, reflection, pumping, recycling, and sheath coupling. | Term-by-term neutral source parity, target recycling accounting, sheath heat-transmission gates, no-flow and zero-current reconstruction tests, detachment scan monotonicity, and docs with all symbols and normalizations. |
-| 8 | 3D stellarator geometry | Promote non-axisymmetric SOL geometry through VMEC, VMEC-extender, ESSOS-imported coil maps, hybrid VMEC/coil maps, HSX, NCSX, Landreman-Paul QA, and Dommaschk potentials. Use BSTING/BOUT++/Zoidberg workflows as implementation references while keeping `jax_drb` ownership of imported arrays and validation. | Boundary/surface plots, Poincare/field-line plots, connection-length maps, endpoint masks, FCI operator MMS, grid/time refinement, source-fieldline versus consumed-map agreement, and polished non-axisymmetric movies only after gates pass. |
-| 9 | Open and closed field-line physics | Run first 3D close/open field-line simulations for stellarators, including closed-region linear/nonlinear tests and open-region sheath/recycling/neutral target-response tests. | Connection-length convergence, target-to-target and one-sided connection-length definitions, endpoint-mask convergence, profile/fluctuation/flux diagnostics, and comparison with literature-style stellarator SOL figures. |
-| 10 | Performance and scaling | Separate single-solve latency from throughput. Use real heavy recycling kernels for CPU/GPU timing after solver changes, and use batched/sharded ensembles for strong-scaling demonstrations on Mac CPUs and GPUs. | Same-machine CPU profiles, memory/RSS reports, JAX trace/XLA evidence, single-GPU and multi-GPU bundles on promoted kernels, strong-scaling plots, and no scaling claim based only on toy kernels. |
-| 11 | Documentation and examples | Make docs pedagogical enough to understand the code without the paper. Keep README concise, push extended validation galleries into docs, and make every user-facing example SIMSOPT-style with top-level parameters and imported API calls. | `mkdocs build --strict --clean`, complete input/output reference, example status matrix, equations/derivations/code links/citations, and clean-clone tokamak and stellarator tutorials that regenerate advertised plots/movies. |
-| 12 | Coverage and release | Keep meaningful promoted-surface coverage above `95%` with physics, numerical, autodiff, parity, regression, CLI, and failure-mode tests. Keep the repo lightweight and package artifacts small. | `scripts/run_promoted_solver_coverage.py`, `scripts/run_closeout_coverage.py`, footprint audit, wheel/sdist audit, release notes, tag, GitHub release, and PyPI workflow once hosted CI can run. |
+Target architecture:
 
-### Review-Ready Master Roadmap
+- Stable compatibility tier: current NumPy/SciPy sparse finite-difference
+  Newton/BDF path remains validated and available.
+- Differentiable tier: fixed-layout PyTree/array residual, JAX-transformable
+  kernels, JVP/Jacobian-action linearization, VJP/gradient objectives, and
+  matrix-free or sparse-JVP solver options.
 
-The project is not ready to ship merely because individual examples run. The
-release target is a self-contained, lightweight, documented, tested, and
-reviewer-defensible code that can run tokamak and stellarator SOL examples,
-compare core surfaces with reference outputs, and expose differentiable JAX
-lanes without overclaiming incomplete physics. The work should proceed in the
-order below.
+Steps:
 
-**Milestone 1: freeze the claim boundary and plan authority.**
+1. Keep current negative solver/backend evidence opt-in: Lineax, BiCGSTAB,
+   row/field scaling, linearized diagonal, local block-Jacobi, residual-JIT
+   variants, and GMRES-control sweeps should not become defaults unless a
+   same-case gate proves a runtime and solver-health win.
+2. Complete fixed-layout residual assembly in this order:
+   collisions, neutral diffusion, target recycling, sheath/no-flow
+   reconstruction, zero-current ion-sum/potential reconstruction, controller
+   feedback, multispecies D/T/He reaction accumulation, scalar feedback, BE
+   residual, BDF2 residual, adaptive history/state preparation.
+3. Promote the full-output BDF residual through the fixed-layout seam, not only
+   compact tests.
+4. Replace sparse finite-difference Jacobian assembly where feasible with
+   sparse JVP materialization or matrix-free JVP actions.
+5. Keep full-output BDF/JVP parity separate from fixed-BDF2 residual promotion
+   until both pass correctness and runtime gates.
+6. Add JVP versus centered finite-difference tests for every promoted residual
+   component.
+7. Add VJP/gradient tests for scalar objectives that will be used in UQ,
+   inverse design, control, or optimization.
+8. Rerun heavy recycling profiles after each solver switch.
 
-- Keep this file as the only execution plan. `plan_jax_drb.md` stays a
-  redirect, while `refactoring_plan.md`, `geometry_roadmap.md`, and
-  `non_axisymmetric_stellarator_sol_plan.md` are technical appendices.
-- Do not wait on hosted CI while account billing blocks workflow startup.
-  Before a release candidate, run the local coverage/docs/research gates and
-  only then check CI once billing is available.
-- Keep unpromoted solver, preconditioner, imported-field, and movie
-  experiments explicitly opt-in until their validation gates pass.
+Promotion evidence:
 
-**Milestone 2: finish the solver backbone before expanding claims.**
+- hydrogen and D/T/He fixed-BDF2 gates pass with bounded residual, no failed
+  linear solves, and no hidden fallback;
+- adaptive-BDF hydrogen gate passes accepted-error, convergence, and
+  solver-health checks;
+- full-output BDF/JVP path matches compatibility solver on the same case;
+- cProfile, RSS, JAX trace, residual-call count, Jacobian/JVP timing, and
+  linear-solver health are archived;
+- differentiability examples pass `jit`, `jvp`, `grad`, batched sensitivity,
+  and finite-difference comparison.
 
-- Preserve the stable sparse finite-difference BDF/Newton path as the
-  compatibility baseline.
-- Finish the JAX-transformable recycling residual path by moving fixed-layout
-  collisions, neutral diffusion, sheath/no-flow/zero-current target
-  reconstruction, target recycling, scalar feedback, and multispecies reaction
-  accumulation into transformable kernels.
-- Replace sparse finite-difference Jacobian assembly only where a JVP,
-  Jacobian-action, or matrix-free Krylov path passes the same parity and
-  solver-health gates as the stable path.
-- Develop effective preconditioning using the same principle seen in the
-  reference edge-fluid and PETSc-style solver stack: the true operator remains
-  the full residual/JVP action, while the preconditioner is a cheaper physics
-  approximation. Candidate order is field/state scaling only as baseline,
-  same-cell block-Jacobi, parallel-line transport blocks, neutral/plasma
-  Schur-style blocks, then reduced sparse/LU-like blocks if the JAX/Python
-  memory budget remains acceptable.
-- Promotion requires same-case evidence: residual parity, no failed linear
-  solves, bounded nonlinear iterations, cProfile/RSS/JAX-trace evidence, and
-  CPU/GPU timing against the stable baseline.
+### 4. Build Effective Physics Preconditioning
 
-**Milestone 3: close reference-backed parity at the component level.**
+Objective:
 
-- Treat reference comparisons as component-level gates, not only final-state
-  aggregate plots.
-- Finish the neutral `NVh` offender through accepted-step state/history replay
-  feeding `Pnlim`/`logPnlim` and `Grad(logPnlim)` preparation before changing
-  pressure-gradient, viscosity, raw diffusion, or cap formulas.
-- Maintain an offender register ranked by field, term, norm, location,
-  runtime, and memory. Every closed offender gets a regression test and a
-  short docs note linking the equation, source function, and comparison
-  artifact.
-- Run two reference modes: committed lightweight fixtures for local/CI gates,
-  and developer reference reruns through `JAX_DRB_REFERENCE_ROOT` when new
-  baselines or term diagnostics are needed. Users must not need to install the
-  reference code to run examples.
+Make the JAX-native solver practically useful by reducing Krylov cost and
+accepted-trial cost with a physics/block preconditioner, not just backend
+switching.
 
-**Milestone 4: make tokamak diverted simulations self-contained.**
+Reference engineering lessons:
 
-- Provide clean-clone tutorials that run native diverted tokamak examples,
-  download release-hosted fixtures when needed, generate movies, and analyze
-  target/SOL turbulent profiles without requiring private reference outputs.
-- Promote tokamak examples in a ladder: 1D recycling, 1D detachment scan,
-  2D direct tokamak diffusion/transport, 2D recycling, multispecies D/T/He,
-  impurity/neon radiation, detached target scan, then longer nonlinear
-  turbulence windows.
-- Required figures are OMP profiles, target profiles, target heat/particle
-  flux, ionization/recombination/charge-exchange source maps, neutral-density
-  maps, radiation/source partition, target-temperature roll-over, pressure-loss
-  metric, recycling coefficient scan, and runtime/scaling plots.
-- Large `tokamak.nc`, `BOUT.dmp*.nc`, movies, and profile bundles stay in
-  GitHub releases or external artifacts, never in git history.
+- Edge-fluid solvers commonly separate the exact nonlinear residual from a
+  cheaper preconditioner that approximates dominant local and parallel
+  transport couplings.
+- PETSc-style strategies are useful as design patterns: block Jacobi, line
+  solves, field-split/Schur approximations, approximate diffusion/advection
+  inverses, and solver-health reporting.
+- JAX promotion requires the preconditioner to preserve shape stability, avoid
+  host loops in hot paths, and keep memory bounded.
 
-**Milestone 5: expose the drift-reduced Braginskii model surface honestly.**
+Candidate order:
 
-- Document and test each model level: diffusion-only, 1D open-field fluid,
-  electrostatic drift-reduced Braginskii, vorticity/potential solve,
-  Boussinesq polarization, non-Boussinesq polarization, selected
-  electromagnetic terms, full sheath/recycling/neutrals, and open/closed
-  field-line variants.
-- Every promoted equation must have an equation-to-code map, a limiting-case
-  test, and either a manufactured-solution, conservation, or reference-backed
-  gate.
-- Boussinesq versus non-Boussinesq comparisons need a paired figure showing
-  potential/vorticity response, radial particle/heat flux, and symmetry or
-  up-down/asymmetry metrics.
-- Demo-only nonlinear transfer terms must either be replaced by the real
-  bracket/vorticity path or labeled as pedagogical reduced closures; they must
-  not be presented as full DRB physics.
+1. Existing baselines: no preconditioner, state scaling, field scaling,
+   linearized diagonal, and same-cell local blocks. These are negative or
+   neutral evidence so far and remain diagnostic controls.
+2. Same-cell block-Jacobi with reuse across nonlinear iterations only if it
+   reduces total Krylov cost after build cost.
+3. Parallel-line transport preconditioner: approximate each field with
+   mass plus parallel advection/diffusion along the open-field direction,
+   using batched tridiagonal or banded solves where possible.
+4. Neutral/plasma Schur-style preconditioner: approximate stiff neutral
+   diffusion/reaction coupling and plasma pressure/momentum coupling as
+   separate blocks with cheap coupling corrections.
+5. Reduced sparse-JVP preconditioner: assemble a smaller or lower-order sparse
+   operator only if memory and build time stay below the compatibility
+   finite-difference Jacobian.
+6. Matrix-free Krylov promotion only after the residual and preconditioner are
+   both parity-proven.
 
-**Milestone 6: complete the neutral, recycling, sheath, and detachment model.**
+Promotion evidence:
 
-- Neutral physics should follow the implemented reference-model decomposition:
-  neutral density, pressure, momentum where enabled, parallel/perpendicular
-  diffusion, ionization, recombination, charge exchange, radiation, floors,
-  flux limits, reflection, pumping, target recycling, and sheath coupling.
-- Required gates are term-by-term neutral source parity, target recycling
-  accounting, sheath heat transmission, no-flow and zero-current boundary
-  reconstruction, neutral diffusion conservation/dissipation, detachment scan
-  monotonicity, and sensitivity of target temperature to source/radiation
-  controls.
-- Required docs are full equations, all symbols, normalizations, code links,
-  input options, output diagnostics, and plots that are generated by the same
-  scripts used by tests/campaigns.
+- same-case hydrogen and D/T/He comparison against stable default;
+- fewer Krylov iterations or fewer residual/JVP calls after accounting for
+  preconditioner build time;
+- no linear-solver failures or hidden fallbacks;
+- no parity degradation;
+- memory does not exceed the compatibility baseline;
+- CPU/GPU timing and JAX trace show the win is in the promoted kernel, not in
+  reduced output work.
 
-**Milestone 7: promote 3D stellarator open/closed-field-line geometry.**
+### 5. Complete Drift-Reduced Braginskii Model Coverage
 
-- Geometry sources must be separated and named clearly:
-  VMEC-coordinate maps, VMEC-extender exterior grids, ESSOS-imported coil maps,
-  hybrid VMEC/coil maps, analytic/Dommaschk maps, and native analytic FCI
-  scaffolds.
-- Required devices/configurations are Landreman-Paul QA with ESSOS coil and
-  VMEC inputs, HSX QHS vacuum using the Landreman VMEC equilibrium files
-  (`wout_HSX_QHS_vac.nc` and `boozmn_HSX_QHS_vac.nc`), NCSX VMEC examples,
-  and Dommaschk potentials based on the BSTING/Zoidberg workflow.
-- Use the public source anchors explicitly:
-  [HSX/QHS_vac equilibrium files](https://github.com/landreman/vmec_equilibria/tree/master/HSX/QHS_vac),
-  [BSTING workflow files](https://github.com/rogeriojorge/bsting_files),
-  [Hermes-3 reference commit](https://github.com/boutproject/hermes-3/tree/eebf98fd18198101bebe7cdb5c85f25dc1ff3474),
-  and [Zoidberg reference commit](https://github.com/rogeriojorge/zoidberg/tree/a7ed260123508c35939002d96412c0dd84491fe4).
-- Promotion order is field-line/Poincare validation, boundary/surface
-  registration, connection-length and endpoint-mask convergence, FCI operator
-  manufactured-solution convergence, sheath/recycling/neutral gates on mapped
-  endpoints, reduced linear mode, nonlinear turbulent transient, then polished
-  movie and profile analysis.
-- Movies are not validation. They can enter the README only after the geometry
-  and operator gates pass and after frame-by-frame QA confirms smooth dynamics,
-  visible non-axisymmetry, correct boundary shape, useful color scale, time
-  annotation, and no interpolation jitter.
+Objective:
 
-**Milestone 8: performance, parallelization, and differentiability evidence.**
+Expose the physics model surface honestly, with selectable equations,
+closures, geometries, and boundary conditions.
 
-- CPU evidence should focus on real heavy kernels and ensemble/batched
-  fixed-work workloads, not single-threaded SciPy-BDF threading that has
-  already shown weak scaling.
-- GPU evidence should start with compact JAX-native residuals and move to
-  full-output recycling only after host/SciPy barriers are removed.
-- Multi-GPU work should wait until the single-GPU JAX-transformable residual
-  is stable enough to avoid measuring Python orchestration overhead.
-- Differentiability evidence must include `grad`, `jvp`, VJP/adjoint or
-  implicit-function examples where valid, finite-difference comparison,
-  uncertainty propagation, inverse design/control, and batched sensitivity.
-- Do not claim end-to-end differentiability for lanes that still depend on
-  host-side SciPy solves or non-transformable reference replay.
+Model levels:
 
-**Milestone 9: docs, examples, coverage, and footprint release gate.**
+- diffusion-only scalar transport;
+- 1D open-field plasma fluid;
+- electrostatic drift-reduced Braginskii;
+- vorticity/potential solve;
+- Boussinesq polarization;
+- non-Boussinesq polarization;
+- selected electromagnetic/Alfven lanes;
+- sheath, target, recycling, neutral, and detachment closures;
+- open-field, closed-field, tokamak, and stellarator geometry variants.
 
-- README should show a small, polished, high-impact set of figures/movies and
-  link to docs galleries for the full validation set.
-- Docs must include equations, derivations, normalizations, code links, input
-  files, output fields, example scripts, performance notes, validation status,
-  and limitations.
-- User-facing examples should follow the SIMSOPT-style script pattern:
-  parameters at the top, imported `jax_drb` API functions, small auxiliary
-  helpers only, clear output paths, and no monolithic hidden driver.
-- Coverage must remain above `95%` on promoted surfaces with physics,
-  numerical, autodiff, parity, regression, and failure-mode tests. Smoke tests
-  do not count toward research-grade confidence.
-- Before tagging, audit `.git`, tracked large files, release media, wheel/sdist
-  contents, docs artifact links, local caches, profile traces, and generated
-  dumps. Heavy fixtures and media must be release-hosted and reproducible.
-
-The completion definition for a lane is therefore: implemented code,
-literature/reference anchor, physics or numerical gate, parity or convergence
-artifact, publication-ready plot or diagnostic where appropriate, docs page,
-example if user-facing, coverage retained above target, and footprint kept
-small.
-
-### Solver, Preconditioning, And JAX-Native Recycling
-
-Target state:
-
-- the compatibility sparse-Newton/BDF path remains stable and reference-backed;
-- the JAX-native recycling path owns fixed-layout residual assembly for
-  reactions, collisions, neutral diffusion, sheath/target recycling,
-  controller feedback, BE/BDF2 residuals, and scalar feedback variables;
-- JVP/Jacobian-action, VJP/adjoint, and implicit-function sensitivity are
-  available on promoted differentiable objectives;
-- preconditioning is physics-aware rather than only row/field scaling.
-
-Execution steps:
-
-1. Keep `state_scale`, `field_scale`, `linearized_diag`, `local_block_diag`,
-   `parallel_line`/`transport_line`, sparse-JVP device gather, Lineax,
-   BiCGSTAB, residual-JIT, and GMRES-control variants opt-in until a same-case
-   gate beats the stable default in both runtime and solver health.
-2. Implement a transport-aware preconditioner candidate that includes at least
-   same-field nearest-neighbor diffusion/advection coupling or a Schur-style
-   neutral/plasma block, then compare it against the existing same-cell block
-   preconditioner on hydrogen and D/T/He gates.
-3. Promote fixed-layout residual assembly from helper gates into the production
-   BE/BDF2 recycling residual in this order: collisions, neutral diffusion,
-   target recycling, sheath/no-flow/zero-current reconstruction, controller
-   feedback, then multispecies D/T/He reaction accumulation.
-4. For every promotion, run and archive one focused parity gate, one JVP versus
-   finite-difference gate, one cProfile/RSS gate, and one JAX trace or kernel
-   timing gate.
-5. Only after the hydrogen gate is stable, rerun the D/T/He heavy gate and GPU
-   bundle; do not spend D/T/He or office-GPU time on knobs that were already
-   negative on the hydrogen gate unless the residual or preconditioner changed.
-
-Proof gates:
-
-- `scripts/run_promoted_solver_coverage.py` stays above `95%`;
-- fixed-BDF2 hydrogen and D/T/He residual gates pass with zero failed linear
-  solves and bounded residuals;
-- adaptive-BDF hydrogen passes no-fallback, no-unconverged, accepted-error, and
-  solver-health gates;
-- D/T/He reruns report parity, runtime, and memory in the offender register;
-- differentiability demos include `grad`, `jvp`, finite-difference comparison,
-  UQ, inverse-design, and batched/parallel objective evidence.
-
-### Drift-Reduced Braginskii Model Surface
-
-Target state:
-
-- users can choose diffusion-only, electrostatic drift-reduced Braginskii,
-  full two-fluid/open-field recycling, Boussinesq, non-Boussinesq, and selected
-  electromagnetic variants from documented examples;
-- each model states its evolved fields, closure assumptions, boundary
-  conditions, and diagnostics;
-- nonlinear advection/bracket terms used in examples are either derived from
-  the promoted model or labeled as reduced pedagogical closures.
-
-Execution steps:
+Steps:
 
 1. Finish the equation-to-code map for density, pressure/energy, parallel
-   momentum, vorticity/potential, ExB bracket, curvature/interchange,
-   diamagnetic/Braginskii closures, electromagnetic selected-field terms, and
-   neutral/recycling/source terms.
-2. Add paired Boussinesq/non-Boussinesq tests and plots: conserved quantities,
-   potential/vorticity solve behavior, radial flux, and up-down/asymmetry
-   measures on a compact geometry.
-3. Promote electromagnetic examples through an Alfvén/selected-field
-   verification gate before any turbulence claim.
-4. Add open/closed-field-line examples that use the same model-selection API
-   and explain which terms are disabled or replaced in each reduced case.
-5. Replace any README/demo nonlinear forcing that is not physics-derived with
-   either a real bracket/potential solve or an explicit pedagogical label and a
-   pointer to the full model.
-
-Proof gates:
-
-- every promoted term has a unit/operator test, limiting-case test, and docs
-  equation;
-- Boussinesq/non-Boussinesq comparisons produce a publication-ready figure;
-- open/closed-field-line examples regenerate their plots from a clean clone;
-- no example claims full DRB physics when it uses a reduced forcing surrogate.
-
-### Diverted Tokamak And Neutral/Detachment Program
-
-Target state:
-
-- diverted tokamak demos are self-contained for users, with release-hosted
-  input/output fixtures where full reference outputs are too large for git;
-- target profiles, recycling sources, neutral buildup, radiation/source
-  partitioning, sheath heat transmission, target temperature, and detachment
-  indicators are plotted and compared against reference-backed surfaces;
-- neutral physics follows the same model decomposition as the reference
-  component family where implemented.
-
-Execution steps:
-
-1. Keep a clean-clone diverted tokamak tutorial that downloads or locates only
-   release-hosted fixtures, then runs analysis/movie generation without asking
-   users to install the reference code.
-2. Regenerate tokamak movie/media only from small curated fixtures or validated
-   native outputs; move large dumps to GitHub releases.
-3. Complete target/source/neutral observable campaigns for 1D, 2D, direct
-   tokamak, integrated tokamak, limiter/divertor, recycling on/off, detachment
-   scans, and multispecies D/T/He.
-4. Close the neutral `NVh` parity lane by accepted-step state/history replay
-   before changing formulas; keep source-term diagnostics for pressure
-   gradient, viscosity, diffusion, reaction, boundary, and target terms.
-5. Document neutral equations, floors, flux limits, AMJUEL/OpenADAS rates,
-   charge exchange, recombination, ionization, radiation, reflection/recycling,
-   no-flow, and sheath boundary semantics with code links and reference
-   anchors.
-
-Proof gates:
-
-- tokamak examples regenerate advertised plots/movies from a clean clone plus
-  release-hosted fixtures;
-- neutral and target campaigns report absolute and relative error, not only
-  normalized RMS;
-- detachment scans show target-temperature, ionization-front, radiation/source,
-  pressure-loss, and recycling metrics;
-- all large tokamak reference/media files are absent from git history or kept
-  below the tracked-file threshold.
-
-### 3D Stellarator Geometry And Open/Closed Field-Line Program
-
-Target state:
-
-- the first 3D stellarator examples cover closed-field and open-field regions
-  with quantitative field-line/Poincare/connection-length validation;
-- geometry sources include VMEC, VMEC-extender exported grids, ESSOS coil
-  traces, hybrid VMEC/coil maps, HSX, NCSX, Landreman-Paul QA, and Dommaschk
-  potentials;
-- BSTING/BOUT++/Zoidberg workflows are used as implementation references and
-  validation inspiration, while `jax_drb` keeps ownership of imported arrays,
-  model execution, docs, and release artifacts.
-
-Execution steps:
-
-1. Landreman-Paul QA: keep ESSOS-owned coil/VMEC/hybrid tracing as the source
-   of truth; validate Poincare sections, VMEC boundary registration, connection
-   length, endpoint masks, and consumed-map/source-trajectory agreement before
-   using movies as publication evidence.
-2. HSX: use the local or release-hosted `wout_HSX_QHS_vac.nc` and Boozer data
-   from the Landreman equilibrium set; build VMEC-coordinate field-line maps,
-   closed-field diagnostics, open-field extension or wall/target proxy, and
-   compact linear/nonlinear SOL examples.
-3. NCSX: add the same VMEC-coordinate and optional extended-field ladder as
-   HSX, with explicit metadata, boundary plots, Poincare plots, and
-   connection-length maps.
-4. Dommaschk: port the validated BSTING/Zoidberg grid-generation pattern into
-   a `jax_drb` importer/campaign path: Dommaschk coefficients, FCI maps,
-   field-line panels, panel/surface movies, and a reduced SOL transient.
-5. VMEC-extender: keep the importer contract based on exported NetCDF grids;
-   once the upstream PR/export path is stable, add real exterior-field artifacts
-   as release-hosted fixtures and validate phi conventions, field-period
-   wrapping, interpolation, field-line RHS, and open-field endpoint behavior.
-6. Movies/readme media: use the BSTING-style panel/surface visual language for
-   temperature/parallel-velocity/density, but only publish media after the
-   corresponding Poincare, connection-length, endpoint, grid-refinement, and
-   time-refinement gates pass.
-
-Proof gates:
-
-- every geometry has a boundary/surface plot, Poincare or field-line plot,
-  connection-length or parallel-step diagnostic, and one model-output figure;
-- the Landreman-Paul QA, HSX, NCSX, and Dommaschk examples are runnable from a
-  clean clone with small inputs or release-hosted artifacts;
-- imported-field movies are smooth, visibly non-axisymmetric, and supported by
-  grid/time refinement reports;
-- docs distinguish analytic native geometry, VMEC-coordinate maps,
-  VMEC-extender exterior grids, ESSOS coil maps, and hybrid maps.
-
-### Documentation, Examples, Footprint, And Release Readiness
-
-Target state:
-
-- users can install, choose a model, choose a geometry, run a tutorial, inspect
-  outputs, regenerate advertised figures, and understand the equations without
-  reading the paper;
-- docs are complete but not bloated, with heavyweight media on releases;
-- examples are pedagogical and parameterized at the top, following the
-  SIMSOPT-style script pattern already requested for user-facing examples.
-
-Execution steps:
-
-1. Keep this plan as the only execution plan. Any subordinate plan-like file
-   must either redirect here or declare itself as a technical appendix.
-2. Update README to show the smallest high-impact set of plots/movies, with
-   links to docs galleries for extended validation figures.
-3. Maintain `docs/examples.md`, `docs/example_status_matrix.md`, and
-   `docs/input_output_reference.md` as user-facing maps from examples to
-   inputs, outputs, plots, and validation claims.
-4. Convert example scripts toward top-level parameters, imported API helpers,
-   small auxiliary functions only, no monolithic `main()` wrappers for
-   user-facing tutorials, and explicit output paths.
-5. Run repo-footprint audits before release: `.git` pack size, tracked-file
-   size, docs media, artifact cache, package sdist/wheel contents, and
-   accidental large traces.
-6. Keep coverage gates meaningful: every new feature gets physics/numerical
-   tests and documentation; do not add placeholder smoke tests to chase
-   coverage.
-
-Proof gates:
-
-- `mkdocs build --strict --clean` passes locally;
-- `scripts/run_promoted_solver_coverage.py` stays above `95%`;
-- `scripts/run_closeout_coverage.py` stays green before release;
-- README/docs links point to release-hosted media for large figures/movies;
-- wheel/sdist excludes local profiles, tmp traces, artifact-cache zips, paper
-  logs, and private reference outputs.
-
-### Execution Log
-
-Use this log for concise decision records only. Do not copy terminal output or
-long work logs here.
-
-- 2026-06-18: Performed a planning-only consolidation pass. The active
-  backlog now has a single ordered execution table covering plan authority,
-  effective preconditioning, JAX-native recycling, reference-backed parity,
-  diverted tokamak self-contained demos, full drift-reduced Braginskii model
-  choices, neutral/recycling/sheath/detachment physics, VMEC/VMEC-extender/
-  ESSOS/HSX/NCSX/Landreman-Paul-QA/Dommaschk stellarator geometry, open/closed
-  field-line physics, performance/scaling, docs/examples, coverage, footprint,
-  and release. Older phase notes were demoted to a detailed checklist, stale
-  pre-slimming repository-size blockers were converted into release-footprint
-  audit criteria, and hosted CI polling was explicitly deferred while GitHub
-  Actions are billing-blocked.
-- 2026-06-18: Consolidated plan authority into this file; `plan_jax_drb.md`
-  became a redirect. Footprint audit: `.git` about `30M`, one pack
-  `8.96 MiB`, largest tracked file about `328 KiB`; large local footprint is
-  ignored development data, not tracked release media.
-- 2026-06-18: Audited repository-owned Markdown files for competing plan
-  language. `runtime_gap_remediation.md`, `research_directions.md`,
-  `parity_matrix.md`, and `testing_strategy.md` now defer to this file for
-  execution order and release standards.
-- 2026-06-18: Diagnosed the latest GitHub `docs`, `test`, and `coverage`
-  workflow failures. GitHub check annotations report that jobs did not start
-  because recent account payments failed or the spending limit needs to be
-  increased. A clean `origin/main` worktree passes the local release-surface
-  test slice, `mkdocs build --strict --clean`, closeout coverage at `97.0%`,
-  promoted solver coverage at `95.09%`, and the targeted shipping pytest slice
-  with `43` tests.
-- 2026-06-18: Added an opt-in `parallel_line`/`transport_line` JVP-derived
-  preconditioner seam for the recycling JAX-linearized solver. Targeted solver
-  and recycling tests pass, and the bounded hydrogen profile keeps it
-  non-default because the measured gate is slower than the unpreconditioned
-  control (`5.62 s` versus `5.02 s`) with the same residual and iteration
-  count.
-- 2026-06-18: Added an opt-in recycling control to skip the separate initial
-  residual check in JAX-linearized BE/BDF2 solves. The bounded hydrogen gate
-  confirms it removes one residual evaluation (`6` to `5`) with identical
-  residual norm, but the three-run median wall time is noise-equivalent
-  (`4.98 s` default versus `4.99 s` skip), so it remains a profiling seam and
-  not a default promotion.
-- 2026-06-18: Reprofiled residual JIT on the bounded hydrogen BE gate. With
-  one warmup solve, `runtime:recycling_jax_linear_jit_residual=true` reduced
-  the three-run median from `4.64 s` to `3.02 s` at identical residual norm,
-  but the older adaptive-BDF timeout remains the limiting evidence for default
-  promotion.
-- 2026-06-18: Exposed JAX GMRES `solve_method` as an opt-in recycling profiling
-  control. On the warmed bounded hydrogen gate with residual JIT and skipped
-  initial residual check, `incremental` remained correct but was slower than
-  `batched` (`3.06 s` versus `2.98 s` median), so the default stays unchanged.
-- 2026-06-18: Reran the promoted solver coverage gate after the recycling
-  preconditioner, initial-check, residual-JIT evidence, and GMRES solve-method
-  changes. The gate passed with `561` tests, `14` skips, `1` xfail, and
-  `95.12%` total promoted-surface coverage. The bounded closeout coverage gate
-  also passed with `87` tests and `97.0%` coverage.
-- 2026-06-18: Reused the known accepted-state residual in the generic
-  JAX-linearized Newton solver instead of recomputing the final residual on
-  max-iteration exits. The bounded hydrogen gate with residual JIT, skipped
-  initial residual check, and batched JAX GMRES writes
-  `tmp/profile_recycling_jit_skip_no_final/profile_summary.json`; it reduces
-  residual evaluations from `5` to `4` with identical residual norm and solver
-  status. The three-run median is noise-level/slightly worse (`3.08 s` versus
-  the retained `2.98 s` control), so this is a deterministic residual-count and
-  host/device-barrier cleanup, not a default speedup claim.
-- 2026-06-18: Tightened the opt-in sparse-JVP device-gather kernel by storing
-  device-side gather row and batch-index arrays in prebuilt
-  `SparseJvpDirectionBatch` objects. The focused solver tests cover the reused
-  gather path. A local 288-state, 4896-nnz microbenchmark with
-  `JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE=1` improved median build time from
-  `0.0128 s` to `0.0114 s`; this remains a micro-kernel cleanup and does not
-  change sparse-JVP defaults until larger recycling gates show a runtime win.
-
-## External Literature And Code Baseline
-
-The validation and engineering standard should be set by the major edge/SOL
-fluid, gyrofluid, gyrokinetic, and differentiable scientific-computing codes.
-The useful lesson is not that `jax_drb` should copy any one of them. The useful
-lesson is that a credible plasma code separates equations, closures, numerics,
-inputs, diagnostics, tests, and benchmark artifacts in a way that external
-users can audit.
-
-### BOUT++
-
-Primary references:
-
-- Dudson et al. 2009, "BOUT++: a framework for parallel plasma fluid
-  simulations": https://arxiv.org/abs/0810.5757
-- BOUT++ source: https://github.com/boutproject/BOUT-dev
-- BOUT++ physics-model documentation:
-  https://bout-dev.readthedocs.io/en/latest/user_docs/physics_models.html
-- BOUT++ code-layout documentation:
-  https://bout-dev.readthedocs.io/en/latest/developer_docs/code_layout.html
-
-Relevant findings:
-
-- BOUT++ is a general 3D plasma-fluid framework in curvilinear coordinates.
-- The code/paper emphasizes implicit time evolution, high-order advection
-  options, benchmark problems, and scaling with processor count.
-- The source tree is organized around `manual`, `examples`, `tests`, `include`,
-  `src`, `solver`, `mesh`, `physics`, and external solver interfaces.
-- The model pattern is explicit: initialize variables, declare evolved state,
-  communicate guard cells, assemble the RHS, and delegate time integration to a
-  solver backend.
-- The current source exposes MPI, OpenMP-aware regions, PETSc/SUNDIALS
-  interfaces, preconditioner hooks, and stencil abstractions.
-
-Implication for `jax_drb`:
-
-- Keep physics operators small and testable.
-- Keep solver backends separate from model assembly.
-- Document every evolved equation through an equation-to-code bridge.
-- Treat performance/scaling as a first-class validation artifact, not a README
-  claim.
-
-### Hermes-3
-
-Primary references:
-
-- Dudson et al. 2024, "Hermes-3: Multi-component plasma simulations with
-  BOUT++": https://www.sciencedirect.com/science/article/pii/S0010465523003363
-- Hermes-3 preprint: https://arxiv.org/abs/2303.12131
-- Hermes-3 source: https://github.com/boutproject/hermes-3
-- Hermes-3 docs: https://hermes3.readthedocs.io/en/latest/
-- Hermes-3 equations:
-  https://hermes3.readthedocs.io/en/latest/equations.html
-- Hermes-3 closures:
-  https://hermes3.readthedocs.io/en/latest/closure.html
-- Hermes-3 reactions:
-  https://hermes3.readthedocs.io/en/latest/reactions.html
-- Hermes-3 boundary conditions:
-  https://hermes3.readthedocs.io/en/latest/boundary_conditions.html
-- Hermes-3 tests:
-  https://hermes3.readthedocs.io/en/turbulence-docs/tests.html
-
-Relevant source-code findings from a shallow source audit:
-
-- `src/` and `include/` contain component-level implementations for density,
-  pressure, energy, momentum, neutral models, Braginskii closures, reactions,
-  sheath closure, recycling, controllers, anomalous/classical diffusion,
-  electromagnetic terms, vorticity, and source/diagnostic components.
-- The component architecture exposes whole-equation components and term
-  components. This matches the way the public documentation explains the model.
-- The test/doc strategy includes unit, integrated, and convergence tests.
-- The neutral model family is explicitly split between 1D
-  `neutral_parallel_diffusion` and 2D/3D `neutral_mixed`.
-- The boundary-condition documentation identifies exact target/sheath,
-  recycling, no-flow, and neutral reflection semantics that must be matched or
-  deliberately bounded in `jax_drb`.
-- A fresh local audit of a developer checkout of the reference implementation
-  confirms that the most useful parity anchors are not only the integrated
-  decks. The unit tests
-  directly exercise `neutral_mixed`, `sheath_boundary`, `sheath_closure`,
-  `noflow_boundary`, `zero_current`, `recycling`, `vorticity`,
-  `braginskii_collisions`, `braginskii_friction`,
-  `braginskii_ion_viscosity`, `braginskii_electron_viscosity`,
-  `braginskii_conduction`, `braginskii_heat_exchange`, `thermal_force`,
-  `neutral_full_velocity`, `neutral_boundary`, `hydrogen_charge_exchange`,
-  `ionisation`, reaction parsing, and AMJUEL/ADAS rate surfaces.
-- The audited `neutral_mixed` source now writes explicit diagnostics for
-  `SNV*_pressure_gradient`, `SNV*_parallel_viscosity`, and
-  `SNV*_perpendicular_viscosity`; those are the highest-value reference-side
-  fields for closing the remaining `NVh` target-band offender. They should be
-  emitted from a clean reference rerun rather than inferred only through
-  matched reconstruction.
-- The integrated tests include drift-wave, Alfvén-wave, 1D fluid MMS,
-  1D recycling, neutral mixed, neutral parallel diffusion, vorticity, and 2D
-  production decks. The `tests/mms_operator` suite checks conservative
-  differential operators on orthogonal and nonorthogonal metrics and expects
-  second-order error decay. This is the strongest model for future
-  metric-weighted FCI/VMEC-extender operator gates.
-- A local audit of the previous-generation reference code identifies older
-  tokamak workflows that remain useful as postprocessing acceptance tests: target
-  density/temperature/heat-flux profiles, target power integration, core/SOL
-  volume-integrated sources, radiation, ion-neutral exchange, and
-  electron-ion energy exchange. These should be mirrored as `jax_drb` analysis
-  utilities and plot gates rather than copied as scripts.
-
-Implication for `jax_drb`:
-
-- The promoted parity surface must be component-aware, not just field-aware.
-- Every implemented component should have a local unit/operator test, a
-  reference-backed gate when appropriate, and a doc page that states exactly
-  what is implemented.
-- Remaining mismatches should be localized to components or boundary terms,
-  not described only through aggregate summary errors.
-- Reference-backed campaigns should be rerunnable in two modes: a committed
-  lightweight fixture mode for CI and a developer mode using
-  `JAX_DRB_REFERENCE_ROOT` against a clean local reference checkout. When the
-  reference checkout is dirty, do not create new authoritative baselines from
-  it; use it only for exploratory diagnostics.
-
-### GBS, GDB, TOKAM3X, SOLEDGE3X, GRILLIX
-
-Primary references:
-
-- GBS code paper: https://www.sciencedirect.com/science/article/pii/S0021999116001923
-- GBS PDF: https://infoscience.epfl.ch/bitstreams/70937adb-6f71-4d41-98bc-852b4b5b50e9/download
-- GBS kinetic-neutral extension: https://arxiv.org/abs/2112.03573
-- BSTING stellarator-filament paper:
-  https://arxiv.org/abs/1808.08899
-- GDB paper: https://www.sciencedirect.com/science/article/abs/pii/S001046551830208X
-- TOKAM3X paper: https://www.sciencedirect.com/science/article/abs/pii/S0021999116301838
-- SOLEDGE3X detached-regime paper:
-  https://www.sciencedirect.com/science/article/pii/S2352179124001790
-- GRILLIX CPC paper:
-  https://www.sciencedirect.com/science/article/pii/S0010465525003765
-
-Relevant findings:
-
-- GBS is a 3D global, flux-driven, two-fluid SOL turbulence code that evolved
-  toward finite ion temperature, neutral physics, closed-field regions,
-  non-Boussinesq polarization, and scalable parallel multigrid.
-- TOKAM3X emphasizes full-torus edge/SOL turbulence in limited and diverted
-  geometry with verification and validation.
-- GRILLIX and related flux-coordinate-independent codes provide the benchmark
-  standard for geometry portability and edge turbulence in complex geometry.
-- The stellarator FCI literature shows that non-axisymmetric claims require
-  more than a shaped rendering: field-line maps, three-dimensional metric
-  variation, connection-length structure, endpoint/sheath masks, and
-  non-axisymmetric filament/turbulence response must be checked separately.
-- These codes use convergence studies, profile comparisons, fluctuation
-  diagnostics, target observables, and scaling studies as primary figures.
-
-Implication for `jax_drb`:
-
-- Publication-grade validation should not be only scalar error dashboards.
-  It must include profile/target plots, convergence curves, closure lineouts,
-  transport/source maps, and scaling plots tied to a physical question.
-- The 3D story needs geometry portability tests, not only a single diverted
-  tokamak scaffold.
-- The QA stellarator movie should remain labeled as a reduced-transient
-  visualization until it is backed by longer runs, grid and timestep
-  refinement, field-line/Poincare agreement with the imported geometry source,
-  connection-length/sheath endpoint diagnostics, and target-local recycling and
-  neutral source maps. A polished movie is a deliverable, but it is not by
-  itself a validation gate.
-
-### TCV-X21 And Diverted-Tokamak Benchmark Culture
-
-Primary references:
-
-- TCV-X21 benchmark paper: https://arxiv.org/abs/2109.01618
-- SOLPS-ITER validation against TCV-X21:
-  https://arxiv.org/abs/2310.17390
-- Hermes-3 validation against TCV-X21:
-  https://arxiv.org/abs/2506.12180
-- TCV-X21 FAIR dataset: https://zenodo.org/records/5776286
-
-Relevant findings:
-
-- TCV-X21 was designed as a diverted L-mode validation reference case for edge
-  turbulence codes.
-- The benchmark uses many 1D and 2D observables across multiple diagnostics and
-  both field directions.
-- The original turbulence-code validation found good upstream agreement and
-  weaker target agreement; sensitivity was tied to resistivity, heat
-  conductivities, source rates, and sheath boundary conditions.
-- SOLPS-ITER validation added neutral observables and concluded that neutral
-  dynamics and ionization source distribution are central, even in a case
-  designed to reduce neutral impact.
-- Hermes-3 TCV-X21 simulations reproduce important profile and target-shift
-  features while still identifying neutrals as a likely missing factor for
-  remaining target-region differences.
-
-Implication for `jax_drb`:
-
-- TCV-X21 is the right external diverted benchmark, but it should come after the
-  native recycling/tokamak transient backbone is stable.
-- The benchmark package must include target profiles, OMP profiles, neutral
-  observables when available, field-direction-sensitive diagnostics, and a
-  transparent quantitative agreement metric.
-
-### Gkeyll And Kinetic Boundary Codes
-
-Primary references:
-
-- Gkeyll docs: https://gkeyll.readthedocs.io/en/latest/
-- Gkeyll source: https://github.com/ammarhakim/gkeyll
-- Gkeyll SOL turbulence paper: https://arxiv.org/abs/1610.09056
-- GENE-X CPC paper: https://www.sciencedirect.com/science/article/pii/S0010465521000989
-- GENE-X spectrally accelerated edge/SOL work:
-  https://arxiv.org/abs/2411.09232
-
-Relevant findings:
-
-- Gkeyll is a compiled kinetic/multifluid code with MPI, CUDA, NCCL, OpenBLAS,
-  SuperLU, generated DG kernels, and a separate postprocessing ecosystem.
-- The source tree contains machine-specific CPU/GPU configuration scripts and
-  separates `core`, `gyrokinetic`, `moments`, `pkpm`, and `vlasov` solvers.
-- GENE-X and Gkeyll define a kinetic outer boundary for what reduced-fluid
-  results should and should not claim.
-
-Implication for `jax_drb`:
-
-- `jax_drb` should not claim kinetic fidelity. It should instead be explicit
-  about reduced-fluid closure assumptions and use kinetic codes as context for
-  future-model boundaries.
-- The practical engineering lesson is to separate solver kernels, machine
-  configuration, tests, and postprocessing enough that accelerator claims can
-  be reproduced.
-
-### Differentiable Scientific Computing Baseline
-
-Primary references:
-
-- JAX JVP/VJP docs:
-  https://docs.jax.dev/en/latest/jacobian-vector-products.html
-- JAX persistent compilation cache:
-  https://docs.jax.dev/en/latest/persistent_compilation_cache.html
-- JAX sharded computation:
-  https://docs.jax.dev/en/latest/sharded-computation.html
-- JAX `shard_map`:
-  https://docs.jax.dev/en/latest/notebooks/shard_map.html
-- JAX `pmap` migration guidance:
-  https://docs.jax.dev/en/latest/_autosummary/jax.pmap.html
-- Lineax matrix-free solves:
-  https://docs.kidger.site/lineax/examples/no_materialisation/
-- Lineax linear operators:
-  https://docs.kidger.site/lineax/api/operators/
-- Diffrax adjoints: https://docs.kidger.site/diffrax/api/adjoints/
-- Equinox paper: https://arxiv.org/abs/2111.00254
-- Lineax paper: https://arxiv.org/abs/2311.17283
-- JAX-Fluids paper:
-  https://www.sciencedirect.com/science/article/pii/S0010465522002466
-- Algorithmic differentiation for plasma edge codes:
-  https://www.sciencedirect.com/science/article/pii/S0021999123004989
-
-Relevant findings:
-
-- JAX can compute JVPs and VJPs directly and can batch basis pushes/pulls using
-  `vmap`.
-- The persistent compilation cache is a real performance feature and should be
-  configured before the first compilation.
-- CPU multi-device testing can use explicit host-device count configuration.
-- `pmap` remains usable but the JAX documentation points new SPMD work toward
-  `shard_map`; that means new multi-GPU/multi-CPU evidence should be designed
-  around explicit sharding of ensembles, parameter scans, or domain slabs
-  rather than ad hoc host multiprocessing.
-- Lineax documents exactly the Newton-matrix use case that matters here:
-  matrix-vector products can be built from `jax.jvp`/`jax.linearize` without
-  materializing the full Jacobian. This is the right acceptance target for
-  stiff fixed-layout residuals once parity is proven.
-- Diffrax adjoints distinguish direct solver differentiation, forward-mode
-  sensitivity, reverse/checkpointed sensitivity, and implicit-function
-  differentiation for steady-state solves.
-
-Implication for `jax_drb`:
-
-- The main differentiability target is a pure-JAX residual path with
-  matrix-free linearization. Finite-difference sparse Jacobian assembly is a
-  useful bridge, not the final differentiable solver architecture.
-- The scaling target should separate single-solve latency from ensemble and
-  parameter-scan throughput. JAX is strongest when a family of solves can be
-  batched or sharded rather than driven through host-side loops.
-
-## Supporting Audit Context
-
-The codebase already has several strong surfaces:
-
-- install metadata is clean: no pinned runtime dependency versions, Python
-  `>=3.10`, `tomli` only for Python versions without `tomllib`
-- public CLI supports TOML decks, structured run logs, restart bundles,
-  detailed runtime progress, ETA on long native transient lanes, precision
-  control, and persistent compilation cache setup
-- PyPI publishing workflow exists and uses OIDC-based publishing on tags,
-  releases, or manual dispatch
-- CI covers Python 3.10, 3.11, and 3.12, although only a narrow shipping slice
-  is active while CI billing is constrained
-- operator-level validation campaigns exist for MMS, reactions, collisions,
-  neutral diffusion, collision closure, target recycling, anomalous diffusion,
-  live reference reruns, neutral-mixed boundary mismatch, local CPU scaling,
-  differentiability, and 3D selected-field reductions
-- recent performance work reduced the heavy open-field D/T recycling one-step
-  local mean from about `75.3 s` to about `52.76 s` through source allocation
-  cleanup and cached target-boundary geometry
-- recent neutral-mixed work reduced the one-step local mean from about
-  `1.15 s` to about `0.63 s` through vectorized gradient magnitude evaluation
-- the validation layer has a common publication-quality figure helper and
-  stores machine-readable JSON/NPZ/PNG artifacts for promoted campaigns
-
-The sections below preserve detailed audit context for future implementers.
-They are not a second execution plan. When a statement below appears more
-specific than the ordered backlog above, treat it as evidence or background
-unless it is also listed in the ordered backlog or current completion snapshot.
-
-## Supporting Gaps And Risks
-
-### Repository Hygiene
-
-History slimming has already removed the former heavy-media and legacy-code
-blobs from the active release branch. Current footprint work is therefore a
-release-gate audit, not a fresh history-rewrite project unless a new large
-tracked file or pack-growth regression appears.
-
-Before every tag, classify all data into three groups:
-
-- minimal baseline artifacts required by fast local and CI gates;
-- documentation/demo artifacts that are small enough to keep tracked or are
-  release-hosted with stable links;
-- heavy research artifacts that live in GitHub releases, external storage, or
-  the paper/benchmark artifact repository.
-
-The ship rule is that the main branch remains fast to clone, the wheel/sdist do
-not contain local traces or large generated dumps, and README/docs media are
-compressed or release-hosted.
-
-### Paper And Legacy Material In The Code Repo
-
-The active code repo previously contained historical legacy code, manuscript/JCP
-docs, manuscript figure artifacts, and publication-only example wrappers. Those
-surfaces have been removed from the active release branch after confirming that
-the paper repository already carries the relevant archive. Some validation campaigns
-should absolutely remain in the code repo because they are tested, documented,
-and useful. But paper-only prose plans and manuscript-only panel generators
-belong outside the code release branch.
-
-The target rule is:
-
-- keep reusable validation code and tested scientific figure generators
-- move manuscript drafting, paper planning, paper-only panel composition, and
-  historical logs out of the code release branch
-- keep any legacy material only on a separate archival branch or external
-  archive; it should not be imported or shipped as part of the active package
-
-### Architecture
-
-The largest active source/test files remain too broad:
-
-- `src/jax_drb/native/recycling_1d.py`: about `3235` lines
-- `src/jax_drb/native/runner.py`: about `2445` lines
-- `src/jax_drb/native/neutral_mixed.py`: about `1403` lines
-- `src/jax_drb/cli.py`: about `1133` lines
-- `tests/test_native_integrated_2d_recycling.py`: about `2942` lines
-- `tests/test_native_tokamak_cases.py`: about `2713` lines
-- `tests/test_native_recycling_1d.py`: about `2005` lines
-- `tests/test_native_runner.py`: about `1093` lines
-
-The recent extraction work is correct but incomplete. The target structure is
-still a set of subpackages with narrow responsibilities:
+   momentum, vorticity, potential, ExB bracket, curvature/interchange,
+   diamagnetic terms, Braginskii closures, electromagnetic selected-field
+   terms, neutral terms, recycling terms, and source terms.
+2. For every promoted term, define all symbols, units, normalizations, floors,
+   limiters, boundary semantics, and implementation functions in docs.
+3. Add limiting-case tests where the term vanishes or reduces analytically.
+4. Add MMS or operator-convergence tests for promoted spatial operators.
+5. Add paired Boussinesq/non-Boussinesq comparisons: potential/vorticity
+   response, particle/heat flux, symmetry or up-down/asymmetry metrics, and
+   runtime cost.
+6. Promote electromagnetic selected-field examples through Alfven/selected
+   field verification before any electromagnetic turbulence claim.
+7. Replace demo-only nonlinear forcing with the real bracket/vorticity path, or
+   label it explicitly as a pedagogical reduced closure.
+
+Promotion evidence:
+
+- equation, implementation link, and test for each promoted term;
+- Boussinesq/non-Boussinesq plot generated from a documented script;
+- vorticity/potential and bracket gates with physical diagnostics;
+- selected electromagnetic figure and validation report;
+- no README/docs claim that a reduced surrogate is full DRB physics.
+
+### 6. Finish Neutral, Recycling, Sheath, And Detachment Physics
+
+Objective:
+
+Make neutral and target physics detailed enough for diverted tokamak and
+stellarator open-field studies, including detached regimes where enabled.
+
+Physics scope:
+
+- neutral density, pressure, and momentum where enabled;
+- neutral parallel and perpendicular diffusion;
+- ionization, recombination, charge exchange, and radiation;
+- AMJUEL/OpenADAS or documented rate models;
+- neutral floors, pressure floors, flux limits, and limiter preparation;
+- target recycling, reflection, pumping, fast and thermal recycling;
+- no-flow, zero-current, sheath heat-transmission, and target boundary
+  reconstruction;
+- source, radiation, and target-temperature detachment metrics.
+
+Steps:
+
+1. Close neutral `NVh` parity using accepted-step state/history sequencing.
+2. Add direct tests for neutral diffusion, pressure-gradient, viscosity,
+   reaction, boundary, and target-source terms.
+3. Add target recycling accounting tests for particle and energy balance.
+4. Add sheath heat-transmission tests, no-flow guard tests, and zero-current
+   ion-sum reconstruction tests.
+5. Add detachment scan campaigns with target temperature, ionization-front
+   position, pressure loss, radiation/source balance, neutral buildup, and
+   recycling coefficient sensitivity.
+6. Generate publication-ready neutral/source/target plots from the same scripts
+   used by the validation campaigns.
+
+Promotion evidence:
+
+- component-level parity for implemented neutral/recycling/sheath terms;
+- detachment plots with physically interpretable monotonicity or bounded
+  response;
+- docs with full equations, derivations, normalizations, and code links;
+- tests are physics/numerics tests, not placeholder smoke tests.
+
+### 7. Make Diverted Tokamak Simulations Self-Contained
+
+Objective:
+
+Users should be able to clone JAXDRB, install it, run the diverted tokamak
+examples, create movies, and analyze turbulent profiles without installing
+external reference codes.
+
+Steps:
+
+1. Provide clean-clone tutorials that either generate small native fixtures or
+   fetch release-hosted fixtures.
+2. Keep large `tokamak.nc`, `BOUT.dmp*.nc`, movies, and profile bundles out of
+   git history. Store them as release assets or external benchmark artifacts
+   with stable downloader scripts.
+3. Promote a tokamak example ladder:
+   1D recycling, 1D detachment scan, 2D direct tokamak diffusion/transport,
+   2D recycling, multispecies D/T/He, impurity/neon radiation, detached target
+   scan, then longer nonlinear turbulence windows.
+4. Generate movies and profile plots from the same documented scripts:
+   OMP profiles, target profiles, heat flux, particle flux, source maps,
+   neutral maps, target temperature, detachment indicators, and turbulence
+   fluctuation metrics.
+5. Add runtime progress, ETA, restart, output, and provenance examples for the
+   tokamak tutorials.
+6. Keep reference-code comparison workflows available to developers, but never
+   make them required for ordinary user examples.
+
+Promotion evidence:
+
+- clean-clone tokamak tutorial passes without private paths;
+- advertised README movie and plots are reproducible from example commands;
+- large fixtures are absent from git and package distributions;
+- profile and target plots are validated against reference-backed or
+  literature-anchored diagnostics.
+
+### 8. Promote 3D Stellarator Geometry And Open/Closed Field-Line SOL
+
+Objective:
+
+Build the first reviewer-proof 3D stellarator SOL examples, with open and
+closed field-line regions, sheath/recycling/neutrals where physically
+applicable, and polished non-axisymmetric figures/movies only after geometry
+and operator gates pass.
+
+Geometry sources:
+
+- VMEC-coordinate field-line maps.
+- VMEC-extender exterior grids from the current importer contract and upstream
+  export path.
+- ESSOS-imported coil maps, including `ESSOS_biot_savart_LandremanPaulQA.json`.
+- Hybrid VMEC/coil maps, where VMEC gives smooth coordinate surfaces and coil
+  maps supply open-field endpoint behavior.
+- HSX QHS vacuum equilibrium from
+  [landreman/vmec_equilibria HSX/QHS_vac](https://github.com/landreman/vmec_equilibria/tree/master/HSX/QHS_vac).
+- NCSX VMEC examples with explicit source metadata.
+- Landreman-Paul QA with ESSOS coils and VMEC references.
+- Dommaschk potentials using the BSTING/Zoidberg workflow as an implementation
+  and visualization reference.
+
+Source anchors:
+
+- [BSTING workflow files](https://github.com/rogeriojorge/bsting_files).
+- Local BSTING files: `/Users/rogeriojorge/local/bsting_files` when present.
+- [Hermes-3 reference commit](https://github.com/boutproject/hermes-3/tree/eebf98fd18198101bebe7cdb5c85f25dc1ff3474).
+- [Zoidberg reference commit](https://github.com/rogeriojorge/zoidberg/tree/a7ed260123508c35939002d96412c0dd84491fe4).
+- [ESSOS](https://github.com/uwplasma/ESSOS).
+
+Promotion ladder:
+
+1. Geometry import contract: metadata, coordinate conventions, field period,
+   boundary source, units, and provenance.
+2. Boundary/surface plots: VMEC surface, coil-field trace surface, open-field
+   shell, and rendered device boundary.
+3. Poincare and field-line validation against the imported source.
+4. Connection-length validation with clear definitions:
+   one-sided connection length, target-to-target connection length, and
+   effective parallel step length for closed maps.
+5. Endpoint-mask and sheath-target map convergence.
+6. FCI map interpolation and metric-weighted conservative operator MMS.
+7. Open/closed-field linear tests.
+8. Sheath/recycling/neutral gates on imported endpoints.
+9. Nonlinear turbulent transient with grid and timestep refinement.
+10. Polished movie and profile analysis.
+
+Required devices/examples:
+
+- Landreman-Paul QA, using ESSOS coil, VMEC, and hybrid maps.
+- HSX QHS vacuum, using VMEC and Boozer/source metadata where available.
+- NCSX, using VMEC-coordinate and optional exterior-field lanes.
+- Dommaschk potentials, following the BSTING/Zoidberg pattern for FCI maps and
+  stellarator SOL visualization.
+
+Promotion evidence:
+
+- boundary/surface plot;
+- Poincare or field-line plot;
+- connection-length or parallel-step map;
+- endpoint/sheath mask map;
+- FCI operator convergence plot;
+- one linear or reduced nonlinear physics output figure;
+- grid/time refinement report before any turbulence movie is promoted;
+- frame-by-frame movie QA showing smooth dynamics, visible non-axisymmetry,
+  correct boundary shape, informative colorbar, time annotation, and no jitter.
+
+### 9. Validate Open And Closed Field-Line Physics
+
+Objective:
+
+Make open/closed-field-line claims precise, especially for stellarators where
+closed VMEC surfaces and open SOL/target maps have different mathematical
+semantics.
+
+Steps:
+
+1. Closed-field tests:
+   parallel-gradient periodicity, effective parallel-step convergence,
+   closed-surface drift-wave or reduced linear mode, and conserved/controlled
+   quantities.
+2. Open-field tests:
+   endpoint masks, target-to-target connection length, one-sided connection
+   length, sheath response, recycling response, neutral source localization,
+   and target heat/particle flux.
+3. Hybrid tests:
+   compare VMEC-coordinate closed-map locations with coil-derived open-field
+   endpoint behavior and document where the hybrid approximation is valid.
+4. Profile diagnostics:
+   flux-surface or surface-shell averages, radial profiles, fluctuation levels,
+   skewness, spectra, radial particle/heat flux, neutral/source maps, and
+   target localization.
+
+Promotion evidence:
+
+- separate closed-field and open-field validation reports;
+- no closed-field connection-length quantity used as an open-field target claim;
+- stellarator profiles and movies linked to field-line/endpoint evidence;
+- literature-style plots, not only rendered surfaces.
+
+### 10. Performance, Parallelization, GPU, And Differentiability
+
+Objective:
+
+Show real speedups and differentiability on promoted kernels without hiding
+behind toy examples.
+
+CPU plan:
+
+- Use Mac CPU cores for batched/ensemble fixed-work solves, batched JVPs,
+  parameter scans, UQ, finite-difference comparisons, and optimization
+  batches.
+- Keep single SciPy-BDF solve threading as compatibility evidence only; it is
+  not the main strong-scaling story.
+- Use `vmap` for single-device batch throughput and explicit host-device count
+  experiments for local CPU-device scaling.
+
+GPU plan:
+
+- Start with compact JAX-native residuals where compilation and device
+  execution dominate host orchestration.
+- Move to full-output recycling only after the residual is transformable and
+  host/SciPy barriers are reduced.
+- Capture persistent compilation cache status, compile time, execution time,
+  memory, and CPU/GPU comparison.
+- Multi-GPU should focus on naturally sharded ensembles, parameter scans, or
+  domain slabs after single-GPU evidence is credible.
+
+Differentiability plan:
+
+- Promote only lanes with pure-JAX objectives.
+- Add `grad`, `jvp`, VJP/adjoint or implicit-function tests where valid.
+- Compare derivatives with finite differences on well-conditioned objectives.
+- Provide UQ, inverse design/control, sensitivity maps, and optimization
+  examples.
+- State clearly when a path is not end-to-end differentiable because it uses
+  host-side SciPy, file I/O, reference replay, or non-transformable callbacks.
+
+Promotion evidence:
+
+- same-machine timing before/after each solver change;
+- cProfile/RSS/JAX trace/XLA or kernel timing for heavy paths;
+- CPU strong-scaling figure on real kernels or real ensembles;
+- single-GPU and multi-GPU bundle only after the JAX-native kernel is stable;
+- derivative plots with finite-difference checks and error curves;
+- docs explain compile time, execution time, memory, and limitations.
+
+### 11. Refactor Code Architecture Without Changing Physics
+
+Objective:
+
+Split large files into maintainable modules while preserving parity and public
+API behavior.
+
+Target source layout:
 
 ```text
 src/jax_drb/native/
@@ -1019,6 +580,14 @@ src/jax_drb/native/
     mapping.py
     transport.py
     lineouts.py
+  stellarator/
+    vmec.py
+    vmec_extender.py
+    essos_import.py
+    dommaschk.py
+    fci.py
+    connection_length.py
+    diagnostics.py
   runner/
     registry.py
     references.py
@@ -1028,689 +597,348 @@ src/jax_drb/native/
     artifacts.py
 ```
 
-The split must be behavior-preserving. Each extracted module needs direct unit
-coverage before the broad integration tests are allowed to be the only safety
-net.
-
-### Solver And Differentiability
-
-The biggest technical gap is the heavy implicit path:
-
-- finite-difference sparse Jacobian assembly still dominates some heavy runs
-- residual evaluation still crosses host/device boundaries on promoted
-  recycling paths
-- pack/unpack and prepared-state assembly still allocate and copy too much
-- SciPy BDF/Newton paths are useful but block full end-to-end differentiability
-- thread-parallel finite-difference coloring can help on a laptop, but it is
-  not the final scaling model
-
-The target solver stack should have two explicit tiers:
-
-- compatibility tier: current NumPy/SciPy sparse finite-difference Newton/BDF
-  path, optimized and validated, used until each lane is promoted
-- differentiable tier: pure-JAX residual, JVP/VJP linearization, matrix-free
-  Lineax/iterative solve or implicit-function sensitivity path, no unnecessary
-  host barriers
-
-The first differentiable-tier primitive is now in-tree and tested:
-`build_sparse_jvp_jacobian` reuses the finite-difference coloring contract but
-fills the sparse Jacobian from `jax.linearize` plus batched `jax.vmap` tangent
-pushes. That gives a bridge for pure-JAX residuals that still need a
-materialized sparse matrix. The stronger long-term path is the existing
-matrix-free JAX Newton/GMRES solver, which applies the linearized Jacobian
-action directly and avoids materializing a sparse matrix altogether. The
-promotion rule is therefore explicit: do not claim a JAX-native implicit
-backend for a lane until its residual can be differentiated without host-side
-NumPy/SciPy barriers.
-
-### Validation
-
-The validation structure is strong but needs tighter promotion gates:
-
-- one fully native open-field recycling transient backbone still needs to move
-  from operational to exact/tightly bounded across RHS, one-step, and
-  short-window surfaces
-- the neutral-mixed boundary mismatch has a dedicated figure now, but the
-  mismatch still needs a component-level fix
-- full live 3D reference reruns are still missing; current 3D evidence is
-  selected-field/reduced/scaffolded rather than broad production 3D
-- TCV-X21 should remain a benchmark target, but it should not be promoted until
-  the recycling/tokamak transient backbone is stable enough to produce profile
-  and target comparisons honestly
-- every paper-strength figure should already exist as a docs artifact from a
-  tested validation campaign
-
-### Hermes Parity, Runtime, And Memory Offender Register
-
-The next validation push should explicitly rank the main offenders between
-JAXDRB and Hermes-3 instead of treating each mismatch or slow run as an
-isolated bug. The offender register should be regenerated whenever a promoted
-Hermes-backed lane changes and should contain, for each case, the compare
-surface, dominant field, dominant component when known, absolute error,
-relative/scaled error, JAXDRB wall time, Hermes wall time, peak resident memory
-or best available memory proxy, and the artifact path used to reproduce the
-diagnosis.
-
-The committed implementation of this triage layer is
-`docs/data/hermes_offender_register_artifacts/data/hermes_offender_register.json`,
-with a publication-ready summary figure at
-`https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_offender_register_artifacts__images__hermes_offender_register.png`.
-On the current promoted live matrix, the top normalized parity target is the
-normalization-sensitive `integrated_2d_recycling_one_step` near-zero `NVd`
-surface, the top runtime target is `recycling_dthe_one_step`, and the top
-measured peak-RSS ratio is `alfven_wave_one_step` at about `0.98`. The current
-peak-RSS result is useful because it rules out a broad native memory regression
-relative to Hermès on this matrix; the remaining memory task is phase-resolved
-profiling of Jacobian assembly, residual evaluation, packing, and artifact
-extraction.
-
-The current priority parity offenders are:
-
-- heavy 1D open-field recycling transients, especially neutral and recycling
-  closure drift over longer windows
-- neutral mixed transport, where direct `NVh` pressure-gradient and viscosity
-  source formulas now close against written reference diagnostics, but
-  target-adjacent accepted-step state/history drift still needs a reference
-  trace
-- integrated 2D production/recycling target-band residuals, historically led
-  by `Pe`, `Pd+`, `NVd+`, and neutral-side transient terms depending on the
-  rung
-- direct tokamak multispecies recycling windows where the largest scaled
-  mismatch is often a near-zero `NVd`/`NVt` field and therefore must be reported
-  with absolute-error context
-- OpenADAS/neon-enabled recycling paths where table lookup, radiation/source
-  partitioning, and species-state preparation must stay component-local
-
-The current priority runtime offenders are:
-
-- sparse finite-difference Jacobian construction and repeated residual calls in
-  the host-backed implicit recycling path
-- active-state pack/unpack and prepared-state reconstruction inside implicit
-  iterations
-- target boundary geometry, target recycling, neutral diffusion, and collision
-  closure assembly on heavy multispecies cases
-- long-history artifact writing and compare-surface extraction for transient
-  validation
-- any live Hermes rerun that requires a high-rank launch or writes large dumps
-  before the guarded compare surface is extracted
-
-The first concrete runtime-instrumentation step is now in the shared implicit
-solver: sparse Newton steps expose residual, Jacobian, linear-solve,
-line-search, and fallback diagnostics, and the colored finite-difference
-Jacobian builder reuses a precomputed extraction plan across refreshes. The
-next `recycling_dthe_one_step` run should therefore report both external
-cProfile/JAX trace evidence and solver-phase timings from the same solve.
-
-The current priority memory offenders are:
-
-- materialized sparse Jacobians and temporary colored finite-difference states
-  in heavy implicit solves
-- repeated full-field copies in state preparation, boundary reconstruction, and
-  active-domain packing
-- stored long histories and optional reference snapshots that are useful for
-  validation but should not be required for ordinary package use
-- multi-MB NPZ/GIF artifacts that need explicit classification as CI baselines,
-  documentation assets, release assets, or external research artifacts
-
-The register should drive the next fixes in this order:
-
-1. localize the largest parity error to an equation term, closure, boundary
-   rule, or compare-window convention
-2. add a direct unit/operator test and, where useful, a small artifact-producing
-   diagnostic plot for that term
-3. profile the same lane before and after the fix, including memory when
-   available
-4. update the validation report with both absolute and relative errors so
-   near-zero-field mismatches are not overstated
-5. only then widen the case matrix or promote a new manuscript/docs figure
-
-### CI And Automation
-
-The current workflow has explicit fast, docs, closeout-coverage, and PyPI
-publishing gates. That is enough for release hygiene, but not the final
-research-code standard because the slow live-reference, performance, and
-artifact-regeneration lanes still need to remain manual or scheduled.
-
-The final automated gate should have tiers:
-
-- `fast`: pure unit/operator/release-surface tests on every push/PR
-- `research-fast`: `scripts/run_fast_research_checks.py` default slices on PRs
-  when billing is available
-- `coverage`: promoted solver/public slice with `95%` target
-- `artifact`: regenerate selected lightweight validation artifacts and compare
-  schema/metrics
-- `nightly`: slower live/reference-backed cases, convergence campaigns, memory
-  and performance reports
-- `release`: build distributions, import check, metadata check, tag/release
-  publishing to PyPI
-
-## Physics Gates
-
-The promoted model surface should be guarded by physical, numerical, and
-software gates. A case is not research-grade until it passes all gates relevant
-to its claim.
-
-### Equation And Closure Gates
-
-Every implemented term must have:
-
-- equation definition in docs
-- implementation file/function listed in docs
-- unit tests on representative scalar/vector fields
-- limiting-case test where the term analytically vanishes or reduces to a
-  simple expression
-- reference-backed test when it corresponds to an external component
-- artifact-producing campaign when it is scientifically important enough to be
-  shown in the paper or docs
-
-Required closure families:
-
-- density, pressure, energy, and parallel-momentum evolution
-- ExB, diamagnetic, anomalous, and classical transport where implemented
-- Braginskii collisions, friction, heat exchange, conduction, viscosity, and
-  thermal force where implemented
-- reaction parsing, AMJUEL/ADAS rates, ionization, recombination, charge
-  exchange, radiation, and source partitioning
-- sheath boundary, no-flow boundary, neutral boundary, recycling, pumping, and
-  target-localized fast/thermal recycling
-- neutral parallel diffusion and neutral mixed transport
-- electrostatic vorticity/potential and electromagnetic selected-field lanes
-
-### Verification Gates
-
-Minimum verification suite:
-
-- MMS spatial convergence for promoted finite-difference operators
-- time-step refinement for promoted transient lanes
-- conservation or controlled-loss tests for density, energy, and momentum
-  where the modeled physics allows it
-- symmetry and zero-flux tests for boundary operators
-- restart/resume equivalence
-- pack/unpack/state-layout round trips
-- finite-difference Jacobian versus matrix-free JVP consistency
-- `grad`, `jvp`, and `vjp` versus finite-difference checks on promoted
-  differentiable lanes
-
-### Code-To-Code Gates
-
-Minimum code-to-code promotion ladder:
-
-- one-RHS parity
-- one-step parity
-- short-window parity
-- longer-window diagnostic comparison when transient drift matters
-- absolute and relative errors, with near-zero reference fields explicitly
-  identified
-- same-machine runtime comparison for any performance claim
-- capability tier stored in manifest, run log, docs, and validation report
-
-### Benchmark And Experiment-Facing Gates
-
-Priority benchmark packages:
-
-- TORPEX/blob-style seeded filament dynamics for compact electrostatic lanes
-- TCV-X21 diverted L-mode profiles and target diagnostics
-- SOLPS-ITER/Hermes-3-style neutral observables where available
-- 1D detachment and recycling scans with target temperature, ionization source,
-  pressure loss, radiation/source balance, and upstream/target profiles
-- geometry-portability tests across diverted tokamak, traced-field-line, and
-  VMEC-style stellarator data
-
-## Performance And Memory Plan
-
-The performance target is not "make one plot look good." The target is low
-wall time, low memory use, reproducible scaling evidence, and no hidden loss of
-fidelity.
-
-### Measurement Rules
-
-- Run isolated cProfile measurements for heavy host-side cases.
-- Run JAX traces for compiled native kernels.
-- Capture device-memory profiles for GPU-visible lanes.
-- Use XLA dumps only for targeted fusion/layout investigations.
-- Always pair speed improvements with the same fidelity surface.
-- Report CPU and GPU separately.
-- Separate single-solve latency from ensemble/scan throughput.
-
-### Hotspots To Attack
-
-Current heavy-path hotspots:
-
-- sparse finite-difference Jacobian assembly
-- repeated residual evaluation under SciPy implicit stepping
-- neutral parallel diffusion and collision closure
-- target recycling and target boundary-source assembly
-- prepared-state setup and boundary reconstruction
-- active-field pack/unpack and scalar feedback packing
-- host-device synchronization in profiling and artifact paths
-
-### JAX-Native Solver Direction
-
-The next solver architecture should use:
-
-- pure-JAX residual functions for promoted lanes
-- static PyTree state layouts instead of repeated dict/array reconstruction
-- `jax.jit` around residual kernels with shape-stable arguments
-- `jax.jvp` for Jacobian-vector products
-- `jax.vjp` for adjoint and objective gradients
-- `vmap` for batched sensitivities, finite-difference validation, and ensemble
-  scans
-- Lineax matrix-free operators for Newton/Krylov experiments
-- Diffrax forward/direct/implicit adjoint ideas where the problem is naturally
-  an ODE or steady-state solve
-
-The first target should be a compact open-field recycling residual on a fixed
-layout. It should be promoted only after it matches the current NumPy/SciPy
-path on the existing one-RHS and one-step gates.
-
-The implementation sequence for that first target is:
-
-1. define a small fixed-layout recycling residual dataclass/PyTree with arrays
-   only and no mutable dictionaries in the hot path
-2. port the measured hot kernels one at a time: reaction/source rates,
-   collision closure, neutral diffusion, target recycling, and BDF residual
-   assembly
-3. add unit parity tests for each port against the current NumPy helper
-4. add derivative gates for each promoted kernel: JVP versus centered finite
-   difference, VJP/gradient versus finite difference for scalar quantities of
-   interest, and batched `vmap` agreement with serial evaluation
-5. benchmark the pure-JAX residual with three solver backends: current sparse
-   finite-difference compatibility, batched sparse-JVP materialization, and
-   matrix-free JVP/GMRES
-6. only after parity and timing are stable, wire the JAX residual into a
-   promoted one-step or short-window recycling lane
-
-The first helper-level port under item 2 is complete: the atomic-rate helpers
-for AMJUEL, OpenADAS, and hydrogen charge exchange now preserve JAX arrays and
-have `jit`/`grad` tests. The existing single-isotope reaction-source formulas
-also preserve JAX arrays through the source terms themselves. The next
-implementation step is not another rate formula. It is the fixed-layout
-reaction-source accumulator that can call those helpers without Python
-dictionaries or host conversions inside the residual.
-
-The first artifact-level gate for this port is the atomic-rate
-differentiability campaign. It produces a publication-ready figure comparing
-JAX autodiff slopes against centered finite differences on the AMJUEL,
-OpenADAS, and hydrogen charge-exchange rate surfaces.
-
-The first fixed-layout reaction-source kernel is also in-tree for the
-hydrogenic same-isotope reaction block. It returns array-only source terms,
-matches the existing dictionary implementation, and supports `jit`/`grad`.
-The next residual refactor should extend this pattern to the D/T/He
-multispecies reaction matrix and then replace the dictionary accumulation in
-the packed recycling residual.
-That D/T/He extension now exists at helper level:
-`fixed_layout_dthe_reaction_sources` stacks D, T, and He neutral/ion source
-arrays, includes the D/T same-isotope and cross-isotope charge-exchange matrix,
-matches the dictionary source path on the Hermès `1D-recycling-dthe` deck, and
-is differentiable under JAX. The first wiring step is now complete as well:
-diagnostics-free packed D/T/He residual calls dispatch through the fixed-layout
-source kernel, while diagnostic RHS calls still use the dictionary path so
-source terms remain available for validation plots. The next refactor should
-promote the surrounding collision, diffusion, target-recycling, sheath, and
-BDF residual assembly from compact gates into the production nonlinear solve.
-The first fixed-layout adapter gates for that surrounding layer are now
-present: collision friction/heat exchange, neutral parallel diffusion, and
-target recycling run through `build_fixed_full_field_array_rhs`, while
-electron sheath no-flow preparation and zero-current ion-sum/potential
-reconstruction are backend-preserving helpers with JVP checks. The updated
-local profile already shows the reason for continuing this migration: D/T
-AMJUEL reuse reduces the source-kernel split, but the heavy run still spends
-about `43.3 s` in sparse finite-difference Jacobian assembly and calls the
-packed RHS `11738` times.
-
-The direct-tokamak recycling validation surface now also has a target/neutral
-observable campaign. It promotes the `tokamak_recycling_dthe_one_step` lane
-from scalar parity evidence to target-index charged-density profiles,
-momentum-flux proxies, neutral parallel-density buildup, and target
-electron-temperature proxy errors. This is the profile-observable bridge needed
-before the JAXDRB paper compares tokamak recycling behavior with the TCV-X21,
-SOLPS-ITER, and Hermes-3 validation literature.
-
-### CPU Parallelization
-
-Laptop CPU speedups are possible, but the right target is not one host-side
-BDF solve. The right CPU-parallel targets are:
-
-- batched parameter scans
-- batched RHS/JVP evaluations
-- color-group Jacobian evaluations where the residual is still host-side
-- ensemble steady-state fixed-work solves
-- uncertainty propagation and inverse-design batches
-
-Implementation choices:
-
-- keep `JAX_DRB_HOST_DEVICE_COUNT` for explicit CPU device experiments
-- use `vmap` for vectorized single-device batch throughput
-- use `shard_map` or `pmap` only for workloads that are naturally independent
-  across CPU devices
-- keep SciPy thread parallelism as a compatibility optimization, not a primary
-  scaling claim
-
-### Memory Plan
-
-- Replace repeated full-field copies with view/slice-aware active-domain
-  layouts where possible.
-- Keep long histories optional and compressed.
-- Store validation arrays only when needed for regression or public figures.
-- Move heavyweight research artifacts out of the package distribution and, if
-  necessary, out of the main git branch.
-- Add memory regression checks for promoted large examples.
-
-## Documentation Plan
-
-The documentation should be useful even if nobody reads the paper.
-
-Required public documentation:
-
-- installation and quick start
-- CLI and Python API
-- input deck schema and examples
-- runtime progress, ETA, restart, outputs, and provenance
-- physics models with equations and implementation mapping
-- code structure and contribution guide
-- validation strategy and capability tiers
-- validation gallery with reproducible artifacts
-- profiling and performance workflow
-- differentiability guide with sensitivity/UQ/inverse-design examples
-- testing guide for users and contributors
-- release/PyPI packaging guide
-
-Immediate documentation gaps:
-
-- one active roadmap should point to this plan instead of scattering decisions
-  across historical files
-- docs should include a testing/how-to-validate page that explains which tests
-  are unit, regression, parity, benchmark, artifact, and slow
-- docs should include an examples taxonomy so users can distinguish tutorials,
-  benchmarks, engineering campaigns, and paper/research artifact generators
-- code-facing docs should avoid paper-only language unless the file is clearly
-  in the paper repo or a manuscript-specific artifact area
-
-## Examples Plan
-
-Examples should be easy to run and informative. The target taxonomy:
-
-- `examples/tutorials/`: first-run examples, no private references, fast
-- `examples/benchmarks/`: literature-anchored comparisons
-- `examples/validation/`: artifact-producing campaign entry points
-- `examples/performance/`: profiling, scaling, memory
-- `examples/differentiability/`: sensitivity, UQ, inverse design,
-  optimization
-- `examples/geometry/`: tokamak, traced-field-line, stellarator geometry
-
-Current `examples/engineering/*` can remain during transition, but the final
-layout should be user-facing rather than internally named.
-
-## CI/CD And PyPI Plan
-
-Current state:
-
-- `.github/workflows/test.yml` runs a narrow targeted shipping slice on Python
-  3.10, 3.11, and 3.12
-- `.github/workflows/publish-pypi.yml` builds distributions and publishes to
-  PyPI on tags/releases/manual dispatch
-
-Target state:
-
-- PR gate:
-  - packaging metadata
-  - release surface
-  - fast unit/operator tests
-  - runtime precision/import tests on Python 3.10-3.12
-- Research gate:
-  - `scripts/run_fast_research_checks.py`
-  - promoted solver slice coverage
-  - artifact schema tests
-- Nightly/manual heavy gate:
-  - live reference reruns
-  - convergence campaigns
-  - selected memory/performance campaigns
-  - optional remote GPU smoke/audit if credentials and billing allow
-- Release gate:
-  - build wheel/sdist
-  - import check from wheel
-  - artifact-free install check
-  - PyPI publish on semver tag
-
-## Detailed Phase Checklist
-
-The single ordered execution plan above defines the order. This checklist keeps
-older phase-level details that are still useful when executing those lanes, but
-it must not override the ordered backlog or completion snapshot.
-
-### Phase 0: Plan And Release Hygiene
-
-Deliverables:
-
-- keep this consolidated plan linked from refactoring, testing, and validation
-  docs
-- fix stale repository URLs in user-facing docs
-- decide which current docs/artifacts are release-critical versus paper-only
-- keep the artifact-pruning and history-rewrite checklist current
-- keep local docs/test/coverage gates green while GitHub Actions are
-  billing-blocked; check hosted CI periodically after billing is restored
-- record every new validation gate in this plan, the validation matrix, and the
-  relevant docs page before claiming it in the README
-
-Exit criteria:
-
-- public docs point to the active plan
-- release-surface tests pass
-- no accidental edits to unrelated local artifacts
-- local docs/test/coverage gates pass, or the failing gate has a documented
-  root cause and a local reproduction; hosted CI failures caused by
-  account-level billing are recorded but not treated as code failures
-
-### Phase 1: Reference-Side Diagnostics And Offender Register
-
-Deliverables:
-
-- keep the direct `neutral_mixed` outputs for `SNVh_pressure_gradient`,
-  `SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity` locked in the
-  term-balance artifact
-- keep the accepted-step monitor patch artifact documented and covered by
-  regression tests so a clean reference checkout can generate JSONL traces;
-  the latest disposable checkout built the patched reference executable and
-  wrote `148` accepted-step records for `neutral_mixed_one_step`
-- add a native/reference accepted-step trace figure for target-band `Nh`,
-  `Ph`, `NVh`, `ddt(*)`, `SNVh`, pressure-gradient, parallel-viscosity, and
-  perpendicular-viscosity diagnostics
-- keep the native accepted-step trace schema aligned with the reference JSONL:
-  `Nh`, `Ph`, `NVh`, `ddt(Nh)`, `ddt(Ph)`, `ddt(NVh)`, `SNVh`,
-  `SNVh_pressure_gradient`, `SNVh_parallel_viscosity`, and
-  `SNVh_perpendicular_viscosity`; use optional `Dnnh`, `Vh`, `eta_h`,
-  `grad_logPnlim*`, and ladder payloads plus `parallel_viscosity_input_register`
-  when diagnosing the remaining parallel-viscosity source offender
-- keep the neutral diffusion ladder report state-aware: each `Dnn*` ladder must
-  rank the state-input fields, limiter-input fields, dominant offender, and
-  state-to-limiter-to-flux-cap amplification ratios before any target-adjacent
-  `Grad(logPnlim)` or boundary-sequencing patch is accepted
-- maintain a single offender register sorted by case, field, component,
-  absolute error, scaled error, native runtime, reference runtime, and memory
-  proxy
-- mirror the older tokamak target-profile and core/SOL volume-integral
-  postprocessing as `jax_drb` analysis utilities with tests
-
-Exit criteria:
-
-- neutral `NVh` mismatch is fixed or localized to a documented accepted-step
-  state/history or boundary-sequencing difference
-- native and reference accepted-step traces compare on a shared time grid and
-  include both state fields and term-level `ddt(*)`/`SNVh_*` source payloads
-  with all matched-time active/target offenders ranked by component
-- every remaining reference-backed mismatch has a component-level owner instead
-  of only an aggregate field error
-- reference-derived artifacts are generated only from a clean reference
-  checkout or explicitly labeled exploratory
-
-### Phase 2: Repository Slimming
-
-Deliverables:
-
-- keep only small, necessary baselines in the main branch
-- keep README/docs media release-hosted or otherwise external when large
-- document where heavyweight benchmark artifacts are stored
-- run a footprint audit before each version tag
-
-Exit criteria:
-
-- `.git` pack size remains small enough for fast clone
-- active checkout contains no paper-only planning files
-- package distribution excludes research artifacts that are not needed at
-  runtime
-
-### Phase 3: Architecture Split
-
-Deliverables:
-
-- split `recycling_1d.py` into `native/recycling/*`
-- split `neutral_mixed.py` into `native/neutral/*`
-- split `runner.py` into `native/runner/*`
-- split large tests into operator, parity, campaign, and slow-transient files
-- preserve public imports with compatibility shims during transition
-
-Exit criteria:
-
-- no active source module over about 1000 lines unless explicitly justified
-- extracted modules have direct unit tests
-- existing promoted parity/campaign tests remain green
-
-### Phase 4: Solver And Differentiability Backbone
-
-Deliverables:
-
-- implement a pure-JAX residual for the smallest open-field recycling lane
-- add JVP-based Jacobian-action checks against finite-difference sparse
-  Jacobian columns
-- prototype Lineax matrix-free Newton/Krylov on the compact lane
-- treat the current Lineax and GMRES-restart sweeps as negative promotion
-  evidence for the heavy fixed-BDF2 D/T/He lane: backend or restart changes
-  alone are insufficient without preconditioning, lower residual/JVP cost, or a
-  better nonlinear startup policy
-- add implicit-function sensitivity for a steady-state fixed-work solve
-- remove unnecessary host-device barriers in recycling residual setup
-- keep bounded `fixed_bdf2_jax_linearized` diagnostics in the promotion wrapper
-  so it always exercises at least one BDF2 corrector before live-reference
-  promotion, while keeping that phase separate from full-output BDF/JVP parity
-  until fixed-BDF2 clears the full output-window residual gate
-- keep `bdf_fixed_full_field_jvp` and `bdf_active_array_jvp` as compatibility
-  bridges until the full fixed-layout output-window route clears reference and
-  performance gates
-
-Exit criteria:
-
-- compact lane matches current solver on one-RHS and one-step gates
-- `grad`, `jvp`, and finite-difference sensitivities agree on a promoted
-  differentiable objective
-- runtime and memory are no worse than the current compatibility path on the
-  same case, or the tradeoff is explicitly documented
-
-### Phase 5: 3D Geometry And Non-Axisymmetric SOL Closure
-
-Deliverables:
-
-- keep field evaluation and field-line tracing owned by imported geometry
-  artifacts; do not duplicate coil/VMEC tracing algorithms in `jax_drb`
-- add VMEC-extender and imported-field examples that load geometry, plot
-  boundary/field-line/Poincare diagnostics, build FCI maps, run linear and
-  nonlinear reduced SOL examples, and analyze target/profile/turbulence
-  diagnostics
-- promote metric-weighted conservative FCI operators with MMS convergence on
-  nonorthogonal metrics
-- add field-line/Poincare/connection-length agreement tests against imported
-  geometry artifacts for closed, open, and hybrid map families
-- add an imported connection-length campaign that compares consumed FCI
-  endpoint/connection-length maps against independently traced source
-  trajectories
-- add imported-grid and timestep refinement campaigns for QA stellarator
-  reduced turbulence, then compare profile, fluctuation,
-  endpoint/sheath/recycling, neutral-source, and connection-length sensitivity
-  before any broad turbulence claim
-
-Exit criteria:
-
-- the QA geometry shown in docs/README is traceable to a validated imported
-  field artifact and agrees with the source field-line/Poincare diagnostics
-- stellarator examples run from a clean clone plus release-hosted data without
-  requiring users to install the reference code
-- movies are smooth, non-axisymmetric, and supported by quantitative maps and
-  refinement evidence
-
-### Phase 6: Fidelity Closure
-
-Deliverables:
-
-- maintain a reference parity/runtime/memory offender register that ranks cases
-  by dominant field, component, absolute error, scaled error, wall time, and
-  memory footprint
-- fix neutral-mixed `NVh` boundary-local mismatch or document the exact
-  bounded cause with an equation-level explanation
-- promote the open-field recycling transient ladder through one-RHS,
-  one-step, short-window, and a selected longer diagnostic window
-- extend target/source/closure campaigns to exact term-by-term equations in
-  docs
-- add direct tests for every closure branch used in the promoted lanes
-
-Exit criteria:
-
-- each promoted lane has absolute and relative error metrics
-- mismatch causes are component-local and documented
-- no paper/docs figure relies on an untested path
-
-### Phase 7: Benchmark Expansion
-
-Deliverables:
-
-- TORPEX/blob benchmark package
-- TCV-X21 profile/target/neutral observable package
-- detachment/recycling scan package
-- geometry-portability package across tokamak, traced-field-line, and
-  stellarator-style data
-- performance and memory campaign on promoted native paths
-
-Exit criteria:
-
-- benchmark figures look like literature figures: profiles, targets,
-  convergence, scans, source maps, and physically interpretable diagnostics
-- all benchmark packages have runnable scripts, JSON/NPZ artifacts, and tests
-- claim boundary is explicit in docs and run logs
-
-### Phase 8: Full Release Automation
-
-Deliverables:
-
-- turn the fast research gate into a CI job when billing is available
-- keep `scripts/run_promoted_solver_coverage.py` as the promoted
-  solver/public-surface gate now that the June 5, 2026 local audit reaches
-  the required `95%` threshold
-- keep `scripts/run_closeout_coverage.py` as the bounded release-closeout gate;
-  the June 4, 2026 local audit reaches `97%`
-- add nightly/manual heavy reference reruns
-- add release smoke install from wheel
-- validate PyPI workflow on a test release before versioned public release
-
-Exit criteria:
-
-- a clean clone can install quickly with `pip install jax-drb`
-- source install works with `pip install -e .`
-- CI gives fast feedback without running unbounded heavy jobs on every PR
-- release builds and publishing are reproducible
+Steps:
+
+1. Extract behavior-preserving helpers from `recycling_1d.py`,
+   `neutral_mixed.py`, `runner.py`, and `cli.py`.
+2. Preserve compatibility shims while moving call sites.
+3. Split large tests into operator, parity, campaign, CLI, artifact, and slow
+   transient files.
+4. Add direct tests for each extracted module before relying on broad
+   integration tests.
+5. Add docstrings for public APIs and comments only where the algorithm is not
+   self-explanatory.
+6. Keep physics behavior unchanged unless a parity-backed bug fix is explicitly
+   documented.
+
+Promotion evidence:
+
+- no broad active source module remains above about 1000 lines without a
+  documented reason;
+- extracted modules have direct tests and docs links;
+- promoted parity/coverage gates remain green after each extraction;
+- no user-facing import breaks without a compatibility alias and release note.
+
+### 12. Build Documentation And Examples As The User Interface
+
+Objective:
+
+Make docs and examples complete enough that users do not need the paper or
+private context to run and understand the code.
+
+Documentation requirements:
+
+- installation and quick start;
+- ReadTheDocs configuration and docs build instructions;
+- model selection guide;
+- equations, derivations, normalizations, and symbols;
+- equation-to-code map with source links;
+- input deck schema and examples;
+- output fields, units, diagnostics, provenance, restart, and ETA;
+- validation strategy and capability tiers;
+- validation gallery and artifact links;
+- performance, profiling, CPU/GPU, and differentiability guide;
+- geometry guide for tokamak, VMEC, VMEC-extender, ESSOS, hybrid, HSX, NCSX,
+  Landreman-Paul QA, and Dommaschk lanes;
+- neutral/recycling/sheath/detachment guide;
+- testing and contribution guide;
+- release and PyPI publishing guide.
+
+Example requirements:
+
+- User-facing examples follow SIMSOPT-style scripts:
+  parameters at the top, imported JAXDRB API functions, small auxiliary
+  functions only, explicit output paths, and no hidden monolithic driver.
+- Every README figure/movie has a corresponding documented example command.
+- Extended validation plots live in docs galleries instead of overflowing the
+  README.
+- Examples are grouped as tutorials, benchmarks, validation campaigns,
+  performance, differentiability, and geometry.
+- Examples should not require users to install reference codes. Developer
+  reference-comparison scripts may remain available separately.
+
+Promotion evidence:
+
+- `PYTHONPATH=src mkdocs build --strict --clean`;
+- clean-clone tokamak and stellarator tutorials regenerate advertised plots and
+  movies from native outputs or release-hosted fixtures;
+- README contains a small polished set of visuals, not the full validation
+  archive;
+- docs state capability tier, limitations, and reproducibility commands for
+  each promoted figure.
+
+### 13. Keep Coverage Above 95 Percent With Meaningful Tests
+
+Objective:
+
+Maintain high coverage by testing physics, numerics, autodiff, parity, and
+failure behavior, not by adding placeholder smoke tests.
+
+Required test classes:
+
+- unit tests for equations, closures, limiters, floors, and boundary formulas;
+- operator tests for gradients, divergence, diffusion, FCI maps, interpolation,
+  vorticity/potential, sheath, recycling, and neutral terms;
+- MMS convergence tests for promoted operators;
+- Jacobian/JVP/VJP/gradient tests against finite differences;
+- pack/unpack, layout, restart, artifact, and provenance tests;
+- reference-backed parity tests for promoted component surfaces;
+- CLI dispatch, failure reporting, and clean-clone example tests;
+- coverage audits for promoted solver surfaces.
+
+Promotion evidence:
+
+- `scripts/run_promoted_solver_coverage.py` reports at least `95%`;
+- `scripts/run_closeout_coverage.py` remains green;
+- new coverage corresponds to real physics/numerical surfaces;
+- any skipped slow/live tests have a documented manual command and artifact.
+
+### 14. Keep The Repository Lightweight
+
+Objective:
+
+Make `git clone` and `pip install` fast while preserving reproducibility.
+
+Rules:
+
+- Keep source, docs, tests, small fixtures, and small rendered figures in git
+  only when they are necessary and small.
+- Keep large movies, large NetCDF dumps, heavy reference baselines, JAX traces,
+  profile bundles, and manuscript-only artifacts out of git history.
+- Use GitHub releases or external artifact storage for heavy assets.
+- Provide downloader/restoration scripts for examples and docs assets.
+- Keep paper-only material in the paper repository, not the code repository.
+
+Pre-tag footprint audit:
+
+```bash
+du -sh .git
+git count-objects -vH
+git ls-files -z | xargs -0 du -h | sort -hr | head -40
+python -m build
+tar -tf dist/*.tar.gz | sort | sed -n '1,120p'
+python -m zipfile -l dist/*.whl | sed -n '1,120p'
+```
+
+Promotion evidence:
+
+- no tracked large simulation dump or trace;
+- no accidental media/profile/cache artifact in wheel or sdist;
+- release-hosted media links work;
+- no history rewrite needed unless a new large blob enters git history.
+
+### 15. Final Release, Tag, And Publication Package
+
+Objective:
+
+Ship a version only after the code, docs, tests, examples, performance evidence,
+and validation claims line up.
+
+Steps:
+
+1. Run local release gates and docs build.
+2. Run representative clean-clone tutorials for tokamak and stellarator.
+3. Run the latest promoted solver coverage and closeout coverage.
+4. Run the latest offender register, parity reports, and selected validation
+   campaigns.
+5. Run heavy CPU/GPU performance bundles when the promoted solver kernel
+   changed.
+6. Run footprint audit and package audit.
+7. Refresh README, docs, release notes, changelog, and examples matrix.
+8. Decide which experimental lanes remain opt-in and label them.
+9. Bump version.
+10. Tag release.
+11. Create GitHub release with notes and release-hosted validation assets.
+12. Let PyPI workflow publish once hosted CI can run again.
+
+Release cannot claim:
+
+- end-to-end differentiability for paths still using host-side SciPy solves;
+- broad 3D stellarator turbulence for movie-only reduced transients;
+- GPU or multi-GPU speedups without real-kernel evidence;
+- reference parity for components without term-level diagnostics or bounded
+  error reports.
+
+## Literature And Code Baseline
+
+The following references define the validation, architecture, and writing
+standard for the project. The plan uses them as anchors for tests, plots, and
+documentation style. JAXDRB should not copy any code blindly; it should reuse
+validated ideas through its own APIs, tests, artifacts, and documentation.
+
+### Edge/SOL Fluid And Braginskii Codes
+
+- BOUT++: Dudson et al. 2009,
+  [BOUT++: a framework for parallel plasma fluid simulations](https://arxiv.org/abs/0810.5757),
+  [source](https://github.com/boutproject/BOUT-dev),
+  [physics models](https://bout-dev.readthedocs.io/en/latest/user_docs/physics_models.html).
+- Hermes-3: Dudson et al. 2024,
+  [CPC paper](https://www.sciencedirect.com/science/article/pii/S0010465523003363),
+  [preprint](https://arxiv.org/abs/2303.12131),
+  [source](https://github.com/boutproject/hermes-3),
+  [equations](https://hermes3.readthedocs.io/en/latest/equations.html),
+  [closures](https://hermes3.readthedocs.io/en/latest/closure.html),
+  [reactions](https://hermes3.readthedocs.io/en/latest/reactions.html),
+  [boundary conditions](https://hermes3.readthedocs.io/en/latest/boundary_conditions.html).
+- GBS:
+  [code paper](https://www.sciencedirect.com/science/article/pii/S0021999116001923),
+  [neutral extension](https://arxiv.org/abs/2112.03573).
+- TOKAM3X:
+  [diverted edge/SOL turbulence paper](https://www.sciencedirect.com/science/article/abs/pii/S0021999116301838).
+- GRILLIX:
+  [CPC paper](https://www.sciencedirect.com/science/article/pii/S0010465525003765).
+- GDB:
+  [CPC paper](https://www.sciencedirect.com/science/article/abs/pii/S001046551830208X).
+
+Lessons for JAXDRB:
+
+- Separate physics components, geometry, solver, diagnostics, and
+  postprocessing.
+- Validate equation terms, not only final fields.
+- Include convergence, target profiles, source maps, runtime, and scaling
+  evidence.
+- Keep complicated boundary and neutral models documented at equation level.
+
+### Diverted Tokamak And Detachment Benchmarks
+
+- TCV-X21 benchmark:
+  [preprint](https://arxiv.org/abs/2109.01618),
+  [FAIR dataset](https://zenodo.org/records/5776286).
+- SOLPS-ITER TCV-X21 validation:
+  [preprint](https://arxiv.org/abs/2310.17390).
+- Hermes-3 TCV-X21 validation:
+  [preprint](https://arxiv.org/abs/2506.12180).
+
+Lessons for JAXDRB:
+
+- Target-region observables are central: target temperature, target density,
+  heat flux, particle flux, pressure loss, neutral density, source location,
+  and radiation/source partition.
+- Agreement should be reported as profiles and physical metrics, not only
+  scalar norms.
+- Neutral and sheath assumptions must be explicit because they strongly affect
+  target agreement.
+
+### Stellarator SOL, FCI, VMEC, Coils, And Dommaschk Geometry
+
+- BSTING stellarator-filament paper:
+  [preprint](https://arxiv.org/abs/1808.08899).
+- BSTING files:
+  [rogeriojorge/bsting_files](https://github.com/rogeriojorge/bsting_files).
+- Zoidberg reference workflow:
+  [specific branch/commit](https://github.com/rogeriojorge/zoidberg/tree/a7ed260123508c35939002d96412c0dd84491fe4).
+- HSX QHS vacuum VMEC equilibrium:
+  [Landreman equilibrium repository](https://github.com/landreman/vmec_equilibria/tree/master/HSX/QHS_vac).
+- ESSOS:
+  [uwplasma/ESSOS](https://github.com/uwplasma/ESSOS).
+- Recent stellarator SOL fluid literature:
+  [Coelho et al. 2022](https://arxiv.org/abs/2201.10871),
+  [Shanahan et al. 2024](https://arxiv.org/abs/2403.18220),
+  [JPP stellarator island-divertor turbulence article](https://www.cambridge.org/core/journals/journal-of-plasma-physics/article/global-fluid-turbulence-simulations-in-the-scrapeoff-layer-of-a-stellarator-island-divertor/BA86AE2B67AE1F224800F2A0BB7193C1).
+
+Lessons for JAXDRB:
+
+- A non-axisymmetric movie is credible only after geometry and operator
+  validation.
+- Report boundary surfaces, Poincare plots, connection length, endpoint masks,
+  target localization, profile statistics, fluctuation statistics, and
+  grid/time refinement.
+- Keep field-line tracing and coil-field evaluation owned by imported tools
+  where appropriate, while JAXDRB owns imported arrays, FCI maps, equations,
+  solver execution, diagnostics, and documentation.
+
+### Differentiable Scientific Computing
+
+- JAX JVP/VJP docs:
+  [jacobian-vector-products](https://docs.jax.dev/en/latest/jacobian-vector-products.html).
+- JAX persistent compilation cache:
+  [docs](https://docs.jax.dev/en/latest/persistent_compilation_cache.html).
+- JAX sharded computation:
+  [docs](https://docs.jax.dev/en/latest/sharded-computation.html).
+- JAX `shard_map`:
+  [notebook](https://docs.jax.dev/en/latest/notebooks/shard_map.html).
+- Lineax matrix-free solves:
+  [no materialisation example](https://docs.kidger.site/lineax/examples/no_materialisation/).
+- Lineax operators:
+  [API](https://docs.kidger.site/lineax/api/operators/).
+- Diffrax adjoints:
+  [API](https://docs.kidger.site/diffrax/api/adjoints/).
+- Equinox:
+  [paper](https://arxiv.org/abs/2111.00254).
+- Lineax:
+  [paper](https://arxiv.org/abs/2311.17283).
+- JAX-Fluids:
+  [CPC paper](https://www.sciencedirect.com/science/article/pii/S0010465522002466).
+- Algorithmic differentiation for plasma edge codes:
+  [JCP paper](https://www.sciencedirect.com/science/article/pii/S0021999123004989).
+
+Lessons for JAXDRB:
+
+- The differentiability target is a pure-JAX residual and objective path.
+- `jax.jvp`, `jax.vjp`, `vmap`, `jit`, `shard_map`, and matrix-free linear
+  operators should be used where they reduce host barriers and preserve
+  validation.
+- Persistent compilation cache and explicit compile/execution timing should be
+  documented in performance examples.
+- Forward-mode, reverse-mode, and implicit-function sensitivities should be
+  tied to concrete scientific objectives.
+
+## Evidence Matrix
+
+Each promoted feature should carry the following evidence:
+
+| Feature class | Required evidence |
+| --- | --- |
+| Equation term | Equation, symbol definitions, implementation link, unit/operator test, limiting-case test. |
+| Spatial operator | MMS or analytic convergence, metric/coordinate tests, boundary tests. |
+| Time integration | Timestep refinement, restart equivalence, history/state sequencing tests. |
+| Reference parity | One-RHS, one-step, short-window or accepted-step trace, absolute/relative errors, component owner. |
+| Neutral/recycling/sheath | Source accounting, boundary reconstruction, target flux, heat transmission, detachment metrics. |
+| Differentiability | `jit`, `jvp`, `grad`, VJP/implicit sensitivity where valid, finite-difference comparison. |
+| Performance | cProfile/RSS/JAX trace, compile/execute split, memory, same-machine baseline, CPU/GPU evidence. |
+| Geometry | Boundary plot, Poincare/field-line plot, connection length, endpoint mask, FCI convergence. |
+| User example | Clean-clone command, input/output docs, generated plot/movie, capability tier, no private dependency. |
+| Release | Coverage, docs build, footprint audit, wheel/sdist audit, release notes, tagged assets. |
+
+## Execution Log
+
+Use this log for concise decision records. Do not paste terminal output here.
+
+- 2026-06-18: Consolidated the plan into this single authoritative file and
+  reorganized it around ordered workstreams: plan authority, reference-backed
+  parity, JAX-native recycling, effective preconditioning, drift-reduced
+  Braginskii models, neutral/recycling/sheath/detachment physics, diverted
+  tokamak tutorials, 3D stellarator geometry, open/closed field-line physics,
+  performance/differentiability, code architecture, docs/examples, meaningful
+  coverage, repository footprint, and release. The plan explicitly includes
+  VMEC, VMEC-extender, ESSOS coil maps, hybrid maps, HSX, NCSX,
+  Landreman-Paul QA, Dommaschk potentials, BSTING/Zoidberg workflow anchors,
+  self-contained examples, release-hosted heavy assets, and no hosted-CI
+  polling while runner billing is blocked.
 
 ## Definition Of Done
 
-`jax_drb` is research-grade when:
+JAXDRB is ready for a versioned research release when all of the following are
+true:
 
-- the repo is slim enough to clone quickly
-- install is simple and unpinned
-- the public API, CLI, examples, and docs are coherent
-- the promoted solver surface has meaningful `95%` coverage
-- every promoted equation term has unit/operator tests and docs
-- every promoted physics lane has verification, regression, and validation
-  evidence appropriate to its claim
-- performance claims are tied to profiler artifacts and same-machine
-  comparisons
-- differentiability claims are tied to `grad`/`jvp`/`vjp` tests and
-  finite-difference agreement
-- CI/CD can test and publish without manual steps
-- all unsupported surfaces are clearly labeled rather than implied
+- The repository is lightweight, fast to clone, and free of large tracked dumps,
+  traces, and paper-only artifacts.
+- Installation is simple and unpinned for runtime dependencies.
+- Public APIs, CLI commands, examples, docs, and README claims are consistent.
+- Promoted solver coverage remains above `95%` with meaningful tests.
+- Every promoted equation term has documentation, source mapping, and tests.
+- Every promoted physics lane has verification, regression, and validation
+  evidence appropriate to its claim.
+- Reference-backed mismatches are either closed or component-local with
+  bounded documented errors.
+- JAX-native differentiability claims are limited to pure-JAX paths with
+  derivative tests and finite-difference comparisons.
+- CPU/GPU performance claims are backed by profiler, memory, scaling, and
+  same-fidelity comparison artifacts.
+- Tokamak and stellarator tutorials run from a clean clone using native outputs
+  or release-hosted fixtures.
+- README figures/movies are polished, reproducible, and backed by validation
+  gates.
+- Unsupported or exploratory surfaces are clearly labeled as such.
+- Release notes, footprint audit, docs build, coverage gates, package audit,
+  tag, GitHub release assets, and PyPI workflow are ready.
