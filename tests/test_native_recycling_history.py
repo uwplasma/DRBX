@@ -570,9 +570,106 @@ def test_fixed_bdf2_history_uses_internal_substeps_without_extra_output_states(
     assert diagnostics["fixed_bdf2_bdf2_steps"] == 3
     assert diagnostics["fixed_bdf2_internal_substeps"] == 4
     assert diagnostics["fixed_bdf2_max_output_substeps"] == 2
+    assert diagnostics["fixed_bdf2_internal_timestep_policy"] == "explicit"
     assert diagnostics["fixed_bdf2_max_internal_timestep"] == 0.5
     assert diagnostics["fixed_bdf2_active_array_rhs_steps"] == 4
     assert diagnostics["fixed_bdf2_jax_linearized_action_steps"] == 4
+
+
+def test_fixed_bdf2_history_uses_automatic_jax_internal_substeps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, float, float | None]] = []
+
+    def make_info() -> recycling.Recycling1DImplicitStepInfo:
+        return recycling.Recycling1DImplicitStepInfo(
+            residual_inf_norm=1.0e-12,
+            active_size=1,
+            nonlinear_iterations=1,
+            linear_iterations=1,
+            diagnostics={
+                "rhs_backend": "active_array",
+                "solver_mode": "active_array_jax_linearized",
+                "converged": True,
+                "linear_solver_success": True,
+            },
+        )
+
+    def fake_backward_euler_step(
+        config,
+        fields,
+        *,
+        feedback_integrals,
+        timestep,
+        solver_mode,
+        **kwargs,
+    ):
+        calls.append(("be", float(timestep), None))
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info(),
+        )
+
+    def fake_bdf2_step(
+        config,
+        fields,
+        previous_fields,
+        *,
+        feedback_integrals,
+        timestep,
+        previous_timestep,
+        solver_mode,
+        **kwargs,
+    ):
+        calls.append(("bdf2", float(timestep), float(previous_timestep)))
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info(),
+        )
+
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_backward_euler_step
+    )
+    monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf2_step)
+
+    result = recycling._advance_recycling_1d_fixed_bdf2_history(
+        _FakeRuntimeConfig(),
+        _fields(),
+        runtime_model=_runtime_model(),
+        feedback_integrals={"ctrl": 0.0},
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        metrics=object(),
+        dataset_scalars={},
+        timestep=2.4,
+        steps=1,
+        residual_tolerance=1.0e-7,
+        max_nonlinear_iterations=3,
+        step_solver_mode="active_array_jax_linearized",
+        solver_mode_label="fixed_bdf2_active_array_jax_linearized",
+    )
+
+    assert [call[0] for call in calls] == ["be", "bdf2", "bdf2"]
+    assert [call[2] for call in calls] == [
+        None,
+        pytest.approx(0.8),
+        pytest.approx(0.8),
+    ]
+    assert [call[1] for call in calls] == [
+        pytest.approx(0.8),
+        pytest.approx(0.8),
+        pytest.approx(0.8),
+    ]
+    diagnostics = result.diagnostics
+    assert diagnostics["fixed_bdf2_internal_substeps"] == 3
+    assert diagnostics["fixed_bdf2_max_output_substeps"] == 3
+    assert diagnostics["fixed_bdf2_internal_timestep_policy"] == (
+        "automatic_jax_linearized"
+    )
+    assert diagnostics["fixed_bdf2_max_internal_timestep"] == 1.0
 
 
 def test_adaptive_be_history_accumulates_interval_results_and_progress(
@@ -2412,6 +2509,48 @@ def test_resolve_recycling_fixed_bdf2_max_internal_timestep_rejects_invalid_env(
 ) -> None:
     monkeypatch.setenv("JAX_DRB_RECYCLING_FIXED_BDF2_MAX_INTERNAL_TIMESTEP", value)
     assert recycling._resolve_recycling_fixed_bdf2_max_internal_timestep(None) is None
+
+
+def test_resolve_recycling_fixed_bdf2_internal_timestep_policy_prefers_explicit_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_FIXED_BDF2_AUTO_MAX_INTERNAL_TIMESTEP", "0.25")
+    config = _FakeRuntimeConfig(recycling_fixed_bdf2_max_internal_timestep=0.5)
+
+    cap, policy = recycling._resolve_recycling_fixed_bdf2_internal_timestep_policy(
+        config,
+        timestep=10.0,
+        step_solver_mode="active_array_jax_linearized",
+    )
+
+    assert cap == 0.5
+    assert policy == "explicit"
+
+
+def test_resolve_recycling_fixed_bdf2_internal_timestep_policy_uses_automatic_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_FIXED_BDF2_AUTO_MAX_INTERNAL_TIMESTEP", "0.75")
+
+    cap, policy = recycling._resolve_recycling_fixed_bdf2_internal_timestep_policy(
+        _FakeRuntimeConfig(),
+        timestep=10.0,
+        step_solver_mode="active_array_jax_linearized",
+    )
+
+    assert cap == 0.75
+    assert policy == "automatic_jax_linearized"
+
+
+def test_resolve_recycling_fixed_bdf2_internal_timestep_policy_can_disable_automatic() -> None:
+    cap, policy = recycling._resolve_recycling_fixed_bdf2_internal_timestep_policy(
+        _FakeRuntimeConfig(recycling_fixed_bdf2_auto_internal_substep="false"),
+        timestep=10.0,
+        step_solver_mode="active_array_jax_linearized",
+    )
+
+    assert cap is None
+    assert policy == "disabled"
 
 
 def test_initial_recycling_continuation_dt_uses_field_count_cutover() -> None:

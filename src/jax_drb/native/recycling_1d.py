@@ -2266,7 +2266,13 @@ def _advance_recycling_1d_fixed_bdf2_history(
     previous_fields: dict[str, np.ndarray] | None = None
     previous_integrals: dict[str, float] | None = None
     previous_timestep: float | None = None
-    max_internal_timestep = _resolve_recycling_fixed_bdf2_max_internal_timestep(config)
+    max_internal_timestep, internal_timestep_policy = (
+        _resolve_recycling_fixed_bdf2_internal_timestep_policy(
+            config,
+            timestep=timestep,
+            step_solver_mode=step_solver_mode,
+        )
+    )
     variable_history = {
         name: [np.asarray(current_fields[name], dtype=np.float64)]
         for name in field_names
@@ -2303,6 +2309,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_evolve_feedback_integrals": True,
         "fixed_bdf2_internal_substeps": 0,
         "fixed_bdf2_max_output_substeps": 1,
+        "fixed_bdf2_internal_timestep_policy": str(internal_timestep_policy),
         "fixed_bdf2_max_internal_timestep": None
         if max_internal_timestep is None
         else float(max_internal_timestep),
@@ -5495,6 +5502,35 @@ def _resolve_recycling_fixed_bdf2_max_internal_timestep(
     except ValueError:
         return None
     return configured if np.isfinite(configured) and configured > 0.0 else None
+
+
+def _resolve_recycling_fixed_bdf2_internal_timestep_policy(
+    config: BoutConfig | None = None,
+    *,
+    timestep: float,
+    step_solver_mode: str,
+) -> tuple[float | None, str]:
+    explicit = _resolve_recycling_fixed_bdf2_max_internal_timestep(config)
+    if explicit is not None:
+        return explicit, "explicit"
+    if "jax_linearized" not in str(step_solver_mode):
+        return None, "none"
+    automatic = _resolve_bool_runtime_option(
+        config,
+        option_name="recycling_fixed_bdf2_auto_internal_substep",
+        env_name="JAX_DRB_RECYCLING_FIXED_BDF2_AUTO_INTERNAL_SUBSTEP",
+        default=True,
+    )
+    if not automatic:
+        return None, "disabled"
+    cap = _resolve_positive_float_runtime_option(
+        config,
+        option_name="recycling_fixed_bdf2_auto_max_internal_timestep",
+        env_name="JAX_DRB_RECYCLING_FIXED_BDF2_AUTO_MAX_INTERNAL_TIMESTEP",
+        default=1.0,
+    )
+    resolved = min(float(timestep), float(cap))
+    return resolved, "automatic_jax_linearized"
 
 
 def _resolve_recycling_adaptive_bdf_component_atol_floor(

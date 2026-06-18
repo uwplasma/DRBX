@@ -143,7 +143,7 @@ and tests all move together.
 | Plan authority and release hygiene | 95% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 93% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
+| JAX-native recycling solver | 94% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
 | Effective preconditioning | 44% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
 | Performance and scaling | 61% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
@@ -1469,6 +1469,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   preconditioner campaigns a direct budget on actual JVP/linear-map work. This
   is not a new speedup by itself; it is the missing acceptance gate for future
   Schur/transport preconditioners and cheaper residual/JVP kernels.
+- 2026-06-18: Added conservative automatic internal substepping for opt-in
+  fixed-output BDF2 JAX-linearized recycling histories when no explicit
+  `runtime:recycling_fixed_bdf2_max_internal_timestep` or
+  `JAX_DRB_RECYCLING_FIXED_BDF2_MAX_INTERNAL_TIMESTEP` is set. The default
+  automatic cap is `1.0` simulation-time unit and applies only to
+  `*jax_linearized*` fixed-BDF2 step modes; users can disable it with
+  `runtime:recycling_fixed_bdf2_auto_internal_substep=false` or tune it with
+  `runtime:recycling_fixed_bdf2_auto_max_internal_timestep=<value>`. Histories
+  now report `fixed_bdf2_internal_timestep_policy` as `explicit`, `disabled`,
+  `none`, or `automatic_jax_linearized`. This advances robustness and
+  reproducibility of the full-output JAX-transformable lane, but performance
+  still requires cheaper residual/JVP kernels or a preconditioner that reduces
+  operator calls.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic
