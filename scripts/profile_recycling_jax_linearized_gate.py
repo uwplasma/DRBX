@@ -103,6 +103,15 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--skip-initial-residual-check",
+        action="store_true",
+        help=(
+            "Set runtime:recycling_jax_linear_check_initial_residual=false before "
+            "profiling. This avoids a separate pre-linearization residual call "
+            "when the selected deck is known not to start converged."
+        ),
+    )
+    parser.add_argument(
         "--warmup-runs",
         type=int,
         default=0,
@@ -175,6 +184,8 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
     overrides = list(getattr(args, "override", ()) or ())
     if bool(getattr(args, "jit_residual", False)):
         overrides.append("runtime:recycling_jax_linear_jit_residual=true")
+    if bool(getattr(args, "skip_initial_residual_check", False)):
+        overrides.append("runtime:recycling_jax_linear_check_initial_residual=false")
     return overrides
 
 

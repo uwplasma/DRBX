@@ -390,9 +390,11 @@ def test_jax_linearized_profiler_jit_residual_appends_runtime_override() -> None
     args = SimpleNamespace(
         override=["mesh:ny=64"],
         jit_residual=True,
+        skip_initial_residual_check=True,
     )
 
     assert module._effective_overrides(args) == [
         "mesh:ny=64",
         "runtime:recycling_jax_linear_jit_residual=true",
+        "runtime:recycling_jax_linear_check_initial_residual=false",
     ]

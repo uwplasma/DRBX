@@ -1055,7 +1055,9 @@ spending more D/T/He wall time.
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL=0` for profiling decks that
-know the predictor is not already converged. The generic solver keeps the
+know the predictor is not already converged. The profiling script exposes the
+same switch as `--skip-initial-residual-check`, so it can be combined with
+`--jit-residual` without hand-writing BOUT overrides. The generic solver keeps the
 initial residual check enabled by default because it avoids unnecessary
 linearization when a predictor already satisfies the nonlinear tolerance. On
 the June 18, 2026 bounded hydrogen `timestep=1.0` JAX-linearized gate, disabling
