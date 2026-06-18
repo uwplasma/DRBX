@@ -36,6 +36,9 @@ class ImplicitStepInfo:
     jacobian_assembly_seconds: float = 0.0
     linear_solve_seconds: float = 0.0
     line_search_seconds: float = 0.0
+    line_search_trial_count: int = 0
+    line_search_last_step_scale: float | None = None
+    line_search_initial_step_scale: float = 1.0
     fallback_used: bool = False
     jacobian_mode: str = "fd"
     converged: bool | None = None
@@ -1140,6 +1143,7 @@ def solve_jax_linearized_newton_system(
     linear_preconditioner_context: dict[str, object] | None = None,
     check_initial_residual: bool = True,
     jit_residual: bool = False,
+    line_search_initial_step_scale: float = 1.0,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         import jax
@@ -1158,6 +1162,18 @@ def solve_jax_linearized_newton_system(
     jacobian_assembly_seconds = 0.0
     linear_solve_seconds = 0.0
     line_search_seconds = 0.0
+    line_search_trial_count = 0
+    line_search_last_step_scale: float | None = None
+    raw_line_search_initial_step_scale = float(line_search_initial_step_scale)
+    if (
+        not np.isfinite(raw_line_search_initial_step_scale)
+        or raw_line_search_initial_step_scale <= 0.0
+    ):
+        raw_line_search_initial_step_scale = 1.0
+    resolved_line_search_initial_step_scale = min(
+        1.0,
+        max(raw_line_search_initial_step_scale, 1.0 / 64.0),
+    )
     linear_preconditioner_build_seconds = 0.0
     linear_preconditioner_build_count = 0
     cached_dynamic_preconditioner = None
@@ -1208,6 +1224,9 @@ def solve_jax_linearized_newton_system(
             jacobian_assembly_seconds=jacobian_assembly_seconds,
             linear_solve_seconds=linear_solve_seconds,
             line_search_seconds=line_search_seconds,
+            line_search_trial_count=line_search_trial_count,
+            line_search_last_step_scale=line_search_last_step_scale,
+            line_search_initial_step_scale=resolved_line_search_initial_step_scale,
             jacobian_mode=jacobian_mode,
             converged=bool(converged),
             linear_solver_backend=linear_backend,
@@ -1318,7 +1337,7 @@ def solve_jax_linearized_newton_system(
         update = jnp.asarray(update, dtype=jnp.float64)
 
         accepted = False
-        step_scale = 1.0
+        step_scale = float(resolved_line_search_initial_step_scale)
         candidate_state = state
         candidate_residual_inf_norm = residual_inf_norm
         line_search_started_at = perf_counter()
@@ -1331,6 +1350,7 @@ def solve_jax_linearized_newton_system(
             residual_started_at = perf_counter()
             trial_residual = residual_function(trial_state)
             trial_residual = _block(trial_residual)
+            line_search_trial_count += 1
             residual_evaluation_count += 1
             residual_evaluation_seconds += perf_counter() - residual_started_at
             trial_residual_inf_norm = float(jnp.max(jnp.abs(trial_residual)))
@@ -1340,6 +1360,7 @@ def solve_jax_linearized_newton_system(
             ):
                 candidate_state = trial_state
                 candidate_residual_inf_norm = trial_residual_inf_norm
+                line_search_last_step_scale = float(step_scale)
                 accepted = True
                 break
             step_scale *= 0.5

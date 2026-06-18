@@ -46,10 +46,16 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "20",
             "--linear-tolerance-factor",
             "10",
+            "--line-search-initial-step-scale",
+            "0.25",
             "--require-max-linear-iterations",
             "3200",
             "--require-max-residual-inf-norm",
             "7.4",
+            "--require-max-residual-evaluations",
+            "2",
+            "--require-max-line-search-trials",
+            "1",
             "--require-min-linear-iterations",
             "1",
             "--require-min-nonlinear-iterations",
@@ -66,9 +72,12 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.linear_restart == 20
     assert args.linear_maxiter == 20
     assert args.linear_tolerance_factor == 10.0
+    assert args.line_search_initial_step_scale == 0.25
     assert args.require_linear_preconditioner == "local_block_diag"
     assert args.require_max_linear_iterations == 3200
     assert args.require_max_residual_inf_norm == 7.4
+    assert args.require_max_residual_evaluations == 2
+    assert args.require_max_line_search_trials == 1
     assert args.require_min_linear_iterations == 1
     assert args.require_min_nonlinear_iterations == 1
     assert args.require_max_preconditioner_builds == 2
@@ -88,9 +97,12 @@ def test_help_documents_preconditioner_and_budget_gates(
     assert "--linear-restart" in help_text
     assert "--linear-maxiter" in help_text
     assert "--linear-tolerance-factor" in help_text
+    assert "--line-search-initial-step-scale" in help_text
     assert "--require-linear-preconditioner" in help_text
     assert "--require-max-linear-iterations" in help_text
     assert "--require-max-residual-inf-norm" in help_text
+    assert "--require-max-residual-evaluations" in help_text
+    assert "--require-max-line-search-trials" in help_text
     assert "--require-min-linear-iterations" in help_text
     assert "--require-min-nonlinear-iterations" in help_text
     assert "--require-max-preconditioner-builds" in help_text
@@ -108,6 +120,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
         linear_restart=20,
         linear_maxiter=10,
         linear_tolerance_factor=2.5,
+        line_search_initial_step_scale=0.25,
     )
 
     assert module._effective_overrides(args) == [
@@ -118,6 +131,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
         "runtime:recycling_jax_linear_restart=20",
         "runtime:recycling_jax_linear_maxiter=10",
         "runtime:recycling_jax_linear_tolerance_factor=2.5",
+        "runtime:recycling_jax_linear_line_search_initial_step_scale=0.25",
         "runtime:recycling_jax_linear_preconditioner=local_block_diag",
         "runtime:recycling_jax_linear_preconditioner_refresh=100",
     ]
@@ -147,8 +161,20 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "--linear-tolerance-factor must be finite and positive",
         ),
         (
+            {"line_search_initial_step_scale": 1.5},
+            "--line-search-initial-step-scale must be finite and in (0, 1]",
+        ),
+        (
             {"require_max_residual_inf_norm": float("nan")},
             "--require-max-residual-inf-norm must be finite and nonnegative",
+        ),
+        (
+            {"require_max_residual_evaluations": -1},
+            "--require-max-residual-evaluations must be nonnegative",
+        ),
+        (
+            {"require_max_line_search_trials": -1},
+            "--require-max-line-search-trials must be nonnegative",
         ),
         (
             {"require_min_linear_iterations": -1},
@@ -170,8 +196,11 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "linear_restart": None,
             "linear_maxiter": None,
             "linear_tolerance_factor": None,
+            "line_search_initial_step_scale": None,
             "require_max_linear_iterations": None,
             "require_max_residual_inf_norm": None,
+            "require_max_residual_evaluations": None,
+            "require_max_line_search_trials": None,
             "require_min_linear_iterations": None,
             "require_min_nonlinear_iterations": None,
             "require_max_preconditioner_builds": None,
@@ -189,6 +218,8 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
         require_linear_preconditioner="local-block-diag",
         require_max_linear_iterations=3200,
         require_max_residual_inf_norm=7.4,
+        require_max_residual_evaluations=2,
+        require_max_line_search_trials=1,
         require_min_linear_iterations=1,
         require_min_nonlinear_iterations=1,
         require_max_preconditioner_builds=2,
@@ -201,6 +232,8 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
             "linear_preconditioner": "local_block_diag",
             "linear_preconditioner_build_count": 2,
             "linear_preconditioner_build_seconds": 0.125,
+            "residual_evaluation_count": 2,
+            "line_search_trial_count": 1,
         },
     }
 
@@ -213,6 +246,8 @@ def test_profile_gate_errors_accept_static_preconditioner_without_builds() -> No
         require_linear_preconditioner="state-scale",
         require_max_linear_iterations=None,
         require_max_residual_inf_norm=None,
+        require_max_residual_evaluations=None,
+        require_max_line_search_trials=None,
         require_min_linear_iterations=None,
         require_min_nonlinear_iterations=None,
         require_max_preconditioner_builds=None,
@@ -231,6 +266,8 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
         require_linear_preconditioner="parallel-line",
         require_max_linear_iterations=10,
         require_max_residual_inf_norm=7.4,
+        require_max_residual_evaluations=2,
+        require_max_line_search_trials=1,
         require_min_linear_iterations=1,
         require_min_nonlinear_iterations=1,
         require_max_preconditioner_builds=2,
@@ -243,6 +280,8 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
             "linear_preconditioner": "local_block_diag",
             "linear_preconditioner_build_count": 3,
             "linear_preconditioner_build_seconds": float("nan"),
+            "residual_evaluation_count": 4,
+            "line_search_trial_count": 3,
         },
     }
 
@@ -258,6 +297,8 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
         "profile reported 8.10000000e+00 residual inf-norm" in error
         for error in errors
     )
+    assert "profile reported 4 residual evaluations, exceeding 2" in errors
+    assert "profile reported 3 line-search trials, exceeding 1" in errors
     assert "profile reported 3 preconditioner builds, exceeding 2" in errors
 
 
@@ -267,6 +308,8 @@ def test_profile_gate_errors_reject_noop_profiles() -> None:
         require_linear_preconditioner=None,
         require_max_linear_iterations=None,
         require_max_residual_inf_norm=None,
+        require_max_residual_evaluations=None,
+        require_max_line_search_trials=None,
         require_min_linear_iterations=1,
         require_min_nonlinear_iterations=1,
         require_max_preconditioner_builds=None,

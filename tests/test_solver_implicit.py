@@ -1422,6 +1422,56 @@ def test_jax_linearized_newton_solver_can_prejit_residual() -> None:
     assert info.jacobian_mode == "jax_linearized:jax_gmres"
 
 
+def test_jax_linearized_newton_solver_reports_line_search_damping() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([1.0], dtype=jnp.float64)
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - target,
+        np.array([0.0], dtype=np.float64),
+        active_shape=(1,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=1,
+        linear_restart=4,
+        linear_maxiter=4,
+        line_search_initial_step_scale=0.5,
+    )
+
+    np.testing.assert_allclose(solution, np.array([0.5]), rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is False
+    assert info.residual_inf_norm == pytest.approx(0.5)
+    assert info.line_search_initial_step_scale == pytest.approx(0.5)
+    assert info.line_search_last_step_scale == pytest.approx(0.5)
+    assert info.line_search_trial_count == 1
+
+
+@pytest.mark.parametrize("bad_scale", [float("nan"), -0.5, 0.0])
+def test_jax_linearized_newton_solver_ignores_invalid_line_search_scale(
+    bad_scale: float,
+) -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([1.0], dtype=jnp.float64)
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - target,
+        np.array([0.0], dtype=np.float64),
+        active_shape=(1,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=1,
+        linear_restart=4,
+        linear_maxiter=4,
+        line_search_initial_step_scale=bad_scale,
+    )
+
+    np.testing.assert_allclose(solution, np.array([1.0]), rtol=1.0e-12, atol=1.0e-12)
+    assert info.line_search_initial_step_scale == pytest.approx(1.0)
+    assert info.line_search_last_step_scale == pytest.approx(1.0)
+
+
 def test_jax_linearized_newton_solver_uses_prejit_residual_in_line_search(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

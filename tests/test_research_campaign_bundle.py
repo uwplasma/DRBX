@@ -147,6 +147,9 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) 
     assert gate.command[gate.command.index("--timestep") + 1] == "1.0"
     assert gate.command[gate.command.index("--linear-restart") + 1] == "20"
     assert gate.command[gate.command.index("--linear-maxiter") + 1] == "20"
+    assert gate.command[
+        gate.command.index("--line-search-initial-step-scale") + 1
+    ] == "0.25"
     assert "--skip-initial-residual-check" in gate.command
     assert gate.command[
         gate.command.index("--require-min-nonlinear-iterations") + 1
@@ -160,6 +163,12 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) 
     assert gate.command[
         gate.command.index("--require-max-residual-inf-norm") + 1
     ] == "7.4"
+    assert gate.command[
+        gate.command.index("--require-max-residual-evaluations") + 1
+    ] == "2"
+    assert gate.command[
+        gate.command.index("--require-max-line-search-trials") + 1
+    ] == "1"
     assert "--skip-cprofile" in gate.command
 
 

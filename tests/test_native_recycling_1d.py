@@ -2739,10 +2739,18 @@ def test_recycling_backend_environment_resolvers_are_bounded(
     monkeypatch.delenv(
         "JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR", raising=False
     )
+    monkeypatch.delenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_INITIAL_STEP_SCALE",
+        raising=False,
+    )
     assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls() == (20, 20)
     assert recycling_1d_mod._resolve_recycling_jax_linear_tolerance(
         residual_tolerance=1.0e-8
     ) == pytest.approx(1.0e-8)
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_line_search_initial_step_scale()
+        == pytest.approx(1.0)
+    )
     assert recycling_1d_mod._resolve_recycling_jax_linear_jit_residual() is False
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_check_initial_residual()
@@ -2792,6 +2800,27 @@ def test_recycling_backend_environment_resolvers_are_bounded(
     assert recycling_1d_mod._resolve_recycling_jax_linear_tolerance(
         residual_tolerance=1.0e-8
     ) == pytest.approx(1.0e-8)
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_INITIAL_STEP_SCALE", "0.25"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_line_search_initial_step_scale()
+        == pytest.approx(0.25)
+    )
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_INITIAL_STEP_SCALE", "2.0"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_line_search_initial_step_scale()
+        == pytest.approx(1.0)
+    )
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_INITIAL_STEP_SCALE", "bad"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_line_search_initial_step_scale()
+        == pytest.approx(1.0)
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "yes")
     assert recycling_1d_mod._resolve_recycling_jax_linear_jit_residual() is True
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "off")
@@ -2863,6 +2892,7 @@ def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
         recycling_jax_linear_restart = 5
         recycling_jax_linear_maxiter = 6
         recycling_jax_linear_tolerance_factor = 12.5
+        recycling_jax_linear_line_search_initial_step_scale = 0.5
         recycling_jax_linear_jit_residual = true
         recycling_jax_linear_check_initial_residual = false
         recycling_jax_linear_gmres_solve_method = incremental
@@ -2887,6 +2917,12 @@ def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
         config,
         residual_tolerance=1.0e-8,
     ) == pytest.approx(1.25e-7)
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_line_search_initial_step_scale(
+            config
+        )
+        == pytest.approx(0.5)
+    )
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name(config)
         == "state_scale"

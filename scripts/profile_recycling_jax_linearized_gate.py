@@ -170,6 +170,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--line-search-initial-step-scale",
+        type=float,
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_line_search_initial_step_scale=<s>. "
+            "The value must be finite and in (0, 1]. Use this to test whether a "
+            "known damped Newton step avoids rejected line-search residual calls."
+        ),
+    )
+    parser.add_argument(
         "--linear-preconditioner",
         default=None,
         help=(
@@ -213,6 +223,24 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Fail after profiling when profile.residual_inf_norm exceeds this "
             "finite nonnegative ceiling. Use this with Krylov-budget sweeps so a "
             "shorter run cannot pass by degrading the nonlinear residual."
+        ),
+    )
+    parser.add_argument(
+        "--require-max-residual-evaluations",
+        type=int,
+        default=None,
+        help=(
+            "Fail after profiling when diagnostics.residual_evaluation_count "
+            "exceeds this nonnegative budget."
+        ),
+    )
+    parser.add_argument(
+        "--require-max-line-search-trials",
+        type=int,
+        default=None,
+        help=(
+            "Fail after profiling when diagnostics.line_search_trial_count "
+            "exceeds this nonnegative budget."
         ),
     )
     parser.add_argument(
@@ -278,12 +306,26 @@ def _validate_args(args: argparse.Namespace) -> None:
         factor = float(args.linear_tolerance_factor)
         if not math.isfinite(factor) or factor <= 0.0:
             raise SystemExit("--linear-tolerance-factor must be finite and positive.")
+    if args.line_search_initial_step_scale is not None:
+        scale = float(args.line_search_initial_step_scale)
+        if not math.isfinite(scale) or scale <= 0.0 or scale > 1.0:
+            raise SystemExit(
+                "--line-search-initial-step-scale must be finite and in (0, 1]."
+            )
     if args.require_max_residual_inf_norm is not None:
         ceiling = float(args.require_max_residual_inf_norm)
         if not math.isfinite(ceiling) or ceiling < 0.0:
             raise SystemExit(
                 "--require-max-residual-inf-norm must be finite and nonnegative."
             )
+    if args.require_max_residual_evaluations is not None:
+        if int(args.require_max_residual_evaluations) < 0:
+            raise SystemExit(
+                "--require-max-residual-evaluations must be nonnegative."
+            )
+    if args.require_max_line_search_trials is not None:
+        if int(args.require_max_line_search_trials) < 0:
+            raise SystemExit("--require-max-line-search-trials must be nonnegative.")
     if args.require_min_linear_iterations is not None:
         if int(args.require_min_linear_iterations) < 0:
             raise SystemExit("--require-min-linear-iterations must be nonnegative.")
@@ -369,6 +411,19 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
         if not math.isfinite(factor) or factor <= 0.0:
             raise ValueError("linear_tolerance_factor must be finite and positive.")
         overrides.append(f"runtime:recycling_jax_linear_tolerance_factor={factor:.17g}")
+    line_search_initial_step_scale = getattr(
+        args, "line_search_initial_step_scale", None
+    )
+    if line_search_initial_step_scale is not None:
+        scale = float(line_search_initial_step_scale)
+        if not math.isfinite(scale) or scale <= 0.0 or scale > 1.0:
+            raise ValueError(
+                "line_search_initial_step_scale must be finite and in (0, 1]."
+            )
+        overrides.append(
+            "runtime:recycling_jax_linear_line_search_initial_step_scale="
+            f"{scale:.17g}"
+        )
     linear_preconditioner = getattr(args, "linear_preconditioner", None)
     if linear_preconditioner is not None:
         name = str(linear_preconditioner).strip()
@@ -541,6 +596,33 @@ def _profile_gate_errors(
                 label="residual inf-norm",
             )
         )
+    diagnostics = profile_report.get("diagnostics", {})
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+    max_residual_evaluations = getattr(
+        args, "require_max_residual_evaluations", None
+    )
+    if max_residual_evaluations is not None:
+        errors.extend(
+            _validate_maximum_integer_value(
+                profile_report,
+                key="residual_evaluation_count",
+                maximum=int(max_residual_evaluations),
+                label="residual evaluations",
+                source=diagnostics,
+            )
+        )
+    max_line_search_trials = getattr(args, "require_max_line_search_trials", None)
+    if max_line_search_trials is not None:
+        errors.extend(
+            _validate_maximum_integer_value(
+                profile_report,
+                key="line_search_trial_count",
+                maximum=int(max_line_search_trials),
+                label="line-search trials",
+                source=diagnostics,
+            )
+        )
     min_linear_iterations = getattr(args, "require_min_linear_iterations", None)
     if min_linear_iterations is not None:
         errors.extend(
@@ -565,9 +647,6 @@ def _profile_gate_errors(
         args, "require_max_preconditioner_builds", None
     )
     if max_preconditioner_builds is not None:
-        diagnostics = profile_report.get("diagnostics", {})
-        if not isinstance(diagnostics, dict):
-            diagnostics = {}
         errors.extend(
             _validate_maximum_integer_value(
                 profile_report,
@@ -792,6 +871,8 @@ def main() -> int:
             "linear_preconditioner": args.require_linear_preconditioner,
             "max_linear_iterations": args.require_max_linear_iterations,
             "max_residual_inf_norm": args.require_max_residual_inf_norm,
+            "max_residual_evaluations": args.require_max_residual_evaluations,
+            "max_line_search_trials": args.require_max_line_search_trials,
             "min_linear_iterations": args.require_min_linear_iterations,
             "min_nonlinear_iterations": args.require_min_nonlinear_iterations,
             "max_preconditioner_builds": args.require_max_preconditioner_builds,

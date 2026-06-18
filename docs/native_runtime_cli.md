@@ -169,6 +169,20 @@ factor is `1`, preserving the historical behavior. This knob is for controlled
 promotion studies only. The adaptive-BDF residual, embedded-error, fallback,
 and linear-solver-health gates still determine whether a run is acceptable.
 
+The JAX-linearized Newton line search can also start from a damped step when a
+validated gate repeatedly rejects the full Newton step:
+
+```toml
+[runtime]
+recycling_jax_linear_line_search_initial_step_scale = 0.25
+```
+
+The matching environment variable is
+`JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_INITIAL_STEP_SCALE`. Values are
+bounded to `(0, 1]`, and the default is `1`, preserving the standard backtracking
+search. This control is not a physics-model change; it only avoids predictable
+rejected residual evaluations in quality-gated JAX-linearized solver studies.
+
 For JAX-linearized promotion experiments, the inner matrix-free Krylov backend
 can be selected with `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER`. Supported values are
 `jax_gmres` (default), `lineax_gmres` when the optional Lineax package is

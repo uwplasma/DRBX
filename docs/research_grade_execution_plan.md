@@ -143,9 +143,9 @@ and tests all move together.
 | Plan authority and release hygiene | 95% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 90% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
+| JAX-native recycling solver | 91% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
 | Effective preconditioning | 42% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
-| Performance and scaling | 57% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
+| Performance and scaling | 58% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -1381,6 +1381,22 @@ Use this log for concise decision records. Do not paste terminal output here.
   still missed the non-JIT baseline: warmup `20.08 s`, timed runs `11.11 s` and
   `9.33 s`, median `10.22 s`. This keeps residual JIT as an opt-in diagnostic
   and possible GPU probe, not the local CPU default.
+- 2026-06-18: Added JAX-linearized line-search damping diagnostics and an
+  opt-in initial step-scale control. `ImplicitStepInfo` now reports
+  `line_search_trial_count`, `line_search_last_step_scale`, and
+  `line_search_initial_step_scale`; recycling forwards these diagnostics and
+  resolves `runtime:recycling_jax_linear_line_search_initial_step_scale` plus
+  `JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_INITIAL_STEP_SCALE`. On the D/T/He
+  `timestep=1.0` gate, the default line search accepted scale `0.25` only after
+  three trial residuals. Starting directly at `0.25` preserved residual
+  `7.315`, clean JAX-GMRES status, and the `400` update budget, while reducing
+  residual evaluations from `4` to `2`, line-search trials from `3` to `1`, and
+  local wall time from `7.84 s` to `7.34 s`. The local
+  `dthe-jax-linearized-gate` now uses this damping and requires at most two
+  residual evaluations and one line-search trial. The wrapper verification
+  passed in `18.1 s`; the profiled solve took `7.08 s`, the RSS sample run took
+  `9.87 s`, peak RSS delta was `828 MiB`, residual evaluations were `2`, and
+  line-search trials were `1`.
 
 ## Definition Of Done
 

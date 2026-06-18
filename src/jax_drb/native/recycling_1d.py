@@ -4670,6 +4670,9 @@ def advance_recycling_1d_backward_euler_step(
             residual_tolerance=residual_tolerance,
         )
         linear_solve_method = _resolve_recycling_jax_linear_gmres_solve_method(config)
+        line_search_initial_step_scale = (
+            _resolve_recycling_jax_linear_line_search_initial_step_scale(config)
+        )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
             config
@@ -4711,6 +4714,7 @@ def advance_recycling_1d_backward_euler_step(
             ),
             check_initial_residual=check_initial_residual,
             jit_residual=jit_residual,
+            line_search_initial_step_scale=line_search_initial_step_scale,
         )
     else:
         raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
@@ -4860,6 +4864,9 @@ def advance_recycling_1d_bdf2_step(
             residual_tolerance=residual_tolerance,
         )
         linear_solve_method = _resolve_recycling_jax_linear_gmres_solve_method(config)
+        line_search_initial_step_scale = (
+            _resolve_recycling_jax_linear_line_search_initial_step_scale(config)
+        )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
             config
@@ -4901,6 +4908,7 @@ def advance_recycling_1d_bdf2_step(
             ),
             check_initial_residual=check_initial_residual,
             jit_residual=jit_residual,
+            line_search_initial_step_scale=line_search_initial_step_scale,
         )
     else:
         raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
@@ -5886,6 +5894,20 @@ def _resolve_recycling_jax_linear_tolerance(
     )
 
 
+def _resolve_recycling_jax_linear_line_search_initial_step_scale(
+    config: BoutConfig | None = None,
+) -> float:
+    value = _resolve_positive_float_runtime_option(
+        config,
+        option_name="recycling_jax_linear_line_search_initial_step_scale",
+        env_name="JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_INITIAL_STEP_SCALE",
+        default=1.0,
+    )
+    if not np.isfinite(value) or value <= 0.0:
+        return 1.0
+    return min(float(value), 1.0)
+
+
 def _resolve_recycling_jax_linear_jit_residual(
     config: BoutConfig | None = None,
 ) -> bool:
@@ -6554,6 +6576,15 @@ def _as_recycling_step_info(
         ),
         "linear_solve_seconds": float(getattr(info, "linear_solve_seconds", 0.0)),
         "line_search_seconds": float(getattr(info, "line_search_seconds", 0.0)),
+        "line_search_trial_count": int(
+            getattr(info, "line_search_trial_count", 0)
+        ),
+        "line_search_last_step_scale": getattr(
+            info, "line_search_last_step_scale", None
+        ),
+        "line_search_initial_step_scale": float(
+            getattr(info, "line_search_initial_step_scale", 1.0)
+        ),
         "fallback_used": bool(getattr(info, "fallback_used", False)),
         "jacobian_mode": str(getattr(info, "jacobian_mode", "")),
         "converged": getattr(info, "converged", None),
