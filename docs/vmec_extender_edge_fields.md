@@ -1,5 +1,11 @@
 # VMEC-Extender Edge Field Import
 
+!!! note "Plan authority"
+    This page is a VMEC-extender import-contract appendix. The active execution
+    plan is [Research-Grade Execution Plan](research_grade_execution_plan.md).
+    If this page conflicts with that plan, follow the execution plan and update
+    this page afterward.
+
 JAXDRB can import a gridded VMEC-extender magnetic field for scrape-off-layer
 geometry work without depending on VMEC, virtual-casing, or field-line tracing
 packages at runtime. The import path consumes a NetCDF artifact on an

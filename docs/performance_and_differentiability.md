@@ -1,5 +1,12 @@
 # Performance And Differentiability
 
+!!! note "Plan authority"
+    This page explains current performance and differentiability evidence. The
+    active execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    page afterward.
+
 This page records the current fast paths, the current differentiable paths, and the known blockers on heavier edge/SOL workflows.
 
 ## Current Fast Native Lanes

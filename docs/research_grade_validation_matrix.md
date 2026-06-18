@@ -1,5 +1,12 @@
 # Research-Grade Validation Matrix
 
+!!! note "Plan authority"
+    This page defines validation evidence and capability tiers. The active
+    execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    page afterward.
+
 This document is the public-facing contract for how `jax_drb` justifies its promoted validation surfaces.
 
 ## Capability Tiers

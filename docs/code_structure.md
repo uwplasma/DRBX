@@ -1,5 +1,12 @@
 # Code Structure
 
+!!! note "Plan authority"
+    This page is a developer map and refactoring context appendix. The active
+    execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    page afterward.
+
 This page is the developer-facing map of the `jax_drb` source tree. The goal is
 to make the package understandable before reading the monolithic solver files or
 the validation campaigns in detail.

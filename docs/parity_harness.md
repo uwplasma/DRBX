@@ -1,5 +1,12 @@
 # Parity Harness
 
+!!! note "Plan authority"
+    This page documents parity machinery and capability tiers. The active
+    execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    page afterward.
+
 The first executable parity harness is centered on the curated case ladder in [references/reference_case_ladder.toml](references/reference_case_ladder.toml).
 
 For a figure-first view of the currently locked cases, see [docs/validation_gallery.md](docs/validation_gallery.md).

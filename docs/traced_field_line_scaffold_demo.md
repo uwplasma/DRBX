@@ -1,5 +1,11 @@
 # Traced-Field-Line Scaffold Demo
 
+!!! note "Plan authority"
+    This page documents a geometry scaffold artifact. The active execution plan
+    is [Research-Grade Execution Plan](research_grade_execution_plan.md). If
+    this page conflicts with that plan, follow the execution plan and update
+    this page afterward.
+
 This demo creates the second 3D geometry adapter scaffold in the current roadmap.
 It is not a native stellarator solver claim. It is a geometry and metric
 artifact bundle that exercises the general 3D infrastructure on a non-diverted,

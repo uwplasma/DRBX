@@ -1,5 +1,12 @@
 # Implementation Inventory
 
+!!! note "Plan authority"
+    This page is a historical implementation and reference-fact inventory. The
+    active execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    inventory conflicts with that plan, follow the execution plan and update
+    this page afterward.
+
 These notes capture the external-reference facts already driving the first implementation slices.
 
 ## Solver And Scheduler

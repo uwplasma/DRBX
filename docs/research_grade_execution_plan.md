@@ -32,12 +32,16 @@ Subordinate pages:
   heavy-artifact appendix.
 - `../plan_jax_drb.md`: compatibility redirect to this file.
 
-If any subordinate page conflicts with this file, follow this file and update
-the subordinate page after the implementation decision is made.
+Other Markdown files under `docs/` are status pages, validation reports,
+example pages, literature notes, or rendered-artifact documentation. They may
+contain historical "next step" or "remaining" language for a specific campaign,
+but they are not execution plans. If any page conflicts with this file, follow
+this file and update the page after the implementation decision is made.
 
-Hosted GitHub Actions should not be polled repeatedly while hosted runners are
-blocked by account billing/spending-limit state. Use local release gates during
-development and check hosted CI periodically after billing is restored.
+Hosted GitHub Actions should not be polled while hosted runners are blocked by
+account billing/spending-limit state. Billing is exhausted for the current
+period, so development should use local release gates and only recheck hosted
+CI after billing is restored or the user explicitly asks for a CI rerun.
 
 Cross-document audit policy:
 
@@ -50,6 +54,9 @@ Cross-document audit policy:
 - If an appendix still contains an obsolete next step, update this file first,
   then edit the appendix to say whether the item is complete, superseded, or
   still active.
+- Campaign/status docs may keep local evidence narratives. Their priorities,
+  completion percentages, and release blockers are authoritative only if they
+  match the current completion snapshot and implementation backlog below.
 - `plan_jax_drb.md` remains a compatibility redirect. Do not add execution
   steps there.
 
@@ -183,14 +190,26 @@ claim boundaries are complete.
 | Documentation/examples | README, ReadTheDocs, model-selection guide, tokamak tutorial, stellarator tutorial, validation gallery, performance guide | every advertised figure/movie has a command, no private reference-code dependency for users, extended derivations in docs, and concise README. |
 | Coverage/release | promoted solver surface, public CLI/API, examples, validation campaigns, package, footprint | `95%` promoted coverage, local release gates, package audit, no large blobs, release-hosted assets, release notes, tag, and PyPI workflow readiness. |
 
-Immediate next work package after this plan-only pass, pending review:
+## Current Implementation Backlog
 
-1. Close the neutral `NVh` accepted-step state/history parity offender.
-2. Continue the JAX-native recycling solver lane with residual/JVP cost
-   reduction and a physics/block preconditioner.
-3. Resume live imported-field connection-length refinement for coil, VMEC, and
-   hybrid stellarator maps.
-4. Update docs/examples only after those gates produce reproducible artifacts.
+This backlog is the executable checklist for the next implementation phase.
+Work should proceed in this order unless a task is blocked by missing external
+reference data, unavailable GPU hardware, or reviewer/user decision. Later
+independent lanes may run in parallel only when they do not broaden unsupported
+claims.
+
+| Priority | Track | Concrete next actions | Exit gate |
+| --- | --- | --- | --- |
+| P0 | Plan authority and repo hygiene | Keep this file as the only active plan; keep `plan_jax_drb.md` as a redirect; audit roadmap-like Markdown pages after each major decision; keep hosted CI out of the critical path while billing is exhausted; keep heavy traces, NetCDF dumps, profile bundles, and movies out of git. | Clean plan diff, no competing roadmap, clean `git status`, footprint audit before tag. |
+| P1 | Reference-backed neutral parity | Close the remaining `NVh` accepted-step offender by comparing the `SNVh_parallel_inertia`/Lax-flux reconstruction on exact reference states, then patch accepted-step state/history sequencing feeding `Pnlim`, `logPnlim`, and `Grad(logPnlim)` only where evidence requires it. | Accepted-step trace matches the reference time grid, pressure-gradient/diffusion/viscosity remain roundoff-closed, `SNVh_parallel_inertia` is closed or bounded, and regression tests lock the fix. |
+| P2 | JAX-native recycling residual | Promote the full-output recycling BDF residual through the fixed-layout PyTree/array seam; port sheath/no-flow, zero-current, target recycling, collisions, neutral diffusion, D/T/He reactions, scalar feedback, BE/BDF2/adaptive history, and artifact output without host-side residual loops. | Compatibility solver parity, JVP versus finite-difference tests, no hidden fallback, bounded solver-health report, and docs labeling default versus opt-in paths. |
+| P3 | Effective preconditioning | Build physics/block preconditioners in increasing complexity: same-cell blocks, sparse-JVP materialized block controls, parallel-line transport, neutral/plasma Schur approximation, target/sheath local blocks, and 2D/3D FCI transport blocks. Use PETSc-style field-split and line-solve ideas as algorithms, not runtime dependencies. | Same-case speedup or reduced residual/JVP/Krylov count after build cost, no parity degradation, memory not worse than compatibility baseline, CPU/GPU trace evidence. |
+| P4 | Drift-reduced Braginskii model surface | Finish equations, symbol definitions, normalizations, Boussinesq/non-Boussinesq polarization, vorticity/potential solve, ExB bracket, curvature/interchange, selected electromagnetic/Alfven lanes, open/closed-field semantics, and limiting-case/MMS tests. Remove or clearly label demo-only nonlinear forcing. | Equation-to-code map and tests for every promoted term, Boussinesq comparison plot, vorticity/bracket gates, EM selected-field report, no unsupported README claim. |
+| P5 | Neutral/recycling/sheath/detachment physics | Complete source accounting for ionization, recombination, charge exchange, radiation, neutral diffusion, recycling, pumping, no-flow, zero-current, sheath heat transmission, target sources, and detachment controller metrics. | Term-level parity or analytic tests, target flux/source balance, detachment scan plots, docs derivations with implementation links. |
+| P6 | Self-contained diverted tokamak program | Provide clean-clone tutorials that generate or fetch release-hosted fixtures; run 1D recycling, 1D detachment, 2D/3D diverted transport, multispecies D/T/He, impurity/radiation, and nonlinear turbulence windows; generate movies, OMP/target profiles, source maps, and neutral/radiation diagnostics. | Users can run examples and regenerate advertised README/docs media without installing reference codes; large fixtures remain release-hosted. |
+| P7 | 3D stellarator geometry and SOL | Promote VMEC, VMEC-extender, ESSOS coil, hybrid VMEC/coil, HSX QHS, NCSX, Landreman-Paul QA, and Dommaschk lanes. For each device: source metadata, boundary/surface plot, Poincare/field-line plot, connection-length or closed-map parallel-step metric, endpoint masks, FCI MMS/convergence, linear dynamics, sheath/recycling/neutral gates, nonlinear transient, and movie QA. | Per-device validation bundle with grid/time refinement and frame-by-frame movie QA before any turbulence claim. |
+| P8 | Performance, parallelization, and differentiability | Use `jit`, `vmap`, `jvp`, VJP/grad, persistent compilation cache, batched ensembles, CPU-device scaling, GPU kernels, and multi-GPU/sharded ensembles only on parity-proven JAX-native paths. Compare derivatives against finite differences and timings against same-fidelity baselines. | cProfile/RSS/JAX trace/XLA evidence, CPU/GPU scaling plots on real kernels, differentiability plots with finite-difference error curves. |
+| P9 | Docs, examples, coverage, and release | Make README concise and docs comprehensive; every advertised figure/movie has a command; examples follow SIMSOPT-style top-level parameters plus imported API functions; maintain promoted coverage above `95%`; run footprint/package audits; prepare release notes/tag/PyPI workflow when hosted CI can run. | `mkdocs build --strict --clean`, closeout/promoted coverage above `95%`, clean-clone examples, package audit, release notes and experimental boundaries current. |
 
 ## Ordered Execution Plan
 
@@ -1097,6 +1116,16 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-18: Revisited the roadmap/status Markdown pages after billing was
+  exhausted and CI polling was explicitly deprioritized. The plan now has a
+  single `Current Implementation Backlog` with priorities `P0` through `P9`,
+  covering plan authority, neutral parity, JAX-native recycling,
+  preconditioning, drift-reduced Braginskii coverage, neutral/recycling/sheath
+  physics, self-contained diverted tokamak examples, 3D stellarator SOL
+  geometry, performance/differentiability, docs/examples/coverage/release, and
+  repo-footprint controls. Roadmap-like docs were audited and status/example
+  pages now carry explicit authority notes pointing back to this file, so old
+  campaign-local "next step" text cannot override the master plan.
 - 2026-06-18: Rechecked CI after commit `9a068ca`. Hosted `test`,
   `coverage`, and `docs` failed before runner assignment: each job completed in
   a few seconds with an empty step list, empty runner name, no downloadable log,

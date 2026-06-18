@@ -1,5 +1,12 @@
 # Native Tokamak Selected-Field Demo
 
+!!! note "Plan authority"
+    This page documents one tokamak validation/demo artifact. The active
+    execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    page afterward.
+
 This page documents the reduced native tokamak selected-field parity rung in
 the repository. It now covers both the first one-step execution surface and a
 wider short-window history surface.

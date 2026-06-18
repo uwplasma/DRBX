@@ -1,5 +1,12 @@
 # Neutral Mixed Term-Balance Campaign
 
+!!! note "Plan authority"
+    This page is a campaign report for one parity offender. The active
+    execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    page afterward.
+
 This campaign localizes the remaining `neutral_mixed_one_step` mismatch on
 `NVh` by evaluating the native neutral momentum operator on both the native
 final state and the Hermès-3 final state.
