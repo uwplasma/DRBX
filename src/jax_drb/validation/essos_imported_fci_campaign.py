@@ -47,6 +47,8 @@ _IMPORTED_FCI_ARRAY_KEYS = (
     "magnetic_field_section",
     "endpoint_count_toroidal",
     "connection_toroidal",
+    "adjacent_step_toroidal",
+    "target_exit_toroidal",
     "heat_load_toroidal",
     "ionisation_toroidal",
     "radial_grid",
@@ -881,12 +883,24 @@ def build_essos_imported_fci_campaign(
         )
 
     major_radius = np.sqrt(np.asarray(geometry.coordinates_x, dtype=np.float64) ** 2 + np.asarray(geometry.coordinates_y, dtype=np.float64) ** 2)
+    adjacent_step = (
+        np.asarray(geometry.adjacent_step_length, dtype=np.float64)
+        if geometry.adjacent_step_length is not None
+        else np.full_like(connection, np.nan, dtype=np.float64)
+    )
+    target_exit = (
+        np.asarray(geometry.target_exit_length, dtype=np.float64)
+        if geometry.target_exit_length is not None
+        else np.full_like(connection, np.nan, dtype=np.float64)
+    )
     arrays = {
         "major_radius_section": major_radius[:, 0, :].astype(np.float32),
         "vertical_section": np.asarray(geometry.coordinates_z, dtype=np.float64)[:, 0, :].astype(np.float32),
         "magnetic_field_section": bmag[:, 0, :].astype(np.float32),
         "endpoint_count_toroidal": np.sum(endpoint_count, axis=0).astype(np.float32),
         "connection_toroidal": np.mean(connection, axis=0).astype(np.float32),
+        "adjacent_step_toroidal": _finite_mean(adjacent_step, axis=0).astype(np.float32),
+        "target_exit_toroidal": _finite_mean(target_exit, axis=0).astype(np.float32),
         "heat_load_toroidal": np.sum(heat_load, axis=0).astype(np.float32),
         "ionisation_toroidal": np.sum(ionisation, axis=0).astype(np.float32),
         "radial_grid": np.mean(rho, axis=(1, 2)).astype(np.float32),
@@ -1430,17 +1444,25 @@ def save_essos_imported_fci_campaign_plot(
     axes[0, 1].set_ylabel("poloidal angle")
     fig.colorbar(endpoint, ax=axes[0, 1], label="open endpoints")
 
+    if "target_exit_toroidal" in arrays and np.any(np.isfinite(arrays["target_exit_toroidal"])):
+        connection_values = np.ma.masked_invalid(arrays["target_exit_toroidal"].T)
+        connection_title = "mean target-exit length"
+        connection_label = "wall-hit arc length"
+    else:
+        connection_values = np.ma.masked_invalid(arrays["connection_toroidal"].T)
+        connection_title = "mean connection-length proxy"
+        connection_label = "arc length"
     connection = axes[0, 2].imshow(
-        arrays["connection_toroidal"].T,
+        connection_values,
         origin="lower",
         aspect="auto",
         extent=extent,
         cmap="viridis",
     )
-    axes[0, 2].set_title("mean connection-length proxy")
+    axes[0, 2].set_title(connection_title)
     axes[0, 2].set_xlabel("toroidal angle")
     axes[0, 2].set_ylabel("poloidal angle")
-    fig.colorbar(connection, ax=axes[0, 2], label="arc length")
+    fig.colorbar(connection, ax=axes[0, 2], label=connection_label)
 
     heat = axes[1, 0].imshow(
         arrays["heat_load_toroidal"].T,
@@ -1595,6 +1617,14 @@ def _periodic_cell_delta(delta: np.ndarray, period: float) -> np.ndarray:
     if period <= 0.0:
         return delta
     return np.mod(delta + 0.5 * period, period) - 0.5 * period
+
+
+def _finite_mean(values: np.ndarray, axis: int | tuple[int, ...]) -> np.ndarray:
+    array = np.asarray(values, dtype=np.float64)
+    finite = np.isfinite(array)
+    counts = np.sum(finite, axis=axis)
+    sums = np.sum(np.where(finite, array, 0.0), axis=axis)
+    return np.where(counts > 0, sums / np.maximum(counts, 1), np.nan)
 
 
 def _endpoint_length_diagnostics(

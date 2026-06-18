@@ -174,7 +174,10 @@ endpoint cells and finite, nonnegative `adjacent_step_length` values where the
 adjacent map exists. It also records forward- and backward-direction coverage
 separately, so later campaigns can tighten the promotion threshold from
 "present and physical" to directional wall-hit coverage on all relevant target
-cells. The resolution
+cells. The compact NPZ and PNG artifacts now include `target_exit_toroidal` and
+`adjacent_step_toroidal`; the summary plot shows the target-exit map for
+open-field artifacts and falls back to the connection-length proxy for closed
+VMEC maps. The resolution
 diagnostics record normalized neighbor jumps, per-axis 95th-percentile jumps,
 an underresolved-face fraction, and an advisory pass flag. They catch obviously
 grid-scale connection-length roughness before a live imported run is promoted,

@@ -98,6 +98,8 @@ def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, 
     assert "endpoint_length_diagnostics" in contract["diagnostic_schema"]
     assert "refinement_diagnostics" in contract["diagnostic_schema"]
     assert "consumed_map_diagnostics" in contract["diagnostic_schema"]
+    assert "adjacent_step_toroidal" in contract["required_array_keys"]
+    assert "target_exit_toroidal" in contract["required_array_keys"]
     assert contract["external_inputs"]["not_read_in_dry_run"] is True
     assert contract["passed"] is True
 

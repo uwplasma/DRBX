@@ -1502,6 +1502,13 @@ Use this log for concise decision records. Do not paste terminal output here.
   moves endpoint validation from an implicit mask-only check to an explicit
   length-availability gate. The next 3D endpoint task is stricter directional
   wall-hit coverage and target-label validation before movie promotion.
+- 2026-06-18: Exposed endpoint-length evidence in imported-FCI artifacts.
+  Campaign NPZ bundles now include `target_exit_toroidal` and
+  `adjacent_step_toroidal`, and the summary PNG shows the target-exit map for
+  open-field artifacts while retaining the connection-length proxy for closed
+  VMEC maps. A small live hybrid artifact was rendered and visually checked;
+  the top-right panel now shows wall-hit arc length rather than hiding endpoint
+  evidence in JSON only.
 
 ## Definition Of Done
 
