@@ -1179,6 +1179,7 @@ line-search trials from `3` to `1`, and local wall time from `7.84 s` to
 `7.34 s`. The local D/T/He research gate now requires this reduced residual
 evaluation count with `--require-max-residual-evaluations=2` and
 `--require-max-line-search-trials=1`.
+
 The same gate now records and gates matrix-free linear-operator calls. The
 generic JAX-linearized solver reports `linear_operator_call_count` and
 `linear_operator_dispatch_seconds` for Python-visible calls to the linearized
@@ -1193,6 +1194,21 @@ without exercising the matrix-free JVP/Krylov path. The dispatch time is not a
 substitute for `linear_solve_seconds`, because JAX device work can be
 asynchronous, but it gives the preconditioner lane a stable call-count metric
 for future reductions.
+
+A fresh cProfile/RSS run with these diagnostics enabled keeps the same
+conclusion. The cProfile-instrumented D/T/He gate took `12.67 s`, while the
+separate RSS sample took `8.97 s`. Solver diagnostics reported `5` operator
+calls, `2.47 s` operator-dispatch time, `9.54 s` total linear-solve time,
+`2.64 s` JAX-linearization time, two residual evaluations, and one line-search
+trial. The cumulative cProfile rows were dominated by JAX
+`custom_linear_solve`/`gmres`, JAX tracing/cache-miss paths, and the
+fixed-layout residual linearization; the residual body itself appeared through
+`recycling_fixed_residual.residual` and `_compute_recycling_1d_rhs_from_species`.
+That profile confirms that the next speedup lane is not more line-search
+tuning. It is either a cheaper fixed-layout residual/JVP kernel, a solver path
+that amortizes JAX tracing/compilation more effectively, or a preconditioner
+that genuinely reduces matrix-free linear-operator work.
+
 Repeating the preconditioner sweep after this damping does not yet justify a
 new default. With the damped line search, `field_scale` remained neutral
 (`8.65 s` versus `8.65 s` for the same-run unpreconditioned control), while
@@ -1207,6 +1223,7 @@ budget, and `400` JAX-GMRES update budget were unchanged. This keeps
 a robust performance promotion. The next preconditioner implementation should
 approximate transport/neutral Schur structure or reduce residual/JVP kernel
 cost directly, rather than adding another local dense block variant.
+
 The explicit full parallel-line block is also not a local CPU promotion path
 for this deck. Raising the line-block bounds to allow the single active
 parallel line with 950 field unknowns produced a clean solve with the same
