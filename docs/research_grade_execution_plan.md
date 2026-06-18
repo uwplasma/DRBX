@@ -1532,6 +1532,13 @@ Use this log for concise decision records. Do not paste terminal output here.
   known non-converged heavy recycling solves. The D/T/He local research bundle
   now uses `--initial-residual-mode linearize` instead of disabling the initial
   check, preserving safety while keeping the same residual-call budget.
+- 2026-06-18: Ran the bounded D/T/He JAX-linearized recycling profile with
+  `--initial-residual-mode linearize` against the local reference deck. The
+  gate passed with `check_initial_residual=true`, residual evaluations `2`, one
+  line-search trial, residual norm `7.315`, `400` reported JAX-GMRES update
+  budget, clean solver status `0`, median timed run `6.97 s`, and sampled peak
+  RSS delta `525 MiB`. This is measured host/device-barrier evidence, not yet a
+  full-output-window default-promotion result.
 
 ## Definition Of Done
 

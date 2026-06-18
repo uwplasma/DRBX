@@ -1261,7 +1261,13 @@ intentionally wants to remove the initial check altogether. On earlier bounded
 hydrogen `timestep=1.0` JAX-linearized gates, removing the standalone initial
 residual call reduced the deterministic residual-evaluation count from `6` to
 `5` with identical residual norm, so this remains a host/device-barrier
-reduction seam rather than a default speedup claim.
+reduction seam rather than a default speedup claim. On the bounded D/T/He
+JAX-linearized recycling gate, the safer `linearize` mode passed with
+`check_initial_residual=true`, residual evaluations `2`, one line-search trial,
+residual norm `7.315`, clean JAX-GMRES status `0`, median timed run `6.97 s`,
+and sampled peak RSS delta `525 MiB`. That evidence supports the profiling
+surface but does not promote the full output-window recycling solve to the
+default path.
 
 The generic JAX-linearized solver now also reuses the already-known residual
 norm for the final accepted state when a bounded solve exits because the
