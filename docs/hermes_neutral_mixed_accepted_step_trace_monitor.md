@@ -168,7 +168,7 @@ with `148` accepted CVODE records. The same clean auto-build path was rerun
 with the optional diagnostic-input fields enabled; the produced JSONL includes
 `Dnnh`, `Vh`, and `eta_h` alongside the required state, RHS, and `SNVh_*`
 source fields.
-Native accepted-step traces emit the same 10 required fields as the reference
+Native accepted-step traces emit the same required fields as the reference
 trace and can replay the reference accepted time grid. A local matched-grid
 comparison matches `148/148` accepted points. With timestamp mismatch removed,
 the comparator can now separate state inputs, closure inputs, and source terms.
@@ -302,6 +302,19 @@ ranking is instead dominated by `ddt(NVh)` at about `1.42e-4` target-pointwise.
 That separates local neutral-operator algebra from the remaining mismatch and
 points the next patch at accepted-step time-derivative/state-history
 sequencing.
+
+A follow-up component-split monitor rerun added the full neutral momentum
+transport split: `SNVh_parallel_inertia`, `SNVh_pressure_gradient`,
+`SNVh_perpendicular_diffusion`, `SNVh_parallel_viscosity`, and
+`SNVh_perpendicular_viscosity`. On the same max-order-2 accepted-step trace,
+the reference-state source/preboundary register identifies
+`SNVh_parallel_inertia` as the only remaining local source split at
+`1.42e-4` target-pointwise. Pressure-gradient, perpendicular diffusion,
+parallel viscosity, perpendicular viscosity, `Dnnh`, `eta_h`, and
+`grad_logPnlimh_*` close to roundoff on exact reference states. The next
+neutral parity patch should therefore target the parallel inertia/Lax-flux
+reconstruction and accepted-step state/history sequencing together, not the
+already closed pressure-gradient or diffusion-limiter formulas.
 
 ## Validation Sequence
 

@@ -135,7 +135,7 @@ and tests all move together.
 | --- | ---: | --- |
 | Plan authority and release hygiene | 95% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
-| Reference-backed parity | 98.5% | Close remaining neutral `NVh` accepted-step state/history sequencing feeding `Pnlim`, `logPnlim`, and `Grad(logPnlim)`. |
+| Reference-backed parity | 98.7% | Close remaining neutral `NVh` parallel-inertia/Lax-flux split and accepted-step state/history sequencing feeding `Pnlim`, `logPnlim`, and `Grad(logPnlim)`. |
 | JAX-native recycling solver | 89% | Make a JAX-transformable full-output recycling path faster and stable enough for default or documented opt-in promotion. |
 | Effective preconditioning | 35% | Move beyond negative row/field/local-block evidence to a transport-aware or Schur-style preconditioner with same-case speedup. |
 | Performance and scaling | 52% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only compact-kernel throughput. |
@@ -239,9 +239,10 @@ Current state:
 - Many RHS, one-step, short-window, and campaign gates exist.
 - Direct neutral-mixed `SNVh_*` pressure-gradient and viscosity source formulas
   are closed against written reference diagnostics.
-- The remaining neutral `NVh` offender is localized to accepted-step
-  state/history sequencing feeding neutral pressure/log-pressure preparation,
-  with near-target `Grad(logPnlim)` as a secondary stencil check.
+- The remaining neutral `NVh` offender is localized to the accepted-step
+  parallel-inertia/Lax-flux source split plus state/history sequencing feeding
+  neutral pressure/log-pressure preparation, with near-target
+  `Grad(logPnlim)` as a secondary stencil check.
 
 Steps:
 
@@ -1096,6 +1097,25 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-18: Rechecked CI after commit `9a068ca`. Hosted `test`,
+  `coverage`, and `docs` failed before runner assignment: each job completed in
+  a few seconds with an empty step list, empty runner name, no downloadable log,
+  and no GitHub job failure message. That is account/runner startup evidence,
+  not a repository-code failure. Local workflow equivalents are green on the
+  current worktree: Python `3.10`, `3.11`, and `3.12` each pass the 43-test
+  hosted test slice in clean throwaway venvs; `mkdocs build --strict --clean`
+  passes; closeout coverage is `97.0%`; and promoted solver coverage is
+  `95.12%` (`565 passed`, `14 skipped`, `1 xfailed`). The repo is ready for the
+  next hosted CI rerun when Actions runners can start.
+- 2026-06-18: Extended the neutral-mixed accepted-step reference monitor with
+  direct `SNVh_parallel_inertia` and `SNVh_perpendicular_diffusion` components.
+  A patched clean reference build and max-order-2 accepted-step rerun produced
+  `309` matched accepted records. Evaluating the native RHS on exact reference
+  accepted states closes pressure-gradient, perpendicular diffusion,
+  viscosity, diffusion-limiter, and `Grad(logPnlimh)_*` terms to roundoff, but
+  ranks `SNVh_parallel_inertia` first at about `1.42e-4` target-pointwise. The
+  next neutral parity patch should target the parallel inertia/Lax-flux
+  reconstruction together with accepted-state/history sequencing.
 - 2026-06-18: Finished the repo-side CI triage after the hosted Actions runs
   for `test`, `docs`, and `coverage` failed before executing any steps and
   exposed no job logs. The local CI-equivalent gates are green on this

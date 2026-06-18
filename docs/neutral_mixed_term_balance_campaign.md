@@ -348,6 +348,15 @@ bounded diffusion, velocity, and viscosity inputs. The remaining all-field
 accepted-step discrepancy is dominated by `ddt(NVh)`, so the next parity work
 should reproduce the reference accepted-step time-derivative/state-history
 sequencing rather than change local neutral source formulas.
+A component-split rerun then added direct reference outputs for
+`SNVh_parallel_inertia` and `SNVh_perpendicular_diffusion`. This sharper split
+closes the pressure-gradient, perpendicular-diffusion, parallel-viscosity, and
+perpendicular-viscosity source terms on exact reference states to roundoff, but
+leaves `SNVh_parallel_inertia` as the dominant source-side discrepancy at
+about `1.42e-4` target-pointwise. The remaining `NVh` lane is therefore the
+parallel inertia/Lax-flux reconstruction together with accepted-step
+state/history preparation, not the neutral pressure-gradient, diffusion cap,
+or viscosity closures.
 A separate final-state input-closure gate now compares native `Dnn`, `Vh`, and
 `eta_h` reconstructions against a reference-style `BOUT.dmp.0.nc` dump. The
 public API entry point is
@@ -363,7 +372,8 @@ target-boundary sequencing, not by changing the already matched
 The `trace-neutral-mixed-reference-accepted-steps` runner now validates this
 schema before returning successfully: each accepted-step record must contain
 `Nh`, `Ph`, and `NVh` in the `post_accepted` stage, and the JSONL must contain
-`ddt(Nh)`, `ddt(Ph)`, `ddt(NVh)`, `SNVh`, `SNVh_pressure_gradient`,
+`ddt(Nh)`, `ddt(Ph)`, `ddt(NVh)`, `SNVh`, `SNVh_parallel_inertia`,
+`SNVh_pressure_gradient`, `SNVh_perpendicular_diffusion`,
 `SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity` somewhere in its
 stage payloads. A reference binary that only writes aggregate final-state
 arrays therefore fails fast with a list of missing fields instead of producing

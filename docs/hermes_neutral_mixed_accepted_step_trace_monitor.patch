@@ -335,7 +335,9 @@ index 0d07e095..1e5d3b45 100644
 +      "ddt(P" + species + ")",
 +      "ddt(NV" + species + ")",
 +      "SNV" + species,
++      "SNV" + species + "_parallel_inertia",
 +      "SNV" + species + "_pressure_gradient",
++      "SNV" + species + "_perpendicular_diffusion",
 +      "SNV" + species + "_parallel_viscosity",
 +      "SNV" + species + "_perpendicular_viscosity",
 +  };

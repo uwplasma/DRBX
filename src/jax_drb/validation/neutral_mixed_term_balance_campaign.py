@@ -1010,7 +1010,9 @@ def _build_accepted_step_error_onset_register(
             "Dnnh",
             "Vh",
             "eta_h",
+            "SNVh_parallel_inertia",
             "SNVh_pressure_gradient",
+            "SNVh_perpendicular_diffusion",
             "SNVh_parallel_viscosity",
             "SNVh_perpendicular_viscosity",
         )
@@ -1043,7 +1045,9 @@ def _build_accepted_step_error_onset_register(
         ),
         "velocity_viscosity": ("Vh", "eta_h"),
         "momentum_source": (
+            "SNVh_parallel_inertia",
             "SNVh_pressure_gradient",
+            "SNVh_perpendicular_diffusion",
             "SNVh_parallel_viscosity",
             "SNVh_perpendicular_viscosity",
         ),
@@ -3694,8 +3698,14 @@ def _native_accepted_step_rhs_field_payloads(
         f"ddt(P{section})": rhs.pressure,
         f"ddt(NV{section})": rhs.momentum,
         f"SNV{section}": rhs.momentum_terms.get("momentum_source", zeros),
+        f"SNV{section}_parallel_inertia": rhs.momentum_terms.get(
+            "parallel_inertia", zeros
+        ),
         f"SNV{section}_pressure_gradient": rhs.momentum_terms.get(
             "pressure_gradient", zeros
+        ),
+        f"SNV{section}_perpendicular_diffusion": rhs.momentum_terms.get(
+            "perpendicular_diffusion", zeros
         ),
         f"SNV{section}_parallel_viscosity": rhs.momentum_terms.get(
             "parallel_viscosity", zeros
@@ -3948,7 +3958,9 @@ def _validate_neutral_mixed_reference_accepted_step_trace_schema(
     rhs_fields = (f"ddt(N{suffix})", f"ddt(P{suffix})", f"ddt(NV{suffix})")
     source_fields = (
         f"SNV{suffix}",
+        f"SNV{suffix}_parallel_inertia",
         f"SNV{suffix}_pressure_gradient",
+        f"SNV{suffix}_perpendicular_diffusion",
         f"SNV{suffix}_parallel_viscosity",
         f"SNV{suffix}_perpendicular_viscosity",
     )
@@ -5610,6 +5622,7 @@ def _apply_git_patch_if_needed(source_root: Path, patch_path: Path) -> None:
         "apply",
         "--check",
         "--recount",
+        "--unidiff-zero",
         str(patch_path),
     ]
     apply_command = [
@@ -5618,6 +5631,7 @@ def _apply_git_patch_if_needed(source_root: Path, patch_path: Path) -> None:
         str(source_root),
         "apply",
         "--recount",
+        "--unidiff-zero",
         str(patch_path),
     ]
     reverse_check_command = [
@@ -5628,8 +5642,17 @@ def _apply_git_patch_if_needed(source_root: Path, patch_path: Path) -> None:
         "--reverse",
         "--check",
         "--recount",
+        "--unidiff-zero",
         str(patch_path),
     ]
+    reverse_check = subprocess.run(
+        reverse_check_command,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if reverse_check.returncode == 0:
+        return
     check = subprocess.run(
         check_command,
         check=False,
@@ -5638,14 +5661,6 @@ def _apply_git_patch_if_needed(source_root: Path, patch_path: Path) -> None:
     )
     if check.returncode == 0:
         subprocess.run(apply_command, check=True, text=True, capture_output=True)
-        return
-    reverse_check = subprocess.run(
-        reverse_check_command,
-        check=False,
-        text=True,
-        capture_output=True,
-    )
-    if reverse_check.returncode == 0:
         return
     raise subprocess.CalledProcessError(
         check.returncode,

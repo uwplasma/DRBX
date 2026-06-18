@@ -157,7 +157,9 @@ def _minimal_reference_accepted_step_record(
                     "ddt(Ph)",
                     "ddt(NVh)",
                     "SNVh",
+                    "SNVh_parallel_inertia",
                     "SNVh_pressure_gradient",
+                    "SNVh_perpendicular_diffusion",
                     "SNVh_parallel_viscosity",
                     "SNVh_perpendicular_viscosity",
                 )
@@ -658,7 +660,9 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
         "ddt(P\" + species + \")",
         "ddt(NV\" + species + \")",
         "SNV\" + species",
+        "SNV\" + species + \"_parallel_inertia",
         "SNV\" + species + \"_pressure_gradient",
+        "SNV\" + species + \"_perpendicular_diffusion",
         "SNV\" + species + \"_parallel_viscosity",
         "SNV\" + species + \"_perpendicular_viscosity",
     ):
@@ -700,14 +704,18 @@ def test_neutral_mixed_source_diagnostic_reference_patch_is_line_numbered() -> N
 
     assert "diff --git a/include/neutral_mixed.hxx" in text
     assert "diff --git a/src/neutral_mixed.cxx" in text
-    assert "@@ -76,6 +76,9 @@" in text
-    assert "@@ -564,11 +564,12 @@" in text
+    assert "@@ -78,0 +79,5 @@" in text
+    assert "@@ -567,7 +567,7 @@" in text
     assert "\n@@\n" not in text
     for token in (
+        "momentum_parallel_inertia_source = -AA",
         "momentum_pressure_gradient_source = -Grad_par(Pn);",
+        "momentum_perpendicular_diffusion_source =",
         "momentum_parallel_viscosity_source = Div_par_K_Grad_par_mod",
         "momentum_perpendicular_viscosity_source =",
+        "SNV\") + name + std::string(\"_parallel_inertia\")",
         "SNV\") + name + std::string(\"_pressure_gradient\")",
+        "SNV\") + name + std::string(\"_perpendicular_diffusion\")",
         "SNV\") + name + std::string(\"_parallel_viscosity\")",
         "SNV\") + name + std::string(\"_perpendicular_viscosity\")",
     ):
@@ -870,7 +878,9 @@ def test_run_neutral_mixed_accepted_step_trace_auto_uses_patched_binary(
                                 "ddt(Ph)",
                                 "ddt(NVh)",
                                 "SNVh",
+                                "SNVh_parallel_inertia",
                                 "SNVh_pressure_gradient",
+                                "SNVh_perpendicular_diffusion",
                                 "SNVh_parallel_viscosity",
                                 "SNVh_perpendicular_viscosity",
                             )
@@ -948,6 +958,8 @@ def test_build_patched_neutral_mixed_reference_binary_builds_clean_worktree(
 
     def fake_run(args, **kwargs):
         calls.append(list(args))
+        if "apply" in args and "--reverse" in args and "--check" in args:
+            return SimpleNamespace(returncode=1, stdout="", stderr="not applied")
         if args[:6] == ["git", "-C", str(reference_root), "worktree", "add", "--detach"]:
             Path(args[-2]).mkdir(parents=True, exist_ok=True)
         elif args[:2] == ["cmake", "--build"]:
@@ -1039,18 +1051,10 @@ def test_apply_reference_patch_skips_already_applied_patch(
             "-C",
             str(source_root),
             "apply",
-            "--check",
-            "--recount",
-            str(patch_path),
-        ],
-        [
-            "git",
-            "-C",
-            str(source_root),
-            "apply",
             "--reverse",
             "--check",
             "--recount",
+            "--unidiff-zero",
             str(patch_path),
         ],
     ]
@@ -1207,7 +1211,9 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
         "ddt(Ph)",
         "ddt(NVh)",
         "SNVh",
+        "SNVh_parallel_inertia",
         "SNVh_pressure_gradient",
+        "SNVh_perpendicular_diffusion",
         "SNVh_parallel_viscosity",
         "SNVh_perpendicular_viscosity",
     }
@@ -1682,7 +1688,9 @@ def test_neutral_mixed_accepted_step_trace_parity_evaluates_rhs_on_reference_sta
         "Vh",
         "eta_h",
         "SNVh",
+        "SNVh_parallel_inertia",
         "SNVh_pressure_gradient",
+        "SNVh_perpendicular_diffusion",
         "SNVh_parallel_viscosity",
         "SNVh_perpendicular_viscosity",
     }
