@@ -184,6 +184,9 @@ turbulence only when all of the following are true:
 - Open-field endpoint diagnostics report finite, nonnegative wall-hit
   `target_exit_length` values on endpoint cells and finite, nonnegative
   `adjacent_step_length` values where adjacent-map interpolation exists.
+- Direction-specific wall-hit lengths must be finite and nonnegative on all
+  forward and backward boundary masks used by the imported maps; aggregate
+  target-exit coverage alone is not sufficient for promotion.
 - Single-grid roughness diagnostics do not show unresolved grid-scale jumps.
 - A live multi-grid control passes with the correct quantity: VMEC
   adjacent-step maps use parallel step length per toroidal radian, while

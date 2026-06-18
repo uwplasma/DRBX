@@ -175,10 +175,10 @@ reconstruct the endpoint counts consumed by the sheath and recycling closures.
 For open-field `coil` and `hybrid` maps the endpoint-length gate
 requires finite, nonnegative `target_exit_length` values on a nonzero subset of
 endpoint cells and finite, nonnegative `adjacent_step_length` values where the
-adjacent map exists. It also records forward- and backward-direction coverage
-separately, so later campaigns can tighten the promotion threshold from
-"present and physical" to directional wall-hit coverage on all relevant target
-cells. The compact NPZ and PNG artifacts now include `target_exit_toroidal` and
+adjacent map exists. It also requires finite, nonnegative forward and backward
+target-exit lengths on the corresponding imported boundary masks. This prevents
+an aggregate wall-hit array from hiding a missing direction in a bidirectional
+open-field map. The compact NPZ and PNG artifacts now include `target_exit_toroidal` and
 `adjacent_step_toroidal`, plus `target_label_toroidal`; the summary plot shows
 directional target labels and the target-exit map for open-field artifacts, and
 falls back to endpoint counts and the connection-length proxy for closed VMEC

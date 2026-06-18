@@ -147,6 +147,10 @@ def test_imported_fci_map_diagnostics_verify_consumed_endpoint_masks() -> None:
     assert diagnostics["consumed_map_diagnostics"]["unconsumed_boundary_fraction"] == 0.0
     assert diagnostics["endpoint_length_diagnostics"]["passed"] is True
     assert diagnostics["endpoint_length_diagnostics"]["target_exit_finite_endpoint_fraction"] == 1.0
+    assert diagnostics["endpoint_length_diagnostics"]["forward_exit_finite_forward_boundary_fraction"] == 1.0
+    assert diagnostics["endpoint_length_diagnostics"]["backward_exit_finite_backward_boundary_fraction"] == 1.0
+    assert diagnostics["endpoint_length_diagnostics"]["forward_exit_nonnegative_finite_fraction"] == 1.0
+    assert diagnostics["endpoint_length_diagnostics"]["backward_exit_nonnegative_finite_fraction"] == 1.0
     assert diagnostics["target_label_diagnostics"]["passed"] is True
     assert diagnostics["target_label_diagnostics"]["endpoint_count_matches_target_labels"] is True
     assert diagnostics["target_label_diagnostics"]["forward_only_cell_count"] > 0
@@ -183,6 +187,8 @@ def test_imported_fci_connection_length_resolution_diagnostics_are_advisory() ->
         connection_length=smooth_connection,
         adjacent_step_length=adjacent_step_length,
         target_exit_length=target_exit_length,
+        forward_target_exit_length=np.where(forward_boundary, 2.1, np.nan),
+        backward_target_exit_length=np.where(backward_boundary, 2.2, np.nan),
         endpoint_count=endpoint_count,
         map_source="hybrid",
     )
@@ -191,6 +197,8 @@ def test_imported_fci_connection_length_resolution_diagnostics_are_advisory() ->
         connection_length=rough_connection,
         adjacent_step_length=adjacent_step_length,
         target_exit_length=target_exit_length,
+        forward_target_exit_length=np.where(forward_boundary, 2.1, np.nan),
+        backward_target_exit_length=np.where(backward_boundary, 2.2, np.nan),
         endpoint_count=endpoint_count,
         map_source="hybrid",
     )
@@ -235,6 +243,41 @@ def test_imported_fci_map_diagnostics_require_endpoint_lengths_for_open_fields()
     assert diagnostics["endpoint_length_diagnostics"]["passed"] is False
     assert diagnostics["passed"] is False
     assert diagnostics["endpoint_length_diagnostics"]["target_exit_finite_endpoint_fraction"] == 0.0
+
+
+def test_imported_fci_map_diagnostics_require_directional_endpoint_lengths() -> None:
+    base_maps = identity_fci_maps(nx=3, ny=4, nz=8, dphi=0.25)
+    forward_boundary = np.zeros(base_maps.shape, dtype=bool)
+    backward_boundary = np.zeros(base_maps.shape, dtype=bool)
+    forward_boundary[0, :, :] = True
+    backward_boundary[-1, :, :] = True
+    maps = FciMaps(
+        forward_x=base_maps.forward_x,
+        forward_z=base_maps.forward_z,
+        backward_x=base_maps.backward_x,
+        backward_z=base_maps.backward_z,
+        forward_boundary=jnp.asarray(forward_boundary),
+        backward_boundary=jnp.asarray(backward_boundary),
+        dphi=base_maps.dphi,
+    )
+    endpoint_count = forward_boundary.astype(np.float64) + backward_boundary.astype(np.float64)
+
+    diagnostics = build_essos_imported_fci_map_diagnostics(
+        maps=maps,
+        connection_length=np.ones(base_maps.shape, dtype=np.float64),
+        adjacent_step_length=np.ones(base_maps.shape, dtype=np.float64),
+        target_exit_length=np.where(endpoint_count > 0.0, 2.0, np.nan),
+        forward_target_exit_length=np.where(forward_boundary, 2.1, np.nan),
+        backward_target_exit_length=np.full(base_maps.shape, np.nan, dtype=np.float64),
+        endpoint_count=endpoint_count,
+        map_source="hybrid",
+    )
+
+    assert diagnostics["endpoint_length_diagnostics"]["passed"] is False
+    assert diagnostics["endpoint_length_diagnostics"]["target_exit_finite_endpoint_fraction"] == 1.0
+    assert diagnostics["endpoint_length_diagnostics"]["forward_exit_finite_forward_boundary_fraction"] == 1.0
+    assert diagnostics["endpoint_length_diagnostics"]["backward_exit_finite_backward_boundary_fraction"] == 0.0
+    assert diagnostics["passed"] is False
 
 
 def test_imported_fci_map_diagnostics_reject_mismatched_target_labels() -> None:
