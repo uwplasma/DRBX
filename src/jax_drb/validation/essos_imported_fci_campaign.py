@@ -70,6 +70,8 @@ _IMPORTED_FCI_REQUIRED_REPORT_FIELDS = (
     "connection_length_max",
     "connection_length_diagnostics",
     "connection_length_resolution_diagnostics",
+    "connection_length_resolution_required",
+    "connection_length_resolution_passed",
     "endpoint_length_diagnostics",
     "target_label_diagnostics",
     "refinement_diagnostics",
@@ -171,6 +173,7 @@ def create_essos_imported_fci_campaign_package(
     maxtime: float = 80.0,
     times_to_trace: int = 360,
     trace_tolerance: float = 1.0e-8,
+    require_connection_resolution: bool = False,
 ) -> EssosImportedFciCampaignArtifacts:
     """Write an imported-field-line FCI validation package."""
 
@@ -193,6 +196,7 @@ def create_essos_imported_fci_campaign_package(
         maxtime=maxtime,
         times_to_trace=times_to_trace,
         trace_tolerance=trace_tolerance,
+        require_connection_resolution=require_connection_resolution,
     )
     report_json_path = data_dir / f"{case_label}.json"
     report_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -224,6 +228,7 @@ def create_essos_imported_fci_dry_run_artifact_package(
     times_to_trace: int = 360,
     trace_tolerance: float = 1.0e-8,
     precision: str = "float64",
+    require_connection_resolution: bool = False,
 ) -> EssosImportedFciDryRunArtifacts:
     """Write a self-contained dry-run contract for the imported FCI campaign."""
 
@@ -246,6 +251,7 @@ def create_essos_imported_fci_dry_run_artifact_package(
         times_to_trace=times_to_trace,
         trace_tolerance=trace_tolerance,
         precision=precision,
+        require_connection_resolution=require_connection_resolution,
     )
     contract_json_path = data_dir / f"{case_label}_dry_run_contract.json"
     contract_json_path.write_text(json.dumps(contract, indent=2, sort_keys=True), encoding="utf-8")
@@ -627,6 +633,7 @@ def build_essos_imported_fci_dry_run_artifact_contract(
     maxtime: float = 80.0,
     times_to_trace: int = 360,
     trace_tolerance: float = 1.0e-8,
+    require_connection_resolution: bool = False,
     precision: str = "float64",
 ) -> dict[str, Any]:
     """Return the ESSOS-imported FCI artifact contract without importing ESSOS."""
@@ -667,6 +674,15 @@ def build_essos_imported_fci_dry_run_artifact_contract(
             "times_to_trace": int(times_to_trace),
             "trace_tolerance": float(trace_tolerance),
         },
+        "strict_gates": {
+            "require_connection_resolution": bool(require_connection_resolution),
+            "meaning": (
+                "When true, the single-grid connection-length face-jump "
+                "diagnostic becomes a hard imported-map acceptance gate. "
+                "Use this for publication/movie promotion runs after nested "
+                "refinement has been inspected."
+            ),
+        },
         "external_inputs": {
             "coil_json_path": _path_to_optional_string(coil_json_path),
             "vmec_wout_path": _path_to_optional_string(vmec_wout_path),
@@ -696,6 +712,7 @@ def build_essos_imported_fci_campaign(
     maxtime: float = 80.0,
     times_to_trace: int = 360,
     trace_tolerance: float = 1.0e-8,
+    require_connection_resolution: bool = False,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     """Run sheath/recycling and neutral gates on ESSOS-imported FCI maps."""
 
@@ -826,6 +843,7 @@ def build_essos_imported_fci_campaign(
         else None,
         endpoint_count=endpoint_count,
         map_source=actual_map_source,
+        require_connection_resolution=require_connection_resolution,
     )
 
     report: dict[str, Any] = {
@@ -845,6 +863,12 @@ def build_essos_imported_fci_campaign(
         "connection_length_max": float(np.max(connection)),
         "connection_length_diagnostics": map_diagnostics["connection_length_diagnostics"],
         "connection_length_resolution_diagnostics": map_diagnostics["connection_length_resolution_diagnostics"],
+        "connection_length_resolution_required": bool(
+            map_diagnostics["connection_length_resolution_required"]
+        ),
+        "connection_length_resolution_passed": bool(
+            map_diagnostics["connection_length_resolution_passed"]
+        ),
         "endpoint_length_diagnostics": map_diagnostics["endpoint_length_diagnostics"],
         "target_label_diagnostics": map_diagnostics["target_label_diagnostics"],
         "refinement_diagnostics": map_diagnostics["refinement_diagnostics"],
@@ -953,6 +977,7 @@ def build_essos_imported_fci_map_diagnostics(
     backward_target_exit_length: np.ndarray | None = None,
     endpoint_count: np.ndarray,
     map_source: str,
+    require_connection_resolution: bool = False,
 ) -> dict[str, Any]:
     """Summarize imported-map health and whether sheath masks consumed it exactly."""
 
@@ -1085,6 +1110,7 @@ def build_essos_imported_fci_map_diagnostics(
         connection_diagnostics["finite_fraction"] == 1.0
         and connection_diagnostics["nonnegative_fraction"] == 1.0
     )
+    connection_resolution_passed = bool(connection_resolution_diagnostics["passed"])
     refinement_passed = (
         refinement_diagnostics["forward_map_coordinate_finite_fraction"] == 1.0
         and refinement_diagnostics["backward_map_coordinate_finite_fraction"] == 1.0
@@ -1108,12 +1134,15 @@ def build_essos_imported_fci_map_diagnostics(
         "map_source": map_source,
         "connection_length_diagnostics": connection_diagnostics,
         "connection_length_resolution_diagnostics": connection_resolution_diagnostics,
+        "connection_length_resolution_required": bool(require_connection_resolution),
+        "connection_length_resolution_passed": connection_resolution_passed,
         "endpoint_length_diagnostics": endpoint_length_diagnostics,
         "target_label_diagnostics": target_label_diagnostics,
         "refinement_diagnostics": refinement_diagnostics,
         "consumed_map_diagnostics": consumed_map_diagnostics,
         "passed": bool(
             connection_passed
+            and (connection_resolution_passed or not bool(require_connection_resolution))
             and refinement_passed
             and consumed_map_passed
             and endpoint_length_diagnostics["passed"]

@@ -1350,7 +1350,7 @@ Use this log for concise decision records. Do not paste terminal output here.
   linear iteration, and caps the current one-step linear budget at `400`. This
   turns the D/T/He research-campaign command into a real heavy-kernel profiling
   gate instead of a tiny-timestep residual-check artifact. A local wrapper run
-  against `/Users/rogerio/local/hermes-3` passed in `20.8 s`; the profiled solve
+  against the local reference checkout passed in `20.8 s`; the profiled solve
   took `7.86 s`, the RSS sample run took `11.76 s`, the peak RSS delta was
   `683 MiB`, and the solver reported one nonlinear iteration, `400` linear
   iterations, residual `7.315`, and clean JAX-GMRES status.
@@ -1424,7 +1424,7 @@ Use this log for concise decision records. Do not paste terminal output here.
   for Python-visible calls to the Krylov linearized operator, excluding dynamic
   preconditioner construction and line-search residuals. The D/T/He local gate
   now requires `--require-min-linear-operator-calls=1`. A wrapper verification
-  against `/Users/rogerio/local/hermes-3` passed in `16.8 s`; the profiled
+  against the local reference checkout passed in `16.8 s`; the profiled
   solve took `6.81 s`, the RSS sample run took `8.88 s`, residual was `7.315`,
   clean JAX-GMRES status was preserved, and diagnostics reported `5` operator
   calls, `1.16 s` operator-dispatch time, `5.24 s` linear-solve time, `1.30 s`
@@ -1567,6 +1567,14 @@ Use this log for concise decision records. Do not paste terminal output here.
   unpreconditioned with the same linear budget). It therefore remains
   experimental until heavier hydrogen and D/T/He gates prove residual/JVP/Krylov
   or runtime improvement.
+- 2026-06-18: Added an opt-in hard acceptance gate for imported-field
+  connection-length roughness. The ESSOS-imported FCI campaign now records
+  `connection_length_resolution_required` and
+  `connection_length_resolution_passed`; quick regeneration keeps the
+  single-grid roughness diagnostic advisory, while publication/movie promotion
+  runs can set `require_connection_resolution=True` so underresolved maps fail
+  before sheath/recycling or turbulence claims are advertised. The clean-clone
+  example exposes the same setting as `REQUIRE_CONNECTION_RESOLUTION`.
 
 ## Definition Of Done
 
