@@ -1575,6 +1575,13 @@ Use this log for concise decision records. Do not paste terminal output here.
   runs can set `require_connection_resolution=True` so underresolved maps fail
   before sheath/recycling or turbulence claims are advertised. The clean-clone
   example exposes the same setting as `REQUIRE_CONNECTION_RESOLUTION`.
+- 2026-06-18: Exposed bounded-build controls for the JVP-derived recycling
+  preconditioner probes. `field_diag` and `local_block_diag` now consume the
+  shared `recycling_jax_linear_preconditioner_floor` plus field/local unknown
+  caps from runtime config or environment variables, matching the existing
+  `parallel_line` limit controls. Defaults are unchanged, but heavy
+  preconditioner campaigns can now document and gate the exact build bounds
+  without editing source.
 
 ## Definition Of Done
 

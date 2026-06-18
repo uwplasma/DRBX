@@ -326,7 +326,12 @@ uses the JAX-linearized residual to assemble same-cell field-coupling blocks
 with JVPs, solves those small blocks on device, and treats off-cell transport
 coupling through the outer Krylov iteration. The optional
 `runtime:recycling_jax_linear_preconditioner_refresh` control reuses the
-dynamic block preconditioner within one implicit solve. These remain
+dynamic block preconditioner within one implicit solve. The matching
+`runtime:recycling_jax_linear_preconditioner_floor`,
+`runtime:recycling_jax_linear_preconditioner_max_field_unknowns`, and
+`runtime:recycling_jax_linear_preconditioner_max_local_unknowns` controls make
+bounded `field_diag` and `local_block_diag` campaigns reproducible without
+editing source. These remain
 diagnostics only. The June 15, 2026 hydrogen adaptive
 BDF gate showed that `field_scale`, lower `maxiter=8`, and residual JIT did
 not improve wall time or solver status, so the next runtime patch should not

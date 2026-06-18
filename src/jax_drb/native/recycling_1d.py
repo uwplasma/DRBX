@@ -5724,7 +5724,27 @@ def _recycling_jax_linear_preconditioner_context(
         "refresh_frequency": _resolve_recycling_jax_linear_preconditioner_refresh(
             config
         ),
+        "floor": _resolve_positive_float_runtime_option(
+            config,
+            option_name="recycling_jax_linear_preconditioner_floor",
+            env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_FLOOR",
+            default=1.0e-10,
+        ),
     }
+    if name == "field_diag":
+        context["max_unknowns"] = _resolve_positive_int_runtime_option(
+            config,
+            option_name="recycling_jax_linear_preconditioner_max_field_unknowns",
+            env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_FIELD_UNKNOWNS",
+            default=8192,
+        )
+    if name == "local_block_diag":
+        context["max_unknowns"] = _resolve_positive_int_runtime_option(
+            config,
+            option_name="recycling_jax_linear_preconditioner_max_local_unknowns",
+            env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_LOCAL_UNKNOWNS",
+            default=4096,
+        )
     if name == "parallel_line":
         active_shape = tuple(int(axis) for axis in tuple(layout.active_shape))
         context["parallel_axis"] = 1 if len(active_shape) > 1 else 0
