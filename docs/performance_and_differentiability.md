@@ -1081,7 +1081,14 @@ count. The lower-level compare script also exposes
 `--require-adaptive-bdf-linear-preconditioner=<name>` for manual campaigns.
 These gates are deliberately stricter than a runtime-only override: they fail
 if a preconditioner request silently falls back to an unpreconditioned or
-Lineax path.
+Lineax path. A bounded local run on `recycling_1d_one_step` with
+`--timestep=10`, `--steps=2`, and `local_block_diag` passed these new gates on
+both fixed-BDF2 routes. The fixed-full-field route reported residual
+`1.90e-6`, `9` preconditioner builds, zero failed linear solves, and
+`22.7 s`; the active-array route reported the same residual and build count,
+zero failed linear solves, and `30.3 s`. Both routes still used the full
+`3600` JAX-GMRES update budget, so the result is correctness and diagnostic
+evidence for the preconditioner seam rather than speedup evidence.
 
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or
