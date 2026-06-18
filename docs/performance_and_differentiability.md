@@ -1046,6 +1046,19 @@ accepted trial solves, lower residual/JVP kernel cost, or a stronger
 Schur/transport preconditioner with measurable iteration-count reduction before
 spending more D/T/He wall time.
 
+The recycling wrappers also expose
+`runtime:recycling_jax_linear_check_initial_residual=false` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL=0` for profiling decks that
+know the predictor is not already converged. The generic solver keeps the
+initial residual check enabled by default because it avoids unnecessary
+linearization when a predictor already satisfies the nonlinear tolerance. On
+the June 18, 2026 bounded hydrogen `timestep=1.0` JAX-linearized gate, disabling
+that check reduced the deterministic residual-evaluation count from `6` to `5`
+with identical residual norm. The three-run wall-time medians were
+noise-equivalent (`4.98 s` default versus `4.99 s` with the check disabled), so
+this is a host/device-barrier reduction seam rather than a default speedup
+claim.
+
 The sparse-JVP Jacobian builder also has an opt-in host-transfer reduction
 probe through `JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE=1`. When enabled, each
 color batch gathers only structurally nonzero pushed rows on device before

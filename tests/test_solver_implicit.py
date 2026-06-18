@@ -909,6 +909,30 @@ def test_jax_linearized_newton_solver_returns_immediately_for_satisfied_residual
     assert info.converged is True
 
 
+def test_jax_linearized_newton_solver_can_skip_initial_residual_check() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    initial = np.array([1.0, 2.0], dtype=np.float64)
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - jnp.asarray(initial),
+        initial,
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        check_initial_residual=False,
+    )
+
+    np.testing.assert_allclose(solution, initial)
+    assert info.nonlinear_iterations == 0
+    assert info.linear_iterations == 0
+    assert info.residual_evaluation_count == 1
+    assert info.jacobian_refresh_count == 1
+    assert info.check_initial_residual is False
+    assert info.converged is True
+
+
 def test_jax_linearized_newton_solver_can_exit_on_step_tolerance() -> None:
     jnp = pytest.importorskip("jax.numpy")
 

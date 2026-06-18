@@ -539,6 +539,12 @@ long work logs here.
   non-default because the measured gate is slower than the unpreconditioned
   control (`5.62 s` versus `5.02 s`) with the same residual and iteration
   count.
+- 2026-06-18: Added an opt-in recycling control to skip the separate initial
+  residual check in JAX-linearized BE/BDF2 solves. The bounded hydrogen gate
+  confirms it removes one residual evaluation (`6` to `5`) with identical
+  residual norm, but the three-run median wall time is noise-equivalent
+  (`4.98 s` default versus `4.99 s` skip), so it remains a profiling seam and
+  not a default promotion.
 
 ## External Literature And Code Baseline
 

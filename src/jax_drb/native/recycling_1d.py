@@ -4665,6 +4665,9 @@ def advance_recycling_1d_backward_euler_step(
             residual_tolerance=residual_tolerance,
         )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
+        check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
+            config
+        )
         linear_backend = (
             "lineax_gmres"
             if solver_mode.endswith("_lineax")
@@ -4699,6 +4702,7 @@ def advance_recycling_1d_backward_euler_step(
                     layout=layout,
                 )
             ),
+            check_initial_residual=check_initial_residual,
             jit_residual=jit_residual,
         )
     else:
@@ -4849,6 +4853,9 @@ def advance_recycling_1d_bdf2_step(
             residual_tolerance=residual_tolerance,
         )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
+        check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
+            config
+        )
         linear_backend = (
             "lineax_gmres"
             if solver_mode.endswith("_lineax")
@@ -4883,6 +4890,7 @@ def advance_recycling_1d_bdf2_step(
                     layout=layout,
                 )
             ),
+            check_initial_residual=check_initial_residual,
             jit_residual=jit_residual,
         )
     else:
@@ -5848,6 +5856,17 @@ def _resolve_recycling_jax_linear_jit_residual(
     )
 
 
+def _resolve_recycling_jax_linear_check_initial_residual(
+    config: BoutConfig | None = None,
+) -> bool:
+    return _resolve_bool_runtime_option(
+        config,
+        option_name="recycling_jax_linear_check_initial_residual",
+        env_name="JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL",
+        default=True,
+    )
+
+
 def _compute_recycling_1d_packed_rhs(
     config: BoutConfig,
     fields: dict[str, np.ndarray],
@@ -6544,6 +6563,9 @@ def _as_recycling_step_info(
             getattr(info, "jvp_direction_workspace_reuses", 0)
         ),
         "residual_jitted": bool(getattr(info, "residual_jitted", False)),
+        "check_initial_residual": bool(
+            getattr(info, "check_initial_residual", True)
+        ),
     }
     if solver_mode is not None:
         diagnostics["solver_mode"] = str(solver_mode)

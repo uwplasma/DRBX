@@ -60,6 +60,7 @@ class ImplicitStepInfo:
     jvp_jacobian_prebuilt_direction_batch_uses: int = 0
     jvp_direction_workspace_reuses: int = 0
     residual_jitted: bool = False
+    check_initial_residual: bool = True
 
 
 @dataclass(frozen=True)
@@ -1175,6 +1176,7 @@ def solve_jax_linearized_newton_system(
             linear_preconditioner_build_seconds=linear_preconditioner_build_seconds,
             linear_preconditioner_build_count=linear_preconditioner_build_count,
             residual_jitted=bool(jit_residual),
+            check_initial_residual=bool(check_initial_residual),
         )
 
     if check_initial_residual:
