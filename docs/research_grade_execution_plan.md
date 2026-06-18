@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 71% | Tighten directional endpoint/wall-hit coverage, pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
+| 3D stellarator imported-field/VMEC SOL | 72% | Tighten directional wall-hit coverage, pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 86% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 90% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag. |
@@ -1509,6 +1509,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   VMEC maps. A small live hybrid artifact was rendered and visually checked;
   the top-right panel now shows wall-hit arc length rather than hiding endpoint
   evidence in JSON only.
+- 2026-06-18: Added direction-aware target-label diagnostics to imported FCI
+  reports. Target labels use `0` for closed/non-target cells, `1` for forward
+  exits, `2` for backward exits, and `3` for bidirectional exits. The report now
+  verifies that labels exactly reconstruct sheath-consumed endpoint counts, and
+  compact NPZ/PNG artifacts include `target_label_toroidal` so the target
+  topology is visible in plots. Synthetic tests cover matched labels, missing
+  endpoint lengths, and mismatched endpoint counts. A live hybrid probe reports
+  zero endpoint-count label error with target-label fractions: forward-only
+  `0.083`, backward-only `0.236`, and bidirectional `0.681`.
 
 ## Definition Of Done
 

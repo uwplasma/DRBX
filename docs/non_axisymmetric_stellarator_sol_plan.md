@@ -179,9 +179,12 @@ separate raw, adjacent-step, and target-exit length arrays. Live VMEC and
 hybrid `parallel_step_per_toroidal_radian` probes pass a three-level observed
 order gate with finest RMS `5.90e-2`, finest \(L_\infty\) `1.18e-1`, and
 observed order `1.20`; raw coil/hybrid length and pure coil adjacent-step
-probes remain negative evidence. Endpoint diagnostics now also require finite,
-nonnegative target-exit lengths on a nonzero subset of endpoint cells and
-finite, nonnegative adjacent-step lengths where adjacent interpolation exists.
+probes remain negative evidence. Endpoint diagnostics now also assign
+directional target labels (`0` closed, `1` forward, `2` backward,
+`3` bidirectional) and require those labels to reconstruct the sheath-consumed
+endpoint counts exactly. They also require finite, nonnegative target-exit
+lengths on a nonzero subset of endpoint cells and finite, nonnegative
+adjacent-step lengths where adjacent interpolation exists.
 A full imported-field turbulence movie still needs the same live gate plus
 stricter directional endpoint coverage, timestep, and nonlinear refinement
 checks before promotion from documentation bridge to publication evidence.

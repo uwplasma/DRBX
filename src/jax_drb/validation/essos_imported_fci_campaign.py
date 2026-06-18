@@ -46,6 +46,7 @@ _IMPORTED_FCI_ARRAY_KEYS = (
     "vertical_section",
     "magnetic_field_section",
     "endpoint_count_toroidal",
+    "target_label_toroidal",
     "connection_toroidal",
     "adjacent_step_toroidal",
     "target_exit_toroidal",
@@ -70,6 +71,7 @@ _IMPORTED_FCI_REQUIRED_REPORT_FIELDS = (
     "connection_length_diagnostics",
     "connection_length_resolution_diagnostics",
     "endpoint_length_diagnostics",
+    "target_label_diagnostics",
     "refinement_diagnostics",
     "consumed_map_diagnostics",
     "map_diagnostics_passed",
@@ -113,6 +115,13 @@ _IMPORTED_FCI_DIAGNOSTIC_SCHEMA = {
         "target_exit_finite_endpoint_fraction",
         "target_exit_nonnegative_finite_fraction",
         "adjacent_step_finite_nonendpoint_fraction",
+        "passed",
+    ],
+    "target_label_diagnostics": [
+        "forward_only_fraction",
+        "backward_only_fraction",
+        "bidirectional_fraction",
+        "endpoint_count_matches_target_labels",
         "passed",
     ],
     "refinement_diagnostics": [
@@ -833,6 +842,7 @@ def build_essos_imported_fci_campaign(
         "connection_length_diagnostics": map_diagnostics["connection_length_diagnostics"],
         "connection_length_resolution_diagnostics": map_diagnostics["connection_length_resolution_diagnostics"],
         "endpoint_length_diagnostics": map_diagnostics["endpoint_length_diagnostics"],
+        "target_label_diagnostics": map_diagnostics["target_label_diagnostics"],
         "refinement_diagnostics": map_diagnostics["refinement_diagnostics"],
         "consumed_map_diagnostics": map_diagnostics["consumed_map_diagnostics"],
         "map_diagnostics_passed": bool(map_diagnostics["passed"]),
@@ -898,6 +908,7 @@ def build_essos_imported_fci_campaign(
         "vertical_section": np.asarray(geometry.coordinates_z, dtype=np.float64)[:, 0, :].astype(np.float32),
         "magnetic_field_section": bmag[:, 0, :].astype(np.float32),
         "endpoint_count_toroidal": np.sum(endpoint_count, axis=0).astype(np.float32),
+        "target_label_toroidal": _target_label_toroidal_projection(geometry.maps).astype(np.float32),
         "connection_toroidal": np.mean(connection, axis=0).astype(np.float32),
         "adjacent_step_toroidal": _finite_mean(adjacent_step, axis=0).astype(np.float32),
         "target_exit_toroidal": _finite_mean(target_exit, axis=0).astype(np.float32),
@@ -1050,6 +1061,12 @@ def build_essos_imported_fci_map_diagnostics(
         "forward_boundary_fraction": float(np.mean(forward_boundary)),
         "backward_boundary_fraction": float(np.mean(backward_boundary)),
     }
+    target_label_diagnostics = _target_label_diagnostics(
+        map_source=map_source,
+        forward_boundary=forward_boundary,
+        backward_boundary=backward_boundary,
+        endpoint_count=endpoint,
+    )
     endpoint_length_diagnostics = _endpoint_length_diagnostics(
         map_source=map_source,
         expected_endpoint=expected_endpoint,
@@ -1088,6 +1105,7 @@ def build_essos_imported_fci_map_diagnostics(
         "connection_length_diagnostics": connection_diagnostics,
         "connection_length_resolution_diagnostics": connection_resolution_diagnostics,
         "endpoint_length_diagnostics": endpoint_length_diagnostics,
+        "target_label_diagnostics": target_label_diagnostics,
         "refinement_diagnostics": refinement_diagnostics,
         "consumed_map_diagnostics": consumed_map_diagnostics,
         "passed": bool(
@@ -1095,6 +1113,7 @@ def build_essos_imported_fci_map_diagnostics(
             and refinement_passed
             and consumed_map_passed
             and endpoint_length_diagnostics["passed"]
+            and target_label_diagnostics["passed"]
         ),
     }
 
@@ -1432,17 +1451,27 @@ def save_essos_imported_fci_campaign_plot(
     axes[0, 0].set_aspect("equal", adjustable="box")
     fig.colorbar(section, ax=axes[0, 0], label="|B|")
 
+    if "target_label_toroidal" in arrays and np.any(np.asarray(arrays["target_label_toroidal"]) > 0.0):
+        endpoint_values = arrays["target_label_toroidal"].T
+        endpoint_title = "target labels from map masks"
+        endpoint_label = "0 none, 1 fwd, 2 bwd, 3 both"
+    else:
+        endpoint_values = arrays["endpoint_count_toroidal"].T
+        endpoint_title = "endpoint count from map masks"
+        endpoint_label = "open endpoints"
     endpoint = axes[0, 1].imshow(
-        arrays["endpoint_count_toroidal"].T,
+        endpoint_values,
         origin="lower",
         aspect="auto",
         extent=extent,
         cmap="magma",
     )
-    axes[0, 1].set_title("endpoint count from map masks")
+    axes[0, 1].set_title(endpoint_title)
     axes[0, 1].set_xlabel("toroidal angle")
     axes[0, 1].set_ylabel("poloidal angle")
-    fig.colorbar(endpoint, ax=axes[0, 1], label="open endpoints")
+    endpoint_colorbar = fig.colorbar(endpoint, ax=axes[0, 1], label=endpoint_label)
+    if endpoint_title.startswith("target labels"):
+        endpoint_colorbar.set_ticks([0, 1, 2, 3])
 
     if "target_exit_toroidal" in arrays and np.any(np.isfinite(arrays["target_exit_toroidal"])):
         connection_values = np.ma.masked_invalid(arrays["target_exit_toroidal"].T)
@@ -1625,6 +1654,78 @@ def _finite_mean(values: np.ndarray, axis: int | tuple[int, ...]) -> np.ndarray:
     counts = np.sum(finite, axis=axis)
     sums = np.sum(np.where(finite, array, 0.0), axis=axis)
     return np.where(counts > 0, sums / np.maximum(counts, 1), np.nan)
+
+
+def _target_label_array(forward_boundary: np.ndarray, backward_boundary: np.ndarray) -> np.ndarray:
+    forward = np.asarray(forward_boundary, dtype=bool)
+    backward = np.asarray(backward_boundary, dtype=bool)
+    if forward.shape != backward.shape:
+        raise ValueError(
+            "Forward and backward boundary masks must have the same shape for target labels."
+        )
+    return forward.astype(np.int8) + 2 * backward.astype(np.int8)
+
+
+def _target_label_toroidal_projection(maps: Any) -> np.ndarray:
+    forward = np.asarray(maps.forward_boundary, dtype=bool)
+    backward = np.asarray(maps.backward_boundary, dtype=bool)
+    any_forward = np.any(forward, axis=0)
+    any_backward = np.any(backward, axis=0)
+    return _target_label_array(any_forward, any_backward).astype(np.float64)
+
+
+def _target_label_diagnostics(
+    *,
+    map_source: str,
+    forward_boundary: np.ndarray,
+    backward_boundary: np.ndarray,
+    endpoint_count: np.ndarray,
+) -> dict[str, Any]:
+    labels = _target_label_array(forward_boundary, backward_boundary)
+    endpoint = np.asarray(endpoint_count, dtype=np.float64)
+    expected_endpoint = (
+        (labels == 1).astype(np.float64)
+        + (labels == 2).astype(np.float64)
+        + 2.0 * (labels == 3).astype(np.float64)
+    )
+    if endpoint.shape != expected_endpoint.shape:
+        raise ValueError(
+            "Endpoint-count array shape must match target labels: "
+            f"endpoint={endpoint.shape}, labels={expected_endpoint.shape}."
+        )
+    label_error = endpoint - expected_endpoint
+    label_count_linf_error = float(np.max(np.abs(label_error))) if label_error.size else 0.0
+    source = _normalize_imported_fci_map_source(map_source)
+    forward_only = labels == 1
+    backward_only = labels == 2
+    bidirectional = labels == 3
+    any_target = labels > 0
+    if source == "vmec":
+        passed = bool(
+            label_count_linf_error <= 1.0e-12
+            and not np.any(any_target)
+            and float(np.sum(endpoint)) <= 1.0e-12
+        )
+    else:
+        passed = bool(
+            label_count_linf_error <= 1.0e-12
+            and np.any(any_target)
+            and np.any(forward_only | bidirectional)
+            and np.any(backward_only | bidirectional)
+        )
+    return {
+        "forward_only_cell_count": int(np.sum(forward_only)),
+        "backward_only_cell_count": int(np.sum(backward_only)),
+        "bidirectional_cell_count": int(np.sum(bidirectional)),
+        "target_label_cell_count": int(np.sum(any_target)),
+        "forward_only_fraction": float(np.mean(forward_only)),
+        "backward_only_fraction": float(np.mean(backward_only)),
+        "bidirectional_fraction": float(np.mean(bidirectional)),
+        "target_label_fraction": float(np.mean(any_target)),
+        "endpoint_count_linf_error": label_count_linf_error,
+        "endpoint_count_matches_target_labels": bool(label_count_linf_error <= 1.0e-12),
+        "passed": passed,
+    }
 
 
 def _endpoint_length_diagnostics(

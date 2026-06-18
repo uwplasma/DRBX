@@ -322,11 +322,15 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     assert report["passed"] is True
     assert report["source"] == "ESSOS-imported field-line maps with jax_drb FCI closures"
     assert report["endpoint_length_diagnostics"]["passed"] is True
+    assert report["target_label_diagnostics"]["passed"] is True
+    assert report["target_label_diagnostics"]["endpoint_count_matches_target_labels"] is True
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()
     arrays = np.load(artifacts.arrays_npz_path)
+    assert "target_label_toroidal" in arrays.files
     assert "target_exit_toroidal" in arrays.files
     assert "adjacent_step_toroidal" in arrays.files
+    assert np.max(arrays["target_label_toroidal"]) > 0.0
     assert np.any(np.isfinite(arrays["target_exit_toroidal"]))
 
 

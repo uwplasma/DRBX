@@ -178,6 +178,9 @@ turbulence only when all of the following are true:
 - Values are finite and nonnegative on the consumed FCI grid.
 - Endpoint masks used by sheath/recycling exactly match the imported
   forward/backward map boundary masks.
+- Directional target labels distinguish forward, backward, and bidirectional
+  exits and exactly reconstruct the endpoint counts consumed by sheath and
+  recycling closures.
 - Open-field endpoint diagnostics report finite, nonnegative wall-hit
   `target_exit_length` values on endpoint cells and finite, nonnegative
   `adjacent_step_length` values where adjacent-map interpolation exists.
