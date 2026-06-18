@@ -2802,6 +2802,11 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
         == "local_block_diag"
     )
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "transport-line")
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
+        == "parallel_line"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "unknown")
     assert recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name() is None
 
@@ -2946,6 +2951,13 @@ def test_recycling_dynamic_jax_preconditioners_are_solver_built() -> None:
         )
         is None
     )
+    assert (
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([1.0], dtype=np.float64),
+            name="parallel_line",
+        )
+        is None
+    )
 
 
 def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> None:
@@ -2963,15 +2975,32 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         "local_block_diag",
         layout=layout,
     ) == {
+        "active_shape": (3,),
         "active_cell_count": 3,
         "field_count": 3,
         "feedback_count": 2,
         "refresh_frequency": 1,
     }
+    parallel_context = recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+        "parallel_line",
+        layout=layout,
+    )
+    assert parallel_context == {
+        "active_shape": (3,),
+        "active_cell_count": 3,
+        "field_count": 3,
+        "feedback_count": 2,
+        "refresh_frequency": 1,
+        "parallel_axis": 0,
+        "max_line_unknowns": 512,
+        "max_total_unknowns": 8192,
+    }
     config = parse_bout_input(
         """
         [runtime]
         recycling_jax_linear_preconditioner_refresh = 4
+        recycling_jax_linear_preconditioner_max_line_unknowns = 64
+        recycling_jax_linear_preconditioner_max_total_unknowns = 1024
         """
     )
     assert recycling_1d_mod._recycling_jax_linear_preconditioner_context(
@@ -2979,6 +3008,16 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         config=config,
         layout=layout,
     )["refresh_frequency"] == 4
+    configured_parallel_context = (
+        recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+            "parallel_line",
+            config=config,
+            layout=layout,
+        )
+    )
+    assert configured_parallel_context["refresh_frequency"] == 4
+    assert configured_parallel_context["max_line_unknowns"] == 64
+    assert configured_parallel_context["max_total_unknowns"] == 1024
     with pytest.raises(ValueError, match="layout is required"):
         recycling_1d_mod._recycling_jax_linear_preconditioner_context(
             "local_block_diag",

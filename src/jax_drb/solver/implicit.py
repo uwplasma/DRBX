@@ -1345,6 +1345,10 @@ def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:
         "block_jacobi",
         "cell_block",
         "physics_block",
+        "parallel_line",
+        "transport_line",
+        "line_block",
+        "physics_transport",
     }
 
 
@@ -1447,6 +1451,29 @@ def _build_jax_linearized_dynamic_preconditioner(
             floor=float(context.get("floor", 1.0e-10)),
             max_unknowns=int(context.get("max_unknowns", 4096)),
         )
+    if normalized in {
+        "parallel_line",
+        "transport_line",
+        "line_block",
+        "physics_transport",
+    }:
+        if context is None:
+            raise ValueError(
+                "parallel_line preconditioner requires active_shape and field_count "
+                "in linear_preconditioner_context."
+            )
+        active_shape = tuple(int(axis) for axis in context.get("active_shape", ()))
+        return _build_jax_linearized_parallel_line_preconditioner(
+            linear_map,
+            prototype_state,
+            active_shape=active_shape,
+            field_count=int(context.get("field_count", 0)),
+            feedback_count=int(context.get("feedback_count", 0)),
+            parallel_axis=int(context.get("parallel_axis", 0)),
+            floor=float(context.get("floor", 1.0e-10)),
+            max_line_unknowns=int(context.get("max_line_unknowns", 512)),
+            max_total_unknowns=int(context.get("max_total_unknowns", 8192)),
+        )
     raise ValueError(f"Unsupported dynamic JAX preconditioner {name!r}.")
 
 
@@ -1548,6 +1575,178 @@ def _build_jax_linearized_local_block_preconditioner(
             diagonal_fallback,
         )
         solved_fields = solved_by_cell.transpose((1, 0)).reshape((field_unknown_count,))
+        if feedback_count:
+            solved = jnp.concatenate(
+                (solved_fields, flat_vector[field_unknown_count:]), axis=0
+            )
+        else:
+            solved = solved_fields
+        return solved.reshape(tuple(prototype.shape))
+
+    return preconditioner
+
+
+def _field_major_line_indices(
+    *,
+    active_shape: tuple[int, ...],
+    field_count: int,
+    parallel_axis: int,
+) -> np.ndarray:
+    """Return packed field-major unknown indices grouped by parallel line."""
+
+    if not active_shape:
+        if field_count == 0:
+            return np.zeros((0, 0), dtype=np.int32)
+        raise ValueError("parallel_line preconditioner requires a non-empty shape.")
+    rank = len(active_shape)
+    if not (0 <= int(parallel_axis) < rank):
+        raise ValueError(
+            f"parallel_axis={parallel_axis} is outside active_shape rank {rank}."
+        )
+    active_cell_count = int(np.prod(active_shape, dtype=np.int64))
+    line_length = int(active_shape[int(parallel_axis)])
+    transverse_shape = tuple(
+        axis_size
+        for axis, axis_size in enumerate(active_shape)
+        if axis != int(parallel_axis)
+    )
+    transverse_indices = (
+        [()]
+        if not transverse_shape
+        else list(np.ndindex(transverse_shape))
+    )
+    line_indices = np.empty(
+        (len(transverse_indices), int(field_count) * line_length), dtype=np.int32
+    )
+    for line_number, transverse_index in enumerate(transverse_indices):
+        line_columns: list[int] = []
+        for field_index in range(int(field_count)):
+            field_offset = field_index * active_cell_count
+            for parallel_coordinate in range(line_length):
+                cell_index: list[int] = []
+                transverse_offset = 0
+                for axis in range(rank):
+                    if axis == int(parallel_axis):
+                        cell_index.append(parallel_coordinate)
+                    else:
+                        cell_index.append(int(transverse_index[transverse_offset]))
+                        transverse_offset += 1
+                cell_flat = np.ravel_multi_index(tuple(cell_index), active_shape)
+                line_columns.append(field_offset + int(cell_flat))
+        line_indices[line_number, :] = np.asarray(line_columns, dtype=np.int32)
+    return line_indices
+
+
+def _build_jax_linearized_parallel_line_preconditioner(
+    linear_map,
+    prototype_state,
+    *,
+    active_shape: tuple[int, ...],
+    field_count: int,
+    feedback_count: int = 0,
+    parallel_axis: int = 0,
+    floor: float = 1.0e-10,
+    max_line_unknowns: int = 512,
+    max_total_unknowns: int = 8192,
+):
+    """Build a JVP-derived line-block preconditioner along the parallel axis.
+
+    This is the matrix-free analogue of the physics preconditioners used by
+    edge-fluid codes: the Krylov operator remains the true linearized residual,
+    while the left preconditioner approximately inverts the stiff local
+    multi-field transport block on each open-field-line segment.
+    """
+
+    try:
+        import jax
+        import jax.numpy as jnp
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when jax is unavailable
+        raise ImportError("JAX line-block preconditioning requires jax.") from exc
+
+    prototype = jnp.asarray(prototype_state, dtype=jnp.float64)
+    flat_size = int(prototype.size)
+    field_count = int(field_count)
+    feedback_count = int(feedback_count)
+    active_shape = tuple(int(axis) for axis in active_shape)
+    if any(axis < 0 for axis in active_shape):
+        raise ValueError("parallel_line preconditioner active_shape must be non-negative.")
+    active_cell_count = int(np.prod(active_shape, dtype=np.int64)) if active_shape else 0
+    field_unknown_count = active_cell_count * field_count
+    if field_count < 0 or feedback_count < 0:
+        raise ValueError("parallel_line preconditioner counts must be non-negative.")
+    if flat_size != field_unknown_count + feedback_count:
+        raise ValueError(
+            "parallel_line preconditioner context does not match packed state: "
+            f"state has {flat_size} entries, expected "
+            f"{field_unknown_count + feedback_count}."
+        )
+    if field_unknown_count == 0:
+        return lambda vector: jnp.asarray(vector, dtype=jnp.float64)
+    if field_unknown_count > int(max_total_unknowns):
+        raise ValueError(
+            "parallel_line preconditioner is bounded to field blocks with at most "
+            f"{int(max_total_unknowns)} unknowns; got {field_unknown_count}."
+        )
+
+    line_indices_np = _field_major_line_indices(
+        active_shape=active_shape,
+        field_count=field_count,
+        parallel_axis=int(parallel_axis),
+    )
+    if line_indices_np.size == 0:
+        return lambda vector: jnp.asarray(vector, dtype=jnp.float64)
+    line_unknown_count = int(line_indices_np.shape[1])
+    if line_unknown_count > int(max_line_unknowns):
+        raise ValueError(
+            "parallel_line preconditioner line block exceeds max_line_unknowns: "
+            f"{line_unknown_count} > {int(max_line_unknowns)}."
+        )
+
+    line_indices = jnp.asarray(line_indices_np, dtype=jnp.int32)
+    blocks: list[object] = []
+    for line_indices_one in line_indices_np:
+        directions = jnp.zeros(
+            (line_unknown_count, flat_size),
+            dtype=prototype.dtype,
+        ).at[jnp.arange(line_unknown_count), jnp.asarray(line_indices_one)].set(1.0)
+        directions = directions.reshape((line_unknown_count,) + tuple(prototype.shape))
+        action_rows = jax.vmap(lambda tangent: jnp.ravel(linear_map(tangent)))(
+            directions
+        )
+        line_block = action_rows[:, jnp.asarray(line_indices_one)].T
+        blocks.append(line_block)
+
+    block_array = jnp.stack(tuple(blocks), axis=0)
+    eye = jnp.eye(line_unknown_count, dtype=prototype.dtype)
+    block_scale = jnp.maximum(jnp.max(jnp.abs(block_array), axis=(1, 2)), 1.0)
+    regularized_blocks = block_array + (
+        float(floor) * block_scale[:, None, None] * eye[None, :, :]
+    )
+    diagonal = jnp.diagonal(regularized_blocks, axis1=1, axis2=2)
+    safe_diagonal = _safe_diagonal_denominator(diagonal, floor=float(floor))
+    regularized_blocks, safe_diagonal, line_indices = jax.block_until_ready(
+        (regularized_blocks, safe_diagonal, line_indices)
+    )
+
+    def preconditioner(vector):
+        flat_vector = jnp.ravel(jnp.asarray(vector, dtype=jnp.float64))
+        field_vector = flat_vector[:field_unknown_count]
+        rhs_by_line = field_vector[line_indices]
+        solved_by_line = jnp.linalg.solve(
+            regularized_blocks,
+            rhs_by_line[..., None],
+        )[..., 0]
+        diagonal_fallback = rhs_by_line / safe_diagonal
+        solved_by_line = jnp.where(
+            jnp.all(jnp.isfinite(solved_by_line), axis=1, keepdims=True),
+            solved_by_line,
+            diagonal_fallback,
+        )
+        solved_fields = jnp.zeros_like(field_vector).at[line_indices].set(
+            solved_by_line
+        )
         if feedback_count:
             solved = jnp.concatenate(
                 (solved_fields, flat_vector[field_unknown_count:]), axis=0

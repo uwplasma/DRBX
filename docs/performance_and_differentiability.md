@@ -1003,7 +1003,11 @@ separate. The `local_block_diag`/`block_jacobi` option is a stronger physics
 preconditioner probe: after `jax.linearize`, it builds same-cell dense
 field-by-equation Jacobian blocks with batched JVPs, inverts those small blocks
 on device, and leaves transport/off-cell coupling to the outer JAX GMRES
-iteration. The companion
+iteration. The `parallel_line`/`transport_line` option is the next
+transport-aware probe: it extracts JVP-derived dense blocks along the active
+parallel line for all evolved fields, solves those line blocks on device, and
+leaves feedback variables plus off-line coupling to the outer Krylov update.
+The companion
 `runtime:recycling_jax_linear_preconditioner_refresh=<n>` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_REFRESH=<n>` control lets a run
 reuse this approximate dynamic preconditioner across Newton updates inside one
@@ -1030,11 +1034,17 @@ update, and `13.02 s` with block reuse. On the full adaptive hydrogen
 `timestep=1.0` gate, rebuilding local blocks completed in `137.2 s`, while
 reusing blocks inside each implicit solve completed in `113.5 s`; both passed
 the fallback/convergence/error gates, but both remain slower than the retained
-unpreconditioned tolerance-factor gate at `103.9 s`. That closes simple row,
-field, diagonal, and same-cell block-Jacobi preconditioning as default speedup
-lanes and points the next performance work toward fewer accepted trial solves,
-lower residual/JVP kernel cost, or a transport-aware preconditioner with
-off-cell coupling before spending more D/T/He wall time.
+unpreconditioned tolerance-factor gate at `103.9 s`. A June 18, 2026 bounded
+hydrogen JAX-linearized probe also keeps `parallel_line` opt-in rather than
+promoted: the unpreconditioned control took `5.02 s`, while
+`runtime:recycling_jax_linear_preconditioner=parallel_line` took `5.62 s` with
+the same residual, same `800` JAX GMRES update count, and `0.52 s` spent
+building two line-block preconditioners. That closes simple row, field,
+diagonal, same-cell block-Jacobi, and first line-block preconditioning as
+default speedup lanes and points the next performance work toward fewer
+accepted trial solves, lower residual/JVP kernel cost, or a stronger
+Schur/transport preconditioner with measurable iteration-count reduction before
+spending more D/T/He wall time.
 
 The sparse-JVP Jacobian builder also has an opt-in host-transfer reduction
 probe through `JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE=1`. When enabled, each

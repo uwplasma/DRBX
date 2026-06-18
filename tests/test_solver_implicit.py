@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import jax_drb.solver.implicit as implicit_mod
 from jax_drb.solver import (
     active_region_from_slices,
     backward_euler_residual,
@@ -487,6 +488,75 @@ def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     assert sparse_info.jacobian_refresh_count >= 1
     assert sparse_info.jacobian_assembly_seconds >= 0.0
     assert sparse_info.linear_solve_seconds >= 0.0
+
+
+def test_parallel_line_preconditioner_inverts_field_line_block() -> None:
+    pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_shape = (1, 3, 1)
+    field_count = 2
+    active_cells = int(np.prod(active_shape))
+    field_unknown_count = field_count * active_cells
+    state = jnp.zeros(field_unknown_count + 1, dtype=jnp.float64)
+    line_block = jnp.asarray(
+        [
+            [4.0, -0.5, 0.0, 0.2, 0.0, 0.0],
+            [-0.25, 5.0, -0.25, 0.0, 0.3, 0.0],
+            [0.0, -0.5, 4.5, 0.0, 0.0, 0.1],
+            [0.15, 0.0, 0.0, 3.0, -0.4, 0.0],
+            [0.0, 0.1, 0.0, -0.2, 3.5, -0.2],
+            [0.0, 0.0, 0.2, 0.0, -0.3, 3.25],
+        ],
+        dtype=jnp.float64,
+    )
+
+    def linear_map(vector):
+        field_vector = vector[:field_unknown_count]
+        feedback = vector[field_unknown_count:]
+        return jnp.concatenate((line_block @ field_vector, feedback))
+
+    preconditioner = implicit_mod._build_jax_linearized_parallel_line_preconditioner(
+        linear_map,
+        state,
+        active_shape=active_shape,
+        field_count=field_count,
+        feedback_count=1,
+        parallel_axis=1,
+    )
+    rhs = jnp.asarray([1.0, -2.0, 0.5, 0.25, -0.75, 1.5, 9.0], dtype=jnp.float64)
+    solved = preconditioner(rhs)
+
+    np.testing.assert_allclose(
+        np.asarray(linear_map(solved)),
+        np.asarray(rhs),
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
+
+
+def test_parallel_line_preconditioner_rejects_mismatched_context() -> None:
+    pytest.importorskip("jax.numpy")
+
+    with pytest.raises(ValueError, match="context does not match packed state"):
+        implicit_mod._build_jax_linearized_parallel_line_preconditioner(
+            lambda vector: vector,
+            np.ones(5, dtype=np.float64),
+            active_shape=(1, 3, 1),
+            field_count=2,
+            feedback_count=0,
+            parallel_axis=1,
+        )
+
+    with pytest.raises(ValueError, match="outside active_shape rank"):
+        implicit_mod._build_jax_linearized_parallel_line_preconditioner(
+            lambda vector: vector,
+            np.ones(6, dtype=np.float64),
+            active_shape=(1, 3, 1),
+            field_count=2,
+            feedback_count=0,
+            parallel_axis=3,
+        )
 
 
 def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:

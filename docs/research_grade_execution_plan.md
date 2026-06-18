@@ -318,9 +318,9 @@ Target state:
 Execution steps:
 
 1. Keep `state_scale`, `field_scale`, `linearized_diag`, `local_block_diag`,
-   sparse-JVP device gather, Lineax, BiCGSTAB, residual-JIT, and GMRES-control
-   variants opt-in until a same-case gate beats the stable default in both
-   runtime and solver health.
+   `parallel_line`/`transport_line`, sparse-JVP device gather, Lineax,
+   BiCGSTAB, residual-JIT, and GMRES-control variants opt-in until a same-case
+   gate beats the stable default in both runtime and solver health.
 2. Implement a transport-aware preconditioner candidate that includes at least
    same-field nearest-neighbor diffusion/advection coupling or a Schur-style
    neutral/plasma block, then compare it against the existing same-cell block
@@ -526,6 +526,19 @@ long work logs here.
   language. `runtime_gap_remediation.md`, `research_directions.md`,
   `parity_matrix.md`, and `testing_strategy.md` now defer to this file for
   execution order and release standards.
+- 2026-06-18: Diagnosed the latest GitHub `docs`, `test`, and `coverage`
+  workflow failures. GitHub check annotations report that jobs did not start
+  because recent account payments failed or the spending limit needs to be
+  increased. A clean `origin/main` worktree passes the local release-surface
+  test slice, `mkdocs build --strict --clean`, closeout coverage at `97.0%`,
+  promoted solver coverage at `95.09%`, and the targeted shipping pytest slice
+  with `43` tests.
+- 2026-06-18: Added an opt-in `parallel_line`/`transport_line` JVP-derived
+  preconditioner seam for the recycling JAX-linearized solver. Targeted solver
+  and recycling tests pass, and the bounded hydrogen profile keeps it
+  non-default because the measured gate is slower than the unpreconditioned
+  control (`5.62 s` versus `5.02 s`) with the same residual and iteration
+  count.
 
 ## External Literature And Code Baseline
 

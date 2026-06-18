@@ -5601,6 +5601,11 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "block_jacobi": "local_block_diag",
         "cell_block": "local_block_diag",
         "physics_block": "local_block_diag",
+        "parallel_line": "parallel_line",
+        "transport_line": "parallel_line",
+        "line_block": "parallel_line",
+        "physics_transport": "parallel_line",
+        "parallel_transport": "parallel_line",
     }
     return aliases.get(normalized)
 
@@ -5613,7 +5618,7 @@ def _build_recycling_jax_linear_preconditioner(
 ) -> Callable[[object], object] | None:
     if name is None:
         return None
-    if name in {"linearized_diag", "local_block_diag"}:
+    if name in {"linearized_diag", "local_block_diag", "parallel_line"}:
         return None
     if name not in {"state_scale", "field_scale"}:
         raise ValueError(f"Unsupported recycling JAX preconditioner {name!r}.")
@@ -5642,13 +5647,14 @@ def _recycling_jax_linear_preconditioner_context(
     config: BoutConfig | None = None,
     layout: _RecyclingPackedStateLayout | None,
 ) -> dict[str, object] | None:
-    if name != "local_block_diag":
+    if name not in {"local_block_diag", "parallel_line"}:
         return None
     if layout is None:
         raise ValueError(
-            "layout is required for recycling local_block_diag preconditioner."
+            f"layout is required for recycling {name} preconditioner."
         )
-    return {
+    context = {
+        "active_shape": tuple(int(axis) for axis in tuple(layout.active_shape)),
         "active_cell_count": int(np.prod(tuple(layout.active_shape), dtype=np.int64)),
         "field_count": len(tuple(layout.field_names)),
         "feedback_count": len(tuple(layout.feedback_names)),
@@ -5656,6 +5662,22 @@ def _recycling_jax_linear_preconditioner_context(
             config
         ),
     }
+    if name == "parallel_line":
+        active_shape = tuple(int(axis) for axis in tuple(layout.active_shape))
+        context["parallel_axis"] = 1 if len(active_shape) > 1 else 0
+        context["max_line_unknowns"] = _resolve_positive_int_runtime_option(
+            config,
+            option_name="recycling_jax_linear_preconditioner_max_line_unknowns",
+            env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_LINE_UNKNOWNS",
+            default=512,
+        )
+        context["max_total_unknowns"] = _resolve_positive_int_runtime_option(
+            config,
+            option_name="recycling_jax_linear_preconditioner_max_total_unknowns",
+            env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_TOTAL_UNKNOWNS",
+            default=8192,
+        )
+    return context
 
 
 def _resolve_recycling_jax_linear_preconditioner_refresh(
