@@ -1563,6 +1563,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   implementation should either reduce residual/JVP action cost directly or use
   a cheaper Schur/transport approximation that demonstrably lowers
   linear-operator calls.
+- 2026-06-18: Tested two existing JAX-GMRES toggles on the same bounded
+  hydrogen active-array fixed-BDF2 gate. `recycling_jax_linear_jit_residual=true`
+  reduced Python-visible linear-operator dispatch but increased total elapsed
+  time to `18.67 s`; `recycling_jax_linear_gmres_solve_method=incremental`
+  took `16.36 s`; and a smaller `restart=10`, `maxiter=5` budget still used
+  `25` operator calls and took `16.58 s`. These are negative promotion results:
+  the next useful solver work is a cheaper fixed-BDF2 residual/JVP action or a
+  different preconditioner structure, not toggling residual JIT, GMRES QR mode,
+  or nominal GMRES budget controls.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic
