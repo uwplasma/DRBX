@@ -61,10 +61,13 @@ serial same-kernel calls.
 
 The same profile gate now accepts `--rhs-backend active_array`. That backend is
 not a new physics model; it is the opt-in migration seam that passes the
-validated full-field recycling RHS through `build_fixed_array_rhs`, preserving
-D/T/He backward-Euler and BDF2 residual parity while giving the next
+validated full-field recycling RHS through the fixed-array state seam,
+preserving D/T/He backward-Euler and BDF2 residual parity while giving the next
 term-by-term sheath, collision, neutral-diffusion, and target-recycling ports a
-stable active-field surface.
+stable active-field surface. Kernels whose field and feedback derivatives share
+the same expensive source evaluation use `build_fixed_array_state_rhs` so the
+coupled RHS is evaluated once per residual call; `build_fixed_array_rhs`
+remains the lighter adapter for independent field and feedback terms.
 
 The source-term lane now also has a dedicated accelerator-throughput gate:
 `scripts/profile_atomic_rate_throughput_gate.py`. That gate evaluates a
@@ -779,39 +782,26 @@ The next non-SciPy output-window promotion lane is
 These modes take a fixed-layout backward-Euler startup step, then fixed-layout
 BDF2 output steps, and evolve controller integrals inside the packed residual
 state. The active-array variants route the same output-window path through
-`build_fixed_array_rhs`, avoiding the full-field reconstruction seam used by
-the compatibility fixed-full-field variant. They are still opt-in research
-gates; they exist to measure JAX-linearized full-output behavior without the
-`solve_ivp` callback barrier before any default solver change. The promotion
-gate now also rejects unconverged steps, unknown convergence status, failed
-inner linear solves, and fixed-BDF2 residuals above the configured threshold, so
-large finite residuals cannot pass as healthy diagnostics. On the local
-`recycling_1d_one_step` diagnostics-only fixture at `timestep = 10`, the
-`fixed_bdf2_active_array_jax_linearized` route passes this gate with
-`fixed_bdf2_max_residual_inf_norm = 4.02e-6`, two active-array RHS steps, zero
-unconverged steps, zero unknown-convergence steps, and zero failed linear
-solves. The D/T/He fixture now also has a bounded fixed-BDF2 diagnostic at
-`timestep = 1` using two internal `0.5` substeps per output interval. Both
-fixed-full-field and active-array routes pass there with
-`fixed_bdf2_max_residual_inf_norm = 3.77e-9`, four internal substeps, three
-BDF2 corrector steps, zero unconverged steps, zero unknown-convergence steps,
-and zero failed linear solves. The same diagnostic is intentionally not a
-runtime win yet: the local fixed-full-field run took `98.9 s` and the
-active-array run took `117.6 s`, both dominated by `5200` inner linear
-iterations. A follow-up active-array GMRES-control probe with
-`runtime:recycling_jax_linear_restart=10`,
-`runtime:recycling_jax_linear_maxiter=20`, and the same internal substep
-policy converged cleanly but slowed to `136.8 s`, with `100.1 s` in linear
-solves and `36.5 s` in residual evaluations. This negative result rules out
-simple restart reduction as the next promotion path; the next runtime work
-needs a real preconditioner, a cheaper residual/JVP kernel, or a better
-startup/nonlinear damping policy. On the hydrogen fixture at the full
-`timestep = 5000`, both
-fixed-full-field and active-array fixed-BDF2 routes currently expose the same
-large nonlinear residual (`fixed_bdf2_max_residual_inf_norm` about `1.93e29`),
-so the next promotion blocker is fixed-BDF2 nonlinear/linear solver efficiency
-and full-output-window substepping policy rather than an active-array RHS
-parity failure.
+`build_fixed_array_state_rhs`, avoiding the split field/feedback callback used
+by the earlier migration adapter. They are still opt-in research gates; they
+exist to measure JAX-linearized full-output behavior without the `solve_ivp`
+callback barrier before any default solver change. The promotion gate now also
+rejects unconverged steps, unknown convergence status, failed inner linear
+solves, excessive linear-operator calls, and fixed-BDF2 residuals above the
+configured threshold, so large finite residuals cannot pass as healthy
+diagnostics. On the bounded local `recycling_1d_one_step` diagnostics-only
+fixture at `timestep = 2`, fixed-full-field and active-array routes both use
+two automatic internal substeps, reach residual `9.01e-10`, report zero failed
+linear solves, and require `25` linear-operator calls; wall time is
+`11.38 s` and `11.36 s`, respectively. On the bounded D/T/He fixture at
+`timestep = 1` with explicit `0.5` internal substeps, both routes reach
+residual `1.87e-11`, report zero failed linear solves, and require `45`
+linear-operator calls; wall time is `64.3 s` for fixed-full-field and
+`66.4 s` for active-array. This closes the previous active-array duplicate-RHS
+cost, but the remaining promotion blocker is still Krylov/preconditioner cost:
+the D/T/He bounded gate spends about `50 s` in linear solves, so default
+promotion still needs an effective transport/block preconditioner or a cheaper
+linearized residual action.
 
 The adaptive BDF history result now reports solver-health diagnostics for these
 opt-in paths: accepted and rejected internal steps, minimum-`dt` fallbacks,

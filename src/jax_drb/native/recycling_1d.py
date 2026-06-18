@@ -181,7 +181,7 @@ from .recycling_layout import (
 )
 from .recycling_fixed_residual import (
     RecyclingFixedState as _RecyclingFixedState,
-    build_fixed_array_rhs as _build_fixed_array_rhs,
+    build_fixed_array_state_rhs as _build_fixed_array_state_rhs,
     build_fixed_bdf2_residual as _build_fixed_bdf2_residual,
     build_fixed_backward_euler_residual as _build_fixed_backward_euler_residual,
     build_fixed_host_rhs_bridge as _build_fixed_host_rhs_bridge,
@@ -6270,34 +6270,18 @@ def _build_active_array_recycling_rhs(
         dataset_scalars=dataset_scalars,
     )
 
-    def field_rhs(
+    def state_rhs(
         active_fields: dict[str, object], feedback_values: object
-    ) -> dict[str, object]:
+    ) -> _RecyclingFixedState:
         state = _RecyclingFixedState(
             field_values=tuple(active_fields[name] for name in layout.field_names),
             feedback_values=jnp.asarray(feedback_values, dtype=jnp.float64),
         )
-        rhs_state = full_field_rhs(state)
-        return {
-            name: value
-            for name, value in zip(
-                layout.field_names, rhs_state.field_values, strict=True
-            )
-        }
+        return full_field_rhs(state)
 
-    def feedback_rhs(
-        active_fields: dict[str, object], feedback_values: object
-    ) -> object:
-        state = _RecyclingFixedState(
-            field_values=tuple(active_fields[name] for name in layout.field_names),
-            feedback_values=jnp.asarray(feedback_values, dtype=jnp.float64),
-        )
-        return full_field_rhs(state).feedback_values
-
-    return _build_fixed_array_rhs(
-        field_rhs,
+    return _build_fixed_array_state_rhs(
+        state_rhs,
         layout=layout,
-        feedback_rhs_function=feedback_rhs if layout.feedback_names else None,
     )
 
 

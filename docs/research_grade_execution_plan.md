@@ -143,9 +143,9 @@ and tests all move together.
 | Plan authority and release hygiene | 95% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 94% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
+| JAX-native recycling solver | 95% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the active-array duplicate field/feedback RHS cost is closed, but Krylov/preconditioner cost remains. |
 | Effective preconditioning | 44% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
-| Performance and scaling | 61% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
+| Performance and scaling | 62% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -1495,6 +1495,20 @@ Use this log for concise decision records. Do not paste terminal output here.
   full-field D/T/He and `99.3 s` for active-array D/T/He. The next solver work
   should reduce residual/JVP cost or use an approximate Schur/transport
   preconditioner that lowers operator-call or dispatch time on this same gate.
+- 2026-06-18: Closed the duplicate field/feedback RHS evaluation in the
+  active-array recycling adapter by adding a single-pass
+  `build_fixed_array_state_rhs` seam. The new fixed-residual test locks the
+  shared-kernel invariant, and the focused solver tests pass
+  (`136 passed`). The bounded hydrogen fixed-BDF2 gate now reports
+  fixed-full-field `11.38 s` and active-array `11.36 s`, with the same
+  residual `9.01e-10`, `25` linear-operator calls, and active-array residual
+  evaluation reduced to `2.42 s`. The D/T/He gate now reports fixed-full-field
+  `64.3 s` and active-array `66.4 s`, with the same residual `1.87e-11`,
+  `45` operator calls, and active-array residual evaluation reduced from the
+  previous `27.1 s` evidence to `15.8 s`. This advances the full-output
+  JAX-transformable path from correctness-only to near compatibility-path
+  runtime on bounded fixtures; the remaining performance blocker is Krylov
+  cost and effective preconditioning, not duplicated residual assembly.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic

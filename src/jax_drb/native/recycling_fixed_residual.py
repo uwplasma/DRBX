@@ -278,6 +278,42 @@ def build_fixed_array_rhs(
     return rhs
 
 
+def build_fixed_array_state_rhs(
+    state_rhs_function: Callable[[dict[str, jax.Array], jax.Array], RecyclingFixedState],
+    *,
+    layout: RecyclingPackedStateLayout,
+) -> Callable[[RecyclingFixedState], RecyclingFixedState]:
+    """Build a transformable RHS whose field and feedback terms share one kernel.
+
+    ``build_fixed_array_rhs`` is convenient for term-by-term ports where field
+    and feedback derivatives are independent.  Some recycling terms, however,
+    compute controller feedback from the same expensive collision, neutral and
+    sheath source evaluation used by the field RHS.  This adapter keeps the same
+    fixed-layout PyTree contract while letting those shared kernels run once per
+    residual evaluation.
+    """
+
+    def rhs(state: RecyclingFixedState) -> RecyclingFixedState:
+        _validate_fixed_state_shapes(state, layout=layout)
+        fields = fixed_state_to_field_dict(state, layout=layout)
+        rhs_state = state_rhs_function(fields, state.feedback_values)
+        if not isinstance(rhs_state, RecyclingFixedState):
+            raise TypeError(
+                "State RHS must return a RecyclingFixedState, got "
+                f"{type(rhs_state).__name__}."
+            )
+        _validate_fixed_state_shapes(rhs_state, layout=layout)
+        return RecyclingFixedState(
+            field_values=tuple(
+                jnp.asarray(value, dtype=jnp.float64)
+                for value in rhs_state.field_values
+            ),
+            feedback_values=jnp.asarray(rhs_state.feedback_values, dtype=jnp.float64),
+        )
+
+    return rhs
+
+
 def build_fixed_full_field_array_rhs(
     full_field_rhs_function: Callable[[dict[str, object], jax.Array], dict[str, object]],
     *,

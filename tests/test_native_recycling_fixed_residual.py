@@ -19,6 +19,7 @@ from jax_drb.native.recycling_1d import (
 from jax_drb.native.recycling_fixed_residual import (
     RecyclingFixedState,
     build_fixed_array_rhs,
+    build_fixed_array_state_rhs,
     build_fixed_backward_euler_residual,
     build_fixed_host_rhs_bridge,
     fixed_residual_jvp_batch_action,
@@ -189,6 +190,52 @@ def test_fixed_array_rhs_only_allocates_zero_defaults_for_missing_fields(
     np.testing.assert_allclose(np.asarray(result.field_values[0]), np.asarray([2.0]))
     np.testing.assert_allclose(np.asarray(result.field_values[1]), np.asarray([0.0]))
     assert zero_shapes == [(1,)]
+
+
+def test_fixed_array_state_rhs_evaluates_shared_kernel_once() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    layout = type(
+        "Layout",
+        (),
+        {
+            "field_names": ("A", "B"),
+            "feedback_names": ("controller",),
+            "active_shape": (2,),
+        },
+    )()
+    state = RecyclingFixedState(
+        field_values=(
+            jnp.asarray([1.0, 2.0], dtype=jnp.float64),
+            jnp.asarray([3.0, 4.0], dtype=jnp.float64),
+        ),
+        feedback_values=jnp.asarray([0.5], dtype=jnp.float64),
+    )
+    call_count = 0
+
+    def coupled_rhs(
+        active_fields: dict[str, object], feedback_values: object
+    ) -> RecyclingFixedState:
+        nonlocal call_count
+        call_count += 1
+        controller = jnp.asarray(feedback_values)[0]
+        density_rhs = jnp.asarray(active_fields["A"]) + controller
+        pressure_rhs = 2.0 * jnp.asarray(active_fields["B"])
+        feedback_rhs = jnp.asarray([jnp.mean(density_rhs + pressure_rhs)])
+        return RecyclingFixedState(
+            field_values=(density_rhs, pressure_rhs),
+            feedback_values=feedback_rhs,
+        )
+
+    rhs = build_fixed_array_state_rhs(coupled_rhs, layout=layout)
+
+    result = rhs(state)
+
+    assert call_count == 1
+    np.testing.assert_allclose(np.asarray(result.field_values[0]), [1.5, 2.5])
+    np.testing.assert_allclose(np.asarray(result.field_values[1]), [6.0, 8.0])
+    np.testing.assert_allclose(np.asarray(result.feedback_values), [9.0])
 
 
 def test_unpack_fixed_state_rejects_static_layout_contract_mismatches() -> None:
