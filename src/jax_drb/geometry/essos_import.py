@@ -68,6 +68,8 @@ class EssosImportedFciGeometry:
     connection_length: jnp.ndarray
     adjacent_step_length: jnp.ndarray | None
     target_exit_length: jnp.ndarray | None
+    forward_target_exit_length: jnp.ndarray | None
+    backward_target_exit_length: jnp.ndarray | None
     metric: MetricTensor3D
     maps: FciMaps
     metadata: dict[str, Any]
@@ -397,6 +399,8 @@ def build_essos_imported_fci_geometry(
         connection_length = coil_data["connection_length"]
         adjacent_step_length = coil_data["adjacent_step_length"]
         target_exit_length = coil_data["target_exit_length"]
+        forward_target_exit_length = coil_data["forward_target_exit_length"]
+        backward_target_exit_length = coil_data["backward_target_exit_length"]
         field_model = "essos.fields.BiotSavart"
         tracing_model = "essos.dynamics.Tracing(FieldLineAdaptative)"
     elif map_source == "vmec":
@@ -406,6 +410,8 @@ def build_essos_imported_fci_geometry(
         connection_length = vmec_data["connection_length"]
         adjacent_step_length = vmec_data["connection_length"]
         target_exit_length = np.full_like(connection_length, np.nan, dtype=np.float64)
+        forward_target_exit_length = np.full_like(connection_length, np.nan, dtype=np.float64)
+        backward_target_exit_length = np.full_like(connection_length, np.nan, dtype=np.float64)
         field_model = "essos.fields.Vmec"
         tracing_model = "vmec_coordinate_rk4_map"
     else:
@@ -424,6 +430,8 @@ def build_essos_imported_fci_geometry(
         connection_length = coil_data["connection_length"]
         adjacent_step_length = vmec_data["connection_length"]
         target_exit_length = coil_data["target_exit_length"]
+        forward_target_exit_length = coil_data["forward_target_exit_length"]
+        backward_target_exit_length = coil_data["backward_target_exit_length"]
         field_model = "hybrid: VMEC map coordinates with Biot-Savart |B| and target masks"
         tracing_model = "vmec_coordinate_rk4_map + essos.dynamics.Tracing(FieldLineAdaptative) masks"
 
@@ -451,6 +459,8 @@ def build_essos_imported_fci_geometry(
         connection_length=jnp.asarray(connection_length, dtype=jnp.float64),
         adjacent_step_length=jnp.asarray(adjacent_step_length, dtype=jnp.float64),
         target_exit_length=jnp.asarray(target_exit_length, dtype=jnp.float64),
+        forward_target_exit_length=jnp.asarray(forward_target_exit_length, dtype=jnp.float64),
+        backward_target_exit_length=jnp.asarray(backward_target_exit_length, dtype=jnp.float64),
         metric=metric,
         maps=maps,
         metadata={
@@ -574,12 +584,22 @@ def _build_essos_coil_fci_map_data(
     )
     b_xyz = np.asarray(jax.vmap(field.B)(local_jnp.asarray(initial_xyz, dtype=local_jnp.float64)), dtype=np.float64)
     bmag = np.linalg.norm(b_xyz, axis=1).reshape(shape)
-    exit_length = _structured_exit_length_from_trajectories(
+    forward_exit_length = _structured_exit_length_from_trajectories(
         forward_trajectories,
         coordinates_x=coordinates_x,
         coordinates_y=coordinates_y,
         coordinates_z=coordinates_z,
     ).reshape(shape)
+    backward_exit_length = _structured_exit_length_from_trajectories(
+        backward_trajectories,
+        coordinates_x=coordinates_x,
+        coordinates_y=coordinates_y,
+        coordinates_z=coordinates_z,
+    ).reshape(shape)
+    exit_length = _combine_bidirectional_exit_lengths(
+        forward_exit_length,
+        backward_exit_length,
+    )
     adjacent_length = 0.5 * (forward_length + backward_length).reshape(shape)
     connection_length = np.where(np.isfinite(exit_length), exit_length, adjacent_length)
     maps = FciMaps(
@@ -596,7 +616,9 @@ def _build_essos_coil_fci_map_data(
         "bmag": bmag,
         "connection_length": connection_length,
         "adjacent_step_length": adjacent_length,
-        "target_exit_length": exit_length.reshape(shape),
+        "target_exit_length": exit_length,
+        "forward_target_exit_length": forward_exit_length,
+        "backward_target_exit_length": backward_exit_length,
         "current_sign": float(forward_current_sign),
     }
 
@@ -1171,6 +1193,30 @@ def _structured_exit_length_from_trajectories(
                 first_exit[line_index] = min(int(exit_candidates[0]) * stride, trajectory.shape[0] - 1)
                 has_exit[line_index] = True
     return np.where(has_exit, arc_length[np.arange(trajectories_xyz.shape[0]), first_exit], np.nan)
+
+
+def _combine_bidirectional_exit_lengths(
+    forward_exit_length: np.ndarray,
+    backward_exit_length: np.ndarray,
+) -> np.ndarray:
+    """Return the shortest finite target-exit length from either traced direction."""
+
+    forward = np.asarray(forward_exit_length, dtype=np.float64)
+    backward = np.asarray(backward_exit_length, dtype=np.float64)
+    if forward.shape != backward.shape:
+        raise ValueError(
+            "Forward and backward target-exit length arrays must have the same shape."
+        )
+    combined = np.full(forward.shape, np.nan, dtype=np.float64)
+    forward_finite = np.isfinite(forward)
+    backward_finite = np.isfinite(backward)
+    both = forward_finite & backward_finite
+    combined[both] = np.minimum(forward[both], backward[both])
+    only_forward = forward_finite & ~backward_finite
+    only_backward = backward_finite & ~forward_finite
+    combined[only_forward] = forward[only_forward]
+    combined[only_backward] = backward[only_backward]
+    return combined
 
 
 def _metric_from_coordinates(

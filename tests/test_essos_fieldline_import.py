@@ -299,8 +299,12 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     assert np.all(np.isfinite(np.asarray(geometry.connection_length)))
     assert geometry.adjacent_step_length is not None
     assert geometry.target_exit_length is not None
+    assert geometry.forward_target_exit_length is not None
+    assert geometry.backward_target_exit_length is not None
     assert np.any(np.isfinite(np.asarray(geometry.adjacent_step_length)))
     assert np.any(np.isfinite(np.asarray(geometry.target_exit_length)))
+    assert np.any(np.isfinite(np.asarray(geometry.forward_target_exit_length)))
+    assert np.any(np.isfinite(np.asarray(geometry.backward_target_exit_length)))
     assert 0.05 < float(np.mean(np.asarray(geometry.maps.forward_boundary, dtype=bool))) < 0.95
     assert 0.05 < float(np.mean(np.asarray(geometry.maps.backward_boundary, dtype=bool))) < 0.95
 
@@ -317,6 +321,7 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     assert report["passed"] is True
     assert report["source"] == "ESSOS-imported field-line maps with jax_drb FCI closures"
+    assert report["endpoint_length_diagnostics"]["passed"] is True
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()
 

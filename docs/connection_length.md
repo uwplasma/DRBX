@@ -178,6 +178,9 @@ turbulence only when all of the following are true:
 - Values are finite and nonnegative on the consumed FCI grid.
 - Endpoint masks used by sheath/recycling exactly match the imported
   forward/backward map boundary masks.
+- Open-field endpoint diagnostics report finite, nonnegative wall-hit
+  `target_exit_length` values on endpoint cells and finite, nonnegative
+  `adjacent_step_length` values where adjacent-map interpolation exists.
 - Single-grid roughness diagnostics do not show unresolved grid-scale jumps.
 - A live multi-grid control passes with the correct quantity: VMEC
   adjacent-step maps use parallel step length per toroidal radian, while
