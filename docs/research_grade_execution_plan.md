@@ -149,9 +149,9 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 75% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
+| 3D stellarator imported-field/VMEC SOL | 76% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
-| Docs and examples | 88% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
+| Docs and examples | 89% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 90% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag. |
 
 ## Milestone Map
@@ -1590,6 +1590,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   refinement and `parallel_step_per_toroidal_radian` for VMEC/hybrid
   adjacent-map refinement, keeping endpoint `target_exit_length` diagnostics
   separate from FCI convergence claims.
+- 2026-06-18: Ran the live Landreman-Paul QA imported connection-length
+  refinement probe on three nested levels `(3, 4, 6) -> (6, 8, 12) ->
+  (12, 16, 24)` with coordinate interpolation, `times_to_trace=120`, and
+  `maxtime=30`. VMEC and hybrid `parallel_step_per_toroidal_radian` both gave
+  normalized RMS `5.90e-2`, normalized \(L_\infty\) `1.18e-1`, observed order
+  `1.20`, and monotonic error reduction, passing the live-control threshold
+  but not the stricter manufactured threshold. Pure coil `adjacent_step_length`
+  gave normalized RMS `1.05e-2` and \(L_\infty\) `1.98e-2`, but observed order
+  only `0.101`, so it remains a negative observed-order control. The example
+  now has separate live thresholds and still requires observed-order
+  availability; these connection-length controls do not by themselves promote
+  imported-field turbulence movies.
 
 ## Definition Of Done
 
