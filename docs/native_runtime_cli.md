@@ -188,6 +188,16 @@ matrix-free linearized operator during the Krylov solve. These are profiling
 diagnostics for solver studies; the full `linear_solve_seconds` value remains
 the end-to-end wall-time measurement because JAX device work can be asynchronous.
 
+Fixed-output BDF2 JAX-linearized histories use
+`runtime:recycling_jax_linear_initial_residual_mode=linearize` by default. This
+keeps the initial convergence check, but gets the first residual norm from the
+first `jax.linearize` call instead of evaluating a separate standalone residual
+that is immediately followed by linearization. Direct one-step and adaptive
+JAX-linearized modes keep the older `residual` default; users can force either
+behavior with `runtime:recycling_jax_linear_initial_residual_mode=residual` or
+`linearize`, or with
+`JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE`.
+
 For JAX-linearized promotion experiments, the inner matrix-free Krylov backend
 can be selected with `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER`. Supported values are
 `jax_gmres` (default), `lineax_gmres` when the optional Lineax package is
