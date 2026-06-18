@@ -1022,8 +1022,14 @@ cleanly but slowed to `111.8 s` and reported `9` unknown inner linear statuses,
 whereas the retained unpreconditioned run is about `108 s` with clean solver
 status. A lower `maxiter=8` JAX-GMRES budget also slowed to `116.6 s`, and
 `runtime:recycling_jax_linear_jit_residual=true` exceeded a `220 s` guard on
-the same gate. This negative evidence keeps all current preconditioner and JIT
-variants off by default. The solver also exposes a bounded
+the same adaptive-BDF gate. A later bounded backward-Euler hydrogen probe gives
+the narrower positive case for keeping the seam alive: with one warmup solve,
+the default three-run median was `4.64 s`, while the jitted-residual route ran
+in `3.02 s` with identical residual norm and lower reported linear-solve time
+(`1.73 s` versus `3.47 s`). This means residual JIT is a useful fixed-layout
+profiling seam but still not a default production route until the
+adaptive-BDF/output-window gates pass with the same solver-health checks. The
+solver also exposes a bounded
 `linearized_diag` diagnostic that builds an exact JVP-derived Jacobian diagonal
 after `jax.linearize`; on the same fixed-layout `timestep=1.0` gate it ran in
 `3.66 s`, spent `0.36 s` building the diagonal, and still reached the full
