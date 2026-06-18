@@ -1473,6 +1473,9 @@ def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:
         "linearized_diag",
         "jvp_diag",
         "jacobian_diag",
+        "field_diag",
+        "field_jacobi",
+        "field_diagonal",
         "local_block_diag",
         "local_block",
         "block_jacobi",
@@ -1563,6 +1566,21 @@ def _build_jax_linearized_dynamic_preconditioner(
     normalized = str(name or "").strip().lower().replace("-", "_")
     if normalized in {"linearized_diag", "jvp_diag", "jacobian_diag"}:
         return _build_jax_linearized_diagonal_preconditioner(linear_map, prototype_state)
+    if normalized in {"field_diag", "field_jacobi", "field_diagonal"}:
+        if context is None:
+            raise ValueError(
+                "field_diag preconditioner requires active_cell_count and "
+                "field_count in linear_preconditioner_context."
+            )
+        return _build_jax_linearized_field_diagonal_preconditioner(
+            linear_map,
+            prototype_state,
+            active_cell_count=int(context.get("active_cell_count", 0)),
+            field_count=int(context.get("field_count", 0)),
+            feedback_count=int(context.get("feedback_count", 0)),
+            floor=float(context.get("floor", 1.0e-10)),
+            max_unknowns=int(context.get("max_unknowns", 8192)),
+        )
     if normalized in {
         "local_block_diag",
         "local_block",
@@ -1609,6 +1627,80 @@ def _build_jax_linearized_dynamic_preconditioner(
             max_total_unknowns=int(context.get("max_total_unknowns", 8192)),
         )
     raise ValueError(f"Unsupported dynamic JAX preconditioner {name!r}.")
+
+
+def _build_jax_linearized_field_diagonal_preconditioner(
+    linear_map,
+    prototype_state,
+    *,
+    active_cell_count: int,
+    field_count: int,
+    feedback_count: int = 0,
+    floor: float = 1.0e-10,
+    max_unknowns: int = 8192,
+):
+    """Build a field-active diagonal preconditioner from scalar JVPs.
+
+    This is the cheapest JVP-derived physics preconditioner for the field-major
+    recycling layout. It samples only the diagonal entries of the active plasma
+    and neutral field block and leaves feedback scalars unscaled.
+    """
+
+    try:
+        import jax
+        import jax.numpy as jnp
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when jax is unavailable
+        raise ImportError("JAX field-diagonal preconditioning requires jax.") from exc
+
+    prototype = jnp.asarray(prototype_state, dtype=jnp.float64)
+    flat_size = int(prototype.size)
+    active_cell_count = int(active_cell_count)
+    field_count = int(field_count)
+    feedback_count = int(feedback_count)
+    field_unknown_count = active_cell_count * field_count
+    if active_cell_count < 0 or field_count < 0 or feedback_count < 0:
+        raise ValueError("field_diag preconditioner counts must be non-negative.")
+    if flat_size != field_unknown_count + feedback_count:
+        raise ValueError(
+            "field_diag preconditioner context does not match packed state: "
+            f"state has {flat_size} entries, expected "
+            f"{field_unknown_count + feedback_count}."
+        )
+    if field_unknown_count == 0:
+        return lambda vector: jnp.asarray(vector, dtype=jnp.float64)
+    if field_unknown_count > int(max_unknowns):
+        raise ValueError(
+            "field_diag preconditioner is bounded to field blocks with at most "
+            f"{int(max_unknowns)} unknowns; got {field_unknown_count}."
+        )
+
+    field_indices = jnp.arange(field_unknown_count, dtype=jnp.int32)
+
+    def diagonal_entry(flat_index):
+        tangent_flat = jnp.zeros(flat_size, dtype=prototype.dtype).at[flat_index].set(
+            1.0
+        )
+        action = jnp.ravel(linear_map(tangent_flat.reshape(tuple(prototype.shape))))
+        return action[flat_index]
+
+    diagonal = jax.vmap(diagonal_entry)(field_indices)
+    safe_diagonal = _safe_diagonal_denominator(diagonal, floor=float(floor))
+    safe_diagonal = jax.block_until_ready(safe_diagonal)
+
+    def preconditioner(vector):
+        flat_vector = jnp.ravel(jnp.asarray(vector, dtype=jnp.float64))
+        solved_fields = flat_vector[:field_unknown_count] / safe_diagonal
+        if feedback_count:
+            solved = jnp.concatenate(
+                (solved_fields, flat_vector[field_unknown_count:]), axis=0
+            )
+        else:
+            solved = solved_fields
+        return solved.reshape(tuple(prototype.shape))
+
+    return preconditioner
 
 
 def _build_jax_linearized_local_block_preconditioner(

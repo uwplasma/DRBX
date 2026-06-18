@@ -5655,6 +5655,10 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "linearized_diag": "linearized_diag",
         "jvp_diag": "linearized_diag",
         "jacobian_diag": "linearized_diag",
+        "field_diag": "field_diag",
+        "field_jacobi": "field_diag",
+        "field_diagonal": "field_diag",
+        "field_block_diag": "field_diag",
         "local_block": "local_block_diag",
         "local_block_diag": "local_block_diag",
         "block_jacobi": "local_block_diag",
@@ -5677,7 +5681,7 @@ def _build_recycling_jax_linear_preconditioner(
 ) -> Callable[[object], object] | None:
     if name is None:
         return None
-    if name in {"linearized_diag", "local_block_diag", "parallel_line"}:
+    if name in {"linearized_diag", "field_diag", "local_block_diag", "parallel_line"}:
         return None
     if name not in {"state_scale", "field_scale"}:
         raise ValueError(f"Unsupported recycling JAX preconditioner {name!r}.")
@@ -5706,7 +5710,7 @@ def _recycling_jax_linear_preconditioner_context(
     config: BoutConfig | None = None,
     layout: _RecyclingPackedStateLayout | None,
 ) -> dict[str, object] | None:
-    if name not in {"local_block_diag", "parallel_line"}:
+    if name not in {"field_diag", "local_block_diag", "parallel_line"}:
         return None
     if layout is None:
         raise ValueError(

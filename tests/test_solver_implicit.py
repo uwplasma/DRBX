@@ -1352,6 +1352,72 @@ def test_jax_linearized_newton_solver_builds_linearized_diagonal_preconditioner(
     assert info.linear_preconditioner_build_seconds >= 0.0
 
 
+def test_field_diagonal_preconditioner_scales_active_field_block_only() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_cell_count = 2
+    field_count = 2
+    feedback_count = 1
+    field_unknown_count = active_cell_count * field_count
+    diagonal = jnp.asarray([4.0, -2.0, 8.0, 0.5, 99.0], dtype=jnp.float64)
+    state = jnp.zeros(field_unknown_count + feedback_count, dtype=jnp.float64)
+
+    def linear_map(vector):
+        return diagonal * jnp.asarray(vector, dtype=jnp.float64)
+
+    preconditioner = (
+        implicit_mod._build_jax_linearized_field_diagonal_preconditioner(
+            linear_map,
+            state,
+            active_cell_count=active_cell_count,
+            field_count=field_count,
+            feedback_count=feedback_count,
+        )
+    )
+    rhs = jnp.asarray([8.0, -6.0, 4.0, 2.0, 10.0], dtype=jnp.float64)
+    solved = preconditioner(rhs)
+
+    np.testing.assert_allclose(
+        np.asarray(solved),
+        np.asarray([2.0, 3.0, 0.5, 4.0, 10.0], dtype=np.float64),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
+def test_jax_linearized_newton_solver_builds_field_diagonal_preconditioner() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.asarray([1.0, -2.0, 0.5, 3.0, 0.25], dtype=jnp.float64)
+    weights = jnp.asarray([4.0, 2.0, 8.0, 0.5, 1.0], dtype=jnp.float64)
+
+    def residual(state):
+        return weights * (jnp.asarray(state, dtype=jnp.float64) - target)
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        np.zeros(5, dtype=np.float64),
+        active_shape=(5,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_restart=5,
+        linear_maxiter=5,
+        linear_preconditioner_name="field_diag",
+        linear_preconditioner_context={
+            "active_cell_count": 2,
+            "field_count": 2,
+            "feedback_count": 1,
+        },
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is True
+    assert info.linear_preconditioner == "field_diag"
+    assert info.linear_preconditioner_build_count >= 1
+    assert info.linear_preconditioner_build_seconds >= 0.0
+
+
 def test_jax_linearized_newton_solver_builds_local_block_preconditioner() -> None:
     jnp = pytest.importorskip("jax.numpy")
 

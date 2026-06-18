@@ -1554,6 +1554,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   least one `bdf_jvp_jacobian_batch_count`. This does not promote the
   full-output path to default; it makes future CPU/GPU profiling evidence
   auditable before any claim is broadened.
+- 2026-06-18: Added an opt-in `field_diag` JVP-derived preconditioner for the
+  fixed-layout recycling solver. It validates the field-major active layout,
+  samples only active field-block diagonal entries with scalar JVPs, leaves
+  feedback scalars unscaled, and is now selectable through
+  `runtime:recycling_jax_linear_preconditioner=field_diag`. This is a cheaper
+  candidate between static field scaling and expensive exact local/line-block
+  inversions. A bounded hydrogen one-step probe verified the runtime surface
+  and gate (`linear_preconditioner=field_diag`, one build, `0.44 s` build time,
+  two residual evaluations, five linear-operator calls, solver status `0`), but
+  it did not improve this tiny same-case runtime (`7.37 s` versus `6.95 s`
+  unpreconditioned with the same linear budget). It therefore remains
+  experimental until heavier hydrogen and D/T/He gates prove residual/JVP/Krylov
+  or runtime improvement.
 
 ## Definition Of Done
 
