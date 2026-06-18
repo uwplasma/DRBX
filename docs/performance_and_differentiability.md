@@ -1045,7 +1045,17 @@ hydrogen JAX-linearized probe also keeps `parallel_line` opt-in rather than
 promoted: the unpreconditioned control took `5.02 s`, while
 `runtime:recycling_jax_linear_preconditioner=parallel_line` took `5.62 s` with
 the same residual, same `800` JAX GMRES update count, and `0.52 s` spent
-building two line-block preconditioners. That closes simple row, field,
+building two line-block preconditioners. The line-block builder now batches
+multiple field-line blocks per JVP launch, with the bounded runtime control
+`runtime:recycling_jax_linear_preconditioner_max_batch_unknowns=<n>` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_BATCH_UNKNOWNS=<n>`. This
+improves the implementation path for multi-line 2D/3D transport
+preconditioning, but it does not change the 1D conclusion because the hydrogen
+gate contains only one parallel line. A same-worktree rerun with residual JIT,
+skipped initial residual check, and batched JAX GMRES gave `3.07 s`
+unpreconditioned, `3.79 s` with `parallel_line`, and `3.76 s` with
+`parallel_line` plus preconditioner reuse; all runs retained the same residual
+band and the full `800` GMRES update budget. That closes simple row, field,
 diagonal, same-cell block-Jacobi, and first line-block preconditioning as
 default speedup lanes and points the next performance work toward fewer
 accepted trial solves, lower residual/JVP kernel cost, or a stronger
