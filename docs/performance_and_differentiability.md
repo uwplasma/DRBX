@@ -1119,6 +1119,16 @@ residual `3.76e-6`, and both kept failed linear solves at zero. This is the
 current bounded fixture evidence for preconditioner reuse; heavier recycling
 and D/T/He gates still need the same budgeted treatment before default
 promotion.
+The solver now also separates preconditioner build cost from preconditioner
+application cost. JAX-linearized steps report
+`linear_preconditioner_apply_count` and
+`linear_preconditioner_apply_seconds`, and recycling histories aggregate these
+beside the existing build-count/build-time fields. On the bounded hydrogen
+active-array fixed-BDF2 gate with `local_block_diag` reuse, the preconditioner
+is applied `35` times with about `0.148 s` of Python-visible apply dispatch,
+but linear-operator calls remain `25`; this confirms that the current
+local-block candidate is not failing because application is expensive, it is
+failing because it does not reduce Krylov work on that gate.
 
 The real-kernel JAX-linearized profiling script has the same control surface
 for heavier runs. `scripts/profile_recycling_jax_linearized_gate.py` accepts
