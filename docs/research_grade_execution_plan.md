@@ -545,6 +545,11 @@ long work logs here.
   residual norm, but the three-run median wall time is noise-equivalent
   (`4.98 s` default versus `4.99 s` skip), so it remains a profiling seam and
   not a default promotion.
+- 2026-06-18: Reprofiled residual JIT on the bounded hydrogen BE gate. With
+  one warmup solve, `runtime:recycling_jax_linear_jit_residual=true` reduced
+  the three-run median from `4.64 s` to `3.02 s` at identical residual norm,
+  but the older adaptive-BDF timeout remains the limiting evidence for default
+  promotion.
 
 ## External Literature And Code Baseline
 
