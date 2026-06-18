@@ -129,6 +129,16 @@ def _parse_args() -> argparse.Namespace:
         default="jax_gmres",
         help="Linear solver backend for nontrivial JAX-linearized Newton updates.",
     )
+    parser.add_argument(
+        "--gmres-solve-method",
+        choices=("batched", "incremental"),
+        default=None,
+        help=(
+            "Optional JAX GMRES solve_method override. 'incremental' can "
+            "terminate within a restart on CPU; 'batched' is the JAX default "
+            "and usually has lower accelerator overhead."
+        ),
+    )
     parser.add_argument("--cprofile-top", type=int, default=40)
     parser.add_argument("--skip-cprofile", action="store_true")
     parser.add_argument("--rss-profile", action="store_true")
@@ -186,6 +196,11 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
         overrides.append("runtime:recycling_jax_linear_jit_residual=true")
     if bool(getattr(args, "skip_initial_residual_check", False)):
         overrides.append("runtime:recycling_jax_linear_check_initial_residual=false")
+    gmres_solve_method = getattr(args, "gmres_solve_method", None)
+    if gmres_solve_method:
+        overrides.append(
+            f"runtime:recycling_jax_linear_gmres_solve_method={gmres_solve_method}"
+        )
     return overrides
 
 

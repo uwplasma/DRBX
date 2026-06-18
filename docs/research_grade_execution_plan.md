@@ -550,6 +550,10 @@ long work logs here.
   the three-run median from `4.64 s` to `3.02 s` at identical residual norm,
   but the older adaptive-BDF timeout remains the limiting evidence for default
   promotion.
+- 2026-06-18: Exposed JAX GMRES `solve_method` as an opt-in recycling profiling
+  control. On the warmed bounded hydrogen gate with residual JIT and skipped
+  initial residual check, `incremental` remained correct but was slower than
+  `batched` (`3.06 s` versus `2.98 s` median), so the default stays unchanged.
 
 ## External Literature And Code Baseline
 

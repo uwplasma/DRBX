@@ -1035,6 +1035,33 @@ def test_jax_linearized_newton_solver_reports_custom_linear_tolerance() -> None:
     assert info.linear_solver_tolerance == pytest.approx(1.0e-5)
 
 
+def test_jax_linearized_newton_solver_reports_gmres_solve_method() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    assert implicit_mod._resolve_jax_gmres_solve_method("incremental") == "incremental"
+    assert implicit_mod._resolve_jax_gmres_solve_method("givens") == "incremental"
+    assert implicit_mod._resolve_jax_gmres_solve_method("unknown") == "batched"
+
+    target = jnp.array([1.0, -0.5], dtype=jnp.float64)
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - target,
+        np.array([0.0, 0.0], dtype=np.float64),
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=3,
+        linear_restart=4,
+        linear_maxiter=4,
+        linear_solver_solve_method="incremental",
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is True
+    assert info.linear_solver_backend == "jax_gmres"
+    assert info.linear_solver_solve_method == "incremental"
+
+
 def test_jax_linearized_newton_solver_accepts_left_preconditioner() -> None:
     jnp = pytest.importorskip("jax.numpy")
 

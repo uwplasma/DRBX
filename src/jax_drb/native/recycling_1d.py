@@ -4664,6 +4664,7 @@ def advance_recycling_1d_backward_euler_step(
             config,
             residual_tolerance=residual_tolerance,
         )
+        linear_solve_method = _resolve_recycling_jax_linear_gmres_solve_method(config)
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
             config
@@ -4689,6 +4690,7 @@ def advance_recycling_1d_backward_euler_step(
             linear_maxiter=linear_maxiter,
             linear_tolerance=linear_tolerance,
             linear_solver_backend=linear_backend,
+            linear_solver_solve_method=linear_solve_method,
             linear_preconditioner=_build_recycling_jax_linear_preconditioner(
                 packed_initial_guess,
                 name=preconditioner_name,
@@ -4852,6 +4854,7 @@ def advance_recycling_1d_bdf2_step(
             config,
             residual_tolerance=residual_tolerance,
         )
+        linear_solve_method = _resolve_recycling_jax_linear_gmres_solve_method(config)
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
             config
@@ -4877,6 +4880,7 @@ def advance_recycling_1d_bdf2_step(
             linear_maxiter=linear_maxiter,
             linear_tolerance=linear_tolerance,
             linear_solver_backend=linear_backend,
+            linear_solver_solve_method=linear_solve_method,
             linear_preconditioner=_build_recycling_jax_linear_preconditioner(
                 packed_initial_guess,
                 name=preconditioner_name,
@@ -5566,6 +5570,32 @@ def _resolve_recycling_jax_linear_solver_backend() -> str:
         "lineax_gmres": "lineax_gmres",
     }
     return aliases.get(env_value, "jax_gmres")
+
+
+def _resolve_recycling_jax_linear_gmres_solve_method(
+    config: BoutConfig | None = None,
+) -> str:
+    option_name = "recycling_jax_linear_gmres_solve_method"
+    raw_value: str | None = None
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            raw_value = str(config.parsed(section_name, option_name))
+            break
+    if raw_value is None:
+        raw_value = os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_GMRES_SOLVE_METHOD")
+    normalized = str(raw_value or "batched").strip().lower().replace("-", "_")
+    aliases = {
+        "": "batched",
+        "default": "batched",
+        "batch": "batched",
+        "batched": "batched",
+        "incremental": "incremental",
+        "givens": "incremental",
+        "qr": "incremental",
+    }
+    return aliases.get(normalized, "batched")
 
 
 def _resolve_recycling_jax_linear_preconditioner_name(
@@ -6523,6 +6553,7 @@ def _as_recycling_step_info(
         "linear_solver_reported_iterations": getattr(
             info, "linear_solver_reported_iterations", None
         ),
+        "linear_solver_solve_method": getattr(info, "linear_solver_solve_method", None),
         "linear_preconditioner": getattr(info, "linear_preconditioner", None),
         "linear_preconditioner_build_seconds": float(
             getattr(info, "linear_preconditioner_build_seconds", 0.0)

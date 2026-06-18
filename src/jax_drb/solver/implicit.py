@@ -44,6 +44,7 @@ class ImplicitStepInfo:
     linear_solver_status: int | float | str | None = None
     linear_solver_success: bool | None = None
     linear_solver_reported_iterations: int | None = None
+    linear_solver_solve_method: str | None = None
     linear_preconditioner: str | None = None
     linear_preconditioner_build_seconds: float = 0.0
     linear_preconditioner_build_count: int = 0
@@ -1091,6 +1092,7 @@ def solve_jax_linearized_newton_system(
     linear_maxiter: int = 20,
     linear_tolerance: float | None = None,
     linear_solver_backend: str = "jax_gmres",
+    linear_solver_solve_method: str = "batched",
     linear_preconditioner: Callable[[object], object] | None = None,
     linear_preconditioner_name: str | None = None,
     linear_preconditioner_context: dict[str, object] | None = None,
@@ -1132,6 +1134,7 @@ def solve_jax_linearized_newton_system(
     last_linear_solver_status: int | float | str | None = None
     last_linear_solver_success: bool | None = None
     last_linear_solver_reported_iterations: int | None = None
+    resolved_solve_method = _resolve_jax_gmres_solve_method(linear_solver_solve_method)
     residual_function = jax.jit(residual) if bool(jit_residual) else residual
 
     def _block(value):
@@ -1169,6 +1172,9 @@ def solve_jax_linearized_newton_system(
             linear_solver_status=last_linear_solver_status,
             linear_solver_success=last_linear_solver_success,
             linear_solver_reported_iterations=last_linear_solver_reported_iterations,
+            linear_solver_solve_method=(
+                resolved_solve_method if linear_backend == "jax_gmres" else None
+            ),
             linear_preconditioner=linear_preconditioner_name
             if linear_preconditioner is not None
             or _is_dynamic_jax_linear_preconditioner(linear_preconditioner_name)
@@ -1245,6 +1251,7 @@ def solve_jax_linearized_newton_system(
             linear_maxiter=int(linear_maxiter),
             jax_gmres=gmres,
             jax_bicgstab=bicgstab,
+            gmres_solve_method=resolved_solve_method,
             preconditioner=effective_preconditioner,
         )
         update = solve_result.update
@@ -1335,6 +1342,20 @@ def _resolve_jax_linear_solver_backend(name: str) -> str:
         return aliases[normalized]
     except KeyError as exc:
         raise ValueError(f"Unsupported JAX linear solver backend {name!r}.") from exc
+
+
+def _resolve_jax_gmres_solve_method(name: str | None) -> str:
+    normalized = str(name or "batched").strip().lower().replace("-", "_")
+    aliases = {
+        "": "batched",
+        "default": "batched",
+        "batch": "batched",
+        "batched": "batched",
+        "incremental": "incremental",
+        "givens": "incremental",
+        "qr": "incremental",
+    }
+    return aliases.get(normalized, "batched")
 
 
 def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:
@@ -1771,6 +1792,7 @@ def _solve_jax_linearized_update(
     linear_maxiter: int,
     jax_gmres,
     jax_bicgstab,
+    gmres_solve_method: str = "batched",
     preconditioner=None,
 ):
     if backend == "jax_gmres":
@@ -1782,6 +1804,7 @@ def _solve_jax_linearized_update(
             restart=int(linear_restart),
             maxiter=int(linear_maxiter),
             M=preconditioner,
+            solve_method=_resolve_jax_gmres_solve_method(gmres_solve_method),
         )
         return JaxLinearizedUpdateResult(update=update, backend=backend, status=status)
     if backend == "jax_bicgstab":
