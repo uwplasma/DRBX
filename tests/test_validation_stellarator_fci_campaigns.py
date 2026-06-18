@@ -121,6 +121,8 @@ def test_imported_connection_length_refinement_example_resolves_live_sources(
         output_root=tmp_path / "live_refinement",
         case_label="demo",
         live_level_shapes=((3, 4, 6), (6, 8, 12), (12, 16, 24)),
+        live_convergence_threshold=0.11,
+        live_linf_threshold=0.22,
         require_pass=False,
     )
 
@@ -137,6 +139,8 @@ def test_imported_connection_length_refinement_example_resolves_live_sources(
     ]
     assert all(item.live_import is True for item in settings)
     assert all(item.require_pass is False for item in settings)
+    assert all(item.convergence_threshold == 0.11 for item in settings)
+    assert all(item.linf_threshold == 0.22 for item in settings)
     assert module.resolve_connection_quantity("hybrid", "target-exit-length") == (
         "target_exit_length"
     )

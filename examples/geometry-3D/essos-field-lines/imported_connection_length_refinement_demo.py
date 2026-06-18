@@ -44,6 +44,8 @@ TRACE_TOLERANCE = 1.0e-8
 
 CONVERGENCE_THRESHOLD = 0.02
 LINF_THRESHOLD = 0.05
+LIVE_CONVERGENCE_THRESHOLD = 0.10
+LIVE_LINF_THRESHOLD = 0.20
 MINIMUM_OBSERVED_ORDER = 1.5
 LIVE_MINIMUM_OBSERVED_ORDER = 0.5
 REQUIRE_OBSERVED_ORDER = True
@@ -115,7 +117,9 @@ def build_run_settings(
     times_to_trace: int = TIMES_TO_TRACE,
     trace_tolerance: float = TRACE_TOLERANCE,
     convergence_threshold: float = CONVERGENCE_THRESHOLD,
+    live_convergence_threshold: float = LIVE_CONVERGENCE_THRESHOLD,
     linf_threshold: float = LINF_THRESHOLD,
+    live_linf_threshold: float = LIVE_LINF_THRESHOLD,
     minimum_observed_order: float = MINIMUM_OBSERVED_ORDER,
     live_minimum_observed_order: float = LIVE_MINIMUM_OBSERVED_ORDER,
     require_observed_order: bool = REQUIRE_OBSERVED_ORDER,
@@ -173,8 +177,8 @@ def build_run_settings(
                 maxtime=float(maxtime),
                 times_to_trace=int(times_to_trace),
                 trace_tolerance=float(trace_tolerance),
-                convergence_threshold=float(convergence_threshold),
-                linf_threshold=float(linf_threshold),
+                convergence_threshold=float(live_convergence_threshold),
+                linf_threshold=float(live_linf_threshold),
                 minimum_observed_order=float(live_minimum_observed_order),
                 require_observed_order=bool(require_observed_order),
                 require_pass=bool(require_pass),

@@ -56,7 +56,11 @@ The live template now uses three nested grids and sets
 `REQUIRE_OBSERVED_ORDER = True`, so the command fails if the generated report
 does not contain an actual observed-order convergence measurement. Two-level
 live checks remain useful for fast debugging, but they are advisory and should
-not be used as publication-grade refinement evidence.
+not be used as publication-grade refinement evidence. Live controls use
+`LIVE_CONVERGENCE_THRESHOLD` and `LIVE_LINF_THRESHOLD`, separately from the
+stricter manufactured thresholds, because the live coordinate-interpolation
+gate measures imported-map consistency rather than a manufactured analytic
+solution.
 For definitions of one-sided, target-to-target, and effective parallel
 connection length, and for the exact code paths used by each geometry source,
 see [Connection Length](connection_length.md).
@@ -78,14 +82,17 @@ negative promotion evidence. Raw `coil` and `hybrid` runs on
 \(L_\infty\) error. Those values show that the mixed raw length is not a
 grid-invariant refinement quantity. After the importer was split into
 `raw_connection_length`, `adjacent_step_length`, and `target_exit_length`, live
-VMEC and hybrid controls using `parallel_step_per_toroidal_radian` pass the same
-three-level observed-order gate with normalized RMS `5.90e-2`,
-\(L_\infty\) `1.18e-1`, observed order `1.20`, minimum RMS reduction factor
-`2.30`, and minimum \(L_\infty\) reduction factor `1.69`. Pure coil
-adjacent-step tracing still fails at this resolution with normalized RMS
-`0.953`, \(L_\infty\) `0.998`, and observed order `6.8e-3`; it remains a
-separate field-line tracing refinement problem rather than evidence against
-the hybrid VMEC-map/coil-mask lane.
+VMEC and hybrid controls using `parallel_step_per_toroidal_radian` pass the
+live three-level observed-order control with normalized RMS `5.90e-2`,
+\(L_\infty\) `1.18e-1`, observed order `1.20`, and monotonic RMS and
+\(L_\infty\) reduction. They do not satisfy the stricter manufactured
+thresholds and therefore remain connection-length controls, not full
+turbulence/movie promotion evidence by themselves. A June 18, 2026 pure-coil
+`adjacent_step_length` rerun improved the finest errors to normalized RMS
+`1.05e-2` and \(L_\infty\) `1.98e-2`, but the observed order was only `0.101`;
+pure-coil adjacent-step tracing therefore still fails the observed-order
+promotion gate. This keeps the hybrid VMEC-map/coil-mask lane as the current
+open-field bridge while pure-coil map refinement remains active work.
 
 ![Manufactured nested-grid connection-length refinement](data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png)
 
