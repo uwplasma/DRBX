@@ -1482,6 +1482,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   reproducibility of the full-output JAX-transformable lane, but performance
   still requires cheaper residual/JVP kernels or a preconditioner that reduces
   operator calls.
+- 2026-06-18: Ran local fixed-output BDF2 promotion checks with the new
+  operator-call gate. On `recycling_1d_one_step` with `timestep=2` and no
+  explicit internal cap, both fixed-full-field and active-array JAX-linearized
+  modes used `automatic_jax_linearized` substepping, accepted two internal
+  substeps, reached residual `9.01e-10`, reported zero failed linear solves,
+  and stayed at `25` linear-operator calls below the `512` gate. On
+  `recycling_dthe_one_step` with the explicit `0.5` internal cap, both modes
+  accepted two internal substeps, reached residual `1.87e-11`, reported zero
+  failed linear solves, and stayed at `45` operator calls below the `512` gate.
+  The timings remain negative performance evidence: `82.8 s` for fixed
+  full-field D/T/He and `99.3 s` for active-array D/T/He. The next solver work
+  should reduce residual/JVP cost or use an approximate Schur/transport
+  preconditioner that lowers operator-call or dispatch time on this same gate.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic
