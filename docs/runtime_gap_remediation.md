@@ -314,10 +314,13 @@ The recycling BE/BDF2 wrappers expose the same seam through
 `runtime:recycling_jax_linear_jit_residual=true` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL=1`, so profiling decks can pin the
 pre-JIT behavior without changing the finite-difference BDF default.
-They also expose opt-in JAX-GMRES row-scaling probes through
-`runtime:recycling_jax_linear_preconditioner=state_scale`, `field_scale`, or
-`local_block_diag` and the matching
+They also expose opt-in JAX-GMRES row-scaling and JVP-derived probes through
+`runtime:recycling_jax_linear_preconditioner=state_scale`, `field_scale`,
+`field_diag`, or `local_block_diag` and the matching
 `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER` environment variable. The
+`field_diag` path samples only active field-block diagonal entries from the
+JAX-linearized residual and leaves feedback scalars unscaled, so it is a
+cheaper diagnostic than dense same-cell block inversion. The
 `local_block_diag` path is the current physics/block preconditioner probe: it
 uses the JAX-linearized residual to assemble same-cell field-coupling blocks
 with JVPs, solves those small blocks on device, and treats off-cell transport
@@ -331,6 +334,10 @@ repeat those knobs without a changed residual or preconditioner. The
 `linearized_diag` diagnostic is also opt-in: it builds an exact JVP-derived
 Jacobian diagonal after `jax.linearize`, but the first fixed-layout hydrogen
 probe spent enough time building the diagonal that it did not improve the gate.
+The June 18, 2026 `field_diag` probe verified the runtime surface and
+preconditioner gate, but it was still slower than the matched unpreconditioned
+bounded control (`7.37 s` versus `6.95 s`), so it remains diagnostic rather
+than a promoted speedup path.
 The follow-up BDF2 initial-guess cleanup is similarly bounded: JAX-linearized
 adaptive-BDF modes now pass the embedded backward-Euler predictor into the
 BDF2 corrector initial state. The hydrogen `recycling_1d_one_step`,
