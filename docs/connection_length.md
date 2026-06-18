@@ -188,6 +188,9 @@ turbulence only when all of the following are true:
   forward and backward boundary masks used by the imported maps; aggregate
   target-exit coverage alone is not sufficient for promotion.
 - Single-grid roughness diagnostics do not show unresolved grid-scale jumps.
+- Promotion campaigns set `require_connection_resolution=True`, so the
+  single-grid roughness diagnostic is a hard imported-map gate rather than
+  advisory metadata.
 - A live multi-grid control passes with the correct quantity: VMEC
   adjacent-step maps use parallel step length per toroidal radian, while
   open-field coil/hybrid maps must separate target-to-target exit length from

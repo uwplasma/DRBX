@@ -31,6 +31,7 @@ TIMES_TO_TRACE = 360
 MAXTIME = 80.0
 TRACE_TOLERANCE = 1.0e-8
 PRECISION = "float64"
+REQUIRE_CONNECTION_RESOLUTION = False
 
 
 DEFAULT_OUTPUT_ROOTS = {
@@ -65,6 +66,7 @@ class ImportedFciRunSettings:
     maxtime: float
     trace_tolerance: float
     precision: str
+    require_connection_resolution: bool
 
 
 def build_run_settings(
@@ -84,6 +86,7 @@ def build_run_settings(
     maxtime: float = MAXTIME,
     trace_tolerance: float = TRACE_TOLERANCE,
     precision: str = PRECISION,
+    require_connection_resolution: bool = REQUIRE_CONNECTION_RESOLUTION,
 ) -> tuple[ImportedFciRunSettings, ...]:
     """Resolve top-level parameters into one setting object per map source."""
 
@@ -118,6 +121,7 @@ def build_run_settings(
             maxtime=float(maxtime),
             trace_tolerance=float(trace_tolerance),
             precision=str(precision),
+            require_connection_resolution=bool(require_connection_resolution),
         )
         for source in requested_sources
     )
@@ -133,7 +137,8 @@ def print_dry_run(settings: ImportedFciRunSettings) -> None:
         f"rho=[{settings.rho_min:g}, {settings.rho_max:g}], "
         f"maxtime={settings.maxtime:g}, "
         f"times_to_trace={settings.times_to_trace}, "
-        f"precision={settings.precision}"
+        f"precision={settings.precision}, "
+        f"require_connection_resolution={settings.require_connection_resolution}"
     )
 
 
@@ -154,6 +159,7 @@ def write_dry_run_artifact(settings: ImportedFciRunSettings) -> None:
         times_to_trace=settings.times_to_trace,
         trace_tolerance=settings.trace_tolerance,
         precision=settings.precision,
+        require_connection_resolution=settings.require_connection_resolution,
     )
     print(f"wrote dry-run contract: {artifacts.contract_json_path}")
 
@@ -175,6 +181,7 @@ def run_campaign(settings: ImportedFciRunSettings) -> None:
         maxtime=settings.maxtime,
         times_to_trace=settings.times_to_trace,
         trace_tolerance=settings.trace_tolerance,
+        require_connection_resolution=settings.require_connection_resolution,
     )
 
     print(f"wrote report: {artifacts.report_json_path}")

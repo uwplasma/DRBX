@@ -52,6 +52,7 @@ def test_imported_fci_example_resolves_source_specific_artifact_defaults(capsys)
         "docs/data/essos_imported_fci_hybrid_artifacts",
     ]
     assert all((item.nx, item.ny, item.nz) == (3, 4, 8) for item in settings)
+    assert all(item.require_connection_resolution is False for item in settings)
 
     custom_settings = module.build_run_settings(
         map_sources=("hybrid",),
@@ -76,6 +77,7 @@ def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, 
         nx=3,
         ny=4,
         nz=8,
+        require_connection_resolution=True,
     )
     module.run_resolved_campaigns(settings, dry_run=True, dry_run_artifacts=True)
 
@@ -104,6 +106,7 @@ def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, 
     assert "adjacent_step_toroidal" in contract["required_array_keys"]
     assert "target_exit_toroidal" in contract["required_array_keys"]
     assert contract["external_inputs"]["not_read_in_dry_run"] is True
+    assert contract["strict_gates"]["require_connection_resolution"] is True
     assert contract["passed"] is True
 
 
@@ -211,6 +214,21 @@ def test_imported_fci_connection_length_resolution_diagnostics_are_advisory() ->
     assert rough_resolution["passed"] is False
     assert rough_resolution["normalized_face_jump_p95"] > smooth_resolution["normalized_face_jump_p95"]
     assert rough_resolution["underresolved_face_fraction"] > 0.5
+
+    strict_rough = build_essos_imported_fci_map_diagnostics(
+        maps=maps,
+        connection_length=rough_connection,
+        adjacent_step_length=adjacent_step_length,
+        target_exit_length=target_exit_length,
+        forward_target_exit_length=np.where(forward_boundary, 2.1, np.nan),
+        backward_target_exit_length=np.where(backward_boundary, 2.2, np.nan),
+        endpoint_count=endpoint_count,
+        map_source="hybrid",
+        require_connection_resolution=True,
+    )
+    assert strict_rough["connection_length_resolution_required"] is True
+    assert strict_rough["connection_length_resolution_passed"] is False
+    assert strict_rough["passed"] is False
 
 
 def test_imported_fci_map_diagnostics_require_endpoint_lengths_for_open_fields() -> None:

@@ -106,6 +106,16 @@ writes `docs/data/essos_imported_fci_vmec_artifacts/` and
 `MAP_SOURCES_TO_RUN = ("hybrid",)` writes
 `docs/data/essos_imported_fci_hybrid_artifacts/` unless `OUTPUT_ROOT` or
 `CASE_LABEL` is set for a custom single-source run.
+Quick regeneration keeps `REQUIRE_CONNECTION_RESOLUTION = False`, so the
+single-grid roughness diagnostic is recorded but remains advisory. Promotion
+runs for publication figures, README movies, or release evidence should set
+`REQUIRE_CONNECTION_RESOLUTION = True`; this makes the
+`connection_length_resolution_diagnostics["passed"]` flag a hard acceptance
+gate in the generated report and stores
+`connection_length_resolution_required=true` in the artifact metadata. A
+strict failure means the map needs more field-line resolution, a better
+interpolation grid, or a successful multi-grid refinement campaign before the
+physics result should be advertised.
 
 ## Geometry Import
 
@@ -186,7 +196,11 @@ maps. The resolution
 diagnostics record normalized neighbor jumps, per-axis 95th-percentile jumps,
 an underresolved-face fraction, and an advisory pass flag. They catch obviously
 grid-scale connection-length roughness before a live imported run is promoted,
-but they are not a replacement for a multi-grid refinement campaign.
+but they are not a replacement for a multi-grid refinement campaign. Set
+`require_connection_resolution=True` in the campaign API, or
+`REQUIRE_CONNECTION_RESOLUTION = True` in the example script, when the
+single-grid diagnostic should reject the imported map instead of only
+annotating it.
 For that promotion step,
 `build_essos_imported_connection_length_refinement_diagnostics` compares
 nested connection-length grids either after conservative block restriction or,
