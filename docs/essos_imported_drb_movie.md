@@ -62,6 +62,22 @@ For the hybrid bridge, set `MAP_SOURCE = "hybrid"` and `OUTPUT_ROOT =
 Path("docs/data/essos_imported_drb_movie_hybrid_artifacts")`; for the
 closed-field control, set `MAP_SOURCE = "vmec"` and use a separate output root.
 
+Before using restored release assets as fresh publication evidence, run the
+clean-clone schema audit:
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  examples/geometry-3D/essos-field-lines/imported_artifact_schema_audit.py
+```
+
+The audit only reads committed JSON reports. It does not rerun the external
+geometry import or the transient, but it catches reports that predate the
+current map-source, GIF-audit, and validation metadata. As of the June 18,
+2026 audit, the older coil movie JSON is stale by one metadata field
+(`map_source`), while the hybrid movie report matches the current schema. This
+is why the hybrid movie is the better current open-field bridge until the coil
+movie package is regenerated.
+
 ## Current Gate
 
 The current public report passes the following checks:

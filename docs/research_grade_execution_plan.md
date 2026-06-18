@@ -149,9 +149,9 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 76% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
+| 3D stellarator imported-field/VMEC SOL | 77% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
-| Docs and examples | 89% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
+| Docs and examples | 90% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 90% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag. |
 
 ## Milestone Map
@@ -1615,6 +1615,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   now has separate live thresholds and still requires observed-order
   availability; these connection-length controls do not by themselves promote
   imported-field turbulence movies.
+- 2026-06-18: Added a clean-clone imported-artifact schema audit for ESSOS
+  imported FCI and DRB movie JSON reports. The reusable validation API and
+  `examples/geometry-3D/essos-field-lines/imported_artifact_schema_audit.py`
+  compare committed reports against the fields emitted by the current
+  validation code without rerunning external geometry or transients. The
+  current audit reports `5` committed JSON files, `4` stale schema reports, and
+  `1` current report: all three imported-FCI JSON reports are stale against
+  the newer connection-length, endpoint, target-label, refinement, and
+  consumed-map diagnostics; the older coil movie JSON is stale by missing
+  `map_source`; the hybrid movie JSON is current. This adds a promotion guard
+  for README/docs/paper figures and makes regeneration requirements explicit.
 
 ## Definition Of Done
 

@@ -11,6 +11,8 @@ import pytest
 
 from jax_drb.geometry import FciMaps, identity_fci_maps
 from jax_drb.validation import (
+    audit_essos_imported_artifact_report,
+    audit_essos_imported_artifact_reports,
     create_stellarator_fci_geometry_campaign_package,
     create_stellarator_fci_operator_campaign_package,
     create_stellarator_fci_suite_campaign_package,
@@ -22,6 +24,8 @@ from jax_drb.validation import (
     create_stellarator_vorticity_campaign_package,
 )
 from jax_drb.validation.essos_imported_fci_campaign import (
+    _IMPORTED_FCI_DIAGNOSTIC_SCHEMA,
+    _IMPORTED_FCI_REQUIRED_REPORT_FIELDS,
     build_essos_imported_connection_length_refinement_diagnostics,
     build_essos_imported_fci_map_diagnostics,
 )
@@ -108,6 +112,65 @@ def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, 
     assert contract["external_inputs"]["not_read_in_dry_run"] is True
     assert contract["strict_gates"]["require_connection_resolution"] is True
     assert contract["passed"] is True
+
+
+def test_imported_artifact_schema_audit_accepts_current_fci_report(
+    tmp_path: Path,
+) -> None:
+    report = {field: True for field in _IMPORTED_FCI_REQUIRED_REPORT_FIELDS}
+    for parent, children in _IMPORTED_FCI_DIAGNOSTIC_SCHEMA.items():
+        report[parent] = {child: True for child in children}
+    report["passed"] = True
+    report_path = tmp_path / "current_fci.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    audit = audit_essos_imported_artifact_report(report_path, artifact_kind="fci")
+
+    assert audit["schema_passed"] is True
+    assert audit["stale"] is False
+    assert audit["missing_report_fields"] == []
+    assert audit["missing_diagnostic_fields"] == {}
+
+
+def test_imported_artifact_schema_audit_flags_stale_fci_report(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "stale_fci.json"
+    report_path.write_text(json.dumps({"case": "stale", "passed": True}), encoding="utf-8")
+
+    audit = audit_essos_imported_artifact_report(report_path, artifact_kind="fci")
+
+    assert audit["schema_passed"] is False
+    assert audit["stale"] is True
+    assert "connection_length_diagnostics" in audit["missing_report_fields"]
+    assert "connection_length_resolution_diagnostics" in audit[
+        "missing_diagnostic_fields"
+    ]
+
+
+def test_imported_artifact_schema_audit_example_reports_committed_stale_fci(
+    capsys,
+) -> None:
+    module = _load_imported_artifact_schema_audit_example()
+    settings = module.build_audit_settings(require_all_current=False)
+
+    summary = module.run_artifact_schema_audit(settings)
+    output = capsys.readouterr().out
+
+    assert summary["report_count"] == 5
+    assert summary["stale_report_count"] == 4
+    assert summary["schema_passed"] is False
+    assert output.count("status=stale, kind=fci") == 3
+    assert output.count("status=stale, kind=movie") == 1
+    assert output.count("status=current, kind=movie") == 1
+
+
+def test_imported_artifact_schema_audit_example_can_require_current_artifacts() -> None:
+    module = _load_imported_artifact_schema_audit_example()
+    settings = module.build_audit_settings(require_all_current=True)
+
+    with pytest.raises(RuntimeError, match="regenerate stale reports"):
+        module.run_artifact_schema_audit(settings)
 
 
 def test_imported_connection_length_refinement_example_resolves_live_sources(
@@ -467,6 +530,31 @@ def _load_imported_fci_campaign_example():
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    return module
+
+
+def _load_imported_artifact_schema_audit_example():
+    module_path = (
+        REPO_ROOT
+        / "examples"
+        / "geometry-3D"
+        / "essos-field-lines"
+        / "imported_artifact_schema_audit.py"
+    )
+    source = module_path.read_text(encoding="utf-8").replace(
+        "RUN_EXAMPLE = True",
+        "RUN_EXAMPLE = False",
+        1,
+    )
+    spec = importlib.util.spec_from_loader(
+        "imported_artifact_schema_audit_example",
+        loader=None,
+    )
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    module.__file__ = str(module_path)
+    sys.modules[spec.name] = module
+    exec(compile(source, str(module_path), "exec"), module.__dict__)
     return module
 
 

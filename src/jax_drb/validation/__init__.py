@@ -176,6 +176,10 @@ from .essos_imported_fci_campaign import (
     save_essos_imported_connection_length_refinement_plot,
     save_essos_imported_fci_campaign_plot,
 )
+from .essos_imported_artifact_audit import (
+    audit_essos_imported_artifact_report,
+    audit_essos_imported_artifact_reports,
+)
 from .essos_imported_pytree_campaign import (
     EssosImportedPytreeCampaignArtifacts,
     build_essos_imported_pytree_campaign,
