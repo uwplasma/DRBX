@@ -110,6 +110,69 @@ def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, 
     assert contract["passed"] is True
 
 
+def test_imported_connection_length_refinement_example_resolves_live_sources(
+    tmp_path: Path,
+) -> None:
+    module = _load_connection_length_refinement_example()
+
+    settings = module.build_run_settings(
+        live_import=True,
+        map_sources=("coil", "vmec", "hybrid"),
+        output_root=tmp_path / "live_refinement",
+        case_label="demo",
+        live_level_shapes=((3, 4, 6), (6, 8, 12), (12, 16, 24)),
+        require_pass=False,
+    )
+
+    assert [item.map_source for item in settings] == ["coil", "vmec", "hybrid"]
+    assert [item.case_label for item in settings] == [
+        "demo_coil_live",
+        "demo_vmec_live",
+        "demo_hybrid_live",
+    ]
+    assert [item.connection_quantity for item in settings] == [
+        "adjacent_step_length",
+        "parallel_step_per_toroidal_radian",
+        "parallel_step_per_toroidal_radian",
+    ]
+    assert all(item.live_import is True for item in settings)
+    assert all(item.require_pass is False for item in settings)
+    assert module.resolve_connection_quantity("hybrid", "target-exit-length") == (
+        "target_exit_length"
+    )
+    with pytest.raises(ValueError, match="Unsupported imported map_source"):
+        module.resolve_connection_quantity("bad_source")
+
+
+def test_imported_connection_length_refinement_example_runs_manufactured_gate(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    module = _load_connection_length_refinement_example()
+    output_root = tmp_path / "manufactured_refinement"
+    settings = module.build_run_settings(
+        live_import=False,
+        output_root=output_root,
+        case_label="manufactured_gate",
+        level_shapes=((4, 6, 8), (8, 12, 16), (16, 24, 32)),
+    )
+
+    assert len(settings) == 1
+    assert settings[0].map_source == "manufactured"
+    assert settings[0].connection_quantity == "manufactured"
+    module.run_resolved_campaigns(settings)
+    output = capsys.readouterr().out
+
+    report_path = output_root / "data" / "manufactured_gate.json"
+    arrays_path = output_root / "data" / "manufactured_gate.npz"
+    plot_path = output_root / "images" / "manufactured_gate.png"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    assert arrays_path.exists()
+    assert plot_path.exists()
+    assert "connection-length refinement gate passed" in output
+
+
 def test_imported_fci_map_diagnostics_verify_consumed_endpoint_masks() -> None:
     base_maps = identity_fci_maps(nx=3, ny=4, nz=8, dphi=0.25)
     forward_boundary = np.zeros(base_maps.shape, dtype=bool)
@@ -400,6 +463,31 @@ def _load_imported_fci_campaign_example():
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    return module
+
+
+def _load_connection_length_refinement_example():
+    module_path = (
+        REPO_ROOT
+        / "examples"
+        / "geometry-3D"
+        / "essos-field-lines"
+        / "imported_connection_length_refinement_demo.py"
+    )
+    source = module_path.read_text(encoding="utf-8").replace(
+        "RUN_EXAMPLE = True",
+        "RUN_EXAMPLE = False",
+        1,
+    )
+    spec = importlib.util.spec_from_loader(
+        "imported_connection_length_refinement_example",
+        loader=None,
+    )
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    module.__file__ = str(module_path)
+    sys.modules[spec.name] = module
+    exec(compile(source, str(module_path), "exec"), module.__dict__)
     return module
 
 
