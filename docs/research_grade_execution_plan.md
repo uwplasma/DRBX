@@ -1397,6 +1397,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   passed in `18.1 s`; the profiled solve took `7.08 s`, the RSS sample run took
   `9.87 s`, peak RSS delta was `828 MiB`, residual evaluations were `2`, and
   line-search trials were `1`.
+- 2026-06-18: Repeated the D/T/He same-case preconditioner probes with the new
+  damped line-search control. `field_scale` remained neutral (`8.65 s` versus
+  `8.65 s`), and `linearized_diag` reduced linear-solve time (`6.60 s` versus
+  `6.79 s`) but lost the gain to its `0.73 s` JVP-derived diagonal build. A
+  first damped `local_block_diag` run improved wall time (`7.90 s` versus
+  `8.65 s`) and linear-solve time (`5.64 s` versus `6.79 s`) after a `0.69 s`
+  build, but the repeat pair was slower than the control (`8.40 s` versus
+  `7.65 s`). The residual, clean JAX-GMRES status, line-search budget, and
+  `400` update budget were unchanged. Treat this as mixed/negative promotion
+  evidence: keep local block as a diagnostic gate, but do not make it default.
+  The next performance implementation should target a transport/neutral
+  Schur-style preconditioner or reduce fixed-layout residual/JVP kernel cost.
 
 ## Definition Of Done
 

@@ -1179,6 +1179,20 @@ line-search trials from `3` to `1`, and local wall time from `7.84 s` to
 `7.34 s`. The local D/T/He research gate now requires this reduced residual
 evaluation count with `--require-max-residual-evaluations=2` and
 `--require-max-line-search-trials=1`.
+Repeating the preconditioner sweep after this damping does not yet justify a
+new default. With the damped line search, `field_scale` remained neutral
+(`8.65 s` versus `8.65 s` for the same-run unpreconditioned control), while
+`linearized_diag` reduced linear-solve time (`6.60 s` versus `6.79 s`) but lost
+more time in its one JVP-derived diagonal build (`0.73 s`). A first
+`local_block_diag` run looked promising (`7.90 s` versus `8.65 s`, with
+linear-solve time reduced from `6.79 s` to `5.64 s` after a `0.69 s` build),
+but the repeat pair reversed the outcome (`8.40 s` for `local_block_diag`
+versus `7.65 s` for the unpreconditioned control). The residual, line-search
+budget, and `400` JAX-GMRES update budget were unchanged. This keeps
+`local_block_diag` as useful instrumentation and a correctness gate, but not as
+a robust performance promotion. The next preconditioner implementation should
+approximate transport/neutral Schur structure or reduce residual/JVP kernel
+cost directly, rather than adding another local dense block variant.
 
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or
