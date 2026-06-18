@@ -184,10 +184,13 @@ directional target labels (`0` closed, `1` forward, `2` backward,
 `3` bidirectional) and require those labels to reconstruct the sheath-consumed
 endpoint counts exactly. They also require finite, nonnegative target-exit
 lengths on a nonzero subset of endpoint cells and finite, nonnegative
-adjacent-step lengths where adjacent interpolation exists.
+adjacent-step lengths where adjacent interpolation exists. Open-field maps now
+also require finite, nonnegative forward- and backward-target exit lengths on
+their corresponding directional boundary masks, so a bidirectional map cannot
+pass with only aggregate endpoint coverage.
 A full imported-field turbulence movie still needs the same live gate plus
-stricter directional endpoint coverage, timestep, and nonlinear refinement
-checks before promotion from documentation bridge to publication evidence.
+pure-coil tracing, timestep, and nonlinear refinement checks before promotion
+from documentation bridge to publication evidence.
 The imported PyTree/JVP artifacts live in
 `docs/data/essos_imported_pytree_artifacts/`,
 `docs/data/essos_imported_pytree_vmec_artifacts/`, and

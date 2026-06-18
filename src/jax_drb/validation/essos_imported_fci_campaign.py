@@ -114,6 +114,10 @@ _IMPORTED_FCI_DIAGNOSTIC_SCHEMA = {
         "endpoint_cell_count",
         "target_exit_finite_endpoint_fraction",
         "target_exit_nonnegative_finite_fraction",
+        "forward_exit_finite_forward_boundary_fraction",
+        "backward_exit_finite_backward_boundary_fraction",
+        "forward_exit_nonnegative_finite_fraction",
+        "backward_exit_nonnegative_finite_fraction",
         "adjacent_step_finite_nonendpoint_fraction",
         "passed",
     ],
@@ -1756,7 +1760,15 @@ def _endpoint_length_diagnostics(
     backward_finite = np.isfinite(backward_exit)
     adjacent_finite = np.isfinite(adjacent)
     target_nonnegative = target_finite & (target_exit >= 0.0)
+    forward_nonnegative = forward_finite & (forward_exit >= 0.0)
+    backward_nonnegative = backward_finite & (backward_exit >= 0.0)
     adjacent_nonnegative = adjacent_finite & (adjacent >= 0.0)
+    forward_boundary_mask = np.asarray(forward_boundary, dtype=bool)
+    backward_boundary_mask = np.asarray(backward_boundary, dtype=bool)
+    forward_boundary_coverage = _fraction(forward_finite, forward_boundary_mask)
+    backward_boundary_coverage = _fraction(backward_finite, backward_boundary_mask)
+    forward_nonnegative_fraction = _fraction(forward_nonnegative, forward_finite)
+    backward_nonnegative_fraction = _fraction(backward_nonnegative, backward_finite)
     source = _normalize_imported_fci_map_source(map_source)
     if source == "vmec":
         passed = bool(endpoint_count == 0 and _fraction(adjacent_finite, nonendpoint_mask) == 1.0)
@@ -1765,6 +1777,10 @@ def _endpoint_length_diagnostics(
             endpoint_count > 0
             and _fraction(target_finite, endpoint_mask) > 0.0
             and _fraction(target_nonnegative, target_finite) == 1.0
+            and forward_boundary_coverage == 1.0
+            and backward_boundary_coverage == 1.0
+            and forward_nonnegative_fraction == 1.0
+            and backward_nonnegative_fraction == 1.0
             and _fraction(adjacent_nonnegative, adjacent_finite) == 1.0
         )
     return {
@@ -1777,14 +1793,10 @@ def _endpoint_length_diagnostics(
         "target_exit_min": _optional_percentile(target_values, 0.0),
         "target_exit_median": _optional_percentile(target_values, 50.0),
         "target_exit_max": _optional_percentile(target_values, 100.0),
-        "forward_exit_finite_forward_boundary_fraction": _fraction(
-            forward_finite,
-            np.asarray(forward_boundary, dtype=bool),
-        ),
-        "backward_exit_finite_backward_boundary_fraction": _fraction(
-            backward_finite,
-            np.asarray(backward_boundary, dtype=bool),
-        ),
+        "forward_exit_finite_forward_boundary_fraction": forward_boundary_coverage,
+        "backward_exit_finite_backward_boundary_fraction": backward_boundary_coverage,
+        "forward_exit_nonnegative_finite_fraction": forward_nonnegative_fraction,
+        "backward_exit_nonnegative_finite_fraction": backward_nonnegative_fraction,
         "adjacent_step_finite_fraction": float(np.mean(adjacent_finite)),
         "adjacent_step_finite_nonendpoint_fraction": _fraction(adjacent_finite, nonendpoint_mask),
         "adjacent_step_nonnegative_finite_fraction": _fraction(
