@@ -1196,6 +1196,12 @@ def _build_reference_active_state_residual_register(
             )
             residual_kind = "bdf2"
         residual_array = np.asarray(residual, dtype=np.float64)
+        residual_field_metrics = _neutral_mixed_residual_field_metrics(
+            residual_array,
+            mesh=mesh,
+            section=section,
+        )
+        dominant_residual_field = _dominant_residual_field(residual_field_metrics)
         entries.append(
             {
                 "native_index": int(matched_point.get("native_index", 0)),
@@ -1206,6 +1212,8 @@ def _build_reference_active_state_residual_register(
                 "residual_kind": residual_kind,
                 "residual_inf_norm": float(np.max(np.abs(residual_array))),
                 "residual_rms": _rms(residual_array),
+                "field_residuals": residual_field_metrics,
+                "dominant_residual_field": dominant_residual_field,
             }
         )
     if not entries:
@@ -1216,6 +1224,7 @@ def _build_reference_active_state_residual_register(
             "skipped_points": skipped[:8],
         }
     worst_entry = max(entries, key=lambda entry: float(entry["residual_inf_norm"]))
+    field_error_register = _aggregate_reference_state_residual_fields(entries)
     return {
         "available": True,
         "description": (
@@ -1231,9 +1240,149 @@ def _build_reference_active_state_residual_register(
         "skipped_point_count": len(skipped),
         "max_residual_inf_norm": float(worst_entry["residual_inf_norm"]),
         "max_residual_time": float(worst_entry["time"]),
+        "dominant_residual_field": field_error_register["dominant_field"],
+        "field_residual_register": field_error_register,
         "worst_entry": worst_entry,
         "entries": entries,
         "skipped_points": skipped[:8],
+    }
+
+
+def _neutral_mixed_residual_field_metrics(
+    residual: np.ndarray,
+    *,
+    mesh,
+    section: str,
+) -> dict[str, dict[str, object]]:
+    """Split a packed neutral residual into field-wise active-domain metrics."""
+
+    array = np.asarray(residual, dtype=np.float64).reshape(-1)
+    active_shape = (
+        int(mesh.xend - mesh.xstart + 1),
+        int(mesh.yend - mesh.ystart + 1),
+        int(mesh.nz),
+    )
+    field_size = int(np.prod(active_shape))
+    fields = (f"N{section}", f"P{section}", f"NV{section}")
+    if field_size <= 0 or array.size != len(fields) * field_size:
+        return {
+            "available": {
+                "available": False,
+                "reason": "packed_residual_shape_mismatch",
+                "residual_size": int(array.size),
+                "expected_size": int(len(fields) * field_size),
+            }
+        }
+    target_y = _target_adjacent_local_y_indices(active_shape[1])
+    metrics: dict[str, dict[str, object]] = {}
+    for index, field in enumerate(fields):
+        block = array[index * field_size : (index + 1) * field_size].reshape(
+            active_shape
+        )
+        active_abs = np.abs(block)
+        max_flat_index = int(np.argmax(active_abs)) if active_abs.size else 0
+        max_index = (
+            [int(value) for value in np.unravel_index(max_flat_index, active_shape)]
+            if active_abs.size
+            else []
+        )
+        target_block = block[:, target_y, :] if target_y else block[:, :0, :]
+        target_abs = np.abs(target_block)
+        target_flat_index = int(np.argmax(target_abs)) if target_abs.size else 0
+        target_index = (
+            [int(value) for value in np.unravel_index(target_flat_index, target_block.shape)]
+            if target_abs.size
+            else []
+        )
+        if target_index:
+            target_index[1] = int(target_y[target_index[1]])
+        metrics[field] = {
+            "available": True,
+            "active_shape": list(active_shape),
+            "active_inf_norm": float(np.max(active_abs)) if active_abs.size else 0.0,
+            "active_rms": _rms(block) if block.size else 0.0,
+            "active_max_abs_index": max_index,
+            "target_adjacent_y_indices": [int(value) for value in target_y],
+            "target_adjacent_inf_norm": (
+                float(np.max(target_abs)) if target_abs.size else 0.0
+            ),
+            "target_adjacent_rms": _rms(target_block) if target_block.size else 0.0,
+            "target_adjacent_max_abs_index": target_index,
+        }
+    return metrics
+
+
+def _target_adjacent_local_y_indices(active_ny: int) -> list[int]:
+    candidates = (0, 1, active_ny - 2, active_ny - 1)
+    return sorted({int(index) for index in candidates if 0 <= index < active_ny})
+
+
+def _dominant_residual_field(
+    field_metrics: dict[str, dict[str, object]],
+) -> str | None:
+    available = {
+        field: metrics
+        for field, metrics in field_metrics.items()
+        if isinstance(metrics, dict) and bool(metrics.get("available", False))
+    }
+    if not available:
+        return None
+    return max(
+        available,
+        key=lambda field: float(available[field].get("target_adjacent_inf_norm", 0.0)),
+    )
+
+
+def _aggregate_reference_state_residual_fields(
+    entries: list[dict[str, object]],
+) -> dict[str, object]:
+    fields: dict[str, dict[str, object]] = {}
+    for entry in entries:
+        field_residuals = entry.get("field_residuals")
+        if not isinstance(field_residuals, dict):
+            continue
+        for field, metrics in field_residuals.items():
+            if not isinstance(metrics, dict) or not bool(metrics.get("available", False)):
+                continue
+            current = fields.get(field)
+            active_norm = float(metrics.get("active_inf_norm", 0.0))
+            target_norm = float(metrics.get("target_adjacent_inf_norm", 0.0))
+            if current is None:
+                fields[field] = {
+                    "field": field,
+                    "max_active_inf_norm": active_norm,
+                    "max_active_time": float(entry.get("time", 0.0)),
+                    "max_active_entry_index": int(entry.get("reference_index", 0)),
+                    "max_target_adjacent_inf_norm": target_norm,
+                    "max_target_adjacent_time": float(entry.get("time", 0.0)),
+                    "max_target_adjacent_entry_index": int(
+                        entry.get("reference_index", 0)
+                    ),
+                }
+                continue
+            if active_norm > float(current["max_active_inf_norm"]):
+                current["max_active_inf_norm"] = active_norm
+                current["max_active_time"] = float(entry.get("time", 0.0))
+                current["max_active_entry_index"] = int(
+                    entry.get("reference_index", 0)
+                )
+            if target_norm > float(current["max_target_adjacent_inf_norm"]):
+                current["max_target_adjacent_inf_norm"] = target_norm
+                current["max_target_adjacent_time"] = float(entry.get("time", 0.0))
+                current["max_target_adjacent_entry_index"] = int(
+                    entry.get("reference_index", 0)
+                )
+    ranked = sorted(
+        fields.values(),
+        key=lambda item: float(item["max_target_adjacent_inf_norm"]),
+        reverse=True,
+    )
+    return {
+        "available": bool(ranked),
+        "ranking_metric": "target_adjacent_inf_norm",
+        "dominant_field": str(ranked[0]["field"]) if ranked else None,
+        "fields": fields,
+        "ranked_fields": ranked,
     }
 
 
@@ -5212,8 +5361,23 @@ def _apply_reference_patch_if_needed(source_root: Path, patch_path: Path) -> Non
 
 
 def _apply_git_patch_if_needed(source_root: Path, patch_path: Path) -> None:
-    check_command = ["git", "-C", str(source_root), "apply", "--check", str(patch_path)]
-    apply_command = ["git", "-C", str(source_root), "apply", str(patch_path)]
+    check_command = [
+        "git",
+        "-C",
+        str(source_root),
+        "apply",
+        "--check",
+        "--recount",
+        str(patch_path),
+    ]
+    apply_command = [
+        "git",
+        "-C",
+        str(source_root),
+        "apply",
+        "--recount",
+        str(patch_path),
+    ]
     reverse_check_command = [
         "git",
         "-C",
@@ -5221,6 +5385,7 @@ def _apply_git_patch_if_needed(source_root: Path, patch_path: Path) -> None:
         "apply",
         "--reverse",
         "--check",
+        "--recount",
         str(patch_path),
     ]
     check = subprocess.run(

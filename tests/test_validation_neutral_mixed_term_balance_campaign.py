@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 
 import numpy as np
@@ -661,6 +662,33 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
         assert field_name in text
 
 
+def test_apply_git_patch_if_needed_recounts_stale_hunk_lengths(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True)
+    (repo / "field.txt").write_text("alpha\n", encoding="utf-8")
+    patch = tmp_path / "stale.patch"
+    patch.write_text(
+        "\n".join(
+            (
+                "diff --git a/field.txt b/field.txt",
+                "--- a/field.txt",
+                "+++ b/field.txt",
+                "@@ -1,1 +1,1 @@",
+                " alpha",
+                "+beta",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    term_module._apply_git_patch_if_needed(repo, patch)
+    term_module._apply_git_patch_if_needed(repo, patch)
+
+    assert (repo / "field.txt").read_text(encoding="utf-8") == "alpha\nbeta\n"
+
+
 def test_neutral_mixed_source_diagnostic_reference_patch_is_line_numbered() -> None:
     patch_path = (
         _REPO_ROOT / "docs" / "hermes_neutral_mixed_pressure_gradient_diagnostic.patch"
@@ -1003,7 +1031,15 @@ def test_apply_reference_patch_skips_already_applied_patch(
     term_module._apply_reference_patch_if_needed(source_root, patch_path)
 
     assert calls == [
-        ["git", "-C", str(source_root), "apply", "--check", str(patch_path)],
+        [
+            "git",
+            "-C",
+            str(source_root),
+            "apply",
+            "--check",
+            "--recount",
+            str(patch_path),
+        ],
         [
             "git",
             "-C",
@@ -1011,6 +1047,7 @@ def test_apply_reference_patch_skips_already_applied_patch(
             "apply",
             "--reverse",
             "--check",
+            "--recount",
             str(patch_path),
         ],
     ]
@@ -1530,6 +1567,47 @@ def test_neutral_mixed_accepted_step_trace_parity_evaluates_reference_active_sta
     assert register["section"] == "h"
     assert register["worst_entry"]["residual_kind"] == "backward_euler"
     assert register["worst_entry"]["residual_inf_norm"] >= 0.0
+    assert register["dominant_residual_field"] in {"Nh", "Ph", "NVh"}
+    field_register = register["field_residual_register"]
+    assert field_register["available"] is True
+    assert set(field_register["fields"]) == {"Nh", "Ph", "NVh"}
+    assert field_register["dominant_field"] in {"Nh", "Ph", "NVh"}
+    assert set(register["worst_entry"]["field_residuals"]) == {"Nh", "Ph", "NVh"}
+
+
+def test_neutral_mixed_reference_state_residual_field_metrics_split_pack_order(
+    tmp_path: Path,
+) -> None:
+    input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
+    config = term_module.load_bout_input(input_path)
+    run_config = term_module.RunConfiguration.from_config(config)
+    mesh = term_module.build_structured_mesh(config, run_config)
+    active_shape = (
+        int(mesh.xend - mesh.xstart + 1),
+        int(mesh.yend - mesh.ystart + 1),
+        int(mesh.nz),
+    )
+    field_size = int(np.prod(active_shape))
+    residual = np.concatenate(
+        (
+            np.full(field_size, 1.0),
+            np.full(field_size, 2.0),
+            np.full(field_size, -3.0),
+        )
+    )
+
+    metrics = term_module._neutral_mixed_residual_field_metrics(
+        residual,
+        mesh=mesh,
+        section="h",
+    )
+
+    assert set(metrics) == {"Nh", "Ph", "NVh"}
+    assert metrics["Nh"]["active_inf_norm"] == pytest.approx(1.0)
+    assert metrics["Ph"]["active_inf_norm"] == pytest.approx(2.0)
+    assert metrics["NVh"]["active_inf_norm"] == pytest.approx(3.0)
+    assert metrics["NVh"]["target_adjacent_inf_norm"] == pytest.approx(3.0)
+    assert term_module._dominant_residual_field(metrics) == "NVh"
 
 
 def test_neutral_mixed_accepted_step_trace_parity_does_not_match_initial_to_startup(

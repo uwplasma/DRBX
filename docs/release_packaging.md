@@ -1,5 +1,12 @@
 # Release And Packaging
 
+!!! note "Plan authority"
+    This page is a subordinate release and packaging appendix. The active
+    execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    appendix afterward.
+
 `jax_drb` is packaged as a standard Python project and published through GitHub Actions using PyPI Trusted Publishing.
 
 ## Install Paths

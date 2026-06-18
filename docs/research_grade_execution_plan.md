@@ -28,6 +28,8 @@ Subordinate pages:
   import-contract appendix.
 - [parity_matrix.md](parity_matrix.md): historical parity buildout appendix.
 - [research_directions.md](research_directions.md): research-context appendix.
+- [release_packaging.md](release_packaging.md): release, packaging, PyPI, and
+  heavy-artifact appendix.
 - `../plan_jax_drb.md`: compatibility redirect to this file.
 
 If any subordinate page conflicts with this file, follow this file and update
@@ -36,6 +38,20 @@ the subordinate page after the implementation decision is made.
 Hosted GitHub Actions should not be polled repeatedly while hosted runners are
 blocked by account billing/spending-limit state. Use local release gates during
 development and check hosted CI periodically after billing is restored.
+
+Cross-document audit policy:
+
+- Markdown pages under `docs/` may contain background, derivations, historical
+  measurements, campaign reports, or detailed technical appendices.
+- They must not introduce a different priority order, a different completion
+  status, or a different definition of done from this file.
+- Historical "remaining work" notes in appendices are acceptable only when they
+  describe the evidence behind the current blocker recorded here.
+- If an appendix still contains an obsolete next step, update this file first,
+  then edit the appendix to say whether the item is complete, superseded, or
+  still active.
+- `plan_jax_drb.md` remains a compatibility redirect. Do not add execution
+  steps there.
 
 ## How To Execute This Plan
 
@@ -63,6 +79,9 @@ Working rules:
    recorded before moving to the next option.
 8. Commit and push coherent plan, docs, tests, or code batches frequently, but
    do not wait on hosted CI while the runner account is blocked.
+9. When a user asks for a plan-only pass, stop after updating this file and
+   reviewing the diff. Do not start solver changes, validation runs, or test
+   campaigns until the plan is approved.
 
 Definition of a completed lane:
 
@@ -144,7 +163,27 @@ finish the code without re-planning at every step.
 | M6: performance and differentiability evidence | CPU, GPU, multi-device, `jit`, `vmap`, `jvp`, VJP/grad, UQ/inverse design | Real heavy kernels have cProfile/RSS/JAX-trace evidence, CPU/GPU scaling is same-fidelity, and differentiability examples compare against finite differences. |
 | M7: release package | coverage, docs, README, examples, package, release notes | Promoted coverage is above `95%`, docs build locally, package is small, release notes state experimental boundaries, and tag/release/PyPI workflow are ready. |
 
-Immediate next work package after this plan-only pass:
+## Target Capability Matrix
+
+This matrix is the implementation contract for the next phase. A row can be
+called promoted only after its equations, tests, artifacts, docs, examples, and
+claim boundaries are complete.
+
+| Capability | Required cases | Required evidence |
+| --- | --- | --- |
+| Effective preconditioning | hydrogen recycling, multispecies D/T/He recycling, diverted tokamak recycling, imported-field compact 3D RHS | same-case solver health, residual/JVP call counts, Krylov iterations, memory, runtime, and no parity degradation. |
+| Diverted tokamak simulations | 1D recycling, 1D detachment, 2D diverted transport, 2D recycling, multispecies D/T/He, impurity/radiation, nonlinear turbulence window | target profiles, OMP profiles, source/radiation maps, heat/particle flux, neutral density, detachment metrics, movie, and clean-clone tutorial. |
+| Drift-reduced Braginskii physics | diffusion-only, electrostatic DRB, vorticity/potential, Boussinesq, non-Boussinesq, selected electromagnetic/Alfven, open and closed field lines | equation-to-code map, limiting-case tests, MMS/operator convergence, vorticity inversion, bracket tests, Boussinesq comparison, and labeled reduced/full status. |
+| JAX-native recycling | fixed-layout residual, full-output BDF residual, sparse-JVP/JVP action, VJP/grad objectives, matrix-free or sparse linearization, D/T/He adaptive BDF | correctness parity with compatibility solver, JVP versus finite-difference tests, solver-health report, cProfile/RSS/JAX trace, and opt-in/default decision. |
+| Sheath/recycling/neutrals | no-flow, zero-current, sheath heat transmission, target recycling, neutral diffusion, ionization, recombination, charge exchange, radiation, detachment | source accounting, boundary reconstruction, target-response tests, term-level parity, detachment scan, neutral/source/target plots, and docs derivations. |
+| Open and closed field-line simulations | tokamak closed surfaces, tokamak open SOL, stellarator closed VMEC maps, stellarator open endpoint maps, hybrid maps | separate closed/open validation reports, connection-length definitions, endpoint masks, profile diagnostics, and no cross-use of closed-map metrics as open-target claims. |
+| 3D stellarator geometries | VMEC, VMEC-extender, ESSOS coil import, hybrid VMEC/coil maps, HSX QHS, NCSX, Landreman-Paul QA, Dommaschk potentials | boundary/surface plot, Poincare/field-line plot, connection-length map, endpoint mask, FCI convergence, grid/time refinement, physics transient, movie QA. |
+| Reference parity | neutral mixed, recycling, direct tokamak, production/diverted tokamak, selected-field geometry, target/sheath/recycling sources | one-RHS, one-step, short-window, accepted-step traces, field/term/location offender register, and regression tests for every closed offender. |
+| CPU/GPU performance | Mac CPU ensemble, real heavy recycling, imported-field compact RHS, single GPU, multi-GPU ensemble/sharding when available | same-fidelity scaling figure, compile/execute split, memory, persistent cache state, and profiler bundle linked from docs. |
+| Documentation/examples | README, ReadTheDocs, model-selection guide, tokamak tutorial, stellarator tutorial, validation gallery, performance guide | every advertised figure/movie has a command, no private reference-code dependency for users, extended derivations in docs, and concise README. |
+| Coverage/release | promoted solver surface, public CLI/API, examples, validation campaigns, package, footprint | `95%` promoted coverage, local release gates, package audit, no large blobs, release-hosted assets, release notes, tag, and PyPI workflow readiness. |
+
+Immediate next work package after this plan-only pass, pending review:
 
 1. Close the neutral `NVh` accepted-step state/history parity offender.
 2. Continue the JAX-native recycling solver lane with residual/JVP cost
@@ -299,26 +338,54 @@ Reference engineering lessons:
 - PETSc-style strategies are useful as design patterns: block Jacobi, line
   solves, field-split/Schur approximations, approximate diffusion/advection
   inverses, and solver-health reporting.
+- Direct sparse solvers such as SuperLU-style and MUMPS-style factorizations
+  are useful compatibility baselines and small-case diagnostics, but they are
+  not the long-term accelerator path unless the assembled sparse operator is
+  cheaper than the current finite-difference Jacobian.
 - JAX promotion requires the preconditioner to preserve shape stability, avoid
   host loops in hot paths, and keep memory bounded.
 
-Candidate order:
+Source-code audit targets before implementation:
+
+1. Inspect the current reference implementation's implicit-solver,
+   preconditioner, and field-split usage for the matching recycling and
+   neutral cases.
+2. Inspect PETSc field-split, block-Jacobi, additive-Schwarz, and Schur
+   complement patterns as algorithms to reproduce with JAX-compatible arrays,
+   not as a runtime dependency.
+3. Inspect MUMPS, SuperLU_DIST, and local SciPy sparse-solve behavior only as
+   baselines for robustness and diagnostics.
+4. Inspect `sfincs_jax` and other JAX plasma codes for practical patterns:
+   static layouts, batched linear solves, JVP actions, compile-cache use,
+   and objective differentiation.
+
+Candidate implementation order:
 
 1. Existing baselines: no preconditioner, state scaling, field scaling,
    linearized diagonal, and same-cell local blocks. These are negative or
    neutral evidence so far and remain diagnostic controls.
 2. Same-cell block-Jacobi with reuse across nonlinear iterations only if it
    reduces total Krylov cost after build cost.
-3. Parallel-line transport preconditioner: approximate each field with
-   mass plus parallel advection/diffusion along the open-field direction,
-   using batched tridiagonal or banded solves where possible.
-4. Neutral/plasma Schur-style preconditioner: approximate stiff neutral
+3. Sparse-JVP materialization control: build only the linearized columns needed
+   for the preconditioner, not the full finite-difference Jacobian. The first
+   target is the active-field block structure of density, pressure, parallel
+   momentum, neutral density/pressure/momentum, and controller scalars.
+4. Parallel-line transport preconditioner: approximate each field with mass
+   plus parallel advection/diffusion along the open-field direction, using
+   batched tridiagonal or banded solves where possible. This is the first
+   physically motivated candidate for open-field recycling and divertor cases.
+5. Neutral/plasma Schur-style preconditioner: approximate stiff neutral
    diffusion/reaction coupling and plasma pressure/momentum coupling as
-   separate blocks with cheap coupling corrections.
-5. Reduced sparse-JVP preconditioner: assemble a smaller or lower-order sparse
-   operator only if memory and build time stay below the compatibility
-   finite-difference Jacobian.
-6. Matrix-free Krylov promotion only after the residual and preconditioner are
+   separate blocks with cheap coupling corrections. This is the candidate most
+   likely to help detached and high-recycling cases.
+6. Sheath/target local block preconditioner: include Bohm/sheath heat-flux,
+   zero-current reconstruction, recycling, and target-source coupling in
+   target-adjacent local blocks, because the current parity offenders are
+   often target-adjacent.
+7. 2D/3D FCI transport preconditioner: approximate field-line diffusion and
+   perpendicular diffusion with metric-weighted separable blocks for compact
+   imported-field kernels.
+8. Matrix-free Krylov promotion only after the residual and preconditioner are
    both parity-proven.
 
 Promotion evidence:
@@ -350,6 +417,22 @@ Model levels:
 - selected electromagnetic/Alfven lanes;
 - sheath, target, recycling, neutral, and detachment closures;
 - open-field, closed-field, tokamak, and stellarator geometry variants.
+
+User-facing selection ladder:
+
+1. Start with diffusion-only scalar transport to teach meshes, inputs,
+   outputs, restart, plotting, and convergence.
+2. Move to 1D open-field plasma fluids to teach parallel losses, sheath
+   boundary conditions, recycling, neutral coupling, and detachment metrics.
+3. Move to 2D electrostatic drift-reduced Braginskii to teach curvature drive,
+   ExB bracket, vorticity/potential solve, Boussinesq versus non-Boussinesq
+   polarization, and turbulent transport diagnostics.
+4. Move to selected electromagnetic lanes only through validated Alfven or
+   selected-field benchmarks.
+5. Move to 3D tokamak or stellarator geometry only after the geometry,
+   connection-length, endpoint, and FCI/operator gates pass.
+6. For every step, examples should show the smallest useful deck, the relevant
+   equations, expected outputs, plotting commands, and capability tier.
 
 Steps:
 
@@ -396,6 +479,19 @@ Physics scope:
   reconstruction;
 - source, radiation, and target-temperature detachment metrics.
 
+Required model documentation:
+
+- Density equations must define advective, diffusive, ionization,
+  recombination, recycling, pumping, and imposed-source terms separately.
+- Pressure or energy equations must define conductive, collisional,
+  atomic/radiation, sheath, recycling, and control/source terms separately.
+- Momentum equations must define pressure-gradient, inertia, viscosity,
+  neutral drag/charge-exchange, boundary, and target-source terms separately.
+- Every floor, limiter, guard-cell reconstruction, flux cap, target condition,
+  rate coefficient, and normalization must be documented with code links.
+- Reduced or approximate neutral models must state what Hermès-style/BOUT-style
+  term is omitted or simplified and why the resulting case is still useful.
+
 Steps:
 
 1. Close neutral `NVh` parity using accepted-step state/history sequencing.
@@ -409,6 +505,9 @@ Steps:
    recycling coefficient sensitivity.
 6. Generate publication-ready neutral/source/target plots from the same scripts
    used by the validation campaigns.
+7. Add clean-clone neutral/recycling tutorial outputs: source maps, target
+   fluxes, neutral-density lineouts, radiation/source partitions, and a short
+   explanation of detached versus attached behavior.
 
 Promotion evidence:
 
@@ -433,18 +532,25 @@ Steps:
 2. Keep large `tokamak.nc`, `BOUT.dmp*.nc`, movies, and profile bundles out of
    git history. Store them as release assets or external benchmark artifacts
    with stable downloader scripts.
-3. Promote a tokamak example ladder:
+3. For the current private repository, the fetch path must support authenticated
+   GitHub release downloads through `gh` or `GITHUB_TOKEN`. For any future
+   public release, the same commands should work without private reference-code
+   access.
+4. Promote a tokamak example ladder:
    1D recycling, 1D detachment scan, 2D direct tokamak diffusion/transport,
    2D recycling, multispecies D/T/He, impurity/neon radiation, detached target
    scan, then longer nonlinear turbulence windows.
-4. Generate movies and profile plots from the same documented scripts:
+5. Generate movies and profile plots from the same documented scripts:
    OMP profiles, target profiles, heat flux, particle flux, source maps,
    neutral maps, target temperature, detachment indicators, and turbulence
    fluctuation metrics.
-5. Add runtime progress, ETA, restart, output, and provenance examples for the
+6. Add runtime progress, ETA, restart, output, and provenance examples for the
    tokamak tutorials.
-6. Keep reference-code comparison workflows available to developers, but never
+7. Keep reference-code comparison workflows available to developers, but never
    make them required for ordinary user examples.
+8. Add a "how to regenerate the README tokamak movie" recipe that starts from
+   a clean clone, fetches or creates required fixtures, runs the simulation or
+   documented reduced campaign, and writes the same GIF/PNG profile outputs.
 
 Promotion evidence:
 
@@ -510,6 +616,33 @@ Required devices/examples:
 - NCSX, using VMEC-coordinate and optional exterior-field lanes.
 - Dommaschk potentials, following the BSTING/Zoidberg pattern for FCI maps and
   stellarator SOL visualization.
+
+Per-device execution sequence:
+
+1. Record the source artifact, field periods, coordinate conventions, units,
+   boundary/wall source, and whether the map is closed, open, or hybrid.
+2. Render the imported boundary and field-line context before any plasma
+   transient.
+3. Run field-line/Poincare and connection-length diagnostics at multiple
+   resolutions. For closed VMEC maps, report periodic parallel-step metrics
+   instead of open target-to-target connection length.
+4. Build endpoint masks and wall/target maps for open or hybrid lanes.
+5. Run FCI interpolation, parallel-gradient, conservative diffusion, and metric
+   MMS gates.
+6. Run reduced linear dynamics on the validated map and compare mode
+   propagation, damping, and conservation to expectations.
+7. Add sheath/recycling/neutral gates only after endpoint masks are validated.
+8. Run nonlinear transients with grid and timestep refinement. Movies are
+   promoted only after frame-by-frame QA shows non-axisymmetry, smooth
+   dynamics, correct boundary shape, visible open/closed structure, colorbar,
+   time annotation, and no jitter.
+9. Move polished media to release assets and keep only small source artifacts,
+   thumbnails, or scripts in git.
+
+BSTING and Zoidberg files are implementation and visualization references.
+They define the expected FCI workflow, figure types, and movie quality bar, but
+JAXDRB must own its imported arrays, operator validation, physics residuals,
+diagnostics, examples, and claim boundaries.
 
 Promotion evidence:
 
@@ -963,13 +1096,37 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-18: Finished the repo-side CI triage after the hosted Actions runs
+  for `test`, `docs`, and `coverage` failed before executing any steps and
+  exposed no job logs. The local CI-equivalent gates are green on this
+  worktree: docs build, release-surface tests, workflow test slice, fast
+  research checks, closeout coverage at `97.0%`, and promoted solver coverage
+  at `95.12%`. The only actionable local failure was a stale
+  neutral-mixed test expectation after adding `git apply --recount`; the test
+  now verifies the recount-aware forward and reverse patch checks. Hosted
+  Actions should be rechecked periodically, but the current zero-step failures
+  remain runner/account-startup evidence rather than repo-code evidence.
 - 2026-06-18: Refined the master plan into an execution checklist with
   explicit working rules, lane completion criteria, milestone map, and immediate
   next work package. Confirmed that `plan_jax_drb.md` is only a redirect and
   that the older refactoring, geometry, non-axisymmetric, parity, runtime, and
   research-direction pages are subordinate appendices rather than competing
-  plans. Removed a stale note about an uncommitted source edit because the
-  worktree is clean for this plan-only pass.
+  plans. This was a plan-only pass and preserved pre-existing uncommitted
+  source/test diagnostics for the neutral-mixed lane.
+- 2026-06-18: Refactored this master plan around the current finish-line goals
+  before further implementation: effective preconditioning, self-contained
+  diverted tokamak simulations, complete drift-reduced Braginskii model
+  coverage, JAX-native recycling, sheath/recycling/neutral/detachment physics,
+  Boussinesq and non-Boussinesq comparisons, electromagnetic selected-field
+  lanes, open and closed field-line simulations, VMEC/VMEC-extender/coil/hybrid
+  stellarator geometry, HSX/NCSX/Landreman-Paul QA/Dommaschk examples,
+  reference-backed parity, release-hosted heavy assets, full documentation,
+  `95%` meaningful coverage, CPU/GPU performance, and lightweight packaging.
+  Added a cross-document conflict policy, a target capability matrix,
+  device-by-device stellarator validation sequence, stronger neutral-model
+  documentation requirements, and a more concrete preconditioning audit and
+  implementation ladder. No tests, solver changes, or validation campaigns
+  were started during this plan-only pass.
 - 2026-06-18: Consolidated the plan into this single authoritative file and
   reorganized it around ordered workstreams: plan authority, reference-backed
   parity, JAX-native recycling, effective preconditioning, drift-reduced
