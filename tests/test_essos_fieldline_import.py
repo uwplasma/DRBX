@@ -324,6 +324,10 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     assert report["endpoint_length_diagnostics"]["passed"] is True
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()
+    arrays = np.load(artifacts.arrays_npz_path)
+    assert "target_exit_toroidal" in arrays.files
+    assert "adjacent_step_toroidal" in arrays.files
+    assert np.any(np.isfinite(arrays["target_exit_toroidal"]))
 
 
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil/VMEC inputs are not available")
