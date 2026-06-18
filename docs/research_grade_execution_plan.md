@@ -607,6 +607,15 @@ long work logs here.
   changes. The gate passed with `561` tests, `14` skips, `1` xfail, and
   `95.12%` total promoted-surface coverage. The bounded closeout coverage gate
   also passed with `87` tests and `97.0%` coverage.
+- 2026-06-18: Reused the known accepted-state residual in the generic
+  JAX-linearized Newton solver instead of recomputing the final residual on
+  max-iteration exits. The bounded hydrogen gate with residual JIT, skipped
+  initial residual check, and batched JAX GMRES writes
+  `tmp/profile_recycling_jit_skip_no_final/profile_summary.json`; it reduces
+  residual evaluations from `5` to `4` with identical residual norm and solver
+  status. The three-run median is noise-level/slightly worse (`3.08 s` versus
+  the retained `2.98 s` control), so this is a deterministic residual-count and
+  host/device-barrier cleanup, not a default speedup claim.
 
 ## External Literature And Code Baseline
 

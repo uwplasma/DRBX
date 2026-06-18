@@ -1136,6 +1136,7 @@ def solve_jax_linearized_newton_system(
     last_linear_solver_reported_iterations: int | None = None
     resolved_solve_method = _resolve_jax_gmres_solve_method(linear_solver_solve_method)
     residual_function = jax.jit(residual) if bool(jit_residual) else residual
+    known_state_residual_inf_norm: float | None = None
 
     def _block(value):
         if value is None:
@@ -1192,6 +1193,7 @@ def solve_jax_linearized_newton_system(
         residual_evaluation_count += 1
         residual_evaluation_seconds += perf_counter() - residual_started_at
         initial_residual_inf_norm = float(jnp.max(jnp.abs(initial_residual)))
+        known_state_residual_inf_norm = initial_residual_inf_norm
         if initial_residual_inf_norm < float(residual_tolerance):
             return np.asarray(state, dtype=np.float64), _info(
                 residual_inf_norm=initial_residual_inf_norm,
@@ -1209,6 +1211,7 @@ def solve_jax_linearized_newton_system(
         jacobian_refresh_count += 1
         jacobian_assembly_seconds += elapsed
         residual_inf_norm = float(jnp.max(jnp.abs(residual_value)))
+        known_state_residual_inf_norm = residual_inf_norm
         if residual_inf_norm < float(residual_tolerance):
             return np.asarray(state, dtype=np.float64), _info(
                 residual_inf_norm=residual_inf_norm,
@@ -1304,6 +1307,7 @@ def solve_jax_linearized_newton_system(
             break
 
         state = candidate_state
+        known_state_residual_inf_norm = float(candidate_residual_inf_norm)
         if candidate_residual_inf_norm < float(residual_tolerance):
             return np.asarray(state, dtype=np.float64), _info(
                 residual_inf_norm=candidate_residual_inf_norm,
@@ -1314,15 +1318,17 @@ def solve_jax_linearized_newton_system(
             # Small-step termination must not mask a failed nonlinear residual.
             break
 
-    residual_started_at = perf_counter()
-    final_residual = residual_function(state)
-    final_residual = _block(final_residual)
-    residual_evaluation_count += 1
-    residual_evaluation_seconds += perf_counter() - residual_started_at
+    if known_state_residual_inf_norm is None:
+        residual_started_at = perf_counter()
+        final_residual = residual_function(state)
+        final_residual = _block(final_residual)
+        residual_evaluation_count += 1
+        residual_evaluation_seconds += perf_counter() - residual_started_at
+        known_state_residual_inf_norm = float(jnp.max(jnp.abs(final_residual)))
     return np.asarray(state, dtype=np.float64), _info(
-        residual_inf_norm=float(jnp.max(jnp.abs(final_residual))),
+        residual_inf_norm=float(known_state_residual_inf_norm),
         nonlinear_iterations=int(max_nonlinear_iterations),
-        converged=float(jnp.max(jnp.abs(final_residual))) < float(residual_tolerance),
+        converged=float(known_state_residual_inf_norm) < float(residual_tolerance),
     )
 
 
