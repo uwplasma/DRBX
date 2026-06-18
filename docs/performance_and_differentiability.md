@@ -1067,6 +1067,19 @@ noise-equivalent (`4.98 s` default versus `4.99 s` with the check disabled), so
 this is a host/device-barrier reduction seam rather than a default speedup
 claim.
 
+The JAX GMRES wrapper now also forwards the optional JAX
+`solve_method={"batched","incremental"}` control through
+`runtime:recycling_jax_linear_gmres_solve_method=<method>`,
+`JAX_DRB_RECYCLING_JAX_LINEAR_GMRES_SOLVE_METHOD`, or the profiling-script flag
+`--gmres-solve-method`. JAX documents the incremental method as building a
+Givens-rotation QR factorization with an intra-restart residual estimate, while
+the batched method has lower accelerator overhead. On the warmed bounded
+hydrogen gate with residual JIT and the initial residual check disabled, the
+incremental method was correct but not a speedup: the three-run median was
+`3.06 s` versus `2.98 s` for the default batched method, with the same solver
+status and residual band. This makes the method switch useful for CPU/GPU
+sweeps, but it is not a default promotion.
+
 The sparse-JVP Jacobian builder also has an opt-in host-transfer reduction
 probe through `JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE=1`. When enabled, each
 color batch gathers only structurally nonzero pushed rows on device before
