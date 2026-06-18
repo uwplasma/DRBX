@@ -324,9 +324,10 @@ def build_fixed_backward_euler_residual(
     previous = jnp.asarray(previous_packed_state, dtype=jnp.float64)
 
     def residual(packed_state: object) -> jax.Array:
-        state = unpack_fixed_state(packed_state, layout=layout)
+        packed = jnp.asarray(packed_state, dtype=jnp.float64)
+        state = unpack_fixed_state(packed, layout=layout)
         rhs_state = rhs_function(state)
-        return pack_fixed_state(state) - previous - float(timestep) * pack_fixed_state(rhs_state)
+        return packed - previous - float(timestep) * pack_fixed_state(rhs_state)
 
     return residual
 
@@ -353,10 +354,11 @@ def build_fixed_bdf2_residual(
     rhs_coefficient = float(timestep) * (step_ratio + 1.0) / (2.0 * step_ratio + 1.0)
 
     def residual(packed_state: object) -> jax.Array:
-        state = unpack_fixed_state(packed_state, layout=layout)
+        packed = jnp.asarray(packed_state, dtype=jnp.float64)
+        state = unpack_fixed_state(packed, layout=layout)
         rhs_state = rhs_function(state)
         return (
-            pack_fixed_state(state)
+            packed
             - previous_coefficient * previous
             + previous_previous_coefficient * previous_previous
             - rhs_coefficient * pack_fixed_state(rhs_state)

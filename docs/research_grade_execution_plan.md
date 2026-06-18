@@ -143,9 +143,9 @@ and tests all move together.
 | Plan authority and release hygiene | 95% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 91% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
+| JAX-native recycling solver | 92% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
 | Effective preconditioning | 42% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
-| Performance and scaling | 60% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
+| Performance and scaling | 61% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -1445,6 +1445,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   should therefore target fixed-layout residual/JVP kernel cost,
   solve-compilation amortization, or a preconditioner that reduces actual
   matrix-free operator work, not additional line-search tuning.
+- 2026-06-18: Removed a redundant state repack from the fixed-layout
+  backward-Euler and BDF2 residual builders. The residual still unpacks the
+  active state to evaluate the RHS, but the left-hand state term now reuses the
+  incoming packed vector directly instead of reconstructing it from field
+  blocks. Focused BE/BDF2 residual tests passed. The D/T/He gate preserved
+  residual `7.315`, clean JAX-GMRES status, two residual evaluations, one
+  line-search trial, and `5` linear-operator calls. A warmed D/T/He run
+  reported warmup `6.81 s`, timed runs `6.59 s` and `6.55 s`, median `6.57 s`,
+  `5.31 s` linear-solve time, and `1.13 s` JAX-linearization time. Treat this
+  as a low-risk residual-kernel simplification and a cleaner baseline for
+  future JVP-kernel work, not a standalone release-level speedup claim.
 
 ## Definition Of Done
 

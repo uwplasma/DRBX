@@ -1209,6 +1209,18 @@ tuning. It is either a cheaper fixed-layout residual/JVP kernel, a solver path
 that amortizes JAX tracing/compilation more effectively, or a preconditioner
 that genuinely reduces matrix-free linear-operator work.
 
+The first small residual-kernel cleanup removes a redundant pack of the
+unchanged state vector inside the fixed-layout backward-Euler and BDF2
+residual builders. The residual still unpacks the state to evaluate the RHS,
+but the left-hand state term now reuses the incoming packed vector directly
+instead of reconstructing it from field blocks. Focused BE/BDF2 residual tests
+and the D/T/He gate preserve the same residual (`7.315`) and the same `5`
+matrix-free operator calls. A warmed D/T/He check reported warmup `6.81 s`,
+timed solves `6.59 s` and `6.55 s`, median `6.57 s`, `5.31 s` linear-solve
+time, and `1.13 s` JAX-linearization time. The result should be treated as a
+low-risk residual simplification and a better baseline for future JVP-kernel
+work, not as sufficient evidence for a release-level speedup claim.
+
 Repeating the preconditioner sweep after this damping does not yet justify a
 new default. With the damped line search, `field_scale` remained neutral
 (`8.65 s` versus `8.65 s` for the same-run unpreconditioned control), while
