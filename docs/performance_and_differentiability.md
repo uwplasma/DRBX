@@ -1240,6 +1240,14 @@ timed solves `6.59 s` and `6.55 s`, median `6.57 s`, `5.31 s` linear-solve
 time, and `1.13 s` JAX-linearization time. The result should be treated as a
 low-risk residual simplification and a better baseline for future JVP-kernel
 work, not as sufficient evidence for a release-level speedup claim.
+The next cleanup hoists the variable-step BDF2 history vector
+\(\alpha u^n-\beta u^{n-1}\) out of the fixed residual closure, so JVP actions
+reuse one precomputed constant vector instead of multiplying and combining the
+two previous states on every residual evaluation. Focused residual/JVP tests
+passed, and the bounded two-window hydrogen active-array gate preserved
+residual `2.90e-6`, `35` operator calls, and `14` residual evaluations with
+elapsed time `15.68 s`. This is again a low-risk kernel cleanup rather than a
+standalone performance promotion.
 
 Repeating the preconditioner sweep after this damping does not yet justify a
 new default. With the damped line search, `field_scale` remained neutral
