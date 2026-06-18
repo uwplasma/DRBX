@@ -107,6 +107,26 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Optional XLA dump directory. Adds --xla_dump_to and text HLO dumping to XLA_FLAGS.",
     )
+    parser.add_argument(
+        "--require-native-diagnostic",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Require native_run_diagnostics[KEY] to stringify exactly to VALUE "
+            "after the profiled run. May be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--require-min-native-diagnostic",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Require native_run_diagnostics[KEY] to be numeric and at least VALUE "
+            "after the profiled run. May be repeated."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -150,6 +170,87 @@ def _json_ready_diagnostics(result: Any) -> dict[str, Any]:
                 pass
         converted[str(name)] = str(value)
     return converted
+
+
+def _parse_key_value_requirement(requirement: str, *, option_name: str) -> tuple[str, str]:
+    key, separator, value = requirement.partition("=")
+    key = key.strip()
+    value = value.strip()
+    if not separator or not key or not value:
+        raise ValueError(f"{option_name} requires KEY=VALUE, got {requirement!r}")
+    return key, value
+
+
+def _native_diagnostic_gate_errors(
+    diagnostics: Mapping[str, Any],
+    *,
+    exact_requirements: tuple[str, ...] = (),
+    minimum_requirements: tuple[str, ...] = (),
+) -> list[str]:
+    errors: list[str] = []
+    for requirement in exact_requirements:
+        key, expected = _parse_key_value_requirement(
+            requirement, option_name="--require-native-diagnostic"
+        )
+        if key not in diagnostics:
+            errors.append(f"native diagnostics did not report {key!r}")
+            continue
+        actual = diagnostics[key]
+        if str(actual) != expected:
+            errors.append(
+                f"native diagnostics reported {key}={actual!r}, expected {expected!r}"
+            )
+    for requirement in minimum_requirements:
+        key, minimum_text = _parse_key_value_requirement(
+            requirement, option_name="--require-min-native-diagnostic"
+        )
+        try:
+            minimum = float(minimum_text)
+        except ValueError:
+            errors.append(
+                f"--require-min-native-diagnostic {requirement!r} has nonnumeric minimum"
+            )
+            continue
+        if key not in diagnostics:
+            errors.append(f"native diagnostics did not report {key!r}")
+            continue
+        actual = diagnostics[key]
+        try:
+            actual_value = float(actual)
+        except (TypeError, ValueError):
+            errors.append(
+                f"native diagnostics reported nonnumeric {key}={actual!r}, "
+                f"expected at least {minimum:g}"
+            )
+            continue
+        if actual_value < minimum:
+            errors.append(
+                f"native diagnostics reported {key}={actual_value:g}, "
+                f"expected at least {minimum:g}"
+            )
+    return errors
+
+
+def _validate_native_diagnostic_requirements(
+    *,
+    exact_requirements: tuple[str, ...] = (),
+    minimum_requirements: tuple[str, ...] = (),
+) -> None:
+    for requirement in exact_requirements:
+        _parse_key_value_requirement(
+            requirement, option_name="--require-native-diagnostic"
+        )
+    for requirement in minimum_requirements:
+        _, minimum_text = _parse_key_value_requirement(
+            requirement, option_name="--require-min-native-diagnostic"
+        )
+        try:
+            float(minimum_text)
+        except ValueError as exc:
+            raise ValueError(
+                "--require-min-native-diagnostic requires numeric VALUE, "
+                f"got {requirement!r}"
+            ) from exc
 
 
 def _time_case(
@@ -210,6 +311,13 @@ class _NullContext:
 
 def main() -> int:
     args = _parse_args()
+    try:
+        _validate_native_diagnostic_requirements(
+            exact_requirements=tuple(args.require_native_diagnostic),
+            minimum_requirements=tuple(args.require_min_native_diagnostic),
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if args.reference_root is None:
         env_reference_root = os.environ.get("JAX_DRB_REFERENCE_ROOT")
         if env_reference_root:
@@ -313,6 +421,13 @@ def main() -> int:
         for entry in rss_measurements
         if entry.get("peak_rss_mebibytes") is not None
     ]
+    native_diagnostics = _json_ready_diagnostics(profiled_result)
+    gate_errors = _native_diagnostic_gate_errors(
+        native_diagnostics,
+        exact_requirements=tuple(args.require_native_diagnostic),
+        minimum_requirements=tuple(args.require_min_native_diagnostic),
+    )
+
     summary = {
         "case_name": args.case_name,
         "extra_overrides": list(args.override),
@@ -342,7 +457,9 @@ def main() -> int:
             None if args.compilation_cache_dir is None else _sanitize_public_path(args.compilation_cache_dir)
         ),
         "compare_variable_count": None if profiled_result is None else len(getattr(profiled_result, "variables", {})),
-        "native_run_diagnostics": _json_ready_diagnostics(profiled_result),
+        "native_run_diagnostics": native_diagnostics,
+        "native_diagnostic_gate_errors": gate_errors,
+        "native_diagnostic_gate_passed": not gate_errors,
     }
     summary_path = output_dir / "profile_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
@@ -356,6 +473,10 @@ def main() -> int:
         print(trace_dir)
     if memory_profile_path is not None:
         print(memory_profile_path)
+    if gate_errors:
+        for error in gate_errors:
+            print(f"[profile-gate] {error}")
+        return 2
     return 0
 
 

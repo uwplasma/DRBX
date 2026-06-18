@@ -244,6 +244,15 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
         "runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp"
         in full_output.command
     )
+    assert "--require-native-diagnostic" in full_output.command
+    assert (
+        "recycling_transient_solver_mode=bdf_fixed_full_field_jvp"
+        in full_output.command
+    )
+    assert "bdf_jacobian_mode=jvp" in full_output.command
+    assert "bdf_rhs_backend=fixed_full_field_array" in full_output.command
+    assert "--require-min-native-diagnostic" in full_output.command
+    assert "bdf_jvp_jacobian_batch_count=1" in full_output.command
     assert "--jax-trace" in full_output.command
     assert "--device-memory-profile" in full_output.command
     assert "--compilation-cache-dir" in full_output.command

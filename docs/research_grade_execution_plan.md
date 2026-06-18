@@ -1547,6 +1547,13 @@ Use this log for concise decision records. Do not paste terminal output here.
   `initial_residual_mode=linearize`, `check_initial_residual=true`, residual
   evaluations `2`, one line-search trial, residual norm `7.315`, and median
   timed run `7.09 s`.
+- 2026-06-18: Added native-diagnostic requirements to the curated-case
+  profiler. Full-output GPU D/T/He recycling profiles now fail closed unless
+  the run reports `recycling_transient_solver_mode=bdf_fixed_full_field_jvp`,
+  `bdf_jacobian_mode=jvp`, `bdf_rhs_backend=fixed_full_field_array`, and at
+  least one `bdf_jvp_jacobian_batch_count`. This does not promote the
+  full-output path to default; it makes future CPU/GPU profiling evidence
+  auditable before any claim is broadened.
 
 ## Definition Of Done
 
