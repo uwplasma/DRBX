@@ -1164,6 +1164,21 @@ run with one warmup and two timed solves reduced the timed median to `10.22 s`
 but still did not beat the non-JIT baseline; the warmup solve itself took
 `20.08 s`. This keeps residual JIT useful as a diagnostic seam and possible
 accelerator/GPU probe, but not as the local CPU default.
+The same profile exposed one cheap residual-evaluation reduction. The generic
+JAX-linearized Newton solver now reports `line_search_trial_count`,
+`line_search_last_step_scale`, and `line_search_initial_step_scale`, and the
+recycling runtime can set
+`runtime:recycling_jax_linear_line_search_initial_step_scale=<s>` (or the
+matching `JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_INITIAL_STEP_SCALE`
+environment variable). On the D/T/He `timestep=1.0` gate, the default line
+search tried scales `1`, `0.5`, then `0.25`, accepted `0.25`, and spent four
+total residual evaluations. Starting directly at `0.25` preserved the same
+residual (`7.315`), the same `400` JAX-GMRES update budget, and clean solver
+status, while reducing total residual evaluations from `4` to `2`,
+line-search trials from `3` to `1`, and local wall time from `7.84 s` to
+`7.34 s`. The local D/T/He research gate now requires this reduced residual
+evaluation count with `--require-max-residual-evaluations=2` and
+`--require-max-line-search-trials=1`.
 
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or
