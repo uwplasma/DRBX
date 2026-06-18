@@ -1247,19 +1247,21 @@ preconditioners should be cheaper approximate line/Schur solves rather than
 dense inversion of the full active line.
 
 The recycling wrappers also expose
-`runtime:recycling_jax_linear_check_initial_residual=false` or
-`JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL=0` for profiling decks that
-know the predictor is not already converged. The profiling script exposes the
-same switch as `--skip-initial-residual-check`, so it can be combined with
-`--jit-residual` without hand-writing BOUT overrides. The generic solver keeps the
-initial residual check enabled by default because it avoids unnecessary
-linearization when a predictor already satisfies the nonlinear tolerance. On
-the June 18, 2026 bounded hydrogen `timestep=1.0` JAX-linearized gate, disabling
-that check reduced the deterministic residual-evaluation count from `6` to `5`
-with identical residual norm. The three-run wall-time medians were
-noise-equivalent (`4.98 s` default versus `4.99 s` with the check disabled), so
-this is a host/device-barrier reduction seam rather than a default speedup
-claim.
+`runtime:recycling_jax_linear_initial_residual_mode=linearize` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE=linearize` for profiling
+decks that are not expected to start converged. The generic solver keeps the
+standalone initial residual check enabled by default because it avoids
+unnecessary linearization when a predictor already satisfies the nonlinear
+tolerance. The `linearize` mode keeps that convergence check but obtains the
+first residual norm from the first JAX linearization, avoiding the duplicate
+standalone residual call on non-converged heavy solves. The profiling script
+exposes this as `--initial-residual-mode linearize`; the older
+`--skip-initial-residual-check` switch remains available only when a campaign
+intentionally wants to remove the initial check altogether. On earlier bounded
+hydrogen `timestep=1.0` JAX-linearized gates, removing the standalone initial
+residual call reduced the deterministic residual-evaluation count from `6` to
+`5` with identical residual norm, so this remains a host/device-barrier
+reduction seam rather than a default speedup claim.
 
 The generic JAX-linearized solver now also reuses the already-known residual
 norm for the final accepted state when a bounded solve exits because the
