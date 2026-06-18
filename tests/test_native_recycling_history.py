@@ -827,6 +827,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
                 "converged": True,
                 "rhs_backend": "fixed_full_field_array",
                 "jacobian_mode": "jax_linearized:jax_bicgstab",
+                "linear_solver_backend": "jax_bicgstab",
                 "linear_solver_success": None,
             }
         ),
@@ -887,6 +888,30 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] == pytest.approx(
         0.06
     )
+
+
+def test_record_adaptive_bdf_step_solver_info_does_not_count_initial_convergence_as_unknown_linear_solver() -> (
+    None
+):
+    stats = recycling._new_adaptive_bdf_interval_stats("sparse_jvp")
+
+    recycling._record_adaptive_bdf_step_solver_info(
+        stats,
+        SimpleNamespace(
+            linear_iterations=0,
+            diagnostics={
+                "converged": True,
+                "rhs_backend": "fixed_full_field_array",
+                "jacobian_mode": "jvp",
+                "linear_solver_backend": None,
+                "linear_solver_success": None,
+            },
+        ),
+    )
+
+    assert stats["adaptive_bdf_trial_solver_steps"] == 1
+    assert stats["adaptive_bdf_unknown_linear_solver_steps"] == 0
+    assert stats["adaptive_bdf_linear_solver_failed_steps"] == 0
 
 
 def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:

@@ -1108,6 +1108,19 @@ reduced the median build time from `0.0128 s` to `0.0114 s`. This is only a
 small opt-in sparse-JVP kernel cleanup; larger recycling gates still need to
 show a runtime win before changing defaults.
 
+The sparse Newton compatibility path now also reports explicit SciPy linear
+solver health in the same diagnostics payload used by adaptive-BDF recycling
+gates. Direct sparse solves report `scipy_spsolve`; GMRES solves report
+`scipy_gmres`; failed GMRES attempts that fall back to the direct sparse solve
+report `scipy_gmres_spsolve_fallback`. Immediate-convergence records with zero
+linear iterations are no longer counted as unknown linear-solver status. On the
+bounded `recycling_1d_one_step` sparse-JVP adaptive-BDF gate with
+`timestep=0.25`, `steps=1`, and `max_nonlinear_iterations=3`, this changes the
+health summary from ambiguous sparse solves to `24` sparse-JVP solver steps,
+`0` failed linear solves, and `0` unknown linear-solver steps. The elapsed time
+remains about `16.45 s`, with the dominant cost still in JVP Jacobian assembly,
+so this is a promotion-gate instrumentation fix rather than a runtime speedup.
+
 The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:
 

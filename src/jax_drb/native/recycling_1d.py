@@ -3014,13 +3014,18 @@ def _record_adaptive_bdf_step_solver_info(
     stats["adaptive_bdf_linear_iterations"] = int(
         stats["adaptive_bdf_linear_iterations"]
     ) + int(getattr(info, "linear_iterations", 0) or 0)
+    linear_iterations = int(getattr(info, "linear_iterations", 0) or 0)
+    linear_solver_backend = diagnostics.get("linear_solver_backend")
+    linear_solver_attempted = (
+        linear_iterations > 0 or linear_solver_backend is not None
+    )
     if diagnostics.get("linear_solver_success") is False:
         stats["adaptive_bdf_linear_solver_failed_steps"] = (
             int(stats["adaptive_bdf_linear_solver_failed_steps"]) + 1
         )
     elif "linear_solver_success" in diagnostics and diagnostics.get(
         "linear_solver_success"
-    ) is None:
+    ) is None and linear_solver_attempted:
         stats["adaptive_bdf_unknown_linear_solver_steps"] = (
             int(stats["adaptive_bdf_unknown_linear_solver_steps"]) + 1
         )

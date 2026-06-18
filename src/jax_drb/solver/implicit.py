@@ -781,6 +781,10 @@ def solve_sparse_newton_system(
     jvp_jacobian_batch_count = 0
     jvp_jacobian_prebuilt_direction_batch_uses = 0
     jvp_direction_workspace_reuses = 0
+    last_linear_solver_backend: str | None = None
+    last_linear_solver_status: int | float | str | None = None
+    last_linear_solver_success: bool | None = None
+    last_linear_solver_reported_iterations: int | None = None
 
     def evaluate_residual(candidate_state: np.ndarray) -> np.ndarray:
         nonlocal residual_evaluation_count, residual_evaluation_seconds
@@ -812,6 +816,11 @@ def solve_sparse_newton_system(
             fallback_used=fallback_used,
             jacobian_mode=resolved_jacobian_mode,
             converged=converged,
+            linear_solver_backend=last_linear_solver_backend,
+            linear_solver_tolerance=float(linear_rtol),
+            linear_solver_status=last_linear_solver_status,
+            linear_solver_success=last_linear_solver_success,
+            linear_solver_reported_iterations=last_linear_solver_reported_iterations,
             jvp_direction_batch_count=jvp_direction_batch_count,
             jvp_direction_build_seconds=jvp_direction_build_seconds,
             jvp_jacobian_total_seconds=jvp_jacobian_total_seconds,
@@ -956,6 +965,11 @@ def solve_sparse_newton_system(
         if prefer_direct_linear_solve:
             update = spsolve(jacobian_csc, -residual_value)
             total_linear_iterations += 1
+            update_is_finite = bool(np.all(np.isfinite(update)))
+            last_linear_solver_backend = "scipy_spsolve"
+            last_linear_solver_status = "ok" if update_is_finite else "nonfinite"
+            last_linear_solver_success = update_is_finite
+            last_linear_solver_reported_iterations = 1
         else:
 
             def callback(_residual_norm) -> None:
@@ -973,9 +987,23 @@ def solve_sparse_newton_system(
                 callback_type="pr_norm",
             )
             total_linear_iterations += linear_iterations
+            gmres_update_is_finite = bool(np.all(np.isfinite(update)))
             if exit_code != 0:
                 update = spsolve(jacobian_csc, -residual_value)
                 total_linear_iterations += 1
+                direct_update_is_finite = bool(np.all(np.isfinite(update)))
+                last_linear_solver_backend = "scipy_gmres_spsolve_fallback"
+                last_linear_solver_status = (
+                    f"gmres_exit_{int(exit_code)}_spsolve_"
+                    f"{'ok' if direct_update_is_finite else 'nonfinite'}"
+                )
+                last_linear_solver_success = direct_update_is_finite
+                last_linear_solver_reported_iterations = int(linear_iterations) + 1
+            else:
+                last_linear_solver_backend = "scipy_gmres"
+                last_linear_solver_status = 0 if gmres_update_is_finite else "nonfinite"
+                last_linear_solver_success = gmres_update_is_finite
+                last_linear_solver_reported_iterations = int(linear_iterations)
         linear_solve_seconds += perf_counter() - linear_solve_started_at
 
         update = np.asarray(update, dtype=np.float64)

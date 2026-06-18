@@ -562,6 +562,12 @@ def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     assert sparse_info.jacobian_refresh_count >= 1
     assert sparse_info.jacobian_assembly_seconds >= 0.0
     assert sparse_info.linear_solve_seconds >= 0.0
+    assert sparse_info.linear_solver_backend == "scipy_gmres"
+    assert sparse_info.linear_solver_tolerance == pytest.approx(1.0e-10)
+    assert sparse_info.linear_solver_status == 0
+    assert sparse_info.linear_solver_success is True
+    assert sparse_info.linear_solver_reported_iterations is not None
+    assert sparse_info.linear_solver_reported_iterations >= 0
 
 
 def test_parallel_line_preconditioner_inverts_field_line_block() -> None:
@@ -683,6 +689,11 @@ def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:
         info.jvp_jacobian_device_execute_seconds
         + info.jvp_jacobian_host_transfer_seconds
     )
+    assert info.linear_solver_backend == "scipy_spsolve"
+    assert info.linear_solver_tolerance == pytest.approx(1.0e-10)
+    assert info.linear_solver_status == "ok"
+    assert info.linear_solver_success is True
+    assert info.linear_solver_reported_iterations == 1
 
 
 def test_sparse_newton_solver_reuses_sparse_jvp_workspace() -> None:
@@ -733,6 +744,10 @@ def test_sparse_newton_solver_reuses_sparse_jvp_workspace() -> None:
     assert (
         info.jvp_jacobian_prebuilt_direction_batch_uses == info.jacobian_refresh_count
     )
+    assert info.linear_solver_backend == "scipy_spsolve"
+    assert info.linear_solver_status == "ok"
+    assert info.linear_solver_success is True
+    assert info.linear_solver_reported_iterations == 1
 
 
 def test_sparse_newton_solver_returns_immediately_when_initial_state_satisfies_residual() -> (
@@ -798,6 +813,10 @@ def test_sparse_newton_solver_uses_thread_count_from_environment(
     np.testing.assert_allclose(solution, np.array([1.0]))
     assert captured_workers == [3]
     assert info.linear_iterations == 1
+    assert info.linear_solver_backend == "scipy_spsolve"
+    assert info.linear_solver_status == "ok"
+    assert info.linear_solver_success is True
+    assert info.linear_solver_reported_iterations == 1
 
 
 def test_sparse_newton_solver_falls_back_to_direct_solve_when_gmres_fails(
@@ -832,6 +851,10 @@ def test_sparse_newton_solver_falls_back_to_direct_solve_when_gmres_fails(
     np.testing.assert_allclose(solution, np.array([1.0]))
     assert gmres_calls == [1]
     assert info.linear_iterations == 2
+    assert info.linear_solver_backend == "scipy_gmres_spsolve_fallback"
+    assert info.linear_solver_status == "gmres_exit_1_spsolve_ok"
+    assert info.linear_solver_success is True
+    assert info.linear_solver_reported_iterations == 2
 
 
 def test_sparse_newton_solver_can_exit_on_step_tolerance() -> None:
@@ -957,6 +980,11 @@ def test_sparse_newton_solver_rejects_nonfinite_trial_then_uses_fallback(
     assert info.residual_inf_norm == pytest.approx(0.5)
     assert info.nonlinear_iterations == 1
     assert info.converged is False
+    assert info.fallback_used is True
+    assert info.linear_solver_backend == "scipy_spsolve"
+    assert info.linear_solver_status == "nonfinite"
+    assert info.linear_solver_success is False
+    assert info.linear_solver_reported_iterations == 1
 
 
 def test_jax_linearized_newton_solver_returns_immediately_for_satisfied_residual() -> (
@@ -1462,6 +1490,11 @@ def test_sparse_newton_solver_supports_direct_linear_solve_mode() -> None:
     np.testing.assert_allclose(solution, target, rtol=1.0e-9, atol=1.0e-9)
     assert info.residual_inf_norm < 1.0e-10
     assert info.linear_iterations >= 1
+    assert info.linear_solver_backend == "scipy_spsolve"
+    assert info.linear_solver_tolerance == pytest.approx(1.0e-10)
+    assert info.linear_solver_status == "ok"
+    assert info.linear_solver_success is True
+    assert info.linear_solver_reported_iterations == 1
 
 
 def test_sparse_newton_solver_supports_jacobian_reuse() -> None:
@@ -1496,3 +1529,7 @@ def test_sparse_newton_solver_supports_jacobian_reuse() -> None:
 
     np.testing.assert_allclose(solution, target, rtol=1.0e-9, atol=1.0e-9)
     assert info.residual_inf_norm < 1.0e-10
+    assert info.linear_solver_backend == "scipy_spsolve"
+    assert info.linear_solver_status == "ok"
+    assert info.linear_solver_success is True
+    assert info.linear_solver_reported_iterations == 1

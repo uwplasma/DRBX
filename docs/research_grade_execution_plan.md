@@ -83,7 +83,7 @@ and tests all move together.
 | Plan authority and release hygiene | 92% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 98.5% | Close remaining neutral `NVh` accepted-step state/history sequencing feeding `Pnlim`, `logPnlim`, and `Grad(logPnlim)`. |
-| JAX-native recycling solver | 88% | Make a JAX-transformable full-output recycling path faster and stable enough for default or documented opt-in promotion. |
+| JAX-native recycling solver | 89% | Make a JAX-transformable full-output recycling path faster and stable enough for default or documented opt-in promotion. |
 | Effective preconditioning | 35% | Move beyond negative row/field/local-block evidence to a transport-aware or Schur-style preconditioner with same-case speedup. |
 | Performance and scaling | 52% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
@@ -915,6 +915,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   Landreman-Paul QA, Dommaschk potentials, BSTING/Zoidberg workflow anchors,
   self-contained examples, release-hosted heavy assets, and no hosted-CI
   polling while runner billing is blocked.
+- 2026-06-18: Finished the sparse Newton linear-solver health reporting patch
+  used by adaptive-BDF sparse-JVP recycling gates. Direct sparse solves now
+  report `scipy_spsolve`, GMRES reports `scipy_gmres`, failed GMRES with direct
+  fallback reports `scipy_gmres_spsolve_fallback`, and immediate convergence
+  with zero linear iterations is no longer counted as unknown linear-solver
+  status. The bounded `recycling_1d_one_step` sparse-JVP adaptive-BDF gate
+  (`timestep=0.25`, `steps=1`, `max_nonlinear_iterations=3`) now reports `24`
+  sparse-JVP solver steps, `0` failed linear solves, and `0` unknown
+  linear-solver steps. The gate still takes about `16.45 s` and remains
+  dominated by JVP Jacobian assembly, so this is solver-health evidence rather
+  than a speedup claim.
 
 ## Definition Of Done
 
