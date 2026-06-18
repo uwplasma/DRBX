@@ -1069,6 +1069,20 @@ accepted trial solves, lower residual/JVP kernel cost, or a stronger
 Schur/transport preconditioner with measurable iteration-count reduction before
 spending more D/T/He wall time.
 
+Promotion scripts can now require this diagnostic evidence explicitly. For
+fixed-BDF2 campaigns, pass
+`--fixed-bdf2-linear-preconditioner=<name>` to
+`scripts/run_recycling_jvp_promotion_gate.py`; the wrapper forwards
+`runtime:recycling_jax_linear_preconditioner=<name>` and also asks
+`scripts/compare_recycling_transient_modes.py` to require
+`fixed_bdf2_linear_preconditioner=<name>` plus a positive preconditioner-build
+count. The lower-level compare script also exposes
+`--require-fixed-bdf2-linear-preconditioner=<name>` and
+`--require-adaptive-bdf-linear-preconditioner=<name>` for manual campaigns.
+These gates are deliberately stricter than a runtime-only override: they fail
+if a preconditioner request silently falls back to an unpreconditioned or
+Lineax path.
+
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL=0` for profiling decks that

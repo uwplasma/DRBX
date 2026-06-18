@@ -198,6 +198,22 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-linear-preconditioner",
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "this JAX-GMRES preconditioner name and at least one preconditioner build."
+        ),
+    )
+    parser.add_argument(
+        "--require-adaptive-bdf-linear-preconditioner",
+        default=None,
+        help=(
+            "Fail unless every requested adaptive_bdf_*jax_linearized mode reports "
+            "this JAX-GMRES preconditioner name and at least one preconditioner build."
+        ),
+    )
+    parser.add_argument(
         "--require-adaptive-bdf-no-fallback",
         action="store_true",
         help="Fail unless every requested adaptive-BDF mode reports zero minimum-dt fallback accepts.",
@@ -513,6 +529,7 @@ def _validate_fixed_bdf2_diagnostics(
     diagnostics: dict[str, object],
     *,
     max_residual_inf_norm: float | None = 1.0e-5,
+    required_linear_preconditioner: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
     expected_step_solver = FIXED_BDF2_STEP_SOLVER_MODES[mode]
@@ -578,6 +595,17 @@ def _validate_fixed_bdf2_diagnostics(
             errors.append(
                 f"{mode} fixed_bdf2_max_residual_inf_norm={residual_float:.8e} exceeds {float(max_residual_inf_norm):.8e}"
             )
+    if required_linear_preconditioner is not None:
+        errors.extend(
+            _validate_required_linear_preconditioner(
+                mode,
+                diagnostics,
+                required_linear_preconditioner=required_linear_preconditioner,
+                name_key="fixed_bdf2_linear_preconditioner",
+                count_key="fixed_bdf2_total_linear_preconditioner_build_count",
+                seconds_key="fixed_bdf2_total_linear_preconditioner_build_seconds",
+            )
+        )
     return errors
 
 
@@ -593,6 +621,7 @@ def _validate_adaptive_bdf_diagnostics(
     require_no_unconverged_substeps: bool,
     max_error_ratio: float | None,
     max_accepted_error_ratio: float | None,
+    required_linear_preconditioner: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
     expected_step_solver = ADAPTIVE_BDF_STEP_SOLVER_MODES[mode]
@@ -686,6 +715,53 @@ def _validate_adaptive_bdf_diagnostics(
                 errors.append(
                     f"{mode} adaptive_bdf_max_accepted_error_ratio={reported_float:.8e} exceeds {float(max_accepted_error_ratio):.8e}"
                 )
+    if required_linear_preconditioner is not None:
+        errors.extend(
+            _validate_required_linear_preconditioner(
+                mode,
+                diagnostics,
+                required_linear_preconditioner=required_linear_preconditioner,
+                name_key="adaptive_bdf_linear_preconditioner",
+                count_key="adaptive_bdf_linear_preconditioner_build_count",
+                seconds_key="adaptive_bdf_linear_preconditioner_build_seconds",
+            )
+        )
+    return errors
+
+
+def _canonical_preconditioner_name(name: str) -> str:
+    return str(name).strip().lower().replace("-", "_")
+
+
+def _validate_required_linear_preconditioner(
+    mode: str,
+    diagnostics: dict[str, object],
+    *,
+    required_linear_preconditioner: str,
+    name_key: str,
+    count_key: str,
+    seconds_key: str,
+) -> list[str]:
+    expected = _canonical_preconditioner_name(required_linear_preconditioner)
+    reported = diagnostics.get(name_key)
+    reported_name = (
+        None if reported is None else _canonical_preconditioner_name(str(reported))
+    )
+    errors: list[str] = []
+    if reported_name != expected:
+        errors.append(f"{mode} did not report {name_key}={expected}")
+    try:
+        build_count = int(diagnostics.get(count_key, 0))
+    except (TypeError, ValueError):
+        build_count = 0
+    if build_count <= 0:
+        errors.append(f"{mode} did not report any {expected} preconditioner builds")
+    try:
+        build_seconds = float(diagnostics.get(seconds_key, float("nan")))
+    except (TypeError, ValueError):
+        build_seconds = float("nan")
+    if not np.isfinite(build_seconds) or build_seconds < 0.0:
+        errors.append(f"{mode} did not report finite nonnegative {seconds_key}")
     return errors
 
 
@@ -846,6 +922,9 @@ def main() -> int:
                     max_residual_inf_norm=float(
                         args.require_fixed_bdf2_max_residual
                     ),
+                    required_linear_preconditioner=(
+                        args.require_fixed_bdf2_linear_preconditioner
+                    ),
                 )
             )
         for error in errors:
@@ -857,6 +936,7 @@ def main() -> int:
         or args.require_adaptive_bdf_no_unconverged_substeps
         or args.require_adaptive_bdf_max_error_ratio is not None
         or args.require_adaptive_bdf_max_accepted_error_ratio is not None
+        or args.require_adaptive_bdf_linear_preconditioner is not None
     ):
         adaptive_modes = _adaptive_bdf_modes_to_validate(modes)
         if not adaptive_modes:
@@ -875,6 +955,9 @@ def main() -> int:
                 ),
                 max_error_ratio=args.require_adaptive_bdf_max_error_ratio,
                 max_accepted_error_ratio=args.require_adaptive_bdf_max_accepted_error_ratio,
+                required_linear_preconditioner=(
+                    args.require_adaptive_bdf_linear_preconditioner
+                ),
             )
             adaptive_gate_errors[mode] = mode_errors
             errors.extend(mode_errors)

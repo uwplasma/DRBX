@@ -1248,6 +1248,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   and full `800` GMRES update budget. The next performance step remains
   reducing residual/JVP cost or developing a Schur/transport preconditioner
   that measurably reduces iteration count.
+- 2026-06-18: Added explicit preconditioner-evidence gates to the recycling
+  promotion scripts. `scripts/run_recycling_jvp_promotion_gate.py` can now pass
+  `--fixed-bdf2-linear-preconditioner=<name>`, which forwards the matching
+  runtime override and requires `fixed_bdf2_linear_preconditioner=<name>` plus
+  a positive build count in `scripts/compare_recycling_transient_modes.py`.
+  The lower-level compare script also supports adaptive-BDF required
+  preconditioner diagnostics. Focused verification:
+  `PYTHONPATH=src pytest -q tests/test_compare_recycling_transient_modes.py
+  tests/test_recycling_jvp_promotion_gate.py` passed with `46` tests. This does
+  not claim a speedup; it closes a promotion-gate gap by ensuring future
+  preconditioner campaigns cannot silently fall back to an unpreconditioned
+  path.
 
 ## Definition Of Done
 

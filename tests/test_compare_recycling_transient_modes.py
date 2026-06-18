@@ -49,8 +49,12 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "1e-5",
             "--require-fixed-jvp-diagnostics",
             "--require-fixed-bdf2-diagnostics",
+            "--require-fixed-bdf2-linear-preconditioner",
+            "local-block",
             "--require-adaptive-bdf-no-fallback",
             "--require-adaptive-bdf-no-unconverged-substeps",
+            "--require-adaptive-bdf-linear-preconditioner",
+            "parallel-line",
             "--require-adaptive-bdf-max-error-ratio",
             "0.95",
             "--require-adaptive-bdf-max-accepted-error-ratio",
@@ -82,8 +86,10 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.require_bdf_pairwise_max == 1.0e-5
     assert args.require_fixed_jvp_diagnostics is True
     assert args.require_fixed_bdf2_diagnostics is True
+    assert args.require_fixed_bdf2_linear_preconditioner == "local-block"
     assert args.require_adaptive_bdf_no_fallback is True
     assert args.require_adaptive_bdf_no_unconverged_substeps is True
+    assert args.require_adaptive_bdf_linear_preconditioner == "parallel-line"
     assert args.require_adaptive_bdf_max_error_ratio == 0.95
     assert args.require_adaptive_bdf_max_accepted_error_ratio == 0.75
     assert args.mode_timeout_seconds == 2.5
@@ -101,6 +107,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert "fixed_bdf2_jax_linearized" in help_text
     assert "fixed_bdf2_active_array_jax_linearized" in help_text
     assert "--require-fixed-bdf2-diagnostics" in help_text
+    assert "--require-fixed-bdf2-linear-preconditioner" in help_text
+    assert "--require-adaptive-bdf-linear-preconditioner" in help_text
     assert "fixed-layout JVP BDF paths" in normalized_help
 
 
@@ -477,7 +485,11 @@ def test_fixed_bdf2_diagnostics_gate_accepts_active_array_route() -> None:
             "fixed_bdf2_bdf2_steps": 1,
             "fixed_bdf2_evolve_feedback_integrals": True,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+            "fixed_bdf2_linear_preconditioner": "local_block_diag",
+            "fixed_bdf2_total_linear_preconditioner_build_count": 2,
+            "fixed_bdf2_total_linear_preconditioner_build_seconds": 0.125,
         },
+        required_linear_preconditioner="local-block-diag",
     )
 
     assert errors == []
@@ -555,6 +567,41 @@ def test_fixed_bdf2_diagnostics_gate_reports_fallback_route() -> None:
         "fixed_bdf2_jax_linearized_lineax did not report any accepted fixed BDF2 intervals",
         "fixed_bdf2_jax_linearized_lineax did not report any actual fixed BDF2 corrector steps",
         "fixed_bdf2_jax_linearized_lineax did not report a finite fixed BDF2 residual norm",
+    ]
+
+
+def test_fixed_bdf2_diagnostics_gate_reports_missing_preconditioner() -> None:
+    errors = compare_script._validate_fixed_bdf2_diagnostics(
+        "fixed_bdf2_active_array_jax_linearized",
+        {
+            "fixed_bdf2_solver_mode": "fixed_bdf2_active_array_jax_linearized",
+            "fixed_bdf2_step_solver_mode": "active_array_jax_linearized",
+            "fixed_bdf2_active_array_rhs_steps": 2,
+            "fixed_bdf2_jax_linearized_action_steps": 2,
+            "fixed_bdf2_startup_steps": 1,
+            "fixed_bdf2_bdf2_steps": 1,
+            "fixed_bdf2_evolve_feedback_integrals": True,
+            "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+            "fixed_bdf2_linear_preconditioner": None,
+            "fixed_bdf2_total_linear_preconditioner_build_count": 0,
+            "fixed_bdf2_total_linear_preconditioner_build_seconds": float("nan"),
+        },
+        required_linear_preconditioner="parallel-line",
+    )
+
+    assert errors == [
+        (
+            "fixed_bdf2_active_array_jax_linearized did not report "
+            "fixed_bdf2_linear_preconditioner=parallel_line"
+        ),
+        (
+            "fixed_bdf2_active_array_jax_linearized did not report any "
+            "parallel_line preconditioner builds"
+        ),
+        (
+            "fixed_bdf2_active_array_jax_linearized did not report finite "
+            "nonnegative fixed_bdf2_total_linear_preconditioner_build_seconds"
+        ),
     ]
 
 
@@ -637,11 +684,15 @@ def test_adaptive_bdf_diagnostics_gate_accepts_active_array_route() -> None:
             "adaptive_bdf_jax_linearized_action_solver_steps": 3,
             "adaptive_bdf_max_error_ratio": 0.75,
             "adaptive_bdf_max_accepted_error_ratio": 0.75,
+            "adaptive_bdf_linear_preconditioner": "parallel_line",
+            "adaptive_bdf_linear_preconditioner_build_count": 3,
+            "adaptive_bdf_linear_preconditioner_build_seconds": 0.25,
         },
         require_no_fallback=True,
         require_no_unconverged_substeps=True,
         max_error_ratio=0.95,
         max_accepted_error_ratio=0.95,
+        required_linear_preconditioner="parallel-line",
     )
 
     assert errors == []

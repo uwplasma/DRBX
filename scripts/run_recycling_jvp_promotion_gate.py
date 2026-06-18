@@ -74,6 +74,7 @@ def _build_case_command(
     gate_phase: str = "bdf_jvp",
     fixed_bdf2_timestep: float | None = None,
     mode_timeout_seconds: float | None = None,
+    fixed_bdf2_linear_preconditioner: str | None = None,
 ) -> list[str]:
     resolved_mode_timeout = (
         gate_case.mode_timeout_seconds
@@ -116,6 +117,19 @@ def _build_case_command(
                 f"{float(fixed_bdf2_timestep):g}",
             )
         )
+        if fixed_bdf2_linear_preconditioner is not None:
+            preconditioner_name = str(fixed_bdf2_linear_preconditioner).strip()
+            if not preconditioner_name:
+                raise ValueError("fixed_bdf2_linear_preconditioner must be nonempty.")
+            command.extend(
+                (
+                    "--override",
+                    "runtime:recycling_jax_linear_preconditioner="
+                    f"{preconditioner_name}",
+                    "--require-fixed-bdf2-linear-preconditioner",
+                    preconditioner_name,
+                )
+            )
         if gate_case.fixed_bdf2_max_internal_timestep is not None:
             command.extend(
                 (
@@ -229,6 +243,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-linear-preconditioner",
+        default=None,
+        help=(
+            "Opt into a JAX-GMRES preconditioner for the fixed-BDF2 promotion phase. "
+            "The generated compare command also requires matching preconditioner "
+            "diagnostics so the gate fails if the run silently falls back to an "
+            "unpreconditioned path."
+        ),
+    )
+    parser.add_argument(
         "--mode-timeout-seconds",
         type=float,
         default=None,
@@ -286,6 +310,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 gate_phase=gate_phase,
                 fixed_bdf2_timestep=fixed_bdf2_timestep,
                 mode_timeout_seconds=args.mode_timeout_seconds,
+                fixed_bdf2_linear_preconditioner=(
+                    args.fixed_bdf2_linear_preconditioner
+                ),
             )
             resolved_mode_timeout = (
                 gate_case.mode_timeout_seconds
@@ -304,6 +331,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "steps": gate_case.steps,
                 "include_active_array_jvp": bool(args.include_active_array_jvp),
                 "fixed_bdf2_timestep": fixed_bdf2_timestep,
+                "fixed_bdf2_linear_preconditioner": (
+                    args.fixed_bdf2_linear_preconditioner
+                ),
                 "command": command,
                 "output_json": case_output_json,
                 "returncode": 0,
