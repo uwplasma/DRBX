@@ -33,14 +33,48 @@ Subordinate pages:
 If any subordinate page conflicts with this file, follow this file and update
 the subordinate page after the implementation decision is made.
 
-This planning pass is intentionally not a code/test implementation pass. A
-pre-existing uncommitted source edit is present in
-`src/jax_drb/solver/implicit.py` from the previous sparse solver-health lane and
-is outside the scope of this plan-only pass.
-
 Hosted GitHub Actions should not be polled repeatedly while hosted runners are
 blocked by account billing/spending-limit state. Use local release gates during
 development and check hosted CI periodically after billing is restored.
+
+## How To Execute This Plan
+
+This file should be used as the working checklist for every future pass.
+
+Working rules:
+
+1. Start every work pass by reading the current completion snapshot, the ordered
+   execution plan, and the execution log.
+2. Pick the highest-priority unblocked lane from the ordered plan, or a later
+   independent lane only when the current lane is blocked by external data,
+   reference runs, hardware, or reviewer decision.
+3. Before broadening any README, docs, release, or paper claim, add or update
+   the matching validation, performance, coverage, geometry, or parity evidence
+   in this file.
+4. Use subordinate pages only for technical detail that is too long for this
+   master plan. Do not create new competing roadmap files.
+5. Keep heavy generated artifacts out of git. If an example needs large
+   fixtures, movies, traces, or dumps, use release assets plus a documented
+   downloader/restoration command.
+6. Keep ordinary user workflows self-contained. Reference-code runs are
+   developer validation tools, not required dependencies for normal examples.
+7. Log decisions and negative benchmarks. A failed optimization, failed
+   preconditioner, or rejected geometry/movie is useful evidence and should be
+   recorded before moving to the next option.
+8. Commit and push coherent plan, docs, tests, or code batches frequently, but
+   do not wait on hosted CI while the runner account is blocked.
+
+Definition of a completed lane:
+
+- implementation exists behind a stable public API or explicitly opt-in
+  experimental API;
+- tests cover equations, numerics, differentiability or parity as appropriate;
+- documentation explains equations, assumptions, inputs, outputs, examples,
+  plots, and limitations;
+- figures/movies are reproducible by documented scripts and have passed visual
+  QA when promoted;
+- runtime, memory, and scaling claims have same-fidelity evidence;
+- repo-footprint and package audits do not show accidental heavy artifacts.
 
 ## Target Claim Boundary
 
@@ -80,7 +114,7 @@ and tests all move together.
 
 | Lane | Completion | Current blocker |
 | --- | ---: | --- |
-| Plan authority and release hygiene | 92% | Keep this file current and prevent new competing roadmap files. |
+| Plan authority and release hygiene | 95% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 98.5% | Close remaining neutral `NVh` accepted-step state/history sequencing feeding `Pnlim`, `logPnlim`, and `Grad(logPnlim)`. |
 | JAX-native recycling solver | 89% | Make a JAX-transformable full-output recycling path faster and stable enough for default or documented opt-in promotion. |
@@ -93,6 +127,31 @@ and tests all move together.
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 86% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 90% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag. |
+
+## Milestone Map
+
+The ordered plan below is detailed. This milestone map is the compact route to
+finish the code without re-planning at every step.
+
+| Milestone | Lanes | Exit criteria |
+| --- | --- | --- |
+| M0: planning and artifact control | plan authority, repo footprint, self-contained examples | This file is current, subordinate plans do not conflict, heavy assets are release-hosted or excluded, and users do not need private reference-code installs. |
+| M1: reference-backed physics parity | neutral `NVh`, recycling, sheath, target sources, detachment observables | Remaining accepted-step sequencing offender is closed or bounded, parity reports rank remaining errors by term and field, and regression tests lock each closed offender. |
+| M2: JAX-native recycling and preconditioning | fixed-layout residuals, JVP/Jacobian actions, physics/block preconditioners | Full-output recycling residual can run through the JAX-transformable seam, JVP/finite-difference gates pass, and at least one preconditioner gives same-case solver-health or runtime improvement before default promotion. |
+| M3: complete DRB physics surface | Braginskii closures, vorticity/potential, Boussinesq/non-Boussinesq, electromagnetic selected fields, open/closed field lines | Each promoted term has equations, implementation links, limiting-case tests, and literature-anchored plots; reduced surrogate terms are either removed from promoted examples or labeled. |
+| M4: self-contained diverted tokamak program | 1D/2D/3D diverted geometry, recycling, detachment, turbulence, movies, analysis scripts | Clean-clone users can run tokamak tutorials, generate movies/profiles, fetch only release-hosted fixtures when needed, and reproduce README visuals. |
+| M5: 3D stellarator SOL program | VMEC, VMEC-extender, ESSOS coil maps, hybrid maps, HSX, NCSX, Landreman-Paul QA, Dommaschk | Boundary, Poincare, connection-length, endpoint, FCI, open/closed, refinement, sheath/recycling/neutral, and reduced/full transient gates pass before movies are promoted. |
+| M6: performance and differentiability evidence | CPU, GPU, multi-device, `jit`, `vmap`, `jvp`, VJP/grad, UQ/inverse design | Real heavy kernels have cProfile/RSS/JAX-trace evidence, CPU/GPU scaling is same-fidelity, and differentiability examples compare against finite differences. |
+| M7: release package | coverage, docs, README, examples, package, release notes | Promoted coverage is above `95%`, docs build locally, package is small, release notes state experimental boundaries, and tag/release/PyPI workflow are ready. |
+
+Immediate next work package after this plan-only pass:
+
+1. Close the neutral `NVh` accepted-step state/history parity offender.
+2. Continue the JAX-native recycling solver lane with residual/JVP cost
+   reduction and a physics/block preconditioner.
+3. Resume live imported-field connection-length refinement for coil, VMEC, and
+   hybrid stellarator maps.
+4. Update docs/examples only after those gates produce reproducible artifacts.
 
 ## Ordered Execution Plan
 
@@ -904,6 +963,13 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-18: Refined the master plan into an execution checklist with
+  explicit working rules, lane completion criteria, milestone map, and immediate
+  next work package. Confirmed that `plan_jax_drb.md` is only a redirect and
+  that the older refactoring, geometry, non-axisymmetric, parity, runtime, and
+  research-direction pages are subordinate appendices rather than competing
+  plans. Removed a stale note about an uncommitted source edit because the
+  worktree is clean for this plan-only pass.
 - 2026-06-18: Consolidated the plan into this single authoritative file and
   reorganized it around ordered workstreams: plan authority, reference-backed
   parity, JAX-native recycling, effective preconditioning, drift-reduced
