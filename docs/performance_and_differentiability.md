@@ -1006,11 +1006,14 @@ The JAX-GMRES path also has opt-in preconditioner hooks through
 names are `state_scale`, which scales each packed residual row by the matching
 initial-state magnitude, and `field_scale`, which scales each fixed-layout
 field block by a conservative RMS field scale while leaving feedback rows
-separate. The `local_block_diag`/`block_jacobi` option is a stronger physics
-preconditioner probe: after `jax.linearize`, it builds same-cell dense
-field-by-equation Jacobian blocks with batched JVPs, inverts those small blocks
-on device, and leaves transport/off-cell coupling to the outer JAX GMRES
-iteration. The `parallel_line`/`transport_line` option is the next
+separate. The `field_diag`/`field_jacobi` option is the cheapest
+JVP-derived field-active diagnostic: after `jax.linearize`, it samples only the
+active field-block diagonal entries and leaves feedback scalars unscaled. The
+`local_block_diag`/`block_jacobi` option is a stronger physics preconditioner
+probe: after `jax.linearize`, it builds same-cell dense field-by-equation
+Jacobian blocks with batched JVPs, inverts those small blocks on device, and
+leaves transport/off-cell coupling to the outer JAX GMRES iteration. The
+`parallel_line`/`transport_line` option is the next
 transport-aware probe: it extracts JVP-derived dense blocks along the active
 parallel line for all evolved fields, solves those line blocks on device, and
 leaves feedback variables plus off-line coupling to the outer Krylov update.
@@ -1040,10 +1043,16 @@ solver also exposes a bounded
 `linearized_diag` diagnostic that builds an exact JVP-derived Jacobian diagonal
 after `jax.linearize`; on the same fixed-layout `timestep=1.0` gate it ran in
 `3.66 s`, spent `0.36 s` building the diagonal, and still reached the full
-`400` GMRES update budget. The local-block probe is correct but not a current
-default speedup: the matched two-step fixed-BDF2 hydrogen gate ran in `13.15 s`
-without preconditioning, `13.27 s` with local blocks rebuilt on every nonlinear
-update, and `13.02 s` with block reuse. On the full adaptive hydrogen
+`400` GMRES update budget. A June 18, 2026 bounded hydrogen one-step probe
+verified the `field_diag` runtime surface and required-preconditioner gate
+(`linear_preconditioner=field_diag`, one build, `0.44 s` build time, two
+residual evaluations, five linear-operator calls, solver status `0`), but it
+did not improve that tiny same-case runtime (`7.37 s` versus `6.95 s`
+unpreconditioned with the same linear budget). The local-block probe is correct
+but not a current default speedup: the matched two-step fixed-BDF2 hydrogen
+gate ran in `13.15 s` without preconditioning, `13.27 s` with local blocks
+rebuilt on every nonlinear update, and `13.02 s` with block reuse. On the full
+adaptive hydrogen
 `timestep=1.0` gate, rebuilding local blocks completed in `137.2 s`, while
 reusing blocks inside each implicit solve completed in `113.5 s`; both passed
 the fallback/convergence/error gates, but both remain slower than the retained
@@ -1063,8 +1072,9 @@ skipped initial residual check, and batched JAX GMRES gave `3.07 s`
 unpreconditioned, `3.79 s` with `parallel_line`, and `3.76 s` with
 `parallel_line` plus preconditioner reuse; all runs retained the same residual
 band and the full `800` GMRES update budget. That closes simple row, field,
-diagonal, same-cell block-Jacobi, and first line-block preconditioning as
-default speedup lanes and points the next performance work toward fewer
+diagonal, field-active diagonal, same-cell block-Jacobi, and first line-block
+preconditioning as default speedup lanes and points the next performance work
+toward fewer
 accepted trial solves, lower residual/JVP kernel cost, or a stronger
 Schur/transport preconditioner with measurable iteration-count reduction before
 spending more D/T/He wall time.
