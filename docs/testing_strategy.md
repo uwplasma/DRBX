@@ -123,7 +123,7 @@ It should not mean:
 - counting tutorial execution as a substitute for operator, parity, physics,
   and convergence assertions
 
-The release standard from the refactoring roadmap is:
+The release standard from the consolidated execution plan is:
 
 - at least `95%` on the promoted solver and public-surface slice
 - no critical operator family below `90%`

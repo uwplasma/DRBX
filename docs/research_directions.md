@@ -1,10 +1,19 @@
 # Research Directions
 
-This page connects the current `jax_drb` roadmap to active edge and scrape-off-layer research programs. The goal is to make it easy to map a code contribution or validation campaign to a real scientific target.
+!!! note "Plan authority"
+    This page is a subordinate research-context appendix. The active execution
+    plan is [research_grade_execution_plan.md](research_grade_execution_plan.md).
+    If this page conflicts with that plan, follow the execution plan and update
+    this appendix afterward.
+
+This page connects the current `jax_drb` roadmap to active edge and
+scrape-off-layer research programs. The goal is to make it easy to map a code
+contribution or validation campaign to a real scientific target.
 
 ## Near-Term Validation Targets
 
-The near-term execution order is:
+The near-term research mapping mirrors the execution order in the consolidated
+plan:
 
 1. finish the native open-field recycling transient backbone
 2. reuse that backbone for integrated and direct-tokamak recycling lanes
