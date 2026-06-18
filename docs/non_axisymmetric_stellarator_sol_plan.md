@@ -172,7 +172,9 @@ connection-length refinement diagnostic. The self-contained manufactured
 three-level gate now also requires monotonic RMS and \(L_\infty\) error
 reduction and records reduction factors; the current artifact reports finest
 RMS `6.71e-3`, finest \(L_\infty\) `1.14e-2`, observed order `1.78`, and
-minimum reduction factors `3.45` and `3.31`. The checked-in live imported
+minimum reduction factors `3.45` and `3.31`. The clean-clone gate also sets
+`require_observed_order=True`, so a two-level live check remains diagnostic
+rather than publication-grade convergence evidence. The checked-in live imported
 artifacts are still single-grid campaign outputs; the multi-grid diagnostic
 must pass on a fresh `coil`, `vmec`, or `hybrid` sweep before an imported-field
 turbulence movie is promoted from documentation bridge to publication evidence.
@@ -500,7 +502,8 @@ gates should be added in this order:
    source maps, nested connection-length refinement with
    `build_essos_imported_connection_length_refinement_diagnostics`, monotonic
    multi-level RMS and \(L_\infty\) error reduction where three or more levels
-   are available, and at least one grid or timestep sensitivity check.
+   are available, `require_observed_order=True` for promotion runs, and at
+   least one grid or timestep sensitivity check.
 8. Differentiability gates for geometry parameters, source amplitude,
    damping/transport coefficients, and objective functions based on radial
    flux, RMS fluctuation, target load, and connection-length-weighted

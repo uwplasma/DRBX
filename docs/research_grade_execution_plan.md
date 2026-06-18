@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 68% | Promote live connection-length, endpoint, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
+| 3D stellarator imported-field/VMEC SOL | 69% | Promote live connection-length, endpoint, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 86% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 90% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag. |
@@ -1467,6 +1467,16 @@ Use this log for concise decision records. Do not paste terminal output here.
   minimum \(L_\infty\) reduction factor `3.31`. Live `coil`/`vmec`/`hybrid`
   imported turbulence movies still require a fresh live multi-grid pass before
   publication claims.
+- 2026-06-18: Promoted the connection-length refinement example from a
+  permissive artifact generator to an enforceable promotion gate. The validation
+  API now accepts `require_observed_order=True`; with that flag, two-level
+  reports fail even if the finest-grid error is small, while three-level
+  manufactured reports pass with observed-order evidence. The clean-clone
+  example now defaults to three live levels when `LIVE_IMPORT=True`, requires
+  observed-order availability, and raises on a failed report. This closes the
+  accidental two-level promotion gap; the remaining 3D blocker is still a fresh
+  live `coil`/`vmec`/`hybrid` multi-grid sweep with the correct connection
+  quantity and endpoint semantics.
 
 ## Definition Of Done
 

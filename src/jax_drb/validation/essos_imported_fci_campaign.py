@@ -244,6 +244,7 @@ def create_essos_imported_connection_length_refinement_package(
     convergence_threshold: float = 0.02,
     linf_threshold: float = 0.05,
     minimum_observed_order: float = 1.5,
+    require_observed_order: bool = False,
 ) -> EssosImportedConnectionLengthRefinementArtifacts:
     """Write a self-contained nested-grid connection-length refinement gate.
 
@@ -267,6 +268,7 @@ def create_essos_imported_connection_length_refinement_package(
         convergence_threshold=convergence_threshold,
         linf_threshold=linf_threshold,
         minimum_observed_order=minimum_observed_order,
+        require_observed_order=require_observed_order,
     )
     report_json_path = data_dir / f"{case_label}.json"
     report_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -302,6 +304,7 @@ def create_live_essos_imported_connection_length_refinement_package(
     convergence_threshold: float = 0.05,
     linf_threshold: float = 0.15,
     minimum_observed_order: float = 0.0,
+    require_observed_order: bool = False,
 ) -> EssosImportedConnectionLengthRefinementArtifacts:
     """Write a live imported connection-length refinement gate.
 
@@ -333,6 +336,7 @@ def create_live_essos_imported_connection_length_refinement_package(
         convergence_threshold=convergence_threshold,
         linf_threshold=linf_threshold,
         minimum_observed_order=minimum_observed_order,
+        require_observed_order=require_observed_order,
     )
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     report["source"] = "live imported connection-length refinement gate"
@@ -446,6 +450,7 @@ def build_essos_imported_connection_length_refinement_campaign(
     convergence_threshold: float = 0.02,
     linf_threshold: float = 0.05,
     minimum_observed_order: float = 1.5,
+    require_observed_order: bool = False,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     """Build report and arrays for nested connection-length refinement."""
 
@@ -471,6 +476,7 @@ def build_essos_imported_connection_length_refinement_campaign(
         convergence_threshold=convergence_threshold,
         linf_threshold=linf_threshold,
         minimum_observed_order=minimum_observed_order,
+        require_observed_order=require_observed_order,
     )
     observed_orders = [
         item["observed_order"]
@@ -497,6 +503,7 @@ def build_essos_imported_connection_length_refinement_campaign(
         "finest_normalized_rms_error": last_pair["normalized_rms_error"],
         "finest_normalized_linf_error": last_pair["normalized_linf_error"],
         "minimum_observed_order_actual": min(observed_orders) if observed_orders else None,
+        "observed_order_required": bool(require_observed_order),
         "minimum_rms_error_reduction_factor": (
             min(rms_reduction_factors) if rms_reduction_factors else None
         ),
@@ -1045,6 +1052,7 @@ def build_essos_imported_connection_length_refinement_diagnostics(
     convergence_threshold: float = 0.35,
     linf_threshold: float = 0.75,
     minimum_observed_order: float = 0.5,
+    require_observed_order: bool = False,
 ) -> dict[str, Any]:
     """Compare nested imported connection-length grids by conservative restriction.
 
@@ -1178,7 +1186,10 @@ def build_essos_imported_connection_length_refinement_diagnostics(
         for item in observed_orders
         if item["observed_order"] is not None
     ]
-    order_passed = not order_values or min(order_values) >= float(minimum_observed_order)
+    has_required_order = bool(order_values) or not bool(require_observed_order)
+    order_passed = has_required_order and (
+        not order_values or min(order_values) >= float(minimum_observed_order)
+    )
     error_passed = (
         last_rms is not None
         and last_linf is not None
@@ -1200,6 +1211,8 @@ def build_essos_imported_connection_length_refinement_diagnostics(
         "convergence_threshold": float(convergence_threshold),
         "linf_threshold": float(linf_threshold),
         "minimum_observed_order": float(minimum_observed_order),
+        "observed_order_required": bool(require_observed_order),
+        "observed_order_available": bool(order_values),
         "passed": bool(finite_pairs and error_passed and order_passed and monotonic_passed),
     }
 

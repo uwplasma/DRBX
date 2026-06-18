@@ -162,7 +162,9 @@ spacing is refined. Open-field maps still need a separate target-to-target
 gate because target-exit lengths and adjacent-plane fallback lengths have
 different grid-scaling behavior. The clean-clone example
 [`examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py`](../examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py)
-exercises that exact refinement path on manufactured non-axisymmetric data.
+exercises that exact refinement path on manufactured non-axisymmetric data and
+sets `require_observed_order=True` so a two-level report cannot be promoted as
+convergence evidence.
 
 ## Current Promotion Rule
 
@@ -177,6 +179,8 @@ turbulence only when all of the following are true:
   adjacent-step maps use parallel step length per toroidal radian, while
   open-field coil/hybrid maps must separate target-to-target exit length from
   adjacent-step fallback length.
+- The multi-grid control has at least three nested levels when it is used to
+  support an observed-order convergence claim.
 - The turbulence figure or movie reports which connection-length definition was
   used: wall-hit/exit length, adjacent-plane arc length, or synthetic proxy.
 

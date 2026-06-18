@@ -73,6 +73,8 @@ def test_imported_connection_length_refinement_campaign_is_self_contained(tmp_pa
     assert report["finest_normalized_rms_error"] < 0.02
     assert report["finest_normalized_linf_error"] < 0.05
     assert report["minimum_observed_order_actual"] > 1.5
+    assert report["observed_order_required"] is False
+    assert report["diagnostics"]["observed_order_available"] is True
     assert arrays["level_0"].shape == (4, 6, 8)
     assert arrays["level_2"].shape == (16, 24, 32)
     assert arrays["pair_normalized_rms_error"][1] < arrays["pair_normalized_rms_error"][0]
@@ -102,6 +104,42 @@ def test_connection_length_refinement_can_use_coordinate_interpolation() -> None
     assert block_report["passed"] is False
     assert coordinate_report["passed"] is True
     assert coordinate_report["pair_reports"][0]["normalized_linf_error"] < 1.0e-14
+
+
+def test_connection_length_refinement_can_require_observed_order_for_promotion(tmp_path: Path) -> None:
+    coarse_coordinates = _logical_coordinates((3, 4, 8))
+    fine_coordinates = _logical_coordinates((6, 8, 16))
+    coarse = 10.0 + 2.0 * coarse_coordinates["minor_radius"]
+    fine = 10.0 + 2.0 * fine_coordinates["minor_radius"]
+
+    advisory_report = build_essos_imported_connection_length_refinement_diagnostics(
+        (coarse, fine),
+        coordinate_levels=(coarse_coordinates, fine_coordinates),
+        convergence_threshold=1.0e-12,
+        linf_threshold=1.0e-12,
+    )
+    promotion_report = build_essos_imported_connection_length_refinement_diagnostics(
+        (coarse, fine),
+        coordinate_levels=(coarse_coordinates, fine_coordinates),
+        convergence_threshold=1.0e-12,
+        linf_threshold=1.0e-12,
+        require_observed_order=True,
+    )
+    packaged = create_essos_imported_connection_length_refinement_package(
+        output_root=tmp_path / "test_connection_length_refinement_requires_order",
+        level_shapes=((4, 6, 8), (8, 12, 16), (16, 24, 32)),
+        require_observed_order=True,
+    )
+    packaged_report = json.loads(packaged.report_json_path.read_text(encoding="utf-8"))
+
+    assert advisory_report["passed"] is True
+    assert advisory_report["observed_order_available"] is False
+    assert promotion_report["passed"] is False
+    assert promotion_report["observed_order_required"] is True
+    assert promotion_report["observed_order_available"] is False
+    assert packaged_report["passed"] is True
+    assert packaged_report["observed_order_required"] is True
+    assert packaged_report["diagnostics"]["observed_order_available"] is True
 
 
 def test_live_imported_connection_length_refinement_uses_geometry_levels(
