@@ -42,6 +42,59 @@ def test_json_ready_diagnostics_preserves_native_run_counters() -> None:
     }
 
 
+def test_native_diagnostic_gate_accepts_exact_and_numeric_minimum() -> None:
+    errors = profile_script._native_diagnostic_gate_errors(
+        {
+            "recycling_transient_solver_mode": "bdf_fixed_full_field_jvp",
+            "bdf_jacobian_mode": "jvp",
+            "bdf_rhs_backend": "fixed_full_field_array",
+            "bdf_jvp_jacobian_batch_count": 3,
+        },
+        exact_requirements=(
+            "recycling_transient_solver_mode=bdf_fixed_full_field_jvp",
+            "bdf_jacobian_mode=jvp",
+            "bdf_rhs_backend=fixed_full_field_array",
+        ),
+        minimum_requirements=("bdf_jvp_jacobian_batch_count=1",),
+    )
+
+    assert errors == []
+
+
+def test_native_diagnostic_gate_reports_missing_mismatch_and_low_count() -> None:
+    errors = profile_script._native_diagnostic_gate_errors(
+        {
+            "recycling_transient_solver_mode": "bdf",
+            "bdf_jvp_jacobian_batch_count": 0,
+        },
+        exact_requirements=(
+            "recycling_transient_solver_mode=bdf_fixed_full_field_jvp",
+            "bdf_jacobian_mode=jvp",
+        ),
+        minimum_requirements=("bdf_jvp_jacobian_batch_count=1",),
+    )
+
+    assert (
+        "native diagnostics reported recycling_transient_solver_mode='bdf', "
+        "expected 'bdf_fixed_full_field_jvp'"
+    ) in errors
+    assert "native diagnostics did not report 'bdf_jacobian_mode'" in errors
+    assert (
+        "native diagnostics reported bdf_jvp_jacobian_batch_count=0, "
+        "expected at least 1"
+    ) in errors
+
+
+def test_native_diagnostic_gate_rejects_invalid_requirement() -> None:
+    with np.testing.assert_raises_regex(
+        ValueError, "--require-native-diagnostic requires KEY=VALUE"
+    ):
+        profile_script._native_diagnostic_gate_errors(
+            {"bdf_jacobian_mode": "jvp"},
+            exact_requirements=("bdf_jacobian_mode",),
+        )
+
+
 def test_sanitize_profile_text_removes_local_absolute_paths() -> None:
     reference_root = Path.home() / "local" / "hermes-3"
     text = "\n".join(
