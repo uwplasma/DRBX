@@ -1021,7 +1021,14 @@ The companion
 `runtime:recycling_jax_linear_preconditioner_refresh=<n>` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_REFRESH=<n>` control lets a run
 reuse this approximate dynamic preconditioner across Newton updates inside one
-implicit solve. These are diagnostic seams, not promoted accelerators. On the
+implicit solve. The same runtime surface exposes bounded-build controls:
+`runtime:recycling_jax_linear_preconditioner_floor=<x>` sets the diagonal or
+block regularisation floor, `runtime:recycling_jax_linear_preconditioner_max_field_unknowns=<n>`
+caps the `field_diag` JVP build, and
+`runtime:recycling_jax_linear_preconditioner_max_local_unknowns=<n>` caps the
+`local_block_diag` JVP build. The matching environment variables use the
+uppercase `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_*` names. These are
+diagnostic seams, not promoted accelerators. On the
 June 15, 2026 local hydrogen fixed-layout gate, the unpreconditioned solve ran
 in `2.96 s`, while `state_scale` ran in `7.25 s` with the same residual norm
 and solver status. A follow-up `field_scale` fixed-layout probe at
