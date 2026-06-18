@@ -182,6 +182,11 @@ The matching environment variable is
 bounded to `(0, 1]`, and the default is `1`, preserving the standard backtracking
 search. This control is not a physics-model change; it only avoids predictable
 rejected residual evaluations in quality-gated JAX-linearized solver studies.
+The same diagnostics report `linear_operator_call_count` and
+`linear_operator_dispatch_seconds`, which measure Python-visible calls to the
+matrix-free linearized operator during the Krylov solve. These are profiling
+diagnostics for solver studies; the full `linear_solve_seconds` value remains
+the end-to-end wall-time measurement because JAX device work can be asynchronous.
 
 For JAX-linearized promotion experiments, the inner matrix-free Krylov backend
 can be selected with `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER`. Supported values are

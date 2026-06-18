@@ -1179,6 +1179,20 @@ line-search trials from `3` to `1`, and local wall time from `7.84 s` to
 `7.34 s`. The local D/T/He research gate now requires this reduced residual
 evaluation count with `--require-max-residual-evaluations=2` and
 `--require-max-line-search-trials=1`.
+The same gate now records and gates matrix-free linear-operator calls. The
+generic JAX-linearized solver reports `linear_operator_call_count` and
+`linear_operator_dispatch_seconds` for Python-visible calls to the linearized
+operator during the Krylov solve. These diagnostics are separated from dynamic
+preconditioner builds, residual evaluations, and line-search residuals. A
+local wrapper run with the D/T/He gate passed with `5` operator calls,
+`1.16 s` of operator-dispatch time, `5.24 s` total linear-solve time,
+`1.30 s` JAX-linearization time, residual `7.315`, two residual evaluations,
+and one line-search trial. The gate now requires
+`--require-min-linear-operator-calls=1`, which prevents profiles from passing
+without exercising the matrix-free JVP/Krylov path. The dispatch time is not a
+substitute for `linear_solve_seconds`, because JAX device work can be
+asynchronous, but it gives the preconditioner lane a stable call-count metric
+for future reductions.
 Repeating the preconditioner sweep after this damping does not yet justify a
 new default. With the damped line search, `field_scale` remained neutral
 (`8.65 s` versus `8.65 s` for the same-run unpreconditioned control), while
