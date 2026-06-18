@@ -481,7 +481,7 @@ Geometry sources:
 Source anchors:
 
 - [BSTING workflow files](https://github.com/rogeriojorge/bsting_files).
-- Local BSTING files: `/Users/rogeriojorge/local/bsting_files` when present.
+- Optional local BSTING checkout: set `BSTING_FILES_ROOT` when present.
 - [Hermes-3 reference commit](https://github.com/boutproject/hermes-3/tree/eebf98fd18198101bebe7cdb5c85f25dc1ff3474).
 - [Zoidberg reference commit](https://github.com/rogeriojorge/zoidberg/tree/a7ed260123508c35939002d96412c0dd84491fe4).
 - [ESSOS](https://github.com/uwplasma/ESSOS).
