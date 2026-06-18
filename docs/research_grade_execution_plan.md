@@ -1599,6 +1599,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   operator calls. Timing was not robust enough to promote BiCGSTAB (`19.25 s`
   cold, `14.88 s` warmed), so this is a reproducibility/screening fix rather
   than a performance promotion.
+- 2026-06-18: Added an opt-in JAX-linearized linear-operator JIT seam for the
+  matrix-free recycling solver. `runtime:recycling_jax_linear_jit_linear_operator`
+  / `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR` now wraps the
+  `jax.linearize` Krylov action with `jax.jit`, fixed-output BDF2 histories
+  report `fixed_bdf2_linear_operator_jitted_steps`, and the comparison harness
+  can require full use with `--require-fixed-bdf2-linear-operator-jitted`.
+  Focused solver/recycling/harness tests passed (`78 passed`). The bounded
+  hydrogen active-array gate proved the option reached all four internal
+  JAX-linearized steps and preserved residual `2.90e-6` with `35` operator
+  calls, but elapsed time increased to `23.09 s`. This remains a heavy-kernel
+  profiling hook, not a promotion; the next P3 implementation must reduce
+  residual/JVP action cost or lower operator calls through a genuinely
+  effective transport/Schur preconditioner.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic

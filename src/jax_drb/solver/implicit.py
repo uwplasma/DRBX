@@ -50,6 +50,7 @@ class ImplicitStepInfo:
     linear_solver_solve_method: str | None = None
     linear_operator_call_count: int = 0
     linear_operator_dispatch_seconds: float = 0.0
+    linear_operator_jitted: bool = False
     linear_preconditioner: str | None = None
     linear_preconditioner_build_seconds: float = 0.0
     linear_preconditioner_build_count: int = 0
@@ -1149,6 +1150,7 @@ def solve_jax_linearized_newton_system(
     check_initial_residual: bool = True,
     initial_residual_mode: str = "residual",
     jit_residual: bool = False,
+    jit_linear_operator: bool = False,
     line_search_initial_step_scale: float = 1.0,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
@@ -1252,6 +1254,7 @@ def solve_jax_linearized_newton_system(
             ),
             linear_operator_call_count=linear_operator_call_count,
             linear_operator_dispatch_seconds=linear_operator_dispatch_seconds,
+            linear_operator_jitted=bool(jit_linear_operator),
             linear_preconditioner=linear_preconditioner_name
             if linear_preconditioner is not None
             or _is_dynamic_jax_linear_preconditioner(linear_preconditioner_name)
@@ -1297,6 +1300,7 @@ def solve_jax_linearized_newton_system(
                 nonlinear_iterations=nonlinear_iteration - 1,
                 converged=True,
             )
+        linear_operator = jax.jit(linear_map) if bool(jit_linear_operator) else linear_map
 
         effective_preconditioner = linear_preconditioner
         if _is_dynamic_jax_linear_preconditioner(linear_preconditioner_name):
@@ -1311,7 +1315,7 @@ def solve_jax_linearized_newton_system(
                 cached_dynamic_preconditioner = (
                     _build_jax_linearized_dynamic_preconditioner(
                         linear_preconditioner_name,
-                        linear_map,
+                        linear_operator,
                         state,
                         context=linear_preconditioner_context,
                     )
@@ -1325,7 +1329,7 @@ def solve_jax_linearized_newton_system(
         def counted_linear_map(tangent):
             nonlocal linear_operator_call_count, linear_operator_dispatch_seconds
             operator_started_at = perf_counter()
-            result = linear_map(tangent)
+            result = linear_operator(tangent)
             linear_operator_dispatch_seconds += perf_counter() - operator_started_at
             linear_operator_call_count += 1
             return result

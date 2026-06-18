@@ -1326,6 +1326,20 @@ repeats (`19.25 s` in the cold comparison and `14.88 s` in the warmed gate).
 Because the operator-count budget did not improve, this is a reproducibility and
 screening improvement rather than a backend-promotion result.
 
+The solver now has a separate opt-in seam for compiling the matrix-free linear
+operator returned by `jax.linearize`. Set
+`runtime:recycling_jax_linear_jit_linear_operator=true` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR=1` to wrap that Krylov action
+with `jax.jit`; fixed-BDF2 summaries report
+`fixed_bdf2_linear_operator_jitted_steps`, and the comparison harness can require
+it with `--require-fixed-bdf2-linear-operator-jitted`. On the same bounded
+two-window hydrogen active-array gate this route passed correctness and reported
+JIT-wrapped linear operators on all four internal JAX-linearized steps, residual
+`2.90e-6`, and `35` operator calls, but elapsed time increased to `23.09 s`.
+This is therefore retained only as a heavier-kernel profiling hook. It is not a
+default-promotion result, and the main P3 direction remains cheaper residual/JVP
+actions or a preconditioner that actually reduces operator calls.
+
 The generic JAX-linearized solver now also reuses the already-known residual
 norm for the final accepted state when a bounded solve exits because the
 nonlinear iteration budget was exhausted. This removes a redundant final

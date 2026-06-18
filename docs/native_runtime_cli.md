@@ -196,6 +196,13 @@ The profiling and comparison scripts can enforce these diagnostics with
 `--require-max-preconditioner-applies` and
 `--require-fixed-bdf2-max-preconditioner-applies` when screening candidate
 transport preconditioners.
+For heavy matrix-free profiling, the linearized Krylov action can also be
+wrapped with `runtime:recycling_jax_linear_jit_linear_operator=true` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR=1`. Fixed-BDF2 histories
+report `fixed_bdf2_linear_operator_jitted_steps`, and the comparison harness can
+require this route with `--require-fixed-bdf2-linear-operator-jitted`. This is
+an opt-in compiler experiment, not a default, because bounded local gates have
+not shown a robust speedup.
 
 Fixed-output BDF2 JAX-linearized histories use
 `runtime:recycling_jax_linear_initial_residual_mode=linearize` by default. This

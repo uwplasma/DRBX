@@ -1542,6 +1542,42 @@ def test_jax_linearized_newton_solver_can_prejit_residual() -> None:
     assert info.jacobian_mode == "jax_linearized:jax_gmres"
 
 
+def test_jax_linearized_newton_solver_can_jit_linear_operator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+
+    jit_call_count = 0
+    original_jit = jax.jit
+
+    def fake_jit(fn):
+        nonlocal jit_call_count
+        jit_call_count += 1
+        return original_jit(fn)
+
+    monkeypatch.setattr(jax, "jit", fake_jit)
+    target = jnp.array([0.75, 1.25], dtype=jnp.float64)
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - target,
+        np.array([0.5, 1.0], dtype=np.float64),
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_restart=4,
+        linear_maxiter=4,
+        jit_linear_operator=True,
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
+    assert info.residual_inf_norm < 1.0e-12
+    assert info.converged is True
+    assert info.linear_operator_jitted is True
+    assert jit_call_count >= 1
+
+
 def test_jax_linearized_newton_solver_reports_line_search_damping() -> None:
     jnp = pytest.importorskip("jax.numpy")
 

@@ -2310,6 +2310,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_total_linear_preconditioner_apply_seconds": 0.0,
         "fixed_bdf2_active_array_rhs_steps": 0,
         "fixed_bdf2_residual_jitted_steps": 0,
+        "fixed_bdf2_linear_operator_jitted_steps": 0,
         "fixed_bdf2_unconverged_solver_steps": 0,
         "fixed_bdf2_unknown_convergence_solver_steps": 0,
         "fixed_bdf2_linear_solver_failed_steps": 0,
@@ -2394,6 +2395,10 @@ def _advance_recycling_1d_fixed_bdf2_history(
         if bool(info.diagnostics.get("residual_jitted", False)):
             diagnostics["fixed_bdf2_residual_jitted_steps"] = (
                 int(diagnostics["fixed_bdf2_residual_jitted_steps"]) + 1
+            )
+        if bool(info.diagnostics.get("linear_operator_jitted", False)):
+            diagnostics["fixed_bdf2_linear_operator_jitted_steps"] = (
+                int(diagnostics["fixed_bdf2_linear_operator_jitted_steps"]) + 1
             )
         if info.diagnostics.get("initial_residual_mode") is not None:
             diagnostics["fixed_bdf2_initial_residual_mode"] = str(
@@ -4787,6 +4792,7 @@ def advance_recycling_1d_backward_euler_step(
             _resolve_recycling_jax_linear_line_search_initial_step_scale(config)
         )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
+        jit_linear_operator = _resolve_recycling_jax_linear_jit_linear_operator(config)
         check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
             config
         )
@@ -4832,6 +4838,7 @@ def advance_recycling_1d_backward_euler_step(
             check_initial_residual=check_initial_residual,
             initial_residual_mode=initial_residual_mode,
             jit_residual=jit_residual,
+            jit_linear_operator=jit_linear_operator,
             line_search_initial_step_scale=line_search_initial_step_scale,
         )
     else:
@@ -4987,6 +4994,7 @@ def advance_recycling_1d_bdf2_step(
             _resolve_recycling_jax_linear_line_search_initial_step_scale(config)
         )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
+        jit_linear_operator = _resolve_recycling_jax_linear_jit_linear_operator(config)
         check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
             config
         )
@@ -5032,6 +5040,7 @@ def advance_recycling_1d_bdf2_step(
             check_initial_residual=check_initial_residual,
             initial_residual_mode=initial_residual_mode,
             jit_residual=jit_residual,
+            jit_linear_operator=jit_linear_operator,
             line_search_initial_step_scale=line_search_initial_step_scale,
         )
     else:
@@ -6136,6 +6145,17 @@ def _resolve_recycling_jax_linear_jit_residual(
     )
 
 
+def _resolve_recycling_jax_linear_jit_linear_operator(
+    config: BoutConfig | None = None,
+) -> bool:
+    return _resolve_bool_runtime_option(
+        config,
+        option_name="recycling_jax_linear_jit_linear_operator",
+        env_name="JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR",
+        default=False,
+    )
+
+
 def _resolve_recycling_jax_linear_check_initial_residual(
     config: BoutConfig | None = None,
 ) -> bool:
@@ -6944,6 +6964,9 @@ def _as_recycling_step_info(
             getattr(info, "jvp_direction_workspace_reuses", 0)
         ),
         "residual_jitted": bool(getattr(info, "residual_jitted", False)),
+        "linear_operator_jitted": bool(
+            getattr(info, "linear_operator_jitted", False)
+        ),
         "check_initial_residual": bool(
             getattr(info, "check_initial_residual", True)
         ),

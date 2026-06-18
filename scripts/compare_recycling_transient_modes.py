@@ -215,6 +215,14 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-linear-operator-jitted",
+        action="store_true",
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "JIT-wrapped linear-operator use on every JAX-linearized internal step."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-bdf2-max-linear-iterations",
         type=int,
         default=None,
@@ -583,6 +591,7 @@ def _validate_fixed_bdf2_diagnostics(
     max_residual_inf_norm: float | None = 1.0e-5,
     required_linear_preconditioner: str | None = None,
     required_linear_solver_backend: str | None = None,
+    require_linear_operator_jitted: bool = False,
     max_linear_iterations: int | None = None,
     max_linear_operator_calls: int | None = None,
     max_preconditioner_builds: int | None = None,
@@ -672,6 +681,14 @@ def _validate_fixed_bdf2_diagnostics(
                 key="fixed_bdf2_linear_solver_backend",
             )
         )
+    if require_linear_operator_jitted:
+        linearized_steps = int(diagnostics.get("fixed_bdf2_jax_linearized_action_steps", 0))
+        jitted_steps = int(diagnostics.get("fixed_bdf2_linear_operator_jitted_steps", 0))
+        if linearized_steps <= 0 or jitted_steps != linearized_steps:
+            errors.append(
+                f"{mode} did not report JIT-wrapped linear operators on every "
+                f"JAX-linearized step: {jitted_steps}/{linearized_steps}"
+            )
     if max_linear_iterations is not None:
         errors.extend(
             _validate_maximum_integer_diagnostic(
@@ -1122,6 +1139,9 @@ def main() -> int:
                     ),
                     required_linear_solver_backend=(
                         args.require_fixed_bdf2_linear_solver_backend
+                    ),
+                    require_linear_operator_jitted=bool(
+                        args.require_fixed_bdf2_linear_operator_jitted
                     ),
                     max_linear_iterations=(
                         args.require_fixed_bdf2_max_linear_iterations

@@ -244,6 +244,7 @@ def test_fixed_bdf2_jax_linearized_history_uses_startup_bdf2_and_packed_feedback
                 "linear_solve_seconds": 0.5,
                 "residual_evaluation_seconds": 0.25,
                 "residual_jitted": True,
+                "linear_operator_jitted": True,
                 "initial_residual_mode": "linearize",
             },
         )
@@ -349,6 +350,7 @@ def test_fixed_bdf2_jax_linearized_history_uses_startup_bdf2_and_packed_feedback
     assert diagnostics["fixed_bdf2_jax_linearized_action_steps"] == 3
     assert diagnostics["fixed_bdf2_lineax_action_steps"] == 3
     assert diagnostics["fixed_bdf2_residual_jitted_steps"] == 3
+    assert diagnostics["fixed_bdf2_linear_operator_jitted_steps"] == 3
     assert diagnostics["fixed_bdf2_evolve_feedback_integrals"] is True
     assert diagnostics["fixed_bdf2_initial_residual_mode"] == "linearize"
 
@@ -374,6 +376,7 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
                 "linear_operator_dispatch_seconds": 0.03125,
                 "residual_evaluation_seconds": 0.125,
                 "residual_jitted": True,
+                "linear_operator_jitted": True,
                 "converged": True,
                 "linear_solver_success": True,
                 "linear_preconditioner": "local_block_diag",
@@ -454,6 +457,7 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
     assert diagnostics["fixed_bdf2_active_array_rhs_steps"] == 2
     assert diagnostics["fixed_bdf2_jax_linearized_action_steps"] == 2
     assert diagnostics["fixed_bdf2_residual_jitted_steps"] == 2
+    assert diagnostics["fixed_bdf2_linear_operator_jitted_steps"] == 2
     assert diagnostics["fixed_bdf2_initial_residual_mode"] == "linearize"
     assert diagnostics["fixed_bdf2_linear_preconditioner"] == "local_block_diag"
     assert diagnostics["fixed_bdf2_total_linear_preconditioner_build_count"] == 4
