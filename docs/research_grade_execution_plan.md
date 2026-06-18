@@ -1509,6 +1509,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   JAX-transformable path from correctness-only to near compatibility-path
   runtime on bounded fixtures; the remaining performance blocker is Krylov
   cost and effective preconditioning, not duplicated residual assembly.
+- 2026-06-18: Probed the existing JVP-derived active-array preconditioners on
+  the same bounded hydrogen fixed-BDF2 gate after the single-pass RHS patch.
+  `local_block_diag` built five times, preserved zero failed linear solves, but
+  kept the same `25` operator calls and slowed the run to `16.56 s`;
+  `field_diag` behaved similarly at `16.22 s`. Reusing `local_block_diag` with
+  `runtime:recycling_jax_linear_preconditioner_refresh=99` bounded builds to
+  two and recovered most build overhead (`11.94 s`), but still did not reduce
+  operator calls or beat the unpreconditioned `11.36 s` active-array run. This
+  rules out the current field/local diagonal preconditioners as the next
+  default-promotion route on bounded recycling gates; P3 should prioritize a
+  transport/Schur preconditioner or a cheaper residual action that measurably
+  reduces Krylov operator calls.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic
