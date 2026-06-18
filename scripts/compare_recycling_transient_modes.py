@@ -238,6 +238,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-max-preconditioner-applies",
+        type=int,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_total_linear_preconditioner_apply_count at or below this "
+            "value. Pair this with operator-call budgets to reject preconditioners "
+            "that are applied frequently without reducing Krylov work."
+        ),
+    )
+    parser.add_argument(
         "--require-adaptive-bdf-linear-preconditioner",
         default=None,
         help=(
@@ -565,6 +576,7 @@ def _validate_fixed_bdf2_diagnostics(
     max_linear_iterations: int | None = None,
     max_linear_operator_calls: int | None = None,
     max_preconditioner_builds: int | None = None,
+    max_preconditioner_applies: int | None = None,
 ) -> list[str]:
     errors: list[str] = []
     expected_step_solver = FIXED_BDF2_STEP_SOLVER_MODES[mode]
@@ -669,6 +681,16 @@ def _validate_fixed_bdf2_diagnostics(
                 key="fixed_bdf2_total_linear_preconditioner_build_count",
                 maximum=int(max_preconditioner_builds),
                 label="fixed BDF2 preconditioner builds",
+            )
+        )
+    if max_preconditioner_applies is not None:
+        errors.extend(
+            _validate_maximum_integer_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_total_linear_preconditioner_apply_count",
+                maximum=int(max_preconditioner_applies),
+                label="fixed BDF2 preconditioner applies",
             )
         )
     return errors
@@ -911,6 +933,13 @@ def main() -> int:
         raise ValueError(
             "--require-fixed-bdf2-max-preconditioner-builds must be nonnegative."
         )
+    if (
+        args.require_fixed_bdf2_max_preconditioner_applies is not None
+        and int(args.require_fixed_bdf2_max_preconditioner_applies) < 0
+    ):
+        raise ValueError(
+            "--require-fixed-bdf2-max-preconditioner-applies must be nonnegative."
+        )
     case, input_path = resolve_reference_case(
         args.case, reference_root=args.reference_root
     )
@@ -1046,6 +1075,9 @@ def main() -> int:
                     ),
                     max_preconditioner_builds=(
                         args.require_fixed_bdf2_max_preconditioner_builds
+                    ),
+                    max_preconditioner_applies=(
+                        args.require_fixed_bdf2_max_preconditioner_applies
                     ),
                 )
             )

@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 96% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; duplicate active-array RHS work and fixed-BDF2 standalone initial residuals are closed, but Krylov/preconditioner cost remains. |
-| Effective preconditioning | 45% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget; apply-count/apply-time diagnostics are now available for candidate screening. |
+| Effective preconditioning | 46% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget; apply-count/apply-time diagnostics and promotion gates are now available for candidate screening. |
 | Performance and scaling | 63% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -1544,6 +1544,14 @@ Use this log for concise decision records. Do not paste terminal output here.
   alongside two builds and unchanged `25` linear-operator calls. This confirms
   the current local-block preconditioner is apply-cheap but Krylov-ineffective;
   the next useful P3 implementation must reduce operator calls.
+- 2026-06-18: Added preconditioner-apply budget gates to the recycling
+  JAX-linearized profile script, fixed-BDF2 compare script, and JVP promotion
+  wrapper. Campaigns can now require
+  `linear_preconditioner_apply_count`,
+  `fixed_bdf2_total_linear_preconditioner_apply_count`, build counts, and
+  linear-operator calls to stay inside explicit budgets. This closes the
+  diagnostics gap between "the preconditioner was requested" and "the
+  preconditioner actually reduced Krylov work cheaply enough to promote."
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic

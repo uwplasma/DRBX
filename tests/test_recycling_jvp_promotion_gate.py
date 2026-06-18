@@ -96,6 +96,7 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
         fixed_bdf2_max_linear_iterations=3200,
         fixed_bdf2_max_linear_operator_calls=128,
         fixed_bdf2_max_preconditioner_builds=2,
+        fixed_bdf2_max_preconditioner_applies=40,
     )
 
     overrides = [
@@ -123,6 +124,9 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
     assert command[
         command.index("--require-fixed-bdf2-max-preconditioner-builds") + 1
     ] == "2"
+    assert command[
+        command.index("--require-fixed-bdf2-max-preconditioner-applies") + 1
+    ] == "40"
 
 
 def test_recycling_jvp_promotion_gate_rejects_invalid_preconditioner_refresh() -> None:
@@ -161,6 +165,10 @@ def test_recycling_jvp_promotion_gate_rejects_invalid_performance_budgets() -> N
         (
             {"fixed_bdf2_max_preconditioner_builds": -1},
             "fixed_bdf2_max_preconditioner_builds must be nonnegative",
+        ),
+        (
+            {"fixed_bdf2_max_preconditioner_applies": -1},
+            "fixed_bdf2_max_preconditioner_applies must be nonnegative",
         ),
     ):
         try:

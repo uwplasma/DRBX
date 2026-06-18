@@ -192,6 +192,10 @@ When a JAX-GMRES preconditioner is enabled, the same reports include
 `linear_preconditioner_apply_count`, and
 `linear_preconditioner_apply_seconds`; fixed-BDF2 and adaptive-BDF histories
 aggregate those as `fixed_bdf2_total_*` and `adaptive_bdf_*` fields.
+The profiling and comparison scripts can enforce these diagnostics with
+`--require-max-preconditioner-applies` and
+`--require-fixed-bdf2-max-preconditioner-applies` when screening candidate
+transport preconditioners.
 
 Fixed-output BDF2 JAX-linearized histories use
 `runtime:recycling_jax_linear_initial_residual_mode=linearize` by default. This

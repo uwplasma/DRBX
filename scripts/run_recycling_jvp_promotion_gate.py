@@ -79,6 +79,7 @@ def _build_case_command(
     fixed_bdf2_max_linear_iterations: int | None = None,
     fixed_bdf2_max_linear_operator_calls: int | None = None,
     fixed_bdf2_max_preconditioner_builds: int | None = None,
+    fixed_bdf2_max_preconditioner_applies: int | None = None,
 ) -> list[str]:
     resolved_mode_timeout = (
         gate_case.mode_timeout_seconds
@@ -187,6 +188,18 @@ def _build_case_command(
                 (
                     "--require-fixed-bdf2-max-preconditioner-builds",
                     str(max_preconditioner_builds),
+                )
+            )
+        if fixed_bdf2_max_preconditioner_applies is not None:
+            max_preconditioner_applies = int(fixed_bdf2_max_preconditioner_applies)
+            if max_preconditioner_applies < 0:
+                raise ValueError(
+                    "fixed_bdf2_max_preconditioner_applies must be nonnegative."
+                )
+            command.extend(
+                (
+                    "--require-fixed-bdf2-max-preconditioner-applies",
+                    str(max_preconditioner_applies),
                 )
             )
         solver_modes = FIXED_BDF2_GATE_SOLVER_MODES
@@ -344,6 +357,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-max-preconditioner-applies",
+        type=int,
+        default=None,
+        help=(
+            "Forward --require-fixed-bdf2-max-preconditioner-applies to the fixed-BDF2 "
+            "compare phase. Use with operator-call budgets to screen preconditioners "
+            "that are applied frequently without reducing Krylov work."
+        ),
+    )
+    parser.add_argument(
         "--mode-timeout-seconds",
         type=float,
         default=None,
@@ -416,6 +439,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fixed_bdf2_max_preconditioner_builds=(
                     args.fixed_bdf2_max_preconditioner_builds
                 ),
+                fixed_bdf2_max_preconditioner_applies=(
+                    args.fixed_bdf2_max_preconditioner_applies
+                ),
             )
             resolved_mode_timeout = (
                 gate_case.mode_timeout_seconds
@@ -448,6 +474,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "fixed_bdf2_max_preconditioner_builds": (
                     args.fixed_bdf2_max_preconditioner_builds
+                ),
+                "fixed_bdf2_max_preconditioner_applies": (
+                    args.fixed_bdf2_max_preconditioner_applies
                 ),
                 "command": command,
                 "output_json": case_output_json,

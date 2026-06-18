@@ -68,6 +68,8 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "1",
             "--require-max-preconditioner-builds",
             "2",
+            "--require-max-preconditioner-applies",
+            "40",
         ]
     )
 
@@ -90,6 +92,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.require_min_linear_iterations == 1
     assert args.require_min_nonlinear_iterations == 1
     assert args.require_max_preconditioner_builds == 2
+    assert args.require_max_preconditioner_applies == 40
 
 
 def test_help_documents_preconditioner_and_budget_gates(
@@ -118,6 +121,7 @@ def test_help_documents_preconditioner_and_budget_gates(
     assert "--require-min-linear-iterations" in help_text
     assert "--require-min-nonlinear-iterations" in help_text
     assert "--require-max-preconditioner-builds" in help_text
+    assert "--require-max-preconditioner-applies" in help_text
 
 
 def test_effective_overrides_append_linear_preconditioner_controls() -> None:
@@ -218,6 +222,10 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             {"require_max_preconditioner_builds": -1},
             "--require-max-preconditioner-builds must be nonnegative",
         ),
+        (
+            {"require_max_preconditioner_applies": -1},
+            "--require-max-preconditioner-applies must be nonnegative",
+        ),
     ):
         values = {
             "linear_preconditioner": None,
@@ -238,6 +246,7 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "require_min_linear_iterations": None,
             "require_min_nonlinear_iterations": None,
             "require_max_preconditioner_builds": None,
+            "require_max_preconditioner_applies": None,
         }
         values.update(kwargs)
         args = SimpleNamespace(**values)
@@ -260,6 +269,7 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
         require_min_linear_iterations=1,
         require_min_nonlinear_iterations=1,
         require_max_preconditioner_builds=2,
+        require_max_preconditioner_applies=40,
     )
     profile_report = {
         "linear_iterations": 3200,
@@ -270,6 +280,7 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
             "initial_residual_mode": "linearize",
             "linear_preconditioner_build_count": 2,
             "linear_preconditioner_build_seconds": 0.125,
+            "linear_preconditioner_apply_count": 35,
             "residual_evaluation_count": 2,
             "line_search_trial_count": 1,
             "linear_operator_call_count": 128,
@@ -293,6 +304,7 @@ def test_profile_gate_errors_accept_field_diag_as_dynamic_preconditioner() -> No
         require_min_linear_iterations=None,
         require_min_nonlinear_iterations=None,
         require_max_preconditioner_builds=1,
+        require_max_preconditioner_applies=None,
     )
     profile_report = {
         "linear_iterations": 4,
@@ -320,6 +332,7 @@ def test_profile_gate_errors_accept_static_preconditioner_without_builds() -> No
         require_min_linear_iterations=None,
         require_min_nonlinear_iterations=None,
         require_max_preconditioner_builds=None,
+        require_max_preconditioner_applies=None,
     )
     profile_report = {
         "linear_iterations": 1,
@@ -343,6 +356,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
         require_min_linear_iterations=1,
         require_min_nonlinear_iterations=1,
         require_max_preconditioner_builds=2,
+        require_max_preconditioner_applies=2,
     )
     profile_report = {
         "linear_iterations": 24,
@@ -353,6 +367,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
             "initial_residual_mode": "residual",
             "linear_preconditioner_build_count": 3,
             "linear_preconditioner_build_seconds": float("nan"),
+            "linear_preconditioner_apply_count": 5,
             "residual_evaluation_count": 4,
             "line_search_trial_count": 3,
             "linear_operator_call_count": 3,
@@ -379,6 +394,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
     assert "profile reported 3 line-search trials, exceeding 1" in errors
     assert "profile reported 3 linear-operator calls, exceeding 2" in errors
     assert "profile reported 3 preconditioner builds, exceeding 2" in errors
+    assert "profile reported 5 preconditioner applies, exceeding 2" in errors
 
 
 def test_profile_gate_errors_reject_noop_profiles() -> None:

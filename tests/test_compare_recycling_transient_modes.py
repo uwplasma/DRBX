@@ -55,6 +55,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "3600",
             "--require-fixed-bdf2-max-preconditioner-builds",
             "2",
+            "--require-fixed-bdf2-max-preconditioner-applies",
+            "40",
             "--require-adaptive-bdf-no-fallback",
             "--require-adaptive-bdf-no-unconverged-substeps",
             "--require-adaptive-bdf-linear-preconditioner",
@@ -93,6 +95,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.require_fixed_bdf2_linear_preconditioner == "local-block"
     assert args.require_fixed_bdf2_max_linear_iterations == 3600
     assert args.require_fixed_bdf2_max_preconditioner_builds == 2
+    assert args.require_fixed_bdf2_max_preconditioner_applies == 40
     assert args.require_adaptive_bdf_no_fallback is True
     assert args.require_adaptive_bdf_no_unconverged_substeps is True
     assert args.require_adaptive_bdf_linear_preconditioner == "parallel-line"
@@ -116,6 +119,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert "--require-fixed-bdf2-linear-preconditioner" in help_text
     assert "--require-fixed-bdf2-max-linear-iterations" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-builds" in help_text
+    assert "--require-fixed-bdf2-max-preconditioner-applies" in help_text
     assert "--require-adaptive-bdf-linear-preconditioner" in help_text
     assert "fixed-layout JVP BDF paths" in normalized_help
 
@@ -633,10 +637,12 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
             "fixed_bdf2_total_linear_iterations": 3600,
             "fixed_bdf2_total_linear_operator_call_count": 512,
             "fixed_bdf2_total_linear_preconditioner_build_count": 9,
+            "fixed_bdf2_total_linear_preconditioner_apply_count": 35,
         },
         max_linear_iterations=3200,
         max_linear_operator_calls=128,
         max_preconditioner_builds=2,
+        max_preconditioner_applies=30,
     )
 
     assert errors == [
@@ -651,6 +657,10 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
         (
             "fixed_bdf2_active_array_jax_linearized reported 9 fixed BDF2 "
             "preconditioner builds, exceeding 2"
+        ),
+        (
+            "fixed_bdf2_active_array_jax_linearized reported 35 fixed BDF2 "
+            "preconditioner applies, exceeding 30"
         ),
     ]
 

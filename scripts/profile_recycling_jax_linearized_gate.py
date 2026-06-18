@@ -312,6 +312,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "exceeds this nonnegative budget."
         ),
     )
+    parser.add_argument(
+        "--require-max-preconditioner-applies",
+        type=int,
+        default=None,
+        help=(
+            "Fail after profiling when diagnostics.linear_preconditioner_apply_count "
+            "exceeds this nonnegative budget. Use this with operator-call budgets "
+            "to reject preconditioners that are cheap to build but overused."
+        ),
+    )
     parser.add_argument("--cprofile-top", type=int, default=40)
     parser.add_argument("--skip-cprofile", action="store_true")
     parser.add_argument("--rss-profile", action="store_true")
@@ -405,6 +415,11 @@ def _validate_args(args: argparse.Namespace) -> None:
         if int(args.require_max_preconditioner_builds) < 0:
             raise SystemExit(
                 "--require-max-preconditioner-builds must be nonnegative."
+            )
+    if args.require_max_preconditioner_applies is not None:
+        if int(args.require_max_preconditioner_applies) < 0:
+            raise SystemExit(
+                "--require-max-preconditioner-applies must be nonnegative."
             )
 
 
@@ -818,6 +833,19 @@ def _profile_gate_errors(
                 source=diagnostics,
             )
         )
+    max_preconditioner_applies = getattr(
+        args, "require_max_preconditioner_applies", None
+    )
+    if max_preconditioner_applies is not None:
+        errors.extend(
+            _validate_maximum_integer_value(
+                profile_report,
+                key="linear_preconditioner_apply_count",
+                maximum=int(max_preconditioner_applies),
+                label="preconditioner applies",
+                source=diagnostics,
+            )
+        )
     return errors
 
 
@@ -1041,6 +1069,7 @@ def main() -> int:
             "min_linear_iterations": args.require_min_linear_iterations,
             "min_nonlinear_iterations": args.require_min_nonlinear_iterations,
             "max_preconditioner_builds": args.require_max_preconditioner_builds,
+            "max_preconditioner_applies": args.require_max_preconditioner_applies,
         },
         "gate_passed": not bool(gate_errors),
         "gate_errors": gate_errors,
