@@ -557,7 +557,8 @@ long work logs here.
 - 2026-06-18: Reran the promoted solver coverage gate after the recycling
   preconditioner, initial-check, residual-JIT evidence, and GMRES solve-method
   changes. The gate passed with `561` tests, `14` skips, `1` xfail, and
-  `95.12%` total promoted-surface coverage.
+  `95.12%` total promoted-surface coverage. The bounded closeout coverage gate
+  also passed with `87` tests and `97.0%` coverage.
 
 ## External Literature And Code Baseline
 
