@@ -554,6 +554,10 @@ long work logs here.
   control. On the warmed bounded hydrogen gate with residual JIT and skipped
   initial residual check, `incremental` remained correct but was slower than
   `batched` (`3.06 s` versus `2.98 s` median), so the default stays unchanged.
+- 2026-06-18: Reran the promoted solver coverage gate after the recycling
+  preconditioner, initial-check, residual-JIT evidence, and GMRES solve-method
+  changes. The gate passed with `561` tests, `14` skips, `1` xfail, and
+  `95.12%` total promoted-surface coverage.
 
 ## External Literature And Code Baseline
 
