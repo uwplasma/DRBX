@@ -16,6 +16,8 @@
     "minimum_observed_order": 1.5,
     "monotonic_linf_error_reduction": true,
     "monotonic_rms_error_reduction": true,
+    "observed_order_available": true,
+    "observed_order_required": true,
     "observed_orders": [
       {
         "coarse_pair": "manufactured_4x6x8->manufactured_8x12x16",
@@ -100,6 +102,7 @@
   "minimum_rms_error_reduction_factor": 3.4452724809033612,
   "monotonic_linf_error_reduction": true,
   "monotonic_rms_error_reduction": true,
+  "observed_order_required": true,
   "passed": true,
   "source": "manufactured non-axisymmetric connection-length refinement gate"
 }

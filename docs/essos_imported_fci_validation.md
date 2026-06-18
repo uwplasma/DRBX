@@ -45,6 +45,11 @@ runs compare non-collocated grids by interpolating the fine level at the coarse
 radial, toroidal, and poloidal coordinates. For closed VMEC maps, set
 `CONNECTION_QUANTITY = "parallel_step_per_toroidal_radian"` because the raw
 adjacent-plane step length scales with the selected toroidal spacing.
+The live template now uses three nested grids and sets
+`REQUIRE_OBSERVED_ORDER = True`, so the command fails if the generated report
+does not contain an actual observed-order convergence measurement. Two-level
+live checks remain useful for fast debugging, but they are advisory and should
+not be used as publication-grade refinement evidence.
 For definitions of one-sided, target-to-target, and effective parallel
 connection length, and for the exact code paths used by each geometry source,
 see [Connection Length](connection_length.md).
@@ -52,7 +57,9 @@ see [Connection Length](connection_length.md).
 The self-contained gate now records more than the finest-grid error. It stores
 successive RMS and \(L_\infty\) error-reduction factors and explicitly requires
 monotonic error reduction when three or more nested levels are available. The
-current manufactured artifact passes with finest normalized RMS
+checked-in example also requires observed-order availability, preventing a
+two-level run from being promoted accidentally. The current manufactured
+artifact passes with finest normalized RMS
 `6.71e-3`, finest normalized \(L_\infty\) `1.14e-2`, observed order `1.78`,
 minimum RMS reduction factor `3.45`, and minimum \(L_\infty\) reduction factor
 `3.31`.
@@ -172,7 +179,9 @@ the coarse logical coordinates. The report records normalized RMS,
 95th-percentile, and \(L_\infty\) errors for every coarse/fine pair plus the
 observed order when three or more levels are supplied. It also records
 successive RMS and \(L_\infty\) error-reduction factors and requires monotonic
-error reduction for three-or-more-level refinement claims. The self-contained
+error reduction for three-or-more-level refinement claims. Promotion runs can
+set `require_observed_order=True`, which makes two-level reports fail even when
+the finest-grid error is small. The self-contained
 `imported_connection_length_refinement_demo.py` campaign exercises that exact
 report and plotting path with manufactured nested grids, so CI can protect the
 refinement logic even without the external field-line runtime. Imported-field
