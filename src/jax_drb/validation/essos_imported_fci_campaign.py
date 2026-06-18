@@ -478,6 +478,16 @@ def build_essos_imported_connection_length_refinement_campaign(
         if item["observed_order"] is not None
     ]
     last_pair = diagnostics["pair_reports"][-1]
+    rms_reduction_factors = [
+        factor
+        for factor in diagnostics["rms_error_reduction_factors"]
+        if factor is not None
+    ]
+    linf_reduction_factors = [
+        factor
+        for factor in diagnostics["linf_error_reduction_factors"]
+        if factor is not None
+    ]
     report = {
         "case": "essos_imported_connection_length_refinement",
         "source": source,
@@ -487,6 +497,18 @@ def build_essos_imported_connection_length_refinement_campaign(
         "finest_normalized_rms_error": last_pair["normalized_rms_error"],
         "finest_normalized_linf_error": last_pair["normalized_linf_error"],
         "minimum_observed_order_actual": min(observed_orders) if observed_orders else None,
+        "minimum_rms_error_reduction_factor": (
+            min(rms_reduction_factors) if rms_reduction_factors else None
+        ),
+        "minimum_linf_error_reduction_factor": (
+            min(linf_reduction_factors) if linf_reduction_factors else None
+        ),
+        "monotonic_rms_error_reduction": bool(
+            diagnostics["monotonic_rms_error_reduction"]
+        ),
+        "monotonic_linf_error_reduction": bool(
+            diagnostics["monotonic_linf_error_reduction"]
+        ),
         "passed": bool(diagnostics["passed"]),
     }
     arrays: dict[str, np.ndarray] = {
@@ -507,6 +529,14 @@ def build_essos_imported_connection_length_refinement_campaign(
             dtype=np.float64,
         ),
         "observed_order": np.asarray(observed_orders, dtype=np.float64),
+        "rms_error_reduction_factor": np.asarray(
+            rms_reduction_factors,
+            dtype=np.float64,
+        ),
+        "linf_error_reduction_factor": np.asarray(
+            linf_reduction_factors,
+            dtype=np.float64,
+        ),
     }
     for index, level in enumerate(levels):
         arrays[f"level_{index}"] = np.asarray(level, dtype=np.float64)
@@ -1124,6 +1154,20 @@ def build_essos_imported_connection_length_refinement_diagnostics(
                 "observed_order": order,
             }
         )
+    rms_error_values = [
+        float(pair["normalized_rms_error"])
+        for pair in pair_reports
+        if pair["normalized_rms_error"] is not None
+    ]
+    linf_error_values = [
+        float(pair["normalized_linf_error"])
+        for pair in pair_reports
+        if pair["normalized_linf_error"] is not None
+    ]
+    rms_reduction_factors = _successive_error_reduction_factors(rms_error_values)
+    linf_reduction_factors = _successive_error_reduction_factors(linf_error_values)
+    monotonic_rms_reduction = _errors_decrease_monotonically(rms_error_values)
+    monotonic_linf_reduction = _errors_decrease_monotonically(linf_error_values)
 
     last_pair = pair_reports[-1]
     last_rms = last_pair["normalized_rms_error"]
@@ -1141,6 +1185,7 @@ def build_essos_imported_connection_length_refinement_diagnostics(
         and float(last_rms) <= float(convergence_threshold)
         and float(last_linf) <= float(linf_threshold)
     )
+    monotonic_passed = bool(monotonic_rms_reduction and monotonic_linf_reduction)
     return {
         "diagnostic": "essos_imported_connection_length_refinement",
         "restriction_method": restriction_method,
@@ -1148,11 +1193,36 @@ def build_essos_imported_connection_length_refinement_diagnostics(
         "level_labels": level_labels,
         "pair_reports": pair_reports,
         "observed_orders": observed_orders,
+        "rms_error_reduction_factors": rms_reduction_factors,
+        "linf_error_reduction_factors": linf_reduction_factors,
+        "monotonic_rms_error_reduction": bool(monotonic_rms_reduction),
+        "monotonic_linf_error_reduction": bool(monotonic_linf_reduction),
         "convergence_threshold": float(convergence_threshold),
         "linf_threshold": float(linf_threshold),
         "minimum_observed_order": float(minimum_observed_order),
-        "passed": bool(finite_pairs and error_passed and order_passed),
+        "passed": bool(finite_pairs and error_passed and order_passed and monotonic_passed),
     }
+
+
+def _errors_decrease_monotonically(errors: list[float]) -> bool:
+    if len(errors) < 2:
+        return True
+    return all(
+        np.isfinite(previous)
+        and np.isfinite(current)
+        and current <= previous
+        for previous, current in zip(errors, errors[1:])
+    )
+
+
+def _successive_error_reduction_factors(errors: list[float]) -> list[float | None]:
+    factors: list[float | None] = []
+    for previous, current in zip(errors, errors[1:]):
+        if not np.isfinite(previous) or not np.isfinite(current) or current <= 0.0:
+            factors.append(None)
+        else:
+            factors.append(float(previous / current))
+    return factors
 
 
 def save_essos_imported_connection_length_refinement_plot(

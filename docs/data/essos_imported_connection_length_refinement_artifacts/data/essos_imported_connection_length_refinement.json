@@ -9,8 +9,13 @@
       "manufactured_8x12x16",
       "manufactured_16x24x32"
     ],
+    "linf_error_reduction_factors": [
+      3.3108259662675303
+    ],
     "linf_threshold": 0.05,
     "minimum_observed_order": 1.5,
+    "monotonic_linf_error_reduction": true,
+    "monotonic_rms_error_reduction": true,
     "observed_orders": [
       {
         "coarse_pair": "manufactured_4x6x8->manufactured_8x12x16",
@@ -38,7 +43,8 @@
         "normalized_linf_error": 0.03786986961113952,
         "normalized_p95_error": 0.03648298910693713,
         "normalized_rms_error": 0.02311700275452922,
-        "refinement_ratio_min": 2.0
+        "refinement_ratio_min": 2.0,
+        "restriction_method": "block_average"
       },
       {
         "absolute_linf_error": 0.1218903663580555,
@@ -59,10 +65,15 @@
         "normalized_linf_error": 0.011438193972434086,
         "normalized_p95_error": 0.010176509557006273,
         "normalized_rms_error": 0.006709774882150358,
-        "refinement_ratio_min": 2.0
+        "refinement_ratio_min": 2.0,
+        "restriction_method": "block_average"
       }
     ],
-    "passed": true
+    "passed": true,
+    "restriction_method": "block_average",
+    "rms_error_reduction_factors": [
+      3.4452724809033612
+    ]
   },
   "finest_normalized_linf_error": 0.011438193972434086,
   "finest_normalized_rms_error": 0.006709774882150358,
@@ -84,7 +95,11 @@
     ]
   ],
   "manufactured": true,
+  "minimum_linf_error_reduction_factor": 3.3108259662675303,
   "minimum_observed_order_actual": 1.7846180878069313,
+  "minimum_rms_error_reduction_factor": 3.4452724809033612,
+  "monotonic_linf_error_reduction": true,
+  "monotonic_rms_error_reduction": true,
   "passed": true,
   "source": "manufactured non-axisymmetric connection-length refinement gate"
 }

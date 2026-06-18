@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 67% | Promote live connection-length, endpoint, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
+| 3D stellarator imported-field/VMEC SOL | 68% | Promote live connection-length, endpoint, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 86% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 90% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag. |
@@ -1456,6 +1456,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   `5.31 s` linear-solve time, and `1.13 s` JAX-linearization time. Treat this
   as a low-risk residual-kernel simplification and a cleaner baseline for
   future JVP-kernel work, not a standalone release-level speedup claim.
+- 2026-06-18: Strengthened the imported-field connection-length refinement
+  gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
+  successive RMS and \(L_\infty\) error-reduction factors and require monotonic
+  error reduction when three or more levels are supplied. Focused tests cover a
+  passing nested-grid case, a non-monotonic failure case, and non-nested grid
+  rejection. The self-contained manufactured artifact was regenerated and
+  passes with finest normalized RMS `6.71e-3`, finest normalized \(L_\infty\)
+  `1.14e-2`, observed order `1.78`, minimum RMS reduction factor `3.45`, and
+  minimum \(L_\infty\) reduction factor `3.31`. Live `coil`/`vmec`/`hybrid`
+  imported turbulence movies still require a fresh live multi-grid pass before
+  publication claims.
 
 ## Definition Of Done
 

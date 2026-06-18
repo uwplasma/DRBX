@@ -168,10 +168,14 @@ used by the analytic non-axisymmetric validation suite.
 The imported FCI report now separates finite/nonnegative connection-length
 checks, single-grid connection-length roughness diagnostics, map-coordinate
 refinement metadata, endpoint-mask consumption, and a separate nested-grid
-connection-length refinement diagnostic. The current checked-in artifacts are
-still single-grid campaign outputs; the multi-grid diagnostic must pass on a
-fresh `coil`, `vmec`, or `hybrid` sweep before an imported-field turbulence
-movie is promoted from documentation bridge to publication evidence.
+connection-length refinement diagnostic. The self-contained manufactured
+three-level gate now also requires monotonic RMS and \(L_\infty\) error
+reduction and records reduction factors; the current artifact reports finest
+RMS `6.71e-3`, finest \(L_\infty\) `1.14e-2`, observed order `1.78`, and
+minimum reduction factors `3.45` and `3.31`. The checked-in live imported
+artifacts are still single-grid campaign outputs; the multi-grid diagnostic
+must pass on a fresh `coil`, `vmec`, or `hybrid` sweep before an imported-field
+turbulence movie is promoted from documentation bridge to publication evidence.
 The imported PyTree/JVP artifacts live in
 `docs/data/essos_imported_pytree_artifacts/`,
 `docs/data/essos_imported_pytree_vmec_artifacts/`, and
@@ -494,8 +498,9 @@ gates should be added in this order:
    promotable unless the same campaign reports non-axisymmetric geometry
    agreement, smooth time evolution, target/sheath masks, neutral/recycling
    source maps, nested connection-length refinement with
-   `build_essos_imported_connection_length_refinement_diagnostics`, and at
-   least one grid or timestep sensitivity check.
+   `build_essos_imported_connection_length_refinement_diagnostics`, monotonic
+   multi-level RMS and \(L_\infty\) error reduction where three or more levels
+   are available, and at least one grid or timestep sensitivity check.
 8. Differentiability gates for geometry parameters, source amplitude,
    damping/transport coefficients, and objective functions based on radial
    flux, RMS fluctuation, target load, and connection-length-weighted
