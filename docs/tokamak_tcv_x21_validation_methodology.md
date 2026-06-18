@@ -1,5 +1,11 @@
 # TCV-X21 Validation Methodology
 
+!!! note "Plan authority"
+    This page is a benchmark-methodology appendix. The active execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    page afterward.
+
 This page records the validation logic for one selected 3D tokamak benchmark
 adapter in `jax_drb`. The current lane is still `scaffolded_reference_backed`,
 so the goal here is not to overclaim a native 3D solver. The goal is to make

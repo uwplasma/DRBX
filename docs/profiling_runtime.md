@@ -1,5 +1,12 @@
 # Profiling And Runtime Workflow
 
+!!! note "Plan authority"
+    This page documents profiling commands and runtime evidence. The active
+    execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    page afterward.
+
 This page records the supported profiling workflow for `jax_drb` so runtime
 work is reproducible instead of based on one-off local shell snippets.
 

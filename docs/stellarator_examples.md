@@ -1,5 +1,11 @@
 # Stellarator Examples, Equations, and Literature Links
 
+!!! note "Plan authority"
+    This page is a user-facing examples guide. The active execution plan is
+    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
+    page conflicts with that plan, follow the execution plan and update this
+    page afterward.
+
 This page is the user-facing guide for the 3D stellarator examples in
 `examples/geometry-3D/stellarator-fci/`. The examples are intentionally written
 like SIMSOPT driver scripts: constants are defined near the top, reusable
