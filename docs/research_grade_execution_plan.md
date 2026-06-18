@@ -1299,6 +1299,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   preconditioner builds. Timings were `18.9 s` and `22.5 s`. This promotes
   preconditioner reuse as a bounded opt-in fixture gate, not as heavy-kernel or
   default-solver evidence.
+- 2026-06-18: Reran the local promoted-solver coverage slice after the
+  recycling budget-gate changes:
+  `PYTHONPATH=src python scripts/run_promoted_solver_coverage.py` passed with
+  `565` tests, `14` skips, `7` deselected tests, `1` xfail, and total coverage
+  `95.12%`, above the required `95.00%`. The largest remaining promoted-slice
+  coverage gaps are still `src/jax_drb/native/recycling_1d.py`,
+  `src/jax_drb/native/runner.py`, `src/jax_drb/parity/reference.py`, and
+  `src/jax_drb/cli.py`; future tests should target real solver, reference,
+  runner, and CLI behavior rather than smoke-only coverage.
 
 ## Definition Of Done
 
