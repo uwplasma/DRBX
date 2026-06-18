@@ -1157,6 +1157,13 @@ the residual (`8.09`). Incremental GMRES at `10 x 10` was also slower
 `20 x 20` batched JAX-GMRES control and adds
 `--require-max-residual-inf-norm=7.4` so future budget sweeps cannot pass by
 silently degrading the nonlinear residual.
+Residual JIT remains opt-in on this D/T/He CPU gate. A single non-warmed
+`--jit-residual` run passed the same residual gate but took `30.90 s`, with
+`7.37 s` in residual evaluations and `23.37 s` in the linear solve. A warmed
+run with one warmup and two timed solves reduced the timed median to `10.22 s`
+but still did not beat the non-JIT baseline; the warmup solve itself took
+`20.08 s`. This keeps residual JIT useful as a diagnostic seam and possible
+accelerator/GPU probe, but not as the local CPU default.
 
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or

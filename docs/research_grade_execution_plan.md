@@ -1374,6 +1374,13 @@ Use this log for concise decision records. Do not paste terminal output here.
   reduced-budget probes as default speedup lanes; the next implementation
   target remains residual/JVP kernel cost or a real transport/Schur
   preconditioner.
+- 2026-06-18: Tested residual JIT on the same D/T/He quality-gated profile. A
+  single non-warmed `--jit-residual` run passed the residual and solver-health
+  gates but took `30.90 s`, with `7.37 s` in residual evaluations and
+  `23.37 s` in linear solves. A warmed run with one warmup and two timed solves
+  still missed the non-JIT baseline: warmup `20.08 s`, timed runs `11.11 s` and
+  `9.33 s`, median `10.22 s`. This keeps residual JIT as an opt-in diagnostic
+  and possible GPU probe, not the local CPU default.
 
 ## Definition Of Done
 
