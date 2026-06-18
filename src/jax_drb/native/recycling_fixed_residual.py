@@ -388,17 +388,16 @@ def build_fixed_bdf2_residual(
     previous_coefficient = ((step_ratio + 1.0) ** 2) / (2.0 * step_ratio + 1.0)
     previous_previous_coefficient = (step_ratio**2) / (2.0 * step_ratio + 1.0)
     rhs_coefficient = float(timestep) * (step_ratio + 1.0) / (2.0 * step_ratio + 1.0)
+    history_state = (
+        previous_coefficient * previous
+        - previous_previous_coefficient * previous_previous
+    )
 
     def residual(packed_state: object) -> jax.Array:
         packed = jnp.asarray(packed_state, dtype=jnp.float64)
         state = unpack_fixed_state(packed, layout=layout)
         rhs_state = rhs_function(state)
-        return (
-            packed
-            - previous_coefficient * previous
-            + previous_previous_coefficient * previous_previous
-            - rhs_coefficient * pack_fixed_state(rhs_state)
-        )
+        return packed - history_state - rhs_coefficient * pack_fixed_state(rhs_state)
 
     return residual
 
