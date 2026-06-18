@@ -1193,6 +1193,15 @@ budget, and `400` JAX-GMRES update budget were unchanged. This keeps
 a robust performance promotion. The next preconditioner implementation should
 approximate transport/neutral Schur structure or reduce residual/JVP kernel
 cost directly, rather than adding another local dense block variant.
+The explicit full parallel-line block is also not a local CPU promotion path
+for this deck. Raising the line-block bounds to allow the single active
+parallel line with 950 field unknowns produced a clean solve with the same
+residual, but wall time increased to `27.46 s`, and linear-solve time increased
+to `25.01 s` versus `5.99 s` for the repeat unpreconditioned control. This
+shows that a mathematically larger block is not automatically a useful left
+preconditioner for the current JAX-GMRES implementation; future transport
+preconditioners should be cheaper approximate line/Schur solves rather than
+dense inversion of the full active line.
 
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or

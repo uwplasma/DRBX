@@ -1409,6 +1409,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   evidence: keep local block as a diagnostic gate, but do not make it default.
   The next performance implementation should target a transport/neutral
   Schur-style preconditioner or reduce fixed-layout residual/JVP kernel cost.
+- 2026-06-18: Ran the damped D/T/He full `parallel_line` preconditioner by
+  raising the explicit line-block limits to cover the single active parallel
+  line with 950 field unknowns. It passed correctness gates with the same
+  residual and clean JAX-GMRES status, but wall time increased to `27.46 s` and
+  linear-solve time increased to `25.01 s`, compared with `7.65 s` wall and
+  `5.99 s` linear-solve time for the repeat unpreconditioned control. This
+  keeps full dense line inversion as negative promotion evidence on local CPU;
+  future transport preconditioners should be cheaper approximate line or
+  neutral/plasma Schur actions.
 
 ## Definition Of Done
 
