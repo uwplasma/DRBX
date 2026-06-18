@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 90% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
-| Effective preconditioning | 41% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
+| Effective preconditioning | 42% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
 | Performance and scaling | 55% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -1326,6 +1326,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   another heavy-profile gate gap, but it does not by itself prove a D/T/He
   speedup; the next required evidence is a reference-backed CPU/GPU run using
   these gates.
+- 2026-06-18: Ran a reference-backed local D/T/He JAX-linearized profile with
+  the new preconditioner gates. The default tiny-timestep deck exited before a
+  Newton update (`nonlinear_iterations=0`, residual `2.41e-11`), which
+  correctly failed the required dynamic-preconditioner-build gate. Rerunning at
+  `timestep=1.0` exercised the heavy path. The unpreconditioned control passed
+  in `7.59 s` with residual `7.315`, clean JAX-GMRES status, and the full
+  `400` update budget. `local_block_diag` with refresh `100` also passed
+  correctness gates with the same residual and one preconditioner build, but it
+  took `29.84 s`, spent `1.65 s` building the preconditioner, and still used
+  the full `400` update budget. This is negative default-promotion evidence for
+  local dense blocks on D/T/He and strengthens the next-step requirement:
+  develop a Schur/transport preconditioner or cheaper residual/JVP kernel that
+  actually reduces Krylov work.
 
 ## Definition Of Done
 

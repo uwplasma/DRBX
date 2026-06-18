@@ -1127,7 +1127,15 @@ the requested budgets. Dynamic JVP-derived preconditioners such as
 `linearized_diag`, `local_block_diag`, and `parallel_line` must report at least
 one finite preconditioner build when they are required. This lets local CPU and
 office-GPU D/T/He campaigns distinguish a solver-correctness pass from a
-performance-promotion pass without hiding failed budget evidence.
+performance-promotion pass without hiding failed budget evidence. A local
+D/T/He run at `timestep=1.0` shows why these gates are necessary: the
+unpreconditioned JAX-linearized gate completed in `7.59 s`, while
+`local_block_diag` with refresh `100` completed in `29.84 s`. Both reached the
+same residual (`7.315`) and the full `400` JAX-GMRES update budget, and the
+local-block run spent `1.65 s` building one preconditioner. This is a
+correctness pass for the heavy preconditioner diagnostics and a negative
+performance-promotion result, so the next preconditioning work must reduce the
+Krylov budget or residual/JVP cost instead of merely adding local dense blocks.
 
 The recycling wrappers also expose
 `runtime:recycling_jax_linear_check_initial_residual=false` or
