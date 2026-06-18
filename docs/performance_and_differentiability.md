@@ -1106,9 +1106,11 @@ remains saturated.
 For that reason, performance campaigns should add explicit budget gates rather
 than relying on correctness diagnostics alone. The compare script provides
 `--require-fixed-bdf2-max-linear-iterations=<n>` and
-`--require-fixed-bdf2-max-preconditioner-builds=<n>`, and the wrapper forwards
-the same checks as `--fixed-bdf2-max-linear-iterations=<n>` and
-`--fixed-bdf2-max-preconditioner-builds=<n>`. A run that passes residual,
+`--require-fixed-bdf2-max-preconditioner-builds=<n>`, and
+`--require-fixed-bdf2-max-preconditioner-applies=<n>`. The wrapper forwards
+the same checks as `--fixed-bdf2-max-linear-iterations=<n>`,
+`--fixed-bdf2-max-preconditioner-builds=<n>`, and
+`--fixed-bdf2-max-preconditioner-applies=<n>`. A run that passes residual,
 fallback, and preconditioner-name checks but exceeds these budgets is a valid
 solver-correctness result and a failed performance-promotion result.
 The bounded refresh-100 `recycling_1d_one_step` rerun passes these stricter
@@ -1143,14 +1145,15 @@ options into the profiled solve. It also accepts
 `--require-min-nonlinear-iterations=<n>`,
 `--require-min-linear-iterations=<n>`,
 `--require-max-linear-iterations=<n>`, and
-`--require-max-preconditioner-builds=<n>`. These gates are evaluated after the
+`--require-max-preconditioner-builds=<n>`, and
+`--require-max-preconditioner-applies=<n>`. These gates are evaluated after the
 profile is written, recorded in `profile_summary.json`, and return a nonzero
 status if the reported diagnostics miss the requested preconditioner, exceed
-the requested residual ceiling, or exceed the requested iteration floors or
-budgets. The minimum-iteration gates are important for heavy decks because a
-tiny timestep can converge at the predictor and otherwise produce a misleading
-"passed" profile without exercising Newton, JVP, or Krylov work. Dynamic
-JVP-derived preconditioners such as
+the requested residual ceiling, or exceed the requested iteration, operator,
+build-count, or apply-count budgets. The minimum-iteration gates are important
+for heavy decks because a tiny timestep can converge at the predictor and
+otherwise produce a misleading "passed" profile without exercising Newton,
+JVP, or Krylov work. Dynamic JVP-derived preconditioners such as
 `linearized_diag`, `local_block_diag`, and `parallel_line` must report at least
 one finite preconditioner build when they are required. This lets local CPU and
 office-GPU D/T/He campaigns distinguish a solver-correctness pass from a
