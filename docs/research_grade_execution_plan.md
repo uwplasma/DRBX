@@ -144,8 +144,8 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 90% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates. |
-| Effective preconditioning | 40% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
-| Performance and scaling | 54% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
+| Effective preconditioning | 41% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget. |
+| Performance and scaling | 55% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -1308,6 +1308,24 @@ Use this log for concise decision records. Do not paste terminal output here.
   `src/jax_drb/native/runner.py`, `src/jax_drb/parity/reference.py`, and
   `src/jax_drb/cli.py`; future tests should target real solver, reference,
   runner, and CLI behavior rather than smoke-only coverage.
+- 2026-06-18: Promoted the same preconditioner and solver-health budget
+  discipline into the real-kernel JAX-linearized recycling profiler.
+  `scripts/profile_recycling_jax_linearized_gate.py` now forwards
+  `--linear-preconditioner=<name>` and
+  `--linear-preconditioner-refresh=<n>` into the profiled solve, writes gate
+  requirements and failures into `profile_summary.json`, and returns nonzero
+  when `--require-linear-preconditioner=<name>`,
+  `--require-max-linear-iterations=<n>`, or
+  `--require-max-preconditioner-builds=<n>` are not satisfied. Dynamic
+  JVP-derived preconditioners must report finite build diagnostics when
+  required. Focused verification:
+  `PYTHONPATH=src pytest -q tests/test_profile_recycling_jax_linearized_gate.py
+  tests/test_recycling_jvp_promotion_gate.py
+  tests/test_compare_recycling_transient_modes.py
+  tests/test_research_campaign_bundle.py` passed with `71` tests. This closes
+  another heavy-profile gate gap, but it does not by itself prove a D/T/He
+  speedup; the next required evidence is a reference-backed CPU/GPU run using
+  these gates.
 
 ## Definition Of Done
 

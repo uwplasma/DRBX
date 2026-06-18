@@ -5,13 +5,15 @@ import argparse
 import cProfile
 import io
 import json
+import math
 import os
 from pathlib import Path
 import pstats
 import shutil
 import statistics
+import sys
 from time import perf_counter
-from typing import Any
+from typing import Any, Sequence
 
 
 def _sanitize_public_path(path: str | Path | None) -> str | None:
@@ -48,7 +50,7 @@ def _public_input_path(args: argparse.Namespace, input_path: Path) -> str:
     return f"<input-path>/{input_path.name}"
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Profile the real 1D-recycling fixed-layout backward-Euler gate "
@@ -139,6 +141,51 @@ def _parse_args() -> argparse.Namespace:
             "and usually has lower accelerator overhead."
         ),
     )
+    parser.add_argument(
+        "--linear-preconditioner",
+        default=None,
+        help=(
+            "Opt into runtime:recycling_jax_linear_preconditioner=<name> for "
+            "the profiled JAX-GMRES solve."
+        ),
+    )
+    parser.add_argument(
+        "--linear-preconditioner-refresh",
+        type=int,
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_preconditioner_refresh=<n>. "
+            "Use positive values larger than one to profile dynamic-preconditioner "
+            "reuse inside one implicit solve."
+        ),
+    )
+    parser.add_argument(
+        "--require-linear-preconditioner",
+        default=None,
+        help=(
+            "Fail after profiling unless solver diagnostics report this "
+            "linear_preconditioner. Dynamic JVP-derived preconditioners must "
+            "also report at least one build."
+        ),
+    )
+    parser.add_argument(
+        "--require-max-linear-iterations",
+        type=int,
+        default=None,
+        help=(
+            "Fail after profiling when reported linear_iterations exceeds this "
+            "nonnegative budget."
+        ),
+    )
+    parser.add_argument(
+        "--require-max-preconditioner-builds",
+        type=int,
+        default=None,
+        help=(
+            "Fail after profiling when diagnostics.linear_preconditioner_build_count "
+            "exceeds this nonnegative budget."
+        ),
+    )
     parser.add_argument("--cprofile-top", type=int, default=40)
     parser.add_argument("--skip-cprofile", action="store_true")
     parser.add_argument("--rss-profile", action="store_true")
@@ -146,7 +193,29 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--device-memory-profile", action="store_true")
     parser.add_argument("--compilation-cache-dir", type=Path, default=None)
     parser.add_argument("--xla-dump-dir", type=Path, default=None)
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def _validate_args(args: argparse.Namespace) -> None:
+    if args.linear_preconditioner is not None and not str(
+        args.linear_preconditioner
+    ).strip():
+        raise SystemExit("--linear-preconditioner must be nonempty.")
+    if args.linear_preconditioner_refresh is not None:
+        if int(args.linear_preconditioner_refresh) <= 0:
+            raise SystemExit("--linear-preconditioner-refresh must be positive.")
+    if args.require_linear_preconditioner is not None and not str(
+        args.require_linear_preconditioner
+    ).strip():
+        raise SystemExit("--require-linear-preconditioner must be nonempty.")
+    if args.require_max_linear_iterations is not None:
+        if int(args.require_max_linear_iterations) < 0:
+            raise SystemExit("--require-max-linear-iterations must be nonnegative.")
+    if args.require_max_preconditioner_builds is not None:
+        if int(args.require_max_preconditioner_builds) < 0:
+            raise SystemExit(
+                "--require-max-preconditioner-builds must be nonnegative."
+            )
 
 
 def _configure_environment(args: argparse.Namespace) -> None:
@@ -201,7 +270,136 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
         overrides.append(
             f"runtime:recycling_jax_linear_gmres_solve_method={gmres_solve_method}"
         )
+    linear_preconditioner = getattr(args, "linear_preconditioner", None)
+    if linear_preconditioner is not None:
+        name = str(linear_preconditioner).strip()
+        if not name:
+            raise ValueError("linear_preconditioner must be nonempty.")
+        overrides.append(f"runtime:recycling_jax_linear_preconditioner={name}")
+    refresh = getattr(args, "linear_preconditioner_refresh", None)
+    if refresh is not None:
+        refresh_count = int(refresh)
+        if refresh_count <= 0:
+            raise ValueError("linear_preconditioner_refresh must be positive.")
+        overrides.append(
+            "runtime:recycling_jax_linear_preconditioner_refresh="
+            f"{refresh_count}"
+        )
     return overrides
+
+
+def _canonical_preconditioner_name(name: str) -> str:
+    return str(name).strip().lower().replace("-", "_")
+
+
+def _is_dynamic_preconditioner_name(name: str) -> bool:
+    return _canonical_preconditioner_name(name) in {
+        "linearized_diag",
+        "local_block_diag",
+        "block_jacobi",
+        "parallel_line",
+        "transport_line",
+    }
+
+
+def _validate_required_linear_preconditioner(
+    profile_report: dict[str, Any],
+    required_linear_preconditioner: str,
+) -> list[str]:
+    expected = _canonical_preconditioner_name(required_linear_preconditioner)
+    diagnostics = profile_report.get("diagnostics", {})
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+    reported = diagnostics.get("linear_preconditioner")
+    reported_name = (
+        None if reported is None else _canonical_preconditioner_name(str(reported))
+    )
+    errors: list[str] = []
+    if reported_name != expected:
+        errors.append(f"profile did not report linear_preconditioner={expected}")
+    if _is_dynamic_preconditioner_name(expected):
+        try:
+            build_count = int(diagnostics.get("linear_preconditioner_build_count", 0))
+        except (TypeError, ValueError):
+            build_count = 0
+        if build_count <= 0:
+            errors.append(
+                f"profile did not report any {expected} preconditioner builds"
+            )
+        try:
+            build_seconds = float(
+                diagnostics.get("linear_preconditioner_build_seconds", float("nan"))
+            )
+        except (TypeError, ValueError):
+            build_seconds = float("nan")
+        if not math.isfinite(build_seconds) or build_seconds < 0.0:
+            errors.append(
+                "profile did not report finite nonnegative "
+                "linear_preconditioner_build_seconds"
+            )
+    return errors
+
+
+def _validate_maximum_integer_value(
+    profile_report: dict[str, Any],
+    *,
+    key: str,
+    maximum: int,
+    label: str,
+    source: dict[str, Any] | None = None,
+) -> list[str]:
+    if int(maximum) < 0:
+        return [f"profile received a negative {label} gate"]
+    values = profile_report if source is None else source
+    try:
+        reported = int(values[key])
+    except KeyError:
+        return [f"profile did not report {key}"]
+    except (TypeError, ValueError):
+        return [f"profile did not report an integer {key}"]
+    if reported > int(maximum):
+        return [f"profile reported {reported} {label}, exceeding {int(maximum)}"]
+    return []
+
+
+def _profile_gate_errors(
+    profile_report: dict[str, Any], args: argparse.Namespace
+) -> list[str]:
+    errors: list[str] = []
+    required_preconditioner = getattr(args, "require_linear_preconditioner", None)
+    if required_preconditioner is not None:
+        errors.extend(
+            _validate_required_linear_preconditioner(
+                profile_report, str(required_preconditioner)
+            )
+        )
+    max_linear_iterations = getattr(args, "require_max_linear_iterations", None)
+    if max_linear_iterations is not None:
+        errors.extend(
+            _validate_maximum_integer_value(
+                profile_report,
+                key="linear_iterations",
+                maximum=int(max_linear_iterations),
+                label="linear iterations",
+            )
+        )
+    max_preconditioner_builds = getattr(
+        args, "require_max_preconditioner_builds", None
+    )
+    if max_preconditioner_builds is not None:
+        diagnostics = profile_report.get("diagnostics", {})
+        if not isinstance(diagnostics, dict):
+            diagnostics = {}
+        errors.extend(
+            _validate_maximum_integer_value(
+                profile_report,
+                key="linear_preconditioner_build_count",
+                maximum=int(max_preconditioner_builds),
+                label="preconditioner builds",
+                source=diagnostics,
+            )
+        )
+    return errors
 
 
 def _profile_once(
@@ -346,6 +544,7 @@ class _NullContext:
 
 def main() -> int:
     args = _parse_args()
+    _validate_args(args)
     args.output_dir = args.output_dir.expanduser().resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     _configure_environment(args)
@@ -398,6 +597,7 @@ def main() -> int:
         memory_profile_path = args.output_dir / "device_memory_profile.prof"
         jax.profiler.save_device_memory_profile(str(memory_profile_path))
 
+    gate_errors = _profile_gate_errors(profile_report, args)
     summary = {
         "case": f"recycling_1d_{args.case}_jax_linearized_gate",
         "backend": jax.default_backend(),
@@ -410,6 +610,13 @@ def main() -> int:
         "warmup_run_seconds": warmup_elapsed,
         "rss_profile": rss_payload,
         "profile": profile_report,
+        "gate_requirements": {
+            "linear_preconditioner": args.require_linear_preconditioner,
+            "max_linear_iterations": args.require_max_linear_iterations,
+            "max_preconditioner_builds": args.require_max_preconditioner_builds,
+        },
+        "gate_passed": not bool(gate_errors),
+        "gate_errors": gate_errors,
         "cprofile_top_path": None
         if profiler is None
         else _sanitize_public_path(cprofile_path),
@@ -448,6 +655,10 @@ def main() -> int:
         print(trace_dir)
     if memory_profile_path is not None:
         print(memory_profile_path)
+    for error in gate_errors:
+        print(f"gate_failure: {error}", file=sys.stderr)
+    if gate_errors:
+        return 2
     return 0
 
 

@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+import pytest
+
+
+def _load_module():
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "profile_recycling_jax_linearized_gate.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "profile_recycling_jax_linearized_gate", script_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_parser_accepts_preconditioner_and_budget_gates() -> None:
+    module = _load_module()
+
+    args = module._parse_args(
+        [
+            "--input-path",
+            "/tmp/BOUT.inp",
+            "--case",
+            "dthe",
+            "--linear-preconditioner",
+            "local-block-diag",
+            "--linear-preconditioner-refresh",
+            "100",
+            "--require-linear-preconditioner",
+            "local_block_diag",
+            "--require-max-linear-iterations",
+            "3200",
+            "--require-max-preconditioner-builds",
+            "2",
+        ]
+    )
+
+    assert args.input_path == Path("/tmp/BOUT.inp")
+    assert args.case == "dthe"
+    assert args.linear_preconditioner == "local-block-diag"
+    assert args.linear_preconditioner_refresh == 100
+    assert args.require_linear_preconditioner == "local_block_diag"
+    assert args.require_max_linear_iterations == 3200
+    assert args.require_max_preconditioner_builds == 2
+
+
+def test_help_documents_preconditioner_and_budget_gates(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_module()
+
+    with pytest.raises(SystemExit):
+        module._parse_args(["--help"])
+
+    help_text = capsys.readouterr().out
+    assert "--linear-preconditioner" in help_text
+    assert "--linear-preconditioner-refresh" in help_text
+    assert "--require-linear-preconditioner" in help_text
+    assert "--require-max-linear-iterations" in help_text
+    assert "--require-max-preconditioner-builds" in help_text
+
+
+def test_effective_overrides_append_linear_preconditioner_controls() -> None:
+    module = _load_module()
+    args = SimpleNamespace(
+        override=["mesh:ny=64"],
+        jit_residual=True,
+        skip_initial_residual_check=True,
+        gmres_solve_method="incremental",
+        linear_preconditioner="local_block_diag",
+        linear_preconditioner_refresh=100,
+    )
+
+    assert module._effective_overrides(args) == [
+        "mesh:ny=64",
+        "runtime:recycling_jax_linear_jit_residual=true",
+        "runtime:recycling_jax_linear_check_initial_residual=false",
+        "runtime:recycling_jax_linear_gmres_solve_method=incremental",
+        "runtime:recycling_jax_linear_preconditioner=local_block_diag",
+        "runtime:recycling_jax_linear_preconditioner_refresh=100",
+    ]
+
+
+def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
+    module = _load_module()
+
+    for kwargs, expected in (
+        ({"linear_preconditioner": " "}, "--linear-preconditioner must be nonempty"),
+        (
+            {"linear_preconditioner_refresh": 0},
+            "--linear-preconditioner-refresh must be positive",
+        ),
+        (
+            {"require_linear_preconditioner": ""},
+            "--require-linear-preconditioner must be nonempty",
+        ),
+        (
+            {"require_max_linear_iterations": -1},
+            "--require-max-linear-iterations must be nonnegative",
+        ),
+        (
+            {"require_max_preconditioner_builds": -1},
+            "--require-max-preconditioner-builds must be nonnegative",
+        ),
+    ):
+        values = {
+            "linear_preconditioner": None,
+            "linear_preconditioner_refresh": None,
+            "require_linear_preconditioner": None,
+            "require_max_linear_iterations": None,
+            "require_max_preconditioner_builds": None,
+        }
+        values.update(kwargs)
+        args = SimpleNamespace(**values)
+        with pytest.raises(SystemExit) as excinfo:
+            module._validate_args(args)
+        assert expected in str(excinfo.value)
+
+
+def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> None:
+    module = _load_module()
+    args = SimpleNamespace(
+        require_linear_preconditioner="local-block-diag",
+        require_max_linear_iterations=3200,
+        require_max_preconditioner_builds=2,
+    )
+    profile_report = {
+        "linear_iterations": 3200,
+        "diagnostics": {
+            "linear_preconditioner": "local_block_diag",
+            "linear_preconditioner_build_count": 2,
+            "linear_preconditioner_build_seconds": 0.125,
+        },
+    }
+
+    assert module._profile_gate_errors(profile_report, args) == []
+
+
+def test_profile_gate_errors_accept_static_preconditioner_without_builds() -> None:
+    module = _load_module()
+    args = SimpleNamespace(
+        require_linear_preconditioner="state-scale",
+        require_max_linear_iterations=None,
+        require_max_preconditioner_builds=None,
+    )
+    profile_report = {
+        "linear_iterations": 1,
+        "diagnostics": {"linear_preconditioner": "state_scale"},
+    }
+
+    assert module._profile_gate_errors(profile_report, args) == []
+
+
+def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
+    module = _load_module()
+    args = SimpleNamespace(
+        require_linear_preconditioner="parallel-line",
+        require_max_linear_iterations=10,
+        require_max_preconditioner_builds=2,
+    )
+    profile_report = {
+        "linear_iterations": 24,
+        "diagnostics": {
+            "linear_preconditioner": "local_block_diag",
+            "linear_preconditioner_build_count": 3,
+            "linear_preconditioner_build_seconds": float("nan"),
+        },
+    }
+
+    errors = module._profile_gate_errors(profile_report, args)
+
+    assert "profile did not report linear_preconditioner=parallel_line" in errors
+    assert (
+        "profile did not report finite nonnegative "
+        "linear_preconditioner_build_seconds"
+    ) in errors
+    assert "profile reported 24 linear iterations, exceeding 10" in errors
+    assert "profile reported 3 preconditioner builds, exceeding 2" in errors
