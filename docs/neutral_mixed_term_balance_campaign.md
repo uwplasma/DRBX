@@ -357,13 +357,19 @@ should reproduce the reference accepted-step time-derivative/state-history
 sequencing rather than change local neutral source formulas.
 A component-split rerun then added direct reference outputs for
 `SNVh_parallel_inertia` and `SNVh_perpendicular_diffusion`. This sharper split
-closes the pressure-gradient, perpendicular-diffusion, parallel-viscosity, and
-perpendicular-viscosity source terms on exact reference states to roundoff, but
-leaves `SNVh_parallel_inertia` as the dominant source-side discrepancy at
-about `1.42e-4` target-pointwise. The remaining `NVh` lane is therefore the
-parallel inertia/Lax-flux reconstruction together with accepted-step
-state/history preparation, not the neutral pressure-gradient, diffusion cap,
-or viscosity closures.
+showed that pressure-gradient, perpendicular-diffusion, parallel-viscosity, and
+perpendicular-viscosity source terms were already roundoff-closed on exact
+reference states, while `SNVh_parallel_inertia` depended on the neutral
+momentum Lax boundary-flux mode. The native source now uses
+`Div_par_fvv(..., fix_flux=False)` for this term; on the same `309` accepted
+states the `SNVh_parallel_inertia` target-adjacent pointwise discrepancy falls
+from about `1.42e-4` to `1.11e-12`. The accepted-step report also records a
+`parallel_inertia_flux_variant_register` so future traces show explicitly that
+`Div_par_fvv_fix_flux_false` is the best source-split match and
+`Div_par_fvv_fix_flux_true` is the rejected boundary mode. The remaining
+reference-parity work is therefore broader transient and recycling/sheath
+coverage, not a local neutral pressure-gradient, diffusion-cap, viscosity, or
+parallel-inertia source formula.
 A separate final-state input-closure gate now compares native `Dnn`, `Vh`, and
 `eta_h` reconstructions against a reference-style `BOUT.dmp.0.nc` dump. The
 public API entry point is

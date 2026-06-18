@@ -298,23 +298,22 @@ the high-precision max-order-2 trace the source/preboundary target-adjacent
 ranking closes to roundoff (`1.42e-14` maximum), including
 `grad_logPnlimh_y`, `Dnnh_raw`, `Dnnh_flux_max`, final `Dnnh`, `eta_h`, and the
 `SNVh_*` pressure-gradient/viscosity terms. The all-field RHS-on-reference
-ranking is instead dominated by `ddt(NVh)` at about `1.42e-4` target-pointwise.
-That separates local neutral-operator algebra from the remaining mismatch and
-points the next patch at accepted-step time-derivative/state-history
-sequencing.
+ranking originally exposed an `NVh` target-adjacent discrepancy, which the
+component split below localized to the parallel-inertia source.
 
 A follow-up component-split monitor rerun added the full neutral momentum
 transport split: `SNVh_parallel_inertia`, `SNVh_pressure_gradient`,
 `SNVh_perpendicular_diffusion`, `SNVh_parallel_viscosity`, and
 `SNVh_perpendicular_viscosity`. On the same max-order-2 accepted-step trace,
-the reference-state source/preboundary register identifies
-`SNVh_parallel_inertia` as the only remaining local source split at
-`1.42e-4` target-pointwise. Pressure-gradient, perpendicular diffusion,
-parallel viscosity, perpendicular viscosity, `Dnnh`, `eta_h`, and
-`grad_logPnlimh_*` close to roundoff on exact reference states. The next
-neutral parity patch should therefore target the parallel inertia/Lax-flux
-reconstruction and accepted-step state/history sequencing together, not the
-already closed pressure-gradient or diffusion-limiter formulas.
+the reference-state source/preboundary register showed that
+`SNVh_parallel_inertia` selected the neutral momentum Lax boundary-flux mode:
+`Div_par_fvv(..., fix_flux=False)` reduces the target-adjacent pointwise error
+from `1.42e-4` to `1.11e-12`, while `fix_flux=True` remains the rejected
+variant. The report now records this in
+`parallel_inertia_flux_variant_register`, with `Div_par_fvv_fix_flux_false`
+ranked best. Pressure-gradient, perpendicular diffusion, parallel viscosity,
+perpendicular viscosity, `Dnnh`, `eta_h`, and `grad_logPnlimh_*` remain
+roundoff-closed on exact reference states.
 
 ## Validation Sequence
 

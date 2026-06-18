@@ -29,6 +29,9 @@ from ..native.neutral_mixed import (
     pack_neutral_mixed_active_state,
 )
 from ..native.neutral_mixed_state import NeutralMixedState
+from ..native.neutral_mixed_operators import (
+    div_par_fvv_open as _operator_div_par_fvv_open,
+)
 from ..native.units import resolved_dataset_scalars
 from ..parity.reference import resolve_reference_case
 from ..reference.paths import default_reference_root, repo_root
@@ -1310,6 +1313,7 @@ def _build_reference_active_state_rhs_register(
     skipped: list[dict[str, object]] = []
     entries: list[dict[str, object]] = []
     aggregate_fields: dict[str, dict[str, object]] = {}
+    parallel_inertia_variant_aggregates: dict[str, dict[str, object]] = {}
     for matched_point in matched_points:
         reference_index = int(matched_point.get("reference_index", -1))
         if reference_index < 0 or reference_index >= len(reference_points):
@@ -1360,6 +1364,23 @@ def _build_reference_active_state_rhs_register(
             {"fields": native_fields},
             {"fields": reference_fields},
         )
+        parallel_inertia_variant_errors = _neutral_mixed_parallel_inertia_variant_errors(
+            config,
+            state,
+            reference_fields=reference_fields,
+            section=section,
+            mesh=mesh,
+            metrics=metrics,
+            meters_scale=float(scalars["rho_s0"]),
+            tnorm=float(scalars["Tnorm"]),
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            guard_y_indices=guard_y_indices,
+            sample_y_indices=sample_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+        )
         ranked_point_fields = sorted(
             (
                 _accepted_step_point_error_entry(name, error)
@@ -1384,6 +1405,25 @@ def _build_reference_active_state_rhs_register(
                 {
                     "field": name,
                     "comparison_scope": _accepted_trace_field_scope(name),
+                    "max_active_delta": 0.0,
+                    "max_target_adjacent_delta": 0.0,
+                    "max_guard_delta": 0.0,
+                    "max_sample_lineout_delta": 0.0,
+                    "max_target_adjacent_pointwise_delta": 0.0,
+                    "max_guard_pointwise_delta": 0.0,
+                    "worst_ranking_key": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "worst_time": float(matched_point.get("time", 0.0)),
+                },
+            )
+            _update_trace_error_aggregate(
+                aggregate, error, float(matched_point.get("time", 0.0))
+            )
+        for variant_name, error in parallel_inertia_variant_errors.items():
+            aggregate = parallel_inertia_variant_aggregates.setdefault(
+                variant_name,
+                {
+                    "field": variant_name,
+                    "comparison_scope": "active_target_rhs_source",
                     "max_active_delta": 0.0,
                     "max_target_adjacent_delta": 0.0,
                     "max_guard_delta": 0.0,
@@ -1422,6 +1462,10 @@ def _build_reference_active_state_rhs_register(
         if entry["ranked_fields"]
         else (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
     )
+    ranked_parallel_inertia_flux_variants = sorted(
+        parallel_inertia_variant_aggregates.values(),
+        key=_accepted_trace_field_ranking_key,
+    )
     return {
         "available": True,
         "description": (
@@ -1443,6 +1487,27 @@ def _build_reference_active_state_rhs_register(
             if ranked_source_preboundary_fields
             else ""
         ),
+        "parallel_inertia_flux_variant_register": {
+            "available": bool(ranked_parallel_inertia_flux_variants),
+            "description": (
+                "Reference-state comparison of neutral parallel-inertia "
+                "Div_par_fvv boundary-flux variants. The best variant is the "
+                "one with the smallest target-adjacent pointwise discrepancy "
+                "against SNV*_parallel_inertia in the reference accepted-step "
+                "trace."
+            ),
+            "ranked_best_fields": ranked_parallel_inertia_flux_variants,
+            "best_variant": (
+                str(ranked_parallel_inertia_flux_variants[0]["field"])
+                if ranked_parallel_inertia_flux_variants
+                else ""
+            ),
+            "worst_variant": (
+                str(ranked_parallel_inertia_flux_variants[-1]["field"])
+                if ranked_parallel_inertia_flux_variants
+                else ""
+            ),
+        },
         "max_source_preboundary_target_adjacent_pointwise_delta": (
             float(
                 ranked_source_preboundary_fields[0].get(
@@ -1456,6 +1521,77 @@ def _build_reference_active_state_rhs_register(
         "entries": entries,
         "skipped_points": skipped[:8],
     }
+
+
+def _neutral_mixed_parallel_inertia_variant_errors(
+    config,
+    state: NeutralMixedState,
+    *,
+    reference_fields: dict[str, object],
+    section: str,
+    mesh,
+    metrics,
+    meters_scale: float,
+    tnorm: float,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+    guard_y_indices: tuple[int, ...],
+    sample_y_indices: tuple[int, ...],
+    line_x: int,
+    line_z: int,
+) -> dict[str, dict[str, object]]:
+    """Compare neutral parallel-inertia flux modes on one reference state."""
+
+    reference_payload = reference_fields.get(f"SNV{section}_parallel_inertia")
+    if not isinstance(reference_payload, dict):
+        return {}
+    prepared = _prepare_neutral_mixed_state(
+        config,
+        state,
+        section=section,
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=meters_scale,
+        tnorm=tnorm,
+    )
+    atomic_mass = _section_scalar(config, section, "AA", default=1.0)
+    variants = {
+        "Div_par_fvv_fix_flux_false": -atomic_mass
+        * _operator_div_par_fvv_open(
+            prepared.density_limited,
+            prepared.velocity,
+            prepared.sound_speed,
+            mesh=mesh,
+            metrics=metrics,
+            fix_flux=False,
+        ),
+        "Div_par_fvv_fix_flux_true": -atomic_mass
+        * _operator_div_par_fvv_open(
+            prepared.density_limited,
+            prepared.velocity,
+            prepared.sound_speed,
+            mesh=mesh,
+            metrics=metrics,
+            fix_flux=True,
+        ),
+    }
+    errors: dict[str, dict[str, object]] = {}
+    for name, values in variants.items():
+        native_payload = _native_accepted_step_field_payload(
+            values,
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            guard_y_indices=guard_y_indices,
+            sample_y_indices=sample_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+        )
+        errors[name] = _compare_accepted_step_field_payload(
+            native_payload, reference_payload
+        )
+    return errors
 
 
 def _accepted_step_point_error_entry(

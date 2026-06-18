@@ -791,6 +791,7 @@ def compute_neutral_mixed_rhs(
         prepared.sound_speed,
         mesh=mesh,
         metrics=metrics,
+        fix_flux=False,
     )
     momentum_pressure_gradient = -_grad_par_open(
         prepared.pressure, mesh=mesh, metrics=metrics

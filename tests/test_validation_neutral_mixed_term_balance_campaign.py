@@ -1697,6 +1697,14 @@ def test_neutral_mixed_accepted_step_trace_parity_evaluates_rhs_on_reference_sta
     assert not register["ranked_source_preboundary_fields"][0]["field"].startswith(
         "ddt("
     )
+    variant_register = register["parallel_inertia_flux_variant_register"]
+    assert variant_register["available"] is True
+    assert {
+        row["field"] for row in variant_register["ranked_best_fields"]
+    } == {
+        "Div_par_fvv_fix_flux_false",
+        "Div_par_fvv_fix_flux_true",
+    }
 
 
 def test_neutral_mixed_reference_state_residual_field_metrics_split_pack_order(

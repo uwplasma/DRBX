@@ -16,6 +16,7 @@ from jax_drb.native.neutral_mixed_boundaries import (
 )
 from jax_drb.native.neutral_mixed import (
     _div_a_grad_perp_flows,
+    _div_par_fvv_open,
     _div_par_k_grad_par_open,
     _gradient_components,
     _gradient_magnitude,
@@ -223,6 +224,69 @@ neutral_viscosity = false
         "pressure_gradient",
         "perpendicular_diffusion",
     }
+
+
+def test_neutral_mixed_parallel_inertia_uses_reference_boundary_flux_mode() -> None:
+    config, run_config, mesh, metrics, state, _ = _build_case()
+    scalars = resolved_dataset_scalars(run_config)
+    indices = np.indices(state.momentum.shape, dtype=np.float64)
+    momentum = (
+        0.03
+        * state.density
+        * (
+            1.0
+            + 0.2 * np.sin(indices[1])
+            + 0.1 * np.cos(indices[2])
+        )
+    )
+    perturbed_state = neutral_mixed_mod.NeutralMixedState(
+        density=state.density,
+        pressure=state.pressure,
+        momentum=momentum,
+    )
+    rhs = compute_neutral_mixed_rhs(
+        config,
+        perturbed_state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+    )
+    prepared = _prepare_neutral_mixed_state(
+        config,
+        perturbed_state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+    )
+    atomic_mass = neutral_mixed_mod._section_scalar(config, "h", "AA", default=1.0)
+    reference_flux_mode = -atomic_mass * _div_par_fvv_open(
+        prepared.density_limited,
+        prepared.velocity,
+        prepared.sound_speed,
+        mesh=mesh,
+        metrics=metrics,
+        fix_flux=False,
+    )
+    fixed_boundary_flux_mode = -atomic_mass * _div_par_fvv_open(
+        prepared.density_limited,
+        prepared.velocity,
+        prepared.sound_speed,
+        mesh=mesh,
+        metrics=metrics,
+        fix_flux=True,
+    )
+
+    np.testing.assert_allclose(
+        rhs.momentum_terms["parallel_inertia"],
+        reference_flux_mode,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    assert np.max(np.abs(reference_flux_mode - fixed_boundary_flux_mode)) > 1.0e-6
 
 
 def test_neutral_mixed_lax_flux_and_diffusion_limit_options_are_active() -> None:

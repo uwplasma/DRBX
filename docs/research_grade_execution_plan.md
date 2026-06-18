@@ -142,7 +142,7 @@ and tests all move together.
 | --- | ---: | --- |
 | Plan authority and release hygiene | 95% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
-| Reference-backed parity | 98.7% | Close remaining neutral `NVh` parallel-inertia/Lax-flux split and accepted-step state/history sequencing feeding `Pnlim`, `logPnlim`, and `Grad(logPnlim)`. |
+| Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 89% | Make a JAX-transformable full-output recycling path faster and stable enough for default or documented opt-in promotion. |
 | Effective preconditioning | 35% | Move beyond negative row/field/local-block evidence to a transport-aware or Schur-style preconditioner with same-case speedup. |
 | Performance and scaling | 52% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only compact-kernel throughput. |
@@ -201,7 +201,7 @@ claims.
 | Priority | Track | Concrete next actions | Exit gate |
 | --- | --- | --- | --- |
 | P0 | Plan authority and repo hygiene | Keep this file as the only active plan; keep `plan_jax_drb.md` as a redirect; audit roadmap-like Markdown pages after each major decision; keep hosted CI out of the critical path while billing is exhausted; keep heavy traces, NetCDF dumps, profile bundles, and movies out of git. | Clean plan diff, no competing roadmap, clean `git status`, footprint audit before tag. |
-| P1 | Reference-backed neutral parity | Close the remaining `NVh` accepted-step offender by comparing the `SNVh_parallel_inertia`/Lax-flux reconstruction on exact reference states, then patch accepted-step state/history sequencing feeding `Pnlim`, `logPnlim`, and `Grad(logPnlim)` only where evidence requires it. | Accepted-step trace matches the reference time grid, pressure-gradient/diffusion/viscosity remain roundoff-closed, `SNVh_parallel_inertia` is closed or bounded, and regression tests lock the fix. |
+| P1 | Reference-backed neutral parity | Keep the closed neutral `NVh` accepted-step source split under regression, rerun the reference monitor after future neutral/recycling changes, and apply the same exact-reference-state source-register pattern to remaining recycling, sheath, target-source, and longer-window parity campaigns. | Accepted-step trace matches the reference time grid, pressure-gradient/diffusion/viscosity remain roundoff-closed, `SNVh_parallel_inertia` stays roundoff-bounded, and regression tests lock the flux-mode decision. |
 | P2 | JAX-native recycling residual | Promote the full-output recycling BDF residual through the fixed-layout PyTree/array seam; port sheath/no-flow, zero-current, target recycling, collisions, neutral diffusion, D/T/He reactions, scalar feedback, BE/BDF2/adaptive history, and artifact output without host-side residual loops. | Compatibility solver parity, JVP versus finite-difference tests, no hidden fallback, bounded solver-health report, and docs labeling default versus opt-in paths. |
 | P3 | Effective preconditioning | Build physics/block preconditioners in increasing complexity: same-cell blocks, sparse-JVP materialized block controls, parallel-line transport, neutral/plasma Schur approximation, target/sheath local blocks, and 2D/3D FCI transport blocks. Use PETSc-style field-split and line-solve ideas as algorithms, not runtime dependencies. | Same-case speedup or reduced residual/JVP/Krylov count after build cost, no parity degradation, memory not worse than compatibility baseline, CPU/GPU trace evidence. |
 | P4 | Drift-reduced Braginskii model surface | Finish equations, symbol definitions, normalizations, Boussinesq/non-Boussinesq polarization, vorticity/potential solve, ExB bracket, curvature/interchange, selected electromagnetic/Alfven lanes, open/closed-field semantics, and limiting-case/MMS tests. Remove or clearly label demo-only nonlinear forcing. | Equation-to-code map and tests for every promoted term, Boussinesq comparison plot, vorticity/bracket gates, EM selected-field report, no unsupported README claim. |
@@ -1116,6 +1116,19 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-18: Closed the neutral-mixed accepted-step `NVh` local source
+  offender by making the native `SNVh_parallel_inertia` term use the
+  reference-matching `Div_par_fvv(..., fix_flux=False)` Lax boundary mode. A
+  reference-state RHS rerun on the existing `309` accepted-step trace drops
+  `SNVh_parallel_inertia` from `1.42e-4` to `1.11e-12` target-adjacent
+  pointwise error, while pressure-gradient, perpendicular diffusion, viscosity,
+  diffusion-limiter, velocity, and `Grad(logPnlimh)_*` remain at roundoff. The
+  parity report now includes a `parallel_inertia_flux_variant_register` that
+  ranks `Div_par_fvv_fix_flux_false` best and `Div_par_fvv_fix_flux_true`
+  worst on exact reference states. Focused native/operator/validation tests
+  pass (`74 passed`) and `compileall` is clean. The next active lanes are P2
+  JAX-native recycling residual promotion and P3 preconditioning/performance,
+  with P1 retained as a regression discipline for future reference runs.
 - 2026-06-18: Revisited the roadmap/status Markdown pages after billing was
   exhausted and CI polling was explicitly deprioritized. The plan now has a
   single `Current Implementation Backlog` with priorities `P0` through `P9`,
@@ -1142,9 +1155,11 @@ Use this log for concise decision records. Do not paste terminal output here.
   `309` matched accepted records. Evaluating the native RHS on exact reference
   accepted states closes pressure-gradient, perpendicular diffusion,
   viscosity, diffusion-limiter, and `Grad(logPnlimh)_*` terms to roundoff, but
-  ranks `SNVh_parallel_inertia` first at about `1.42e-4` target-pointwise. The
-  next neutral parity patch should target the parallel inertia/Lax-flux
-  reconstruction together with accepted-state/history sequencing.
+  ranks `SNVh_parallel_inertia` first at about `1.42e-4` target-pointwise. This
+  historical blocker was later closed by the explicit `fix_flux=False`
+  `Div_par_fvv` momentum-flux mode recorded above; accepted-state/history
+  sequencing remains a broader transient-monitoring concern, not the active
+  local-source explanation for this trace.
 - 2026-06-18: Finished the repo-side CI triage after the hosted Actions runs
   for `test`, `docs`, and `coverage` failed before executing any steps and
   exposed no job logs. The local CI-equivalent gates are green on this
@@ -1175,9 +1190,10 @@ Use this log for concise decision records. Do not paste terminal output here.
   max-order-2 trace the source/preboundary target-adjacent mismatch closes to
   roundoff (`1.42e-14`), including `grad_logPnlimh_y`, `Dnnh_flux_max`, `Dnnh`,
   `eta_h`, and the `SNVh_*` terms. The all-field RHS-on-reference ranking is
-  dominated by `ddt(NVh)` at about `1.42e-4`, so the next neutral `NVh` patch
-  should target accepted-step time-derivative/state-history sequencing rather
-  than local pressure-gradient, viscosity, or diffusion-limit formulas.
+  dominated by `ddt(NVh)` at about `1.42e-4`; the later component-split and
+  flux-variant register localized and closed this as the neutral
+  `SNVh_parallel_inertia` boundary-flux-mode issue, rather than a
+  pressure-gradient, viscosity, or diffusion-limit formula issue.
 - 2026-06-18: Refined the master plan into an execution checklist with
   explicit working rules, lane completion criteria, milestone map, and immediate
   next work package. Confirmed that `plan_jax_drb.md` is only a redirect and
