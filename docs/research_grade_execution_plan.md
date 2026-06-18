@@ -1456,6 +1456,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   `5.31 s` linear-solve time, and `1.13 s` JAX-linearization time. Treat this
   as a low-risk residual-kernel simplification and a cleaner baseline for
   future JVP-kernel work, not a standalone release-level speedup claim.
+- 2026-06-18: Extended matrix-free operator diagnostics from individual
+  JAX-linearized recycling steps into fixed-output BDF2 and adaptive-BDF
+  history summaries. Fixed-BDF2 diagnostics now aggregate
+  `fixed_bdf2_total_linear_operator_call_count` and
+  `fixed_bdf2_total_linear_operator_dispatch_seconds`; adaptive-BDF summaries
+  and trace records carry the analogous
+  `adaptive_bdf_linear_operator_call_count` and
+  `adaptive_bdf_linear_operator_dispatch_seconds`. The comparison script now
+  accepts `--require-fixed-bdf2-max-linear-operator-calls`, and the promotion
+  wrapper forwards it as `--fixed-bdf2-max-linear-operator-calls`, giving
+  preconditioner campaigns a direct budget on actual JVP/linear-map work. This
+  is not a new speedup by itself; it is the missing acceptance gate for future
+  Schur/transport preconditioners and cheaper residual/JVP kernels.
 - 2026-06-18: Strengthened the imported-field connection-length refinement
   gate used by the 3D stellarator SOL lane. Nested-grid diagnostics now report
   successive RMS and \(L_\infty\) error-reduction factors and require monotonic

@@ -94,6 +94,7 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
         fixed_bdf2_linear_preconditioner="local_block_diag",
         fixed_bdf2_linear_preconditioner_refresh=100,
         fixed_bdf2_max_linear_iterations=3200,
+        fixed_bdf2_max_linear_operator_calls=128,
         fixed_bdf2_max_preconditioner_builds=2,
     )
 
@@ -116,6 +117,9 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
     assert command[
         command.index("--require-fixed-bdf2-max-linear-iterations") + 1
     ] == "3200"
+    assert command[
+        command.index("--require-fixed-bdf2-max-linear-operator-calls") + 1
+    ] == "128"
     assert command[
         command.index("--require-fixed-bdf2-max-preconditioner-builds") + 1
     ] == "2"
@@ -149,6 +153,10 @@ def test_recycling_jvp_promotion_gate_rejects_invalid_performance_budgets() -> N
         (
             {"fixed_bdf2_max_linear_iterations": -1},
             "fixed_bdf2_max_linear_iterations must be nonnegative",
+        ),
+        (
+            {"fixed_bdf2_max_linear_operator_calls": -1},
+            "fixed_bdf2_max_linear_operator_calls must be nonnegative",
         ),
         (
             {"fixed_bdf2_max_preconditioner_builds": -1},

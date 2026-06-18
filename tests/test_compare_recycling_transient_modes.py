@@ -497,9 +497,11 @@ def test_fixed_bdf2_diagnostics_gate_accepts_active_array_route() -> None:
             "fixed_bdf2_total_linear_preconditioner_build_count": 2,
             "fixed_bdf2_total_linear_preconditioner_build_seconds": 0.125,
             "fixed_bdf2_total_linear_iterations": 3200,
+            "fixed_bdf2_total_linear_operator_call_count": 96,
         },
         required_linear_preconditioner="local-block-diag",
         max_linear_iterations=3600,
+        max_linear_operator_calls=128,
         max_preconditioner_builds=2,
     )
 
@@ -629,9 +631,11 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
             "fixed_bdf2_evolve_feedback_integrals": True,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
             "fixed_bdf2_total_linear_iterations": 3600,
+            "fixed_bdf2_total_linear_operator_call_count": 512,
             "fixed_bdf2_total_linear_preconditioner_build_count": 9,
         },
         max_linear_iterations=3200,
+        max_linear_operator_calls=128,
         max_preconditioner_builds=2,
     )
 
@@ -639,6 +643,10 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
         (
             "fixed_bdf2_active_array_jax_linearized reported 3600 fixed BDF2 "
             "linear iterations, exceeding 3200"
+        ),
+        (
+            "fixed_bdf2_active_array_jax_linearized reported 512 fixed BDF2 "
+            "linear operator calls, exceeding 128"
         ),
         (
             "fixed_bdf2_active_array_jax_linearized reported 9 fixed BDF2 "

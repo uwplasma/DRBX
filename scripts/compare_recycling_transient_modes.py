@@ -217,6 +217,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-max-linear-operator-calls",
+        type=int,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_total_linear_operator_call_count at or below this value. "
+            "This gates the actual JVP/linear-map work used by JAX-native "
+            "preconditioner performance campaigns."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-bdf2-max-preconditioner-builds",
         type=int,
         default=None,
@@ -552,6 +563,7 @@ def _validate_fixed_bdf2_diagnostics(
     max_residual_inf_norm: float | None = 1.0e-5,
     required_linear_preconditioner: str | None = None,
     max_linear_iterations: int | None = None,
+    max_linear_operator_calls: int | None = None,
     max_preconditioner_builds: int | None = None,
 ) -> list[str]:
     errors: list[str] = []
@@ -637,6 +649,16 @@ def _validate_fixed_bdf2_diagnostics(
                 key="fixed_bdf2_total_linear_iterations",
                 maximum=int(max_linear_iterations),
                 label="fixed BDF2 linear iterations",
+            )
+        )
+    if max_linear_operator_calls is not None:
+        errors.extend(
+            _validate_maximum_integer_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_total_linear_operator_call_count",
+                maximum=int(max_linear_operator_calls),
+                label="fixed BDF2 linear operator calls",
             )
         )
     if max_preconditioner_builds is not None:
@@ -876,6 +898,13 @@ def main() -> int:
             "--require-fixed-bdf2-max-linear-iterations must be nonnegative."
         )
     if (
+        args.require_fixed_bdf2_max_linear_operator_calls is not None
+        and int(args.require_fixed_bdf2_max_linear_operator_calls) < 0
+    ):
+        raise ValueError(
+            "--require-fixed-bdf2-max-linear-operator-calls must be nonnegative."
+        )
+    if (
         args.require_fixed_bdf2_max_preconditioner_builds is not None
         and int(args.require_fixed_bdf2_max_preconditioner_builds) < 0
     ):
@@ -1011,6 +1040,9 @@ def main() -> int:
                     ),
                     max_linear_iterations=(
                         args.require_fixed_bdf2_max_linear_iterations
+                    ),
+                    max_linear_operator_calls=(
+                        args.require_fixed_bdf2_max_linear_operator_calls
                     ),
                     max_preconditioner_builds=(
                         args.require_fixed_bdf2_max_preconditioner_builds

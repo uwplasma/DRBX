@@ -366,6 +366,8 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
                 "residual_evaluation_count": 3,
                 "jacobian_refresh_count": 0,
                 "linear_solve_seconds": 0.25,
+                "linear_operator_call_count": 7,
+                "linear_operator_dispatch_seconds": 0.03125,
                 "residual_evaluation_seconds": 0.125,
                 "residual_jitted": True,
                 "converged": True,
@@ -447,6 +449,10 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
     assert diagnostics[
         "fixed_bdf2_total_linear_preconditioner_build_seconds"
     ] == pytest.approx(0.25)
+    assert diagnostics["fixed_bdf2_total_linear_operator_call_count"] == 14
+    assert diagnostics[
+        "fixed_bdf2_total_linear_operator_dispatch_seconds"
+    ] == pytest.approx(0.0625)
     assert diagnostics["fixed_bdf2_unconverged_solver_steps"] == 0
     assert diagnostics["fixed_bdf2_unknown_convergence_solver_steps"] == 0
     assert diagnostics["fixed_bdf2_linear_solver_failed_steps"] == 0
@@ -771,6 +777,8 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
                 "jacobian_refresh_count": 2,
                 "jacobian_assembly_seconds": 0.25,
                 "linear_solve_seconds": 0.75,
+                "linear_operator_call_count": 19,
+                "linear_operator_dispatch_seconds": 0.0625,
                 "line_search_seconds": 0.125,
                 "linear_solver_tolerance": 1.0e-5,
                 "linear_solver_success": False,
@@ -858,6 +866,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_residual_evaluation_count"] == 3
     assert stats["adaptive_bdf_jacobian_refresh_count"] == 2
     assert stats["adaptive_bdf_linear_iterations"] == 7
+    assert stats["adaptive_bdf_linear_operator_call_count"] == 19
     assert stats["adaptive_bdf_linear_solver_tolerance"] == pytest.approx(1.0e-5)
     assert stats["adaptive_bdf_linear_preconditioner"] == "local_block_diag"
     assert stats["adaptive_bdf_linear_preconditioner_build_count"] == 2
@@ -872,6 +881,9 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_residual_evaluation_seconds"] == pytest.approx(0.5)
     assert stats["adaptive_bdf_jacobian_assembly_seconds"] == pytest.approx(0.25)
     assert stats["adaptive_bdf_linear_solve_seconds"] == pytest.approx(0.75)
+    assert stats["adaptive_bdf_linear_operator_dispatch_seconds"] == pytest.approx(
+        0.0625
+    )
     assert stats["adaptive_bdf_line_search_seconds"] == pytest.approx(0.125)
     assert stats["adaptive_bdf_jvp_jacobian_total_seconds"] == pytest.approx(0.2)
     assert stats["adaptive_bdf_jvp_jacobian_linearize_seconds"] == pytest.approx(0.03)
@@ -925,6 +937,7 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     step["adaptive_bdf_residual_evaluation_seconds"] = 4.0
     step["adaptive_bdf_jacobian_assembly_seconds"] = 5.0
     step["adaptive_bdf_linear_solve_seconds"] = 6.0
+    step["adaptive_bdf_linear_operator_dispatch_seconds"] = 6.5
     step["adaptive_bdf_line_search_seconds"] = 7.0
     step["adaptive_bdf_linear_preconditioner"] = "local_block_diag"
     step["adaptive_bdf_linear_preconditioner_build_count"] = 17
@@ -939,6 +952,7 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     step["adaptive_bdf_residual_evaluation_count"] = 8
     step["adaptive_bdf_jacobian_refresh_count"] = 9
     step["adaptive_bdf_linear_iterations"] = 10
+    step["adaptive_bdf_linear_operator_call_count"] = 18
     step["adaptive_bdf_linear_solver_tolerance"] = 1.0e-4
     step["adaptive_bdf_linear_solver_failed_steps"] = 11
     step["adaptive_bdf_jvp_jacobian_batch_count"] = 12
@@ -957,6 +971,9 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     assert total["adaptive_bdf_residual_evaluation_seconds"] == pytest.approx(4.0)
     assert total["adaptive_bdf_jacobian_assembly_seconds"] == pytest.approx(5.0)
     assert total["adaptive_bdf_linear_solve_seconds"] == pytest.approx(6.0)
+    assert total["adaptive_bdf_linear_operator_dispatch_seconds"] == pytest.approx(
+        6.5
+    )
     assert total["adaptive_bdf_line_search_seconds"] == pytest.approx(7.0)
     assert total["adaptive_bdf_linear_preconditioner"] == "local_block_diag"
     assert total["adaptive_bdf_linear_preconditioner_build_count"] == 17
@@ -981,6 +998,7 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     assert total["adaptive_bdf_residual_evaluation_count"] == 8
     assert total["adaptive_bdf_jacobian_refresh_count"] == 9
     assert total["adaptive_bdf_linear_iterations"] == 10
+    assert total["adaptive_bdf_linear_operator_call_count"] == 18
     assert total["adaptive_bdf_linear_solver_tolerance"] == pytest.approx(1.0e-4)
     assert total["adaptive_bdf_linear_solver_failed_steps"] == 11
     assert total["adaptive_bdf_jvp_jacobian_batch_count"] == 12

@@ -77,6 +77,7 @@ def _build_case_command(
     fixed_bdf2_linear_preconditioner: str | None = None,
     fixed_bdf2_linear_preconditioner_refresh: int | None = None,
     fixed_bdf2_max_linear_iterations: int | None = None,
+    fixed_bdf2_max_linear_operator_calls: int | None = None,
     fixed_bdf2_max_preconditioner_builds: int | None = None,
 ) -> list[str]:
     resolved_mode_timeout = (
@@ -162,6 +163,18 @@ def _build_case_command(
                 (
                     "--require-fixed-bdf2-max-linear-iterations",
                     str(max_linear_iterations),
+                )
+            )
+        if fixed_bdf2_max_linear_operator_calls is not None:
+            max_linear_operator_calls = int(fixed_bdf2_max_linear_operator_calls)
+            if max_linear_operator_calls < 0:
+                raise ValueError(
+                    "fixed_bdf2_max_linear_operator_calls must be nonnegative."
+                )
+            command.extend(
+                (
+                    "--require-fixed-bdf2-max-linear-operator-calls",
+                    str(max_linear_operator_calls),
                 )
             )
         if fixed_bdf2_max_preconditioner_builds is not None:
@@ -312,6 +325,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-max-linear-operator-calls",
+        type=int,
+        default=None,
+        help=(
+            "Forward --require-fixed-bdf2-max-linear-operator-calls to the "
+            "fixed-BDF2 compare phase. This gates actual JAX linear-map/JVP "
+            "operator work and should be used with preconditioner experiments."
+        ),
+    )
+    parser.add_argument(
         "--fixed-bdf2-max-preconditioner-builds",
         type=int,
         default=None,
@@ -387,6 +410,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fixed_bdf2_max_linear_iterations=(
                     args.fixed_bdf2_max_linear_iterations
                 ),
+                fixed_bdf2_max_linear_operator_calls=(
+                    args.fixed_bdf2_max_linear_operator_calls
+                ),
                 fixed_bdf2_max_preconditioner_builds=(
                     args.fixed_bdf2_max_preconditioner_builds
                 ),
@@ -416,6 +442,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "fixed_bdf2_max_linear_iterations": (
                     args.fixed_bdf2_max_linear_iterations
+                ),
+                "fixed_bdf2_max_linear_operator_calls": (
+                    args.fixed_bdf2_max_linear_operator_calls
                 ),
                 "fixed_bdf2_max_preconditioner_builds": (
                     args.fixed_bdf2_max_preconditioner_builds

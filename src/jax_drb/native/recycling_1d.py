@@ -2286,9 +2286,11 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_max_residual_inf_norm": 0.0,
         "fixed_bdf2_total_nonlinear_iterations": 0,
         "fixed_bdf2_total_linear_iterations": 0,
+        "fixed_bdf2_total_linear_operator_call_count": 0,
         "fixed_bdf2_total_residual_evaluation_count": 0,
         "fixed_bdf2_total_jacobian_refresh_count": 0,
         "fixed_bdf2_total_linear_solve_seconds": 0.0,
+        "fixed_bdf2_total_linear_operator_dispatch_seconds": 0.0,
         "fixed_bdf2_total_residual_evaluation_seconds": 0.0,
         "fixed_bdf2_linear_preconditioner": None,
         "fixed_bdf2_total_linear_preconditioner_build_count": 0,
@@ -2319,6 +2321,9 @@ def _advance_recycling_1d_fixed_bdf2_history(
         diagnostics["fixed_bdf2_total_linear_iterations"] = int(
             diagnostics["fixed_bdf2_total_linear_iterations"]
         ) + int(info.linear_iterations)
+        diagnostics["fixed_bdf2_total_linear_operator_call_count"] = int(
+            diagnostics["fixed_bdf2_total_linear_operator_call_count"]
+        ) + int(info.diagnostics.get("linear_operator_call_count", 0))
         diagnostics["fixed_bdf2_total_residual_evaluation_count"] = int(
             diagnostics["fixed_bdf2_total_residual_evaluation_count"]
         ) + int(info.diagnostics.get("residual_evaluation_count", 0))
@@ -2328,6 +2333,9 @@ def _advance_recycling_1d_fixed_bdf2_history(
         diagnostics["fixed_bdf2_total_linear_solve_seconds"] = float(
             diagnostics["fixed_bdf2_total_linear_solve_seconds"]
         ) + float(info.diagnostics.get("linear_solve_seconds", 0.0))
+        diagnostics["fixed_bdf2_total_linear_operator_dispatch_seconds"] = float(
+            diagnostics["fixed_bdf2_total_linear_operator_dispatch_seconds"]
+        ) + float(info.diagnostics.get("linear_operator_dispatch_seconds", 0.0))
         diagnostics["fixed_bdf2_total_residual_evaluation_seconds"] = float(
             diagnostics["fixed_bdf2_total_residual_evaluation_seconds"]
         ) + float(info.diagnostics.get("residual_evaluation_seconds", 0.0))
@@ -2706,6 +2714,7 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_residual_evaluation_count": 0,
         "adaptive_bdf_jacobian_refresh_count": 0,
         "adaptive_bdf_linear_iterations": 0,
+        "adaptive_bdf_linear_operator_call_count": 0,
         "adaptive_bdf_linear_solver_tolerance": None,
         "adaptive_bdf_linear_preconditioner": None,
         "adaptive_bdf_linear_preconditioner_build_count": 0,
@@ -2721,6 +2730,7 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_residual_evaluation_seconds": 0.0,
         "adaptive_bdf_jacobian_assembly_seconds": 0.0,
         "adaptive_bdf_linear_solve_seconds": 0.0,
+        "adaptive_bdf_linear_operator_dispatch_seconds": 0.0,
         "adaptive_bdf_line_search_seconds": 0.0,
         "adaptive_bdf_linear_preconditioner_build_seconds": 0.0,
         "adaptive_bdf_jvp_jacobian_total_seconds": 0.0,
@@ -2831,6 +2841,8 @@ def _write_adaptive_bdf_trace_record(
                 "linear_preconditioner",
                 "linear_preconditioner_build_count",
                 "linear_preconditioner_build_seconds",
+                "linear_operator_call_count",
+                "linear_operator_dispatch_seconds",
                 "jvp_direction_batch_count",
                 "jvp_direction_build_seconds",
                 "jvp_jacobian_total_seconds",
@@ -3007,6 +3019,10 @@ def _record_adaptive_bdf_step_solver_info(
             "jvp_jacobian_prebuilt_direction_batch_uses",
             "adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses",
         ),
+        (
+            "linear_operator_call_count",
+            "adaptive_bdf_linear_operator_call_count",
+        ),
     ):
         stats[destination_key] = int(stats[destination_key]) + int(
             diagnostics.get(source_key, 0) or 0
@@ -3044,6 +3060,10 @@ def _record_adaptive_bdf_step_solver_info(
         ("residual_evaluation_seconds", "adaptive_bdf_residual_evaluation_seconds"),
         ("jacobian_assembly_seconds", "adaptive_bdf_jacobian_assembly_seconds"),
         ("linear_solve_seconds", "adaptive_bdf_linear_solve_seconds"),
+        (
+            "linear_operator_dispatch_seconds",
+            "adaptive_bdf_linear_operator_dispatch_seconds",
+        ),
         ("line_search_seconds", "adaptive_bdf_line_search_seconds"),
         (
             "linear_preconditioner_build_seconds",
@@ -3138,6 +3158,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_residual_evaluation_count",
         "adaptive_bdf_jacobian_refresh_count",
         "adaptive_bdf_linear_iterations",
+        "adaptive_bdf_linear_operator_call_count",
         "adaptive_bdf_linear_preconditioner_build_count",
         "adaptive_bdf_linear_solver_failed_steps",
         "adaptive_bdf_unknown_linear_solver_steps",
@@ -3156,6 +3177,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_residual_evaluation_seconds",
         "adaptive_bdf_jacobian_assembly_seconds",
         "adaptive_bdf_linear_solve_seconds",
+        "adaptive_bdf_linear_operator_dispatch_seconds",
         "adaptive_bdf_line_search_seconds",
         "adaptive_bdf_linear_preconditioner_build_seconds",
         "adaptive_bdf_jvp_jacobian_total_seconds",
