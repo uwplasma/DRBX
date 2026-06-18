@@ -1313,6 +1313,20 @@ calls). A subsequent default-policy repeat reported `rhs_predictor`, residual
 is therefore retained as an opt-in diagnostic rather than a default runtime
 change.
 
+An additional host/device-barrier probe exposes
+`runtime:recycling_jax_linear_line_search_mode=full_step`, which accepts finite
+Newton updates without an immediate trial-residual evaluation and defers the
+residual check to the next `jax.linearize` call. The fixed-BDF2 comparison
+harness can require this with `--require-fixed-bdf2-line-search-mode full_step`.
+On the bounded two-window hydrogen active-array gate, full-step mode preserved
+the residual (`2.90e-6`) and the same `35` linear-operator calls while reducing
+standalone residual evaluations from the recent backtracking evidence (`14`) to
+`11`. The tradeoff was unfavorable: JAX linearizations increased from `7` to
+`11`, and wall time was `16.34 s`, not better than the retained backtracking
+evidence. The result is useful because it identifies line-search residual checks
+as a measurable host/device barrier, but it is negative promotion evidence; the
+default remains backtracking.
+
 The same fixed-BDF2 diagnostics now report
 `fixed_bdf2_linear_solver_backend`, and the comparison harness can require it
 with `--require-fixed-bdf2-linear-solver-backend`. This closes a reproducibility

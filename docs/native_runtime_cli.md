@@ -182,6 +182,16 @@ The matching environment variable is
 bounded to `(0, 1]`, and the default is `1`, preserving the standard backtracking
 search. This control is not a physics-model change; it only avoids predictable
 rejected residual evaluations in quality-gated JAX-linearized solver studies.
+The line-search policy itself can be selected with
+`runtime:recycling_jax_linear_line_search_mode=backtracking` or `full_step`, or
+with `JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE`. The default
+`backtracking` evaluates a trial residual before accepting each Newton update.
+The opt-in `full_step` path accepts finite full updates and lets the next
+`jax.linearize` call perform the residual check. Fixed-BDF2 histories report
+`fixed_bdf2_line_search_mode`, and the comparison harness can require it with
+`--require-fixed-bdf2-line-search-mode`. Current bounded gates keep
+`backtracking` as the default because `full_step` traded fewer standalone
+residual evaluations for more linearizations and did not improve wall time.
 The same diagnostics report `linear_operator_call_count` and
 `linear_operator_dispatch_seconds`, which measure Python-visible calls to the
 matrix-free linearized operator during the Krylov solve. These are profiling
