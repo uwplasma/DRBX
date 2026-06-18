@@ -616,6 +616,13 @@ long work logs here.
   status. The three-run median is noise-level/slightly worse (`3.08 s` versus
   the retained `2.98 s` control), so this is a deterministic residual-count and
   host/device-barrier cleanup, not a default speedup claim.
+- 2026-06-18: Tightened the opt-in sparse-JVP device-gather kernel by storing
+  device-side gather row and batch-index arrays in prebuilt
+  `SparseJvpDirectionBatch` objects. The focused solver tests cover the reused
+  gather path. A local 288-state, 4896-nnz microbenchmark with
+  `JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE=1` improved median build time from
+  `0.0128 s` to `0.0114 s`; this remains a micro-kernel cleanup and does not
+  change sparse-JVP defaults until larger recycling gates show a runtime win.
 
 ## External Literature And Code Baseline
 

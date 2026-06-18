@@ -87,6 +87,8 @@ class SparseJvpDirectionBatch:
     gather_batch_indices: object
     gather_rows: object
     gather_counts: tuple[int, ...]
+    gather_batch_indices_device: object = None
+    gather_rows_device: object = None
 
 
 @dataclass(frozen=True)
@@ -289,6 +291,10 @@ def prepare_sparse_jvp_direction_batches(
                 gather_batch_indices=gather_batch_indices,
                 gather_rows=gather_rows,
                 gather_counts=gather_counts,
+                gather_batch_indices_device=jnp.asarray(
+                    gather_batch_indices, dtype=jnp.int32
+                ),
+                gather_rows_device=jnp.asarray(gather_rows, dtype=jnp.int32),
             )
         )
     return tuple(batches)
@@ -582,9 +588,17 @@ def build_sparse_jvp_jacobian(
         transfer_started_at = perf_counter()
         if gather_on_device:
             pushed_flat = jnp.reshape(pushed_device, (len(batch_groups), -1))
-            gather_rows = jnp.asarray(direction_batch.gather_rows, dtype=jnp.int32)
-            gather_batch_indices = jnp.asarray(
-                direction_batch.gather_batch_indices, dtype=jnp.int32
+            gather_rows = (
+                direction_batch.gather_rows_device
+                if direction_batch.gather_rows_device is not None
+                else jnp.asarray(direction_batch.gather_rows, dtype=jnp.int32)
+            )
+            gather_batch_indices = (
+                direction_batch.gather_batch_indices_device
+                if direction_batch.gather_batch_indices_device is not None
+                else jnp.asarray(
+                    direction_batch.gather_batch_indices, dtype=jnp.int32
+                )
             )
             gathered_device = pushed_flat[gather_batch_indices, gather_rows]
             if sync_timing:

@@ -381,6 +381,80 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
     assert timing["sync_timing"] in {0, 1}
 
 
+def test_sparse_jvp_jacobian_reuses_prebuilt_device_gather_indices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("scipy")
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_shape = (3, 1, 4)
+    state = np.linspace(-0.2, 0.7, 2 * np.prod(active_shape))
+    sparsity = build_locality_sparsity(
+        active_shape,
+        field_count=2,
+        radii=(1, 0, 1),
+        periodic_axes=(2,),
+    )
+    color_groups = build_modulo_color_groups(
+        active_shape,
+        field_count=2,
+        color_periods=(3, 1, 4),
+    )
+
+    def residual(vector):
+        field0 = vector[: np.prod(active_shape)].reshape(active_shape)
+        field1 = vector[np.prod(active_shape) :].reshape(active_shape)
+        result0 = jnp.cos(field0) + 0.25 * jnp.roll(field1, 1, axis=2)
+        result1 = 0.5 * field1 - 0.1 * jnp.roll(field0, -1, axis=0)
+        return jnp.concatenate([result0.ravel(), result1.ravel()])
+
+    plan = prepare_sparse_difference_quotient_plan(
+        sparsity=sparsity,
+        color_groups=color_groups,
+    )
+    prebuilt_direction_batches = prepare_sparse_jvp_direction_batches(
+        difference_plan=plan,
+        state_shape=tuple(state.shape),
+        batch_size=2,
+    )
+    assert all(
+        batch.gather_batch_indices_device is not None
+        and batch.gather_rows_device is not None
+        for batch in prebuilt_direction_batches
+    )
+
+    control = build_sparse_jvp_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        difference_plan=plan,
+        direction_batches=prebuilt_direction_batches,
+    )
+    timing_payloads: list[dict[str, float | int]] = []
+    monkeypatch.setenv("JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE", "1")
+    gathered = build_sparse_jvp_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        difference_plan=plan,
+        direction_batches=prebuilt_direction_batches,
+        timing_callback=timing_payloads.append,
+    )
+
+    np.testing.assert_allclose(
+        gathered.toarray(),
+        control.toarray(),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    assert len(timing_payloads) == 1
+    assert timing_payloads[0]["gather_on_device"] == 1
+    assert timing_payloads[0]["prebuilt_direction_batches"] == 1
+    assert timing_payloads[0]["batch_count"] == len(prebuilt_direction_batches)
+
+
 def test_backward_euler_and_bdf2_residual_formulas() -> None:
     state = np.array([1.0, 2.0, 3.0], dtype=np.float64)
     previous = np.array([0.5, 1.5, 2.5], dtype=np.float64)
