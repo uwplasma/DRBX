@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
-| Effective preconditioning | 53% | Bounded stiff-line solver gates now prove both full-field `parallel_line` and selected-field `momentum_line` can reduce JAX-GMRES operator calls when they match the dominant transport block, while `neutral_line` remains a targeted neutral-diffusion probe. The blocker is still same-case speedup on real recycling or imported-field kernels after build cost. |
+| Effective preconditioning | 54% | Bounded stiff-line solver gates now prove full-field `parallel_line`, selected-field `neutral_line`, and selected-field `momentum_line` can reduce JAX-GMRES operator calls when they match the dominant transport block. The blocker is still same-case speedup on real recycling or imported-field kernels after build cost. |
 | Performance and scaling | 65% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`; remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -2351,6 +2351,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   calls and one line-block build. This is algorithmic Krylov evidence for the
   selected-field preconditioner seam; real recycling promotion still requires
   same-fidelity runtime and parity gates.
+- 2026-06-19: Added the matching solver-level selected-field `neutral_line`
+  effectivity gate. The packed plasma/neutral fixture keeps the lightly scaled
+  plasma block outside the approximate inverse and puts the stiff neutral
+  diffusion-like line operator in the selected neutral block. With the same
+  constrained JAX-GMRES budget, the unpreconditioned solve stalls above `1e-3`
+  residual with `10` linear-operator calls, while `neutral_line` converges
+  below `1e-10` with `5` calls and one line-block build. This completes the
+  bounded algorithmic evidence set for the current line-block preconditioner
+  family: `parallel_line`, `neutral_line`, and `momentum_line`.
 
 ## Definition Of Done
 

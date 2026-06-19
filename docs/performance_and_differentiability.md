@@ -1125,8 +1125,9 @@ one-dimensional line-transport residual with a deliberately small JAX-GMRES
 budget now checks that `parallel_line` converges below `1e-10`, builds exactly
 one line-block preconditioner, applies it during the Krylov solve, and uses
 fewer linear-operator calls than the same unpreconditioned solve, which stalls
-above `1e-3`. A companion packed two-field gate exercises the selected-field
-`momentum_line` path: the density block remains lightly scaled, the `NV`-like
+above `1e-3`. Companion packed two-field gates exercise the selected-field
+`neutral_line` and `momentum_line` paths: a lightly scaled plasma or density
+block remains outside the approximate inverse, the neutral or `NV`-like
 momentum block carries the stiff parallel operator, and the targeted
 preconditioner converges with half the linear-operator calls of the
 unpreconditioned solve. These are algorithmic effectivity tests, not production
@@ -1191,7 +1192,10 @@ active-array gate it is solver-health clean but not a speedup: residual
 `2.90e-6`, `35` linear-operator calls, `4` preconditioner builds, `49` applies,
 `0.78 s` build time, and elapsed time `16.91 s`. It therefore remains opt-in
 diagnostic evidence for neutral-diffusion-dominated cases, not a default or
-performance claim.
+performance claim. A bounded solver-level packed-field gate now confirms that
+the selected neutral line block can reduce Krylov operator calls when it is the
+dominant stiff suboperator, so the remaining blocker is real recycling
+same-case speedup after build cost.
 The matching `momentum_line` candidate is now exposed for momentum-dominated
 multi-ion and recycling traces. It uses the same selected-field line-block
 machinery but supplies only fixed-layout fields whose names start with `NV`.

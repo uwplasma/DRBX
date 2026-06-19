@@ -934,6 +934,82 @@ def test_momentum_line_preconditioner_reduces_selected_stiff_operator_budget() -
     assert np.max(np.abs(unpreconditioned_solution - np.asarray(target))) > 1.0e-3
 
 
+def test_neutral_line_preconditioner_reduces_selected_stiff_operator_budget() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_shape = (1, 12)
+    line_length = active_shape[1]
+    plasma_weight = 0.5
+    neutral_matrix = np.diag(4.0 * np.ones(line_length))
+    neutral_matrix += np.diag(-1.95 * np.ones(line_length - 1), k=1)
+    neutral_matrix += np.diag(-1.95 * np.ones(line_length - 1), k=-1)
+    neutral_matrix = jnp.asarray(neutral_matrix, dtype=jnp.float64)
+    plasma_target = jnp.cos(jnp.linspace(0.0, 2.0, line_length, dtype=jnp.float64))
+    neutral_target = jnp.sin(jnp.linspace(0.0, 3.0, line_length, dtype=jnp.float64))
+    target = jnp.concatenate((plasma_target, neutral_target))
+
+    def residual(state):
+        vector = jnp.asarray(state, dtype=jnp.float64)
+        plasma = vector[:line_length]
+        neutral = vector[line_length:]
+        return jnp.concatenate(
+            (
+                plasma_weight * (plasma - plasma_target),
+                neutral_matrix @ (neutral - neutral_target),
+            )
+        )
+
+    common_solver_options = dict(
+        active_shape=(2 * line_length,),
+        residual_tolerance=1.0e-10,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=2,
+        linear_restart=3,
+        linear_maxiter=1,
+        linear_tolerance=1.0e-10,
+        check_initial_residual=False,
+        line_search_mode="full_step",
+    )
+    unpreconditioned_solution, unpreconditioned_info = (
+        solve_jax_linearized_newton_system(
+            residual,
+            np.zeros(2 * line_length, dtype=np.float64),
+            **common_solver_options,
+        )
+    )
+    preconditioned_solution, preconditioned_info = solve_jax_linearized_newton_system(
+        residual,
+        np.zeros(2 * line_length, dtype=np.float64),
+        **common_solver_options,
+        linear_preconditioner_name="neutral_line",
+        linear_preconditioner_context={
+            "active_shape": active_shape,
+            "field_count": 2,
+            "feedback_count": 0,
+            "parallel_axis": 1,
+            "field_indices": (1,),
+        },
+    )
+
+    assert unpreconditioned_info.converged is False
+    assert unpreconditioned_info.residual_inf_norm > 1.0e-3
+    assert preconditioned_info.converged is True
+    assert preconditioned_info.residual_inf_norm < 1.0e-10
+    assert preconditioned_info.linear_operator_call_count < (
+        unpreconditioned_info.linear_operator_call_count
+    )
+    assert preconditioned_info.linear_preconditioner == "neutral_line"
+    assert preconditioned_info.linear_preconditioner_build_count == 1
+    assert preconditioned_info.linear_preconditioner_apply_count > 0
+    np.testing.assert_allclose(
+        preconditioned_solution,
+        np.asarray(target),
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
+    assert np.max(np.abs(unpreconditioned_solution - np.asarray(target))) > 1.0e-3
+
+
 def test_parallel_line_preconditioner_rejects_mismatched_context() -> None:
     pytest.importorskip("jax.numpy")
 
