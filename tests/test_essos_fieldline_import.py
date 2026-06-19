@@ -88,10 +88,10 @@ def _movie_report(
     radial_flux_rms = radial_flux_abs_mean if radial_flux_rms is None else radial_flux_rms
     poloidal_count = grid[1]
     toroidal_count = grid[2] // 2 + 1
-    poloidal_fraction = 0.25
-    toroidal_fraction = 0.30
     if low_mode_window_covers_grid is None:
         low_mode_window_covers_grid = bool(poloidal_count <= 4 and toroidal_count <= 6)
+    poloidal_centroid = min(1.25, max(float(poloidal_count - 1), 0.0))
+    toroidal_centroid = min(2.0, max(float(toroidal_count - 1), 0.0))
     return {
         "case": f"{map_source}_{grid[0]}x{grid[1]}x{grid[2]}_{dt:g}",
         "map_source": map_source,
@@ -113,10 +113,12 @@ def _movie_report(
         "low_mode_spectral_power_fraction": 0.34,
         "spectral_poloidal_mode_count": poloidal_count,
         "spectral_toroidal_mode_count": toroidal_count,
-        "spectral_centroid_poloidal_index": poloidal_fraction * max(poloidal_count - 1, 1),
-        "spectral_centroid_toroidal_index": toroidal_fraction * max(toroidal_count - 1, 1),
-        "spectral_centroid_poloidal_fraction": poloidal_fraction,
-        "spectral_centroid_toroidal_fraction": toroidal_fraction,
+        "spectral_centroid_poloidal_index": poloidal_centroid,
+        "spectral_centroid_toroidal_index": toroidal_centroid,
+        "spectral_centroid_poloidal_fraction": poloidal_centroid
+        / max(poloidal_count - 1, 1),
+        "spectral_centroid_toroidal_fraction": toroidal_centroid
+        / max(toroidal_count - 1, 1),
         "spectral_edge_band_power_fraction": spectral_edge_band_power_fraction,
         "low_mode_window_covers_grid": low_mode_window_covers_grid,
         "final_potential_residual_l2": final_potential_residual_l2,
@@ -317,11 +319,35 @@ def test_essos_imported_drb_movie_refinement_flags_residual_only_solver_budget()
     )
 
 
+def test_essos_imported_drb_movie_refinement_uses_mode_index_not_fraction() -> None:
+    coarse = _movie_report(grid=(8, 12, 24))
+    fine = _movie_report(grid=(16, 24, 48))
+    assert coarse["spectral_centroid_toroidal_fraction"] != fine[
+        "spectral_centroid_toroidal_fraction"
+    ]
+    assert coarse["spectral_centroid_toroidal_index"] == fine[
+        "spectral_centroid_toroidal_index"
+    ]
+
+    summary = build_essos_imported_drb_movie_refinement_summary(
+        grid_reports=(coarse, fine),
+        time_reports=(
+            _movie_report(grid=(16, 24, 48), dt=2.0e-3),
+            _movie_report(grid=(16, 24, 48), dt=1.0e-3),
+        ),
+        relative_tolerance=0.30,
+    )
+
+    assert summary["publication_ready"] is True
+    assert summary["grid_refinement_passed"] is True
+    assert summary["next_campaign_suggestion"]["suggested_grid_shapes"] == []
+
+
 def test_essos_imported_drb_movie_refinement_suggests_toroidal_only_refinement() -> None:
     coarse = _movie_report(grid=(8, 12, 24))
     fine = _movie_report(grid=(16, 24, 48))
-    coarse["spectral_centroid_toroidal_fraction"] = 0.27
-    fine["spectral_centroid_toroidal_fraction"] = 0.13
+    coarse["spectral_centroid_toroidal_index"] = 4.0
+    fine["spectral_centroid_toroidal_index"] = 2.0
 
     summary = build_essos_imported_drb_movie_refinement_summary(
         grid_reports=(coarse, fine),
@@ -334,7 +360,7 @@ def test_essos_imported_drb_movie_refinement_suggests_toroidal_only_refinement()
 
     suggestion = summary["next_campaign_suggestion"]
     assert suggestion["dominant_grid_blockers"][0]["metric"] == (
-        "spectral_centroid_toroidal_fraction"
+        "spectral_centroid_toroidal_index"
     )
     assert suggestion["suggested_grid_multiplier"] == [1.0, 1.0, 2.0]
     assert suggestion["suggested_grid_shapes"] == [[16, 24, 48], [16, 24, 96]]
