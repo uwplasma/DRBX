@@ -10,7 +10,8 @@
     "metric_keys": [
       "final_fluctuation_rms",
       "max_fluctuation_rms",
-      "radial_flux_proxy",
+      "radial_flux_abs_mean",
+      "radial_flux_rms",
       "low_mode_spectral_power_fraction",
       "final_potential_residual_l2"
     ],
@@ -39,7 +40,8 @@
     "metric_keys": [
       "final_fluctuation_rms",
       "max_fluctuation_rms",
-      "radial_flux_proxy",
+      "radial_flux_abs_mean",
+      "radial_flux_rms",
       "low_mode_spectral_power_fraction",
       "final_potential_residual_l2"
     ],

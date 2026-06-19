@@ -83,6 +83,11 @@
   "passed": true,
   "publication_ready": false,
   "radial_flux_proxy": -0.0022117826302729153,
+  "radial_flux_abs_mean": 0.0022117825990010586,
+  "radial_flux_rms": 0.0024873673882503935,
+  "radial_flux_peak_abs": 0.004026771057397127,
+  "radial_flux_cancellation_ratio": 1.0,
+  "radial_flux_positive_fraction": 0.0,
   "required_publication_gates": [
     "connection_length_refinement_summary_promotion_ready",
     "movie_grid_refinement_passed",
