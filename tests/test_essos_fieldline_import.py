@@ -99,6 +99,12 @@ def _movie_report(
             0.5 if radial_flux_proxy == 0.0 else float(radial_flux_proxy > 0.0)
         ),
         "low_mode_spectral_power_fraction": 0.34,
+        "spectral_poloidal_mode_count": grid[1],
+        "spectral_toroidal_mode_count": grid[2] // 2 + 1,
+        "spectral_centroid_poloidal_index": 2.0,
+        "spectral_centroid_toroidal_index": 3.0,
+        "spectral_edge_band_power_fraction": 0.08,
+        "low_mode_window_covers_grid": bool(grid[1] <= 4 and grid[2] // 2 + 1 <= 6),
         "final_potential_residual_l2": 0.02,
     }
 
@@ -692,6 +698,12 @@ def test_essos_imported_maps_generate_drb_movie_gate(tmp_path: Path) -> None:
     assert report["radial_flux_peak_abs"] >= report["radial_flux_abs_mean"]
     assert 0.0 <= report["radial_flux_cancellation_ratio"] <= 1.0
     assert 0.0 <= report["radial_flux_positive_fraction"] <= 1.0
+    assert report["spectral_poloidal_mode_count"] == 4
+    assert report["spectral_toroidal_mode_count"] == 5
+    assert report["spectral_centroid_poloidal_index"] >= 0.0
+    assert report["spectral_centroid_toroidal_index"] >= 0.0
+    assert 0.0 <= report["spectral_edge_band_power_fraction"] <= 1.0
+    assert report["low_mode_window_covers_grid"] is True
     assert report["particle_recycling_relative_error"] < 1.0e-10
     assert report["neutral_particle_relative_error"] < 1.0e-10
     assert artifacts.arrays_npz_path.exists()
