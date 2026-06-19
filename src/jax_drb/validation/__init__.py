@@ -194,6 +194,7 @@ from .essos_imported_drb_movie_campaign import (
     EssosImportedDrbMovieRefinementCampaignArtifacts,
     build_essos_imported_drb_movie_campaign,
     build_essos_imported_drb_movie_refinement_diagnostics,
+    build_essos_imported_drb_movie_refinement_next_campaign,
     build_essos_imported_drb_movie_refinement_summary,
     classify_essos_imported_drb_movie_evidence,
     create_essos_imported_drb_movie_refinement_campaign_package,
