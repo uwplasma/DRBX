@@ -18,6 +18,7 @@ from jax_drb.native.recycling_1d import (
 )
 from jax_drb.native.recycling_fixed_residual import (
     build_fixed_residual_linearized_action,
+    solve_fixed_residual_linearized_update,
 )
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.runtime.run_config import RunConfiguration
@@ -339,6 +340,28 @@ def _partitioned_batched_call(
     return jnp.concatenate(chunks, axis=0)
 
 
+def _build_linearized_update_preconditioner(
+    name: str | None,
+    base_state: object,
+):
+    import jax.numpy as jnp
+
+    normalized = str(name or "none").strip().lower().replace("-", "_")
+    if normalized in {"", "none", "off", "false", "no"}:
+        return None
+    if normalized in {"state_scale", "state", "scale"}:
+        scale = jnp.maximum(jnp.abs(jnp.asarray(base_state, dtype=jnp.float64)), 1.0)
+
+        def preconditioner(vector):
+            return jnp.asarray(vector, dtype=jnp.float64) / scale
+
+        return preconditioner
+    raise ValueError(
+        "linearized_update_preconditioner must be 'none' or 'state_scale', "
+        f"got {name!r}."
+    )
+
+
 def profile_recycling_batched_jvp_problem(
     problem: RecyclingBatchedJvpProblem,
     *,
@@ -350,6 +373,13 @@ def profile_recycling_batched_jvp_problem(
     check_objective_grad: bool = True,
     residual_partition_size: int | None = None,
     jvp_partition_size: int | None = None,
+    check_linearized_update: bool = False,
+    linearized_update_tolerance: float = 1.0e-8,
+    linearized_update_restart: int = 20,
+    linearized_update_maxiter: int = 20,
+    linearized_update_solve_method: str = "batched",
+    linearized_update_jit_operator: bool = False,
+    linearized_update_preconditioner: str | None = None,
     progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
     """Measure fixed-work vectorized residual/JVP throughput on a real residual."""
@@ -372,6 +402,7 @@ def profile_recycling_batched_jvp_problem(
         check_objective_grad=bool(check_objective_grad),
         residual_partition_size=residual_partition_size,
         jvp_partition_size=jvp_partition_size,
+        check_linearized_update=bool(check_linearized_update),
     )
     residual_jit = jax.jit(residual)
     started_at = perf_counter()
@@ -454,6 +485,51 @@ def profile_recycling_batched_jvp_problem(
         event="linearized_action_check_complete",
         **linearized_action_diagnostics,
     )
+    linearized_update_diagnostics = None
+    if bool(check_linearized_update):
+        started_at = perf_counter()
+        preconditioner = _build_linearized_update_preconditioner(
+            linearized_update_preconditioner,
+            base_state,
+        )
+        solve_result = solve_fixed_residual_linearized_update(
+            residual,
+            base_state,
+            linear_tolerance=float(linearized_update_tolerance),
+            linear_restart=int(linearized_update_restart),
+            linear_maxiter=int(linearized_update_maxiter),
+            solve_method=str(linearized_update_solve_method),
+            preconditioner=preconditioner,
+            jit_linear_operator=bool(linearized_update_jit_operator),
+        )
+        candidate_state = base_state + solve_result.update
+        candidate_residual = residual_jit(candidate_state).block_until_ready()
+        linearized_update_diagnostics = {
+            "check_enabled": True,
+            "elapsed_seconds": float(perf_counter() - started_at),
+            "solver_status": solve_result.solver_status,
+            "solver_success": solve_result.solver_success,
+            "linear_update_residual_inf_norm": float(
+                solve_result.linear_update_residual_inf_norm
+            ),
+            "linear_update_relative_residual": float(
+                solve_result.linear_update_relative_residual
+            ),
+            "candidate_residual_inf_norm": float(jnp.max(jnp.abs(candidate_residual))),
+            "update_inf_norm": float(jnp.max(jnp.abs(solve_result.update))),
+            "preconditioner": str(linearized_update_preconditioner or "none"),
+            "jit_linear_operator": bool(linearized_update_jit_operator),
+            "linear_tolerance": float(linearized_update_tolerance),
+            "linear_restart": int(linearized_update_restart),
+            "linear_maxiter": int(linearized_update_maxiter),
+            "solve_method": str(linearized_update_solve_method),
+            "action_diagnostics": solve_result.diagnostics,
+        }
+        _emit_progress(
+            progress_callback,
+            event="linearized_update_check_complete",
+            **linearized_update_diagnostics,
+        )
 
     grad_directional = None
     fd_directional = None
@@ -803,6 +879,7 @@ def profile_recycling_batched_jvp_problem(
             "objective_directional_relative_error": objective_directional_relative_error,
         },
         "linearized_action_diagnostics": linearized_action_diagnostics,
+        "linearized_update_diagnostics": linearized_update_diagnostics,
         "batch_results": batch_results,
         "throughput_summary": throughput_summary,
         "interpretation": (
@@ -838,6 +915,13 @@ def create_recycling_batched_jvp_profile_package(
     rhs_backend: str = "fixed_full_field_array",
     residual_partition_size: int | None = None,
     jvp_partition_size: int | None = None,
+    check_linearized_update: bool = False,
+    linearized_update_tolerance: float = 1.0e-8,
+    linearized_update_restart: int = 20,
+    linearized_update_maxiter: int = 20,
+    linearized_update_solve_method: str = "batched",
+    linearized_update_jit_operator: bool = False,
+    linearized_update_preconditioner: str | None = None,
 ) -> dict[str, object]:
     output_path = Path(output_dir).expanduser()
     output_path.mkdir(parents=True, exist_ok=True)
@@ -855,6 +939,7 @@ def create_recycling_batched_jvp_profile_package(
             "overrides": list(overrides),
             "residual_partition_size": residual_partition_size,
             "jvp_partition_size": jvp_partition_size,
+            "check_linearized_update": bool(check_linearized_update),
         }
     )
     problem = build_recycling_batched_jvp_problem(
@@ -881,6 +966,13 @@ def create_recycling_batched_jvp_profile_package(
         check_objective_grad=check_objective_grad,
         residual_partition_size=residual_partition_size,
         jvp_partition_size=jvp_partition_size,
+        check_linearized_update=check_linearized_update,
+        linearized_update_tolerance=linearized_update_tolerance,
+        linearized_update_restart=linearized_update_restart,
+        linearized_update_maxiter=linearized_update_maxiter,
+        linearized_update_solve_method=linearized_update_solve_method,
+        linearized_update_jit_operator=linearized_update_jit_operator,
+        linearized_update_preconditioner=linearized_update_preconditioner,
         progress_callback=progress_callback,
     )
     report = {
@@ -892,6 +984,7 @@ def create_recycling_batched_jvp_profile_package(
         "profile_progress_jsonl": "profile_progress.jsonl",
         "residual_partition_size": residual_partition_size,
         "jvp_partition_size": jvp_partition_size,
+        "check_linearized_update": bool(check_linearized_update),
     }
     (output_path / "profile_summary.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"

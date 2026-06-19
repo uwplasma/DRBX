@@ -2882,6 +2882,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   fixed-residual tests; `89` layout/implicit regression tests). Decision: keep
   this helper opt-in until a heavier recycling profile proves solver-health
   and runtime value against the stable default.
+- 2026-06-19: Added an opt-in linearized-update health check to the retained
+  batched D/T/He residual profiler and exposed it through
+  `dthe-active-array-linearized-update-gate`. The gate keeps the active-array
+  fixed-layout residual at `ny=16`, disables pmap and objective-gradient
+  timing, and runs one jitted matrix-free JAX GMRES update with restart/maxiter
+  `8`. The local fixture campaign passed in `33.4 s`; the update check itself
+  took `11.94 s`, returned solver status `0`, produced linear-update relative
+  residual `3.26e-16`, and reduced the candidate nonlinear residual to
+  `2.11e-11`. Decision: this closes the first solver-health evidence gap for
+  the matrix-free preconditioner lane, but the production BDF default remains
+  unchanged until heavier output-window parity and runtime gates pass.
 
 ## Definition Of Done
 

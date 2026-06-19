@@ -70,6 +70,15 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the lightweight active-array matrix-free Newton-update gate after changing
+fixed-layout residual linearization, GMRES controls, or preconditioner plumbing:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-active-array-linearized-update-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the GPU bundle on a self-hosted machine with CUDA-visible devices when
 collecting same-fidelity D/T/He residual evidence, larger fixed-layout
 residual traces, full output-window profiles, memory snapshots, and pmap
@@ -160,6 +169,13 @@ the same D/T/He residual family. The local active-array counterpart is
 reaches about `2.55x` residual and `2.02x` JVP same-kernel speedup through
 batch `64`, with JVP/finite-difference relative error about `5.97e-9` and
 reusable linearized-action agreement with direct JVPs at about `3.47e-18`.
+The companion `dthe-active-array-linearized-update-gate` runs a smaller
+`ny=16` active-array D/T/He residual and solves one jitted matrix-free Newton
+update. The retained CPU artifact reports GMRES solver status `0`, successful
+solve metadata, linear-update relative residual `3.26e-16`, post-update
+nonlinear residual `2.11e-11`, and update-check time `11.94 s`. This makes the
+preconditioner lane auditable before the update solve is considered for any
+default BDF promotion.
 The active-array GPU batched campaign is deliberately single-device for now
 (`--disable-pmap`) and uses residual/JVP batch partitions of `16` because
 larger `ny=100` pmap and single-device office-GPU attempts were host/compiler

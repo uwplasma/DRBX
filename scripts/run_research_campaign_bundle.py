@@ -267,6 +267,49 @@ def _campaign_command_map(
             requires_reference=True,
             required_reference_inputs=("dthe",),
         ),
+        "dthe-active-array-linearized-update-gate": CampaignCommand(
+            name="dthe-active-array-linearized-update-gate",
+            description=(
+                "Lightweight active-array D/T/He matrix-free Newton-update "
+                "health gate on the fixed-layout residual seam."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_batched_jvp_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--rhs-backend",
+                "active_array",
+                "--output-dir",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_dthe_active_array_linearized_update_cpu"
+                ),
+                "--override",
+                "mesh:ny=16",
+                "--batch-sizes",
+                "1",
+                "--timed-runs",
+                "1",
+                "--disable-pmap",
+                "--skip-objective-grad-check",
+                "--check-linearized-update",
+                "--linearized-update-tolerance",
+                "1e-8",
+                "--linearized-update-restart",
+                "8",
+                "--linearized-update-maxiter",
+                "8",
+                "--linearized-update-jit-operator",
+                "--linearized-update-preconditioner",
+                "none",
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+            timeout_seconds=300,
+        ),
         "dthe-active-array-output-jvp-profile": CampaignCommand(
             name="dthe-active-array-output-jvp-profile",
             description="Full D/T/He output-window recycling profile through the active-array JVP BDF seam.",
@@ -700,6 +743,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
                     "dthe-jax-linearized-gate",
                     "dthe-batched-jvp-gate",
                     "dthe-active-array-batched-jvp-gate",
+                    "dthe-active-array-linearized-update-gate",
                     "fixed-bdf2-direct-counting-gate",
                     "adaptive-bdf-jax-lineax-gate",
                     "heavy-recycling-profile",

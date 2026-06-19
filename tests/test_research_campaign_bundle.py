@@ -91,6 +91,36 @@ def _assert_batched_jvp_command(
         assert "--disable-pmap" in command.command
 
 
+def _assert_linearized_update_command(command) -> None:
+    assert command.required_reference_inputs == ("dthe",)
+    assert command.requires_gpu is False
+    assert command.timeout_seconds == 300
+    assert "profile_recycling_batched_jvp_gate.py" in command.command[1]
+    assert command.command[command.command.index("--case") + 1] == "dthe"
+    assert command.command[command.command.index("--rhs-backend") + 1] == (
+        "active_array"
+    )
+    assert command.command[command.command.index("--override") + 1] == "mesh:ny=16"
+    assert command.command[command.command.index("--batch-sizes") + 1] == "1"
+    assert command.command[command.command.index("--timed-runs") + 1] == "1"
+    assert "--disable-pmap" in command.command
+    assert "--skip-objective-grad-check" in command.command
+    assert "--check-linearized-update" in command.command
+    assert "--linearized-update-jit-operator" in command.command
+    assert command.command[
+        command.command.index("--linearized-update-tolerance") + 1
+    ] == "1e-8"
+    assert command.command[
+        command.command.index("--linearized-update-restart") + 1
+    ] == "8"
+    assert command.command[
+        command.command.index("--linearized-update-maxiter") + 1
+    ] == "8"
+    assert command.command[
+        command.command.index("--linearized-update-preconditioner") + 1
+    ] == "none"
+
+
 def _assert_current_dthe_jax_linearized_command(
     command,
     *,
@@ -204,6 +234,9 @@ def test_research_campaign_all_local_includes_fixed_bdf2_direct_counting() -> No
         ("all-local",)
     )
     assert "dthe-active-array-batched-jvp-gate" in module.expand_campaign_names(
+        ("all-local",)
+    )
+    assert "dthe-active-array-linearized-update-gate" in module.expand_campaign_names(
         ("all-local",)
     )
 
@@ -463,6 +496,28 @@ def test_research_campaign_active_array_batched_jvp_gate_is_gated(
         batch_sizes="1,4,16,64",
     )
     assert "mesh:ny=100" in command.command
+
+
+def test_research_campaign_active_array_linearized_update_gate_is_gated(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py",
+        "research_campaign_active_array_linearized_update",
+    )
+    reference_root = _make_dthe_reference_root(tmp_path)
+
+    (command,) = module.build_campaign_commands(
+        campaign_names=("dthe-active-array-linearized-update-gate",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=reference_root,
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    assert command.name == "dthe-active-array-linearized-update-gate"
+    _assert_linearized_update_command(command)
 
 
 def test_research_campaign_active_array_output_profile_is_gated(
