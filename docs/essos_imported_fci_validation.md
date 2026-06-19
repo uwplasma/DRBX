@@ -69,8 +69,13 @@ The self-contained gate now records more than the finest-grid error. It stores
 successive RMS and \(L_\infty\) error-reduction factors and explicitly requires
 monotonic error reduction when three or more nested levels are available. The
 checked-in example also requires observed-order availability, preventing a
-two-level run from being promoted accidentally. The current manufactured
-artifact passes with finest normalized RMS
+two-level run from being promoted accidentally. The report now carries the same
+classification that downstream docs and movie scripts should use:
+`promotion_ready=true` is the only state that supports publication or README
+movie promotion; `advisory_only=true` records useful debugging evidence without
+supporting a physics claim; and `evidence_role` distinguishes observed-order,
+monotonicity, threshold, and finite-data rejection modes. The current
+manufactured artifact is `promotion_ready` and passes with finest normalized RMS
 `6.71e-3`, finest normalized \(L_\infty\) `1.14e-2`, observed order `1.78`,
 minimum RMS reduction factor `3.45`, and minimum \(L_\infty\) reduction factor
 `3.31`.
@@ -90,9 +95,10 @@ thresholds and therefore remain connection-length controls, not full
 turbulence/movie promotion evidence by themselves. A June 18, 2026 pure-coil
 `adjacent_step_length` rerun improved the finest errors to normalized RMS
 `1.05e-2` and \(L_\infty\) `1.98e-2`, but the observed order was only `0.101`;
-pure-coil adjacent-step tracing therefore still fails the observed-order
-promotion gate. This keeps the hybrid VMEC-map/coil-mask lane as the current
-open-field bridge while pure-coil map refinement remains active work.
+pure-coil adjacent-step tracing is therefore classified as
+`negative_observed_order_control` rather than promotion evidence. This keeps
+the hybrid VMEC-map/coil-mask lane as the current open-field bridge while
+pure-coil map refinement remains active work.
 
 ![Manufactured nested-grid connection-length refinement](data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png)
 
@@ -242,7 +248,12 @@ observed order when three or more levels are supplied. It also records
 successive RMS and \(L_\infty\) error-reduction factors and requires monotonic
 error reduction for three-or-more-level refinement claims. Promotion runs can
 set `require_observed_order=True`, which makes two-level reports fail even when
-the finest-grid error is small. For live imported geometry, the available
+the finest-grid error is small. The report-level `promotion_ready` flag is true
+only when finite pair data, finest-grid error thresholds, monotonic reduction,
+and an explicitly required observed-order check all pass. Reports with small
+errors but no required observed-order check are retained as `advisory_only`;
+reports with poor observed order are retained as negative controls through
+`evidence_role`. For live imported geometry, the available
 quantities are `raw_connection_length`, `adjacent_step_length`,
 `target_exit_length`, and `parallel_step_per_toroidal_radian`; only the
 adjacent-step quantities are appropriate for FCI-map convergence. The

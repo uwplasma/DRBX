@@ -191,7 +191,7 @@ def require_refinement_gate_passed(report_path: Path) -> None:
     """Fail the example when the generated refinement report is not promotable."""
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    if bool(report.get("passed")):
+    if bool(report.get("promotion_ready", report.get("passed"))):
         return
     diagnostics = report.get("diagnostics", {})
     raise RuntimeError(
@@ -200,6 +200,8 @@ def require_refinement_gate_passed(report_path: Path) -> None:
         f"finest_linf={report.get('finest_normalized_linf_error')!r}, "
         f"minimum_observed_order={report.get('minimum_observed_order_actual')!r}, "
         f"observed_order_required={diagnostics.get('observed_order_required')!r}, "
+        f"evidence_role={report.get('evidence_role')!r}, "
+        f"promotion_rejection_reasons={report.get('promotion_rejection_reasons')!r}, "
         f"monotonic_rms={report.get('monotonic_rms_error_reduction')!r}, "
         f"monotonic_linf={report.get('monotonic_linf_error_reduction')!r}"
     )

@@ -545,6 +545,16 @@ def build_essos_imported_connection_length_refinement_campaign(
         "monotonic_linf_error_reduction": bool(
             diagnostics["monotonic_linf_error_reduction"]
         ),
+        "finite_pairs_passed": bool(diagnostics["finite_pairs_passed"]),
+        "finest_error_threshold_passed": bool(diagnostics["finest_error_threshold_passed"]),
+        "observed_order_passed": bool(diagnostics["observed_order_passed"]),
+        "monotonic_error_reduction_passed": bool(
+            diagnostics["monotonic_error_reduction_passed"]
+        ),
+        "promotion_ready": bool(diagnostics["promotion_ready"]),
+        "advisory_only": bool(diagnostics["advisory_only"]),
+        "evidence_role": diagnostics["evidence_role"],
+        "promotion_rejection_reasons": list(diagnostics["promotion_rejection_reasons"]),
         "passed": bool(diagnostics["passed"]),
     }
     arrays: dict[str, np.ndarray] = {
@@ -1304,6 +1314,41 @@ def build_essos_imported_connection_length_refinement_diagnostics(
         and float(last_linf) <= float(linf_threshold)
     )
     monotonic_passed = bool(monotonic_rms_reduction and monotonic_linf_reduction)
+    promotion_ready = bool(
+        finite_pairs
+        and error_passed
+        and monotonic_passed
+        and order_passed
+        and bool(require_observed_order)
+        and bool(order_values)
+    )
+    rejection_reasons: list[str] = []
+    if not finite_pairs:
+        rejection_reasons.append("nonfinite_or_missing_pair_values")
+    if not error_passed:
+        rejection_reasons.append("finest_grid_error_above_threshold")
+    if not monotonic_passed:
+        rejection_reasons.append("nonmonotonic_error_reduction")
+    if not bool(order_values):
+        rejection_reasons.append("observed_order_unavailable")
+    elif not order_passed:
+        rejection_reasons.append("observed_order_below_threshold")
+    if not bool(require_observed_order):
+        rejection_reasons.append("observed_order_not_required")
+    evidence_role = "promotion_ready"
+    if not promotion_ready:
+        if not finite_pairs:
+            evidence_role = "invalid_finite_pairs"
+        elif not order_passed:
+            evidence_role = "negative_observed_order_control"
+        elif not monotonic_passed:
+            evidence_role = "negative_monotonic_control"
+        elif not error_passed:
+            evidence_role = "resolution_incomplete"
+        elif not bool(order_values):
+            evidence_role = "advisory_no_observed_order"
+        else:
+            evidence_role = "advisory_only"
     return {
         "diagnostic": "essos_imported_connection_length_refinement",
         "restriction_method": restriction_method,
@@ -1320,6 +1365,14 @@ def build_essos_imported_connection_length_refinement_diagnostics(
         "minimum_observed_order": float(minimum_observed_order),
         "observed_order_required": bool(require_observed_order),
         "observed_order_available": bool(order_values),
+        "finite_pairs_passed": bool(finite_pairs),
+        "finest_error_threshold_passed": bool(error_passed),
+        "observed_order_passed": bool(order_passed),
+        "monotonic_error_reduction_passed": bool(monotonic_passed),
+        "promotion_ready": bool(promotion_ready),
+        "advisory_only": bool(not promotion_ready and finite_pairs and error_passed),
+        "evidence_role": evidence_role,
+        "promotion_rejection_reasons": rejection_reasons,
         "passed": bool(finite_pairs and error_passed and order_passed and monotonic_passed),
     }
 

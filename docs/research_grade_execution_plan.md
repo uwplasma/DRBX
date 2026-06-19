@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 77% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
+| 3D stellarator imported-field/VMEC SOL | 78% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims; report-level promotion/advisory/negative-control semantics are now explicit. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 90% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -1917,6 +1917,22 @@ Use this log for concise decision records. Do not paste terminal output here.
   `fixed_bdf2_max_residual_inf_norm = 2.66e-09`, and `11.587 s` elapsed time.
   It remains opt-in until heavier D/T/He and full-output CPU/GPU profiles
   demonstrate a robust runtime win.
+- 2026-06-18: Closed an imported-field validation-semantics gap by adding
+  explicit promotion classification to
+  `build_essos_imported_connection_length_refinement_diagnostics`. The report
+  now separates `promotion_ready`, `advisory_only`, `evidence_role`, and
+  `promotion_rejection_reasons`, so small-error live reports cannot be confused
+  with publication or movie evidence unless finite pair data, finest-grid
+  thresholds, monotonic reduction, and an explicitly required observed-order
+  gate all pass. The clean-clone manufactured artifact was regenerated and is
+  `promotion_ready` with finest normalized RMS `6.71e-3`, finest normalized
+  \(L_\infty\) `1.14e-2`, and observed order `1.78`. Focused evidence:
+  `env PYTHONPATH=src pytest -q tests/test_validation_stellarator_fci_campaigns.py -k 'connection_length_refinement'`
+  passed with `7` tests, and
+  `env PYTHONPATH=src python examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py`
+  regenerated the JSON/NPZ/PNG docs package. The pure-coil live
+  `adjacent_step_length` result with observed order `0.101` should now be
+  recorded as `negative_observed_order_control`, not promoted evidence.
 
 ## Definition Of Done
 
