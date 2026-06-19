@@ -229,7 +229,7 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
         fast_timeout_seconds=300,
     )
 
-    linearized, full_output, batched = commands
+    linearized, active_output, full_output, batched = commands
     assert linearized.name == "gpu-dthe-jax-linearized-gate"
     assert linearized.required_reference_inputs == ("dthe",)
     assert linearized.requires_gpu is True
@@ -244,6 +244,21 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
     assert linearized.command[linearized.command.index("--require-rhs-backend") + 1] == (
         "active_array"
     )
+    assert active_output.name == "gpu-dthe-active-array-output-jvp-profile"
+    assert active_output.required_reference_inputs == ("dthe",)
+    assert active_output.requires_gpu is True
+    assert "recycling_dthe_one_step" in active_output.command
+    assert (
+        "runtime:recycling_transient_solver_mode=bdf_active_array_jvp"
+        in active_output.command
+    )
+    assert "recycling_transient_solver_mode=bdf_active_array_jvp" in active_output.command
+    assert "bdf_jacobian_mode=jvp" in active_output.command
+    assert "bdf_rhs_backend=active_array" in active_output.command
+    assert "bdf_jvp_jacobian_batch_count=1" in active_output.command
+    assert "--jax-trace" in active_output.command
+    assert "--device-memory-profile" in active_output.command
+    assert "--compilation-cache-dir" in active_output.command
     assert full_output.name == "gpu-dthe-full-output-jvp-profile"
     assert full_output.required_reference_inputs == ("dthe",)
     assert full_output.requires_gpu is True
@@ -273,6 +288,37 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
     assert "--jax-trace" in batched.command
     assert "--device-memory-profile" in batched.command
     assert "--compilation-cache-dir" in batched.command
+
+
+def test_research_campaign_active_array_output_profile_is_gated(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py",
+        "research_campaign_active_array_output",
+    )
+    reference_root = _make_dthe_reference_root(tmp_path)
+
+    (command,) = module.build_campaign_commands(
+        campaign_names=("dthe-active-array-output-jvp-profile",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=reference_root,
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    assert command.name == "dthe-active-array-output-jvp-profile"
+    assert command.required_reference_inputs == ("dthe",)
+    assert command.requires_gpu is False
+    assert "recycling_dthe_one_step" in command.command
+    assert "runtime:recycling_transient_solver_mode=bdf_active_array_jvp" in command.command
+    assert "recycling_transient_solver_mode=bdf_active_array_jvp" in command.command
+    assert "bdf_jacobian_mode=jvp" in command.command
+    assert "bdf_rhs_backend=active_array" in command.command
+    assert "bdf_jvp_jacobian_batch_count=1" in command.command
+    assert "--rss-profile" in command.command
+    assert "--skip-cprofile" in command.command
 
 
 def test_research_campaign_gpu_bundle_requires_expected_dthe_reference_deck(

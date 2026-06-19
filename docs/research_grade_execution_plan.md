@@ -2295,6 +2295,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   negative result (`10.10 s` median, `7.20 s` linearization, `4.51 GiB` peak
   RSS), so residual JIT remains opt-in and the next performance work should
   target output-window active-array/JVP behavior and GPU traces.
+- 2026-06-19: Added explicit full-output active-array JVP profiling lanes to
+  `scripts/run_research_campaign_bundle.py`: `dthe-active-array-output-jvp-profile`
+  for bounded local CPU/offline runs and
+  `gpu-dthe-active-array-output-jvp-profile` for trace, device-memory, RSS, and
+  compilation-cache evidence on a self-hosted GPU. Both require
+  `recycling_transient_solver_mode=bdf_active_array_jvp`,
+  `bdf_jacobian_mode=jvp`, `bdf_rhs_backend=active_array`, and at least one JVP
+  Jacobian batch. Dry-run command generation passed for the local active-array
+  lane and `all-gpu`, which now includes active-array output-window, fixed-full-
+  field output-window, residual/JVP, and batched-JVP profiles. A direct local
+  CPU probe of `bdf_active_array_jvp` on `recycling_dthe_one_step` exceeded four
+  minutes before termination, so this remains a heavy offline/GPU profiling lane
+  rather than a routine local release gate.
 
 ## Definition Of Done
 

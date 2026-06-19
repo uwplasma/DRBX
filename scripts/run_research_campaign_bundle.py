@@ -233,6 +233,36 @@ def _campaign_command_map(
             requires_reference=True,
             required_reference_inputs=("dthe",),
         ),
+        "dthe-active-array-output-jvp-profile": CampaignCommand(
+            name="dthe-active-array-output-jvp-profile",
+            description="Full D/T/He output-window recycling profile through the active-array JVP BDF seam.",
+            command=(
+                python_executable,
+                str(scripts / "profile_curated_case.py"),
+                "recycling_dthe_one_step",
+                *reference_args,
+                "--output-dir",
+                str(output_root / "runtime_profile_artifacts" / "recycling_dthe_active_array_output_jvp_cpu"),
+                "--override",
+                "runtime:recycling_transient_solver_mode=bdf_active_array_jvp",
+                "--require-native-diagnostic",
+                "recycling_transient_solver_mode=bdf_active_array_jvp",
+                "--require-native-diagnostic",
+                "bdf_jacobian_mode=jvp",
+                "--require-native-diagnostic",
+                "bdf_rhs_backend=active_array",
+                "--require-min-native-diagnostic",
+                "bdf_jvp_jacobian_batch_count=1",
+                "--warm-runs",
+                "0",
+                "--timed-runs",
+                "1",
+                "--rss-profile",
+                "--skip-cprofile",
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+        ),
         "adaptive-bdf-jax-lineax-gate": CampaignCommand(
             name="adaptive-bdf-jax-lineax-gate",
             description="Adaptive-BDF JAX-linearized versus Lineax controller-health gate.",
@@ -347,6 +377,41 @@ def _campaign_command_map(
             required_reference_inputs=("dthe",),
             requires_gpu=True,
         ),
+        "gpu-dthe-active-array-output-jvp-profile": CampaignCommand(
+            name="gpu-dthe-active-array-output-jvp-profile",
+            description="Full D/T/He output-window recycling profile through the active-array JVP BDF seam.",
+            command=(
+                python_executable,
+                str(scripts / "profile_curated_case.py"),
+                "recycling_dthe_one_step",
+                *reference_args,
+                "--output-dir",
+                str(output_root / "runtime_profile_artifacts" / "recycling_dthe_active_array_output_jvp_gpu"),
+                "--override",
+                "runtime:recycling_transient_solver_mode=bdf_active_array_jvp",
+                "--require-native-diagnostic",
+                "recycling_transient_solver_mode=bdf_active_array_jvp",
+                "--require-native-diagnostic",
+                "bdf_jacobian_mode=jvp",
+                "--require-native-diagnostic",
+                "bdf_rhs_backend=active_array",
+                "--require-min-native-diagnostic",
+                "bdf_jvp_jacobian_batch_count=1",
+                "--warm-runs",
+                "1",
+                "--timed-runs",
+                "3",
+                "--rss-profile",
+                "--skip-cprofile",
+                "--jax-trace",
+                "--device-memory-profile",
+                "--compilation-cache-dir",
+                str(repo_root / "tmp" / "jax_cache" / "recycling_dthe_active_array_output_jvp_gpu"),
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+            requires_gpu=True,
+        ),
         "gpu-dthe-batched-jvp-gate": CampaignCommand(
             name="gpu-dthe-batched-jvp-gate",
             description="Multi-device D/T/He batched residual/JVP throughput gate with pmap parity metadata.",
@@ -400,6 +465,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
             expanded.extend(
                 (
                     "gpu-dthe-jax-linearized-gate",
+                    "gpu-dthe-active-array-output-jvp-profile",
                     "gpu-dthe-full-output-jvp-profile",
                     "gpu-dthe-batched-jvp-gate",
                 )
@@ -490,7 +556,9 @@ def main() -> int:
             "scheduled-fast-research, closeout-coverage, promoted-solver-coverage, "
             "local-cpu-scaling, live-reference, heavy-recycling-profile, "
             "dthe-jax-linearized-gate, dthe-batched-jvp-gate, "
-            "gpu-dthe-jax-linearized-gate, gpu-dthe-batched-jvp-gate, "
+            "dthe-active-array-output-jvp-profile, "
+            "gpu-dthe-jax-linearized-gate, gpu-dthe-active-array-output-jvp-profile, "
+            "gpu-dthe-batched-jvp-gate, "
             "all-ci, all-local, and all-gpu."
         ),
     )

@@ -94,18 +94,22 @@ repeated direct tokamak recycling solves rather than a synthetic microkernel,
 and the committed artifact reaches about `4.79x` steady-state speedup from
 `1 -> 8` worker processes on the retained `16`-solve ensemble.
 
-The GPU bundle contains three distinct lanes. The fixed-layout JAX-linearized
+The GPU bundle contains four distinct lanes. The fixed-layout JAX-linearized
 gate measures the residual/JVP seam with the jitted matrix-free operator and
 now requires the active-array RHS backend for the large D/T/He residual profile,
 so trace and memory evidence does not accidentally fall back to the slower
 full-field compatibility residual. The bounded non-SciPy fixed-BDF2 path still
 reports both fixed-full-field and active-array diagnostics before any default
-solver promotion. The
-`gpu-dthe-full-output-jvp-profile` lane runs `recycling_dthe_one_step` through
+solver promotion. The `gpu-dthe-active-array-output-jvp-profile` lane runs the
+full `recycling_dthe_one_step` output window through
+`runtime:recycling_transient_solver_mode=bdf_active_array_jvp`, requires
+`bdf_rhs_backend=active_array`, and is the primary output-window GPU profile for
+the active-array migration path. The `gpu-dthe-full-output-jvp-profile` lane
+runs the same case through
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`, so it is the
-production-output profile to use before claiming heavy recycling GPU speedup or
-promoting that solver path. The batched-JVP lane measures ensemble and
-multi-device throughput on the same D/T/He residual family.
+compatibility output-window profile to keep while comparing against the newer
+active-array path. The batched-JVP lane measures ensemble and multi-device
+throughput on the same D/T/He residual family.
 
 The committed `ny=100`, `dt=1e-4` CPU comparison now records explicit Krylov
 status metadata for both JAX GMRES and Lineax GMRES. Both runs reach
