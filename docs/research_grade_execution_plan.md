@@ -2467,6 +2467,22 @@ Use this log for concise decision records. Do not paste terminal output here.
   achieved update residual, but it is not a promoted speedup; continue toward a
   neutral-plasma/target Schur approximation or direct residual/JVP cost
   reduction.
+- 2026-06-19: Promoted the linear-update residual diagnostic from a reported
+  metric to an enforceable campaign gate. The compare script now accepts
+  fixed-BDF2 and adaptive-BDF maximum absolute/relative `J v + r` ceilings, the
+  single-profile gate accepts matching profile ceilings, and the JVP promotion
+  wrapper forwards fixed-BDF2 update-quality budgets into its summary and
+  compare command. Focused evidence:
+  `PYTHONPATH=src pytest -q tests/test_compare_recycling_transient_modes.py`
+  (`42 passed`),
+  `PYTHONPATH=src pytest -q tests/test_profile_recycling_jax_linearized_gate.py`
+  (`13 passed`), and
+  `PYTHONPATH=src pytest -q tests/test_recycling_jvp_promotion_gate.py`
+  (`13 passed`). Decision: future Schur/transport/target preconditioner
+  claims must pair solver-health checks with explicit Krylov/operator budgets
+  and update-residual ceilings; this improves evidence quality but does not yet
+  change the effective-preconditioning completion percentage because no
+  same-case speedup was produced.
 
 ## Definition Of Done
 

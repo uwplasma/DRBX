@@ -288,6 +288,26 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--require-max-linear-update-residual",
+        type=float,
+        default=None,
+        help=(
+            "Fail after profiling when diagnostics.linear_update_residual_inf_norm "
+            "exceeds this finite nonnegative ceiling. Requires "
+            "runtime:recycling_jax_linear_diagnose_update_residual=true."
+        ),
+    )
+    parser.add_argument(
+        "--require-max-linear-update-relative-residual",
+        type=float,
+        default=None,
+        help=(
+            "Fail after profiling when diagnostics.linear_update_relative_residual "
+            "exceeds this finite nonnegative ceiling. Use this with explicit "
+            "Krylov budgets to screen preconditioner quality."
+        ),
+    )
+    parser.add_argument(
         "--require-max-residual-evaluations",
         type=int,
         default=None,
@@ -424,6 +444,19 @@ def _validate_args(args: argparse.Namespace) -> None:
         if not math.isfinite(ceiling) or ceiling < 0.0:
             raise SystemExit(
                 "--require-max-residual-inf-norm must be finite and nonnegative."
+            )
+    if args.require_max_linear_update_residual is not None:
+        ceiling = float(args.require_max_linear_update_residual)
+        if not math.isfinite(ceiling) or ceiling < 0.0:
+            raise SystemExit(
+                "--require-max-linear-update-residual must be finite and nonnegative."
+            )
+    if args.require_max_linear_update_relative_residual is not None:
+        ceiling = float(args.require_max_linear_update_relative_residual)
+        if not math.isfinite(ceiling) or ceiling < 0.0:
+            raise SystemExit(
+                "--require-max-linear-update-relative-residual must be finite "
+                "and nonnegative."
             )
     if args.require_max_residual_evaluations is not None:
         if int(args.require_max_residual_evaluations) < 0:
@@ -851,6 +884,32 @@ def _profile_gate_errors(
     diagnostics = profile_report.get("diagnostics", {})
     if not isinstance(diagnostics, dict):
         diagnostics = {}
+    max_linear_update_residual = getattr(
+        args, "require_max_linear_update_residual", None
+    )
+    if max_linear_update_residual is not None:
+        errors.extend(
+            _validate_maximum_float_value(
+                profile_report,
+                key="linear_update_residual_inf_norm",
+                maximum=float(max_linear_update_residual),
+                label="linear-update residual inf-norm",
+                source=diagnostics,
+            )
+        )
+    max_linear_update_relative_residual = getattr(
+        args, "require_max_linear_update_relative_residual", None
+    )
+    if max_linear_update_relative_residual is not None:
+        errors.extend(
+            _validate_maximum_float_value(
+                profile_report,
+                key="linear_update_relative_residual",
+                maximum=float(max_linear_update_relative_residual),
+                label="linear-update relative residual",
+                source=diagnostics,
+            )
+        )
     max_residual_evaluations = getattr(
         args, "require_max_residual_evaluations", None
     )

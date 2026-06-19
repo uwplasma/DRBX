@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -81,6 +82,8 @@ def _build_case_command(
     fixed_bdf2_linear_tolerance_factor: float | None = None,
     fixed_bdf2_max_linear_iterations: int | None = None,
     fixed_bdf2_max_linear_operator_calls: int | None = None,
+    fixed_bdf2_max_linear_update_residual: float | None = None,
+    fixed_bdf2_max_linear_update_relative_residual: float | None = None,
     fixed_bdf2_max_preconditioner_builds: int | None = None,
     fixed_bdf2_max_preconditioner_applies: int | None = None,
     fixed_bdf2_jit_linear_operator: bool = False,
@@ -229,6 +232,37 @@ def _build_case_command(
                 (
                     "--require-fixed-bdf2-max-linear-operator-calls",
                     str(max_linear_operator_calls),
+                )
+            )
+        if fixed_bdf2_max_linear_update_residual is not None:
+            max_update_residual = float(fixed_bdf2_max_linear_update_residual)
+            if not math.isfinite(max_update_residual) or max_update_residual < 0.0:
+                raise ValueError(
+                    "fixed_bdf2_max_linear_update_residual must be finite and "
+                    "nonnegative."
+                )
+            command.extend(
+                (
+                    "--require-fixed-bdf2-max-linear-update-residual",
+                    f"{max_update_residual:.17g}",
+                )
+            )
+        if fixed_bdf2_max_linear_update_relative_residual is not None:
+            max_relative_update_residual = float(
+                fixed_bdf2_max_linear_update_relative_residual
+            )
+            if (
+                not math.isfinite(max_relative_update_residual)
+                or max_relative_update_residual < 0.0
+            ):
+                raise ValueError(
+                    "fixed_bdf2_max_linear_update_relative_residual must be finite "
+                    "and nonnegative."
+                )
+            command.extend(
+                (
+                    "--require-fixed-bdf2-max-linear-update-relative-residual",
+                    f"{max_relative_update_residual:.17g}",
                 )
             )
         if fixed_bdf2_max_preconditioner_builds is not None:
@@ -461,6 +495,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-max-linear-update-residual",
+        type=float,
+        default=None,
+        help=(
+            "Forward --require-fixed-bdf2-max-linear-update-residual to the "
+            "fixed-BDF2 compare phase. Use with "
+            "--fixed-bdf2-diagnose-linear-update-residual."
+        ),
+    )
+    parser.add_argument(
+        "--fixed-bdf2-max-linear-update-relative-residual",
+        type=float,
+        default=None,
+        help=(
+            "Forward --require-fixed-bdf2-max-linear-update-relative-residual to "
+            "the fixed-BDF2 compare phase. This gates achieved Krylov update "
+            "quality under explicit iteration/operator budgets."
+        ),
+    )
+    parser.add_argument(
         "--fixed-bdf2-max-preconditioner-builds",
         type=int,
         default=None,
@@ -563,6 +617,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fixed_bdf2_max_linear_operator_calls=(
                     args.fixed_bdf2_max_linear_operator_calls
                 ),
+                fixed_bdf2_max_linear_update_residual=(
+                    args.fixed_bdf2_max_linear_update_residual
+                ),
+                fixed_bdf2_max_linear_update_relative_residual=(
+                    args.fixed_bdf2_max_linear_update_relative_residual
+                ),
                 fixed_bdf2_max_preconditioner_builds=(
                     args.fixed_bdf2_max_preconditioner_builds
                 ),
@@ -616,6 +676,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "fixed_bdf2_max_linear_operator_calls": (
                     args.fixed_bdf2_max_linear_operator_calls
+                ),
+                "fixed_bdf2_max_linear_update_residual": (
+                    args.fixed_bdf2_max_linear_update_residual
+                ),
+                "fixed_bdf2_max_linear_update_relative_residual": (
+                    args.fixed_bdf2_max_linear_update_relative_residual
                 ),
                 "fixed_bdf2_max_preconditioner_builds": (
                     args.fixed_bdf2_max_preconditioner_builds

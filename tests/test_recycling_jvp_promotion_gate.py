@@ -100,6 +100,8 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
         fixed_bdf2_diagnose_linear_update_residual=True,
         fixed_bdf2_max_linear_iterations=3200,
         fixed_bdf2_max_linear_operator_calls=128,
+        fixed_bdf2_max_linear_update_residual=1.0e-8,
+        fixed_bdf2_max_linear_update_relative_residual=1.0e-4,
         fixed_bdf2_max_preconditioner_builds=2,
         fixed_bdf2_max_preconditioner_applies=40,
     )
@@ -134,6 +136,12 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
     assert command[
         command.index("--require-fixed-bdf2-max-linear-operator-calls") + 1
     ] == "128"
+    assert command[
+        command.index("--require-fixed-bdf2-max-linear-update-residual") + 1
+    ] == "1e-08"
+    assert command[
+        command.index("--require-fixed-bdf2-max-linear-update-relative-residual") + 1
+    ] == "0.0001"
     assert command[
         command.index("--require-fixed-bdf2-max-preconditioner-builds") + 1
     ] == "2"
@@ -174,6 +182,14 @@ def test_recycling_jvp_promotion_gate_rejects_invalid_performance_budgets() -> N
         (
             {"fixed_bdf2_max_linear_operator_calls": -1},
             "fixed_bdf2_max_linear_operator_calls must be nonnegative",
+        ),
+        (
+            {"fixed_bdf2_max_linear_update_residual": float("nan")},
+            "fixed_bdf2_max_linear_update_residual must be finite and nonnegative",
+        ),
+        (
+            {"fixed_bdf2_max_linear_update_relative_residual": float("nan")},
+            "fixed_bdf2_max_linear_update_relative_residual must be finite and nonnegative",
         ),
         (
             {"fixed_bdf2_max_preconditioner_builds": -1},
@@ -358,6 +374,10 @@ def test_recycling_jvp_promotion_gate_can_run_fixed_bdf2_only_dry_run(
             "--fixed-bdf2-linear-tolerance-factor",
             "25",
             "--fixed-bdf2-diagnose-linear-update-residual",
+            "--fixed-bdf2-max-linear-update-residual",
+            "1e-8",
+            "--fixed-bdf2-max-linear-update-relative-residual",
+            "1e-4",
             "--output-dir",
             str(output_dir),
         ]
@@ -376,10 +396,17 @@ def test_recycling_jvp_promotion_gate_can_run_fixed_bdf2_only_dry_run(
     assert report["fixed_bdf2_linear_maxiter"] == 3
     assert report["fixed_bdf2_linear_tolerance_factor"] == 25.0
     assert report["fixed_bdf2_diagnose_linear_update_residual"] is True
+    assert report["fixed_bdf2_max_linear_update_residual"] == 1.0e-8
+    assert report["fixed_bdf2_max_linear_update_relative_residual"] == 1.0e-4
     assert report["output_json"].endswith("recycling_1d_one_step.fixed_bdf2.json")
     assert "--require-fixed-jvp-diagnostics" not in report["command"]
     assert "--require-fixed-bdf2-diagnostics" in report["command"]
     assert "--require-fixed-bdf2-linear-preconditioner" in report["command"]
+    assert "--require-fixed-bdf2-max-linear-update-residual" in report["command"]
+    assert (
+        "--require-fixed-bdf2-max-linear-update-relative-residual"
+        in report["command"]
+    )
     overrides = [
         report["command"][index + 1]
         for index, item in enumerate(report["command"][:-1])

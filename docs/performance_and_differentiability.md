@@ -1198,7 +1198,12 @@ the same checks as `--fixed-bdf2-max-linear-iterations=<n>`,
 inner-solver settings with `--fixed-bdf2-linear-restart=<n>`,
 `--fixed-bdf2-linear-maxiter=<n>`, and
 `--fixed-bdf2-linear-tolerance-factor=<f>`, which are written into the wrapper
-summary so preconditioner sweeps are reproducible. A run that passes residual,
+summary so preconditioner sweeps are reproducible. When
+`--fixed-bdf2-diagnose-linear-update-residual` is enabled, add
+`--fixed-bdf2-max-linear-update-residual=<x>` and
+`--fixed-bdf2-max-linear-update-relative-residual=<x>` to require that the
+linear solve actually achieves the requested update quality under those
+budgets. A run that passes residual,
 fallback, and preconditioner-name checks but exceeds these budgets is a valid
 solver-correctness result and a failed performance-promotion result.
 The bounded refresh-100 `recycling_1d_one_step` rerun passes these stricter
@@ -1417,6 +1422,20 @@ not enabled by default because it adds one extra linearized action per Newton
 update, but it is the right gate for future target/sheath, transport, or Schur
 preconditioners: a candidate should either reduce operator work or improve the
 linear-update residual under an explicit Krylov budget.
+The promotion harness can enforce that policy instead of relying on manual
+inspection: `--fixed-bdf2-max-linear-update-residual` and
+`--fixed-bdf2-max-linear-update-relative-residual` forward absolute and
+relative update-residual ceilings into the fixed-BDF2 compare phase. Manual
+comparison runs expose the same fixed-BDF2 gates as
+`--require-fixed-bdf2-max-linear-update-residual` and
+`--require-fixed-bdf2-max-linear-update-relative-residual`, and the adaptive
+JAX-linearized lanes expose matching `--require-adaptive-bdf-max-*` gates. The
+profile script has the same single-run checks through
+`--require-max-linear-update-residual` and
+`--require-max-linear-update-relative-residual`. Future preconditioner claims
+should pair one of these update-quality gates with explicit iteration/operator
+budgets; otherwise a run only proves nonlinear correctness, not useful
+conditioning.
 
 The generic JAX-linearized solver also reports `linear_iterations` as actual
 linear-map work when the backend does not expose an iteration count. For

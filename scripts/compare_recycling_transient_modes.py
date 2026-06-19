@@ -253,6 +253,28 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-max-linear-update-residual",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_max_linear_update_residual_inf_norm at or below this "
+            "finite nonnegative ceiling. Requires "
+            "runtime:recycling_jax_linear_diagnose_update_residual=true."
+        ),
+    )
+    parser.add_argument(
+        "--require-fixed-bdf2-max-linear-update-relative-residual",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_max_linear_update_relative_residual at or below this "
+            "finite nonnegative ceiling. This is the preferred preconditioner "
+            "quality gate for explicit Krylov-budget screens."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-bdf2-max-preconditioner-builds",
         type=int,
         default=None,
@@ -307,6 +329,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Fail unless every requested adaptive-BDF mode reports a maximum accepted-step "
             "embedded error ratio at or below this threshold."
+        ),
+    )
+    parser.add_argument(
+        "--require-adaptive-bdf-max-linear-update-residual",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless every requested adaptive_bdf_*jax_linearized mode reports "
+            "adaptive_bdf_max_linear_update_residual_inf_norm at or below this "
+            "finite nonnegative ceiling. Requires "
+            "runtime:recycling_jax_linear_diagnose_update_residual=true."
+        ),
+    )
+    parser.add_argument(
+        "--require-adaptive-bdf-max-linear-update-relative-residual",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless every requested adaptive_bdf_*jax_linearized mode reports "
+            "adaptive_bdf_max_linear_update_relative_residual at or below this "
+            "finite nonnegative ceiling."
         ),
     )
     parser.add_argument(
@@ -603,6 +646,8 @@ def _validate_fixed_bdf2_diagnostics(
     required_line_search_mode: str | None = None,
     max_linear_iterations: int | None = None,
     max_linear_operator_calls: int | None = None,
+    max_linear_update_residual_inf_norm: float | None = None,
+    max_linear_update_relative_residual: float | None = None,
     max_preconditioner_builds: int | None = None,
     max_preconditioner_applies: int | None = None,
 ) -> list[str]:
@@ -731,6 +776,26 @@ def _validate_fixed_bdf2_diagnostics(
                 label="fixed BDF2 linear operator calls",
             )
         )
+    if max_linear_update_residual_inf_norm is not None:
+        errors.extend(
+            _validate_maximum_float_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_max_linear_update_residual_inf_norm",
+                maximum=float(max_linear_update_residual_inf_norm),
+                label="fixed BDF2 linear-update residual inf-norm",
+            )
+        )
+    if max_linear_update_relative_residual is not None:
+        errors.extend(
+            _validate_maximum_float_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_max_linear_update_relative_residual",
+                maximum=float(max_linear_update_relative_residual),
+                label="fixed BDF2 linear-update relative residual",
+            )
+        )
     if max_preconditioner_builds is not None:
         errors.extend(
             _validate_maximum_integer_diagnostic(
@@ -766,6 +831,8 @@ def _validate_adaptive_bdf_diagnostics(
     require_no_unconverged_substeps: bool,
     max_error_ratio: float | None,
     max_accepted_error_ratio: float | None,
+    max_linear_update_residual_inf_norm: float | None = None,
+    max_linear_update_relative_residual: float | None = None,
     required_linear_preconditioner: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
@@ -869,6 +936,26 @@ def _validate_adaptive_bdf_diagnostics(
                 name_key="adaptive_bdf_linear_preconditioner",
                 count_key="adaptive_bdf_linear_preconditioner_build_count",
                 seconds_key="adaptive_bdf_linear_preconditioner_build_seconds",
+            )
+        )
+    if max_linear_update_residual_inf_norm is not None:
+        errors.extend(
+            _validate_maximum_float_diagnostic(
+                mode,
+                diagnostics,
+                key="adaptive_bdf_max_linear_update_residual_inf_norm",
+                maximum=float(max_linear_update_residual_inf_norm),
+                label="adaptive BDF linear-update residual inf-norm",
+            )
+        )
+    if max_linear_update_relative_residual is not None:
+        errors.extend(
+            _validate_maximum_float_diagnostic(
+                mode,
+                diagnostics,
+                key="adaptive_bdf_max_linear_update_relative_residual",
+                maximum=float(max_linear_update_relative_residual),
+                label="adaptive BDF linear-update relative residual",
             )
         )
     return errors
@@ -1001,6 +1088,37 @@ def _validate_maximum_integer_diagnostic(
     return errors
 
 
+def _validate_maximum_float_diagnostic(
+    mode: str,
+    diagnostics: dict[str, object],
+    *,
+    key: str,
+    maximum: float,
+    label: str,
+) -> list[str]:
+    errors: list[str] = []
+    if not np.isfinite(float(maximum)) or float(maximum) < 0.0:
+        errors.append(f"{mode} received an invalid {label} gate")
+        return errors
+    try:
+        reported = float(diagnostics[key])
+    except KeyError:
+        errors.append(f"{mode} did not report {key}")
+        return errors
+    except (TypeError, ValueError):
+        errors.append(f"{mode} did not report a finite {key}")
+        return errors
+    if not np.isfinite(reported):
+        errors.append(f"{mode} did not report a finite {key}")
+        return errors
+    if reported > float(maximum):
+        errors.append(
+            f"{mode} reported {reported:.8e} {label}, "
+            f"exceeding {float(maximum):.8e}"
+        )
+    return errors
+
+
 class _ModeTimeoutError(TimeoutError):
     pass
 
@@ -1048,6 +1166,20 @@ def main() -> int:
         raise ValueError(
             "--require-fixed-bdf2-max-linear-operator-calls must be nonnegative."
         )
+    if args.require_fixed_bdf2_max_linear_update_residual is not None:
+        value = float(args.require_fixed_bdf2_max_linear_update_residual)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(
+                "--require-fixed-bdf2-max-linear-update-residual must be finite "
+                "and nonnegative."
+            )
+    if args.require_fixed_bdf2_max_linear_update_relative_residual is not None:
+        value = float(args.require_fixed_bdf2_max_linear_update_relative_residual)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(
+                "--require-fixed-bdf2-max-linear-update-relative-residual must be "
+                "finite and nonnegative."
+            )
     if (
         args.require_fixed_bdf2_max_preconditioner_builds is not None
         and int(args.require_fixed_bdf2_max_preconditioner_builds) < 0
@@ -1062,6 +1194,20 @@ def main() -> int:
         raise ValueError(
             "--require-fixed-bdf2-max-preconditioner-applies must be nonnegative."
         )
+    if args.require_adaptive_bdf_max_linear_update_residual is not None:
+        value = float(args.require_adaptive_bdf_max_linear_update_residual)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(
+                "--require-adaptive-bdf-max-linear-update-residual must be finite "
+                "and nonnegative."
+            )
+    if args.require_adaptive_bdf_max_linear_update_relative_residual is not None:
+        value = float(args.require_adaptive_bdf_max_linear_update_relative_residual)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(
+                "--require-adaptive-bdf-max-linear-update-relative-residual must be "
+                "finite and nonnegative."
+            )
     case, input_path = resolve_reference_case(
         args.case, reference_root=args.reference_root
     )
@@ -1204,6 +1350,12 @@ def main() -> int:
                     max_linear_operator_calls=(
                         args.require_fixed_bdf2_max_linear_operator_calls
                     ),
+                    max_linear_update_residual_inf_norm=(
+                        args.require_fixed_bdf2_max_linear_update_residual
+                    ),
+                    max_linear_update_relative_residual=(
+                        args.require_fixed_bdf2_max_linear_update_relative_residual
+                    ),
                     max_preconditioner_builds=(
                         args.require_fixed_bdf2_max_preconditioner_builds
                     ),
@@ -1221,6 +1373,8 @@ def main() -> int:
         or args.require_adaptive_bdf_no_unconverged_substeps
         or args.require_adaptive_bdf_max_error_ratio is not None
         or args.require_adaptive_bdf_max_accepted_error_ratio is not None
+        or args.require_adaptive_bdf_max_linear_update_residual is not None
+        or args.require_adaptive_bdf_max_linear_update_relative_residual is not None
         or args.require_adaptive_bdf_linear_preconditioner is not None
     ):
         adaptive_modes = _adaptive_bdf_modes_to_validate(modes)
@@ -1240,6 +1394,12 @@ def main() -> int:
                 ),
                 max_error_ratio=args.require_adaptive_bdf_max_error_ratio,
                 max_accepted_error_ratio=args.require_adaptive_bdf_max_accepted_error_ratio,
+                max_linear_update_residual_inf_norm=(
+                    args.require_adaptive_bdf_max_linear_update_residual
+                ),
+                max_linear_update_relative_residual=(
+                    args.require_adaptive_bdf_max_linear_update_relative_residual
+                ),
                 required_linear_preconditioner=(
                     args.require_adaptive_bdf_linear_preconditioner
                 ),

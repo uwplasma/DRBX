@@ -59,6 +59,10 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "3200",
             "--require-max-residual-inf-norm",
             "7.4",
+            "--require-max-linear-update-residual",
+            "1e-8",
+            "--require-max-linear-update-relative-residual",
+            "1e-4",
             "--require-max-residual-evaluations",
             "2",
             "--require-max-line-search-trials",
@@ -94,6 +98,8 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.require_rhs_backend == "active_array"
     assert args.require_max_linear_iterations == 3200
     assert args.require_max_residual_inf_norm == 7.4
+    assert args.require_max_linear_update_residual == 1.0e-8
+    assert args.require_max_linear_update_relative_residual == 1.0e-4
     assert args.require_max_residual_evaluations == 2
     assert args.require_max_line_search_trials == 1
     assert args.require_min_linear_operator_calls == 1
@@ -127,6 +133,8 @@ def test_help_documents_preconditioner_and_budget_gates(
     assert "--require-rhs-backend" in help_text
     assert "--require-max-linear-iterations" in help_text
     assert "--require-max-residual-inf-norm" in help_text
+    assert "--require-max-linear-update-residual" in help_text
+    assert "--require-max-linear-update-relative-residual" in help_text
     assert "--require-max-residual-evaluations" in help_text
     assert "--require-max-line-search-trials" in help_text
     assert "--require-min-linear-operator-calls" in help_text
@@ -210,6 +218,14 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "--require-max-residual-inf-norm must be finite and nonnegative",
         ),
         (
+            {"require_max_linear_update_residual": float("nan")},
+            "--require-max-linear-update-residual must be finite and nonnegative",
+        ),
+        (
+            {"require_max_linear_update_relative_residual": float("nan")},
+            "--require-max-linear-update-relative-residual must be finite and nonnegative",
+        ),
+        (
             {"require_max_residual_evaluations": -1},
             "--require-max-residual-evaluations must be nonnegative",
         ),
@@ -254,6 +270,8 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "line_search_initial_step_scale": None,
             "require_max_linear_iterations": None,
             "require_max_residual_inf_norm": None,
+            "require_max_linear_update_residual": None,
+            "require_max_linear_update_relative_residual": None,
             "require_max_residual_evaluations": None,
             "require_max_line_search_trials": None,
             "require_min_linear_operator_calls": None,
@@ -279,6 +297,8 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
         require_rhs_backend="active_array",
         require_max_linear_iterations=3200,
         require_max_residual_inf_norm=7.4,
+        require_max_linear_update_residual=1.0e-8,
+        require_max_linear_update_relative_residual=1.0e-4,
         require_max_residual_evaluations=2,
         require_max_line_search_trials=1,
         require_min_linear_operator_calls=1,
@@ -303,6 +323,8 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
             "residual_evaluation_count": 2,
             "line_search_trial_count": 1,
             "linear_operator_call_count": 128,
+            "linear_update_residual_inf_norm": 2.0e-9,
+            "linear_update_relative_residual": 5.0e-5,
         },
     }
 
@@ -494,6 +516,8 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
         require_rhs_backend="active_array",
         require_max_linear_iterations=10,
         require_max_residual_inf_norm=7.4,
+        require_max_linear_update_residual=1.0e-8,
+        require_max_linear_update_relative_residual=1.0e-4,
         require_max_residual_evaluations=2,
         require_max_line_search_trials=1,
         require_min_linear_operator_calls=1,
@@ -518,6 +542,8 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
             "residual_evaluation_count": 4,
             "line_search_trial_count": 3,
             "linear_operator_call_count": 3,
+            "linear_update_residual_inf_norm": 2.0e-8,
+            "linear_update_relative_residual": 2.0e-4,
         },
     }
 
@@ -540,6 +566,14 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
     assert "profile reported 24 linear iterations, exceeding 10" in errors
     assert any(
         "profile reported 8.10000000e+00 residual inf-norm" in error
+        for error in errors
+    )
+    assert any(
+        "profile reported 2.00000000e-08 linear-update residual inf-norm" in error
+        for error in errors
+    )
+    assert any(
+        "profile reported 2.00000000e-04 linear-update relative residual" in error
         for error in errors
     )
     assert "profile reported 4 residual evaluations, exceeding 2" in errors

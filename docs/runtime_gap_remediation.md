@@ -202,6 +202,13 @@ parallel advection, AMJUEL evaluation, ion/electron/neutral RHS assembly,
 target recycling, and neutral parallel diffusion. The work should therefore
 continue by moving those residual pieces into fixed-layout JAX kernels before
 promoting matrix-free or sparse-JVP solves as the default heavy backend.
+For each preconditioner or JAX-linearized residual candidate, the gate should
+record both work and achieved linear-update quality. The compare/profile
+scripts now expose maximum absolute and relative `J v + r` update-residual
+ceilings, so a candidate can be rejected if it preserves the final nonlinear
+residual only by spending the same Krylov/operator budget or by accepting a
+poor linear update. These gates are advisory for current opt-in solvers and
+required evidence for any future default-promotion claim.
 
 The next call-count cleanup is now in-tree: the SciPy BDF callback caches the
 most recent exact RHS evaluation and reuses it as the base state for

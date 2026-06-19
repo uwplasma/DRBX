@@ -58,6 +58,10 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "full",
             "--require-fixed-bdf2-max-linear-iterations",
             "3600",
+            "--require-fixed-bdf2-max-linear-update-residual",
+            "1e-8",
+            "--require-fixed-bdf2-max-linear-update-relative-residual",
+            "1e-4",
             "--require-fixed-bdf2-max-preconditioner-builds",
             "2",
             "--require-fixed-bdf2-max-preconditioner-applies",
@@ -70,6 +74,10 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "0.95",
             "--require-adaptive-bdf-max-accepted-error-ratio",
             "0.75",
+            "--require-adaptive-bdf-max-linear-update-residual",
+            "1e-8",
+            "--require-adaptive-bdf-max-linear-update-relative-residual",
+            "1e-4",
             "--mode-timeout-seconds",
             "2.5",
             "--override",
@@ -102,6 +110,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.require_fixed_bdf2_linear_operator_jitted is True
     assert args.require_fixed_bdf2_line_search_mode == "full"
     assert args.require_fixed_bdf2_max_linear_iterations == 3600
+    assert args.require_fixed_bdf2_max_linear_update_residual == 1.0e-8
+    assert args.require_fixed_bdf2_max_linear_update_relative_residual == 1.0e-4
     assert args.require_fixed_bdf2_max_preconditioner_builds == 2
     assert args.require_fixed_bdf2_max_preconditioner_applies == 40
     assert args.require_adaptive_bdf_no_fallback is True
@@ -109,6 +119,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.require_adaptive_bdf_linear_preconditioner == "parallel-line"
     assert args.require_adaptive_bdf_max_error_ratio == 0.95
     assert args.require_adaptive_bdf_max_accepted_error_ratio == 0.75
+    assert args.require_adaptive_bdf_max_linear_update_residual == 1.0e-8
+    assert args.require_adaptive_bdf_max_linear_update_relative_residual == 1.0e-4
     assert args.mode_timeout_seconds == 2.5
     assert args.overrides == ["solver:rtol=1e-9"]
     assert args.timestep == 0.05
@@ -129,9 +141,13 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert "--require-fixed-bdf2-linear-operator-jitted" in help_text
     assert "--require-fixed-bdf2-line-search-mode" in help_text
     assert "--require-fixed-bdf2-max-linear-iterations" in help_text
+    assert "--require-fixed-bdf2-max-linear-update-residual" in help_text
+    assert "--require-fixed-bdf2-max-linear-update-relative-residual" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-builds" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-applies" in help_text
     assert "--require-adaptive-bdf-linear-preconditioner" in help_text
+    assert "--require-adaptive-bdf-max-linear-update-residual" in help_text
+    assert "--require-adaptive-bdf-max-linear-update-relative-residual" in help_text
     assert "fixed-layout JVP BDF paths" in normalized_help
 
 
@@ -750,11 +766,15 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
             "fixed_bdf2_total_linear_iterations": 3600,
             "fixed_bdf2_total_linear_operator_call_count": 512,
+            "fixed_bdf2_max_linear_update_residual_inf_norm": 2.0e-8,
+            "fixed_bdf2_max_linear_update_relative_residual": 2.0e-4,
             "fixed_bdf2_total_linear_preconditioner_build_count": 9,
             "fixed_bdf2_total_linear_preconditioner_apply_count": 35,
         },
         max_linear_iterations=3200,
         max_linear_operator_calls=128,
+        max_linear_update_residual_inf_norm=1.0e-8,
+        max_linear_update_relative_residual=1.0e-4,
         max_preconditioner_builds=2,
         max_preconditioner_applies=30,
     )
@@ -767,6 +787,14 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
         (
             "fixed_bdf2_active_array_jax_linearized reported 512 fixed BDF2 "
             "linear operator calls, exceeding 128"
+        ),
+        (
+            "fixed_bdf2_active_array_jax_linearized reported 2.00000000e-08 "
+            "fixed BDF2 linear-update residual inf-norm, exceeding 1.00000000e-08"
+        ),
+        (
+            "fixed_bdf2_active_array_jax_linearized reported 2.00000000e-04 "
+            "fixed BDF2 linear-update relative residual, exceeding 1.00000000e-04"
         ),
         (
             "fixed_bdf2_active_array_jax_linearized reported 9 fixed BDF2 "
@@ -812,11 +840,15 @@ def test_adaptive_bdf_diagnostics_gate_accepts_stable_jax_linearized_route() -> 
             "adaptive_bdf_jax_linearized_action_solver_steps": 3,
             "adaptive_bdf_max_error_ratio": 0.75,
             "adaptive_bdf_max_accepted_error_ratio": 0.75,
+            "adaptive_bdf_max_linear_update_residual_inf_norm": 2.0e-9,
+            "adaptive_bdf_max_linear_update_relative_residual": 5.0e-5,
         },
         require_no_fallback=True,
         require_no_unconverged_substeps=True,
         max_error_ratio=0.95,
         max_accepted_error_ratio=0.95,
+        max_linear_update_residual_inf_norm=1.0e-8,
+        max_linear_update_relative_residual=1.0e-4,
     )
 
     assert errors == []
@@ -933,11 +965,15 @@ def test_adaptive_bdf_diagnostics_gate_reports_unstable_route() -> None:
             "adaptive_bdf_unconverged_solver_steps": 3,
             "adaptive_bdf_max_error_ratio": 1.25,
             "adaptive_bdf_max_accepted_error_ratio": 1.1,
+            "adaptive_bdf_max_linear_update_residual_inf_norm": 2.0e-8,
+            "adaptive_bdf_max_linear_update_relative_residual": 2.0e-4,
         },
         require_no_fallback=True,
         require_no_unconverged_substeps=True,
         max_error_ratio=0.95,
         max_accepted_error_ratio=0.95,
+        max_linear_update_residual_inf_norm=1.0e-8,
+        max_linear_update_relative_residual=1.0e-4,
     )
 
     assert errors == [
@@ -950,6 +986,14 @@ def test_adaptive_bdf_diagnostics_gate_reports_unstable_route() -> None:
         "adaptive_bdf_jax_linearized reported 3 unconverged adaptive BDF implicit substeps",
         "adaptive_bdf_jax_linearized adaptive_bdf_max_error_ratio=1.25000000e+00 exceeds 9.50000000e-01",
         "adaptive_bdf_jax_linearized adaptive_bdf_max_accepted_error_ratio=1.10000000e+00 exceeds 9.50000000e-01",
+        (
+            "adaptive_bdf_jax_linearized reported 2.00000000e-08 adaptive BDF "
+            "linear-update residual inf-norm, exceeding 1.00000000e-08"
+        ),
+        (
+            "adaptive_bdf_jax_linearized reported 2.00000000e-04 adaptive BDF "
+            "linear-update relative residual, exceeding 1.00000000e-04"
+        ),
     ]
 
 
