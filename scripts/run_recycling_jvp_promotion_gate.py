@@ -306,6 +306,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-only",
+        action="store_true",
+        help=(
+            "Run only the bounded fixed-BDF2 JAX-linearized phase. Use this for "
+            "preconditioner and matrix-free performance sweeps when the separate "
+            "SciPy-BDF JVP bridge parity gate is not the quantity under test."
+        ),
+    )
+    parser.add_argument(
         "--fixed-bdf2-timestep",
         type=float,
         default=None,
@@ -405,6 +414,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    if args.fixed_bdf2_only and args.include_active_array_jvp:
+        parser.error("--include-active-array-jvp cannot be used with --fixed-bdf2-only")
 
     reference_root = args.reference_root.expanduser().resolve()
     if not reference_root.exists():
@@ -418,7 +429,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     case_reports: list[dict[str, object]] = []
     for gate_case in _selected_cases(args.cases or ()):
-        phase_specs: list[tuple[str, float | None]] = [("bdf_jvp", None)]
+        phase_specs: list[tuple[str, float | None]] = []
+        if not bool(args.fixed_bdf2_only):
+            phase_specs.append(("bdf_jvp", None))
         bounded_timestep = (
             float(args.fixed_bdf2_timestep)
             if args.fixed_bdf2_timestep is not None
@@ -428,6 +441,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             if float(bounded_timestep) <= 0.0:
                 raise ValueError("--fixed-bdf2-timestep must be positive.")
             phase_specs.append(("fixed_bdf2", float(bounded_timestep)))
+        elif bool(args.fixed_bdf2_only):
+            parser.error(
+                f"{gate_case.case} has no bounded fixed-BDF2 timestep; pass "
+                "--fixed-bdf2-timestep explicitly."
+            )
         for gate_phase, fixed_bdf2_timestep in phase_specs:
             case_output_json = (
                 output_dir / f"{gate_case.case}.{gate_phase}.json"
@@ -481,6 +499,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "mode_timeout_seconds": resolved_mode_timeout,
                 "steps": gate_case.steps,
                 "include_active_array_jvp": bool(args.include_active_array_jvp),
+                "fixed_bdf2_only": bool(args.fixed_bdf2_only),
                 "fixed_bdf2_timestep": fixed_bdf2_timestep,
                 "fixed_bdf2_linear_preconditioner": (
                     args.fixed_bdf2_linear_preconditioner

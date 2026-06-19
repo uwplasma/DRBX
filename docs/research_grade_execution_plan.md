@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
-| Effective preconditioning | 54% | Bounded stiff-line solver gates now prove full-field `parallel_line`, selected-field `neutral_line`, and selected-field `momentum_line` can reduce JAX-GMRES operator calls when they match the dominant transport block. The blocker is still same-case speedup on real recycling or imported-field kernels after build cost. |
+| Effective preconditioning | 55% | Bounded solver gates prove `parallel_line`, `neutral_line`, and `momentum_line` can reduce JAX-GMRES calls when they match the dominant transport block, but real hydrogen recycling sweeps show selected exact line blocks do not reduce the actual fixed-BDF2 Krylov count. The next blocker is an approximate field-split/Schur/transport preconditioner with same-case recycling speedup after build cost. |
 | Performance and scaling | 65% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`; remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -2365,6 +2365,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   `docs/refactoring_plan.md`, `docs/non_axisymmetric_stellarator_sol_plan.md`,
   and `docs/geometry_roadmap.md` all state that they are subordinate appendices
   to this execution plan.
+- 2026-06-19: Ran same-case hydrogen fixed-BDF2 recycling preconditioner
+  sweeps for the selected-line candidates and added a `--fixed-bdf2-only`
+  wrapper mode so future preconditioner sweeps can skip the unrelated SciPy-BDF
+  JVP phase. On `recycling_1d_one_step` with `timestep=10`, `steps=2`, and
+  refresh `100`, the unpreconditioned fixed-full-field and active-array routes
+  reported `53.872 s` and `56.169 s`, residual `2.899e-6`, and `115` linear
+  iterations/operator calls. `neutral_line` preserved residuals but kept `115`
+  calls, built `20` line blocks, and took `57.667 s` and `57.829 s`.
+  `momentum_line` also kept `115` calls, built `20` line blocks, and took
+  `62.496 s` and `57.147 s`. Decision: keep selected-line blocks as
+  diagnostics, but target a cheaper approximate field-split/Schur/transport
+  preconditioner before running more heavy preconditioner sweeps.
 
 ## Definition Of Done
 

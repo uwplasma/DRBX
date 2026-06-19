@@ -205,7 +205,10 @@ aggregate those as `fixed_bdf2_total_*` and `adaptive_bdf_*` fields.
 The profiling and comparison scripts can enforce these diagnostics with
 `--require-max-preconditioner-applies` and
 `--require-fixed-bdf2-max-preconditioner-applies` when screening candidate
-transport preconditioners.
+transport preconditioners. The promotion wrapper also accepts
+`--fixed-bdf2-only` for these screens. That option runs only the bounded
+fixed-BDF2 JAX-linearized phase, so preconditioner or matrix-free Krylov
+experiments are not blocked by the separate SciPy-BDF JVP bridge parity gate.
 For heavy matrix-free profiling, the linearized Krylov action can also be
 wrapped with `runtime:recycling_jax_linear_jit_linear_operator=true` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR=1`. Fixed-BDF2 histories

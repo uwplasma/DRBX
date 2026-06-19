@@ -308,3 +308,65 @@ def test_recycling_jvp_promotion_gate_writes_dry_run_summary(tmp_path: Path) -> 
     assert case_reports[1]["fixed_bdf2_timestep"] == 10.0
     assert all(report["mode_timeout_seconds"] == 12.5 for report in case_reports)
     assert all("--output-json" in report["command"] for report in case_reports)
+
+
+def test_recycling_jvp_promotion_gate_can_run_fixed_bdf2_only_dry_run(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    reference_root = module.FIXTURE_REFERENCE_ROOT
+    output_dir = tmp_path / "fixed_bdf2_only"
+
+    exit_code = module.main(
+        [
+            "--reference-root",
+            str(reference_root),
+            "--case",
+            "recycling_1d_one_step",
+            "--dry-run",
+            "--fixed-bdf2-only",
+            "--fixed-bdf2-linear-preconditioner",
+            "neutral_line",
+            "--fixed-bdf2-linear-preconditioner-refresh",
+            "100",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    case_reports = summary["case_reports"]
+    assert len(case_reports) == 1
+    report = case_reports[0]
+    assert report["phase"] == "fixed_bdf2"
+    assert report["fixed_bdf2_only"] is True
+    assert report["fixed_bdf2_linear_preconditioner"] == "neutral_line"
+    assert report["fixed_bdf2_linear_preconditioner_refresh"] == 100
+    assert report["output_json"].endswith("recycling_1d_one_step.fixed_bdf2.json")
+    assert "--require-fixed-jvp-diagnostics" not in report["command"]
+    assert "--require-fixed-bdf2-diagnostics" in report["command"]
+    assert "--require-fixed-bdf2-linear-preconditioner" in report["command"]
+
+
+def test_recycling_jvp_promotion_gate_rejects_active_jvp_with_fixed_bdf2_only(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+
+    try:
+        module.main(
+            [
+                "--reference-root",
+                str(module.FIXTURE_REFERENCE_ROOT),
+                "--dry-run",
+                "--fixed-bdf2-only",
+                "--include-active-array-jvp",
+                "--output-dir",
+                str(tmp_path),
+            ]
+        )
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:  # pragma: no cover
+        raise AssertionError("expected SystemExit from incompatible options")

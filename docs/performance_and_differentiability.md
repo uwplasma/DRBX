@@ -1150,7 +1150,12 @@ if a preconditioner request silently falls back to an unpreconditioned or
 Lineax path. Use
 `--fixed-bdf2-linear-preconditioner-refresh=<n>` on the wrapper to forward
 `runtime:recycling_jax_linear_preconditioner_refresh=<n>` and test reuse inside
-each implicit solve. A bounded local run on `recycling_1d_one_step` with
+each implicit solve. Use `--fixed-bdf2-only` when screening preconditioners or
+matrix-free Krylov changes and the separate SciPy-BDF JVP bridge is not the
+quantity under test. This prevents a fixed-BDF2 performance sweep from being
+blocked by an unrelated BDF-JVP pairwise tolerance.
+
+A bounded local run on `recycling_1d_one_step` with
 `--timestep=10`, `--steps=2`, and `local_block_diag` passed these new gates on
 both fixed-BDF2 routes. The fixed-full-field route reported residual
 `1.90e-6`, `9` preconditioner builds, zero failed linear solves, and
@@ -1195,7 +1200,15 @@ diagnostic evidence for neutral-diffusion-dominated cases, not a default or
 performance claim. A bounded solver-level packed-field gate now confirms that
 the selected neutral line block can reduce Krylov operator calls when it is the
 dominant stiff suboperator, so the remaining blocker is real recycling
-same-case speedup after build cost.
+same-case speedup after build cost. The first same-case hydrogen fixed-BDF2
+sweep did not show that speedup. With `--timestep=10`, `--steps=2`,
+`--fixed-bdf2-only`, and preconditioner refresh set to `100`, the
+unpreconditioned fixed-full-field and active-array routes reported
+`53.872 s` and `56.169 s`, residual `2.899e-6`, and `115` linear
+iterations/operator calls. `neutral_line` preserved solver health but kept the
+same `115` calls, built `20` line preconditioners, and took `57.667 s` and
+`57.829 s`. It is therefore an algorithmically valid selected-line
+preconditioner, but it is not a promoted accelerator for this recycling gate.
 The matching `momentum_line` candidate is now exposed for momentum-dominated
 multi-ion and recycling traces. It uses the same selected-field line-block
 machinery but supplies only fixed-layout fields whose names start with `NV`.
@@ -1205,7 +1218,13 @@ same-case preconditioner sweeps. A bounded solver-level packed-field gate now
 proves that this selected momentum block can reduce Krylov operator calls when
 it is the dominant stiff suboperator. It is still a diagnostic option until a
 heavy same-case recycling run demonstrates fewer Krylov/operator calls or lower
-runtime after build cost.
+runtime after build cost. On the same hydrogen fixed-BDF2 sweep,
+`momentum_line` also kept `115` iterations/operator calls, built `20`
+preconditioners, and took `62.496 s` on the fixed-full-field route and
+`57.147 s` on the active-array route. The next preconditioning implementation
+should therefore be a cheaper approximate field-split/Schur/transport
+preconditioner that changes the real residual spectrum, not another exact
+selected-line build on the current hydrogen deck.
 The solver now also separates preconditioner build cost from preconditioner
 application cost. JAX-linearized steps report
 `linear_preconditioner_apply_count` and

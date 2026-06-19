@@ -334,7 +334,14 @@ parallel-momentum fields, respectively. Both selected-field line paths now
 have bounded solver-level effectivity gates: on packed two-field stiff-line
 fixtures they cut linear-operator calls from `10` to `5` while preserving
 machine-precision convergence. This confirms the algorithmic seam, but does
-not yet replace the missing heavy same-case recycling speedup. The optional
+not yet replace the missing heavy same-case recycling speedup. A same-case
+hydrogen fixed-BDF2 sweep with preconditioner refresh set to `100` kept the
+same `115` linear iterations/operator calls for unpreconditioned,
+`neutral_line`, and `momentum_line` runs; the selected-line routes only added
+`20` preconditioner builds and wall time. Future preconditioner work should
+therefore target approximate Schur/field-split or transport blocks that reduce
+the real recycling Krylov spectrum, not more exact selected-line probes on
+this deck. The optional
 `runtime:recycling_jax_linear_preconditioner_refresh` control reuses the
 dynamic block preconditioner within one implicit solve. The matching
 `runtime:recycling_jax_linear_preconditioner_floor`,
