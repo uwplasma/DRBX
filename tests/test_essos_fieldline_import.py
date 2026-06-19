@@ -775,6 +775,39 @@ def test_committed_imported_drb_movie_refinement_publication_summary_locks_grid_
     )
 
 
+def test_committed_imported_drb_movie_refinement_16x_summary_narrows_grid_blocker() -> None:
+    report_path = (
+        REPO_ROOT
+        / "docs"
+        / "data"
+        / "essos_imported_drb_movie_refinement_16x_candidate_artifacts"
+        / "data"
+        / "essos_imported_drb_movie_refinement_16x_candidate_summary.json"
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    suggestion = report["next_campaign_suggestion"]
+    dominant_grid_blockers = suggestion["dominant_grid_blockers"]
+
+    assert report["publication_ready"] is False
+    assert report["grid_refinement_passed"] is False
+    assert report["time_refinement_passed"] is True
+    assert report["movie_promotion_rejection_reasons"] == [
+        "movie_grid_refinement_not_passed"
+    ]
+    assert report["grid_refinement_diagnostics"]["spectral_resolution_passed"] is True
+    assert report["time_refinement_diagnostics"]["spectral_resolution_passed"] is True
+    assert report["grid_refinement_diagnostics"]["max_relative_metric_change"] < 0.55
+    assert report["time_refinement_diagnostics"]["max_relative_metric_change"] < 0.10
+    assert [item["metric"] for item in dominant_grid_blockers] == [
+        "spectral_centroid_poloidal_index"
+    ]
+    assert suggestion["suggested_grid_shapes"] == [[16, 24, 48], [16, 48, 48]]
+    assert suggestion["suggested_next_grid_cell_count"] == 36864
+    assert suggestion["time_refinement_action"] == (
+        "reuse_current_timestep_pair_after_grid_change"
+    )
+
+
 def _load_imported_drb_movie_refinement_summary_example():
     module_path = (
         REPO_ROOT

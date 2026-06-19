@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 92% | The heavier `4x6x12 -> 8x12x24` hybrid report-only movie candidate now passes the time-refinement scalar and spectral gates, but grid refinement still fails on radial-flux sensitivity, poloidal spectral-centroid motion, and edge-band spectral power; next evidence path is `8x12x24 -> 16x24x48`. |
+| 3D stellarator imported-field/VMEC SOL | 93% | The `8x12x24 -> 16x24x48` hybrid report-only movie candidate now passes time refinement and both spectral-resolution gates; grid refinement still fails only on poloidal spectral-centroid motion, so the next targeted evidence path is `16x24x48 -> 16x48x48`. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -2562,6 +2562,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   blocker is closed for this candidate, but do not promote the movie; the next
   publication-candidate grid sweep is `8x12x24 -> 16x24x48` with the same
   effective frame timestep pair.
+- 2026-06-19: Ran and committed the `8x12x24 -> 16x24x48` imported-field DRB
+  movie report-only candidate. The artifact is small (`40K`) and JSON-only.
+  Time refinement passes again (`max_relative_metric_change=0.093`), both
+  spectral-resolution gates now pass, and the earlier radial-flux and
+  edge-band blockers are closed. The only remaining grid blocker is
+  `spectral_centroid_poloidal_index` with relative change `0.52`. Decision:
+  raise the 3D imported-field/VMEC SOL lane to `93%`, keep the movie
+  unpromoted, and run the next targeted poloidal-resolution sweep
+  `16x24x48 -> 16x48x48` before producing publication/readme media.
 
 ## Definition Of Done
 
