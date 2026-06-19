@@ -1559,21 +1559,23 @@ incremental method was correct but not a speedup: the three-run median was
 status and residual band. This makes the method switch useful for CPU/GPU
 sweeps, but it is not a default promotion.
 
-The sparse-JVP Jacobian builder also has an opt-in host-transfer reduction
-probe through `JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE=1`. When enabled, each
-color batch gathers only structurally nonzero pushed rows on device before
-copying data to the host sparse assembler. The promoted small hydrogen gate
-was not large enough to benefit from the first version of this path: the
-device-gather run took `1.596 s`, while the default full-transfer run took
-`1.551 s`. The path remains useful for larger CPU/GPU profiling, but it is off
-by default because the measured local gate does not justify changing the
-production behavior. A follow-up micro-kernel cleanup prebuilds the device-side
-row and batch-index gather arrays in `SparseJvpDirectionBatch` so a reused
-workspace does not recreate those static JAX arrays on every Jacobian build. On
-a local 288-state, 4896-nnz sparse-JVP device-gather microbenchmark this
-reduced the median build time from `0.0128 s` to `0.0114 s`. This is only a
-small opt-in sparse-JVP kernel cleanup; larger recycling gates still need to
-show a runtime win before changing defaults.
+The sparse-JVP Jacobian builder now defaults to the lower-transfer device-gather
+path, with `JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE=0` retained as an explicit
+fallback for CPU microbenchmarks. In this path each color batch gathers only
+structurally nonzero pushed rows on device before copying data to the host
+sparse assembler. The first promoted small hydrogen gate was not large enough
+to benefit from the original version of this path: the device-gather run took
+`1.596 s`, while the full-transfer run took `1.551 s`. The default was changed
+anyway because the current bottleneck is full-output and GPU profiling of much
+larger sparse-JVP Jacobians, where avoiding full pushed-batch transfers is the
+right direction for reducing host-device barriers. A follow-up micro-kernel
+cleanup prebuilds the device-side row and batch-index gather arrays in
+`SparseJvpDirectionBatch` so a reused workspace does not recreate those static
+JAX arrays on every Jacobian build. On a local 288-state, 4896-nnz sparse-JVP
+device-gather microbenchmark this reduced the median build time from `0.0128 s`
+to `0.0114 s`. This is a sparse-JVP kernel cleanup; larger recycling gates
+still need to show a runtime win before any full-output JVP speedup or default
+solver-promotion claim.
 
 The sparse Newton compatibility path now also reports explicit SciPy linear
 solver health in the same diagnostics payload used by adaptive-BDF recycling

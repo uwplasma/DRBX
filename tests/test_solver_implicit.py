@@ -442,17 +442,8 @@ def test_sparse_jvp_jacobian_reuses_prebuilt_device_gather_indices(
         for batch in prebuilt_direction_batches
     )
 
-    control = build_sparse_jvp_jacobian(
-        residual,
-        state,
-        sparsity=sparsity,
-        color_groups=color_groups,
-        difference_plan=plan,
-        direction_batches=prebuilt_direction_batches,
-    )
     timing_payloads: list[dict[str, float | int]] = []
-    monkeypatch.setenv("JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE", "1")
-    gathered = build_sparse_jvp_jacobian(
+    default_gathered = build_sparse_jvp_jacobian(
         residual,
         state,
         sparsity=sparsity,
@@ -461,10 +452,19 @@ def test_sparse_jvp_jacobian_reuses_prebuilt_device_gather_indices(
         direction_batches=prebuilt_direction_batches,
         timing_callback=timing_payloads.append,
     )
+    monkeypatch.setenv("JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE", "0")
+    host_gathered = build_sparse_jvp_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        difference_plan=plan,
+        direction_batches=prebuilt_direction_batches,
+    )
 
     np.testing.assert_allclose(
-        gathered.toarray(),
-        control.toarray(),
+        default_gathered.toarray(),
+        host_gathered.toarray(),
         rtol=1.0e-12,
         atol=1.0e-12,
     )

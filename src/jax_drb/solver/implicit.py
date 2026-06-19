@@ -526,7 +526,7 @@ def build_sparse_jvp_jacobian(
         "on",
     }
     gather_on_device = os.environ.get(
-        "JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE", "0"
+        "JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE", "1"
     ).strip().lower() not in {
         "0",
         "false",

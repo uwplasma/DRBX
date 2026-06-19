@@ -2308,6 +2308,16 @@ Use this log for concise decision records. Do not paste terminal output here.
   CPU probe of `bdf_active_array_jvp` on `recycling_dthe_one_step` exceeded four
   minutes before termination, so this remains a heavy offline/GPU profiling lane
   rather than a routine local release gate.
+- 2026-06-19: Changed sparse-JVP Jacobian assembly to default to device-side
+  gather of structurally nonzero pushed rows, with
+  `JAX_DRB_SPARSE_JVP_GATHER_ON_DEVICE=0` retained as the host-transfer
+  fallback. The existing device-gather branch was already numerically checked
+  against the host path; the updated unit gate now proves the default path and
+  fallback remain equivalent. This is a host-device-barrier cleanup for larger
+  sparse-JVP and GPU profiling lanes, not by itself a same-case speedup claim:
+  prior small hydrogen evidence showed the first device-gather version was
+  neutral/slightly negative locally, while larger output-window runs are the
+  target workload.
 
 ## Definition Of Done
 
