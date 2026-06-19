@@ -204,8 +204,9 @@ When a JAX-GMRES preconditioner is enabled, the same reports include
 aggregate those as `fixed_bdf2_total_*` and `adaptive_bdf_*` fields.
 Current opt-in dynamic choices include diagonal probes, sampled field blocks
 (`runtime:recycling_jax_linear_preconditioner=field_block_sample` or
-`field_split`), same-cell blocks, and selected parallel-line blocks. The sampled
-field-block probe is bounded by
+`field_split`), sampled field blocks with feedback-integral diagonal scaling
+(`field_block_feedback_diag` or `field_split_feedback`), same-cell blocks, and
+selected parallel-line blocks. The sampled field-block probes are bounded by
 `runtime:recycling_jax_linear_preconditioner_max_field_block_fields`.
 The profiling and comparison scripts can enforce these diagnostics with
 `--require-max-preconditioner-applies` and

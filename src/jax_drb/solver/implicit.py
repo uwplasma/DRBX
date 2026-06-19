@@ -1621,6 +1621,12 @@ def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:
         "field_schur",
         "schur_field",
         "lumped_field_block",
+        "field_block_feedback_diag",
+        "field_feedback_block",
+        "feedback_field_block",
+        "field_split_feedback",
+        "field_schur_feedback",
+        "feedback_schur",
         "field_diag",
         "field_jacobi",
         "field_diagonal",
@@ -1759,6 +1765,12 @@ def _build_jax_linearized_dynamic_preconditioner(
         "field_schur",
         "schur_field",
         "lumped_field_block",
+        "field_block_feedback_diag",
+        "field_feedback_block",
+        "feedback_field_block",
+        "field_split_feedback",
+        "field_schur_feedback",
+        "feedback_schur",
     }:
         if context is None:
             raise ValueError(
@@ -1778,6 +1790,15 @@ def _build_jax_linearized_dynamic_preconditioner(
             ),
             floor=float(context.get("floor", 1.0e-10)),
             max_fields=int(context.get("max_fields", 64)),
+            scale_feedback_diagonal=normalized
+            in {
+                "field_block_feedback_diag",
+                "field_feedback_block",
+                "feedback_field_block",
+                "field_split_feedback",
+                "field_schur_feedback",
+                "feedback_schur",
+            },
         )
     if normalized in {"field_diag", "field_jacobi", "field_diagonal"}:
         if context is None:
@@ -1956,6 +1977,7 @@ def _build_jax_linearized_field_block_sample_preconditioner(
     sample_cell_index: int | None = None,
     floor: float = 1.0e-10,
     max_fields: int = 64,
+    scale_feedback_diagonal: bool = False,
 ):
     """Build a sampled field-split block preconditioner from JVPs.
 
@@ -2022,8 +2044,29 @@ def _build_jax_linearized_field_block_sample_preconditioner(
     regularized_block = sampled_block + float(floor) * block_scale * eye
     diagonal = jnp.diag(regularized_block)
     safe_diagonal = _safe_diagonal_denominator(diagonal, floor=float(floor))
-    regularized_block, safe_diagonal = jax.block_until_ready(
-        (regularized_block, safe_diagonal)
+    feedback_safe_diagonal = jnp.ones((feedback_count,), dtype=prototype.dtype)
+    if feedback_count and bool(scale_feedback_diagonal):
+        feedback_indices = jnp.arange(
+            field_unknown_count,
+            field_unknown_count + feedback_count,
+            dtype=jnp.int32,
+        )
+
+        def feedback_diagonal_entry(flat_index):
+            tangent_flat = jnp.zeros(
+                flat_size,
+                dtype=prototype.dtype,
+            ).at[flat_index].set(1.0)
+            action = jnp.ravel(linear_map(tangent_flat.reshape(tuple(prototype.shape))))
+            return action[flat_index]
+
+        feedback_diagonal = jax.vmap(feedback_diagonal_entry)(feedback_indices)
+        feedback_safe_diagonal = _safe_diagonal_denominator(
+            feedback_diagonal,
+            floor=float(floor),
+        )
+    regularized_block, safe_diagonal, feedback_safe_diagonal = jax.block_until_ready(
+        (regularized_block, safe_diagonal, feedback_safe_diagonal)
     )
 
     def preconditioner(vector):
@@ -2044,8 +2087,11 @@ def _build_jax_linearized_field_block_sample_preconditioner(
         )
         solved_fields = solved_by_cell.transpose((1, 0)).reshape((field_unknown_count,))
         if feedback_count:
+            feedback_vector = flat_vector[field_unknown_count:]
+            if bool(scale_feedback_diagonal):
+                feedback_vector = feedback_vector / feedback_safe_diagonal
             solved = jnp.concatenate(
-                (solved_fields, flat_vector[field_unknown_count:]), axis=0
+                (solved_fields, feedback_vector), axis=0
             )
         else:
             solved = solved_fields

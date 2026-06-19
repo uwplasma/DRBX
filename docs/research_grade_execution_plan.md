@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
-| Effective preconditioning | 56% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, and the new sampled `field_block_sample` field-split probe can reduce JAX-GMRES calls when they match the dominant operator, but real hydrogen recycling sweeps show exact selected-line and sampled local field-block probes do not reduce the actual fixed-BDF2 Krylov count. The next blocker is a target/sheath/parallel-transport or Schur preconditioner with same-case recycling speedup after build cost. |
+| Effective preconditioning | 57% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, sampled `field_block_sample`, and feedback-aware `field_block_feedback_diag` probes can reduce JAX-GMRES calls when they match the dominant operator, but real hydrogen recycling sweeps show exact selected-line and sampled local field-block probes do not reduce the actual fixed-BDF2 Krylov count. The next blocker is a target/sheath/parallel-transport or Schur preconditioner with same-case recycling speedup after build cost. |
 | Performance and scaling | 65% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`; remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -2403,6 +2403,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   under a much smaller Krylov budget. Decision: the next implementation must
   improve same-case residual quality or operator work under explicit solver
   budgets, not only pass correctness with the default budget.
+- 2026-06-19: Added `field_block_feedback_diag` (`field_split_feedback`,
+  `feedback_schur`) as a feedback-aware field-split preconditioner. It reuses
+  the sampled representative field-by-equation block from `field_block_sample`
+  and additionally samples diagonal JVP entries for packed feedback-integral
+  variables. This targets a real remaining recycling stiffness source because
+  current field, local-block, and selected-line probes leave feedback scalars
+  unchanged. Solver-level tests now verify exact feedback diagonal scaling and
+  a reduced-budget stiff-feedback gate: the unpreconditioned solve remains
+  above tolerance, while `field_block_feedback_diag` converges below `1e-10`
+  residual with one build and fewer linear-operator calls. Decision: run the
+  same hydrogen fixed-BDF2 gate next; only promote if it improves same-case
+  operator work or wall time after build cost.
 
 ## Definition Of Done
 

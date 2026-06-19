@@ -5888,6 +5888,12 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "field_schur": "field_block_sample",
         "schur_field": "field_block_sample",
         "lumped_field_block": "field_block_sample",
+        "field_block_feedback_diag": "field_block_feedback_diag",
+        "field_feedback_block": "field_block_feedback_diag",
+        "feedback_field_block": "field_block_feedback_diag",
+        "field_split_feedback": "field_block_feedback_diag",
+        "field_schur_feedback": "field_block_feedback_diag",
+        "feedback_schur": "field_block_feedback_diag",
         "field_diag": "field_diag",
         "field_jacobi": "field_diag",
         "field_diagonal": "field_diag",
@@ -5926,6 +5932,7 @@ def _build_recycling_jax_linear_preconditioner(
         "linearized_diag",
         "field_sample_diag",
         "field_block_sample",
+        "field_block_feedback_diag",
         "field_diag",
         "local_block_diag",
         "parallel_line",
@@ -5964,6 +5971,7 @@ def _recycling_jax_linear_preconditioner_context(
         "linearized_diag",
         "field_sample_diag",
         "field_block_sample",
+        "field_block_feedback_diag",
         "field_diag",
         "local_block_diag",
         "parallel_line",
@@ -6008,7 +6016,7 @@ def _recycling_jax_linear_preconditioner_context(
             env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_FIELD_UNKNOWNS",
             default=8192,
         )
-    if name == "field_block_sample":
+    if name in {"field_block_sample", "field_block_feedback_diag"}:
         context["max_fields"] = _resolve_positive_int_runtime_option(
             config,
             option_name="recycling_jax_linear_preconditioner_max_field_block_fields",

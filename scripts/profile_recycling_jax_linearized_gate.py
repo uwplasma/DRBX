@@ -608,6 +608,17 @@ def _canonical_initial_residual_mode(name: str) -> str:
 def _is_dynamic_preconditioner_name(name: str) -> bool:
     return _canonical_preconditioner_name(name) in {
         "linearized_diag",
+        "field_sample_diag",
+        "field_sample",
+        "sampled_field_diag",
+        "field_block_sample",
+        "field_sample_block",
+        "sampled_field_block",
+        "field_split",
+        "field_block_feedback_diag",
+        "field_feedback_block",
+        "feedback_field_block",
+        "field_split_feedback",
         "field_diag",
         "field_jacobi",
         "field_diagonal",
