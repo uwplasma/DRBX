@@ -144,6 +144,15 @@ def run_refinement_campaign(
         f"time_passed={report['time_refinement_passed']}, "
         f"reasons={report['movie_promotion_rejection_reasons']}"
     )
+    suggestion = report.get("next_campaign_suggestion", {})
+    if suggestion:
+        print(
+            "suggested next campaign: "
+            f"grid_shapes={suggestion.get('suggested_grid_shapes')}, "
+            "effective_frame_dt_values="
+            f"{suggestion.get('recommended_time_effective_frame_dt_values')}, "
+            f"notes={suggestion.get('recommendation_notes')}"
+        )
     if settings.require_publication_ready and not bool(report["publication_ready"]):
         raise RuntimeError(
             "Imported-field movie refinement campaign failed: "

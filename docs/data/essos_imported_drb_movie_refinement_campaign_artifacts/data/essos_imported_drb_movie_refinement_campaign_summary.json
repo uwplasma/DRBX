@@ -249,6 +249,94 @@
     "movie_time_spectral_resolution_not_passed",
     "spectral_edge_band_power_fraction_above_limit"
   ],
+  "next_campaign_suggestion": {
+    "claim_scope": "planning aid only; suggested settings are not validation evidence until the regenerated refinement summary passes",
+    "current_effective_frame_dt": 0.002,
+    "current_finest_grid": [
+      4,
+      6,
+      12
+    ],
+    "current_finest_grid_cell_count": 288,
+    "diagnostic": "essos_imported_drb_movie_next_campaign_suggestion",
+    "dominant_grid_blockers": [
+      {
+        "coarse": 1.0,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 0.19304806771389543,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "low_mode_spectral_power_fraction",
+        "pair_index": 0,
+        "reason": "spectral_content_not_grid_or_time_stable",
+        "relative_change": 4.180057028501513,
+        "relative_tolerance": 0.3
+      },
+      {
+        "coarse": 0.000370313311115796,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 8.237593695474543e-05,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "radial_flux_abs_mean",
+        "pair_index": 0,
+        "reason": "radial_transport_not_grid_or_time_stable",
+        "relative_change": 3.495406362652162,
+        "relative_tolerance": 0.3
+      },
+      {
+        "coarse": 0.0006028219469140017,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 0.0001399820799210603,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "radial_flux_rms",
+        "pair_index": 0,
+        "reason": "radial_transport_not_grid_or_time_stable",
+        "relative_change": 3.3064222738649782,
+        "relative_tolerance": 0.3
+      }
+    ],
+    "dominant_time_blockers": [],
+    "grid_refinement_passed_current": false,
+    "max_total_cells": null,
+    "publication_ready_current": false,
+    "recommendation_notes": [
+      "radial transport is grid-sensitive; refine radial and field-line-following transverse resolution together",
+      "spectral content is too close to the grid edge; refine poloidal and toroidal movie-grid resolution before promotion",
+      "time gate has no scalar-metric offender; fix spectral grid resolution before spending wall time on smaller timesteps"
+    ],
+    "recommended_time_effective_frame_dt_values": [
+      0.004,
+      0.002
+    ],
+    "suggested_grid_fits_cell_budget": null,
+    "suggested_grid_multiplier": [
+      2.0,
+      2.0,
+      2.0
+    ],
+    "suggested_grid_shapes": [
+      [
+        4,
+        6,
+        12
+      ],
+      [
+        8,
+        12,
+        24
+      ]
+    ],
+    "suggested_next_grid": [
+      8,
+      12,
+      24
+    ],
+    "suggested_next_grid_cell_count": 2304,
+    "time_refinement_action": "fix_grid_resolution_before_reducing_timestep",
+    "time_refinement_passed_current": false
+  },
   "publication_ready": false,
   "relative_tolerance": 0.3,
   "time_refinement_diagnostics": {

@@ -115,6 +115,11 @@ exports `failed_metric_reports`, `dominant_failed_metrics`, and
 `refinement_recommendations`, so a failed campaign identifies whether the next
 run should prioritize radial transport convergence, toroidal/poloidal spectral
 placement, spectral edge-band occupancy, or elliptic residual conditioning. The
+same JSON includes `next_campaign_suggestion`, a deterministic planning aid
+that proposes the next `GRID_SHAPES` and effective frame timestep values from
+the dominant blockers. Treat that suggestion as a campaign input only: it is
+not validation evidence until the regenerated summary passes the grid, time,
+and spectral-resolution gates. The
 checked-in compact campaign intentionally remains negative evidence: it has
 enough grid and timestep reports to exercise the gate, but it is not
 publication-ready until the grid-refinement metrics and spectral-resolution

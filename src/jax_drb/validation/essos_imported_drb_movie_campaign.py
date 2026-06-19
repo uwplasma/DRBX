@@ -280,7 +280,7 @@ def build_essos_imported_drb_movie_refinement_summary(
     )
     grid_passed = bool(grid_diagnostics["passed"])
     time_passed = bool(time_diagnostics["passed"])
-    return {
+    report = {
         "diagnostic": "essos_imported_drb_movie_refinement_summary",
         "claim_scope": (
             "report-only grid/time refinement gate for imported-field DRB "
@@ -296,6 +296,169 @@ def build_essos_imported_drb_movie_refinement_summary(
         ),
         "grid_refinement_diagnostics": grid_diagnostics,
         "time_refinement_diagnostics": time_diagnostics,
+    }
+    report["next_campaign_suggestion"] = (
+        build_essos_imported_drb_movie_refinement_next_campaign(report)
+    )
+    return report
+
+
+def build_essos_imported_drb_movie_refinement_next_campaign(
+    summary_report: dict[str, Any],
+    *,
+    max_total_cells: int | None = None,
+) -> dict[str, Any]:
+    """Suggest the next report-only movie refinement campaign settings.
+
+    The suggestion is deterministic and deliberately conservative. It does not
+    weaken the publication gate; it translates the dominant failed metrics into
+    a concrete next grid/timestep candidate so high-resolution searches are
+    auditable and repeatable.
+    """
+
+    grid_diagnostics = dict(summary_report.get("grid_refinement_diagnostics", {}))
+    time_diagnostics = dict(summary_report.get("time_refinement_diagnostics", {}))
+    current_grid = _movie_refinement_finest_grid(grid_diagnostics)
+    grid_failed_metrics = _movie_refinement_failed_metric_names(grid_diagnostics)
+    time_failed_metrics = _movie_refinement_failed_metric_names(time_diagnostics)
+    notes: list[str] = []
+    grid_multiplier = [1.0, 1.0, 1.0]
+    if current_grid is not None:
+        if {"radial_flux_abs_mean", "radial_flux_rms"} & grid_failed_metrics:
+            grid_multiplier = [
+                max(grid_multiplier[0], 2.0),
+                max(grid_multiplier[1], 1.5),
+                max(grid_multiplier[2], 1.5),
+            ]
+            notes.append(
+                "radial transport is grid-sensitive; refine radial and "
+                "field-line-following transverse resolution together"
+            )
+        if (
+            not bool(grid_diagnostics.get("spectral_resolution_passed", True))
+            or "low_mode_spectral_power_fraction" in grid_failed_metrics
+            or "spectral_edge_band_power_fraction" in grid_failed_metrics
+        ):
+            grid_multiplier = [
+                max(grid_multiplier[0], 1.25),
+                max(grid_multiplier[1], 2.0),
+                max(grid_multiplier[2], 2.0),
+            ]
+            notes.append(
+                "spectral content is too close to the grid edge; refine "
+                "poloidal and toroidal movie-grid resolution before promotion"
+            )
+        if "spectral_centroid_poloidal_fraction" in grid_failed_metrics:
+            grid_multiplier[1] = max(grid_multiplier[1], 2.0)
+            notes.append("poloidal spectral centroid moves under refinement")
+        if "spectral_centroid_toroidal_fraction" in grid_failed_metrics:
+            grid_multiplier[2] = max(grid_multiplier[2], 2.0)
+            notes.append("toroidal spectral centroid moves under refinement")
+        if {
+            "final_fluctuation_rms",
+            "max_fluctuation_rms",
+            "final_potential_residual_l2",
+        } & grid_failed_metrics:
+            grid_multiplier = [max(value, 1.5) for value in grid_multiplier]
+            notes.append("scalar transient metrics are grid-sensitive")
+
+    suggested_next_grid = (
+        _movie_refinement_scaled_grid(current_grid, tuple(grid_multiplier))
+        if current_grid is not None
+        else None
+    )
+    suggested_grid_shapes = (
+        [list(current_grid), list(suggested_next_grid)]
+        if current_grid is not None and suggested_next_grid is not None
+        else []
+    )
+    current_cells = (
+        int(np.prod(current_grid, dtype=np.int64)) if current_grid is not None else None
+    )
+    suggested_cells = (
+        int(np.prod(suggested_next_grid, dtype=np.int64))
+        if suggested_next_grid is not None
+        else None
+    )
+    fits_budget = (
+        None
+        if max_total_cells is None or suggested_cells is None
+        else bool(suggested_cells <= int(max_total_cells))
+    )
+
+    time_axis_values = [
+        float(value) for value in time_diagnostics.get("axis_values", [])
+    ]
+    current_effective_frame_dt = (
+        min(time_axis_values) if time_axis_values else None
+    )
+    recommended_time_values: list[float] = []
+    time_action = "no_time_refinement_reports_available"
+    if current_effective_frame_dt is not None:
+        if bool(time_diagnostics.get("passed", False)):
+            recommended_time_values = sorted(
+                {
+                    float(current_effective_frame_dt),
+                    float(current_effective_frame_dt * 2.0),
+                },
+                reverse=True,
+            )
+            time_action = "reuse_current_timestep_pair_after_grid_change"
+        elif not time_failed_metrics and not bool(
+            time_diagnostics.get("spectral_resolution_passed", True)
+        ):
+            recommended_time_values = sorted(
+                {float(value) for value in time_axis_values},
+                reverse=True,
+            )
+            time_action = "fix_grid_resolution_before_reducing_timestep"
+            notes.append(
+                "time gate has no scalar-metric offender; fix spectral grid "
+                "resolution before spending wall time on smaller timesteps"
+            )
+        else:
+            recommended_time_values = sorted(
+                {
+                    float(current_effective_frame_dt),
+                    float(current_effective_frame_dt * 0.5),
+                },
+                reverse=True,
+            )
+            time_action = "halve_effective_frame_dt_after_grid_candidate"
+            notes.append("time-refinement scalar metrics are not stable")
+
+    if current_grid is None:
+        notes.append("at least two grid reports are required before suggesting a grid")
+
+    return {
+        "diagnostic": "essos_imported_drb_movie_next_campaign_suggestion",
+        "claim_scope": (
+            "planning aid only; suggested settings are not validation evidence "
+            "until the regenerated refinement summary passes"
+        ),
+        "publication_ready_current": bool(summary_report.get("publication_ready", False)),
+        "grid_refinement_passed_current": bool(
+            summary_report.get("grid_refinement_passed", False)
+        ),
+        "time_refinement_passed_current": bool(
+            summary_report.get("time_refinement_passed", False)
+        ),
+        "dominant_grid_blockers": grid_diagnostics.get("dominant_failed_metrics", []),
+        "dominant_time_blockers": time_diagnostics.get("dominant_failed_metrics", []),
+        "current_finest_grid": list(current_grid) if current_grid is not None else None,
+        "suggested_grid_multiplier": [float(value) for value in grid_multiplier],
+        "suggested_next_grid": (
+            list(suggested_next_grid) if suggested_next_grid is not None else None
+        ),
+        "suggested_grid_shapes": suggested_grid_shapes,
+        "current_finest_grid_cell_count": current_cells,
+        "suggested_next_grid_cell_count": suggested_cells,
+        "max_total_cells": None if max_total_cells is None else int(max_total_cells),
+        "suggested_grid_fits_cell_budget": fits_budget,
+        "current_effective_frame_dt": current_effective_frame_dt,
+        "recommended_time_effective_frame_dt_values": recommended_time_values,
+        "time_refinement_action": time_action,
+        "recommendation_notes": notes,
     }
 
 
@@ -693,6 +856,47 @@ def _movie_refinement_recommendations(
             "as the primary convergence observable."
         )
     return recommendations
+
+
+def _movie_refinement_failed_metric_names(diagnostics: dict[str, Any]) -> set[str]:
+    return {
+        str(report.get("metric"))
+        for report in diagnostics.get("failed_metric_reports", [])
+        if report.get("metric") is not None
+    }
+
+
+def _movie_refinement_finest_grid(
+    diagnostics: dict[str, Any],
+) -> tuple[int, int, int] | None:
+    grids: list[tuple[int, int, int]] = []
+    for pair in diagnostics.get("pair_reports", []):
+        for key in ("coarse_grid", "fine_grid"):
+            grid = pair.get(key)
+            if isinstance(grid, (list, tuple)) and len(grid) == 3:
+                try:
+                    grids.append(tuple(int(value) for value in grid))
+                except (TypeError, ValueError):
+                    continue
+    if not grids:
+        return None
+    return max(grids, key=lambda grid: int(np.prod(grid, dtype=np.int64)))
+
+
+def _movie_refinement_scaled_grid(
+    grid: tuple[int, int, int],
+    multipliers: tuple[float, float, float],
+) -> tuple[int, int, int]:
+    suggested = []
+    for axis_size, multiplier in zip(grid, multipliers, strict=True):
+        scaled = int(np.ceil(float(axis_size) * max(float(multiplier), 1.0)))
+        if scaled <= int(axis_size):
+            scaled = int(axis_size) + 1
+        suggested.append(scaled)
+    # Keep the rFFT/toroidal direction even where possible for cleaner spectra.
+    if suggested[2] % 2:
+        suggested[2] += 1
+    return tuple(suggested)
 
 
 def _movie_refinement_metric_floor(key: str) -> float:

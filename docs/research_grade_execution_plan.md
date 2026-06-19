@@ -2112,6 +2112,13 @@ Use this log for concise decision records. Do not paste terminal output here.
   Krylov solve, and uses fewer linear-operator calls. This is not yet a real
   recycling speedup claim, but it proves the transport-block preconditioner can
   reduce Krylov work when the dominant physics block is captured.
+- 2026-06-19: Added deterministic imported-field movie refinement campaign
+  suggestions to every refinement summary. The checked-in compact report now
+  emits `next_campaign_suggestion` with proposed grid shapes
+  `[[4,6,12],[8,12,24]]`, retains the existing negative promotion result, and
+  recommends fixing spectral/radial grid resolution before spending wall time
+  on smaller timesteps. This closes the manual parsing gap between a failed
+  report-only gate and the next high-resolution campaign candidate.
 
 ## Definition Of Done
 

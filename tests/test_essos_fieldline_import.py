@@ -20,6 +20,7 @@ from jax_drb.geometry import (
 from jax_drb.validation import (
     build_essos_imported_connection_length_refinement_diagnostics,
     build_essos_imported_drb_movie_refinement_diagnostics,
+    build_essos_imported_drb_movie_refinement_next_campaign,
     build_essos_imported_drb_movie_refinement_summary,
     build_live_essos_imported_connection_length_levels,
     create_essos_fieldline_import_package,
@@ -213,6 +214,13 @@ def test_essos_imported_drb_movie_refinement_summary_rejects_unstable_metrics() 
             "refinement_recommendations"
         ]
     )
+    suggestion = summary["next_campaign_suggestion"]
+    assert suggestion["current_finest_grid"] == [8, 16, 32]
+    assert suggestion["suggested_next_grid"] == [16, 24, 48]
+    assert suggestion["recommended_time_effective_frame_dt_values"] == []
+    assert any(
+        "radial transport" in note for note in suggestion["recommendation_notes"]
+    )
 
 
 def test_essos_imported_drb_movie_refinement_summary_rejects_underresolved_spectrum() -> None:
@@ -246,6 +254,18 @@ def test_essos_imported_drb_movie_refinement_summary_rejects_underresolved_spect
         "spectrum" in recommendation
         for recommendation in grid_diagnostics["refinement_recommendations"]
     )
+    suggestion = build_essos_imported_drb_movie_refinement_next_campaign(
+        summary,
+        max_total_cells=10_000,
+    )
+    assert suggestion["current_finest_grid"] == [4, 6, 12]
+    assert suggestion["suggested_next_grid"] == [5, 12, 24]
+    assert suggestion["suggested_next_grid_cell_count"] == 1440
+    assert suggestion["suggested_grid_fits_cell_budget"] is True
+    assert suggestion["time_refinement_action"] == (
+        "reuse_current_timestep_pair_after_grid_change"
+    )
+    assert any("spectral content" in note for note in suggestion["recommendation_notes"])
 
 
 def test_essos_imported_drb_movie_refinement_uses_floor_for_tiny_potential_residual() -> None:
