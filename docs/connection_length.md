@@ -203,6 +203,10 @@ turbulence only when all of the following are true:
   pairwise comparisons, the configured RMS and \(L_\infty\) thresholds,
   monotonic error reduction, and an explicitly required and available
   observed-order check.
+- Open-field adjacent-step and target-exit live refinement reports may use a
+  documented `minimum_finite_pair_fraction` below one, because endpoint cells
+  are expected to lack adjacent-plane lengths and are covered by the separate
+  endpoint and target-label diagnostics.
 - Reports with `advisory_only=true` or an `evidence_role` beginning with
   `negative_` may be kept as diagnostics and regression evidence, but they do
   not support publication, README, or movie promotion claims.

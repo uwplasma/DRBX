@@ -572,6 +572,43 @@ def test_imported_fci_connection_length_refinement_requires_monotonic_error_redu
     assert "nonmonotonic_error_reduction" in report["promotion_rejection_reasons"]
 
 
+def test_imported_fci_connection_length_refinement_can_relax_finite_overlap() -> None:
+    coarse = np.ones((4, 4, 8), dtype=np.float64)
+    fine = np.ones((8, 8, 16), dtype=np.float64)
+    coarse[::2, :, :] = np.nan
+
+    strict = build_essos_imported_connection_length_refinement_diagnostics(
+        [coarse, fine],
+        labels=["coarse", "fine"],
+        convergence_threshold=0.01,
+        linf_threshold=0.01,
+    )
+    relaxed = build_essos_imported_connection_length_refinement_diagnostics(
+        [coarse, fine],
+        labels=["coarse", "fine"],
+        convergence_threshold=0.01,
+        linf_threshold=0.01,
+        minimum_finite_pair_fraction=0.4,
+    )
+
+    assert strict["finite_pairs_passed"] is False
+    assert strict["evidence_role"] == "invalid_finite_pairs"
+    assert relaxed["finite_pairs_passed"] is True
+    assert relaxed["minimum_finite_pair_fraction"] == 0.4
+    assert relaxed["pair_reports"][0]["finite_fraction"] == 0.5
+    assert relaxed["passed"] is True
+    assert relaxed["promotion_ready"] is False
+    assert relaxed["evidence_role"] == "advisory_no_observed_order"
+
+
+def test_imported_fci_connection_length_refinement_rejects_bad_finite_fraction() -> None:
+    with pytest.raises(ValueError, match="minimum_finite_pair_fraction"):
+        build_essos_imported_connection_length_refinement_diagnostics(
+            [np.ones((4, 4, 8), dtype=np.float64), np.ones((8, 8, 16), dtype=np.float64)],
+            minimum_finite_pair_fraction=0.0,
+        )
+
+
 def test_imported_fci_connection_length_refinement_rejects_non_nested_grids() -> None:
     coarse = np.ones((4, 4, 8), dtype=np.float64)
     non_nested = np.ones((7, 8, 16), dtype=np.float64)
