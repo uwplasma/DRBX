@@ -152,7 +152,7 @@ and tests all move together.
 | 3D stellarator imported-field/VMEC SOL | 77% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 90% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
-| Repo footprint | 90% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag. |
+| Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
 
 ## Milestone Map
 
@@ -1522,6 +1522,14 @@ Use this log for concise decision records. Do not paste terminal output here.
   steps, `fixed_bdf2_total_linear_iterations=25`, and
   `fixed_bdf2_total_linear_operator_call_count=25`. This is an evidence-quality
   fix for preconditioner and scaling gates, not a preconditioner speedup.
+- 2026-06-18: Ran the canonical read-only footprint audit with
+  `python scripts/audit_repository_footprint.py --top 20 --min-size-mib 1`.
+  The audit reported one Git pack at `8.67 MiB` (`git count-objects` pack size
+  `8.96 MiB`) and no tracked large files, current-tree large blobs,
+  reachable-history large blobs, or non-ignored untracked large files above
+  `1 MiB`. The large local `.venv`, `tmp`, profile, release-cache, baseline,
+  trace, and media files are ignored or release-hosted, so no history rewrite
+  is needed from this pass.
 - 2026-06-18: Added conservative automatic internal substepping for opt-in
   fixed-output BDF2 JAX-linearized recycling histories when no explicit
   `runtime:recycling_fixed_bdf2_max_internal_timestep` or
