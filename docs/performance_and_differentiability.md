@@ -1480,7 +1480,10 @@ PYTHONPATH=src python scripts/profile_recycling_jax_linearized_gate.py \
 
 passed with median timed runtime `4.55 s`, residual `7.31568`, five
 matrix-free operator calls, clean JAX-GMRES status, and
-`linear_operator_jitted=true`. Combining the same jitted operator with
+`linear_operator_jitted=true`. The promotion wrapper exposes the same path as
+`--fixed-bdf2-jit-linear-operator`, which forwards the runtime override to the
+bounded fixed-BDF2 phase and requires `fixed_bdf2_linear_operator_jitted_steps`
+in the comparison report. Combining the same jitted operator with
 `local_block_diag` reduced `linear_solve_seconds` further to `7.98 s`, but the
 `3.84 s` preconditioner build made the full timed run slower (`13.61 s`) than
 the jitted unpreconditioned run. The current practical recommendation is
