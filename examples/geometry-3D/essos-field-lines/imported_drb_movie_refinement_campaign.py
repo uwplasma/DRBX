@@ -39,6 +39,7 @@ RELATIVE_TOLERANCE = 0.30
 POTENTIAL_ITERATIONS = 768
 POTENTIAL_REGULARIZATION = 5.0
 POTENTIAL_PRECONDITIONER: str | None = None
+REUSE_EXISTING_REPORTS = True
 REQUIRE_PUBLICATION_READY = False
 
 
@@ -64,6 +65,7 @@ class ImportedDrbMovieRefinementCampaignSettings:
     potential_iterations: int
     potential_regularization: float
     potential_preconditioner: str | None
+    reuse_existing_reports: bool
     require_publication_ready: bool
 
 
@@ -89,6 +91,7 @@ def build_refinement_campaign_settings(
     potential_iterations: int = POTENTIAL_ITERATIONS,
     potential_regularization: float = POTENTIAL_REGULARIZATION,
     potential_preconditioner: str | None = POTENTIAL_PRECONDITIONER,
+    reuse_existing_reports: bool = REUSE_EXISTING_REPORTS,
     require_publication_ready: bool = REQUIRE_PUBLICATION_READY,
 ) -> ImportedDrbMovieRefinementCampaignSettings:
     """Resolve top-level parameters for a report-only movie refinement run."""
@@ -116,6 +119,7 @@ def build_refinement_campaign_settings(
         potential_iterations=int(potential_iterations),
         potential_regularization=float(potential_regularization),
         potential_preconditioner=potential_preconditioner,
+        reuse_existing_reports=bool(reuse_existing_reports),
         require_publication_ready=bool(require_publication_ready),
     )
 
@@ -147,6 +151,7 @@ def run_refinement_campaign(
         potential_iterations=settings.potential_iterations,
         potential_regularization=settings.potential_regularization,
         potential_preconditioner=settings.potential_preconditioner,
+        reuse_existing_reports=settings.reuse_existing_reports,
     )
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     print(f"wrote movie refinement summary: {artifacts.report_json_path}")
