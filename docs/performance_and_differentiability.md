@@ -1380,6 +1380,26 @@ substitute for `linear_solve_seconds`, because JAX device work can be
 asynchronous, but it gives the preconditioner lane a stable call-count metric
 for future reductions.
 
+After the sampled-field and feedback-aware preconditioner sweeps all reported
+the same fixed-BDF2 operator-call count, the diagnostics now include an
+orthogonal quality metric: the achieved linear-update residual. When
+`runtime:recycling_jax_linear_diagnose_update_residual=true` is enabled, each
+JAX-linearized Newton step evaluates `J v + r` after the Krylov solve and
+reports `linear_update_residual_inf_norm`,
+`linear_update_relative_residual`,
+`linear_update_residual_evaluation_count`, and
+`linear_update_residual_seconds`. Fixed-BDF2 histories aggregate these as
+`fixed_bdf2_max_linear_update_residual_inf_norm`,
+`fixed_bdf2_max_linear_update_relative_residual`,
+`fixed_bdf2_total_linear_update_residual_evaluation_count`, and
+`fixed_bdf2_total_linear_update_residual_seconds`; adaptive-BDF histories
+report the analogous `adaptive_bdf_*` fields. The promotion wrapper exposes
+this with `--fixed-bdf2-diagnose-linear-update-residual`. This diagnostic is
+not enabled by default because it adds one extra linearized action per Newton
+update, but it is the right gate for future target/sheath, transport, or Schur
+preconditioners: a candidate should either reduce operator work or improve the
+linear-update residual under an explicit Krylov budget.
+
 The generic JAX-linearized solver also reports `linear_iterations` as actual
 linear-map work when the backend does not expose an iteration count. For
 JAX-GMRES and JAX-BiCGSTAB this is the number of counted calls to the
