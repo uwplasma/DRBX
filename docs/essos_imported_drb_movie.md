@@ -62,6 +62,26 @@ For the hybrid bridge, set `MAP_SOURCE = "hybrid"` and `OUTPUT_ROOT =
 Path("docs/data/essos_imported_drb_movie_hybrid_artifacts")`; for the
 closed-field control, set `MAP_SOURCE = "vmec"` and use a separate output root.
 
+After regenerating two or more same-map-source movie reports at different grid
+sizes and two or more reports at different effective frame timesteps, summarize
+the refinement evidence without committing heavyweight media:
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_summary.py
+```
+
+Edit `GRID_REPORT_JSON_PATHS` and `TIME_REPORT_JSON_PATHS` in that script to
+point at the regenerated report JSON files. The summary compares
+`final_fluctuation_rms`, `max_fluctuation_rms`, `radial_flux_proxy`,
+`low_mode_spectral_power_fraction`, and `final_potential_residual_l2`, checks
+that the grid or timestep ordering is meaningful, requires consistent map
+source labels, and preserves the sign of the radial-flux proxy. The checked-in
+summary intentionally uses the single restored hybrid report and therefore
+fails with `need_at_least_two_grid_reports` and
+`need_at_least_two_time_reports`; it is a blocker record, not a passed
+refinement claim.
+
 Before using restored release assets as fresh publication evidence, run the
 clean-clone schema audit:
 
@@ -141,3 +161,4 @@ evidence.
 - `docs/data/essos_imported_drb_movie_hybrid_artifacts/images/essos_imported_drb_movie_hybrid_campaign_snapshots.png`
 - `docs/data/essos_imported_drb_movie_hybrid_artifacts/images/essos_imported_drb_movie_hybrid_campaign_poster.png`
 - `docs/data/essos_imported_drb_movie_hybrid_artifacts/movies/essos_imported_drb_movie_hybrid_campaign.gif`
+- `docs/data/essos_imported_drb_movie_refinement_artifacts/data/essos_imported_drb_movie_refinement_summary.json`

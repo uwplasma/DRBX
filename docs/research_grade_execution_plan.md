@@ -149,9 +149,9 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 81% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims; report-level promotion/advisory/negative-control semantics, finite-overlap thresholds, sweep summaries, and movie-evidence roles are now explicit. |
+| 3D stellarator imported-field/VMEC SOL | 82% | Finish pure-coil tracing refinement, FCI, live grid-refinement, and live time-refinement before turbulence/movie claims; report-level promotion/advisory/negative-control semantics, finite-overlap thresholds, sweep summaries, movie-evidence roles, and report-only movie refinement gates are now explicit. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
-| Docs and examples | 91% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
+| Docs and examples | 92% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
 
 ## Milestone Map
@@ -1970,6 +1970,23 @@ Use this log for concise decision records. Do not paste terminal output here.
   `movie_showcase_connection_control_pending_grid_time_refinement`. This keeps
   README/docs movies usable as polished demonstrations without overstating them
   as final turbulence-validation evidence.
+- 2026-06-18: Added a report-only imported-field DRB movie grid/time
+  refinement summary gate. The new validation API compares scalar movie
+  diagnostics across same-map-source report JSON files along grid and timestep
+  axes: `final_fluctuation_rms`, `max_fluctuation_rms`, `radial_flux_proxy`,
+  `low_mode_spectral_power_fraction`, and `final_potential_residual_l2`. It
+  verifies monotone grid/timestep ordering, consistent map source, report
+  pass status, bounded relative metric changes, and radial-flux sign agreement.
+  The new example
+  `examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_summary.py`
+  lets users point at regenerated report JSON files without committing heavy
+  movies or NPZs. The checked-in summary intentionally uses only the restored
+  hybrid report and therefore records the current blocker:
+  `need_at_least_two_grid_reports` and `need_at_least_two_time_reports`.
+  Focused evidence:
+  `env PYTHONPATH=src pytest -q tests/test_essos_fieldline_import.py -k 'drb_movie_refinement'`
+  passed with `4` tests, and the example regenerated
+  `docs/data/essos_imported_drb_movie_refinement_artifacts/data/essos_imported_drb_movie_refinement_summary.json`.
 
 ## Definition Of Done
 

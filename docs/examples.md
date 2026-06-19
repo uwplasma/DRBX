@@ -116,6 +116,7 @@ adapters requires the geometry source checkout named by the page.
 | [`examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py) | Self-contained nested connection-length refinement gate for imported-field promotion. |
 | [`examples/geometry-3D/essos-field-lines/imported_pytree_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_pytree_campaign.py) | Imported fixed-layout PyTree/JVP RHS gate. |
 | [`examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py) | Reduced imported QA DRB movie with open endpoints where present. |
+| [`examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_summary.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_summary.py) | Report-only grid/time refinement summary for imported DRB movie promotion. |
 | [`examples/geometry-3D/essos-field-lines/vmec_fieldline_surface_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/vmec_fieldline_surface_campaign.py) | Field-line/surface registration and Poincare diagnostics. |
 
 Representative output:

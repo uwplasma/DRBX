@@ -40,10 +40,24 @@ class EssosImportedDrbMovieArtifacts:
 
 
 @dataclass(frozen=True)
+class EssosImportedDrbMovieRefinementArtifacts:
+    report_json_path: Path
+
+
+@dataclass(frozen=True)
 class EssosImportedDrbMovieResult:
     geometry: EssosImportedFciGeometry
     report: dict[str, Any]
     arrays: dict[str, np.ndarray]
+
+
+ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRICS = (
+    "final_fluctuation_rms",
+    "max_fluctuation_rms",
+    "radial_flux_proxy",
+    "low_mode_spectral_power_fraction",
+    "final_potential_residual_l2",
+)
 
 
 def classify_essos_imported_drb_movie_evidence(map_source: str) -> dict[str, Any]:
@@ -78,6 +92,291 @@ def classify_essos_imported_drb_movie_evidence(map_source: str) -> dict[str, Any
         "movie_promotion_rejection_reasons": reasons,
         "required_publication_gates": required_gates,
     }
+
+
+def create_essos_imported_drb_movie_refinement_summary_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_imported_drb_movie_refinement_summary",
+    grid_report_json_paths: tuple[str | Path, ...] | list[str | Path] = (),
+    time_report_json_paths: tuple[str | Path, ...] | list[str | Path] = (),
+    relative_tolerance: float = 0.30,
+) -> EssosImportedDrbMovieRefinementArtifacts:
+    """Write a lightweight grid/time refinement summary from movie reports."""
+
+    root = Path(output_root)
+    data_dir = root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    grid_reports = _load_movie_refinement_reports(grid_report_json_paths)
+    time_reports = _load_movie_refinement_reports(time_report_json_paths)
+    report = build_essos_imported_drb_movie_refinement_summary(
+        grid_reports=grid_reports,
+        time_reports=time_reports,
+        relative_tolerance=relative_tolerance,
+    )
+    report_json_path = data_dir / f"{case_label}.json"
+    report_json_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return EssosImportedDrbMovieRefinementArtifacts(report_json_path=report_json_path)
+
+
+def build_essos_imported_drb_movie_refinement_summary(
+    *,
+    grid_reports: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+    time_reports: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+    relative_tolerance: float = 0.30,
+) -> dict[str, Any]:
+    """Build grid/time refinement diagnostics from movie report dictionaries."""
+
+    grid_diagnostics = build_essos_imported_drb_movie_refinement_diagnostics(
+        grid_reports,
+        refinement_axis="grid",
+        relative_tolerance=relative_tolerance,
+    )
+    time_diagnostics = build_essos_imported_drb_movie_refinement_diagnostics(
+        time_reports,
+        refinement_axis="time",
+        relative_tolerance=relative_tolerance,
+    )
+    grid_passed = bool(grid_diagnostics["passed"])
+    time_passed = bool(time_diagnostics["passed"])
+    return {
+        "diagnostic": "essos_imported_drb_movie_refinement_summary",
+        "claim_scope": (
+            "report-only grid/time refinement gate for imported-field DRB "
+            "movies; this summary does not regenerate GIF or NPZ artifacts"
+        ),
+        "relative_tolerance": float(relative_tolerance),
+        "grid_refinement_passed": grid_passed,
+        "time_refinement_passed": time_passed,
+        "publication_ready": bool(grid_passed and time_passed),
+        "movie_promotion_rejection_reasons": _movie_refinement_rejection_reasons(
+            grid_diagnostics,
+            time_diagnostics,
+        ),
+        "grid_refinement_diagnostics": grid_diagnostics,
+        "time_refinement_diagnostics": time_diagnostics,
+    }
+
+
+def build_essos_imported_drb_movie_refinement_diagnostics(
+    reports: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    *,
+    refinement_axis: str,
+    relative_tolerance: float = 0.30,
+) -> dict[str, Any]:
+    """Compare scalar movie diagnostics across grid or timestep refinements."""
+
+    normalized_axis = str(refinement_axis).strip().lower().replace("-", "_")
+    if normalized_axis not in {"grid", "time"}:
+        raise ValueError("refinement_axis must be either 'grid' or 'time'.")
+    tolerance = float(relative_tolerance)
+    if tolerance <= 0.0:
+        raise ValueError("relative_tolerance must be positive.")
+    report_list = [dict(report) for report in reports]
+    base: dict[str, Any] = {
+        "diagnostic": "essos_imported_drb_movie_refinement",
+        "refinement_axis": normalized_axis,
+        "report_count": len(report_list),
+        "relative_tolerance": tolerance,
+        "metric_keys": list(ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRICS),
+        "pair_reports": [],
+        "max_relative_metric_change": None,
+        "axis_progression_passed": False,
+        "all_reports_passed": False,
+        "map_source_consistent": False,
+        "passed": False,
+    }
+    if len(report_list) < 2:
+        return {
+            **base,
+            "reason": f"need_at_least_two_{normalized_axis}_reports",
+        }
+
+    sorted_reports = sorted(
+        report_list,
+        key=(
+            _movie_grid_refinement_key
+            if normalized_axis == "grid"
+            else _movie_time_refinement_key
+        ),
+    )
+    if normalized_axis == "time":
+        sorted_reports = list(reversed(sorted_reports))
+    map_sources = {str(report.get("map_source", "unknown")) for report in sorted_reports}
+    labels = [_movie_report_label(report, index) for index, report in enumerate(sorted_reports)]
+    axis_values = [
+        _movie_grid_refinement_key(report)
+        if normalized_axis == "grid"
+        else _movie_time_refinement_key(report)
+        for report in sorted_reports
+    ]
+    axis_progression_passed = all(
+        current > previous
+        for previous, current in zip(axis_values, axis_values[1:])
+    )
+    if normalized_axis == "time":
+        axis_progression_passed = all(
+            current < previous
+            for previous, current in zip(axis_values, axis_values[1:])
+        )
+
+    pair_reports = [
+        _build_movie_refinement_pair_report(
+            coarse=coarse,
+            fine=fine,
+            coarse_label=coarse_label,
+            fine_label=fine_label,
+            relative_tolerance=tolerance,
+        )
+        for coarse, fine, coarse_label, fine_label in zip(
+            sorted_reports,
+            sorted_reports[1:],
+            labels,
+            labels[1:],
+        )
+    ]
+    max_change_values = [
+        float(pair["max_relative_metric_change"])
+        for pair in pair_reports
+        if pair["max_relative_metric_change"] is not None
+    ]
+    all_reports_passed = all(bool(report.get("passed")) for report in sorted_reports)
+    map_source_consistent = len(map_sources) == 1
+    passed = bool(
+        all_reports_passed
+        and map_source_consistent
+        and axis_progression_passed
+        and pair_reports
+        and all(bool(pair["passed"]) for pair in pair_reports)
+    )
+    return {
+        **base,
+        "map_source": next(iter(map_sources)) if map_source_consistent else None,
+        "map_sources": sorted(map_sources),
+        "labels": labels,
+        "axis_values": [float(value) for value in axis_values],
+        "axis_progression_passed": bool(axis_progression_passed),
+        "all_reports_passed": bool(all_reports_passed),
+        "map_source_consistent": bool(map_source_consistent),
+        "pair_reports": pair_reports,
+        "max_relative_metric_change": (
+            max(max_change_values) if max_change_values else None
+        ),
+        "passed": passed,
+    }
+
+
+def _load_movie_refinement_reports(paths: tuple[str | Path, ...] | list[str | Path]) -> tuple[dict[str, Any], ...]:
+    reports: list[dict[str, Any]] = []
+    for path in paths:
+        resolved = Path(path)
+        reports.append(json.loads(resolved.read_text(encoding="utf-8")))
+    return tuple(reports)
+
+
+def _movie_refinement_rejection_reasons(
+    grid_diagnostics: dict[str, Any],
+    time_diagnostics: dict[str, Any],
+) -> list[str]:
+    reasons: list[str] = []
+    if not bool(grid_diagnostics["passed"]):
+        reasons.append("movie_grid_refinement_not_passed")
+        if "reason" in grid_diagnostics:
+            reasons.append(str(grid_diagnostics["reason"]))
+    if not bool(time_diagnostics["passed"]):
+        reasons.append("movie_time_refinement_not_passed")
+        if "reason" in time_diagnostics:
+            reasons.append(str(time_diagnostics["reason"]))
+    return reasons
+
+
+def _movie_grid_refinement_key(report: dict[str, Any]) -> float:
+    grid = report.get("movie_physics_grid", ())
+    if not isinstance(grid, (list, tuple)) or len(grid) != 3:
+        return 0.0
+    product = 1
+    for value in grid:
+        product *= int(value)
+    return float(product)
+
+
+def _movie_time_refinement_key(report: dict[str, Any]) -> float:
+    return float(report.get("dt", 0.0)) * float(report.get("substeps_per_frame", 0.0))
+
+
+def _movie_report_label(report: dict[str, Any], index: int) -> str:
+    case = report.get("case")
+    if case:
+        return str(case)
+    grid = report.get("movie_physics_grid")
+    if isinstance(grid, (list, tuple)) and len(grid) == 3:
+        return f"report_{index}_{int(grid[0])}x{int(grid[1])}x{int(grid[2])}"
+    return f"report_{index}"
+
+
+def _build_movie_refinement_pair_report(
+    *,
+    coarse: dict[str, Any],
+    fine: dict[str, Any],
+    coarse_label: str,
+    fine_label: str,
+    relative_tolerance: float,
+) -> dict[str, Any]:
+    metric_reports: dict[str, dict[str, Any]] = {}
+    relative_changes: list[float] = []
+    sign_passed = True
+    for key in ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRICS:
+        coarse_value = _optional_float(coarse.get(key))
+        fine_value = _optional_float(fine.get(key))
+        if coarse_value is None or fine_value is None:
+            metric_reports[key] = {
+                "coarse": coarse_value,
+                "fine": fine_value,
+                "relative_change": None,
+                "sign_agreement": False,
+                "passed": False,
+            }
+            sign_passed = False
+            continue
+        denominator = max(abs(fine_value), 1.0e-12)
+        relative_change = abs(coarse_value - fine_value) / denominator
+        sign_agreement = True
+        if key == "radial_flux_proxy" and max(abs(coarse_value), abs(fine_value)) > 1.0e-12:
+            sign_agreement = bool(np.sign(coarse_value) == np.sign(fine_value))
+            sign_passed = sign_passed and sign_agreement
+        relative_changes.append(float(relative_change))
+        metric_reports[key] = {
+            "coarse": coarse_value,
+            "fine": fine_value,
+            "relative_change": float(relative_change),
+            "sign_agreement": bool(sign_agreement),
+            "passed": bool(relative_change <= relative_tolerance and sign_agreement),
+        }
+    max_change = max(relative_changes) if relative_changes else None
+    metric_passed = all(bool(item["passed"]) for item in metric_reports.values())
+    return {
+        "coarse_label": coarse_label,
+        "fine_label": fine_label,
+        "coarse_grid": list(coarse.get("movie_physics_grid", [])),
+        "fine_grid": list(fine.get("movie_physics_grid", [])),
+        "coarse_effective_frame_dt": _movie_time_refinement_key(coarse),
+        "fine_effective_frame_dt": _movie_time_refinement_key(fine),
+        "metric_reports": metric_reports,
+        "max_relative_metric_change": max_change,
+        "radial_flux_sign_passed": bool(sign_passed),
+        "passed": bool(metric_passed),
+    }
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if np.isfinite(result) else None
 
 
 def create_essos_imported_drb_movie_package(
