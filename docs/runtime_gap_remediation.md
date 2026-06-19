@@ -330,7 +330,11 @@ with JVPs, solves those small blocks on device, and treats off-cell transport
 coupling through the outer Krylov iteration. The optional
 `neutral_line` and `momentum_line` paths use the same JVP-derived line-block
 builder but restrict the approximate inverse to neutral fields or `NV*`
-parallel-momentum fields, respectively. The optional
+parallel-momentum fields, respectively. The selected-field momentum path now
+has a bounded solver-level effectivity gate: on a packed two-field stiff-line
+fixture it cuts linear-operator calls from `10` to `5` while preserving
+machine-precision convergence. This confirms the algorithmic seam, but does
+not yet replace the missing heavy same-case recycling speedup. The optional
 `runtime:recycling_jax_linear_preconditioner_refresh` control reuses the
 dynamic block preconditioner within one implicit solve. The matching
 `runtime:recycling_jax_linear_preconditioner_floor`,
