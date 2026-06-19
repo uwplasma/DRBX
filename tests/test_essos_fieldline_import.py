@@ -79,6 +79,7 @@ def _movie_report(
     radial_flux_rms: float | None = None,
     low_mode_window_covers_grid: bool | None = None,
     spectral_edge_band_power_fraction: float = 0.08,
+    final_potential_residual_l2: float = 0.02,
 ) -> dict[str, object]:
     radial_flux_abs_mean = (
         abs(radial_flux_proxy) if radial_flux_abs_mean is None else radial_flux_abs_mean
@@ -117,7 +118,7 @@ def _movie_report(
         "spectral_centroid_toroidal_fraction": toroidal_fraction,
         "spectral_edge_band_power_fraction": spectral_edge_band_power_fraction,
         "low_mode_window_covers_grid": low_mode_window_covers_grid,
-        "final_potential_residual_l2": 0.02,
+        "final_potential_residual_l2": final_potential_residual_l2,
     }
 
 
@@ -228,6 +229,26 @@ def test_essos_imported_drb_movie_refinement_summary_rejects_underresolved_spect
     assert grid_diagnostics["spectral_resolution_passed"] is False
     assert grid_diagnostics["spectral_resolution_reports"][0]["passed"] is False
     assert grid_diagnostics["spectral_resolution_reports"][1]["passed"] is True
+
+
+def test_essos_imported_drb_movie_refinement_uses_floor_for_tiny_potential_residual() -> None:
+    grid_reports = (
+        _movie_report(grid=(4, 8, 16), final_potential_residual_l2=2.0e-12),
+        _movie_report(grid=(8, 16, 32), final_potential_residual_l2=5.0e-12),
+    )
+
+    diagnostics = build_essos_imported_drb_movie_refinement_diagnostics(
+        grid_reports,
+        refinement_axis="grid",
+        relative_tolerance=0.20,
+    )
+
+    pair = diagnostics["pair_reports"][0]
+    residual_report = pair["metric_reports"]["final_potential_residual_l2"]
+    assert residual_report["denominator_floor"] == pytest.approx(1.0e-10)
+    assert residual_report["relative_change"] == pytest.approx(0.03)
+    assert residual_report["passed"] is True
+    assert diagnostics["passed"] is True
 
 
 def test_essos_imported_drb_movie_refinement_summary_package_reads_reports(tmp_path: Path) -> None:

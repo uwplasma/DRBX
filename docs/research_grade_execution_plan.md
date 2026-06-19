@@ -2076,6 +2076,24 @@ Use this log for concise decision records. Do not paste terminal output here.
   gates fail because the compact grids are edge-band dominated. This gives the
   project a lightweight, reproducible route to search for the larger/adaptive
   grid campaign needed before release-hosted movie regeneration.
+- 2026-06-19: Added metric-specific denominator floors to the imported-field
+  movie refinement gate. The compact potential residual now uses a `1e-10`
+  floor, so roundoff-level changes near `1e-12` no longer masquerade as failed
+  physics refinement. Reran the compact checked-in campaign, which still fails
+  for the same real reasons: under-resolved spectrum and unstable grid metrics.
+- 2026-06-19: Ran a larger report-only hybrid candidate in `tmp/` with grid
+  levels `(4,8,16)`, `(6,12,24)`, `(8,16,32)`, a fixed-grid timestep pair at
+  `(8,16,32)`, `frames=6`, `substeps_per_frame=2`, and `times_to_trace=100`.
+  This is important partial progress: spectral-resolution gates pass for all
+  grid and time reports, and time refinement passes with max relative metric
+  change `0.135`. The grid gate still fails with max relative metric change
+  `0.616`; after the residual floor, the remaining offenders are physical
+  grid-sensitive quantities: `radial_flux_abs_mean`, `radial_flux_rms`, and
+  `spectral_centroid_toroidal_fraction` on the coarse-to-medium pair, plus
+  `spectral_centroid_toroidal_fraction` on the medium-to-fine pair. The next
+  3D movie lane should therefore increase/adapt the grid or adjust the physics
+  campaign until radial transport and toroidal spectral placement stabilize,
+  not merely relax the gate.
 
 ## Definition Of Done
 

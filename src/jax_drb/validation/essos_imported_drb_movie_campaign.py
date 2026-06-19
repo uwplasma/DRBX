@@ -71,6 +71,10 @@ ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRICS = (
 )
 
 ESSOS_IMPORTED_DRB_MOVIE_MAX_EDGE_BAND_FRACTION = 0.85
+ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRIC_FLOORS = {
+    "final_potential_residual_l2": 1.0e-10,
+}
+ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_DEFAULT_METRIC_FLOOR = 1.0e-12
 
 
 def classify_essos_imported_drb_movie_evidence(map_source: str) -> dict[str, Any]:
@@ -547,12 +551,14 @@ def _build_movie_refinement_pair_report(
                 "passed": False,
             }
             continue
-        denominator = max(abs(fine_value), 1.0e-12)
+        denominator_floor = _movie_refinement_metric_floor(key)
+        denominator = max(abs(fine_value), denominator_floor)
         relative_change = abs(coarse_value - fine_value) / denominator
         relative_changes.append(float(relative_change))
         metric_reports[key] = {
             "coarse": coarse_value,
             "fine": fine_value,
+            "denominator_floor": float(denominator_floor),
             "relative_change": float(relative_change),
             "sign_agreement": True,
             "passed": bool(relative_change <= relative_tolerance),
@@ -576,6 +582,15 @@ def _build_movie_refinement_pair_report(
         "radial_flux_sign_passed": bool(radial_flux_proxy_sign_agreement),
         "passed": bool(metric_passed),
     }
+
+
+def _movie_refinement_metric_floor(key: str) -> float:
+    return float(
+        ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRIC_FLOORS.get(
+            key,
+            ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_DEFAULT_METRIC_FLOOR,
+        )
+    )
 
 
 def _signed_metric_agrees(coarse_value: Any, fine_value: Any, *, floor: float = 1.0e-12) -> bool:

@@ -50,6 +50,7 @@
         "metric_reports": {
           "final_fluctuation_rms": {
             "coarse": 0.024382686051308708,
+            "denominator_floor": 1e-12,
             "fine": 0.02492685966693148,
             "passed": true,
             "relative_change": 0.02183081314268745,
@@ -57,13 +58,15 @@
           },
           "final_potential_residual_l2": {
             "coarse": 2.521681222843063e-13,
+            "denominator_floor": 1e-10,
             "fine": 2.7726624028560845e-13,
             "passed": true,
-            "relative_change": 0.025098118001302176,
+            "relative_change": 0.00025098118001302174,
             "sign_agreement": true
           },
           "low_mode_spectral_power_fraction": {
             "coarse": 1.0,
+            "denominator_floor": 1e-12,
             "fine": 0.19304806771389543,
             "passed": false,
             "relative_change": 4.180057028501513,
@@ -71,6 +74,7 @@
           },
           "max_fluctuation_rms": {
             "coarse": 0.024382686051308708,
+            "denominator_floor": 1e-12,
             "fine": 0.02492685966693148,
             "passed": true,
             "relative_change": 0.02183081314268745,
@@ -78,6 +82,7 @@
           },
           "radial_flux_abs_mean": {
             "coarse": 0.000370313311115796,
+            "denominator_floor": 1e-12,
             "fine": 8.237593695474543e-05,
             "passed": false,
             "relative_change": 3.495406362652162,
@@ -85,6 +90,7 @@
           },
           "radial_flux_rms": {
             "coarse": 0.0006028219469140017,
+            "denominator_floor": 1e-12,
             "fine": 0.0001399820799210603,
             "passed": false,
             "relative_change": 3.3064222738649782,
@@ -92,6 +98,7 @@
           },
           "spectral_centroid_poloidal_fraction": {
             "coarse": 0.6854677062591885,
+            "denominator_floor": 1e-12,
             "fine": 0.8074694554507136,
             "passed": true,
             "relative_change": 0.15109147270892878,
@@ -99,6 +106,7 @@
           },
           "spectral_centroid_toroidal_fraction": {
             "coarse": 0.6079240303346837,
+            "denominator_floor": 1e-12,
             "fine": 0.5026024235446559,
             "passed": true,
             "relative_change": 0.2095525247316481,
@@ -106,6 +114,7 @@
           },
           "spectral_edge_band_power_fraction": {
             "coarse": 0.9519587982902806,
+            "denominator_floor": 1e-12,
             "fine": 0.9723105230588605,
             "passed": true,
             "relative_change": 0.02093130156048697,
@@ -211,6 +220,7 @@
         "metric_reports": {
           "final_fluctuation_rms": {
             "coarse": 0.02492685966693148,
+            "denominator_floor": 1e-12,
             "fine": 0.024562548660519618,
             "passed": true,
             "relative_change": 0.014831970877575708,
@@ -218,13 +228,15 @@
           },
           "final_potential_residual_l2": {
             "coarse": 2.7726624028560845e-13,
+            "denominator_floor": 1e-10,
             "fine": 2.632904681461263e-13,
             "passed": true,
-            "relative_change": 0.013975772139482156,
+            "relative_change": 0.00013975772139482155,
             "sign_agreement": true
           },
           "low_mode_spectral_power_fraction": {
             "coarse": 0.19304806771389543,
+            "denominator_floor": 1e-12,
             "fine": 0.17090662785843408,
             "passed": true,
             "relative_change": 0.12955284492419814,
@@ -232,6 +244,7 @@
           },
           "max_fluctuation_rms": {
             "coarse": 0.02492685966693148,
+            "denominator_floor": 1e-12,
             "fine": 0.024562548660519618,
             "passed": true,
             "relative_change": 0.014831970877575708,
@@ -239,6 +252,7 @@
           },
           "radial_flux_abs_mean": {
             "coarse": 8.237593695474543e-05,
+            "denominator_floor": 1e-12,
             "fine": 8.807017408978918e-05,
             "passed": true,
             "relative_change": 0.06465568160724153,
@@ -246,6 +260,7 @@
           },
           "radial_flux_rms": {
             "coarse": 0.0001399820799210603,
+            "denominator_floor": 1e-12,
             "fine": 0.00015572416323545864,
             "passed": true,
             "relative_change": 0.10108953541523245,
@@ -253,6 +268,7 @@
           },
           "spectral_centroid_poloidal_fraction": {
             "coarse": 0.8074694554507136,
+            "denominator_floor": 1e-12,
             "fine": 0.8211499622579993,
             "passed": true,
             "relative_change": 0.016660180766089355,
@@ -260,6 +276,7 @@
           },
           "spectral_centroid_toroidal_fraction": {
             "coarse": 0.5026024235446559,
+            "denominator_floor": 1e-12,
             "fine": 0.5156553119644774,
             "passed": true,
             "relative_change": 0.025313204609672946,
@@ -267,6 +284,7 @@
           },
           "spectral_edge_band_power_fraction": {
             "coarse": 0.9723105230588605,
+            "denominator_floor": 1e-12,
             "fine": 0.9925945487025167,
             "passed": true,
             "relative_change": 0.020435358697235256,

@@ -7,7 +7,7 @@
   "dominant_toroidal_mode_index": 4,
   "dt": 0.001,
   "endpoint_fraction": 0.9444444444444444,
-  "execute_seconds": 0.3453778749972116,
+  "execute_seconds": 0.3409830000018701,
   "final_fluctuation_rms": 0.024562548660519618,
   "final_ion_density_mean": 0.805612251961626,
   "final_min_density": 0.10999897640973827,

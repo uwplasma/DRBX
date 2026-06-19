@@ -102,7 +102,11 @@ requires consistent map source labels, and rejects under-resolved reports whose
 low-mode window covers the available grid or whose edge-band spectral power is
 too large. The default edge-band ceiling is `0.85`, so compact exploratory
 movies can remain useful visual QA while still failing publication promotion
-when the spectrum is crowded near the grid edge. The signed
+when the spectrum is crowded near the grid edge. Relative changes are computed
+with metric-specific denominator floors; for example,
+`final_potential_residual_l2` uses a `1e-10` floor so roundoff-level changes in
+an already-converged elliptic solve do not dominate the movie-refinement
+decision. The signed
 `radial_flux_proxy` remains in each report as a cancellation and symmetry
 diagnostic, but refinement promotion uses magnitude and RMS radial-flux
 statistics because a domain-averaged signed flux can change sign when inward
