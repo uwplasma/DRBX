@@ -2028,6 +2028,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   signed-flux gate problem while preserving the important conclusion that the
   current short hybrid transient is not grid-converged enough for publication
   evidence.
+- 2026-06-18: Added explicit spectral-resolution diagnostics to imported-field
+  DRB movie reports and artifact audits:
+  `spectral_poloidal_mode_count`, `spectral_toroidal_mode_count`,
+  `spectral_centroid_poloidal_index`, `spectral_centroid_toroidal_index`,
+  `spectral_edge_band_power_fraction`, and `low_mode_window_covers_grid`.
+  These fields close an interpretation gap in the movie gate: a coarse grid can
+  report `low_mode_spectral_power_fraction=1.0` simply because the checked
+  low-mode window spans the entire available spectrum. Future publication
+  movies should pass grid/time scalar metrics and show stable spectral
+  centroids with bounded edge-band power, not just visually smooth renderer
+  interpolation.
 
 ## Definition Of Done
 

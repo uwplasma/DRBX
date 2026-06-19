@@ -86,6 +86,16 @@ intentionally uses the single restored hybrid report and therefore fails with
 `need_at_least_two_time_reports`; it is a blocker record, not a passed
 refinement claim.
 
+Each movie report also records spectral resolution diagnostics:
+`spectral_poloidal_mode_count`, `spectral_toroidal_mode_count`,
+`spectral_centroid_poloidal_index`, `spectral_centroid_toroidal_index`,
+`spectral_edge_band_power_fraction`, and `low_mode_window_covers_grid`. These
+fields make coarse-grid failures easier to interpret. In particular, the
+low-mode fraction is not a resolution claim when the low-mode window covers the
+entire available grid; a publication-grade run must show stable scalar
+fluctuation statistics together with resolved spectral content away from the
+Nyquist/edge band.
+
 Before using restored release assets as fresh publication evidence, run the
 clean-clone schema audit:
 

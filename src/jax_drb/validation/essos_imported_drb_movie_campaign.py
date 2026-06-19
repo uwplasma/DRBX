@@ -895,6 +895,7 @@ def _build_essos_imported_drb_movie_report(
     spectrum = np.abs(np.fft.rfftn(final_fluctuation, axes=(1, 2))) ** 2
     total_power = float(np.sum(spectrum))
     low_mode_fraction = float(np.sum(spectrum[:, :4, :6]) / max(total_power, 1.0e-30))
+    spectral_stats = _spectral_mode_statistics(spectrum)
     mode_power = np.mean(spectrum, axis=0)
     if mode_power.size:
         mode_power[0, 0] = 0.0
@@ -954,6 +955,7 @@ def _build_essos_imported_drb_movie_report(
         "radial_flux_cancellation_ratio": radial_flux_stats["cancellation_ratio"],
         "radial_flux_positive_fraction": radial_flux_stats["positive_fraction"],
         "low_mode_spectral_power_fraction": low_mode_fraction,
+        **spectral_stats,
         "dominant_poloidal_mode_index": int(peak_mode[1]),
         "dominant_toroidal_mode_index": int(peak_mode[0]),
         **final_sheath,
@@ -1560,6 +1562,45 @@ def _radial_flux_profile_statistics(profile: np.ndarray) -> dict[str, float]:
         "peak_abs": float(np.max(abs_values)),
         "cancellation_ratio": float(abs(mean) / max(abs_mean, 1.0e-30)),
         "positive_fraction": float(np.mean(finite > 0.0)),
+    }
+
+
+def _spectral_mode_statistics(spectrum: np.ndarray) -> dict[str, Any]:
+    mode_power = np.mean(np.asarray(spectrum, dtype=np.float64), axis=0)
+    if mode_power.ndim != 2 or mode_power.size == 0:
+        return {
+            "spectral_poloidal_mode_count": 0,
+            "spectral_toroidal_mode_count": 0,
+            "spectral_centroid_poloidal_index": 0.0,
+            "spectral_centroid_toroidal_index": 0.0,
+            "spectral_edge_band_power_fraction": 0.0,
+            "low_mode_window_covers_grid": False,
+        }
+    fluctuation_power = np.array(mode_power, copy=True)
+    fluctuation_power[0, 0] = 0.0
+    total = float(np.sum(fluctuation_power))
+    poloidal_count, toroidal_count = fluctuation_power.shape
+    poloidal_index, toroidal_index = np.indices(fluctuation_power.shape)
+    if total <= 1.0e-30:
+        poloidal_centroid = 0.0
+        toroidal_centroid = 0.0
+        edge_fraction = 0.0
+    else:
+        poloidal_centroid = float(np.sum(poloidal_index * fluctuation_power) / total)
+        toroidal_centroid = float(np.sum(toroidal_index * fluctuation_power) / total)
+        poloidal_edge_start = max(1, int(np.floor(0.75 * max(poloidal_count - 1, 1))))
+        toroidal_edge_start = max(1, int(np.floor(0.75 * max(toroidal_count - 1, 1))))
+        edge_mask = (poloidal_index >= poloidal_edge_start) | (
+            toroidal_index >= toroidal_edge_start
+        )
+        edge_fraction = float(np.sum(fluctuation_power[edge_mask]) / total)
+    return {
+        "spectral_poloidal_mode_count": int(poloidal_count),
+        "spectral_toroidal_mode_count": int(toroidal_count),
+        "spectral_centroid_poloidal_index": poloidal_centroid,
+        "spectral_centroid_toroidal_index": toroidal_centroid,
+        "spectral_edge_band_power_fraction": edge_fraction,
+        "low_mode_window_covers_grid": bool(poloidal_count <= 4 and toroidal_count <= 6),
     }
 
 
