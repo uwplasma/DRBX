@@ -139,7 +139,11 @@ recommends repeating or extending the same transient before making an expensive
 grid jump. This distinction is important for the current high-grid hybrid
 campaign, where the `3072`-iteration residual budget passes the potential and
 time gates, while `radial_flux_abs_mean` and `radial_flux_rms` miss the grid
-gate only marginally. The refinement summary also
+gate only marginally. A follow-up `frames=8` report-only repeat did not remove
+that sensitivity and introduced a toroidal spectral-centroid time failure, so
+the next promotion attempt should use true grid refinement and a smaller
+effective frame timestep rather than only increasing the potential-solver or
+movie-window budget. The refinement summary also
 exports `failed_metric_reports`, `dominant_failed_metrics`, and
 `refinement_recommendations`, so a failed campaign identifies whether the next
 run should prioritize radial transport convergence, toroidal/poloidal spectral

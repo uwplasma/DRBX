@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 91% | High-grid hybrid report-only movie candidates now pass time, spectral-resolution, and potential-residual gates with `potential_iterations=3072`; remaining movie blocker is a near-tolerance radial-flux magnitude/RMS grid miss that needs a repeated or longer transient before a larger-grid claim. |
+| 3D stellarator imported-field/VMEC SOL | 91% | High-grid hybrid report-only movie candidates pass potential-residual gates with `potential_iterations=3072`; the `frames=8` repeat shows radial-flux grid sensitivity is not just a short-window artifact, so the next evidence path is true grid refinement plus smaller effective timestep. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -2236,6 +2236,14 @@ Use this log for concise decision records. Do not paste terminal output here.
   the on-disk metadata matcher avoids rerunning already-matched heavy reports.
   The next 3D-movie evidence run should repeat or extend the same grid/transient
   before jumping directly to the suggested `(32,36,144)` grid.
+- 2026-06-19: Ran the corresponding ignored `frames=8` high-grid campaign at
+  the same `(16,24,48)->(16,24,96)` grids and `potential_iterations=3072`.
+  The longer transient did not close the radial-flux gate: relative changes
+  increased to `0.339` and `0.337`, and the time pair gained a
+  `spectral_centroid_toroidal_index` failure at `0.397`. This rules out a pure
+  short-window explanation for the 3D movie blocker. The next run should use
+  the suggested larger physics grid and smaller effective timestep, preferably
+  on GPU or with persistent cache enabled.
 
 ## Definition Of Done
 
