@@ -1,0 +1,19 @@
+{"event": "problem_build_start", "input_path": "<input-path>/BOUT.inp", "overrides": ["mesh:ny=100"], "rhs_backend": "active_array"}
+{"event": "problem_build_complete", "mesh_active_shape": [1, 100, 1], "rhs_backend": "active_array", "state_size": 1900}
+{"batch_sizes": [1, 4, 16, 64], "check_objective_grad": true, "event": "profile_start", "mesh_active_shape": [1, 100, 1], "rhs_backend": "active_array", "state_size": 1900, "timed_runs": 3}
+{"event": "base_residual_warmup_complete", "seconds": 0.9165315409773029}
+{"event": "base_jvp_warmup_complete", "seconds": 1.757512709009461}
+{"event": "jvp_fd_check_complete", "jvp_fd_relative_error": 5.970822088758896e-09, "seconds": 0.012955207959748805}
+{"event": "objective_grad_check_complete", "objective_directional_relative_error": 1.3400199333876716e-07, "seconds": 3.923617792024743}
+{"batch_size": 1, "event": "batch_start"}
+{"batch_size": 1, "event": "batch_warmup_complete", "seconds": 3.916821666993201}
+{"batch_size": 1, "batch_warmup_seconds": 3.916821666993201, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_speedup_vs_serial": 1.1481006452127598, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 0.0, "residual_speedup_vs_serial": 1.1640443408048644}
+{"batch_size": 4, "event": "batch_start"}
+{"batch_size": 4, "event": "batch_warmup_complete", "seconds": 3.9393659999477677}
+{"batch_size": 4, "batch_warmup_seconds": 3.9393659999477677, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_speedup_vs_serial": 1.1188510414479456, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 0.0, "residual_speedup_vs_serial": 1.4708467965333378}
+{"batch_size": 16, "event": "batch_start"}
+{"batch_size": 16, "event": "batch_warmup_complete", "seconds": 3.779743708029855}
+{"batch_size": 16, "batch_warmup_seconds": 3.779743708029855, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_speedup_vs_serial": 2.1125045681945656, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 0.0, "residual_speedup_vs_serial": 1.8335362468400254}
+{"batch_size": 64, "event": "batch_start"}
+{"batch_size": 64, "event": "batch_warmup_complete", "seconds": 3.9913033329648897}
+{"batch_size": 64, "batch_warmup_seconds": 3.9913033329648897, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_speedup_vs_serial": 2.0963427119569045, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 1.6940658945086007e-21, "residual_speedup_vs_serial": 2.4410703259093904}
