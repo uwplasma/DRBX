@@ -199,6 +199,13 @@ turbulence only when all of the following are true:
   the coil target-exit length only for endpoint/sheath-source diagnostics.
 - The multi-grid control has at least three nested levels when it is used to
   support an observed-order convergence claim.
+- The refinement report has `promotion_ready=true`; this requires finite
+  pairwise comparisons, the configured RMS and \(L_\infty\) thresholds,
+  monotonic error reduction, and an explicitly required and available
+  observed-order check.
+- Reports with `advisory_only=true` or an `evidence_role` beginning with
+  `negative_` may be kept as diagnostics and regression evidence, but they do
+  not support publication, README, or movie promotion claims.
 - The turbulence figure or movie reports which connection-length definition was
   used: wall-hit/exit length, adjacent-plane arc length, or synthetic proxy.
 

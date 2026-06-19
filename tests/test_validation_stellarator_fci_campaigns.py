@@ -237,6 +237,9 @@ def test_imported_connection_length_refinement_example_runs_manufactured_gate(
     plot_path = output_root / "images" / "manufactured_gate.png"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["passed"] is True
+    assert report["promotion_ready"] is True
+    assert report["evidence_role"] == "promotion_ready"
+    assert report["promotion_rejection_reasons"] == []
     assert arrays_path.exists()
     assert plot_path.exists()
     assert "connection-length refinement gate passed" in output
@@ -485,12 +488,65 @@ def test_imported_fci_connection_length_refinement_diagnostics_rank_nested_grids
     )
 
     assert report["passed"] is True
+    assert report["promotion_ready"] is False
+    assert report["advisory_only"] is True
+    assert report["evidence_role"] == "advisory_only"
+    assert report["promotion_rejection_reasons"] == ["observed_order_not_required"]
     assert report["pair_reports"][0]["normalized_rms_error"] > report["pair_reports"][1]["normalized_rms_error"]
     assert report["observed_orders"][0]["observed_order"] > 1.0
     assert report["monotonic_rms_error_reduction"] is True
     assert report["monotonic_linf_error_reduction"] is True
     assert report["rms_error_reduction_factors"][0] > 1.0
     assert report["linf_error_reduction_factors"][0] > 1.0
+
+
+def test_imported_fci_connection_length_refinement_marks_promotion_ready() -> None:
+    high = np.ones((16, 16, 32), dtype=np.float64)
+    mid_truth = high.reshape(8, 2, 8, 2, 16, 2).mean(axis=(1, 3, 5))
+    coarse_truth = mid_truth.reshape(4, 2, 4, 2, 8, 2).mean(axis=(1, 3, 5))
+    coarse = coarse_truth + 0.02
+    mid = mid_truth + 0.005
+
+    report = build_essos_imported_connection_length_refinement_diagnostics(
+        [coarse, mid, high],
+        labels=["coarse", "medium", "fine"],
+        convergence_threshold=0.01,
+        linf_threshold=0.01,
+        minimum_observed_order=1.5,
+        require_observed_order=True,
+    )
+
+    assert report["passed"] is True
+    assert report["promotion_ready"] is True
+    assert report["advisory_only"] is False
+    assert report["evidence_role"] == "promotion_ready"
+    assert report["promotion_rejection_reasons"] == []
+    assert report["observed_order_passed"] is True
+
+
+def test_imported_fci_connection_length_refinement_classifies_negative_order() -> None:
+    high = np.ones((16, 16, 32), dtype=np.float64)
+    mid_truth = high.reshape(8, 2, 8, 2, 16, 2).mean(axis=(1, 3, 5))
+    coarse_truth = mid_truth.reshape(4, 2, 4, 2, 8, 2).mean(axis=(1, 3, 5))
+    coarse = coarse_truth + 0.040
+    mid = mid_truth + 0.019
+
+    report = build_essos_imported_connection_length_refinement_diagnostics(
+        [coarse, mid, high],
+        labels=["coarse", "medium", "fine"],
+        convergence_threshold=0.05,
+        linf_threshold=0.05,
+        minimum_observed_order=0.5,
+        require_observed_order=True,
+    )
+
+    assert report["passed"] is False
+    assert report["promotion_ready"] is False
+    assert report["advisory_only"] is True
+    assert report["evidence_role"] == "negative_observed_order_control"
+    assert report["observed_order_passed"] is False
+    assert "observed_order_below_threshold" in report["promotion_rejection_reasons"]
+    assert report["monotonic_error_reduction_passed"] is True
 
 
 def test_imported_fci_connection_length_refinement_requires_monotonic_error_reduction() -> None:
@@ -509,8 +565,11 @@ def test_imported_fci_connection_length_refinement_requires_monotonic_error_redu
     )
 
     assert report["passed"] is False
+    assert report["promotion_ready"] is False
     assert report["monotonic_rms_error_reduction"] is False
     assert report["monotonic_linf_error_reduction"] is False
+    assert report["monotonic_error_reduction_passed"] is False
+    assert "nonmonotonic_error_reduction" in report["promotion_rejection_reasons"]
 
 
 def test_imported_fci_connection_length_refinement_rejects_non_nested_grids() -> None:
