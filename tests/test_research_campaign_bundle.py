@@ -132,6 +132,45 @@ def _assert_dthe_fixed_bdf2_active_array_command(command) -> None:
     assert "--output-json" in command.command
 
 
+def _assert_dthe_fixed_bdf2_active_array_long_window_command(command) -> None:
+    assert command.required_reference_inputs == ("dthe",)
+    assert command.requires_gpu is False
+    assert command.timeout_seconds == 420
+    assert "compare_recycling_transient_modes.py" in command.command[1]
+    assert "recycling_dthe_one_step" in command.command
+    assert "fixed_bdf2_active_array_jax_linearized" in command.command
+    assert "--diagnostics-only" in command.command
+    assert "--require-fixed-bdf2-diagnostics" in command.command
+    assert "--require-fixed-bdf2-linear-operator-jitted" in command.command
+    assert command.command[
+        command.command.index("--require-fixed-bdf2-max-residual") + 1
+    ] == "1e-10"
+    assert command.command[
+        command.command.index("--require-fixed-bdf2-linear-solver-backend") + 1
+    ] == "jax_gmres"
+    assert command.command[
+        command.command.index("--require-fixed-bdf2-min-linear-solve-count") + 1
+    ] == "8"
+    assert command.command[
+        command.command.index("--require-fixed-bdf2-max-residual-evaluations") + 1
+    ] == "16"
+    assert command.command[command.command.index("--timestep") + 1] == "1e-4"
+    assert command.command[command.command.index("--steps") + 1] == "8"
+    assert command.command[command.command.index("--mode-timeout-seconds") + 1] == (
+        "300"
+    )
+    assert "runtime:recycling_jax_linear_jit_linear_operator=true" in command.command
+    assert "runtime:recycling_jax_linear_operator_counting=direct" in command.command
+    assert "runtime:recycling_jax_linear_initial_residual_mode=linearize" in (
+        command.command
+    )
+    assert "--output-json" in command.command
+    assert any(
+        "recycling_dthe_fixed_bdf2_active_array_long_window_cpu" in part
+        for part in command.command
+    )
+
+
 def _assert_batched_jvp_command(
     command,
     *,
@@ -482,6 +521,28 @@ def test_research_campaign_dthe_fixed_bdf2_active_array_gate_is_gated(
 
     assert command.name == "dthe-fixed-bdf2-active-array-gate"
     _assert_dthe_fixed_bdf2_active_array_command(command)
+
+
+def test_research_campaign_dthe_fixed_bdf2_active_array_long_window_gate_is_gated(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py",
+        "research_campaign_dthe_fixed_bdf2_active_array_long_window",
+    )
+    reference_root = _make_dthe_reference_root(tmp_path)
+
+    (command,) = module.build_campaign_commands(
+        campaign_names=("dthe-fixed-bdf2-active-array-long-window-gate",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=reference_root,
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    assert command.name == "dthe-fixed-bdf2-active-array-long-window-gate"
+    _assert_dthe_fixed_bdf2_active_array_long_window_command(command)
 
 
 def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(

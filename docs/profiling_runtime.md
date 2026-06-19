@@ -341,6 +341,26 @@ unconverged subsolves, maximum residual `4.10e-14`, and `11.27 s` mode elapsed
 time. This is solver-health evidence for the matrix-free D/T/He output-window
 route; it is not yet a GPU or default-backend promotion claim.
 
+Before broadening claims beyond the compact two-step gate, run the longer
+D/T/He matrix-free gate:
+
+```bash
+PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-long-window-gate \
+  --reference-root tests/fixtures/reference-root
+```
+
+The retained artifact is
+`docs/data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_long_window_cpu/profile_summary.json`.
+It runs the same case for eight output steps at `dt=1e-4`, reports one startup
+step, seven BDF2 correctors, eight JAX-GMRES solves, sixteen residual
+evaluations, zero failed or unconverged subsolves, maximum residual
+`4.10e-14`, `32.40 s` total linear-solve time, `10.86 s` total residual
+evaluation time, and `44.92 s` mode elapsed time. This is the strongest local
+D/T/He evidence for the matrix-free fixed-BDF2 route so far, but it remains a
+bounded diagnostics-only gate rather than a default-solver or GPU-speedup
+claim.
+
 For output-window fixed-BDF2 solver-health checks, use the strict active-array
 linearized residual gate:
 

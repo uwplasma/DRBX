@@ -29,6 +29,7 @@ on:
           - dthe-active-array-linearized-update-jvp-diag-gate
           - dthe-batched-jvp-gate
           - dthe-fixed-bdf2-active-array-gate
+          - dthe-fixed-bdf2-active-array-long-window-gate
           - fixed-bdf2-direct-counting-gate
           - fixed-bdf2-linear-update-residual-gate
           - adaptive-bdf-jax-lineax-gate

@@ -60,6 +60,15 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the longer D/T/He fixed-BDF2 active-array output-window gate before
+promoting matrix-free recycling changes beyond the compact two-step gate:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-long-window-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the adaptive-BDF JAX-versus-Lineax controller-health gate after changing the
 adaptive residual route or linear-action solver:
 
@@ -192,6 +201,17 @@ evaluations, zero failed or unconverged implicit steps, maximum residual
 `4.10e-14`, and `11.27 s` mode elapsed time:
 [profile_summary.json](data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_direct_counting_cpu/profile_summary.json).
 This is the current local output-window D/T/He matrix-free promotion gate.
+The longer `dthe-fixed-bdf2-active-array-long-window-gate` runs the same case
+for eight output steps at `dt=1e-4`. Its retained wrapper-generated artifact
+reports one startup step, seven BDF2 correctors, eight active-array RHS steps,
+eight jitted JAX-linearized actions, eight JAX-GMRES solves, sixteen residual
+evaluations, zero failed or unconverged implicit steps, maximum residual
+`4.10e-14`, `32.40 s` total linear-solve time, `10.86 s` total residual
+evaluation time, and `44.92 s` mode elapsed time:
+[profile_summary.json](data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_long_window_cpu/profile_summary.json).
+This is the current long-window D/T/He matrix-free output-window gate. It is
+kept explicit rather than folded into `all-local` so local all-lane runs do not
+silently acquire an additional minute-class solve.
 The matching `gpu-fixed-bdf2-direct-counting-gate` is intentionally guarded by
 a process-level timeout in addition to the inner mode timeout. The first
 office-GPU attempt on one RTX A4000 entered the solve but remained host-side
