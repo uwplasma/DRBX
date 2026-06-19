@@ -974,6 +974,11 @@ def _canonical_preconditioner_name(name: str) -> str:
         "target_sheath": "sheath_line",
         "target_sheath_line": "sheath_line",
         "sheath_transport": "sheath_line",
+        "line_field_schur": "field_line_schur",
+        "transport_field_schur": "field_line_schur",
+        "field_transport_schur": "field_line_schur",
+        "sheath_schur": "target_schur",
+        "plasma_neutral_schur": "neutral_plasma_schur",
     }
     return aliases.get(normalized, normalized)
 

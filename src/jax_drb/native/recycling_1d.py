@@ -5970,6 +5970,14 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "field_split_feedback": "field_block_feedback_diag",
         "field_schur_feedback": "field_block_feedback_diag",
         "feedback_schur": "field_block_feedback_diag",
+        "field_line_schur": "field_line_schur",
+        "line_field_schur": "field_line_schur",
+        "transport_field_schur": "field_line_schur",
+        "field_transport_schur": "field_line_schur",
+        "target_schur": "target_schur",
+        "sheath_schur": "target_schur",
+        "neutral_plasma_schur": "neutral_plasma_schur",
+        "plasma_neutral_schur": "neutral_plasma_schur",
         "field_diag": "field_diag",
         "field_jacobi": "field_diag",
         "field_diagonal": "field_diag",
@@ -6014,6 +6022,9 @@ def _build_recycling_jax_linear_preconditioner(
         "field_sample_diag",
         "field_block_sample",
         "field_block_feedback_diag",
+        "field_line_schur",
+        "target_schur",
+        "neutral_plasma_schur",
         "field_diag",
         "local_block_diag",
         "parallel_line",
@@ -6054,6 +6065,9 @@ def _recycling_jax_linear_preconditioner_context(
         "field_sample_diag",
         "field_block_sample",
         "field_block_feedback_diag",
+        "field_line_schur",
+        "target_schur",
+        "neutral_plasma_schur",
         "field_diag",
         "local_block_diag",
         "parallel_line",
@@ -6099,7 +6113,13 @@ def _recycling_jax_linear_preconditioner_context(
             env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_FIELD_UNKNOWNS",
             default=8192,
         )
-    if name in {"field_block_sample", "field_block_feedback_diag"}:
+    if name in {
+        "field_block_sample",
+        "field_block_feedback_diag",
+        "field_line_schur",
+        "target_schur",
+        "neutral_plasma_schur",
+    }:
         context["max_fields"] = _resolve_positive_int_runtime_option(
             config,
             option_name="recycling_jax_linear_preconditioner_max_field_block_fields",
@@ -6116,7 +6136,15 @@ def _recycling_jax_linear_preconditioner_context(
             env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_LOCAL_UNKNOWNS",
             default=4096,
         )
-    if name in {"parallel_line", "neutral_line", "momentum_line", "sheath_line"}:
+    if name in {
+        "parallel_line",
+        "neutral_line",
+        "momentum_line",
+        "sheath_line",
+        "field_line_schur",
+        "target_schur",
+        "neutral_plasma_schur",
+    }:
         active_shape = tuple(int(axis) for axis in tuple(layout.active_shape))
         context["parallel_axis"] = 1 if len(active_shape) > 1 else 0
         context["max_line_unknowns"] = _resolve_positive_int_runtime_option(
@@ -6145,8 +6173,12 @@ def _recycling_jax_linear_preconditioner_context(
             context["field_indices"] = _recycling_momentum_line_field_indices(
                 layout.field_names
             )
-        elif name == "sheath_line":
+        elif name in {"sheath_line", "target_schur"}:
             context["field_indices"] = _recycling_sheath_line_field_indices(
+                layout.field_names
+            )
+        elif name == "neutral_plasma_schur":
+            context["field_indices"] = _recycling_neutral_plasma_schur_field_indices(
                 layout.field_names
             )
     return context
@@ -6208,6 +6240,20 @@ def _is_recycling_sheath_line_field(field_name: str) -> bool:
     if "+" not in normalized:
         return False
     return normalized.startswith(("N", "P", "NV"))
+
+
+def _recycling_neutral_plasma_schur_field_indices(
+    field_names: tuple[str, ...],
+) -> tuple[int, ...]:
+    """Return indices for neutral plus target-coupled plasma Schur probes."""
+
+    selected: list[int] = []
+    for index, field_name in enumerate(field_names):
+        if _is_recycling_neutral_line_field(field_name) or (
+            _is_recycling_sheath_line_field(field_name)
+        ):
+            selected.append(index)
+    return tuple(selected)
 
 
 def _resolve_recycling_jax_linear_preconditioner_refresh(

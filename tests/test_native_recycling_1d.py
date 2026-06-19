@@ -3005,6 +3005,25 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
         == "sheath_line"
     )
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "field-line-schur"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
+        == "field_line_schur"
+    )
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "target-schur")
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
+        == "target_schur"
+    )
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "neutral-plasma-schur"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
+        == "neutral_plasma_schur"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "unknown")
     assert recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name() is None
 
@@ -3256,6 +3275,27 @@ def test_recycling_dynamic_jax_preconditioners_are_solver_built() -> None:
         )
         is None
     )
+    assert (
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([1.0], dtype=np.float64),
+            name="field_line_schur",
+        )
+        is None
+    )
+    assert (
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([1.0], dtype=np.float64),
+            name="target_schur",
+        )
+        is None
+    )
+    assert (
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([1.0], dtype=np.float64),
+            name="neutral_plasma_schur",
+        )
+        is None
+    )
 
 
 def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> None:
@@ -3413,6 +3453,65 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         "max_total_unknowns": 8192,
         "field_indices": (0, 1, 2, 6),
     }
+    field_line_schur_context = (
+        recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+            "field_line_schur",
+            layout=layout,
+        )
+    )
+    assert field_line_schur_context == {
+        "active_shape": (3,),
+        "active_cell_count": 3,
+        "field_count": 7,
+        "feedback_count": 2,
+        "refresh_frequency": 1,
+        "floor": 1.0e-10,
+        "max_fields": 64,
+        "parallel_axis": 0,
+        "max_line_unknowns": 512,
+        "max_batch_unknowns": 2048,
+        "max_total_unknowns": 8192,
+    }
+    target_schur_context = (
+        recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+            "target_schur",
+            layout=layout,
+        )
+    )
+    assert target_schur_context == {
+        "active_shape": (3,),
+        "active_cell_count": 3,
+        "field_count": 7,
+        "feedback_count": 2,
+        "refresh_frequency": 1,
+        "floor": 1.0e-10,
+        "max_fields": 64,
+        "parallel_axis": 0,
+        "max_line_unknowns": 512,
+        "max_batch_unknowns": 2048,
+        "max_total_unknowns": 8192,
+        "field_indices": (0, 1, 2, 6),
+    }
+    neutral_plasma_schur_context = (
+        recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+            "neutral_plasma_schur",
+            layout=layout,
+        )
+    )
+    assert neutral_plasma_schur_context == {
+        "active_shape": (3,),
+        "active_cell_count": 3,
+        "field_count": 7,
+        "feedback_count": 2,
+        "refresh_frequency": 1,
+        "floor": 1.0e-10,
+        "max_fields": 64,
+        "parallel_axis": 0,
+        "max_line_unknowns": 512,
+        "max_batch_unknowns": 2048,
+        "max_total_unknowns": 8192,
+        "field_indices": (0, 1, 2, 3, 4, 5, 6),
+    }
     assert recycling_1d_mod._recycling_neutral_line_field_indices(
         ("Nd+", "Pe", "Ne", "Nd", "Pd", "NVd", "Nhe", "Phe")
     ) == (3, 4, 5, 6, 7)
@@ -3422,6 +3521,9 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
     assert recycling_1d_mod._recycling_sheath_line_field_indices(
         ("Nd+", "Pe", "NVd+", "Nd", "Pd", "NVd", "Ne", "phi")
     ) == (0, 1, 2, 6, 7)
+    assert recycling_1d_mod._recycling_neutral_plasma_schur_field_indices(
+        ("Nd+", "Pe", "NVd+", "Nd", "Pd", "NVd", "Ne", "phi")
+    ) == (0, 1, 2, 3, 4, 5, 6, 7)
     config = parse_bout_input(
         """
         [runtime]
@@ -3523,6 +3625,20 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
     assert configured_sheath_context["max_line_unknowns"] == 64
     assert configured_sheath_context["max_batch_unknowns"] == 128
     assert configured_sheath_context["max_total_unknowns"] == 1024
+    configured_target_schur_context = (
+        recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+            "target_schur",
+            config=config,
+            layout=layout,
+        )
+    )
+    assert configured_target_schur_context["refresh_frequency"] == 4
+    assert configured_target_schur_context["floor"] == 1.0e-8
+    assert configured_target_schur_context["max_fields"] == 12
+    assert configured_target_schur_context["max_line_unknowns"] == 64
+    assert configured_target_schur_context["max_batch_unknowns"] == 128
+    assert configured_target_schur_context["max_total_unknowns"] == 1024
+    assert configured_target_schur_context["field_indices"] == (0, 1, 2, 6)
     assert configured_sheath_context["field_indices"] == (0, 1, 2, 6)
     with pytest.raises(ValueError, match="layout is required"):
         recycling_1d_mod._recycling_jax_linear_preconditioner_context(

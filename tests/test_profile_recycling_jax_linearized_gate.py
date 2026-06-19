@@ -507,6 +507,36 @@ def test_profile_gate_errors_accept_sheath_line_as_dynamic_preconditioner() -> N
     assert module._profile_gate_errors(profile_report, args) == []
 
 
+def test_profile_gate_errors_accept_target_schur_as_dynamic_preconditioner() -> None:
+    module = _load_module()
+    args = SimpleNamespace(
+        require_linear_preconditioner="sheath-schur",
+        require_initial_residual_mode=None,
+        require_linear_operator_jitted=False,
+        require_rhs_backend=None,
+        require_max_linear_iterations=None,
+        require_max_residual_inf_norm=None,
+        require_max_residual_evaluations=None,
+        require_max_line_search_trials=None,
+        require_min_linear_operator_calls=None,
+        require_max_linear_operator_calls=None,
+        require_min_linear_iterations=None,
+        require_min_nonlinear_iterations=None,
+        require_max_preconditioner_builds=1,
+        require_max_preconditioner_applies=None,
+    )
+    profile_report = {
+        "linear_iterations": 4,
+        "diagnostics": {
+            "linear_preconditioner": "target_schur",
+            "linear_preconditioner_build_count": 1,
+            "linear_preconditioner_build_seconds": 0.03,
+        },
+    }
+
+    assert module._profile_gate_errors(profile_report, args) == []
+
+
 def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
     module = _load_module()
     args = SimpleNamespace(

@@ -752,6 +752,28 @@ def test_fixed_bdf2_diagnostics_gate_accepts_sheath_line_alias() -> None:
     assert errors == []
 
 
+def test_fixed_bdf2_diagnostics_gate_accepts_target_schur_alias() -> None:
+    errors = compare_script._validate_fixed_bdf2_diagnostics(
+        "fixed_bdf2_active_array_jax_linearized",
+        {
+            "fixed_bdf2_solver_mode": "fixed_bdf2_active_array_jax_linearized",
+            "fixed_bdf2_step_solver_mode": "active_array_jax_linearized",
+            "fixed_bdf2_active_array_rhs_steps": 2,
+            "fixed_bdf2_jax_linearized_action_steps": 2,
+            "fixed_bdf2_startup_steps": 1,
+            "fixed_bdf2_bdf2_steps": 1,
+            "fixed_bdf2_evolve_feedback_integrals": True,
+            "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+            "fixed_bdf2_linear_preconditioner": "target_schur",
+            "fixed_bdf2_total_linear_preconditioner_build_count": 1,
+            "fixed_bdf2_total_linear_preconditioner_build_seconds": 0.0,
+        },
+        required_linear_preconditioner="sheath-schur",
+    )
+
+    assert errors == []
+
+
 def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> None:
     errors = compare_script._validate_fixed_bdf2_diagnostics(
         "fixed_bdf2_active_array_jax_linearized",

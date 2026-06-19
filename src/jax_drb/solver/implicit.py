@@ -1658,6 +1658,13 @@ def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:
         "field_split_feedback",
         "field_schur_feedback",
         "feedback_schur",
+        "field_line_schur",
+        "line_field_schur",
+        "transport_field_schur",
+        "field_transport_schur",
+        "target_schur",
+        "sheath_schur",
+        "neutral_plasma_schur",
         "field_diag",
         "field_jacobi",
         "field_diagonal",
@@ -1834,6 +1841,46 @@ def _build_jax_linearized_dynamic_preconditioner(
                 "field_schur_feedback",
                 "feedback_schur",
             },
+        )
+    if normalized in {
+        "field_line_schur",
+        "line_field_schur",
+        "transport_field_schur",
+        "field_transport_schur",
+        "target_schur",
+        "sheath_schur",
+        "neutral_plasma_schur",
+    }:
+        if context is None:
+            raise ValueError(
+                "field_line_schur preconditioner requires active_shape, "
+                "active_cell_count, and field_count in linear_preconditioner_context."
+            )
+        active_shape = tuple(int(axis) for axis in context.get("active_shape", ()))
+        return _build_jax_linearized_field_line_schur_preconditioner(
+            linear_map,
+            prototype_state,
+            active_shape=active_shape,
+            active_cell_count=int(context.get("active_cell_count", 0)),
+            field_count=int(context.get("field_count", 0)),
+            feedback_count=int(context.get("feedback_count", 0)),
+            parallel_axis=int(context.get("parallel_axis", 0)),
+            field_indices=(
+                tuple(int(index) for index in context["field_indices"])
+                if "field_indices" in context
+                else None
+            ),
+            sample_cell_index=(
+                int(context["sample_cell_index"])
+                if "sample_cell_index" in context
+                else None
+            ),
+            floor=float(context.get("floor", 1.0e-10)),
+            max_fields=int(context.get("max_fields", 64)),
+            max_line_unknowns=int(context.get("max_line_unknowns", 512)),
+            max_batch_unknowns=int(context.get("max_batch_unknowns", 2048)),
+            max_total_unknowns=int(context.get("max_total_unknowns", 8192)),
+            scale_feedback_diagonal=True,
         )
     if normalized in {"field_diag", "field_jacobi", "field_diagonal"}:
         if context is None:
@@ -2135,6 +2182,63 @@ def _build_jax_linearized_field_block_sample_preconditioner(
         else:
             solved = solved_fields
         return solved.reshape(tuple(prototype.shape))
+
+    return preconditioner
+
+
+def _build_jax_linearized_field_line_schur_preconditioner(
+    linear_map,
+    prototype_state,
+    *,
+    active_shape: tuple[int, ...],
+    active_cell_count: int,
+    field_count: int,
+    feedback_count: int = 0,
+    parallel_axis: int = 0,
+    field_indices: tuple[int, ...] | None = None,
+    sample_cell_index: int | None = None,
+    floor: float = 1.0e-10,
+    max_fields: int = 64,
+    max_line_unknowns: int = 512,
+    max_batch_unknowns: int = 2048,
+    max_total_unknowns: int = 8192,
+    scale_feedback_diagonal: bool = True,
+):
+    """Compose sampled local coupling with selected parallel-line transport.
+
+    This opt-in preconditioner is a bounded field-split/Schur probe: it first
+    applies a selected line-block inverse for stiff parallel transport, then a
+    sampled field-by-field inverse for local plasma-neutral/target coupling.
+    The Krylov operator remains the true linearized residual.
+    """
+
+    line_preconditioner = _build_jax_linearized_parallel_line_preconditioner(
+        linear_map,
+        prototype_state,
+        active_shape=tuple(int(axis) for axis in active_shape),
+        field_count=int(field_count),
+        feedback_count=int(feedback_count),
+        parallel_axis=int(parallel_axis),
+        field_indices=field_indices,
+        floor=float(floor),
+        max_line_unknowns=int(max_line_unknowns),
+        max_batch_unknowns=int(max_batch_unknowns),
+        max_total_unknowns=int(max_total_unknowns),
+    )
+    field_preconditioner = _build_jax_linearized_field_block_sample_preconditioner(
+        linear_map,
+        prototype_state,
+        active_cell_count=int(active_cell_count),
+        field_count=int(field_count),
+        feedback_count=int(feedback_count),
+        sample_cell_index=sample_cell_index,
+        floor=float(floor),
+        max_fields=int(max_fields),
+        scale_feedback_diagonal=bool(scale_feedback_diagonal),
+    )
+
+    def preconditioner(vector):
+        return field_preconditioner(line_preconditioner(vector))
 
     return preconditioner
 

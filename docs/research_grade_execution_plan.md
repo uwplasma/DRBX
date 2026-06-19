@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
-| Effective preconditioning | 60% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, and feedback-aware `field_block_feedback_diag` probes can reduce JAX-GMRES calls when they match the dominant operator, but real hydrogen recycling sweeps show exact selected-line and sampled local/feedback field-block probes do not reduce the actual fixed-BDF2 Krylov count. Heavy-path `J v + r` diagnostics now confirm the feedback-aware and target/sheath selected-line routes solve the linearized update accurately but without speedup, so the next production candidate must approximate neutral-plasma/target Schur coupling or reduce residual/JVP cost directly. |
+| Effective preconditioning | 61% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen recycling sweeps still show exact selected-line and sampled local/feedback field-block probes do not reduce the actual fixed-BDF2 Krylov count. The new Schur-style candidate must now pass the same heavy hydrogen and D/T/He update-residual/operator-budget gates before any promotion claim. |
 | Performance and scaling | 65% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`; remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -2483,6 +2483,23 @@ Use this log for concise decision records. Do not paste terminal output here.
   and update-residual ceilings; this improves evidence quality but does not yet
   change the effective-preconditioning completion percentage because no
   same-case speedup was produced.
+- 2026-06-19: Added the first compositional Schur-style recycling
+  preconditioner candidate. `field_line_schur` applies a selected JVP-derived
+  parallel-line inverse followed by the sampled field-by-equation inverse;
+  `target_schur` selects target/sheath fields, and `neutral_plasma_schur`
+  selects the union of neutral and target-coupled plasma fields. A focused
+  solver gate with stiff target-field transport plus local plasma-neutral
+  coupling now shows `target_schur` lowering the residual to the `10^{-5}` band
+  under the same operator-call budget where `sheath_line` and
+  `field_block_sample` remain in the `10^{-3}` to `10^{-2}` band. Focused
+  evidence:
+  `PYTHONPATH=src pytest -q tests/test_solver_implicit.py -k "schur or preconditioner"`
+  (`23 passed`) and
+  `PYTHONPATH=src pytest -q tests/test_native_recycling_1d.py -k "preconditioner or solver_controls"`
+  (`7 passed`). Decision: this raises the effective-preconditioning lane to
+  `61%` by adding the missing coupled transport/local-closure candidate, but it
+  remains opt-in and unpromoted until heavy hydrogen and D/T/He fixed-BDF2 gates
+  prove lower operator count, update residual, or wall time after build cost.
 
 ## Definition Of Done
 

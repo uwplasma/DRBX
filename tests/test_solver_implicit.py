@@ -1089,6 +1089,121 @@ def test_sheath_line_preconditioner_reduces_selected_stiff_operator_budget() -> 
     assert np.max(np.abs(unpreconditioned_solution - np.asarray(target))) > 1.0e-3
 
 
+def test_target_schur_preconditioner_combines_line_and_field_blocks() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_shape = (1, 12)
+    line_length = active_shape[1]
+    field_count = 3
+    field_unknown_count = field_count * line_length
+    line_matrix = np.diag(4.0 * np.ones(line_length))
+    line_matrix += np.diag(-1.95 * np.ones(line_length - 1), k=1)
+    line_matrix += np.diag(-1.95 * np.ones(line_length - 1), k=-1)
+    line_matrix = jnp.asarray(line_matrix, dtype=jnp.float64)
+    local_coupling = jnp.asarray(
+        (
+            (1.6, 1.4, -0.7),
+            (-1.2, 1.5, 1.1),
+            (0.9, -1.0, 1.4),
+        ),
+        dtype=jnp.float64,
+    )
+    target_fields = jnp.stack(
+        (
+            jnp.sin(jnp.linspace(0.0, 2.0, line_length, dtype=jnp.float64)),
+            jnp.cos(jnp.linspace(0.0, 2.5, line_length, dtype=jnp.float64)),
+            jnp.linspace(-0.2, 0.8, line_length, dtype=jnp.float64),
+        ),
+        axis=0,
+    )
+
+    def residual(state):
+        fields = jnp.asarray(state, dtype=jnp.float64).reshape(
+            (field_count, line_length)
+        )
+        delta = fields - target_fields
+        line_part = jnp.stack(
+            (
+                line_matrix @ delta[0],
+                0.25 * delta[1],
+                line_matrix @ delta[2],
+            ),
+            axis=0,
+        )
+        local_part = (delta.T @ local_coupling.T).T
+        return (line_part + local_part).reshape((field_unknown_count,))
+
+    common_solver_options = dict(
+        active_shape=(field_unknown_count,),
+        residual_tolerance=1.0e-10,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=2,
+        linear_restart=4,
+        linear_maxiter=1,
+        linear_tolerance=1.0e-10,
+        check_initial_residual=False,
+        line_search_mode="full_step",
+    )
+    initial_state = np.zeros(field_unknown_count, dtype=np.float64)
+    _, line_info = solve_jax_linearized_newton_system(
+        residual,
+        initial_state,
+        **common_solver_options,
+        linear_preconditioner_name="sheath_line",
+        linear_preconditioner_context={
+            "active_shape": active_shape,
+            "field_count": field_count,
+            "feedback_count": 0,
+            "parallel_axis": 1,
+            "field_indices": (0, 2),
+        },
+    )
+    _, field_info = solve_jax_linearized_newton_system(
+        residual,
+        initial_state,
+        **common_solver_options,
+        linear_preconditioner_name="field_block_sample",
+        linear_preconditioner_context={
+            "active_cell_count": line_length,
+            "field_count": field_count,
+            "feedback_count": 0,
+        },
+    )
+    composite_solution, composite_info = solve_jax_linearized_newton_system(
+        residual,
+        initial_state,
+        **common_solver_options,
+        linear_preconditioner_name="target_schur",
+        linear_preconditioner_context={
+            "active_shape": active_shape,
+            "active_cell_count": line_length,
+            "field_count": field_count,
+            "feedback_count": 0,
+            "parallel_axis": 1,
+            "field_indices": (0, 2),
+            "refresh_frequency": 100,
+        },
+    )
+
+    assert composite_info.linear_preconditioner == "target_schur"
+    assert composite_info.linear_preconditioner_build_count == 1
+    assert composite_info.linear_preconditioner_apply_count > 0
+    assert composite_info.linear_operator_call_count <= max(
+        line_info.linear_operator_call_count,
+        field_info.linear_operator_call_count,
+    )
+    assert composite_info.residual_inf_norm < 0.05 * min(
+        line_info.residual_inf_norm,
+        field_info.residual_inf_norm,
+    )
+    np.testing.assert_allclose(
+        np.asarray(residual(composite_solution)),
+        np.zeros(field_unknown_count, dtype=np.float64),
+        rtol=0.0,
+        atol=1.0e-4,
+    )
+
+
 def test_parallel_line_preconditioner_rejects_mismatched_context() -> None:
     pytest.importorskip("jax.numpy")
 
