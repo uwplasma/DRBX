@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
-| Effective preconditioning | 58% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, sampled `field_block_sample`, and feedback-aware `field_block_feedback_diag` probes can reduce JAX-GMRES calls when they match the dominant operator, but real hydrogen recycling sweeps show exact selected-line and sampled local/feedback field-block probes do not reduce the actual fixed-BDF2 Krylov count. New opt-in `J v + r` linear-update residual diagnostics make the next target/sheath/parallel-transport or Schur preconditioner screen judge update quality as well as operator count and wall time. |
+| Effective preconditioning | 59% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, sampled `field_block_sample`, and feedback-aware `field_block_feedback_diag` probes can reduce JAX-GMRES calls when they match the dominant operator, but real hydrogen recycling sweeps show exact selected-line and sampled local/feedback field-block probes do not reduce the actual fixed-BDF2 Krylov count. Heavy-path `J v + r` linear-update residual diagnostics now confirm the feedback-aware route solves the linearized update accurately but without speedup, so the next production candidate must approximate target/sheath, parallel transport, or a true neutral-plasma Schur block. |
 | Performance and scaling | 65% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`; remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -2436,6 +2436,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   neutral-plasma Schur preconditioner gate so candidates must improve update
   quality or operator work under an explicit Krylov budget, not merely preserve
   final nonlinear residuals with the same `115` calls.
+- 2026-06-19: Re-ran the same hydrogen fixed-BDF2 gate with
+  `field_block_feedback_diag`, preconditioner refresh `100`, and the new
+  `--fixed-bdf2-diagnose-linear-update-residual` metric enabled. Both
+  full-field and active-array routes remained correctness-clean with zero
+  failed linear solves, `115` linear iterations/operator calls, residual
+  `2.897e-6`, max achieved linear-update residual `4.44e-8`, and max relative
+  linear-update residual `3.08e-5`. The full-field route took `61.641 s`
+  (`1.496 s` in `23` diagnostic update-residual actions), and the active-array
+  route took `61.515 s` (`1.202 s` in `23` diagnostic actions). Decision:
+  the metric is now proven on the heavy path, while `field_block_feedback_diag`
+  remains a diagnostic-only baseline because it preserves update quality but
+  does not reduce Krylov work or wall time.
 
 ## Definition Of Done
 
