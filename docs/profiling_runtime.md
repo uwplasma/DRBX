@@ -438,6 +438,16 @@ After the strict gate has passed, production-style throughput probes can add
 `--skip-linearized-update-residual-diagnostic` to avoid that extra action while
 still recording solver status, update size, candidate nonlinear residual, and
 whether the residual diagnostic was skipped.
+The same command is available through
+`scripts/run_research_campaign_bundle.py --campaign
+dthe-active-array-linearized-update-throughput-probe`, which writes to a
+separate retained-artifact directory and leaves the strict gate unchanged.
+The retained local fixture artifact is
+`docs/data/runtime_profile_artifacts/recycling_dthe_active_array_linearized_update_throughput_cpu/profile_summary.json`;
+it reports solver status `0`, candidate nonlinear residual `2.11e-11`,
+`linear_update_residual_checked=false`, and update-check wall time about
+`3.89 s`. This is a timing probe, not a replacement for the strict residual
+health gate above.
 
 The companion JVP-diagonal preconditioner screen is:
 
