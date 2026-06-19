@@ -1771,6 +1771,138 @@ def test_field_sample_diagonal_preconditioner_uses_one_sample_per_field() -> Non
     )
 
 
+def test_field_block_sample_preconditioner_uses_representative_field_coupling() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_cell_count = 3
+    field_count = 2
+    feedback_count = 1
+    field_unknown_count = active_cell_count * field_count
+    state = jnp.zeros(field_unknown_count + feedback_count, dtype=jnp.float64)
+    field_block = jnp.asarray([[4.0, 1.5], [-0.5, 2.0]], dtype=jnp.float64)
+
+    def linear_map(vector):
+        flat = jnp.ravel(jnp.asarray(vector, dtype=jnp.float64))
+        fields_by_cell = flat[:field_unknown_count].reshape(
+            (field_count, active_cell_count)
+        ).transpose((1, 0))
+        coupled_by_cell = fields_by_cell @ field_block.T
+        coupled_fields = coupled_by_cell.transpose((1, 0)).reshape(
+            (field_unknown_count,)
+        )
+        return jnp.concatenate((coupled_fields, 10.0 * flat[field_unknown_count:]))
+
+    preconditioner = (
+        implicit_mod._build_jax_linearized_field_block_sample_preconditioner(
+            linear_map,
+            state,
+            active_cell_count=active_cell_count,
+            field_count=field_count,
+            feedback_count=feedback_count,
+        )
+    )
+    rhs = jnp.asarray([8.0, 12.0, 16.0, 4.0, 6.0, 8.0, 10.0], dtype=jnp.float64)
+    solved = preconditioner(rhs)
+
+    rhs_fields_by_cell = np.asarray(rhs[:field_unknown_count]).reshape(
+        (field_count, active_cell_count)
+    ).T
+    expected_fields = np.linalg.solve(np.asarray(field_block), rhs_fields_by_cell.T).T
+    expected = np.concatenate(
+        (
+            expected_fields.T.reshape((field_unknown_count,)),
+            np.asarray([10.0]),
+        )
+    )
+    np.testing.assert_allclose(
+        np.asarray(solved),
+        expected,
+        rtol=1.0e-9,
+        atol=1.0e-9,
+    )
+
+
+def test_field_block_sample_preconditioner_reduces_coupled_field_budget() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_cell_count = 4
+    field_count = 3
+    field_unknown_count = active_cell_count * field_count
+    field_block = jnp.asarray(
+        [
+            [4.0, 1.4, -0.6],
+            [-0.8, 3.2, 1.1],
+            [0.5, -1.3, 2.7],
+        ],
+        dtype=jnp.float64,
+    )
+    target_fields = jnp.stack(
+        (
+            jnp.sin(jnp.linspace(0.0, 2.0, active_cell_count, dtype=jnp.float64)),
+            jnp.cos(jnp.linspace(0.0, 2.5, active_cell_count, dtype=jnp.float64)),
+            jnp.linspace(-0.25, 0.75, active_cell_count, dtype=jnp.float64),
+        ),
+        axis=0,
+    )
+    target = target_fields.reshape((field_unknown_count,))
+
+    def residual(state):
+        fields_by_cell = jnp.asarray(state, dtype=jnp.float64).reshape(
+            (field_count, active_cell_count)
+        ).transpose((1, 0))
+        target_by_cell = target_fields.transpose((1, 0))
+        residual_by_cell = (fields_by_cell - target_by_cell) @ field_block.T
+        return residual_by_cell.transpose((1, 0)).reshape((field_unknown_count,))
+
+    common_solver_options = dict(
+        active_shape=(field_unknown_count,),
+        residual_tolerance=1.0e-10,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=2,
+        linear_restart=2,
+        linear_maxiter=1,
+        linear_tolerance=1.0e-10,
+        check_initial_residual=False,
+        line_search_mode="full_step",
+    )
+    unpreconditioned_solution, unpreconditioned_info = (
+        solve_jax_linearized_newton_system(
+            residual,
+            np.zeros(field_unknown_count, dtype=np.float64),
+            **common_solver_options,
+        )
+    )
+    preconditioned_solution, preconditioned_info = solve_jax_linearized_newton_system(
+        residual,
+        np.zeros(field_unknown_count, dtype=np.float64),
+        **common_solver_options,
+        linear_preconditioner_name="field_block_sample",
+        linear_preconditioner_context={
+            "active_cell_count": active_cell_count,
+            "field_count": field_count,
+            "feedback_count": 0,
+        },
+    )
+
+    assert unpreconditioned_info.converged is False
+    assert unpreconditioned_info.residual_inf_norm > 1.0e-3
+    assert preconditioned_info.converged is True
+    assert preconditioned_info.residual_inf_norm < 1.0e-10
+    assert preconditioned_info.linear_operator_call_count < (
+        unpreconditioned_info.linear_operator_call_count
+    )
+    assert preconditioned_info.linear_preconditioner == "field_block_sample"
+    assert preconditioned_info.linear_preconditioner_build_count == 1
+    assert preconditioned_info.linear_preconditioner_apply_count > 0
+    np.testing.assert_allclose(
+        preconditioned_solution,
+        np.asarray(target),
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
+    assert np.max(np.abs(unpreconditioned_solution - np.asarray(target))) > 1.0e-3
+
+
 def test_jax_linearized_newton_solver_builds_field_sample_preconditioner() -> None:
     jnp = pytest.importorskip("jax.numpy")
 

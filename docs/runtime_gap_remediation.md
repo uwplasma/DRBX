@@ -324,6 +324,13 @@ bounded separately from cheaper field-only probes. The
 `field_diag` path samples only active field-block diagonal entries from the
 JAX-linearized residual and leaves feedback scalars unscaled, so it is a
 cheaper diagnostic than dense same-cell block inversion. The
+`field_block_sample`/`field_split` path samples one representative
+field-by-equation block and applies that small inverse at every active cell,
+making it a cheaper field-split/Schur probe than full same-cell block
+inversion. Solver-level tests show it can cut operator calls from `10` to `5`
+when a repeated local field block is the dominant stiff operator, but the first
+hydrogen fixed-BDF2 recycling sweep kept the same `115` operator calls and
+only added `20` sampled-block builds. The
 `local_block_diag` path is the current physics/block preconditioner probe: it
 uses the JAX-linearized residual to assemble same-cell field-coupling blocks
 with JVPs, solves those small blocks on device, and treats off-cell transport

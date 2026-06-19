@@ -2948,6 +2948,11 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
         == "field_sample_diag"
     )
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "field-split")
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
+        == "field_block_sample"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "field-jacobi")
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
@@ -3178,6 +3183,13 @@ def test_recycling_dynamic_jax_preconditioners_are_solver_built() -> None:
     assert (
         recycling_1d_mod._build_recycling_jax_linear_preconditioner(
             np.asarray([1.0], dtype=np.float64),
+            name="field_block_sample",
+        )
+        is None
+    )
+    assert (
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([1.0], dtype=np.float64),
             name="local_block_diag",
         )
         is None
@@ -3253,6 +3265,19 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         "floor": 1.0e-10,
         "max_unknowns": 8192,
     }
+    field_block_context = recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+        "field_block_sample",
+        layout=layout,
+    )
+    assert field_block_context == {
+        "active_shape": (3,),
+        "active_cell_count": 3,
+        "field_count": 7,
+        "feedback_count": 2,
+        "refresh_frequency": 1,
+        "floor": 1.0e-10,
+        "max_fields": 64,
+    }
     assert recycling_1d_mod._recycling_jax_linear_preconditioner_context(
         "field_diag",
         layout=layout,
@@ -3327,6 +3352,7 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         recycling_jax_linear_preconditioner_refresh = 4
         recycling_jax_linear_preconditioner_floor = 1.0e-8
         recycling_jax_linear_preconditioner_max_field_unknowns = 96
+        recycling_jax_linear_preconditioner_max_field_block_fields = 12
         recycling_jax_linear_preconditioner_max_linearized_unknowns = 192
         recycling_jax_linear_preconditioner_max_local_unknowns = 48
         recycling_jax_linear_preconditioner_max_line_unknowns = 64
@@ -3354,6 +3380,16 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
     assert configured_field_context["refresh_frequency"] == 4
     assert configured_field_context["floor"] == 1.0e-8
     assert configured_field_context["max_unknowns"] == 96
+    configured_field_block_context = (
+        recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+            "field_block_sample",
+            config=config,
+            layout=layout,
+        )
+    )
+    assert configured_field_block_context["refresh_frequency"] == 4
+    assert configured_field_block_context["floor"] == 1.0e-8
+    assert configured_field_block_context["max_fields"] == 12
     configured_linearized_context = (
         recycling_1d_mod._recycling_jax_linear_preconditioner_context(
             "linearized_diag",
