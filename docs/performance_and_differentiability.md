@@ -1743,10 +1743,17 @@ to `87.95 s` (`70.53 s` in linear solves), while the active-array route ran in
 `51.06 s` (`33.79 s` in linear solves) with the same residual quality
 (`1.58e-8` maximum absolute update residual and `1.02e-5` relative). Because
 operator counts are intentionally unavailable in this mode, the scripts now
-reject direct counting when operator-call budget gates are requested. Keep this
-as an opt-in production-style profiling knob; it is not a default-promotion
-result because the evidence is backend-dependent and does not reduce the
-fixed-full-field path.
+reject direct counting when operator-call budget gates are requested. They now
+also report `linear_solve_count`, which is the correct low-overhead evidence
+for this mode: `linear_iterations=0` and `linear_operator_call_count=0` can be
+valid when the Krylov solve ran fully through the JAX callback path without a
+Python wrapper. A bounded hydrogen active-array profile on June 19, 2026 passed
+the direct-counting gate with `linear_solve_count=1`,
+`linear_solver_status=0`, `linear_solver_success=true`, residual `8.8536e-2`,
+one nonlinear iteration, two residual evaluations, one line-search trial, and
+`2.32 s` profiled runtime. Keep this as an opt-in production-style profiling
+knob; it is not a default-promotion result because the evidence is
+backend-dependent and does not yet cover heavy full-output CPU/GPU windows.
 
 The generic JAX-linearized solver now also reuses the already-known residual
 norm for the final accepted state when a bounded solve exits because the
