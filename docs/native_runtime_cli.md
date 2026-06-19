@@ -232,6 +232,15 @@ The same wrapper can make constrained-budget screens reproducible with
 them in the JSON summary.
 Use `--fixed-bdf2-diagnose-linear-update-residual` to enable the same
 `J v + r` diagnostic in fixed-BDF2 promotion artifacts.
+Promotion and profiling gates can now fail on those values directly. Use
+`--fixed-bdf2-max-linear-update-residual=<x>` and
+`--fixed-bdf2-max-linear-update-relative-residual=<x>` on
+`scripts/run_recycling_jvp_promotion_gate.py`, or the corresponding
+`--require-fixed-bdf2-max-*` / `--require-adaptive-bdf-max-*` flags on
+`scripts/compare_recycling_transient_modes.py`, when a preconditioner must
+prove update quality under a fixed Krylov budget. The single-profile gate
+uses `--require-max-linear-update-residual=<x>` and
+`--require-max-linear-update-relative-residual=<x>`.
 For heavy matrix-free profiling, the linearized Krylov action can also be
 wrapped with `runtime:recycling_jax_linear_jit_linear_operator=true` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR=1`. Fixed-BDF2 histories
