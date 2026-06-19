@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 96% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; duplicate active-array RHS work and fixed-BDF2 standalone initial residuals are closed, but Krylov/preconditioner cost remains. |
-| Effective preconditioning | 51% | A bounded stiff-line solver gate now proves `parallel_line` can reduce JAX-GMRES operator calls when it matches the dominant transport block, and the FCI vorticity inversion has an opt-in Jacobi PCG residual-reduction gate; the remaining blocker is same-case speedup on real recycling or imported-field kernels. |
+| Effective preconditioning | 51% | A bounded stiff-line solver gate now proves `parallel_line` can reduce JAX-GMRES operator calls when it matches the dominant transport block, and the FCI vorticity inversion has an opt-in Jacobi PCG residual-reduction gate on a manufactured case; the Jacobi path did not improve the real high-grid imported-field movie residual, so the remaining blocker is still same-case speedup on real recycling or imported-field kernels. |
 | Performance and scaling | 63% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -2197,6 +2197,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   and report `potential_preconditioner`, so the next residual-conditioning
   probe can compare larger-grid residuals with and without the elliptic
   preconditioner instead of only increasing `potential_iterations`.
+- 2026-06-19: Ran that imported-field residual-conditioning probe as a single
+  report-only `tmp/` run at `(16,24,96)`, `frames=4`,
+  `substeps_per_frame=2`, `dt=2e-3`, `potential_iterations=1536`, and
+  `potential_preconditioner="jacobi"`. The report passed the loose movie-QA
+  finite-state gate, but the final potential residual was `8.18e-6`, worse
+  than the prior unpreconditioned `1.39e-6` at the same grid and iteration
+  budget. Radial-flux and spectral metrics were otherwise essentially the same
+  as the unpreconditioned fine-grid report. Keep the Jacobi path opt-in and
+  documented as a manufactured residual-reduction gate only; imported-field
+  residual conditioning needs either a stronger elliptic preconditioner, better
+  regularization/iteration scheduling, or a cached solver/probe path before
+  any default or movie-promotion claim.
 
 ## Definition Of Done
 
