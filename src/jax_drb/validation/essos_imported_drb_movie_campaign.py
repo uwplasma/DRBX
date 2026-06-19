@@ -922,9 +922,12 @@ def _movie_refinement_scaled_grid(
 ) -> tuple[int, int, int]:
     suggested = []
     for axis_size, multiplier in zip(grid, multipliers, strict=True):
-        scaled = int(np.ceil(float(axis_size) * max(float(multiplier), 1.0)))
-        if scaled <= int(axis_size):
-            scaled = int(axis_size) + 1
+        if float(multiplier) <= 1.0:
+            scaled = int(axis_size)
+        else:
+            scaled = int(np.ceil(float(axis_size) * float(multiplier)))
+            if scaled <= int(axis_size):
+                scaled = int(axis_size) + 1
         suggested.append(scaled)
     # Keep the rFFT/toroidal direction even where possible for cleaner spectra.
     if suggested[2] % 2:

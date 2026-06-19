@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 86% | High-grid hybrid report-only movie candidates now pass time and spectral-resolution gates, and radial-flux blockers are cleared at `(8,12,24)->(16,24,48)`; the gate now separates elliptic potential-solve conditioning from physics-grid refinement, leaving toroidal spectral-centroid movement and a higher-budget residual rerun before any turbulence/movie claim. |
+| 3D stellarator imported-field/VMEC SOL | 87% | High-grid hybrid report-only movie candidates now pass time and spectral-resolution gates, radial-flux blockers are cleared at `(8,12,24)->(16,24,48)`, and the potential-residual blocker closes with a higher CG budget; remaining blocker is toroidal spectral-centroid movement before any turbulence/movie claim. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -2152,6 +2152,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   before escalating movie-grid resolution. This does not relax the publication
   gate; it prevents an elliptic solver-budget artifact from being mistaken for
   validated turbulence-grid evidence.
+- 2026-06-19: Used the new potential-solve controls in a report-only high-grid
+  hybrid movie probe in `tmp/` with the same `(8,12,24)` to `(16,24,48)` grid
+  pair and `potential_iterations=1536`. The fine-grid
+  `final_potential_residual_l2` dropped from the previous `6.83e-5` to
+  `1.67e-11`, while the time gate still passed and the only remaining grid
+  blocker was `spectral_centroid_toroidal_fraction` (`0.273` to `0.134`,
+  relative change `1.04`). This confirms that the residual was a fixed-CG
+  budget/conditioning issue, not a reason to escalate all movie-grid axes. The
+  next-grid suggestion helper was also corrected so a toroidal-only blocker
+  keeps radial and poloidal sizes fixed and proposes `(16,24,48)` to
+  `(16,24,96)` rather than adding cells to unchanged axes.
 
 ## Definition Of Done
 
