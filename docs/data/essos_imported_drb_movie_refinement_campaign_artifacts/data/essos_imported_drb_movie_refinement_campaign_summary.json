@@ -9,6 +9,82 @@
       288.0
     ],
     "diagnostic": "essos_imported_drb_movie_refinement",
+    "dominant_failed_metrics": [
+      {
+        "coarse": 1.0,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 0.19304806771389543,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "low_mode_spectral_power_fraction",
+        "pair_index": 0,
+        "reason": "spectral_content_not_grid_or_time_stable",
+        "relative_change": 4.180057028501513,
+        "relative_tolerance": 0.3
+      },
+      {
+        "coarse": 0.000370313311115796,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 8.237593695474543e-05,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "radial_flux_abs_mean",
+        "pair_index": 0,
+        "reason": "radial_transport_not_grid_or_time_stable",
+        "relative_change": 3.495406362652162,
+        "relative_tolerance": 0.3
+      },
+      {
+        "coarse": 0.0006028219469140017,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 0.0001399820799210603,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "radial_flux_rms",
+        "pair_index": 0,
+        "reason": "radial_transport_not_grid_or_time_stable",
+        "relative_change": 3.3064222738649782,
+        "relative_tolerance": 0.3
+      }
+    ],
+    "failed_metric_reports": [
+      {
+        "coarse": 1.0,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 0.19304806771389543,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "low_mode_spectral_power_fraction",
+        "pair_index": 0,
+        "reason": "spectral_content_not_grid_or_time_stable",
+        "relative_change": 4.180057028501513,
+        "relative_tolerance": 0.3
+      },
+      {
+        "coarse": 0.000370313311115796,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 8.237593695474543e-05,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "radial_flux_abs_mean",
+        "pair_index": 0,
+        "reason": "radial_transport_not_grid_or_time_stable",
+        "relative_change": 3.495406362652162,
+        "relative_tolerance": 0.3
+      },
+      {
+        "coarse": 0.0006028219469140017,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 0.0001399820799210603,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "radial_flux_rms",
+        "pair_index": 0,
+        "reason": "radial_transport_not_grid_or_time_stable",
+        "relative_change": 3.3064222738649782,
+        "relative_tolerance": 0.3
+      }
+    ],
     "labels": [
       "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
       "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004"
@@ -128,6 +204,10 @@
     ],
     "passed": false,
     "refinement_axis": "grid",
+    "refinement_recommendations": [
+      "Increase the physics/movie grid or reduce the resolved low-mode window before promoting the movie; the spectrum is too close to the grid edge.",
+      "Treat radial transport as unresolved: refine the radial grid and the field-line-following transverse grid, then rerun the same transient."
+    ],
     "relative_tolerance": 0.3,
     "report_count": 2,
     "spectral_resolution_passed": false,
@@ -179,6 +259,8 @@
       0.002
     ],
     "diagnostic": "essos_imported_drb_movie_refinement",
+    "dominant_failed_metrics": [],
+    "failed_metric_reports": [],
     "labels": [
       "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
       "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.002"
@@ -298,6 +380,9 @@
     ],
     "passed": false,
     "refinement_axis": "time",
+    "refinement_recommendations": [
+      "Increase the physics/movie grid or reduce the resolved low-mode window before promoting the movie; the spectrum is too close to the grid edge."
+    ],
     "relative_tolerance": 0.3,
     "report_count": 2,
     "spectral_resolution_passed": false,

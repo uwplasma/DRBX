@@ -327,6 +327,9 @@ def build_essos_imported_drb_movie_refinement_diagnostics(
         "map_source_consistent": False,
         "spectral_resolution_passed": False,
         "spectral_resolution_reports": [],
+        "failed_metric_reports": [],
+        "dominant_failed_metrics": [],
+        "refinement_recommendations": [],
         "passed": False,
     }
     if len(report_list) < 2:
@@ -392,6 +395,15 @@ def build_essos_imported_drb_movie_refinement_diagnostics(
     spectral_resolution_passed = all(
         bool(report["passed"]) for report in spectral_resolution_reports
     )
+    failed_metric_reports = _build_movie_failed_metric_reports(
+        pair_reports=pair_reports,
+        relative_tolerance=tolerance,
+    )
+    refinement_recommendations = _movie_refinement_recommendations(
+        refinement_axis=normalized_axis,
+        failed_metric_reports=failed_metric_reports,
+        spectral_resolution_passed=spectral_resolution_passed,
+    )
     passed = bool(
         all_reports_passed
         and map_source_consistent
@@ -412,6 +424,9 @@ def build_essos_imported_drb_movie_refinement_diagnostics(
         "spectral_resolution_passed": bool(spectral_resolution_passed),
         "spectral_resolution_reports": spectral_resolution_reports,
         "pair_reports": pair_reports,
+        "failed_metric_reports": failed_metric_reports,
+        "dominant_failed_metrics": failed_metric_reports[:5],
+        "refinement_recommendations": refinement_recommendations,
         "max_relative_metric_change": (
             max(max_change_values) if max_change_values else None
         ),
@@ -582,6 +597,102 @@ def _build_movie_refinement_pair_report(
         "radial_flux_sign_passed": bool(radial_flux_proxy_sign_agreement),
         "passed": bool(metric_passed),
     }
+
+
+def _build_movie_failed_metric_reports(
+    *,
+    pair_reports: list[dict[str, Any]],
+    relative_tolerance: float,
+) -> list[dict[str, Any]]:
+    failed: list[dict[str, Any]] = []
+    for pair_index, pair in enumerate(pair_reports):
+        for metric, report in pair.get("metric_reports", {}).items():
+            if bool(report.get("passed")):
+                continue
+            failed.append(
+                {
+                    "pair_index": int(pair_index),
+                    "coarse_label": pair.get("coarse_label"),
+                    "fine_label": pair.get("fine_label"),
+                    "metric": str(metric),
+                    "coarse": report.get("coarse"),
+                    "fine": report.get("fine"),
+                    "denominator_floor": report.get("denominator_floor"),
+                    "relative_change": report.get("relative_change"),
+                    "relative_tolerance": float(relative_tolerance),
+                    "reason": _movie_refinement_metric_failure_reason(
+                        metric=str(metric),
+                        report=report,
+                        relative_tolerance=relative_tolerance,
+                    ),
+                }
+            )
+    return sorted(
+        failed,
+        key=lambda item: (
+            item["relative_change"] is None,
+            -float(item["relative_change"] or 0.0),
+            str(item["metric"]),
+        ),
+    )
+
+
+def _movie_refinement_metric_failure_reason(
+    *,
+    metric: str,
+    report: dict[str, Any],
+    relative_tolerance: float,
+) -> str:
+    if report.get("relative_change") is None:
+        return "missing_or_nonfinite_metric"
+    if str(metric).startswith("spectral_") or str(metric) == "low_mode_spectral_power_fraction":
+        return "spectral_content_not_grid_or_time_stable"
+    if str(metric).startswith("radial_flux_"):
+        return "radial_transport_not_grid_or_time_stable"
+    if str(metric) == "final_potential_residual_l2":
+        return "elliptic_residual_not_grid_or_time_stable"
+    return f"relative_change_above_{float(relative_tolerance):g}"
+
+
+def _movie_refinement_recommendations(
+    *,
+    refinement_axis: str,
+    failed_metric_reports: list[dict[str, Any]],
+    spectral_resolution_passed: bool,
+) -> list[str]:
+    recommendations: list[str] = []
+    failed_metrics = {str(report["metric"]) for report in failed_metric_reports}
+    if not spectral_resolution_passed:
+        recommendations.append(
+            "Increase the physics/movie grid or reduce the resolved low-mode window "
+            "before promoting the movie; the spectrum is too close to the grid edge."
+        )
+    if {"radial_flux_abs_mean", "radial_flux_rms"} & failed_metrics:
+        recommendations.append(
+            "Treat radial transport as unresolved: refine the radial grid and the "
+            "field-line-following transverse grid, then rerun the same transient."
+        )
+    if "spectral_centroid_toroidal_fraction" in failed_metrics:
+        recommendations.append(
+            "Refine toroidal resolution and map sampling; the turbulent spectrum is "
+            "moving in toroidal-mode space across refinement levels."
+        )
+    if "spectral_centroid_poloidal_fraction" in failed_metrics:
+        recommendations.append(
+            "Refine poloidal resolution and interpolation order; the turbulent "
+            "spectrum is moving in poloidal-mode space across refinement levels."
+        )
+    if "final_potential_residual_l2" in failed_metrics:
+        recommendations.append(
+            "Check the elliptic potential solve tolerance and conditioning only after "
+            "transport and spectral metrics are stable."
+        )
+    if not recommendations and failed_metric_reports:
+        recommendations.append(
+            f"Rerun the {refinement_axis} refinement with the dominant failed metric "
+            "as the primary convergence observable."
+        )
+    return recommendations
 
 
 def _movie_refinement_metric_floor(key: str) -> float:

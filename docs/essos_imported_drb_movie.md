@@ -110,11 +110,15 @@ decision. The signed
 `radial_flux_proxy` remains in each report as a cancellation and symmetry
 diagnostic, but refinement promotion uses magnitude and RMS radial-flux
 statistics because a domain-averaged signed flux can change sign when inward
-and outward turbulent transport nearly cancel. The checked-in summary
-intentionally uses the single restored hybrid report and therefore fails with
-`need_at_least_two_grid_reports` and
-`need_at_least_two_time_reports`; it is a blocker record, not a passed
-refinement claim.
+and outward turbulent transport nearly cancel. The refinement summary also
+exports `failed_metric_reports`, `dominant_failed_metrics`, and
+`refinement_recommendations`, so a failed campaign identifies whether the next
+run should prioritize radial transport convergence, toroidal/poloidal spectral
+placement, spectral edge-band occupancy, or elliptic residual conditioning. The
+checked-in compact campaign intentionally remains negative evidence: it has
+enough grid and timestep reports to exercise the gate, but it is not
+publication-ready until the grid-refinement metrics and spectral-resolution
+diagnostics are stable.
 
 Each movie report also records spectral resolution diagnostics:
 `spectral_poloidal_mode_count`, `spectral_toroidal_mode_count`,

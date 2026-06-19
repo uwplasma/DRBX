@@ -2094,6 +2094,16 @@ Use this log for concise decision records. Do not paste terminal output here.
   3D movie lane should therefore increase/adapt the grid or adjust the physics
   campaign until radial transport and toroidal spectral placement stabilize,
   not merely relax the gate.
+- 2026-06-19: Added ranked `failed_metric_reports`,
+  `dominant_failed_metrics`, and `refinement_recommendations` to the
+  imported-field movie refinement diagnostics, then regenerated the compact
+  checked-in report-only campaign. The compact grid gate now explicitly ranks
+  `low_mode_spectral_power_fraction`, `radial_flux_abs_mean`, and
+  `radial_flux_rms` as the dominant blockers; the compact time gate has no
+  scalar-metric offender after the residual floor and fails only because the
+  reports are spectrally under-resolved. This makes the next high-resolution
+  campaign target concrete: refine the physics grid and field-line-following
+  transverse sampling until radial transport and spectral occupancy are stable.
 
 ## Definition Of Done
 
