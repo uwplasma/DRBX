@@ -115,6 +115,18 @@ radial-flux and spectral edge-band blockers. The remaining failed metric is
 increase poloidal resolution only, comparing `16 x 24 x 48` with
 `16 x 48 x 48`, before creating any new polished movie from this lane.
 
+That targeted poloidal sweep is committed as:
+
+- `docs/data/essos_imported_drb_movie_refinement_poloidal_candidate_artifacts/data/essos_imported_drb_movie_refinement_poloidal_candidate_summary.json`
+
+It is useful failure evidence rather than a promotion. The higher-poloidal
+`16 x 48 x 48` report exposes an elliptic-potential residual instability
+(`final_potential_residual_l2 ~ 8e22`) and nonfinite smaller-step diagnostics,
+so the next technical step is not a larger movie grid. The next run should
+first repeat the same `16 x 24 x 48 -> 16 x 48 x 48` grid pair with the
+potential budget increased to `6144` iterations and, if needed, a stronger
+potential preconditioner before any `16 x 96 x 48` escalation.
+
 After regenerating two or more same-map-source movie reports at different grid
 sizes and two or more reports at different effective frame timesteps, summarize
 the refinement evidence without committing heavyweight media:

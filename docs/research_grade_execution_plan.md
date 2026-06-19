@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 93% | The `8x12x24 -> 16x24x48` hybrid report-only movie candidate now passes time refinement and both spectral-resolution gates; grid refinement still fails only on poloidal spectral-centroid motion, so the next targeted evidence path is `16x24x48 -> 16x48x48`. |
+| 3D stellarator imported-field/VMEC SOL | 93% | The `8x12x24 -> 16x24x48` hybrid report-only movie candidate passes time refinement and both spectral-resolution gates; the targeted `16x24x48 -> 16x48x48` sweep exposed a high-poloidal potential-residual/nonfinite-metric blocker, so the next step is the same grid pair with a stronger potential solve before any larger-grid movie claim. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -2571,6 +2571,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   raise the 3D imported-field/VMEC SOL lane to `93%`, keep the movie
   unpromoted, and run the next targeted poloidal-resolution sweep
   `16x24x48 -> 16x48x48` before producing publication/readme media.
+- 2026-06-19: Ran the targeted `16x24x48 -> 16x48x48` poloidal-resolution
+  report-only sweep and fixed the imported-field movie report writer to emit
+  strict JSON by serializing nonfinite diagnostics as `null`. The regenerated
+  artifact is small (`56K`) and JSON-valid. The sweep is useful negative
+  evidence: the higher-poloidal `16x48x48` grid exposes a potential-residual
+  blow-up (`final_potential_residual_l2 ~ 8e22`) and the smaller effective
+  timestep report has nonfinite/missing metrics. Decision: keep the 3D lane at
+  `93%`; do not escalate to `16x96x48` yet. The next 3D technical step is to
+  rerun the same `16x24x48 -> 16x48x48` pair with
+  `potential_iterations=6144` and, if needed, a stronger potential
+  preconditioner before any movie promotion.
 
 ## Definition Of Done
 

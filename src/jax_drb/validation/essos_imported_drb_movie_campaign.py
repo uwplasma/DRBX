@@ -81,6 +81,38 @@ ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION = 5.0
 ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_PRECONDITIONER: str | None = None
 
 
+def _strict_json_payload(value: Any) -> Any:
+    """Return a JSON-standards-compliant payload with nonfinite values as null."""
+
+    if isinstance(value, dict):
+        return {str(key): _strict_json_payload(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_strict_json_payload(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return _strict_json_payload(value.tolist())
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        scalar = float(value)
+        return scalar if np.isfinite(scalar) else None
+    return value
+
+
+def _write_strict_json(path: Path, payload: Any) -> None:
+    path.write_text(
+        json.dumps(
+            _strict_json_payload(payload),
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def classify_essos_imported_drb_movie_evidence(map_source: str) -> dict[str, Any]:
     """Classify whether an imported-field movie is publication evidence."""
 
@@ -136,10 +168,7 @@ def create_essos_imported_drb_movie_refinement_summary_package(
         relative_tolerance=relative_tolerance,
     )
     report_json_path = data_dir / f"{case_label}.json"
-    report_json_path.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    _write_strict_json(report_json_path, report)
     return EssosImportedDrbMovieRefinementArtifacts(report_json_path=report_json_path)
 
 
@@ -256,10 +285,7 @@ def create_essos_imported_drb_movie_refinement_campaign_package(
                 "refinement_campaign_case_label": str(case_label),
             }
         )
-        report_json_path.write_text(
-            json.dumps(report, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        _write_strict_json(report_json_path, report)
         report_cache[cache_key] = report_json_path
         return report_json_path
 
@@ -1254,7 +1280,7 @@ def create_essos_imported_drb_movie_package(
     movie_gif_path = movies_dir / f"{case_label}.gif"
     save_essos_imported_drb_3d_movie(result.geometry, result.arrays, movie_gif_path)
     report.update(_audit_movie_gif(movie_gif_path))
-    report_json_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_strict_json(report_json_path, report)
     return EssosImportedDrbMovieArtifacts(
         report_json_path=report_json_path,
         arrays_npz_path=arrays_npz_path,
