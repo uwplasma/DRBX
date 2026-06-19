@@ -332,6 +332,20 @@ def build_essos_imported_drb_movie_refinement_next_campaign(
     current_grid = _movie_refinement_finest_grid(grid_diagnostics)
     grid_failed_metrics = _movie_refinement_failed_metric_names(grid_diagnostics)
     time_failed_metrics = _movie_refinement_failed_metric_names(time_diagnostics)
+    current_potential_iterations = _movie_refinement_max_potential_iterations(
+        grid_diagnostics,
+        time_diagnostics,
+    )
+    potential_solve_action = _movie_refinement_potential_solve_action(
+        grid_failed_metrics=grid_failed_metrics,
+        time_failed_metrics=time_failed_metrics,
+    )
+    recommended_potential_iterations = (
+        int(max(1, current_potential_iterations) * 2)
+        if potential_solve_action != "no_potential_residual_blocker"
+        and current_potential_iterations is not None
+        else None
+    )
     notes: list[str] = []
     grid_multiplier = [1.0, 1.0, 1.0]
     if current_grid is not None:
@@ -445,6 +459,12 @@ def build_essos_imported_drb_movie_refinement_next_campaign(
 
     if current_grid is None:
         notes.append("at least two grid reports are required before suggesting a grid")
+    if recommended_potential_iterations is not None:
+        notes.append(
+            "rerun the residual-blocked candidate with "
+            f"potential_iterations={recommended_potential_iterations} before "
+            "changing physics claims based on elliptic residual movement"
+        )
 
     return {
         "diagnostic": "essos_imported_drb_movie_next_campaign_suggestion",
@@ -474,10 +494,9 @@ def build_essos_imported_drb_movie_refinement_next_campaign(
         "current_effective_frame_dt": current_effective_frame_dt,
         "recommended_time_effective_frame_dt_values": recommended_time_values,
         "time_refinement_action": time_action,
-        "potential_solve_action": _movie_refinement_potential_solve_action(
-            grid_failed_metrics=grid_failed_metrics,
-            time_failed_metrics=time_failed_metrics,
-        ),
+        "current_potential_iterations": current_potential_iterations,
+        "recommended_potential_iterations": recommended_potential_iterations,
+        "potential_solve_action": potential_solve_action,
         "recommendation_notes": notes,
     }
 
@@ -774,6 +793,12 @@ def _build_movie_refinement_pair_report(
         "fine_grid": list(fine.get("movie_physics_grid", [])),
         "coarse_effective_frame_dt": _movie_time_refinement_key(coarse),
         "fine_effective_frame_dt": _movie_time_refinement_key(fine),
+        "coarse_potential_iterations": _optional_int(
+            coarse.get("potential_iterations")
+        ),
+        "fine_potential_iterations": _optional_int(fine.get("potential_iterations")),
+        "coarse_potential_preconditioner": coarse.get("potential_preconditioner"),
+        "fine_potential_preconditioner": fine.get("potential_preconditioner"),
         "metric_reports": metric_reports,
         "max_relative_metric_change": max_change,
         "radial_flux_proxy_sign_agreement": bool(radial_flux_proxy_sign_agreement),
@@ -904,6 +929,21 @@ def _movie_refinement_potential_solve_action(
     return "rerun_same_grid_time_pair_with_larger_potential_iterations"
 
 
+def _movie_refinement_max_potential_iterations(
+    *diagnostics_items: dict[str, Any],
+) -> int | None:
+    values: list[int] = []
+    for diagnostics in diagnostics_items:
+        for pair in diagnostics.get("pair_reports", []):
+            for key in ("coarse_potential_iterations", "fine_potential_iterations"):
+                value = _optional_int(pair.get(key))
+                if value is not None:
+                    values.append(value)
+    if not values:
+        return None
+    return max(values)
+
+
 def _movie_refinement_finest_grid(
     diagnostics: dict[str, Any],
 ) -> tuple[int, int, int] | None:
@@ -965,6 +1005,14 @@ def _optional_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return result if np.isfinite(result) else None
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None
+    return result
 
 
 def create_essos_imported_drb_movie_package(

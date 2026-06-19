@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 89% | High-grid hybrid report-only movie candidates now pass time and spectral-resolution gates, the invalid normalized-centroid blocker is removed, and the corrected `(16,24,48)->(16,24,96)` rerank leaves only potential-residual conditioning plus radial-flux magnitude/RMS just above tolerance before any turbulence/movie claim. |
+| 3D stellarator imported-field/VMEC SOL | 90% | High-grid hybrid report-only movie candidates now pass time and spectral-resolution gates, the invalid normalized-centroid blocker is removed, and a doubled unpreconditioned potential-iteration budget closes the fine-grid residual; remaining movie blocker is radial-flux magnitude/RMS just above tolerance plus cached campaign efficiency before any turbulence/movie claim. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -2209,6 +2209,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   residual conditioning needs either a stronger elliptic preconditioner, better
   regularization/iteration scheduling, or a cached solver/probe path before
   any default or movie-promotion claim.
+- 2026-06-19: Tested the iteration-scheduling alternative on the same
+  `(16,24,96)` high-grid report with unpreconditioned CG and
+  `potential_iterations=3072`. This closed the fine-grid
+  `final_potential_residual_l2` to `3.80e-11`, while radial-flux and spectral
+  metrics were unchanged relative to the 1536-iteration report. The transient
+  execute time increased from roughly `6.75 s` for the Jacobi 1536-iteration
+  run to `10.60 s` for the unpreconditioned 3072-iteration run, so the result
+  supports explicit budget scheduling, not a silent default change. The
+  refinement summary now records `current_potential_iterations` and
+  `recommended_potential_iterations` in `next_campaign_suggestion` whenever
+  potential residuals appear in the failed-metric register.
 
 ## Definition Of Done
 

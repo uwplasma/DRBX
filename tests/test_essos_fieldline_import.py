@@ -81,6 +81,8 @@ def _movie_report(
     low_mode_window_covers_grid: bool | None = None,
     spectral_edge_band_power_fraction: float = 0.08,
     final_potential_residual_l2: float = 0.02,
+    potential_iterations: int = 768,
+    potential_preconditioner: str | None = None,
 ) -> dict[str, object]:
     radial_flux_abs_mean = (
         abs(radial_flux_proxy) if radial_flux_abs_mean is None else radial_flux_abs_mean
@@ -122,6 +124,8 @@ def _movie_report(
         "spectral_edge_band_power_fraction": spectral_edge_band_power_fraction,
         "low_mode_window_covers_grid": low_mode_window_covers_grid,
         "final_potential_residual_l2": final_potential_residual_l2,
+        "potential_iterations": potential_iterations,
+        "potential_preconditioner": potential_preconditioner,
     }
 
 
@@ -311,6 +315,8 @@ def test_essos_imported_drb_movie_refinement_flags_residual_only_solver_budget()
     assert suggestion["potential_solve_action"] == (
         "rerun_same_grid_time_pair_with_larger_potential_iterations"
     )
+    assert suggestion["current_potential_iterations"] == 768
+    assert suggestion["recommended_potential_iterations"] == 1536
     assert suggestion["suggested_next_grid"] is None
     assert suggestion["suggested_grid_shapes"] == []
     assert any(

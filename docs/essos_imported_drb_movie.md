@@ -115,7 +115,11 @@ grid. The report-only campaign exposes `POTENTIAL_ITERATIONS` and
 for the metric-weighted CG inversion. Each movie report records the values as
 `potential_iterations`, `potential_regularization`, and
 `potential_preconditioner` so solver-budget and preconditioner changes are
-auditable. The signed
+auditable. When `final_potential_residual_l2` blocks a refinement summary, the
+same JSON reports `current_potential_iterations` and
+`recommended_potential_iterations` in `next_campaign_suggestion`; this keeps
+elliptic-solver budget sweeps explicit instead of silently promoting a larger
+movie grid. The signed
 `radial_flux_proxy` remains in each report as a cancellation and symmetry
 diagnostic, but refinement promotion uses magnitude and RMS radial-flux
 statistics because a domain-averaged signed flux can change sign when inward

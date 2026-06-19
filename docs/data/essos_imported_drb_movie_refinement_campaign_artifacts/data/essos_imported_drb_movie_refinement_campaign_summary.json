@@ -139,6 +139,8 @@
           8
         ],
         "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "coarse_potential_iterations": 768,
+        "coarse_potential_preconditioner": null,
         "fine_effective_frame_dt": 0.004,
         "fine_grid": [
           4,
@@ -146,6 +148,8 @@
           12
         ],
         "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "fine_potential_iterations": 768,
+        "fine_potential_preconditioner": null,
         "max_relative_metric_change": 4.180057028501513,
         "metric_reports": {
           "final_fluctuation_rms": {
@@ -283,6 +287,7 @@
       12
     ],
     "current_finest_grid_cell_count": 288,
+    "current_potential_iterations": 768,
     "diagnostic": "essos_imported_drb_movie_next_campaign_suggestion",
     "dominant_grid_blockers": [
       {
@@ -345,6 +350,7 @@
       "poloidal spectral centroid moves under refinement",
       "time gate has no scalar-metric offender; fix spectral grid resolution before spending wall time on smaller timesteps"
     ],
+    "recommended_potential_iterations": null,
     "recommended_time_effective_frame_dt_values": [
       0.004,
       0.002
@@ -418,6 +424,8 @@
           12
         ],
         "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "coarse_potential_iterations": 768,
+        "coarse_potential_preconditioner": null,
         "fine_effective_frame_dt": 0.002,
         "fine_grid": [
           4,
@@ -425,6 +433,8 @@
           12
         ],
         "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.002",
+        "fine_potential_iterations": 768,
+        "fine_potential_preconditioner": null,
         "max_relative_metric_change": 0.12955284492419814,
         "metric_reports": {
           "final_fluctuation_rms": {
