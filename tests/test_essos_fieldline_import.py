@@ -24,6 +24,7 @@ from jax_drb.validation import (
     build_live_essos_imported_connection_length_levels,
     create_essos_fieldline_import_package,
     create_essos_imported_connection_length_refinement_package,
+    create_essos_imported_drb_movie_refinement_campaign_package,
     create_live_essos_imported_connection_length_refinement_package,
     classify_essos_imported_drb_movie_evidence,
     create_essos_imported_drb_movie_package,
@@ -32,6 +33,7 @@ from jax_drb.validation import (
     create_essos_vmec_fieldline_surface_package,
 )
 import jax_drb.validation.essos_imported_fci_campaign as imported_fci_campaign
+import jax_drb.validation.essos_imported_drb_movie_campaign as imported_movie_campaign
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -252,6 +254,50 @@ def test_essos_imported_drb_movie_refinement_summary_package_reads_reports(tmp_p
     assert artifacts.report_json_path.name == "movie_refinement.json"
 
 
+def test_essos_imported_drb_movie_refinement_campaign_writes_report_only_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_movie_campaign(**kwargs: object) -> SimpleNamespace:
+        calls.append(dict(kwargs))
+        grid = (int(kwargs["nx"]), int(kwargs["ny"]), int(kwargs["nz"]))
+        report = _movie_report(
+            grid=grid,
+            dt=float(kwargs["dt"]),
+            substeps_per_frame=int(kwargs["substeps_per_frame"]),
+            low_mode_window_covers_grid=False,
+            spectral_edge_band_power_fraction=0.08,
+        )
+        return SimpleNamespace(report=report)
+
+    monkeypatch.setattr(
+        imported_movie_campaign,
+        "build_essos_imported_drb_movie_campaign",
+        fake_movie_campaign,
+    )
+
+    artifacts = create_essos_imported_drb_movie_refinement_campaign_package(
+        output_root=tmp_path / "movie_refinement_campaign",
+        case_label="campaign",
+        grid_shapes=((4, 8, 16), (8, 16, 32)),
+        time_shape=(8, 16, 32),
+        time_dt_values=(2.0e-3, 1.0e-3),
+        grid_dt=2.0e-3,
+    )
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+
+    assert report["publication_ready"] is True
+    assert len(calls) == 3
+    assert len(artifacts.grid_report_json_paths) == 2
+    assert len(artifacts.time_report_json_paths) == 2
+    assert artifacts.grid_report_json_paths[1] == artifacts.time_report_json_paths[0]
+    assert all(path.exists() for path in artifacts.grid_report_json_paths)
+    assert all(path.exists() for path in artifacts.time_report_json_paths)
+    assert artifacts.report_json_path.name == "campaign_summary.json"
+
+
 def test_imported_drb_movie_refinement_summary_example_runs_on_reports(tmp_path: Path) -> None:
     module = _load_imported_drb_movie_refinement_summary_example()
     first = _movie_report(grid=(4, 8, 16), dt=2.0e-3, substeps_per_frame=2)
@@ -280,6 +326,62 @@ def test_imported_drb_movie_refinement_summary_example_runs_on_reports(tmp_path:
     ).exists()
 
 
+def test_imported_drb_movie_refinement_campaign_example_runs_with_fake_builder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_imported_drb_movie_refinement_campaign_example()
+
+    def fake_create_campaign(**kwargs: object) -> SimpleNamespace:
+        root = Path(kwargs["output_root"])
+        data_dir = root / "data"
+        data_dir.mkdir(parents=True)
+        grid_paths = (data_dir / "grid0.json", data_dir / "grid1.json")
+        time_paths = (data_dir / "time0.json", data_dir / "time1.json")
+        for path in (*grid_paths, *time_paths):
+            path.write_text(json.dumps(_movie_report(grid=(4, 8, 16))), encoding="utf-8")
+        report_path = data_dir / f"{kwargs['case_label']}_summary.json"
+        report_path.write_text(
+            json.dumps(
+                {
+                    "publication_ready": True,
+                    "grid_refinement_passed": True,
+                    "time_refinement_passed": True,
+                    "movie_promotion_rejection_reasons": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            report_json_path=report_path,
+            grid_report_json_paths=grid_paths,
+            time_report_json_paths=time_paths,
+        )
+
+    monkeypatch.setattr(
+        module,
+        "create_essos_imported_drb_movie_refinement_campaign_package",
+        fake_create_campaign,
+    )
+    settings = module.build_refinement_campaign_settings(
+        output_root=tmp_path / "movie_refinement_campaign",
+        case_label="example_campaign",
+        grid_shapes=((4, 8, 16), (8, 16, 32)),
+        time_shape=(8, 16, 32),
+        time_dt_values=(2.0e-3, 1.0e-3),
+        require_publication_ready=True,
+    )
+    report = module.run_refinement_campaign(settings)
+
+    assert report["publication_ready"] is True
+    assert (
+        tmp_path
+        / "movie_refinement_campaign"
+        / "data"
+        / "example_campaign_summary.json"
+    ).exists()
+
+
 def _load_imported_drb_movie_refinement_summary_example():
     module_path = (
         REPO_ROOT
@@ -295,6 +397,31 @@ def _load_imported_drb_movie_refinement_summary_example():
     )
     spec = importlib.util.spec_from_loader(
         "imported_drb_movie_refinement_summary_example",
+        loader=None,
+    )
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    module.__file__ = str(module_path)
+    sys.modules[spec.name] = module
+    exec(compile(source, str(module_path), "exec"), module.__dict__)
+    return module
+
+
+def _load_imported_drb_movie_refinement_campaign_example():
+    module_path = (
+        REPO_ROOT
+        / "examples"
+        / "geometry-3D"
+        / "essos-field-lines"
+        / "imported_drb_movie_refinement_campaign.py"
+    )
+    source = module_path.read_text(encoding="utf-8").replace(
+        "RUN_EXAMPLE = True",
+        "RUN_EXAMPLE = False",
+        1,
+    )
+    spec = importlib.util.spec_from_loader(
+        "imported_drb_movie_refinement_campaign_example",
         loader=None,
     )
     assert spec is not None

@@ -45,6 +45,13 @@ class EssosImportedDrbMovieRefinementArtifacts:
 
 
 @dataclass(frozen=True)
+class EssosImportedDrbMovieRefinementCampaignArtifacts:
+    report_json_path: Path
+    grid_report_json_paths: tuple[Path, ...]
+    time_report_json_paths: tuple[Path, ...]
+
+
+@dataclass(frozen=True)
 class EssosImportedDrbMovieResult:
     geometry: EssosImportedFciGeometry
     report: dict[str, Any]
@@ -126,6 +133,127 @@ def create_essos_imported_drb_movie_refinement_summary_package(
         encoding="utf-8",
     )
     return EssosImportedDrbMovieRefinementArtifacts(report_json_path=report_json_path)
+
+
+def create_essos_imported_drb_movie_refinement_campaign_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_imported_drb_movie_refinement_campaign",
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    map_source: str = "hybrid",
+    grid_shapes: tuple[tuple[int, int, int], ...] | list[tuple[int, int, int]] = (
+        (3, 4, 8),
+        (4, 6, 12),
+    ),
+    time_shape: tuple[int, int, int] | list[int] | None = None,
+    time_dt_values: tuple[float, ...] | list[float] = (2.0e-3, 1.0e-3),
+    rho_min: float = 0.20,
+    rho_max: float = 0.60,
+    maxtime: float = 24.0,
+    times_to_trace: int = 80,
+    frames: int = 4,
+    substeps_per_frame: int = 2,
+    grid_dt: float = 2.0e-3,
+    relative_tolerance: float = 0.30,
+) -> EssosImportedDrbMovieRefinementCampaignArtifacts:
+    """Run a lightweight report-only grid/time movie refinement campaign.
+
+    The campaign intentionally writes JSON reports only. It does not save NPZ,
+    PNG, or GIF artifacts, so it can be used to search for a publication-grade
+    grid/time configuration before committing or release-hosting heavy media.
+    """
+
+    root = Path(output_root)
+    data_dir = root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    normalized_grids = tuple(_normalize_movie_grid_shape(shape) for shape in grid_shapes)
+    if len(normalized_grids) < 2:
+        raise ValueError("grid_shapes must contain at least two grid levels.")
+    normalized_time_shape = (
+        _normalize_movie_grid_shape(time_shape)
+        if time_shape is not None
+        else normalized_grids[-1]
+    )
+    normalized_time_dt_values = tuple(float(value) for value in time_dt_values)
+    if len(normalized_time_dt_values) < 2:
+        raise ValueError("time_dt_values must contain at least two timestep values.")
+    if any(value <= 0.0 for value in normalized_time_dt_values):
+        raise ValueError("time_dt_values must be positive.")
+
+    report_cache: dict[tuple[tuple[int, int, int], float], Path] = {}
+
+    def run_report(shape: tuple[int, int, int], dt: float, role: str, index: int) -> Path:
+        cache_key = (shape, float(dt))
+        if cache_key in report_cache:
+            return report_cache[cache_key]
+        nx, ny, nz = shape
+        result = build_essos_imported_drb_movie_campaign(
+            coil_json_path=coil_json_path,
+            vmec_wout_path=vmec_wout_path,
+            essos_root=essos_root,
+            map_source=map_source,
+            nx=nx,
+            ny=ny,
+            nz=nz,
+            rho_min=rho_min,
+            rho_max=rho_max,
+            maxtime=maxtime,
+            times_to_trace=times_to_trace,
+            frames=frames,
+            substeps_per_frame=substeps_per_frame,
+            dt=float(dt),
+        )
+        report = dict(result.report)
+        report.update(
+            {
+                "refinement_campaign_role": role,
+                "refinement_campaign_index": int(index),
+                "refinement_campaign_case_label": str(case_label),
+            }
+        )
+        report_json_path = data_dir / (
+            f"{case_label}_{role}_{index:02d}_{nx}x{ny}x{nz}_dt={float(dt):.6g}.json"
+        )
+        report_json_path.write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        report_cache[cache_key] = report_json_path
+        return report_json_path
+
+    grid_report_json_paths = tuple(
+        run_report(shape, grid_dt, "grid", index)
+        for index, shape in enumerate(normalized_grids)
+    )
+    time_report_json_paths = tuple(
+        run_report(normalized_time_shape, dt, "time", index)
+        for index, dt in enumerate(normalized_time_dt_values)
+    )
+    artifacts = create_essos_imported_drb_movie_refinement_summary_package(
+        output_root=root,
+        case_label=f"{case_label}_summary",
+        grid_report_json_paths=grid_report_json_paths,
+        time_report_json_paths=time_report_json_paths,
+        relative_tolerance=relative_tolerance,
+    )
+    return EssosImportedDrbMovieRefinementCampaignArtifacts(
+        report_json_path=artifacts.report_json_path,
+        grid_report_json_paths=grid_report_json_paths,
+        time_report_json_paths=time_report_json_paths,
+    )
+
+
+def _normalize_movie_grid_shape(
+    shape: tuple[int, int, int] | list[int] | None,
+) -> tuple[int, int, int]:
+    if not isinstance(shape, (tuple, list)) or len(shape) != 3:
+        raise ValueError("movie grid shapes must be length-3 tuples.")
+    normalized = tuple(int(value) for value in shape)
+    if any(value <= 0 for value in normalized):
+        raise ValueError("movie grid shapes must contain positive integers.")
+    return normalized
 
 
 def build_essos_imported_drb_movie_refinement_summary(

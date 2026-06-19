@@ -62,6 +62,27 @@ For the hybrid bridge, set `MAP_SOURCE = "hybrid"` and `OUTPUT_ROOT =
 Path("docs/data/essos_imported_drb_movie_hybrid_artifacts")`; for the
 closed-field control, set `MAP_SOURCE = "vmec"` and use a separate output root.
 
+To run a lightweight grid/time movie-promotion sweep before rendering any
+large artifacts, use the report-only refinement campaign:
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_campaign.py
+```
+
+This campaign executes the reduced imported-field transient at the configured
+`GRID_SHAPES` and `TIME_DT_VALUES`, writes one JSON report per run, and then
+builds the same summary described below. It intentionally does not write GIF,
+PNG, or NPZ files. Increase `GRID_SHAPES`, `TIMES_TO_TRACE`, `FRAMES`, and
+`SUBSTEPS_PER_FRAME` only after the compact report-only path proves the workflow
+on your machine. The checked-in compact campaign summary is:
+
+- `docs/data/essos_imported_drb_movie_refinement_campaign_artifacts/data/essos_imported_drb_movie_refinement_campaign_summary.json`
+
+It is intentionally negative evidence: the compact default is useful for
+workflow QA, but fails publication promotion because the grid-refinement metrics
+and spectral-resolution gates are not yet stable.
+
 After regenerating two or more same-map-source movie reports at different grid
 sizes and two or more reports at different effective frame timesteps, summarize
 the refinement evidence without committing heavyweight media:

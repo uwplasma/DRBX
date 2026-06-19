@@ -1,0 +1,314 @@
+{
+  "claim_scope": "report-only grid/time refinement gate for imported-field DRB movies; this summary does not regenerate GIF or NPZ artifacts",
+  "diagnostic": "essos_imported_drb_movie_refinement_summary",
+  "grid_refinement_diagnostics": {
+    "all_reports_passed": true,
+    "axis_progression_passed": true,
+    "axis_values": [
+      96.0,
+      288.0
+    ],
+    "diagnostic": "essos_imported_drb_movie_refinement",
+    "labels": [
+      "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+      "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004"
+    ],
+    "map_source": "hybrid",
+    "map_source_consistent": true,
+    "map_sources": [
+      "hybrid"
+    ],
+    "max_relative_metric_change": 4.180057028501513,
+    "metric_keys": [
+      "final_fluctuation_rms",
+      "max_fluctuation_rms",
+      "radial_flux_abs_mean",
+      "radial_flux_rms",
+      "low_mode_spectral_power_fraction",
+      "spectral_centroid_poloidal_fraction",
+      "spectral_centroid_toroidal_fraction",
+      "spectral_edge_band_power_fraction",
+      "final_potential_residual_l2"
+    ],
+    "pair_reports": [
+      {
+        "coarse_effective_frame_dt": 0.004,
+        "coarse_grid": [
+          3,
+          4,
+          8
+        ],
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "fine_effective_frame_dt": 0.004,
+        "fine_grid": [
+          4,
+          6,
+          12
+        ],
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "max_relative_metric_change": 4.180057028501513,
+        "metric_reports": {
+          "final_fluctuation_rms": {
+            "coarse": 0.024382686051308708,
+            "fine": 0.02492685966693148,
+            "passed": true,
+            "relative_change": 0.02183081314268745,
+            "sign_agreement": true
+          },
+          "final_potential_residual_l2": {
+            "coarse": 2.521681222843063e-13,
+            "fine": 2.7726624028560845e-13,
+            "passed": true,
+            "relative_change": 0.025098118001302176,
+            "sign_agreement": true
+          },
+          "low_mode_spectral_power_fraction": {
+            "coarse": 1.0,
+            "fine": 0.19304806771389543,
+            "passed": false,
+            "relative_change": 4.180057028501513,
+            "sign_agreement": true
+          },
+          "max_fluctuation_rms": {
+            "coarse": 0.024382686051308708,
+            "fine": 0.02492685966693148,
+            "passed": true,
+            "relative_change": 0.02183081314268745,
+            "sign_agreement": true
+          },
+          "radial_flux_abs_mean": {
+            "coarse": 0.000370313311115796,
+            "fine": 8.237593695474543e-05,
+            "passed": false,
+            "relative_change": 3.495406362652162,
+            "sign_agreement": true
+          },
+          "radial_flux_rms": {
+            "coarse": 0.0006028219469140017,
+            "fine": 0.0001399820799210603,
+            "passed": false,
+            "relative_change": 3.3064222738649782,
+            "sign_agreement": true
+          },
+          "spectral_centroid_poloidal_fraction": {
+            "coarse": 0.6854677062591885,
+            "fine": 0.8074694554507136,
+            "passed": true,
+            "relative_change": 0.15109147270892878,
+            "sign_agreement": true
+          },
+          "spectral_centroid_toroidal_fraction": {
+            "coarse": 0.6079240303346837,
+            "fine": 0.5026024235446559,
+            "passed": true,
+            "relative_change": 0.2095525247316481,
+            "sign_agreement": true
+          },
+          "spectral_edge_band_power_fraction": {
+            "coarse": 0.9519587982902806,
+            "fine": 0.9723105230588605,
+            "passed": true,
+            "relative_change": 0.02093130156048697,
+            "sign_agreement": true
+          }
+        },
+        "passed": false,
+        "radial_flux_proxy_sign_agreement": false,
+        "radial_flux_sign_passed": false
+      }
+    ],
+    "passed": false,
+    "refinement_axis": "grid",
+    "relative_tolerance": 0.3,
+    "report_count": 2,
+    "spectral_resolution_passed": false,
+    "spectral_resolution_reports": [
+      {
+        "label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "low_mode_window_covers_grid": true,
+        "max_spectral_edge_band_power_fraction": 0.85,
+        "passed": false,
+        "reasons": [
+          "low_mode_window_covers_grid",
+          "spectral_edge_band_power_fraction_above_limit"
+        ],
+        "spectral_centroid_poloidal_fraction": 0.6854677062591885,
+        "spectral_centroid_toroidal_fraction": 0.6079240303346837,
+        "spectral_edge_band_power_fraction": 0.9519587982902806
+      },
+      {
+        "label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "low_mode_window_covers_grid": false,
+        "max_spectral_edge_band_power_fraction": 0.85,
+        "passed": false,
+        "reasons": [
+          "spectral_edge_band_power_fraction_above_limit"
+        ],
+        "spectral_centroid_poloidal_fraction": 0.8074694554507136,
+        "spectral_centroid_toroidal_fraction": 0.5026024235446559,
+        "spectral_edge_band_power_fraction": 0.9723105230588605
+      }
+    ]
+  },
+  "grid_refinement_passed": false,
+  "movie_promotion_rejection_reasons": [
+    "movie_grid_refinement_not_passed",
+    "movie_grid_spectral_resolution_not_passed",
+    "low_mode_window_covers_grid",
+    "spectral_edge_band_power_fraction_above_limit",
+    "movie_time_refinement_not_passed",
+    "movie_time_spectral_resolution_not_passed",
+    "spectral_edge_band_power_fraction_above_limit"
+  ],
+  "publication_ready": false,
+  "relative_tolerance": 0.3,
+  "time_refinement_diagnostics": {
+    "all_reports_passed": true,
+    "axis_progression_passed": true,
+    "axis_values": [
+      0.004,
+      0.002
+    ],
+    "diagnostic": "essos_imported_drb_movie_refinement",
+    "labels": [
+      "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+      "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.002"
+    ],
+    "map_source": "hybrid",
+    "map_source_consistent": true,
+    "map_sources": [
+      "hybrid"
+    ],
+    "max_relative_metric_change": 0.12955284492419814,
+    "metric_keys": [
+      "final_fluctuation_rms",
+      "max_fluctuation_rms",
+      "radial_flux_abs_mean",
+      "radial_flux_rms",
+      "low_mode_spectral_power_fraction",
+      "spectral_centroid_poloidal_fraction",
+      "spectral_centroid_toroidal_fraction",
+      "spectral_edge_band_power_fraction",
+      "final_potential_residual_l2"
+    ],
+    "pair_reports": [
+      {
+        "coarse_effective_frame_dt": 0.004,
+        "coarse_grid": [
+          4,
+          6,
+          12
+        ],
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "fine_effective_frame_dt": 0.002,
+        "fine_grid": [
+          4,
+          6,
+          12
+        ],
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.002",
+        "max_relative_metric_change": 0.12955284492419814,
+        "metric_reports": {
+          "final_fluctuation_rms": {
+            "coarse": 0.02492685966693148,
+            "fine": 0.024562548660519618,
+            "passed": true,
+            "relative_change": 0.014831970877575708,
+            "sign_agreement": true
+          },
+          "final_potential_residual_l2": {
+            "coarse": 2.7726624028560845e-13,
+            "fine": 2.632904681461263e-13,
+            "passed": true,
+            "relative_change": 0.013975772139482156,
+            "sign_agreement": true
+          },
+          "low_mode_spectral_power_fraction": {
+            "coarse": 0.19304806771389543,
+            "fine": 0.17090662785843408,
+            "passed": true,
+            "relative_change": 0.12955284492419814,
+            "sign_agreement": true
+          },
+          "max_fluctuation_rms": {
+            "coarse": 0.02492685966693148,
+            "fine": 0.024562548660519618,
+            "passed": true,
+            "relative_change": 0.014831970877575708,
+            "sign_agreement": true
+          },
+          "radial_flux_abs_mean": {
+            "coarse": 8.237593695474543e-05,
+            "fine": 8.807017408978918e-05,
+            "passed": true,
+            "relative_change": 0.06465568160724153,
+            "sign_agreement": true
+          },
+          "radial_flux_rms": {
+            "coarse": 0.0001399820799210603,
+            "fine": 0.00015572416323545864,
+            "passed": true,
+            "relative_change": 0.10108953541523245,
+            "sign_agreement": true
+          },
+          "spectral_centroid_poloidal_fraction": {
+            "coarse": 0.8074694554507136,
+            "fine": 0.8211499622579993,
+            "passed": true,
+            "relative_change": 0.016660180766089355,
+            "sign_agreement": true
+          },
+          "spectral_centroid_toroidal_fraction": {
+            "coarse": 0.5026024235446559,
+            "fine": 0.5156553119644774,
+            "passed": true,
+            "relative_change": 0.025313204609672946,
+            "sign_agreement": true
+          },
+          "spectral_edge_band_power_fraction": {
+            "coarse": 0.9723105230588605,
+            "fine": 0.9925945487025167,
+            "passed": true,
+            "relative_change": 0.020435358697235256,
+            "sign_agreement": true
+          }
+        },
+        "passed": true,
+        "radial_flux_proxy_sign_agreement": true,
+        "radial_flux_sign_passed": true
+      }
+    ],
+    "passed": false,
+    "refinement_axis": "time",
+    "relative_tolerance": 0.3,
+    "report_count": 2,
+    "spectral_resolution_passed": false,
+    "spectral_resolution_reports": [
+      {
+        "label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "low_mode_window_covers_grid": false,
+        "max_spectral_edge_band_power_fraction": 0.85,
+        "passed": false,
+        "reasons": [
+          "spectral_edge_band_power_fraction_above_limit"
+        ],
+        "spectral_centroid_poloidal_fraction": 0.8074694554507136,
+        "spectral_centroid_toroidal_fraction": 0.5026024235446559,
+        "spectral_edge_band_power_fraction": 0.9723105230588605
+      },
+      {
+        "label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.002",
+        "low_mode_window_covers_grid": false,
+        "max_spectral_edge_band_power_fraction": 0.85,
+        "passed": false,
+        "reasons": [
+          "spectral_edge_band_power_fraction_above_limit"
+        ],
+        "spectral_centroid_poloidal_fraction": 0.8211499622579993,
+        "spectral_centroid_toroidal_fraction": 0.5156553119644774,
+        "spectral_edge_band_power_fraction": 0.9925945487025167
+      }
+    ]
+  },
+  "time_refinement_passed": false
+}

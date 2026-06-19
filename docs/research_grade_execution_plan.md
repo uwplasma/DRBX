@@ -149,9 +149,9 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 83% | Finish pure-coil tracing refinement, FCI, live grid-refinement, and live time-refinement before turbulence/movie claims; report-level promotion/advisory/negative-control semantics, finite-overlap thresholds, sweep summaries, movie-evidence roles, radial-flux magnitude gates, and spectral-resolution gates are now explicit. |
+| 3D stellarator imported-field/VMEC SOL | 84% | Finish pure-coil tracing refinement, FCI, high-resolution live grid-refinement, and high-resolution live time-refinement before turbulence/movie claims; report-level promotion/advisory/negative-control semantics, finite-overlap thresholds, sweep summaries, movie-evidence roles, radial-flux magnitude gates, spectral-resolution gates, and a report-only movie-refinement campaign are now explicit. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
-| Docs and examples | 92% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
+| Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
 
 ## Milestone Map
@@ -2063,6 +2063,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   compact grid remained edge-band dominated. This is useful reviewer-facing
   negative evidence: the next 3D movie campaign must increase or adapt the
   physics grid until scalar metrics and spectral occupancy are both stable.
+- 2026-06-18: Added a report-only imported-field DRB movie refinement campaign
+  API and example:
+  `examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_campaign.py`.
+  The campaign runs grid and timestep transients, writes only JSON reports, and
+  reuses duplicate grid/time cases before creating the refinement summary. The
+  compact checked-in hybrid run writes under `40 KB` of JSON under
+  `docs/data/essos_imported_drb_movie_refinement_campaign_artifacts/` and
+  intentionally remains negative evidence: `publication_ready=false`,
+  `grid_passed=false`, `time_passed=false`, grid max relative metric change
+  `4.18`, time max relative metric change `0.130`, and both grid/time spectral
+  gates fail because the compact grids are edge-band dominated. This gives the
+  project a lightweight, reproducible route to search for the larger/adaptive
+  grid campaign needed before release-hosted movie regeneration.
 
 ## Definition Of Done
 
