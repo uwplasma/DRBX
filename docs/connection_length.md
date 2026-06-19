@@ -168,7 +168,9 @@ clean-clone example
 [`examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py`](../examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py)
 exercises that exact refinement path on manufactured non-axisymmetric data and
 sets `require_observed_order=True` so a two-level report cannot be promoted as
-convergence evidence.
+convergence evidence. The same example writes a lightweight sweep summary JSON
+that aggregates `promotion_ready`, `evidence_role`, finest errors, observed
+order, and finite-overlap thresholds across all resolved map sources.
 
 ## Current Promotion Rule
 

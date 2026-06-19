@@ -22,6 +22,7 @@ CONNECTION_QUANTITY = "auto"
 
 OUTPUT_ROOT = Path("docs/data/essos_imported_connection_length_refinement_artifacts")
 CASE_LABEL = "essos_imported_connection_length_refinement"
+WRITE_SWEEP_SUMMARY = True
 COIL_JSON_PATH: Path | None = None
 VMEC_WOUT_PATH: Path | None = None
 ESSOS_ROOT: Path | None = None
@@ -207,7 +208,48 @@ def require_refinement_gate_passed(report_path: Path) -> None:
     )
 
 
-def run_refinement_campaign(settings: ConnectionLengthRefinementRunSettings) -> None:
+def summarize_refinement_artifact(
+    settings: ConnectionLengthRefinementRunSettings,
+    report_path: Path,
+    arrays_path: Path,
+    plot_path: Path,
+) -> dict[str, object]:
+    """Extract the compact fields needed to compare refinement campaigns."""
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    diagnostics = report.get("diagnostics", {})
+    return {
+        "case_label": settings.case_label,
+        "live_import": settings.live_import,
+        "map_source": settings.map_source,
+        "connection_quantity": settings.connection_quantity,
+        "level_shapes": [list(shape) for shape in settings.level_shapes],
+        "report_json_path": str(report_path),
+        "arrays_npz_path": str(arrays_path),
+        "plot_png_path": str(plot_path),
+        "passed": bool(report.get("passed", False)),
+        "promotion_ready": bool(report.get("promotion_ready", False)),
+        "advisory_only": bool(report.get("advisory_only", False)),
+        "evidence_role": str(report.get("evidence_role", "unknown")),
+        "promotion_rejection_reasons": list(
+            report.get("promotion_rejection_reasons", [])
+        ),
+        "finest_normalized_rms_error": report.get("finest_normalized_rms_error"),
+        "finest_normalized_linf_error": report.get("finest_normalized_linf_error"),
+        "minimum_observed_order_actual": report.get("minimum_observed_order_actual"),
+        "minimum_finite_pair_fraction": report.get("minimum_finite_pair_fraction"),
+        "monotonic_rms_error_reduction": bool(
+            report.get("monotonic_rms_error_reduction", False)
+        ),
+        "monotonic_linf_error_reduction": bool(
+            report.get("monotonic_linf_error_reduction", False)
+        ),
+        "observed_order_required": bool(diagnostics.get("observed_order_required", False)),
+        "observed_order_available": bool(diagnostics.get("observed_order_available", False)),
+    }
+
+
+def run_refinement_campaign(settings: ConnectionLengthRefinementRunSettings) -> dict[str, object]:
     """Run one manufactured or live imported connection-length refinement gate."""
 
     if settings.live_import:
@@ -251,18 +293,91 @@ def run_refinement_campaign(settings: ConnectionLengthRefinementRunSettings) -> 
     print(f"wrote report: {artifacts.report_json_path}")
     print(f"wrote arrays: {artifacts.arrays_npz_path}")
     print(f"wrote plot:   {artifacts.plot_png_path}")
+    entry = summarize_refinement_artifact(
+        settings,
+        artifacts.report_json_path,
+        artifacts.arrays_npz_path,
+        artifacts.plot_png_path,
+    )
+    print(
+        "refinement evidence: "
+        f"promotion_ready={entry['promotion_ready']}, "
+        f"evidence_role={entry['evidence_role']}, "
+        f"rms={entry['finest_normalized_rms_error']}, "
+        f"linf={entry['finest_normalized_linf_error']}, "
+        f"observed_order={entry['minimum_observed_order_actual']}"
+    )
     if settings.require_pass:
         require_refinement_gate_passed(artifacts.report_json_path)
         print("connection-length refinement gate passed")
+    return entry
+
+
+def _summary_case_prefix(settings: tuple[ConnectionLengthRefinementRunSettings, ...]) -> str:
+    if not settings:
+        return CASE_LABEL
+    label = settings[0].case_label
+    for suffix in ("_coil_live", "_vmec_live", "_hybrid_live"):
+        if label.endswith(suffix):
+            return label[: -len(suffix)]
+    return label
+
+
+def write_refinement_sweep_summary(
+    settings: tuple[ConnectionLengthRefinementRunSettings, ...],
+    entries: list[dict[str, object]],
+    *,
+    summary_path: Path | None = None,
+) -> Path:
+    """Write one lightweight summary for a manufactured or live refinement sweep."""
+
+    if not settings:
+        raise ValueError("At least one refinement setting is required.")
+    resolved_path = (
+        Path(summary_path)
+        if summary_path is not None
+        else settings[0].output_root / "data" / f"{_summary_case_prefix(settings)}_summary.json"
+    )
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "diagnostic": "essos_imported_connection_length_refinement_sweep",
+        "report_count": len(entries),
+        "promotion_ready_count": sum(bool(entry["promotion_ready"]) for entry in entries),
+        "advisory_count": sum(bool(entry["advisory_only"]) for entry in entries),
+        "negative_control_count": sum(
+            str(entry["evidence_role"]).startswith("negative_") for entry in entries
+        ),
+        "all_promotion_ready": all(bool(entry["promotion_ready"]) for entry in entries),
+        "entries": entries,
+    }
+    resolved_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    print(f"wrote sweep summary: {resolved_path}")
+    return resolved_path
 
 
 def run_resolved_campaigns(
     settings: tuple[ConnectionLengthRefinementRunSettings, ...],
-) -> None:
+) -> dict[str, object]:
     """Run all resolved connection-length refinement campaigns."""
 
+    entries: list[dict[str, object]] = []
     for item in settings:
-        run_refinement_campaign(item)
+        entries.append(run_refinement_campaign(item))
+    summary_path = None
+    if WRITE_SWEEP_SUMMARY:
+        summary_path = write_refinement_sweep_summary(settings, entries)
+    return {
+        "diagnostic": "essos_imported_connection_length_refinement_sweep",
+        "report_count": len(entries),
+        "promotion_ready_count": sum(bool(entry["promotion_ready"]) for entry in entries),
+        "advisory_count": sum(bool(entry["advisory_only"]) for entry in entries),
+        "negative_control_count": sum(
+            str(entry["evidence_role"]).startswith("negative_") for entry in entries
+        ),
+        "all_promotion_ready": all(bool(entry["promotion_ready"]) for entry in entries),
+        "summary_json_path": str(summary_path) if summary_path is not None else None,
+        "entries": entries,
+    }
 
 
 if RUN_EXAMPLE:

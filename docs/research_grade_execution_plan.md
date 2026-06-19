@@ -149,9 +149,9 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 79% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims; report-level promotion/advisory/negative-control semantics and finite-overlap thresholds are now explicit. |
+| 3D stellarator imported-field/VMEC SOL | 80% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims; report-level promotion/advisory/negative-control semantics, finite-overlap thresholds, and sweep summaries are now explicit. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
-| Docs and examples | 90% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
+| Docs and examples | 91% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
 
 ## Milestone Map
@@ -1947,6 +1947,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   `negative_observed_order_control` rather than promoted evidence. This closes
   a classification ambiguity and leaves pure-coil map refinement and
   longer-grid/time imported-field movie validation as the active 3D blockers.
+- 2026-06-18: Made the imported connection-length refinement example produce a
+  compact sweep summary JSON in addition to per-source JSON/NPZ/PNG artifacts.
+  The summary records map source, refinement quantity, finest RMS/\(L_\infty\),
+  observed order, finite-overlap threshold, `promotion_ready`, `advisory_only`,
+  and `evidence_role` for every resolved run, so users and docs can compare
+  manufactured, coil, VMEC, and hybrid evidence without manually opening every
+  report. The committed clean-clone summary is
+  `docs/data/essos_imported_connection_length_refinement_artifacts/data/essos_imported_connection_length_refinement_summary.json`
+  and reports one manufactured `promotion_ready` entry. Focused evidence:
+  `env PYTHONPATH=src pytest -q tests/test_validation_stellarator_fci_campaigns.py -k 'connection_length_refinement'`
+  passed with `9` tests, and the example regenerated the summary artifact.
 
 ## Definition Of Done
 

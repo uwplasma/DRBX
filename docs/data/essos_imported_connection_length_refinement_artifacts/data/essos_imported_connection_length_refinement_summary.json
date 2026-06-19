@@ -1,0 +1,49 @@
+{
+  "advisory_count": 0,
+  "all_promotion_ready": true,
+  "diagnostic": "essos_imported_connection_length_refinement_sweep",
+  "entries": [
+    {
+      "advisory_only": false,
+      "arrays_npz_path": "docs/data/essos_imported_connection_length_refinement_artifacts/data/essos_imported_connection_length_refinement.npz",
+      "case_label": "essos_imported_connection_length_refinement",
+      "connection_quantity": "manufactured",
+      "evidence_role": "promotion_ready",
+      "finest_normalized_linf_error": 0.011438193972434086,
+      "finest_normalized_rms_error": 0.006709774882150358,
+      "level_shapes": [
+        [
+          4,
+          6,
+          8
+        ],
+        [
+          8,
+          12,
+          16
+        ],
+        [
+          16,
+          24,
+          32
+        ]
+      ],
+      "live_import": false,
+      "map_source": "manufactured",
+      "minimum_finite_pair_fraction": 1.0,
+      "minimum_observed_order_actual": 1.7846180878069313,
+      "monotonic_linf_error_reduction": true,
+      "monotonic_rms_error_reduction": true,
+      "observed_order_available": true,
+      "observed_order_required": true,
+      "passed": true,
+      "plot_png_path": "docs/data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png",
+      "promotion_ready": true,
+      "promotion_rejection_reasons": [],
+      "report_json_path": "docs/data/essos_imported_connection_length_refinement_artifacts/data/essos_imported_connection_length_refinement.json"
+    }
+  ],
+  "negative_control_count": 0,
+  "promotion_ready_count": 1,
+  "report_count": 1
+}

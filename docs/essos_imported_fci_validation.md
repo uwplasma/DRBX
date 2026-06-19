@@ -61,6 +61,13 @@ not be used as publication-grade refinement evidence. Live controls use
 stricter manufactured thresholds, because the live coordinate-interpolation
 gate measures imported-map consistency rather than a manufactured analytic
 solution.
+Each run also writes a compact sweep summary JSON next to the report files.
+For live runs with `MAP_SOURCES_TO_RUN = ("coil", "vmec", "hybrid")`, that
+summary records the source, refinement quantity, finest errors, observed order,
+finite-overlap threshold, `promotion_ready`, and `evidence_role` for all three
+map sources in one file. This is the preferred artifact for deciding which
+geometry source is ready for a turbulence/movie claim without manually opening
+each report.
 For definitions of one-sided, target-to-target, and effective parallel
 connection length, and for the exact code paths used by each geometry source,
 see [Connection Length](connection_length.md).
@@ -313,5 +320,6 @@ It drives the fixed-layout drift-reduced Braginskii PyTree RHS, `jax.jvp`, and
 - `docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.npz`
 - `docs/data/essos_imported_fci_hybrid_artifacts/images/essos_imported_fci_hybrid_campaign.png`
 - `docs/data/essos_imported_connection_length_refinement_artifacts/data/essos_imported_connection_length_refinement.json`
+- `docs/data/essos_imported_connection_length_refinement_artifacts/data/essos_imported_connection_length_refinement_summary.json`
 - `docs/data/essos_imported_connection_length_refinement_artifacts/data/essos_imported_connection_length_refinement.npz`
 - `docs/data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png`
