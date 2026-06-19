@@ -497,8 +497,8 @@ class FixedResidualLinearizedSolveResult:
     residual_value: jax.Array
     solver_status: object
     solver_success: bool | None
-    linear_update_residual_inf_norm: float
-    linear_update_relative_residual: float
+    linear_update_residual_inf_norm: float | None
+    linear_update_relative_residual: float | None
     diagnostics: dict[str, object]
 
 
@@ -546,6 +546,7 @@ def solve_fixed_residual_linearized_action_update(
     preconditioner: Callable[[object], object] | None = None,
     jit_linear_operator: bool = False,
     linearization_reused: bool = True,
+    diagnose_update_residual: bool = True,
 ) -> FixedResidualLinearizedSolveResult:
     """Solve one Newton update from an existing fixed-residual linearization.
 
@@ -584,10 +585,17 @@ def solve_fixed_residual_linearized_action_update(
         solve_method=_canonical_gmres_solve_method(solve_method),
     )
     update = jax.block_until_ready(jnp.asarray(update, dtype=jnp.float64))
-    linear_update_residual = linear_operator(update) - linear_rhs
-    linear_update_residual = jax.block_until_ready(linear_update_residual)
-    residual_norm = float(jnp.max(jnp.abs(linear_update_residual)))
-    rhs_norm = max(float(jnp.max(jnp.abs(linear_rhs))), jnp.finfo(jnp.float64).tiny)
+    residual_norm: float | None = None
+    relative_residual: float | None = None
+    if bool(diagnose_update_residual):
+        linear_update_residual = linear_operator(update) - linear_rhs
+        linear_update_residual = jax.block_until_ready(linear_update_residual)
+        residual_norm = float(jnp.max(jnp.abs(linear_update_residual)))
+        rhs_norm = max(
+            float(jnp.max(jnp.abs(linear_rhs))),
+            jnp.finfo(jnp.float64).tiny,
+        )
+        relative_residual = residual_norm / rhs_norm
     normalized_status = _normalize_solver_status(status)
     diagnostics_after = action.diagnostics()
     diagnostics = {
@@ -600,6 +608,7 @@ def solve_fixed_residual_linearized_action_update(
         "linear_maxiter": int(linear_maxiter),
         "solve_method": _canonical_gmres_solve_method(solve_method),
         "preconditioner_used": preconditioner is not None,
+        "linear_update_residual_checked": bool(diagnose_update_residual),
     }
     return FixedResidualLinearizedSolveResult(
         update=update,
@@ -607,7 +616,7 @@ def solve_fixed_residual_linearized_action_update(
         solver_status=normalized_status,
         solver_success=_solver_status_success(normalized_status),
         linear_update_residual_inf_norm=residual_norm,
-        linear_update_relative_residual=residual_norm / rhs_norm,
+        linear_update_relative_residual=relative_residual,
         diagnostics=diagnostics,
     )
 
@@ -623,6 +632,7 @@ def solve_fixed_residual_linearized_update(
     solve_method: str = "batched",
     preconditioner: Callable[[object], object] | None = None,
     jit_linear_operator: bool = False,
+    diagnose_update_residual: bool = True,
 ) -> FixedResidualLinearizedSolveResult:
     """Linearize a fixed-layout residual once and solve one Newton update."""
 
@@ -640,6 +650,7 @@ def solve_fixed_residual_linearized_update(
         preconditioner=preconditioner,
         jit_linear_operator=jit_linear_operator,
         linearization_reused=False,
+        diagnose_update_residual=diagnose_update_residual,
     )
 
 

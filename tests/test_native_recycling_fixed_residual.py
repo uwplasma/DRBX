@@ -583,6 +583,34 @@ def test_fixed_residual_linearized_action_update_reuses_existing_action() -> Non
     assert result.diagnostics["solve_batched_call_count"] == 0
 
 
+def test_fixed_residual_linearized_update_can_skip_update_residual_diagnostic() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    diagonal = jnp.asarray([2.0, 3.0, 4.0], dtype=jnp.float64)
+    residual = lambda state: diagonal * (jnp.asarray(state, dtype=jnp.float64) - 1.0)
+    candidate = jnp.asarray([2.0, -1.0, 0.0], dtype=jnp.float64)
+
+    result = solve_fixed_residual_linearized_update(
+        residual,
+        candidate,
+        linear_tolerance=1.0e-12,
+        linear_restart=3,
+        linear_maxiter=4,
+        diagnose_update_residual=False,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(candidate + result.update),
+        np.ones(3, dtype=np.float64),
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
+    assert result.linear_update_residual_inf_norm is None
+    assert result.linear_update_relative_residual is None
+    assert result.diagnostics["linear_update_residual_checked"] is False
+
+
 def test_fixed_residual_linearized_update_rejects_rhs_shape_mismatch() -> None:
     pytest.importorskip("jax")
     import jax.numpy as jnp

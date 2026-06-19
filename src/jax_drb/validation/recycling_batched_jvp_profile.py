@@ -456,6 +456,7 @@ def profile_recycling_batched_jvp_problem(
     linearized_update_preconditioner: str | None = None,
     linearized_update_preconditioner_floor: float = 1.0e-10,
     linearized_update_preconditioner_max_unknowns: int = 2048,
+    linearized_update_diagnose_residual: bool = True,
     progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
     """Measure fixed-work vectorized residual/JVP throughput on a real residual."""
@@ -582,6 +583,7 @@ def profile_recycling_batched_jvp_problem(
             preconditioner=preconditioner,
             jit_linear_operator=bool(linearized_update_jit_operator),
             linearization_reused=True,
+            diagnose_update_residual=bool(linearized_update_diagnose_residual),
         )
         candidate_state = base_state + solve_result.update
         candidate_residual = residual_jit(candidate_state).block_until_ready()
@@ -590,12 +592,15 @@ def profile_recycling_batched_jvp_problem(
             "elapsed_seconds": float(perf_counter() - started_at),
             "solver_status": solve_result.solver_status,
             "solver_success": solve_result.solver_success,
-            "linear_update_residual_inf_norm": float(
-                solve_result.linear_update_residual_inf_norm
+            "linear_update_residual_checked": bool(
+                solve_result.diagnostics.get("linear_update_residual_checked", False)
             ),
-            "linear_update_relative_residual": float(
-                solve_result.linear_update_relative_residual
-            ),
+            "linear_update_residual_inf_norm": None
+            if solve_result.linear_update_residual_inf_norm is None
+            else float(solve_result.linear_update_residual_inf_norm),
+            "linear_update_relative_residual": None
+            if solve_result.linear_update_relative_residual is None
+            else float(solve_result.linear_update_relative_residual),
             "candidate_residual_inf_norm": float(jnp.max(jnp.abs(candidate_residual))),
             "update_inf_norm": float(jnp.max(jnp.abs(solve_result.update))),
             "preconditioner": str(preconditioner_diagnostics["name"]),
@@ -1006,6 +1011,7 @@ def create_recycling_batched_jvp_profile_package(
     linearized_update_preconditioner: str | None = None,
     linearized_update_preconditioner_floor: float = 1.0e-10,
     linearized_update_preconditioner_max_unknowns: int = 2048,
+    linearized_update_diagnose_residual: bool = True,
 ) -> dict[str, object]:
     output_path = Path(output_dir).expanduser()
     output_path.mkdir(parents=True, exist_ok=True)
@@ -1024,6 +1030,9 @@ def create_recycling_batched_jvp_profile_package(
             "residual_partition_size": residual_partition_size,
             "jvp_partition_size": jvp_partition_size,
             "check_linearized_update": bool(check_linearized_update),
+            "linearized_update_diagnose_residual": bool(
+                linearized_update_diagnose_residual
+            ),
         }
     )
     problem = build_recycling_batched_jvp_problem(
@@ -1061,6 +1070,9 @@ def create_recycling_batched_jvp_profile_package(
         linearized_update_preconditioner_max_unknowns=(
             linearized_update_preconditioner_max_unknowns
         ),
+        linearized_update_diagnose_residual=bool(
+            linearized_update_diagnose_residual
+        ),
         progress_callback=progress_callback,
     )
     report = {
@@ -1073,6 +1085,9 @@ def create_recycling_batched_jvp_profile_package(
         "residual_partition_size": residual_partition_size,
         "jvp_partition_size": jvp_partition_size,
         "check_linearized_update": bool(check_linearized_update),
+        "linearized_update_diagnose_residual": bool(
+            linearized_update_diagnose_residual
+        ),
     }
     (output_path / "profile_summary.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"

@@ -2924,6 +2924,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   including `0.61 s` to build a nearly identity `304`-entry diagonal.
   Decision: action reuse is a real low-risk profile-path improvement; packed
   diagonal preconditioning remains diagnostic-only.
+- 2026-06-19: Added an explicit cheap-throughput switch for the fixed-layout
+  linearized update helper. `solve_fixed_residual_linearized_update` and
+  `solve_fixed_residual_linearized_action_update` now accept
+  `diagnose_update_residual=False`, and
+  `profile_recycling_batched_jvp_gate.py` exposes
+  `--skip-linearized-update-residual-diagnostic`. The default remains strict:
+  promotion gates still apply one extra matrix-free residual action after
+  GMRES and record `linear_update_residual_inf_norm` plus
+  `linear_update_relative_residual`. The opt-out is only for post-validation
+  throughput sweeps where solver status, update size, and candidate nonlinear
+  residual are enough evidence. Decision: this removes a known avoidable JVP
+  action from production-style profiling without weakening the retained
+  research-grade validation gate.
 
 ## Definition Of Done
 

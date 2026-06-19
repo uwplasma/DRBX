@@ -187,6 +187,16 @@ def _parse_args() -> argparse.Namespace:
             "update preconditioner builds."
         ),
     )
+    parser.add_argument(
+        "--skip-linearized-update-residual-diagnostic",
+        action="store_true",
+        help=(
+            "Skip the extra post-GMRES linearized residual action. The solver "
+            "status and nonlinear candidate residual are still recorded; use "
+            "this for production-style throughput probes after the stricter "
+            "diagnostic gate has passed."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -265,6 +275,9 @@ def main() -> None:
             ),
             linearized_update_preconditioner_max_unknowns=int(
                 args.linearized_update_preconditioner_max_unknowns
+            ),
+            linearized_update_diagnose_residual=not bool(
+                args.skip_linearized_update_residual_diagnostic
             ),
         )
 

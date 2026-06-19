@@ -188,7 +188,12 @@ gate reuses the existing diagnostic linearization, so the artifact records
 `linearization_reused=true` and zero solve-only Python action callbacks under
 the jitted linear operator. This makes the
 preconditioner lane auditable before the update solve is considered for any
-default BDF promotion.
+default BDF promotion. For throughput-only follow-up sweeps after this strict
+gate has passed, `profile_recycling_batched_jvp_gate.py` also accepts
+`--skip-linearized-update-residual-diagnostic`, which removes the extra
+post-GMRES linearized residual action while keeping the nonlinear candidate
+residual and solver status in the profile artifact.
+
 The `dthe-active-array-linearized-update-jvp-diag-gate` variant applies a
 JVP-derived packed diagonal preconditioner. It is correct but not useful on
 this fixture: the diagonal is nearly identity, with absolute entries from
