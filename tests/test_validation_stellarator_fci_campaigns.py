@@ -9,7 +9,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.geometry import FciMaps, identity_fci_maps
+from jax_drb.geometry import (
+    FciMaps,
+    build_synthetic_stellarator_geometry,
+    identity_fci_maps,
+)
+from jax_drb.native.fci_vorticity import (
+    apply_fci_vorticity_operator,
+    solve_fci_vorticity_potential_cg,
+)
 from jax_drb.validation import (
     audit_essos_imported_artifact_report,
     audit_essos_imported_artifact_reports,
@@ -32,6 +40,46 @@ from jax_drb.validation.essos_imported_fci_campaign import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_fci_vorticity_jacobi_preconditioner_reduces_fixed_budget_residual() -> None:
+    geometry = build_synthetic_stellarator_geometry(nx=10, ny=8, nz=18)
+    phi_exact = (
+        jnp.sin(2.0 * geometry.poloidal_angle - 3.0 * geometry.toroidal_angle)
+        + 0.35 * geometry.radial * jnp.cos(
+            3.0 * geometry.poloidal_angle + geometry.toroidal_angle
+        )
+    )
+    density = (
+        1.0
+        + 0.20 * geometry.radial
+        + 0.06 * jnp.cos(geometry.poloidal_angle - 2.0 * geometry.toroidal_angle)
+    )
+    vorticity = apply_fci_vorticity_operator(
+        phi_exact,
+        density,
+        geometry.metric,
+        regularization=0.5,
+    )
+
+    unpreconditioned = solve_fci_vorticity_potential_cg(
+        vorticity,
+        density,
+        geometry.metric,
+        iterations=10,
+        regularization=0.5,
+    )
+    jacobi = solve_fci_vorticity_potential_cg(
+        vorticity,
+        density,
+        geometry.metric,
+        iterations=10,
+        regularization=0.5,
+        preconditioner="jacobi",
+    )
+
+    assert jacobi.preconditioner == "jacobi"
+    assert float(jacobi.residual_l2) < 0.75 * float(unpreconditioned.residual_l2)
 
 
 def test_imported_fci_example_resolves_source_specific_artifact_defaults(capsys) -> None:
