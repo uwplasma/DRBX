@@ -149,6 +149,29 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip the reverse-mode objective-gradient check for bounded GPU throughput runs.",
     )
+    parser.add_argument(
+        "--check-linearized-update",
+        action="store_true",
+        help=(
+            "Run one opt-in matrix-free JAX-GMRES update on the same fixed-layout "
+            "residual and record solver-health diagnostics. This is intentionally "
+            "separate from the throughput timings."
+        ),
+    )
+    parser.add_argument("--linearized-update-tolerance", type=float, default=1.0e-8)
+    parser.add_argument("--linearized-update-restart", type=int, default=20)
+    parser.add_argument("--linearized-update-maxiter", type=int, default=20)
+    parser.add_argument(
+        "--linearized-update-solve-method",
+        choices=("batched", "incremental"),
+        default="batched",
+    )
+    parser.add_argument("--linearized-update-jit-operator", action="store_true")
+    parser.add_argument(
+        "--linearized-update-preconditioner",
+        choices=("none", "state_scale"),
+        default="none",
+    )
     return parser.parse_args()
 
 
@@ -215,6 +238,13 @@ def main() -> None:
             check_objective_grad=not bool(args.skip_objective_grad_check),
             residual_partition_size=args.residual_partition_size,
             jvp_partition_size=args.jvp_partition_size,
+            check_linearized_update=bool(args.check_linearized_update),
+            linearized_update_tolerance=float(args.linearized_update_tolerance),
+            linearized_update_restart=int(args.linearized_update_restart),
+            linearized_update_maxiter=int(args.linearized_update_maxiter),
+            linearized_update_solve_method=str(args.linearized_update_solve_method),
+            linearized_update_jit_operator=bool(args.linearized_update_jit_operator),
+            linearized_update_preconditioner=str(args.linearized_update_preconditioner),
         )
 
     memory_profile_path = None

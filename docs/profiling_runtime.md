@@ -397,6 +397,36 @@ fixed-full-field artifact. This is the current best local evidence that the
 transformable active-array residual can be batched and differentiated without
 falling back to Python residual loops.
 
+The same direct profiler can also run one opt-in matrix-free Newton-update
+health check on the fixed-layout residual. This is not part of the throughput
+timing loop and does not change the production BDF default; it is a bounded
+gate for preconditioner and JAX-native implicit-solver work:
+
+```bash
+PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
+  --case dthe \
+  --rhs-backend active_array \
+  --override mesh:ny=16 \
+  --batch-sizes 1 \
+  --timed-runs 1 \
+  --disable-pmap \
+  --skip-objective-grad-check \
+  --check-linearized-update \
+  --linearized-update-tolerance 1e-8 \
+  --linearized-update-restart 8 \
+  --linearized-update-maxiter 8 \
+  --linearized-update-jit-operator \
+  --linearized-update-preconditioner none \
+  --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_active_array_linearized_update_cpu
+```
+
+The retained local CPU artifact uses the in-tree D/T/He fixture at `ny=16`.
+It records GMRES solver status `0`, a successful jitted matrix-free operator,
+linear-update relative residual `3.26e-16`, and post-update nonlinear residual
+`2.11e-11` on the active-array fixed-layout residual. The update check took
+about `11.94 s` inside a `33.4 s` campaign run. Treat this as solver-health
+evidence for future preconditioner work, not a speedup claim.
+
 For larger GPU or multi-device evidence, use the research-campaign wrapper
 rather than hand-editing decks. These campaigns enable repeated timings,
 persistent compilation cache, optional JAX traces, device-memory profiles, and

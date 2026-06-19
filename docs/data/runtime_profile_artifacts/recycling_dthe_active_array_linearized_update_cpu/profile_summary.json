@@ -1,0 +1,204 @@
+{
+  "backend": "cpu",
+  "batch_results": [
+    {
+      "batch_size": 1,
+      "batch_warmup_seconds": 8.774712668033317,
+      "batched_jvp_samples": [
+        0.00017337501049041748
+      ],
+      "batched_jvp_seconds_median": 0.00017337501049041748,
+      "batched_jvp_states_per_second": 5767.843919209282,
+      "batched_jvp_warmup_seconds": 6.378921958967112,
+      "batched_residual_samples": [
+        0.00010429200483486056
+      ],
+      "batched_residual_seconds_median": 0.00010429200483486056,
+      "batched_residual_states_per_second": 9588.46271661412,
+      "batched_residual_warmup_seconds": 2.3890675420407206,
+      "direction_build_seconds": 0.0003259159857407212,
+      "jvp_batched_serial_max_abs_error": 0.0,
+      "jvp_partition_count": 1,
+      "jvp_partition_size": 1,
+      "jvp_speedup_vs_serial": 0.8058199264073915,
+      "pmap_batch_size": 0,
+      "pmap_device_count": 0,
+      "pmap_jvp_batched_max_abs_error": null,
+      "pmap_jvp_samples": null,
+      "pmap_jvp_seconds_median": null,
+      "pmap_jvp_speedup_vs_batched": null,
+      "pmap_jvp_speedup_vs_serial": null,
+      "pmap_jvp_states_per_second": null,
+      "residual_batched_serial_max_abs_error": 0.0,
+      "residual_partition_count": 1,
+      "residual_partition_size": 1,
+      "residual_speedup_vs_serial": 0.6108617236034811,
+      "serial_jvp_samples": [
+        0.00013970903819426894
+      ],
+      "serial_jvp_seconds_median": 0.00013970903819426894,
+      "serial_jvp_states_per_second": 7157.733049521641,
+      "serial_residual_samples": [
+        6.370799383148551e-05
+      ],
+      "serial_residual_seconds_median": 6.370799383148551e-05,
+      "serial_residual_states_per_second": 15696.61732945331,
+      "serial_warmup_seconds": 0.006723167025484145
+    }
+  ],
+  "case": "recycling_batched_jvp_profile",
+  "check_linearized_update": true,
+  "compilation_cache_dir": null,
+  "device_memory_profile_path": null,
+  "devices": [
+    {
+      "id": 0,
+      "kind": "cpu",
+      "platform": "cpu"
+    }
+  ],
+  "differentiability": {
+    "jvp_fd_relative_error": 3.9541218991706586e-10,
+    "objective_directional_relative_error": null,
+    "objective_fd_directional_derivative": null,
+    "objective_grad_checked": false,
+    "objective_grad_directional_derivative": null
+  },
+  "fd_epsilon": 1e-06,
+  "feedback_names": [],
+  "field_names": [
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nd",
+    "Pd",
+    "NVd",
+    "Nt+",
+    "Pt+",
+    "NVt+",
+    "Nt",
+    "Pt",
+    "NVt",
+    "Nhe+",
+    "Phe+",
+    "NVhe+",
+    "Nhe",
+    "Phe",
+    "NVhe",
+    "Pe"
+  ],
+  "input_path": "<input-path>/BOUT.inp",
+  "interpretation": "This gate measures the real fixed-layout D/T/He recycling residual under jit, vmap, jvp, grad, and optional pmap after a multi-device identity sanity check. It is the current differentiable residual-throughput lane; it does not promote the full production BDF output-window solve as the default implicit backend.",
+  "jax_trace_dir": null,
+  "jvp_partition_size": null,
+  "linearized_action_diagnostics": {
+    "batched_call_count": 1,
+    "batched_dispatch_seconds": 1.1657501250156201,
+    "batched_jvp_max_abs_error_vs_direct_jvp": 0.0,
+    "build_seconds": 1.8384647920029238,
+    "call_count": 1,
+    "diagnostic_batch_size": 2,
+    "dispatch_seconds": 0.45475345803424716,
+    "jvp_max_abs_error_vs_direct_jvp": 0.0,
+    "residual_max_abs_error_vs_jit": 6.776263578034403e-21,
+    "state_shape": [
+      304
+    ]
+  },
+  "linearized_update_diagnostics": {
+    "action_diagnostics": {
+      "batched_call_count": 0,
+      "batched_dispatch_seconds": 0.0,
+      "call_count": 0,
+      "dispatch_seconds": 0.0,
+      "linear_maxiter": 8,
+      "linear_operator_jitted": true,
+      "linear_restart": 8,
+      "linear_tolerance": 1e-08,
+      "preconditioner_used": false,
+      "solve_method": "batched",
+      "state_shape": [
+        304
+      ]
+    },
+    "candidate_residual_inf_norm": 2.109401480206464e-11,
+    "check_enabled": true,
+    "elapsed_seconds": 11.94429787498666,
+    "jit_linear_operator": true,
+    "linear_maxiter": 8,
+    "linear_restart": 8,
+    "linear_tolerance": 1e-08,
+    "linear_update_relative_residual": 3.2634416748395076e-16,
+    "linear_update_residual_inf_norm": 1.3552527156068805e-20,
+    "preconditioner": "none",
+    "solve_method": "batched",
+    "solver_status": 0,
+    "solver_success": true,
+    "update_inf_norm": 4.152589418226107e-05
+  },
+  "mesh_active_shape": [
+    1,
+    16,
+    1
+  ],
+  "overrides": [
+    "mesh:ny=16"
+  ],
+  "perturbation_scale": 1e-06,
+  "pmap_enabled": false,
+  "pmap_requested": false,
+  "pmap_sanity_max_abs_error": null,
+  "pmap_sanity_passed": null,
+  "pmap_skip_reason": null,
+  "profile_progress_jsonl": "profile_progress.jsonl",
+  "residual_partition_size": null,
+  "rhs_backend": "active_array",
+  "state_size": 304,
+  "throughput_summary": {
+    "batch_count": 1,
+    "batch_sizes": [
+      1
+    ],
+    "best_batched_jvp_throughput": {
+      "batch_size": 1,
+      "states_per_second": 5767.843919209282
+    },
+    "best_batched_residual_throughput": {
+      "batch_size": 1,
+      "states_per_second": 9588.46271661412
+    },
+    "best_jvp_batch_efficiency": {
+      "batch_size": 1,
+      "efficiency": 0.8058199264073915,
+      "speedup": 0.8058199264073915
+    },
+    "best_jvp_speedup_vs_serial": {
+      "batch_size": 1,
+      "speedup": 0.8058199264073915
+    },
+    "best_pmap_jvp_device_efficiency_vs_serial": null,
+    "best_pmap_jvp_speedup_vs_batched": null,
+    "best_pmap_jvp_speedup_vs_serial": null,
+    "best_pmap_jvp_throughput": null,
+    "best_residual_batch_efficiency": {
+      "batch_size": 1,
+      "efficiency": 0.6108617236034811,
+      "speedup": 0.6108617236034811
+    },
+    "best_residual_speedup_vs_serial": {
+      "batch_size": 1,
+      "speedup": 0.6108617236034811
+    },
+    "max_batch_size": 1,
+    "throughput_units": "states_per_second"
+  },
+  "timed_runs": 1,
+  "timestep": 0.0001,
+  "warmup_timing": {
+    "base_jvp_warmup_seconds": 5.8284438329865225,
+    "base_residual_warmup_seconds": 1.7959390420001,
+    "fd_jvp_check_seconds": 0.051945957995485514,
+    "objective_grad_check_seconds": null
+  },
+  "xla_dump_dir": null
+}
