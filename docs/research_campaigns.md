@@ -188,7 +188,15 @@ The `gpu-dthe-active-array-output-jvp-profile` lane runs the full
 `bdf_rhs_backend=active_array`, `bdf_jvp_jacobian_gather_on_device=True`, and
 at least one sparse-JVP Jacobian batch. It is the primary output-window GPU
 profile for the active-array migration path. The
-`gpu-dthe-full-output-jvp-profile` lane runs the same case through
+local `dthe-active-array-output-jvp-profile` lane exercises the same
+active-array sparse-JVP output-window route on CPU and now has a command-level
+timeout so it cannot silently consume a long local campaign. The June 19, 2026
+bounded run timed out before producing an artifact, even after removing
+redundant float64 casts from the fixed-layout adapter. Treat that as evidence
+that this path is still dominated by repeated SciPy-BDF sparse-JVP Jacobian
+materialization; exploratory longer runs should call
+`scripts/profile_curated_case.py` directly with a chosen timeout.
+The `gpu-dthe-full-output-jvp-profile` lane runs the same case through
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`, so it is the
 compatibility output-window profile to keep while comparing against the newer
 active-array path; it carries the same sparse-JVP device-gather diagnostic gate.

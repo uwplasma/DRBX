@@ -431,6 +431,7 @@ def _campaign_command_map(
             ),
             requires_reference=True,
             required_reference_inputs=("dthe",),
+            timeout_seconds=300,
         ),
         "fixed-bdf2-direct-counting-gate": CampaignCommand(
             name="fixed-bdf2-direct-counting-gate",

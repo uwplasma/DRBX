@@ -659,6 +659,7 @@ def test_research_campaign_active_array_output_profile_is_gated(
     assert command.name == "dthe-active-array-output-jvp-profile"
     assert command.required_reference_inputs == ("dthe",)
     assert command.requires_gpu is False
+    assert command.timeout_seconds == 300
     assert "recycling_dthe_one_step" in command.command
     assert "runtime:recycling_transient_solver_mode=bdf_active_array_jvp" in command.command
     assert "recycling_transient_solver_mode=bdf_active_array_jvp" in command.command

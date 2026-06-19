@@ -241,6 +241,48 @@ def test_fixed_array_state_rhs_evaluates_shared_kernel_once() -> None:
     np.testing.assert_allclose(np.asarray(result.feedback_values), [9.0])
 
 
+def test_fixed_array_state_rhs_skips_redundant_jax_float64_casts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    layout = type(
+        "Layout",
+        (),
+        {
+            "field_names": ("density",),
+            "feedback_names": ("controller",),
+            "active_shape": (2,),
+        },
+    )()
+    state = RecyclingFixedState(
+        field_values=(jnp.asarray([1.0, 2.0], dtype=jnp.float64),),
+        feedback_values=jnp.asarray([0.5], dtype=jnp.float64),
+    )
+    rhs = build_fixed_array_state_rhs(
+        lambda fields, feedback: RecyclingFixedState(
+            field_values=(fields["density"],),
+            feedback_values=feedback,
+        ),
+        layout=layout,
+    )
+    original_asarray = fixed_residual_mod.jnp.asarray
+    asarray_calls: list[object] = []
+
+    def tracking_asarray(value, *args, **kwargs):
+        asarray_calls.append(value)
+        return original_asarray(value, *args, **kwargs)
+
+    monkeypatch.setattr(fixed_residual_mod.jnp, "asarray", tracking_asarray)
+
+    result = rhs(state)
+
+    assert asarray_calls == []
+    np.testing.assert_allclose(np.asarray(result.field_values[0]), [1.0, 2.0])
+    np.testing.assert_allclose(np.asarray(result.feedback_values), [0.5])
+
+
 def test_unpack_fixed_state_rejects_static_layout_contract_mismatches() -> None:
     layout = type(
         "Layout",

@@ -31,6 +31,19 @@ def _static_shape(value: object) -> tuple[int, ...]:
     return tuple(int(axis) for axis in shape)
 
 
+def _as_jax_float64(value: object):
+    """Coerce host values to JAX float64 without re-casting JAX float64 tracers."""
+
+    dtype = getattr(value, "dtype", None)
+    if dtype is not None and use_jax_backend(value):
+        try:
+            if np.dtype(dtype) == np.dtype(np.float64):
+                return value
+        except TypeError:
+            pass
+    return jnp.asarray(value, dtype=jnp.float64)
+
+
 def _validate_packed_vector(
     packed_array: object,
     *,
@@ -123,8 +136,10 @@ def pack_fixed_state(state: RecyclingFixedState) -> object:
     """Pack a fixed-layout PyTree state into a single JAX vector."""
 
     if use_jax_backend(*state.field_values, state.feedback_values):
-        field_blocks = tuple(jnp.ravel(jnp.asarray(value, dtype=jnp.float64)) for value in state.field_values)
-        feedback_values = jnp.ravel(jnp.asarray(state.feedback_values, dtype=jnp.float64))
+        field_blocks = tuple(
+            jnp.ravel(_as_jax_float64(value)) for value in state.field_values
+        )
+        feedback_values = jnp.ravel(_as_jax_float64(state.feedback_values))
         if field_blocks and feedback_values.size:
             return jnp.concatenate((*field_blocks, feedback_values))
         if field_blocks:
@@ -315,10 +330,9 @@ def build_fixed_array_state_rhs(
             _validate_fixed_state_shapes(rhs_state, layout=layout)
         return RecyclingFixedState(
             field_values=tuple(
-                jnp.asarray(value, dtype=jnp.float64)
-                for value in rhs_state.field_values
+                _as_jax_float64(value) for value in rhs_state.field_values
             ),
-            feedback_values=jnp.asarray(rhs_state.feedback_values, dtype=jnp.float64),
+            feedback_values=_as_jax_float64(rhs_state.feedback_values),
         )
 
     return rhs

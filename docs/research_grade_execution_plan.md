@@ -143,9 +143,9 @@ and tests all move together.
 | Plan authority and release hygiene | 96% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 98.8% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, both one-step and bounded fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus a residual-evaluation budget, and fixed residuals now have opt-in instrumented linearized-action and single-update JAX-GMRES seams for matrix-free/JVP profiling. Default promotion still needs heavier CPU/GPU parity/runtime evidence before replacing stable finite-difference defaults. |
+| JAX-native recycling solver | 98.8% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, both one-step and bounded fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus a residual-evaluation budget, and fixed residuals now have opt-in instrumented linearized-action and single-update JAX-GMRES seams for matrix-free/JVP profiling. Default promotion still needs heavier CPU/GPU parity/runtime evidence; the D/T/He active-array SciPy-BDF sparse-JVP output-window route remains locally timeout-bound. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
-| Performance and scaling | 70% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, the fixed-BDF2 direct-counting output-window gate proves solve execution without Python callback overhead and reports mean residual/solve costs, and the active-array D/T/He residual/JVP gate now has retained CPU batched-throughput evidence. A same-fidelity current D/T/He GPU gate now passes but is `12.3x` slower and uses `4.3x` more sampled RSS than CPU, so remaining scaling work is active-array residuals, reduced compiled residual size, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
+| Performance and scaling | 70% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, the fixed-BDF2 direct-counting output-window gate proves solve execution without Python callback overhead and reports mean residual/solve costs, and the active-array D/T/He residual/JVP gate now has retained CPU batched-throughput evidence. The local D/T/He active-array output-window sparse-JVP profile still times out before artifact generation, and a same-fidelity current D/T/He GPU gate passes but is `12.3x` slower and uses `4.3x` more sampled RSS than CPU. Remaining scaling work is active-array residuals, reduced compiled residual size, matrix-free output-window solves, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -2976,6 +2976,27 @@ Use this log for concise decision records. Do not paste terminal output here.
   strict residual gate and direct-counting timing gate paired; do not promote
   the active-array fixed-BDF2 route by default until heavier D/T/He and GPU
   output-window profiles show the same health without host-bound slowdown.
+- 2026-06-19: Re-ran the full D/T/He
+  `dthe-active-array-output-jvp-profile` lane after the fixed-BDF2 gates. The
+  first manual run stayed CPU-bound for more than six minutes with no artifact;
+  the interrupted stack was in SciPy-BDF sparse-JVP Jacobian construction,
+  inside repeated `jax.linearize` tracing of the active-array fixed-layout RHS.
+  Added a small adapter hygiene patch that skips redundant
+  `jnp.asarray(..., dtype=float64)` calls for already-float64 JAX arrays and
+  tracers, then repeated the campaign with a `240 s` wrapper timeout. It still
+  timed out before writing a profile summary. Decision: keep the output-window
+  D/T/He sparse-JVP campaign timeout-gated and negative for promotion; the next
+  performance step is eliminating repeated host-driven sparse-JVP Jacobian
+  materialization or moving this route to the matrix-free fixed-BDF2/JAX-GMRES
+  path, not further cosmetic adapter casts.
+- 2026-06-19: Re-ran the smaller
+  `dthe-active-array-linearized-update-throughput-probe` after the adapter
+  cast cleanup. The active-array fixed-layout matrix-free update route still
+  passes with solver status `0`, candidate nonlinear residual `2.11e-11`,
+  `linear_update_residual_checked=false`, and update-check time about
+  `3.95 s`. Decision: keep compact matrix-free update gates as the regression
+  target for the JAX-native recycling solver while the full output-window
+  sparse-JVP BDF path remains timeout-bound.
 
 ## Definition Of Done
 
