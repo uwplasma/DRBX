@@ -431,6 +431,14 @@ zero solve-only Python action callbacks when the jitted linear operator is
 enabled. Treat this as solver-health
 evidence for future preconditioner work, not a speedup claim.
 
+The strict gate keeps the post-GMRES linearized residual diagnostic enabled,
+which applies one additional matrix-free residual action to report
+`linear_update_residual_inf_norm` and `linear_update_relative_residual`.
+After the strict gate has passed, production-style throughput probes can add
+`--skip-linearized-update-residual-diagnostic` to avoid that extra action while
+still recording solver status, update size, candidate nonlinear residual, and
+whether the residual diagnostic was skipped.
+
 The companion JVP-diagonal preconditioner screen is:
 
 ```bash
