@@ -1066,6 +1066,14 @@ they are present in the fixed-layout state. It is meant to test whether Bohm,
 electron heat-flux, ion heat-flux, and target-recycling stiffness at the open
 field-line ends can be approximated cheaply before attempting a full
 neutral-plasma Schur complement.
+The `field_line_schur` family is the first compositional probe in that
+direction. `field_line_schur` applies the selected parallel-line inverse and
+then the sampled field-by-equation inverse; `target_schur` uses the target/sheath
+field selector, and `neutral_plasma_schur` selects the union of neutral and
+target-coupled plasma fields. This remains a multiplicative approximation, not
+a materialized Schur complement, but it tests whether line transport and local
+plasma-neutral closure stiffness must be treated together before spending JVPs
+on heavier blocks.
 The companion
 `runtime:recycling_jax_linear_preconditioner_refresh=<n>` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_REFRESH=<n>` control lets a run
@@ -1309,6 +1317,17 @@ bounded stiff-feedback fixture, but the hydrogen fixed-BDF2 run still reports
 preconditioner should therefore not be another local sampled block; it should
 approximate the target/sheath, parallel-transport, or neutral-plasma Schur
 part of the true residual spectrum.
+The first compositional probe, `target_schur`, now exists for that next
+screen. A solver-level fixture with stiff parallel transport in target-coupled
+fields plus local plasma-neutral field coupling keeps the same fixed Krylov
+budget for `sheath_line`, `field_block_sample`, and `target_schur`.
+`sheath_line` and `field_block_sample` each lower the residual but remain in
+the `10^{-3}` to `10^{-2}` band, while `target_schur` reaches the `10^{-5}`
+band with no larger linear-operator call count. This is algorithmic evidence
+that coupled transport-plus-local closure preconditioning is worth testing on
+the real recycling decks; it is not yet production evidence because a same-case
+hydrogen or D/T/He fixed-BDF2 gate has not shown a wall-time or operator-count
+improvement after the extra build cost.
 The solver now also separates preconditioner build cost from preconditioner
 application cost. JAX-linearized steps report
 `linear_preconditioner_apply_count` and

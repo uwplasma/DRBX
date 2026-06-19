@@ -216,7 +216,11 @@ Current opt-in dynamic choices include diagonal probes, sampled field blocks
 selected parallel-line blocks. Use `sheath_line`/`target_sheath` to restrict a
 line block to electron, ion, momentum, and potential fields that enter the
 target/sheath closures; use `neutral_line` or `momentum_line` for narrower
-neutral or parallel-momentum blocks. The sampled field-block probes are bounded by
+neutral or parallel-momentum blocks. The composite
+`field_line_schur`/`target_schur`/`neutral_plasma_schur` probes apply a
+selected line-block inverse followed by the sampled field-block inverse, so
+they can screen coupled transport-plus-local-closure stiffness before a heavier
+Schur implementation. The sampled field-block probes are bounded by
 `runtime:recycling_jax_linear_preconditioner_max_field_block_fields`.
 The profiling and comparison scripts can enforce these diagnostics with
 `--require-max-preconditioner-applies` and
