@@ -1509,6 +1509,20 @@ peak RSS was slightly lower (`3.89 GiB` versus `3.93 GiB`). This is backend
 selection and memory evidence for future output-window and GPU campaigns, not a
 standalone BE runtime win.
 
+The output-window profiling surface now also has a separate active-array JVP
+lane. `scripts/run_research_campaign_bundle.py --campaign
+dthe-active-array-output-jvp-profile` runs `recycling_dthe_one_step` with
+`runtime:recycling_transient_solver_mode=bdf_active_array_jvp`, requires
+`bdf_jacobian_mode=jvp`, `bdf_rhs_backend=active_array`, and at least one JVP
+Jacobian batch. The corresponding `gpu-dthe-active-array-output-jvp-profile`
+collects JAX trace, device-memory, RSS, and compilation-cache evidence on a
+self-hosted GPU. A direct local CPU probe of the full output-window active-array
+JVP path exceeded four minutes on the fixture deck before being terminated, so
+this is a heavy offline profiling lane rather than a routine local gate. The
+next useful optimization evidence should therefore come from the campaign
+wrapper with an explicit timeout, ideally on GPU or after further residual/JVP
+cost reductions.
+
 The promotion wrapper exposes the same path as
 `--fixed-bdf2-jit-linear-operator`, which forwards the runtime override to the
 bounded fixed-BDF2 phase and requires `fixed_bdf2_linear_operator_jitted_steps`
