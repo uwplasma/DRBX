@@ -317,6 +317,29 @@ def test_essos_imported_drb_movie_refinement_flags_residual_only_solver_budget()
     )
 
 
+def test_essos_imported_drb_movie_refinement_suggests_toroidal_only_refinement() -> None:
+    coarse = _movie_report(grid=(8, 12, 24))
+    fine = _movie_report(grid=(16, 24, 48))
+    coarse["spectral_centroid_toroidal_fraction"] = 0.27
+    fine["spectral_centroid_toroidal_fraction"] = 0.13
+
+    summary = build_essos_imported_drb_movie_refinement_summary(
+        grid_reports=(coarse, fine),
+        time_reports=(
+            _movie_report(grid=(16, 24, 48), dt=2.0e-3),
+            _movie_report(grid=(16, 24, 48), dt=1.0e-3),
+        ),
+        relative_tolerance=0.30,
+    )
+
+    suggestion = summary["next_campaign_suggestion"]
+    assert suggestion["dominant_grid_blockers"][0]["metric"] == (
+        "spectral_centroid_toroidal_fraction"
+    )
+    assert suggestion["suggested_grid_multiplier"] == [1.0, 1.0, 2.0]
+    assert suggestion["suggested_grid_shapes"] == [[16, 24, 48], [16, 24, 96]]
+
+
 def test_essos_imported_drb_movie_refinement_summary_package_reads_reports(tmp_path: Path) -> None:
     first = _movie_report(grid=(4, 8, 16), dt=2.0e-3, substeps_per_frame=2)
     second = _movie_report(grid=(8, 16, 32), dt=1.0e-3, substeps_per_frame=2)
