@@ -2694,13 +2694,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   `runtime:recycling_jax_linear_initial_residual_mode=linearize`. It passed in
   `44.18 s` with `20` active-array RHS steps, `20` jitted JAX-linearized
   steps, `23` JAX GMRES solve attempts, zero linear-solver failures, zero
-  unconverged fixed-BDF2 steps, and maximum residual `2.8993e-6`. A deeper
-  `profile_curated_case.py` cProfile/RSS variant was deliberately not made the
-  default local gate because the cProfile run exceeded four minutes and the
-  RSS-only run exceeded two minutes on this laptop before manual termination.
-  Decision: raise performance/scaling to `68%`; this closes the reproducible
-  output-window campaign-wiring gap while leaving default solver promotion
-  blocked on heavier CPU/GPU parity, memory, and scaling evidence.
+  unconverged fixed-BDF2 steps, and maximum residual `2.8993e-6`. The compact
+  checked-in evidence artifact is
+  `docs/data/runtime_profile_artifacts/recycling_1d_fixed_bdf2_active_array_direct_counting_cpu/profile_summary.json`.
+  A deeper `profile_curated_case.py` cProfile/RSS variant was deliberately not
+  made the default local gate because the cProfile run exceeded four minutes
+  and the RSS-only run exceeded two minutes on this laptop before manual
+  termination. Decision: raise performance/scaling to `68%`; this closes the
+  reproducible output-window campaign-wiring gap while leaving default solver
+  promotion blocked on heavier CPU/GPU parity, memory, and scaling evidence.
 
 ## Definition Of Done
 

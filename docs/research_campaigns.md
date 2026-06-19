@@ -120,8 +120,10 @@ JAX GMRES solve attempts, and completed with zero failed or unconverged
 substeps, maximum residual `2.90e-6`, and `44.18 s` elapsed time. Because it
 uses `runtime:recycling_jax_linear_operator_counting=direct`, the correct
 low-overhead health metric is the reported solve count rather than Python
-operator-call callbacks. The `gpu-dthe-active-array-output-jvp-profile` lane
-runs the full `recycling_dthe_one_step` output window through
+operator-call callbacks. The compact checked-in summary is
+[profile_summary.json](data/runtime_profile_artifacts/recycling_1d_fixed_bdf2_active_array_direct_counting_cpu/profile_summary.json).
+The `gpu-dthe-active-array-output-jvp-profile` lane runs the full
+`recycling_dthe_one_step` output window through
 `runtime:recycling_transient_solver_mode=bdf_active_array_jvp`, requires
 `bdf_rhs_backend=active_array`, `bdf_jvp_jacobian_gather_on_device=True`, and
 at least one sparse-JVP Jacobian batch. It is the primary output-window GPU
