@@ -53,6 +53,7 @@
   "max_fluctuation_rms": 0.08716782908632366,
   "movie_audit_passed": true,
   "movie_bbox_unique_count": 2,
+  "movie_evidence_role": "movie_showcase_pending_connection_grid_time_refinement",
   "movie_file_size_bytes": 1645712,
   "movie_frame_count": 24,
   "movie_frame_rms_max": 4.778452697127031,
@@ -67,12 +68,25 @@
     28,
     80
   ],
+  "movie_promotion_rejection_reasons": [
+    "coil_connection_length_refinement_not_promotion_ready",
+    "movie_grid_refinement_not_passed",
+    "movie_time_refinement_not_passed",
+    "long_time_statistical_stationarity_not_demonstrated"
+  ],
   "movie_render_coordinate_model": "raw_vmec_fourier_surface_registered_to_vmec_jax_plot",
   "neutral_momentum_relative_error": 0.0,
   "neutral_particle_relative_error": 8.321881121370154e-19,
   "particle_recycling_relative_error": 2.122612752570741e-15,
   "passed": true,
+  "publication_ready": false,
   "radial_flux_proxy": -0.0027188248115788865,
+  "required_publication_gates": [
+    "connection_length_refinement_summary_promotion_ready",
+    "movie_grid_refinement_passed",
+    "movie_time_refinement_passed",
+    "long_time_statistical_stationarity_or_convergence_passed"
+  ],
   "source": "ESSOS-imported Landreman-Paul QA coil FCI maps with JAXDRB fixed-layout DRB transient",
   "substeps_per_frame": 6,
   "total_charge_exchange": 45.39796219005552,
