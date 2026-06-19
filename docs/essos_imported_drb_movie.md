@@ -73,12 +73,16 @@ PYTHONPATH=src .venv/bin/python \
 
 Edit `GRID_REPORT_JSON_PATHS` and `TIME_REPORT_JSON_PATHS` in that script to
 point at the regenerated report JSON files. The summary compares
-`final_fluctuation_rms`, `max_fluctuation_rms`, `radial_flux_proxy`,
-`low_mode_spectral_power_fraction`, and `final_potential_residual_l2`, checks
-that the grid or timestep ordering is meaningful, requires consistent map
-source labels, and preserves the sign of the radial-flux proxy. The checked-in
-summary intentionally uses the single restored hybrid report and therefore
-fails with `need_at_least_two_grid_reports` and
+`final_fluctuation_rms`, `max_fluctuation_rms`, `radial_flux_abs_mean`,
+`radial_flux_rms`, `low_mode_spectral_power_fraction`, and
+`final_potential_residual_l2`, checks that the grid or timestep ordering is
+meaningful, and requires consistent map source labels. The signed
+`radial_flux_proxy` remains in each report as a cancellation and symmetry
+diagnostic, but refinement promotion uses magnitude and RMS radial-flux
+statistics because a domain-averaged signed flux can change sign when inward
+and outward turbulent transport nearly cancel. The checked-in summary
+intentionally uses the single restored hybrid report and therefore fails with
+`need_at_least_two_grid_reports` and
 `need_at_least_two_time_reports`; it is a blocker record, not a passed
 refinement claim.
 

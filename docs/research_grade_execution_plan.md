@@ -1973,10 +1973,12 @@ Use this log for concise decision records. Do not paste terminal output here.
 - 2026-06-18: Added a report-only imported-field DRB movie grid/time
   refinement summary gate. The new validation API compares scalar movie
   diagnostics across same-map-source report JSON files along grid and timestep
-  axes: `final_fluctuation_rms`, `max_fluctuation_rms`, `radial_flux_proxy`,
+  axes: `final_fluctuation_rms`, `max_fluctuation_rms`,
+  `radial_flux_abs_mean`, `radial_flux_rms`,
   `low_mode_spectral_power_fraction`, and `final_potential_residual_l2`. It
   verifies monotone grid/timestep ordering, consistent map source, report
-  pass status, bounded relative metric changes, and radial-flux sign agreement.
+  pass status, and bounded relative metric changes; signed net radial-flux
+  agreement is kept as a diagnostic rather than a promotion gate.
   The new example
   `examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_summary.py`
   lets users point at regenerated report JSON files without committing heavy
@@ -2003,6 +2005,29 @@ Use this log for concise decision records. Do not paste terminal output here.
   grid-converged enough for publication/movie promotion. Next 3D work should
   refine the physics campaign and radial-flux observable before heavier
   release-hosted movie regeneration.
+- 2026-06-18: Refined the imported-field movie radial-flux observable. Movie
+  reports still store the signed `radial_flux_proxy` as a cancellation and
+  symmetry diagnostic, but the refinement gate now uses
+  `radial_flux_abs_mean` and `radial_flux_rms`, with `radial_flux_peak_abs`,
+  `radial_flux_cancellation_ratio`, and `radial_flux_positive_fraction`
+  recorded for review. This avoids promoting or rejecting turbulence evidence
+  solely from a domain-averaged signed flux when inward and outward radial
+  transport nearly cancel. The previous live hybrid probe remains negative
+  evidence because the low-mode spectral-power fraction was not grid stable;
+  the next promoted movie pass must rerun the same grid/time refinement gate
+  on a higher-resolution or adaptive physics campaign rather than renderer-only
+  interpolation.
+- 2026-06-18: Reran the small live report-only hybrid movie refinement probe
+  after the radial-flux metric update, again without writing GIF or NPZ media.
+  The fixed-grid timestep pair still passed with maximum relative metric
+  change `0.130`. The grid pair still failed with maximum relative metric
+  change `4.18`: `final_fluctuation_rms` and compact potential residual were
+  stable, but `low_mode_spectral_power_fraction` changed from `1.0` to
+  `0.193`, `radial_flux_abs_mean` changed from `3.70e-4` to `8.24e-5`, and
+  `radial_flux_rms` changed from `6.03e-4` to `1.40e-4`. This closes the false
+  signed-flux gate problem while preserving the important conclusion that the
+  current short hybrid transient is not grid-converged enough for publication
+  evidence.
 
 ## Definition Of Done
 

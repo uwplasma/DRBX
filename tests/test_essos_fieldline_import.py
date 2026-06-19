@@ -73,7 +73,13 @@ def _movie_report(
     map_source: str = "hybrid",
     final_fluctuation_rms: float = 0.06,
     radial_flux_proxy: float = -2.0e-3,
+    radial_flux_abs_mean: float | None = None,
+    radial_flux_rms: float | None = None,
 ) -> dict[str, object]:
+    radial_flux_abs_mean = (
+        abs(radial_flux_proxy) if radial_flux_abs_mean is None else radial_flux_abs_mean
+    )
+    radial_flux_rms = radial_flux_abs_mean if radial_flux_rms is None else radial_flux_rms
     return {
         "case": f"{map_source}_{grid[0]}x{grid[1]}x{grid[2]}_{dt:g}",
         "map_source": map_source,
@@ -84,6 +90,14 @@ def _movie_report(
         "final_fluctuation_rms": final_fluctuation_rms,
         "max_fluctuation_rms": final_fluctuation_rms * 1.05,
         "radial_flux_proxy": radial_flux_proxy,
+        "radial_flux_abs_mean": radial_flux_abs_mean,
+        "radial_flux_rms": radial_flux_rms,
+        "radial_flux_peak_abs": radial_flux_rms * 1.2,
+        "radial_flux_cancellation_ratio": abs(radial_flux_proxy)
+        / max(radial_flux_abs_mean, 1.0e-30),
+        "radial_flux_positive_fraction": (
+            0.5 if radial_flux_proxy == 0.0 else float(radial_flux_proxy > 0.0)
+        ),
         "low_mode_spectral_power_fraction": 0.34,
         "final_potential_residual_l2": 0.02,
     }
@@ -139,8 +153,16 @@ def test_essos_imported_drb_movie_refinement_summary_passes_matched_reports() ->
 
 def test_essos_imported_drb_movie_refinement_summary_rejects_unstable_metrics() -> None:
     grid_reports = (
-        _movie_report(grid=(4, 8, 16), radial_flux_proxy=-2.0e-3),
-        _movie_report(grid=(8, 16, 32), radial_flux_proxy=2.0e-3),
+        _movie_report(
+            grid=(4, 8, 16),
+            radial_flux_proxy=-2.0e-3,
+            radial_flux_abs_mean=2.0e-3,
+        ),
+        _movie_report(
+            grid=(8, 16, 32),
+            radial_flux_proxy=2.0e-3,
+            radial_flux_abs_mean=1.0e-4,
+        ),
     )
     time_reports = (_movie_report(grid=(8, 16, 32)),)
 
@@ -156,8 +178,9 @@ def test_essos_imported_drb_movie_refinement_summary_rejects_unstable_metrics() 
     assert "movie_grid_refinement_not_passed" in summary["movie_promotion_rejection_reasons"]
     assert "movie_time_refinement_not_passed" in summary["movie_promotion_rejection_reasons"]
     pair = summary["grid_refinement_diagnostics"]["pair_reports"][0]
+    assert pair["radial_flux_proxy_sign_agreement"] is False
     assert pair["radial_flux_sign_passed"] is False
-    assert pair["metric_reports"]["radial_flux_proxy"]["passed"] is False
+    assert pair["metric_reports"]["radial_flux_abs_mean"]["passed"] is False
 
 
 def test_essos_imported_drb_movie_refinement_summary_package_reads_reports(tmp_path: Path) -> None:
@@ -664,6 +687,11 @@ def test_essos_imported_maps_generate_drb_movie_gate(tmp_path: Path) -> None:
     ]
     assert report["final_potential_residual_l2"] < 5.0
     assert report["final_fluctuation_rms"] > 1.0e-4
+    assert report["radial_flux_abs_mean"] > 1.0e-8
+    assert report["radial_flux_rms"] >= report["radial_flux_abs_mean"]
+    assert report["radial_flux_peak_abs"] >= report["radial_flux_abs_mean"]
+    assert 0.0 <= report["radial_flux_cancellation_ratio"] <= 1.0
+    assert 0.0 <= report["radial_flux_positive_fraction"] <= 1.0
     assert report["particle_recycling_relative_error"] < 1.0e-10
     assert report["neutral_particle_relative_error"] < 1.0e-10
     assert artifacts.arrays_npz_path.exists()

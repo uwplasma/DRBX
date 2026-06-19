@@ -54,7 +54,8 @@ class EssosImportedDrbMovieResult:
 ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRICS = (
     "final_fluctuation_rms",
     "max_fluctuation_rms",
-    "radial_flux_proxy",
+    "radial_flux_abs_mean",
+    "radial_flux_rms",
     "low_mode_spectral_power_fraction",
     "final_potential_residual_l2",
 )
@@ -332,7 +333,6 @@ def _build_movie_refinement_pair_report(
 ) -> dict[str, Any]:
     metric_reports: dict[str, dict[str, Any]] = {}
     relative_changes: list[float] = []
-    sign_passed = True
     for key in ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRICS:
         coarse_value = _optional_float(coarse.get(key))
         fine_value = _optional_float(fine.get(key))
@@ -344,24 +344,23 @@ def _build_movie_refinement_pair_report(
                 "sign_agreement": False,
                 "passed": False,
             }
-            sign_passed = False
             continue
         denominator = max(abs(fine_value), 1.0e-12)
         relative_change = abs(coarse_value - fine_value) / denominator
-        sign_agreement = True
-        if key == "radial_flux_proxy" and max(abs(coarse_value), abs(fine_value)) > 1.0e-12:
-            sign_agreement = bool(np.sign(coarse_value) == np.sign(fine_value))
-            sign_passed = sign_passed and sign_agreement
         relative_changes.append(float(relative_change))
         metric_reports[key] = {
             "coarse": coarse_value,
             "fine": fine_value,
             "relative_change": float(relative_change),
-            "sign_agreement": bool(sign_agreement),
-            "passed": bool(relative_change <= relative_tolerance and sign_agreement),
+            "sign_agreement": True,
+            "passed": bool(relative_change <= relative_tolerance),
         }
     max_change = max(relative_changes) if relative_changes else None
     metric_passed = all(bool(item["passed"]) for item in metric_reports.values())
+    radial_flux_proxy_sign_agreement = _signed_metric_agrees(
+        coarse.get("radial_flux_proxy"),
+        fine.get("radial_flux_proxy"),
+    )
     return {
         "coarse_label": coarse_label,
         "fine_label": fine_label,
@@ -371,9 +370,20 @@ def _build_movie_refinement_pair_report(
         "fine_effective_frame_dt": _movie_time_refinement_key(fine),
         "metric_reports": metric_reports,
         "max_relative_metric_change": max_change,
-        "radial_flux_sign_passed": bool(sign_passed),
+        "radial_flux_proxy_sign_agreement": bool(radial_flux_proxy_sign_agreement),
+        "radial_flux_sign_passed": bool(radial_flux_proxy_sign_agreement),
         "passed": bool(metric_passed),
     }
+
+
+def _signed_metric_agrees(coarse_value: Any, fine_value: Any, *, floor: float = 1.0e-12) -> bool:
+    coarse_float = _optional_float(coarse_value)
+    fine_float = _optional_float(fine_value)
+    if coarse_float is None or fine_float is None:
+        return False
+    if max(abs(coarse_float), abs(fine_float)) <= floor:
+        return True
+    return bool(np.sign(coarse_float) == np.sign(fine_float))
 
 
 def _optional_float(value: Any) -> float | None:
@@ -908,6 +918,7 @@ def _build_essos_imported_drb_movie_report(
     finite = all(np.all(np.isfinite(value)) for value in [movie_history, diagnostics, *final_state.values()])
     min_density = float(min(np.min(final_state["ion_density"]), np.min(final_state["neutral_density"])))
     radial_flux = _radial_flux_proxy(movie_history, geometry)
+    radial_flux_stats = _radial_flux_profile_statistics(radial_flux)
     report: dict[str, Any] = {
         "case": case,
         "source": source,
@@ -936,7 +947,12 @@ def _build_essos_imported_drb_movie_report(
         "final_neutral_density_mean": float(np.mean(final_state["neutral_density"])),
         "final_vorticity_rms": float(diagnostics[-1, 3]),
         "final_potential_residual_l2": float(diagnostics[-1, 4]),
-        "radial_flux_proxy": float(np.mean(radial_flux)),
+        "radial_flux_proxy": radial_flux_stats["mean"],
+        "radial_flux_abs_mean": radial_flux_stats["abs_mean"],
+        "radial_flux_rms": radial_flux_stats["rms"],
+        "radial_flux_peak_abs": radial_flux_stats["peak_abs"],
+        "radial_flux_cancellation_ratio": radial_flux_stats["cancellation_ratio"],
+        "radial_flux_positive_fraction": radial_flux_stats["positive_fraction"],
         "low_mode_spectral_power_fraction": low_mode_fraction,
         "dominant_poloidal_mode_index": int(peak_mode[1]),
         "dominant_toroidal_mode_index": int(peak_mode[0]),
@@ -951,7 +967,7 @@ def _build_essos_imported_drb_movie_report(
         and report["final_fluctuation_rms"] > 1.0e-4
         and report["final_potential_residual_l2"] < 5.0
         and report["max_fluctuation_rms"] > report["initial_fluctuation_rms"] * 0.80
-        and abs(report["radial_flux_proxy"]) > 1.0e-8
+        and report["radial_flux_abs_mean"] > 1.0e-8
         and 0.0 < low_mode_fraction <= 1.0
         and report["particle_recycling_relative_error"] < 1.0e-10
         and report["current_balance_relative_error"] < 1.0e-10
@@ -1520,6 +1536,31 @@ def _radial_flux_proxy(movie_history: np.ndarray, geometry: EssosImportedFciGeom
     dz = np.asarray(geometry.metric.dz, dtype=np.float64)
     radial_velocity = -(np.roll(potential_proxy, -1, axis=2) - np.roll(potential_proxy, 1, axis=2)) / np.maximum(2.0 * dz, 1.0e-30)
     return np.mean(final * radial_velocity, axis=(1, 2))
+
+
+def _radial_flux_profile_statistics(profile: np.ndarray) -> dict[str, float]:
+    values = np.asarray(profile, dtype=np.float64)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return {
+            "mean": 0.0,
+            "abs_mean": 0.0,
+            "rms": 0.0,
+            "peak_abs": 0.0,
+            "cancellation_ratio": 0.0,
+            "positive_fraction": 0.0,
+        }
+    abs_values = np.abs(finite)
+    mean = float(np.mean(finite))
+    abs_mean = float(np.mean(abs_values))
+    return {
+        "mean": mean,
+        "abs_mean": abs_mean,
+        "rms": float(np.sqrt(np.mean(np.square(finite)))),
+        "peak_abs": float(np.max(abs_values)),
+        "cancellation_ratio": float(abs(mean) / max(abs_mean, 1.0e-30)),
+        "positive_fraction": float(np.mean(finite > 0.0)),
+    }
 
 
 def _major_radius_and_vertical(geometry: EssosImportedFciGeometry) -> tuple[np.ndarray, np.ndarray]:
