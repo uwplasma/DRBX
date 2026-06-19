@@ -324,6 +324,23 @@ Promotion still requires moving this output-window route away from repeated
 host-driven sparse-JVP materialization or replacing it with the matrix-free
 fixed-BDF2/JAX-GMRES path that already has strict hydrogen health gates.
 
+The bounded D/T/He replacement gate for that direction is:
+
+```bash
+PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-gate \
+  --reference-root tests/fixtures/reference-root
+```
+
+The retained local artifact is
+`docs/data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_direct_counting_cpu/profile_summary.json`.
+It runs `recycling_dthe_one_step` at `dt=1e-4` for two output steps through the
+active-array fixed-BDF2/JAX-GMRES route, reports one startup step and one BDF2
+corrector, two JAX-GMRES solves, four residual evaluations, zero failed or
+unconverged subsolves, maximum residual `4.10e-14`, and `11.27 s` mode elapsed
+time. This is solver-health evidence for the matrix-free D/T/He output-window
+route; it is not yet a GPU or default-backend promotion claim.
+
 For output-window fixed-BDF2 solver-health checks, use the strict active-array
 linearized residual gate:
 

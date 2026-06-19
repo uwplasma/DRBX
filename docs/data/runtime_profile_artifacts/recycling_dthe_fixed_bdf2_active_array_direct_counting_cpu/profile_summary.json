@@ -1,0 +1,81 @@
+{
+  "adaptive_bdf_gate_errors": {},
+  "bdf_pairwise_worst": {
+    "delta": null,
+    "field": null
+  },
+  "case": "recycling_dthe_one_step",
+  "configured_timestep": 2500.0,
+  "diagnostics_only": true,
+  "fields": [
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nd",
+    "Pd",
+    "NVd",
+    "Pe"
+  ],
+  "max_nonlinear_iterations": 30,
+  "mode_diagnostics": {
+    "fixed_bdf2_active_array_jax_linearized": {
+      "fixed_bdf2_active_array_rhs_steps": 2,
+      "fixed_bdf2_bdf2_steps": 1,
+      "fixed_bdf2_evolve_feedback_integrals": true,
+      "fixed_bdf2_fixed_full_field_rhs_steps": 0,
+      "fixed_bdf2_history_initial_guess_fallback_steps": 0,
+      "fixed_bdf2_history_initial_guess_steps": 0,
+      "fixed_bdf2_initial_guess_policy": "rhs_predictor",
+      "fixed_bdf2_initial_residual_mode": "linearize",
+      "fixed_bdf2_internal_substeps": 2,
+      "fixed_bdf2_internal_timestep_policy": "automatic_jax_linearized",
+      "fixed_bdf2_jax_linearized_action_steps": 2,
+      "fixed_bdf2_line_search_mode": "backtracking",
+      "fixed_bdf2_linear_operator_jitted_steps": 2,
+      "fixed_bdf2_linear_preconditioner": null,
+      "fixed_bdf2_linear_solver_backend": "jax_gmres",
+      "fixed_bdf2_linear_solver_failed_steps": 0,
+      "fixed_bdf2_lineax_action_steps": 0,
+      "fixed_bdf2_max_internal_timestep": 0.0001,
+      "fixed_bdf2_max_linear_update_relative_residual": null,
+      "fixed_bdf2_max_linear_update_residual_inf_norm": null,
+      "fixed_bdf2_max_output_substeps": 1,
+      "fixed_bdf2_max_residual_inf_norm": 4.1011281569620667e-14,
+      "fixed_bdf2_mean_linear_operator_dispatch_seconds": null,
+      "fixed_bdf2_mean_linear_preconditioner_apply_seconds": null,
+      "fixed_bdf2_mean_linear_preconditioner_build_seconds": null,
+      "fixed_bdf2_mean_linear_solve_seconds": 4.000026500027161,
+      "fixed_bdf2_mean_linear_update_residual_seconds": null,
+      "fixed_bdf2_mean_residual_evaluation_seconds": 0.7133507502439898,
+      "fixed_bdf2_residual_jitted_steps": 0,
+      "fixed_bdf2_solver_mode": "fixed_bdf2_active_array_jax_linearized",
+      "fixed_bdf2_startup_steps": 1,
+      "fixed_bdf2_step_solver_mode": "active_array_jax_linearized",
+      "fixed_bdf2_total_jacobian_refresh_count": 2,
+      "fixed_bdf2_total_linear_iterations": 0,
+      "fixed_bdf2_total_linear_operator_call_count": 0,
+      "fixed_bdf2_total_linear_operator_dispatch_seconds": 0.0,
+      "fixed_bdf2_total_linear_preconditioner_apply_count": 0,
+      "fixed_bdf2_total_linear_preconditioner_apply_seconds": 0.0,
+      "fixed_bdf2_total_linear_preconditioner_build_count": 0,
+      "fixed_bdf2_total_linear_preconditioner_build_seconds": 0.0,
+      "fixed_bdf2_total_linear_solve_count": 2,
+      "fixed_bdf2_total_linear_solve_seconds": 8.000053000054322,
+      "fixed_bdf2_total_linear_update_residual_evaluation_count": 0,
+      "fixed_bdf2_total_linear_update_residual_seconds": 0.0,
+      "fixed_bdf2_total_nonlinear_iterations": 2,
+      "fixed_bdf2_total_residual_evaluation_count": 4,
+      "fixed_bdf2_total_residual_evaluation_seconds": 2.853403000975959,
+      "fixed_bdf2_unconverged_solver_steps": 0,
+      "fixed_bdf2_unknown_convergence_solver_steps": 0
+    }
+  },
+  "mode_elapsed_seconds": {
+    "fixed_bdf2_active_array_jax_linearized": 11.274985749972984
+  },
+  "modes": [
+    "fixed_bdf2_active_array_jax_linearized"
+  ],
+  "steps": 2,
+  "timestep": 0.0001
+}
