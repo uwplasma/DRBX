@@ -197,6 +197,19 @@ The same diagnostics report `linear_operator_call_count` and
 matrix-free linearized operator during the Krylov solve. These are profiling
 diagnostics for solver studies; the full `linear_solve_seconds` value remains
 the end-to-end wall-time measurement because JAX device work can be asynchronous.
+For production-style profiling after call-count budgets have already been
+established, the Python call wrapper can be disabled:
+
+```toml
+[runtime]
+recycling_jax_linear_operator_counting = "direct"
+```
+
+or with `JAX_DRB_RECYCLING_JAX_LINEAR_OPERATOR_COUNTING=direct`. Direct mode
+passes the JAX linearized operator straight to the Krylov solver and records
+`linear_operator_counting = "direct"` with `linear_operator_call_count = 0`.
+It should not be combined with operator-call budget gates, because those counts
+are intentionally unavailable.
 For preconditioner screening, the same JAX-linearized path can also compute the
 achieved linear-update residual `J v + r` after each Krylov solve. Enable this
 with `runtime:recycling_jax_linear_diagnose_update_residual=true` or
