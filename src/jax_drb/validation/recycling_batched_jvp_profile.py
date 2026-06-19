@@ -16,6 +16,9 @@ from jax_drb.native.recycling_1d import (
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
 )
+from jax_drb.native.recycling_fixed_residual import (
+    build_fixed_residual_linearized_action,
+)
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.runtime.run_config import RunConfiguration
 
@@ -413,6 +416,44 @@ def profile_recycling_batched_jvp_problem(
         seconds=float(fd_jvp_check_seconds),
         jvp_fd_relative_error=float(jvp_fd_relative_error),
     )
+    started_at = perf_counter()
+    linearized_action = build_fixed_residual_linearized_action(residual, base_state)
+    linearized_build_seconds = perf_counter() - started_at
+    linearized_jvp = linearized_action.apply(base_direction).block_until_ready()
+    diagnostic_direction_batch = jnp.stack(
+        (
+            base_direction,
+            -0.5 * base_direction,
+        )
+    )
+    linearized_jvp_batch = linearized_action.apply_batch(
+        diagnostic_direction_batch,
+    ).block_until_ready()
+    direct_jvp_batch = jnp.stack(
+        (
+            base_jvp,
+            jvp_jit(base_state, diagnostic_direction_batch[1]),
+        )
+    ).block_until_ready()
+    linearized_action_diagnostics = {
+        **linearized_action.diagnostics(),
+        "build_seconds": float(linearized_build_seconds),
+        "residual_max_abs_error_vs_jit": float(
+            jnp.max(jnp.abs(linearized_action.residual_value - residual_jit(base_state)))
+        ),
+        "jvp_max_abs_error_vs_direct_jvp": float(
+            jnp.max(jnp.abs(linearized_jvp - base_jvp))
+        ),
+        "batched_jvp_max_abs_error_vs_direct_jvp": float(
+            jnp.max(jnp.abs(linearized_jvp_batch - direct_jvp_batch))
+        ),
+        "diagnostic_batch_size": int(diagnostic_direction_batch.shape[0]),
+    }
+    _emit_progress(
+        progress_callback,
+        event="linearized_action_check_complete",
+        **linearized_action_diagnostics,
+    )
 
     grad_directional = None
     fd_directional = None
@@ -761,6 +802,7 @@ def profile_recycling_batched_jvp_problem(
             "objective_fd_directional_derivative": fd_directional,
             "objective_directional_relative_error": objective_directional_relative_error,
         },
+        "linearized_action_diagnostics": linearized_action_diagnostics,
         "batch_results": batch_results,
         "throughput_summary": throughput_summary,
         "interpretation": (

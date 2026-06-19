@@ -368,12 +368,13 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
 ```
 
 The retained local CPU fixed-full-field artifact now sweeps batches through
-`64` states and shows about `2.49x` residual throughput speedup and `2.13x`
+`64` states and shows about `2.28x` residual throughput speedup and `1.96x`
 JVP throughput speedup over serial same-kernel calls, with batched/serial
 residual and JVP mismatch at roundoff. Its best residual throughput is about
-`3.21e4` states/s and its best JVP throughput is about `9.19e3` states/s. The
-residual JVP agrees with centered finite difference to about `5.97e-9`, and
-the objective directional derivative agrees to about `1.34e-7`.
+`3.13e4` states/s and its best JVP throughput is about `8.56e3` states/s. The
+residual JVP agrees with centered finite difference to about `5.97e-9`, the
+objective directional derivative agrees to about `1.34e-7`, and the reusable
+linearized-action diagnostic agrees with direct JVPs to about `3.47e-18`.
 
 The active-array migration seam has a separate retained CPU artifact:
 
@@ -388,13 +389,13 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_active_array_batched_jvp_gate_cpu
 ```
 
-That artifact reaches about `2.47x` residual throughput speedup and `2.09x`
+That artifact reaches about `2.55x` residual throughput speedup and `2.02x`
 JVP throughput speedup through batch `64`, with best residual and JVP
-throughputs of about `3.14e4` and `9.10e3` states/s. It retains the same
-finite-difference derivative checks as the fixed-full-field artifact. This is
-the current best local evidence that the transformable active-array residual
-can be batched and differentiated without falling back to Python residual
-loops.
+throughputs of about `3.14e4` and `9.03e3` states/s. It retains the same
+finite-difference derivative checks and linearized-action diagnostic as the
+fixed-full-field artifact. This is the current best local evidence that the
+transformable active-array residual can be batched and differentiated without
+falling back to Python residual loops.
 
 For larger GPU or multi-device evidence, use the research-campaign wrapper
 rather than hand-editing decks. These campaigns enable repeated timings,

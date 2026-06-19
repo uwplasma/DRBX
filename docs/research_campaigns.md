@@ -157,9 +157,10 @@ The fixed-full-field `gpu-dthe-batched-jvp-gate` and active-array
 `gpu-dthe-active-array-batched-jvp-gate` lanes measure ensemble throughput on
 the same D/T/He residual family. The local active-array counterpart is
 `dthe-active-array-batched-jvp-gate`; its retained `ny=100` CPU artifact
-reaches about `2.47x` residual and `2.09x` JVP same-kernel speedup through
-batch `64`, with JVP/finite-difference relative error about `5.97e-9`. The
-active-array GPU batched campaign is deliberately single-device for now
+reaches about `2.55x` residual and `2.02x` JVP same-kernel speedup through
+batch `64`, with JVP/finite-difference relative error about `5.97e-9` and
+reusable linearized-action agreement with direct JVPs at about `3.47e-18`.
+The active-array GPU batched campaign is deliberately single-device for now
 (`--disable-pmap`) and uses residual/JVP batch partitions of `16` because
 larger `ny=100` pmap and single-device office-GPU attempts were host/compiler
 or memory bound and wrote no JSON summary. A tiny `ny=16` single-device CUDA

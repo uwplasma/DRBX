@@ -2735,12 +2735,12 @@ Use this log for concise decision records. Do not paste terminal output here.
   (`--disable-pmap`) and uses persistent compilation-cache, JAX-trace, and
   device-memory hooks. The refreshed fixed-full-field CPU artifact at
   `ny=100`, state size `1900`, explicit `--disable-pmap`, and batches through
-  `64` reports best residual and JVP same-kernel speedups of `2.49x` and
-  `2.13x`, with best throughputs of `3.21e4` and `9.19e3` states/s. The new
+  `64` reports best residual and JVP same-kernel speedups of `2.28x` and
+  `1.96x`, with best throughputs of `3.13e4` and `8.56e3` states/s. The new
   active-array CPU artifact at the same `ny=100`, state size `1900`, explicit
   `--disable-pmap`, and batches through `64` reports best residual and JVP
-  speedups of `2.47x` and `2.09x`, with best throughputs of `3.14e4` and
-  `9.10e3` states/s. Both retained CPU artifacts
+  speedups of `2.55x` and `2.02x`, with best throughputs of `3.14e4` and
+  `9.03e3` states/s. Both retained CPU artifacts
   keep JVP/finite-difference relative error `5.97e-9` and objective
   directional relative error `1.34e-7`, and now write incremental
   `profile_progress.jsonl` records for problem construction, base
@@ -2847,12 +2847,13 @@ Use this log for concise decision records. Do not paste terminal output here.
   `dthe-active-array-batched-jvp-gate` now pass `--disable-pmap`, and both
   compact CPU artifacts were refreshed. The fixed-full-field artifact now
   reports `pmap_requested=false`, JVP/finite-difference relative error
-  `5.97e-9`, batch-64 residual/JVP speedups `2.49x`/`2.13x`, and best
-  throughputs `3.21e4`/`9.19e3` states/s. The active-array artifact reports
-  `pmap_requested=false`, batch-64 residual/JVP speedups `2.47x`/`2.09x`, and
-  best throughputs `3.14e4`/`9.10e3` states/s. Decision: keep local CPU
-  retained summaries as vmap/batched evidence; use separate GPU campaigns for
-  pmap or CUDA evidence.
+  `5.97e-9`, batch-64 residual/JVP speedups `2.28x`/`1.96x`, and best
+  throughputs `3.13e4`/`8.56e3` states/s. The active-array artifact reports
+  `pmap_requested=false`, batch-64 residual/JVP speedups `2.55x`/`2.02x`, and
+  best throughputs `3.14e4`/`9.03e3` states/s. Both now report reusable
+  linearized-action agreement with direct JVPs at `3.47e-18`. Decision: keep
+  local CPU retained summaries as vmap/batched evidence; use separate GPU
+  campaigns for pmap or CUDA evidence.
 - 2026-06-19: Added an opt-in `FixedResidualLinearizedAction` seam to
   `recycling_fixed_residual.py`. It wraps a single `jax.linearize` call,
   validates serial and batched tangent shapes, exposes reusable
@@ -2864,6 +2865,13 @@ Use this log for concise decision records. Do not paste terminal output here.
   instrumented action explicit, so the next solver pass can wire diagnostics
   into profile scripts without broadening default behavior or claiming a
   speedup.
+- 2026-06-19: Wired `FixedResidualLinearizedAction` into the retained
+  recycling batched-JVP profiler as a diagnostic check. The refreshed
+  fixed-full-field and active-array CPU artifacts now record linearized-action
+  build time, serial and batched dispatch counters, residual agreement with the
+  jitted residual (`4.34e-19`), and direct-JVP agreement for serial/batched
+  actions (`3.47e-18`). Decision: this is profiler evidence for the future
+  matrix-free solver/preconditioner path, not a new performance claim.
 
 ## Definition Of Done
 

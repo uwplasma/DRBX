@@ -321,9 +321,17 @@ def test_recycling_batched_jvp_profile_reports_progress_events() -> None:
     assert "batch_jvp_warmup_complete" in event_names
     assert "batch_serial_warmup_complete" in event_names
     assert "batch_warmup_complete" in event_names
+    assert "linearized_action_check_complete" in event_names
     assert "batch_complete" in event_names
     assert event_names[-1] == "profile_complete"
     assert report["warmup_timing"]["base_residual_warmup_seconds"] >= 0.0
+    action_diagnostics = report["linearized_action_diagnostics"]
+    assert action_diagnostics["state_shape"] == (2,)
+    assert action_diagnostics["call_count"] == 1
+    assert action_diagnostics["batched_call_count"] == 1
+    assert action_diagnostics["jvp_max_abs_error_vs_direct_jvp"] == 0.0
+    assert action_diagnostics["batched_jvp_max_abs_error_vs_direct_jvp"] == 0.0
+    assert action_diagnostics["residual_max_abs_error_vs_jit"] == 0.0
     assert report["batch_results"][0]["batch_warmup_seconds"] >= 0.0
     assert report["batch_results"][0]["direction_build_seconds"] >= 0.0
     assert report["batch_results"][0]["batched_residual_warmup_seconds"] >= 0.0

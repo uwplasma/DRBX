@@ -3,28 +3,28 @@
   "batch_results": [
     {
       "batch_size": 1,
-      "batch_warmup_seconds": 3.910261999000795,
+      "batch_warmup_seconds": 3.85422458400717,
       "batched_jvp_samples": [
-        0.0002782910014502704,
-        0.00021349999587982893,
-        0.0002069160109385848
+        0.00026516703655943274,
+        0.00017308298265561461,
+        0.00019641697872430086
       ],
-      "batched_jvp_seconds_median": 0.00021349999587982893,
-      "batched_jvp_states_per_second": 4683.840839804335,
-      "batched_jvp_warmup_seconds": 2.5628108750097454,
+      "batched_jvp_seconds_median": 0.00019641697872430086,
+      "batched_jvp_states_per_second": 5091.20956087835,
+      "batched_jvp_warmup_seconds": 2.6359263340127654,
       "batched_residual_samples": [
-        0.00016091595171019435,
-        9.179196786135435e-05,
-        7.804099004715681e-05
+        0.0001245840103365481,
+        7.187505252659321e-05,
+        8.399999933317304e-05
       ],
-      "batched_residual_seconds_median": 9.179196786135435e-05,
-      "batched_residual_states_per_second": 10894.199386927115,
-      "batched_residual_warmup_seconds": 1.344270957983099,
-      "direction_build_seconds": 0.0021652079885825515,
+      "batched_residual_seconds_median": 8.399999933317304e-05,
+      "batched_residual_states_per_second": 11904.76199926686,
+      "batched_residual_warmup_seconds": 1.2151784999878146,
+      "direction_build_seconds": 0.0002924170112237334,
       "jvp_batched_serial_max_abs_error": 0.0,
       "jvp_partition_count": 1,
       "jvp_partition_size": 1,
-      "jvp_speedup_vs_serial": 1.1014847179668377,
+      "jvp_speedup_vs_serial": 1.1847651950647489,
       "pmap_batch_size": 0,
       "pmap_device_count": 0,
       "pmap_jvp_batched_max_abs_error": null,
@@ -36,47 +36,47 @@
       "residual_batched_serial_max_abs_error": 0.0,
       "residual_partition_count": 1,
       "residual_partition_size": 1,
-      "residual_speedup_vs_serial": 1.3027608571859777,
+      "residual_speedup_vs_serial": 1.5009884908208597,
       "serial_jvp_samples": [
-        0.00027062499430030584,
-        0.00023516698274761438,
-        0.0002197500434704125
+        0.00025154202012345195,
+        0.00022950000129640102,
+        0.00023270800011232495
       ],
-      "serial_jvp_seconds_median": 0.00023516698274761438,
-      "serial_jvp_states_per_second": 4252.297615576497,
+      "serial_jvp_seconds_median": 0.00023270800011232495,
+      "serial_jvp_states_per_second": 4297.230862356746,
       "serial_residual_samples": [
-        0.00014391698641702533,
-        0.00011504202848300338,
-        0.00011958298273384571
+        0.00012608303222805262,
+        0.00013412500265985727,
+        9.433296509087086e-05
       ],
-      "serial_residual_seconds_median": 0.00011958298273384571,
-      "serial_residual_states_per_second": 8362.393855200007,
-      "serial_warmup_seconds": 0.003180166007950902
+      "serial_residual_seconds_median": 0.00012608303222805262,
+      "serial_residual_states_per_second": 7931.281333647263,
+      "serial_warmup_seconds": 0.0031197500065900385
     },
     {
       "batch_size": 4,
-      "batch_warmup_seconds": 4.066937124996912,
+      "batch_warmup_seconds": 4.182066250068601,
       "batched_jvp_samples": [
-        0.0007777500431984663,
-        0.0006701249512843788,
-        0.0006704999832436442
+        0.0007030829438008368,
+        0.0006871249643154442,
+        0.0006168329855427146
       ],
-      "batched_jvp_seconds_median": 0.0006704999832436442,
-      "batched_jvp_states_per_second": 5965.697389952793,
-      "batched_jvp_warmup_seconds": 2.6505528750130907,
+      "batched_jvp_seconds_median": 0.0006871249643154442,
+      "batched_jvp_states_per_second": 5821.3574061961845,
+      "batched_jvp_warmup_seconds": 2.7228493750444613,
       "batched_residual_samples": [
-        0.00023908400908112526,
-        0.0002484169672243297,
-        0.0002120000426657498
+        0.0002747909747995436,
+        0.00022562500089406967,
+        0.00019570795120671391
       ],
-      "batched_residual_seconds_median": 0.00023908400908112526,
-      "batched_residual_states_per_second": 16730.520854879644,
-      "batched_residual_warmup_seconds": 1.4117641669581644,
-      "direction_build_seconds": 0.01898037502542138,
+      "batched_residual_seconds_median": 0.00022562500089406967,
+      "batched_residual_states_per_second": 17728.531785703966,
+      "batched_residual_warmup_seconds": 1.454647374979686,
+      "direction_build_seconds": 0.02023445803206414,
       "jvp_batched_serial_max_abs_error": 0.0,
       "jvp_partition_count": 1,
       "jvp_partition_size": 4,
-      "jvp_speedup_vs_serial": 1.2782744696591801,
+      "jvp_speedup_vs_serial": 1.2370383805050134,
       "pmap_batch_size": 0,
       "pmap_device_count": 0,
       "pmap_jvp_batched_max_abs_error": null,
@@ -88,47 +88,47 @@
       "residual_batched_serial_max_abs_error": 0.0,
       "residual_partition_count": 1,
       "residual_partition_size": 4,
-      "residual_speedup_vs_serial": 1.2910399977406808,
+      "residual_speedup_vs_serial": 1.4129239194594305,
       "serial_jvp_samples": [
-        0.0008570830104872584,
-        0.0008638750296086073,
-        0.0008207079954445362
+        0.0008715000003576279,
+        0.0008499999530613422,
+        0.0008352909935638309
       ],
-      "serial_jvp_seconds_median": 0.0008570830104872584,
-      "serial_jvp_states_per_second": 4666.992521209781,
+      "serial_jvp_seconds_median": 0.0008499999530613422,
+      "serial_jvp_states_per_second": 4705.882612809192,
       "serial_residual_samples": [
-        0.00032837502658367157,
-        0.00030866701854392886,
-        0.00030100002186372876
+        0.00032412505242973566,
+        0.0002971250214613974,
+        0.0003187909605912864
       ],
-      "serial_residual_seconds_median": 0.00030866701854392886,
-      "serial_residual_states_per_second": 12958.948509851007,
-      "serial_warmup_seconds": 0.0046200830256566405
+      "serial_residual_seconds_median": 0.0003187909605912864,
+      "serial_residual_states_per_second": 12547.407218137203,
+      "serial_warmup_seconds": 0.004569500044453889
     },
     {
       "batch_size": 16,
-      "batch_warmup_seconds": 3.980376625957433,
+      "batch_warmup_seconds": 4.073466792004183,
       "batched_jvp_samples": [
-        0.0020102919661439955,
-        0.0018567499937489629,
-        0.0019663750426843762
+        0.0021468749619089067,
+        0.001953457947820425,
+        0.0019040000042878091
       ],
-      "batched_jvp_seconds_median": 0.0019663750426843762,
-      "batched_jvp_states_per_second": 8136.799772518353,
-      "batched_jvp_warmup_seconds": 2.737073666998185,
+      "batched_jvp_seconds_median": 0.001953457947820425,
+      "batched_jvp_states_per_second": 8190.603753642117,
+      "batched_jvp_warmup_seconds": 2.827373667038046,
       "batched_residual_samples": [
-        0.0007417920278385282,
-        0.0006766250007785857,
-        0.0006228749989531934
+        0.0007110000005923212,
+        0.0006627080147154629,
+        0.0006482499884441495
       ],
-      "batched_residual_seconds_median": 0.0006766250007785857,
-      "batched_residual_states_per_second": 23646.776252117434,
-      "batched_residual_warmup_seconds": 1.234089083969593,
-      "direction_build_seconds": 0.020065333985257894,
+      "batched_residual_seconds_median": 0.0006627080147154629,
+      "batched_residual_states_per_second": 24143.362755118756,
+      "batched_residual_warmup_seconds": 1.236969749967102,
+      "direction_build_seconds": 0.020801917009521276,
       "jvp_batched_serial_max_abs_error": 0.0,
       "jvp_partition_count": 1,
       "jvp_partition_size": 16,
-      "jvp_speedup_vs_serial": 1.680354925598689,
+      "jvp_speedup_vs_serial": 1.7448545525061985,
       "pmap_batch_size": 0,
       "pmap_device_count": 0,
       "pmap_jvp_batched_max_abs_error": null,
@@ -140,47 +140,47 @@
       "residual_batched_serial_max_abs_error": 0.0,
       "residual_partition_count": 1,
       "residual_partition_size": 16,
-      "residual_speedup_vs_serial": 1.747150996844635,
+      "residual_speedup_vs_serial": 1.8020137832879544,
       "serial_jvp_samples": [
-        0.0034750410122796893,
-        0.003304207988549024,
-        0.003121459041722119
+        0.0034084999933838844,
+        0.0032360420445911586,
+        0.0037711249897256494
       ],
-      "serial_jvp_seconds_median": 0.003304207988549024,
-      "serial_jvp_states_per_second": 4842.310186116969,
+      "serial_jvp_seconds_median": 0.0034084999933838844,
+      "serial_jvp_states_per_second": 4694.146994589121,
       "serial_residual_samples": [
-        0.0012029590434394777,
-        0.0011362499790266156,
-        0.001182166044600308
+        0.0012525410274975002,
+        0.0011942089768126607,
+        0.0011844590189866722
       ],
-      "serial_residual_seconds_median": 0.001182166044600308,
-      "serial_residual_states_per_second": 13534.477726781286,
-      "serial_warmup_seconds": 0.009213874989654869
+      "serial_residual_seconds_median": 0.0011942089768126607,
+      "serial_residual_states_per_second": 13397.99005924737,
+      "serial_warmup_seconds": 0.00912337499903515
     },
     {
       "batch_size": 64,
-      "batch_warmup_seconds": 4.18336054199608,
+      "batch_warmup_seconds": 4.144696499046404,
       "batched_jvp_samples": [
-        0.007003165956120938,
-        0.006648042006418109,
-        0.00696629099547863
+        0.007812291034497321,
+        0.007474709011148661,
+        0.006895750004332513
       ],
-      "batched_jvp_seconds_median": 0.00696629099547863,
-      "batched_jvp_states_per_second": 9187.098276764245,
-      "batched_jvp_warmup_seconds": 2.8570129579748027,
+      "batched_jvp_seconds_median": 0.007474709011148661,
+      "batched_jvp_states_per_second": 8562.206221612489,
+      "batched_jvp_warmup_seconds": 2.8742588330060244,
       "batched_residual_samples": [
-        0.001842375029809773,
-        0.002160749980248511,
-        0.0019931250135414302
+        0.002045417029876262,
+        0.0017639999859966338,
+        0.0021810829639434814
       ],
-      "batched_residual_seconds_median": 0.0019931250135414302,
-      "batched_residual_states_per_second": 32110.379211128024,
-      "batched_residual_warmup_seconds": 1.2983891670010053,
-      "direction_build_seconds": 0.019823667011223733,
+      "batched_residual_seconds_median": 0.002045417029876262,
+      "batched_residual_states_per_second": 31289.462767341727,
+      "batched_residual_warmup_seconds": 1.2389528329949826,
+      "direction_build_seconds": 0.026588625041767955,
       "jvp_batched_serial_max_abs_error": 0.0,
       "jvp_partition_count": 1,
       "jvp_partition_size": 64,
-      "jvp_speedup_vs_serial": 2.130629346424959,
+      "jvp_speedup_vs_serial": 1.962233578518218,
       "pmap_batch_size": 0,
       "pmap_device_count": 0,
       "pmap_jvp_batched_max_abs_error": null,
@@ -192,22 +192,22 @@
       "residual_batched_serial_max_abs_error": 1.6940658945086007e-21,
       "residual_partition_count": 1,
       "residual_partition_size": 64,
-      "residual_speedup_vs_serial": 2.4915436699313385,
+      "residual_speedup_vs_serial": 2.2752489705676413,
       "serial_jvp_samples": [
-        0.014887250028550625,
-        0.014469249988906085,
-        0.01484258403070271
+        0.014667125011328608,
+        0.014323083043564111,
+        0.014681332977488637
       ],
-      "serial_jvp_seconds_median": 0.01484258403070271,
-      "serial_jvp_states_per_second": 4311.917646389095,
+      "serial_jvp_seconds_median": 0.014667125011328608,
+      "serial_jvp_states_per_second": 4363.5000008909465,
       "serial_residual_samples": [
-        0.004965958010870963,
-        0.004379999998491257,
-        0.005761875014286488
+        0.004653832991607487,
+        0.0046081250184215605,
+        0.005862124962732196
       ],
-      "serial_residual_seconds_median": 0.004965958010870963,
-      "serial_residual_states_per_second": 12887.744894318035,
-      "serial_warmup_seconds": 0.027958417020272464
+      "serial_residual_seconds_median": 0.004653832991607487,
+      "serial_residual_states_per_second": 13752.105010088397,
+      "serial_warmup_seconds": 0.031484833045396954
     }
   ],
   "case": "recycling_batched_jvp_profile",
@@ -254,6 +254,20 @@
   "interpretation": "This gate measures the real fixed-layout D/T/He recycling residual under jit, vmap, jvp, grad, and optional pmap after a multi-device identity sanity check. It is the current differentiable residual-throughput lane; it does not promote the full production BDF output-window solve as the default implicit backend.",
   "jax_trace_dir": null,
   "jvp_partition_size": null,
+  "linearized_action_diagnostics": {
+    "batched_call_count": 1,
+    "batched_dispatch_seconds": 1.1552979590487666,
+    "batched_jvp_max_abs_error_vs_direct_jvp": 3.469446951953614e-18,
+    "build_seconds": 1.4161686250008643,
+    "call_count": 1,
+    "diagnostic_batch_size": 2,
+    "dispatch_seconds": 0.45654112502234057,
+    "jvp_max_abs_error_vs_direct_jvp": 3.469446951953614e-18,
+    "residual_max_abs_error_vs_jit": 4.336808689942018e-19,
+    "state_shape": [
+      1900
+    ]
+  },
   "mesh_active_shape": [
     1,
     100,
@@ -282,20 +296,20 @@
     ],
     "best_batched_jvp_throughput": {
       "batch_size": 64,
-      "states_per_second": 9187.098276764245
+      "states_per_second": 8562.206221612489
     },
     "best_batched_residual_throughput": {
       "batch_size": 64,
-      "states_per_second": 32110.379211128024
+      "states_per_second": 31289.462767341727
     },
     "best_jvp_batch_efficiency": {
       "batch_size": 1,
-      "efficiency": 1.1014847179668377,
-      "speedup": 1.1014847179668377
+      "efficiency": 1.1847651950647489,
+      "speedup": 1.1847651950647489
     },
     "best_jvp_speedup_vs_serial": {
       "batch_size": 64,
-      "speedup": 2.130629346424959
+      "speedup": 1.962233578518218
     },
     "best_pmap_jvp_device_efficiency_vs_serial": null,
     "best_pmap_jvp_speedup_vs_batched": null,
@@ -303,12 +317,12 @@
     "best_pmap_jvp_throughput": null,
     "best_residual_batch_efficiency": {
       "batch_size": 1,
-      "efficiency": 1.3027608571859777,
-      "speedup": 1.3027608571859777
+      "efficiency": 1.5009884908208597,
+      "speedup": 1.5009884908208597
     },
     "best_residual_speedup_vs_serial": {
       "batch_size": 64,
-      "speedup": 2.4915436699313385
+      "speedup": 2.2752489705676413
     },
     "max_batch_size": 64,
     "throughput_units": "states_per_second"
@@ -316,10 +330,10 @@
   "timed_runs": 3,
   "timestep": 0.0001,
   "warmup_timing": {
-    "base_jvp_warmup_seconds": 1.7497530840337276,
-    "base_residual_warmup_seconds": 0.9107222919701599,
-    "fd_jvp_check_seconds": 0.01347191701643169,
-    "objective_grad_check_seconds": 3.840080791967921
+    "base_jvp_warmup_seconds": 1.8361418339773081,
+    "base_residual_warmup_seconds": 0.9909294169628993,
+    "fd_jvp_check_seconds": 0.013049000001046807,
+    "objective_grad_check_seconds": 4.078184750047512
   },
   "xla_dump_dir": null
 }

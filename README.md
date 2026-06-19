@@ -405,9 +405,11 @@ residual under `jit`, `vmap`, `jvp`, and `grad` on the real recycling state.
 It uses the fixed full-field RHS by default, exposes the active-array RHS as
 the migration seam, and keeps the older host bridge only as an explicit
 diagnostic comparison backend. On the local CPU run, the retained batch sweep
-through `64` states gives about `2.49x` residual throughput speedup and about
-`2.13x` JVP throughput speedup over serial same-kernel calls, while the
-JVP/finite-difference error is about `5.97e-9`.
+through `64` states gives about `2.28x` residual throughput speedup and about
+`1.96x` JVP throughput speedup over serial same-kernel calls, while the
+JVP/finite-difference error is about `5.97e-9`. The same artifact now also
+checks a reusable `jax.linearize` action against direct JVPs, with agreement at
+about `3.47e-18`.
 
 The adaptive-BDF recycling solver also has a bounded JAX-linearized promotion
 gate. It is intentionally opt-in rather than the production default: the stable
