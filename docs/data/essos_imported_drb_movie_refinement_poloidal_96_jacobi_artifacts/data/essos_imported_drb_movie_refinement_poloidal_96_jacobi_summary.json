@@ -5,22 +5,22 @@
     "all_reports_passed": true,
     "axis_progression_passed": true,
     "axis_values": [
-      18432.0,
-      36864.0
+      36864.0,
+      73728.0
     ],
     "diagnostic": "essos_imported_drb_movie_refinement",
     "dominant_failed_metrics": [],
     "failed_metric_reports": [],
     "labels": [
-      "essos_imported_qa_hybrid_drb_transient_movie:16x24x48_frame_dt=0.004",
-      "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004"
+      "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
+      "essos_imported_qa_hybrid_drb_transient_movie:16x96x48_frame_dt=0.004"
     ],
     "map_source": "hybrid",
     "map_source_consistent": true,
     "map_sources": [
       "hybrid"
     ],
-    "max_relative_metric_change": 0.02750168604553339,
+    "max_relative_metric_change": 0.014744324567978553,
     "metric_keys": [
       "final_fluctuation_rms",
       "max_fluctuation_rms",
@@ -38,93 +38,93 @@
         "coarse_effective_frame_dt": 0.004,
         "coarse_grid": [
           16,
-          24,
+          48,
           48
         ],
-        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:16x24x48_frame_dt=0.004",
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
         "coarse_potential_iterations": 3072,
         "coarse_potential_preconditioner": "jacobi",
         "fine_effective_frame_dt": 0.004,
         "fine_grid": [
           16,
-          48,
+          96,
           48
         ],
-        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:16x96x48_frame_dt=0.004",
         "fine_potential_iterations": 3072,
         "fine_potential_preconditioner": "jacobi",
-        "max_relative_metric_change": 0.02750168604553339,
+        "max_relative_metric_change": 0.014744324567978553,
         "metric_reports": {
           "final_fluctuation_rms": {
-            "coarse": 0.02828871822218281,
+            "coarse": 0.028336819901049665,
             "denominator_floor": 1e-12,
-            "fine": 0.028336819901049665,
+            "fine": 0.028382405049926413,
             "passed": true,
-            "relative_change": 0.0016974974268397563,
+            "relative_change": 0.0016061059236016607,
             "sign_agreement": true
           },
           "final_potential_residual_l2": {
-            "coarse": 2.2577621052107627e-11,
+            "coarse": 2.5327789656660966e-11,
             "denominator_floor": 1e-10,
-            "fine": 2.5327789656660966e-11,
+            "fine": 2.625552915744812e-11,
             "passed": true,
-            "relative_change": 0.02750168604553339,
+            "relative_change": 0.009277395007871536,
             "sign_agreement": true
           },
           "low_mode_spectral_power_fraction": {
-            "coarse": 0.17907889067908112,
+            "coarse": 0.18395641789930778,
             "denominator_floor": 1e-12,
-            "fine": 0.18395641789930778,
+            "fine": 0.18670932072392818,
             "passed": true,
-            "relative_change": 0.026514580333350884,
+            "relative_change": 0.014744324567978553,
             "sign_agreement": true
           },
           "max_fluctuation_rms": {
-            "coarse": 0.02828871822218281,
+            "coarse": 0.028336819901049665,
             "denominator_floor": 1e-12,
-            "fine": 0.028336819901049665,
+            "fine": 0.028382405049926413,
             "passed": true,
-            "relative_change": 0.0016974974268397563,
+            "relative_change": 0.0016061059236016607,
             "sign_agreement": true
           },
           "radial_flux_abs_mean": {
-            "coarse": 0.001751950472630484,
+            "coarse": 0.0017452242812994547,
             "denominator_floor": 1e-12,
-            "fine": 0.0017452242812994547,
+            "fine": 0.0017447244437287682,
             "passed": true,
-            "relative_change": 0.003854055552115662,
+            "relative_change": 0.000286485107996963,
             "sign_agreement": true
           },
           "radial_flux_rms": {
-            "coarse": 0.0022940943916222364,
+            "coarse": 0.0022843640291266894,
             "denominator_floor": 1e-12,
-            "fine": 0.0022843640291266894,
+            "fine": 0.0022826561474488054,
             "passed": true,
-            "relative_change": 0.004259549866606348,
+            "relative_change": 0.0007481992764406556,
             "sign_agreement": true
           },
           "spectral_centroid_poloidal_fraction": {
-            "coarse": 0.7888925908407544,
+            "coarse": 0.7888358034572348,
             "denominator_floor": 1e-12,
-            "fine": 0.7888358034572348,
+            "fine": 0.7881149756946909,
             "passed": true,
-            "relative_change": 7.198885150834898e-05,
+            "relative_change": 0.0009146225928628197,
             "sign_agreement": true
           },
           "spectral_centroid_toroidal_fraction": {
-            "coarse": 0.13418867645668311,
+            "coarse": 0.13169828543560402,
             "denominator_floor": 1e-12,
-            "fine": 0.13169828543560402,
+            "fine": 0.1305306195550926,
             "passed": true,
-            "relative_change": 0.01890982113276492,
+            "relative_change": 0.008945532354717687,
             "sign_agreement": true
           },
           "spectral_edge_band_power_fraction": {
-            "coarse": 0.7941182078221783,
+            "coarse": 0.7909972470824168,
             "denominator_floor": 1e-12,
-            "fine": 0.7909972470824168,
+            "fine": 0.7890818193441466,
             "passed": true,
-            "relative_change": 0.00394560253056905,
+            "relative_change": 0.0024274133446165,
             "sign_agreement": true
           }
         },
@@ -141,16 +141,6 @@
     "spectral_resolution_passed": true,
     "spectral_resolution_reports": [
       {
-        "label": "essos_imported_qa_hybrid_drb_transient_movie:16x24x48_frame_dt=0.004",
-        "low_mode_window_covers_grid": false,
-        "max_spectral_edge_band_power_fraction": 0.85,
-        "passed": true,
-        "reasons": [],
-        "spectral_centroid_poloidal_fraction": 0.7888925908407544,
-        "spectral_centroid_toroidal_fraction": 0.13418867645668311,
-        "spectral_edge_band_power_fraction": 0.7941182078221783
-      },
-      {
         "label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
         "low_mode_window_covers_grid": false,
         "max_spectral_edge_band_power_fraction": 0.85,
@@ -159,6 +149,16 @@
         "spectral_centroid_poloidal_fraction": 0.7888358034572348,
         "spectral_centroid_toroidal_fraction": 0.13169828543560402,
         "spectral_edge_band_power_fraction": 0.7909972470824168
+      },
+      {
+        "label": "essos_imported_qa_hybrid_drb_transient_movie:16x96x48_frame_dt=0.004",
+        "low_mode_window_covers_grid": false,
+        "max_spectral_edge_band_power_fraction": 0.85,
+        "passed": true,
+        "reasons": [],
+        "spectral_centroid_poloidal_fraction": 0.7881149756946909,
+        "spectral_centroid_toroidal_fraction": 0.1305306195550926,
+        "spectral_edge_band_power_fraction": 0.7890818193441466
       }
     ]
   },
@@ -169,10 +169,10 @@
     "current_effective_frame_dt": 0.002,
     "current_finest_grid": [
       16,
-      48,
+      96,
       48
     ],
-    "current_finest_grid_cell_count": 36864,
+    "current_finest_grid_cell_count": 73728,
     "current_potential_iterations": 3072,
     "diagnostic": "essos_imported_drb_movie_next_campaign_suggestion",
     "dominant_grid_blockers": [],
@@ -214,15 +214,15 @@
     "dominant_failed_metrics": [],
     "failed_metric_reports": [],
     "labels": [
-      "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
-      "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.002"
+      "essos_imported_qa_hybrid_drb_transient_movie:16x96x48_frame_dt=0.004",
+      "essos_imported_qa_hybrid_drb_transient_movie:16x96x48_frame_dt=0.002"
     ],
     "map_source": "hybrid",
     "map_source_consistent": true,
     "map_sources": [
       "hybrid"
     ],
-    "max_relative_metric_change": 0.11356877731858978,
+    "max_relative_metric_change": 0.12382540576102062,
     "metric_keys": [
       "final_fluctuation_rms",
       "max_fluctuation_rms",
@@ -240,93 +240,93 @@
         "coarse_effective_frame_dt": 0.004,
         "coarse_grid": [
           16,
-          48,
+          96,
           48
         ],
-        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:16x96x48_frame_dt=0.004",
         "coarse_potential_iterations": 3072,
         "coarse_potential_preconditioner": "jacobi",
         "fine_effective_frame_dt": 0.002,
         "fine_grid": [
           16,
-          48,
+          96,
           48
         ],
-        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.002",
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:16x96x48_frame_dt=0.002",
         "fine_potential_iterations": 3072,
         "fine_potential_preconditioner": "jacobi",
-        "max_relative_metric_change": 0.11356877731858978,
+        "max_relative_metric_change": 0.12382540576102062,
         "metric_reports": {
           "final_fluctuation_rms": {
-            "coarse": 0.028336819901049665,
+            "coarse": 0.028382405049926413,
             "denominator_floor": 1e-12,
-            "fine": 0.027533343999723136,
+            "fine": 0.02753849604581827,
             "passed": true,
-            "relative_change": 0.02918192215717089,
+            "relative_change": 0.030644701972978392,
             "sign_agreement": true
           },
           "final_potential_residual_l2": {
-            "coarse": 2.5327789656660966e-11,
+            "coarse": 2.625552915744812e-11,
             "denominator_floor": 1e-10,
-            "fine": 2.4326388771564543e-11,
+            "fine": 2.5670831081363306e-11,
             "passed": true,
-            "relative_change": 0.010014008850964226,
+            "relative_change": 0.005846980760848133,
             "sign_agreement": true
           },
           "low_mode_spectral_power_fraction": {
-            "coarse": 0.18395641789930778,
+            "coarse": 0.18670932072392818,
             "denominator_floor": 1e-12,
-            "fine": 0.16519538051548496,
+            "fine": 0.1661373019036656,
             "passed": true,
-            "relative_change": 0.11356877731858978,
+            "relative_change": 0.12382540576102062,
             "sign_agreement": true
           },
           "max_fluctuation_rms": {
-            "coarse": 0.028336819901049665,
+            "coarse": 0.028382405049926413,
             "denominator_floor": 1e-12,
-            "fine": 0.027533343999723136,
+            "fine": 0.02753849604581827,
             "passed": true,
-            "relative_change": 0.02918192215717089,
+            "relative_change": 0.030644701972978392,
             "sign_agreement": true
           },
           "radial_flux_abs_mean": {
-            "coarse": 0.0017452242812994547,
+            "coarse": 0.0017447244437287682,
             "denominator_floor": 1e-12,
-            "fine": 0.0017453208296299382,
+            "fine": 0.0017450535210634097,
             "passed": true,
-            "relative_change": 5.531838550503866e-05,
+            "relative_change": 0.00018857721592462182,
             "sign_agreement": true
           },
           "radial_flux_rms": {
-            "coarse": 0.0022843640291266894,
+            "coarse": 0.0022826561474488054,
             "denominator_floor": 1e-12,
-            "fine": 0.002300425632762625,
+            "fine": 0.0022996625912633287,
             "passed": true,
-            "relative_change": 0.006982013853082815,
+            "relative_change": 0.007395190876754113,
             "sign_agreement": true
           },
           "spectral_centroid_poloidal_fraction": {
-            "coarse": 0.7888358034572348,
+            "coarse": 0.7881149756946909,
             "denominator_floor": 1e-12,
-            "fine": 0.8092412323295828,
+            "fine": 0.8106119905462579,
             "passed": true,
-            "relative_change": 0.025215508129271123,
+            "relative_change": 0.02775312370645616,
             "sign_agreement": true
           },
           "spectral_centroid_toroidal_fraction": {
-            "coarse": 0.13169828543560402,
+            "coarse": 0.1305306195550926,
             "denominator_floor": 1e-12,
-            "fine": 0.14489682836015064,
+            "fine": 0.14457029348861833,
             "passed": true,
-            "relative_change": 0.0910892465619797,
+            "relative_change": 0.0971131315758935,
             "sign_agreement": true
           },
           "spectral_edge_band_power_fraction": {
-            "coarse": 0.7909972470824168,
+            "coarse": 0.7890818193441466,
             "denominator_floor": 1e-12,
-            "fine": 0.8132853444189664,
+            "fine": 0.812585861409322,
             "passed": true,
-            "relative_change": 0.027405015336250536,
+            "relative_change": 0.02892499510686882,
             "sign_agreement": true
           }
         },
@@ -343,24 +343,24 @@
     "spectral_resolution_passed": true,
     "spectral_resolution_reports": [
       {
-        "label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
+        "label": "essos_imported_qa_hybrid_drb_transient_movie:16x96x48_frame_dt=0.004",
         "low_mode_window_covers_grid": false,
         "max_spectral_edge_band_power_fraction": 0.85,
         "passed": true,
         "reasons": [],
-        "spectral_centroid_poloidal_fraction": 0.7888358034572348,
-        "spectral_centroid_toroidal_fraction": 0.13169828543560402,
-        "spectral_edge_band_power_fraction": 0.7909972470824168
+        "spectral_centroid_poloidal_fraction": 0.7881149756946909,
+        "spectral_centroid_toroidal_fraction": 0.1305306195550926,
+        "spectral_edge_band_power_fraction": 0.7890818193441466
       },
       {
-        "label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.002",
+        "label": "essos_imported_qa_hybrid_drb_transient_movie:16x96x48_frame_dt=0.002",
         "low_mode_window_covers_grid": false,
         "max_spectral_edge_band_power_fraction": 0.85,
         "passed": true,
         "reasons": [],
-        "spectral_centroid_poloidal_fraction": 0.8092412323295828,
-        "spectral_centroid_toroidal_fraction": 0.14489682836015064,
-        "spectral_edge_band_power_fraction": 0.8132853444189664
+        "spectral_centroid_poloidal_fraction": 0.8106119905462579,
+        "spectral_centroid_toroidal_fraction": 0.14457029348861833,
+        "spectral_edge_band_power_fraction": 0.812585861409322
       }
     ]
   },

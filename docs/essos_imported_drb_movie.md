@@ -109,11 +109,12 @@ The follow-on `16 x 24 x 48` candidate is committed as:
 - `docs/data/essos_imported_drb_movie_refinement_16x_candidate_artifacts/data/essos_imported_drb_movie_refinement_16x_candidate_summary.json`
 
 This second candidate closes the time-refinement gate again and removes the
-radial-flux and spectral edge-band blockers. The remaining failed metric is
-`spectral_centroid_poloidal_index`, whose relative change is `0.52` between
-`8 x 12 x 24` and `16 x 24 x 48`. The next targeted sweep should therefore
-increase poloidal resolution only, comparing `16 x 24 x 48` with
-`16 x 48 x 48`, before creating any new polished movie from this lane.
+radial-flux and spectral edge-band blockers. After the refinement gate was
+corrected to compare normalized spectral-centroid fractions rather than raw
+mode indices, the remaining failed metric is the toroidal centroid fraction.
+The next targeted sweep should therefore compare `16 x 24 x 48` with
+`16 x 24 x 96`, or use the later high-poloidal Jacobi evidence below when the
+goal is a stronger same-machine movie gate.
 
 That targeted poloidal sweep is committed as:
 
@@ -130,16 +131,19 @@ potential preconditioner before any `16 x 96 x 48` escalation.
 The follow-up potential-solve checks show that raw iterations alone are not the
 right fix, while Jacobi preconditioning is. The unpreconditioned `6144`
 iteration rerun remains blocked by `final_potential_residual_l2`, but the
-Jacobi-preconditioned `3072` iteration rerun closes the potential-residual and
-time-refinement blockers:
+Jacobi-preconditioned `3072` iteration rerun closes the potential-residual,
+grid-refinement, and time-refinement blockers:
 
 - `docs/data/essos_imported_drb_movie_refinement_poloidal_6144_artifacts/data/essos_imported_drb_movie_refinement_poloidal_6144_summary.json`
 - `docs/data/essos_imported_drb_movie_refinement_poloidal_jacobi_artifacts/data/essos_imported_drb_movie_refinement_poloidal_jacobi_summary.json`
+- `docs/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_artifacts/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_summary.json`
 
-The remaining blocker after Jacobi is again the grid convergence of
-`spectral_centroid_poloidal_index`. The next publication-candidate sweep should
-therefore use `potential_preconditioner = "jacobi"` and compare `16 x 48 x 48`
-with `16 x 96 x 48`.
+The `16 x 48 x 48 -> 16 x 96 x 48` Jacobi candidate is the strongest
+checked-in report-only gate from this lane: both grid and time refinement pass
+with no potential-residual blocker. It still does not by itself prove a final
+publication movie, because the next evidence should be a polished long-window
+movie generated with the same Jacobi potential solve and accompanied by
+stationarity statistics.
 
 After regenerating two or more same-map-source movie reports at different grid
 sizes and two or more reports at different effective frame timesteps, summarize

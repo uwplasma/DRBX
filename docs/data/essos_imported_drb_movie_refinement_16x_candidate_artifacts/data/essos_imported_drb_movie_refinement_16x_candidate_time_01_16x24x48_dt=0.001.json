@@ -1,7 +1,7 @@
 {
   "case": "essos_imported_qa_hybrid_drb_transient_movie",
   "claim_scope": "movie-grade reduced DRB transient on a near-boundary VMEC-shaped physics grid; coil and hybrid map sources include open-field sheath/recycling endpoints, while the VMEC map source is a closed-field coordinate-map reference",
-  "connection_length_mean": NaN,
+  "connection_length_mean": null,
   "current_balance_relative_error": 0.0,
   "dominant_poloidal_mode_index": 3,
   "dominant_toroidal_mode_index": 22,

@@ -64,8 +64,8 @@ ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRICS = (
     "radial_flux_abs_mean",
     "radial_flux_rms",
     "low_mode_spectral_power_fraction",
-    "spectral_centroid_poloidal_index",
-    "spectral_centroid_toroidal_index",
+    "spectral_centroid_poloidal_fraction",
+    "spectral_centroid_toroidal_fraction",
     "spectral_edge_band_power_fraction",
     "final_potential_residual_l2",
 )
@@ -494,10 +494,10 @@ def build_essos_imported_drb_movie_refinement_next_campaign(
                 "spectral content is too close to the grid edge; refine "
                 "poloidal and toroidal movie-grid resolution before promotion"
             )
-        if "spectral_centroid_poloidal_index" in grid_failed_metrics:
+        if "spectral_centroid_poloidal_fraction" in grid_failed_metrics:
             grid_multiplier[1] = max(grid_multiplier[1], 2.0)
             notes.append("poloidal spectral centroid moves under refinement")
-        if "spectral_centroid_toroidal_index" in grid_failed_metrics:
+        if "spectral_centroid_toroidal_fraction" in grid_failed_metrics:
             grid_multiplier[2] = max(grid_multiplier[2], 2.0)
             notes.append("toroidal spectral centroid moves under refinement")
         if {"final_fluctuation_rms", "max_fluctuation_rms"} & grid_failed_metrics:
@@ -1044,12 +1044,12 @@ def _movie_refinement_recommendations(
             "Treat radial transport as unresolved: refine the radial grid and the "
             "field-line-following transverse grid, then rerun the same transient."
         )
-    if "spectral_centroid_toroidal_index" in failed_metrics:
+    if "spectral_centroid_toroidal_fraction" in failed_metrics:
         recommendations.append(
             "Refine toroidal resolution and map sampling; the turbulent spectrum is "
             "moving in toroidal-mode space across refinement levels."
         )
-    if "spectral_centroid_poloidal_index" in failed_metrics:
+    if "spectral_centroid_poloidal_fraction" in failed_metrics:
         recommendations.append(
             "Refine poloidal resolution and interpolation order; the turbulent "
             "spectrum is moving in poloidal-mode space across refinement levels."
