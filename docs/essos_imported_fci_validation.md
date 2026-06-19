@@ -96,9 +96,13 @@ turbulence/movie promotion evidence by themselves. A June 18, 2026 pure-coil
 `adjacent_step_length` rerun improved the finest errors to normalized RMS
 `1.05e-2` and \(L_\infty\) `1.98e-2`, but the observed order was only `0.101`;
 pure-coil adjacent-step tracing is therefore classified as
-`negative_observed_order_control` rather than promotion evidence. This keeps
-the hybrid VMEC-map/coil-mask lane as the current open-field bridge while
-pure-coil map refinement remains active work.
+`negative_observed_order_control` rather than promotion evidence. The local
+June 18 live rerun used `minimum_finite_pair_fraction=0.25` for this open-field
+adjacent-step quantity; both pairwise comparisons had finite overlap fraction
+`0.5`, so the failure is now specifically the weak observed order, not missing
+endpoint-cell adjacent lengths. This keeps the hybrid VMEC-map/coil-mask lane
+as the current open-field bridge while pure-coil map refinement remains active
+work.
 
 ![Manufactured nested-grid connection-length refinement](data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png)
 
@@ -253,7 +257,12 @@ only when finite pair data, finest-grid error thresholds, monotonic reduction,
 and an explicitly required observed-order check all pass. Reports with small
 errors but no required observed-order check are retained as `advisory_only`;
 reports with poor observed order are retained as negative controls through
-`evidence_role`. For live imported geometry, the available
+`evidence_role`. Live reports also record `minimum_finite_pair_fraction`.
+Manufactured and closed-map controls default to full finite pair coverage,
+whereas pure-coil `adjacent_step_length` and `target_exit_length` live probes
+use a finite-overlap threshold because open-field endpoint cells are validated
+by the endpoint and target-label diagnostics rather than by the adjacent-plane
+map comparison. For live imported geometry, the available
 quantities are `raw_connection_length`, `adjacent_step_length`,
 `target_exit_length`, and `parallel_step_per_toroidal_radian`; only the
 adjacent-step quantities are appropriate for FCI-map convergence. The

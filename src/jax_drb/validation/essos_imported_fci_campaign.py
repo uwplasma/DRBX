@@ -274,6 +274,7 @@ def create_essos_imported_connection_length_refinement_package(
     linf_threshold: float = 0.05,
     minimum_observed_order: float = 1.5,
     require_observed_order: bool = False,
+    minimum_finite_pair_fraction: float = 1.0,
 ) -> EssosImportedConnectionLengthRefinementArtifacts:
     """Write a self-contained nested-grid connection-length refinement gate.
 
@@ -298,6 +299,7 @@ def create_essos_imported_connection_length_refinement_package(
         linf_threshold=linf_threshold,
         minimum_observed_order=minimum_observed_order,
         require_observed_order=require_observed_order,
+        minimum_finite_pair_fraction=minimum_finite_pair_fraction,
     )
     report_json_path = data_dir / f"{case_label}.json"
     report_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -334,6 +336,7 @@ def create_live_essos_imported_connection_length_refinement_package(
     linf_threshold: float = 0.15,
     minimum_observed_order: float = 0.0,
     require_observed_order: bool = False,
+    minimum_finite_pair_fraction: float | None = None,
 ) -> EssosImportedConnectionLengthRefinementArtifacts:
     """Write a live imported connection-length refinement gate.
 
@@ -356,6 +359,14 @@ def create_live_essos_imported_connection_length_refinement_package(
         times_to_trace=times_to_trace,
         trace_tolerance=trace_tolerance,
     )
+    finite_pair_fraction = (
+        _default_connection_refinement_minimum_finite_fraction(
+            map_source=map_source,
+            connection_quantity=live_levels.quantity,
+        )
+        if minimum_finite_pair_fraction is None
+        else float(minimum_finite_pair_fraction)
+    )
     artifacts = create_essos_imported_connection_length_refinement_package(
         output_root=output_root,
         case_label=case_label,
@@ -366,6 +377,7 @@ def create_live_essos_imported_connection_length_refinement_package(
         linf_threshold=linf_threshold,
         minimum_observed_order=minimum_observed_order,
         require_observed_order=require_observed_order,
+        minimum_finite_pair_fraction=finite_pair_fraction,
     )
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     report["source"] = "live imported connection-length refinement gate"
@@ -480,6 +492,7 @@ def build_essos_imported_connection_length_refinement_campaign(
     linf_threshold: float = 0.05,
     minimum_observed_order: float = 1.5,
     require_observed_order: bool = False,
+    minimum_finite_pair_fraction: float = 1.0,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     """Build report and arrays for nested connection-length refinement."""
 
@@ -506,6 +519,7 @@ def build_essos_imported_connection_length_refinement_campaign(
         linf_threshold=linf_threshold,
         minimum_observed_order=minimum_observed_order,
         require_observed_order=require_observed_order,
+        minimum_finite_pair_fraction=minimum_finite_pair_fraction,
     )
     observed_orders = [
         item["observed_order"]
@@ -539,6 +553,7 @@ def build_essos_imported_connection_length_refinement_campaign(
         "minimum_linf_error_reduction_factor": (
             min(linf_reduction_factors) if linf_reduction_factors else None
         ),
+        "minimum_finite_pair_fraction": diagnostics["minimum_finite_pair_fraction"],
         "monotonic_rms_error_reduction": bool(
             diagnostics["monotonic_rms_error_reduction"]
         ),
@@ -1170,6 +1185,7 @@ def build_essos_imported_connection_length_refinement_diagnostics(
     linf_threshold: float = 0.75,
     minimum_observed_order: float = 0.5,
     require_observed_order: bool = False,
+    minimum_finite_pair_fraction: float = 1.0,
 ) -> dict[str, Any]:
     """Compare nested imported connection-length grids by conservative restriction.
 
@@ -1184,6 +1200,9 @@ def build_essos_imported_connection_length_refinement_diagnostics(
     levels = [np.asarray(level, dtype=np.float64) for level in connection_levels]
     if len(levels) < 2:
         raise ValueError("Connection-length refinement diagnostics require at least two levels.")
+    finite_fraction_threshold = float(minimum_finite_pair_fraction)
+    if not (0.0 < finite_fraction_threshold <= 1.0):
+        raise ValueError("minimum_finite_pair_fraction must be in the interval (0, 1].")
     for index, level in enumerate(levels):
         if level.ndim != 3:
             raise ValueError(
@@ -1297,7 +1316,11 @@ def build_essos_imported_connection_length_refinement_diagnostics(
     last_pair = pair_reports[-1]
     last_rms = last_pair["normalized_rms_error"]
     last_linf = last_pair["normalized_linf_error"]
-    finite_pairs = all(pair["finite_fraction"] == 1.0 for pair in pair_reports)
+    finite_pairs = all(
+        pair["normalized_rms_error"] is not None
+        and float(pair["finite_fraction"]) >= finite_fraction_threshold
+        for pair in pair_reports
+    )
     order_values = [
         float(item["observed_order"])
         for item in observed_orders
@@ -1365,6 +1388,7 @@ def build_essos_imported_connection_length_refinement_diagnostics(
         "minimum_observed_order": float(minimum_observed_order),
         "observed_order_required": bool(require_observed_order),
         "observed_order_available": bool(order_values),
+        "minimum_finite_pair_fraction": float(finite_fraction_threshold),
         "finite_pairs_passed": bool(finite_pairs),
         "finest_error_threshold_passed": bool(error_passed),
         "observed_order_passed": bool(order_passed),
@@ -1995,6 +2019,23 @@ def _normalize_connection_refinement_quantity(value: str) -> str:
             "'parallel_step_per_toroidal_radian'."
         )
     return aliases[normalized]
+
+
+def _default_connection_refinement_minimum_finite_fraction(
+    *,
+    map_source: str,
+    connection_quantity: str,
+) -> float:
+    """Return the finite-overlap threshold for live refinement diagnostics."""
+
+    normalized_source = str(map_source).strip().lower()
+    normalized_quantity = _normalize_connection_refinement_quantity(connection_quantity)
+    if normalized_source == "coil" and normalized_quantity in {
+        "adjacent_step_length",
+        "target_exit_length",
+    }:
+        return 0.25
+    return 1.0
 
 
 def _connection_level_for_refinement_quantity(

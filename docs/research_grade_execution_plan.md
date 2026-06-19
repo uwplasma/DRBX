@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 78% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims; report-level promotion/advisory/negative-control semantics are now explicit. |
+| 3D stellarator imported-field/VMEC SOL | 79% | Finish pure-coil tracing refinement, FCI, grid-refinement, and time-refinement gates before turbulence/movie claims; report-level promotion/advisory/negative-control semantics and finite-overlap thresholds are now explicit. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 90% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -1933,6 +1933,20 @@ Use this log for concise decision records. Do not paste terminal output here.
   regenerated the JSON/NPZ/PNG docs package. The pure-coil live
   `adjacent_step_length` result with observed order `0.101` should now be
   recorded as `negative_observed_order_control`, not promoted evidence.
+- 2026-06-18: Ran fresh local live ESSOS Landreman-Paul QA connection-length
+  refinement probes after adding finite-overlap thresholds. The hybrid VMEC-map
+  / coil-mask probe with `parallel_step_per_toroidal_radian`,
+  `(3,4,6)->(6,8,12)->(12,16,24)`, `maxtime=30`, `times_to_trace=120`, and
+  `require_observed_order=True` passed with `promotion_ready=True`, finest
+  normalized RMS `5.90e-2`, finest normalized \(L_\infty\) `1.18e-1`, observed
+  order `1.20`, minimum RMS reduction factor `2.30`, and minimum
+  \(L_\infty\) reduction factor `1.69`. The pure-coil `adjacent_step_length`
+  probe used the open-field finite-overlap default
+  `minimum_finite_pair_fraction=0.25`; both pair comparisons had finite
+  fraction `0.5`, but observed order remained `0.101`, so the report is
+  `negative_observed_order_control` rather than promoted evidence. This closes
+  a classification ambiguity and leaves pure-coil map refinement and
+  longer-grid/time imported-field movie validation as the active 3D blockers.
 
 ## Definition Of Done
 
