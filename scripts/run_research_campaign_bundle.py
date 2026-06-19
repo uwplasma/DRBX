@@ -310,6 +310,51 @@ def _campaign_command_map(
             required_reference_inputs=("dthe",),
             timeout_seconds=300,
         ),
+        "dthe-active-array-linearized-update-throughput-probe": CampaignCommand(
+            name="dthe-active-array-linearized-update-throughput-probe",
+            description=(
+                "Production-style active-array D/T/He matrix-free Newton-update "
+                "throughput probe that skips the extra post-GMRES residual "
+                "diagnostic after the strict gate has passed."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_batched_jvp_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--rhs-backend",
+                "active_array",
+                "--output-dir",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_dthe_active_array_linearized_update_throughput_cpu"
+                ),
+                "--override",
+                "mesh:ny=16",
+                "--batch-sizes",
+                "1",
+                "--timed-runs",
+                "1",
+                "--disable-pmap",
+                "--skip-objective-grad-check",
+                "--check-linearized-update",
+                "--linearized-update-tolerance",
+                "1e-8",
+                "--linearized-update-restart",
+                "8",
+                "--linearized-update-maxiter",
+                "8",
+                "--linearized-update-jit-operator",
+                "--linearized-update-preconditioner",
+                "none",
+                "--skip-linearized-update-residual-diagnostic",
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+            timeout_seconds=300,
+        ),
         "dthe-active-array-linearized-update-jvp-diag-gate": CampaignCommand(
             name="dthe-active-array-linearized-update-jvp-diag-gate",
             description=(
@@ -789,6 +834,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
                     "dthe-batched-jvp-gate",
                     "dthe-active-array-batched-jvp-gate",
                     "dthe-active-array-linearized-update-gate",
+                    "dthe-active-array-linearized-update-throughput-probe",
                     "fixed-bdf2-direct-counting-gate",
                     "adaptive-bdf-jax-lineax-gate",
                     "heavy-recycling-profile",

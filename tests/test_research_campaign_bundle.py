@@ -95,6 +95,7 @@ def _assert_linearized_update_command(
     command,
     *,
     preconditioner: str = "none",
+    skip_residual_diagnostic: bool = False,
 ) -> None:
     assert command.required_reference_inputs == ("dthe",)
     assert command.requires_gpu is False
@@ -128,6 +129,10 @@ def _assert_linearized_update_command(
             command.command.index("--linearized-update-preconditioner-max-unknowns")
             + 1
         ] == "512"
+    if skip_residual_diagnostic:
+        assert "--skip-linearized-update-residual-diagnostic" in command.command
+    else:
+        assert "--skip-linearized-update-residual-diagnostic" not in command.command
 
 
 def _assert_current_dthe_jax_linearized_command(
@@ -247,6 +252,9 @@ def test_research_campaign_all_local_includes_fixed_bdf2_direct_counting() -> No
     )
     assert "dthe-active-array-linearized-update-gate" in module.expand_campaign_names(
         ("all-local",)
+    )
+    assert "dthe-active-array-linearized-update-throughput-probe" in (
+        module.expand_campaign_names(("all-local",))
     )
 
 
@@ -527,6 +535,29 @@ def test_research_campaign_active_array_linearized_update_gate_is_gated(
 
     assert command.name == "dthe-active-array-linearized-update-gate"
     _assert_linearized_update_command(command)
+
+
+def test_research_campaign_active_array_linearized_update_throughput_probe_skips_diagnostic(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py",
+        "research_campaign_active_array_linearized_update_throughput",
+    )
+    reference_root = _make_dthe_reference_root(tmp_path)
+
+    (command,) = module.build_campaign_commands(
+        campaign_names=("dthe-active-array-linearized-update-throughput-probe",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=reference_root,
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    assert command.name == "dthe-active-array-linearized-update-throughput-probe"
+    assert "linearized_update_throughput" in " ".join(command.command)
+    _assert_linearized_update_command(command, skip_residual_diagnostic=True)
 
 
 def test_research_campaign_active_array_linearized_update_jvp_diag_gate_is_gated(

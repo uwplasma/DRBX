@@ -79,6 +79,16 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+After the strict gate above has passed, use the paired throughput probe when
+measuring production-style update cost without the extra post-GMRES linearized
+residual diagnostic:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-active-array-linearized-update-throughput-probe \
+  --reference-root /path/to/reference/root
+```
+
 Use the companion diagonal-preconditioner screen only when changing
 preconditioner builders or deciding whether a packed diagonal is worth carrying
 into heavier output-window runs:
@@ -193,6 +203,10 @@ gate has passed, `profile_recycling_batched_jvp_gate.py` also accepts
 `--skip-linearized-update-residual-diagnostic`, which removes the extra
 post-GMRES linearized residual action while keeping the nonlinear candidate
 residual and solver status in the profile artifact.
+The retained throughput-probe artifact reports solver status `0`,
+`linear_update_residual_checked=false`, null linearized residual norms by
+construction, the same `2.11e-11` candidate nonlinear residual, and update-check
+time about `3.89 s`.
 
 The `dthe-active-array-linearized-update-jvp-diag-gate` variant applies a
 JVP-derived packed diagonal preconditioner. It is correct but not useful on

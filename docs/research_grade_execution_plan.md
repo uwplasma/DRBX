@@ -2937,6 +2937,24 @@ Use this log for concise decision records. Do not paste terminal output here.
   residual are enough evidence. Decision: this removes a known avoidable JVP
   action from production-style profiling without weakening the retained
   research-grade validation gate.
+- 2026-06-19: Promoted the cheap-throughput switch into the campaign
+  orchestrator as
+  `dthe-active-array-linearized-update-throughput-probe`. The original
+  `dthe-active-array-linearized-update-gate` remains strict and continues to
+  record the post-GMRES linearized residual norm; the new throughput probe
+  writes to its own artifact directory and passes
+  `--skip-linearized-update-residual-diagnostic`. Decision: keep validation
+  and timing evidence separated so future heavier sweeps cannot accidentally
+  replace solver-health evidence with a cheaper measurement-only run.
+- 2026-06-19: Ran the new throughput probe against the in-tree D/T/He fixture
+  and retained the small JSON artifact under
+  `docs/data/runtime_profile_artifacts/recycling_dthe_active_array_linearized_update_throughput_cpu/`.
+  The probe returned solver status `0`, recorded
+  `linear_update_residual_checked=false`, left linearized residual norms as
+  `null` by construction, preserved candidate nonlinear residual
+  `2.11e-11`, and measured update-check time about `3.89 s`. Decision: this
+  is useful timing evidence for avoiding one extra post-GMRES JVP action, but
+  strict promotion still depends on the residual-checked gate.
 
 ## Definition Of Done
 
