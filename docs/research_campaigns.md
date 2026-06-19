@@ -302,14 +302,17 @@ plan/direction allocation has therefore been removed from the adaptive loop,
 but the runtime blocker remains residual linearization and grouped-JVP push
 execution.
 
-The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
-profile summaries under `docs/data/runtime_profile_artifacts/`. On the current
-small `950`-active-variable gate, the CPU run completes in about `4.74 s` with
-about `5.0 GiB` sampled peak process-tree RSS. The office GPU run reaches the
-same residual norm and cuts sampled peak RSS to about `1.4 GiB`, but the warm
-wall time remains about `6.66 s`. That is useful evidence that the seam is
-accelerator-executable and lower-memory; it is not yet a speedup claim because
-this problem size is too small and still dominated by compile/launch overhead.
+The D/T/He fixed-layout JAX-linearized residual gate writes CPU profile
+summaries under `docs/data/runtime_profile_artifacts/`. The current
+`dt=1.0`, `950`-active-variable CPU gate passes with residual `7.315`, one
+line-search trial, two residual evaluations, five jitted matrix-free operator
+calls, `8.92 s` profiled runtime, and about `2.86 GiB` sampled peak
+process-tree RSS. The retained office-GPU summaries in the same directory are
+older tiny-step readiness probes; they show that the seam is
+accelerator-executable and lower-memory on that smaller residual, but they are
+not same-fidelity speedup evidence for the current `dt=1.0` gate. The next GPU
+claim must refresh the GPU artifact with the current gate or use a heavier
+same-shape batch that amortizes compile and launch overhead.
 
 ## Promotion Policy
 

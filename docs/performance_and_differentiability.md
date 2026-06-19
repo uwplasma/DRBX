@@ -624,18 +624,17 @@ Those are the right GPU benchmark surfaces for the current codebase. The heavy
 recycling lanes remain primarily CPU/runtime-architecture problems until more
 of the transient backbone is moved out of the host/SciPy path.
 
-The heavier D/T/He fixed-layout recycling residual has now also been profiled
-on the same GPU host. The CPU gate has `950` active variables, reaches residual
-`2.41e-11`, and the current all-local profiling bundle completes the
-skip-cProfile run in about `1.51 s`. The first retained GPU run reaches the
-same residual with two visible CUDA devices, completes in about `13.21 s`, and
-samples peak process-tree RSS near `1.49 GiB`; a second run with the same
-persistent compilation cache completes in about `6.66 s` with
-sampled peak RSS near `1.43 GiB`. This is useful accelerator evidence for the
-fixed-layout residual seam, but it is deliberately not described as GPU
-speedup: the current gate is still too small and launch/compile dominated.
-The next GPU claim must come from a larger transformed residual or a batched
-ensemble of independent residual solves.
+The heavier D/T/He fixed-layout recycling residual now has a current CPU
+profile on the gated `dt=1.0` command. That gate has `950` active variables,
+passes with residual `7.315`, one line-search trial, two residual evaluations,
+five jitted matrix-free operator calls, `8.92 s` profiled runtime, and sampled
+peak process-tree RSS near `2.86 GiB`. The retained office-GPU artifacts are
+older tiny-step readiness probes: they show that the fixed-layout residual seam
+is accelerator-executable and can use less host memory on that smaller
+residual, but they are not same-fidelity speedup evidence for the current
+`dt=1.0` gate. The next GPU claim must come from a refreshed current-gate GPU
+artifact, a larger transformed residual, or a batched ensemble of independent
+residual solves that amortizes compile and launch overhead.
 
 That path is appropriate for compact pure-JAX residuals and future reduced
 native kernels. It is not yet the default on the promoted recycling/tokamak

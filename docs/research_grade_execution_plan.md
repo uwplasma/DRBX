@@ -2812,6 +2812,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   `1.345 s` mean linear-solve time. Decision: this improves performance
   gating and evidence quality, but it is not enough to promote the full
   recycling residual default or claim a GPU speedup.
+- 2026-06-19: Re-ran the D/T/He fixed-layout JAX-linearized residual gate after
+  the fixed-BDF2 diagnostics update:
+  `run_research_campaign_bundle.py --campaign dthe-jax-linearized-gate
+  --reference-root tests/fixtures/reference-root --output-root docs/data`.
+  The current gated CPU artifact passes with residual `7.315`, one line-search
+  trial, two residual evaluations, five jitted matrix-free operator calls,
+  `8.92 s` profiled runtime, `5.97 s` RSS-sampled run time, and sampled peak
+  process-tree RSS `2.86 GiB`. The retained office-GPU D/T/He summaries are
+  older tiny-step readiness probes with residual `2.41e-11`; they prove the
+  seam is accelerator-executable on that smaller problem, but they are not
+  same-fidelity speedup evidence for the current `dt=1.0` CPU gate. Decision:
+  keep GPU promotion blocked until the current gate or a heavier same-shape
+  batched residual is profiled on GPU.
 
 ## Definition Of Done
 
