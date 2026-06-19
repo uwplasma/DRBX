@@ -685,6 +685,59 @@ def test_imported_drb_movie_refinement_campaign_example_runs_with_fake_builder(
     ).exists()
 
 
+def test_imported_drb_movie_refinement_campaign_example_exposes_publication_candidate() -> None:
+    module = _load_imported_drb_movie_refinement_campaign_example()
+
+    settings = module.build_publication_candidate_refinement_settings()
+
+    assert settings.grid_shapes == ((4, 6, 12), (8, 12, 24))
+    assert settings.time_shape == (8, 12, 24)
+    assert settings.time_dt_values == (2.0e-3, 1.0e-3)
+    assert settings.potential_iterations == 3072
+    assert settings.reuse_existing_reports is True
+    assert str(settings.output_root).endswith(
+        "essos_imported_drb_movie_refinement_publication_artifacts"
+    )
+
+
+def test_committed_imported_drb_movie_refinement_summary_locks_current_blocker() -> None:
+    report_path = (
+        REPO_ROOT
+        / "docs"
+        / "data"
+        / "essos_imported_drb_movie_refinement_campaign_artifacts"
+        / "data"
+        / "essos_imported_drb_movie_refinement_campaign_summary.json"
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    suggestion = report["next_campaign_suggestion"]
+
+    assert report["publication_ready"] is False
+    assert report["grid_refinement_passed"] is False
+    assert report["time_refinement_passed"] is False
+    assert report["grid_refinement_diagnostics"]["report_count"] == 2
+    assert report["time_refinement_diagnostics"]["report_count"] == 2
+    assert "movie_grid_spectral_resolution_not_passed" in report[
+        "movie_promotion_rejection_reasons"
+    ]
+    assert "movie_time_spectral_resolution_not_passed" in report[
+        "movie_promotion_rejection_reasons"
+    ]
+    assert "spectral_edge_band_power_fraction_above_limit" in report[
+        "movie_promotion_rejection_reasons"
+    ]
+    assert suggestion["suggested_grid_shapes"] == [[4, 6, 12], [8, 12, 24]]
+    assert suggestion["suggested_next_grid_cell_count"] == 2304
+    assert suggestion["recommended_time_effective_frame_dt_values"] == [
+        0.004,
+        0.002,
+    ]
+    assert suggestion["time_refinement_action"] == (
+        "fix_grid_resolution_before_reducing_timestep"
+    )
+    assert suggestion["potential_solve_action"] == "no_potential_residual_blocker"
+
+
 def _load_imported_drb_movie_refinement_summary_example():
     module_path = (
         REPO_ROOT

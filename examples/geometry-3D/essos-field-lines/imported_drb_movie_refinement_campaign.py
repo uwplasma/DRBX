@@ -28,6 +28,16 @@ GRID_SHAPES = (
 TIME_SHAPE: tuple[int, int, int] | None = None
 TIME_DT_VALUES = (2.0e-3, 1.0e-3)
 
+# The checked-in compact campaign currently recommends this heavier
+# publication-candidate sweep. It is intentionally not the default because it
+# is much more expensive than the quick workflow check above.
+PUBLICATION_CANDIDATE_GRID_SHAPES = (
+    (4, 6, 12),
+    (8, 12, 24),
+)
+PUBLICATION_CANDIDATE_TIME_SHAPE = (8, 12, 24)
+PUBLICATION_CANDIDATE_TIME_DT_VALUES = (2.0e-3, 1.0e-3)
+
 RHO_MIN = 0.20
 RHO_MAX = 0.60
 TIMES_TO_TRACE = 80
@@ -122,6 +132,29 @@ def build_refinement_campaign_settings(
         reuse_existing_reports=bool(reuse_existing_reports),
         require_publication_ready=bool(require_publication_ready),
     )
+
+
+def build_publication_candidate_refinement_settings(
+    *,
+    output_root: Path = Path(
+        "docs/data/essos_imported_drb_movie_refinement_publication_artifacts"
+    ),
+    case_label: str = "essos_imported_drb_movie_refinement_publication",
+    **overrides: object,
+) -> ImportedDrbMovieRefinementCampaignSettings:
+    """Resolve the next heavier grid/time sweep suggested by the compact gate."""
+
+    settings_kwargs: dict[str, object] = {
+        "output_root": output_root,
+        "case_label": case_label,
+        "grid_shapes": PUBLICATION_CANDIDATE_GRID_SHAPES,
+        "time_shape": PUBLICATION_CANDIDATE_TIME_SHAPE,
+        "time_dt_values": PUBLICATION_CANDIDATE_TIME_DT_VALUES,
+        "potential_iterations": 3072,
+        "reuse_existing_reports": True,
+    }
+    settings_kwargs.update(overrides)
+    return build_refinement_campaign_settings(**settings_kwargs)
 
 
 def run_refinement_campaign(

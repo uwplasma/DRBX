@@ -2537,6 +2537,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   useful opt-in profiling surface for active-array production-style runs, but
   not default-promotion evidence because the fixed-full-field route regressed
   and operator counts cannot be used in that mode.
+- 2026-06-19: Locked the imported-field DRB movie refinement blocker into a
+  current-artifact regression and documented the next publication-candidate
+  campaign. The committed compact summary remains intentionally negative
+  evidence: `publication_ready=false`, grid and time refinement both fail, and
+  the rejection reasons include grid/time spectral-resolution failures plus
+  excess edge-band spectral power. The deterministic next sweep is
+  `GRID_SHAPES=((4, 6, 12), (8, 12, 24))`, `TIME_SHAPE=(8, 12, 24)`,
+  effective frame timestep values `0.004` and `0.002`, and
+  `potential_iterations=3072`. Decision: the 3D imported-field/VMEC SOL lane
+  stays at `91%`; this pass improves reproducibility and prevents accidental
+  promotion of coarse movie evidence, but the heavier grid/time campaign must
+  still pass before the movie can support a paper or release claim.
 
 ## Definition Of Done
 

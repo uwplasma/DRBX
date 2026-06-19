@@ -83,6 +83,15 @@ It is intentionally negative evidence: the compact default is useful for
 workflow QA, but fails publication promotion because the grid-refinement metrics
 and spectral-resolution gates are not yet stable.
 
+The current committed summary recommends the next heavier report-only
+publication-candidate sweep rather than another renderer-only interpolation:
+`GRID_SHAPES = ((4, 6, 12), (8, 12, 24))`,
+`TIME_SHAPE = (8, 12, 24)`, effective frame timestep values `0.004` and
+`0.002`, and `potential_iterations = 3072`. The example exposes those settings
+through `build_publication_candidate_refinement_settings()`. Passing that
+heavier sweep is the next required gate before using the imported-field
+turbulence movie as publication evidence.
+
 After regenerating two or more same-map-source movie reports at different grid
 sizes and two or more reports at different effective frame timesteps, summarize
 the refinement evidence without committing heavyweight media:
@@ -156,7 +165,9 @@ and spectral-resolution gates. The
 checked-in compact campaign intentionally remains negative evidence: it has
 enough grid and timestep reports to exercise the gate, but it is not
 publication-ready until the grid-refinement metrics and spectral-resolution
-diagnostics are stable.
+diagnostics are stable. The next committed candidate settings are deliberately
+heavier than the default quick check and should be run only when the goal is to
+advance the 3D imported-field movie toward publication evidence.
 
 Each movie report also records spectral resolution diagnostics:
 `spectral_poloidal_mode_count`, `spectral_toroidal_mode_count`,
