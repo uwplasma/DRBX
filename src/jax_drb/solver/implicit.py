@@ -1676,6 +1676,10 @@ def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:
         "momentum_line",
         "momentum_parallel_line",
         "momentum_transport",
+        "sheath_line",
+        "target_line",
+        "target_sheath_line",
+        "sheath_transport",
     }
 
 
@@ -1878,6 +1882,10 @@ def _build_jax_linearized_dynamic_preconditioner(
         "momentum_line",
         "momentum_parallel_line",
         "momentum_transport",
+        "sheath_line",
+        "target_line",
+        "target_sheath_line",
+        "sheath_transport",
     }:
         if context is None:
             raise ValueError(

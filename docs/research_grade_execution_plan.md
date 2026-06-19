@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
-| Effective preconditioning | 59% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, sampled `field_block_sample`, and feedback-aware `field_block_feedback_diag` probes can reduce JAX-GMRES calls when they match the dominant operator, but real hydrogen recycling sweeps show exact selected-line and sampled local/feedback field-block probes do not reduce the actual fixed-BDF2 Krylov count. Heavy-path `J v + r` linear-update residual diagnostics now confirm the feedback-aware route solves the linearized update accurately but without speedup, so the next production candidate must approximate target/sheath, parallel transport, or a true neutral-plasma Schur block. |
+| Effective preconditioning | 60% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, and feedback-aware `field_block_feedback_diag` probes can reduce JAX-GMRES calls when they match the dominant operator, but real hydrogen recycling sweeps show exact selected-line and sampled local/feedback field-block probes do not reduce the actual fixed-BDF2 Krylov count. Heavy-path `J v + r` diagnostics now confirm the feedback-aware and target/sheath selected-line routes solve the linearized update accurately but without speedup, so the next production candidate must approximate neutral-plasma/target Schur coupling or reduce residual/JVP cost directly. |
 | Performance and scaling | 65% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`; remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -2448,6 +2448,25 @@ Use this log for concise decision records. Do not paste terminal output here.
   the metric is now proven on the heavy path, while `field_block_feedback_diag`
   remains a diagnostic-only baseline because it preserves update quality but
   does not reduce Krylov work or wall time.
+- 2026-06-19: Added the next target-boundary preconditioning candidate,
+  `sheath_line` (`target_line`, `target_sheath`, `sheath_transport`). It uses
+  the existing JVP-derived parallel-line block builder but selects electron
+  density/pressure, ion density/pressure/momentum, and potential-like fields
+  that enter Bohm, heat-flux, and target-recycling closures. This is a
+  deliberately bounded target/sheath probe, not a promoted Schur complement;
+  the next gate must run the same hydrogen fixed-BDF2 update-residual screen
+  with `--fixed-bdf2-linear-preconditioner sheath_line`.
+- 2026-06-19: Ran that `sheath_line` hydrogen fixed-BDF2 update-residual gate
+  with `timestep=10`, `steps=2`, fixed-BDF2 only, and preconditioner refresh
+  `100`. Both fixed-full-field and active-array routes were solver-health
+  clean with zero failed linear solves, residual `2.897e-6`, `115` linear
+  iterations/operator calls, `20` preconditioner builds, and max achieved
+  linear-update residual `6.94e-18` (`4.75e-15` relative). Wall times were
+  `64.227 s` for fixed-full-field and `59.113 s` for active-array. Decision:
+  `sheath_line` is a useful target-boundary diagnostic because it improves the
+  achieved update residual, but it is not a promoted speedup; continue toward a
+  neutral-plasma/target Schur approximation or direct residual/JVP cost
+  reduction.
 
 ## Definition Of Done
 

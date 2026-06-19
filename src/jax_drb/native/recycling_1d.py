@@ -5992,6 +5992,11 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "momentum_parallel_line": "momentum_line",
         "momentum_transport": "momentum_line",
         "parallel_momentum": "momentum_line",
+        "sheath_line": "sheath_line",
+        "target_line": "sheath_line",
+        "target_sheath_line": "sheath_line",
+        "sheath_transport": "sheath_line",
+        "target_sheath": "sheath_line",
     }
     return aliases.get(normalized)
 
@@ -6014,6 +6019,7 @@ def _build_recycling_jax_linear_preconditioner(
         "parallel_line",
         "neutral_line",
         "momentum_line",
+        "sheath_line",
     }:
         return None
     if name not in {"state_scale", "field_scale"}:
@@ -6053,6 +6059,7 @@ def _recycling_jax_linear_preconditioner_context(
         "parallel_line",
         "neutral_line",
         "momentum_line",
+        "sheath_line",
     }:
         return None
     if layout is None:
@@ -6109,7 +6116,7 @@ def _recycling_jax_linear_preconditioner_context(
             env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_LOCAL_UNKNOWNS",
             default=4096,
         )
-    if name in {"parallel_line", "neutral_line", "momentum_line"}:
+    if name in {"parallel_line", "neutral_line", "momentum_line", "sheath_line"}:
         active_shape = tuple(int(axis) for axis in tuple(layout.active_shape))
         context["parallel_axis"] = 1 if len(active_shape) > 1 else 0
         context["max_line_unknowns"] = _resolve_positive_int_runtime_option(
@@ -6136,6 +6143,10 @@ def _recycling_jax_linear_preconditioner_context(
             )
         elif name == "momentum_line":
             context["field_indices"] = _recycling_momentum_line_field_indices(
+                layout.field_names
+            )
+        elif name == "sheath_line":
+            context["field_indices"] = _recycling_sheath_line_field_indices(
                 layout.field_names
             )
     return context
@@ -6174,6 +6185,29 @@ def _is_recycling_neutral_line_field(field_name: str) -> bool:
     return normalized.startswith("NV") or (
         normalized[0] in {"N", "P"} and len(normalized) > 1
     )
+
+
+def _recycling_sheath_line_field_indices(field_names: tuple[str, ...]) -> tuple[int, ...]:
+    """Return field-major indices for plasma fields entering target/sheath terms."""
+
+    return tuple(
+        index
+        for index, field_name in enumerate(field_names)
+        if _is_recycling_sheath_line_field(field_name)
+    )
+
+
+def _is_recycling_sheath_line_field(field_name: str) -> bool:
+    """Conservatively identify plasma fields coupled by sheath target closures."""
+
+    normalized = str(field_name).strip()
+    if not normalized:
+        return False
+    if normalized in {"Ne", "Pe", "phi", "vorticity", "omega"}:
+        return True
+    if "+" not in normalized:
+        return False
+    return normalized.startswith(("N", "P", "NV"))
 
 
 def _resolve_recycling_jax_linear_preconditioner_refresh(

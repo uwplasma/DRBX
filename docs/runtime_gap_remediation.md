@@ -316,8 +316,9 @@ The recycling BE/BDF2 wrappers expose the same seam through
 pre-JIT behavior without changing the finite-difference BDF default.
 They also expose opt-in JAX-GMRES row-scaling and JVP-derived probes through
 `runtime:recycling_jax_linear_preconditioner=state_scale`, `field_scale`,
-`linearized_diag`, `field_diag`, `local_block_diag`, `neutral_line`, or
-`momentum_line` and the matching `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER`
+`linearized_diag`, `field_diag`, `local_block_diag`, `neutral_line`,
+`momentum_line`, or `sheath_line` and the matching
+`JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER`
 environment variable. The
 `linearized_diag` path samples the full packed-state diagonal and is therefore
 bounded separately from cheaper field-only probes. The
@@ -339,18 +340,25 @@ stiff-feedback fixture, but the same hydrogen fixed-BDF2 sweep again kept
 uses the JAX-linearized residual to assemble same-cell field-coupling blocks
 with JVPs, solves those small blocks on device, and treats off-cell transport
 coupling through the outer Krylov iteration. The optional
-`neutral_line` and `momentum_line` paths use the same JVP-derived line-block
-builder but restrict the approximate inverse to neutral fields or `NV*`
-parallel-momentum fields, respectively. Both selected-field line paths now
+`neutral_line`, `momentum_line`, and `sheath_line` paths use the same
+JVP-derived line-block builder but restrict the approximate inverse to neutral
+fields, `NV*` parallel-momentum fields, or target/sheath-coupled plasma fields,
+respectively. The neutral and momentum selected-field line paths now
 have bounded solver-level effectivity gates: on packed two-field stiff-line
 fixtures they cut linear-operator calls from `10` to `5` while preserving
 machine-precision convergence. This confirms the algorithmic seam, but does
-not yet replace the missing heavy same-case recycling speedup. A same-case
+not yet replace the missing heavy same-case recycling speedup; the sheath-line
+route must be judged by the same heavy fixed-BDF2 update-residual gate before
+promotion. A same-case
 hydrogen fixed-BDF2 sweep with preconditioner refresh set to `100` kept the
 same `115` linear iterations/operator calls for unpreconditioned,
 `neutral_line`, `momentum_line`, `field_block_sample`, and
 `field_block_feedback_diag` runs; all dynamic routes only added
-preconditioner-build work and wall time. Future preconditioner work should
+preconditioner-build work and wall time. The matching `sheath_line` screen
+preserved solver health and improved the achieved linear-update residual to
+`6.94e-18` absolute (`4.75e-15` relative), but it also retained `115`
+iterations/operator calls and took `64.227 s`/`59.113 s` on the fixed-full and
+active-array routes. Future preconditioner work should
 therefore target approximate target/sheath, Schur, field-line transport, or
 neutral-plasma blocks that reduce the real recycling Krylov spectrum, not more
 exact selected-line or sampled-local probes on this deck. The optional

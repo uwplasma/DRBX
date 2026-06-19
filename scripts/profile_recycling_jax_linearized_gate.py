@@ -581,7 +581,20 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
 
 
 def _canonical_preconditioner_name(name: str) -> str:
-    return str(name).strip().lower().replace("-", "_")
+    normalized = str(name).strip().lower().replace("-", "_")
+    aliases = {
+        "parallel_transport": "parallel_line",
+        "transport_line": "parallel_line",
+        "neutral_diffusion": "neutral_line",
+        "neutral_transport": "neutral_line",
+        "parallel_momentum": "momentum_line",
+        "momentum_transport": "momentum_line",
+        "target_line": "sheath_line",
+        "target_sheath": "sheath_line",
+        "target_sheath_line": "sheath_line",
+        "sheath_transport": "sheath_line",
+    }
+    return aliases.get(normalized, normalized)
 
 
 def _canonical_initial_residual_mode(name: str) -> str:
@@ -629,6 +642,13 @@ def _is_dynamic_preconditioner_name(name: str) -> bool:
         "neutral_line",
         "neutral_parallel_line",
         "neutral_transport",
+        "momentum_line",
+        "momentum_parallel_line",
+        "momentum_transport",
+        "sheath_line",
+        "target_line",
+        "target_sheath_line",
+        "sheath_transport",
     }
 
 

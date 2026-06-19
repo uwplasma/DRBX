@@ -3000,6 +3000,11 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
         == "momentum_line"
     )
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "target-sheath")
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
+        == "sheath_line"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "unknown")
     assert recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name() is None
 
@@ -3244,6 +3249,13 @@ def test_recycling_dynamic_jax_preconditioners_are_solver_built() -> None:
         )
         is None
     )
+    assert (
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([1.0], dtype=np.float64),
+            name="sheath_line",
+        )
+        is None
+    )
 
 
 def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> None:
@@ -3384,12 +3396,32 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         "max_total_unknowns": 8192,
         "field_indices": (2, 5),
     }
+    sheath_context = recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+        "sheath_line",
+        layout=layout,
+    )
+    assert sheath_context == {
+        "active_shape": (3,),
+        "active_cell_count": 3,
+        "field_count": 7,
+        "feedback_count": 2,
+        "refresh_frequency": 1,
+        "floor": 1.0e-10,
+        "parallel_axis": 0,
+        "max_line_unknowns": 512,
+        "max_batch_unknowns": 2048,
+        "max_total_unknowns": 8192,
+        "field_indices": (0, 1, 2, 6),
+    }
     assert recycling_1d_mod._recycling_neutral_line_field_indices(
         ("Nd+", "Pe", "Ne", "Nd", "Pd", "NVd", "Nhe", "Phe")
     ) == (3, 4, 5, 6, 7)
     assert recycling_1d_mod._recycling_momentum_line_field_indices(
         ("Nd+", "Pe", "NVd+", "Nd", "Pd", "NVd", "Nhe", "PNVbad")
     ) == (2, 5)
+    assert recycling_1d_mod._recycling_sheath_line_field_indices(
+        ("Nd+", "Pe", "NVd+", "Nd", "Pd", "NVd", "Ne", "phi")
+    ) == (0, 1, 2, 6, 7)
     config = parse_bout_input(
         """
         [runtime]
@@ -3479,6 +3511,19 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
     assert configured_momentum_context["max_batch_unknowns"] == 128
     assert configured_momentum_context["max_total_unknowns"] == 1024
     assert configured_momentum_context["field_indices"] == (2, 5)
+    configured_sheath_context = (
+        recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+            "sheath_line",
+            config=config,
+            layout=layout,
+        )
+    )
+    assert configured_sheath_context["refresh_frequency"] == 4
+    assert configured_sheath_context["floor"] == 1.0e-8
+    assert configured_sheath_context["max_line_unknowns"] == 64
+    assert configured_sheath_context["max_batch_unknowns"] == 128
+    assert configured_sheath_context["max_total_unknowns"] == 1024
+    assert configured_sheath_context["field_indices"] == (0, 1, 2, 6)
     with pytest.raises(ValueError, match="layout is required"):
         recycling_1d_mod._recycling_jax_linear_preconditioner_context(
             "local_block_diag",
