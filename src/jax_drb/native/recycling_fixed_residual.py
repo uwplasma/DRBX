@@ -489,6 +489,19 @@ class FixedResidualLinearizedAction:
         }
 
 
+@dataclass(frozen=True)
+class FixedResidualLinearizedSolveResult:
+    """Result of one matrix-free fixed-residual Newton update."""
+
+    update: jax.Array
+    residual_value: jax.Array
+    solver_status: object
+    solver_success: bool | None
+    linear_update_residual_inf_norm: float
+    linear_update_relative_residual: float
+    diagnostics: dict[str, object]
+
+
 def build_fixed_residual_linearized_action(
     residual_function: Callable[[object], jax.Array],
     packed_state: object,
@@ -502,6 +515,131 @@ def build_fixed_residual_linearized_action(
         linear_action=linear_action,
         state_shape=tuple(state_array.shape),
     )
+
+
+def solve_fixed_residual_linearized_update(
+    residual_function: Callable[[object], jax.Array],
+    packed_state: object,
+    *,
+    rhs: object | None = None,
+    linear_tolerance: float = 1.0e-8,
+    linear_restart: int = 20,
+    linear_maxiter: int = 20,
+    solve_method: str = "batched",
+    preconditioner: Callable[[object], object] | None = None,
+    jit_linear_operator: bool = False,
+) -> FixedResidualLinearizedSolveResult:
+    """Solve one matrix-free Newton update for a fixed-layout residual.
+
+    The stable production recycling solver still owns nonlinear globalization,
+    history management and compatibility fallback. This helper is deliberately
+    narrower: it exposes a reusable fixed-layout JAX linearization as a
+    solver-facing primitive that profile and promotion gates can test without
+    constructing sparse finite-difference Jacobians.
+    """
+
+    from jax.scipy.sparse.linalg import gmres
+
+    action = build_fixed_residual_linearized_action(
+        residual_function,
+        packed_state,
+    )
+    linear_rhs = (
+        -jnp.asarray(action.residual_value, dtype=jnp.float64)
+        if rhs is None
+        else jnp.asarray(rhs, dtype=jnp.float64)
+    )
+    if tuple(linear_rhs.shape) != tuple(action.state_shape):
+        raise ValueError(
+            f"Linearized residual RHS has shape {tuple(linear_rhs.shape)}, "
+            f"expected {action.state_shape}."
+        )
+    if bool(jit_linear_operator):
+        linear_operator = jax.jit(action.linear_action)
+    else:
+        linear_operator = action.apply
+    update, status = gmres(
+        linear_operator,
+        linear_rhs,
+        tol=max(float(linear_tolerance), jnp.finfo(jnp.float64).tiny),
+        atol=0.0,
+        restart=max(1, int(linear_restart)),
+        maxiter=max(1, int(linear_maxiter)),
+        M=preconditioner,
+        solve_method=_canonical_gmres_solve_method(solve_method),
+    )
+    update = jax.block_until_ready(jnp.asarray(update, dtype=jnp.float64))
+    linear_update_residual = linear_operator(update) - linear_rhs
+    linear_update_residual = jax.block_until_ready(linear_update_residual)
+    residual_norm = float(jnp.max(jnp.abs(linear_update_residual)))
+    rhs_norm = max(float(jnp.max(jnp.abs(linear_rhs))), jnp.finfo(jnp.float64).tiny)
+    normalized_status = _normalize_solver_status(status)
+    diagnostics = {
+        **action.diagnostics(),
+        "linear_operator_jitted": bool(jit_linear_operator),
+        "linear_tolerance": float(linear_tolerance),
+        "linear_restart": int(linear_restart),
+        "linear_maxiter": int(linear_maxiter),
+        "solve_method": _canonical_gmres_solve_method(solve_method),
+        "preconditioner_used": preconditioner is not None,
+    }
+    return FixedResidualLinearizedSolveResult(
+        update=update,
+        residual_value=action.residual_value,
+        solver_status=normalized_status,
+        solver_success=_solver_status_success(normalized_status),
+        linear_update_residual_inf_norm=residual_norm,
+        linear_update_relative_residual=residual_norm / rhs_norm,
+        diagnostics=diagnostics,
+    )
+
+
+def _canonical_gmres_solve_method(name: str | None) -> str:
+    normalized = str(name or "batched").strip().lower().replace("-", "_")
+    aliases = {
+        "": "batched",
+        "default": "batched",
+        "batch": "batched",
+        "batched": "batched",
+        "incremental": "incremental",
+        "givens": "incremental",
+        "qr": "incremental",
+    }
+    return aliases.get(normalized, "batched")
+
+
+def _normalize_solver_status(status: object) -> int | float | str | None:
+    if status is None:
+        return None
+    item = getattr(status, "item", None)
+    if callable(item):
+        try:
+            status = item()
+        except (TypeError, ValueError):
+            pass
+    if isinstance(status, np.generic):
+        status = status.item()
+    if isinstance(status, (bool, int, float, str)):
+        return status
+    name = getattr(status, "name", None)
+    if isinstance(name, str):
+        return name
+    return str(status)
+
+
+def _solver_status_success(status: object) -> bool | None:
+    if status is None:
+        return None
+    if isinstance(status, bool):
+        return bool(status)
+    if isinstance(status, (int, float)):
+        return int(status) == 0
+    normalized = str(status).strip().lower()
+    if normalized in {"0", "success", "successful", "ok", "none"}:
+        return True
+    if normalized in {"1", "false", "failed", "failure"}:
+        return False
+    return None
 
 
 def linearize_fixed_residual_action(

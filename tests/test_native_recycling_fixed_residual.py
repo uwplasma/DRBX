@@ -28,6 +28,7 @@ from jax_drb.native.recycling_fixed_residual import (
     fixed_state_to_feedback_integrals,
     fixed_state_to_full_fields,
     pack_fixed_state,
+    solve_fixed_residual_linearized_update,
     unpack_fixed_state,
 )
 import jax_drb.native.recycling_fixed_residual as fixed_residual_mod
@@ -475,6 +476,88 @@ def test_instrumented_fixed_residual_linearized_action_rejects_bad_shapes() -> N
         action.apply_batch(jnp.ones((3,), dtype=jnp.float64))
     with pytest.raises(ValueError, match="Batched residual tangent entries"):
         action.apply_batch(jnp.ones((2, 2), dtype=jnp.float64))
+
+
+def test_fixed_residual_linearized_update_solves_exact_linear_newton_step() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    matrix = jnp.asarray(
+        (
+            (4.0, 0.5, -0.25),
+            (0.0, 3.0, 0.5),
+            (0.25, -0.75, 2.5),
+        ),
+        dtype=jnp.float64,
+    )
+    exact_root = jnp.asarray([0.2, -0.4, 0.6], dtype=jnp.float64)
+
+    def residual(state):
+        return matrix @ (jnp.asarray(state, dtype=jnp.float64) - exact_root)
+
+    candidate = jnp.asarray([1.0, 0.5, -0.25], dtype=jnp.float64)
+    result = solve_fixed_residual_linearized_update(
+        residual,
+        candidate,
+        linear_tolerance=1.0e-12,
+        linear_restart=3,
+        linear_maxiter=4,
+        solve_method="batched",
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(candidate + result.update),
+        np.asarray(exact_root),
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
+    assert result.linear_update_residual_inf_norm < 1.0e-10
+    assert result.linear_update_relative_residual < 1.0e-10
+    assert result.diagnostics["call_count"] >= 1
+    assert result.diagnostics["linear_operator_jitted"] is False
+    assert result.diagnostics["solve_method"] == "batched"
+
+
+def test_fixed_residual_linearized_update_supports_jitted_operator() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    diagonal = jnp.asarray([2.0, 3.0, 4.0], dtype=jnp.float64)
+    residual = lambda state: diagonal * (jnp.asarray(state, dtype=jnp.float64) - 1.0)
+    candidate = jnp.asarray([2.0, -1.0, 0.0], dtype=jnp.float64)
+
+    result = solve_fixed_residual_linearized_update(
+        residual,
+        candidate,
+        linear_tolerance=1.0e-12,
+        linear_restart=3,
+        linear_maxiter=4,
+        jit_linear_operator=True,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(candidate + result.update),
+        np.ones(3, dtype=np.float64),
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
+    assert result.linear_update_relative_residual < 1.0e-10
+    assert result.diagnostics["linear_operator_jitted"] is True
+    assert result.diagnostics["call_count"] == 0
+
+
+def test_fixed_residual_linearized_update_rejects_rhs_shape_mismatch() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    residual = lambda state: 2.0 * jnp.asarray(state, dtype=jnp.float64)
+
+    with pytest.raises(ValueError, match="Linearized residual RHS has shape"):
+        solve_fixed_residual_linearized_update(
+            residual,
+            jnp.ones(3, dtype=jnp.float64),
+            rhs=jnp.ones(2, dtype=jnp.float64),
+        )
 
 
 def test_fixed_host_rhs_bridge_matches_dthe_packed_rhs_oracle() -> None:
