@@ -1480,7 +1480,18 @@ PYTHONPATH=src python scripts/profile_recycling_jax_linearized_gate.py \
 
 passed with median timed runtime `4.55 s`, residual `7.31568`, five
 matrix-free operator calls, clean JAX-GMRES status, and
-`linear_operator_jitted=true`. The promotion wrapper exposes the same path as
+`linear_operator_jitted=true`. A follow-up local CPU run with one warmup, two
+timed runs, an explicit compilation-cache directory, cProfile, and process RSS
+sampling reproduced the same residual and operator count. The warmup run took
+`4.64 s`; the two timed runs took `7.82 s` for the cProfiled run and `4.40 s`
+for the repeat run, with a median of `6.11 s`. The profiled solve still spent
+`2.33 s` in JAX linearization, `4.80 s` in JAX-GMRES, and `2.64 s` in two
+residual evaluations, while process-tree RSS peaked at about `3.93 GiB` with a
+sampled delta of `717 MiB`. This keeps the next optimization target focused on
+cheaper residual linearization, GMRES setup, and real output-window CPU/GPU
+evidence, not on another dynamic local-block preconditioner sweep.
+
+The promotion wrapper exposes the same path as
 `--fixed-bdf2-jit-linear-operator`, which forwards the runtime override to the
 bounded fixed-BDF2 phase and requires `fixed_bdf2_linear_operator_jitted_steps`
 in the comparison report. Combining the same jitted operator with
