@@ -140,7 +140,7 @@ and tests all move together.
 
 | Lane | Completion | Current blocker |
 | --- | ---: | --- |
-| Plan authority and release hygiene | 95% | Keep this file current and prevent new competing roadmap files. |
+| Plan authority and release hygiene | 96% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
@@ -2360,6 +2360,11 @@ Use this log for concise decision records. Do not paste terminal output here.
   below `1e-10` with `5` calls and one line-block build. This completes the
   bounded algorithmic evidence set for the current line-block preconditioner
   family: `parallel_line`, `neutral_line`, and `momentum_line`.
+- 2026-06-19: Re-audited roadmap-like Markdown files after the preconditioner
+  updates. `plan_jax_drb.md` remains a redirect, and
+  `docs/refactoring_plan.md`, `docs/non_axisymmetric_stellarator_sol_plan.md`,
+  and `docs/geometry_roadmap.md` all state that they are subordinate appendices
+  to this execution plan.
 
 ## Definition Of Done
 
