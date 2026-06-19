@@ -2735,11 +2735,11 @@ Use this log for concise decision records. Do not paste terminal output here.
   (`--disable-pmap`) and uses persistent compilation-cache, JAX-trace, and
   device-memory hooks. The refreshed fixed-full-field CPU artifact at
   `ny=100`, state size `1900`, and batches through `256` reports best
-  residual and JVP same-kernel speedups of `3.46x` and `2.36x`, with best
-  throughputs of `3.92e4` and `1.02e4` states/s. The new active-array CPU
+  residual and JVP same-kernel speedups of `3.66x` and `2.38x`, with best
+  throughputs of `4.14e4` and `1.03e4` states/s. The new active-array CPU
   artifact at the same `ny=100`, state size `1900`, and batches through `64`
-  reports best residual and JVP speedups of `2.49x` and `2.06x`, with best
-  throughputs of `3.16e4` and `9.18e3` states/s. Both retained CPU artifacts
+  reports best residual and JVP speedups of `2.72x` and `2.01x`, with best
+  throughputs of `3.43e4` and `8.73e3` states/s. Both retained CPU artifacts
   keep JVP/finite-difference relative error `5.97e-9` and objective
   directional relative error `1.34e-7`, and now write incremental
   `profile_progress.jsonl` records for problem construction, base
@@ -2772,6 +2772,27 @@ Use this log for concise decision records. Do not paste terminal output here.
   now closed for future stalled GPU runs; the next GPU implementation target
   is smaller compiled active-array JVP kernels or JVP partitioning, not more
   blind reruns.
+- 2026-06-19: Added explicit residual/JVP batch partitioning to the retained
+  recycling batched-JVP profiler and wired `gpu-dthe-active-array-batched-jvp-
+  gate` to use residual and JVP partitions of `16`. The progress stream now
+  separates direction construction, batched residual warmup, batched JVP
+  warmup, serial warmup, and batch completion, and records effective partition
+  sizes/counts for each batch. The local retained CPU artifacts remain
+  unpartitioned so their speedup numbers are directly comparable with earlier
+  CPU evidence; the GPU partition flags are a compile-size and memory-pressure
+  control for the next office-GPU run, not a release-level speedup claim.
+- 2026-06-19: Ran the first partitioned active-array batched-JVP CUDA probe on
+  `office` using a tracked working-tree snapshot. The reduced D/T/He case used
+  one RTX A4000, `mesh:ny=16`, batch `4`, residual partition size `2`, and JVP
+  partition size `2`. It wrote
+  `docs/data/runtime_profile_artifacts/recycling_dthe_active_array_batched_jvp_partition_probe_gpu/profile_summary.json`
+  and `profile_progress.jsonl`, reported backend `gpu`, state size `304`,
+  JVP/finite-difference relative error `3.95e-10`, residual and JVP partition
+  counts of `2`, batch-4 residual throughput `2.06e3` states/s, and batch-4
+  JVP throughput `1.15e3` states/s. Decision: the partitioned CUDA path is
+  executable and now auditable with a complete progress marker, but it is still
+  negative/neutral for speedup because residual throughput is below the serial
+  same-kernel baseline and the JVP speedup is only `1.26x` on the tiny probe.
 
 ## Definition Of Done
 

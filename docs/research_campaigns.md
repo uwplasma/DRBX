@@ -147,14 +147,18 @@ The fixed-full-field `gpu-dthe-batched-jvp-gate` and active-array
 `gpu-dthe-active-array-batched-jvp-gate` lanes measure ensemble throughput on
 the same D/T/He residual family. The local active-array counterpart is
 `dthe-active-array-batched-jvp-gate`; its retained `ny=100` CPU artifact
-reaches about `2.49x` residual and `2.06x` JVP same-kernel speedup through
+reaches about `2.72x` residual and `2.01x` JVP same-kernel speedup through
 batch `64`, with JVP/finite-difference relative error about `5.97e-9`. The
 active-array GPU batched campaign is deliberately single-device for now
-(`--disable-pmap`) because larger `ny=100` pmap and single-device office-GPU
-attempts were host/compiler or memory bound and wrote no JSON summary. A tiny
-`ny=16` single-device CUDA readiness probe did finish with JVP/finite-
-difference relative error `3.95e-10`; this proves GPU executability of the
-reduced active-array residual, not release-level GPU speedup.
+(`--disable-pmap`) and uses residual/JVP batch partitions of `16` because
+larger `ny=100` pmap and single-device office-GPU attempts were host/compiler
+or memory bound and wrote no JSON summary. A tiny `ny=16` single-device CUDA
+readiness probe did finish with JVP/finite-difference relative error
+`3.95e-10`; this proves GPU executability of the reduced active-array
+residual, not release-level GPU speedup. A second retained `ny=16` partitioned
+probe writes the same error level with residual/JVP partition counts of `2`,
+which proves the batch-partition code path on CUDA but remains neutral for
+speedup.
 
 The committed `ny=100`, `dt=1e-4` CPU comparison now records explicit Krylov
 status metadata for both JAX GMRES and Lineax GMRES. Both runs reach

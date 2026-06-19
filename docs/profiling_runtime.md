@@ -341,9 +341,14 @@ throughput in `states_per_second`. This keeps the local profiling contract
 reviewer-usable without requiring a separate notebook to interpret raw sample
 lists. Each profile directory also receives `profile_progress.jsonl`, written
 incrementally during problem construction, base residual/JVP warmup, derivative
-checks, and each batch. This file is intentionally small and is the first place
-to inspect when a long CPU/GPU run is killed before `profile_summary.json` is
-complete.
+checks, deterministic direction construction, batched residual warmup, batched
+JVP warmup, serial warmup, and each batch. This file is intentionally small and
+is the first place to inspect when a long CPU/GPU run is killed before
+`profile_summary.json` is complete. The direct profiler also accepts
+`--residual-partition-size` and `--jvp-partition-size` to split a large batch
+into several same-kernel chunks. That is a compile-size and memory-pressure
+control for GPU readiness, not a speedup claim. Partition sizes that divide the
+requested batch sizes avoid compiling an extra remainder shape.
 
 For a bounded local smoke refresh that does not spend CI minutes or require a
 private reference checkout:
@@ -359,10 +364,10 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
 ```
 
 The retained local CPU fixed-full-field artifact now sweeps batches through
-`256` states and shows about `3.46x` residual throughput speedup and `2.36x`
+`256` states and shows about `3.66x` residual throughput speedup and `2.38x`
 JVP throughput speedup over serial same-kernel calls, with batched/serial
 residual and JVP mismatch at roundoff. Its best residual throughput is about
-`3.92e4` states/s and its best JVP throughput is about `1.02e4` states/s. The
+`4.14e4` states/s and its best JVP throughput is about `1.03e4` states/s. The
 residual JVP agrees with centered finite difference to about `5.97e-9`, and
 the objective directional derivative agrees to about `1.34e-7`.
 
@@ -378,9 +383,9 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_active_array_batched_jvp_gate_cpu
 ```
 
-That artifact reaches about `2.49x` residual throughput speedup and `2.06x`
+That artifact reaches about `2.72x` residual throughput speedup and `2.01x`
 JVP throughput speedup through batch `64`, with best residual and JVP
-throughputs of about `3.16e4` and `9.18e3` states/s. It retains the same
+throughputs of about `3.43e4` and `8.73e3` states/s. It retains the same
 finite-difference derivative checks as the fixed-full-field artifact. This is
 the current best local evidence that the transformable active-array residual
 can be batched and differentiated without falling back to Python residual
@@ -407,11 +412,11 @@ trace/memory run. The `gpu-dthe-batched-jvp-gate` command is the fixed-full-fiel
 batched residual/JVP throughput run. The
 `gpu-dthe-active-array-batched-jvp-gate` command measures the same family after
 the residual is routed through the active-array backend, currently with pmap
-disabled so the first GPU artifact is a single-device compiler/memory health
-probe rather than a multi-device speedup claim. Neither command promotes the
-full output-window BDF solve as GPU-accelerated; they are evidence-gathering
-gates for the residual and derivative kernels that must become production-safe
-first.
+disabled and with residual/JVP batch partitions of `16` so the first GPU
+artifact is a single-device compiler/memory health probe rather than a
+multi-device speedup claim. Neither command promotes the full output-window BDF
+solve as GPU-accelerated; they are evidence-gathering gates for the residual
+and derivative kernels that must become production-safe first.
 The wrapper intentionally rejects reference roots that do not contain
 `tests/integrated/1D-recycling-dthe/data/BOUT.inp`; that failure means the
 reference prerequisite is missing, not that the GPU gate has failed.
@@ -430,6 +435,8 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --timed-runs 3 \
   --disable-pmap \
   --skip-objective-grad-check \
+  --residual-partition-size 16 \
+  --jvp-partition-size 16 \
   --jax-trace \
   --device-memory-profile \
   --compilation-cache-dir tmp/jax_cache/recycling_dthe_active_array_batched_jvp_gate_gpu_readiness \
@@ -450,7 +457,15 @@ JVP throughput about `1.45e3` states/s, and batch-2 residual throughput about
 on the GPU. Its progress log recorded base residual warmup `2.93 s`, base JVP
 warmup `5.19 s`, batch-2 residual warmup `3.92 s`, and batch-2 JVP warmup
 `6.77 s`; the next GPU blocker is therefore the compiled batched JVP transform,
-not a missing CUDA code path. Larger `ny=100` active-array pmap and
+not a missing CUDA code path. A follow-up partitioned probe is retained at
+[recycling_dthe_active_array_batched_jvp_partition_probe_gpu/profile_summary.json](data/runtime_profile_artifacts/recycling_dthe_active_array_batched_jvp_partition_probe_gpu/profile_summary.json).
+It uses the same `ny=16` active-array residual on one RTX A4000, batch `4`,
+and residual/JVP partition size `2`. It reports backend `gpu`, partition count
+`2` for residual and JVP calls, JVP/finite-difference relative error
+`3.95e-10`, batch-4 residual throughput about `2.06e3` states/s, and batch-4
+JVP throughput about `1.15e3` states/s. This proves the partitioned CUDA path
+executes and records complete progress metadata; it is not speedup evidence.
+Larger `ny=100` active-array pmap and
 single-device probes did not complete within the practical profiling window;
 both were host/compiler or memory bound, allocated roughly `12 GiB` of GPU
 memory, showed near-zero GPU utilization, and wrote no JSON summary. This is

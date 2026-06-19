@@ -299,10 +299,12 @@ def test_recycling_batched_jvp_profile_reports_progress_events() -> None:
 
     report = profile_recycling_batched_jvp_problem(
         problem,
-        batch_sizes=(1,),
+        batch_sizes=(3,),
         timed_runs=1,
         enable_pmap=False,
         check_objective_grad=False,
+        residual_partition_size=2,
+        jvp_partition_size=2,
         progress_callback=events.append,
     )
 
@@ -320,12 +322,19 @@ def test_recycling_batched_jvp_profile_reports_progress_events() -> None:
     assert "batch_serial_warmup_complete" in event_names
     assert "batch_warmup_complete" in event_names
     assert "batch_complete" in event_names
+    assert event_names[-1] == "profile_complete"
     assert report["warmup_timing"]["base_residual_warmup_seconds"] >= 0.0
     assert report["batch_results"][0]["batch_warmup_seconds"] >= 0.0
     assert report["batch_results"][0]["direction_build_seconds"] >= 0.0
     assert report["batch_results"][0]["batched_residual_warmup_seconds"] >= 0.0
     assert report["batch_results"][0]["batched_jvp_warmup_seconds"] >= 0.0
     assert report["batch_results"][0]["serial_warmup_seconds"] >= 0.0
+    assert report["batch_results"][0]["residual_partition_size"] == 2
+    assert report["batch_results"][0]["residual_partition_count"] == 2
+    assert report["batch_results"][0]["jvp_partition_size"] == 2
+    assert report["batch_results"][0]["jvp_partition_count"] == 2
+    assert report["batch_results"][0]["residual_batched_serial_max_abs_error"] == 0.0
+    assert report["batch_results"][0]["jvp_batched_serial_max_abs_error"] == 0.0
 
 
 def test_create_recycling_batched_jvp_profile_package_writes_progress_jsonl(

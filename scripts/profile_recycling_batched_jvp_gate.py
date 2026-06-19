@@ -121,6 +121,24 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--perturbation-scale", type=float, default=1.0e-6)
     parser.add_argument("--fd-epsilon", type=float, default=1.0e-6)
     parser.add_argument("--timed-runs", type=int, default=5)
+    parser.add_argument(
+        "--residual-partition-size",
+        type=int,
+        default=None,
+        help=(
+            "Optional maximum batch partition for batched residual calls. "
+            "Use on GPU readiness runs when full-batch vmap compilation is too large."
+        ),
+    )
+    parser.add_argument(
+        "--jvp-partition-size",
+        type=int,
+        default=None,
+        help=(
+            "Optional maximum batch partition for batched JVP calls. "
+            "This is the main compile-size control for active-array GPU probes."
+        ),
+    )
     parser.add_argument("--disable-pmap", action="store_true")
     parser.add_argument("--jax-trace", action="store_true")
     parser.add_argument("--device-memory-profile", action="store_true")
@@ -195,6 +213,8 @@ def main() -> None:
             timed_runs=int(args.timed_runs),
             enable_pmap=not bool(args.disable_pmap),
             check_objective_grad=not bool(args.skip_objective_grad_check),
+            residual_partition_size=args.residual_partition_size,
+            jvp_partition_size=args.jvp_partition_size,
         )
 
     memory_profile_path = None

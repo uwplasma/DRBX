@@ -338,6 +338,12 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
         batch_sizes="2,4,8,16,32,64,128",
     )
     assert "--disable-pmap" in active_batched.command
+    assert active_batched.command[
+        active_batched.command.index("--residual-partition-size") + 1
+    ] == "16"
+    assert active_batched.command[
+        active_batched.command.index("--jvp-partition-size") + 1
+    ] == "16"
     assert "--skip-objective-grad-check" in active_batched.command
     assert "--jax-trace" in active_batched.command
     assert "--device-memory-profile" in active_batched.command

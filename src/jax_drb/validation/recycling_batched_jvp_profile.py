@@ -301,6 +301,41 @@ def _time_repeated(
     return _median_seconds(samples), samples
 
 
+def _effective_partition_size(
+    partition_size: int | None, batch_size: int
+) -> int:
+    if partition_size is None:
+        return int(batch_size)
+    partition_size = int(partition_size)
+    if partition_size <= 0:
+        return int(batch_size)
+    return min(partition_size, int(batch_size))
+
+
+def _partition_count(batch_size: int, partition_size: int) -> int:
+    return (int(batch_size) + int(partition_size) - 1) // int(partition_size)
+
+
+def _partitioned_batched_call(
+    function: Callable[..., object],
+    *arrays: object,
+    partition_size: int | None = None,
+):
+    import jax.numpy as jnp
+
+    if not arrays:
+        raise ValueError("At least one batched array is required.")
+    batch_size = int(getattr(arrays[0], "shape")[0])
+    effective_size = _effective_partition_size(partition_size, batch_size)
+    if effective_size >= batch_size:
+        return function(*arrays)
+    chunks = []
+    for start in range(0, batch_size, effective_size):
+        stop = min(start + effective_size, batch_size)
+        chunks.append(function(*(array[start:stop] for array in arrays)))
+    return jnp.concatenate(chunks, axis=0)
+
+
 def profile_recycling_batched_jvp_problem(
     problem: RecyclingBatchedJvpProblem,
     *,
@@ -310,6 +345,8 @@ def profile_recycling_batched_jvp_problem(
     timed_runs: int = 5,
     enable_pmap: bool = True,
     check_objective_grad: bool = True,
+    residual_partition_size: int | None = None,
+    jvp_partition_size: int | None = None,
     progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
     """Measure fixed-work vectorized residual/JVP throughput on a real residual."""
@@ -320,6 +357,7 @@ def profile_recycling_batched_jvp_problem(
     jax.config.update("jax_enable_x64", True)
     residual = problem.residual
     base_state = jnp.asarray(problem.base_state, dtype=jnp.float64)
+    profile_started_at = perf_counter()
     _emit_progress(
         progress_callback,
         event="profile_start",
@@ -329,6 +367,8 @@ def profile_recycling_batched_jvp_problem(
         batch_sizes=[int(size) for size in batch_sizes],
         timed_runs=int(timed_runs),
         check_objective_grad=bool(check_objective_grad),
+        residual_partition_size=residual_partition_size,
+        jvp_partition_size=jvp_partition_size,
     )
     residual_jit = jax.jit(residual)
     started_at = perf_counter()
@@ -424,30 +464,57 @@ def profile_recycling_batched_jvp_problem(
         started_at = perf_counter()
         directions = _deterministic_directions(batch_size, problem.state_size)
         states = base_state[None, :] + float(perturbation_scale) * directions
+        residual_effective_partition_size = _effective_partition_size(
+            residual_partition_size, batch_size
+        )
+        jvp_effective_partition_size = _effective_partition_size(
+            jvp_partition_size, batch_size
+        )
+        residual_partition_count = _partition_count(
+            batch_size, residual_effective_partition_size
+        )
+        jvp_partition_count = _partition_count(batch_size, jvp_effective_partition_size)
         direction_build_seconds = perf_counter() - started_at
         _emit_progress(
             progress_callback,
             event="batch_direction_build_complete",
             batch_size=int(batch_size),
             seconds=float(direction_build_seconds),
+            residual_partition_size=int(residual_effective_partition_size),
+            residual_partition_count=int(residual_partition_count),
+            jvp_partition_size=int(jvp_effective_partition_size),
+            jvp_partition_count=int(jvp_partition_count),
         )
         started_at = perf_counter()
-        batched_residual(states).block_until_ready()
+        _partitioned_batched_call(
+            batched_residual,
+            states,
+            partition_size=residual_partition_size,
+        ).block_until_ready()
         batched_residual_warmup_seconds = perf_counter() - started_at
         _emit_progress(
             progress_callback,
             event="batch_residual_warmup_complete",
             batch_size=int(batch_size),
             seconds=float(batched_residual_warmup_seconds),
+            residual_partition_size=int(residual_effective_partition_size),
+            residual_partition_count=int(residual_partition_count),
         )
         started_at = perf_counter()
-        batched_jvp(states, directions).block_until_ready()
+        _partitioned_batched_call(
+            batched_jvp,
+            states,
+            directions,
+            partition_size=jvp_partition_size,
+        ).block_until_ready()
         batched_jvp_warmup_seconds = perf_counter() - started_at
         _emit_progress(
             progress_callback,
             event="batch_jvp_warmup_complete",
             batch_size=int(batch_size),
             seconds=float(batched_jvp_warmup_seconds),
+            jvp_partition_size=int(jvp_effective_partition_size),
+            jvp_partition_count=int(jvp_partition_count),
         )
         started_at = perf_counter()
         for state, direction in zip(states, directions, strict=True):
@@ -477,7 +544,11 @@ def profile_recycling_batched_jvp_problem(
             timed_runs=timed_runs,
         )
         batched_residual_seconds, batched_residual_samples = _time_repeated(
-            lambda: batched_residual(states),
+            lambda: _partitioned_batched_call(
+                batched_residual,
+                states,
+                partition_size=residual_partition_size,
+            ),
             timed_runs=timed_runs,
         )
         serial_jvp_seconds, serial_jvp_samples = _time_repeated(
@@ -488,7 +559,12 @@ def profile_recycling_batched_jvp_problem(
             timed_runs=timed_runs,
         )
         batched_jvp_seconds, batched_jvp_samples = _time_repeated(
-            lambda: batched_jvp(states, directions),
+            lambda: _partitioned_batched_call(
+                batched_jvp,
+                states,
+                directions,
+                partition_size=jvp_partition_size,
+            ),
             timed_runs=timed_runs,
         )
         serial_residual_values = jnp.stack([residual_jit(state) for state in states])
@@ -498,8 +574,17 @@ def profile_recycling_batched_jvp_problem(
                 for state, direction in zip(states, directions, strict=True)
             ]
         )
-        batched_residual_values = batched_residual(states)
-        batched_jvp_values = batched_jvp(states, directions)
+        batched_residual_values = _partitioned_batched_call(
+            batched_residual,
+            states,
+            partition_size=residual_partition_size,
+        )
+        batched_jvp_values = _partitioned_batched_call(
+            batched_jvp,
+            states,
+            directions,
+            partition_size=jvp_partition_size,
+        )
         residual_mismatch = float(
             jnp.max(jnp.abs(batched_residual_values - serial_residual_values))
         )
@@ -555,6 +640,10 @@ def profile_recycling_batched_jvp_problem(
                 "batch_size": int(batch_size),
                 "direction_build_seconds": float(direction_build_seconds),
                 "batch_warmup_seconds": float(batch_warmup_seconds),
+                "residual_partition_size": int(residual_effective_partition_size),
+                "residual_partition_count": int(residual_partition_count),
+                "jvp_partition_size": int(jvp_effective_partition_size),
+                "jvp_partition_count": int(jvp_partition_count),
                 "batched_residual_warmup_seconds": float(
                     batched_residual_warmup_seconds
                 ),
@@ -612,6 +701,10 @@ def profile_recycling_batched_jvp_problem(
             batch_size=int(batch_size),
             direction_build_seconds=float(direction_build_seconds),
             batch_warmup_seconds=float(batch_warmup_seconds),
+            residual_partition_size=int(residual_effective_partition_size),
+            residual_partition_count=int(residual_partition_count),
+            jvp_partition_size=int(jvp_effective_partition_size),
+            jvp_partition_count=int(jvp_partition_count),
             batched_residual_warmup_seconds=float(batched_residual_warmup_seconds),
             batched_jvp_warmup_seconds=float(batched_jvp_warmup_seconds),
             serial_warmup_seconds=float(serial_warmup_seconds),
@@ -626,7 +719,8 @@ def profile_recycling_batched_jvp_problem(
             pmap_device_count=int(pmap_device_count),
         )
 
-    return {
+    throughput_summary = summarize_recycling_batched_jvp_scaling(batch_results)
+    report = {
         "case": "recycling_batched_jvp_profile",
         "backend": jax.default_backend(),
         "devices": [
@@ -650,6 +744,8 @@ def profile_recycling_batched_jvp_problem(
         "timed_runs": int(timed_runs),
         "perturbation_scale": float(perturbation_scale),
         "fd_epsilon": float(fd_epsilon),
+        "residual_partition_size": residual_partition_size,
+        "jvp_partition_size": jvp_partition_size,
         "warmup_timing": {
             "base_residual_warmup_seconds": float(base_residual_warmup_seconds),
             "base_jvp_warmup_seconds": float(base_jvp_warmup_seconds),
@@ -666,7 +762,7 @@ def profile_recycling_batched_jvp_problem(
             "objective_directional_relative_error": objective_directional_relative_error,
         },
         "batch_results": batch_results,
-        "throughput_summary": summarize_recycling_batched_jvp_scaling(batch_results),
+        "throughput_summary": throughput_summary,
         "interpretation": (
             "This gate measures the real fixed-layout D/T/He recycling residual under jit, vmap, jvp, grad, "
             "and optional pmap after a multi-device identity sanity check. It is the current differentiable "
@@ -674,6 +770,15 @@ def profile_recycling_batched_jvp_problem(
             "default implicit backend."
         ),
     }
+    _emit_progress(
+        progress_callback,
+        event="profile_complete",
+        elapsed_seconds=float(perf_counter() - profile_started_at),
+        throughput_summary=throughput_summary,
+        residual_partition_size=residual_partition_size,
+        jvp_partition_size=jvp_partition_size,
+    )
+    return report
 
 
 def create_recycling_batched_jvp_profile_package(
@@ -689,6 +794,8 @@ def create_recycling_batched_jvp_profile_package(
     enable_pmap: bool = True,
     check_objective_grad: bool = True,
     rhs_backend: str = "fixed_full_field_array",
+    residual_partition_size: int | None = None,
+    jvp_partition_size: int | None = None,
 ) -> dict[str, object]:
     output_path = Path(output_dir).expanduser()
     output_path.mkdir(parents=True, exist_ok=True)
@@ -704,6 +811,8 @@ def create_recycling_batched_jvp_profile_package(
             "rhs_backend": str(rhs_backend),
             "input_path": "<input-path>/BOUT.inp",
             "overrides": list(overrides),
+            "residual_partition_size": residual_partition_size,
+            "jvp_partition_size": jvp_partition_size,
         }
     )
     problem = build_recycling_batched_jvp_problem(
@@ -728,6 +837,8 @@ def create_recycling_batched_jvp_profile_package(
         timed_runs=timed_runs,
         enable_pmap=enable_pmap,
         check_objective_grad=check_objective_grad,
+        residual_partition_size=residual_partition_size,
+        jvp_partition_size=jvp_partition_size,
         progress_callback=progress_callback,
     )
     report = {
@@ -737,6 +848,8 @@ def create_recycling_batched_jvp_profile_package(
         "timestep": float(timestep),
         "rhs_backend": str(rhs_backend),
         "profile_progress_jsonl": "profile_progress.jsonl",
+        "residual_partition_size": residual_partition_size,
+        "jvp_partition_size": jvp_partition_size,
     }
     (output_path / "profile_summary.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
