@@ -2703,6 +2703,14 @@ Use this log for concise decision records. Do not paste terminal output here.
   termination. Decision: raise performance/scaling to `68%`; this closes the
   reproducible output-window campaign-wiring gap while leaving default solver
   promotion blocked on heavier CPU/GPU parity, memory, and scaling evidence.
+- 2026-06-19: Audited repository footprint after adding the fixed-BDF2 campaign
+  evidence artifact. The checkout is clean, `.git` is `13M`, packed history is
+  `6.43 MiB`, tracked runtime-profile artifacts total `152K`, and the largest
+  tracked file is `328K`. Large local trace directories under
+  `docs/data/runtime_profile_artifacts/` are ignored by `.gitignore`, not
+  tracked. Decision: keep repo-footprint completion at `94%`; the next release
+  still needs the same audit before tagging, but this batch did not introduce
+  clone-size regression.
 
 ## Definition Of Done
 
