@@ -380,6 +380,28 @@ parity evidence for the bounded matrix-free route. It still does not promote
 the route as the default production output-window solver until larger physical
 windows and CPU/GPU profiles pass with the same route.
 
+The next retained ramp is:
+
+```bash
+PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-parity-ramp-gate \
+  --reference-root tests/fixtures/reference-root
+```
+
+The retained artifact is
+`docs/data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_parity_ramp_cpu/profile_summary.json`.
+It increases the same eight-step D/T/He comparison to `dt=1e-3` and gates the
+active-mesh field delta with `--require-fixed-bdf2-pairwise-max=2.5e-5`. The
+measured worst delta is `1.761e-5` on `NVd+`, followed by `5.27e-6` on `Pd+`
+and `1.28e-7` on `Pe`. Fixed-BDF2 remained solver-clean with eight
+JAX-GMRES solves, sixteen residual evaluations, zero failed or unconverged
+subsolves, maximum residual `4.05e-11`, `32.34 s` in linear solves, and
+`10.91 s` in residual evaluations. A scratch `dt=1e-2`, two-step probe also
+converged with residual `3.51e-8`, but the worst `NVd+` delta grew to
+`1.55e-3`; do not promote the next timestep decade until either accuracy is
+improved or the accepted tolerance is justified by a physics observable rather
+than raw field max-norm.
+
 For output-window fixed-BDF2 solver-health checks, use the strict active-array
 linearized residual gate:
 

@@ -143,9 +143,9 @@ and tests all move together.
 | Plan authority and release hygiene | 96% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 99.3% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, hydrogen and D/T/He fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus residual-evaluation budgets, and the D/T/He route now has an explicit eight-step physical-output parity gate against stable BDF with worst active-mesh field delta `1.745e-7`. Fixed residuals also have opt-in instrumented linearized-action and single-update JAX-GMRES seams for matrix-free/JVP profiling. Default promotion still needs production-window parity and same-fidelity CPU/GPU runtime evidence; the D/T/He active-array SciPy-BDF sparse-JVP output-window route remains locally timeout-bound and should be replaced by the matrix-free fixed-BDF2 path. |
+| JAX-native recycling solver | 99.4% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, hydrogen and D/T/He fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus residual-evaluation budgets, and the D/T/He route now has explicit eight-step physical-output parity gates against stable BDF at `dt=1e-4` and `dt=1e-3`. Fixed residuals also have opt-in instrumented linearized-action and single-update JAX-GMRES seams for matrix-free/JVP profiling. Default promotion still needs production-window parity and same-fidelity CPU/GPU runtime evidence; the D/T/He active-array SciPy-BDF sparse-JVP output-window route remains locally timeout-bound and should be replaced by the matrix-free fixed-BDF2 path. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
-| Performance and scaling | 72% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, the fixed-BDF2 direct-counting output-window gates prove hydrogen and D/T/He solve execution without Python callback overhead and report mean residual/solve costs, and the eight-step D/T/He physical-parity gate records the current bounded matrix-free cost split against stable BDF. The active-array D/T/He residual/JVP gate also has retained CPU batched-throughput evidence. The local D/T/He active-array output-window sparse-JVP profile still times out before artifact generation, and a same-fidelity current D/T/He GPU gate passes but is `12.3x` slower and uses `4.3x` more sampled RSS than CPU. Remaining scaling work is reduced compiled residual size, production-window matrix-free output solves, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
+| Performance and scaling | 73% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, the fixed-BDF2 direct-counting output-window gates prove hydrogen and D/T/He solve execution without Python callback overhead and report mean residual/solve costs, and the eight-step D/T/He physical-parity and `dt=1e-3` ramp gates record the current bounded matrix-free cost split against stable BDF. The active-array D/T/He residual/JVP gate also has retained CPU batched-throughput evidence. The local D/T/He active-array output-window sparse-JVP profile still times out before artifact generation, and a same-fidelity current D/T/He GPU gate passes but is `12.3x` slower and uses `4.3x` more sampled RSS than CPU. Remaining scaling work is reduced compiled residual size, production-window matrix-free output solves, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -3037,6 +3037,22 @@ Use this log for concise decision records. Do not paste terminal output here.
   immediate bounded physical-output parity gap for the D/T/He matrix-free
   route; default promotion still needs larger production-window parity plus
   same-fidelity CPU/GPU runtime evidence.
+- 2026-06-19: Promoted
+  `dthe-fixed-bdf2-active-array-parity-ramp-gate`, increasing the same D/T/He
+  eight-step physical-output comparison from `dt=1e-4` to `dt=1e-3`. The
+  retained wrapper artifact passed the `2.5e-5` active-mesh field-delta gate:
+  worst `NVd+` delta was `1.761e-5`, followed by `Pd+ = 5.27e-6` and
+  `Pe = 1.28e-7`. Fixed-BDF2 remained solver-clean with eight JAX-GMRES
+  solves, sixteen residual evaluations, zero failed or unconverged substeps,
+  maximum residual `4.05e-11`, `32.34 s` in linear solves, `10.91 s` in
+  residual evaluations, and `44.93 s` fixed-BDF2 mode elapsed time. A scratch
+  `dt=1e-2`, two-step probe also converged with residual `3.51e-8`, but the
+  worst `NVd+` field delta increased to `1.55e-3`, so the next timestep decade
+  remains an accuracy target rather than promoted evidence. Decision: the
+  matrix-free D/T/He route now has a one-decade physical-parity ramp; do not
+  promote production-window/default behavior until either larger-step field
+  accuracy improves or a physics-observable tolerance replaces raw max-norm
+  gating.
 
 ## Definition Of Done
 

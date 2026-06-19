@@ -79,6 +79,15 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the larger-timestep parity ramp after the physical-output gate passes and
+before attempting production-window fixed-BDF2 claims:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-parity-ramp-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the adaptive-BDF JAX-versus-Lineax controller-health gate after changing the
 adaptive residual route or linear-action solver:
 
@@ -233,6 +242,16 @@ evaluations, zero failed or unconverged implicit steps, and maximum residual
 [profile_summary.json](data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_physical_parity_cpu/profile_summary.json).
 This is the current bounded physical-output parity gate for the D/T/He
 matrix-free route.
+The `dthe-fixed-bdf2-active-array-parity-ramp-gate` increases the same
+eight-step comparison from `dt=1e-4` to `dt=1e-3`. Its retained artifact
+reports worst active-mesh field delta `1.761e-5` on `NVd+`, below the
+`2.5e-5` threshold, with eight JAX-GMRES solves, sixteen residual evaluations,
+zero failed or unconverged implicit steps, maximum residual `4.05e-11`, and
+`44.93 s` fixed-BDF2 mode elapsed time:
+[profile_summary.json](data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_parity_ramp_cpu/profile_summary.json).
+A separate exploratory `dt=1e-2`, two-step probe also converged but was not
+promoted because the worst `NVd+` field delta increased to `1.55e-3`. Treat
+that as the next accuracy target, not as production-window promotion evidence.
 The matching `gpu-fixed-bdf2-direct-counting-gate` is intentionally guarded by
 a process-level timeout in addition to the inner mode timeout. The first
 office-GPU attempt on one RTX A4000 entered the solve but remained host-side
