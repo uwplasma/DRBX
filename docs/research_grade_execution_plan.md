@@ -2220,6 +2220,12 @@ Use this log for concise decision records. Do not paste terminal output here.
   refinement summary now records `current_potential_iterations` and
   `recommended_potential_iterations` in `next_campaign_suggestion` whenever
   potential residuals appear in the failed-metric register.
+- 2026-06-19: Added a restartable report-only imported-field movie campaign
+  path through `REUSE_EXISTING_REPORTS`. Existing JSON reports are reused only
+  after metadata matching on grid, timestep, map source, radial window, trace
+  length, transient length, and potential-solver settings. This makes the next
+  high-grid `potential_iterations=3072` and radial-flux refinement sweeps
+  practical without treating stale compact reports as validation evidence.
 
 ## Definition Of Done
 

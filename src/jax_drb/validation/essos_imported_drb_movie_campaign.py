@@ -169,12 +169,16 @@ def create_essos_imported_drb_movie_refinement_campaign_package(
     potential_preconditioner: str | None = (
         ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_PRECONDITIONER
     ),
+    reuse_existing_reports: bool = False,
 ) -> EssosImportedDrbMovieRefinementCampaignArtifacts:
     """Run a lightweight report-only grid/time movie refinement campaign.
 
     The campaign intentionally writes JSON reports only. It does not save NPZ,
     PNG, or GIF artifacts, so it can be used to search for a publication-grade
     grid/time configuration before committing or release-hosting heavy media.
+    If ``reuse_existing_reports`` is true, a report is reused only when its
+    recorded grid, timestep, geometry, transient, and potential-solver metadata
+    match the requested run.
     """
 
     root = Path(output_root)
@@ -201,6 +205,29 @@ def create_essos_imported_drb_movie_refinement_campaign_package(
         if cache_key in report_cache:
             return report_cache[cache_key]
         nx, ny, nz = shape
+        report_json_path = data_dir / (
+            f"{case_label}_{role}_{index:02d}_{nx}x{ny}x{nz}_dt={float(dt):.6g}.json"
+        )
+        if reuse_existing_reports and _imported_drb_movie_report_matches_request(
+            report_json_path,
+            case_label=case_label,
+            role=role,
+            index=index,
+            shape=shape,
+            dt=float(dt),
+            map_source=map_source,
+            rho_min=rho_min,
+            rho_max=rho_max,
+            maxtime=maxtime,
+            times_to_trace=times_to_trace,
+            frames=frames,
+            substeps_per_frame=substeps_per_frame,
+            potential_iterations=potential_iterations,
+            potential_regularization=potential_regularization,
+            potential_preconditioner=potential_preconditioner,
+        ):
+            report_cache[cache_key] = report_json_path
+            return report_json_path
         result = build_essos_imported_drb_movie_campaign(
             coil_json_path=coil_json_path,
             vmec_wout_path=vmec_wout_path,
@@ -227,9 +254,6 @@ def create_essos_imported_drb_movie_refinement_campaign_package(
                 "refinement_campaign_index": int(index),
                 "refinement_campaign_case_label": str(case_label),
             }
-        )
-        report_json_path = data_dir / (
-            f"{case_label}_{role}_{index:02d}_{nx}x{ny}x{nz}_dt={float(dt):.6g}.json"
         )
         report_json_path.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n",
@@ -258,6 +282,70 @@ def create_essos_imported_drb_movie_refinement_campaign_package(
         grid_report_json_paths=grid_report_json_paths,
         time_report_json_paths=time_report_json_paths,
     )
+
+
+def _imported_drb_movie_report_matches_request(
+    path: Path,
+    *,
+    case_label: str,
+    role: str,
+    index: int,
+    shape: tuple[int, int, int],
+    dt: float,
+    map_source: str,
+    rho_min: float,
+    rho_max: float,
+    maxtime: float,
+    times_to_trace: int,
+    frames: int,
+    substeps_per_frame: int,
+    potential_iterations: int,
+    potential_regularization: float,
+    potential_preconditioner: str | None,
+) -> bool:
+    """Return true when an existing report is valid for a requested rerun."""
+
+    if not path.exists():
+        return False
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    geometry = report.get("geometry")
+    if not isinstance(geometry, dict):
+        geometry = {}
+    requested_preconditioner = _normalize_optional_report_string(
+        potential_preconditioner
+    )
+    report_preconditioner = _normalize_optional_report_string(
+        report.get("potential_preconditioner")
+    )
+    checks = (
+        tuple(report.get("movie_physics_grid", ())) == tuple(shape),
+        _same_optional_float(report.get("dt"), dt),
+        _same_optional_int(report.get("frames"), frames),
+        _same_optional_int(report.get("substeps_per_frame"), substeps_per_frame),
+        str(report.get("map_source", "")).strip().lower()
+        == str(map_source).strip().lower(),
+        _same_optional_int(report.get("potential_iterations"), potential_iterations),
+        _same_optional_float(
+            report.get("potential_regularization"), potential_regularization
+        ),
+        report_preconditioner == requested_preconditioner,
+        str(report.get("refinement_campaign_case_label", "")) == str(case_label),
+        str(report.get("refinement_campaign_role", "")) == str(role),
+        _same_optional_int(report.get("refinement_campaign_index"), index),
+        _same_optional_int(geometry.get("nx"), shape[0]),
+        _same_optional_int(geometry.get("ny"), shape[1]),
+        _same_optional_int(geometry.get("nz"), shape[2]),
+        _same_optional_float(geometry.get("rho_min"), rho_min),
+        _same_optional_float(geometry.get("rho_max"), rho_max),
+        _same_optional_float(geometry.get("maxtime"), maxtime),
+        _same_optional_int(geometry.get("times_to_trace"), times_to_trace),
+        str(geometry.get("map_source", report.get("map_source", ""))).strip().lower()
+        == str(map_source).strip().lower(),
+    )
+    return all(checks)
 
 
 def _normalize_movie_grid_shape(
@@ -1013,6 +1101,27 @@ def _optional_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return result
+
+
+def _same_optional_float(value: Any, expected: float, *, rtol: float = 1.0e-12) -> bool:
+    result = _optional_float(value)
+    if result is None:
+        return False
+    return bool(np.isclose(result, float(expected), rtol=rtol, atol=rtol))
+
+
+def _same_optional_int(value: Any, expected: int) -> bool:
+    result = _optional_int(value)
+    return result is not None and result == int(expected)
+
+
+def _normalize_optional_report_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() == "none":
+        return None
+    return text
 
 
 def create_essos_imported_drb_movie_package(

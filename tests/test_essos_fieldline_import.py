@@ -72,8 +72,13 @@ def _movie_report(
     *,
     grid: tuple[int, int, int],
     dt: float = 1.0e-3,
+    frames: int = 4,
     substeps_per_frame: int = 4,
     map_source: str = "hybrid",
+    rho_min: float = 0.20,
+    rho_max: float = 0.60,
+    maxtime: float = 24.0,
+    times_to_trace: int = 80,
     final_fluctuation_rms: float = 0.06,
     radial_flux_proxy: float = -2.0e-3,
     radial_flux_abs_mean: float | None = None,
@@ -82,6 +87,7 @@ def _movie_report(
     spectral_edge_band_power_fraction: float = 0.08,
     final_potential_residual_l2: float = 0.02,
     potential_iterations: int = 768,
+    potential_regularization: float = 5.0,
     potential_preconditioner: str | None = None,
 ) -> dict[str, object]:
     radial_flux_abs_mean = (
@@ -98,7 +104,18 @@ def _movie_report(
         "case": f"{map_source}_{grid[0]}x{grid[1]}x{grid[2]}_{dt:g}",
         "map_source": map_source,
         "movie_physics_grid": list(grid),
+        "geometry": {
+            "map_source": map_source,
+            "nx": grid[0],
+            "ny": grid[1],
+            "nz": grid[2],
+            "rho_min": rho_min,
+            "rho_max": rho_max,
+            "maxtime": maxtime,
+            "times_to_trace": times_to_trace,
+        },
         "dt": dt,
+        "frames": frames,
         "substeps_per_frame": substeps_per_frame,
         "passed": True,
         "final_fluctuation_rms": final_fluctuation_rms,
@@ -125,6 +142,7 @@ def _movie_report(
         "low_mode_window_covers_grid": low_mode_window_covers_grid,
         "final_potential_residual_l2": final_potential_residual_l2,
         "potential_iterations": potential_iterations,
+        "potential_regularization": potential_regularization,
         "potential_preconditioner": potential_preconditioner,
     }
 
@@ -408,9 +426,18 @@ def test_essos_imported_drb_movie_refinement_campaign_writes_report_only_json(
         report = _movie_report(
             grid=grid,
             dt=float(kwargs["dt"]),
+            frames=int(kwargs["frames"]),
             substeps_per_frame=int(kwargs["substeps_per_frame"]),
+            map_source=str(kwargs["map_source"]),
+            rho_min=float(kwargs["rho_min"]),
+            rho_max=float(kwargs["rho_max"]),
+            maxtime=float(kwargs["maxtime"]),
+            times_to_trace=int(kwargs["times_to_trace"]),
             low_mode_window_covers_grid=False,
             spectral_edge_band_power_fraction=0.08,
+            potential_iterations=int(kwargs["potential_iterations"]),
+            potential_regularization=float(kwargs["potential_regularization"]),
+            potential_preconditioner=kwargs["potential_preconditioner"],
         )
         return SimpleNamespace(report=report)
 
@@ -444,6 +471,84 @@ def test_essos_imported_drb_movie_refinement_campaign_writes_report_only_json(
     assert all(path.exists() for path in artifacts.grid_report_json_paths)
     assert all(path.exists() for path in artifacts.time_report_json_paths)
     assert artifacts.report_json_path.name == "campaign_summary.json"
+
+
+def test_essos_imported_drb_movie_refinement_campaign_reuses_matching_reports(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_movie_campaign(**kwargs: object) -> SimpleNamespace:
+        calls.append(dict(kwargs))
+        grid = (int(kwargs["nx"]), int(kwargs["ny"]), int(kwargs["nz"]))
+        return SimpleNamespace(
+            report=_movie_report(
+                grid=grid,
+                dt=float(kwargs["dt"]),
+                frames=int(kwargs["frames"]),
+                substeps_per_frame=int(kwargs["substeps_per_frame"]),
+                map_source=str(kwargs["map_source"]),
+                rho_min=float(kwargs["rho_min"]),
+                rho_max=float(kwargs["rho_max"]),
+                maxtime=float(kwargs["maxtime"]),
+                times_to_trace=int(kwargs["times_to_trace"]),
+                low_mode_window_covers_grid=False,
+                final_potential_residual_l2=1.0e-11,
+                potential_iterations=int(kwargs["potential_iterations"]),
+                potential_regularization=float(kwargs["potential_regularization"]),
+                potential_preconditioner=kwargs["potential_preconditioner"],
+            )
+        )
+
+    monkeypatch.setattr(
+        imported_movie_campaign,
+        "build_essos_imported_drb_movie_campaign",
+        fake_movie_campaign,
+    )
+
+    output_root = tmp_path / "movie_refinement_campaign"
+    create_essos_imported_drb_movie_refinement_campaign_package(
+        output_root=output_root,
+        case_label="campaign",
+        grid_shapes=((4, 8, 16), (8, 16, 32)),
+        time_shape=(8, 16, 32),
+        time_dt_values=(2.0e-3, 1.0e-3),
+        grid_dt=2.0e-3,
+        potential_iterations=1536,
+        potential_regularization=4.0,
+        potential_preconditioner="jacobi",
+        reuse_existing_reports=True,
+    )
+    assert len(calls) == 3
+
+    create_essos_imported_drb_movie_refinement_campaign_package(
+        output_root=output_root,
+        case_label="campaign",
+        grid_shapes=((4, 8, 16), (8, 16, 32)),
+        time_shape=(8, 16, 32),
+        time_dt_values=(2.0e-3, 1.0e-3),
+        grid_dt=2.0e-3,
+        potential_iterations=1536,
+        potential_regularization=4.0,
+        potential_preconditioner="jacobi",
+        reuse_existing_reports=True,
+    )
+    assert len(calls) == 3
+
+    create_essos_imported_drb_movie_refinement_campaign_package(
+        output_root=output_root,
+        case_label="campaign",
+        grid_shapes=((4, 8, 16), (8, 16, 32)),
+        time_shape=(8, 16, 32),
+        time_dt_values=(2.0e-3, 1.0e-3),
+        grid_dt=2.0e-3,
+        potential_iterations=3072,
+        potential_regularization=4.0,
+        potential_preconditioner="jacobi",
+        reuse_existing_reports=True,
+    )
+    assert len(calls) == 6
 
 
 def test_imported_drb_movie_refinement_summary_example_runs_on_reports(tmp_path: Path) -> None:
