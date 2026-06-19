@@ -5872,6 +5872,10 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "line_block": "parallel_line",
         "physics_transport": "parallel_line",
         "parallel_transport": "parallel_line",
+        "neutral_line": "neutral_line",
+        "neutral_parallel_line": "neutral_line",
+        "neutral_transport": "neutral_line",
+        "neutral_diffusion": "neutral_line",
     }
     return aliases.get(normalized)
 
@@ -5884,7 +5888,13 @@ def _build_recycling_jax_linear_preconditioner(
 ) -> Callable[[object], object] | None:
     if name is None:
         return None
-    if name in {"linearized_diag", "field_diag", "local_block_diag", "parallel_line"}:
+    if name in {
+        "linearized_diag",
+        "field_diag",
+        "local_block_diag",
+        "parallel_line",
+        "neutral_line",
+    }:
         return None
     if name not in {"state_scale", "field_scale"}:
         raise ValueError(f"Unsupported recycling JAX preconditioner {name!r}.")
@@ -5913,7 +5923,7 @@ def _recycling_jax_linear_preconditioner_context(
     config: BoutConfig | None = None,
     layout: _RecyclingPackedStateLayout | None,
 ) -> dict[str, object] | None:
-    if name not in {"field_diag", "local_block_diag", "parallel_line"}:
+    if name not in {"field_diag", "local_block_diag", "parallel_line", "neutral_line"}:
         return None
     if layout is None:
         raise ValueError(
@@ -5948,7 +5958,7 @@ def _recycling_jax_linear_preconditioner_context(
             env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_LOCAL_UNKNOWNS",
             default=4096,
         )
-    if name == "parallel_line":
+    if name in {"parallel_line", "neutral_line"}:
         active_shape = tuple(int(axis) for axis in tuple(layout.active_shape))
         context["parallel_axis"] = 1 if len(active_shape) > 1 else 0
         context["max_line_unknowns"] = _resolve_positive_int_runtime_option(
@@ -5969,7 +5979,34 @@ def _recycling_jax_linear_preconditioner_context(
             env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_TOTAL_UNKNOWNS",
             default=8192,
         )
+        if name == "neutral_line":
+            context["field_indices"] = _recycling_neutral_line_field_indices(
+                layout.field_names
+            )
     return context
+
+
+def _recycling_neutral_line_field_indices(field_names: tuple[str, ...]) -> tuple[int, ...]:
+    """Return field-major indices for neutral density, pressure, and momentum fields."""
+
+    return tuple(
+        index
+        for index, field_name in enumerate(field_names)
+        if _is_recycling_neutral_line_field(field_name)
+    )
+
+
+def _is_recycling_neutral_line_field(field_name: str) -> bool:
+    """Conservatively identify evolved neutral fields in recycling layouts."""
+
+    normalized = str(field_name).strip()
+    if not normalized or "+" in normalized:
+        return False
+    if normalized in {"Ne", "Pe", "Ve", "phi", "vorticity", "omega"}:
+        return False
+    return normalized.startswith("NV") or (
+        normalized[0] in {"N", "P"} and len(normalized) > 1
+    )
 
 
 def _resolve_recycling_jax_linear_preconditioner_refresh(

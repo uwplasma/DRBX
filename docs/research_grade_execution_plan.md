@@ -1475,6 +1475,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   hydrogen active-array fixed-BDF2 gate preserved residual `2.90e-6`, `35`
   operator calls, and `14` residual evaluations with elapsed time `15.85 s`,
   so record this as neutral hot-path cleanup rather than a measurable speedup.
+- 2026-06-18: Added an opt-in `neutral_line` JVP-derived preconditioner probe
+  that reuses the existing line-block builder but selects only neutral density,
+  pressure, and momentum fields from the fixed recycling layout. This is the
+  direct JAX-compatible analogue of neutral-diffusion preconditioning ideas in
+  edge-fluid reference implementations, but it is not a bounded hydrogen
+  speedup. Focused solver/recycling tests passed (`32 passed`, `8 passed`).
+  The bounded hydrogen active-array fixed-BDF2 gate with `neutral_line` passed
+  residual and solver-health checks (`2.90e-6`, `35` linear-operator calls,
+  `4` builds, `49` applies, `0.78 s` build time) but took `16.91 s`, slower
+  than the unpreconditioned gate. Keep it opt-in for neutral-heavy screening;
+  do not promote it as default.
 - 2026-06-18: Extended matrix-free operator diagnostics from individual
   JAX-linearized recycling steps into fixed-output BDF2 and adaptive-BDF
   history summaries. Fixed-BDF2 diagnostics now aggregate

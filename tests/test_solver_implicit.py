@@ -615,6 +615,63 @@ def test_parallel_line_preconditioner_inverts_field_line_block() -> None:
     )
 
 
+def test_parallel_line_preconditioner_can_target_selected_fields() -> None:
+    pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_shape = (1, 3)
+    active_cells = int(np.prod(active_shape))
+    field_count = 2
+    field_unknown_count = field_count * active_cells
+    state = jnp.zeros(field_unknown_count + 1, dtype=jnp.float64)
+    selected_block = jnp.asarray(
+        [
+            [4.0, -0.5, 0.0],
+            [-0.25, 5.0, -0.25],
+            [0.0, -0.5, 4.5],
+        ],
+        dtype=jnp.float64,
+    )
+
+    def linear_map(vector):
+        vector = jnp.asarray(vector, dtype=jnp.float64)
+        field0 = vector[:active_cells]
+        field1 = vector[active_cells:field_unknown_count]
+        feedback = vector[field_unknown_count:]
+        return jnp.concatenate((10.0 * field0, selected_block @ field1, feedback))
+
+    preconditioner = implicit_mod._build_jax_linearized_parallel_line_preconditioner(
+        linear_map,
+        state,
+        active_shape=active_shape,
+        field_count=field_count,
+        feedback_count=1,
+        parallel_axis=1,
+        field_indices=(1,),
+    )
+    rhs = jnp.asarray([7.0, 8.0, 9.0, 1.0, -2.0, 0.5, 4.0], dtype=jnp.float64)
+    solved = preconditioner(rhs)
+
+    np.testing.assert_allclose(
+        np.asarray(solved[:active_cells]),
+        np.asarray(rhs[:active_cells]),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(linear_map(solved)[active_cells:field_unknown_count]),
+        np.asarray(rhs[active_cells:field_unknown_count]),
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
+    np.testing.assert_allclose(
+        np.asarray(solved[field_unknown_count:]),
+        np.asarray(rhs[field_unknown_count:]),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
 def test_parallel_line_preconditioner_batches_multiple_field_lines() -> None:
     pytest.importorskip("jax")
     jnp = pytest.importorskip("jax.numpy")

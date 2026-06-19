@@ -1121,6 +1121,19 @@ residual `3.76e-6`, and both kept failed linear solves at zero. This is the
 current bounded fixture evidence for preconditioner reuse; heavier recycling
 and D/T/He gates still need the same budgeted treatment before default
 promotion.
+The next reference-grounded preconditioner probe adds an opt-in
+`neutral_line` candidate. It follows the same algorithmic idea as
+neutral-diffusion preconditioners in edge-fluid implementations: approximate
+the stiff neutral density, neutral pressure, and neutral momentum field-line
+block while leaving plasma and controller entries unchanged. The implementation
+uses the same JVP-derived line-block builder as `parallel_line`, but supplies
+only neutral field indices from the fixed recycling layout, reducing the
+candidate block size for neutral-heavy systems. On the bounded hydrogen
+active-array gate it is solver-health clean but not a speedup: residual
+`2.90e-6`, `35` linear-operator calls, `4` preconditioner builds, `49` applies,
+`0.78 s` build time, and elapsed time `16.91 s`. It therefore remains opt-in
+diagnostic evidence for neutral-diffusion-dominated cases, not a default or
+performance claim.
 The solver now also separates preconditioner build cost from preconditioner
 application cost. JAX-linearized steps report
 `linear_preconditioner_apply_count` and

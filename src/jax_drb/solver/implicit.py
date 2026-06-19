@@ -1552,6 +1552,9 @@ def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:
         "transport_line",
         "line_block",
         "physics_transport",
+        "neutral_line",
+        "neutral_parallel_line",
+        "neutral_transport",
     }
 
 
@@ -1674,6 +1677,9 @@ def _build_jax_linearized_dynamic_preconditioner(
         "transport_line",
         "line_block",
         "physics_transport",
+        "neutral_line",
+        "neutral_parallel_line",
+        "neutral_transport",
     }:
         if context is None:
             raise ValueError(
@@ -1688,6 +1694,11 @@ def _build_jax_linearized_dynamic_preconditioner(
             field_count=int(context.get("field_count", 0)),
             feedback_count=int(context.get("feedback_count", 0)),
             parallel_axis=int(context.get("parallel_axis", 0)),
+            field_indices=(
+                tuple(int(index) for index in context["field_indices"])
+                if "field_indices" in context
+                else None
+            ),
             floor=float(context.get("floor", 1.0e-10)),
             max_line_unknowns=int(context.get("max_line_unknowns", 512)),
             max_batch_unknowns=int(context.get("max_batch_unknowns", 2048)),
@@ -1884,6 +1895,7 @@ def _field_major_line_indices(
     active_shape: tuple[int, ...],
     field_count: int,
     parallel_axis: int,
+    field_indices: tuple[int, ...] | None = None,
 ) -> np.ndarray:
     """Return packed field-major unknown indices grouped by parallel line."""
 
@@ -1897,6 +1909,15 @@ def _field_major_line_indices(
             f"parallel_axis={parallel_axis} is outside active_shape rank {rank}."
         )
     active_cell_count = int(np.prod(active_shape, dtype=np.int64))
+    if field_indices is None:
+        selected_field_indices = tuple(range(int(field_count)))
+    else:
+        selected_field_indices = tuple(int(index) for index in field_indices)
+    if any(index < 0 or index >= int(field_count) for index in selected_field_indices):
+        raise ValueError(
+            "parallel_line preconditioner field_indices must be within "
+            f"[0, {int(field_count)})."
+        )
     line_length = int(active_shape[int(parallel_axis)])
     transverse_shape = tuple(
         axis_size
@@ -1909,11 +1930,12 @@ def _field_major_line_indices(
         else list(np.ndindex(transverse_shape))
     )
     line_indices = np.empty(
-        (len(transverse_indices), int(field_count) * line_length), dtype=np.int32
+        (len(transverse_indices), len(selected_field_indices) * line_length),
+        dtype=np.int32,
     )
     for line_number, transverse_index in enumerate(transverse_indices):
         line_columns: list[int] = []
-        for field_index in range(int(field_count)):
+        for field_index in selected_field_indices:
             field_offset = field_index * active_cell_count
             for parallel_coordinate in range(line_length):
                 cell_index: list[int] = []
@@ -1938,6 +1960,7 @@ def _build_jax_linearized_parallel_line_preconditioner(
     field_count: int,
     feedback_count: int = 0,
     parallel_axis: int = 0,
+    field_indices: tuple[int, ...] | None = None,
     floor: float = 1.0e-10,
     max_line_unknowns: int = 512,
     max_batch_unknowns: int = 2048,
@@ -1978,7 +2001,7 @@ def _build_jax_linearized_parallel_line_preconditioner(
         )
     if field_unknown_count == 0:
         return lambda vector: jnp.asarray(vector, dtype=jnp.float64)
-    if field_unknown_count > int(max_total_unknowns):
+    if field_indices is None and field_unknown_count > int(max_total_unknowns):
         raise ValueError(
             "parallel_line preconditioner is bounded to field blocks with at most "
             f"{int(max_total_unknowns)} unknowns; got {field_unknown_count}."
@@ -1988,9 +2011,17 @@ def _build_jax_linearized_parallel_line_preconditioner(
         active_shape=active_shape,
         field_count=field_count,
         parallel_axis=int(parallel_axis),
+        field_indices=field_indices,
     )
     if line_indices_np.size == 0:
         return lambda vector: jnp.asarray(vector, dtype=jnp.float64)
+    selected_unknown_count = int(line_indices_np.size)
+    if selected_unknown_count > int(max_total_unknowns):
+        raise ValueError(
+            "parallel_line preconditioner is bounded to selected field-line "
+            f"blocks with at most {int(max_total_unknowns)} unknowns; got "
+            f"{selected_unknown_count}."
+        )
     line_unknown_count = int(line_indices_np.shape[1])
     if line_unknown_count > int(max_line_unknowns):
         raise ValueError(
@@ -2058,9 +2089,7 @@ def _build_jax_linearized_parallel_line_preconditioner(
             solved_by_line,
             diagonal_fallback,
         )
-        solved_fields = jnp.zeros_like(field_vector).at[line_indices].set(
-            solved_by_line
-        )
+        solved_fields = field_vector.at[line_indices].set(solved_by_line)
         if feedback_count:
             solved = jnp.concatenate(
                 (solved_fields, flat_vector[field_unknown_count:]), axis=0
