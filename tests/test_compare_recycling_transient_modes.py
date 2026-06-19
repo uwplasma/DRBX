@@ -47,6 +47,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "fixed_bdf2_active_array_jax_linearized",
             "--require-bdf-pairwise-max",
             "1e-5",
+            "--require-fixed-bdf2-pairwise-max",
+            "2e-5",
             "--require-fixed-jvp-diagnostics",
             "--require-fixed-bdf2-diagnostics",
             "--require-fixed-bdf2-linear-preconditioner",
@@ -109,6 +111,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
         "fixed_bdf2_active_array_jax_linearized",
     ]
     assert args.require_bdf_pairwise_max == 1.0e-5
+    assert args.require_fixed_bdf2_pairwise_max == 2.0e-5
     assert args.require_fixed_jvp_diagnostics is True
     assert args.require_fixed_bdf2_diagnostics is True
     assert args.require_fixed_bdf2_linear_preconditioner == "local-block"
@@ -154,6 +157,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert "--require-fixed-bdf2-min-linear-solve-count" in help_text
     assert "--require-fixed-bdf2-max-linear-update-residual" in help_text
     assert "--require-fixed-bdf2-max-linear-update-relative-residual" in help_text
+    assert "--require-fixed-bdf2-pairwise-max" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-builds" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-applies" in help_text
     assert "--require-adaptive-bdf-linear-preconditioner" in help_text
@@ -279,6 +283,35 @@ def test_bdf_pairwise_delta_report_formats_worst_field_first() -> None:
     ]
 
 
+def test_fixed_bdf2_pairwise_delta_report_formats_worst_field_first() -> None:
+    mode_variables = {
+        "bdf": {
+            "Nd+": np.asarray([1.0, 2.0]),
+            "Pd+": np.asarray([10.0, 15.0]),
+        },
+        "fixed_bdf2_active_array_jax_linearized": {
+            "Nd+": np.asarray([1.25, 2.5]),
+            "Pd+": np.asarray([13.0, 15.0]),
+        },
+        "adaptive_be": {
+            "Nd+": np.asarray([100.0, 200.0]),
+            "Pd+": np.asarray([100.0, 200.0]),
+        },
+    }
+
+    lines = compare_script._format_fixed_bdf2_pairwise_delta_report(
+        mode_variables,
+        fields=("Nd+", "Pd+"),
+    )
+
+    assert lines == [
+        "pairwise_delta=bdf_vs_fixed_bdf2_active_array_jax_linearized",
+        "  Pd+: max_abs_delta=3.00000000e+00",
+        "  Nd+: max_abs_delta=5.00000000e-01",
+        "  worst=Pd+ delta=3.00000000e+00",
+    ]
+
+
 def test_mode_diagnostics_report_formats_sorted_values() -> None:
     lines = compare_script._format_mode_diagnostics_report(
         "bdf_fixed_full_field_jvp",
@@ -355,6 +388,27 @@ def test_bdf_pairwise_worst_delta_returns_active_mesh_worst_field() -> None:
     assert delta == 1.5
 
 
+def test_fixed_bdf2_pairwise_worst_delta_returns_active_mesh_worst_field() -> None:
+    mesh = SimpleNamespace(xstart=1, xend=2, ystart=0, yend=1)
+    bdf = np.zeros((1, 4, 3, 1))
+    fixed_bdf2 = np.zeros((1, 4, 3, 1))
+    fixed_bdf2[:, 0, 0, :] = 99.0
+    fixed_bdf2[:, 1, 1, :] = 0.25
+    fixed_bdf2[:, 2, 1, :] = 0.75
+
+    field, delta = compare_script._fixed_bdf2_pairwise_worst_delta(
+        {
+            "bdf": {"Nd+": bdf},
+            "fixed_bdf2_active_array_jax_linearized": {"Nd+": fixed_bdf2},
+        },
+        fields=("Nd+",),
+        mesh=mesh,
+    )
+
+    assert field == "Nd+"
+    assert delta == 0.75
+
+
 def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(
     tmp_path: Path,
 ) -> None:
@@ -375,6 +429,7 @@ def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(
             }
         },
         bdf_pairwise_worst=("Pe", np.float64(0.0)),
+        fixed_bdf2_pairwise_worst=("Pe", np.float64(0.25)),
         adaptive_bdf_gate_errors={"adaptive_bdf_jax_linearized": []},
     )
     path = tmp_path / "nested" / "report.json"
@@ -396,6 +451,10 @@ def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(
         == "status"
     )
     assert payload["bdf_pairwise_worst"] == {"field": "Pe", "delta": 0.0}
+    assert payload["fixed_bdf2_pairwise_worst"] == {
+        "field": "Pe",
+        "delta": 0.25,
+    }
 
 
 def test_fixed_full_field_jvp_diagnostics_gate_accepts_expected_route() -> None:

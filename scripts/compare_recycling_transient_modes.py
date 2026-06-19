@@ -171,6 +171,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-pairwise-max",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless the largest active-mesh bdf-vs-fixed-BDF2-candidate "
+            "delta over reported fields is below this value. This is a "
+            "physical-output parity gate for the matrix-free fixed-BDF2 route."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-jvp-diagnostics",
         action="store_true",
         help=(
@@ -534,6 +544,35 @@ def _format_bdf_pairwise_delta_report(
     return lines
 
 
+def _format_fixed_bdf2_pairwise_delta_report(
+    mode_variables: dict[str, dict[str, np.ndarray]],
+    *,
+    fields: tuple[str, ...],
+    mesh=None,
+) -> list[str]:
+    base_mode = BDF_BASE_MODE
+    if base_mode not in mode_variables:
+        return []
+
+    lines: list[str] = []
+    for candidate_mode in FIXED_BDF2_MODES:
+        if candidate_mode not in mode_variables:
+            continue
+        rows = _summarize_mode_errors(
+            mode_variables[base_mode],
+            mode_variables[candidate_mode],
+            fields=fields,
+            mesh=mesh,
+            crop_expected=True,
+        )
+        lines.append(f"pairwise_delta={base_mode}_vs_{candidate_mode}")
+        for field, max_abs in rows:
+            lines.append(f"  {field}: max_abs_delta={max_abs:.8e}")
+        if rows:
+            lines.append(f"  worst={rows[0][0]} delta={rows[0][1]:.8e}")
+    return lines
+
+
 def _bdf_pairwise_worst_delta(
     mode_variables: dict[str, dict[str, np.ndarray]],
     *,
@@ -545,6 +584,36 @@ def _bdf_pairwise_worst_delta(
         return None, None
     worst: tuple[str, float] | None = None
     for candidate_mode in BDF_PAIRWISE_CANDIDATE_MODES:
+        if candidate_mode not in mode_variables:
+            continue
+        rows = _summarize_mode_errors(
+            mode_variables[base_mode],
+            mode_variables[candidate_mode],
+            fields=fields,
+            mesh=mesh,
+            crop_expected=True,
+        )
+        if not rows:
+            continue
+        candidate_worst = rows[0]
+        if worst is None or candidate_worst[1] > worst[1]:
+            worst = candidate_worst
+    if worst is None:
+        return None, None
+    return worst
+
+
+def _fixed_bdf2_pairwise_worst_delta(
+    mode_variables: dict[str, dict[str, np.ndarray]],
+    *,
+    fields: tuple[str, ...],
+    mesh=None,
+) -> tuple[str | None, float | None]:
+    base_mode = BDF_BASE_MODE
+    if base_mode not in mode_variables:
+        return None, None
+    worst: tuple[str, float] | None = None
+    for candidate_mode in FIXED_BDF2_MODES:
         if candidate_mode not in mode_variables:
             continue
         rows = _summarize_mode_errors(
@@ -597,9 +666,11 @@ def _build_json_report(
     mode_elapsed_seconds: dict[str, float],
     mode_diagnostics: dict[str, dict[str, object]],
     bdf_pairwise_worst: tuple[str | None, float | None],
+    fixed_bdf2_pairwise_worst: tuple[str | None, float | None],
     adaptive_bdf_gate_errors: dict[str, list[str]],
 ) -> dict[str, object]:
     worst_field, worst_delta = bdf_pairwise_worst
+    fixed_bdf2_worst_field, fixed_bdf2_worst_delta = fixed_bdf2_pairwise_worst
     return {
         "case": str(case_name),
         "configured_timestep": float(configured_timestep),
@@ -614,6 +685,10 @@ def _build_json_report(
         "bdf_pairwise_worst": {
             "field": worst_field,
             "delta": worst_delta,
+        },
+        "fixed_bdf2_pairwise_worst": {
+            "field": fixed_bdf2_worst_field,
+            "delta": fixed_bdf2_worst_delta,
         },
         "adaptive_bdf_gate_errors": _json_ready(adaptive_bdf_gate_errors),
     }
@@ -1289,6 +1364,18 @@ def main() -> int:
                 "--require-adaptive-bdf-max-linear-update-relative-residual must be "
                 "finite and nonnegative."
             )
+    if args.require_bdf_pairwise_max is not None:
+        value = float(args.require_bdf_pairwise_max)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(
+                "--require-bdf-pairwise-max must be finite and nonnegative."
+            )
+    if args.require_fixed_bdf2_pairwise_max is not None:
+        value = float(args.require_fixed_bdf2_pairwise_max)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(
+                "--require-fixed-bdf2-pairwise-max must be finite and nonnegative."
+            )
     case, input_path = resolve_reference_case(
         args.case, reference_root=args.reference_root
     )
@@ -1375,6 +1462,10 @@ def main() -> int:
         for line in _format_mode_diagnostics_report(mode, mode_diagnostics[mode]):
             print(line)
     for line in _format_bdf_pairwise_delta_report(
+        mode_variables, fields=fields, mesh=mesh
+    ):
+        print(line)
+    for line in _format_fixed_bdf2_pairwise_delta_report(
         mode_variables, fields=fields, mesh=mesh
     ):
         print(line)
@@ -1500,6 +1591,9 @@ def main() -> int:
     bdf_pairwise_worst = _bdf_pairwise_worst_delta(
         mode_variables, fields=fields, mesh=mesh
     )
+    fixed_bdf2_pairwise_worst = _fixed_bdf2_pairwise_worst_delta(
+        mode_variables, fields=fields, mesh=mesh
+    )
     if args.output_json is not None:
         report = _build_json_report(
             case_name=args.case,
@@ -1513,6 +1607,7 @@ def main() -> int:
             mode_elapsed_seconds=mode_elapsed_seconds,
             mode_diagnostics=mode_diagnostics,
             bdf_pairwise_worst=bdf_pairwise_worst,
+            fixed_bdf2_pairwise_worst=fixed_bdf2_pairwise_worst,
             adaptive_bdf_gate_errors=adaptive_gate_errors,
         )
         _write_json_report(args.output_json, report)
@@ -1530,6 +1625,22 @@ def main() -> int:
         )
         if not np.isfinite(worst_delta) or worst_delta > threshold:
             print("gate_failure=bdf pairwise delta exceeds threshold")
+            return 2
+    if args.require_fixed_bdf2_pairwise_max is not None:
+        worst_field, worst_delta = fixed_bdf2_pairwise_worst
+        if worst_delta is None:
+            print(
+                "gate_failure=fixed BDF2 pairwise delta is unavailable; run "
+                "bdf and at least one fixed-BDF2 candidate"
+            )
+            return 2
+        threshold = float(args.require_fixed_bdf2_pairwise_max)
+        print(
+            f"gate=fixed_bdf2_pairwise_max field={worst_field} "
+            f"delta={worst_delta:.8e} threshold={threshold:.8e}"
+        )
+        if not np.isfinite(worst_delta) or worst_delta > threshold:
+            print("gate_failure=fixed BDF2 pairwise delta exceeds threshold")
             return 2
     return 0
 

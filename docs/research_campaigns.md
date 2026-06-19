@@ -69,6 +69,16 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the D/T/He fixed-BDF2 physical-output parity gate when a matrix-free
+recycling change must prove that evolved fields still match the stable BDF
+route on the active mesh:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-physical-parity-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the adaptive-BDF JAX-versus-Lineax controller-health gate after changing the
 adaptive residual route or linear-action solver:
 
@@ -212,6 +222,17 @@ evaluation time, and `44.92 s` mode elapsed time:
 This is the current long-window D/T/He matrix-free output-window gate. It is
 kept explicit rather than folded into `all-local` so local all-lane runs do not
 silently acquire an additional minute-class solve.
+The companion `dthe-fixed-bdf2-active-array-physical-parity-gate` runs the same
+eight-step D/T/He window but also runs the stable `bdf` route and gates the
+active-mesh field delta between `bdf` and
+`fixed_bdf2_active_array_jax_linearized`. Its retained artifact reports a worst
+field delta of `1.745e-7` on `NVd+`, below the `2.5e-7` gate threshold, with
+the same fixed-BDF2 health metrics: eight JAX-GMRES solves, sixteen residual
+evaluations, zero failed or unconverged implicit steps, and maximum residual
+`4.10e-14`:
+[profile_summary.json](data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_physical_parity_cpu/profile_summary.json).
+This is the current bounded physical-output parity gate for the D/T/He
+matrix-free route.
 The matching `gpu-fixed-bdf2-direct-counting-gate` is intentionally guarded by
 a process-level timeout in addition to the inner mode timeout. The first
 office-GPU attempt on one RTX A4000 entered the solve but remained host-side

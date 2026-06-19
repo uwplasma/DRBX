@@ -361,6 +361,25 @@ D/T/He evidence for the matrix-free fixed-BDF2 route so far, but it remains a
 bounded diagnostics-only gate rather than a default-solver or GPU-speedup
 claim.
 
+For physical-output parity against the stable BDF route, run:
+
+```bash
+PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-physical-parity-gate \
+  --reference-root tests/fixtures/reference-root
+```
+
+The retained artifact is
+`docs/data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_physical_parity_cpu/profile_summary.json`.
+It runs both `bdf` and `fixed_bdf2_active_array_jax_linearized` for the same
+eight-step D/T/He window at `dt=1e-4` and gates the active-mesh field delta
+with `--require-fixed-bdf2-pairwise-max=2.5e-7`. The measured worst delta is
+`1.745e-7` on `NVd+`; `Pd+` is next at `5.58e-8`, and all density/pressure
+neutral-field deltas are near `1e-12` to `1e-9`. This is physical-output
+parity evidence for the bounded matrix-free route. It still does not promote
+the route as the default production output-window solver until larger physical
+windows and CPU/GPU profiles pass with the same route.
+
 For output-window fixed-BDF2 solver-health checks, use the strict active-array
 linearized residual gate:
 
