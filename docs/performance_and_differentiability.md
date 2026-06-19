@@ -54,9 +54,9 @@ scalar-objective `grad`. This is the strongest current heavy-residual
 differentiability evidence because it exercises the multispecies recycling
 state rather than a synthetic diffusion objective. On the committed local CPU
 run, the residual JVP agrees with a centered finite difference to about
-`2.19e-9`, the objective directional derivative agrees to about `4.35e-8`,
-and the retained batch sweep through 256 states reaches about `4.94x`
-residual throughput speedup and `3.11x` JVP throughput speedup over
+`5.97e-9`, the objective directional derivative agrees to about `1.34e-7`,
+and the retained batch sweep through `64` states reaches about `2.49x`
+residual throughput speedup and `2.13x` JVP throughput speedup over
 serial same-kernel calls.
 
 The same profile gate now accepts `--rhs-backend active_array`. That backend is
@@ -628,12 +628,14 @@ The heavier D/T/He fixed-layout recycling residual now has a current CPU
 profile on the gated `dt=1.0` command. That gate has `950` active variables,
 passes with residual `7.315`, one line-search trial, two residual evaluations,
 five jitted matrix-free operator calls, `8.92 s` profiled runtime, and sampled
-peak process-tree RSS near `2.86 GiB`. The retained office-GPU artifacts are
-older tiny-step readiness probes: they show that the fixed-layout residual seam
-is accelerator-executable and can use less host memory on that smaller
-residual, but they are not same-fidelity speedup evidence for the current
-`dt=1.0` gate. The next GPU claim must come from a refreshed current-gate GPU
-artifact, a larger transformed residual, or a batched ensemble of independent
+peak process-tree RSS near `2.86 GiB`. The same-fidelity
+`gpu-dthe-current-jax-linearized-gate` also passes on one RTX A4000 with the
+same residual, two residual evaluations, one line-search trial, and five
+operator calls, but its profiled runtime is `109.49 s` and sampled peak
+process-tree RSS is about `12.34 GiB`. This proves accelerator correctness for
+the current full-field residual and also proves that it is the wrong GPU
+speedup surface. The next GPU claim must come from active-array residuals,
+smaller compiled residual/JVP kernels, or a batched ensemble of independent
 residual solves that amortizes compile and launch overhead.
 
 That path is appropriate for compact pure-JAX residuals and future reduced
