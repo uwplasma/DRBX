@@ -1530,6 +1530,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   `1 MiB`. The large local `.venv`, `tmp`, profile, release-cache, baseline,
   trace, and media files are ignored or release-hosted, so no history rewrite
   is needed from this pass.
+- 2026-06-18: Re-ran a bounded fixed-BDF2 active-array preconditioner/backend
+  scan using actual linear-map work counts. On the hydrogen fixture,
+  unpreconditioned JAX-GMRES took `11.00 s`, residual `9.01e-10`, `25`
+  operator calls, and `8.18 s` linear-solve time. `state_scale`,
+  `field_scale`, and `field_sample_diag` preserved correctness but kept the
+  same `25` operator calls; `full_step` reduced residual evaluations from `10`
+  to `7` but increased wall time; JAX-BiCGSTAB was slightly faster on hydrogen
+  (`10.54 s`, residual `5.47e-10`) but did not improve the heavier D/T/He
+  check, where both backends retained one unconverged substep, residual
+  `7.315`, and `30` operator calls. No default backend or preconditioner was
+  promoted. The next P3 implementation must reduce operator calls or per-call
+  residual/JVP cost on the heavy D/T/He and full-output recycling paths, not
+  retune existing diagonal/line-block probes.
 - 2026-06-18: Added conservative automatic internal substepping for opt-in
   fixed-output BDF2 JAX-linearized recycling histories when no explicit
   `runtime:recycling_fixed_bdf2_max_internal_timestep` or

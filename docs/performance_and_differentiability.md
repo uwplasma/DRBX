@@ -1275,6 +1275,22 @@ active-array recycling gate on `recycling_1d_one_step` with fields `Pe`,
 preconditioner and JVP-kernel gates compare actual work rather than nominal
 `restart * maxiter` budgets.
 
+A follow-up scan used that actual-work accounting on the same bounded
+fixed-BDF2 active-array gate. The unpreconditioned JAX-GMRES control took
+`11.00 s` with residual `9.01e-10`, `25` operator calls, and `8.18 s` linear
+solve time. `state_scale`, `field_scale`, and `field_sample_diag` preserved
+solver health but kept the same `25` operator calls and did not improve wall
+time. `full_step` line search reduced residual evaluations from `10` to `7`
+but increased wall time to `11.54 s`. JAX-BiCGSTAB was slightly faster on the
+hydrogen fixture (`10.54 s`, residual `5.47e-10`, `25` calls), but the
+heavier D/T/He fixed-BDF2 active-array check kept one unconverged substep and
+`30` operator calls for both JAX-GMRES and JAX-BiCGSTAB; BiCGSTAB also
+increased total linear-solve time there. These results keep all tested
+preconditioner/backend variants opt-in and leave the next effective
+preconditioning target as a true transport/Schur approximation or cheaper
+JVP/residual action that reduces operator calls or per-call cost on heavy
+cases.
+
 A fresh cProfile/RSS run with these diagnostics enabled keeps the same
 conclusion. The cProfile-instrumented D/T/He gate took `12.67 s`, while the
 separate RSS sample took `8.97 s`. Solver diagnostics reported `5` operator
