@@ -132,7 +132,14 @@ changing the default compact campaign. The signed
 `radial_flux_proxy` remains in each report as a cancellation and symmetry
 diagnostic, but refinement promotion uses magnitude and RMS radial-flux
 statistics because a domain-averaged signed flux can change sign when inward
-and outward turbulent transport nearly cancel. The refinement summary also
+and outward turbulent transport nearly cancel. Failed metrics that land within
+five percent of the declared tolerance are also copied to
+`near_tolerance_failed_metric_reports`; the gate still fails, but the summary
+recommends repeating or extending the same transient before making an expensive
+grid jump. This distinction is important for the current high-grid hybrid
+campaign, where the `3072`-iteration residual budget passes the potential and
+time gates, while `radial_flux_abs_mean` and `radial_flux_rms` miss the grid
+gate only marginally. The refinement summary also
 exports `failed_metric_reports`, `dominant_failed_metrics`, and
 `refinement_recommendations`, so a failed campaign identifies whether the next
 run should prioritize radial transport convergence, toroidal/poloidal spectral

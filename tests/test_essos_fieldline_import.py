@@ -343,6 +343,56 @@ def test_essos_imported_drb_movie_refinement_flags_residual_only_solver_budget()
     )
 
 
+def test_essos_imported_drb_movie_refinement_flags_near_tolerance_radial_flux() -> None:
+    coarse = _movie_report(
+        grid=(16, 24, 48),
+        radial_flux_proxy=1.31,
+        radial_flux_abs_mean=1.31,
+        radial_flux_rms=1.31,
+        final_potential_residual_l2=1.0e-11,
+        low_mode_window_covers_grid=False,
+    )
+    fine = _movie_report(
+        grid=(16, 24, 96),
+        radial_flux_proxy=1.0,
+        radial_flux_abs_mean=1.0,
+        radial_flux_rms=1.0,
+        final_potential_residual_l2=1.0e-11,
+        low_mode_window_covers_grid=False,
+    )
+
+    summary = build_essos_imported_drb_movie_refinement_summary(
+        grid_reports=(coarse, fine),
+        time_reports=(fine, {**fine, "dt": 5.0e-4}),
+        relative_tolerance=0.30,
+    )
+    grid_diagnostics = summary["grid_refinement_diagnostics"]
+    suggestion = summary["next_campaign_suggestion"]
+
+    assert summary["grid_refinement_passed"] is False
+    assert {report["metric"] for report in grid_diagnostics["failed_metric_reports"]} == {
+        "radial_flux_abs_mean",
+        "radial_flux_rms",
+    }
+    assert {
+        report["metric"]
+        for report in grid_diagnostics["near_tolerance_failed_metric_reports"]
+    } == {"radial_flux_abs_mean", "radial_flux_rms"}
+    assert all(
+        bool(report["near_tolerance"])
+        for report in grid_diagnostics["near_tolerance_failed_metric_reports"]
+    )
+    assert any(
+        "marginally above" in recommendation
+        for recommendation in grid_diagnostics["refinement_recommendations"]
+    )
+    assert any(
+        "near-tolerance miss" in note
+        for note in suggestion["recommendation_notes"]
+    )
+    assert suggestion["near_tolerance_grid_blockers"]
+
+
 def test_essos_imported_drb_movie_refinement_uses_mode_index_not_fraction() -> None:
     coarse = _movie_report(grid=(8, 12, 24))
     fine = _movie_report(grid=(16, 24, 48))

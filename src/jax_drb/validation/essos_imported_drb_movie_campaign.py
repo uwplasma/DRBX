@@ -75,6 +75,7 @@ ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRIC_FLOORS = {
     "final_potential_residual_l2": 1.0e-10,
 }
 ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_DEFAULT_METRIC_FLOOR = 1.0e-12
+ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_NEAR_TOLERANCE_FACTOR = 1.05
 ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_ITERATIONS = 768
 ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION = 5.0
 ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_PRECONDITIONER: str | None = None
@@ -420,6 +421,12 @@ def build_essos_imported_drb_movie_refinement_next_campaign(
     current_grid = _movie_refinement_finest_grid(grid_diagnostics)
     grid_failed_metrics = _movie_refinement_failed_metric_names(grid_diagnostics)
     time_failed_metrics = _movie_refinement_failed_metric_names(time_diagnostics)
+    grid_near_tolerance_metrics = _movie_refinement_near_tolerance_metric_names(
+        grid_diagnostics
+    )
+    time_near_tolerance_metrics = _movie_refinement_near_tolerance_metric_names(
+        time_diagnostics
+    )
     current_potential_iterations = _movie_refinement_max_potential_iterations(
         grid_diagnostics,
         time_diagnostics,
@@ -553,6 +560,13 @@ def build_essos_imported_drb_movie_refinement_next_campaign(
             f"potential_iterations={recommended_potential_iterations} before "
             "changing physics claims based on elliptic residual movement"
         )
+    near_tolerance_metrics = grid_near_tolerance_metrics | time_near_tolerance_metrics
+    if {"radial_flux_abs_mean", "radial_flux_rms"} & near_tolerance_metrics:
+        notes.append(
+            "radial-flux convergence is a near-tolerance miss; rerun the same "
+            "grid with a longer transient or independent phase before treating "
+            "the next larger grid as mandatory"
+        )
 
     return {
         "diagnostic": "essos_imported_drb_movie_next_campaign_suggestion",
@@ -569,6 +583,12 @@ def build_essos_imported_drb_movie_refinement_next_campaign(
         ),
         "dominant_grid_blockers": grid_diagnostics.get("dominant_failed_metrics", []),
         "dominant_time_blockers": time_diagnostics.get("dominant_failed_metrics", []),
+        "near_tolerance_grid_blockers": grid_diagnostics.get(
+            "near_tolerance_failed_metric_reports", []
+        ),
+        "near_tolerance_time_blockers": time_diagnostics.get(
+            "near_tolerance_failed_metric_reports", []
+        ),
         "current_finest_grid": list(current_grid) if current_grid is not None else None,
         "suggested_grid_multiplier": [float(value) for value in grid_multiplier],
         "suggested_next_grid": (
@@ -618,6 +638,7 @@ def build_essos_imported_drb_movie_refinement_diagnostics(
         "spectral_resolution_passed": False,
         "spectral_resolution_reports": [],
         "failed_metric_reports": [],
+        "near_tolerance_failed_metric_reports": [],
         "dominant_failed_metrics": [],
         "refinement_recommendations": [],
         "passed": False,
@@ -689,9 +710,15 @@ def build_essos_imported_drb_movie_refinement_diagnostics(
         pair_reports=pair_reports,
         relative_tolerance=tolerance,
     )
+    near_tolerance_failed_metric_reports = [
+        report
+        for report in failed_metric_reports
+        if bool(report.get("near_tolerance"))
+    ]
     refinement_recommendations = _movie_refinement_recommendations(
         refinement_axis=normalized_axis,
         failed_metric_reports=failed_metric_reports,
+        near_tolerance_failed_metric_reports=near_tolerance_failed_metric_reports,
         spectral_resolution_passed=spectral_resolution_passed,
     )
     passed = bool(
@@ -715,6 +742,7 @@ def build_essos_imported_drb_movie_refinement_diagnostics(
         "spectral_resolution_reports": spectral_resolution_reports,
         "pair_reports": pair_reports,
         "failed_metric_reports": failed_metric_reports,
+        "near_tolerance_failed_metric_reports": near_tolerance_failed_metric_reports,
         "dominant_failed_metrics": failed_metric_reports[:5],
         "refinement_recommendations": refinement_recommendations,
         "max_relative_metric_change": (
@@ -905,6 +933,13 @@ def _build_movie_failed_metric_reports(
         for metric, report in pair.get("metric_reports", {}).items():
             if bool(report.get("passed")):
                 continue
+            relative_change = report.get("relative_change")
+            near_tolerance = (
+                relative_change is not None
+                and float(relative_change)
+                <= float(relative_tolerance)
+                * ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_NEAR_TOLERANCE_FACTOR
+            )
             failed.append(
                 {
                     "pair_index": int(pair_index),
@@ -914,8 +949,12 @@ def _build_movie_failed_metric_reports(
                     "coarse": report.get("coarse"),
                     "fine": report.get("fine"),
                     "denominator_floor": report.get("denominator_floor"),
-                    "relative_change": report.get("relative_change"),
+                    "relative_change": relative_change,
                     "relative_tolerance": float(relative_tolerance),
+                    "near_tolerance": bool(near_tolerance),
+                    "near_tolerance_factor": float(
+                        ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_NEAR_TOLERANCE_FACTOR
+                    ),
                     "reason": _movie_refinement_metric_failure_reason(
                         metric=str(metric),
                         report=report,
@@ -954,16 +993,27 @@ def _movie_refinement_recommendations(
     *,
     refinement_axis: str,
     failed_metric_reports: list[dict[str, Any]],
+    near_tolerance_failed_metric_reports: list[dict[str, Any]],
     spectral_resolution_passed: bool,
 ) -> list[str]:
     recommendations: list[str] = []
     failed_metrics = {str(report["metric"]) for report in failed_metric_reports}
+    near_tolerance_metrics = {
+        str(report["metric"]) for report in near_tolerance_failed_metric_reports
+    }
     if not spectral_resolution_passed:
         recommendations.append(
             "Increase the physics/movie grid or reduce the resolved low-mode window "
             "before promoting the movie; the spectrum is too close to the grid edge."
         )
-    if {"radial_flux_abs_mean", "radial_flux_rms"} & failed_metrics:
+    radial_metrics = {"radial_flux_abs_mean", "radial_flux_rms"} & failed_metrics
+    if radial_metrics and radial_metrics <= near_tolerance_metrics:
+        recommendations.append(
+            "Radial transport is only marginally above the convergence tolerance; "
+            "repeat the same grid with a longer transient or independent phase "
+            "before paying for a larger radial/toroidal refinement."
+        )
+    elif radial_metrics:
         recommendations.append(
             "Treat radial transport as unresolved: refine the radial grid and the "
             "field-line-following transverse grid, then rerun the same transient."
@@ -995,6 +1045,16 @@ def _movie_refinement_failed_metric_names(diagnostics: dict[str, Any]) -> set[st
     return {
         str(report.get("metric"))
         for report in diagnostics.get("failed_metric_reports", [])
+        if report.get("metric") is not None
+    }
+
+
+def _movie_refinement_near_tolerance_metric_names(
+    diagnostics: dict[str, Any],
+) -> set[str]:
+    return {
+        str(report.get("metric"))
+        for report in diagnostics.get("near_tolerance_failed_metric_reports", [])
         if report.get("metric") is not None
     }
 

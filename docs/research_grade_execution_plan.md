@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 90% | High-grid hybrid report-only movie candidates now pass time and spectral-resolution gates, the invalid normalized-centroid blocker is removed, and a doubled unpreconditioned potential-iteration budget closes the fine-grid residual; remaining movie blocker is radial-flux magnitude/RMS just above tolerance plus cached campaign efficiency before any turbulence/movie claim. |
+| 3D stellarator imported-field/VMEC SOL | 91% | High-grid hybrid report-only movie candidates now pass time, spectral-resolution, and potential-residual gates with `potential_iterations=3072`; remaining movie blocker is a near-tolerance radial-flux magnitude/RMS grid miss that needs a repeated or longer transient before a larger-grid claim. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -2226,6 +2226,16 @@ Use this log for concise decision records. Do not paste terminal output here.
   length, transient length, and potential-solver settings. This makes the next
   high-grid `potential_iterations=3072` and radial-flux refinement sweeps
   practical without treating stale compact reports as validation evidence.
+- 2026-06-19: Ran the ignored high-grid hybrid report-only refinement campaign
+  at `(16,24,48)->(16,24,96)`, `dt=2e-3`, time pair `4e-3->2e-3`, and
+  `potential_iterations=3072`. The campaign passed time refinement and removed
+  the potential-residual blocker. The only grid failures were
+  `radial_flux_abs_mean` and `radial_flux_rms`, with relative changes `0.304`
+  and `0.302` against the `0.300` tolerance. A repeated run using
+  `REUSE_EXISTING_REPORTS=True` completed in under a second, confirming that
+  the on-disk metadata matcher avoids rerunning already-matched heavy reports.
+  The next 3D-movie evidence run should repeat or extend the same grid/transient
+  before jumping directly to the suggested `(32,36,144)` grid.
 
 ## Definition Of Done
 
