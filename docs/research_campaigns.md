@@ -88,6 +88,17 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the scalar observable screen when testing the next timestep decade. This
+gate intentionally compares only density and pressure fields (`Nd+`, `Pd+`,
+`Nd`, `Pd`, `Pe`) because near-zero momentum inventories make relative
+momentum observables non-diagnostic:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-scalar-observable-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the adaptive-BDF JAX-versus-Lineax controller-health gate after changing the
 adaptive residual route or linear-action solver:
 
@@ -252,6 +263,18 @@ zero failed or unconverged implicit steps, maximum residual `4.05e-11`, and
 A separate exploratory `dt=1e-2`, two-step probe also converged but was not
 promoted because the worst `NVd+` field delta increased to `1.55e-3`. Treat
 that as the next accuracy target, not as production-window promotion evidence.
+The narrower `dthe-fixed-bdf2-active-array-scalar-observable-gate` retains the
+same `dt=1e-2`, two-step window but gates scalar active-profile observables
+instead of all-field max norms. It passes with worst scalar relative L2 error
+`3.97e-5` on `Pd+`, worst scalar active-inventory relative error `4.72e-6`
+on `Pd+`, fixed-BDF2 maximum residual `3.51e-8`, two JAX-GMRES solves, four
+residual evaluations, zero failed or unconverged implicit steps, and
+`10.74 s` fixed-BDF2 elapsed time:
+[profile_summary.json](data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_scalar_observable_cpu/profile_summary.json).
+This is scalar density/pressure observable evidence only. It does not close
+momentum parity at `dt=1e-2`, where the full-field probe still shows the
+largest `NVd+` pointwise delta and the `NVd` relative inventory is dominated by
+an absolute near-zero denominator.
 The matching `gpu-fixed-bdf2-direct-counting-gate` is intentionally guarded by
 a process-level timeout in addition to the inner mode timeout. The first
 office-GPU attempt on one RTX A4000 entered the solve but remained host-side

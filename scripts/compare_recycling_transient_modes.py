@@ -181,6 +181,28 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-pairwise-l2-rel-max",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless the largest active-mesh relative L2 difference between "
+            "bdf and fixed-BDF2 candidates over reported fields is below this "
+            "value. This complements the pointwise max-norm gate for production "
+            "window screens where localized cells dominate max_abs_delta."
+        ),
+    )
+    parser.add_argument(
+        "--require-fixed-bdf2-pairwise-inventory-rel-max",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless the largest unweighted active-mesh inventory relative "
+            "difference between bdf and fixed-BDF2 candidates over reported "
+            "fields is below this value. The inventory is an active-cell sum, "
+            "not a metric-weighted volume integral."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-jvp-diagnostics",
         action="store_true",
         help=(
@@ -480,6 +502,68 @@ def _summarize_mode_errors(
     return rows
 
 
+def _relative_denominator(value: float, *, floor: float = 1.0e-300) -> float:
+    return max(abs(float(value)), floor)
+
+
+def _summarize_pairwise_observable_errors(
+    reference_variables: dict[str, np.ndarray],
+    candidate_variables: dict[str, np.ndarray],
+    *,
+    fields: tuple[str, ...],
+    mesh=None,
+) -> list[dict[str, float | str]]:
+    rows: list[dict[str, float | str]] = []
+    for field in fields:
+        if field not in reference_variables or field not in candidate_variables:
+            continue
+        reference = _active_mesh_view(
+            np.asarray(reference_variables[field], dtype=np.float64), mesh
+        )
+        candidate = _active_mesh_view(
+            np.asarray(candidate_variables[field], dtype=np.float64), mesh
+        )
+        if reference.shape != candidate.shape:
+            rows.append(
+                {
+                    "field": field,
+                    "l2_relative_delta": float("inf"),
+                    "inventory_relative_delta": float("inf"),
+                    "inventory_delta": float("inf"),
+                    "reference_inventory": float("nan"),
+                }
+            )
+            continue
+        delta = candidate - reference
+        reference_norm = float(np.linalg.norm(reference.ravel(), ord=2))
+        l2_relative = float(
+            np.linalg.norm(delta.ravel(), ord=2)
+            / _relative_denominator(reference_norm)
+        )
+        reference_inventory = float(np.sum(reference))
+        inventory_delta = float(abs(np.sum(candidate) - reference_inventory))
+        inventory_relative = float(
+            inventory_delta / _relative_denominator(reference_inventory)
+        )
+        rows.append(
+            {
+                "field": field,
+                "l2_relative_delta": l2_relative,
+                "inventory_relative_delta": inventory_relative,
+                "inventory_delta": inventory_delta,
+                "reference_inventory": reference_inventory,
+            }
+        )
+    rows.sort(
+        key=lambda item: max(
+            float(item["l2_relative_delta"]),
+            float(item["inventory_relative_delta"]),
+        ),
+        reverse=True,
+    )
+    return rows
+
+
 def _active_mesh_view(values: np.ndarray, mesh) -> np.ndarray:
     if mesh is None or values.ndim != 4:
         return values
@@ -573,6 +657,51 @@ def _format_fixed_bdf2_pairwise_delta_report(
     return lines
 
 
+def _format_fixed_bdf2_pairwise_observable_report(
+    mode_variables: dict[str, dict[str, np.ndarray]],
+    *,
+    fields: tuple[str, ...],
+    mesh=None,
+) -> list[str]:
+    base_mode = BDF_BASE_MODE
+    if base_mode not in mode_variables:
+        return []
+
+    lines: list[str] = []
+    for candidate_mode in FIXED_BDF2_MODES:
+        if candidate_mode not in mode_variables:
+            continue
+        rows = _summarize_pairwise_observable_errors(
+            mode_variables[base_mode],
+            mode_variables[candidate_mode],
+            fields=fields,
+            mesh=mesh,
+        )
+        lines.append(f"pairwise_observable={base_mode}_vs_{candidate_mode}")
+        for row in rows:
+            field = str(row["field"])
+            lines.append(
+                f"  {field}: l2_relative_delta={float(row['l2_relative_delta']):.8e} "
+                f"inventory_relative_delta={float(row['inventory_relative_delta']):.8e} "
+                f"inventory_delta={float(row['inventory_delta']):.8e} "
+                f"reference_inventory={float(row['reference_inventory']):.8e}"
+            )
+        if rows:
+            worst_l2 = max(rows, key=lambda item: float(item["l2_relative_delta"]))
+            worst_inventory = max(
+                rows, key=lambda item: float(item["inventory_relative_delta"])
+            )
+            lines.append(
+                f"  worst_l2={worst_l2['field']} "
+                f"delta={float(worst_l2['l2_relative_delta']):.8e}"
+            )
+            lines.append(
+                f"  worst_inventory={worst_inventory['field']} "
+                f"delta={float(worst_inventory['inventory_relative_delta']):.8e}"
+            )
+    return lines
+
+
 def _bdf_pairwise_worst_delta(
     mode_variables: dict[str, dict[str, np.ndarray]],
     *,
@@ -633,6 +762,60 @@ def _fixed_bdf2_pairwise_worst_delta(
     return worst
 
 
+def _fixed_bdf2_pairwise_observable_worst(
+    mode_variables: dict[str, dict[str, np.ndarray]],
+    *,
+    fields: tuple[str, ...],
+    mesh=None,
+) -> dict[str, dict[str, str | float | None]]:
+    base_mode = BDF_BASE_MODE
+    empty = {"mode": None, "field": None, "delta": None}
+    worst_l2: dict[str, str | float | None] | None = None
+    worst_inventory: dict[str, str | float | None] | None = None
+    if base_mode not in mode_variables:
+        return {"l2_relative": empty.copy(), "inventory_relative": empty.copy()}
+    for candidate_mode in FIXED_BDF2_MODES:
+        if candidate_mode not in mode_variables:
+            continue
+        rows = _summarize_pairwise_observable_errors(
+            mode_variables[base_mode],
+            mode_variables[candidate_mode],
+            fields=fields,
+            mesh=mesh,
+        )
+        if not rows:
+            continue
+        candidate_l2 = max(rows, key=lambda item: float(item["l2_relative_delta"]))
+        candidate_inventory = max(
+            rows, key=lambda item: float(item["inventory_relative_delta"])
+        )
+        if (
+            worst_l2 is None
+            or float(candidate_l2["l2_relative_delta"]) > float(worst_l2["delta"])
+        ):
+            worst_l2 = {
+                "mode": candidate_mode,
+                "field": str(candidate_l2["field"]),
+                "delta": float(candidate_l2["l2_relative_delta"]),
+            }
+        if (
+            worst_inventory is None
+            or float(candidate_inventory["inventory_relative_delta"])
+            > float(worst_inventory["delta"])
+        ):
+            worst_inventory = {
+                "mode": candidate_mode,
+                "field": str(candidate_inventory["field"]),
+                "delta": float(candidate_inventory["inventory_relative_delta"]),
+            }
+    return {
+        "l2_relative": worst_l2 if worst_l2 is not None else empty.copy(),
+        "inventory_relative": (
+            worst_inventory if worst_inventory is not None else empty.copy()
+        ),
+    }
+
+
 def _json_ready(value):
     if isinstance(value, dict):
         return {str(key): _json_ready(item) for key, item in value.items()}
@@ -667,6 +850,7 @@ def _build_json_report(
     mode_diagnostics: dict[str, dict[str, object]],
     bdf_pairwise_worst: tuple[str | None, float | None],
     fixed_bdf2_pairwise_worst: tuple[str | None, float | None],
+    fixed_bdf2_pairwise_observable_worst: dict[str, dict[str, str | float | None]],
     adaptive_bdf_gate_errors: dict[str, list[str]],
 ) -> dict[str, object]:
     worst_field, worst_delta = bdf_pairwise_worst
@@ -690,6 +874,9 @@ def _build_json_report(
             "field": fixed_bdf2_worst_field,
             "delta": fixed_bdf2_worst_delta,
         },
+        "fixed_bdf2_pairwise_observable_worst": _json_ready(
+            fixed_bdf2_pairwise_observable_worst
+        ),
         "adaptive_bdf_gate_errors": _json_ready(adaptive_bdf_gate_errors),
     }
 
@@ -1376,6 +1563,18 @@ def main() -> int:
             raise ValueError(
                 "--require-fixed-bdf2-pairwise-max must be finite and nonnegative."
             )
+    if args.require_fixed_bdf2_pairwise_l2_rel_max is not None:
+        value = float(args.require_fixed_bdf2_pairwise_l2_rel_max)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(
+                "--require-fixed-bdf2-pairwise-l2-rel-max must be finite and nonnegative."
+            )
+    if args.require_fixed_bdf2_pairwise_inventory_rel_max is not None:
+        value = float(args.require_fixed_bdf2_pairwise_inventory_rel_max)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(
+                "--require-fixed-bdf2-pairwise-inventory-rel-max must be finite and nonnegative."
+            )
     case, input_path = resolve_reference_case(
         args.case, reference_root=args.reference_root
     )
@@ -1466,6 +1665,10 @@ def main() -> int:
     ):
         print(line)
     for line in _format_fixed_bdf2_pairwise_delta_report(
+        mode_variables, fields=fields, mesh=mesh
+    ):
+        print(line)
+    for line in _format_fixed_bdf2_pairwise_observable_report(
         mode_variables, fields=fields, mesh=mesh
     ):
         print(line)
@@ -1594,6 +1797,9 @@ def main() -> int:
     fixed_bdf2_pairwise_worst = _fixed_bdf2_pairwise_worst_delta(
         mode_variables, fields=fields, mesh=mesh
     )
+    fixed_bdf2_pairwise_observable_worst = _fixed_bdf2_pairwise_observable_worst(
+        mode_variables, fields=fields, mesh=mesh
+    )
     if args.output_json is not None:
         report = _build_json_report(
             case_name=args.case,
@@ -1608,6 +1814,9 @@ def main() -> int:
             mode_diagnostics=mode_diagnostics,
             bdf_pairwise_worst=bdf_pairwise_worst,
             fixed_bdf2_pairwise_worst=fixed_bdf2_pairwise_worst,
+            fixed_bdf2_pairwise_observable_worst=(
+                fixed_bdf2_pairwise_observable_worst
+            ),
             adaptive_bdf_gate_errors=adaptive_gate_errors,
         )
         _write_json_report(args.output_json, report)
@@ -1641,6 +1850,46 @@ def main() -> int:
         )
         if not np.isfinite(worst_delta) or worst_delta > threshold:
             print("gate_failure=fixed BDF2 pairwise delta exceeds threshold")
+            return 2
+    if args.require_fixed_bdf2_pairwise_l2_rel_max is not None:
+        l2_worst = fixed_bdf2_pairwise_observable_worst["l2_relative"]
+        worst_delta = l2_worst["delta"]
+        if worst_delta is None:
+            print(
+                "gate_failure=fixed BDF2 pairwise L2 relative delta is unavailable; "
+                "run bdf and at least one fixed-BDF2 candidate"
+            )
+            return 2
+        threshold = float(args.require_fixed_bdf2_pairwise_l2_rel_max)
+        print(
+            f"gate=fixed_bdf2_pairwise_l2_relative_max "
+            f"mode={l2_worst['mode']} field={l2_worst['field']} "
+            f"delta={float(worst_delta):.8e} threshold={threshold:.8e}"
+        )
+        if not np.isfinite(float(worst_delta)) or float(worst_delta) > threshold:
+            print("gate_failure=fixed BDF2 pairwise L2 relative delta exceeds threshold")
+            return 2
+    if args.require_fixed_bdf2_pairwise_inventory_rel_max is not None:
+        inventory_worst = fixed_bdf2_pairwise_observable_worst[
+            "inventory_relative"
+        ]
+        worst_delta = inventory_worst["delta"]
+        if worst_delta is None:
+            print(
+                "gate_failure=fixed BDF2 pairwise inventory relative delta is unavailable; "
+                "run bdf and at least one fixed-BDF2 candidate"
+            )
+            return 2
+        threshold = float(args.require_fixed_bdf2_pairwise_inventory_rel_max)
+        print(
+            f"gate=fixed_bdf2_pairwise_inventory_relative_max "
+            f"mode={inventory_worst['mode']} field={inventory_worst['field']} "
+            f"delta={float(worst_delta):.8e} threshold={threshold:.8e}"
+        )
+        if not np.isfinite(float(worst_delta)) or float(worst_delta) > threshold:
+            print(
+                "gate_failure=fixed BDF2 pairwise inventory relative delta exceeds threshold"
+            )
             return 2
     return 0
 

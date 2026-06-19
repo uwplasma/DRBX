@@ -49,6 +49,10 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "1e-5",
             "--require-fixed-bdf2-pairwise-max",
             "2e-5",
+            "--require-fixed-bdf2-pairwise-l2-rel-max",
+            "3e-4",
+            "--require-fixed-bdf2-pairwise-inventory-rel-max",
+            "4e-4",
             "--require-fixed-jvp-diagnostics",
             "--require-fixed-bdf2-diagnostics",
             "--require-fixed-bdf2-linear-preconditioner",
@@ -112,6 +116,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     ]
     assert args.require_bdf_pairwise_max == 1.0e-5
     assert args.require_fixed_bdf2_pairwise_max == 2.0e-5
+    assert args.require_fixed_bdf2_pairwise_l2_rel_max == 3.0e-4
+    assert args.require_fixed_bdf2_pairwise_inventory_rel_max == 4.0e-4
     assert args.require_fixed_jvp_diagnostics is True
     assert args.require_fixed_bdf2_diagnostics is True
     assert args.require_fixed_bdf2_linear_preconditioner == "local-block"
@@ -158,6 +164,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert "--require-fixed-bdf2-max-linear-update-residual" in help_text
     assert "--require-fixed-bdf2-max-linear-update-relative-residual" in help_text
     assert "--require-fixed-bdf2-pairwise-max" in help_text
+    assert "--require-fixed-bdf2-pairwise-l2-rel-max" in help_text
+    assert "--require-fixed-bdf2-pairwise-inventory-rel-max" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-builds" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-applies" in help_text
     assert "--require-adaptive-bdf-linear-preconditioner" in help_text
@@ -312,6 +320,40 @@ def test_fixed_bdf2_pairwise_delta_report_formats_worst_field_first() -> None:
     ]
 
 
+def test_fixed_bdf2_pairwise_observable_report_formats_l2_and_inventory() -> None:
+    mode_variables = {
+        "bdf": {
+            "Nd+": np.asarray([1.0, 1.0]),
+            "Pd+": np.asarray([10.0, 20.0]),
+        },
+        "fixed_bdf2_active_array_jax_linearized": {
+            "Nd+": np.asarray([1.25, 0.75]),
+            "Pd+": np.asarray([11.0, 19.0]),
+        },
+    }
+
+    lines = compare_script._format_fixed_bdf2_pairwise_observable_report(
+        mode_variables,
+        fields=("Nd+", "Pd+"),
+    )
+
+    assert lines == [
+        "pairwise_observable=bdf_vs_fixed_bdf2_active_array_jax_linearized",
+        (
+            "  Nd+: l2_relative_delta=2.50000000e-01 "
+            "inventory_relative_delta=0.00000000e+00 "
+            "inventory_delta=0.00000000e+00 reference_inventory=2.00000000e+00"
+        ),
+        (
+            "  Pd+: l2_relative_delta=6.32455532e-02 "
+            "inventory_relative_delta=0.00000000e+00 "
+            "inventory_delta=0.00000000e+00 reference_inventory=3.00000000e+01"
+        ),
+        "  worst_l2=Nd+ delta=2.50000000e-01",
+        "  worst_inventory=Nd+ delta=0.00000000e+00",
+    ]
+
+
 def test_mode_diagnostics_report_formats_sorted_values() -> None:
     lines = compare_script._format_mode_diagnostics_report(
         "bdf_fixed_full_field_jvp",
@@ -409,6 +451,35 @@ def test_fixed_bdf2_pairwise_worst_delta_returns_active_mesh_worst_field() -> No
     assert delta == 0.75
 
 
+def test_fixed_bdf2_pairwise_observable_worst_returns_l2_and_inventory() -> None:
+    mode_variables = {
+        "bdf": {
+            "Nd+": np.asarray([1.0, 1.0]),
+            "Pd+": np.asarray([10.0, 20.0]),
+        },
+        "fixed_bdf2_active_array_jax_linearized": {
+            "Nd+": np.asarray([1.25, 0.75]),
+            "Pd+": np.asarray([11.0, 21.0]),
+        },
+    }
+
+    worst = compare_script._fixed_bdf2_pairwise_observable_worst(
+        mode_variables,
+        fields=("Nd+", "Pd+"),
+    )
+
+    assert worst["l2_relative"] == {
+        "mode": "fixed_bdf2_active_array_jax_linearized",
+        "field": "Nd+",
+        "delta": 0.25,
+    }
+    assert worst["inventory_relative"] == {
+        "mode": "fixed_bdf2_active_array_jax_linearized",
+        "field": "Pd+",
+        "delta": 2.0 / 30.0,
+    }
+
+
 def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(
     tmp_path: Path,
 ) -> None:
@@ -430,6 +501,18 @@ def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(
         },
         bdf_pairwise_worst=("Pe", np.float64(0.0)),
         fixed_bdf2_pairwise_worst=("Pe", np.float64(0.25)),
+        fixed_bdf2_pairwise_observable_worst={
+            "l2_relative": {
+                "mode": "fixed_bdf2_active_array_jax_linearized",
+                "field": "Pe",
+                "delta": np.float64(0.125),
+            },
+            "inventory_relative": {
+                "mode": "fixed_bdf2_active_array_jax_linearized",
+                "field": "Nd+",
+                "delta": np.float64(0.0625),
+            },
+        },
         adaptive_bdf_gate_errors={"adaptive_bdf_jax_linearized": []},
     )
     path = tmp_path / "nested" / "report.json"
@@ -454,6 +537,18 @@ def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(
     assert payload["fixed_bdf2_pairwise_worst"] == {
         "field": "Pe",
         "delta": 0.25,
+    }
+    assert payload["fixed_bdf2_pairwise_observable_worst"] == {
+        "l2_relative": {
+            "mode": "fixed_bdf2_active_array_jax_linearized",
+            "field": "Pe",
+            "delta": 0.125,
+        },
+        "inventory_relative": {
+            "mode": "fixed_bdf2_active_array_jax_linearized",
+            "field": "Nd+",
+            "delta": 0.0625,
+        },
     }
 
 
