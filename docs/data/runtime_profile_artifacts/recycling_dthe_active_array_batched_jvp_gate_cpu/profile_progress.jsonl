@@ -1,35 +1,36 @@
-{"event": "problem_build_start", "input_path": "<input-path>/BOUT.inp", "overrides": ["mesh:ny=100"], "rhs_backend": "active_array"}
+{"event": "problem_build_start", "input_path": "<input-path>/BOUT.inp", "jvp_partition_size": null, "overrides": ["mesh:ny=100"], "residual_partition_size": null, "rhs_backend": "active_array"}
 {"event": "problem_build_complete", "mesh_active_shape": [1, 100, 1], "rhs_backend": "active_array", "state_size": 1900}
-{"batch_sizes": [1, 4, 16, 64], "check_objective_grad": true, "event": "profile_start", "mesh_active_shape": [1, 100, 1], "rhs_backend": "active_array", "state_size": 1900, "timed_runs": 3}
-{"event": "base_residual_warmup_complete", "seconds": 0.908465749991592}
-{"event": "base_jvp_warmup_complete", "seconds": 1.7485707090236247}
-{"event": "jvp_fd_check_complete", "jvp_fd_relative_error": 5.970822088758896e-09, "seconds": 0.012985957961063832}
-{"event": "objective_grad_check_complete", "objective_directional_relative_error": 1.3400199333876716e-07, "seconds": 3.9498582080123015}
+{"batch_sizes": [1, 4, 16, 64], "check_objective_grad": true, "event": "profile_start", "jvp_partition_size": null, "mesh_active_shape": [1, 100, 1], "residual_partition_size": null, "rhs_backend": "active_array", "state_size": 1900, "timed_runs": 3}
+{"event": "base_residual_warmup_complete", "seconds": 0.9074937920086086}
+{"event": "base_jvp_warmup_complete", "seconds": 1.7151556250173599}
+{"event": "jvp_fd_check_complete", "jvp_fd_relative_error": 5.970822088758896e-09, "seconds": 0.012916292005684227}
+{"event": "objective_grad_check_complete", "objective_directional_relative_error": 1.3400199333876716e-07, "seconds": 3.9441668749786913}
 {"batch_size": 1, "event": "batch_start"}
-{"batch_size": 1, "event": "batch_direction_build_complete", "seconds": 0.002126750012394041}
-{"batch_size": 1, "event": "batch_residual_warmup_complete", "seconds": 1.3354992080130614}
-{"batch_size": 1, "event": "batch_jvp_warmup_complete", "seconds": 2.592374792031478}
-{"batch_size": 1, "event": "batch_serial_warmup_complete", "seconds": 0.0029703329782932997}
-{"batch_size": 1, "event": "batch_warmup_complete", "seconds": 3.930844333022833}
-{"batch_size": 1, "batch_warmup_seconds": 3.930844333022833, "batched_jvp_warmup_seconds": 2.592374792031478, "batched_residual_warmup_seconds": 1.3354992080130614, "direction_build_seconds": 0.002126750012394041, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_speedup_vs_serial": 0.8811386274925674, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 0.0, "residual_speedup_vs_serial": 1.1768369921301352, "serial_warmup_seconds": 0.0029703329782932997}
+{"batch_size": 1, "event": "batch_direction_build_complete", "jvp_partition_count": 1, "jvp_partition_size": 1, "residual_partition_count": 1, "residual_partition_size": 1, "seconds": 0.002320875006262213}
+{"batch_size": 1, "event": "batch_residual_warmup_complete", "residual_partition_count": 1, "residual_partition_size": 1, "seconds": 1.3321801249985583}
+{"batch_size": 1, "event": "batch_jvp_warmup_complete", "jvp_partition_count": 1, "jvp_partition_size": 1, "seconds": 2.631567250005901}
+{"batch_size": 1, "event": "batch_serial_warmup_complete", "seconds": 0.0031645409762859344}
+{"batch_size": 1, "event": "batch_warmup_complete", "seconds": 3.966911915980745}
+{"batch_size": 1, "batch_warmup_seconds": 3.966911915980745, "batched_jvp_warmup_seconds": 2.631567250005901, "batched_residual_warmup_seconds": 1.3321801249985583, "direction_build_seconds": 0.002320875006262213, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_partition_count": 1, "jvp_partition_size": 1, "jvp_speedup_vs_serial": 1.1890576120608807, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 0.0, "residual_partition_count": 1, "residual_partition_size": 1, "residual_speedup_vs_serial": 1.4080517123710197, "serial_warmup_seconds": 0.0031645409762859344}
 {"batch_size": 4, "event": "batch_start"}
-{"batch_size": 4, "event": "batch_direction_build_complete", "seconds": 0.018316583009436727}
-{"batch_size": 4, "event": "batch_residual_warmup_complete", "seconds": 1.4035377080435865}
-{"batch_size": 4, "event": "batch_jvp_warmup_complete", "seconds": 2.6648784590070136}
-{"batch_size": 4, "event": "batch_serial_warmup_complete", "seconds": 0.004235874977894127}
-{"batch_size": 4, "event": "batch_warmup_complete", "seconds": 4.072652042028494}
-{"batch_size": 4, "batch_warmup_seconds": 4.072652042028494, "batched_jvp_warmup_seconds": 2.6648784590070136, "batched_residual_warmup_seconds": 1.4035377080435865, "direction_build_seconds": 0.018316583009436727, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_speedup_vs_serial": 1.1596109547490938, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 0.0, "residual_speedup_vs_serial": 1.461032101259964, "serial_warmup_seconds": 0.004235874977894127}
+{"batch_size": 4, "event": "batch_direction_build_complete", "jvp_partition_count": 1, "jvp_partition_size": 4, "residual_partition_count": 1, "residual_partition_size": 4, "seconds": 0.01880974997766316}
+{"batch_size": 4, "event": "batch_residual_warmup_complete", "residual_partition_count": 1, "residual_partition_size": 4, "seconds": 1.3999815409770235}
+{"batch_size": 4, "event": "batch_jvp_warmup_complete", "jvp_partition_count": 1, "jvp_partition_size": 4, "seconds": 2.6605498749995604}
+{"batch_size": 4, "event": "batch_serial_warmup_complete", "seconds": 0.004297041974496096}
+{"batch_size": 4, "event": "batch_warmup_complete", "seconds": 4.06482845795108}
+{"batch_size": 4, "batch_warmup_seconds": 4.06482845795108, "batched_jvp_warmup_seconds": 2.6605498749995604, "batched_residual_warmup_seconds": 1.3999815409770235, "direction_build_seconds": 0.01880974997766316, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_partition_count": 1, "jvp_partition_size": 4, "jvp_speedup_vs_serial": 1.3698121000129926, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 0.0, "residual_partition_count": 1, "residual_partition_size": 4, "residual_speedup_vs_serial": 1.611483036235801, "serial_warmup_seconds": 0.004297041974496096}
 {"batch_size": 16, "event": "batch_start"}
-{"batch_size": 16, "event": "batch_direction_build_complete", "seconds": 0.019681125006172806}
-{"batch_size": 16, "event": "batch_residual_warmup_complete", "seconds": 1.2082159999990836}
-{"batch_size": 16, "event": "batch_jvp_warmup_complete", "seconds": 2.7166415830142796}
-{"batch_size": 16, "event": "batch_serial_warmup_complete", "seconds": 0.008658333972562104}
-{"batch_size": 16, "event": "batch_warmup_complete", "seconds": 3.9335159169859253}
-{"batch_size": 16, "batch_warmup_seconds": 3.9335159169859253, "batched_jvp_warmup_seconds": 2.7166415830142796, "batched_residual_warmup_seconds": 1.2082159999990836, "direction_build_seconds": 0.019681125006172806, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_speedup_vs_serial": 1.720038498584496, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 0.0, "residual_speedup_vs_serial": 1.6921346657117504, "serial_warmup_seconds": 0.008658333972562104}
+{"batch_size": 16, "event": "batch_direction_build_complete", "jvp_partition_count": 1, "jvp_partition_size": 16, "residual_partition_count": 1, "residual_partition_size": 16, "seconds": 0.019192999985534698}
+{"batch_size": 16, "event": "batch_residual_warmup_complete", "residual_partition_count": 1, "residual_partition_size": 16, "seconds": 1.2024648750084452}
+{"batch_size": 16, "event": "batch_jvp_warmup_complete", "jvp_partition_count": 1, "jvp_partition_size": 16, "seconds": 2.713830708002206}
+{"batch_size": 16, "event": "batch_serial_warmup_complete", "seconds": 0.009030458983033895}
+{"batch_size": 16, "event": "batch_warmup_complete", "seconds": 3.925326041993685}
+{"batch_size": 16, "batch_warmup_seconds": 3.925326041993685, "batched_jvp_warmup_seconds": 2.713830708002206, "batched_residual_warmup_seconds": 1.2024648750084452, "direction_build_seconds": 0.019192999985534698, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_partition_count": 1, "jvp_partition_size": 16, "jvp_speedup_vs_serial": 1.8273510907121941, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 0.0, "residual_partition_count": 1, "residual_partition_size": 16, "residual_speedup_vs_serial": 1.6330500986246195, "serial_warmup_seconds": 0.009030458983033895}
 {"batch_size": 64, "event": "batch_start"}
-{"batch_size": 64, "event": "batch_direction_build_complete", "seconds": 0.020775958022568375}
-{"batch_size": 64, "event": "batch_residual_warmup_complete", "seconds": 1.207355542050209}
-{"batch_size": 64, "event": "batch_jvp_warmup_complete", "seconds": 2.78584712499287}
-{"batch_size": 64, "event": "batch_serial_warmup_complete", "seconds": 0.028998166031669825}
-{"batch_size": 64, "event": "batch_warmup_complete", "seconds": 4.0222008330747485}
-{"batch_size": 64, "batch_warmup_seconds": 4.0222008330747485, "batched_jvp_warmup_seconds": 2.78584712499287, "batched_residual_warmup_seconds": 1.207355542050209, "direction_build_seconds": 0.020775958022568375, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_speedup_vs_serial": 2.061859741081286, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 1.6940658945086007e-21, "residual_speedup_vs_serial": 2.4891520367074684, "serial_warmup_seconds": 0.028998166031669825}
+{"batch_size": 64, "event": "batch_direction_build_complete", "jvp_partition_count": 1, "jvp_partition_size": 64, "residual_partition_count": 1, "residual_partition_size": 64, "seconds": 0.019740000017918646}
+{"batch_size": 64, "event": "batch_residual_warmup_complete", "residual_partition_count": 1, "residual_partition_size": 64, "seconds": 1.2269960420089774}
+{"batch_size": 64, "event": "batch_jvp_warmup_complete", "jvp_partition_count": 1, "jvp_partition_size": 64, "seconds": 2.8050030840095133}
+{"batch_size": 64, "event": "batch_serial_warmup_complete", "seconds": 0.029061500041279942}
+{"batch_size": 64, "event": "batch_warmup_complete", "seconds": 4.061060626059771}
+{"batch_size": 64, "batch_warmup_seconds": 4.061060626059771, "batched_jvp_warmup_seconds": 2.8050030840095133, "batched_residual_warmup_seconds": 1.2269960420089774, "direction_build_seconds": 0.019740000017918646, "event": "batch_complete", "jvp_batched_serial_max_abs_error": 0.0, "jvp_partition_count": 1, "jvp_partition_size": 64, "jvp_speedup_vs_serial": 2.0051422108226746, "pmap_device_count": 0, "residual_batched_serial_max_abs_error": 1.6940658945086007e-21, "residual_partition_count": 1, "residual_partition_size": 64, "residual_speedup_vs_serial": 2.7240136592148922, "serial_warmup_seconds": 0.029061500041279942}
+{"elapsed_seconds": 22.86162195802899, "event": "profile_complete", "jvp_partition_size": null, "residual_partition_size": null, "throughput_summary": {"batch_count": 4, "batch_sizes": [1, 4, 16, 64], "best_batched_jvp_throughput": {"batch_size": 64, "states_per_second": 8727.421827205939}, "best_batched_residual_throughput": {"batch_size": 64, "states_per_second": 34283.41170861385}, "best_jvp_batch_efficiency": {"batch_size": 1, "efficiency": 1.1890576120608807, "speedup": 1.1890576120608807}, "best_jvp_speedup_vs_serial": {"batch_size": 64, "speedup": 2.0051422108226746}, "best_pmap_jvp_device_efficiency_vs_serial": null, "best_pmap_jvp_speedup_vs_batched": null, "best_pmap_jvp_speedup_vs_serial": null, "best_pmap_jvp_throughput": null, "best_residual_batch_efficiency": {"batch_size": 1, "efficiency": 1.4080517123710197, "speedup": 1.4080517123710197}, "best_residual_speedup_vs_serial": {"batch_size": 64, "speedup": 2.7240136592148922}, "max_batch_size": 64, "throughput_units": "states_per_second"}}
