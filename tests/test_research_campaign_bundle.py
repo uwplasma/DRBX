@@ -69,6 +69,37 @@ def _assert_fixed_bdf2_direct_counting_command(command, *, requires_gpu: bool) -
     assert "--output-json" in command.command
 
 
+def _assert_fixed_bdf2_linear_update_residual_command(command) -> None:
+    assert command.required_reference_inputs == ("hydrogen",)
+    assert command.requires_gpu is False
+    assert command.timeout_seconds == 360
+    assert "compare_recycling_transient_modes.py" in command.command[1]
+    assert "recycling_1d_one_step" in command.command
+    assert "fixed_bdf2_active_array_jax_linearized" in command.command
+    assert "--diagnostics-only" in command.command
+    assert "--require-fixed-bdf2-diagnostics" in command.command
+    assert "--require-fixed-bdf2-linear-operator-jitted" in command.command
+    assert command.command[
+        command.command.index("--require-fixed-bdf2-linear-solver-backend") + 1
+    ] == "jax_gmres"
+    assert command.command[
+        command.command.index("--require-fixed-bdf2-max-linear-update-residual") + 1
+    ] == "2e-8"
+    assert command.command[
+        command.command.index("--require-fixed-bdf2-max-linear-update-relative-residual")
+        + 1
+    ] == "2e-5"
+    assert "runtime:recycling_jax_linear_jit_linear_operator=true" in command.command
+    assert "runtime:recycling_jax_linear_operator_counting=direct" in command.command
+    assert "runtime:recycling_jax_linear_initial_residual_mode=linearize" in (
+        command.command
+    )
+    assert "runtime:recycling_jax_linear_diagnose_update_residual=true" in (
+        command.command
+    )
+    assert "--output-json" in command.command
+
+
 def _assert_batched_jvp_command(
     command,
     *,
@@ -247,6 +278,9 @@ def test_research_campaign_all_local_includes_fixed_bdf2_direct_counting() -> No
     assert "fixed-bdf2-direct-counting-gate" in module.expand_campaign_names(
         ("all-local",)
     )
+    assert "fixed-bdf2-linear-update-residual-gate" in module.expand_campaign_names(
+        ("all-local",)
+    )
     assert "dthe-active-array-batched-jvp-gate" in module.expand_campaign_names(
         ("all-local",)
     )
@@ -369,6 +403,28 @@ def test_research_campaign_fixed_bdf2_direct_counting_gate_is_gated(
 
     assert command.name == "fixed-bdf2-direct-counting-gate"
     _assert_fixed_bdf2_direct_counting_command(command, requires_gpu=False)
+
+
+def test_research_campaign_fixed_bdf2_linear_update_residual_gate_is_gated(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py",
+        "research_campaign_fixed_bdf2_linear_update_residual",
+    )
+    reference_root = _make_dthe_reference_root(tmp_path)
+
+    (command,) = module.build_campaign_commands(
+        campaign_names=("fixed-bdf2-linear-update-residual-gate",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=reference_root,
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    assert command.name == "fixed-bdf2-linear-update-residual-gate"
+    _assert_fixed_bdf2_linear_update_residual_command(command)
 
 
 def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(

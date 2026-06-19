@@ -2955,6 +2955,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   `2.11e-11`, and measured update-check time about `3.89 s`. Decision: this
   is useful timing evidence for avoiding one extra post-GMRES JVP action, but
   strict promotion still depends on the residual-checked gate.
+- 2026-06-19: Added and ran
+  `fixed-bdf2-linear-update-residual-gate`, the strict output-window companion
+  to `fixed-bdf2-direct-counting-gate`. The retained hydrogen active-array
+  fixed-BDF2 artifact reports zero failed linear solves,
+  `fixed_bdf2_max_residual_inf_norm=2.90e-6`,
+  `fixed_bdf2_max_linear_update_residual_inf_norm=1.58e-8`,
+  `fixed_bdf2_max_linear_update_relative_residual=1.02e-5`, and `23`
+  post-GMRES residual-action checks costing about `4.03 s` out of a
+  `48.5 s` mode run. Decision: the output-window matrix-free route has a
+  strict residual-health gate now; the extra residual action is measurable
+  overhead, so cheaper direct-counting profiles remain separate timing
+  evidence.
 
 ## Definition Of Done
 

@@ -70,6 +70,16 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the strict fixed-BDF2 linear-update residual gate after changing
+JAX-linearized Newton/GMRES internals, line-search settings, or output-window
+preconditioner plumbing:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign fixed-bdf2-linear-update-residual-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the lightweight active-array matrix-free Newton-update gate after changing
 fixed-layout residual linearization, GMRES controls, or preconditioner plumbing:
 
@@ -233,6 +243,18 @@ run of about `8.15 s`, while the Lineax backend reports `RESULTS<>`, success,
 `2` reported iterations, and a timed run of about `7.54 s`. These artifacts are
 small JSON summaries, not trace bundles, so they are suitable for git and give
 the heavier GPU/output-window campaigns a stable backend-health baseline.
+
+The strict output-window fixed-BDF2 diagnostic gate now has a retained hydrogen
+fixture artifact at
+`docs/data/runtime_profile_artifacts/recycling_1d_fixed_bdf2_active_array_linear_update_residual_cpu/profile_summary.json`.
+It uses the active-array JAX-linearized fixed-BDF2 route with the post-GMRES
+linearized residual diagnostic enabled. The retained run reports zero failed
+linear solves, `fixed_bdf2_max_residual_inf_norm=2.90e-6`,
+`fixed_bdf2_max_linear_update_residual_inf_norm=1.58e-8`,
+`fixed_bdf2_max_linear_update_relative_residual=1.02e-5`, and `23`
+linear-update residual checks costing about `4.03 s`. This is the strict
+health gate paired with the cheaper direct-counting gate; it is not a speedup
+claim.
 
 The adaptive-BDF promotion lane now also writes a lightweight JSON artifact at
 `docs/data/runtime_profile_artifacts/recycling_1d_adaptive_bdf_jax_lineax_gate/profile_summary.json`.

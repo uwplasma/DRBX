@@ -479,6 +479,59 @@ def _campaign_command_map(
             required_reference_inputs=("hydrogen",),
             timeout_seconds=300,
         ),
+        "fixed-bdf2-linear-update-residual-gate": CampaignCommand(
+            name="fixed-bdf2-linear-update-residual-gate",
+            description=(
+                "Bounded hydrogen fixed-BDF2 active-array output-window gate "
+                "with the strict post-GMRES linearized residual diagnostic."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "compare_recycling_transient_modes.py"),
+                "--case",
+                "recycling_1d_one_step",
+                *reference_args,
+                "--mode",
+                "fixed_bdf2_active_array_jax_linearized",
+                "--diagnostics-only",
+                "--require-fixed-bdf2-diagnostics",
+                "--require-fixed-bdf2-linear-solver-backend",
+                "jax_gmres",
+                "--require-fixed-bdf2-linear-operator-jitted",
+                "--require-fixed-bdf2-min-linear-solve-count",
+                "1",
+                "--require-fixed-bdf2-max-residual-evaluations",
+                "46",
+                "--require-fixed-bdf2-max-linear-update-residual",
+                "2e-8",
+                "--require-fixed-bdf2-max-linear-update-relative-residual",
+                "2e-5",
+                "--timestep",
+                "10",
+                "--steps",
+                "2",
+                "--mode-timeout-seconds",
+                "240",
+                "--override",
+                "runtime:recycling_jax_linear_jit_linear_operator=true",
+                "--override",
+                "runtime:recycling_jax_linear_operator_counting=direct",
+                "--override",
+                "runtime:recycling_jax_linear_initial_residual_mode=linearize",
+                "--override",
+                "runtime:recycling_jax_linear_diagnose_update_residual=true",
+                "--output-json",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_1d_fixed_bdf2_active_array_linear_update_residual_cpu"
+                    / "profile_summary.json"
+                ),
+            ),
+            requires_reference=True,
+            required_reference_inputs=("hydrogen",),
+            timeout_seconds=360,
+        ),
         "adaptive-bdf-jax-lineax-gate": CampaignCommand(
             name="adaptive-bdf-jax-lineax-gate",
             description="Adaptive-BDF JAX-linearized versus Lineax controller-health gate.",
@@ -836,6 +889,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
                     "dthe-active-array-linearized-update-gate",
                     "dthe-active-array-linearized-update-throughput-probe",
                     "fixed-bdf2-direct-counting-gate",
+                    "fixed-bdf2-linear-update-residual-gate",
                     "adaptive-bdf-jax-lineax-gate",
                     "heavy-recycling-profile",
                     "live-reference",
