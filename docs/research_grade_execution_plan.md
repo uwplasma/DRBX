@@ -2887,12 +2887,28 @@ Use this log for concise decision records. Do not paste terminal output here.
   `dthe-active-array-linearized-update-gate`. The gate keeps the active-array
   fixed-layout residual at `ny=16`, disables pmap and objective-gradient
   timing, and runs one jitted matrix-free JAX GMRES update with restart/maxiter
-  `8`. The local fixture campaign passed in `33.4 s`; the update check itself
-  took `11.94 s`, returned solver status `0`, produced linear-update relative
-  residual `3.26e-16`, and reduced the candidate nonlinear residual to
+  `8`. The refreshed local fixture campaign passed in `15.6 s`; the update
+  check itself took `5.48 s`, returned solver status `0`, produced
+  linear-update relative residual `3.26e-16`, and reduced the candidate
+  nonlinear residual to
   `2.11e-11`. Decision: this closes the first solver-health evidence gap for
   the matrix-free preconditioner lane, but the production BDF default remains
   unchanged until heavier output-window parity and runtime gates pass.
+- 2026-06-19: Added a bounded `jvp_diag` option to the standalone
+  linearized-update profile gate and exposed
+  `dthe-active-array-linearized-update-jvp-diag-gate`. The JVP-derived packed
+  diagonal builder is capped by
+  `--linearized-update-preconditioner-max-unknowns`, records build diagnostics,
+  and leaves the production solver default unchanged. On the same `ny=16`
+  active-array D/T/He fixture, `jvp_diag` built a `304`-entry diagonal in
+  `1.25 s`, returned solver status `0`, produced linear-update relative
+  residual `2.94e-15`, and reached the same `2.11e-11` candidate nonlinear
+  residual. The sampled diagonal is nearly identity
+  (`1.000000007` to `1.000043761` in absolute value), and the update check
+  slowed to `11.42 s`. Decision: this is a correct negative screen; do not
+  promote packed diagonal preconditioning for this D/T/He fixture. The next
+  preconditioner lane should target transport/block structure or reduce
+  residual/JVP kernel cost.
 
 ## Definition Of Done
 

@@ -343,21 +343,95 @@ def _partitioned_batched_call(
 def _build_linearized_update_preconditioner(
     name: str | None,
     base_state: object,
+    linear_action: Callable[[object], object],
+    *,
+    floor: float = 1.0e-10,
+    max_unknowns: int = 2048,
 ):
+    import jax
     import jax.numpy as jnp
 
     normalized = str(name or "none").strip().lower().replace("-", "_")
     if normalized in {"", "none", "off", "false", "no"}:
-        return None
+        return None, {
+            "name": "none",
+            "build_seconds": 0.0,
+            "jvp_diagonal_size": 0,
+        }
     if normalized in {"state_scale", "state", "scale"}:
         scale = jnp.maximum(jnp.abs(jnp.asarray(base_state, dtype=jnp.float64)), 1.0)
 
         def preconditioner(vector):
             return jnp.asarray(vector, dtype=jnp.float64) / scale
 
-        return preconditioner
+        return preconditioner, {
+            "name": "state_scale",
+            "build_seconds": 0.0,
+            "jvp_diagonal_size": 0,
+            "scale_min": float(jnp.min(scale)),
+            "scale_max": float(jnp.max(scale)),
+        }
+    if normalized in {"jvp_diag", "linearized_diag", "jacobian_diag"}:
+        started_at = perf_counter()
+        prototype = jnp.asarray(base_state, dtype=jnp.float64)
+        flat_size = int(prototype.size)
+        if flat_size > int(max_unknowns):
+            raise ValueError(
+                "linearized_update_preconditioner='jvp_diag' is bounded to "
+                f"{int(max_unknowns)} unknowns; got {flat_size}. Increase "
+                "--linearized-update-preconditioner-max-unknowns only for "
+                "explicit local profiling runs."
+            )
+        if flat_size == 0:
+            safe_diagonal = jnp.ones_like(prototype, dtype=jnp.float64)
+            raw_diagonal = safe_diagonal
+        else:
+            basis = jnp.eye(flat_size, dtype=prototype.dtype).reshape(
+                (flat_size,) + tuple(prototype.shape)
+            )
+
+            def diagonal_entry(tangent):
+                flat_response = jnp.ravel(linear_action(tangent))
+                flat_tangent = jnp.ravel(tangent)
+                return jnp.sum(flat_response * flat_tangent)
+
+            raw_diagonal = jax.vmap(diagonal_entry)(basis).reshape(
+                tuple(prototype.shape)
+            )
+            sign = jnp.where(raw_diagonal < 0.0, -1.0, 1.0)
+            safe_diagonal = jnp.where(
+                jnp.abs(raw_diagonal) >= float(floor),
+                raw_diagonal,
+                sign * float(floor),
+            )
+        safe_diagonal = jax.block_until_ready(safe_diagonal)
+        raw_diagonal = jax.block_until_ready(raw_diagonal)
+
+        def preconditioner(vector):
+            return jnp.asarray(vector, dtype=jnp.float64) / safe_diagonal
+
+        return preconditioner, {
+            "name": "jvp_diag",
+            "build_seconds": float(perf_counter() - started_at),
+            "jvp_diagonal_size": int(flat_size),
+            "floor": float(floor),
+            "max_unknowns": int(max_unknowns),
+            "raw_diagonal_min_abs": float(jnp.min(jnp.abs(raw_diagonal)))
+            if flat_size
+            else 1.0,
+            "raw_diagonal_max_abs": float(jnp.max(jnp.abs(raw_diagonal)))
+            if flat_size
+            else 1.0,
+            "safe_diagonal_min_abs": float(jnp.min(jnp.abs(safe_diagonal)))
+            if flat_size
+            else 1.0,
+            "safe_diagonal_max_abs": float(jnp.max(jnp.abs(safe_diagonal)))
+            if flat_size
+            else 1.0,
+        }
     raise ValueError(
-        "linearized_update_preconditioner must be 'none' or 'state_scale', "
+        "linearized_update_preconditioner must be 'none', 'state_scale', or "
+        "'jvp_diag', "
         f"got {name!r}."
     )
 
@@ -380,6 +454,8 @@ def profile_recycling_batched_jvp_problem(
     linearized_update_solve_method: str = "batched",
     linearized_update_jit_operator: bool = False,
     linearized_update_preconditioner: str | None = None,
+    linearized_update_preconditioner_floor: float = 1.0e-10,
+    linearized_update_preconditioner_max_unknowns: int = 2048,
     progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
     """Measure fixed-work vectorized residual/JVP throughput on a real residual."""
@@ -488,9 +564,14 @@ def profile_recycling_batched_jvp_problem(
     linearized_update_diagnostics = None
     if bool(check_linearized_update):
         started_at = perf_counter()
-        preconditioner = _build_linearized_update_preconditioner(
-            linearized_update_preconditioner,
-            base_state,
+        preconditioner, preconditioner_diagnostics = (
+            _build_linearized_update_preconditioner(
+                linearized_update_preconditioner,
+                base_state,
+                linearized_action.linear_action,
+                floor=float(linearized_update_preconditioner_floor),
+                max_unknowns=int(linearized_update_preconditioner_max_unknowns),
+            )
         )
         solve_result = solve_fixed_residual_linearized_update(
             residual,
@@ -517,7 +598,8 @@ def profile_recycling_batched_jvp_problem(
             ),
             "candidate_residual_inf_norm": float(jnp.max(jnp.abs(candidate_residual))),
             "update_inf_norm": float(jnp.max(jnp.abs(solve_result.update))),
-            "preconditioner": str(linearized_update_preconditioner or "none"),
+            "preconditioner": str(preconditioner_diagnostics["name"]),
+            "preconditioner_diagnostics": preconditioner_diagnostics,
             "jit_linear_operator": bool(linearized_update_jit_operator),
             "linear_tolerance": float(linearized_update_tolerance),
             "linear_restart": int(linearized_update_restart),
@@ -922,6 +1004,8 @@ def create_recycling_batched_jvp_profile_package(
     linearized_update_solve_method: str = "batched",
     linearized_update_jit_operator: bool = False,
     linearized_update_preconditioner: str | None = None,
+    linearized_update_preconditioner_floor: float = 1.0e-10,
+    linearized_update_preconditioner_max_unknowns: int = 2048,
 ) -> dict[str, object]:
     output_path = Path(output_dir).expanduser()
     output_path.mkdir(parents=True, exist_ok=True)
@@ -973,6 +1057,10 @@ def create_recycling_batched_jvp_profile_package(
         linearized_update_solve_method=linearized_update_solve_method,
         linearized_update_jit_operator=linearized_update_jit_operator,
         linearized_update_preconditioner=linearized_update_preconditioner,
+        linearized_update_preconditioner_floor=linearized_update_preconditioner_floor,
+        linearized_update_preconditioner_max_unknowns=(
+            linearized_update_preconditioner_max_unknowns
+        ),
         progress_callback=progress_callback,
     )
     report = {

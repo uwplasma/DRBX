@@ -91,10 +91,14 @@ def _assert_batched_jvp_command(
         assert "--disable-pmap" in command.command
 
 
-def _assert_linearized_update_command(command) -> None:
+def _assert_linearized_update_command(
+    command,
+    *,
+    preconditioner: str = "none",
+) -> None:
     assert command.required_reference_inputs == ("dthe",)
     assert command.requires_gpu is False
-    assert command.timeout_seconds == 300
+    assert command.timeout_seconds == (420 if preconditioner == "jvp_diag" else 300)
     assert "profile_recycling_batched_jvp_gate.py" in command.command[1]
     assert command.command[command.command.index("--case") + 1] == "dthe"
     assert command.command[command.command.index("--rhs-backend") + 1] == (
@@ -118,7 +122,12 @@ def _assert_linearized_update_command(command) -> None:
     ] == "8"
     assert command.command[
         command.command.index("--linearized-update-preconditioner") + 1
-    ] == "none"
+    ] == preconditioner
+    if preconditioner == "jvp_diag":
+        assert command.command[
+            command.command.index("--linearized-update-preconditioner-max-unknowns")
+            + 1
+        ] == "512"
 
 
 def _assert_current_dthe_jax_linearized_command(
@@ -518,6 +527,28 @@ def test_research_campaign_active_array_linearized_update_gate_is_gated(
 
     assert command.name == "dthe-active-array-linearized-update-gate"
     _assert_linearized_update_command(command)
+
+
+def test_research_campaign_active_array_linearized_update_jvp_diag_gate_is_gated(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py",
+        "research_campaign_active_array_linearized_update_jvp_diag",
+    )
+    reference_root = _make_dthe_reference_root(tmp_path)
+
+    (command,) = module.build_campaign_commands(
+        campaign_names=("dthe-active-array-linearized-update-jvp-diag-gate",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=reference_root,
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    assert command.name == "dthe-active-array-linearized-update-jvp-diag-gate"
+    _assert_linearized_update_command(command, preconditioner="jvp_diag")
 
 
 def test_research_campaign_active_array_output_profile_is_gated(

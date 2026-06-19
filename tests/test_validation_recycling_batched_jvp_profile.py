@@ -388,9 +388,62 @@ def test_recycling_batched_jvp_profile_records_linearized_update_health() -> Non
     assert diagnostics["candidate_residual_inf_norm"] < 1.0e-10
     assert diagnostics["update_inf_norm"] > 0.0
     assert diagnostics["preconditioner"] == "none"
+    assert diagnostics["preconditioner_diagnostics"] == {
+        "name": "none",
+        "build_seconds": 0.0,
+        "jvp_diagonal_size": 0,
+    }
     assert diagnostics["jit_linear_operator"] is True
     assert diagnostics["solve_method"] == "batched"
     assert diagnostics["action_diagnostics"]["linear_operator_jitted"] is True
+
+
+def test_recycling_batched_jvp_profile_records_jvp_diag_preconditioner() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    diagonal = jnp.asarray([2.0, 4.0, 8.0], dtype=jnp.float64)
+    exact_root = jnp.asarray([0.25, -0.5, 1.5], dtype=jnp.float64)
+    problem = RecyclingBatchedJvpProblem(
+        residual=lambda state: diagonal
+        * (jnp.asarray(state, dtype=jnp.float64) - exact_root),
+        base_state=np.array([1.0, 2.0, -3.0], dtype=np.float64),
+        field_names=("Ne",),
+        feedback_names=(),
+        mesh_active_shape=(1, 3, 1),
+        state_size=3,
+        rhs_backend="active_array",
+    )
+
+    report = profile_recycling_batched_jvp_problem(
+        problem,
+        batch_sizes=(1,),
+        timed_runs=1,
+        enable_pmap=False,
+        check_objective_grad=False,
+        check_linearized_update=True,
+        linearized_update_tolerance=1.0e-12,
+        linearized_update_restart=3,
+        linearized_update_maxiter=4,
+        linearized_update_jit_operator=True,
+        linearized_update_preconditioner="jvp_diag",
+        linearized_update_preconditioner_floor=1.0e-12,
+        linearized_update_preconditioner_max_unknowns=3,
+    )
+
+    diagnostics = report["linearized_update_diagnostics"]
+    preconditioner_diagnostics = diagnostics["preconditioner_diagnostics"]
+    assert diagnostics["preconditioner"] == "jvp_diag"
+    assert diagnostics["linear_update_relative_residual"] < 1.0e-10
+    assert diagnostics["candidate_residual_inf_norm"] < 1.0e-10
+    assert diagnostics["action_diagnostics"]["preconditioner_used"] is True
+    assert preconditioner_diagnostics["name"] == "jvp_diag"
+    assert preconditioner_diagnostics["jvp_diagonal_size"] == 3
+    assert preconditioner_diagnostics["build_seconds"] >= 0.0
+    assert preconditioner_diagnostics["floor"] == 1.0e-12
+    assert preconditioner_diagnostics["max_unknowns"] == 3
+    assert preconditioner_diagnostics["raw_diagonal_min_abs"] == 2.0
+    assert preconditioner_diagnostics["raw_diagonal_max_abs"] == 8.0
 
 
 def test_create_recycling_batched_jvp_profile_package_writes_progress_jsonl(

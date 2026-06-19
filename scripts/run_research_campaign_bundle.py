@@ -310,6 +310,51 @@ def _campaign_command_map(
             required_reference_inputs=("dthe",),
             timeout_seconds=300,
         ),
+        "dthe-active-array-linearized-update-jvp-diag-gate": CampaignCommand(
+            name="dthe-active-array-linearized-update-jvp-diag-gate",
+            description=(
+                "Lightweight active-array D/T/He matrix-free Newton-update "
+                "health gate with an opt-in JVP-diagonal preconditioner."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_batched_jvp_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--rhs-backend",
+                "active_array",
+                "--output-dir",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_dthe_active_array_linearized_update_jvp_diag_cpu"
+                ),
+                "--override",
+                "mesh:ny=16",
+                "--batch-sizes",
+                "1",
+                "--timed-runs",
+                "1",
+                "--disable-pmap",
+                "--skip-objective-grad-check",
+                "--check-linearized-update",
+                "--linearized-update-tolerance",
+                "1e-8",
+                "--linearized-update-restart",
+                "8",
+                "--linearized-update-maxiter",
+                "8",
+                "--linearized-update-jit-operator",
+                "--linearized-update-preconditioner",
+                "jvp_diag",
+                "--linearized-update-preconditioner-max-unknowns",
+                "512",
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+            timeout_seconds=420,
+        ),
         "dthe-active-array-output-jvp-profile": CampaignCommand(
             name="dthe-active-array-output-jvp-profile",
             description="Full D/T/He output-window recycling profile through the active-array JVP BDF seam.",
