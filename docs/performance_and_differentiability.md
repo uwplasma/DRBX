@@ -1044,6 +1044,10 @@ leaves transport/off-cell coupling to the outer JAX GMRES iteration. The
 transport-aware probe: it extracts JVP-derived dense blocks along the active
 parallel line for all evolved fields, solves those line blocks on device, and
 leaves feedback variables plus off-line coupling to the outer Krylov update.
+The `momentum_line`/`parallel_momentum` option uses the same line-block builder
+but restricts the block to evolved `NV*` parallel-momentum fields. This is a
+cheaper targeted probe for the D/T/He adaptive-BDF traces where momentum fields
+dominate the embedded-error and Krylov-cost diagnostics.
 The companion
 `runtime:recycling_jax_linear_preconditioner_refresh=<n>` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_REFRESH=<n>` control lets a run
@@ -1185,6 +1189,14 @@ active-array gate it is solver-health clean but not a speedup: residual
 `0.78 s` build time, and elapsed time `16.91 s`. It therefore remains opt-in
 diagnostic evidence for neutral-diffusion-dominated cases, not a default or
 performance claim.
+The matching `momentum_line` candidate is now exposed for momentum-dominated
+multi-ion and recycling traces. It uses the same selected-field line-block
+machinery but supplies only fixed-layout fields whose names start with `NV`.
+This keeps density, pressure, feedback, and non-momentum fields outside the
+approximate inverse, reducing the candidate block size before heavier D/T/He
+same-case preconditioner sweeps. It is a diagnostic option until a heavy
+same-case run demonstrates fewer Krylov/operator calls or lower runtime after
+build cost.
 The solver now also separates preconditioner build cost from preconditioner
 application cost. JAX-linearized steps report
 `linear_preconditioner_apply_count` and

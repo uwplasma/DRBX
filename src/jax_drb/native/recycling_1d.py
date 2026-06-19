@@ -5899,6 +5899,10 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "neutral_parallel_line": "neutral_line",
         "neutral_transport": "neutral_line",
         "neutral_diffusion": "neutral_line",
+        "momentum_line": "momentum_line",
+        "momentum_parallel_line": "momentum_line",
+        "momentum_transport": "momentum_line",
+        "parallel_momentum": "momentum_line",
     }
     return aliases.get(normalized)
 
@@ -5918,6 +5922,7 @@ def _build_recycling_jax_linear_preconditioner(
         "local_block_diag",
         "parallel_line",
         "neutral_line",
+        "momentum_line",
     }:
         return None
     if name not in {"state_scale", "field_scale"}:
@@ -5954,6 +5959,7 @@ def _recycling_jax_linear_preconditioner_context(
         "local_block_diag",
         "parallel_line",
         "neutral_line",
+        "momentum_line",
     }:
         return None
     if layout is None:
@@ -6000,7 +6006,7 @@ def _recycling_jax_linear_preconditioner_context(
             env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_LOCAL_UNKNOWNS",
             default=4096,
         )
-    if name in {"parallel_line", "neutral_line"}:
+    if name in {"parallel_line", "neutral_line", "momentum_line"}:
         active_shape = tuple(int(axis) for axis in tuple(layout.active_shape))
         context["parallel_axis"] = 1 if len(active_shape) > 1 else 0
         context["max_line_unknowns"] = _resolve_positive_int_runtime_option(
@@ -6025,7 +6031,23 @@ def _recycling_jax_linear_preconditioner_context(
             context["field_indices"] = _recycling_neutral_line_field_indices(
                 layout.field_names
             )
+        elif name == "momentum_line":
+            context["field_indices"] = _recycling_momentum_line_field_indices(
+                layout.field_names
+            )
     return context
+
+
+def _recycling_momentum_line_field_indices(
+    field_names: tuple[str, ...],
+) -> tuple[int, ...]:
+    """Return field-major indices for evolved parallel-momentum fields."""
+
+    return tuple(
+        index
+        for index, field_name in enumerate(field_names)
+        if str(field_name).strip().startswith("NV")
+    )
 
 
 def _recycling_neutral_line_field_indices(field_names: tuple[str, ...]) -> tuple[int, ...]:
