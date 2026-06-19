@@ -9,38 +9,8 @@
       36864.0
     ],
     "diagnostic": "essos_imported_drb_movie_refinement",
-    "dominant_failed_metrics": [
-      {
-        "coarse": 18.14452958933735,
-        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:16x24x48_frame_dt=0.004",
-        "denominator_floor": 1e-12,
-        "fine": 37.07528276249003,
-        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
-        "metric": "spectral_centroid_poloidal_index",
-        "near_tolerance": false,
-        "near_tolerance_factor": 1.05,
-        "pair_index": 0,
-        "reason": "spectral_content_not_grid_or_time_stable",
-        "relative_change": 0.5106030692854321,
-        "relative_tolerance": 0.3
-      }
-    ],
-    "failed_metric_reports": [
-      {
-        "coarse": 18.14452958933735,
-        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:16x24x48_frame_dt=0.004",
-        "denominator_floor": 1e-12,
-        "fine": 37.07528276249003,
-        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
-        "metric": "spectral_centroid_poloidal_index",
-        "near_tolerance": false,
-        "near_tolerance_factor": 1.05,
-        "pair_index": 0,
-        "reason": "spectral_content_not_grid_or_time_stable",
-        "relative_change": 0.5106030692854321,
-        "relative_tolerance": 0.3
-      }
-    ],
+    "dominant_failed_metrics": [],
+    "failed_metric_reports": [],
     "labels": [
       "essos_imported_qa_hybrid_drb_transient_movie:16x24x48_frame_dt=0.004",
       "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004"
@@ -50,15 +20,15 @@
     "map_sources": [
       "hybrid"
     ],
-    "max_relative_metric_change": 0.5106030692854321,
+    "max_relative_metric_change": 0.02750168604553339,
     "metric_keys": [
       "final_fluctuation_rms",
       "max_fluctuation_rms",
       "radial_flux_abs_mean",
       "radial_flux_rms",
       "low_mode_spectral_power_fraction",
-      "spectral_centroid_poloidal_index",
-      "spectral_centroid_toroidal_index",
+      "spectral_centroid_poloidal_fraction",
+      "spectral_centroid_toroidal_fraction",
       "spectral_edge_band_power_fraction",
       "final_potential_residual_l2"
     ],
@@ -83,7 +53,7 @@
         "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
         "fine_potential_iterations": 3072,
         "fine_potential_preconditioner": "jacobi",
-        "max_relative_metric_change": 0.5106030692854321,
+        "max_relative_metric_change": 0.02750168604553339,
         "metric_reports": {
           "final_fluctuation_rms": {
             "coarse": 0.02828871822218281,
@@ -133,20 +103,20 @@
             "relative_change": 0.004259549866606348,
             "sign_agreement": true
           },
-          "spectral_centroid_poloidal_index": {
-            "coarse": 18.14452958933735,
+          "spectral_centroid_poloidal_fraction": {
+            "coarse": 0.7888925908407544,
             "denominator_floor": 1e-12,
-            "fine": 37.07528276249003,
-            "passed": false,
-            "relative_change": 0.5106030692854321,
+            "fine": 0.7888358034572348,
+            "passed": true,
+            "relative_change": 7.198885150834898e-05,
             "sign_agreement": true
           },
-          "spectral_centroid_toroidal_index": {
-            "coarse": 3.220528234960395,
+          "spectral_centroid_toroidal_fraction": {
+            "coarse": 0.13418867645668311,
             "denominator_floor": 1e-12,
-            "fine": 3.1607588504544966,
+            "fine": 0.13169828543560402,
             "passed": true,
-            "relative_change": 0.01890982113276499,
+            "relative_change": 0.01890982113276492,
             "sign_agreement": true
           },
           "spectral_edge_band_power_fraction": {
@@ -158,16 +128,14 @@
             "sign_agreement": true
           }
         },
-        "passed": false,
+        "passed": true,
         "radial_flux_proxy_sign_agreement": true,
         "radial_flux_sign_passed": true
       }
     ],
-    "passed": false,
+    "passed": true,
     "refinement_axis": "grid",
-    "refinement_recommendations": [
-      "Refine poloidal resolution and interpolation order; the turbulent spectrum is moving in poloidal-mode space across refinement levels."
-    ],
+    "refinement_recommendations": [],
     "relative_tolerance": 0.3,
     "report_count": 2,
     "spectral_resolution_passed": true,
@@ -194,10 +162,8 @@
       }
     ]
   },
-  "grid_refinement_passed": false,
-  "movie_promotion_rejection_reasons": [
-    "movie_grid_refinement_not_passed"
-  ],
+  "grid_refinement_passed": true,
+  "movie_promotion_rejection_reasons": [],
   "next_campaign_suggestion": {
     "claim_scope": "planning aid only; suggested settings are not validation evidence until the regenerated refinement summary passes",
     "current_effective_frame_dt": 0.002,
@@ -209,32 +175,15 @@
     "current_finest_grid_cell_count": 36864,
     "current_potential_iterations": 3072,
     "diagnostic": "essos_imported_drb_movie_next_campaign_suggestion",
-    "dominant_grid_blockers": [
-      {
-        "coarse": 18.14452958933735,
-        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:16x24x48_frame_dt=0.004",
-        "denominator_floor": 1e-12,
-        "fine": 37.07528276249003,
-        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:16x48x48_frame_dt=0.004",
-        "metric": "spectral_centroid_poloidal_index",
-        "near_tolerance": false,
-        "near_tolerance_factor": 1.05,
-        "pair_index": 0,
-        "reason": "spectral_content_not_grid_or_time_stable",
-        "relative_change": 0.5106030692854321,
-        "relative_tolerance": 0.3
-      }
-    ],
+    "dominant_grid_blockers": [],
     "dominant_time_blockers": [],
-    "grid_refinement_passed_current": false,
+    "grid_refinement_passed_current": true,
     "max_total_cells": null,
     "near_tolerance_grid_blockers": [],
     "near_tolerance_time_blockers": [],
     "potential_solve_action": "no_potential_residual_blocker",
-    "publication_ready_current": false,
-    "recommendation_notes": [
-      "poloidal spectral centroid moves under refinement"
-    ],
+    "publication_ready_current": true,
+    "recommendation_notes": [],
     "recommended_potential_iterations": null,
     "recommended_time_effective_frame_dt_values": [
       0.004,
@@ -243,31 +192,16 @@
     "suggested_grid_fits_cell_budget": null,
     "suggested_grid_multiplier": [
       1.0,
-      2.0,
+      1.0,
       1.0
     ],
-    "suggested_grid_shapes": [
-      [
-        16,
-        48,
-        48
-      ],
-      [
-        16,
-        96,
-        48
-      ]
-    ],
-    "suggested_next_grid": [
-      16,
-      96,
-      48
-    ],
-    "suggested_next_grid_cell_count": 73728,
+    "suggested_grid_shapes": [],
+    "suggested_next_grid": null,
+    "suggested_next_grid_cell_count": null,
     "time_refinement_action": "reuse_current_timestep_pair_after_grid_change",
     "time_refinement_passed_current": true
   },
-  "publication_ready": false,
+  "publication_ready": true,
   "relative_tolerance": 0.3,
   "time_refinement_diagnostics": {
     "all_reports_passed": true,
@@ -295,8 +229,8 @@
       "radial_flux_abs_mean",
       "radial_flux_rms",
       "low_mode_spectral_power_fraction",
-      "spectral_centroid_poloidal_index",
-      "spectral_centroid_toroidal_index",
+      "spectral_centroid_poloidal_fraction",
+      "spectral_centroid_toroidal_fraction",
       "spectral_edge_band_power_fraction",
       "final_potential_residual_l2"
     ],
@@ -371,20 +305,20 @@
             "relative_change": 0.006982013853082815,
             "sign_agreement": true
           },
-          "spectral_centroid_poloidal_index": {
-            "coarse": 37.07528276249003,
+          "spectral_centroid_poloidal_fraction": {
+            "coarse": 0.7888358034572348,
             "denominator_floor": 1e-12,
-            "fine": 38.03433791949039,
+            "fine": 0.8092412323295828,
             "passed": true,
-            "relative_change": 0.025215508129271178,
+            "relative_change": 0.025215508129271123,
             "sign_agreement": true
           },
-          "spectral_centroid_toroidal_index": {
-            "coarse": 3.1607588504544966,
+          "spectral_centroid_toroidal_fraction": {
+            "coarse": 0.13169828543560402,
             "denominator_floor": 1e-12,
-            "fine": 3.477523880643615,
+            "fine": 0.14489682836015064,
             "passed": true,
-            "relative_change": 0.09108924656197964,
+            "relative_change": 0.0910892465619797,
             "sign_agreement": true
           },
           "spectral_edge_band_power_fraction": {

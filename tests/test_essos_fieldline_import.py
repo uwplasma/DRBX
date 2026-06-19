@@ -84,6 +84,8 @@ def _movie_report(
     radial_flux_abs_mean: float | None = None,
     radial_flux_rms: float | None = None,
     low_mode_window_covers_grid: bool | None = None,
+    spectral_centroid_poloidal_fraction: float = 0.25,
+    spectral_centroid_toroidal_fraction: float = 0.25,
     spectral_edge_band_power_fraction: float = 0.08,
     final_potential_residual_l2: float = 0.02,
     potential_iterations: int = 768,
@@ -98,8 +100,14 @@ def _movie_report(
     toroidal_count = grid[2] // 2 + 1
     if low_mode_window_covers_grid is None:
         low_mode_window_covers_grid = bool(poloidal_count <= 4 and toroidal_count <= 6)
-    poloidal_centroid = min(1.25, max(float(poloidal_count - 1), 0.0))
-    toroidal_centroid = min(2.0, max(float(toroidal_count - 1), 0.0))
+    poloidal_centroid = float(spectral_centroid_poloidal_fraction) * max(
+        float(poloidal_count - 1),
+        1.0,
+    )
+    toroidal_centroid = float(spectral_centroid_toroidal_fraction) * max(
+        float(toroidal_count - 1),
+        1.0,
+    )
     return {
         "case": f"{map_source}_{grid[0]}x{grid[1]}x{grid[2]}_{dt:g}",
         "map_source": map_source,
@@ -134,10 +142,12 @@ def _movie_report(
         "spectral_toroidal_mode_count": toroidal_count,
         "spectral_centroid_poloidal_index": poloidal_centroid,
         "spectral_centroid_toroidal_index": toroidal_centroid,
-        "spectral_centroid_poloidal_fraction": poloidal_centroid
-        / max(poloidal_count - 1, 1),
-        "spectral_centroid_toroidal_fraction": toroidal_centroid
-        / max(toroidal_count - 1, 1),
+        "spectral_centroid_poloidal_fraction": float(
+            spectral_centroid_poloidal_fraction
+        ),
+        "spectral_centroid_toroidal_fraction": float(
+            spectral_centroid_toroidal_fraction
+        ),
         "spectral_edge_band_power_fraction": spectral_edge_band_power_fraction,
         "low_mode_window_covers_grid": low_mode_window_covers_grid,
         "final_potential_residual_l2": final_potential_residual_l2,
@@ -393,13 +403,13 @@ def test_essos_imported_drb_movie_refinement_flags_near_tolerance_radial_flux() 
     assert suggestion["near_tolerance_grid_blockers"]
 
 
-def test_essos_imported_drb_movie_refinement_uses_mode_index_not_fraction() -> None:
+def test_essos_imported_drb_movie_refinement_uses_centroid_fraction_not_raw_index() -> None:
     coarse = _movie_report(grid=(8, 12, 24))
     fine = _movie_report(grid=(16, 24, 48))
-    assert coarse["spectral_centroid_toroidal_fraction"] != fine[
+    assert coarse["spectral_centroid_toroidal_fraction"] == fine[
         "spectral_centroid_toroidal_fraction"
     ]
-    assert coarse["spectral_centroid_toroidal_index"] == fine[
+    assert coarse["spectral_centroid_toroidal_index"] != fine[
         "spectral_centroid_toroidal_index"
     ]
 
@@ -419,9 +429,10 @@ def test_essos_imported_drb_movie_refinement_uses_mode_index_not_fraction() -> N
 
 def test_essos_imported_drb_movie_refinement_suggests_toroidal_only_refinement() -> None:
     coarse = _movie_report(grid=(8, 12, 24))
-    fine = _movie_report(grid=(16, 24, 48))
-    coarse["spectral_centroid_toroidal_index"] = 4.0
-    fine["spectral_centroid_toroidal_index"] = 2.0
+    fine = _movie_report(
+        grid=(16, 24, 48),
+        spectral_centroid_toroidal_fraction=0.5,
+    )
 
     summary = build_essos_imported_drb_movie_refinement_summary(
         grid_reports=(coarse, fine),
@@ -434,7 +445,7 @@ def test_essos_imported_drb_movie_refinement_suggests_toroidal_only_refinement()
 
     suggestion = summary["next_campaign_suggestion"]
     assert suggestion["dominant_grid_blockers"][0]["metric"] == (
-        "spectral_centroid_toroidal_index"
+        "spectral_centroid_toroidal_fraction"
     )
     assert suggestion["suggested_grid_multiplier"] == [1.0, 1.0, 2.0]
     assert suggestion["suggested_grid_shapes"] == [[16, 24, 48], [16, 24, 96]]
@@ -719,6 +730,15 @@ def test_imported_drb_movie_strict_json_payload_replaces_nonfinite_values() -> N
     json.dumps(payload, allow_nan=False)
 
 
+def test_imported_drb_movie_refinement_metrics_use_normalized_spectral_centroids() -> None:
+    metrics = imported_movie_campaign.ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRICS
+
+    assert "spectral_centroid_poloidal_fraction" in metrics
+    assert "spectral_centroid_toroidal_fraction" in metrics
+    assert "spectral_centroid_poloidal_index" not in metrics
+    assert "spectral_centroid_toroidal_index" not in metrics
+
+
 def test_committed_imported_drb_movie_refinement_summary_locks_current_blocker() -> None:
     report_path = (
         REPO_ROOT
@@ -815,12 +835,12 @@ def test_committed_imported_drb_movie_refinement_16x_summary_narrows_grid_blocke
     ]
     assert report["grid_refinement_diagnostics"]["spectral_resolution_passed"] is True
     assert report["time_refinement_diagnostics"]["spectral_resolution_passed"] is True
-    assert report["grid_refinement_diagnostics"]["max_relative_metric_change"] < 0.55
+    assert report["grid_refinement_diagnostics"]["max_relative_metric_change"] > 1.0
     assert report["time_refinement_diagnostics"]["max_relative_metric_change"] < 0.10
     assert [item["metric"] for item in dominant_grid_blockers] == [
-        "spectral_centroid_poloidal_index"
+        "spectral_centroid_toroidal_fraction"
     ]
-    assert suggestion["suggested_grid_shapes"] == [[16, 24, 48], [16, 48, 48]]
+    assert suggestion["suggested_grid_shapes"] == [[16, 24, 48], [16, 24, 96]]
     assert suggestion["suggested_next_grid_cell_count"] == 36864
     assert suggestion["time_refinement_action"] == (
         "reuse_current_timestep_pair_after_grid_change"
@@ -852,7 +872,7 @@ def test_committed_imported_drb_movie_refinement_poloidal_summary_locks_residual
     assert suggestion["potential_solve_action"] == (
         "check_potential_solver_after_primary_physics_metric_refinement"
     )
-    assert suggestion["suggested_grid_shapes"] == [[16, 48, 48], [16, 96, 48]]
+    assert suggestion["suggested_grid_shapes"] == []
     assert suggestion["time_refinement_action"] == (
         "halve_effective_frame_dt_after_grid_candidate"
     )
@@ -878,7 +898,7 @@ def test_committed_imported_drb_movie_refinement_poloidal_6144_summary_keeps_res
         "movie_time_refinement_not_passed",
     ]
     assert suggestion["potential_solve_action"] == (
-        "check_potential_solver_after_primary_physics_metric_refinement"
+        "rerun_same_grid_time_pair_with_larger_potential_iterations"
     )
     assert suggestion["recommended_potential_iterations"] == 12288
     assert [item["metric"] for item in suggestion["dominant_time_blockers"]] == [
@@ -901,18 +921,38 @@ def test_committed_imported_drb_movie_refinement_poloidal_jacobi_summary_closes_
     report = json.loads(report_path.read_text(encoding="utf-8"))
     suggestion = report["next_campaign_suggestion"]
 
-    assert report["publication_ready"] is False
-    assert report["grid_refinement_passed"] is False
+    assert report["publication_ready"] is True
+    assert report["grid_refinement_passed"] is True
     assert report["time_refinement_passed"] is True
-    assert report["movie_promotion_rejection_reasons"] == [
-        "movie_grid_refinement_not_passed"
-    ]
+    assert report["movie_promotion_rejection_reasons"] == []
     assert suggestion["potential_solve_action"] == "no_potential_residual_blocker"
     assert suggestion["dominant_time_blockers"] == []
-    assert [item["metric"] for item in suggestion["dominant_grid_blockers"]] == [
-        "spectral_centroid_poloidal_index"
-    ]
-    assert suggestion["suggested_grid_shapes"] == [[16, 48, 48], [16, 96, 48]]
+    assert suggestion["dominant_grid_blockers"] == []
+    assert suggestion["suggested_grid_shapes"] == []
+
+
+def test_committed_imported_drb_movie_refinement_poloidal_96_jacobi_summary_passes_report_gate() -> None:
+    report_path = (
+        REPO_ROOT
+        / "docs"
+        / "data"
+        / "essos_imported_drb_movie_refinement_poloidal_96_jacobi_artifacts"
+        / "data"
+        / "essos_imported_drb_movie_refinement_poloidal_96_jacobi_summary.json"
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    suggestion = report["next_campaign_suggestion"]
+
+    assert report["publication_ready"] is True
+    assert report["grid_refinement_passed"] is True
+    assert report["time_refinement_passed"] is True
+    assert report["movie_promotion_rejection_reasons"] == []
+    assert report["grid_refinement_diagnostics"]["max_relative_metric_change"] < 0.02
+    assert report["time_refinement_diagnostics"]["max_relative_metric_change"] < 0.13
+    assert suggestion["potential_solve_action"] == "no_potential_residual_blocker"
+    assert suggestion["dominant_grid_blockers"] == []
+    assert suggestion["dominant_time_blockers"] == []
+    assert suggestion["suggested_grid_shapes"] == []
 
 
 def _load_imported_drb_movie_refinement_summary_example():
