@@ -8,7 +8,7 @@ from jax_drb.validation import audit_essos_imported_artifact_reports
 
 # SIMSOPT-style user parameters: edit these first, then run this file.
 RUN_EXAMPLE = True
-REQUIRE_ALL_CURRENT = False
+REQUIRE_ALL_CURRENT = True
 
 REPORT_JSON_PATHS = (
     Path("docs/data/essos_imported_fci_artifacts/data/essos_imported_fci_campaign.json"),

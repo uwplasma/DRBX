@@ -73,10 +73,9 @@ PYTHONPATH=src .venv/bin/python \
 The audit only reads committed JSON reports. It does not rerun the external
 geometry import or the transient, but it catches reports that predate the
 current map-source, GIF-audit, and validation metadata. As of the June 18,
-2026 audit, the older coil movie JSON is stale by one metadata field
-(`map_source`), while the hybrid movie report matches the current schema. This
-is why the hybrid movie is the better current open-field bridge until the coil
-movie package is regenerated.
+2026 regeneration pass, the coil and hybrid movie JSON reports both match the
+current schema; promotion to publication evidence still requires the heavier
+live geometry and transient reruns described in the validation plan.
 
 ## Current Gate
 

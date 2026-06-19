@@ -49,6 +49,7 @@
   "initial_fluctuation_rms": 0.02651415914894411,
   "low_mode_spectral_power_fraction": 0.3666377528549077,
   "magnetic_field_modulation": 1.4266294287958168,
+  "map_source": "coil",
   "max_fluctuation_rms": 0.08716782908632366,
   "movie_audit_passed": true,
   "movie_bbox_unique_count": 2,

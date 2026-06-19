@@ -1818,13 +1818,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   imported FCI and DRB movie JSON reports. The reusable validation API and
   `examples/geometry-3D/essos-field-lines/imported_artifact_schema_audit.py`
   compare committed reports against the fields emitted by the current
-  validation code without rerunning external geometry or transients. The
-  current audit reports `5` committed JSON files, `4` stale schema reports, and
-  `1` current report: all three imported-FCI JSON reports are stale against
-  the newer connection-length, endpoint, target-label, refinement, and
-  consumed-map diagnostics; the older coil movie JSON is stale by missing
-  `map_source`; the hybrid movie JSON is current. This adds a promotion guard
-  for README/docs/paper figures and makes regeneration requirements explicit.
+  validation code without rerunning external geometry or transients. A follow-up
+  regeneration pass rebuilt the three lightweight imported-FCI JSON reports
+  with the newer connection-length, endpoint, target-label, refinement, and
+  consumed-map diagnostics, then added the missing `map_source="coil"`
+  provenance field to the older coil movie report. The audit now reports `5`
+  committed JSON files, `0` stale schema reports, and fail-fast
+  `REQUIRE_ALL_CURRENT=True` behavior. This keeps README/docs/paper figure
+  promotion tied to current metadata while still reserving publication claims
+  for heavier live geometry and transient reruns.
 - 2026-06-18: Split the open-field `recycling_1d_short_window` validation
   between the slow research campaign and the promoted coverage gate. The full
   stiff transient still runs as a `slow` physics validation against the
