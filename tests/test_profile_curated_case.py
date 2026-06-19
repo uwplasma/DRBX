@@ -48,12 +48,14 @@ def test_native_diagnostic_gate_accepts_exact_and_numeric_minimum() -> None:
             "recycling_transient_solver_mode": "bdf_fixed_full_field_jvp",
             "bdf_jacobian_mode": "jvp",
             "bdf_rhs_backend": "fixed_full_field_array",
+            "bdf_jvp_jacobian_gather_on_device": True,
             "bdf_jvp_jacobian_batch_count": 3,
         },
         exact_requirements=(
             "recycling_transient_solver_mode=bdf_fixed_full_field_jvp",
             "bdf_jacobian_mode=jvp",
             "bdf_rhs_backend=fixed_full_field_array",
+            "bdf_jvp_jacobian_gather_on_device=True",
         ),
         minimum_requirements=("bdf_jvp_jacobian_batch_count=1",),
     )
