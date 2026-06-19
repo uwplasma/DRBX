@@ -700,6 +700,25 @@ def test_imported_drb_movie_refinement_campaign_example_exposes_publication_cand
     )
 
 
+def test_imported_drb_movie_strict_json_payload_replaces_nonfinite_values() -> None:
+    payload = imported_movie_campaign._strict_json_payload(
+        {
+            "finite": np.float64(1.25),
+            "nan": np.float64(np.nan),
+            "inf": np.float64(np.inf),
+            "nested": [np.float32(-np.inf), np.int64(3), np.bool_(True)],
+        }
+    )
+
+    assert payload == {
+        "finite": 1.25,
+        "nan": None,
+        "inf": None,
+        "nested": [None, 3, True],
+    }
+    json.dumps(payload, allow_nan=False)
+
+
 def test_committed_imported_drb_movie_refinement_summary_locks_current_blocker() -> None:
     report_path = (
         REPO_ROOT
@@ -805,6 +824,37 @@ def test_committed_imported_drb_movie_refinement_16x_summary_narrows_grid_blocke
     assert suggestion["suggested_next_grid_cell_count"] == 36864
     assert suggestion["time_refinement_action"] == (
         "reuse_current_timestep_pair_after_grid_change"
+    )
+
+
+def test_committed_imported_drb_movie_refinement_poloidal_summary_locks_residual_blocker() -> None:
+    report_path = (
+        REPO_ROOT
+        / "docs"
+        / "data"
+        / "essos_imported_drb_movie_refinement_poloidal_candidate_artifacts"
+        / "data"
+        / "essos_imported_drb_movie_refinement_poloidal_candidate_summary.json"
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    suggestion = report["next_campaign_suggestion"]
+    reasons = report["movie_promotion_rejection_reasons"]
+
+    assert report["publication_ready"] is False
+    assert report["grid_refinement_passed"] is False
+    assert report["time_refinement_passed"] is False
+    assert "movie_grid_refinement_not_passed" in reasons
+    assert "movie_time_refinement_not_passed" in reasons
+    assert "movie_time_spectral_resolution_not_passed" in reasons
+    assert report["grid_refinement_diagnostics"]["spectral_resolution_passed"] is True
+    assert report["time_refinement_diagnostics"]["spectral_resolution_passed"] is False
+    assert suggestion["recommended_potential_iterations"] == 6144
+    assert suggestion["potential_solve_action"] == (
+        "check_potential_solver_after_primary_physics_metric_refinement"
+    )
+    assert suggestion["suggested_grid_shapes"] == [[16, 48, 48], [16, 96, 48]]
+    assert suggestion["time_refinement_action"] == (
+        "halve_effective_frame_dt_after_grid_candidate"
     )
 
 
