@@ -424,6 +424,28 @@ This is not a speedup claim and not full momentum parity: the all-field probe
 still reports `NVd+` as the pointwise offender and near-zero `NVd` inventory
 makes relative momentum inventory ratios non-diagnostic.
 
+The retained full-field `dt=1e-2` screen adds explicit internal substepping:
+
+```bash
+PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-substepped-full-field-gate \
+  --reference-root tests/fixtures/reference-root
+```
+
+The retained artifact is
+`docs/data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_substepped_full_field_cpu/profile_summary.json`.
+It uses `runtime:recycling_fixed_bdf2_max_internal_timestep=2.5e-3`, so each
+output window is split into four implicit fixed-BDF2 substeps. This closes the
+same `dt=1e-2` full-field max-norm gate with worst active-mesh pointwise
+delta `1.099e-4` on `NVd+`, below the `1.25e-4` threshold. The fixed route
+remains solver-clean with maximum residual `6.17e-10`, eight internal
+substeps, eight JAX-GMRES solves, sixteen residual evaluations, zero failed or
+unconverged subsolves, `32.10 s` in linear solves, `10.70 s` in residual
+evaluations, and `44.43 s` elapsed time after warm compilation. The conclusion
+is explicit: substepping fixes the momentum/full-field accuracy target, but
+runtime and GPU scaling still require a cheaper preconditioned or compiled
+linear solve before default promotion.
+
 For output-window fixed-BDF2 solver-health checks, use the strict active-array
 linearized residual gate:
 

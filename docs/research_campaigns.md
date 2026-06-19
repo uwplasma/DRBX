@@ -99,6 +99,17 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the substepped full-field screen when the full momentum state must be
+checked at the same `dt=1e-2` output window. This gate is intentionally heavy:
+it caps the internal fixed-BDF2 timestep at `2.5e-3`, giving four implicit
+substeps per output window.
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-substepped-full-field-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the adaptive-BDF JAX-versus-Lineax controller-health gate after changing the
 adaptive residual route or linear-action solver:
 
@@ -275,6 +286,19 @@ This is scalar density/pressure observable evidence only. It does not close
 momentum parity at `dt=1e-2`, where the full-field probe still shows the
 largest `NVd+` pointwise delta and the `NVd` relative inventory is dominated by
 an absolute near-zero denominator.
+The `dthe-fixed-bdf2-active-array-substepped-full-field-gate` closes that
+pointwise full-field gap for the same `dt=1e-2`, two-output-window comparison
+by forcing `runtime:recycling_fixed_bdf2_max_internal_timestep=2.5e-3`. Its
+retained artifact passes the `1.25e-4` full-field max-delta gate with worst
+`NVd+` delta `1.099e-4`; the next pointwise deltas are `Pd+ = 3.03e-5` and
+`Pe = 7.36e-7`. It also reports eight internal substeps, four internal
+substeps per output window, eight JAX-GMRES solves, sixteen residual
+evaluations, maximum residual `6.17e-10`, zero failed or unconverged implicit
+steps, `32.10 s` in linear solves, `10.70 s` in residual evaluations, and
+`44.43 s` fixed-BDF2 elapsed time:
+[profile_summary.json](data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_substepped_full_field_cpu/profile_summary.json).
+This promotes an explicit full-field correctness gate at `dt=1e-2`; it does
+not make the route a default solver or a speedup claim.
 The matching `gpu-fixed-bdf2-direct-counting-gate` is intentionally guarded by
 a process-level timeout in addition to the inner mode timeout. The first
 office-GPU attempt on one RTX A4000 entered the solve but remained host-side

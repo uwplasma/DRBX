@@ -702,6 +702,61 @@ def _campaign_command_map(
             required_reference_inputs=("dthe",),
             timeout_seconds=360,
         ),
+        "dthe-fixed-bdf2-active-array-substepped-full-field-gate": CampaignCommand(
+            name="dthe-fixed-bdf2-active-array-substepped-full-field-gate",
+            description=(
+                "Production-timestep D/T/He fixed-BDF2 active-array full-field "
+                "parity screen with an explicit internal timestep cap."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "compare_recycling_transient_modes.py"),
+                "--case",
+                "recycling_dthe_one_step",
+                *reference_args,
+                "--mode",
+                "bdf",
+                "--mode",
+                "fixed_bdf2_active_array_jax_linearized",
+                "--diagnostics-only",
+                "--require-fixed-bdf2-diagnostics",
+                "--require-fixed-bdf2-max-residual",
+                "1e-8",
+                "--require-fixed-bdf2-linear-solver-backend",
+                "jax_gmres",
+                "--require-fixed-bdf2-linear-operator-jitted",
+                "--require-fixed-bdf2-min-linear-solve-count",
+                "8",
+                "--require-fixed-bdf2-max-residual-evaluations",
+                "16",
+                "--require-fixed-bdf2-pairwise-max",
+                "1.25e-4",
+                "--timestep",
+                "1e-2",
+                "--steps",
+                "2",
+                "--mode-timeout-seconds",
+                "720",
+                "--override",
+                "runtime:recycling_jax_linear_jit_linear_operator=true",
+                "--override",
+                "runtime:recycling_jax_linear_operator_counting=direct",
+                "--override",
+                "runtime:recycling_jax_linear_initial_residual_mode=linearize",
+                "--override",
+                "runtime:recycling_fixed_bdf2_max_internal_timestep=2.5e-3",
+                "--output-json",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_dthe_fixed_bdf2_active_array_substepped_full_field_cpu"
+                    / "profile_summary.json"
+                ),
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+            timeout_seconds=900,
+        ),
         "fixed-bdf2-direct-counting-gate": CampaignCommand(
             name="fixed-bdf2-direct-counting-gate",
             description=(
@@ -1286,6 +1341,7 @@ def main() -> int:
             "dthe-fixed-bdf2-active-array-physical-parity-gate, "
             "dthe-fixed-bdf2-active-array-parity-ramp-gate, "
             "dthe-fixed-bdf2-active-array-scalar-observable-gate, "
+            "dthe-fixed-bdf2-active-array-substepped-full-field-gate, "
             "fixed-bdf2-direct-counting-gate, "
             "gpu-dthe-current-jax-linearized-gate, gpu-dthe-jax-linearized-gate, "
             "gpu-fixed-bdf2-direct-counting-gate, "
