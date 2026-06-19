@@ -580,6 +580,18 @@ committed short-window artifact contract, while the multi-minute stiff
 transient remains available for campaign-quality parity evidence.
 active-array residual.
 
+The JAX-native preconditioning lane now also includes an opt-in sampled
+field-diagonal preconditioner, `field_sample_diag`. It samples one diagonal JVP
+per evolved field at a representative active cell, then applies that field
+scale across all active cells. This is intentionally less exact than the full
+`field_diag` preconditioner, but its build cost scales with the number of
+fields rather than the number of active field unknowns. A bounded
+`recycling_1d_one_step` active-array fixed-BDF2 gate with two output steps
+reported one startup step, one BDF2 corrector step, `field_sample_diag`, five
+preconditioner builds, zero failed solver steps, and
+`fixed_bdf2_max_residual_inf_norm = 2.68e-09`. This remains opt-in until heavy
+D/T/He and full-output profiling prove better end-to-end runtime.
+
 ## Current GPU-Native Audit
 
 The office GPU environment is now usable for the compact native JAX lanes with
