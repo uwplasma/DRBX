@@ -1120,16 +1120,19 @@ accepted trial solves, lower residual/JVP kernel cost, or a stronger
 Schur/transport preconditioner with measurable iteration-count reduction before
 spending more D/T/He wall time.
 
-The solver-level preconditioner seam does have one bounded positive gate. A
-stiff one-dimensional line-transport residual with a deliberately small
-JAX-GMRES budget now checks that `parallel_line` converges below `1e-10`,
-builds exactly one line-block preconditioner, applies it during the Krylov
-solve, and uses fewer linear-operator calls than the same unpreconditioned
-solve, which stalls above `1e-3`. This is an algorithmic effectivity test, not
-a production recycling speedup claim: it proves that the line-block
-preconditioner can reduce Krylov work when it captures the dominant transport
-block, while the full recycling/default decision still depends on same-fidelity
-heavy profiles.
+The solver-level preconditioner seam does have bounded positive gates. A stiff
+one-dimensional line-transport residual with a deliberately small JAX-GMRES
+budget now checks that `parallel_line` converges below `1e-10`, builds exactly
+one line-block preconditioner, applies it during the Krylov solve, and uses
+fewer linear-operator calls than the same unpreconditioned solve, which stalls
+above `1e-3`. A companion packed two-field gate exercises the selected-field
+`momentum_line` path: the density block remains lightly scaled, the `NV`-like
+momentum block carries the stiff parallel operator, and the targeted
+preconditioner converges with half the linear-operator calls of the
+unpreconditioned solve. These are algorithmic effectivity tests, not production
+recycling speedup claims. They prove that the line-block preconditioners can
+reduce Krylov work when they capture the dominant transport block, while the
+full recycling/default decision still depends on same-fidelity heavy profiles.
 
 Promotion scripts can now require this diagnostic evidence explicitly. For
 fixed-BDF2 campaigns, pass
@@ -1194,9 +1197,11 @@ multi-ion and recycling traces. It uses the same selected-field line-block
 machinery but supplies only fixed-layout fields whose names start with `NV`.
 This keeps density, pressure, feedback, and non-momentum fields outside the
 approximate inverse, reducing the candidate block size before heavier D/T/He
-same-case preconditioner sweeps. It is a diagnostic option until a heavy
-same-case run demonstrates fewer Krylov/operator calls or lower runtime after
-build cost.
+same-case preconditioner sweeps. A bounded solver-level packed-field gate now
+proves that this selected momentum block can reduce Krylov operator calls when
+it is the dominant stiff suboperator. It is still a diagnostic option until a
+heavy same-case recycling run demonstrates fewer Krylov/operator calls or lower
+runtime after build cost.
 The solver now also separates preconditioner build cost from preconditioner
 application cost. JAX-linearized steps report
 `linear_preconditioner_apply_count` and
