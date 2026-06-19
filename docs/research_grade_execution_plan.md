@@ -134,7 +134,7 @@ movie is never a validation gate by itself.
 
 ## Current Completion Snapshot
 
-Audit date: 2026-06-18. Percentages are approximate and evidence-based. A lane
+Audit date: 2026-06-19. Percentages are approximate and evidence-based. A lane
 moves only when implementation, validation, plots or diagnostics, documentation,
 and tests all move together.
 
@@ -2260,6 +2260,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   use jitted matrix-free operators as the current practical recycling-speedup
   path; keep dynamic preconditioners opt-in until they reduce same-case wall
   time or operator count.
+- 2026-06-19: Ran the actual D/T/He fixed-BDF2 compare phase with
+  `runtime:recycling_jax_linear_jit_linear_operator=true` and
+  `--require-fixed-bdf2-linear-operator-jitted`. Both fixed-full-field and
+  active-array JAX-linearized modes passed the diagnostic gate with
+  `fixed_bdf2_linear_operator_jitted_steps=4`, residual `3.77e-9`, `65`
+  matrix-free operator calls, zero failed linear solves, and zero unconverged
+  steps. Cold elapsed times were still high (`152.24 s` fixed-full-field and
+  `59.35 s` active-array), so this is fixed-BDF2 correctness/promotion-surface
+  evidence for jitted operators, not a default runtime-speed claim. The next
+  heavy recycling profile should combine active-array RHS, jitted operators,
+  warm/persistent compilation cache, and GPU timing.
 
 ## Definition Of Done
 
