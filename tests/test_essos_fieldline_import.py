@@ -423,6 +423,7 @@ def test_essos_imported_drb_movie_refinement_campaign_writes_report_only_json(
         grid_dt=2.0e-3,
         potential_iterations=1536,
         potential_regularization=4.0,
+        potential_preconditioner="jacobi",
     )
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
 
@@ -430,6 +431,7 @@ def test_essos_imported_drb_movie_refinement_campaign_writes_report_only_json(
     assert len(calls) == 3
     assert all(call["potential_iterations"] == 1536 for call in calls)
     assert all(call["potential_regularization"] == 4.0 for call in calls)
+    assert all(call["potential_preconditioner"] == "jacobi" for call in calls)
     assert len(artifacts.grid_report_json_paths) == 2
     assert len(artifacts.time_report_json_paths) == 2
     assert artifacts.grid_report_json_paths[1] == artifacts.time_report_json_paths[0]

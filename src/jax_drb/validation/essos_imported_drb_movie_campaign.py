@@ -77,6 +77,7 @@ ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRIC_FLOORS = {
 ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_DEFAULT_METRIC_FLOOR = 1.0e-12
 ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_ITERATIONS = 768
 ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION = 5.0
+ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_PRECONDITIONER: str | None = None
 
 
 def classify_essos_imported_drb_movie_evidence(map_source: str) -> dict[str, Any]:
@@ -165,6 +166,9 @@ def create_essos_imported_drb_movie_refinement_campaign_package(
     relative_tolerance: float = 0.30,
     potential_iterations: int = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_ITERATIONS,
     potential_regularization: float = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION,
+    potential_preconditioner: str | None = (
+        ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_PRECONDITIONER
+    ),
 ) -> EssosImportedDrbMovieRefinementCampaignArtifacts:
     """Run a lightweight report-only grid/time movie refinement campaign.
 
@@ -214,6 +218,7 @@ def create_essos_imported_drb_movie_refinement_campaign_package(
             dt=float(dt),
             potential_iterations=potential_iterations,
             potential_regularization=potential_regularization,
+            potential_preconditioner=potential_preconditioner,
         )
         report = dict(result.report)
         report.update(
@@ -982,6 +987,9 @@ def create_essos_imported_drb_movie_package(
     dt: float = 1.2e-3,
     potential_iterations: int = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_ITERATIONS,
     potential_regularization: float = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION,
+    potential_preconditioner: str | None = (
+        ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_PRECONDITIONER
+    ),
 ) -> EssosImportedDrbMovieArtifacts:
     root = Path(output_root)
     data_dir = root / "data"
@@ -1008,6 +1016,7 @@ def create_essos_imported_drb_movie_package(
         dt=dt,
         potential_iterations=potential_iterations,
         potential_regularization=potential_regularization,
+        potential_preconditioner=potential_preconditioner,
     )
     report = dict(result.report)
     report_json_path = data_dir / f"{case_label}.json"
@@ -1057,6 +1066,9 @@ def build_essos_imported_drb_movie_campaign(
     dt: float = 1.2e-3,
     potential_iterations: int = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_ITERATIONS,
     potential_regularization: float = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION,
+    potential_preconditioner: str | None = (
+        ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_PRECONDITIONER
+    ),
 ) -> EssosImportedDrbMovieResult:
     geometry = build_essos_imported_fci_geometry(
         coil_json_path=coil_json_path,
@@ -1077,6 +1089,7 @@ def build_essos_imported_drb_movie_campaign(
         vorticity_diffusivity=3.5e-4,
         potential_iterations=int(potential_iterations),
         potential_regularization=float(potential_regularization),
+        potential_preconditioner=potential_preconditioner,
     )
     run_movie = _build_essos_imported_movie_scan(
         geometry,
@@ -1108,6 +1121,7 @@ def build_essos_imported_drb_movie_campaign(
         execute_seconds=execute_seconds,
         potential_iterations=int(parameters.potential_iterations),
         potential_regularization=float(parameters.potential_regularization),
+        potential_preconditioner=parameters.potential_preconditioner,
     )
     arrays = _build_essos_imported_drb_movie_arrays(
         geometry=geometry,
@@ -1468,6 +1482,7 @@ def _build_essos_imported_drb_movie_report(
     execute_seconds: float,
     potential_iterations: int,
     potential_regularization: float,
+    potential_preconditioner: str | None,
 ) -> dict[str, Any]:
     final_fluctuation = movie_history[-1]
     spectrum = np.abs(np.fft.rfftn(final_fluctuation, axes=(1, 2))) ** 2
@@ -1517,6 +1532,7 @@ def _build_essos_imported_drb_movie_report(
         "potential_solver": "fixed_iteration_metric_weighted_cg",
         "potential_iterations": int(potential_iterations),
         "potential_regularization": float(potential_regularization),
+        "potential_preconditioner": potential_preconditioner,
         "execute_seconds": float(execute_seconds),
         "endpoint_fraction": endpoint_fraction,
         "magnetic_field_modulation": float(np.max(bmag) / max(float(np.min(bmag)), 1.0e-30)),

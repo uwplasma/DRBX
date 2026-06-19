@@ -104,7 +104,11 @@ The current lane is split into small, directly tested modules:
   geometry.
 - `apply_fci_vorticity_operator` and `solve_fci_vorticity_potential_cg` add
   the first non-axisymmetric metric-weighted vorticity/potential inversion and
-  radial \(E\times B\) proxy.
+  radial \(E\times B\) proxy. The solver default remains fixed-iteration CG;
+  an opt-in `preconditioner="jacobi"` path applies a conservative diagonal
+  approximation to the perpendicular operator and is gated by a manufactured
+  residual-reduction test before it is used for larger imported-field movie
+  residual probes.
 - `FciDrbState` and `compute_fci_drb_rhs` assemble the first transformable
   PyTree RHS surface combining target, neutral, and vorticity components. The
   focused regression suite checks that this combined state supports `jax.jvp`,
