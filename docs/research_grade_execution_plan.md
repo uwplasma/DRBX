@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 96% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; duplicate active-array RHS work and fixed-BDF2 standalone initial residuals are closed, but Krylov/preconditioner cost remains. |
-| Effective preconditioning | 47% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov/operator-call budget; apply-count/apply-time diagnostics, true operator-call-based `linear_iterations`, and promotion gates are now available for candidate screening. |
+| Effective preconditioning | 49% | A bounded stiff-line solver gate now proves `parallel_line` can reduce JAX-GMRES operator calls when it matches the dominant transport block; the remaining blocker is the same effect on real recycling kernels, or a stronger Schur/transport candidate. |
 | Performance and scaling | 63% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -2104,6 +2104,14 @@ Use this log for concise decision records. Do not paste terminal output here.
   reports are spectrally under-resolved. This makes the next high-resolution
   campaign target concrete: refine the physics grid and field-line-following
   transverse sampling until radial transport and spectral occupancy are stable.
+- 2026-06-19: Added a bounded solver-health effectivity gate for the
+  `parallel_line` JAX-linearized preconditioner. On a stiff one-dimensional
+  line-transport residual with a deliberately small JAX-GMRES budget, the
+  unpreconditioned solve stalls above `1e-3` residual while the line-block
+  preconditioner converges below `1e-10`, builds once, applies during the
+  Krylov solve, and uses fewer linear-operator calls. This is not yet a real
+  recycling speedup claim, but it proves the transport-block preconditioner can
+  reduce Krylov work when the dominant physics block is captured.
 
 ## Definition Of Done
 
