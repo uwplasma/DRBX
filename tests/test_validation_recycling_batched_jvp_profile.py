@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -8,7 +9,10 @@ import pytest
 import jax_drb.validation.recycling_batched_jvp_profile as profile_module
 from jax_drb.validation.recycling_batched_jvp_profile import (
     _check_pmap_identity,
+    RecyclingBatchedJvpProblem,
     build_recycling_batched_jvp_problem,
+    create_recycling_batched_jvp_profile_package,
+    profile_recycling_batched_jvp_problem,
     summarize_recycling_batched_jvp_scaling,
 )
 
@@ -277,3 +281,95 @@ def test_recycling_batched_jvp_problem_accepts_active_array_backend(
     assert captured["rhs_backend"] == "active_array"
     assert problem.rhs_backend == "active_array"
     assert problem.state_size == 2
+
+
+def test_recycling_batched_jvp_profile_reports_progress_events() -> None:
+    pytest.importorskip("jax")
+
+    problem = RecyclingBatchedJvpProblem(
+        residual=lambda state: 2.0 * state,
+        base_state=np.array([1.0, 2.0], dtype=np.float64),
+        field_names=("Ne",),
+        feedback_names=(),
+        mesh_active_shape=(1, 2, 1),
+        state_size=2,
+        rhs_backend="fixed_full_field_array",
+    )
+    events: list[dict[str, object]] = []
+
+    report = profile_recycling_batched_jvp_problem(
+        problem,
+        batch_sizes=(1,),
+        timed_runs=1,
+        enable_pmap=False,
+        check_objective_grad=False,
+        progress_callback=events.append,
+    )
+
+    event_names = [str(event["event"]) for event in events]
+    assert event_names[:4] == [
+        "profile_start",
+        "base_residual_warmup_complete",
+        "base_jvp_warmup_complete",
+        "jvp_fd_check_complete",
+    ]
+    assert "batch_start" in event_names
+    assert "batch_warmup_complete" in event_names
+    assert "batch_complete" in event_names
+    assert report["warmup_timing"]["base_residual_warmup_seconds"] >= 0.0
+    assert report["batch_results"][0]["batch_warmup_seconds"] >= 0.0
+
+
+def test_create_recycling_batched_jvp_profile_package_writes_progress_jsonl(
+    tmp_path, monkeypatch
+) -> None:
+    input_path = tmp_path / "BOUT.inp"
+    input_path.write_text("nout = 1\n", encoding="utf-8")
+    output_dir = tmp_path / "profile"
+    fake_problem = SimpleNamespace(
+        rhs_backend="active_array",
+        state_size=3,
+        mesh_active_shape=(1, 3, 1),
+    )
+
+    monkeypatch.setattr(
+        profile_module,
+        "build_recycling_batched_jvp_problem",
+        lambda *args, **kwargs: fake_problem,
+    )
+
+    def fake_profile(problem, *, progress_callback=None, **kwargs):
+        assert problem is fake_problem
+        assert progress_callback is not None
+        progress_callback({"event": "fake_profile_complete", "state_size": 3})
+        return {
+            "case": "fake",
+            "batch_results": [],
+            "throughput_summary": {},
+            "warmup_timing": {},
+        }
+
+    monkeypatch.setattr(
+        profile_module,
+        "profile_recycling_batched_jvp_problem",
+        fake_profile,
+    )
+
+    report = create_recycling_batched_jvp_profile_package(
+        input_path,
+        output_dir,
+        rhs_backend="active_array",
+    )
+
+    progress_path = output_dir / "profile_progress.jsonl"
+    records = [
+        json.loads(line)
+        for line in progress_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [record["event"] for record in records] == [
+        "problem_build_start",
+        "problem_build_complete",
+        "fake_profile_complete",
+    ]
+    assert report["profile_progress_jsonl"] == "profile_progress.jsonl"
+    assert (output_dir / "profile_summary.json").is_file()

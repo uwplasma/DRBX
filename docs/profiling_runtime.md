@@ -339,7 +339,11 @@ identifies the batch sizes swept, the largest batch, the best residual/JVP
 speedups against serial same-kernel calls, and the best batched or pmap JVP
 throughput in `states_per_second`. This keeps the local profiling contract
 reviewer-usable without requiring a separate notebook to interpret raw sample
-lists.
+lists. Each profile directory also receives `profile_progress.jsonl`, written
+incrementally during problem construction, base residual/JVP warmup, derivative
+checks, and each batch. This file is intentionally small and is the first place
+to inspect when a long CPU/GPU run is killed before `profile_summary.json` is
+complete.
 
 For a bounded local smoke refresh that does not spend CI minutes or require a
 private reference checkout:
@@ -355,10 +359,10 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
 ```
 
 The retained local CPU fixed-full-field artifact now sweeps batches through
-`256` states and shows about `3.87x` residual throughput speedup and `2.44x`
+`256` states and shows about `3.63x` residual throughput speedup and `2.42x`
 JVP throughput speedup over serial same-kernel calls, with batched/serial
 residual and JVP mismatch at roundoff. Its best residual throughput is about
-`4.34e4` states/s and its best JVP throughput is about `1.10e4` states/s. The
+`4.11e4` states/s and its best JVP throughput is about `1.05e4` states/s. The
 residual JVP agrees with centered finite difference to about `5.97e-9`, and
 the objective directional derivative agrees to about `1.34e-7`.
 
@@ -374,9 +378,9 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_active_array_batched_jvp_gate_cpu
 ```
 
-That artifact reaches about `2.66x` residual throughput speedup and `2.20x`
+That artifact reaches about `2.44x` residual throughput speedup and `2.11x`
 JVP throughput speedup through batch `64`, with best residual and JVP
-throughputs of about `3.04e4` and `9.82e3` states/s. It retains the same
+throughputs of about `3.23e4` and `9.22e3` states/s. It retains the same
 finite-difference derivative checks as the fixed-full-field artifact. This is
 the current best local evidence that the transformable active-array residual
 can be batched and differentiated without falling back to Python residual

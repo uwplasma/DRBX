@@ -50,6 +50,21 @@ def _states_per_second(batch_size: int, seconds: float | None) -> float | None:
     return float(batch_size) / seconds
 
 
+def _emit_progress(
+    progress_callback: Callable[[dict[str, object]], None] | None,
+    **record: object,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(dict(record))
+
+
+def _write_progress_record(path: Path, record: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(record, sort_keys=True) + "\n")
+        stream.flush()
+
+
 def _best_metric(
     batch_results: list[dict[str, object]], metric_name: str, value_name: str
 ) -> dict[str, object] | None:
@@ -295,6 +310,7 @@ def profile_recycling_batched_jvp_problem(
     timed_runs: int = 5,
     enable_pmap: bool = True,
     check_objective_grad: bool = True,
+    progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
     """Measure fixed-work vectorized residual/JVP throughput on a real residual."""
 
@@ -304,8 +320,25 @@ def profile_recycling_batched_jvp_problem(
     jax.config.update("jax_enable_x64", True)
     residual = problem.residual
     base_state = jnp.asarray(problem.base_state, dtype=jnp.float64)
+    _emit_progress(
+        progress_callback,
+        event="profile_start",
+        rhs_backend=str(problem.rhs_backend),
+        state_size=int(problem.state_size),
+        mesh_active_shape=list(problem.mesh_active_shape),
+        batch_sizes=[int(size) for size in batch_sizes],
+        timed_runs=int(timed_runs),
+        check_objective_grad=bool(check_objective_grad),
+    )
     residual_jit = jax.jit(residual)
+    started_at = perf_counter()
     residual_jit(base_state).block_until_ready()
+    base_residual_warmup_seconds = perf_counter() - started_at
+    _emit_progress(
+        progress_callback,
+        event="base_residual_warmup_complete",
+        seconds=float(base_residual_warmup_seconds),
+    )
 
     def single_jvp(state, tangent):
         return jax.jvp(residual, (state,), (tangent,))[1]
@@ -318,18 +351,35 @@ def profile_recycling_batched_jvp_problem(
 
     objective_jit = jax.jit(objective)
     base_direction = _deterministic_directions(1, problem.state_size)[0]
+    started_at = perf_counter()
     base_jvp = jvp_jit(base_state, base_direction).block_until_ready()
+    base_jvp_warmup_seconds = perf_counter() - started_at
+    _emit_progress(
+        progress_callback,
+        event="base_jvp_warmup_complete",
+        seconds=float(base_jvp_warmup_seconds),
+    )
+    started_at = perf_counter()
     fd_jvp = (
         residual_jit(base_state + float(fd_epsilon) * base_direction)
         - residual_jit(base_state - float(fd_epsilon) * base_direction)
     ) / (2.0 * float(fd_epsilon))
     fd_jvp = fd_jvp.block_until_ready()
     jvp_fd_relative_error = _norm(base_jvp - fd_jvp) / max(1.0e-30, _norm(fd_jvp))
+    fd_jvp_check_seconds = perf_counter() - started_at
+    _emit_progress(
+        progress_callback,
+        event="jvp_fd_check_complete",
+        seconds=float(fd_jvp_check_seconds),
+        jvp_fd_relative_error=float(jvp_fd_relative_error),
+    )
 
     grad_directional = None
     fd_directional = None
     objective_directional_relative_error = None
+    objective_grad_check_seconds = None
     if check_objective_grad:
+        started_at = perf_counter()
         objective_grad_jit = jax.jit(jax.grad(objective))
         objective_grad = objective_grad_jit(base_state).block_until_ready()
         grad_directional = float(jnp.vdot(objective_grad, base_direction))
@@ -343,6 +393,15 @@ def profile_recycling_batched_jvp_problem(
         objective_directional_relative_error = abs(
             grad_directional - fd_directional
         ) / max(1.0e-30, abs(fd_directional))
+        objective_grad_check_seconds = perf_counter() - started_at
+        _emit_progress(
+            progress_callback,
+            event="objective_grad_check_complete",
+            seconds=float(objective_grad_check_seconds),
+            objective_directional_relative_error=float(
+                objective_directional_relative_error
+            ),
+        )
 
     batch_results: list[dict[str, object]] = []
     devices = tuple(jax.local_devices())
@@ -355,15 +414,28 @@ def profile_recycling_batched_jvp_problem(
         )
     pmap_enabled = bool(enable_pmap and pmap_sanity_passed)
     for batch_size in tuple(int(size) for size in batch_sizes):
+        _emit_progress(
+            progress_callback,
+            event="batch_start",
+            batch_size=int(batch_size),
+        )
         directions = _deterministic_directions(batch_size, problem.state_size)
         states = base_state[None, :] + float(perturbation_scale) * directions
         batched_residual = jax.jit(jax.vmap(residual))
         batched_jvp = jax.jit(jax.vmap(single_jvp))
+        started_at = perf_counter()
         batched_residual(states).block_until_ready()
         batched_jvp(states, directions).block_until_ready()
         for state, direction in zip(states, directions, strict=True):
             residual_jit(state).block_until_ready()
             jvp_jit(state, direction).block_until_ready()
+        batch_warmup_seconds = perf_counter() - started_at
+        _emit_progress(
+            progress_callback,
+            event="batch_warmup_complete",
+            batch_size=int(batch_size),
+            seconds=float(batch_warmup_seconds),
+        )
 
         serial_residual_seconds, serial_residual_samples = _time_repeated(
             lambda: tuple(residual_jit(state) for state in states),
@@ -446,6 +518,7 @@ def profile_recycling_batched_jvp_problem(
         batch_results.append(
             {
                 "batch_size": int(batch_size),
+                "batch_warmup_seconds": float(batch_warmup_seconds),
                 "serial_residual_seconds_median": float(serial_residual_seconds),
                 "batched_residual_seconds_median": float(batched_residual_seconds),
                 "serial_residual_states_per_second": _states_per_second(
@@ -492,6 +565,21 @@ def profile_recycling_batched_jvp_problem(
                 "pmap_jvp_batched_max_abs_error": pmap_jvp_batched_max_abs_error,
             }
         )
+        _emit_progress(
+            progress_callback,
+            event="batch_complete",
+            batch_size=int(batch_size),
+            batch_warmup_seconds=float(batch_warmup_seconds),
+            residual_speedup_vs_serial=float(
+                serial_residual_seconds / max(batched_residual_seconds, 1.0e-30)
+            ),
+            jvp_speedup_vs_serial=float(
+                serial_jvp_seconds / max(batched_jvp_seconds, 1.0e-30)
+            ),
+            residual_batched_serial_max_abs_error=float(residual_mismatch),
+            jvp_batched_serial_max_abs_error=float(jvp_mismatch),
+            pmap_device_count=int(pmap_device_count),
+        )
 
     return {
         "case": "recycling_batched_jvp_profile",
@@ -517,6 +605,14 @@ def profile_recycling_batched_jvp_problem(
         "timed_runs": int(timed_runs),
         "perturbation_scale": float(perturbation_scale),
         "fd_epsilon": float(fd_epsilon),
+        "warmup_timing": {
+            "base_residual_warmup_seconds": float(base_residual_warmup_seconds),
+            "base_jvp_warmup_seconds": float(base_jvp_warmup_seconds),
+            "fd_jvp_check_seconds": float(fd_jvp_check_seconds),
+            "objective_grad_check_seconds": None
+            if objective_grad_check_seconds is None
+            else float(objective_grad_check_seconds),
+        },
         "differentiability": {
             "jvp_fd_relative_error": float(jvp_fd_relative_error),
             "objective_grad_checked": bool(check_objective_grad),
@@ -549,11 +645,35 @@ def create_recycling_batched_jvp_profile_package(
     check_objective_grad: bool = True,
     rhs_backend: str = "fixed_full_field_array",
 ) -> dict[str, object]:
+    output_path = Path(output_dir).expanduser()
+    output_path.mkdir(parents=True, exist_ok=True)
+    progress_path = output_path / "profile_progress.jsonl"
+    progress_path.unlink(missing_ok=True)
+
+    def progress_callback(record: dict[str, object]) -> None:
+        _write_progress_record(progress_path, record)
+
+    progress_callback(
+        {
+            "event": "problem_build_start",
+            "rhs_backend": str(rhs_backend),
+            "input_path": "<input-path>/BOUT.inp",
+            "overrides": list(overrides),
+        }
+    )
     problem = build_recycling_batched_jvp_problem(
         input_path,
         overrides=overrides,
         timestep=timestep,
         rhs_backend=rhs_backend,
+    )
+    progress_callback(
+        {
+            "event": "problem_build_complete",
+            "rhs_backend": str(problem.rhs_backend),
+            "state_size": int(problem.state_size),
+            "mesh_active_shape": list(problem.mesh_active_shape),
+        }
     )
     report = profile_recycling_batched_jvp_problem(
         problem,
@@ -563,6 +683,7 @@ def create_recycling_batched_jvp_profile_package(
         timed_runs=timed_runs,
         enable_pmap=enable_pmap,
         check_objective_grad=check_objective_grad,
+        progress_callback=progress_callback,
     )
     report = {
         **report,
@@ -570,9 +691,8 @@ def create_recycling_batched_jvp_profile_package(
         "overrides": list(overrides),
         "timestep": float(timestep),
         "rhs_backend": str(rhs_backend),
+        "profile_progress_jsonl": "profile_progress.jsonl",
     }
-    output_path = Path(output_dir).expanduser()
-    output_path.mkdir(parents=True, exist_ok=True)
     (output_path / "profile_summary.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
