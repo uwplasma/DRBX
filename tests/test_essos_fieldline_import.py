@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -17,6 +19,8 @@ from jax_drb.geometry import (
 )
 from jax_drb.validation import (
     build_essos_imported_connection_length_refinement_diagnostics,
+    build_essos_imported_drb_movie_refinement_diagnostics,
+    build_essos_imported_drb_movie_refinement_summary,
     build_live_essos_imported_connection_length_levels,
     create_essos_fieldline_import_package,
     create_essos_imported_connection_length_refinement_package,
@@ -28,6 +32,8 @@ from jax_drb.validation import (
     create_essos_vmec_fieldline_surface_package,
 )
 import jax_drb.validation.essos_imported_fci_campaign as imported_fci_campaign
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _logical_coordinates(shape: tuple[int, int, int]) -> dict[str, np.ndarray]:
@@ -59,6 +65,30 @@ def _has_essos_landreman_runtime() -> bool:
     return essos_runtime_available()
 
 
+def _movie_report(
+    *,
+    grid: tuple[int, int, int],
+    dt: float = 1.0e-3,
+    substeps_per_frame: int = 4,
+    map_source: str = "hybrid",
+    final_fluctuation_rms: float = 0.06,
+    radial_flux_proxy: float = -2.0e-3,
+) -> dict[str, object]:
+    return {
+        "case": f"{map_source}_{grid[0]}x{grid[1]}x{grid[2]}_{dt:g}",
+        "map_source": map_source,
+        "movie_physics_grid": list(grid),
+        "dt": dt,
+        "substeps_per_frame": substeps_per_frame,
+        "passed": True,
+        "final_fluctuation_rms": final_fluctuation_rms,
+        "max_fluctuation_rms": final_fluctuation_rms * 1.05,
+        "radial_flux_proxy": radial_flux_proxy,
+        "low_mode_spectral_power_fraction": 0.34,
+        "final_potential_residual_l2": 0.02,
+    }
+
+
 def test_essos_imported_drb_movie_evidence_classification_is_conservative() -> None:
     coil = classify_essos_imported_drb_movie_evidence("coil")
     hybrid = classify_essos_imported_drb_movie_evidence("hybrid")
@@ -81,6 +111,130 @@ def test_essos_imported_drb_movie_evidence_classification_is_conservative() -> N
     assert "connection_length_refinement_summary_promotion_ready" in vmec[
         "required_publication_gates"
     ]
+
+
+def test_essos_imported_drb_movie_refinement_summary_passes_matched_reports() -> None:
+    grid_reports = (
+        _movie_report(grid=(4, 8, 16), final_fluctuation_rms=0.058),
+        _movie_report(grid=(8, 16, 32), final_fluctuation_rms=0.061),
+    )
+    time_reports = (
+        _movie_report(grid=(8, 16, 32), dt=2.0e-3, substeps_per_frame=2),
+        _movie_report(grid=(8, 16, 32), dt=1.0e-3, substeps_per_frame=2),
+    )
+
+    summary = build_essos_imported_drb_movie_refinement_summary(
+        grid_reports=grid_reports,
+        time_reports=time_reports,
+        relative_tolerance=0.20,
+    )
+
+    assert summary["publication_ready"] is True
+    assert summary["grid_refinement_passed"] is True
+    assert summary["time_refinement_passed"] is True
+    assert summary["movie_promotion_rejection_reasons"] == []
+    assert summary["grid_refinement_diagnostics"]["axis_values"] == [512.0, 4096.0]
+    assert summary["time_refinement_diagnostics"]["axis_values"] == [0.004, 0.002]
+
+
+def test_essos_imported_drb_movie_refinement_summary_rejects_unstable_metrics() -> None:
+    grid_reports = (
+        _movie_report(grid=(4, 8, 16), radial_flux_proxy=-2.0e-3),
+        _movie_report(grid=(8, 16, 32), radial_flux_proxy=2.0e-3),
+    )
+    time_reports = (_movie_report(grid=(8, 16, 32)),)
+
+    summary = build_essos_imported_drb_movie_refinement_summary(
+        grid_reports=grid_reports,
+        time_reports=time_reports,
+        relative_tolerance=0.20,
+    )
+
+    assert summary["publication_ready"] is False
+    assert summary["grid_refinement_passed"] is False
+    assert summary["time_refinement_passed"] is False
+    assert "movie_grid_refinement_not_passed" in summary["movie_promotion_rejection_reasons"]
+    assert "movie_time_refinement_not_passed" in summary["movie_promotion_rejection_reasons"]
+    pair = summary["grid_refinement_diagnostics"]["pair_reports"][0]
+    assert pair["radial_flux_sign_passed"] is False
+    assert pair["metric_reports"]["radial_flux_proxy"]["passed"] is False
+
+
+def test_essos_imported_drb_movie_refinement_summary_package_reads_reports(tmp_path: Path) -> None:
+    first = _movie_report(grid=(4, 8, 16), dt=2.0e-3, substeps_per_frame=2)
+    second = _movie_report(grid=(8, 16, 32), dt=1.0e-3, substeps_per_frame=2)
+    first_path = tmp_path / "first.json"
+    second_path = tmp_path / "second.json"
+    first_path.write_text(json.dumps(first), encoding="utf-8")
+    second_path.write_text(json.dumps(second), encoding="utf-8")
+
+    from jax_drb.validation import create_essos_imported_drb_movie_refinement_summary_package
+
+    artifacts = create_essos_imported_drb_movie_refinement_summary_package(
+        output_root=tmp_path / "summary",
+        case_label="movie_refinement",
+        grid_report_json_paths=(first_path, second_path),
+        time_report_json_paths=(first_path, second_path),
+        relative_tolerance=0.25,
+    )
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+
+    assert report["diagnostic"] == "essos_imported_drb_movie_refinement_summary"
+    assert report["publication_ready"] is True
+    assert artifacts.report_json_path.name == "movie_refinement.json"
+
+
+def test_imported_drb_movie_refinement_summary_example_runs_on_reports(tmp_path: Path) -> None:
+    module = _load_imported_drb_movie_refinement_summary_example()
+    first = _movie_report(grid=(4, 8, 16), dt=2.0e-3, substeps_per_frame=2)
+    second = _movie_report(grid=(8, 16, 32), dt=1.0e-3, substeps_per_frame=2)
+    first_path = tmp_path / "first.json"
+    second_path = tmp_path / "second.json"
+    first_path.write_text(json.dumps(first), encoding="utf-8")
+    second_path.write_text(json.dumps(second), encoding="utf-8")
+
+    settings = module.build_refinement_summary_settings(
+        output_root=tmp_path / "movie_refinement_summary",
+        case_label="example_summary",
+        grid_report_json_paths=(first_path, second_path),
+        time_report_json_paths=(first_path, second_path),
+        relative_tolerance=0.25,
+        require_publication_ready=True,
+    )
+    report = module.run_refinement_summary(settings)
+
+    assert report["publication_ready"] is True
+    assert (
+        tmp_path
+        / "movie_refinement_summary"
+        / "data"
+        / "example_summary.json"
+    ).exists()
+
+
+def _load_imported_drb_movie_refinement_summary_example():
+    module_path = (
+        REPO_ROOT
+        / "examples"
+        / "geometry-3D"
+        / "essos-field-lines"
+        / "imported_drb_movie_refinement_summary.py"
+    )
+    source = module_path.read_text(encoding="utf-8").replace(
+        "RUN_EXAMPLE = True",
+        "RUN_EXAMPLE = False",
+        1,
+    )
+    spec = importlib.util.spec_from_loader(
+        "imported_drb_movie_refinement_summary_example",
+        loader=None,
+    )
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    module.__file__ = str(module_path)
+    sys.modules[spec.name] = module
+    exec(compile(source, str(module_path), "exec"), module.__dict__)
+    return module
 
 
 def test_imported_connection_length_refinement_campaign_is_self_contained(tmp_path: Path) -> None:
