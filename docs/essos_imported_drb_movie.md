@@ -92,6 +92,18 @@ through `build_publication_candidate_refinement_settings()`. Passing that
 heavier sweep is the next required gate before using the imported-field
 turbulence movie as publication evidence.
 
+That heavier candidate has now been run and committed as:
+
+- `docs/data/essos_imported_drb_movie_refinement_publication_artifacts/data/essos_imported_drb_movie_refinement_publication_summary.json`
+
+It is still negative publication evidence, but it narrows the blocker. The
+`8 x 12 x 24` time-refinement pair passes the scalar and spectral gates
+(`max_relative_metric_change = 0.066`), while the grid-refinement pair still
+fails due to radial-flux sensitivity, poloidal spectral-centroid motion, and
+edge-band spectral power (`max_relative_metric_change = 0.94`). The next
+publication-candidate sweep should therefore compare `8 x 12 x 24` with
+`16 x 24 x 48` while reusing the same effective frame timestep pair.
+
 After regenerating two or more same-map-source movie reports at different grid
 sizes and two or more reports at different effective frame timesteps, summarize
 the refinement evidence without committing heavyweight media:
