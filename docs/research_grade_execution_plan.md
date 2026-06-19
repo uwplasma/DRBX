@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 87% | High-grid hybrid report-only movie candidates now pass time and spectral-resolution gates, radial-flux blockers are cleared at `(8,12,24)->(16,24,48)`, and the potential-residual blocker closes with a higher CG budget; remaining blocker is toroidal spectral-centroid movement before any turbulence/movie claim. |
+| 3D stellarator imported-field/VMEC SOL | 89% | High-grid hybrid report-only movie candidates now pass time and spectral-resolution gates, the invalid normalized-centroid blocker is removed, and the corrected `(16,24,48)->(16,24,96)` rerank leaves only potential-residual conditioning plus radial-flux magnitude/RMS just above tolerance before any turbulence/movie claim. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -1976,8 +1976,8 @@ Use this log for concise decision records. Do not paste terminal output here.
   axes: `final_fluctuation_rms`, `max_fluctuation_rms`,
   `radial_flux_abs_mean`, `radial_flux_rms`,
   `low_mode_spectral_power_fraction`,
-  `spectral_centroid_poloidal_fraction`,
-  `spectral_centroid_toroidal_fraction`,
+  `spectral_centroid_poloidal_index`,
+  `spectral_centroid_toroidal_index`,
   `spectral_edge_band_power_fraction`, and `final_potential_residual_l2`. It
   verifies monotone grid/timestep ordering, consistent map source, report
   pass status, and bounded relative metric changes; signed net radial-flux
@@ -2045,8 +2045,8 @@ Use this log for concise decision records. Do not paste terminal output here.
   centroids with bounded edge-band power, not just visually smooth renderer
   interpolation.
 - 2026-06-18: Promoted those spectral diagnostics into the report-only movie
-  refinement gate. The summary now compares normalized spectral-centroid
-  fractions and edge-band power across grid/time reports, rejects reports whose
+  refinement gate. The summary compares spectral-centroid mode indices and
+  edge-band power across grid/time reports, rejects reports whose
   low-mode window covers the available grid, and records per-report
   spectral-resolution reasons such as `low_mode_window_covers_grid` or
   `spectral_edge_band_power_fraction_above_limit`. This makes the imported-field
@@ -2163,6 +2163,29 @@ Use this log for concise decision records. Do not paste terminal output here.
   next-grid suggestion helper was also corrected so a toroidal-only blocker
   keeps radial and poloidal sizes fixed and proposes `(16,24,48)` to
   `(16,24,96)` rather than adding cells to unchanged axes.
+- 2026-06-19: Ran that toroidal-refinement candidate in `tmp/` with
+  `(16,24,48)` to `(16,24,96)` and `potential_iterations=1536`. The reports
+  again passed the time and spectral-resolution gates, but the old
+  normalized-fraction convergence metric still reported a near-exact
+  factor-of-two toroidal-centroid change (`0.134` to `0.067`) when `nz`
+  doubled. That is
+  a metric-design error: the normalized fraction changes when the Nyquist range
+  changes even if the physical Fourier-mode centroid is unchanged. The
+  refinement gate was corrected to compare `spectral_centroid_*_index` as the
+  convergence observable and to keep `spectral_centroid_*_fraction` only as an
+  edge/underresolution diagnostic. The candidate also showed that higher
+  toroidal sweeps are expensive enough that future campaign work should cache
+  geometry and avoid repeated full report rebuilds when auditing only the
+  summary metric semantics.
+- 2026-06-19: Re-ranked the existing `(16,24,48)` to `(16,24,96)` report JSON
+  files under the corrected mode-index refinement metric without rerunning the
+  expensive transient. The toroidal-centroid blocker disappeared. The time
+  gate still passed with max relative metric change `0.092`; the grid gate
+  still failed, now with only `final_potential_residual_l2` (`1.67e-11` to
+  `1.39e-6`) and radial-flux magnitude/RMS just above tolerance (`0.304` and
+  `0.302`) in the failed-metric register. The next 3D movie work should treat
+  this as a radial-transport convergence and potential-solver conditioning
+  problem, not a toroidal spectral-centroid problem.
 
 ## Definition Of Done
 

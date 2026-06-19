@@ -45,6 +45,18 @@
         "reason": "radial_transport_not_grid_or_time_stable",
         "relative_change": 3.3064222738649782,
         "relative_tolerance": 0.3
+      },
+      {
+        "coarse": 2.0564031187775655,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 4.037347277253568,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "spectral_centroid_poloidal_index",
+        "pair_index": 0,
+        "reason": "spectral_content_not_grid_or_time_stable",
+        "relative_change": 0.4906548836253573,
+        "relative_tolerance": 0.3
       }
     ],
     "failed_metric_reports": [
@@ -83,6 +95,18 @@
         "reason": "radial_transport_not_grid_or_time_stable",
         "relative_change": 3.3064222738649782,
         "relative_tolerance": 0.3
+      },
+      {
+        "coarse": 2.0564031187775655,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 4.037347277253568,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "spectral_centroid_poloidal_index",
+        "pair_index": 0,
+        "reason": "spectral_content_not_grid_or_time_stable",
+        "relative_change": 0.4906548836253573,
+        "relative_tolerance": 0.3
       }
     ],
     "labels": [
@@ -101,8 +125,8 @@
       "radial_flux_abs_mean",
       "radial_flux_rms",
       "low_mode_spectral_power_fraction",
-      "spectral_centroid_poloidal_fraction",
-      "spectral_centroid_toroidal_fraction",
+      "spectral_centroid_poloidal_index",
+      "spectral_centroid_toroidal_index",
       "spectral_edge_band_power_fraction",
       "final_potential_residual_l2"
     ],
@@ -172,20 +196,20 @@
             "relative_change": 3.3064222738649782,
             "sign_agreement": true
           },
-          "spectral_centroid_poloidal_fraction": {
-            "coarse": 0.6854677062591885,
+          "spectral_centroid_poloidal_index": {
+            "coarse": 2.0564031187775655,
             "denominator_floor": 1e-12,
-            "fine": 0.8074694554507136,
-            "passed": true,
-            "relative_change": 0.15109147270892878,
+            "fine": 4.037347277253568,
+            "passed": false,
+            "relative_change": 0.4906548836253573,
             "sign_agreement": true
           },
-          "spectral_centroid_toroidal_fraction": {
-            "coarse": 0.6079240303346837,
+          "spectral_centroid_toroidal_index": {
+            "coarse": 2.4316961213387347,
             "denominator_floor": 1e-12,
-            "fine": 0.5026024235446559,
+            "fine": 3.015614541267935,
             "passed": true,
-            "relative_change": 0.2095525247316481,
+            "relative_change": 0.19363165017890122,
             "sign_agreement": true
           },
           "spectral_edge_band_power_fraction": {
@@ -206,7 +230,8 @@
     "refinement_axis": "grid",
     "refinement_recommendations": [
       "Increase the physics/movie grid or reduce the resolved low-mode window before promoting the movie; the spectrum is too close to the grid edge.",
-      "Treat radial transport as unresolved: refine the radial grid and the field-line-following transverse grid, then rerun the same transient."
+      "Treat radial transport as unresolved: refine the radial grid and the field-line-following transverse grid, then rerun the same transient.",
+      "Refine poloidal resolution and interpolation order; the turbulent spectrum is moving in poloidal-mode space across refinement levels."
     ],
     "relative_tolerance": 0.3,
     "report_count": 2,
@@ -295,6 +320,18 @@
         "reason": "radial_transport_not_grid_or_time_stable",
         "relative_change": 3.3064222738649782,
         "relative_tolerance": 0.3
+      },
+      {
+        "coarse": 2.0564031187775655,
+        "coarse_label": "essos_imported_qa_hybrid_drb_transient_movie:3x4x8_frame_dt=0.004",
+        "denominator_floor": 1e-12,
+        "fine": 4.037347277253568,
+        "fine_label": "essos_imported_qa_hybrid_drb_transient_movie:4x6x12_frame_dt=0.004",
+        "metric": "spectral_centroid_poloidal_index",
+        "pair_index": 0,
+        "reason": "spectral_content_not_grid_or_time_stable",
+        "relative_change": 0.4906548836253573,
+        "relative_tolerance": 0.3
       }
     ],
     "dominant_time_blockers": [],
@@ -305,6 +342,7 @@
     "recommendation_notes": [
       "radial transport is grid-sensitive; refine radial and field-line-following transverse resolution together",
       "spectral content is too close to the grid edge; refine poloidal and toroidal movie-grid resolution before promotion",
+      "poloidal spectral centroid moves under refinement",
       "time gate has no scalar-metric offender; fix spectral grid resolution before spending wall time on smaller timesteps"
     ],
     "recommended_time_effective_frame_dt_values": [
@@ -366,8 +404,8 @@
       "radial_flux_abs_mean",
       "radial_flux_rms",
       "low_mode_spectral_power_fraction",
-      "spectral_centroid_poloidal_fraction",
-      "spectral_centroid_toroidal_fraction",
+      "spectral_centroid_poloidal_index",
+      "spectral_centroid_toroidal_index",
       "spectral_edge_band_power_fraction",
       "final_potential_residual_l2"
     ],
@@ -437,20 +475,20 @@
             "relative_change": 0.10108953541523245,
             "sign_agreement": true
           },
-          "spectral_centroid_poloidal_fraction": {
-            "coarse": 0.8074694554507136,
+          "spectral_centroid_poloidal_index": {
+            "coarse": 4.037347277253568,
             "denominator_floor": 1e-12,
-            "fine": 0.8211499622579993,
+            "fine": 4.105749811289996,
             "passed": true,
-            "relative_change": 0.016660180766089355,
+            "relative_change": 0.016660180766089275,
             "sign_agreement": true
           },
-          "spectral_centroid_toroidal_fraction": {
-            "coarse": 0.5026024235446559,
+          "spectral_centroid_toroidal_index": {
+            "coarse": 3.015614541267935,
             "denominator_floor": 1e-12,
-            "fine": 0.5156553119644774,
+            "fine": 3.093931871786865,
             "passed": true,
-            "relative_change": 0.025313204609672946,
+            "relative_change": 0.025313204609673085,
             "sign_agreement": true
           },
           "spectral_edge_band_power_fraction": {

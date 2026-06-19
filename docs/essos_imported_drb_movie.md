@@ -96,8 +96,8 @@ Edit `GRID_REPORT_JSON_PATHS` and `TIME_REPORT_JSON_PATHS` in that script to
 point at the regenerated report JSON files. The summary compares
 `final_fluctuation_rms`, `max_fluctuation_rms`, `radial_flux_abs_mean`,
 `radial_flux_rms`, `low_mode_spectral_power_fraction`, and
-`final_potential_residual_l2`, plus normalized spectral-centroid and
-edge-band metrics. It checks that the grid or timestep ordering is meaningful,
+`final_potential_residual_l2`, plus spectral-centroid mode-index and edge-band
+metrics. It checks that the grid or timestep ordering is meaningful,
 requires consistent map source labels, and rejects under-resolved reports whose
 low-mode window covers the available grid or whose edge-band spectral power is
 too large. The default edge-band ceiling is `0.85`, so compact exploratory
@@ -141,8 +141,11 @@ Each movie report also records spectral resolution diagnostics:
 fields make coarse-grid failures easier to interpret. In particular, the
 low-mode fraction is not a resolution claim when the low-mode window covers the
 entire available grid; a publication-grade run must show stable scalar
-fluctuation statistics together with stable normalized spectral centroids and
-resolved spectral content away from the Nyquist/edge band.
+fluctuation statistics together with stable spectral-centroid mode indices and
+resolved spectral content away from the Nyquist/edge band. The normalized
+centroid fractions are reserved for underresolution screening because they
+change when the Nyquist range changes, even if the physical Fourier-mode
+centroid is unchanged.
 
 Before using restored release assets as fresh publication evidence, run the
 clean-clone schema audit:
