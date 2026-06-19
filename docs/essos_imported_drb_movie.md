@@ -145,6 +145,27 @@ publication movie, because the next evidence should be a polished long-window
 movie generated with the same Jacobi potential solve and accompanied by
 stationarity statistics.
 
+The long-window stationarity gate is JSON-only and uses the same high-resolution
+Jacobi solver settings without writing GIF, PNG, or NPZ media:
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py
+```
+
+The committed stationarity report is:
+
+- `docs/data/essos_imported_drb_movie_stationarity_jacobi_artifacts/data/essos_imported_drb_movie_stationarity_jacobi.json`
+
+That report passes on the `16 x 96 x 48` hybrid grid with `frames = 12`,
+`substeps_per_frame = 3`, `dt = 0.002`, and
+`potential_preconditioner = "jacobi"`. The tail fluctuation-RMS drift is
+`0.15`, the ion-density drift is `7.6e-3`, the neutral-density drift is
+`3.8e-2`, the vorticity-RMS drift is `8.3e-3`, and the tail potential residual
+stays below `3.4e-11`. The next media step should therefore generate a polished
+GIF and diagnostics images with these settings, QA the frames visually, and
+release-host the media rather than committing it to git.
+
 After regenerating two or more same-map-source movie reports at different grid
 sizes and two or more reports at different effective frame timesteps, summarize
 the refinement evidence without committing heavyweight media:

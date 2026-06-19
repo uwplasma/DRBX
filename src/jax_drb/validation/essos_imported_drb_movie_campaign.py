@@ -52,6 +52,11 @@ class EssosImportedDrbMovieRefinementCampaignArtifacts:
 
 
 @dataclass(frozen=True)
+class EssosImportedDrbMovieStationarityArtifacts:
+    report_json_path: Path
+
+
+@dataclass(frozen=True)
 class EssosImportedDrbMovieResult:
     geometry: EssosImportedFciGeometry
     report: dict[str, Any]
@@ -1289,6 +1294,306 @@ def create_essos_imported_drb_movie_package(
         poster_png_path=poster_png_path,
         movie_gif_path=movie_gif_path,
     )
+
+
+def create_essos_imported_drb_movie_stationarity_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_imported_drb_movie_stationarity",
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    map_source: str = "hybrid",
+    nx: int = 16,
+    ny: int = 96,
+    nz: int = 48,
+    rho_min: float = 0.20,
+    rho_max: float = 0.60,
+    maxtime: float = 24.0,
+    times_to_trace: int = 80,
+    frames: int = 12,
+    substeps_per_frame: int = 3,
+    dt: float = 2.0e-3,
+    potential_iterations: int = 3072,
+    potential_regularization: float = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION,
+    potential_preconditioner: str | None = "jacobi",
+    tail_fraction: float = 0.50,
+    relative_tolerance: float = 0.35,
+    min_frames: int = 12,
+) -> EssosImportedDrbMovieStationarityArtifacts:
+    """Run a report-only long-window movie stationarity gate.
+
+    This function intentionally writes JSON only. Use
+    ``create_essos_imported_drb_movie_package`` later, with the same physics and
+    solver settings, only after this gate passes.
+    """
+
+    root = Path(output_root)
+    data_dir = root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    result = build_essos_imported_drb_movie_campaign(
+        coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
+        essos_root=essos_root,
+        map_source=map_source,
+        nx=nx,
+        ny=ny,
+        nz=nz,
+        rho_min=rho_min,
+        rho_max=rho_max,
+        maxtime=maxtime,
+        times_to_trace=times_to_trace,
+        frames=frames,
+        substeps_per_frame=substeps_per_frame,
+        dt=dt,
+        potential_iterations=potential_iterations,
+        potential_regularization=potential_regularization,
+        potential_preconditioner=potential_preconditioner,
+    )
+    stationarity_report = build_essos_imported_drb_movie_stationarity_report(
+        movie_report=result.report,
+        arrays=result.arrays,
+        tail_fraction=tail_fraction,
+        relative_tolerance=relative_tolerance,
+        min_frames=min_frames,
+    )
+    report_json_path = data_dir / f"{case_label}.json"
+    _write_strict_json(report_json_path, stationarity_report)
+    return EssosImportedDrbMovieStationarityArtifacts(
+        report_json_path=report_json_path,
+    )
+
+
+def build_essos_imported_drb_movie_stationarity_report(
+    *,
+    movie_report: dict[str, Any],
+    arrays: dict[str, np.ndarray],
+    tail_fraction: float = 0.50,
+    relative_tolerance: float = 0.35,
+    min_frames: int = 12,
+) -> dict[str, Any]:
+    """Evaluate whether a movie history has a stable long-window tail."""
+
+    diagnostics = np.asarray(arrays.get("diagnostics", []), dtype=np.float64)
+    time_values = np.asarray(arrays.get("time", []), dtype=np.float64)
+    history = np.asarray(
+        arrays.get("density_fluctuation_history", []),
+        dtype=np.float64,
+    )
+    if diagnostics.ndim != 2 or diagnostics.shape[1] < 7:
+        return _build_failed_stationarity_report(
+            movie_report=movie_report,
+            frame_count=int(diagnostics.shape[0]) if diagnostics.ndim else 0,
+            tail_fraction=tail_fraction,
+            relative_tolerance=relative_tolerance,
+            min_frames=min_frames,
+            reason="diagnostics_shape_invalid",
+        )
+    frame_count = int(diagnostics.shape[0])
+    tail_start = int(np.floor((1.0 - float(tail_fraction)) * frame_count))
+    tail_start = min(max(tail_start, 0), max(frame_count - 2, 0))
+    tail = diagnostics[tail_start:, :]
+    split = tail.shape[0] // 2
+    if split <= 0 or tail.shape[0] - split <= 0:
+        return _build_failed_stationarity_report(
+            movie_report=movie_report,
+            frame_count=frame_count,
+            tail_fraction=tail_fraction,
+            relative_tolerance=relative_tolerance,
+            min_frames=min_frames,
+            reason="tail_window_too_short",
+        )
+
+    first_tail = tail[:split, :]
+    second_tail = tail[split:, :]
+    metric_columns = {
+        "fluctuation_rms": 0,
+        "ion_density_mean": 1,
+        "neutral_density_mean": 2,
+        "vorticity_rms": 3,
+    }
+    metric_reports = {
+        name: _stationarity_metric_report(
+            name=name,
+            first_values=first_tail[:, column],
+            second_values=second_tail[:, column],
+            relative_tolerance=relative_tolerance,
+        )
+        for name, column in metric_columns.items()
+    }
+    potential_tail = tail[:, 4]
+    ion_min_tail = tail[:, 5]
+    neutral_min_tail = tail[:, 6]
+    finite = bool(
+        np.all(np.isfinite(diagnostics))
+        and np.all(np.isfinite(time_values))
+        and np.all(np.isfinite(history))
+    )
+    frame_gate = frame_count >= int(min_frames)
+    metric_gate = all(bool(report["passed"]) for report in metric_reports.values())
+    potential_tail_max = float(np.max(potential_tail)) if potential_tail.size else None
+    min_density_tail = float(
+        min(np.min(ion_min_tail), np.min(neutral_min_tail))
+    )
+    potential_gate = (
+        potential_tail_max is not None
+        and np.isfinite(potential_tail_max)
+        and potential_tail_max < 5.0
+    )
+    density_gate = bool(np.isfinite(min_density_tail) and min_density_tail > 0.0)
+    movie_gate = bool(movie_report.get("passed", False))
+    stationarity_passed = bool(
+        finite
+        and frame_gate
+        and metric_gate
+        and potential_gate
+        and density_gate
+        and movie_gate
+    )
+    rejection_reasons: list[str] = []
+    if not finite:
+        rejection_reasons.append("nonfinite_movie_or_diagnostic_history")
+    if not frame_gate:
+        rejection_reasons.append("frame_count_below_long_window_requirement")
+    if not metric_gate:
+        rejection_reasons.append("tail_statistical_metrics_not_stationary")
+    if not potential_gate:
+        rejection_reasons.append("tail_potential_residual_above_threshold")
+    if not density_gate:
+        rejection_reasons.append("tail_density_nonpositive")
+    if not movie_gate:
+        rejection_reasons.append("underlying_movie_gate_failed")
+
+    duration = (
+        float(time_values[-1] - time_values[0])
+        if time_values.size >= 2
+        else 0.0
+    )
+    return {
+        "diagnostic": "essos_imported_drb_movie_stationarity",
+        "claim_scope": (
+            "JSON-only long-window statistical stationarity gate for an "
+            "imported-field DRB movie; it does not write GIF, PNG, or NPZ media"
+        ),
+        "case": movie_report.get("case"),
+        "map_source": movie_report.get("map_source"),
+        "movie_physics_grid": movie_report.get("movie_physics_grid"),
+        "frames": frame_count,
+        "min_frames": int(min_frames),
+        "substeps_per_frame": movie_report.get("substeps_per_frame"),
+        "dt": movie_report.get("dt"),
+        "duration": duration,
+        "tail_fraction": float(tail_fraction),
+        "tail_start_index": int(tail_start),
+        "tail_frame_count": int(tail.shape[0]),
+        "relative_tolerance": float(relative_tolerance),
+        "potential_iterations": movie_report.get("potential_iterations"),
+        "potential_preconditioner": movie_report.get("potential_preconditioner"),
+        "underlying_movie_passed": movie_gate,
+        "finite_history": finite,
+        "frame_gate_passed": frame_gate,
+        "metric_gate_passed": metric_gate,
+        "potential_tail_max": potential_tail_max,
+        "potential_gate_passed": potential_gate,
+        "min_density_tail": min_density_tail,
+        "density_gate_passed": density_gate,
+        "metric_reports": metric_reports,
+        "stationarity_passed": stationarity_passed,
+        "publication_ready": stationarity_passed,
+        "movie_promotion_rejection_reasons": rejection_reasons,
+        "movie_report": _stationarity_movie_report_subset(movie_report),
+    }
+
+
+def _build_failed_stationarity_report(
+    *,
+    movie_report: dict[str, Any],
+    frame_count: int,
+    tail_fraction: float,
+    relative_tolerance: float,
+    min_frames: int,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "diagnostic": "essos_imported_drb_movie_stationarity",
+        "claim_scope": (
+            "JSON-only long-window statistical stationarity gate for an "
+            "imported-field DRB movie; it does not write GIF, PNG, or NPZ media"
+        ),
+        "case": movie_report.get("case"),
+        "map_source": movie_report.get("map_source"),
+        "movie_physics_grid": movie_report.get("movie_physics_grid"),
+        "frames": int(frame_count),
+        "min_frames": int(min_frames),
+        "tail_fraction": float(tail_fraction),
+        "relative_tolerance": float(relative_tolerance),
+        "stationarity_passed": False,
+        "publication_ready": False,
+        "movie_promotion_rejection_reasons": [str(reason)],
+        "movie_report": _stationarity_movie_report_subset(movie_report),
+    }
+
+
+def _stationarity_metric_report(
+    *,
+    name: str,
+    first_values: np.ndarray,
+    second_values: np.ndarray,
+    relative_tolerance: float,
+) -> dict[str, Any]:
+    first = np.asarray(first_values, dtype=np.float64)
+    second = np.asarray(second_values, dtype=np.float64)
+    first_mean = float(np.mean(first)) if first.size else None
+    second_mean = float(np.mean(second)) if second.size else None
+    tail_values = np.concatenate([first, second])
+    tail_mean = float(np.mean(tail_values)) if tail_values.size else None
+    tail_std = float(np.std(tail_values)) if tail_values.size else None
+    if first_mean is None or second_mean is None or tail_mean is None:
+        relative_drift = None
+        passed = False
+    else:
+        denominator = max(abs(tail_mean), 1.0e-12)
+        relative_drift = abs(second_mean - first_mean) / denominator
+        passed = bool(relative_drift <= float(relative_tolerance))
+    return {
+        "metric": str(name),
+        "first_tail_mean": first_mean,
+        "second_tail_mean": second_mean,
+        "tail_mean": tail_mean,
+        "tail_std": tail_std,
+        "tail_coefficient_of_variation": (
+            None
+            if tail_mean is None or tail_std is None
+            else float(tail_std / max(abs(tail_mean), 1.0e-12))
+        ),
+        "relative_drift": (
+            None if relative_drift is None else float(relative_drift)
+        ),
+        "relative_tolerance": float(relative_tolerance),
+        "passed": passed,
+    }
+
+
+def _stationarity_movie_report_subset(report: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "passed",
+        "case",
+        "map_source",
+        "movie_physics_grid",
+        "frames",
+        "substeps_per_frame",
+        "dt",
+        "potential_iterations",
+        "potential_preconditioner",
+        "final_fluctuation_rms",
+        "max_fluctuation_rms",
+        "final_potential_residual_l2",
+        "final_min_density",
+        "radial_flux_abs_mean",
+        "particle_recycling_relative_error",
+        "neutral_particle_relative_error",
+    )
+    return {key: report.get(key) for key in keys if key in report}
 
 
 def build_essos_imported_drb_movie_campaign(

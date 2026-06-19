@@ -22,10 +22,12 @@ from jax_drb.validation import (
     build_essos_imported_drb_movie_refinement_diagnostics,
     build_essos_imported_drb_movie_refinement_next_campaign,
     build_essos_imported_drb_movie_refinement_summary,
+    build_essos_imported_drb_movie_stationarity_report,
     build_live_essos_imported_connection_length_levels,
     create_essos_fieldline_import_package,
     create_essos_imported_connection_length_refinement_package,
     create_essos_imported_drb_movie_refinement_campaign_package,
+    create_essos_imported_drb_movie_stationarity_package,
     create_live_essos_imported_connection_length_refinement_package,
     classify_essos_imported_drb_movie_evidence,
     create_essos_imported_drb_movie_package,
@@ -154,6 +156,32 @@ def _movie_report(
         "potential_iterations": potential_iterations,
         "potential_regularization": potential_regularization,
         "potential_preconditioner": potential_preconditioner,
+    }
+
+
+def _movie_stationarity_arrays(
+    *,
+    frames: int = 12,
+    drift: float = 0.02,
+    potential_residual: float = 1.0e-10,
+    min_density: float = 0.45,
+) -> dict[str, np.ndarray]:
+    time = np.arange(frames, dtype=np.float64) * 0.006
+    phase = np.linspace(0.0, 1.0, frames, dtype=np.float64)
+    diagnostics = np.zeros((frames, 7), dtype=np.float64)
+    diagnostics[:, 0] = 0.05 * (1.0 + drift * phase)
+    diagnostics[:, 1] = 1.0 * (1.0 + 0.5 * drift * phase)
+    diagnostics[:, 2] = 0.35 * (1.0 - 0.4 * drift * phase)
+    diagnostics[:, 3] = 0.08 * (1.0 + 0.3 * drift * phase)
+    diagnostics[:, 4] = potential_residual
+    diagnostics[:, 5] = min_density
+    diagnostics[:, 6] = min_density
+    history = np.ones((frames, 2, 3, 4), dtype=np.float64) * 0.01
+    history *= 1.0 + 0.01 * phase[:, None, None, None]
+    return {
+        "diagnostics": diagnostics,
+        "time": time,
+        "density_fluctuation_history": history,
     }
 
 
@@ -711,6 +739,139 @@ def test_imported_drb_movie_refinement_campaign_example_exposes_publication_cand
     )
 
 
+def test_imported_drb_movie_stationarity_report_passes_stable_tail() -> None:
+    movie_report = _movie_report(grid=(16, 96, 48), potential_preconditioner="jacobi")
+    movie_report["passed"] = True
+
+    report = build_essos_imported_drb_movie_stationarity_report(
+        movie_report=movie_report,
+        arrays=_movie_stationarity_arrays(frames=12, drift=0.02),
+        tail_fraction=0.5,
+        relative_tolerance=0.35,
+        min_frames=12,
+    )
+
+    assert report["stationarity_passed"] is True
+    assert report["publication_ready"] is True
+    assert report["movie_promotion_rejection_reasons"] == []
+    assert report["metric_gate_passed"] is True
+    assert report["potential_gate_passed"] is True
+    assert report["density_gate_passed"] is True
+
+
+def test_imported_drb_movie_stationarity_report_rejects_tail_drift() -> None:
+    movie_report = _movie_report(grid=(16, 96, 48), potential_preconditioner="jacobi")
+    movie_report["passed"] = True
+
+    report = build_essos_imported_drb_movie_stationarity_report(
+        movie_report=movie_report,
+        arrays=_movie_stationarity_arrays(frames=12, drift=1.2),
+        tail_fraction=0.5,
+        relative_tolerance=0.10,
+        min_frames=12,
+    )
+
+    assert report["stationarity_passed"] is False
+    assert "tail_statistical_metrics_not_stationary" in report[
+        "movie_promotion_rejection_reasons"
+    ]
+    assert any(
+        not bool(metric_report["passed"])
+        for metric_report in report["metric_reports"].values()
+    )
+
+
+def test_imported_drb_movie_stationarity_package_writes_report_only_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fake_movie_campaign(**kwargs: object) -> SimpleNamespace:
+        movie_report = _movie_report(
+            grid=(int(kwargs["nx"]), int(kwargs["ny"]), int(kwargs["nz"])),
+            dt=float(kwargs["dt"]),
+            frames=int(kwargs["frames"]),
+            substeps_per_frame=int(kwargs["substeps_per_frame"]),
+            map_source=str(kwargs["map_source"]),
+            potential_iterations=int(kwargs["potential_iterations"]),
+            potential_regularization=float(kwargs["potential_regularization"]),
+            potential_preconditioner=kwargs["potential_preconditioner"],
+        )
+        movie_report["passed"] = True
+        return SimpleNamespace(
+            report=movie_report,
+            arrays=_movie_stationarity_arrays(frames=int(kwargs["frames"])),
+        )
+
+    monkeypatch.setattr(
+        imported_movie_campaign,
+        "build_essos_imported_drb_movie_campaign",
+        fake_movie_campaign,
+    )
+
+    artifacts = create_essos_imported_drb_movie_stationarity_package(
+        output_root=tmp_path / "stationarity",
+        case_label="stationarity",
+        nx=16,
+        ny=96,
+        nz=48,
+        frames=12,
+        substeps_per_frame=3,
+        dt=2.0e-3,
+        potential_preconditioner="jacobi",
+    )
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+
+    assert report["stationarity_passed"] is True
+    assert report["publication_ready"] is True
+    assert artifacts.report_json_path.name == "stationarity.json"
+    assert not (tmp_path / "stationarity" / "movies").exists()
+    assert not (tmp_path / "stationarity" / "images").exists()
+
+
+def test_imported_drb_movie_stationarity_example_runs_with_fake_builder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_imported_drb_movie_stationarity_example()
+
+    def fake_create_stationarity(**kwargs: object) -> SimpleNamespace:
+        root = Path(kwargs["output_root"])
+        data_dir = root / "data"
+        data_dir.mkdir(parents=True)
+        report_path = data_dir / f"{kwargs['case_label']}.json"
+        report_path.write_text(
+            json.dumps(
+                {
+                    "stationarity_passed": True,
+                    "publication_ready": True,
+                    "movie_promotion_rejection_reasons": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return SimpleNamespace(report_json_path=report_path)
+
+    monkeypatch.setattr(
+        module,
+        "create_essos_imported_drb_movie_stationarity_package",
+        fake_create_stationarity,
+    )
+    settings = module.build_stationarity_settings(
+        output_root=tmp_path / "stationarity",
+        case_label="example_stationarity",
+        require_stationarity_ready=True,
+    )
+    report = module.run_stationarity_campaign(settings)
+
+    assert report["stationarity_passed"] is True
+    assert (
+        tmp_path
+        / "stationarity"
+        / "data"
+        / "example_stationarity.json"
+    ).exists()
+
+
 def test_imported_drb_movie_strict_json_payload_replaces_nonfinite_values() -> None:
     payload = imported_movie_campaign._strict_json_payload(
         {
@@ -995,6 +1156,31 @@ def _load_imported_drb_movie_refinement_campaign_example():
     )
     spec = importlib.util.spec_from_loader(
         "imported_drb_movie_refinement_campaign_example",
+        loader=None,
+    )
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    module.__file__ = str(module_path)
+    sys.modules[spec.name] = module
+    exec(compile(source, str(module_path), "exec"), module.__dict__)
+    return module
+
+
+def _load_imported_drb_movie_stationarity_example():
+    module_path = (
+        REPO_ROOT
+        / "examples"
+        / "geometry-3D"
+        / "essos-field-lines"
+        / "imported_drb_movie_stationarity_campaign.py"
+    )
+    source = module_path.read_text(encoding="utf-8").replace(
+        "RUN_EXAMPLE = True",
+        "RUN_EXAMPLE = False",
+        1,
+    )
+    spec = importlib.util.spec_from_loader(
+        "imported_drb_movie_stationarity_example",
         loader=None,
     )
     assert spec is not None

@@ -149,9 +149,9 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 96% | The refinement gate now compares normalized spectral-centroid fractions rather than raw mode indices. With that correction and Jacobi FCI-potential preconditioning, the high-resolution `16x48x48 -> 16x96x48` report-only movie candidate passes both grid and time refinement. The remaining blocker is a polished long-window movie and stationarity statistics using the same Jacobi solve. |
+| 3D stellarator imported-field/VMEC SOL | 97% | The refinement gate now compares normalized spectral-centroid fractions rather than raw mode indices. With that correction and Jacobi FCI-potential preconditioning, the high-resolution `16x48x48 -> 16x96x48` report-only movie candidate passes both grid and time refinement, and the `16x96x48`, `frames=12`, `substeps=3` JSON-only stationarity gate passes. The remaining blocker is polished release-hosted media generated and visually QA'd with the same settings. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
-| Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
+| Docs and examples | 94% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
 
 ## Milestone Map
@@ -2602,6 +2602,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   `63%` and the 3D imported-field/VMEC SOL lane to `96%`; the next 3D task is
   a polished long-window movie and stationarity-statistics package using the
   same Jacobi potential solve, not another report-only grid escalation.
+- 2026-06-19: Added and ran a JSON-only imported-field DRB movie stationarity
+  gate at the passing high-resolution Jacobi settings (`16x96x48`, `frames=12`,
+  `substeps_per_frame=3`, `dt=0.002`, `potential_preconditioner="jacobi"`).
+  The report writes no GIF, PNG, or NPZ files and is only `4K`. It passes:
+  tail fluctuation-RMS drift `0.15`, ion-density drift `7.6e-3`,
+  neutral-density drift `3.8e-2`, vorticity-RMS drift `8.3e-3`, minimum tail
+  density `0.109`, and tail potential residual below `3.4e-11`. Decision:
+  raise the 3D imported-field/VMEC SOL lane to `97%` and docs/examples to
+  `94%`; the remaining 3D movie task is to generate, visually QA, compress, and
+  release-host polished media with the same settings rather than committing
+  media to git.
 
 ## Definition Of Done
 
