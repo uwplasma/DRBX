@@ -858,6 +858,63 @@ def test_committed_imported_drb_movie_refinement_poloidal_summary_locks_residual
     )
 
 
+def test_committed_imported_drb_movie_refinement_poloidal_6144_summary_keeps_residual_blocker() -> None:
+    report_path = (
+        REPO_ROOT
+        / "docs"
+        / "data"
+        / "essos_imported_drb_movie_refinement_poloidal_6144_artifacts"
+        / "data"
+        / "essos_imported_drb_movie_refinement_poloidal_6144_summary.json"
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    suggestion = report["next_campaign_suggestion"]
+
+    assert report["publication_ready"] is False
+    assert report["grid_refinement_passed"] is False
+    assert report["time_refinement_passed"] is False
+    assert report["movie_promotion_rejection_reasons"] == [
+        "movie_grid_refinement_not_passed",
+        "movie_time_refinement_not_passed",
+    ]
+    assert suggestion["potential_solve_action"] == (
+        "check_potential_solver_after_primary_physics_metric_refinement"
+    )
+    assert suggestion["recommended_potential_iterations"] == 12288
+    assert [item["metric"] for item in suggestion["dominant_time_blockers"]] == [
+        "final_potential_residual_l2"
+    ]
+    assert "final_potential_residual_l2" in [
+        item["metric"] for item in suggestion["dominant_grid_blockers"]
+    ]
+
+
+def test_committed_imported_drb_movie_refinement_poloidal_jacobi_summary_closes_residual_blocker() -> None:
+    report_path = (
+        REPO_ROOT
+        / "docs"
+        / "data"
+        / "essos_imported_drb_movie_refinement_poloidal_jacobi_artifacts"
+        / "data"
+        / "essos_imported_drb_movie_refinement_poloidal_jacobi_summary.json"
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    suggestion = report["next_campaign_suggestion"]
+
+    assert report["publication_ready"] is False
+    assert report["grid_refinement_passed"] is False
+    assert report["time_refinement_passed"] is True
+    assert report["movie_promotion_rejection_reasons"] == [
+        "movie_grid_refinement_not_passed"
+    ]
+    assert suggestion["potential_solve_action"] == "no_potential_residual_blocker"
+    assert suggestion["dominant_time_blockers"] == []
+    assert [item["metric"] for item in suggestion["dominant_grid_blockers"]] == [
+        "spectral_centroid_poloidal_index"
+    ]
+    assert suggestion["suggested_grid_shapes"] == [[16, 48, 48], [16, 96, 48]]
+
+
 def _load_imported_drb_movie_refinement_summary_example():
     module_path = (
         REPO_ROOT
