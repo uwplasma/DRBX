@@ -55,9 +55,11 @@ differentiability evidence because it exercises the multispecies recycling
 state rather than a synthetic diffusion objective. On the committed local CPU
 run, the residual JVP agrees with a centered finite difference to about
 `5.97e-9`, the objective directional derivative agrees to about `1.34e-7`,
-and the retained batch sweep through `64` states reaches about `2.49x`
-residual throughput speedup and `2.13x` JVP throughput speedup over
-serial same-kernel calls.
+and the retained batch sweep through `64` states reaches about `2.28x`
+residual throughput speedup and `1.96x` JVP throughput speedup over
+serial same-kernel calls. The retained artifact also checks the reusable
+`jax.linearize` action seam against direct JVPs, with agreement at about
+`3.47e-18`.
 
 The same profile gate now accepts `--rhs-backend active_array`. That backend is
 not a new physics model; it is the opt-in migration seam that passes the
