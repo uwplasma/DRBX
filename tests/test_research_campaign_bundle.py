@@ -255,6 +255,7 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
     assert "recycling_transient_solver_mode=bdf_active_array_jvp" in active_output.command
     assert "bdf_jacobian_mode=jvp" in active_output.command
     assert "bdf_rhs_backend=active_array" in active_output.command
+    assert "bdf_jvp_jacobian_gather_on_device=True" in active_output.command
     assert "bdf_jvp_jacobian_batch_count=1" in active_output.command
     assert "--jax-trace" in active_output.command
     assert "--device-memory-profile" in active_output.command
@@ -274,6 +275,7 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
     )
     assert "bdf_jacobian_mode=jvp" in full_output.command
     assert "bdf_rhs_backend=fixed_full_field_array" in full_output.command
+    assert "bdf_jvp_jacobian_gather_on_device=True" in full_output.command
     assert "--require-min-native-diagnostic" in full_output.command
     assert "bdf_jvp_jacobian_batch_count=1" in full_output.command
     assert "--jax-trace" in full_output.command
@@ -316,6 +318,7 @@ def test_research_campaign_active_array_output_profile_is_gated(
     assert "recycling_transient_solver_mode=bdf_active_array_jvp" in command.command
     assert "bdf_jacobian_mode=jvp" in command.command
     assert "bdf_rhs_backend=active_array" in command.command
+    assert "bdf_jvp_jacobian_gather_on_device=True" in command.command
     assert "bdf_jvp_jacobian_batch_count=1" in command.command
     assert "--rss-profile" in command.command
     assert "--skip-cprofile" in command.command

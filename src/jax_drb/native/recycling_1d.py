@@ -2775,7 +2775,7 @@ def _advance_recycling_1d_adaptive_bdf_history(
 
 def _new_adaptive_bdf_interval_stats(
     step_solver_mode: str,
-) -> dict[str, float | int | str | None]:
+) -> dict[str, float | int | bool | str | None]:
     return {
         "adaptive_bdf_accepted_steps": 0,
         "adaptive_bdf_rejected_steps": 0,
@@ -2809,6 +2809,7 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_unknown_linear_solver_steps": 0,
         "adaptive_bdf_jvp_jacobian_batch_count": 0,
         "adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses": 0,
+        "adaptive_bdf_jvp_jacobian_gather_on_device": None,
         "adaptive_bdf_interval_wall_seconds": 0.0,
         "adaptive_bdf_startup_trial_seconds": 0.0,
         "adaptive_bdf_backward_euler_trial_seconds": 0.0,
@@ -2839,7 +2840,7 @@ def _new_adaptive_bdf_interval_stats(
 
 
 def _add_adaptive_bdf_elapsed(
-    stats: dict[str, float | int | str | None],
+    stats: dict[str, float | int | bool | str | None],
     key: str,
     started_at: float,
 ) -> None:
@@ -2942,6 +2943,7 @@ def _write_adaptive_bdf_trace_record(
                 "jvp_jacobian_device_execute_seconds",
                 "jvp_jacobian_host_transfer_seconds",
                 "jvp_jacobian_sparse_assembly_seconds",
+                "jvp_jacobian_gather_on_device",
                 "jvp_jacobian_batch_count",
                 "jvp_jacobian_prebuilt_direction_batch_uses",
                 "jvp_direction_workspace_reuses",
@@ -2960,7 +2962,7 @@ def _write_adaptive_bdf_trace_record(
 
 
 def _record_adaptive_bdf_error_ratio(
-    stats: dict[str, float | int | str | None],
+    stats: dict[str, float | int | bool | str | None],
     error_ratio: float,
 ) -> None:
     finite_error_ratio = float(error_ratio) if np.isfinite(error_ratio) else None
@@ -2977,7 +2979,7 @@ def _record_adaptive_bdf_error_ratio(
 
 
 def _record_adaptive_bdf_accepted_dt(
-    stats: dict[str, float | int | str | None],
+    stats: dict[str, float | int | bool | str | None],
     dt: float,
 ) -> None:
     accepted_dt = float(dt)
@@ -2992,7 +2994,7 @@ def _record_adaptive_bdf_accepted_dt(
 
 
 def _record_adaptive_bdf_accepted_error_ratio(
-    stats: dict[str, float | int | str | None],
+    stats: dict[str, float | int | bool | str | None],
     error_ratio: float,
 ) -> None:
     finite_error_ratio = float(error_ratio) if np.isfinite(error_ratio) else None
@@ -3078,7 +3080,7 @@ def _scale_adaptive_bdf_error_contributors(
 
 
 def _record_adaptive_bdf_step_solver_info(
-    stats: dict[str, float | int | str | None],
+    stats: dict[str, float | int | bool | str | None],
     info: Recycling1DImplicitStepInfo | object,
 ) -> None:
     stats["adaptive_bdf_trial_solver_steps"] = (
@@ -3146,6 +3148,10 @@ def _record_adaptive_bdf_step_solver_info(
     if diagnostics.get("linear_preconditioner") is not None:
         stats["adaptive_bdf_linear_preconditioner"] = str(
             diagnostics["linear_preconditioner"]
+        )
+    if diagnostics.get("jvp_jacobian_gather_on_device") is not None:
+        stats["adaptive_bdf_jvp_jacobian_gather_on_device"] = bool(
+            diagnostics["jvp_jacobian_gather_on_device"]
         )
     stats["adaptive_bdf_linear_preconditioner_build_count"] = int(
         stats["adaptive_bdf_linear_preconditioner_build_count"]
@@ -3230,8 +3236,8 @@ def _record_adaptive_bdf_step_solver_info(
 
 
 def _accumulate_adaptive_bdf_interval_stats(
-    total: dict[str, float | int | str | None],
-    step: dict[str, float | int | str | None],
+    total: dict[str, float | int | bool | str | None],
+    step: dict[str, float | int | bool | str | None],
 ) -> None:
     count_keys = (
         "adaptive_bdf_accepted_steps",
@@ -3291,6 +3297,10 @@ def _accumulate_adaptive_bdf_interval_stats(
     for key in elapsed_keys:
         total[key] = float(total.get(key, 0.0) or 0.0) + float(
             step.get(key, 0.0) or 0.0
+        )
+    if step.get("adaptive_bdf_jvp_jacobian_gather_on_device") is not None:
+        total["adaptive_bdf_jvp_jacobian_gather_on_device"] = bool(
+            step["adaptive_bdf_jvp_jacobian_gather_on_device"]
         )
 
     for key, reducer in (
@@ -3373,7 +3383,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     dict[str, float] | None,
     float | None,
     float,
-    dict[str, float | int | str | None],
+    dict[str, float | int | bool | str | None],
 ]:
     relative_tolerance = (
         float(config.parsed("solver", "rtol"))
@@ -3755,7 +3765,7 @@ def _advance_recycling_1d_startup_step(
     absolute_tolerance: float,
     field_absolute_tolerance_floors: dict[str, float] | None = None,
     step_solver_mode: str = "sparse",
-    stats: dict[str, float | int | str | None] | None = None,
+    stats: dict[str, float | int | bool | str | None] | None = None,
     sparse_jvp_workspace: SparseJvpWorkspace | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], float]:
     full_started_at = time.perf_counter()
@@ -5177,6 +5187,7 @@ def _advance_recycling_1d_bdf_history(
     jvp_jacobian_device_execute_seconds = 0.0
     jvp_jacobian_host_transfer_seconds = 0.0
     jvp_jacobian_sparse_assembly_seconds = 0.0
+    jvp_jacobian_gather_on_device: bool | None = None
     jvp_jacobian_total_seconds = 0.0
     jvp_jacobian_batch_count = 0
     jvp_jacobian_prebuilt_direction_batch_uses = 0
@@ -5353,7 +5364,9 @@ def _advance_recycling_1d_bdf_history(
                     nonlocal \
                         jvp_jacobian_tangent_build_seconds, \
                         jvp_jacobian_total_seconds
-                    nonlocal jvp_jacobian_prebuilt_direction_batch_uses
+                    nonlocal \
+                        jvp_jacobian_gather_on_device, \
+                        jvp_jacobian_prebuilt_direction_batch_uses
                     jvp_jacobian_total_seconds += float(
                         timing.get("total_seconds", 0.0)
                     )
@@ -5373,6 +5386,10 @@ def _advance_recycling_1d_bdf_history(
                     jvp_jacobian_sparse_assembly_seconds += float(
                         timing.get("sparse_assembly_seconds", 0.0)
                     )
+                    if "gather_on_device" in timing:
+                        jvp_jacobian_gather_on_device = bool(
+                            int(timing.get("gather_on_device", 0))
+                        )
                     jvp_jacobian_batch_count += int(timing.get("batch_count", 0))
                     jvp_jacobian_prebuilt_direction_batch_uses += int(
                         timing.get("prebuilt_direction_batches", 0)
@@ -5503,6 +5520,7 @@ def _advance_recycling_1d_bdf_history(
             "bdf_jvp_jacobian_sparse_assembly_seconds": float(
                 jvp_jacobian_sparse_assembly_seconds
             ),
+            "bdf_jvp_jacobian_gather_on_device": jvp_jacobian_gather_on_device,
             "bdf_jvp_jacobian_tangent_build_seconds": float(
                 jvp_jacobian_tangent_build_seconds
             ),
@@ -7047,6 +7065,9 @@ def _as_recycling_step_info(
         ),
         "jvp_jacobian_sparse_assembly_seconds": float(
             getattr(info, "jvp_jacobian_sparse_assembly_seconds", 0.0)
+        ),
+        "jvp_jacobian_gather_on_device": getattr(
+            info, "jvp_jacobian_gather_on_device", None
         ),
         "jvp_jacobian_batch_count": int(getattr(info, "jvp_jacobian_batch_count", 0)),
         "jvp_jacobian_prebuilt_direction_batch_uses": int(

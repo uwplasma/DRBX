@@ -3485,6 +3485,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             jvp_jacobian_sparse_assembly_seconds=0.004
             if jacobian_mode == "jvp"
             else 0.0,
+            jvp_jacobian_gather_on_device=jacobian_mode == "jvp",
             jvp_jacobian_batch_count=jvp_direction_batch_count,
             jvp_jacobian_prebuilt_direction_batch_uses=1
             if jacobian_mode == "jvp"
@@ -3589,6 +3590,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     if solver_mode == "sparse_jvp":
         assert info.diagnostics["jvp_direction_batch_count"] == 2
         assert info.diagnostics["jvp_jacobian_prebuilt_direction_batch_uses"] == 1
+        assert info.diagnostics["jvp_jacobian_gather_on_device"] is True
         assert info.diagnostics["jvp_jacobian_tangent_build_seconds"] == pytest.approx(
             0.0
         )

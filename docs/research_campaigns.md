@@ -103,13 +103,15 @@ reports both fixed-full-field and active-array diagnostics before any default
 solver promotion. The `gpu-dthe-active-array-output-jvp-profile` lane runs the
 full `recycling_dthe_one_step` output window through
 `runtime:recycling_transient_solver_mode=bdf_active_array_jvp`, requires
-`bdf_rhs_backend=active_array`, and is the primary output-window GPU profile for
-the active-array migration path. The `gpu-dthe-full-output-jvp-profile` lane
-runs the same case through
+`bdf_rhs_backend=active_array`, `bdf_jvp_jacobian_gather_on_device=True`, and
+at least one sparse-JVP Jacobian batch. It is the primary output-window GPU
+profile for the active-array migration path. The
+`gpu-dthe-full-output-jvp-profile` lane runs the same case through
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`, so it is the
 compatibility output-window profile to keep while comparing against the newer
-active-array path. The batched-JVP lane measures ensemble and multi-device
-throughput on the same D/T/He residual family.
+active-array path; it carries the same sparse-JVP device-gather diagnostic gate.
+The batched-JVP lane measures ensemble and multi-device throughput on the same
+D/T/He residual family.
 
 The committed `ny=100`, `dt=1e-4` CPU comparison now records explicit Krylov
 status metadata for both JAX GMRES and Lineax GMRES. Both runs reach

@@ -879,6 +879,7 @@ def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:
         info.jvp_jacobian_device_execute_seconds
         + info.jvp_jacobian_host_transfer_seconds
     )
+    assert info.jvp_jacobian_gather_on_device is True
     assert info.linear_solver_backend == "scipy_spsolve"
     assert info.linear_solver_tolerance == pytest.approx(1.0e-10)
     assert info.linear_solver_status == "ok"

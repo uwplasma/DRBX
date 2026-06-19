@@ -66,6 +66,7 @@ class ImplicitStepInfo:
     jvp_jacobian_device_execute_seconds: float = 0.0
     jvp_jacobian_host_transfer_seconds: float = 0.0
     jvp_jacobian_sparse_assembly_seconds: float = 0.0
+    jvp_jacobian_gather_on_device: bool | None = None
     jvp_jacobian_batch_count: int = 0
     jvp_jacobian_prebuilt_direction_batch_uses: int = 0
     jvp_direction_workspace_reuses: int = 0
@@ -803,6 +804,7 @@ def solve_sparse_newton_system(
     jvp_jacobian_device_execute_seconds = 0.0
     jvp_jacobian_host_transfer_seconds = 0.0
     jvp_jacobian_sparse_assembly_seconds = 0.0
+    jvp_jacobian_gather_on_device: bool | None = None
     jvp_jacobian_batch_count = 0
     jvp_jacobian_prebuilt_direction_batch_uses = 0
     jvp_direction_workspace_reuses = 0
@@ -855,6 +857,7 @@ def solve_sparse_newton_system(
             jvp_jacobian_device_execute_seconds=jvp_jacobian_device_execute_seconds,
             jvp_jacobian_host_transfer_seconds=jvp_jacobian_host_transfer_seconds,
             jvp_jacobian_sparse_assembly_seconds=jvp_jacobian_sparse_assembly_seconds,
+            jvp_jacobian_gather_on_device=jvp_jacobian_gather_on_device,
             jvp_jacobian_batch_count=jvp_jacobian_batch_count,
             jvp_jacobian_prebuilt_direction_batch_uses=jvp_jacobian_prebuilt_direction_batch_uses,
             jvp_direction_workspace_reuses=jvp_direction_workspace_reuses,
@@ -919,7 +922,7 @@ def solve_sparse_newton_system(
         nonlocal \
             jvp_jacobian_sparse_assembly_seconds, \
             jvp_jacobian_tangent_build_seconds
-        nonlocal jvp_jacobian_total_seconds
+        nonlocal jvp_jacobian_gather_on_device, jvp_jacobian_total_seconds
         jvp_jacobian_total_seconds += float(timing.get("total_seconds", 0.0))
         jvp_jacobian_linearize_seconds += float(timing.get("linearize_seconds", 0.0))
         jvp_jacobian_tangent_build_seconds += float(
@@ -935,6 +938,10 @@ def solve_sparse_newton_system(
         jvp_jacobian_sparse_assembly_seconds += float(
             timing.get("sparse_assembly_seconds", 0.0)
         )
+        if "gather_on_device" in timing:
+            jvp_jacobian_gather_on_device = bool(
+                int(timing.get("gather_on_device", 0))
+            )
         jvp_jacobian_batch_count += int(timing.get("batch_count", 0))
         jvp_jacobian_prebuilt_direction_batch_uses += int(
             timing.get("prebuilt_direction_batches", 0)

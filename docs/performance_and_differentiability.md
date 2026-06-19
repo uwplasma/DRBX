@@ -1513,8 +1513,9 @@ The output-window profiling surface now also has a separate active-array JVP
 lane. `scripts/run_research_campaign_bundle.py --campaign
 dthe-active-array-output-jvp-profile` runs `recycling_dthe_one_step` with
 `runtime:recycling_transient_solver_mode=bdf_active_array_jvp`, requires
-`bdf_jacobian_mode=jvp`, `bdf_rhs_backend=active_array`, and at least one JVP
-Jacobian batch. The corresponding `gpu-dthe-active-array-output-jvp-profile`
+`bdf_jacobian_mode=jvp`, `bdf_rhs_backend=active_array`,
+`bdf_jvp_jacobian_gather_on_device=True`, and at least one JVP Jacobian batch.
+The corresponding `gpu-dthe-active-array-output-jvp-profile`
 collects JAX trace, device-memory, RSS, and compilation-cache evidence on a
 self-hosted GPU. A direct local CPU probe of the full output-window active-array
 JVP path exceeded four minutes on the fixture deck before being terminated, so
@@ -1573,8 +1574,12 @@ cleanup prebuilds the device-side row and batch-index gather arrays in
 `SparseJvpDirectionBatch` so a reused workspace does not recreate those static
 JAX arrays on every Jacobian build. On a local 288-state, 4896-nnz sparse-JVP
 device-gather microbenchmark this reduced the median build time from `0.0128 s`
-to `0.0114 s`. This is a sparse-JVP kernel cleanup; larger recycling gates
-still need to show a runtime win before any full-output JVP speedup or default
+to `0.0114 s`. Solver diagnostics now carry the same evidence bit as
+`jvp_jacobian_gather_on_device`; full-output BDF diagnostics report it as
+`bdf_jvp_jacobian_gather_on_device`, and adaptive-BDF interval summaries retain
+`adaptive_bdf_jvp_jacobian_gather_on_device` when a sparse-JVP step actually
+runs. This is a sparse-JVP kernel cleanup; larger recycling gates still need to
+show a runtime win before any full-output JVP speedup or default
 solver-promotion claim.
 
 The sparse Newton compatibility path now also reports explicit SciPy linear

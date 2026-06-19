@@ -2318,6 +2318,14 @@ Use this log for concise decision records. Do not paste terminal output here.
   prior small hydrogen evidence showed the first device-gather version was
   neutral/slightly negative locally, while larger output-window runs are the
   target workload.
+- 2026-06-19: Propagated the sparse-JVP device-gather evidence bit through
+  `ImplicitStepInfo`, recycling one-step diagnostics, full-output BDF
+  diagnostics, adaptive-BDF interval summaries, and JSONL trace records. Focused
+  local gates now verify `jvp_jacobian_gather_on_device`,
+  `bdf_jvp_jacobian_gather_on_device`, and
+  `adaptive_bdf_jvp_jacobian_gather_on_device`, so future heavy CPU/GPU
+  campaigns can prove that the lower-transfer sparse-JVP path was actually
+  exercised instead of inferring it from environment defaults.
 
 ## Definition Of Done
 

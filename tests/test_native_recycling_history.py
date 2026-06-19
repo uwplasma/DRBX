@@ -1082,6 +1082,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
                 "jvp_jacobian_device_execute_seconds": 0.02,
                 "jvp_jacobian_host_transfer_seconds": 0.03,
                 "jvp_jacobian_sparse_assembly_seconds": 0.06,
+                "jvp_jacobian_gather_on_device": True,
             },
         ),
     )
@@ -1191,6 +1192,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] == pytest.approx(
         0.06
     )
+    assert stats["adaptive_bdf_jvp_jacobian_gather_on_device"] is True
 
 
 def test_record_adaptive_bdf_step_solver_info_does_not_count_initial_convergence_as_unknown_linear_solver() -> (
@@ -1242,6 +1244,7 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     step["adaptive_bdf_jvp_jacobian_device_execute_seconds"] = 12.0
     step["adaptive_bdf_jvp_jacobian_host_transfer_seconds"] = 13.0
     step["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] = 14.0
+    step["adaptive_bdf_jvp_jacobian_gather_on_device"] = True
     step["adaptive_bdf_residual_evaluation_count"] = 8
     step["adaptive_bdf_jacobian_refresh_count"] = 9
     step["adaptive_bdf_linear_iterations"] = 10
@@ -1292,6 +1295,7 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     assert total["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] == pytest.approx(
         14.0
     )
+    assert total["adaptive_bdf_jvp_jacobian_gather_on_device"] is True
     assert total["adaptive_bdf_residual_evaluation_count"] == 8
     assert total["adaptive_bdf_jacobian_refresh_count"] == 9
     assert total["adaptive_bdf_linear_iterations"] == 10
@@ -3103,6 +3107,7 @@ def test_bdf_history_opt_in_uses_selected_fixed_layout_rhs_and_jvp(
                 "sparse_assembly_seconds": 0.005,
                 "batch_count": 2,
                 "prebuilt_direction_batches": 1,
+                "gather_on_device": 1,
                 "group_count": 4,
                 "state_size": int(np.asarray(state, dtype=np.float64).size),
                 "nnz": 3,
@@ -3173,6 +3178,7 @@ def test_bdf_history_opt_in_uses_selected_fixed_layout_rhs_and_jvp(
     assert result.diagnostics["bdf_jvp_jacobian_device_execute_seconds"] == 0.02
     assert result.diagnostics["bdf_jvp_jacobian_host_transfer_seconds"] == 0.04
     assert result.diagnostics["bdf_jvp_jacobian_sparse_assembly_seconds"] == 0.005
+    assert result.diagnostics["bdf_jvp_jacobian_gather_on_device"] is True
     assert result.diagnostics["bdf_jvp_jacobian_tangent_build_seconds"] == 0.01
     assert result.diagnostics["bdf_jvp_jacobian_total_seconds"] == 0.125
     assert result.diagnostics["bdf_jacobian_mode"] == "jvp"
