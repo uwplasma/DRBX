@@ -1406,6 +1406,7 @@ def solve_jax_linearized_newton_system(
                 return result
 
         linear_solve_started_at = perf_counter()
+        linear_operator_calls_before_solve = int(linear_operator_call_count)
         solve_result = _solve_jax_linearized_update(
             counted_linear_map,
             -residual_value,
@@ -1434,7 +1435,15 @@ def solve_jax_linearized_newton_system(
             solve_result.reported_iterations
         )
         linear_solve_seconds += perf_counter() - linear_solve_started_at
-        total_linear_iterations += int(linear_restart) * int(linear_maxiter)
+        linear_operator_calls_this_solve = max(
+            0,
+            int(linear_operator_call_count) - int(linear_operator_calls_before_solve),
+        )
+        total_linear_iterations += (
+            int(last_linear_solver_reported_iterations)
+            if last_linear_solver_reported_iterations is not None
+            else int(linear_operator_calls_this_solve)
+        )
         update = jnp.asarray(update, dtype=jnp.float64)
 
         if resolved_line_search_mode == "full_step":

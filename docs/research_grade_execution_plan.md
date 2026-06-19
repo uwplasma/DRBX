@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 96% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; duplicate active-array RHS work and fixed-BDF2 standalone initial residuals are closed, but Krylov/preconditioner cost remains. |
-| Effective preconditioning | 46% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov budget; apply-count/apply-time diagnostics and promotion gates are now available for candidate screening. |
+| Effective preconditioning | 47% | Move beyond opt-in local-block reuse speedup evidence to a transport-aware or Schur-style preconditioner that reduces Krylov/operator-call budget; apply-count/apply-time diagnostics, true operator-call-based `linear_iterations`, and promotion gates are now available for candidate screening. |
 | Performance and scaling | 63% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -1512,6 +1512,16 @@ Use this log for concise decision records. Do not paste terminal output here.
   preconditioner campaigns a direct budget on actual JVP/linear-map work. This
   is not a new speedup by itself; it is the missing acceptance gate for future
   Schur/transport preconditioners and cheaper residual/JVP kernels.
+- 2026-06-18: Corrected JAX-linearized solver work accounting so
+  `ImplicitStepInfo.linear_iterations` uses the actual counted linear-map calls
+  when the backend does not report iterations. Backends with explicit iteration
+  reports still take precedence. Focused implicit-solver tests passed (`4
+  passed`), and the bounded `recycling_1d_one_step`
+  `fixed_bdf2_active_array_jax_linearized` gate with fields `Pe`, `Nd+`, and
+  `Pd+` passed in `11.20 s` with residual `9.01e-10`, zero failed solver
+  steps, `fixed_bdf2_total_linear_iterations=25`, and
+  `fixed_bdf2_total_linear_operator_call_count=25`. This is an evidence-quality
+  fix for preconditioner and scaling gates, not a preconditioner speedup.
 - 2026-06-18: Added conservative automatic internal substepping for opt-in
   fixed-output BDF2 JAX-linearized recycling histories when no explicit
   `runtime:recycling_fixed_bdf2_max_internal_timestep` or

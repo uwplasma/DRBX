@@ -1318,6 +1318,8 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
     assert info.linear_solver_status == 0
     assert info.linear_solver_success is True
     assert info.linear_solver_reported_iterations is None
+    assert info.linear_operator_call_count > 0
+    assert info.linear_iterations == info.linear_operator_call_count
 
 
 def test_jax_linearized_newton_solver_reports_custom_linear_tolerance() -> None:
@@ -1660,6 +1662,7 @@ def test_jax_linearized_newton_solver_supports_bicgstab_backend() -> None:
     assert info.jacobian_mode == "jax_linearized:jax_bicgstab"
     assert info.linear_solver_backend == "jax_bicgstab"
     assert info.linear_solver_success is None
+    assert info.linear_iterations == info.linear_operator_call_count
 
 
 def test_jax_linearized_newton_solver_can_prejit_residual() -> None:
