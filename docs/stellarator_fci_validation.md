@@ -405,17 +405,19 @@ grid-refinement, and time-refinement gates remain open:
 
 ![ESSOS imported QA-coil DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif)
 
-The hybrid DRB movie is the preferred current showcase for the imported-map
-lane because the visual interpolation follows the VMEC-coordinate map while
-the open-field endpoint masks still activate sheath, recycling, and neutral
-closures. Its report role is
-`movie_showcase_connection_control_pending_grid_time_refinement`, so it should
-be treated as a polished reduced-transient demonstration rather than final
-publication evidence.
+The high-resolution Jacobi stationarity media is the preferred current
+imported-map showcase. It uses the hybrid VMEC/coil map source, the
+`16 x 96 x 48` physics grid, the Jacobi-preconditioned FCI potential solve,
+and the same fixed-layout DRB state with sheath, recycling, neutral, and
+vorticity closures. The paired report-only refinement summaries pass the
+grid/time gate, and the JSON-only stationarity report passes on the same
+settings. The media still represents a reduced transient demonstration rather
+than a final long-time turbulence validation, but it is no longer a
+renderer-only or coarse-grid movie.
 
-![ESSOS imported QA-hybrid DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_diagnostics.png)
+![ESSOS imported QA-hybrid high-resolution diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png)
 
-![ESSOS imported QA-hybrid DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__movies__essos_imported_drb_movie_hybrid_campaign.gif)
+![ESSOS imported QA-hybrid high-resolution movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
 
 The reduced dynamics campaign currently passes:
 
