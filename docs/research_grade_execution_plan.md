@@ -2674,6 +2674,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   recycling solver to `98.5%` and performance/scaling to `67%`; the remaining
   blocker is now heavier CPU/GPU scaling and parity evidence, not a missing
   output-window solve-execution gate.
+- 2026-06-19: Reran the local promoted solver coverage gate after the
+  direct-counting and fixed-BDF2 solve-count changes:
+  `python scripts/run_promoted_solver_coverage.py` completed with `618`
+  passing tests, `14` skipped tests, `10` deselected tests, `1` expected
+  failure, and promoted-slice coverage `95.04%`, above the required `95%`.
+  The generated `.coverage` file was removed after the audit. Decision: keep
+  meaningful promoted coverage at `96%`; the coverage target is satisfied for
+  the current promoted slice, but future physics promotions still need
+  literature-anchored tests rather than smoke-test-only additions.
 
 ## Definition Of Done
 
