@@ -402,6 +402,28 @@ converged with residual `3.51e-8`, but the worst `NVd+` delta grew to
 improved or the accepted tolerance is justified by a physics observable rather
 than raw field max-norm.
 
+The first retained `dt=1e-2` observable screen is deliberately narrower:
+
+```bash
+PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-scalar-observable-gate \
+  --reference-root tests/fixtures/reference-root
+```
+
+The retained artifact is
+`docs/data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_scalar_observable_cpu/profile_summary.json`.
+It keeps the same two-step D/T/He comparison but gates only scalar density and
+pressure observables (`Nd+`, `Pd+`, `Nd`, `Pd`, `Pe`) with
+`--require-fixed-bdf2-pairwise-l2-rel-max=5e-5` and
+`--require-fixed-bdf2-pairwise-inventory-rel-max=1e-5`. The measured worst
+scalar relative L2 error is `3.969e-5` on `Pd+`, and the worst unweighted
+active-inventory relative error is `4.721e-6` on `Pd+`. Fixed-BDF2 remains
+solver-clean with residual `3.51e-8`, two JAX-GMRES solves, four residual
+evaluations, zero failed or unconverged subsolves, and `10.74 s` elapsed time.
+This is not a speedup claim and not full momentum parity: the all-field probe
+still reports `NVd+` as the pointwise offender and near-zero `NVd` inventory
+makes relative momentum inventory ratios non-diagnostic.
+
 For output-window fixed-BDF2 solver-health checks, use the strict active-array
 linearized residual gate:
 

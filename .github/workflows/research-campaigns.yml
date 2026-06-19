@@ -32,6 +32,7 @@ on:
           - dthe-fixed-bdf2-active-array-long-window-gate
           - dthe-fixed-bdf2-active-array-physical-parity-gate
           - dthe-fixed-bdf2-active-array-parity-ramp-gate
+          - dthe-fixed-bdf2-active-array-scalar-observable-gate
           - fixed-bdf2-direct-counting-gate
           - fixed-bdf2-linear-update-residual-gate
           - adaptive-bdf-jax-lineax-gate
