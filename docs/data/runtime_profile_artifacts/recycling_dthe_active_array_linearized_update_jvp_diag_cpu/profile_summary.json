@@ -3,24 +3,24 @@
   "batch_results": [
     {
       "batch_size": 1,
-      "batch_warmup_seconds": 4.126906458113808,
+      "batch_warmup_seconds": 4.0433799160528,
       "batched_jvp_samples": [
-        0.00017583300359547138
+        0.0001463329535908997
       ],
-      "batched_jvp_seconds_median": 0.00017583300359547138,
-      "batched_jvp_states_per_second": 5687.214456625225,
-      "batched_jvp_warmup_seconds": 2.7212130410480313,
+      "batched_jvp_seconds_median": 0.0001463329535908997,
+      "batched_jvp_states_per_second": 6833.730717933031,
+      "batched_jvp_warmup_seconds": 2.66004183300538,
       "batched_residual_samples": [
-        0.0001715420512482524
+        9.258300997316837e-05
       ],
-      "batched_residual_seconds_median": 0.0001715420512482524,
-      "batched_residual_states_per_second": 5829.4744217137695,
-      "batched_residual_warmup_seconds": 1.4022252920549363,
-      "direction_build_seconds": 0.0003292500041425228,
+      "batched_residual_seconds_median": 9.258300997316837e-05,
+      "batched_residual_states_per_second": 10801.117832416678,
+      "batched_residual_warmup_seconds": 1.3804013330372982,
+      "direction_build_seconds": 0.0003255830379202962,
       "jvp_batched_serial_max_abs_error": 0.0,
       "jvp_partition_count": 1,
       "jvp_partition_size": 1,
-      "jvp_speedup_vs_serial": 0.9381515683987092,
+      "jvp_speedup_vs_serial": 0.8599090446586509,
       "pmap_batch_size": 0,
       "pmap_device_count": 0,
       "pmap_jvp_batched_max_abs_error": null,
@@ -32,18 +32,18 @@
       "residual_batched_serial_max_abs_error": 0.0,
       "residual_partition_count": 1,
       "residual_partition_size": 1,
-      "residual_speedup_vs_serial": 0.4041749941467288,
+      "residual_speedup_vs_serial": 0.7124202484150276,
       "serial_jvp_samples": [
-        0.00016495800809934735
+        0.00012583303032442927
       ],
-      "serial_jvp_seconds_median": 0.00016495800809934735,
-      "serial_jvp_states_per_second": 6062.148855469579,
+      "serial_jvp_seconds_median": 0.00012583303032442927,
+      "serial_jvp_states_per_second": 7947.039004160894,
       "serial_residual_samples": [
-        6.933300755918026e-05
+        6.595801096409559e-05
       ],
-      "serial_residual_seconds_median": 6.933300755918026e-05,
-      "serial_residual_states_per_second": 14423.144692611733,
-      "serial_warmup_seconds": 0.0034681250108405948
+      "serial_residual_seconds_median": 6.595801096409559e-05,
+      "serial_residual_states_per_second": 15161.16064422186,
+      "serial_warmup_seconds": 0.0029367500101216137
     }
   ],
   "case": "recycling_batched_jvp_profile",
@@ -93,12 +93,12 @@
   "jvp_partition_size": null,
   "linearized_action_diagnostics": {
     "batched_call_count": 1,
-    "batched_dispatch_seconds": 0.7364935419755057,
+    "batched_dispatch_seconds": 0.7333490420132875,
     "batched_jvp_max_abs_error_vs_direct_jvp": 0.0,
-    "build_seconds": 1.3711407500086352,
+    "build_seconds": 1.379113957984373,
     "call_count": 1,
     "diagnostic_batch_size": 2,
-    "dispatch_seconds": 0.2890358330332674,
+    "dispatch_seconds": 0.2884603340062313,
     "jvp_max_abs_error_vs_direct_jvp": 0.0,
     "residual_max_abs_error_vs_jit": 6.776263578034403e-21,
     "state_shape": [
@@ -107,15 +107,20 @@
   },
   "linearized_update_diagnostics": {
     "action_diagnostics": {
-      "batched_call_count": 0,
-      "batched_dispatch_seconds": 0.0,
-      "call_count": 0,
-      "dispatch_seconds": 0.0,
+      "batched_call_count": 1,
+      "batched_dispatch_seconds": 0.7333490420132875,
+      "call_count": 1,
+      "dispatch_seconds": 0.2884603340062313,
       "linear_maxiter": 8,
       "linear_operator_jitted": true,
       "linear_restart": 8,
       "linear_tolerance": 1e-08,
+      "linearization_reused": true,
       "preconditioner_used": true,
+      "solve_batched_call_count": 0,
+      "solve_batched_dispatch_seconds": 0.0,
+      "solve_call_count": 0,
+      "solve_dispatch_seconds": 0.0,
       "solve_method": "batched",
       "state_shape": [
         304
@@ -123,7 +128,7 @@
     },
     "candidate_residual_inf_norm": 2.1094014883379802e-11,
     "check_enabled": true,
-    "elapsed_seconds": 11.424712625041138,
+    "elapsed_seconds": 4.986268833046779,
     "jit_linear_operator": true,
     "linear_maxiter": 8,
     "linear_restart": 8,
@@ -132,7 +137,7 @@
     "linear_update_residual_inf_norm": 1.2197274440461925e-19,
     "preconditioner": "jvp_diag",
     "preconditioner_diagnostics": {
-      "build_seconds": 1.2472199999610893,
+      "build_seconds": 0.6055519159999676,
       "floor": 1e-10,
       "jvp_diagonal_size": 304,
       "max_unknowns": 512,
@@ -172,20 +177,20 @@
     ],
     "best_batched_jvp_throughput": {
       "batch_size": 1,
-      "states_per_second": 5687.214456625225
+      "states_per_second": 6833.730717933031
     },
     "best_batched_residual_throughput": {
       "batch_size": 1,
-      "states_per_second": 5829.4744217137695
+      "states_per_second": 10801.117832416678
     },
     "best_jvp_batch_efficiency": {
       "batch_size": 1,
-      "efficiency": 0.9381515683987092,
-      "speedup": 0.9381515683987092
+      "efficiency": 0.8599090446586509,
+      "speedup": 0.8599090446586509
     },
     "best_jvp_speedup_vs_serial": {
       "batch_size": 1,
-      "speedup": 0.9381515683987092
+      "speedup": 0.8599090446586509
     },
     "best_pmap_jvp_device_efficiency_vs_serial": null,
     "best_pmap_jvp_speedup_vs_batched": null,
@@ -193,12 +198,12 @@
     "best_pmap_jvp_throughput": null,
     "best_residual_batch_efficiency": {
       "batch_size": 1,
-      "efficiency": 0.4041749941467288,
-      "speedup": 0.4041749941467288
+      "efficiency": 0.7124202484150276,
+      "speedup": 0.7124202484150276
     },
     "best_residual_speedup_vs_serial": {
       "batch_size": 1,
-      "speedup": 0.4041749941467288
+      "speedup": 0.7124202484150276
     },
     "max_batch_size": 1,
     "throughput_units": "states_per_second"
@@ -206,9 +211,9 @@
   "timed_runs": 1,
   "timestep": 0.0001,
   "warmup_timing": {
-    "base_jvp_warmup_seconds": 1.739964250009507,
-    "base_residual_warmup_seconds": 0.9030764999915846,
-    "fd_jvp_check_seconds": 0.011286999972071499,
+    "base_jvp_warmup_seconds": 1.7720300420187414,
+    "base_residual_warmup_seconds": 0.9062416660017334,
+    "fd_jvp_check_seconds": 0.011868749978020787,
     "objective_grad_check_seconds": null
   },
   "xla_dump_dir": null

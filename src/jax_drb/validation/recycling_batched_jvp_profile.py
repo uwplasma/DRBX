@@ -18,7 +18,7 @@ from jax_drb.native.recycling_1d import (
 )
 from jax_drb.native.recycling_fixed_residual import (
     build_fixed_residual_linearized_action,
-    solve_fixed_residual_linearized_update,
+    solve_fixed_residual_linearized_action_update,
 )
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.runtime.run_config import RunConfiguration
@@ -573,15 +573,15 @@ def profile_recycling_batched_jvp_problem(
                 max_unknowns=int(linearized_update_preconditioner_max_unknowns),
             )
         )
-        solve_result = solve_fixed_residual_linearized_update(
-            residual,
-            base_state,
+        solve_result = solve_fixed_residual_linearized_action_update(
+            linearized_action,
             linear_tolerance=float(linearized_update_tolerance),
             linear_restart=int(linearized_update_restart),
             linear_maxiter=int(linearized_update_maxiter),
             solve_method=str(linearized_update_solve_method),
             preconditioner=preconditioner,
             jit_linear_operator=bool(linearized_update_jit_operator),
+            linearization_reused=True,
         )
         candidate_state = base_state + solve_result.update
         candidate_residual = residual_jit(candidate_state).block_until_ready()

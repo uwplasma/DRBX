@@ -396,6 +396,8 @@ def test_recycling_batched_jvp_profile_records_linearized_update_health() -> Non
     assert diagnostics["jit_linear_operator"] is True
     assert diagnostics["solve_method"] == "batched"
     assert diagnostics["action_diagnostics"]["linear_operator_jitted"] is True
+    assert diagnostics["action_diagnostics"]["linearization_reused"] is True
+    assert diagnostics["action_diagnostics"]["solve_call_count"] == 0
 
 
 def test_recycling_batched_jvp_profile_records_jvp_diag_preconditioner() -> None:
@@ -437,6 +439,8 @@ def test_recycling_batched_jvp_profile_records_jvp_diag_preconditioner() -> None
     assert diagnostics["linear_update_relative_residual"] < 1.0e-10
     assert diagnostics["candidate_residual_inf_norm"] < 1.0e-10
     assert diagnostics["action_diagnostics"]["preconditioner_used"] is True
+    assert diagnostics["action_diagnostics"]["linearization_reused"] is True
+    assert diagnostics["action_diagnostics"]["solve_call_count"] == 0
     assert preconditioner_diagnostics["name"] == "jvp_diag"
     assert preconditioner_diagnostics["jvp_diagonal_size"] == 3
     assert preconditioner_diagnostics["build_seconds"] >= 0.0

@@ -517,9 +517,26 @@ def build_fixed_residual_linearized_action(
     )
 
 
-def solve_fixed_residual_linearized_update(
-    residual_function: Callable[[object], jax.Array],
-    packed_state: object,
+def _linearized_action_counter_delta(
+    before: dict[str, object],
+    after: dict[str, object],
+) -> dict[str, float | int]:
+    return {
+        "solve_call_count": int(after.get("call_count", 0))
+        - int(before.get("call_count", 0)),
+        "solve_batched_call_count": int(after.get("batched_call_count", 0))
+        - int(before.get("batched_call_count", 0)),
+        "solve_dispatch_seconds": float(after.get("dispatch_seconds", 0.0))
+        - float(before.get("dispatch_seconds", 0.0)),
+        "solve_batched_dispatch_seconds": float(
+            after.get("batched_dispatch_seconds", 0.0)
+        )
+        - float(before.get("batched_dispatch_seconds", 0.0)),
+    }
+
+
+def solve_fixed_residual_linearized_action_update(
+    action: FixedResidualLinearizedAction,
     *,
     rhs: object | None = None,
     linear_tolerance: float = 1.0e-8,
@@ -528,22 +545,19 @@ def solve_fixed_residual_linearized_update(
     solve_method: str = "batched",
     preconditioner: Callable[[object], object] | None = None,
     jit_linear_operator: bool = False,
+    linearization_reused: bool = True,
 ) -> FixedResidualLinearizedSolveResult:
-    """Solve one matrix-free Newton update for a fixed-layout residual.
+    """Solve one Newton update from an existing fixed-residual linearization.
 
     The stable production recycling solver still owns nonlinear globalization,
-    history management and compatibility fallback. This helper is deliberately
-    narrower: it exposes a reusable fixed-layout JAX linearization as a
-    solver-facing primitive that profile and promotion gates can test without
-    constructing sparse finite-difference Jacobians.
+    history management and compatibility fallback. This helper accepts an
+    already-built ``FixedResidualLinearizedAction`` so profiling gates can reuse
+    one ``jax.linearize`` result for both derivative diagnostics and the
+    matrix-free update solve.
     """
 
     from jax.scipy.sparse.linalg import gmres
 
-    action = build_fixed_residual_linearized_action(
-        residual_function,
-        packed_state,
-    )
     linear_rhs = (
         -jnp.asarray(action.residual_value, dtype=jnp.float64)
         if rhs is None
@@ -558,6 +572,7 @@ def solve_fixed_residual_linearized_update(
         linear_operator = jax.jit(action.linear_action)
     else:
         linear_operator = action.apply
+    diagnostics_before = action.diagnostics()
     update, status = gmres(
         linear_operator,
         linear_rhs,
@@ -574,9 +589,12 @@ def solve_fixed_residual_linearized_update(
     residual_norm = float(jnp.max(jnp.abs(linear_update_residual)))
     rhs_norm = max(float(jnp.max(jnp.abs(linear_rhs))), jnp.finfo(jnp.float64).tiny)
     normalized_status = _normalize_solver_status(status)
+    diagnostics_after = action.diagnostics()
     diagnostics = {
-        **action.diagnostics(),
+        **diagnostics_after,
+        **_linearized_action_counter_delta(diagnostics_before, diagnostics_after),
         "linear_operator_jitted": bool(jit_linear_operator),
+        "linearization_reused": bool(linearization_reused),
         "linear_tolerance": float(linear_tolerance),
         "linear_restart": int(linear_restart),
         "linear_maxiter": int(linear_maxiter),
@@ -591,6 +609,37 @@ def solve_fixed_residual_linearized_update(
         linear_update_residual_inf_norm=residual_norm,
         linear_update_relative_residual=residual_norm / rhs_norm,
         diagnostics=diagnostics,
+    )
+
+
+def solve_fixed_residual_linearized_update(
+    residual_function: Callable[[object], jax.Array],
+    packed_state: object,
+    *,
+    rhs: object | None = None,
+    linear_tolerance: float = 1.0e-8,
+    linear_restart: int = 20,
+    linear_maxiter: int = 20,
+    solve_method: str = "batched",
+    preconditioner: Callable[[object], object] | None = None,
+    jit_linear_operator: bool = False,
+) -> FixedResidualLinearizedSolveResult:
+    """Linearize a fixed-layout residual once and solve one Newton update."""
+
+    action = build_fixed_residual_linearized_action(
+        residual_function,
+        packed_state,
+    )
+    return solve_fixed_residual_linearized_action_update(
+        action,
+        rhs=rhs,
+        linear_tolerance=linear_tolerance,
+        linear_restart=linear_restart,
+        linear_maxiter=linear_maxiter,
+        solve_method=solve_method,
+        preconditioner=preconditioner,
+        jit_linear_operator=jit_linear_operator,
+        linearization_reused=False,
     )
 
 

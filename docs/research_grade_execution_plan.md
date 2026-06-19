@@ -2887,8 +2887,8 @@ Use this log for concise decision records. Do not paste terminal output here.
   `dthe-active-array-linearized-update-gate`. The gate keeps the active-array
   fixed-layout residual at `ny=16`, disables pmap and objective-gradient
   timing, and runs one jitted matrix-free JAX GMRES update with restart/maxiter
-  `8`. The refreshed local fixture campaign passed in `15.6 s`; the update
-  check itself took `5.48 s`, returned solver status `0`, produced
+  `8`. The refreshed local fixture campaign passed in `14.6 s`; the update
+  check itself took `4.33 s`, returned solver status `0`, produced
   linear-update relative residual `3.26e-16`, and reduced the candidate
   nonlinear residual to
   `2.11e-11`. Decision: this closes the first solver-health evidence gap for
@@ -2901,14 +2901,29 @@ Use this log for concise decision records. Do not paste terminal output here.
   `--linearized-update-preconditioner-max-unknowns`, records build diagnostics,
   and leaves the production solver default unchanged. On the same `ny=16`
   active-array D/T/He fixture, `jvp_diag` built a `304`-entry diagonal in
-  `1.25 s`, returned solver status `0`, produced linear-update relative
+  `0.61 s`, returned solver status `0`, produced linear-update relative
   residual `2.94e-15`, and reached the same `2.11e-11` candidate nonlinear
   residual. The sampled diagonal is nearly identity
   (`1.000000007` to `1.000043761` in absolute value), and the update check
-  slowed to `11.42 s`. Decision: this is a correct negative screen; do not
+  slowed to `4.99 s`. Decision: this is a correct negative screen; do not
   promote packed diagonal preconditioning for this D/T/He fixture. The next
   preconditioner lane should target transport/block structure or reduce
   residual/JVP kernel cost.
+- 2026-06-19: Removed one duplicate `jax.linearize` from the standalone
+  linearized-update profile path by adding
+  `solve_fixed_residual_linearized_action_update`. The original
+  `solve_fixed_residual_linearized_update` API remains a wrapper for callers
+  that only have a residual function and state, while profile gates can now
+  reuse the `FixedResidualLinearizedAction` already built for direct and
+  batched JVP diagnostics. The refreshed no-preconditioner D/T/He gate records
+  `linearization_reused=true`, zero solve-only Python action callbacks under
+  the jitted operator, solver status `0`, relative linear-update residual
+  `3.26e-16`, candidate nonlinear residual `2.11e-11`, and update-check time
+  `4.33 s`. The refreshed `jvp_diag` gate still remains negative for
+  preconditioner promotion: it preserves solver health but takes `4.99 s`,
+  including `0.61 s` to build a nearly identity `304`-entry diagonal.
+  Decision: action reuse is a real low-risk profile-path improvement; packed
+  diagonal preconditioning remains diagnostic-only.
 
 ## Definition Of Done
 

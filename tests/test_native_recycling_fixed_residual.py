@@ -28,6 +28,7 @@ from jax_drb.native.recycling_fixed_residual import (
     fixed_state_to_feedback_integrals,
     fixed_state_to_full_fields,
     pack_fixed_state,
+    solve_fixed_residual_linearized_action_update,
     solve_fixed_residual_linearized_update,
     unpack_fixed_state,
 )
@@ -514,7 +515,9 @@ def test_fixed_residual_linearized_update_solves_exact_linear_newton_step() -> N
     assert result.linear_update_residual_inf_norm < 1.0e-10
     assert result.linear_update_relative_residual < 1.0e-10
     assert result.diagnostics["call_count"] >= 1
+    assert result.diagnostics["solve_call_count"] >= 1
     assert result.diagnostics["linear_operator_jitted"] is False
+    assert result.diagnostics["linearization_reused"] is False
     assert result.diagnostics["solve_method"] == "batched"
 
 
@@ -543,7 +546,41 @@ def test_fixed_residual_linearized_update_supports_jitted_operator() -> None:
     )
     assert result.linear_update_relative_residual < 1.0e-10
     assert result.diagnostics["linear_operator_jitted"] is True
+    assert result.diagnostics["linearization_reused"] is False
     assert result.diagnostics["call_count"] == 0
+    assert result.diagnostics["solve_call_count"] == 0
+
+
+def test_fixed_residual_linearized_action_update_reuses_existing_action() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    diagonal = jnp.asarray([2.0, 3.0, 4.0], dtype=jnp.float64)
+    residual = lambda state: diagonal * (jnp.asarray(state, dtype=jnp.float64) - 1.0)
+    candidate = jnp.asarray([2.0, -1.0, 0.0], dtype=jnp.float64)
+    action = build_fixed_residual_linearized_action(residual, candidate)
+    action.apply(jnp.ones(3, dtype=jnp.float64)).block_until_ready()
+
+    result = solve_fixed_residual_linearized_action_update(
+        action,
+        linear_tolerance=1.0e-12,
+        linear_restart=3,
+        linear_maxiter=4,
+        jit_linear_operator=True,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(candidate + result.update),
+        np.ones(3, dtype=np.float64),
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
+    assert result.linear_update_relative_residual < 1.0e-10
+    assert result.diagnostics["linearization_reused"] is True
+    assert result.diagnostics["linear_operator_jitted"] is True
+    assert result.diagnostics["call_count"] == 1
+    assert result.diagnostics["solve_call_count"] == 0
+    assert result.diagnostics["solve_batched_call_count"] == 0
 
 
 def test_fixed_residual_linearized_update_rejects_rhs_shape_mismatch() -> None:

@@ -424,7 +424,11 @@ The retained local CPU artifact uses the in-tree D/T/He fixture at `ny=16`.
 It records GMRES solver status `0`, a successful jitted matrix-free operator,
 linear-update relative residual `3.26e-16`, and post-update nonlinear residual
 `2.11e-11` on the active-array fixed-layout residual. The update check took
-about `5.48 s` inside a `15.6 s` campaign run. Treat this as solver-health
+about `4.33 s` inside a `14.6 s` campaign run. The update solve reuses the
+same `jax.linearize` action already built for the serial/batched JVP
+diagnostic, so the retained artifact reports `linearization_reused=true` and
+zero solve-only Python action callbacks when the jitted linear operator is
+enabled. Treat this as solver-health
 evidence for future preconditioner work, not a speedup claim.
 
 The companion JVP-diagonal preconditioner screen is:
@@ -436,11 +440,12 @@ PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
 ```
 
 On the same `ny=16` D/T/He fixture, `jvp_diag` built a `304`-entry diagonal in
-about `1.25 s` and preserved solver health: GMRES status `0`, linear-update
+about `0.61 s` and preserved solver health: GMRES status `0`, linear-update
 relative residual `2.94e-15`, and post-update nonlinear residual `2.11e-11`.
 It did not improve this residual family. The diagonal entries lie between
 `1.000000007` and `1.000043761` in absolute value, so the preconditioner is
-nearly the identity and the update check took about `11.42 s`. Keep it as an
+nearly the identity and the update check took about `4.99 s`, compared with
+`4.33 s` without preconditioning. Keep it as an
 auditable diagnostic and move performance effort toward transport/block
 preconditioners or cheaper residual/JVP kernels.
 

@@ -183,14 +183,17 @@ The companion `dthe-active-array-linearized-update-gate` runs a smaller
 `ny=16` active-array D/T/He residual and solves one jitted matrix-free Newton
 update. The retained CPU artifact reports GMRES solver status `0`, successful
 solve metadata, linear-update relative residual `3.26e-16`, post-update
-nonlinear residual `2.11e-11`, and update-check time `5.48 s`. This makes the
+nonlinear residual `2.11e-11`, and update-check time `4.33 s`. The profile
+gate reuses the existing diagnostic linearization, so the artifact records
+`linearization_reused=true` and zero solve-only Python action callbacks under
+the jitted linear operator. This makes the
 preconditioner lane auditable before the update solve is considered for any
 default BDF promotion.
 The `dthe-active-array-linearized-update-jvp-diag-gate` variant applies a
 JVP-derived packed diagonal preconditioner. It is correct but not useful on
 this fixture: the diagonal is nearly identity, with absolute entries from
-`1.000000007` to `1.000043761`, the build cost is `1.25 s`, and update time
-increases to `11.42 s` while preserving the same `2.11e-11` nonlinear
+`1.000000007` to `1.000043761`, the build cost is `0.61 s`, and update time
+increases to `4.99 s` while preserving the same `2.11e-11` nonlinear
 residual. It remains a negative performance screen rather than a promoted
 preconditioner.
 The active-array GPU batched campaign is deliberately single-device for now
