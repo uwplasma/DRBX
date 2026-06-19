@@ -2271,6 +2271,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   evidence for jitted operators, not a default runtime-speed claim. The next
   heavy recycling profile should combine active-array RHS, jitted operators,
   warm/persistent compilation cache, and GPU timing.
+- 2026-06-19: Re-ran the D/T/He `jit_linear_operator` backward-Euler profile
+  with one warmup, two timed runs, cProfile, RSS sampling, and an explicit
+  compilation-cache directory. The gate passed with the same residual
+  (`7.31568`), five matrix-free operator calls, and
+  `linear_operator_jitted=true`. Warmup took `4.64 s`; timed runs were
+  `7.82 s` for the cProfiled solve and `4.40 s` for the repeat solve. The
+  profiled run still spent `2.33 s` in JAX linearization, `4.80 s` in GMRES,
+  and `2.64 s` in residual evaluations, with sampled process-tree RSS peaking
+  near `3.93 GiB`. Decision: the immediate performance target is cheaper
+  residual/JVP linearization and full output-window CPU/GPU profiling, not
+  another local-block preconditioner sweep.
 
 ## Definition Of Done
 
