@@ -1263,6 +1263,18 @@ substitute for `linear_solve_seconds`, because JAX device work can be
 asynchronous, but it gives the preconditioner lane a stable call-count metric
 for future reductions.
 
+The generic JAX-linearized solver also reports `linear_iterations` as actual
+linear-map work when the backend does not expose an iteration count. For
+JAX-GMRES and JAX-BiCGSTAB this is the number of counted calls to the
+linearized operator during the solve; for backends that report iterations
+explicitly, the reported backend value is preserved. A bounded fixed-BDF2
+active-array recycling gate on `recycling_1d_one_step` with fields `Pe`,
+`Nd+`, and `Pd+` passed with residual `9.01e-10`, zero failed solver steps,
+`fixed_bdf2_total_linear_iterations=25`, and
+`fixed_bdf2_total_linear_operator_call_count=25`. This makes future
+preconditioner and JVP-kernel gates compare actual work rather than nominal
+`restart * maxiter` budgets.
+
 A fresh cProfile/RSS run with these diagnostics enabled keeps the same
 conclusion. The cProfile-instrumented D/T/He gate took `12.67 s`, while the
 separate RSS sample took `8.97 s`. Solver diagnostics reported `5` operator
