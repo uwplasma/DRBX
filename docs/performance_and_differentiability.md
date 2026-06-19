@@ -1041,7 +1041,12 @@ field-split probe: after `jax.linearize`, it samples one representative
 field-by-equation block, solves that small block on device, and applies the
 same approximate inverse at every active cell. It is intended to test whether a
 dominant local multiphysics coupling can be removed without building every
-same-cell block. The
+same-cell block. The `field_block_feedback_diag`/`field_split_feedback` option
+adds one more cheap piece of physics scaling: it applies the same sampled field
+block to the active fields and also samples diagonal JVP entries for packed
+feedback-integral variables, which are left unchanged by `field_block_sample`.
+This is cheaper than the full packed `linearized_diag` probe but can still
+remove obvious proportional-control or integral-feedback stiffness. The
 `local_block_diag`/`block_jacobi` option is a stronger physics preconditioner
 probe: after `jax.linearize`, it builds same-cell dense field-by-equation
 Jacobian blocks with batched JVPs, inverts those small blocks on device, and
@@ -1203,6 +1208,14 @@ and `runtime:recycling_jax_linear_restart=2`,
 result is useful: the current residual/preconditioner combination does not yet
 support a much smaller Krylov budget, so future promotion claims must show both
 residual preservation and reduced operator work under these explicit controls.
+The next bounded solver-level improvement is feedback-aware field splitting:
+`field_block_feedback_diag` keeps the sampled field block and adds feedback
+diagonal JVP scaling. A stiff-feedback fixture now fails to converge with the
+same reduced Krylov budget without preconditioning but converges below
+`1e-10` residual with one feedback-aware preconditioner build and fewer
+linear-operator calls. This is not a heavy recycling speedup claim; it is a
+targeted gate that proves the packed feedback-integral rows can be scaled
+without falling back to a full packed Jacobian-diagonal build.
 The next reference-grounded preconditioner probe adds an opt-in
 `neutral_line` candidate. It follows the same algorithmic idea as
 neutral-diffusion preconditioners in edge-fluid implementations: approximate
