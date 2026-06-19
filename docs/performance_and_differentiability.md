@@ -1036,6 +1036,12 @@ JVP-derived field-active diagnostic: after `jax.linearize`, it samples only the
 active field-block diagonal entries and leaves feedback scalars unscaled. The
 `linearized_diag`/`jvp_diag` option samples the full packed-state diagonal and
 is therefore bounded separately from the cheaper field-only diagonal probes. The
+`field_block_sample`/`field_split`/`schur_field` option is a cheaper
+field-split probe: after `jax.linearize`, it samples one representative
+field-by-equation block, solves that small block on device, and applies the
+same approximate inverse at every active cell. It is intended to test whether a
+dominant local multiphysics coupling can be removed without building every
+same-cell block. The
 `local_block_diag`/`block_jacobi` option is a stronger physics preconditioner
 probe: after `jax.linearize`, it builds same-cell dense field-by-equation
 Jacobian blocks with batched JVPs, inverts those small blocks on device, and
@@ -1058,7 +1064,9 @@ block regularisation floor,
 `runtime:recycling_jax_linear_preconditioner_max_linearized_unknowns=<n>` caps
 the full `linearized_diag` packed-state diagonal build,
 `runtime:recycling_jax_linear_preconditioner_max_field_unknowns=<n>` caps the
-`field_diag` JVP build, and
+`field_diag` JVP build,
+`runtime:recycling_jax_linear_preconditioner_max_field_block_fields=<n>` caps
+the sampled field-block dimension, and
 `runtime:recycling_jax_linear_preconditioner_max_local_unknowns=<n>` caps the
 `local_block_diag` JVP build. The matching environment variables use the
 uppercase `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_*` names. These are
@@ -1225,6 +1233,19 @@ preconditioners, and took `62.496 s` on the fixed-full-field route and
 should therefore be a cheaper approximate field-split/Schur/transport
 preconditioner that changes the real residual spectrum, not another exact
 selected-line build on the current hydrogen deck.
+That cheaper field-split probe now exists as `field_block_sample`. A bounded
+solver-level coupled-field fixture verifies the intended algorithmic behavior:
+the unpreconditioned JAX-GMRES solve stalls above `1e-3` residual with `10`
+operator calls, while `field_block_sample` converges below `1e-10` with `5`
+calls and one sampled block build. The first same-case hydrogen recycling gate
+again rules out default promotion, however. With `--fixed-bdf2-only`,
+`timestep=10`, `steps=2`, and refresh `100`, `field_block_sample` preserved
+solver health but kept the same `115` operator calls, built `20` sampled
+blocks, and took `61.176 s` on the fixed-full-field route and `57.058 s` on
+the active-array route. This result says the current hydrogen residual is not
+dominated by a single repeated local field-coupling block; the next
+preconditioner must incorporate target/sheath, parallel transport, or a
+low-cost Schur approximation that changes the real recycling spectrum.
 The solver now also separates preconditioner build cost from preconditioner
 application cost. JAX-linearized steps report
 `linear_preconditioner_apply_count` and

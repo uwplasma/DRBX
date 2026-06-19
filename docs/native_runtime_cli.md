@@ -202,6 +202,11 @@ When a JAX-GMRES preconditioner is enabled, the same reports include
 `linear_preconditioner_apply_count`, and
 `linear_preconditioner_apply_seconds`; fixed-BDF2 and adaptive-BDF histories
 aggregate those as `fixed_bdf2_total_*` and `adaptive_bdf_*` fields.
+Current opt-in dynamic choices include diagonal probes, sampled field blocks
+(`runtime:recycling_jax_linear_preconditioner=field_block_sample` or
+`field_split`), same-cell blocks, and selected parallel-line blocks. The sampled
+field-block probe is bounded by
+`runtime:recycling_jax_linear_preconditioner_max_field_block_fields`.
 The profiling and comparison scripts can enforce these diagnostics with
 `--require-max-preconditioner-applies` and
 `--require-fixed-bdf2-max-preconditioner-applies` when screening candidate
