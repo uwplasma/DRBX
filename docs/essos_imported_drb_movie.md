@@ -75,8 +75,13 @@ Edit `GRID_REPORT_JSON_PATHS` and `TIME_REPORT_JSON_PATHS` in that script to
 point at the regenerated report JSON files. The summary compares
 `final_fluctuation_rms`, `max_fluctuation_rms`, `radial_flux_abs_mean`,
 `radial_flux_rms`, `low_mode_spectral_power_fraction`, and
-`final_potential_residual_l2`, checks that the grid or timestep ordering is
-meaningful, and requires consistent map source labels. The signed
+`final_potential_residual_l2`, plus normalized spectral-centroid and
+edge-band metrics. It checks that the grid or timestep ordering is meaningful,
+requires consistent map source labels, and rejects under-resolved reports whose
+low-mode window covers the available grid or whose edge-band spectral power is
+too large. The default edge-band ceiling is `0.85`, so compact exploratory
+movies can remain useful visual QA while still failing publication promotion
+when the spectrum is crowded near the grid edge. The signed
 `radial_flux_proxy` remains in each report as a cancellation and symmetry
 diagnostic, but refinement promotion uses magnitude and RMS radial-flux
 statistics because a domain-averaged signed flux can change sign when inward
@@ -89,12 +94,14 @@ refinement claim.
 Each movie report also records spectral resolution diagnostics:
 `spectral_poloidal_mode_count`, `spectral_toroidal_mode_count`,
 `spectral_centroid_poloidal_index`, `spectral_centroid_toroidal_index`,
+`spectral_centroid_poloidal_fraction`,
+`spectral_centroid_toroidal_fraction`,
 `spectral_edge_band_power_fraction`, and `low_mode_window_covers_grid`. These
 fields make coarse-grid failures easier to interpret. In particular, the
 low-mode fraction is not a resolution claim when the low-mode window covers the
 entire available grid; a publication-grade run must show stable scalar
-fluctuation statistics together with resolved spectral content away from the
-Nyquist/edge band.
+fluctuation statistics together with stable normalized spectral centroids and
+resolved spectral content away from the Nyquist/edge band.
 
 Before using restored release assets as fresh publication evidence, run the
 clean-clone schema audit:

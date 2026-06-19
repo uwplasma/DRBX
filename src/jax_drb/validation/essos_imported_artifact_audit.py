@@ -49,6 +49,8 @@ _IMPORTED_DRB_MOVIE_REQUIRED_REPORT_FIELDS = (
     "spectral_toroidal_mode_count",
     "spectral_centroid_poloidal_index",
     "spectral_centroid_toroidal_index",
+    "spectral_centroid_poloidal_fraction",
+    "spectral_centroid_toroidal_fraction",
     "spectral_edge_band_power_fraction",
     "low_mode_window_covers_grid",
     "dominant_poloidal_mode_index",

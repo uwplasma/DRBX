@@ -57,8 +57,13 @@ ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRICS = (
     "radial_flux_abs_mean",
     "radial_flux_rms",
     "low_mode_spectral_power_fraction",
+    "spectral_centroid_poloidal_fraction",
+    "spectral_centroid_toroidal_fraction",
+    "spectral_edge_band_power_fraction",
     "final_potential_residual_l2",
 )
+
+ESSOS_IMPORTED_DRB_MOVIE_MAX_EDGE_BAND_FRACTION = 0.85
 
 
 def classify_essos_imported_drb_movie_evidence(map_source: str) -> dict[str, Any]:
@@ -188,6 +193,8 @@ def build_essos_imported_drb_movie_refinement_diagnostics(
         "axis_progression_passed": False,
         "all_reports_passed": False,
         "map_source_consistent": False,
+        "spectral_resolution_passed": False,
+        "spectral_resolution_reports": [],
         "passed": False,
     }
     if len(report_list) < 2:
@@ -246,10 +253,18 @@ def build_essos_imported_drb_movie_refinement_diagnostics(
     ]
     all_reports_passed = all(bool(report.get("passed")) for report in sorted_reports)
     map_source_consistent = len(map_sources) == 1
+    spectral_resolution_reports = [
+        _build_movie_spectral_resolution_report(report=report, label=label)
+        for report, label in zip(sorted_reports, labels)
+    ]
+    spectral_resolution_passed = all(
+        bool(report["passed"]) for report in spectral_resolution_reports
+    )
     passed = bool(
         all_reports_passed
         and map_source_consistent
         and axis_progression_passed
+        and spectral_resolution_passed
         and pair_reports
         and all(bool(pair["passed"]) for pair in pair_reports)
     )
@@ -262,6 +277,8 @@ def build_essos_imported_drb_movie_refinement_diagnostics(
         "axis_progression_passed": bool(axis_progression_passed),
         "all_reports_passed": bool(all_reports_passed),
         "map_source_consistent": bool(map_source_consistent),
+        "spectral_resolution_passed": bool(spectral_resolution_passed),
+        "spectral_resolution_reports": spectral_resolution_reports,
         "pair_reports": pair_reports,
         "max_relative_metric_change": (
             max(max_change_values) if max_change_values else None
@@ -287,11 +304,68 @@ def _movie_refinement_rejection_reasons(
         reasons.append("movie_grid_refinement_not_passed")
         if "reason" in grid_diagnostics:
             reasons.append(str(grid_diagnostics["reason"]))
+        if grid_diagnostics.get("spectral_resolution_reports") and not bool(
+            grid_diagnostics.get("spectral_resolution_passed", False)
+        ):
+            reasons.append("movie_grid_spectral_resolution_not_passed")
+            reasons.extend(_movie_spectral_resolution_rejection_reasons(grid_diagnostics))
     if not bool(time_diagnostics["passed"]):
         reasons.append("movie_time_refinement_not_passed")
         if "reason" in time_diagnostics:
             reasons.append(str(time_diagnostics["reason"]))
+        if time_diagnostics.get("spectral_resolution_reports") and not bool(
+            time_diagnostics.get("spectral_resolution_passed", False)
+        ):
+            reasons.append("movie_time_spectral_resolution_not_passed")
+            reasons.extend(_movie_spectral_resolution_rejection_reasons(time_diagnostics))
     return reasons
+
+
+def _movie_spectral_resolution_rejection_reasons(diagnostics: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    for report in diagnostics.get("spectral_resolution_reports", []):
+        for reason in report.get("reasons", []):
+            reason_text = str(reason)
+            if reason_text not in reasons:
+                reasons.append(reason_text)
+    return reasons
+
+
+def _build_movie_spectral_resolution_report(
+    *,
+    report: dict[str, Any],
+    label: str,
+    max_edge_band_fraction: float = ESSOS_IMPORTED_DRB_MOVIE_MAX_EDGE_BAND_FRACTION,
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    low_mode_window_covers_grid = bool(report.get("low_mode_window_covers_grid", False))
+    if low_mode_window_covers_grid:
+        reasons.append("low_mode_window_covers_grid")
+    edge_fraction = _optional_float(report.get("spectral_edge_band_power_fraction"))
+    if edge_fraction is None:
+        reasons.append("missing_spectral_edge_band_power_fraction")
+    elif edge_fraction > max_edge_band_fraction:
+        reasons.append("spectral_edge_band_power_fraction_above_limit")
+    poloidal_fraction = _optional_float(report.get("spectral_centroid_poloidal_fraction"))
+    toroidal_fraction = _optional_float(report.get("spectral_centroid_toroidal_fraction"))
+    if poloidal_fraction is None:
+        reasons.append("missing_spectral_centroid_poloidal_fraction")
+    elif not 0.0 <= poloidal_fraction <= 1.0:
+        reasons.append("spectral_centroid_poloidal_fraction_out_of_bounds")
+    if toroidal_fraction is None:
+        reasons.append("missing_spectral_centroid_toroidal_fraction")
+    elif not 0.0 <= toroidal_fraction <= 1.0:
+        reasons.append("spectral_centroid_toroidal_fraction_out_of_bounds")
+    return {
+        "label": label,
+        "low_mode_window_covers_grid": bool(low_mode_window_covers_grid),
+        "spectral_edge_band_power_fraction": edge_fraction,
+        "max_spectral_edge_band_power_fraction": float(max_edge_band_fraction),
+        "spectral_centroid_poloidal_fraction": poloidal_fraction,
+        "spectral_centroid_toroidal_fraction": toroidal_fraction,
+        "reasons": reasons,
+        "passed": not reasons,
+    }
 
 
 def _movie_grid_refinement_key(report: dict[str, Any]) -> float:
@@ -1599,6 +1673,12 @@ def _spectral_mode_statistics(spectrum: np.ndarray) -> dict[str, Any]:
         "spectral_toroidal_mode_count": int(toroidal_count),
         "spectral_centroid_poloidal_index": poloidal_centroid,
         "spectral_centroid_toroidal_index": toroidal_centroid,
+        "spectral_centroid_poloidal_fraction": float(
+            poloidal_centroid / max(float(poloidal_count - 1), 1.0)
+        ),
+        "spectral_centroid_toroidal_fraction": float(
+            toroidal_centroid / max(float(toroidal_count - 1), 1.0)
+        ),
         "spectral_edge_band_power_fraction": edge_fraction,
         "low_mode_window_covers_grid": bool(poloidal_count <= 4 and toroidal_count <= 6),
     }

@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 82% | Finish pure-coil tracing refinement, FCI, live grid-refinement, and live time-refinement before turbulence/movie claims; report-level promotion/advisory/negative-control semantics, finite-overlap thresholds, sweep summaries, movie-evidence roles, and report-only movie refinement gates are now explicit. |
+| 3D stellarator imported-field/VMEC SOL | 83% | Finish pure-coil tracing refinement, FCI, live grid-refinement, and live time-refinement before turbulence/movie claims; report-level promotion/advisory/negative-control semantics, finite-overlap thresholds, sweep summaries, movie-evidence roles, radial-flux magnitude gates, and spectral-resolution gates are now explicit. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 92% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -1975,7 +1975,10 @@ Use this log for concise decision records. Do not paste terminal output here.
   diagnostics across same-map-source report JSON files along grid and timestep
   axes: `final_fluctuation_rms`, `max_fluctuation_rms`,
   `radial_flux_abs_mean`, `radial_flux_rms`,
-  `low_mode_spectral_power_fraction`, and `final_potential_residual_l2`. It
+  `low_mode_spectral_power_fraction`,
+  `spectral_centroid_poloidal_fraction`,
+  `spectral_centroid_toroidal_fraction`,
+  `spectral_edge_band_power_fraction`, and `final_potential_residual_l2`. It
   verifies monotone grid/timestep ordering, consistent map source, report
   pass status, and bounded relative metric changes; signed net radial-flux
   agreement is kept as a diagnostic rather than a promotion gate.
@@ -2032,6 +2035,8 @@ Use this log for concise decision records. Do not paste terminal output here.
   DRB movie reports and artifact audits:
   `spectral_poloidal_mode_count`, `spectral_toroidal_mode_count`,
   `spectral_centroid_poloidal_index`, `spectral_centroid_toroidal_index`,
+  `spectral_centroid_poloidal_fraction`,
+  `spectral_centroid_toroidal_fraction`,
   `spectral_edge_band_power_fraction`, and `low_mode_window_covers_grid`.
   These fields close an interpretation gap in the movie gate: a coarse grid can
   report `low_mode_spectral_power_fraction=1.0` simply because the checked
@@ -2039,6 +2044,25 @@ Use this log for concise decision records. Do not paste terminal output here.
   movies should pass grid/time scalar metrics and show stable spectral
   centroids with bounded edge-band power, not just visually smooth renderer
   interpolation.
+- 2026-06-18: Promoted those spectral diagnostics into the report-only movie
+  refinement gate. The summary now compares normalized spectral-centroid
+  fractions and edge-band power across grid/time reports, rejects reports whose
+  low-mode window covers the available grid, and records per-report
+  spectral-resolution reasons such as `low_mode_window_covers_grid` or
+  `spectral_edge_band_power_fraction_above_limit`. This makes the imported-field
+  movie promotion path harder to pass but closer to research-grade turbulence
+  evidence: scalar RMS agreement is no longer enough if the spectrum is
+  under-resolved.
+- 2026-06-18: Reran the small live report-only hybrid movie refinement probe
+  with the stricter spectral-resolution gate. The previous scalar timestep
+  agreement is no longer sufficient for promotion: the grid summary failed
+  because the coarse report had `low_mode_window_covers_grid=true`, both grid
+  reports exceeded the default edge-band spectral-power ceiling `0.85`
+  (`0.952` and `0.972`), and the scalar flux/low-mode metrics were still not
+  grid stable. The timestep pair also failed spectral resolution because the
+  compact grid remained edge-band dominated. This is useful reviewer-facing
+  negative evidence: the next 3D movie campaign must increase or adapt the
+  physics grid until scalar metrics and spectral occupancy are both stable.
 
 ## Definition Of Done
 
