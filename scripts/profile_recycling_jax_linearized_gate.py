@@ -115,6 +115,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--active-array-rhs",
+        action="store_true",
+        help=(
+            "Profile the active-array JAX-linearized recycling residual instead "
+            "of the fixed-full-field residual. This keeps the same physical "
+            "fields and fixed-layout packing but avoids full-field residual "
+            "work when collecting CPU/GPU evidence."
+        ),
+    )
+    parser.add_argument(
         "--skip-initial-residual-check",
         action="store_true",
         help=(
@@ -245,6 +255,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Fail after profiling unless diagnostics.linear_operator_jitted is true. "
             "Use this with --jit-linear-operator when collecting JAX compilation "
             "and same-kernel performance evidence."
+        ),
+    )
+    parser.add_argument(
+        "--require-rhs-backend",
+        choices=("fixed_full_field_array", "active_array"),
+        default=None,
+        help=(
+            "Fail after profiling unless diagnostics.rhs_backend matches this "
+            "fixed-layout residual backend. Use 'active_array' with "
+            "--active-array-rhs when collecting promoted output-window or "
+            "CPU/GPU profiles."
         ),
     )
     parser.add_argument(
@@ -475,10 +496,18 @@ def _resolve_input(args: argparse.Namespace) -> Path:
     ).resolve()
 
 
-def _solver_mode_for_backend(linear_solver_backend: str) -> str:
+def _solver_mode_for_backend(
+    linear_solver_backend: str, *, active_array_rhs: bool = False
+) -> str:
+    if str(linear_solver_backend) == "lineax_gmres":
+        return (
+            "active_array_jax_linearized_lineax"
+            if bool(active_array_rhs)
+            else "jax_linearized_lineax"
+        )
     return (
-        "jax_linearized_lineax"
-        if str(linear_solver_backend) == "lineax_gmres"
+        "active_array_jax_linearized"
+        if bool(active_array_rhs)
         else "jax_linearized"
     )
 
@@ -757,6 +786,17 @@ def _profile_gate_errors(
             diagnostics = {}
         if not bool(diagnostics.get("linear_operator_jitted", False)):
             errors.append("profile did not report diagnostics.linear_operator_jitted=true")
+    required_rhs_backend = getattr(args, "require_rhs_backend", None)
+    if required_rhs_backend is not None:
+        diagnostics = profile_report.get("diagnostics", {})
+        if not isinstance(diagnostics, dict):
+            diagnostics = {}
+        reported_rhs_backend = diagnostics.get("rhs_backend")
+        if str(reported_rhs_backend) != str(required_rhs_backend):
+            errors.append(
+                "profile reported diagnostics.rhs_backend="
+                f"{reported_rhs_backend!r}, expected {required_rhs_backend!r}"
+            )
     max_linear_iterations = getattr(args, "require_max_linear_iterations", None)
     if max_linear_iterations is not None:
         errors.extend(
@@ -909,7 +949,10 @@ def _profile_once(
     )
     fields = _build_recycling_state_fields(runtime_model)
     feedback_integrals = {name: 0.0 for name in runtime_model.feedback_names}
-    solver_mode = _solver_mode_for_backend(args.linear_solver_backend)
+    solver_mode = _solver_mode_for_backend(
+        args.linear_solver_backend,
+        active_array_rhs=bool(getattr(args, "active_array_rhs", False)),
+    )
 
     started = perf_counter()
     next_fields, _next_integrals, info = advance_recycling_1d_backward_euler_step(
@@ -936,6 +979,9 @@ def _profile_once(
         "case": str(args.case),
         "solver_mode": solver_mode,
         "linear_solver_backend": str(args.linear_solver_backend),
+        "active_array_rhs_requested": bool(
+            getattr(args, "active_array_rhs", False)
+        ),
         "overrides": list(overrides),
         "jit_residual_requested": bool(getattr(args, "jit_residual", False)),
         "jit_linear_operator_requested": bool(
@@ -1094,6 +1140,7 @@ def main() -> int:
             "linear_preconditioner": args.require_linear_preconditioner,
             "initial_residual_mode": args.require_initial_residual_mode,
             "linear_operator_jitted": bool(args.require_linear_operator_jitted),
+            "rhs_backend": args.require_rhs_backend,
             "max_linear_iterations": args.require_max_linear_iterations,
             "max_residual_inf_norm": args.require_max_residual_inf_norm,
             "max_residual_evaluations": args.require_max_residual_evaluations,

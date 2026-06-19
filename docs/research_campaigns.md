@@ -95,10 +95,12 @@ and the committed artifact reaches about `4.79x` steady-state speedup from
 `1 -> 8` worker processes on the retained `16`-solve ensemble.
 
 The GPU bundle contains three distinct lanes. The fixed-layout JAX-linearized
-gate measures the residual/JVP seam and now includes the non-SciPy
-`fixed_bdf2_jax_linearized` bounded-step path with fixed-layout RHS,
-JAX-linearized actions, packed feedback-integral evolution, and finite-residual
-diagnostics. The
+gate measures the residual/JVP seam with the jitted matrix-free operator and
+now requires the active-array RHS backend for the large D/T/He residual profile,
+so trace and memory evidence does not accidentally fall back to the slower
+full-field compatibility residual. The bounded non-SciPy fixed-BDF2 path still
+reports both fixed-full-field and active-array diagnostics before any default
+solver promotion. The
 `gpu-dthe-full-output-jvp-profile` lane runs `recycling_dthe_one_step` through
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`, so it is the
 production-output profile to use before claiming heavy recycling GPU speedup or

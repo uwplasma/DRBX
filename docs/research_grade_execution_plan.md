@@ -2282,6 +2282,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   near `3.93 GiB`. Decision: the immediate performance target is cheaper
   residual/JVP linearization and full output-window CPU/GPU profiling, not
   another local-block preconditioner sweep.
+- 2026-06-19: Added first-class active-array backend selection and gating to
+  `scripts/profile_recycling_jax_linearized_gate.py` via `--active-array-rhs`
+  and `--require-rhs-backend active_array`, then routed the local D/T/He
+  JAX-linearized research gate through the jitted matrix-free operator and the
+  large GPU D/T/He gate through jitted active-array RHS. A real D/T/He
+  active-array gate passed with `rhs_backend=active_array`, residual `7.31568`,
+  five operator calls, and `linear_operator_jitted=true`; the single gate took
+  `4.41 s`, while the warmup/two-run profile was runtime-neutral versus
+  fixed-full-field (`6.07 s` median versus `6.11 s`) with slightly lower RSS
+  (`3.89 GiB` peak versus `3.93 GiB`). Pre-jitting the full residual was a
+  negative result (`10.10 s` median, `7.20 s` linearization, `4.51 GiB` peak
+  RSS), so residual JIT remains opt-in and the next performance work should
+  target output-window active-array/JVP behavior and GPU traces.
 
 ## Definition Of Done
 

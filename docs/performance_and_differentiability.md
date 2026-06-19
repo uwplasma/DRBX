@@ -1491,6 +1491,24 @@ sampled delta of `717 MiB`. This keeps the next optimization target focused on
 cheaper residual linearization, GMRES setup, and real output-window CPU/GPU
 evidence, not on another dynamic local-block preconditioner sweep.
 
+Two follow-up probes bounded the immediate residual/JVP options. First,
+pre-jitting the full residual as well as the matrix-free operator was a negative
+result on the same D/T/He gate: warmup increased to `16.25 s`, median timed
+runtime increased to `10.10 s`, JAX linearization increased to `7.20 s`, and
+sampled peak process RSS increased to about `4.51 GiB`, with the same residual
+and five operator calls. Residual JIT should therefore remain an opt-in
+diagnostic knob for this lane, not a default speedup. Second, the profiling
+harness now exposes `--active-array-rhs` plus `--require-rhs-backend
+active_array`, so CPU/GPU campaigns can require the active-array residual seam.
+On the one-step backward-Euler D/T/He gate this passed with
+`solver_mode=active_array_jax_linearized`, `rhs_backend=active_array`, residual
+`7.31568`, five operator calls, and `linear_operator_jitted=true`. The
+single-run gate took `4.41 s`; the warmup/two-run comparison had median
+`6.07 s`, essentially unchanged from the fixed-full-field median `6.11 s`, but
+peak RSS was slightly lower (`3.89 GiB` versus `3.93 GiB`). This is backend
+selection and memory evidence for future output-window and GPU campaigns, not a
+standalone BE runtime win.
+
 The promotion wrapper exposes the same path as
 `--fixed-bdf2-jit-linear-operator`, which forwards the runtime override to the
 bounded fixed-BDF2 phase and requires `fixed_bdf2_linear_operator_jitted_steps`

@@ -35,6 +35,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "--case",
             "dthe",
             "--jit-linear-operator",
+            "--active-array-rhs",
             "--linear-preconditioner",
             "local-block-diag",
             "--linear-preconditioner-refresh",
@@ -44,6 +45,8 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "--require-initial-residual-mode",
             "linearize",
             "--require-linear-operator-jitted",
+            "--require-rhs-backend",
+            "active_array",
             "--linear-restart",
             "20",
             "--linear-maxiter",
@@ -78,6 +81,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.input_path == Path("/tmp/BOUT.inp")
     assert args.case == "dthe"
     assert args.jit_linear_operator is True
+    assert args.active_array_rhs is True
     assert args.linear_preconditioner == "local-block-diag"
     assert args.linear_preconditioner_refresh == 100
     assert args.linear_restart == 20
@@ -87,6 +91,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.require_linear_preconditioner == "local_block_diag"
     assert args.require_initial_residual_mode == "linearize"
     assert args.require_linear_operator_jitted is True
+    assert args.require_rhs_backend == "active_array"
     assert args.require_max_linear_iterations == 3200
     assert args.require_max_residual_inf_norm == 7.4
     assert args.require_max_residual_evaluations == 2
@@ -115,9 +120,11 @@ def test_help_documents_preconditioner_and_budget_gates(
     assert "--linear-maxiter" in help_text
     assert "--linear-tolerance-factor" in help_text
     assert "--line-search-initial-step-scale" in help_text
+    assert "--active-array-rhs" in help_text
     assert "--require-linear-preconditioner" in help_text
     assert "--require-initial-residual-mode" in help_text
     assert "--require-linear-operator-jitted" in help_text
+    assert "--require-rhs-backend" in help_text
     assert "--require-max-linear-iterations" in help_text
     assert "--require-max-residual-inf-norm" in help_text
     assert "--require-max-residual-evaluations" in help_text
@@ -269,6 +276,7 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
         require_linear_preconditioner="local-block-diag",
         require_initial_residual_mode="linearized",
         require_linear_operator_jitted=True,
+        require_rhs_backend="active_array",
         require_max_linear_iterations=3200,
         require_max_residual_inf_norm=7.4,
         require_max_residual_evaluations=2,
@@ -288,6 +296,7 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
             "linear_preconditioner": "local_block_diag",
             "initial_residual_mode": "linearize",
             "linear_operator_jitted": True,
+            "rhs_backend": "active_array",
             "linear_preconditioner_build_count": 2,
             "linear_preconditioner_build_seconds": 0.125,
             "linear_preconditioner_apply_count": 35,
@@ -306,6 +315,7 @@ def test_profile_gate_errors_accept_field_diag_as_dynamic_preconditioner() -> No
         require_linear_preconditioner="field-diag",
         require_initial_residual_mode=None,
         require_linear_operator_jitted=False,
+        require_rhs_backend=None,
         require_max_linear_iterations=None,
         require_max_residual_inf_norm=None,
         require_max_residual_evaluations=None,
@@ -335,6 +345,7 @@ def test_profile_gate_errors_accept_static_preconditioner_without_builds() -> No
         require_linear_preconditioner="state-scale",
         require_initial_residual_mode=None,
         require_linear_operator_jitted=False,
+        require_rhs_backend=None,
         require_max_linear_iterations=None,
         require_max_residual_inf_norm=None,
         require_max_residual_evaluations=None,
@@ -360,6 +371,7 @@ def test_profile_gate_errors_accept_neutral_line_as_dynamic_preconditioner() -> 
         require_linear_preconditioner="neutral-line",
         require_initial_residual_mode=None,
         require_linear_operator_jitted=False,
+        require_rhs_backend=None,
         require_max_linear_iterations=None,
         require_max_residual_inf_norm=None,
         require_max_residual_evaluations=None,
@@ -389,6 +401,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
         require_linear_preconditioner="parallel-line",
         require_initial_residual_mode="linearize",
         require_linear_operator_jitted=True,
+        require_rhs_backend="active_array",
         require_max_linear_iterations=10,
         require_max_residual_inf_norm=7.4,
         require_max_residual_evaluations=2,
@@ -408,6 +421,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
             "linear_preconditioner": "local_block_diag",
             "initial_residual_mode": "residual",
             "linear_operator_jitted": False,
+            "rhs_backend": "fixed_full_field_array",
             "linear_preconditioner_build_count": 3,
             "linear_preconditioner_build_seconds": float("nan"),
             "linear_preconditioner_apply_count": 5,
@@ -425,6 +439,10 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
         "expected linearize"
     ) in errors
     assert "profile did not report diagnostics.linear_operator_jitted=true" in errors
+    assert (
+        "profile reported diagnostics.rhs_backend='fixed_full_field_array', "
+        "expected 'active_array'"
+    ) in errors
     assert (
         "profile did not report finite nonnegative "
         "linear_preconditioner_build_seconds"

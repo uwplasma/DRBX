@@ -151,6 +151,8 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) 
         gate.command.index("--line-search-initial-step-scale") + 1
     ] == "0.25"
     assert "--skip-initial-residual-check" not in gate.command
+    assert "--jit-linear-operator" in gate.command
+    assert "--require-linear-operator-jitted" in gate.command
     assert gate.command[gate.command.index("--initial-residual-mode") + 1] == (
         "linearize"
     )
@@ -236,6 +238,12 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
     assert "--device-memory-profile" in linearized.command
     assert "--compilation-cache-dir" in linearized.command
     assert "mesh:ny=400" in linearized.command
+    assert "--active-array-rhs" in linearized.command
+    assert "--jit-linear-operator" in linearized.command
+    assert "--require-linear-operator-jitted" in linearized.command
+    assert linearized.command[linearized.command.index("--require-rhs-backend") + 1] == (
+        "active_array"
+    )
     assert full_output.name == "gpu-dthe-full-output-jvp-profile"
     assert full_output.required_reference_inputs == ("dthe",)
     assert full_output.requires_gpu is True
@@ -422,6 +430,14 @@ def test_jax_linearized_profiler_reports_lineax_solver_mode() -> None:
 
     assert module._solver_mode_for_backend("jax_gmres") == "jax_linearized"
     assert module._solver_mode_for_backend("lineax_gmres") == "jax_linearized_lineax"
+    assert (
+        module._solver_mode_for_backend("jax_gmres", active_array_rhs=True)
+        == "active_array_jax_linearized"
+    )
+    assert (
+        module._solver_mode_for_backend("lineax_gmres", active_array_rhs=True)
+        == "active_array_jax_linearized_lineax"
+    )
 
 
 def test_jax_linearized_profiler_jit_residual_appends_runtime_override() -> None:
