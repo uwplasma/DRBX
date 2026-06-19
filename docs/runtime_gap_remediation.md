@@ -330,7 +330,11 @@ making it a cheaper field-split/Schur probe than full same-cell block
 inversion. Solver-level tests show it can cut operator calls from `10` to `5`
 when a repeated local field block is the dominant stiff operator, but the first
 hydrogen fixed-BDF2 recycling sweep kept the same `115` operator calls and
-only added `20` sampled-block builds. The
+only added `20` sampled-block builds. The feedback-aware extension,
+`field_block_feedback_diag`/`field_split_feedback`, adds diagonal JVP scaling
+for packed feedback-integral variables and passes a reduced-budget
+stiff-feedback fixture, but the same hydrogen fixed-BDF2 sweep again kept
+`115` operator calls and added `20` feedback-aware block builds. The
 `local_block_diag` path is the current physics/block preconditioner probe: it
 uses the JAX-linearized residual to assemble same-cell field-coupling blocks
 with JVPs, solves those small blocks on device, and treats off-cell transport
@@ -344,11 +348,12 @@ machine-precision convergence. This confirms the algorithmic seam, but does
 not yet replace the missing heavy same-case recycling speedup. A same-case
 hydrogen fixed-BDF2 sweep with preconditioner refresh set to `100` kept the
 same `115` linear iterations/operator calls for unpreconditioned,
-`neutral_line`, and `momentum_line` runs; the selected-line routes only added
-`20` preconditioner builds and wall time. Future preconditioner work should
-therefore target approximate Schur/field-split or transport blocks that reduce
-the real recycling Krylov spectrum, not more exact selected-line probes on
-this deck. The optional
+`neutral_line`, `momentum_line`, `field_block_sample`, and
+`field_block_feedback_diag` runs; all dynamic routes only added
+preconditioner-build work and wall time. Future preconditioner work should
+therefore target approximate target/sheath, Schur, field-line transport, or
+neutral-plasma blocks that reduce the real recycling Krylov spectrum, not more
+exact selected-line or sampled-local probes on this deck. The optional
 `runtime:recycling_jax_linear_preconditioner_refresh` control reuses the
 dynamic block preconditioner within one implicit solve. The matching
 `runtime:recycling_jax_linear_preconditioner_floor`,

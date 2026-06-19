@@ -1216,6 +1216,16 @@ same reduced Krylov budget without preconditioning but converges below
 linear-operator calls. This is not a heavy recycling speedup claim; it is a
 targeted gate that proves the packed feedback-integral rows can be scaled
 without falling back to a full packed Jacobian-diagonal build.
+The same hydrogen fixed-BDF2 gate then closed the promotion decision for this
+candidate. With `--fixed-bdf2-only`, `timestep=10`, `steps=2`, and refresh
+`100`, `field_block_feedback_diag` preserved solver health but again kept
+`115` linear iterations/operator calls on both fixed-BDF2 routes. The
+fixed-full-field route took `64.828 s`, built `20` feedback-aware blocks, and
+spent `6.000 s` in preconditioner builds; the active-array route took
+`59.833 s`, built the same `20` blocks, and spent `5.180 s` building them.
+Both routes reported residual `2.897e-6` and zero failed linear solves. This is
+therefore useful diagnostic coverage for packed feedback rows, but it is not a
+promoted accelerator for the current hydrogen recycling deck.
 The next reference-grounded preconditioner probe adds an opt-in
 `neutral_line` candidate. It follows the same algorithmic idea as
 neutral-diffusion preconditioners in edge-fluid implementations: approximate
@@ -1269,6 +1279,13 @@ the active-array route. This result says the current hydrogen residual is not
 dominated by a single repeated local field-coupling block; the next
 preconditioner must incorporate target/sheath, parallel transport, or a
 low-cost Schur approximation that changes the real recycling spectrum.
+The feedback-aware extension, `field_block_feedback_diag`, reaches the same
+conclusion on the real deck: it scales feedback-integral rows correctly in a
+bounded stiff-feedback fixture, but the hydrogen fixed-BDF2 run still reports
+`115` iterations/operator calls and only adds build cost. The next
+preconditioner should therefore not be another local sampled block; it should
+approximate the target/sheath, parallel-transport, or neutral-plasma Schur
+part of the true residual spectrum.
 The solver now also separates preconditioner build cost from preconditioner
 application cost. JAX-linearized steps report
 `linear_preconditioner_apply_count` and
