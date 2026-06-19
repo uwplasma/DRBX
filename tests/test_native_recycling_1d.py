@@ -3225,7 +3225,7 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         "active_cell_count": 3,
         "field_count": 7,
         "feedback_count": 2,
-        "refresh_frequency": 1,
+        "refresh_frequency": 100,
         "floor": 1.0e-10,
         "max_unknowns": 8192,
     }

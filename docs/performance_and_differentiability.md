@@ -585,12 +585,17 @@ field-diagonal preconditioner, `field_sample_diag`. It samples one diagonal JVP
 per evolved field at a representative active cell, then applies that field
 scale across all active cells. This is intentionally less exact than the full
 `field_diag` preconditioner, but its build cost scales with the number of
-fields rather than the number of active field unknowns. A bounded
-`recycling_1d_one_step` active-array fixed-BDF2 gate with two output steps
-reported one startup step, one BDF2 corrector step, `field_sample_diag`, five
-preconditioner builds, zero failed solver steps, and
-`fixed_bdf2_max_residual_inf_norm = 2.68e-09`. This remains opt-in until heavy
-D/T/He and full-output profiling prove better end-to-end runtime.
+fields rather than the number of active field unknowns. Its default refresh
+cadence is intentionally stale (`100` nonlinear iterations) because same-state
+hydrogen evidence showed that rebuilding every nonlinear iteration erased the
+linear-solve gain. A bounded `recycling_1d_one_step` active-array fixed-BDF2
+gate with two output steps reported one startup step, one BDF2 corrector step,
+`field_sample_diag`, two preconditioner builds, zero failed solver steps,
+`fixed_bdf2_max_residual_inf_norm = 2.66e-09`, and `11.587 s` elapsed time. The
+same gate without preconditioning took `11.913 s`; rebuilding the sampled
+preconditioner every nonlinear iteration took `12.865 s`. This remains opt-in
+until heavier D/T/He and full-output profiling prove robust end-to-end runtime
+improvement.
 
 ## Current GPU-Native Audit
 

@@ -5947,7 +5947,8 @@ def _recycling_jax_linear_preconditioner_context(
         "field_count": len(tuple(layout.field_names)),
         "feedback_count": len(tuple(layout.feedback_names)),
         "refresh_frequency": _resolve_recycling_jax_linear_preconditioner_refresh(
-            config
+            config,
+            default=100 if name == "field_sample_diag" else 1,
         ),
         "floor": _resolve_positive_float_runtime_option(
             config,
@@ -6023,12 +6024,14 @@ def _is_recycling_neutral_line_field(field_name: str) -> bool:
 
 def _resolve_recycling_jax_linear_preconditioner_refresh(
     config: BoutConfig | None = None,
+    *,
+    default: int = 1,
 ) -> int:
     return _resolve_positive_int_runtime_option(
         config,
         option_name="recycling_jax_linear_preconditioner_refresh",
         env_name="JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_REFRESH",
-        default=1,
+        default=int(default),
     )
 
 

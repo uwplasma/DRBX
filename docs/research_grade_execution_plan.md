@@ -1872,13 +1872,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   `runtime:recycling_jax_linear_preconditioner=field_sample_diag` and the
   aliases `field-sample`, `sampled-field-diag`, `cheap-field-diag`, and
   `field-lumped-diag`. Focused solver tests verify field-wise scaling and
-  Newton integration. A bounded two-step `recycling_1d_one_step`
-  `fixed_bdf2_active_array_jax_linearized` diagnostics gate passed with one
-  startup step, one BDF2 corrector, `field_sample_diag`, five preconditioner
-  builds, zero failed linearized solver steps, and
-  `fixed_bdf2_max_residual_inf_norm = 2.68e-09`. It remains opt-in until
-  heavier D/T/He and full-output CPU/GPU profiles demonstrate an actual runtime
-  win.
+  Newton integration. Initial same-gate profiling showed that refreshing every
+  nonlinear iteration was not useful (`12.865 s`, five builds) compared with
+  the unpreconditioned control (`11.913 s`), so the sampled-field default now
+  reuses each sampled preconditioner for `100` nonlinear iterations unless the
+  user overrides `runtime:recycling_jax_linear_preconditioner_refresh`. The
+  bounded two-step `recycling_1d_one_step`
+  `fixed_bdf2_active_array_jax_linearized` diagnostics gate now passes with
+  one startup step, one BDF2 corrector, `field_sample_diag`, two
+  preconditioner builds, zero failed linearized solver steps,
+  `fixed_bdf2_max_residual_inf_norm = 2.66e-09`, and `11.587 s` elapsed time.
+  It remains opt-in until heavier D/T/He and full-output CPU/GPU profiles
+  demonstrate a robust runtime win.
 
 ## Definition Of Done
 
