@@ -43,6 +43,7 @@ def _make_dthe_reference_root(tmp_path: Path) -> Path:
 def _assert_fixed_bdf2_direct_counting_command(command, *, requires_gpu: bool) -> None:
     assert command.required_reference_inputs == ("hydrogen",)
     assert command.requires_gpu is requires_gpu
+    assert command.timeout_seconds == (720 if requires_gpu else 300)
     assert "compare_recycling_transient_modes.py" in command.command[1]
     assert "recycling_1d_one_step" in command.command
     assert "fixed_bdf2_active_array_jax_linearized" in command.command
@@ -425,6 +426,34 @@ def test_research_campaign_command_runner_reports_timeout(
 
     assert result.timed_out is True
     assert result.returncode == 124
+    assert result.timeout_seconds == 1
+
+
+def test_research_campaign_command_runner_uses_per_campaign_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_command_timeout"
+    )
+    command = module.CampaignCommand(
+        name="bounded-demo",
+        description="demo",
+        command=("python", "-c", "pass"),
+        timeout_seconds=7,
+    )
+
+    def fake_run(*args, **kwargs):
+        assert kwargs["timeout"] == 7
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = module.run_campaign_command(command, cwd=tmp_path, timeout_seconds=99)
+
+    assert result.timed_out is True
+    assert result.returncode == 124
+    assert result.timeout_seconds == 7
 
 
 def test_research_campaign_gpu_command_runner_sets_cuda_prerequisite_env(

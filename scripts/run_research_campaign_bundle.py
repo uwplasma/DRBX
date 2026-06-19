@@ -30,6 +30,7 @@ class CampaignCommand:
     requires_reference: bool = False
     required_reference_inputs: tuple[str, ...] = ()
     requires_gpu: bool = False
+    timeout_seconds: int | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class CampaignResult:
     returncode: int
     elapsed_seconds: float
     timed_out: bool = False
+    timeout_seconds: int | None = None
 
 
 def _repo_root() -> Path:
@@ -308,6 +310,7 @@ def _campaign_command_map(
             ),
             requires_reference=True,
             required_reference_inputs=("hydrogen",),
+            timeout_seconds=300,
         ),
         "adaptive-bdf-jax-lineax-gate": CampaignCommand(
             name="adaptive-bdf-jax-lineax-gate",
@@ -506,6 +509,7 @@ def _campaign_command_map(
             requires_reference=True,
             required_reference_inputs=("hydrogen",),
             requires_gpu=True,
+            timeout_seconds=720,
         ),
         "gpu-dthe-batched-jvp-gate": CampaignCommand(
             name="gpu-dthe-batched-jvp-gate",
@@ -609,6 +613,11 @@ def _format_command(command: tuple[str, ...]) -> str:
 
 def run_campaign_command(command: CampaignCommand, *, cwd: Path, timeout_seconds: int) -> CampaignResult:
     started = time.monotonic()
+    effective_timeout_seconds = (
+        int(command.timeout_seconds)
+        if command.timeout_seconds is not None
+        else int(timeout_seconds)
+    )
     env = dict(os.environ)
     src_path = str(cwd / "src")
     env["PYTHONPATH"] = src_path if not env.get("PYTHONPATH") else os.pathsep.join((src_path, env["PYTHONPATH"]))
@@ -618,7 +627,13 @@ def run_campaign_command(command: CampaignCommand, *, cwd: Path, timeout_seconds
         env.setdefault("JAX_PLATFORMS", "cuda")
         env.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
     try:
-        completed = subprocess.run(command.command, cwd=cwd, env=env, check=False, timeout=timeout_seconds)
+        completed = subprocess.run(
+            command.command,
+            cwd=cwd,
+            env=env,
+            check=False,
+            timeout=effective_timeout_seconds,
+        )
     except subprocess.TimeoutExpired:
         return CampaignResult(
             name=command.name,
@@ -626,6 +641,7 @@ def run_campaign_command(command: CampaignCommand, *, cwd: Path, timeout_seconds
             returncode=124,
             elapsed_seconds=time.monotonic() - started,
             timed_out=True,
+            timeout_seconds=effective_timeout_seconds,
         )
     return CampaignResult(
         name=command.name,
@@ -633,6 +649,7 @@ def run_campaign_command(command: CampaignCommand, *, cwd: Path, timeout_seconds
         returncode=int(completed.returncode),
         elapsed_seconds=time.monotonic() - started,
         timed_out=False,
+        timeout_seconds=effective_timeout_seconds,
     )
 
 
@@ -697,13 +714,20 @@ def main() -> int:
                 "[campaign] GPU prerequisite: CUDA-visible JAX devices "
                 "(for NVIDIA hosts, set JAX_PLATFORMS=cuda and CUDA_VISIBLE_DEVICES as needed)"
             )
+        if command.timeout_seconds is not None:
+            print(f"[campaign] command timeout: {int(command.timeout_seconds)}s")
         print(f"[campaign] command: {_format_command(command.command)}")
         if args.dry_run:
             continue
         result = run_campaign_command(command, cwd=repo_root, timeout_seconds=int(args.timeout_seconds))
         if result.timed_out:
+            timeout_label = (
+                result.timeout_seconds
+                if result.timeout_seconds is not None
+                else int(args.timeout_seconds)
+            )
             print(
-                f"[campaign] {result.name} exceeded {args.timeout_seconds}s after {result.elapsed_seconds:.1f}s",
+                f"[campaign] {result.name} exceeded {timeout_label}s after {result.elapsed_seconds:.1f}s",
                 file=sys.stderr,
             )
             return result.returncode

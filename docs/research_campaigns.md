@@ -122,6 +122,15 @@ uses `runtime:recycling_jax_linear_operator_counting=direct`, the correct
 low-overhead health metric is the reported solve count rather than Python
 operator-call callbacks. The compact checked-in summary is
 [profile_summary.json](data/runtime_profile_artifacts/recycling_1d_fixed_bdf2_active_array_direct_counting_cpu/profile_summary.json).
+The matching `gpu-fixed-bdf2-direct-counting-gate` is intentionally guarded by
+a process-level timeout in addition to the inner mode timeout. The first
+office-GPU attempt on one RTX A4000 entered the solve but remained host-side
+bound: after more than `12 min` it was still using about `137%` CPU, about
+`3.8 GiB` RSS, roughly `250-300 MiB` on the GPU, and `0-1%` GPU utilization,
+so it was terminated before writing a JSON summary. Treat that as negative
+promotion evidence for this small fixed-BDF2 output-window case; the next GPU
+claim should come from reduced host-side solver overhead or heavier batched
+same-shape kernels, not from rerunning the same bounded gate unchanged.
 The `gpu-dthe-active-array-output-jvp-profile` lane runs the full
 `recycling_dthe_one_step` output window through
 `runtime:recycling_transient_solver_mode=bdf_active_array_jvp`, requires

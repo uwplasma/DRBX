@@ -145,7 +145,7 @@ and tests all move together.
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 98.5% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, and both one-step and bounded fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves. Default promotion still needs heavier CPU/GPU parity/runtime evidence before replacing stable finite-difference defaults. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
-| Performance and scaling | 68% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, and the fixed-BDF2 direct-counting output-window gate is now a first-class local/GPU research campaign that proves solve execution without Python callback overhead. Remaining scaling work is heavy CPU/GPU evidence and multi-device batching on promoted kernels. |
+| Performance and scaling | 68% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, and the fixed-BDF2 direct-counting output-window gate is now a first-class local/GPU research campaign that proves solve execution without Python callback overhead. The first office-GPU attempt on the small fixed-BDF2 gate was host-side bound and manually terminated after `724 s`, so remaining scaling work is reduced host-side solver overhead, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -2711,6 +2711,22 @@ Use this log for concise decision records. Do not paste terminal output here.
   tracked. Decision: keep repo-footprint completion at `94%`; the next release
   still needs the same audit before tagging, but this batch did not introduce
   clone-size regression.
+- 2026-06-19: Staged a tracked-only source snapshot on the `office` GPU host,
+  created a repo-local virtual environment with CUDA-visible JAX `0.6.2`,
+  refreshed the stale `equinox`/`lineax` layer inside that environment, and
+  ran the new `gpu-fixed-bdf2-direct-counting-gate` against the lightweight
+  fixture reference root. The dry-run passed and JAX saw one RTX A4000 when
+  restricted with `CUDA_VISIBLE_DEVICES=0`. The actual fixed-BDF2 active-array
+  run entered the solve but did not complete within the intended mode guard:
+  at about `9 min` it used about `137%` CPU, `3.8 GiB` RSS, `250-300 MiB` GPU
+  memory, and `0-1%` GPU utilization. The process was terminated at `724 s`
+  with exit code `-15` and wrote no JSON summary. Decision: this is negative
+  GPU promotion evidence for the small fixed-BDF2 output-window case. Added
+  per-campaign process-level timeout metadata to `run_research_campaign_bundle.py`
+  so `fixed-bdf2-direct-counting-gate` is capped at `300 s` and
+  `gpu-fixed-bdf2-direct-counting-gate` at `720 s`, preventing future `all-gpu`
+  runs from hanging for the global default timeout when the inner JAX/SIGALRM
+  mode guard cannot interrupt a compiled solve.
 
 ## Definition Of Done
 
