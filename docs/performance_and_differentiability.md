@@ -597,6 +597,18 @@ preconditioner every nonlinear iteration took `12.865 s`. This remains opt-in
 until heavier D/T/He and full-output profiling prove robust end-to-end runtime
 improvement.
 
+The retained bounded direct-counting fixed-BDF2 gate now also records
+normalized timing rates and gates residual work. On `recycling_1d_one_step`
+with `dt=10` and two stored output steps, the active-array JAX-linearized path
+completed `20` internal fixed-layout steps, `23` JAX-GMRES solve attempts,
+`46` residual evaluations, and residual `2.899e-6` in `43.76 s`; the artifact
+reports `0.242 s` per residual evaluation and `1.345 s` per linear solve.
+An otherwise matched `full_step` line-search probe reduced residual
+evaluations to `43`, but increased elapsed time to `50.16 s`, so it is not
+promoted. The campaign therefore keeps `backtracking` and enforces
+`--require-fixed-bdf2-max-residual-evaluations=46`; future performance claims
+must reduce the end-to-end cost, not just one raw counter.
+
 ## Current GPU-Native Audit
 
 The office GPU environment is now usable for the compact native JAX lanes with
