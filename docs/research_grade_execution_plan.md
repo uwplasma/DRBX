@@ -2735,24 +2735,26 @@ Use this log for concise decision records. Do not paste terminal output here.
   (`--disable-pmap`) and uses persistent compilation-cache, JAX-trace, and
   device-memory hooks. The refreshed fixed-full-field CPU artifact at
   `ny=100`, state size `1900`, and batches through `256` reports best
-  residual and JVP same-kernel speedups of `3.63x` and `2.42x`, with best
-  throughputs of `4.11e4` and `1.05e4` states/s. The new active-array CPU
+  residual and JVP same-kernel speedups of `3.46x` and `2.36x`, with best
+  throughputs of `3.92e4` and `1.02e4` states/s. The new active-array CPU
   artifact at the same `ny=100`, state size `1900`, and batches through `64`
-  reports best residual and JVP speedups of `2.44x` and `2.11x`, with best
-  throughputs of `3.23e4` and `9.22e3` states/s. Both retained CPU artifacts
+  reports best residual and JVP speedups of `2.49x` and `2.06x`, with best
+  throughputs of `3.16e4` and `9.18e3` states/s. Both retained CPU artifacts
   keep JVP/finite-difference relative error `5.97e-9` and objective
   directional relative error `1.34e-7`, and now write incremental
   `profile_progress.jsonl` records for problem construction, base
-  residual/JVP warmup, derivative checks, and each batch. On `office`, a tiny
-  active-array CUDA readiness probe at `ny=16`, state size `304`, and batch
-  `1,2` completed with JVP/finite-difference relative error `3.95e-10`, but
-  larger `ny=100` pmap and single-device active-array probes remained
-  host/compiler or memory bound, allocated roughly `12 GiB` of GPU memory,
-  showed near-zero GPU utilization, and wrote no JSON summary. Decision: raise
-  performance/scaling to `69%` for the retained active-array CPU batching gate,
-  progress instrumentation, and campaign wiring, but do not claim GPU speedup
-  or multi-GPU promotion until compiled residual size and memory behavior
-  improve.
+  residual/JVP warmup, derivative checks, direction build, batched residual
+  warmup, batched JVP warmup, serial warmup, and each batch. The split CPU
+  artifacts show the same pattern as the GPU readiness probe: batched JVP
+  warmup dominates batched residual warmup. On `office`, a tiny active-array
+  CUDA readiness probe at `ny=16`, state size `304`, and batch `1,2` completed
+  with JVP/finite-difference relative error `3.95e-10`, but larger `ny=100`
+  pmap and single-device active-array probes remained host/compiler or memory
+  bound, allocated roughly `12 GiB` of GPU memory, showed near-zero GPU
+  utilization, and wrote no JSON summary. Decision: raise performance/scaling
+  to `69%` for the retained active-array CPU batching gate, progress
+  instrumentation, and campaign wiring, but do not claim GPU speedup or
+  multi-GPU promotion until compiled JVP size and memory behavior improve.
 - 2026-06-19: Refreshed the tracked-only `office` GPU snapshot with the
   progress-stream profiler and reran the tiny active-array CUDA readiness
   probe on one RTX A4000:
@@ -2761,14 +2763,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   --skip-objective-grad-check`. The run completed and wrote both
   `profile_summary.json` and `profile_progress.jsonl`. The summary reports
   backend `gpu`, state size `304`, JVP/finite-difference relative error
-  `3.95e-10`, batch-2 residual speedup `1.32x`, batch-2 JVP speedup `1.68x`,
-  batch-2 residual throughput `2.91e3` states/s, and batch-2 JVP throughput
-  `1.52e3` states/s. The progress stream contains `12` records and shows base
-  residual warmup `2.84 s`, base JVP warmup `5.18 s`, and batch warmups
-  `10.72 s` and `10.61 s`. Decision: keep GPU promotion blocked, but the
-  diagnostic gap is now closed for future stalled GPU runs; the next GPU
-  implementation target is smaller compiled active-array residual/JVP kernels
-  or kernel partitioning, not more blind reruns.
+  `3.95e-10`, batch-2 residual speedup `1.35x`, batch-2 JVP speedup `1.59x`,
+  batch-2 residual throughput `2.97e3` states/s, and batch-2 JVP throughput
+  `1.45e3` states/s. The progress stream contains `20` records and shows base
+  residual warmup `2.93 s`, base JVP warmup `5.19 s`, batch-2 residual warmup
+  `3.92 s`, batch-2 JVP warmup `6.77 s`, and batch-2 serial warmup
+  `9.65e-3 s`. Decision: keep GPU promotion blocked, but the diagnostic gap is
+  now closed for future stalled GPU runs; the next GPU implementation target
+  is smaller compiled active-array JVP kernels or JVP partitioning, not more
+  blind reruns.
 
 ## Definition Of Done
 

@@ -314,10 +314,18 @@ def test_recycling_batched_jvp_profile_reports_progress_events() -> None:
         "jvp_fd_check_complete",
     ]
     assert "batch_start" in event_names
+    assert "batch_direction_build_complete" in event_names
+    assert "batch_residual_warmup_complete" in event_names
+    assert "batch_jvp_warmup_complete" in event_names
+    assert "batch_serial_warmup_complete" in event_names
     assert "batch_warmup_complete" in event_names
     assert "batch_complete" in event_names
     assert report["warmup_timing"]["base_residual_warmup_seconds"] >= 0.0
     assert report["batch_results"][0]["batch_warmup_seconds"] >= 0.0
+    assert report["batch_results"][0]["direction_build_seconds"] >= 0.0
+    assert report["batch_results"][0]["batched_residual_warmup_seconds"] >= 0.0
+    assert report["batch_results"][0]["batched_jvp_warmup_seconds"] >= 0.0
+    assert report["batch_results"][0]["serial_warmup_seconds"] >= 0.0
 
 
 def test_create_recycling_batched_jvp_profile_package_writes_progress_jsonl(

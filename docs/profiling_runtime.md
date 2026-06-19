@@ -359,10 +359,10 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
 ```
 
 The retained local CPU fixed-full-field artifact now sweeps batches through
-`256` states and shows about `3.63x` residual throughput speedup and `2.42x`
+`256` states and shows about `3.46x` residual throughput speedup and `2.36x`
 JVP throughput speedup over serial same-kernel calls, with batched/serial
 residual and JVP mismatch at roundoff. Its best residual throughput is about
-`4.11e4` states/s and its best JVP throughput is about `1.05e4` states/s. The
+`3.92e4` states/s and its best JVP throughput is about `1.02e4` states/s. The
 residual JVP agrees with centered finite difference to about `5.97e-9`, and
 the objective directional derivative agrees to about `1.34e-7`.
 
@@ -378,9 +378,9 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_active_array_batched_jvp_gate_cpu
 ```
 
-That artifact reaches about `2.44x` residual throughput speedup and `2.11x`
+That artifact reaches about `2.49x` residual throughput speedup and `2.06x`
 JVP throughput speedup through batch `64`, with best residual and JVP
-throughputs of about `3.23e4` and `9.22e3` states/s. It retains the same
+throughputs of about `3.16e4` and `9.18e3` states/s. It retains the same
 finite-difference derivative checks as the fixed-full-field artifact. This is
 the current best local evidence that the transformable active-array residual
 can be batched and differentiated without falling back to Python residual
@@ -445,17 +445,18 @@ For a nonstandard staged deck, add:
 The current `office` GPU evidence for active-array batched JVPs should be read
 narrowly. A tiny `ny=16`, batch `1,2`, single-device CUDA probe on one RTX
 A4000 completed with JVP/finite-difference relative error `3.95e-10`, batch-2
-JVP throughput about `1.52e3` states/s, and batch-2 residual throughput about
-`2.91e3` states/s, proving that the reduced active-array residual can execute
-on the GPU. Its progress log recorded base residual warmup `2.84 s`, base JVP
-warmup `5.18 s`, and per-batch warmups of about `10.6-10.7 s`, so the next GPU
-blocker is compiled batched residual/JVP size rather than a missing CUDA code
-path. Larger `ny=100` active-array pmap and single-device probes did not
-complete within the practical profiling window; both were host/compiler or
-memory bound, allocated roughly `12 GiB` of GPU memory, showed near-zero GPU
-utilization, and wrote no JSON summary. This is negative evidence for claiming
-GPU speedup today, and it points the next implementation step toward reducing
-compiled active-array residual size before attempting multi-GPU promotion.
+JVP throughput about `1.45e3` states/s, and batch-2 residual throughput about
+`2.97e3` states/s, proving that the reduced active-array residual can execute
+on the GPU. Its progress log recorded base residual warmup `2.93 s`, base JVP
+warmup `5.19 s`, batch-2 residual warmup `3.92 s`, and batch-2 JVP warmup
+`6.77 s`; the next GPU blocker is therefore the compiled batched JVP transform,
+not a missing CUDA code path. Larger `ny=100` active-array pmap and
+single-device probes did not complete within the practical profiling window;
+both were host/compiler or memory bound, allocated roughly `12 GiB` of GPU
+memory, showed near-zero GPU utilization, and wrote no JSON summary. This is
+negative evidence for claiming GPU speedup today, and it points the next
+implementation step toward reducing compiled active-array JVP size before
+attempting multi-GPU promotion.
 
 The current GPU speedup evidence instead comes from the source-term throughput
 gate:

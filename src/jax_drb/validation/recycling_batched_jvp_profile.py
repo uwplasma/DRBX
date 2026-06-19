@@ -413,23 +413,58 @@ def profile_recycling_batched_jvp_problem(
             _check_pmap_identity(jax, jnp, devices)
         )
     pmap_enabled = bool(enable_pmap and pmap_sanity_passed)
+    batched_residual = jax.jit(jax.vmap(residual))
+    batched_jvp = jax.jit(jax.vmap(single_jvp))
     for batch_size in tuple(int(size) for size in batch_sizes):
         _emit_progress(
             progress_callback,
             event="batch_start",
             batch_size=int(batch_size),
         )
+        started_at = perf_counter()
         directions = _deterministic_directions(batch_size, problem.state_size)
         states = base_state[None, :] + float(perturbation_scale) * directions
-        batched_residual = jax.jit(jax.vmap(residual))
-        batched_jvp = jax.jit(jax.vmap(single_jvp))
+        direction_build_seconds = perf_counter() - started_at
+        _emit_progress(
+            progress_callback,
+            event="batch_direction_build_complete",
+            batch_size=int(batch_size),
+            seconds=float(direction_build_seconds),
+        )
         started_at = perf_counter()
         batched_residual(states).block_until_ready()
+        batched_residual_warmup_seconds = perf_counter() - started_at
+        _emit_progress(
+            progress_callback,
+            event="batch_residual_warmup_complete",
+            batch_size=int(batch_size),
+            seconds=float(batched_residual_warmup_seconds),
+        )
+        started_at = perf_counter()
         batched_jvp(states, directions).block_until_ready()
+        batched_jvp_warmup_seconds = perf_counter() - started_at
+        _emit_progress(
+            progress_callback,
+            event="batch_jvp_warmup_complete",
+            batch_size=int(batch_size),
+            seconds=float(batched_jvp_warmup_seconds),
+        )
+        started_at = perf_counter()
         for state, direction in zip(states, directions, strict=True):
             residual_jit(state).block_until_ready()
             jvp_jit(state, direction).block_until_ready()
-        batch_warmup_seconds = perf_counter() - started_at
+        serial_warmup_seconds = perf_counter() - started_at
+        _emit_progress(
+            progress_callback,
+            event="batch_serial_warmup_complete",
+            batch_size=int(batch_size),
+            seconds=float(serial_warmup_seconds),
+        )
+        batch_warmup_seconds = (
+            batched_residual_warmup_seconds
+            + batched_jvp_warmup_seconds
+            + serial_warmup_seconds
+        )
         _emit_progress(
             progress_callback,
             event="batch_warmup_complete",
@@ -518,7 +553,13 @@ def profile_recycling_batched_jvp_problem(
         batch_results.append(
             {
                 "batch_size": int(batch_size),
+                "direction_build_seconds": float(direction_build_seconds),
                 "batch_warmup_seconds": float(batch_warmup_seconds),
+                "batched_residual_warmup_seconds": float(
+                    batched_residual_warmup_seconds
+                ),
+                "batched_jvp_warmup_seconds": float(batched_jvp_warmup_seconds),
+                "serial_warmup_seconds": float(serial_warmup_seconds),
                 "serial_residual_seconds_median": float(serial_residual_seconds),
                 "batched_residual_seconds_median": float(batched_residual_seconds),
                 "serial_residual_states_per_second": _states_per_second(
@@ -569,7 +610,11 @@ def profile_recycling_batched_jvp_problem(
             progress_callback,
             event="batch_complete",
             batch_size=int(batch_size),
+            direction_build_seconds=float(direction_build_seconds),
             batch_warmup_seconds=float(batch_warmup_seconds),
+            batched_residual_warmup_seconds=float(batched_residual_warmup_seconds),
+            batched_jvp_warmup_seconds=float(batched_jvp_warmup_seconds),
+            serial_warmup_seconds=float(serial_warmup_seconds),
             residual_speedup_vs_serial=float(
                 serial_residual_seconds / max(batched_residual_seconds, 1.0e-30)
             ),
