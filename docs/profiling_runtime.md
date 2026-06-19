@@ -312,6 +312,24 @@ host RHS many times and still builds finite-difference sparse Jacobians, so its
 profile remains the evidence for the next refactor rather than evidence that
 the JVP path is already the default heavy-solve backend.
 
+For output-window fixed-BDF2 solver-health checks, use the strict active-array
+linearized residual gate:
+
+```bash
+PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
+  --campaign fixed-bdf2-linear-update-residual-gate \
+  --reference-root tests/fixtures/reference-root
+```
+
+The retained local hydrogen fixture artifact is
+`docs/data/runtime_profile_artifacts/recycling_1d_fixed_bdf2_active_array_linear_update_residual_cpu/profile_summary.json`.
+It records zero failed linear solves,
+`fixed_bdf2_max_linear_update_residual_inf_norm=1.58e-8`,
+`fixed_bdf2_max_linear_update_relative_residual=1.02e-5`, and `23`
+post-GMRES residual-action checks. Those checks cost about `4.03 s`, so this
+gate should be interpreted as strict solver-health evidence paired with the
+cheaper direct-counting gate, not as a speedup result.
+
 The batched residual/JVP gate is the current fixed-layout differentiability
 and parallel-throughput test:
 
