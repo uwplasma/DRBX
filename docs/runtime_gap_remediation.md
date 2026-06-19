@@ -316,8 +316,10 @@ The recycling BE/BDF2 wrappers expose the same seam through
 pre-JIT behavior without changing the finite-difference BDF default.
 They also expose opt-in JAX-GMRES row-scaling and JVP-derived probes through
 `runtime:recycling_jax_linear_preconditioner=state_scale`, `field_scale`,
-`field_diag`, or `local_block_diag` and the matching
+`linearized_diag`, `field_diag`, or `local_block_diag` and the matching
 `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER` environment variable. The
+`linearized_diag` path samples the full packed-state diagonal and is therefore
+bounded separately from cheaper field-only probes. The
 `field_diag` path samples only active field-block diagonal entries from the
 JAX-linearized residual and leaves feedback scalars unscaled, so it is a
 cheaper diagnostic than dense same-cell block inversion. The
@@ -328,10 +330,11 @@ coupling through the outer Krylov iteration. The optional
 `runtime:recycling_jax_linear_preconditioner_refresh` control reuses the
 dynamic block preconditioner within one implicit solve. The matching
 `runtime:recycling_jax_linear_preconditioner_floor`,
+`runtime:recycling_jax_linear_preconditioner_max_linearized_unknowns`,
 `runtime:recycling_jax_linear_preconditioner_max_field_unknowns`, and
 `runtime:recycling_jax_linear_preconditioner_max_local_unknowns` controls make
-bounded `field_diag` and `local_block_diag` campaigns reproducible without
-editing source. These remain
+bounded `linearized_diag`, `field_diag`, and `local_block_diag` campaigns
+reproducible without editing source. These remain
 diagnostics only. The June 15, 2026 hydrogen adaptive
 BDF gate showed that `field_scale`, lower `maxiter=8`, and residual JIT did
 not improve wall time or solver status, so the next runtime patch should not

@@ -1034,6 +1034,8 @@ field block by a conservative RMS field scale while leaving feedback rows
 separate. The `field_diag`/`field_jacobi` option is the cheapest
 JVP-derived field-active diagnostic: after `jax.linearize`, it samples only the
 active field-block diagonal entries and leaves feedback scalars unscaled. The
+`linearized_diag`/`jvp_diag` option samples the full packed-state diagonal and
+is therefore bounded separately from the cheaper field-only diagonal probes. The
 `local_block_diag`/`block_jacobi` option is a stronger physics preconditioner
 probe: after `jax.linearize`, it builds same-cell dense field-by-equation
 Jacobian blocks with batched JVPs, inverts those small blocks on device, and
@@ -1048,8 +1050,11 @@ The companion
 reuse this approximate dynamic preconditioner across Newton updates inside one
 implicit solve. The same runtime surface exposes bounded-build controls:
 `runtime:recycling_jax_linear_preconditioner_floor=<x>` sets the diagonal or
-block regularisation floor, `runtime:recycling_jax_linear_preconditioner_max_field_unknowns=<n>`
-caps the `field_diag` JVP build, and
+block regularisation floor,
+`runtime:recycling_jax_linear_preconditioner_max_linearized_unknowns=<n>` caps
+the full `linearized_diag` packed-state diagonal build,
+`runtime:recycling_jax_linear_preconditioner_max_field_unknowns=<n>` caps the
+`field_diag` JVP build, and
 `runtime:recycling_jax_linear_preconditioner_max_local_unknowns=<n>` caps the
 `local_block_diag` JVP build. The matching environment variables use the
 uppercase `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_*` names. These are

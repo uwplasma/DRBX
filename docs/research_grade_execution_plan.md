@@ -2326,6 +2326,14 @@ Use this log for concise decision records. Do not paste terminal output here.
   `adaptive_bdf_jvp_jacobian_gather_on_device`, so future heavy CPU/GPU
   campaigns can prove that the lower-transfer sparse-JVP path was actually
   exercised instead of inferring it from environment defaults.
+- 2026-06-19: Made the full `linearized_diag` dynamic preconditioner consume
+  the same runtime context as the other JVP-derived recycling preconditioners.
+  `runtime:recycling_jax_linear_preconditioner_max_linearized_unknowns` and
+  `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_MAX_LINEARIZED_UNKNOWNS` now
+  bound the packed-state diagonal build, while the shared regularisation floor
+  is honored by the solver-level builder. Focused numerical tests verify the
+  floor and bound behavior. This is a control/safety improvement for future
+  heavy preconditioner sweeps, not a new performance-promotion result.
 
 ## Definition Of Done
 

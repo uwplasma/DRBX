@@ -1709,7 +1709,12 @@ def _build_jax_linearized_dynamic_preconditioner(
 ):
     normalized = str(name or "").strip().lower().replace("-", "_")
     if normalized in {"linearized_diag", "jvp_diag", "jacobian_diag"}:
-        return _build_jax_linearized_diagonal_preconditioner(linear_map, prototype_state)
+        return _build_jax_linearized_diagonal_preconditioner(
+            linear_map,
+            prototype_state,
+            floor=float((context or {}).get("floor", 1.0e-12)),
+            max_size=int((context or {}).get("max_unknowns", 2048)),
+        )
     if normalized in {
         "field_sample_diag",
         "field_sample",

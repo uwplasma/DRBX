@@ -3205,6 +3205,18 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         layout=layout,
     ) is None
     assert recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+        "linearized_diag",
+        layout=layout,
+    ) == {
+        "active_shape": (3,),
+        "active_cell_count": 3,
+        "field_count": 7,
+        "feedback_count": 2,
+        "refresh_frequency": 1,
+        "floor": 1.0e-10,
+        "max_unknowns": 2048,
+    }
+    assert recycling_1d_mod._recycling_jax_linear_preconditioner_context(
         "local_block_diag",
         layout=layout,
     ) == {
@@ -3283,6 +3295,7 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         recycling_jax_linear_preconditioner_refresh = 4
         recycling_jax_linear_preconditioner_floor = 1.0e-8
         recycling_jax_linear_preconditioner_max_field_unknowns = 96
+        recycling_jax_linear_preconditioner_max_linearized_unknowns = 192
         recycling_jax_linear_preconditioner_max_local_unknowns = 48
         recycling_jax_linear_preconditioner_max_line_unknowns = 64
         recycling_jax_linear_preconditioner_max_batch_unknowns = 128
@@ -3309,6 +3322,16 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
     assert configured_field_context["refresh_frequency"] == 4
     assert configured_field_context["floor"] == 1.0e-8
     assert configured_field_context["max_unknowns"] == 96
+    configured_linearized_context = (
+        recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+            "linearized_diag",
+            config=config,
+            layout=layout,
+        )
+    )
+    assert configured_linearized_context["refresh_frequency"] == 4
+    assert configured_linearized_context["floor"] == 1.0e-8
+    assert configured_linearized_context["max_unknowns"] == 192
     configured_parallel_context = (
         recycling_1d_mod._recycling_jax_linear_preconditioner_context(
             "parallel_line",

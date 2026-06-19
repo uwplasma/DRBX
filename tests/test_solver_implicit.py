@@ -1600,6 +1600,38 @@ def test_jax_linearized_newton_solver_builds_field_sample_preconditioner() -> No
     assert info.linear_preconditioner_build_seconds >= 0.0
 
 
+def test_dynamic_linearized_diag_preconditioner_honors_context() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    diagonal = jnp.asarray([1.0e-12, 4.0], dtype=jnp.float64)
+    state = jnp.zeros(2, dtype=jnp.float64)
+
+    def linear_map(vector):
+        return diagonal * jnp.asarray(vector, dtype=jnp.float64)
+
+    preconditioner = implicit_mod._build_jax_linearized_dynamic_preconditioner(
+        "linearized_diag",
+        linear_map,
+        state,
+        context={"floor": 0.5, "max_unknowns": 2},
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(preconditioner(jnp.asarray([1.0, 8.0], dtype=jnp.float64))),
+        np.asarray([2.0, 2.0], dtype=np.float64),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+    with pytest.raises(ValueError, match="at most 1 unknowns"):
+        implicit_mod._build_jax_linearized_dynamic_preconditioner(
+            "linearized_diag",
+            linear_map,
+            state,
+            context={"max_unknowns": 1},
+        )
+
+
 def test_jax_linearized_newton_solver_builds_field_diagonal_preconditioner() -> None:
     jnp = pytest.importorskip("jax.numpy")
 

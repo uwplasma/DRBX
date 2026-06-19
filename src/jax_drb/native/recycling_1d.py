@@ -5948,6 +5948,7 @@ def _recycling_jax_linear_preconditioner_context(
     layout: _RecyclingPackedStateLayout | None,
 ) -> dict[str, object] | None:
     if name not in {
+        "linearized_diag",
         "field_sample_diag",
         "field_diag",
         "local_block_diag",
@@ -5975,6 +5976,16 @@ def _recycling_jax_linear_preconditioner_context(
             default=1.0e-10,
         ),
     }
+    if name == "linearized_diag":
+        context["max_unknowns"] = _resolve_positive_int_runtime_option(
+            config,
+            option_name="recycling_jax_linear_preconditioner_max_linearized_unknowns",
+            env_name=(
+                "JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_"
+                "MAX_LINEARIZED_UNKNOWNS"
+            ),
+            default=2048,
+        )
     if name in {"field_sample_diag", "field_diag"}:
         context["max_unknowns"] = _resolve_positive_int_runtime_option(
             config,
