@@ -200,6 +200,19 @@ def test_essos_imported_drb_movie_refinement_summary_rejects_unstable_metrics() 
     assert pair["radial_flux_proxy_sign_agreement"] is False
     assert pair["radial_flux_sign_passed"] is False
     assert pair["metric_reports"]["radial_flux_abs_mean"]["passed"] is False
+    failed_metrics = summary["grid_refinement_diagnostics"]["failed_metric_reports"]
+    assert failed_metrics[0]["metric"] in {"radial_flux_abs_mean", "radial_flux_rms"}
+    assert failed_metrics[0]["reason"] == "radial_transport_not_grid_or_time_stable"
+    assert (
+        summary["grid_refinement_diagnostics"]["dominant_failed_metrics"]
+        == failed_metrics[:5]
+    )
+    assert any(
+        "radial transport" in recommendation
+        for recommendation in summary["grid_refinement_diagnostics"][
+            "refinement_recommendations"
+        ]
+    )
 
 
 def test_essos_imported_drb_movie_refinement_summary_rejects_underresolved_spectrum() -> None:
@@ -229,6 +242,10 @@ def test_essos_imported_drb_movie_refinement_summary_rejects_underresolved_spect
     assert grid_diagnostics["spectral_resolution_passed"] is False
     assert grid_diagnostics["spectral_resolution_reports"][0]["passed"] is False
     assert grid_diagnostics["spectral_resolution_reports"][1]["passed"] is True
+    assert any(
+        "spectrum" in recommendation
+        for recommendation in grid_diagnostics["refinement_recommendations"]
+    )
 
 
 def test_essos_imported_drb_movie_refinement_uses_floor_for_tiny_potential_residual() -> None:
