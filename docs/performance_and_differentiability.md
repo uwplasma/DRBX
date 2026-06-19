@@ -1111,6 +1111,17 @@ accepted trial solves, lower residual/JVP kernel cost, or a stronger
 Schur/transport preconditioner with measurable iteration-count reduction before
 spending more D/T/He wall time.
 
+The solver-level preconditioner seam does have one bounded positive gate. A
+stiff one-dimensional line-transport residual with a deliberately small
+JAX-GMRES budget now checks that `parallel_line` converges below `1e-10`,
+builds exactly one line-block preconditioner, applies it during the Krylov
+solve, and uses fewer linear-operator calls than the same unpreconditioned
+solve, which stalls above `1e-3`. This is an algorithmic effectivity test, not
+a production recycling speedup claim: it proves that the line-block
+preconditioner can reduce Krylov work when it captures the dominant transport
+block, while the full recycling/default decision still depends on same-fidelity
+heavy profiles.
+
 Promotion scripts can now require this diagnostic evidence explicitly. For
 fixed-BDF2 campaigns, pass
 `--fixed-bdf2-linear-preconditioner=<name>` to
