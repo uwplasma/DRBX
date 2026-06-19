@@ -2119,6 +2119,16 @@ Use this log for concise decision records. Do not paste terminal output here.
   recommends fixing spectral/radial grid resolution before spending wall time
   on smaller timesteps. This closes the manual parsing gap between a failed
   report-only gate and the next high-resolution campaign candidate.
+- 2026-06-19: Ran the suggested report-only hybrid movie candidate in `tmp/`
+  with grid pair `(4,6,12)` to `(8,12,24)` and the same effective timestep
+  pair. The time gate now passes with max relative metric change `0.066` and
+  the time spectral-resolution gate passes. The grid gate still fails with max
+  relative metric change `0.939`; dominant blockers are
+  `radial_flux_abs_mean`, `radial_flux_rms`, and
+  `spectral_centroid_toroidal_fraction`, plus an edge-band spectral rejection.
+  The next deterministic report-only candidate is therefore
+  `(8,12,24)` to `(16,24,48)`. Do not render or promote a GIF from this lane
+  until the grid gate and edge-band gate pass.
 
 ## Definition Of Done
 
