@@ -34,6 +34,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "/tmp/BOUT.inp",
             "--case",
             "dthe",
+            "--jit-linear-operator",
             "--linear-preconditioner",
             "local-block-diag",
             "--linear-preconditioner-refresh",
@@ -42,6 +43,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "local_block_diag",
             "--require-initial-residual-mode",
             "linearize",
+            "--require-linear-operator-jitted",
             "--linear-restart",
             "20",
             "--linear-maxiter",
@@ -75,6 +77,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
 
     assert args.input_path == Path("/tmp/BOUT.inp")
     assert args.case == "dthe"
+    assert args.jit_linear_operator is True
     assert args.linear_preconditioner == "local-block-diag"
     assert args.linear_preconditioner_refresh == 100
     assert args.linear_restart == 20
@@ -83,6 +86,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.line_search_initial_step_scale == 0.25
     assert args.require_linear_preconditioner == "local_block_diag"
     assert args.require_initial_residual_mode == "linearize"
+    assert args.require_linear_operator_jitted is True
     assert args.require_max_linear_iterations == 3200
     assert args.require_max_residual_inf_norm == 7.4
     assert args.require_max_residual_evaluations == 2
@@ -106,12 +110,14 @@ def test_help_documents_preconditioner_and_budget_gates(
     help_text = capsys.readouterr().out
     assert "--linear-preconditioner" in help_text
     assert "--linear-preconditioner-refresh" in help_text
+    assert "--jit-linear-operator" in help_text
     assert "--linear-restart" in help_text
     assert "--linear-maxiter" in help_text
     assert "--linear-tolerance-factor" in help_text
     assert "--line-search-initial-step-scale" in help_text
     assert "--require-linear-preconditioner" in help_text
     assert "--require-initial-residual-mode" in help_text
+    assert "--require-linear-operator-jitted" in help_text
     assert "--require-max-linear-iterations" in help_text
     assert "--require-max-residual-inf-norm" in help_text
     assert "--require-max-residual-evaluations" in help_text
@@ -129,6 +135,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
     args = SimpleNamespace(
         override=["mesh:ny=64"],
         jit_residual=True,
+        jit_linear_operator=True,
         skip_initial_residual_check=True,
         initial_residual_mode="linearize",
         gmres_solve_method="incremental",
@@ -143,6 +150,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
     assert module._effective_overrides(args) == [
         "mesh:ny=64",
         "runtime:recycling_jax_linear_jit_residual=true",
+        "runtime:recycling_jax_linear_jit_linear_operator=true",
         "runtime:recycling_jax_linear_check_initial_residual=false",
         "runtime:recycling_jax_linear_initial_residual_mode=linearize",
         "runtime:recycling_jax_linear_gmres_solve_method=incremental",
@@ -260,6 +268,7 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
     args = SimpleNamespace(
         require_linear_preconditioner="local-block-diag",
         require_initial_residual_mode="linearized",
+        require_linear_operator_jitted=True,
         require_max_linear_iterations=3200,
         require_max_residual_inf_norm=7.4,
         require_max_residual_evaluations=2,
@@ -278,6 +287,7 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
         "diagnostics": {
             "linear_preconditioner": "local_block_diag",
             "initial_residual_mode": "linearize",
+            "linear_operator_jitted": True,
             "linear_preconditioner_build_count": 2,
             "linear_preconditioner_build_seconds": 0.125,
             "linear_preconditioner_apply_count": 35,
@@ -295,6 +305,7 @@ def test_profile_gate_errors_accept_field_diag_as_dynamic_preconditioner() -> No
     args = SimpleNamespace(
         require_linear_preconditioner="field-diag",
         require_initial_residual_mode=None,
+        require_linear_operator_jitted=False,
         require_max_linear_iterations=None,
         require_max_residual_inf_norm=None,
         require_max_residual_evaluations=None,
@@ -323,6 +334,7 @@ def test_profile_gate_errors_accept_static_preconditioner_without_builds() -> No
     args = SimpleNamespace(
         require_linear_preconditioner="state-scale",
         require_initial_residual_mode=None,
+        require_linear_operator_jitted=False,
         require_max_linear_iterations=None,
         require_max_residual_inf_norm=None,
         require_max_residual_evaluations=None,
@@ -342,11 +354,41 @@ def test_profile_gate_errors_accept_static_preconditioner_without_builds() -> No
     assert module._profile_gate_errors(profile_report, args) == []
 
 
+def test_profile_gate_errors_accept_neutral_line_as_dynamic_preconditioner() -> None:
+    module = _load_module()
+    args = SimpleNamespace(
+        require_linear_preconditioner="neutral-line",
+        require_initial_residual_mode=None,
+        require_linear_operator_jitted=False,
+        require_max_linear_iterations=None,
+        require_max_residual_inf_norm=None,
+        require_max_residual_evaluations=None,
+        require_max_line_search_trials=None,
+        require_min_linear_operator_calls=None,
+        require_max_linear_operator_calls=None,
+        require_min_linear_iterations=None,
+        require_min_nonlinear_iterations=None,
+        require_max_preconditioner_builds=1,
+        require_max_preconditioner_applies=None,
+    )
+    profile_report = {
+        "linear_iterations": 4,
+        "diagnostics": {
+            "linear_preconditioner": "neutral_line",
+            "linear_preconditioner_build_count": 1,
+            "linear_preconditioner_build_seconds": 0.02,
+        },
+    }
+
+    assert module._profile_gate_errors(profile_report, args) == []
+
+
 def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
     module = _load_module()
     args = SimpleNamespace(
         require_linear_preconditioner="parallel-line",
         require_initial_residual_mode="linearize",
+        require_linear_operator_jitted=True,
         require_max_linear_iterations=10,
         require_max_residual_inf_norm=7.4,
         require_max_residual_evaluations=2,
@@ -365,6 +407,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
         "diagnostics": {
             "linear_preconditioner": "local_block_diag",
             "initial_residual_mode": "residual",
+            "linear_operator_jitted": False,
             "linear_preconditioner_build_count": 3,
             "linear_preconditioner_build_seconds": float("nan"),
             "linear_preconditioner_apply_count": 5,
@@ -381,6 +424,7 @@ def test_profile_gate_errors_report_mismatch_and_budget_failures() -> None:
         "profile reported diagnostics.initial_residual_mode=residual, "
         "expected linearize"
     ) in errors
+    assert "profile did not report diagnostics.linear_operator_jitted=true" in errors
     assert (
         "profile did not report finite nonnegative "
         "linear_preconditioner_build_seconds"
@@ -402,6 +446,7 @@ def test_profile_gate_errors_reject_noop_profiles() -> None:
     args = SimpleNamespace(
         require_linear_preconditioner=None,
         require_initial_residual_mode=None,
+        require_linear_operator_jitted=False,
         require_max_linear_iterations=None,
         require_max_residual_inf_norm=None,
         require_max_residual_evaluations=None,

@@ -143,9 +143,9 @@ and tests all move together.
 | Plan authority and release hygiene | 95% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 96% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; duplicate active-array RHS work and fixed-BDF2 standalone initial residuals are closed, but Krylov/preconditioner cost remains. |
+| JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
 | Effective preconditioning | 51% | A bounded stiff-line solver gate now proves `parallel_line` can reduce JAX-GMRES operator calls when it matches the dominant transport block, and the FCI vorticity inversion has an opt-in Jacobi PCG residual-reduction gate on a manufactured case; the Jacobi path did not improve the real high-grid imported-field movie residual, so the remaining blocker is still same-case speedup on real recycling or imported-field kernels. |
-| Performance and scaling | 63% | Rerun heavy CPU/GPU profiles after solver changes and show real-kernel speedup, not only bounded fixture or compact-kernel throughput. |
+| Performance and scaling | 65% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`; remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -2244,6 +2244,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   short-window explanation for the 3D movie blocker. The next run should use
   the suggested larger physics grid and smaller effective timestep, preferably
   on GPU or with persistent cache enabled.
+- 2026-06-19: Promoted `jit_linear_operator` into the real recycling profile
+  harness with `--jit-linear-operator` and
+  `--require-linear-operator-jitted`. On the D/T/He JAX-linearized
+  backward-Euler gate (`timestep=1.0`, `linear_restart=10`,
+  `linear_maxiter=10`, `initial_residual_mode=linearize`), the unjitted control
+  took `26.27 s`, residual `7.31568`, `5` matrix-free operator calls, and
+  `24.54 s` linear-solve time. The jitted operator preserved the same residual,
+  nonlinear iteration count, operator count, and clean GMRES status while
+  reducing cold runtime to `10.90 s`; after warm compilation, the first-class
+  gated command completed in `4.55 s`. Combining `jit_linear_operator` with
+  `local_block_diag` reduced `linear_solve_seconds` to `7.98 s` but spent
+  `3.84 s` building the preconditioner and took `13.61 s` end to end. Decision:
+  use jitted matrix-free operators as the current practical recycling-speedup
+  path; keep dynamic preconditioners opt-in until they reduce same-case wall
+  time or operator count.
 
 ## Definition Of Done
 

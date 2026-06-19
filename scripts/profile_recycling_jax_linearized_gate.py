@@ -105,6 +105,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--jit-linear-operator",
+        action="store_true",
+        help=(
+            "Set runtime:recycling_jax_linear_jit_linear_operator=true before "
+            "profiling. This wraps the JVP-derived Krylov action in jax.jit and "
+            "is useful for separating compilation/dispatch cost from operator "
+            "and preconditioner quality."
+        ),
+    )
+    parser.add_argument(
         "--skip-initial-residual-check",
         action="store_true",
         help=(
@@ -226,6 +236,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "matches this mode. Use this to prove a profile exercised the "
             "safety-preserving linearized initial-residual check instead of "
             "silently falling back to the standalone residual path."
+        ),
+    )
+    parser.add_argument(
+        "--require-linear-operator-jitted",
+        action="store_true",
+        help=(
+            "Fail after profiling unless diagnostics.linear_operator_jitted is true. "
+            "Use this with --jit-linear-operator when collecting JAX compilation "
+            "and same-kernel performance evidence."
         ),
     )
     parser.add_argument(
@@ -468,6 +487,8 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
     overrides = list(getattr(args, "override", ()) or ())
     if bool(getattr(args, "jit_residual", False)):
         overrides.append("runtime:recycling_jax_linear_jit_residual=true")
+    if bool(getattr(args, "jit_linear_operator", False)):
+        overrides.append("runtime:recycling_jax_linear_jit_linear_operator=true")
     if bool(getattr(args, "skip_initial_residual_check", False)):
         overrides.append("runtime:recycling_jax_linear_check_initial_residual=false")
     initial_residual_mode = getattr(args, "initial_residual_mode", None)
@@ -565,6 +586,9 @@ def _is_dynamic_preconditioner_name(name: str) -> bool:
         "block_jacobi",
         "parallel_line",
         "transport_line",
+        "neutral_line",
+        "neutral_parallel_line",
+        "neutral_transport",
     }
 
 
@@ -727,6 +751,12 @@ def _profile_gate_errors(
                 str(required_initial_residual_mode),
             )
         )
+    if bool(getattr(args, "require_linear_operator_jitted", False)):
+        diagnostics = profile_report.get("diagnostics", {})
+        if not isinstance(diagnostics, dict):
+            diagnostics = {}
+        if not bool(diagnostics.get("linear_operator_jitted", False)):
+            errors.append("profile did not report diagnostics.linear_operator_jitted=true")
     max_linear_iterations = getattr(args, "require_max_linear_iterations", None)
     if max_linear_iterations is not None:
         errors.extend(
@@ -908,6 +938,9 @@ def _profile_once(
         "linear_solver_backend": str(args.linear_solver_backend),
         "overrides": list(overrides),
         "jit_residual_requested": bool(getattr(args, "jit_residual", False)),
+        "jit_linear_operator_requested": bool(
+            getattr(args, "jit_linear_operator", False)
+        ),
         "warmup_runs": int(max(args.warmup_runs, 0)),
         "timestep": float(args.timestep),
         "residual_tolerance": float(args.residual_tolerance),
@@ -1060,6 +1093,7 @@ def main() -> int:
         "gate_requirements": {
             "linear_preconditioner": args.require_linear_preconditioner,
             "initial_residual_mode": args.require_initial_residual_mode,
+            "linear_operator_jitted": bool(args.require_linear_operator_jitted),
             "max_linear_iterations": args.require_max_linear_iterations,
             "max_residual_inf_norm": args.require_max_residual_inf_norm,
             "max_residual_evaluations": args.require_max_residual_evaluations,
