@@ -212,6 +212,28 @@ def test_imported_connection_length_refinement_example_resolves_live_sources(
     with pytest.raises(ValueError, match="Unsupported imported map_source"):
         module.resolve_connection_quantity("bad_source")
 
+    entries = [
+        {
+            "case_label": item.case_label,
+            "promotion_ready": item.map_source != "coil",
+            "advisory_only": item.map_source == "coil",
+            "evidence_role": (
+                "negative_observed_order_control"
+                if item.map_source == "coil"
+                else "promotion_ready"
+            ),
+        }
+        for item in settings
+    ]
+    summary_path = module.write_refinement_sweep_summary(settings, entries)
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary_path.name == "demo_summary.json"
+    assert summary["report_count"] == 3
+    assert summary["promotion_ready_count"] == 2
+    assert summary["advisory_count"] == 1
+    assert summary["negative_control_count"] == 1
+    assert summary["all_promotion_ready"] is False
+
 
 def test_imported_connection_length_refinement_example_runs_manufactured_gate(
     tmp_path: Path,
@@ -229,19 +251,29 @@ def test_imported_connection_length_refinement_example_runs_manufactured_gate(
     assert len(settings) == 1
     assert settings[0].map_source == "manufactured"
     assert settings[0].connection_quantity == "manufactured"
-    module.run_resolved_campaigns(settings)
+    summary = module.run_resolved_campaigns(settings)
     output = capsys.readouterr().out
 
     report_path = output_root / "data" / "manufactured_gate.json"
     arrays_path = output_root / "data" / "manufactured_gate.npz"
     plot_path = output_root / "images" / "manufactured_gate.png"
+    summary_path = output_root / "data" / "manufactured_gate_summary.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["passed"] is True
     assert report["promotion_ready"] is True
     assert report["evidence_role"] == "promotion_ready"
     assert report["promotion_rejection_reasons"] == []
+    assert summary["report_count"] == 1
+    assert summary["promotion_ready_count"] == 1
+    assert summary["all_promotion_ready"] is True
+    assert summary["summary_json_path"] == str(summary_path)
+    summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary_payload["entries"][0]["case_label"] == "manufactured_gate"
+    assert summary_payload["entries"][0]["promotion_ready"] is True
     assert arrays_path.exists()
     assert plot_path.exists()
+    assert summary_path.exists()
+    assert "wrote sweep summary" in output
     assert "connection-length refinement gate passed" in output
 
 
