@@ -106,7 +106,14 @@ when the spectrum is crowded near the grid edge. Relative changes are computed
 with metric-specific denominator floors; for example,
 `final_potential_residual_l2` uses a `1e-10` floor so roundoff-level changes in
 an already-converged elliptic solve do not dominate the movie-refinement
-decision. The signed
+decision. A residual-only failure is not interpreted as turbulence-grid
+evidence by itself. In that case the report recommends rerunning the same
+grid/time pair with a larger `POTENTIAL_ITERATIONS` budget, or inspecting the
+metric-weighted CG conditioning, before spending wall time on a larger movie
+grid. The report-only campaign exposes `POTENTIAL_ITERATIONS` and
+`POTENTIAL_REGULARIZATION`, and each movie report records the values as
+`potential_iterations` and `potential_regularization` so solver-budget changes
+are auditable. The signed
 `radial_flux_proxy` remains in each report as a cancellation and symmetry
 diagnostic, but refinement promotion uses magnitude and RMS radial-flux
 statistics because a domain-averaged signed flux can change sign when inward

@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 85% | High-grid hybrid report-only movie candidates now pass time and spectral-resolution gates, and radial-flux blockers are cleared at `(8,12,24)->(16,24,48)`; remaining blockers are toroidal spectral-centroid grid movement and fine-grid potential residual conditioning before any turbulence/movie claim. |
+| 3D stellarator imported-field/VMEC SOL | 86% | High-grid hybrid report-only movie candidates now pass time and spectral-resolution gates, and radial-flux blockers are cleared at `(8,12,24)->(16,24,48)`; the gate now separates elliptic potential-solve conditioning from physics-grid refinement, leaving toroidal spectral-centroid movement and a higher-budget residual rerun before any turbulence/movie claim. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -2142,6 +2142,16 @@ Use this log for concise decision records. Do not paste terminal output here.
   `(16,24,48)` to `(24,36,96)`, but the potential residual should be treated
   as a conditioning/solver-tolerance diagnostic before spending much more wall
   time on movie rendering.
+- 2026-06-19: Promoted that potential-residual interpretation into the
+  imported-field movie refinement code instead of leaving it as a manual note.
+  Report-only and media-producing movie campaigns now expose
+  `potential_iterations` and `potential_regularization`, record those values in
+  every JSON report, and include a `potential_solve_action` field in the
+  deterministic next-campaign suggestion. Residual-only failures now recommend
+  rerunning the same grid/time pair with a larger metric-weighted CG budget
+  before escalating movie-grid resolution. This does not relax the publication
+  gate; it prevents an elliptic solver-budget artifact from being mistaken for
+  validated turbulence-grid evidence.
 
 ## Definition Of Done
 

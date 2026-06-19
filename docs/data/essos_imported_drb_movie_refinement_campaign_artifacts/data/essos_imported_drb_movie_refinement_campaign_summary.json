@@ -300,6 +300,7 @@
     "dominant_time_blockers": [],
     "grid_refinement_passed_current": false,
     "max_total_cells": null,
+    "potential_solve_action": "no_potential_residual_blocker",
     "publication_ready_current": false,
     "recommendation_notes": [
       "radial transport is grid-sensitive; refine radial and field-line-following transverse resolution together",

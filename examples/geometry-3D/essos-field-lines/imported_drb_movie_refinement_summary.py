@@ -85,6 +85,7 @@ def run_refinement_summary(settings: ImportedDrbMovieRefinementSummarySettings) 
             f"grid_shapes={suggestion.get('suggested_grid_shapes')}, "
             "effective_frame_dt_values="
             f"{suggestion.get('recommended_time_effective_frame_dt_values')}, "
+            f"potential_action={suggestion.get('potential_solve_action')}, "
             f"notes={suggestion.get('recommendation_notes')}"
         )
     if settings.require_publication_ready and not bool(report["publication_ready"]):

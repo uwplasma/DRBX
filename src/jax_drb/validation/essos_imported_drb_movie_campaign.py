@@ -75,6 +75,8 @@ ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_METRIC_FLOORS = {
     "final_potential_residual_l2": 1.0e-10,
 }
 ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_DEFAULT_METRIC_FLOOR = 1.0e-12
+ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_ITERATIONS = 768
+ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION = 5.0
 
 
 def classify_essos_imported_drb_movie_evidence(map_source: str) -> dict[str, Any]:
@@ -161,6 +163,8 @@ def create_essos_imported_drb_movie_refinement_campaign_package(
     substeps_per_frame: int = 2,
     grid_dt: float = 2.0e-3,
     relative_tolerance: float = 0.30,
+    potential_iterations: int = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_ITERATIONS,
+    potential_regularization: float = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION,
 ) -> EssosImportedDrbMovieRefinementCampaignArtifacts:
     """Run a lightweight report-only grid/time movie refinement campaign.
 
@@ -208,6 +212,8 @@ def create_essos_imported_drb_movie_refinement_campaign_package(
             frames=frames,
             substeps_per_frame=substeps_per_frame,
             dt=float(dt),
+            potential_iterations=potential_iterations,
+            potential_regularization=potential_regularization,
         )
         report = dict(result.report)
         report.update(
@@ -354,17 +360,22 @@ def build_essos_imported_drb_movie_refinement_next_campaign(
         if "spectral_centroid_toroidal_fraction" in grid_failed_metrics:
             grid_multiplier[2] = max(grid_multiplier[2], 2.0)
             notes.append("toroidal spectral centroid moves under refinement")
-        if {
-            "final_fluctuation_rms",
-            "max_fluctuation_rms",
-            "final_potential_residual_l2",
-        } & grid_failed_metrics:
+        if {"final_fluctuation_rms", "max_fluctuation_rms"} & grid_failed_metrics:
             grid_multiplier = [max(value, 1.5) for value in grid_multiplier]
             notes.append("scalar transient metrics are grid-sensitive")
+        if "final_potential_residual_l2" in grid_failed_metrics:
+            notes.append(
+                "elliptic potential residual is grid-sensitive; rerun the same "
+                "grid pair with a larger potential_iterations budget before "
+                "escalating movie resolution solely because of the residual"
+            )
 
+    should_refine_grid = current_grid is not None and any(
+        float(value) > 1.0 for value in grid_multiplier
+    )
     suggested_next_grid = (
         _movie_refinement_scaled_grid(current_grid, tuple(grid_multiplier))
-        if current_grid is not None
+        if should_refine_grid
         else None
     )
     suggested_grid_shapes = (
@@ -458,6 +469,10 @@ def build_essos_imported_drb_movie_refinement_next_campaign(
         "current_effective_frame_dt": current_effective_frame_dt,
         "recommended_time_effective_frame_dt_values": recommended_time_values,
         "time_refinement_action": time_action,
+        "potential_solve_action": _movie_refinement_potential_solve_action(
+            grid_failed_metrics=grid_failed_metrics,
+            time_failed_metrics=time_failed_metrics,
+        ),
         "recommendation_notes": notes,
     }
 
@@ -866,6 +881,24 @@ def _movie_refinement_failed_metric_names(diagnostics: dict[str, Any]) -> set[st
     }
 
 
+def _movie_refinement_potential_solve_action(
+    *,
+    grid_failed_metrics: set[str],
+    time_failed_metrics: set[str],
+) -> str:
+    residual_failed = "final_potential_residual_l2" in (
+        set(grid_failed_metrics) | set(time_failed_metrics)
+    )
+    if not residual_failed:
+        return "no_potential_residual_blocker"
+    physics_metrics = (
+        set(grid_failed_metrics) | set(time_failed_metrics)
+    ) - {"final_potential_residual_l2"}
+    if physics_metrics:
+        return "check_potential_solver_after_primary_physics_metric_refinement"
+    return "rerun_same_grid_time_pair_with_larger_potential_iterations"
+
+
 def _movie_refinement_finest_grid(
     diagnostics: dict[str, Any],
 ) -> tuple[int, int, int] | None:
@@ -944,6 +977,8 @@ def create_essos_imported_drb_movie_package(
     frames: int = 32,
     substeps_per_frame: int = 6,
     dt: float = 1.2e-3,
+    potential_iterations: int = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_ITERATIONS,
+    potential_regularization: float = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION,
 ) -> EssosImportedDrbMovieArtifacts:
     root = Path(output_root)
     data_dir = root / "data"
@@ -968,6 +1003,8 @@ def create_essos_imported_drb_movie_package(
         frames=frames,
         substeps_per_frame=substeps_per_frame,
         dt=dt,
+        potential_iterations=potential_iterations,
+        potential_regularization=potential_regularization,
     )
     report = dict(result.report)
     report_json_path = data_dir / f"{case_label}.json"
@@ -1015,6 +1052,8 @@ def build_essos_imported_drb_movie_campaign(
     frames: int = 32,
     substeps_per_frame: int = 6,
     dt: float = 1.2e-3,
+    potential_iterations: int = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_ITERATIONS,
+    potential_regularization: float = ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION,
 ) -> EssosImportedDrbMovieResult:
     geometry = build_essos_imported_fci_geometry(
         coil_json_path=coil_json_path,
@@ -1033,8 +1072,8 @@ def build_essos_imported_drb_movie_campaign(
         recycling_fraction=0.965,
         recycled_neutral_energy=0.026,
         vorticity_diffusivity=3.5e-4,
-        potential_iterations=768,
-        potential_regularization=5.0,
+        potential_iterations=int(potential_iterations),
+        potential_regularization=float(potential_regularization),
     )
     run_movie = _build_essos_imported_movie_scan(
         geometry,
@@ -1064,6 +1103,8 @@ def build_essos_imported_drb_movie_campaign(
         substeps_per_frame=substeps_per_frame,
         dt=dt,
         execute_seconds=execute_seconds,
+        potential_iterations=int(parameters.potential_iterations),
+        potential_regularization=float(parameters.potential_regularization),
     )
     arrays = _build_essos_imported_drb_movie_arrays(
         geometry=geometry,
@@ -1422,6 +1463,8 @@ def _build_essos_imported_drb_movie_report(
     substeps_per_frame: int,
     dt: float,
     execute_seconds: float,
+    potential_iterations: int,
+    potential_regularization: float,
 ) -> dict[str, Any]:
     final_fluctuation = movie_history[-1]
     spectrum = np.abs(np.fft.rfftn(final_fluctuation, axes=(1, 2))) ** 2
@@ -1468,6 +1511,9 @@ def _build_essos_imported_drb_movie_report(
         "frames": int(frames),
         "substeps_per_frame": int(substeps_per_frame),
         "dt": float(dt),
+        "potential_solver": "fixed_iteration_metric_weighted_cg",
+        "potential_iterations": int(potential_iterations),
+        "potential_regularization": float(potential_regularization),
         "execute_seconds": float(execute_seconds),
         "endpoint_fraction": endpoint_fraction,
         "magnetic_field_modulation": float(np.max(bmag) / max(float(np.min(bmag)), 1.0e-30)),
