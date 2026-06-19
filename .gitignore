@@ -14,6 +14,7 @@ site/
 .coverage.*
 profiles/
 profiling/
+artifacts/
 .jax_cache/
 xla_dumps/
 jax_traces/
