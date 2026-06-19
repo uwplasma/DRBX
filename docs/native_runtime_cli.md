@@ -210,6 +210,16 @@ passes the JAX linearized operator straight to the Krylov solver and records
 `linear_operator_counting = "direct"` with `linear_operator_call_count = 0`.
 It should not be combined with operator-call budget gates, because those counts
 are intentionally unavailable.
+For direct-counting fixed-BDF2 runs, use
+`--require-fixed-bdf2-min-linear-solve-count` and
+`--require-fixed-bdf2-max-residual-evaluations` instead. The first gate proves
+that the Krylov solve path actually executed, while the second keeps rejected
+line-search trials and residual rebuilds bounded. Fixed-BDF2 histories also
+report normalized timing fields such as
+`fixed_bdf2_mean_residual_evaluation_seconds`,
+`fixed_bdf2_mean_linear_solve_seconds`,
+`fixed_bdf2_mean_linear_operator_dispatch_seconds`, and the corresponding
+preconditioner/update-residual mean timings when those counters are nonzero.
 For preconditioner screening, the same JAX-linearized path can also compute the
 achieved linear-update residual `J v + r` after each Krylov solve. Enable this
 with `runtime:recycling_jax_linear_diagnose_update_residual=true` or

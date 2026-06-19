@@ -58,6 +58,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "full",
             "--require-fixed-bdf2-max-linear-iterations",
             "3600",
+            "--require-fixed-bdf2-max-residual-evaluations",
+            "46",
             "--require-fixed-bdf2-max-linear-operator-calls",
             "128",
             "--require-fixed-bdf2-min-linear-solve-count",
@@ -114,6 +116,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.require_fixed_bdf2_linear_operator_jitted is True
     assert args.require_fixed_bdf2_line_search_mode == "full"
     assert args.require_fixed_bdf2_max_linear_iterations == 3600
+    assert args.require_fixed_bdf2_max_residual_evaluations == 46
     assert args.require_fixed_bdf2_max_linear_operator_calls == 128
     assert args.require_fixed_bdf2_min_linear_solve_count == 2
     assert args.require_fixed_bdf2_max_linear_update_residual == 1.0e-8
@@ -797,6 +800,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
             "fixed_bdf2_evolve_feedback_integrals": True,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
             "fixed_bdf2_total_linear_iterations": 3600,
+            "fixed_bdf2_total_residual_evaluation_count": 47,
             "fixed_bdf2_total_linear_solve_count": 1,
             "fixed_bdf2_total_linear_operator_call_count": 512,
             "fixed_bdf2_max_linear_update_residual_inf_norm": 2.0e-8,
@@ -805,6 +809,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
             "fixed_bdf2_total_linear_preconditioner_apply_count": 35,
         },
         max_linear_iterations=3200,
+        max_residual_evaluations=46,
         max_linear_operator_calls=128,
         min_linear_solve_count=2,
         max_linear_update_residual_inf_norm=1.0e-8,
@@ -817,6 +822,10 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
         (
             "fixed_bdf2_active_array_jax_linearized reported 3600 fixed BDF2 "
             "linear iterations, exceeding 3200"
+        ),
+        (
+            "fixed_bdf2_active_array_jax_linearized reported 47 fixed BDF2 "
+            "residual evaluations, exceeding 46"
         ),
         (
             "fixed_bdf2_active_array_jax_linearized reported 512 fixed BDF2 "

@@ -56,6 +56,9 @@ def _assert_fixed_bdf2_direct_counting_command(command, *, requires_gpu: bool) -
     assert command.command[
         command.command.index("--require-fixed-bdf2-min-linear-solve-count") + 1
     ] == "1"
+    assert command.command[
+        command.command.index("--require-fixed-bdf2-max-residual-evaluations") + 1
+    ] == "46"
     assert command.command[command.command.index("--timestep") + 1] == "10"
     assert command.command[command.command.index("--steps") + 1] == "2"
     assert "runtime:recycling_jax_linear_jit_linear_operator=true" in command.command

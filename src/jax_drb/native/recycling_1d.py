@@ -2314,6 +2314,12 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_total_linear_preconditioner_build_seconds": 0.0,
         "fixed_bdf2_total_linear_preconditioner_apply_count": 0,
         "fixed_bdf2_total_linear_preconditioner_apply_seconds": 0.0,
+        "fixed_bdf2_mean_residual_evaluation_seconds": None,
+        "fixed_bdf2_mean_linear_solve_seconds": None,
+        "fixed_bdf2_mean_linear_operator_dispatch_seconds": None,
+        "fixed_bdf2_mean_linear_update_residual_seconds": None,
+        "fixed_bdf2_mean_linear_preconditioner_build_seconds": None,
+        "fixed_bdf2_mean_linear_preconditioner_apply_seconds": None,
         "fixed_bdf2_active_array_rhs_steps": 0,
         "fixed_bdf2_residual_jitted_steps": 0,
         "fixed_bdf2_linear_operator_jitted_steps": 0,
@@ -2467,6 +2473,47 @@ def _advance_recycling_1d_fixed_bdf2_history(
         )
         diagnostics[key] = int(diagnostics[key]) + 1
 
+    def finalize_timing_rates() -> None:
+        rate_pairs = (
+            (
+                "fixed_bdf2_mean_residual_evaluation_seconds",
+                "fixed_bdf2_total_residual_evaluation_seconds",
+                "fixed_bdf2_total_residual_evaluation_count",
+            ),
+            (
+                "fixed_bdf2_mean_linear_solve_seconds",
+                "fixed_bdf2_total_linear_solve_seconds",
+                "fixed_bdf2_total_linear_solve_count",
+            ),
+            (
+                "fixed_bdf2_mean_linear_operator_dispatch_seconds",
+                "fixed_bdf2_total_linear_operator_dispatch_seconds",
+                "fixed_bdf2_total_linear_operator_call_count",
+            ),
+            (
+                "fixed_bdf2_mean_linear_update_residual_seconds",
+                "fixed_bdf2_total_linear_update_residual_seconds",
+                "fixed_bdf2_total_linear_update_residual_evaluation_count",
+            ),
+            (
+                "fixed_bdf2_mean_linear_preconditioner_build_seconds",
+                "fixed_bdf2_total_linear_preconditioner_build_seconds",
+                "fixed_bdf2_total_linear_preconditioner_build_count",
+            ),
+            (
+                "fixed_bdf2_mean_linear_preconditioner_apply_seconds",
+                "fixed_bdf2_total_linear_preconditioner_apply_seconds",
+                "fixed_bdf2_total_linear_preconditioner_apply_count",
+            ),
+        )
+        for mean_key, seconds_key, count_key in rate_pairs:
+            count = int(diagnostics.get(count_key, 0) or 0)
+            diagnostics[mean_key] = (
+                None
+                if count <= 0
+                else float(diagnostics.get(seconds_key, 0.0) or 0.0) / count
+            )
+
     for interval_index in range(steps):
         output_substeps = 1
         if max_internal_timestep is not None:
@@ -2594,6 +2641,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
             )
             progress_callback(details)
 
+    finalize_timing_rates()
     return Recycling1DHistoryResult(
         variable_history={
             name: np.stack(history, axis=0)

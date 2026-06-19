@@ -242,6 +242,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-max-residual-evaluations",
+        type=int,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_total_residual_evaluation_count at or below this value. "
+            "Use this to keep line-search and residual-rebuild work bounded when "
+            "promoting fixed-layout recycling solvers."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-bdf2-max-linear-operator-calls",
         type=int,
         default=None,
@@ -656,6 +667,7 @@ def _validate_fixed_bdf2_diagnostics(
     require_linear_operator_jitted: bool = False,
     required_line_search_mode: str | None = None,
     max_linear_iterations: int | None = None,
+    max_residual_evaluations: int | None = None,
     max_linear_operator_calls: int | None = None,
     min_linear_solve_count: int | None = None,
     max_linear_update_residual_inf_norm: float | None = None,
@@ -776,6 +788,16 @@ def _validate_fixed_bdf2_diagnostics(
                 key="fixed_bdf2_total_linear_iterations",
                 maximum=int(max_linear_iterations),
                 label="fixed BDF2 linear iterations",
+            )
+        )
+    if max_residual_evaluations is not None:
+        errors.extend(
+            _validate_maximum_integer_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_total_residual_evaluation_count",
+                maximum=int(max_residual_evaluations),
+                label="fixed BDF2 residual evaluations",
             )
         )
     if max_linear_operator_calls is not None:
@@ -1405,6 +1427,9 @@ def main() -> int:
                     ),
                     max_linear_iterations=(
                         args.require_fixed_bdf2_max_linear_iterations
+                    ),
+                    max_residual_evaluations=(
+                        args.require_fixed_bdf2_max_residual_evaluations
                     ),
                     max_linear_operator_calls=(
                         args.require_fixed_bdf2_max_linear_operator_calls

@@ -373,6 +373,7 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
                 "solver_mode": "active_array_jax_linearized",
                 "residual_evaluation_count": 3,
                 "jacobian_refresh_count": 0,
+                "linear_solve_count": 1,
                 "linear_solve_seconds": 0.25,
                 "linear_operator_call_count": 7,
                 "linear_operator_dispatch_seconds": 0.03125,
@@ -476,6 +477,22 @@ def test_fixed_bdf2_active_array_history_aggregates_solver_diagnostics(
     assert diagnostics[
         "fixed_bdf2_total_linear_operator_dispatch_seconds"
     ] == pytest.approx(0.0625)
+    assert diagnostics["fixed_bdf2_mean_residual_evaluation_seconds"] == pytest.approx(
+        0.25 / 6.0
+    )
+    assert diagnostics["fixed_bdf2_mean_linear_solve_seconds"] == pytest.approx(0.25)
+    assert diagnostics[
+        "fixed_bdf2_mean_linear_operator_dispatch_seconds"
+    ] == pytest.approx(0.0625 / 14.0)
+    assert diagnostics[
+        "fixed_bdf2_mean_linear_update_residual_seconds"
+    ] is None
+    assert diagnostics[
+        "fixed_bdf2_mean_linear_preconditioner_build_seconds"
+    ] == pytest.approx(0.25 / 4.0)
+    assert diagnostics[
+        "fixed_bdf2_mean_linear_preconditioner_apply_seconds"
+    ] == pytest.approx(0.125 / 10.0)
     assert diagnostics["fixed_bdf2_unconverged_solver_steps"] == 0
     assert diagnostics["fixed_bdf2_unknown_convergence_solver_steps"] == 0
     assert diagnostics["fixed_bdf2_linear_solver_failed_steps"] == 0

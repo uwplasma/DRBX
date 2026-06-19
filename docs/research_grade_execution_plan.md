@@ -143,9 +143,9 @@ and tests all move together.
 | Plan authority and release hygiene | 96% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 98.5% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, and both one-step and bounded fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves. Default promotion still needs heavier CPU/GPU parity/runtime evidence before replacing stable finite-difference defaults. |
+| JAX-native recycling solver | 98.6% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, and both one-step and bounded fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus a residual-evaluation budget. Default promotion still needs heavier CPU/GPU parity/runtime evidence before replacing stable finite-difference defaults. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
-| Performance and scaling | 69% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, the fixed-BDF2 direct-counting output-window gate proves solve execution without Python callback overhead, and the active-array D/T/He residual/JVP gate now has retained CPU batched-throughput evidence. The first office-GPU attempt on the small fixed-BDF2 gate and larger active-array batched probes were host/compiler or memory bound, so remaining scaling work is reduced compiled residual size, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
+| Performance and scaling | 69.5% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, the fixed-BDF2 direct-counting output-window gate proves solve execution without Python callback overhead and reports mean residual/solve costs, and the active-array D/T/He residual/JVP gate now has retained CPU batched-throughput evidence. The first office-GPU attempt on the small fixed-BDF2 gate and larger active-array batched probes were host/compiler or memory bound, so remaining scaling work is reduced compiled residual size, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -2793,6 +2793,25 @@ Use this log for concise decision records. Do not paste terminal output here.
   executable and now auditable with a complete progress marker, but it is still
   negative/neutral for speedup because residual throughput is below the serial
   same-kernel baseline and the JVP speedup is only `1.26x` on the tiny probe.
+- 2026-06-19: Revisited the bounded hydrogen active-array fixed-BDF2
+  direct-counting output-window gate before the next preconditioner/default
+  promotion step. An otherwise matched `full_step` line-search probe reduced
+  residual evaluations from `46` to `43`, but worsened mode elapsed time from
+  the retained `44.18 s` artifact to `50.16 s`, with the same residual
+  `2.8993e-6` and no failed linear solves. Decision: keep `backtracking` as
+  the fixed-BDF2 promotion default. Added
+  `--require-fixed-bdf2-max-residual-evaluations` to the comparison harness and
+  enforced `46` residual evaluations in both CPU and GPU direct-counting
+  campaign commands. Fixed-BDF2 histories now report normalized timing rates
+  for residual evaluations, linear solves, linear-operator dispatches,
+  update-residual diagnostics, and preconditioner builds/applies. The refreshed
+  retained CPU artifact passed in `45.8 s` campaign time (`43.76 s` mode
+  elapsed), with `20` active-array RHS steps, `20` jitted JAX-linearized
+  fixed-BDF2 steps, `23` JAX-GMRES solve attempts, residual `2.8993e-6`,
+  `46` residual evaluations, `0.242 s` mean residual-evaluation time, and
+  `1.345 s` mean linear-solve time. Decision: this improves performance
+  gating and evidence quality, but it is not enough to promote the full
+  recycling residual default or claim a GPU speedup.
 
 ## Definition Of Done
 

@@ -119,10 +119,15 @@ counterpart for that output-window path. On June 19, 2026 it ran
 `recycling_1d_one_step` for `2` output steps at `dt=10`, executed `20`
 active-array RHS steps, `20` jitted JAX-linearized fixed-BDF2 steps, and `23`
 JAX GMRES solve attempts, and completed with zero failed or unconverged
-substeps, maximum residual `2.90e-6`, and `44.18 s` elapsed time. Because it
-uses `runtime:recycling_jax_linear_operator_counting=direct`, the correct
-low-overhead health metric is the reported solve count rather than Python
-operator-call callbacks. The compact checked-in summary is
+substeps, maximum residual `2.90e-6`, `46` residual evaluations, and `43.76 s`
+mode elapsed time. The campaign now gates that residual-evaluation budget with
+`--require-fixed-bdf2-max-residual-evaluations=46`, so line-search or residual
+rebuild changes cannot silently regress this bounded output-window solve.
+Because it uses `runtime:recycling_jax_linear_operator_counting=direct`, the
+correct low-overhead health metric is the reported solve count rather than
+Python operator-call callbacks. The compact checked-in summary also reports
+mean per-call timings: `0.242 s` per residual evaluation and `1.345 s` per
+JAX-GMRES solve attempt:
 [profile_summary.json](data/runtime_profile_artifacts/recycling_1d_fixed_bdf2_active_array_direct_counting_cpu/profile_summary.json).
 The matching `gpu-fixed-bdf2-direct-counting-gate` is intentionally guarded by
 a process-level timeout in addition to the inner mode timeout. The first
