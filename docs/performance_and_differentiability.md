@@ -1248,6 +1248,15 @@ passed, and the bounded two-window hydrogen active-array gate preserved
 residual `2.90e-6`, `35` operator calls, and `14` residual evaluations with
 elapsed time `15.68 s`. This is again a low-risk kernel cleanup rather than a
 standalone performance promotion.
+The following pass removed redundant static shape checks from the internal
+fixed-layout residual builders and disabled duplicate active-array RHS shape
+validation in the production recycling adapter. Public unpacking and fixed-RHS
+builders still validate by default, but the hot residual/JVP path now relies on
+the already-established static layout contract. Focused residual, layout, and
+solver-preconditioner tests passed. The same bounded two-window hydrogen
+active-array gate preserved residual `2.90e-6`, `35` operator calls, and `14`
+residual evaluations with elapsed time `15.85 s`, so this should be treated as
+a neutral hot-path cleanup rather than measurable speedup evidence.
 
 Repeating the preconditioner sweep after this damping does not yet justify a
 new default. With the damped line search, `field_scale` remained neutral

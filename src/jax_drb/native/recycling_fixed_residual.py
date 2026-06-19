@@ -139,14 +139,20 @@ def pack_fixed_state(state: RecyclingFixedState) -> object:
     return feedback_values
 
 
-def unpack_fixed_state(packed: object, *, layout: RecyclingPackedStateLayout) -> RecyclingFixedState:
+def unpack_fixed_state(
+    packed: object,
+    *,
+    layout: RecyclingPackedStateLayout,
+    validate: bool = True,
+) -> RecyclingFixedState:
     """Unpack a vector into active arrays using static recycling layout metadata."""
 
     if use_jax_backend(packed):
         packed_array = jnp.asarray(packed, dtype=jnp.float64)
     else:
         packed_array = np.asarray(packed, dtype=np.float64)
-    _validate_packed_vector(packed_array, layout=layout)
+    if validate:
+        _validate_packed_vector(packed_array, layout=layout)
     active_cell_count = _active_cell_count(layout)
     field_values = []
     offset = 0
@@ -282,6 +288,7 @@ def build_fixed_array_state_rhs(
     state_rhs_function: Callable[[dict[str, jax.Array], jax.Array], RecyclingFixedState],
     *,
     layout: RecyclingPackedStateLayout,
+    validate_shapes: bool = True,
 ) -> Callable[[RecyclingFixedState], RecyclingFixedState]:
     """Build a transformable RHS whose field and feedback terms share one kernel.
 
@@ -294,7 +301,8 @@ def build_fixed_array_state_rhs(
     """
 
     def rhs(state: RecyclingFixedState) -> RecyclingFixedState:
-        _validate_fixed_state_shapes(state, layout=layout)
+        if validate_shapes:
+            _validate_fixed_state_shapes(state, layout=layout)
         fields = fixed_state_to_field_dict(state, layout=layout)
         rhs_state = state_rhs_function(fields, state.feedback_values)
         if not isinstance(rhs_state, RecyclingFixedState):
@@ -302,7 +310,8 @@ def build_fixed_array_state_rhs(
                 "State RHS must return a RecyclingFixedState, got "
                 f"{type(rhs_state).__name__}."
             )
-        _validate_fixed_state_shapes(rhs_state, layout=layout)
+        if validate_shapes:
+            _validate_fixed_state_shapes(rhs_state, layout=layout)
         return RecyclingFixedState(
             field_values=tuple(
                 jnp.asarray(value, dtype=jnp.float64)
@@ -361,7 +370,7 @@ def build_fixed_backward_euler_residual(
 
     def residual(packed_state: object) -> jax.Array:
         packed = jnp.asarray(packed_state, dtype=jnp.float64)
-        state = unpack_fixed_state(packed, layout=layout)
+        state = unpack_fixed_state(packed, layout=layout, validate=False)
         rhs_state = rhs_function(state)
         return packed - previous - float(timestep) * pack_fixed_state(rhs_state)
 
@@ -395,7 +404,7 @@ def build_fixed_bdf2_residual(
 
     def residual(packed_state: object) -> jax.Array:
         packed = jnp.asarray(packed_state, dtype=jnp.float64)
-        state = unpack_fixed_state(packed, layout=layout)
+        state = unpack_fixed_state(packed, layout=layout, validate=False)
         rhs_state = rhs_function(state)
         return packed - history_state - rhs_coefficient * pack_fixed_state(rhs_state)
 

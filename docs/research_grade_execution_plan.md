@@ -1465,6 +1465,16 @@ Use this log for concise decision records. Do not paste terminal output here.
   and `14` residual evaluations with elapsed time `15.68 s`. Treat this as
   another low-risk fixed-layout residual cleanup, not a standalone speedup
   claim.
+- 2026-06-18: Removed redundant fixed-layout validation from the internal
+  BE/BDF2 residual builders and disabled duplicate active-array RHS shape
+  validation in the production recycling adapter. Public unpacking and RHS
+  builders still validate by default, while the hot residual/JVP path now uses
+  the already-established static layout contract. Focused checks passed:
+  residual/layout slice (`18 passed`), active-array/fixed-BDF2 slice
+  (`8 passed`), and solver preconditioner slice (`31 passed`). The bounded
+  hydrogen active-array fixed-BDF2 gate preserved residual `2.90e-6`, `35`
+  operator calls, and `14` residual evaluations with elapsed time `15.85 s`,
+  so record this as neutral hot-path cleanup rather than a measurable speedup.
 - 2026-06-18: Extended matrix-free operator diagnostics from individual
   JAX-linearized recycling steps into fixed-output BDF2 and adaptive-BDF
   history summaries. Fixed-BDF2 diagnostics now aggregate

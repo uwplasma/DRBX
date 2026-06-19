@@ -6469,6 +6469,7 @@ def _build_active_array_recycling_rhs(
     return _build_fixed_array_state_rhs(
         state_rhs,
         layout=layout,
+        validate_shapes=False,
     )
 
 
