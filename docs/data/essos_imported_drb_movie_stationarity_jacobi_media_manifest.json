@@ -1,0 +1,91 @@
+{
+  "artifact_bundle": "essos_imported_drb_movie_stationarity_jacobi_media",
+  "generated_at": "2026-06-19",
+  "generator": "jax_drb.validation.create_essos_imported_drb_movie_package",
+  "map_source": "hybrid",
+  "grid": {
+    "nx": 16,
+    "ny": 96,
+    "nz": 48,
+    "rho_min": 0.2,
+    "rho_max": 0.6
+  },
+  "time_window": {
+    "frames": 12,
+    "substeps_per_frame": 3,
+    "dt": 0.002,
+    "times_to_trace": 80,
+    "maxtime": 24.0
+  },
+  "potential_solver": {
+    "iterations": 3072,
+    "regularization": 5.0,
+    "preconditioner": "jacobi"
+  },
+  "qa": {
+    "visual_qa": "passed_local_frame_contact_sheet",
+    "camera_stability": "passed",
+    "non_axisymmetric_geometry_visible": true,
+    "opened_radial_toroidal_sector_visible": true,
+    "release_hosting_required": true,
+    "publication_promotion_status": "validation_showcase_pending_release_hosting_and_final_layout",
+    "notes": [
+      "The fixed-camera GIF contact sheet showed stable geometry and smooth frame-to-frame evolution.",
+      "The poster, diagnostics, and FCI-plane snapshots are suitable for docs/example validation.",
+      "The poster and GIF retain excess title whitespace and should be layout-tightened before replacing the README hero asset.",
+      "The media-run report remains conservative because it does not ingest the separate committed grid/time-refinement and stationarity reports."
+    ]
+  },
+  "files": [
+    {
+      "path": "data/essos_imported_drb_movie_stationarity_jacobi_media.json",
+      "size_bytes": 4799,
+      "sha256": "45937e5cb1696b6224bfc6eb8f0120a2bf29dc62ef35cd851e666b50879fdd66"
+    },
+    {
+      "path": "data/essos_imported_drb_movie_stationarity_jacobi_media.npz",
+      "size_bytes": 2941317,
+      "sha256": "758f124d2cea13158899adb50b50b7aa27287afc929e6b5048a3c832738a1498"
+    },
+    {
+      "path": "images/essos_imported_drb_movie_stationarity_jacobi_media_diagnostics.png",
+      "size_bytes": 601698,
+      "sha256": "3a7eadb8e90f89cbc25cbc21857538c1de4e967ad2439975fe9fe3cbe68f2bd4",
+      "width": 2772,
+      "height": 1530,
+      "frames": 1
+    },
+    {
+      "path": "images/essos_imported_drb_movie_stationarity_jacobi_media_poster.png",
+      "size_bytes": 431629,
+      "sha256": "def823c6ada34182b5eb8d6e781aa2d2a7e610c4a6e89191835bcdef0255be71",
+      "width": 1562,
+      "height": 1258,
+      "frames": 1
+    },
+    {
+      "path": "images/essos_imported_drb_movie_stationarity_jacobi_media_snapshots.png",
+      "size_bytes": 1564288,
+      "sha256": "a6e8949990e813234c7a0b06941e3534648c82b56c7a463f8e8adc0dfdd14797",
+      "width": 2950,
+      "height": 1780,
+      "frames": 1
+    },
+    {
+      "path": "movies/essos_imported_drb_movie_stationarity_jacobi_media.gif",
+      "size_bytes": 1205055,
+      "sha256": "7d19383872fcc4fe6efc7fdcb1522eef22154821540f47585d6a8cfbb0b3d54e",
+      "width": 1562,
+      "height": 1258,
+      "frames": 12
+    },
+    {
+      "path": "qa/gif_contact_sheet.png",
+      "size_bytes": 423658,
+      "sha256": "e93d7e66430577948a7c84bf0142f6f5f78effc4b66ee0970952d3459f245bc1",
+      "width": 1680,
+      "height": 940,
+      "frames": 1
+    }
+  ]
+}

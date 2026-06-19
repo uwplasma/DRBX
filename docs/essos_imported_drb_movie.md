@@ -166,6 +166,23 @@ stays below `3.4e-11`. The next media step should therefore generate a polished
 GIF and diagnostics images with these settings, QA the frames visually, and
 release-host the media rather than committing it to git.
 
+That media step has been run locally with the same high-resolution Jacobi
+settings. The generated bundle is kept under ignored `artifacts/` so the
+repository remains lightweight, and a small tracked manifest records the file
+sizes, checksums, image dimensions, frame count, and visual-QA decision:
+
+- `docs/data/essos_imported_drb_movie_stationarity_jacobi_media_manifest.json`
+
+The local QA pass inspected the poster, diagnostics page, FCI-plane snapshots,
+and a fixed-camera GIF contact sheet. The camera is stable, the opened sector
+shows the non-axisymmetric Landreman-Paul QA geometry, and the density
+fluctuations evolve smoothly across the 12-frame window. The bundle is suitable
+as docs/example validation media after release-hosting. It should not yet
+replace the README hero media without a final layout pass because the poster and
+GIF retain excess title whitespace, and the media-run JSON itself remains
+conservative unless it is paired with the committed refinement and stationarity
+reports above.
+
 After regenerating two or more same-map-source movie reports at different grid
 sizes and two or more reports at different effective frame timesteps, summarize
 the refinement evidence without committing heavyweight media:

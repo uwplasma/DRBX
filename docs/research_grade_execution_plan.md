@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 97% | The refinement gate now compares normalized spectral-centroid fractions rather than raw mode indices. With that correction and Jacobi FCI-potential preconditioning, the high-resolution `16x48x48 -> 16x96x48` report-only movie candidate passes both grid and time refinement, and the `16x96x48`, `frames=12`, `substeps=3` JSON-only stationarity gate passes. The remaining blocker is polished release-hosted media generated and visually QA'd with the same settings. |
+| 3D stellarator imported-field/VMEC SOL | 98% | The refinement gate now compares normalized spectral-centroid fractions rather than raw mode indices. With that correction and Jacobi FCI-potential preconditioning, the high-resolution `16x48x48 -> 16x96x48` report-only movie candidate passes both grid and time refinement, the `16x96x48`, `frames=12`, `substeps=3` JSON-only stationarity gate passes, and matching local media has passed frame-contact-sheet visual QA. The remaining blocker is release-hosting plus final README-hero layout tightening, not another renderer-only interpolation. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 94% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -2613,6 +2613,23 @@ Use this log for concise decision records. Do not paste terminal output here.
   `94%`; the remaining 3D movie task is to generate, visually QA, compress, and
   release-host polished media with the same settings rather than committing
   media to git.
+- 2026-06-19: Generated the matching high-resolution Jacobi media bundle
+  locally under ignored `artifacts/` using the same `16x96x48`, `frames=12`,
+  `substeps_per_frame=3`, `dt=0.002`, `potential_preconditioner="jacobi"`
+  settings. The bundle contains a JSON report, NPZ arrays, diagnostics,
+  snapshots, poster, and a 12-frame GIF, totaling about `6.4M` outside git.
+  Visual QA inspected the poster, diagnostics page, FCI-plane snapshots, and a
+  GIF contact sheet. The camera remains fixed, the Landreman-Paul QA geometry
+  is visibly non-axisymmetric with an opened radial/toroidal sector, and the
+  density fluctuations evolve smoothly without the earlier jitter failure. A
+  tracked manifest records file sizes, checksums, image dimensions, frame
+  counts, and the QA decision without committing heavyweight media:
+  `docs/data/essos_imported_drb_movie_stationarity_jacobi_media_manifest.json`.
+  Decision: raise the 3D imported-field/VMEC SOL lane to `98%`. The remaining
+  task is release-hosting and final README-hero layout tightening because the
+  poster/GIF still have excess title whitespace and the media-run JSON remains
+  conservative unless paired with the separate committed refinement and
+  stationarity reports.
 
 ## Definition Of Done
 
