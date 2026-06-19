@@ -213,7 +213,10 @@ Current opt-in dynamic choices include diagonal probes, sampled field blocks
 (`runtime:recycling_jax_linear_preconditioner=field_block_sample` or
 `field_split`), sampled field blocks with feedback-integral diagonal scaling
 (`field_block_feedback_diag` or `field_split_feedback`), same-cell blocks, and
-selected parallel-line blocks. The sampled field-block probes are bounded by
+selected parallel-line blocks. Use `sheath_line`/`target_sheath` to restrict a
+line block to electron, ion, momentum, and potential fields that enter the
+target/sheath closures; use `neutral_line` or `momentum_line` for narrower
+neutral or parallel-momentum blocks. The sampled field-block probes are bounded by
 `runtime:recycling_jax_linear_preconditioner_max_field_block_fields`.
 The profiling and comparison scripts can enforce these diagnostics with
 `--require-max-preconditioner-applies` and

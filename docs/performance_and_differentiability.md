@@ -1059,6 +1059,13 @@ The `momentum_line`/`parallel_momentum` option uses the same line-block builder
 but restricts the block to evolved `NV*` parallel-momentum fields. This is a
 cheaper targeted probe for the D/T/He adaptive-BDF traces where momentum fields
 dominate the embedded-error and Krylov-cost diagnostics.
+The `sheath_line`/`target_sheath` option is the target-boundary analogue: it
+uses the same JVP-derived line-block builder, but selects electron density and
+pressure, ion density/pressure/momentum fields, and potential-like fields when
+they are present in the fixed-layout state. It is meant to test whether Bohm,
+electron heat-flux, ion heat-flux, and target-recycling stiffness at the open
+field-line ends can be approximated cheaply before attempting a full
+neutral-plasma Schur complement.
 The companion
 `runtime:recycling_jax_linear_preconditioner_refresh=<n>` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER_REFRESH=<n>` control lets a run
@@ -1262,10 +1269,21 @@ heavy same-case recycling run demonstrates fewer Krylov/operator calls or lower
 runtime after build cost. On the same hydrogen fixed-BDF2 sweep,
 `momentum_line` also kept `115` iterations/operator calls, built `20`
 preconditioners, and took `62.496 s` on the fixed-full-field route and
-`57.147 s` on the active-array route. The next preconditioning implementation
-should therefore be a cheaper approximate field-split/Schur/transport
-preconditioner that changes the real residual spectrum, not another exact
-selected-line build on the current hydrogen deck.
+`57.147 s` on the active-array route.
+The `sheath_line` target-boundary candidate closes the same diagnostic loop for
+open-field sheath and target-recycling fields. With the same `timestep=10`,
+`steps=2`, fixed-BDF2-only, refresh-`100` gate and the achieved
+linear-update-residual diagnostic enabled, `sheath_line` preserved solver
+health and produced an excellent achieved update residual
+(`6.94e-18` absolute, `4.75e-15` relative). It still kept `115`
+iterations/operator calls, built `20` line preconditioners, and took
+`64.227 s` on the fixed-full-field route and `59.113 s` on the active-array
+route. This makes `sheath_line` useful for diagnosing target-boundary block
+quality under explicit Krylov budgets, but it is not a promoted accelerator.
+The next preconditioning implementation should therefore be a cheaper
+approximate field-split/Schur/transport preconditioner that changes the real
+residual spectrum, not another exact selected-line build on the current
+hydrogen deck.
 That cheaper field-split probe now exists as `field_block_sample`. A bounded
 solver-level coupled-field fixture verifies the intended algorithmic behavior:
 the unpreconditioned JAX-GMRES solve stalls above `1e-3` residual with `10`
