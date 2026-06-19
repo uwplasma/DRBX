@@ -127,6 +127,20 @@ first repeat the same `16 x 24 x 48 -> 16 x 48 x 48` grid pair with the
 potential budget increased to `6144` iterations and, if needed, a stronger
 potential preconditioner before any `16 x 96 x 48` escalation.
 
+The follow-up potential-solve checks show that raw iterations alone are not the
+right fix, while Jacobi preconditioning is. The unpreconditioned `6144`
+iteration rerun remains blocked by `final_potential_residual_l2`, but the
+Jacobi-preconditioned `3072` iteration rerun closes the potential-residual and
+time-refinement blockers:
+
+- `docs/data/essos_imported_drb_movie_refinement_poloidal_6144_artifacts/data/essos_imported_drb_movie_refinement_poloidal_6144_summary.json`
+- `docs/data/essos_imported_drb_movie_refinement_poloidal_jacobi_artifacts/data/essos_imported_drb_movie_refinement_poloidal_jacobi_summary.json`
+
+The remaining blocker after Jacobi is again the grid convergence of
+`spectral_centroid_poloidal_index`. The next publication-candidate sweep should
+therefore use `potential_preconditioner = "jacobi"` and compare `16 x 48 x 48`
+with `16 x 96 x 48`.
+
 After regenerating two or more same-map-source movie reports at different grid
 sizes and two or more reports at different effective frame timesteps, summarize
 the refinement evidence without committing heavyweight media:

@@ -144,12 +144,12 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
-| Effective preconditioning | 61% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. The next production candidate must be cheaper than exact JVP-built blocks or reduce residual/JVP action cost directly. |
+| Effective preconditioning | 62% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
 | Performance and scaling | 65% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`; remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 93% | The `8x12x24 -> 16x24x48` hybrid report-only movie candidate passes time refinement and both spectral-resolution gates; the targeted `16x24x48 -> 16x48x48` sweep exposed a high-poloidal potential-residual/nonfinite-metric blocker, so the next step is the same grid pair with a stronger potential solve before any larger-grid movie claim. |
+| 3D stellarator imported-field/VMEC SOL | 94% | The `8x12x24 -> 16x24x48` hybrid report-only movie candidate passes time refinement and both spectral-resolution gates. The `16x24x48 -> 16x48x48` sweep exposed a potential-residual blocker; raw `6144` iterations failed, but `jacobi` preconditioning closed the residual/time blocker. The remaining movie blocker is poloidal spectral-centroid grid convergence, with next evidence path `16x48x48 -> 16x96x48` using `jacobi`. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -2582,6 +2582,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   rerun the same `16x24x48 -> 16x48x48` pair with
   `potential_iterations=6144` and, if needed, a stronger potential
   preconditioner before any movie promotion.
+- 2026-06-19: Ran the same high-poloidal `16x24x48 -> 16x48x48` candidate with
+  raw `potential_iterations=6144` and then with `potential_preconditioner="jacobi"`
+  at `3072` iterations. Raw iterations did not fix the residual blocker
+  (`final_potential_residual_l2` remained the dominant grid/time offender), but
+  Jacobi preconditioning closed the potential-residual and time-refinement
+  blockers. Decision: raise effective preconditioning to `62%` and the 3D
+  imported-field/VMEC SOL lane to `94%`; the next movie-refinement run should
+  use Jacobi and target only the remaining poloidal spectral-centroid
+  convergence with `16x48x48 -> 16x96x48`.
 
 ## Definition Of Done
 
