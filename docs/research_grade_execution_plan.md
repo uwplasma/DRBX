@@ -1237,6 +1237,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   linear-solver steps. The gate still takes about `16.45 s` and remains
   dominated by JVP Jacobian assembly, so this is solver-health evidence rather
   than a speedup claim.
+- 2026-06-18: Reused sparse-JVP linearization residuals inside sparse Newton
+  steps. `build_sparse_jvp_jacobian(..., return_residual=True)` now returns
+  the primal residual from `jax.linearize`, and the sparse Newton loop carries
+  accepted line-search residuals forward instead of evaluating the residual
+  immediately before every JVP Jacobian refresh. Focused implicit-solver tests
+  passed (`13 passed`, then full file `61 passed`). The small JVP Newton gate
+  now has `4` nonlinear iterations, `4` JVP Jacobian refreshes, and `4`
+  standalone residual evaluations. A bounded hydrogen
+  `adaptive_bdf_sparse_jvp` recycling gate passed with `61` sparse-JVP solver
+  steps, `72` JVP Jacobian refreshes, `63` standalone residual evaluations,
+  `0` failed linear solves, and elapsed time `43.29 s`. This is a real
+  residual-call reduction, but the remaining runtime blocker is still
+  `jax.linearize` plus grouped JVP pushes inside sparse-JVP Jacobian assembly.
 - 2026-06-18: Batched the exact JVP-derived `parallel_line` preconditioner
   build across multiple field-line blocks with a bounded
   `max_batch_unknowns` control. This improves the infrastructure for future

@@ -487,6 +487,7 @@ def build_sparse_jvp_jacobian(
     batch_size: int | None = None,
     direction_batches: tuple[SparseJvpDirectionBatch, ...] | None = None,
     timing_callback: Callable[[dict[str, float | int]], None] | None = None,
+    return_residual: bool = False,
 ):
     """Build a sparse Jacobian from grouped JAX JVPs.
 
@@ -545,7 +546,7 @@ def build_sparse_jvp_jacobian(
         )
     )
     linearize_started_at = perf_counter()
-    _, linear_map = jax.linearize(residual, state_array)
+    residual_value, linear_map = jax.linearize(residual, state_array)
     linearize_seconds += perf_counter() - linearize_started_at
 
     nnz = int(plan.nnz)
@@ -554,6 +555,15 @@ def build_sparse_jvp_jacobian(
     data = np.empty(nnz, dtype=np.float64)
     offset = 0
     group_count = len(plan.groups)
+
+    def finish(jacobian):
+        if return_residual:
+            residual_array = np.asarray(
+                jax.block_until_ready(residual_value), dtype=np.float64
+            )
+            return jacobian, residual_array
+        return jacobian
+
     if group_count == 0:
         if timing_callback is not None:
             timing_callback(
@@ -573,7 +583,9 @@ def build_sparse_jvp_jacobian(
                     "gather_on_device": int(gather_on_device),
                 }
             )
-        return coo_matrix((data, (row_indices, col_indices)), shape=plan.shape).tocsr()
+        return finish(
+            coo_matrix((data, (row_indices, col_indices)), shape=plan.shape).tocsr()
+        )
     vmapped_linear_map = jax.vmap(linear_map)
     prebuilt_directions = direction_batches is not None
     if direction_batches is None:
@@ -660,9 +672,12 @@ def build_sparse_jvp_jacobian(
                 "gather_on_device": int(gather_on_device),
             }
         )
-    return coo_matrix(
-        (data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape
-    ).tocsr()
+    return finish(
+        coo_matrix(
+            (data[:offset], (row_indices[:offset], col_indices[:offset])),
+            shape=plan.shape,
+        ).tocsr()
+    )
 
 
 def backward_euler_residual(
@@ -925,9 +940,46 @@ def solve_sparse_newton_system(
             timing.get("prebuilt_direction_batches", 0)
         )
 
+    known_residual_value: np.ndarray | None = None
+    known_residual_inf_norm: float | None = None
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
-        residual_value = evaluate_residual(state)
+        refresh_jacobian = (
+            jacobian is None
+            or nonlinear_iteration == 1
+            or ((nonlinear_iteration - 1) % refresh_frequency == 0)
+        )
+        built_jacobian = False
+        if (
+            refresh_jacobian
+            and resolved_jacobian_mode == "jvp"
+            and known_residual_value is None
+        ):
+            jacobian_started_at = perf_counter()
+            jacobian, residual_value = build_sparse_jvp_jacobian(
+                residual,
+                state,
+                sparsity=sparsity,
+                color_groups=color_groups,
+                sparsity_csc=sparsity_csc,
+                difference_plan=difference_plan,
+                batch_size=jvp_batch_size,
+                direction_batches=jvp_direction_batches,
+                timing_callback=record_jvp_timing,
+                return_residual=True,
+            )
+            jacobian_csc = jacobian.tocsc()
+            jacobian_assembly_seconds += perf_counter() - jacobian_started_at
+            jacobian_refresh_count += 1
+            built_jacobian = True
+        elif known_residual_value is not None:
+            residual_value = np.asarray(known_residual_value, dtype=np.float64)
+        else:
+            residual_value = evaluate_residual(state)
         residual_inf_norm = float(np.max(np.abs(residual_value)))
+        if known_residual_inf_norm is not None and known_residual_value is not None:
+            residual_inf_norm = float(known_residual_inf_norm)
+        known_residual_value = None
+        known_residual_inf_norm = None
         if residual_inf_norm < best_residual_inf_norm:
             best_state = np.array(state, copy=True)
             best_residual_inf_norm = residual_inf_norm
@@ -938,14 +990,10 @@ def solve_sparse_newton_system(
                 converged=True,
             )
 
-        if (
-            jacobian is None
-            or nonlinear_iteration == 1
-            or ((nonlinear_iteration - 1) % refresh_frequency == 0)
-        ):
+        if refresh_jacobian and not built_jacobian:
             jacobian_started_at = perf_counter()
             if resolved_jacobian_mode == "jvp":
-                jacobian = build_sparse_jvp_jacobian(
+                jacobian, residual_value = build_sparse_jvp_jacobian(
                     residual,
                     state,
                     sparsity=sparsity,
@@ -955,6 +1003,7 @@ def solve_sparse_newton_system(
                     batch_size=jvp_batch_size,
                     direction_batches=jvp_direction_batches,
                     timing_callback=record_jvp_timing,
+                    return_residual=True,
                 )
             else:
                 jacobian = build_sparse_difference_quotient_jacobian(
@@ -1020,6 +1069,7 @@ def solve_sparse_newton_system(
         accepted = False
         step_scale = 1.0
         candidate_state = np.array(state, copy=True)
+        candidate_residual = residual_value
         candidate_residual_inf_norm = residual_inf_norm
         line_search_started_at = perf_counter()
         while step_scale >= 1.0 / 64.0:
@@ -1034,6 +1084,7 @@ def solve_sparse_newton_system(
                 and trial_residual_inf_norm <= residual_inf_norm
             ):
                 candidate_state = trial_state
+                candidate_residual = trial_residual
                 candidate_residual_inf_norm = trial_residual_inf_norm
                 accepted = True
                 break
@@ -1045,6 +1096,8 @@ def solve_sparse_newton_system(
             break
 
         state = candidate_state
+        known_residual_value = np.asarray(candidate_residual, dtype=np.float64)
+        known_residual_inf_norm = float(candidate_residual_inf_norm)
         if candidate_residual_inf_norm < best_residual_inf_norm:
             best_state = np.array(state, copy=True)
             best_residual_inf_norm = candidate_residual_inf_norm

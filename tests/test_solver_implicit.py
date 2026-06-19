@@ -310,6 +310,13 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
         color_groups=color_groups,
         timing_callback=timing_payloads.append,
     )
+    residual_jvp_jacobian, residual_value = build_sparse_jvp_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        return_residual=True,
+    )
     plan = prepare_sparse_difference_quotient_plan(
         sparsity=sparsity, color_groups=color_groups
     )
@@ -358,6 +365,18 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
     np.testing.assert_allclose(
         serial_jvp_jacobian.toarray(),
         jvp_jacobian.toarray(),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        residual_jvp_jacobian.toarray(),
+        jvp_jacobian.toarray(),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        residual_value,
+        np.asarray(residual(state), dtype=np.float64),
         rtol=1.0e-12,
         atol=1.0e-12,
     )
@@ -800,6 +819,8 @@ def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:
     assert info.linear_solver_status == "ok"
     assert info.linear_solver_success is True
     assert info.linear_solver_reported_iterations == 1
+    assert info.residual_evaluation_count == info.nonlinear_iterations
+    assert info.jacobian_refresh_count == info.nonlinear_iterations
 
 
 def test_sparse_newton_solver_reuses_sparse_jvp_workspace() -> None:
