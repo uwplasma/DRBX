@@ -1182,7 +1182,11 @@ than relying on correctness diagnostics alone. The compare script provides
 `--require-fixed-bdf2-max-preconditioner-applies=<n>`. The wrapper forwards
 the same checks as `--fixed-bdf2-max-linear-iterations=<n>`,
 `--fixed-bdf2-max-preconditioner-builds=<n>`, and
-`--fixed-bdf2-max-preconditioner-applies=<n>`. A run that passes residual,
+`--fixed-bdf2-max-preconditioner-applies=<n>`. It also forwards constrained
+inner-solver settings with `--fixed-bdf2-linear-restart=<n>`,
+`--fixed-bdf2-linear-maxiter=<n>`, and
+`--fixed-bdf2-linear-tolerance-factor=<f>`, which are written into the wrapper
+summary so preconditioner sweeps are reproducible. A run that passes residual,
 fallback, and preconditioner-name checks but exceeds these budgets is a valid
 solver-correctness result and a failed performance-promotion result.
 The bounded refresh-100 `recycling_1d_one_step` rerun passes these stricter
@@ -1193,6 +1197,12 @@ residual `3.76e-6`, and both kept failed linear solves at zero. This is the
 current bounded fixture evidence for preconditioner reuse; heavier recycling
 and D/T/He gates still need the same budgeted treatment before default
 promotion.
+The first deliberately constrained hydrogen screen with active-array fixed-BDF2
+and `runtime:recycling_jax_linear_restart=2`,
+`runtime:recycling_jax_linear_maxiter=1` timed out at `120 s`. That negative
+result is useful: the current residual/preconditioner combination does not yet
+support a much smaller Krylov budget, so future promotion claims must show both
+residual preservation and reduced operator work under these explicit controls.
 The next reference-grounded preconditioner probe adds an opt-in
 `neutral_line` candidate. It follows the same algorithmic idea as
 neutral-diffusion preconditioners in edge-fluid implementations: approximate

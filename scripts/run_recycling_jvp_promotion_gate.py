@@ -76,6 +76,9 @@ def _build_case_command(
     mode_timeout_seconds: float | None = None,
     fixed_bdf2_linear_preconditioner: str | None = None,
     fixed_bdf2_linear_preconditioner_refresh: int | None = None,
+    fixed_bdf2_linear_restart: int | None = None,
+    fixed_bdf2_linear_maxiter: int | None = None,
+    fixed_bdf2_linear_tolerance_factor: float | None = None,
     fixed_bdf2_max_linear_iterations: int | None = None,
     fixed_bdf2_max_linear_operator_calls: int | None = None,
     fixed_bdf2_max_preconditioner_builds: int | None = None,
@@ -149,6 +152,39 @@ def _build_case_command(
                         f"{refresh}",
                     )
                 )
+        if fixed_bdf2_linear_restart is not None:
+            restart = int(fixed_bdf2_linear_restart)
+            if restart <= 0:
+                raise ValueError("fixed_bdf2_linear_restart must be positive.")
+            command.extend(
+                (
+                    "--override",
+                    f"runtime:recycling_jax_linear_restart={restart}",
+                )
+            )
+        if fixed_bdf2_linear_maxiter is not None:
+            maxiter = int(fixed_bdf2_linear_maxiter)
+            if maxiter <= 0:
+                raise ValueError("fixed_bdf2_linear_maxiter must be positive.")
+            command.extend(
+                (
+                    "--override",
+                    f"runtime:recycling_jax_linear_maxiter={maxiter}",
+                )
+            )
+        if fixed_bdf2_linear_tolerance_factor is not None:
+            tolerance_factor = float(fixed_bdf2_linear_tolerance_factor)
+            if tolerance_factor <= 0.0:
+                raise ValueError(
+                    "fixed_bdf2_linear_tolerance_factor must be positive."
+                )
+            command.extend(
+                (
+                    "--override",
+                    "runtime:recycling_jax_linear_tolerance_factor="
+                    f"{tolerance_factor:g}",
+                )
+            )
         if gate_case.fixed_bdf2_max_internal_timestep is not None:
             command.extend(
                 (
@@ -356,6 +392,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-linear-restart",
+        type=int,
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_restart=<n> to the fixed-BDF2 "
+            "phase. This is useful for constrained-budget preconditioner "
+            "screening before running full heavy profiles."
+        ),
+    )
+    parser.add_argument(
+        "--fixed-bdf2-linear-maxiter",
+        type=int,
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_maxiter=<n> to the fixed-BDF2 "
+            "phase. Keep this explicit in artifact summaries when testing "
+            "whether a preconditioner can preserve accuracy under a smaller "
+            "Krylov budget."
+        ),
+    )
+    parser.add_argument(
+        "--fixed-bdf2-linear-tolerance-factor",
+        type=float,
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_tolerance_factor=<f> to the "
+            "fixed-BDF2 phase. Values larger than one loosen the inner Krylov "
+            "solve relative to the nonlinear residual tolerance."
+        ),
+    )
+    parser.add_argument(
         "--fixed-bdf2-max-linear-iterations",
         type=int,
         default=None,
@@ -467,6 +534,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fixed_bdf2_linear_preconditioner_refresh=(
                     args.fixed_bdf2_linear_preconditioner_refresh
                 ),
+                fixed_bdf2_linear_restart=args.fixed_bdf2_linear_restart,
+                fixed_bdf2_linear_maxiter=args.fixed_bdf2_linear_maxiter,
+                fixed_bdf2_linear_tolerance_factor=(
+                    args.fixed_bdf2_linear_tolerance_factor
+                ),
                 fixed_bdf2_max_linear_iterations=(
                     args.fixed_bdf2_max_linear_iterations
                 ),
@@ -506,6 +578,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "fixed_bdf2_linear_preconditioner_refresh": (
                     args.fixed_bdf2_linear_preconditioner_refresh
+                ),
+                "fixed_bdf2_linear_restart": args.fixed_bdf2_linear_restart,
+                "fixed_bdf2_linear_maxiter": args.fixed_bdf2_linear_maxiter,
+                "fixed_bdf2_linear_tolerance_factor": (
+                    args.fixed_bdf2_linear_tolerance_factor
                 ),
                 "fixed_bdf2_jit_linear_operator": bool(
                     args.fixed_bdf2_jit_linear_operator

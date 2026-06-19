@@ -93,6 +93,9 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
         fixed_bdf2_timestep=10.0,
         fixed_bdf2_linear_preconditioner="local_block_diag",
         fixed_bdf2_linear_preconditioner_refresh=100,
+        fixed_bdf2_linear_restart=8,
+        fixed_bdf2_linear_maxiter=3,
+        fixed_bdf2_linear_tolerance_factor=25.0,
         fixed_bdf2_jit_linear_operator=True,
         fixed_bdf2_max_linear_iterations=3200,
         fixed_bdf2_max_linear_operator_calls=128,
@@ -113,6 +116,9 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
         "runtime:recycling_jax_linear_preconditioner_refresh=100"
         in overrides
     )
+    assert "runtime:recycling_jax_linear_restart=8" in overrides
+    assert "runtime:recycling_jax_linear_maxiter=3" in overrides
+    assert "runtime:recycling_jax_linear_tolerance_factor=25" in overrides
     assert "runtime:recycling_jax_linear_jit_linear_operator=true" in overrides
     assert "--require-fixed-bdf2-linear-operator-jitted" in command
     assert command[
@@ -172,6 +178,18 @@ def test_recycling_jvp_promotion_gate_rejects_invalid_performance_budgets() -> N
         (
             {"fixed_bdf2_max_preconditioner_applies": -1},
             "fixed_bdf2_max_preconditioner_applies must be nonnegative",
+        ),
+        (
+            {"fixed_bdf2_linear_restart": 0},
+            "fixed_bdf2_linear_restart must be positive",
+        ),
+        (
+            {"fixed_bdf2_linear_maxiter": 0},
+            "fixed_bdf2_linear_maxiter must be positive",
+        ),
+        (
+            {"fixed_bdf2_linear_tolerance_factor": 0.0},
+            "fixed_bdf2_linear_tolerance_factor must be positive",
         ),
     ):
         try:
@@ -329,6 +347,12 @@ def test_recycling_jvp_promotion_gate_can_run_fixed_bdf2_only_dry_run(
             "neutral_line",
             "--fixed-bdf2-linear-preconditioner-refresh",
             "100",
+            "--fixed-bdf2-linear-restart",
+            "8",
+            "--fixed-bdf2-linear-maxiter",
+            "3",
+            "--fixed-bdf2-linear-tolerance-factor",
+            "25",
             "--output-dir",
             str(output_dir),
         ]
@@ -343,10 +367,21 @@ def test_recycling_jvp_promotion_gate_can_run_fixed_bdf2_only_dry_run(
     assert report["fixed_bdf2_only"] is True
     assert report["fixed_bdf2_linear_preconditioner"] == "neutral_line"
     assert report["fixed_bdf2_linear_preconditioner_refresh"] == 100
+    assert report["fixed_bdf2_linear_restart"] == 8
+    assert report["fixed_bdf2_linear_maxiter"] == 3
+    assert report["fixed_bdf2_linear_tolerance_factor"] == 25.0
     assert report["output_json"].endswith("recycling_1d_one_step.fixed_bdf2.json")
     assert "--require-fixed-jvp-diagnostics" not in report["command"]
     assert "--require-fixed-bdf2-diagnostics" in report["command"]
     assert "--require-fixed-bdf2-linear-preconditioner" in report["command"]
+    overrides = [
+        report["command"][index + 1]
+        for index, item in enumerate(report["command"][:-1])
+        if item == "--override"
+    ]
+    assert "runtime:recycling_jax_linear_restart=8" in overrides
+    assert "runtime:recycling_jax_linear_maxiter=3" in overrides
+    assert "runtime:recycling_jax_linear_tolerance_factor=25" in overrides
 
 
 def test_recycling_jvp_promotion_gate_rejects_active_jvp_with_fixed_bdf2_only(

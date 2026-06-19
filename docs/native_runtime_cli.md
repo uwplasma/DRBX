@@ -214,6 +214,11 @@ transport preconditioners. The promotion wrapper also accepts
 `--fixed-bdf2-only` for these screens. That option runs only the bounded
 fixed-BDF2 JAX-linearized phase, so preconditioner or matrix-free Krylov
 experiments are not blocked by the separate SciPy-BDF JVP bridge parity gate.
+The same wrapper can make constrained-budget screens reproducible with
+`--fixed-bdf2-linear-restart=<n>`, `--fixed-bdf2-linear-maxiter=<n>`, and
+`--fixed-bdf2-linear-tolerance-factor=<f>`, which forward the corresponding
+`runtime:recycling_jax_linear_*` controls into the comparison run and record
+them in the JSON summary.
 For heavy matrix-free profiling, the linearized Krylov action can also be
 wrapped with `runtime:recycling_jax_linear_jit_linear_operator=true` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR=1`. Fixed-BDF2 histories

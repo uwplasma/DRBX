@@ -2391,6 +2391,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   active-array. Decision: the current hydrogen residual is not dominated by a
   repeated local field block; the next effective preconditioner must include
   target/sheath, parallel-transport, or a low-cost Schur approximation.
+- 2026-06-19: Added explicit fixed-BDF2 inner-Krylov budget controls to the
+  promotion wrapper: `--fixed-bdf2-linear-restart=<n>`,
+  `--fixed-bdf2-linear-maxiter=<n>`, and
+  `--fixed-bdf2-linear-tolerance-factor=<f>`. These forward the matching
+  `runtime:recycling_jax_linear_*` options and record the values in
+  `summary.json`, so constrained-budget preconditioner screens are reproducible
+  and reviewer-auditable. A first diagnostic hydrogen active-array fixed-BDF2
+  run with restart `2` and maxiter `1` timed out at `120 s`, which rules out
+  claiming that the current preconditioner set can preserve the same physics
+  under a much smaller Krylov budget. Decision: the next implementation must
+  improve same-case residual quality or operator work under explicit solver
+  budgets, not only pass correctness with the default budget.
 
 ## Definition Of Done
 
