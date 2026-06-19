@@ -1328,6 +1328,21 @@ that coupled transport-plus-local closure preconditioning is worth testing on
 the real recycling decks; it is not yet production evidence because a same-case
 hydrogen or D/T/He fixed-BDF2 gate has not shown a wall-time or operator-count
 improvement after the extra build cost.
+The subsequent heavy gates now provide that production evidence and rule out
+the current composition as a speedup. On the hydrogen fixed-BDF2 gate
+(`timestep=10`, `steps=2`, refresh `100`), `target_schur` preserved solver
+health and achieved excellent update residuals (`8.77e-17` absolute,
+`5.76e-14` relative), but kept the same `115` operator calls. It took
+`70.686 s` on the fixed-full-field route and `65.202 s` on the active-array
+route, with about `8 s` spent building preconditioners. On the D/T/He gate
+(`timestep=1`, `steps=2`, `max_internal_timestep=0.5`), it again preserved
+health and update quality (`9.63e-20` absolute, `2.75e-15` relative), but kept
+`65` operator calls and took `128.714 s` fixed-full-field and `106.844 s`
+active-array. The conclusion is the same as for the exact line and sampled
+field blocks: accurate JVP-built approximate inverses are not enough unless
+they reduce Krylov work after build cost. The next effective-preconditioning
+lane should be cheaper approximate Schur/transport scaling or direct
+residual/JVP action reduction, not another exact sampled dense block.
 The solver now also separates preconditioner build cost from preconditioner
 application cost. JAX-linearized steps report
 `linear_preconditioner_apply_count` and

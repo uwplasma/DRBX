@@ -144,7 +144,7 @@ and tests all move together.
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
-| Effective preconditioning | 61% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen recycling sweeps still show exact selected-line and sampled local/feedback field-block probes do not reduce the actual fixed-BDF2 Krylov count. The new Schur-style candidate must now pass the same heavy hydrogen and D/T/He update-residual/operator-budget gates before any promotion claim. |
+| Effective preconditioning | 61% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. The next production candidate must be cheaper than exact JVP-built blocks or reduce residual/JVP action cost directly. |
 | Performance and scaling | 65% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`; remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
@@ -2500,6 +2500,25 @@ Use this log for concise decision records. Do not paste terminal output here.
   `61%` by adding the missing coupled transport/local-closure candidate, but it
   remains opt-in and unpromoted until heavy hydrogen and D/T/He fixed-BDF2 gates
   prove lower operator count, update residual, or wall time after build cost.
+- 2026-06-19: Ran the real fixed-BDF2 update-residual promotion gates for
+  `target_schur` on both hydrogen and D/T/He recycling. Hydrogen with
+  `timestep=10`, `steps=2`, refresh `100`, and fixed-BDF2-only diagnostics
+  passed all solver-health and update-quality gates but retained `115`
+  operator calls on both routes. The fixed-full-field route took `70.686 s`
+  with `20` builds and `8.630 s` build time; the active-array route took
+  `65.202 s` with `20` builds and `7.972 s` build time. D/T/He with
+  `timestep=1`, `steps=2`, and `max_internal_timestep=0.5` also passed all
+  health/update-quality gates but retained `65` operator calls. It took
+  `128.714 s` fixed-full-field and `106.844 s` active-array, with build times
+  `7.622 s` and `4.668 s`, respectively. In both cases the achieved update
+  residual was excellent (`8.77e-17` hydrogen and `9.63e-20` D/T/He absolute),
+  but wall time worsened because Krylov work did not fall. Decision:
+  `target_schur` is a diagnostic-quality composite preconditioner, not a
+  promotion candidate. The next effective-preconditioning step should avoid
+  more exact JVP-built blocks and instead reduce residual/JVP action cost,
+  use a cheaper approximate Schur/transport model, or combine the already
+  positive D/T/He `jit_linear_operator` evidence with lower-cost
+  preconditioner construction.
 
 ## Definition Of Done
 

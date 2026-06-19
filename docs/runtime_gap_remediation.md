@@ -365,10 +365,15 @@ preconditioner-build work and wall time. The matching `sheath_line` screen
 preserved solver health and improved the achieved linear-update residual to
 `6.94e-18` absolute (`4.75e-15` relative), but it also retained `115`
 iterations/operator calls and took `64.227 s`/`59.113 s` on the fixed-full and
-active-array routes. Future preconditioner work should
-therefore target approximate target/sheath, Schur, field-line transport, or
-neutral-plasma blocks that reduce the real recycling Krylov spectrum, not more
-exact selected-line or sampled-local probes on this deck. The optional
+active-array routes. The multiplicative `target_schur` probe then combined the
+selected target/sheath line block with the sampled field block. It preserved
+health and achieved excellent update residuals on both hydrogen and D/T/He, but
+again left operator counts unchanged (`115` and `65`) and slowed the active-array
+heavy gates to `65.202 s` and `106.844 s`. Future preconditioner work should
+therefore target cheaper approximate target/sheath, Schur, field-line
+transport, or neutral-plasma models that reduce the real recycling Krylov
+spectrum, not more exact selected-line or sampled-local probes on this deck.
+The optional
 `runtime:recycling_jax_linear_diagnose_update_residual=true` diagnostic now
 adds an achieved `J v + r` residual check after each Krylov solve and records
 absolute/relative update residuals in fixed/adaptive BDF summaries. Use it
