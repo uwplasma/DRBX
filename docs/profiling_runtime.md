@@ -312,6 +312,18 @@ host RHS many times and still builds finite-difference sparse Jacobians, so its
 profile remains the evidence for the next refactor rather than evidence that
 the JVP path is already the default heavy-solve backend.
 
+The full D/T/He active-array output-window sparse-JVP profile remains a
+negative runtime gate on the local CPU. A June 19, 2026 bounded run of
+`dthe-active-array-output-jvp-profile` reached the sparse-JVP Jacobian
+construction path and timed out before writing an artifact. The interrupted
+trace showed the cost inside repeated `jax.linearize` calls from the
+SciPy-BDF Jacobian hook. The fixed-layout adapter now avoids redundant
+`jnp.asarray(..., dtype=float64)` casts for already-float64 JAX arrays and
+tracers, but this is trace hygiene rather than a full performance solution.
+Promotion still requires moving this output-window route away from repeated
+host-driven sparse-JVP materialization or replacing it with the matrix-free
+fixed-BDF2/JAX-GMRES path that already has strict hydrogen health gates.
+
 For output-window fixed-BDF2 solver-health checks, use the strict active-array
 linearized residual gate:
 
