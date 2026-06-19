@@ -235,6 +235,36 @@ def _campaign_command_map(
             requires_reference=True,
             required_reference_inputs=("dthe",),
         ),
+        "dthe-active-array-batched-jvp-gate": CampaignCommand(
+            name="dthe-active-array-batched-jvp-gate",
+            description=(
+                "Active-array batched D/T/He recycling residual/JVP throughput "
+                "gate for the fixed-layout migration seam."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_batched_jvp_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--rhs-backend",
+                "active_array",
+                "--output-dir",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_dthe_active_array_batched_jvp_gate_cpu"
+                ),
+                "--override",
+                "mesh:ny=100",
+                "--batch-sizes",
+                "1,4,16,64",
+                "--timed-runs",
+                "3",
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+        ),
         "dthe-active-array-output-jvp-profile": CampaignCommand(
             name="dthe-active-array-output-jvp-profile",
             description="Full D/T/He output-window recycling profile through the active-array JVP BDF seam.",
@@ -538,6 +568,49 @@ def _campaign_command_map(
             required_reference_inputs=("dthe",),
             requires_gpu=True,
         ),
+        "gpu-dthe-active-array-batched-jvp-gate": CampaignCommand(
+            name="gpu-dthe-active-array-batched-jvp-gate",
+            description=(
+                "Single-device active-array D/T/He batched residual/JVP throughput "
+                "gate for the fixed-layout migration seam."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_batched_jvp_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--rhs-backend",
+                "active_array",
+                "--output-dir",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_dthe_active_array_batched_jvp_gate_gpu_single_device"
+                ),
+                "--override",
+                "mesh:ny=200",
+                "--batch-sizes",
+                "2,4,8,16,32,64,128",
+                "--timed-runs",
+                "7",
+                "--disable-pmap",
+                "--skip-objective-grad-check",
+                "--jax-trace",
+                "--device-memory-profile",
+                "--compilation-cache-dir",
+                str(
+                    repo_root
+                    / "tmp"
+                    / "jax_cache"
+                    / "recycling_dthe_active_array_batched_jvp_gate_gpu_single_device"
+                ),
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+            requires_gpu=True,
+            timeout_seconds=900,
+        ),
     }
 
 
@@ -553,6 +626,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
                     "local-cpu-scaling",
                     "dthe-jax-linearized-gate",
                     "dthe-batched-jvp-gate",
+                    "dthe-active-array-batched-jvp-gate",
                     "fixed-bdf2-direct-counting-gate",
                     "adaptive-bdf-jax-lineax-gate",
                     "heavy-recycling-profile",
@@ -566,6 +640,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
                 (
                     "gpu-dthe-jax-linearized-gate",
                     "gpu-fixed-bdf2-direct-counting-gate",
+                    "gpu-dthe-active-array-batched-jvp-gate",
                     "gpu-dthe-active-array-output-jvp-profile",
                     "gpu-dthe-full-output-jvp-profile",
                     "gpu-dthe-batched-jvp-gate",
@@ -670,8 +745,10 @@ def main() -> int:
             "scheduled-fast-research, closeout-coverage, promoted-solver-coverage, "
             "local-cpu-scaling, live-reference, heavy-recycling-profile, "
             "dthe-jax-linearized-gate, dthe-batched-jvp-gate, "
+            "dthe-active-array-batched-jvp-gate, "
             "dthe-active-array-output-jvp-profile, fixed-bdf2-direct-counting-gate, "
             "gpu-dthe-jax-linearized-gate, gpu-fixed-bdf2-direct-counting-gate, "
+            "gpu-dthe-active-array-batched-jvp-gate, "
             "gpu-dthe-active-array-output-jvp-profile, "
             "gpu-dthe-batched-jvp-gate, "
             "all-ci, all-local, and all-gpu."

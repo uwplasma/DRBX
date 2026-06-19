@@ -66,6 +66,26 @@ def _assert_fixed_bdf2_direct_counting_command(command, *, requires_gpu: bool) -
     assert "--output-json" in command.command
 
 
+def _assert_batched_jvp_command(
+    command,
+    *,
+    requires_gpu: bool,
+    rhs_backend: str,
+    batch_sizes: str,
+) -> None:
+    assert command.required_reference_inputs == ("dthe",)
+    assert command.requires_gpu is requires_gpu
+    assert "profile_recycling_batched_jvp_gate.py" in command.command[1]
+    assert command.command[command.command.index("--case") + 1] == "dthe"
+    if rhs_backend == "fixed_full_field_array":
+        assert "--rhs-backend" not in command.command
+    else:
+        assert command.command[command.command.index("--rhs-backend") + 1] == (
+            rhs_backend
+        )
+    assert command.command[command.command.index("--batch-sizes") + 1] == batch_sizes
+
+
 def _workflow_campaign_options() -> tuple[str, ...]:
     lines = _WORKFLOW.read_text(encoding="utf-8").splitlines()
     in_campaign = False
@@ -115,6 +135,9 @@ def test_research_campaign_all_local_includes_fixed_bdf2_direct_counting() -> No
     )
 
     assert "fixed-bdf2-direct-counting-gate" in module.expand_campaign_names(
+        ("all-local",)
+    )
+    assert "dthe-active-array-batched-jvp-gate" in module.expand_campaign_names(
         ("all-local",)
     )
 
@@ -287,7 +310,9 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
         fast_timeout_seconds=300,
     )
 
-    linearized, fixed_bdf2, active_output, full_output, batched = commands
+    linearized, fixed_bdf2, active_batched, active_output, full_output, batched = (
+        commands
+    )
     assert linearized.name == "gpu-dthe-jax-linearized-gate"
     assert linearized.required_reference_inputs == ("dthe",)
     assert linearized.requires_gpu is True
@@ -304,6 +329,19 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
     )
     assert fixed_bdf2.name == "gpu-fixed-bdf2-direct-counting-gate"
     _assert_fixed_bdf2_direct_counting_command(fixed_bdf2, requires_gpu=True)
+    assert active_batched.name == "gpu-dthe-active-array-batched-jvp-gate"
+    assert active_batched.timeout_seconds == 900
+    _assert_batched_jvp_command(
+        active_batched,
+        requires_gpu=True,
+        rhs_backend="active_array",
+        batch_sizes="2,4,8,16,32,64,128",
+    )
+    assert "--disable-pmap" in active_batched.command
+    assert "--skip-objective-grad-check" in active_batched.command
+    assert "--jax-trace" in active_batched.command
+    assert "--device-memory-profile" in active_batched.command
+    assert "--compilation-cache-dir" in active_batched.command
     assert active_output.name == "gpu-dthe-active-array-output-jvp-profile"
     assert active_output.required_reference_inputs == ("dthe",)
     assert active_output.requires_gpu is True
@@ -342,14 +380,44 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
     assert "--device-memory-profile" in full_output.command
     assert "--compilation-cache-dir" in full_output.command
     assert batched.name == "gpu-dthe-batched-jvp-gate"
-    assert batched.required_reference_inputs == ("dthe",)
-    assert batched.requires_gpu is True
-    assert "--batch-sizes" in batched.command
-    assert "2,4,8,16,32,64,128" in batched.command
+    _assert_batched_jvp_command(
+        batched,
+        requires_gpu=True,
+        rhs_backend="fixed_full_field_array",
+        batch_sizes="2,4,8,16,32,64,128",
+    )
     assert "--skip-objective-grad-check" in batched.command
     assert "--jax-trace" in batched.command
     assert "--device-memory-profile" in batched.command
     assert "--compilation-cache-dir" in batched.command
+
+
+def test_research_campaign_active_array_batched_jvp_gate_is_gated(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py",
+        "research_campaign_active_array_batched_jvp",
+    )
+    reference_root = _make_dthe_reference_root(tmp_path)
+
+    (command,) = module.build_campaign_commands(
+        campaign_names=("dthe-active-array-batched-jvp-gate",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=reference_root,
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    assert command.name == "dthe-active-array-batched-jvp-gate"
+    _assert_batched_jvp_command(
+        command,
+        requires_gpu=False,
+        rhs_backend="active_array",
+        batch_sizes="1,4,16,64",
+    )
+    assert "mesh:ny=100" in command.command
 
 
 def test_research_campaign_active_array_output_profile_is_gated(

@@ -78,6 +78,10 @@ def test_recycling_batched_jvp_scaling_summary_selects_best_metrics() -> None:
                 "batched_residual_states_per_second": 25.0,
                 "batched_jvp_states_per_second": 20.0,
                 "pmap_jvp_states_per_second": 18.0,
+                "pmap_device_count": 2,
+                "pmap_batch_size": 4,
+                "pmap_jvp_speedup_vs_batched": 1.5,
+                "pmap_jvp_speedup_vs_serial": 4.0,
             },
         ]
     )
@@ -94,6 +98,16 @@ def test_recycling_batched_jvp_scaling_summary_selects_best_metrics() -> None:
         "batch_size": 4,
         "speedup": 3.0,
     }
+    assert summary["best_residual_batch_efficiency"] == {
+        "batch_size": 1,
+        "speedup": 1.0,
+        "efficiency": 1.0,
+    }
+    assert summary["best_jvp_batch_efficiency"] == {
+        "batch_size": 1,
+        "speedup": 1.0,
+        "efficiency": 1.0,
+    }
     assert summary["best_batched_residual_throughput"] == {
         "batch_size": 4,
         "states_per_second": 25.0,
@@ -105,6 +119,21 @@ def test_recycling_batched_jvp_scaling_summary_selects_best_metrics() -> None:
     assert summary["best_pmap_jvp_throughput"] == {
         "batch_size": 4,
         "states_per_second": 18.0,
+    }
+    assert summary["best_pmap_jvp_speedup_vs_batched"] == {
+        "batch_size": 4,
+        "speedup": 1.5,
+    }
+    assert summary["best_pmap_jvp_speedup_vs_serial"] == {
+        "batch_size": 4,
+        "speedup": 4.0,
+    }
+    assert summary["best_pmap_jvp_device_efficiency_vs_serial"] == {
+        "batch_size": 4,
+        "pmap_batch_size": 4,
+        "device_count": 2,
+        "speedup": 4.0,
+        "device_efficiency": 2.0,
     }
 
 
@@ -123,6 +152,9 @@ def test_recycling_batched_jvp_scaling_summary_handles_no_pmap_results() -> None
     )
 
     assert summary["best_pmap_jvp_throughput"] is None
+    assert summary["best_pmap_jvp_speedup_vs_batched"] is None
+    assert summary["best_pmap_jvp_speedup_vs_serial"] is None
+    assert summary["best_pmap_jvp_device_efficiency_vs_serial"] is None
 
 
 def test_recycling_batched_jvp_problem_uses_fixed_full_field_backend_by_default(

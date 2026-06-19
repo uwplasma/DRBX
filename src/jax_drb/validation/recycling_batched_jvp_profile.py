@@ -72,6 +72,64 @@ def _best_metric(
     }
 
 
+def _best_speedup_efficiency(
+    batch_results: list[dict[str, object]], metric_name: str
+) -> dict[str, object] | None:
+    candidates: list[tuple[float, int]] = []
+    for index, result in enumerate(batch_results):
+        speedup = result.get(metric_name)
+        if speedup is None or isinstance(speedup, bool):
+            continue
+        batch_size = int(result.get("batch_size", 0))
+        if batch_size <= 0:
+            continue
+        efficiency = float(speedup) / float(batch_size)
+        if not np.isfinite(efficiency):
+            continue
+        candidates.append((efficiency, index))
+    if not candidates:
+        return None
+    _, best_index = max(candidates, key=lambda item: item[0])
+    best = batch_results[best_index]
+    batch_size = int(best["batch_size"])
+    speedup = float(best[metric_name])
+    return {
+        "batch_size": batch_size,
+        "speedup": speedup,
+        "efficiency": speedup / float(batch_size),
+    }
+
+
+def _best_pmap_device_efficiency(
+    batch_results: list[dict[str, object]], metric_name: str
+) -> dict[str, object] | None:
+    candidates: list[tuple[float, int]] = []
+    for index, result in enumerate(batch_results):
+        speedup = result.get(metric_name)
+        if speedup is None or isinstance(speedup, bool):
+            continue
+        device_count = int(result.get("pmap_device_count", 0))
+        if device_count <= 0:
+            continue
+        efficiency = float(speedup) / float(device_count)
+        if not np.isfinite(efficiency):
+            continue
+        candidates.append((efficiency, index))
+    if not candidates:
+        return None
+    _, best_index = max(candidates, key=lambda item: item[0])
+    best = batch_results[best_index]
+    device_count = int(best["pmap_device_count"])
+    speedup = float(best[metric_name])
+    return {
+        "batch_size": int(best["batch_size"]),
+        "pmap_batch_size": int(best.get("pmap_batch_size", 0)),
+        "device_count": device_count,
+        "speedup": speedup,
+        "device_efficiency": speedup / float(device_count),
+    }
+
+
 def summarize_recycling_batched_jvp_scaling(
     batch_results: list[dict[str, object]],
 ) -> dict[str, object]:
@@ -89,6 +147,12 @@ def summarize_recycling_batched_jvp_scaling(
         "best_jvp_speedup_vs_serial": _best_metric(
             batch_results, "jvp_speedup_vs_serial", "speedup"
         ),
+        "best_residual_batch_efficiency": _best_speedup_efficiency(
+            batch_results, "residual_speedup_vs_serial"
+        ),
+        "best_jvp_batch_efficiency": _best_speedup_efficiency(
+            batch_results, "jvp_speedup_vs_serial"
+        ),
         "best_batched_residual_throughput": _best_metric(
             batch_results, "batched_residual_states_per_second", "states_per_second"
         ),
@@ -97,6 +161,15 @@ def summarize_recycling_batched_jvp_scaling(
         ),
         "best_pmap_jvp_throughput": _best_metric(
             batch_results, "pmap_jvp_states_per_second", "states_per_second"
+        ),
+        "best_pmap_jvp_speedup_vs_batched": _best_metric(
+            batch_results, "pmap_jvp_speedup_vs_batched", "speedup"
+        ),
+        "best_pmap_jvp_speedup_vs_serial": _best_metric(
+            batch_results, "pmap_jvp_speedup_vs_serial", "speedup"
+        ),
+        "best_pmap_jvp_device_efficiency_vs_serial": _best_pmap_device_efficiency(
+            batch_results, "pmap_jvp_speedup_vs_serial"
         ),
     }
 

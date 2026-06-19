@@ -106,14 +106,16 @@ repeated direct tokamak recycling solves rather than a synthetic microkernel,
 and the committed artifact reaches about `4.79x` steady-state speedup from
 `1 -> 8` worker processes on the retained `16`-solve ensemble.
 
-The GPU bundle contains four distinct lanes. The fixed-layout JAX-linearized
-gate measures the residual/JVP seam with the jitted matrix-free operator and
-now requires the active-array RHS backend for the large D/T/He residual profile,
-so trace and memory evidence does not accidentally fall back to the slower
-full-field compatibility residual. The bounded non-SciPy fixed-BDF2 path still
-reports both fixed-full-field and active-array diagnostics before any default
-solver promotion. The `fixed-bdf2-direct-counting-gate` campaign is the bounded
-local counterpart for that output-window path. On June 19, 2026 it ran
+The GPU bundle contains fixed-layout residual, fixed-BDF2 output-window,
+active-array output-window, full-field compatibility output-window, and
+batched-JVP lanes. The fixed-layout JAX-linearized gate measures the
+residual/JVP seam with the jitted matrix-free operator and now requires the
+active-array RHS backend for the large D/T/He residual profile, so trace and
+memory evidence does not accidentally fall back to the slower full-field
+compatibility residual. The bounded non-SciPy fixed-BDF2 path still reports
+both fixed-full-field and active-array diagnostics before any default solver
+promotion. The `fixed-bdf2-direct-counting-gate` campaign is the bounded local
+counterpart for that output-window path. On June 19, 2026 it ran
 `recycling_1d_one_step` for `2` output steps at `dt=10`, executed `20`
 active-array RHS steps, `20` jitted JAX-linearized fixed-BDF2 steps, and `23`
 JAX GMRES solve attempts, and completed with zero failed or unconverged
@@ -141,8 +143,18 @@ profile for the active-array migration path. The
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`, so it is the
 compatibility output-window profile to keep while comparing against the newer
 active-array path; it carries the same sparse-JVP device-gather diagnostic gate.
-The batched-JVP lane measures ensemble and multi-device throughput on the same
-D/T/He residual family.
+The fixed-full-field `gpu-dthe-batched-jvp-gate` and active-array
+`gpu-dthe-active-array-batched-jvp-gate` lanes measure ensemble throughput on
+the same D/T/He residual family. The local active-array counterpart is
+`dthe-active-array-batched-jvp-gate`; its retained `ny=100` CPU artifact
+reaches about `2.66x` residual and `2.20x` JVP same-kernel speedup through
+batch `64`, with JVP/finite-difference relative error about `5.97e-9`. The
+active-array GPU batched campaign is deliberately single-device for now
+(`--disable-pmap`) because larger `ny=100` pmap and single-device office-GPU
+attempts were host/compiler or memory bound and wrote no JSON summary. A tiny
+`ny=16` single-device CUDA readiness probe did finish with JVP/finite-
+difference relative error `3.95e-10`; this proves GPU executability of the
+reduced active-array residual, not release-level GPU speedup.
 
 The committed `ny=100`, `dt=1e-4` CPU comparison now records explicit Krylov
 status metadata for both JAX GMRES and Lineax GMRES. Both runs reach

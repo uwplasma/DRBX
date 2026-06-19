@@ -145,7 +145,7 @@ and tests all move together.
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 98.5% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, and both one-step and bounded fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves. Default promotion still needs heavier CPU/GPU parity/runtime evidence before replacing stable finite-difference defaults. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
-| Performance and scaling | 68% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, and the fixed-BDF2 direct-counting output-window gate is now a first-class local/GPU research campaign that proves solve execution without Python callback overhead. The first office-GPU attempt on the small fixed-BDF2 gate was host-side bound and manually terminated after `724 s`, so remaining scaling work is reduced host-side solver overhead, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
+| Performance and scaling | 69% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, the fixed-BDF2 direct-counting output-window gate proves solve execution without Python callback overhead, and the active-array D/T/He residual/JVP gate now has retained CPU batched-throughput evidence. The first office-GPU attempt on the small fixed-BDF2 gate and larger active-array batched probes were host/compiler or memory bound, so remaining scaling work is reduced compiled residual size, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -2727,6 +2727,29 @@ Use this log for concise decision records. Do not paste terminal output here.
   `gpu-fixed-bdf2-direct-counting-gate` at `720 s`, preventing future `all-gpu`
   runs from hanging for the global default timeout when the inner JAX/SIGALRM
   mode guard cannot interrupt a compiled solve.
+- 2026-06-19: Added retained active-array batched residual/JVP campaigns to the
+  research-campaign wrapper. The new local
+  `dthe-active-array-batched-jvp-gate` routes the D/T/He residual through
+  `build_fixed_array_rhs` with `--rhs-backend active_array`; the matching
+  `gpu-dthe-active-array-batched-jvp-gate` is currently single-device
+  (`--disable-pmap`) and uses persistent compilation-cache, JAX-trace, and
+  device-memory hooks. The refreshed fixed-full-field CPU artifact at
+  `ny=100`, state size `1900`, and batches through `256` reports best
+  residual and JVP same-kernel speedups of `3.87x` and `2.44x`, with best
+  throughputs of `4.34e4` and `1.10e4` states/s. The new active-array CPU
+  artifact at the same `ny=100`, state size `1900`, and batches through `64`
+  reports best residual and JVP speedups of `2.66x` and `2.20x`, with best
+  throughputs of `3.04e4` and `9.82e3` states/s. Both retained CPU artifacts
+  keep JVP/finite-difference relative error `5.97e-9` and objective
+  directional relative error `1.34e-7`. On `office`, a tiny active-array CUDA
+  readiness probe at `ny=16`, state size `304`, and batch `1,2` completed with
+  JVP/finite-difference relative error `3.95e-10`, but larger `ny=100` pmap
+  and single-device active-array probes remained host/compiler or memory bound,
+  allocated roughly `12 GiB` of GPU memory, showed near-zero GPU utilization,
+  and wrote no JSON summary. Decision: raise performance/scaling to `69%` for
+  the retained active-array CPU batching gate and campaign wiring, but do not
+  claim GPU speedup or multi-GPU promotion until compiled residual size and
+  memory behavior improve.
 
 ## Definition Of Done
 
