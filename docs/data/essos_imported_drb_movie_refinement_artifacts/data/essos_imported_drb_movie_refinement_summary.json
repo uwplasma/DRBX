@@ -13,6 +13,9 @@
       "radial_flux_abs_mean",
       "radial_flux_rms",
       "low_mode_spectral_power_fraction",
+      "spectral_centroid_poloidal_fraction",
+      "spectral_centroid_toroidal_fraction",
+      "spectral_edge_band_power_fraction",
       "final_potential_residual_l2"
     ],
     "pair_reports": [],
@@ -20,7 +23,9 @@
     "reason": "need_at_least_two_grid_reports",
     "refinement_axis": "grid",
     "relative_tolerance": 0.3,
-    "report_count": 1
+    "report_count": 1,
+    "spectral_resolution_passed": false,
+    "spectral_resolution_reports": []
   },
   "grid_refinement_passed": false,
   "movie_promotion_rejection_reasons": [
@@ -43,6 +48,9 @@
       "radial_flux_abs_mean",
       "radial_flux_rms",
       "low_mode_spectral_power_fraction",
+      "spectral_centroid_poloidal_fraction",
+      "spectral_centroid_toroidal_fraction",
+      "spectral_edge_band_power_fraction",
       "final_potential_residual_l2"
     ],
     "pair_reports": [],
@@ -50,7 +58,9 @@
     "reason": "need_at_least_two_time_reports",
     "refinement_axis": "time",
     "relative_tolerance": 0.3,
-    "report_count": 1
+    "report_count": 1,
+    "spectral_resolution_passed": false,
+    "spectral_resolution_reports": []
   },
   "time_refinement_passed": false
 }

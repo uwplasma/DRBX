@@ -55,6 +55,8 @@
   "spectral_toroidal_mode_count": 33,
   "spectral_centroid_poloidal_index": 13.825186922786125,
   "spectral_centroid_toroidal_index": 0.7586347053857571,
+  "spectral_centroid_poloidal_fraction": 0.6010950835993968,
+  "spectral_centroid_toroidal_fraction": 0.023707334543304908,
   "spectral_edge_band_power_fraction": 0.5686136928510097,
   "low_mode_window_covers_grid": false,
   "magnetic_field_modulation": 1.4276079644995778,

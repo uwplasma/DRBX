@@ -75,11 +75,19 @@ def _movie_report(
     radial_flux_proxy: float = -2.0e-3,
     radial_flux_abs_mean: float | None = None,
     radial_flux_rms: float | None = None,
+    low_mode_window_covers_grid: bool | None = None,
+    spectral_edge_band_power_fraction: float = 0.08,
 ) -> dict[str, object]:
     radial_flux_abs_mean = (
         abs(radial_flux_proxy) if radial_flux_abs_mean is None else radial_flux_abs_mean
     )
     radial_flux_rms = radial_flux_abs_mean if radial_flux_rms is None else radial_flux_rms
+    poloidal_count = grid[1]
+    toroidal_count = grid[2] // 2 + 1
+    poloidal_fraction = 0.25
+    toroidal_fraction = 0.30
+    if low_mode_window_covers_grid is None:
+        low_mode_window_covers_grid = bool(poloidal_count <= 4 and toroidal_count <= 6)
     return {
         "case": f"{map_source}_{grid[0]}x{grid[1]}x{grid[2]}_{dt:g}",
         "map_source": map_source,
@@ -99,12 +107,14 @@ def _movie_report(
             0.5 if radial_flux_proxy == 0.0 else float(radial_flux_proxy > 0.0)
         ),
         "low_mode_spectral_power_fraction": 0.34,
-        "spectral_poloidal_mode_count": grid[1],
-        "spectral_toroidal_mode_count": grid[2] // 2 + 1,
-        "spectral_centroid_poloidal_index": 2.0,
-        "spectral_centroid_toroidal_index": 3.0,
-        "spectral_edge_band_power_fraction": 0.08,
-        "low_mode_window_covers_grid": bool(grid[1] <= 4 and grid[2] // 2 + 1 <= 6),
+        "spectral_poloidal_mode_count": poloidal_count,
+        "spectral_toroidal_mode_count": toroidal_count,
+        "spectral_centroid_poloidal_index": poloidal_fraction * max(poloidal_count - 1, 1),
+        "spectral_centroid_toroidal_index": toroidal_fraction * max(toroidal_count - 1, 1),
+        "spectral_centroid_poloidal_fraction": poloidal_fraction,
+        "spectral_centroid_toroidal_fraction": toroidal_fraction,
+        "spectral_edge_band_power_fraction": spectral_edge_band_power_fraction,
+        "low_mode_window_covers_grid": low_mode_window_covers_grid,
         "final_potential_residual_l2": 0.02,
     }
 
@@ -187,6 +197,35 @@ def test_essos_imported_drb_movie_refinement_summary_rejects_unstable_metrics() 
     assert pair["radial_flux_proxy_sign_agreement"] is False
     assert pair["radial_flux_sign_passed"] is False
     assert pair["metric_reports"]["radial_flux_abs_mean"]["passed"] is False
+
+
+def test_essos_imported_drb_movie_refinement_summary_rejects_underresolved_spectrum() -> None:
+    grid_reports = (
+        _movie_report(grid=(3, 4, 8), low_mode_window_covers_grid=True),
+        _movie_report(grid=(4, 6, 12), low_mode_window_covers_grid=False),
+    )
+    time_reports = (
+        _movie_report(grid=(4, 6, 12), dt=2.0e-3, substeps_per_frame=2),
+        _movie_report(grid=(4, 6, 12), dt=1.0e-3, substeps_per_frame=2),
+    )
+
+    summary = build_essos_imported_drb_movie_refinement_summary(
+        grid_reports=grid_reports,
+        time_reports=time_reports,
+        relative_tolerance=0.20,
+    )
+
+    assert summary["publication_ready"] is False
+    assert summary["grid_refinement_passed"] is False
+    assert summary["time_refinement_passed"] is True
+    assert "movie_grid_spectral_resolution_not_passed" in summary[
+        "movie_promotion_rejection_reasons"
+    ]
+    assert "low_mode_window_covers_grid" in summary["movie_promotion_rejection_reasons"]
+    grid_diagnostics = summary["grid_refinement_diagnostics"]
+    assert grid_diagnostics["spectral_resolution_passed"] is False
+    assert grid_diagnostics["spectral_resolution_reports"][0]["passed"] is False
+    assert grid_diagnostics["spectral_resolution_reports"][1]["passed"] is True
 
 
 def test_essos_imported_drb_movie_refinement_summary_package_reads_reports(tmp_path: Path) -> None:
@@ -702,6 +741,8 @@ def test_essos_imported_maps_generate_drb_movie_gate(tmp_path: Path) -> None:
     assert report["spectral_toroidal_mode_count"] == 5
     assert report["spectral_centroid_poloidal_index"] >= 0.0
     assert report["spectral_centroid_toroidal_index"] >= 0.0
+    assert 0.0 <= report["spectral_centroid_poloidal_fraction"] <= 1.0
+    assert 0.0 <= report["spectral_centroid_toroidal_fraction"] <= 1.0
     assert 0.0 <= report["spectral_edge_band_power_fraction"] <= 1.0
     assert report["low_mode_window_covers_grid"] is True
     assert report["particle_recycling_relative_error"] < 1.0e-10
