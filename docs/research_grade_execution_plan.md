@@ -2753,6 +2753,22 @@ Use this log for concise decision records. Do not paste terminal output here.
   progress instrumentation, and campaign wiring, but do not claim GPU speedup
   or multi-GPU promotion until compiled residual size and memory behavior
   improve.
+- 2026-06-19: Refreshed the tracked-only `office` GPU snapshot with the
+  progress-stream profiler and reran the tiny active-array CUDA readiness
+  probe on one RTX A4000:
+  `profile_recycling_batched_jvp_gate.py --case dthe --rhs-backend active_array
+  --override mesh:ny=16 --batch-sizes 1,2 --timed-runs 1 --disable-pmap
+  --skip-objective-grad-check`. The run completed and wrote both
+  `profile_summary.json` and `profile_progress.jsonl`. The summary reports
+  backend `gpu`, state size `304`, JVP/finite-difference relative error
+  `3.95e-10`, batch-2 residual speedup `1.32x`, batch-2 JVP speedup `1.68x`,
+  batch-2 residual throughput `2.91e3` states/s, and batch-2 JVP throughput
+  `1.52e3` states/s. The progress stream contains `12` records and shows base
+  residual warmup `2.84 s`, base JVP warmup `5.18 s`, and batch warmups
+  `10.72 s` and `10.61 s`. Decision: keep GPU promotion blocked, but the
+  diagnostic gap is now closed for future stalled GPU runs; the next GPU
+  implementation target is smaller compiled active-array residual/JVP kernels
+  or kernel partitioning, not more blind reruns.
 
 ## Definition Of Done
 

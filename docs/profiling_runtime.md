@@ -443,12 +443,16 @@ For a nonstandard staged deck, add:
 ```
 
 The current `office` GPU evidence for active-array batched JVPs should be read
-narrowly. A tiny `ny=16`, batch `1,2`, single-device CUDA probe completed with
-JVP/finite-difference relative error `3.95e-10` and batch-2 JVP throughput
-about `1.40e3` states/s, proving that the reduced active-array residual can
-execute on the GPU. Larger `ny=100` active-array pmap and single-device probes
-did not complete within the practical profiling window; both were host/compiler
-or memory bound, allocated roughly `12 GiB` of GPU memory, showed near-zero GPU
+narrowly. A tiny `ny=16`, batch `1,2`, single-device CUDA probe on one RTX
+A4000 completed with JVP/finite-difference relative error `3.95e-10`, batch-2
+JVP throughput about `1.52e3` states/s, and batch-2 residual throughput about
+`2.91e3` states/s, proving that the reduced active-array residual can execute
+on the GPU. Its progress log recorded base residual warmup `2.84 s`, base JVP
+warmup `5.18 s`, and per-batch warmups of about `10.6-10.7 s`, so the next GPU
+blocker is compiled batched residual/JVP size rather than a missing CUDA code
+path. Larger `ny=100` active-array pmap and single-device probes did not
+complete within the practical profiling window; both were host/compiler or
+memory bound, allocated roughly `12 GiB` of GPU memory, showed near-zero GPU
 utilization, and wrote no JSON summary. This is negative evidence for claiming
 GPU speedup today, and it points the next implementation step toward reducing
 compiled active-array residual size before attempting multi-GPU promotion.
