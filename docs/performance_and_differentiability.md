@@ -1454,9 +1454,39 @@ it with `--require-fixed-bdf2-linear-operator-jitted`. On the same bounded
 two-window hydrogen active-array gate this route passed correctness and reported
 JIT-wrapped linear operators on all four internal JAX-linearized steps, residual
 `2.90e-6`, and `35` operator calls, but elapsed time increased to `23.09 s`.
-This is therefore retained only as a heavier-kernel profiling hook. It is not a
-default-promotion result, and the main P3 direction remains cheaper residual/JVP
-actions or a preconditioner that actually reduces operator calls.
+It is therefore not a blanket default-promotion result. On the heavier
+D/T/He backward-Euler JAX-linearized gate, however, the same option is now
+positive evidence: with `timestep=1.0`, `initial_residual_mode=linearize`,
+`linear_restart=10`, `linear_maxiter=10`, and the same five matrix-free
+operator calls, the cold unjitted profile took `26.27 s` with
+`linear_solve_seconds=24.54`, while `--jit-linear-operator` reduced the cold
+timed run to `10.90 s` with `linear_solve_seconds=9.10`. After the compilation
+cache was warm in the same local session, the first-class profile gate
+
+```bash
+PYTHONPATH=src python scripts/profile_recycling_jax_linearized_gate.py \
+  --reference-root tests/fixtures/reference-root --case dthe \
+  --timestep 1.0 --initial-residual-mode linearize \
+  --linear-restart 10 --linear-maxiter 10 --linear-tolerance-factor 10 \
+  --line-search-initial-step-scale 0.25 --jit-linear-operator \
+  --require-initial-residual-mode linearize \
+  --require-linear-operator-jitted \
+  --require-min-linear-operator-calls 1 \
+  --require-min-linear-iterations 1 \
+  --require-min-nonlinear-iterations 1 \
+  --require-max-residual-inf-norm 7.4 \
+  --require-max-line-search-trials 1
+```
+
+passed with median timed runtime `4.55 s`, residual `7.31568`, five
+matrix-free operator calls, clean JAX-GMRES status, and
+`linear_operator_jitted=true`. Combining the same jitted operator with
+`local_block_diag` reduced `linear_solve_seconds` further to `7.98 s`, but the
+`3.84 s` preconditioner build made the full timed run slower (`13.61 s`) than
+the jitted unpreconditioned run. The current practical recommendation is
+therefore to use the jitted matrix-free operator for heavier JAX-native
+recycling profiles, while keeping dynamic block and line preconditioners as
+opt-in evidence until they reduce same-case end-to-end time or operator count.
 
 The generic JAX-linearized solver now also reuses the already-known residual
 norm for the final accepted state when a bounded solve exits because the
