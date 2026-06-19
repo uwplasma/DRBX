@@ -413,6 +413,14 @@ nonlinear/adaptive gate through
 factor `10` completed cleanly in `103.9 s`, while factor `100` completed in
 `105.3 s`. This is a small, bounded improvement and useful diagnostic, but the
 run remains dominated by JAX-linearized Krylov solves.
+The direct operator-counting probe removes the Python call-count wrapper around
+the JAX linearized operator, but it is not a general fix. On the June 19, 2026
+hydrogen fixed-BDF2 gate with `jit_linear_operator=true`, direct counting made
+operator-call counts intentionally unavailable, slowed the fixed-full-field
+route to `87.95 s`, and improved only the active-array route to `51.06 s`.
+Keep `runtime:recycling_jax_linear_operator_counting=direct` for
+production-style active-array profiling after diagnostic call-count gates have
+already been run; do not use it to satisfy operator-count budgets.
 The June 16, 2026 local-block probe closed the first physics/block
 preconditioner pass without default promotion. The matched fixed-BDF2 hydrogen
 gate took `13.15 s` without a preconditioner, `13.27 s` when rebuilding

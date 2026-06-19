@@ -97,9 +97,9 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
         fixed_bdf2_linear_maxiter=3,
         fixed_bdf2_linear_tolerance_factor=25.0,
         fixed_bdf2_jit_linear_operator=True,
+        fixed_bdf2_linear_operator_counting="direct",
         fixed_bdf2_diagnose_linear_update_residual=True,
         fixed_bdf2_max_linear_iterations=3200,
-        fixed_bdf2_max_linear_operator_calls=128,
         fixed_bdf2_max_linear_update_residual=1.0e-8,
         fixed_bdf2_max_linear_update_relative_residual=1.0e-4,
         fixed_bdf2_max_preconditioner_builds=2,
@@ -123,6 +123,7 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
     assert "runtime:recycling_jax_linear_maxiter=3" in overrides
     assert "runtime:recycling_jax_linear_tolerance_factor=25" in overrides
     assert "runtime:recycling_jax_linear_jit_linear_operator=true" in overrides
+    assert "runtime:recycling_jax_linear_operator_counting=direct" in overrides
     assert (
         "runtime:recycling_jax_linear_diagnose_update_residual=true" in overrides
     )
@@ -133,9 +134,6 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
     assert command[
         command.index("--require-fixed-bdf2-max-linear-iterations") + 1
     ] == "3200"
-    assert command[
-        command.index("--require-fixed-bdf2-max-linear-operator-calls") + 1
-    ] == "128"
     assert command[
         command.index("--require-fixed-bdf2-max-linear-update-residual") + 1
     ] == "1e-08"
@@ -210,6 +208,13 @@ def test_recycling_jvp_promotion_gate_rejects_invalid_performance_budgets() -> N
         (
             {"fixed_bdf2_linear_tolerance_factor": 0.0},
             "fixed_bdf2_linear_tolerance_factor must be positive",
+        ),
+        (
+            {
+                "fixed_bdf2_linear_operator_counting": "direct",
+                "fixed_bdf2_max_linear_operator_calls": 128,
+            },
+            "do not combine it with fixed_bdf2_max_linear_operator_calls",
         ),
     ):
         try:
@@ -373,6 +378,8 @@ def test_recycling_jvp_promotion_gate_can_run_fixed_bdf2_only_dry_run(
             "3",
             "--fixed-bdf2-linear-tolerance-factor",
             "25",
+            "--fixed-bdf2-linear-operator-counting",
+            "direct",
             "--fixed-bdf2-diagnose-linear-update-residual",
             "--fixed-bdf2-max-linear-update-residual",
             "1e-8",
@@ -395,6 +402,7 @@ def test_recycling_jvp_promotion_gate_can_run_fixed_bdf2_only_dry_run(
     assert report["fixed_bdf2_linear_restart"] == 8
     assert report["fixed_bdf2_linear_maxiter"] == 3
     assert report["fixed_bdf2_linear_tolerance_factor"] == 25.0
+    assert report["fixed_bdf2_linear_operator_counting"] == "direct"
     assert report["fixed_bdf2_diagnose_linear_update_residual"] is True
     assert report["fixed_bdf2_max_linear_update_residual"] == 1.0e-8
     assert report["fixed_bdf2_max_linear_update_relative_residual"] == 1.0e-4

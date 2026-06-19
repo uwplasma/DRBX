@@ -2519,6 +2519,24 @@ Use this log for concise decision records. Do not paste terminal output here.
   use a cheaper approximate Schur/transport model, or combine the already
   positive D/T/He `jit_linear_operator` evidence with lower-cost
   preconditioner construction.
+- 2026-06-19: Added an opt-in direct linear-operator-counting mode for
+  JAX-linearized recycling solves. The default remains instrumented and reports
+  Python-visible operator-call counts. Direct mode
+  (`runtime:recycling_jax_linear_operator_counting=direct`) passes the JAX
+  linearized operator directly to the Krylov solver, records
+  `linear_operator_counting=direct`, and reports zero operator calls because
+  call counts are intentionally unavailable. The profile and promotion scripts
+  expose this through `--linear-operator-counting direct` and
+  `--fixed-bdf2-linear-operator-counting direct`, and now reject direct mode
+  when operator-call budget gates are requested. A bounded hydrogen fixed-BDF2
+  gate with `jit_linear_operator=true`, direct counting, and update-residual
+  diagnostics passed solver-health gates. The fixed-full-field route worsened
+  to `87.95 s` (`70.53 s` in linear solves), while the active-array route ran
+  in `51.06 s` (`33.79 s` in linear solves) with max update residual
+  `1.58e-8` absolute and `1.02e-5` relative. Decision: direct counting is a
+  useful opt-in profiling surface for active-array production-style runs, but
+  not default-promotion evidence because the fixed-full-field route regressed
+  and operator counts cannot be used in that mode.
 
 ## Definition Of Done
 

@@ -4877,6 +4877,9 @@ def advance_recycling_1d_backward_euler_step(
         )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         jit_linear_operator = _resolve_recycling_jax_linear_jit_linear_operator(config)
+        linear_operator_counting = (
+            _resolve_recycling_jax_linear_operator_counting(config)
+        )
         diagnose_linear_update_residual = (
             _resolve_recycling_jax_linear_diagnose_update_residual(config)
         )
@@ -4926,6 +4929,7 @@ def advance_recycling_1d_backward_euler_step(
             initial_residual_mode=initial_residual_mode,
             jit_residual=jit_residual,
             jit_linear_operator=jit_linear_operator,
+            linear_operator_counting=linear_operator_counting,
             diagnose_linear_update_residual=diagnose_linear_update_residual,
             line_search_mode=line_search_mode,
             line_search_initial_step_scale=line_search_initial_step_scale,
@@ -5085,6 +5089,9 @@ def advance_recycling_1d_bdf2_step(
         )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         jit_linear_operator = _resolve_recycling_jax_linear_jit_linear_operator(config)
+        linear_operator_counting = (
+            _resolve_recycling_jax_linear_operator_counting(config)
+        )
         diagnose_linear_update_residual = (
             _resolve_recycling_jax_linear_diagnose_update_residual(config)
         )
@@ -5134,6 +5141,7 @@ def advance_recycling_1d_bdf2_step(
             initial_residual_mode=initial_residual_mode,
             jit_residual=jit_residual,
             jit_linear_operator=jit_linear_operator,
+            linear_operator_counting=linear_operator_counting,
             diagnose_linear_update_residual=diagnose_linear_update_residual,
             line_search_mode=line_search_mode,
             line_search_initial_step_scale=line_search_initial_step_scale,
@@ -6480,6 +6488,43 @@ def _resolve_recycling_jax_linear_jit_linear_operator(
     )
 
 
+def _resolve_recycling_jax_linear_operator_counting(
+    config: BoutConfig | None = None,
+) -> str:
+    option_name = "recycling_jax_linear_operator_counting"
+    raw_value: str | None = None
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            raw_value = str(config.parsed(section_name, option_name))
+            break
+    if raw_value is None:
+        raw_value = os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_OPERATOR_COUNTING")
+    normalized = str(raw_value or "instrumented").strip().lower().replace("-", "_")
+    aliases = {
+        "": "instrumented",
+        "default": "instrumented",
+        "instrumented": "instrumented",
+        "counted": "instrumented",
+        "count": "instrumented",
+        "diagnostic": "instrumented",
+        "diagnostics": "instrumented",
+        "on": "instrumented",
+        "true": "instrumented",
+        "yes": "instrumented",
+        "direct": "direct",
+        "uncounted": "direct",
+        "no_count": "direct",
+        "fast": "direct",
+        "production": "direct",
+        "off": "direct",
+        "false": "direct",
+        "no": "direct",
+    }
+    return aliases.get(normalized, "instrumented")
+
+
 def _resolve_recycling_jax_linear_diagnose_update_residual(
     config: BoutConfig | None = None,
 ) -> bool:
@@ -7266,6 +7311,9 @@ def _as_recycling_step_info(
         ),
         "linear_operator_dispatch_seconds": float(
             getattr(info, "linear_operator_dispatch_seconds", 0.0)
+        ),
+        "linear_operator_counting": str(
+            getattr(info, "linear_operator_counting", "instrumented")
         ),
         "linear_preconditioner": getattr(info, "linear_preconditioner", None),
         "linear_preconditioner_build_seconds": float(

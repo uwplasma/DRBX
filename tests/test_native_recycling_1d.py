@@ -2762,6 +2762,9 @@ def test_recycling_backend_environment_resolvers_are_bounded(
     monkeypatch.delenv(
         "JAX_DRB_RECYCLING_JAX_LINEAR_GMRES_SOLVE_METHOD", raising=False
     )
+    monkeypatch.delenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_OPERATOR_COUNTING", raising=False
+    )
     monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", raising=False)
     monkeypatch.delenv(
         "JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR", raising=False
@@ -2806,6 +2809,10 @@ def test_recycling_backend_environment_resolvers_are_bounded(
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_gmres_solve_method()
         == "batched"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_operator_counting()
+        == "instrumented"
     )
     assert recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name() is None
     monkeypatch.delenv("JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE", raising=False)
@@ -2942,6 +2949,13 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_gmres_solve_method()
         == "batched"
     )
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_OPERATOR_COUNTING", "direct")
+    assert recycling_1d_mod._resolve_recycling_jax_linear_operator_counting() == "direct"
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_OPERATOR_COUNTING", "bad")
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_operator_counting()
+        == "instrumented"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "jacobi")
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
@@ -3037,6 +3051,7 @@ def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR", "0")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE", "backtracking")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL", "1")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_OPERATOR_COUNTING", "direct")
     monkeypatch.setenv(
         "JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE", "residual"
     )
@@ -3054,6 +3069,7 @@ def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
         recycling_jax_linear_check_initial_residual = false
         recycling_jax_linear_initial_residual_mode = linearize
         recycling_jax_linear_gmres_solve_method = incremental
+        recycling_jax_linear_operator_counting = instrumented
         recycling_jax_linear_preconditioner = state-scale
         """
     )
@@ -3078,6 +3094,10 @@ def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_gmres_solve_method(config)
         == "incremental"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_operator_counting(config)
+        == "instrumented"
     )
     assert recycling_1d_mod._resolve_recycling_jax_linear_tolerance(
         config,
@@ -3883,6 +3903,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
         assert kwargs["linear_tolerance"] == pytest.approx(1.0e-7)
         assert kwargs["jit_residual"] is True
         assert kwargs["jit_linear_operator"] is True
+        assert kwargs["linear_operator_counting"] == "direct"
         assert kwargs["diagnose_linear_update_residual"] is True
         assert kwargs["line_search_mode"] == "full_step"
         assert kwargs["check_initial_residual"] is False
@@ -3902,6 +3923,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             jacobian_mode="jvp",
             residual_jitted=kwargs["jit_residual"],
             linear_operator_jitted=kwargs["jit_linear_operator"],
+            linear_operator_counting=kwargs["linear_operator_counting"],
             linear_update_residual_inf_norm=1.0e-12
             if kwargs["diagnose_linear_update_residual"]
             else None,
@@ -3946,6 +3968,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR", "10")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "1")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR", "1")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_OPERATOR_COUNTING", "direct")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_DIAGNOSE_UPDATE_RESIDUAL", "1")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE", "full_step")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL", "0")
@@ -3993,6 +4016,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     if solver_mode.startswith("jax_linearized"):
         assert info.diagnostics["residual_jitted"] is True
         assert info.diagnostics["linear_operator_jitted"] is True
+        assert info.diagnostics["linear_operator_counting"] == "direct"
         assert info.diagnostics["linear_update_residual_inf_norm"] == pytest.approx(
             1.0e-12
         )

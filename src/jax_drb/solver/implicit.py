@@ -55,6 +55,7 @@ class ImplicitStepInfo:
     linear_operator_call_count: int = 0
     linear_operator_dispatch_seconds: float = 0.0
     linear_operator_jitted: bool = False
+    linear_operator_counting: str = "instrumented"
     linear_preconditioner: str | None = None
     linear_preconditioner_build_seconds: float = 0.0
     linear_preconditioner_build_count: int = 0
@@ -1216,6 +1217,7 @@ def solve_jax_linearized_newton_system(
     initial_residual_mode: str = "residual",
     jit_residual: bool = False,
     jit_linear_operator: bool = False,
+    linear_operator_counting: str = "instrumented",
     diagnose_linear_update_residual: bool = False,
     line_search_mode: str = "backtracking",
     line_search_initial_step_scale: float = 1.0,
@@ -1281,6 +1283,10 @@ def solve_jax_linearized_newton_system(
     )
     resolved_line_search_mode = _resolve_jax_linear_line_search_mode(line_search_mode)
     residual_function = jax.jit(residual) if bool(jit_residual) else residual
+    resolved_linear_operator_counting = _resolve_jax_linear_operator_counting(
+        linear_operator_counting
+    )
+    instrument_linear_operator = resolved_linear_operator_counting == "instrumented"
     known_state_residual_inf_norm: float | None = None
 
     def _block(value):
@@ -1333,6 +1339,7 @@ def solve_jax_linearized_newton_system(
             linear_operator_call_count=linear_operator_call_count,
             linear_operator_dispatch_seconds=linear_operator_dispatch_seconds,
             linear_operator_jitted=bool(jit_linear_operator),
+            linear_operator_counting=resolved_linear_operator_counting,
             linear_preconditioner=linear_preconditioner_name
             if linear_preconditioner is not None
             or _is_dynamic_jax_linear_preconditioner(linear_preconditioner_name)
@@ -1405,32 +1412,41 @@ def solve_jax_linearized_newton_system(
                 linear_preconditioner_build_count += 1
             effective_preconditioner = cached_dynamic_preconditioner
 
-        def counted_linear_map(tangent):
-            nonlocal linear_operator_call_count, linear_operator_dispatch_seconds
-            operator_started_at = perf_counter()
-            result = linear_operator(tangent)
-            linear_operator_dispatch_seconds += perf_counter() - operator_started_at
-            linear_operator_call_count += 1
-            return result
+        if instrument_linear_operator:
+
+            def solve_linear_map(tangent):
+                nonlocal linear_operator_call_count, linear_operator_dispatch_seconds
+                operator_started_at = perf_counter()
+                result = linear_operator(tangent)
+                linear_operator_dispatch_seconds += perf_counter() - operator_started_at
+                linear_operator_call_count += 1
+                return result
+
+        else:
+            solve_linear_map = linear_operator
 
         counted_preconditioner = None
         if effective_preconditioner is not None:
+            if instrument_linear_operator:
 
-            def counted_preconditioner(vector):
-                nonlocal linear_preconditioner_apply_count
-                nonlocal linear_preconditioner_apply_seconds
-                preconditioner_apply_started_at = perf_counter()
-                result = effective_preconditioner(vector)
-                linear_preconditioner_apply_seconds += (
-                    perf_counter() - preconditioner_apply_started_at
-                )
-                linear_preconditioner_apply_count += 1
-                return result
+                def counted_preconditioner(vector):
+                    nonlocal linear_preconditioner_apply_count
+                    nonlocal linear_preconditioner_apply_seconds
+                    preconditioner_apply_started_at = perf_counter()
+                    result = effective_preconditioner(vector)
+                    linear_preconditioner_apply_seconds += (
+                        perf_counter() - preconditioner_apply_started_at
+                    )
+                    linear_preconditioner_apply_count += 1
+                    return result
+
+            else:
+                counted_preconditioner = effective_preconditioner
 
         linear_solve_started_at = perf_counter()
         linear_operator_calls_before_solve = int(linear_operator_call_count)
         solve_result = _solve_jax_linearized_update(
-            counted_linear_map,
+            solve_linear_map,
             -residual_value,
             backend=linear_backend,
             residual_tolerance=float(residual_tolerance),
@@ -1465,6 +1481,8 @@ def solve_jax_linearized_newton_system(
             int(last_linear_solver_reported_iterations)
             if last_linear_solver_reported_iterations is not None
             else int(linear_operator_calls_this_solve)
+            if instrument_linear_operator
+            else 0
         )
         update = jnp.asarray(update, dtype=jnp.float64)
         if bool(diagnose_linear_update_residual):
@@ -1633,6 +1651,37 @@ def _resolve_jax_gmres_solve_method(name: str | None) -> str:
         "qr": "incremental",
     }
     return aliases.get(normalized, "batched")
+
+
+def _resolve_jax_linear_operator_counting(name: str | None) -> str:
+    normalized = str(name or "instrumented").strip().lower().replace("-", "_")
+    aliases = {
+        "": "instrumented",
+        "default": "instrumented",
+        "instrumented": "instrumented",
+        "counted": "instrumented",
+        "count": "instrumented",
+        "diagnostic": "instrumented",
+        "diagnostics": "instrumented",
+        "on": "instrumented",
+        "true": "instrumented",
+        "yes": "instrumented",
+        "direct": "direct",
+        "uncounted": "direct",
+        "no_count": "direct",
+        "fast": "direct",
+        "production": "direct",
+        "off": "direct",
+        "false": "direct",
+        "no": "direct",
+    }
+    try:
+        return aliases[normalized]
+    except KeyError as exc:
+        raise ValueError(
+            "linear_operator_counting must be 'instrumented' or 'direct', "
+            f"got {name!r}."
+        ) from exc
 
 
 def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:

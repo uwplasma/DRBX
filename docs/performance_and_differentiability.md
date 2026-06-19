@@ -1731,6 +1731,22 @@ the jitted unpreconditioned run. The current practical recommendation is
 therefore to use the jitted matrix-free operator for heavier JAX-native
 recycling profiles, while keeping dynamic block and line preconditioners as
 opt-in evidence until they reduce same-case end-to-end time or operator count.
+The solver and profiling scripts also expose
+`runtime:recycling_jax_linear_operator_counting=direct` (or
+`--linear-operator-counting direct` in the profile script and
+`--fixed-bdf2-linear-operator-counting direct` in the promotion wrapper). This
+passes the JAX linearized operator directly to the Krylov solve instead of
+wrapping each action in Python for call accounting. The June 19, 2026 hydrogen
+fixed-BDF2 gate with `jit_linear_operator=true`, direct counting, and update
+residual diagnostics showed mixed evidence: the fixed-full-field route slowed
+to `87.95 s` (`70.53 s` in linear solves), while the active-array route ran in
+`51.06 s` (`33.79 s` in linear solves) with the same residual quality
+(`1.58e-8` maximum absolute update residual and `1.02e-5` relative). Because
+operator counts are intentionally unavailable in this mode, the scripts now
+reject direct counting when operator-call budget gates are requested. Keep this
+as an opt-in production-style profiling knob; it is not a default-promotion
+result because the evidence is backend-dependent and does not reduce the
+fixed-full-field path.
 
 The generic JAX-linearized solver now also reuses the already-known residual
 norm for the final accepted state when a bounded solve exits because the

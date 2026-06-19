@@ -115,6 +115,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--linear-operator-counting",
+        choices=("instrumented", "direct"),
+        default=None,
+        help=(
+            "Set runtime:recycling_jax_linear_operator_counting. The default "
+            "instrumented mode records Python-visible operator calls; direct "
+            "mode passes the JAX linear operator straight to the Krylov solver "
+            "for lower-overhead production-style profiling."
+        ),
+    )
+    parser.add_argument(
         "--active-array-rhs",
         action="store_true",
         help=(
@@ -476,6 +487,14 @@ def _validate_args(args: argparse.Namespace) -> None:
             raise SystemExit(
                 "--require-max-linear-operator-calls must be nonnegative."
             )
+    if args.linear_operator_counting == "direct" and (
+        args.require_min_linear_operator_calls is not None
+        or args.require_max_linear_operator_calls is not None
+    ):
+        raise SystemExit(
+            "--linear-operator-counting=direct disables Python-visible operator "
+            "call counts; do not combine it with linear-operator call gates."
+        )
     if args.require_min_linear_iterations is not None:
         if int(args.require_min_linear_iterations) < 0:
             raise SystemExit("--require-min-linear-iterations must be nonnegative.")
@@ -551,6 +570,11 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
         overrides.append("runtime:recycling_jax_linear_jit_residual=true")
     if bool(getattr(args, "jit_linear_operator", False)):
         overrides.append("runtime:recycling_jax_linear_jit_linear_operator=true")
+    operator_counting = getattr(args, "linear_operator_counting", None)
+    if operator_counting is not None:
+        overrides.append(
+            f"runtime:recycling_jax_linear_operator_counting={operator_counting}"
+        )
     if bool(getattr(args, "skip_initial_residual_check", False)):
         overrides.append("runtime:recycling_jax_linear_check_initial_residual=false")
     initial_residual_mode = getattr(args, "initial_residual_mode", None)

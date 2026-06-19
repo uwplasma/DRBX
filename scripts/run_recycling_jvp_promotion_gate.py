@@ -87,6 +87,7 @@ def _build_case_command(
     fixed_bdf2_max_preconditioner_builds: int | None = None,
     fixed_bdf2_max_preconditioner_applies: int | None = None,
     fixed_bdf2_jit_linear_operator: bool = False,
+    fixed_bdf2_linear_operator_counting: str | None = None,
     fixed_bdf2_diagnose_linear_update_residual: bool = False,
 ) -> list[str]:
     resolved_mode_timeout = (
@@ -203,6 +204,29 @@ def _build_case_command(
                     "--override",
                     "runtime:recycling_jax_linear_jit_linear_operator=true",
                     "--require-fixed-bdf2-linear-operator-jitted",
+                )
+            )
+        if fixed_bdf2_linear_operator_counting is not None:
+            counting_mode = str(fixed_bdf2_linear_operator_counting).strip().lower()
+            if counting_mode not in {"instrumented", "direct"}:
+                raise ValueError(
+                    "fixed_bdf2_linear_operator_counting must be 'instrumented' "
+                    "or 'direct'."
+                )
+            if (
+                counting_mode == "direct"
+                and fixed_bdf2_max_linear_operator_calls is not None
+            ):
+                raise ValueError(
+                    "fixed_bdf2_linear_operator_counting='direct' disables "
+                    "Python-visible operator call counts; do not combine it "
+                    "with fixed_bdf2_max_linear_operator_calls."
+                )
+            command.extend(
+                (
+                    "--override",
+                    "runtime:recycling_jax_linear_operator_counting="
+                    f"{counting_mode}",
                 )
             )
         if bool(fixed_bdf2_diagnose_linear_update_residual):
@@ -434,6 +458,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-linear-operator-counting",
+        choices=("instrumented", "direct"),
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_operator_counting=<mode> to "
+            "the fixed-BDF2 phase. Use direct for lower-overhead profiling after "
+            "operator-call budgets have already been established with "
+            "instrumented diagnostics."
+        ),
+    )
+    parser.add_argument(
         "--fixed-bdf2-diagnose-linear-update-residual",
         action="store_true",
         help=(
@@ -632,6 +667,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fixed_bdf2_jit_linear_operator=bool(
                     args.fixed_bdf2_jit_linear_operator
                 ),
+                fixed_bdf2_linear_operator_counting=(
+                    args.fixed_bdf2_linear_operator_counting
+                ),
                 fixed_bdf2_diagnose_linear_update_residual=bool(
                     args.fixed_bdf2_diagnose_linear_update_residual
                 ),
@@ -667,6 +705,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "fixed_bdf2_jit_linear_operator": bool(
                     args.fixed_bdf2_jit_linear_operator
+                ),
+                "fixed_bdf2_linear_operator_counting": (
+                    args.fixed_bdf2_linear_operator_counting
                 ),
                 "fixed_bdf2_diagnose_linear_update_residual": bool(
                     args.fixed_bdf2_diagnose_linear_update_residual

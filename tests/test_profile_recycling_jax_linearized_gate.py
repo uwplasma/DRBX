@@ -35,6 +35,8 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "--case",
             "dthe",
             "--jit-linear-operator",
+            "--linear-operator-counting",
+            "direct",
             "--active-array-rhs",
             "--linear-preconditioner",
             "local-block-diag",
@@ -85,6 +87,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.input_path == Path("/tmp/BOUT.inp")
     assert args.case == "dthe"
     assert args.jit_linear_operator is True
+    assert args.linear_operator_counting == "direct"
     assert args.active_array_rhs is True
     assert args.linear_preconditioner == "local-block-diag"
     assert args.linear_preconditioner_refresh == 100
@@ -122,6 +125,7 @@ def test_help_documents_preconditioner_and_budget_gates(
     assert "--linear-preconditioner" in help_text
     assert "--linear-preconditioner-refresh" in help_text
     assert "--jit-linear-operator" in help_text
+    assert "--linear-operator-counting" in help_text
     assert "--linear-restart" in help_text
     assert "--linear-maxiter" in help_text
     assert "--linear-tolerance-factor" in help_text
@@ -151,6 +155,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
         override=["mesh:ny=64"],
         jit_residual=True,
         jit_linear_operator=True,
+        linear_operator_counting="direct",
         skip_initial_residual_check=True,
         initial_residual_mode="linearize",
         gmres_solve_method="incremental",
@@ -166,6 +171,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
         "mesh:ny=64",
         "runtime:recycling_jax_linear_jit_residual=true",
         "runtime:recycling_jax_linear_jit_linear_operator=true",
+        "runtime:recycling_jax_linear_operator_counting=direct",
         "runtime:recycling_jax_linear_check_initial_residual=false",
         "runtime:recycling_jax_linear_initial_residual_mode=linearize",
         "runtime:recycling_jax_linear_gmres_solve_method=incremental",
@@ -242,6 +248,13 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "--require-max-linear-operator-calls must be nonnegative",
         ),
         (
+            {
+                "linear_operator_counting": "direct",
+                "require_max_linear_operator_calls": 5,
+            },
+            "--linear-operator-counting=direct disables Python-visible operator call counts",
+        ),
+        (
             {"require_min_linear_iterations": -1},
             "--require-min-linear-iterations must be nonnegative",
         ),
@@ -264,6 +277,7 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "require_linear_preconditioner": None,
             "require_initial_residual_mode": None,
             "initial_residual_mode": None,
+            "linear_operator_counting": None,
             "linear_restart": None,
             "linear_maxiter": None,
             "linear_tolerance_factor": None,

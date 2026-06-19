@@ -2539,6 +2539,33 @@ def test_jax_linearized_newton_solver_can_jit_linear_operator(
     assert jit_call_count >= 1
 
 
+def test_jax_linearized_newton_solver_can_use_direct_linear_operator() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([0.75, 1.25], dtype=jnp.float64)
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - target,
+        np.array([0.5, 1.0], dtype=np.float64),
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_restart=4,
+        linear_maxiter=4,
+        jit_linear_operator=True,
+        linear_operator_counting="direct",
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
+    assert info.residual_inf_norm < 1.0e-12
+    assert info.converged is True
+    assert info.linear_operator_jitted is True
+    assert info.linear_operator_counting == "direct"
+    assert info.linear_operator_call_count == 0
+    assert info.linear_operator_dispatch_seconds == pytest.approx(0.0)
+
+
 def test_jax_linearized_newton_solver_reports_line_search_damping() -> None:
     jnp = pytest.importorskip("jax.numpy")
 
