@@ -1864,6 +1864,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   batched-JVP tangent-shape failures at the JAX-native recycling seam. The
   refreshed promoted audit now completes with `601` passed, `14` skipped,
   `10` deselected, `1` xfailed, and `95.07%` total promoted coverage.
+- 2026-06-18: Added a cheaper opt-in JAX-linearized recycling preconditioner,
+  `field_sample_diag`. It samples one diagonal JVP per evolved field at a
+  representative active cell and reuses that field scale over all active cells,
+  giving a build cost proportional to field count rather than active unknown
+  count. It is selectable through
+  `runtime:recycling_jax_linear_preconditioner=field_sample_diag` and the
+  aliases `field-sample`, `sampled-field-diag`, `cheap-field-diag`, and
+  `field-lumped-diag`. Focused solver tests verify field-wise scaling and
+  Newton integration. A bounded two-step `recycling_1d_one_step`
+  `fixed_bdf2_active_array_jax_linearized` diagnostics gate passed with one
+  startup step, one BDF2 corrector, `field_sample_diag`, five preconditioner
+  builds, zero failed linearized solver steps, and
+  `fixed_bdf2_max_residual_inf_norm = 2.68e-09`. It remains opt-in until
+  heavier D/T/He and full-output CPU/GPU profiles demonstrate an actual runtime
+  win.
 
 ## Definition Of Done
 

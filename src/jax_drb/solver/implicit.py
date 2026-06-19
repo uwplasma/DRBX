@@ -1593,6 +1593,11 @@ def _is_dynamic_jax_linear_preconditioner(name: str | None) -> bool:
         "linearized_diag",
         "jvp_diag",
         "jacobian_diag",
+        "field_sample_diag",
+        "field_sample",
+        "sampled_field_diag",
+        "cheap_field_diag",
+        "field_lumped_diag",
         "field_diag",
         "field_jacobi",
         "field_diagonal",
@@ -1689,6 +1694,32 @@ def _build_jax_linearized_dynamic_preconditioner(
     normalized = str(name or "").strip().lower().replace("-", "_")
     if normalized in {"linearized_diag", "jvp_diag", "jacobian_diag"}:
         return _build_jax_linearized_diagonal_preconditioner(linear_map, prototype_state)
+    if normalized in {
+        "field_sample_diag",
+        "field_sample",
+        "sampled_field_diag",
+        "cheap_field_diag",
+        "field_lumped_diag",
+    }:
+        if context is None:
+            raise ValueError(
+                "field_sample_diag preconditioner requires active_cell_count and "
+                "field_count in linear_preconditioner_context."
+            )
+        return _build_jax_linearized_field_sample_diagonal_preconditioner(
+            linear_map,
+            prototype_state,
+            active_cell_count=int(context.get("active_cell_count", 0)),
+            field_count=int(context.get("field_count", 0)),
+            feedback_count=int(context.get("feedback_count", 0)),
+            sample_cell_index=(
+                int(context["sample_cell_index"])
+                if "sample_cell_index" in context
+                else None
+            ),
+            floor=float(context.get("floor", 1.0e-10)),
+            max_unknowns=int(context.get("max_unknowns", 256)),
+        )
     if normalized in {"field_diag", "field_jacobi", "field_diagonal"}:
         if context is None:
             raise ValueError(
@@ -1758,6 +1789,99 @@ def _build_jax_linearized_dynamic_preconditioner(
             max_total_unknowns=int(context.get("max_total_unknowns", 8192)),
         )
     raise ValueError(f"Unsupported dynamic JAX preconditioner {name!r}.")
+
+
+def _build_jax_linearized_field_sample_diagonal_preconditioner(
+    linear_map,
+    prototype_state,
+    *,
+    active_cell_count: int,
+    field_count: int,
+    feedback_count: int = 0,
+    sample_cell_index: int | None = None,
+    floor: float = 1.0e-10,
+    max_unknowns: int = 256,
+):
+    """Build a cheap field-wise diagonal preconditioner from sampled JVPs.
+
+    The full ``field_diag`` preconditioner samples one diagonal entry for every
+    active field unknown. This lower-cost variant samples one representative
+    cell per field, then applies that field scale to all active cells. The build
+    cost therefore scales with the number of fields, not the number of cells.
+    """
+
+    try:
+        import jax
+        import jax.numpy as jnp
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised only when jax is unavailable
+        raise ImportError(
+            "JAX sampled field-diagonal preconditioning requires jax."
+        ) from exc
+
+    prototype = jnp.asarray(prototype_state, dtype=jnp.float64)
+    flat_size = int(prototype.size)
+    active_cell_count = int(active_cell_count)
+    field_count = int(field_count)
+    feedback_count = int(feedback_count)
+    field_unknown_count = active_cell_count * field_count
+    if active_cell_count < 0 or field_count < 0 or feedback_count < 0:
+        raise ValueError("field_sample_diag preconditioner counts must be non-negative.")
+    if flat_size != field_unknown_count + feedback_count:
+        raise ValueError(
+            "field_sample_diag preconditioner context does not match packed state: "
+            f"state has {flat_size} entries, expected "
+            f"{field_unknown_count + feedback_count}."
+        )
+    if field_unknown_count == 0:
+        return lambda vector: jnp.asarray(vector, dtype=jnp.float64)
+    if field_count > int(max_unknowns):
+        raise ValueError(
+            "field_sample_diag preconditioner is bounded to at most "
+            f"{int(max_unknowns)} sampled field unknowns; got {field_count}."
+        )
+
+    if sample_cell_index is None:
+        resolved_sample_cell = active_cell_count // 2
+    else:
+        resolved_sample_cell = int(sample_cell_index)
+    resolved_sample_cell = min(max(resolved_sample_cell, 0), active_cell_count - 1)
+    sample_indices = (
+        jnp.arange(field_count, dtype=jnp.int32) * active_cell_count
+        + int(resolved_sample_cell)
+    )
+
+    def diagonal_entry(flat_index):
+        tangent_flat = jnp.zeros(flat_size, dtype=prototype.dtype).at[flat_index].set(
+            1.0
+        )
+        action = jnp.ravel(linear_map(tangent_flat.reshape(tuple(prototype.shape))))
+        return action[flat_index]
+
+    field_diagonal = jax.vmap(diagonal_entry)(sample_indices)
+    safe_field_diagonal = _safe_diagonal_denominator(
+        field_diagonal,
+        floor=float(floor),
+    )
+    safe_field_diagonal = jax.block_until_ready(safe_field_diagonal)
+
+    def preconditioner(vector):
+        flat_vector = jnp.ravel(jnp.asarray(vector, dtype=jnp.float64))
+        field_vector = flat_vector[:field_unknown_count]
+        solved_fields = (
+            field_vector.reshape((field_count, active_cell_count))
+            / safe_field_diagonal[:, None]
+        ).reshape((field_unknown_count,))
+        if feedback_count:
+            solved = jnp.concatenate(
+                (solved_fields, flat_vector[field_unknown_count:]), axis=0
+            )
+        else:
+            solved = solved_fields
+        return solved.reshape(tuple(prototype.shape))
+
+    return preconditioner
 
 
 def _build_jax_linearized_field_diagonal_preconditioner(

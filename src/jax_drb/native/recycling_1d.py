@@ -5858,6 +5858,11 @@ def _resolve_recycling_jax_linear_preconditioner_name(
         "linearized_diag": "linearized_diag",
         "jvp_diag": "linearized_diag",
         "jacobian_diag": "linearized_diag",
+        "field_sample": "field_sample_diag",
+        "field_sample_diag": "field_sample_diag",
+        "sampled_field_diag": "field_sample_diag",
+        "cheap_field_diag": "field_sample_diag",
+        "field_lumped_diag": "field_sample_diag",
         "field_diag": "field_diag",
         "field_jacobi": "field_diag",
         "field_diagonal": "field_diag",
@@ -5890,6 +5895,7 @@ def _build_recycling_jax_linear_preconditioner(
         return None
     if name in {
         "linearized_diag",
+        "field_sample_diag",
         "field_diag",
         "local_block_diag",
         "parallel_line",
@@ -5923,7 +5929,13 @@ def _recycling_jax_linear_preconditioner_context(
     config: BoutConfig | None = None,
     layout: _RecyclingPackedStateLayout | None,
 ) -> dict[str, object] | None:
-    if name not in {"field_diag", "local_block_diag", "parallel_line", "neutral_line"}:
+    if name not in {
+        "field_sample_diag",
+        "field_diag",
+        "local_block_diag",
+        "parallel_line",
+        "neutral_line",
+    }:
         return None
     if layout is None:
         raise ValueError(
@@ -5944,7 +5956,7 @@ def _recycling_jax_linear_preconditioner_context(
             default=1.0e-10,
         ),
     }
-    if name == "field_diag":
+    if name in {"field_sample_diag", "field_diag"}:
         context["max_unknowns"] = _resolve_positive_int_runtime_option(
             config,
             option_name="recycling_jax_linear_preconditioner_max_field_unknowns",

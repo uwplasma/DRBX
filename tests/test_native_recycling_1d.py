@@ -2943,6 +2943,11 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
         == "linearized_diag"
     )
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "field-sample")
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
+        == "field_sample_diag"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_PRECONDITIONER", "field-jacobi")
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name()
@@ -3035,6 +3040,18 @@ def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name(config)
         == "state_scale"
+    )
+    sampled_config = parse_bout_input(
+        """
+        [runtime]
+        recycling_jax_linear_preconditioner = sampled-field-diag
+        """
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_preconditioner_name(
+            sampled_config
+        )
+        == "field_sample_diag"
     )
     fallback_config = parse_bout_input(
         """
@@ -3149,6 +3166,13 @@ def test_recycling_dynamic_jax_preconditioners_are_solver_built() -> None:
     assert (
         recycling_1d_mod._build_recycling_jax_linear_preconditioner(
             np.asarray([1.0], dtype=np.float64),
+            name="field_sample_diag",
+        )
+        is None
+    )
+    assert (
+        recycling_1d_mod._build_recycling_jax_linear_preconditioner(
+            np.asarray([1.0], dtype=np.float64),
             name="local_block_diag",
         )
         is None
@@ -3191,6 +3215,19 @@ def test_recycling_local_block_preconditioner_context_uses_packed_layout() -> No
         "refresh_frequency": 1,
         "floor": 1.0e-10,
         "max_unknowns": 4096,
+    }
+    sampled_context = recycling_1d_mod._recycling_jax_linear_preconditioner_context(
+        "field_sample_diag",
+        layout=layout,
+    )
+    assert sampled_context == {
+        "active_shape": (3,),
+        "active_cell_count": 3,
+        "field_count": 7,
+        "feedback_count": 2,
+        "refresh_frequency": 1,
+        "floor": 1.0e-10,
+        "max_unknowns": 8192,
     }
     assert recycling_1d_mod._recycling_jax_linear_preconditioner_context(
         "field_diag",
