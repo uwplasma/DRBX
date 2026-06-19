@@ -3,24 +3,24 @@
   "batch_results": [
     {
       "batch_size": 1,
-      "batch_warmup_seconds": 3.8719626250094734,
+      "batch_warmup_seconds": 4.030098916089628,
       "batched_jvp_samples": [
-        0.00014758401084691286
+        0.00014395802281796932
       ],
-      "batched_jvp_seconds_median": 0.00014758401084691286,
-      "batched_jvp_states_per_second": 6775.801756989028,
-      "batched_jvp_warmup_seconds": 2.4676466670352966,
+      "batched_jvp_seconds_median": 0.00014395802281796932,
+      "batched_jvp_states_per_second": 6946.469397294172,
+      "batched_jvp_warmup_seconds": 2.6598472500336356,
       "batched_residual_samples": [
-        8.454202907159925e-05
+        8.854200132191181e-05
       ],
-      "batched_residual_seconds_median": 8.454202907159925e-05,
-      "batched_residual_states_per_second": 11828.436234397603,
-      "batched_residual_warmup_seconds": 1.4014733749791048,
-      "direction_build_seconds": 0.0003167919931001961,
+      "batched_residual_seconds_median": 8.854200132191181e-05,
+      "batched_residual_states_per_second": 11294.074959569796,
+      "batched_residual_warmup_seconds": 1.3673193330178037,
+      "direction_build_seconds": 0.00030554202385246754,
       "jvp_batched_serial_max_abs_error": 0.0,
       "jvp_partition_count": 1,
       "jvp_partition_size": 1,
-      "jvp_speedup_vs_serial": 0.9353454225915944,
+      "jvp_speedup_vs_serial": 0.9157740237265383,
       "pmap_batch_size": 0,
       "pmap_device_count": 0,
       "pmap_jvp_batched_max_abs_error": null,
@@ -32,18 +32,18 @@
       "residual_batched_serial_max_abs_error": 0.0,
       "residual_partition_count": 1,
       "residual_partition_size": 1,
-      "residual_speedup_vs_serial": 0.8570648592935519,
+      "residual_speedup_vs_serial": 0.7656474749201257,
       "serial_jvp_samples": [
-        0.00013804202899336815
+        0.00013183301780372858
       ],
-      "serial_jvp_seconds_median": 0.00013804202899336815,
-      "serial_jvp_states_per_second": 7244.170542060362,
+      "serial_jvp_seconds_median": 0.00013183301780372858,
+      "serial_jvp_states_per_second": 7585.353173730636,
       "serial_residual_samples": [
-        7.245800225064158e-05
+        6.779195973649621e-05
       ],
-      "serial_residual_seconds_median": 7.245800225064158e-05,
-      "serial_residual_states_per_second": 13801.098138765556,
-      "serial_warmup_seconds": 0.002842582995072007
+      "serial_residual_seconds_median": 6.779195973649621e-05,
+      "serial_residual_states_per_second": 14751.011829233843,
+      "serial_warmup_seconds": 0.002932333038188517
     }
   ],
   "case": "recycling_batched_jvp_profile",
@@ -93,12 +93,12 @@
   "jvp_partition_size": null,
   "linearized_action_diagnostics": {
     "batched_call_count": 1,
-    "batched_dispatch_seconds": 0.7285467080073431,
+    "batched_dispatch_seconds": 0.7305018749902956,
     "batched_jvp_max_abs_error_vs_direct_jvp": 0.0,
-    "build_seconds": 1.3680012499680743,
+    "build_seconds": 1.3591145829996094,
     "call_count": 1,
     "diagnostic_batch_size": 2,
-    "dispatch_seconds": 0.29065450001508,
+    "dispatch_seconds": 0.2903193330275826,
     "jvp_max_abs_error_vs_direct_jvp": 0.0,
     "residual_max_abs_error_vs_jit": 6.776263578034403e-21,
     "state_shape": [
@@ -107,15 +107,20 @@
   },
   "linearized_update_diagnostics": {
     "action_diagnostics": {
-      "batched_call_count": 0,
-      "batched_dispatch_seconds": 0.0,
-      "call_count": 0,
-      "dispatch_seconds": 0.0,
+      "batched_call_count": 1,
+      "batched_dispatch_seconds": 0.7305018749902956,
+      "call_count": 1,
+      "dispatch_seconds": 0.2903193330275826,
       "linear_maxiter": 8,
       "linear_operator_jitted": true,
       "linear_restart": 8,
       "linear_tolerance": 1e-08,
+      "linearization_reused": true,
       "preconditioner_used": false,
+      "solve_batched_call_count": 0,
+      "solve_batched_dispatch_seconds": 0.0,
+      "solve_call_count": 0,
+      "solve_dispatch_seconds": 0.0,
       "solve_method": "batched",
       "state_shape": [
         304
@@ -123,7 +128,7 @@
     },
     "candidate_residual_inf_norm": 2.109401480206464e-11,
     "check_enabled": true,
-    "elapsed_seconds": 5.484459583996795,
+    "elapsed_seconds": 4.329562582948711,
     "jit_linear_operator": true,
     "linear_maxiter": 8,
     "linear_restart": 8,
@@ -166,20 +171,20 @@
     ],
     "best_batched_jvp_throughput": {
       "batch_size": 1,
-      "states_per_second": 6775.801756989028
+      "states_per_second": 6946.469397294172
     },
     "best_batched_residual_throughput": {
       "batch_size": 1,
-      "states_per_second": 11828.436234397603
+      "states_per_second": 11294.074959569796
     },
     "best_jvp_batch_efficiency": {
       "batch_size": 1,
-      "efficiency": 0.9353454225915944,
-      "speedup": 0.9353454225915944
+      "efficiency": 0.9157740237265383,
+      "speedup": 0.9157740237265383
     },
     "best_jvp_speedup_vs_serial": {
       "batch_size": 1,
-      "speedup": 0.9353454225915944
+      "speedup": 0.9157740237265383
     },
     "best_pmap_jvp_device_efficiency_vs_serial": null,
     "best_pmap_jvp_speedup_vs_batched": null,
@@ -187,12 +192,12 @@
     "best_pmap_jvp_throughput": null,
     "best_residual_batch_efficiency": {
       "batch_size": 1,
-      "efficiency": 0.8570648592935519,
-      "speedup": 0.8570648592935519
+      "efficiency": 0.7656474749201257,
+      "speedup": 0.7656474749201257
     },
     "best_residual_speedup_vs_serial": {
       "batch_size": 1,
-      "speedup": 0.8570648592935519
+      "speedup": 0.7656474749201257
     },
     "max_batch_size": 1,
     "throughput_units": "states_per_second"
@@ -200,9 +205,9 @@
   "timed_runs": 1,
   "timestep": 0.0001,
   "warmup_timing": {
-    "base_jvp_warmup_seconds": 1.756103791994974,
-    "base_residual_warmup_seconds": 0.9119220830034465,
-    "fd_jvp_check_seconds": 0.011544457986019552,
+    "base_jvp_warmup_seconds": 1.7470503749791533,
+    "base_residual_warmup_seconds": 0.9079887089901604,
+    "fd_jvp_check_seconds": 0.010857417015358806,
     "objective_grad_check_seconds": null
   },
   "xla_dump_dir": null
