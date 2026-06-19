@@ -176,12 +176,24 @@ sizes, checksums, image dimensions, frame count, and visual-QA decision:
 The local QA pass inspected the poster, diagnostics page, FCI-plane snapshots,
 and a fixed-camera GIF contact sheet. The camera is stable, the opened sector
 shows the non-axisymmetric Landreman-Paul QA geometry, and the density
-fluctuations evolve smoothly across the 12-frame window. The bundle is suitable
-as docs/example validation media after release-hosting. It should not yet
-replace the README hero media without a final layout pass because the poster and
-GIF retain excess title whitespace, and the media-run JSON itself remains
-conservative unless it is paired with the committed refinement and stationarity
-reports above.
+fluctuations evolve smoothly across the 12-frame window. The uncropped bundle
+is suitable as docs/example validation media after release-hosting, but the raw
+poster and GIF retain excess title whitespace. The media-run JSON itself also
+remains conservative unless it is paired with the committed refinement and
+stationarity reports above.
+
+The final README/docs display assets are release-hosted compact crops of that
+same QA'd media bundle. The crop is display-only: it removes excess title and
+caption whitespace from the GIF/poster while preserving the fixed camera,
+opened sector, colorbar, and evolved state.
+
+![ESSOS imported QA-hybrid high-resolution diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png)
+
+![ESSOS imported QA-hybrid high-resolution snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__snapshots.png)
+
+![ESSOS imported QA-hybrid high-resolution poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__poster_compact.png)
+
+![ESSOS imported QA-hybrid high-resolution movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
 
 After regenerating two or more same-map-source movie reports at different grid
 sizes and two or more reports at different effective frame timesteps, summarize
@@ -354,4 +366,9 @@ evidence.
 - `docs/data/essos_imported_drb_movie_hybrid_artifacts/images/essos_imported_drb_movie_hybrid_campaign_snapshots.png`
 - `docs/data/essos_imported_drb_movie_hybrid_artifacts/images/essos_imported_drb_movie_hybrid_campaign_poster.png`
 - `docs/data/essos_imported_drb_movie_hybrid_artifacts/movies/essos_imported_drb_movie_hybrid_campaign.gif`
+- `docs/data/essos_imported_drb_movie_stationarity_jacobi_media/data/report.json`
+- `docs/data/essos_imported_drb_movie_stationarity_jacobi_media/images/diagnostics.png`
+- `docs/data/essos_imported_drb_movie_stationarity_jacobi_media/images/snapshots.png`
+- `docs/data/essos_imported_drb_movie_stationarity_jacobi_media/images/poster_compact.png`
+- `docs/data/essos_imported_drb_movie_stationarity_jacobi_media/movies/movie_compact.gif`
 - `docs/data/essos_imported_drb_movie_refinement_artifacts/data/essos_imported_drb_movie_refinement_summary.json`

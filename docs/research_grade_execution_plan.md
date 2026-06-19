@@ -149,9 +149,9 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 98% | The refinement gate now compares normalized spectral-centroid fractions rather than raw mode indices. With that correction and Jacobi FCI-potential preconditioning, the high-resolution `16x48x48 -> 16x96x48` report-only movie candidate passes both grid and time refinement, the `16x96x48`, `frames=12`, `substeps=3` JSON-only stationarity gate passes, and matching local media has passed frame-contact-sheet visual QA. The remaining blocker is release-hosting plus final README-hero layout tightening, not another renderer-only interpolation. |
+| 3D stellarator imported-field/VMEC SOL | 99% | The refinement gate now compares normalized spectral-centroid fractions rather than raw mode indices. With that correction and Jacobi FCI-potential preconditioning, the high-resolution `16x48x48 -> 16x96x48` report-only movie candidate passes both grid and time refinement, the `16x96x48`, `frames=12`, `substeps=3` JSON-only stationarity gate passes, matching local media has passed frame-contact-sheet visual QA, and compact release-hosted README/docs media now exists. The remaining blocker is broader long-window/non-reduced turbulence promotion, not geometry, renderer-only interpolation, or media hosting. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
-| Docs and examples | 94% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
+| Docs and examples | 95% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
 
 ## Milestone Map
@@ -2630,6 +2630,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   poster/GIF still have excess title whitespace and the media-run JSON remains
   conservative unless paired with the separate committed refinement and
   stationarity reports.
+- 2026-06-19: Created display-only compact crops from the validated
+  high-resolution Jacobi media bundle and uploaded five release assets under
+  `validation-artifacts-2026-04-28`: report JSON, diagnostics PNG, snapshots
+  PNG, compact poster PNG, and compact GIF. The crop preserves the fixed
+  camera, opened radial/toroidal sector, colorbar, non-axisymmetric
+  Landreman-Paul QA shape, and evolved density fluctuations while removing
+  excess title/caption whitespace. README, examples, imported-field docs, the
+  stellarator validation page, and `docs/release_artifacts_manifest.json` now
+  point to the release-hosted compact media. Decision: raise the 3D
+  imported-field/VMEC SOL lane to `99%` and docs/examples to `95%`. The
+  remaining imported-field limitation is the broader scientific promotion to a
+  long-window or less-reduced turbulence claim, not media hosting or renderer
+  polish.
 
 ## Definition Of Done
 

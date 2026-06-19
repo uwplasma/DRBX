@@ -118,11 +118,12 @@ adapters requires the geometry source checkout named by the page.
 | [`examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py) | Reduced imported QA DRB movie with open endpoints where present. |
 | [`examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_campaign.py) | Report-only grid/time transient sweep for imported DRB movie promotion, without writing GIF/NPZ media. |
 | [`examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_summary.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_summary.py) | Report-only grid/time refinement summary for imported DRB movie promotion. |
+| [`examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py) | JSON-only long-window stationarity gate for the high-resolution Jacobi imported-field movie settings. |
 | [`examples/geometry-3D/essos-field-lines/vmec_fieldline_surface_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/vmec_fieldline_surface_campaign.py) | Field-line/surface registration and Poincare diagnostics. |
 
 Representative output:
 
-![ESSOS imported QA-coil DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png)
+![ESSOS imported QA-hybrid DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
 
 ## Tokamak Geometry And Movies
 

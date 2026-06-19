@@ -29,6 +29,8 @@ The codebase is organized around:
 
 ![3D tokamak toroidal dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_toroidal_movie_artifacts__movies__tokamak_tcv_x21_toroidal.gif)
 
+![3D imported QA stellarator dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
+
 ## Install
 
 PyPI:
@@ -267,7 +269,7 @@ raw diffusion source formula.
 
 ![Fluid 1D MMS convergence](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png)
 
-![Stellarator SOL diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
+![Imported QA stellarator SOL poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__poster_compact.png)
 
 ![Autodiff diffusion uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
 
@@ -293,6 +295,8 @@ closely reproduced from:
 - [examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py](examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py)
 - [examples/geometry-3D/stellarator-fci/validation_campaign_demo.py](examples/geometry-3D/stellarator-fci/validation_campaign_demo.py)
 - [examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py](examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py)
+- [examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py](examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py)
+- [examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py](examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py)
 - [examples/diverted_tokamak_movie_demo.py](examples/diverted_tokamak_movie_demo.py)
 - [examples/diverted_tokamak_profile_analysis_demo.py](examples/diverted_tokamak_profile_analysis_demo.py)
 - [examples/autodiff_diffusion_uncertainty_demo.py](examples/autodiff_diffusion_uncertainty_demo.py)

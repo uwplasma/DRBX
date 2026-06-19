@@ -27,15 +27,22 @@
     "camera_stability": "passed",
     "non_axisymmetric_geometry_visible": true,
     "opened_radial_toroidal_sector_visible": true,
-    "release_hosting_required": true,
-    "publication_promotion_status": "validation_showcase_pending_release_hosting_and_final_layout",
+    "release_hosting_required": false,
+    "publication_promotion_status": "release_hosted_validation_showcase_pending_long_window_scientific_promotion",
     "notes": [
       "The fixed-camera GIF contact sheet showed stable geometry and smooth frame-to-frame evolution.",
       "The poster, diagnostics, and FCI-plane snapshots are suitable for docs/example validation.",
-      "The poster and GIF retain excess title whitespace and should be layout-tightened before replacing the README hero asset.",
+      "Compact display crops of the poster and GIF are release-hosted for README/docs use.",
       "The media-run report remains conservative because it does not ingest the separate committed grid/time-refinement and stationarity reports."
     ]
   },
+  "release_assets": [
+    "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__data__report.json",
+    "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png",
+    "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__poster_compact.png",
+    "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__snapshots.png",
+    "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif"
+  ],
   "files": [
     {
       "path": "data/essos_imported_drb_movie_stationarity_jacobi_media.json",

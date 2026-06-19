@@ -269,6 +269,31 @@
       "size_bytes": 1762990,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__movies__essos_imported_drb_movie_hybrid_campaign.gif"
     },
+    "docs/data/essos_imported_drb_movie_stationarity_jacobi_media/data/report.json": {
+      "asset": "docs__data__essos_imported_drb_movie_stationarity_jacobi_media__data__report.json",
+      "size_bytes": 4799,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__data__report.json"
+    },
+    "docs/data/essos_imported_drb_movie_stationarity_jacobi_media/images/diagnostics.png": {
+      "asset": "docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png",
+      "size_bytes": 601698,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png"
+    },
+    "docs/data/essos_imported_drb_movie_stationarity_jacobi_media/images/poster_compact.png": {
+      "asset": "docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__poster_compact.png",
+      "size_bytes": 329099,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__poster_compact.png"
+    },
+    "docs/data/essos_imported_drb_movie_stationarity_jacobi_media/images/snapshots.png": {
+      "asset": "docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__snapshots.png",
+      "size_bytes": 1564288,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__snapshots.png"
+    },
+    "docs/data/essos_imported_drb_movie_stationarity_jacobi_media/movies/movie_compact.gif": {
+      "asset": "docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif",
+      "size_bytes": 1407567,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif"
+    },
     "docs/data/essos_imported_fci_artifacts/data/essos_imported_fci_campaign.npz": {
       "asset": "docs__data__essos_imported_fci_artifacts__data__essos_imported_fci_campaign.npz",
       "size_bytes": 4983,
