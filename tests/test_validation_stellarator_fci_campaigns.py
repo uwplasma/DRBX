@@ -148,7 +148,7 @@ def test_imported_artifact_schema_audit_flags_stale_fci_report(
     ]
 
 
-def test_imported_artifact_schema_audit_example_reports_committed_stale_fci(
+def test_imported_artifact_schema_audit_example_reports_committed_current_artifacts(
     capsys,
 ) -> None:
     module = _load_imported_artifact_schema_audit_example()
@@ -158,19 +158,21 @@ def test_imported_artifact_schema_audit_example_reports_committed_stale_fci(
     output = capsys.readouterr().out
 
     assert summary["report_count"] == 5
-    assert summary["stale_report_count"] == 4
-    assert summary["schema_passed"] is False
-    assert output.count("status=stale, kind=fci") == 3
-    assert output.count("status=stale, kind=movie") == 1
-    assert output.count("status=current, kind=movie") == 1
+    assert summary["stale_report_count"] == 0
+    assert summary["schema_passed"] is True
+    assert output.count("status=stale") == 0
+    assert output.count("status=current, kind=fci") == 3
+    assert output.count("status=current, kind=movie") == 2
 
 
-def test_imported_artifact_schema_audit_example_can_require_current_artifacts() -> None:
+def test_imported_artifact_schema_audit_example_requires_current_artifacts() -> None:
     module = _load_imported_artifact_schema_audit_example()
     settings = module.build_audit_settings(require_all_current=True)
 
-    with pytest.raises(RuntimeError, match="regenerate stale reports"):
-        module.run_artifact_schema_audit(settings)
+    summary = module.run_artifact_schema_audit(settings)
+
+    assert summary["schema_passed"] is True
+    assert summary["stale_report_count"] == 0
 
 
 def test_imported_connection_length_refinement_example_resolves_live_sources(
