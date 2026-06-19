@@ -145,7 +145,7 @@ and tests all move together.
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 98.5% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, and both one-step and bounded fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves. Default promotion still needs heavier CPU/GPU parity/runtime evidence before replacing stable finite-difference defaults. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
-| Performance and scaling | 67% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, and direct-counting output-window gates can now prove solve execution without Python callback overhead. Remaining scaling work is heavy CPU/GPU evidence and multi-device batching on promoted kernels. |
+| Performance and scaling | 68% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, and the fixed-BDF2 direct-counting output-window gate is now a first-class local/GPU research campaign that proves solve execution without Python callback overhead. Remaining scaling work is heavy CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -2683,6 +2683,24 @@ Use this log for concise decision records. Do not paste terminal output here.
   meaningful promoted coverage at `96%`; the coverage target is satisfied for
   the current promoted slice, but future physics promotions still need
   literature-anchored tests rather than smoke-test-only additions.
+- 2026-06-19: Promoted the bounded hydrogen fixed-BDF2 direct-counting
+  output-window check into the research-campaign wrapper as
+  `fixed-bdf2-direct-counting-gate`, with a matching self-hosted GPU campaign
+  entry. The local run used `compare_recycling_transient_modes.py` on
+  `recycling_1d_one_step`, `mode=fixed_bdf2_active_array_jax_linearized`,
+  timestep `10`, `steps=2`,
+  `runtime:recycling_jax_linear_jit_linear_operator=true`,
+  `runtime:recycling_jax_linear_operator_counting=direct`, and
+  `runtime:recycling_jax_linear_initial_residual_mode=linearize`. It passed in
+  `44.18 s` with `20` active-array RHS steps, `20` jitted JAX-linearized
+  steps, `23` JAX GMRES solve attempts, zero linear-solver failures, zero
+  unconverged fixed-BDF2 steps, and maximum residual `2.8993e-6`. A deeper
+  `profile_curated_case.py` cProfile/RSS variant was deliberately not made the
+  default local gate because the cProfile run exceeded four minutes and the
+  RSS-only run exceeded two minutes on this laptop before manual termination.
+  Decision: raise performance/scaling to `68%`; this closes the reproducible
+  output-window campaign-wiring gap while leaving default solver promotion
+  blocked on heavier CPU/GPU parity, memory, and scaling evidence.
 
 ## Definition Of Done
 

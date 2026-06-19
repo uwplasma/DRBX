@@ -59,6 +59,17 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the bounded fixed-BDF2 direct-counting output-window gate after changing
+the active-array JAX-linearized recycling solve. This is the practical local
+campaign for proving that the direct-counting path executes real JAX GMRES
+solves without relying on Python operator-call callbacks:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign fixed-bdf2-direct-counting-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the GPU bundle on a self-hosted machine with CUDA-visible devices when
 collecting larger fixed-layout residual, full output-window, trace, memory, and
 pmap evidence:
@@ -71,9 +82,10 @@ python scripts/run_research_campaign_bundle.py \
 ```
 
 The `all-local` bundle runs the fast public slice, local CPU scaling, the
-D/T/He JAX-linearized residual gate, the full heavy recycling cProfile/RSS
-profile, and the live-reference matrix. It should only be used on machines
-where multi-hour runs are acceptable.
+D/T/He JAX-linearized residual gate, the fixed-BDF2 direct-counting
+output-window gate, the full heavy recycling cProfile/RSS profile, and the
+live-reference matrix. It should only be used on machines where multi-hour runs
+are acceptable.
 
 ## Current Evidence
 
@@ -100,8 +112,16 @@ now requires the active-array RHS backend for the large D/T/He residual profile,
 so trace and memory evidence does not accidentally fall back to the slower
 full-field compatibility residual. The bounded non-SciPy fixed-BDF2 path still
 reports both fixed-full-field and active-array diagnostics before any default
-solver promotion. The `gpu-dthe-active-array-output-jvp-profile` lane runs the
-full `recycling_dthe_one_step` output window through
+solver promotion. The `fixed-bdf2-direct-counting-gate` campaign is the bounded
+local counterpart for that output-window path. On June 19, 2026 it ran
+`recycling_1d_one_step` for `2` output steps at `dt=10`, executed `20`
+active-array RHS steps, `20` jitted JAX-linearized fixed-BDF2 steps, and `23`
+JAX GMRES solve attempts, and completed with zero failed or unconverged
+substeps, maximum residual `2.90e-6`, and `44.18 s` elapsed time. Because it
+uses `runtime:recycling_jax_linear_operator_counting=direct`, the correct
+low-overhead health metric is the reported solve count rather than Python
+operator-call callbacks. The `gpu-dthe-active-array-output-jvp-profile` lane
+runs the full `recycling_dthe_one_step` output window through
 `runtime:recycling_transient_solver_mode=bdf_active_array_jvp`, requires
 `bdf_rhs_backend=active_array`, `bdf_jvp_jacobian_gather_on_device=True`, and
 at least one sparse-JVP Jacobian batch. It is the primary output-window GPU

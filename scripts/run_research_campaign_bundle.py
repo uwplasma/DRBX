@@ -265,6 +265,50 @@ def _campaign_command_map(
             requires_reference=True,
             required_reference_inputs=("dthe",),
         ),
+        "fixed-bdf2-direct-counting-gate": CampaignCommand(
+            name="fixed-bdf2-direct-counting-gate",
+            description=(
+                "Bounded hydrogen fixed-BDF2 active-array output-window gate "
+                "using direct JAX linear-operator counting."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "compare_recycling_transient_modes.py"),
+                "--case",
+                "recycling_1d_one_step",
+                *reference_args,
+                "--mode",
+                "fixed_bdf2_active_array_jax_linearized",
+                "--diagnostics-only",
+                "--require-fixed-bdf2-diagnostics",
+                "--require-fixed-bdf2-linear-solver-backend",
+                "jax_gmres",
+                "--require-fixed-bdf2-linear-operator-jitted",
+                "--require-fixed-bdf2-min-linear-solve-count",
+                "1",
+                "--timestep",
+                "10",
+                "--steps",
+                "2",
+                "--mode-timeout-seconds",
+                "240",
+                "--override",
+                "runtime:recycling_jax_linear_jit_linear_operator=true",
+                "--override",
+                "runtime:recycling_jax_linear_operator_counting=direct",
+                "--override",
+                "runtime:recycling_jax_linear_initial_residual_mode=linearize",
+                "--output-json",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_1d_fixed_bdf2_active_array_direct_counting_cpu"
+                    / "profile_summary.json"
+                ),
+            ),
+            requires_reference=True,
+            required_reference_inputs=("hydrogen",),
+        ),
         "adaptive-bdf-jax-lineax-gate": CampaignCommand(
             name="adaptive-bdf-jax-lineax-gate",
             description="Adaptive-BDF JAX-linearized versus Lineax controller-health gate.",
@@ -418,6 +462,51 @@ def _campaign_command_map(
             required_reference_inputs=("dthe",),
             requires_gpu=True,
         ),
+        "gpu-fixed-bdf2-direct-counting-gate": CampaignCommand(
+            name="gpu-fixed-bdf2-direct-counting-gate",
+            description=(
+                "Bounded hydrogen fixed-BDF2 active-array output-window gate "
+                "under CUDA-visible JAX using direct linear-operator counting."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "compare_recycling_transient_modes.py"),
+                "--case",
+                "recycling_1d_one_step",
+                *reference_args,
+                "--mode",
+                "fixed_bdf2_active_array_jax_linearized",
+                "--diagnostics-only",
+                "--require-fixed-bdf2-diagnostics",
+                "--require-fixed-bdf2-linear-solver-backend",
+                "jax_gmres",
+                "--require-fixed-bdf2-linear-operator-jitted",
+                "--require-fixed-bdf2-min-linear-solve-count",
+                "1",
+                "--timestep",
+                "10",
+                "--steps",
+                "2",
+                "--mode-timeout-seconds",
+                "600",
+                "--override",
+                "runtime:recycling_jax_linear_jit_linear_operator=true",
+                "--override",
+                "runtime:recycling_jax_linear_operator_counting=direct",
+                "--override",
+                "runtime:recycling_jax_linear_initial_residual_mode=linearize",
+                "--output-json",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_1d_fixed_bdf2_active_array_direct_counting_gpu"
+                    / "profile_summary.json"
+                ),
+            ),
+            requires_reference=True,
+            required_reference_inputs=("hydrogen",),
+            requires_gpu=True,
+        ),
         "gpu-dthe-batched-jvp-gate": CampaignCommand(
             name="gpu-dthe-batched-jvp-gate",
             description="Multi-device D/T/He batched residual/JVP throughput gate with pmap parity metadata.",
@@ -460,6 +549,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
                     "local-cpu-scaling",
                     "dthe-jax-linearized-gate",
                     "dthe-batched-jvp-gate",
+                    "fixed-bdf2-direct-counting-gate",
                     "adaptive-bdf-jax-lineax-gate",
                     "heavy-recycling-profile",
                     "live-reference",
@@ -471,6 +561,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
             expanded.extend(
                 (
                     "gpu-dthe-jax-linearized-gate",
+                    "gpu-fixed-bdf2-direct-counting-gate",
                     "gpu-dthe-active-array-output-jvp-profile",
                     "gpu-dthe-full-output-jvp-profile",
                     "gpu-dthe-batched-jvp-gate",
@@ -562,8 +653,9 @@ def main() -> int:
             "scheduled-fast-research, closeout-coverage, promoted-solver-coverage, "
             "local-cpu-scaling, live-reference, heavy-recycling-profile, "
             "dthe-jax-linearized-gate, dthe-batched-jvp-gate, "
-            "dthe-active-array-output-jvp-profile, "
-            "gpu-dthe-jax-linearized-gate, gpu-dthe-active-array-output-jvp-profile, "
+            "dthe-active-array-output-jvp-profile, fixed-bdf2-direct-counting-gate, "
+            "gpu-dthe-jax-linearized-gate, gpu-fixed-bdf2-direct-counting-gate, "
+            "gpu-dthe-active-array-output-jvp-profile, "
             "gpu-dthe-batched-jvp-gate, "
             "all-ci, all-local, and all-gpu."
         ),

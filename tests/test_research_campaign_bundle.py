@@ -40,6 +40,31 @@ def _make_dthe_reference_root(tmp_path: Path) -> Path:
     return reference_root
 
 
+def _assert_fixed_bdf2_direct_counting_command(command, *, requires_gpu: bool) -> None:
+    assert command.required_reference_inputs == ("hydrogen",)
+    assert command.requires_gpu is requires_gpu
+    assert "compare_recycling_transient_modes.py" in command.command[1]
+    assert "recycling_1d_one_step" in command.command
+    assert "fixed_bdf2_active_array_jax_linearized" in command.command
+    assert "--diagnostics-only" in command.command
+    assert "--require-fixed-bdf2-diagnostics" in command.command
+    assert "--require-fixed-bdf2-linear-operator-jitted" in command.command
+    assert command.command[
+        command.command.index("--require-fixed-bdf2-linear-solver-backend") + 1
+    ] == "jax_gmres"
+    assert command.command[
+        command.command.index("--require-fixed-bdf2-min-linear-solve-count") + 1
+    ] == "1"
+    assert command.command[command.command.index("--timestep") + 1] == "10"
+    assert command.command[command.command.index("--steps") + 1] == "2"
+    assert "runtime:recycling_jax_linear_jit_linear_operator=true" in command.command
+    assert "runtime:recycling_jax_linear_operator_counting=direct" in command.command
+    assert "runtime:recycling_jax_linear_initial_residual_mode=linearize" in (
+        command.command
+    )
+    assert "--output-json" in command.command
+
+
 def _workflow_campaign_options() -> tuple[str, ...]:
     lines = _WORKFLOW.read_text(encoding="utf-8").splitlines()
     in_campaign = False
@@ -81,6 +106,16 @@ def test_research_campaign_defaults_to_scheduled_fast_slice() -> None:
     assert [command.name for command in commands] == ["scheduled-fast-research"]
     assert "run_fast_research_checks.py" in commands[0].command[1]
     assert commands[0].command[-1] == "123"
+
+
+def test_research_campaign_all_local_includes_fixed_bdf2_direct_counting() -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py", "research_campaign_all_local"
+    )
+
+    assert "fixed-bdf2-direct-counting-gate" in module.expand_campaign_names(
+        ("all-local",)
+    )
 
 
 def test_research_campaign_workflow_choices_match_supported_campaigns() -> None:
@@ -212,6 +247,28 @@ def test_research_campaign_adaptive_bdf_gate_writes_json_report(tmp_path: Path) 
     )
 
 
+def test_research_campaign_fixed_bdf2_direct_counting_gate_is_gated(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py",
+        "research_campaign_fixed_bdf2_direct",
+    )
+    reference_root = _make_dthe_reference_root(tmp_path)
+
+    (command,) = module.build_campaign_commands(
+        campaign_names=("fixed-bdf2-direct-counting-gate",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=reference_root,
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    assert command.name == "fixed-bdf2-direct-counting-gate"
+    _assert_fixed_bdf2_direct_counting_command(command, requires_gpu=False)
+
+
 def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
     tmp_path: Path,
 ) -> None:
@@ -229,7 +286,7 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
         fast_timeout_seconds=300,
     )
 
-    linearized, active_output, full_output, batched = commands
+    linearized, fixed_bdf2, active_output, full_output, batched = commands
     assert linearized.name == "gpu-dthe-jax-linearized-gate"
     assert linearized.required_reference_inputs == ("dthe",)
     assert linearized.requires_gpu is True
@@ -244,6 +301,8 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
     assert linearized.command[linearized.command.index("--require-rhs-backend") + 1] == (
         "active_array"
     )
+    assert fixed_bdf2.name == "gpu-fixed-bdf2-direct-counting-gate"
+    _assert_fixed_bdf2_direct_counting_command(fixed_bdf2, requires_gpu=True)
     assert active_output.name == "gpu-dthe-active-array-output-jvp-profile"
     assert active_output.required_reference_inputs == ("dthe",)
     assert active_output.requires_gpu is True
