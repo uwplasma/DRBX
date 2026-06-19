@@ -149,7 +149,7 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| 3D stellarator imported-field/VMEC SOL | 84% | Finish pure-coil tracing refinement, FCI, high-resolution live grid-refinement, and high-resolution live time-refinement before turbulence/movie claims; report-level promotion/advisory/negative-control semantics, finite-overlap thresholds, sweep summaries, movie-evidence roles, radial-flux magnitude gates, spectral-resolution gates, and a report-only movie-refinement campaign are now explicit. |
+| 3D stellarator imported-field/VMEC SOL | 85% | High-grid hybrid report-only movie candidates now pass time and spectral-resolution gates, and radial-flux blockers are cleared at `(8,12,24)->(16,24,48)`; remaining blockers are toroidal spectral-centroid grid movement and fine-grid potential residual conditioning before any turbulence/movie claim. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 93% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
@@ -2129,6 +2129,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   The next deterministic report-only candidate is therefore
   `(8,12,24)` to `(16,24,48)`. Do not render or promote a GIF from this lane
   until the grid gate and edge-band gate pass.
+- 2026-06-19: Ran the next report-only hybrid movie candidate in `tmp/` with
+  grid pair `(8,12,24)` to `(16,24,48)` and the same effective timestep pair.
+  This clears several prior blockers: the time gate passes with max relative
+  metric change `0.093`, both time reports pass spectral-resolution screening,
+  both grid reports pass spectral-resolution screening, and radial-flux
+  magnitude/RMS no longer appear in the failed metric register. The grid gate
+  still fails with max relative metric change `1.04`; the remaining blockers
+  are `spectral_centroid_toroidal_fraction` (`0.273` to `0.134`) and
+  `final_potential_residual_l2` (roundoff-level coarse residual to
+  `6.83e-5` on the fine grid). The deterministic next candidate is
+  `(16,24,48)` to `(24,36,96)`, but the potential residual should be treated
+  as a conditioning/solver-tolerance diagnostic before spending much more wall
+  time on movie rendering.
 
 ## Definition Of Done
 
