@@ -2299,6 +2299,10 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_total_nonlinear_iterations": 0,
         "fixed_bdf2_total_linear_iterations": 0,
         "fixed_bdf2_total_linear_operator_call_count": 0,
+        "fixed_bdf2_max_linear_update_residual_inf_norm": None,
+        "fixed_bdf2_max_linear_update_relative_residual": None,
+        "fixed_bdf2_total_linear_update_residual_evaluation_count": 0,
+        "fixed_bdf2_total_linear_update_residual_seconds": 0.0,
         "fixed_bdf2_total_residual_evaluation_count": 0,
         "fixed_bdf2_total_jacobian_refresh_count": 0,
         "fixed_bdf2_total_linear_solve_seconds": 0.0,
@@ -2341,6 +2345,32 @@ def _advance_recycling_1d_fixed_bdf2_history(
         diagnostics["fixed_bdf2_total_linear_operator_call_count"] = int(
             diagnostics["fixed_bdf2_total_linear_operator_call_count"]
         ) + int(info.diagnostics.get("linear_operator_call_count", 0))
+        diagnostics["fixed_bdf2_total_linear_update_residual_evaluation_count"] = int(
+            diagnostics["fixed_bdf2_total_linear_update_residual_evaluation_count"]
+        ) + int(info.diagnostics.get("linear_update_residual_evaluation_count", 0) or 0)
+        diagnostics["fixed_bdf2_total_linear_update_residual_seconds"] = float(
+            diagnostics["fixed_bdf2_total_linear_update_residual_seconds"]
+        ) + float(info.diagnostics.get("linear_update_residual_seconds", 0.0) or 0.0)
+        linear_update_residual = info.diagnostics.get(
+            "linear_update_residual_inf_norm"
+        )
+        if linear_update_residual is not None:
+            current = diagnostics["fixed_bdf2_max_linear_update_residual_inf_norm"]
+            diagnostics["fixed_bdf2_max_linear_update_residual_inf_norm"] = (
+                float(linear_update_residual)
+                if current is None
+                else max(float(current), float(linear_update_residual))
+            )
+        linear_update_relative_residual = info.diagnostics.get(
+            "linear_update_relative_residual"
+        )
+        if linear_update_relative_residual is not None:
+            current = diagnostics["fixed_bdf2_max_linear_update_relative_residual"]
+            diagnostics["fixed_bdf2_max_linear_update_relative_residual"] = (
+                float(linear_update_relative_residual)
+                if current is None
+                else max(float(current), float(linear_update_relative_residual))
+            )
         diagnostics["fixed_bdf2_total_residual_evaluation_count"] = int(
             diagnostics["fixed_bdf2_total_residual_evaluation_count"]
         ) + int(info.diagnostics.get("residual_evaluation_count", 0))
@@ -2801,6 +2831,10 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_jacobian_refresh_count": 0,
         "adaptive_bdf_linear_iterations": 0,
         "adaptive_bdf_linear_operator_call_count": 0,
+        "adaptive_bdf_max_linear_update_residual_inf_norm": None,
+        "adaptive_bdf_max_linear_update_relative_residual": None,
+        "adaptive_bdf_linear_update_residual_evaluation_count": 0,
+        "adaptive_bdf_linear_update_residual_seconds": 0.0,
         "adaptive_bdf_linear_solver_tolerance": None,
         "adaptive_bdf_linear_preconditioner": None,
         "adaptive_bdf_linear_preconditioner_build_count": 0,
@@ -2927,6 +2961,10 @@ def _write_adaptive_bdf_trace_record(
                 "linear_solver_status",
                 "linear_solver_success",
                 "linear_solver_reported_iterations",
+                "linear_update_residual_inf_norm",
+                "linear_update_relative_residual",
+                "linear_update_residual_evaluation_count",
+                "linear_update_residual_seconds",
                 "linear_preconditioner",
                 "linear_preconditioner_build_count",
                 "linear_preconditioner_build_seconds",
@@ -3116,6 +3154,10 @@ def _record_adaptive_bdf_step_solver_info(
             "adaptive_bdf_linear_operator_call_count",
         ),
         (
+            "linear_update_residual_evaluation_count",
+            "adaptive_bdf_linear_update_residual_evaluation_count",
+        ),
+        (
             "linear_preconditioner_apply_count",
             "adaptive_bdf_linear_preconditioner_apply_count",
         ),
@@ -3145,6 +3187,24 @@ def _record_adaptive_bdf_step_solver_info(
         stats["adaptive_bdf_linear_solver_tolerance"] = float(
             diagnostics["linear_solver_tolerance"]
         )
+    linear_update_residual = diagnostics.get("linear_update_residual_inf_norm")
+    if linear_update_residual is not None:
+        current = stats["adaptive_bdf_max_linear_update_residual_inf_norm"]
+        stats["adaptive_bdf_max_linear_update_residual_inf_norm"] = (
+            float(linear_update_residual)
+            if current is None
+            else max(float(current), float(linear_update_residual))
+        )
+    linear_update_relative_residual = diagnostics.get(
+        "linear_update_relative_residual"
+    )
+    if linear_update_relative_residual is not None:
+        current = stats["adaptive_bdf_max_linear_update_relative_residual"]
+        stats["adaptive_bdf_max_linear_update_relative_residual"] = (
+            float(linear_update_relative_residual)
+            if current is None
+            else max(float(current), float(linear_update_relative_residual))
+        )
     if diagnostics.get("linear_preconditioner") is not None:
         stats["adaptive_bdf_linear_preconditioner"] = str(
             diagnostics["linear_preconditioner"]
@@ -3163,6 +3223,10 @@ def _record_adaptive_bdf_step_solver_info(
         (
             "linear_operator_dispatch_seconds",
             "adaptive_bdf_linear_operator_dispatch_seconds",
+        ),
+        (
+            "linear_update_residual_seconds",
+            "adaptive_bdf_linear_update_residual_seconds",
         ),
         ("line_search_seconds", "adaptive_bdf_line_search_seconds"),
         (
@@ -3263,6 +3327,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_jacobian_refresh_count",
         "adaptive_bdf_linear_iterations",
         "adaptive_bdf_linear_operator_call_count",
+        "adaptive_bdf_linear_update_residual_evaluation_count",
         "adaptive_bdf_linear_preconditioner_build_count",
         "adaptive_bdf_linear_preconditioner_apply_count",
         "adaptive_bdf_linear_solver_failed_steps",
@@ -3283,6 +3348,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_jacobian_assembly_seconds",
         "adaptive_bdf_linear_solve_seconds",
         "adaptive_bdf_linear_operator_dispatch_seconds",
+        "adaptive_bdf_linear_update_residual_seconds",
         "adaptive_bdf_line_search_seconds",
         "adaptive_bdf_linear_preconditioner_build_seconds",
         "adaptive_bdf_linear_preconditioner_apply_seconds",
@@ -3308,6 +3374,8 @@ def _accumulate_adaptive_bdf_interval_stats(
         ("adaptive_bdf_max_accepted_dt", max),
         ("adaptive_bdf_max_error_ratio", max),
         ("adaptive_bdf_max_accepted_error_ratio", max),
+        ("adaptive_bdf_max_linear_update_residual_inf_norm", max),
+        ("adaptive_bdf_max_linear_update_relative_residual", max),
     ):
         value = step.get(key)
         if value is None:
@@ -4809,6 +4877,9 @@ def advance_recycling_1d_backward_euler_step(
         )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         jit_linear_operator = _resolve_recycling_jax_linear_jit_linear_operator(config)
+        diagnose_linear_update_residual = (
+            _resolve_recycling_jax_linear_diagnose_update_residual(config)
+        )
         check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
             config
         )
@@ -4855,6 +4926,7 @@ def advance_recycling_1d_backward_euler_step(
             initial_residual_mode=initial_residual_mode,
             jit_residual=jit_residual,
             jit_linear_operator=jit_linear_operator,
+            diagnose_linear_update_residual=diagnose_linear_update_residual,
             line_search_mode=line_search_mode,
             line_search_initial_step_scale=line_search_initial_step_scale,
         )
@@ -5013,6 +5085,9 @@ def advance_recycling_1d_bdf2_step(
         )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         jit_linear_operator = _resolve_recycling_jax_linear_jit_linear_operator(config)
+        diagnose_linear_update_residual = (
+            _resolve_recycling_jax_linear_diagnose_update_residual(config)
+        )
         check_initial_residual = _resolve_recycling_jax_linear_check_initial_residual(
             config
         )
@@ -5059,6 +5134,7 @@ def advance_recycling_1d_bdf2_step(
             initial_residual_mode=initial_residual_mode,
             jit_residual=jit_residual,
             jit_linear_operator=jit_linear_operator,
+            diagnose_linear_update_residual=diagnose_linear_update_residual,
             line_search_mode=line_search_mode,
             line_search_initial_step_scale=line_search_initial_step_scale,
         )
@@ -6324,6 +6400,17 @@ def _resolve_recycling_jax_linear_jit_linear_operator(
     )
 
 
+def _resolve_recycling_jax_linear_diagnose_update_residual(
+    config: BoutConfig | None = None,
+) -> bool:
+    return _resolve_bool_runtime_option(
+        config,
+        option_name="recycling_jax_linear_diagnose_update_residual",
+        env_name="JAX_DRB_RECYCLING_JAX_LINEAR_DIAGNOSE_UPDATE_RESIDUAL",
+        default=False,
+    )
+
+
 def _resolve_recycling_jax_linear_check_initial_residual(
     config: BoutConfig | None = None,
 ) -> bool:
@@ -7082,6 +7169,18 @@ def _as_recycling_step_info(
             info, "linear_solver_reported_iterations", None
         ),
         "linear_solver_solve_method": getattr(info, "linear_solver_solve_method", None),
+        "linear_update_residual_inf_norm": getattr(
+            info, "linear_update_residual_inf_norm", None
+        ),
+        "linear_update_relative_residual": getattr(
+            info, "linear_update_relative_residual", None
+        ),
+        "linear_update_residual_evaluation_count": int(
+            getattr(info, "linear_update_residual_evaluation_count", 0)
+        ),
+        "linear_update_residual_seconds": float(
+            getattr(info, "linear_update_residual_seconds", 0.0)
+        ),
         "linear_operator_call_count": int(
             getattr(info, "linear_operator_call_count", 0)
         ),

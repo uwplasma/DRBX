@@ -354,6 +354,12 @@ preconditioner-build work and wall time. Future preconditioner work should
 therefore target approximate target/sheath, Schur, field-line transport, or
 neutral-plasma blocks that reduce the real recycling Krylov spectrum, not more
 exact selected-line or sampled-local probes on this deck. The optional
+`runtime:recycling_jax_linear_diagnose_update_residual=true` diagnostic now
+adds an achieved `J v + r` residual check after each Krylov solve and records
+absolute/relative update residuals in fixed/adaptive BDF summaries. Use it
+when screening the next preconditioner so a candidate can be rejected if it
+preserves final nonlinear residuals but does not improve update quality or
+operator work under a constrained Krylov budget. The optional
 `runtime:recycling_jax_linear_preconditioner_refresh` control reuses the
 dynamic block preconditioner within one implicit solve. The matching
 `runtime:recycling_jax_linear_preconditioner_floor`,

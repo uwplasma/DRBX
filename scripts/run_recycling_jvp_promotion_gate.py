@@ -84,6 +84,7 @@ def _build_case_command(
     fixed_bdf2_max_preconditioner_builds: int | None = None,
     fixed_bdf2_max_preconditioner_applies: int | None = None,
     fixed_bdf2_jit_linear_operator: bool = False,
+    fixed_bdf2_diagnose_linear_update_residual: bool = False,
 ) -> list[str]:
     resolved_mode_timeout = (
         gate_case.mode_timeout_seconds
@@ -199,6 +200,13 @@ def _build_case_command(
                     "--override",
                     "runtime:recycling_jax_linear_jit_linear_operator=true",
                     "--require-fixed-bdf2-linear-operator-jitted",
+                )
+            )
+        if bool(fixed_bdf2_diagnose_linear_update_residual):
+            command.extend(
+                (
+                    "--override",
+                    "runtime:recycling_jax_linear_diagnose_update_residual=true",
                 )
             )
         if fixed_bdf2_max_linear_iterations is not None:
@@ -392,6 +400,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-diagnose-linear-update-residual",
+        action="store_true",
+        help=(
+            "Forward runtime:recycling_jax_linear_diagnose_update_residual=true "
+            "to the fixed-BDF2 phase. This adds one extra linearized action per "
+            "Newton update and records the achieved J v + r residual for "
+            "preconditioner screening."
+        ),
+    )
+    parser.add_argument(
         "--fixed-bdf2-linear-restart",
         type=int,
         default=None,
@@ -554,6 +572,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fixed_bdf2_jit_linear_operator=bool(
                     args.fixed_bdf2_jit_linear_operator
                 ),
+                fixed_bdf2_diagnose_linear_update_residual=bool(
+                    args.fixed_bdf2_diagnose_linear_update_residual
+                ),
             )
             resolved_mode_timeout = (
                 gate_case.mode_timeout_seconds
@@ -586,6 +607,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "fixed_bdf2_jit_linear_operator": bool(
                     args.fixed_bdf2_jit_linear_operator
+                ),
+                "fixed_bdf2_diagnose_linear_update_residual": bool(
+                    args.fixed_bdf2_diagnose_linear_update_residual
                 ),
                 "fixed_bdf2_max_linear_iterations": (
                     args.fixed_bdf2_max_linear_iterations

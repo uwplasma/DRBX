@@ -197,6 +197,13 @@ The same diagnostics report `linear_operator_call_count` and
 matrix-free linearized operator during the Krylov solve. These are profiling
 diagnostics for solver studies; the full `linear_solve_seconds` value remains
 the end-to-end wall-time measurement because JAX device work can be asynchronous.
+For preconditioner screening, the same JAX-linearized path can also compute the
+achieved linear-update residual `J v + r` after each Krylov solve. Enable this
+with `runtime:recycling_jax_linear_diagnose_update_residual=true` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_DIAGNOSE_UPDATE_RESIDUAL=1`. Fixed-BDF2 and
+adaptive-BDF histories then report max absolute/relative update residuals plus
+the extra diagnostic action count and time. This is opt-in because it adds one
+extra linearized action per Newton update.
 When a JAX-GMRES preconditioner is enabled, the same reports include
 `linear_preconditioner_build_count`, `linear_preconditioner_build_seconds`,
 `linear_preconditioner_apply_count`, and
@@ -220,6 +227,8 @@ The same wrapper can make constrained-budget screens reproducible with
 `--fixed-bdf2-linear-tolerance-factor=<f>`, which forward the corresponding
 `runtime:recycling_jax_linear_*` controls into the comparison run and record
 them in the JSON summary.
+Use `--fixed-bdf2-diagnose-linear-update-residual` to enable the same
+`J v + r` diagnostic in fixed-BDF2 promotion artifacts.
 For heavy matrix-free profiling, the linearized Krylov action can also be
 wrapped with `runtime:recycling_jax_linear_jit_linear_operator=true` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR=1`. Fixed-BDF2 histories

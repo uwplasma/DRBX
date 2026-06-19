@@ -2893,6 +2893,20 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         is False
     )
     monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_DIAGNOSE_UPDATE_RESIDUAL", "yes"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_diagnose_update_residual()
+        is True
+    )
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_DIAGNOSE_UPDATE_RESIDUAL", "off"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_diagnose_update_residual()
+        is False
+    )
+    monkeypatch.setenv(
         "JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL", "no"
     )
     assert (
@@ -3530,6 +3544,69 @@ def test_recycling_jax_linear_solver_backend_prefers_runtime_config(
     )
 
 
+def test_adaptive_bdf_stats_record_linear_update_residual_diagnostics() -> None:
+    stats = recycling_1d_mod._new_adaptive_bdf_interval_stats(
+        step_solver_mode="jax_linearized"
+    )
+    info = SimpleNamespace(
+        residual_inf_norm=1.0e-8,
+        nonlinear_iterations=1,
+        linear_iterations=3,
+        diagnostics={
+            "converged": True,
+            "linear_solver_backend": "jax_gmres",
+            "linear_solver_success": True,
+            "linear_update_residual_inf_norm": 2.0e-11,
+            "linear_update_relative_residual": 3.0e-5,
+            "linear_update_residual_evaluation_count": 1,
+            "linear_update_residual_seconds": 0.004,
+        },
+    )
+
+    recycling_1d_mod._record_adaptive_bdf_step_solver_info(stats, info)
+
+    assert stats["adaptive_bdf_linear_update_residual_evaluation_count"] == 1
+    assert stats["adaptive_bdf_linear_update_residual_seconds"] == pytest.approx(0.004)
+    assert stats["adaptive_bdf_max_linear_update_residual_inf_norm"] == pytest.approx(
+        2.0e-11
+    )
+    assert stats["adaptive_bdf_max_linear_update_relative_residual"] == pytest.approx(
+        3.0e-5
+    )
+
+
+def test_adaptive_bdf_interval_accumulates_linear_update_residual_diagnostics() -> None:
+    total = recycling_1d_mod._new_adaptive_bdf_interval_stats(
+        step_solver_mode="jax_linearized"
+    )
+    first = recycling_1d_mod._new_adaptive_bdf_interval_stats(
+        step_solver_mode="jax_linearized"
+    )
+    second = recycling_1d_mod._new_adaptive_bdf_interval_stats(
+        step_solver_mode="jax_linearized"
+    )
+    first["adaptive_bdf_linear_update_residual_evaluation_count"] = 1
+    first["adaptive_bdf_linear_update_residual_seconds"] = 0.004
+    first["adaptive_bdf_max_linear_update_residual_inf_norm"] = 2.0e-11
+    first["adaptive_bdf_max_linear_update_relative_residual"] = 3.0e-5
+    second["adaptive_bdf_linear_update_residual_evaluation_count"] = 2
+    second["adaptive_bdf_linear_update_residual_seconds"] = 0.006
+    second["adaptive_bdf_max_linear_update_residual_inf_norm"] = 5.0e-11
+    second["adaptive_bdf_max_linear_update_relative_residual"] = 1.0e-5
+
+    recycling_1d_mod._accumulate_adaptive_bdf_interval_stats(total, first)
+    recycling_1d_mod._accumulate_adaptive_bdf_interval_stats(total, second)
+
+    assert total["adaptive_bdf_linear_update_residual_evaluation_count"] == 3
+    assert total["adaptive_bdf_linear_update_residual_seconds"] == pytest.approx(0.010)
+    assert total["adaptive_bdf_max_linear_update_residual_inf_norm"] == pytest.approx(
+        5.0e-11
+    )
+    assert total["adaptive_bdf_max_linear_update_relative_residual"] == pytest.approx(
+        3.0e-5
+    )
+
+
 @pytest.mark.parametrize(
     ("solver_mode", "expected_solver", "expected_backend"),
     [
@@ -3645,6 +3722,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
         assert kwargs["linear_tolerance"] == pytest.approx(1.0e-7)
         assert kwargs["jit_residual"] is True
         assert kwargs["jit_linear_operator"] is True
+        assert kwargs["diagnose_linear_update_residual"] is True
         assert kwargs["line_search_mode"] == "full_step"
         assert kwargs["check_initial_residual"] is False
         assert kwargs["initial_residual_mode"] == "linearize"
@@ -3663,6 +3741,18 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             jacobian_mode="jvp",
             residual_jitted=kwargs["jit_residual"],
             linear_operator_jitted=kwargs["jit_linear_operator"],
+            linear_update_residual_inf_norm=1.0e-12
+            if kwargs["diagnose_linear_update_residual"]
+            else None,
+            linear_update_relative_residual=2.0e-12
+            if kwargs["diagnose_linear_update_residual"]
+            else None,
+            linear_update_residual_evaluation_count=1
+            if kwargs["diagnose_linear_update_residual"]
+            else 0,
+            linear_update_residual_seconds=0.003
+            if kwargs["diagnose_linear_update_residual"]
+            else 0.0,
             line_search_mode=kwargs["line_search_mode"],
             check_initial_residual=kwargs["check_initial_residual"],
             initial_residual_mode=kwargs["initial_residual_mode"],
@@ -3695,6 +3785,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_TOLERANCE_FACTOR", "10")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "1")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_LINEAR_OPERATOR", "1")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_DIAGNOSE_UPDATE_RESIDUAL", "1")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE", "full_step")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL", "0")
     monkeypatch.setenv(
@@ -3741,6 +3832,16 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     if solver_mode.startswith("jax_linearized"):
         assert info.diagnostics["residual_jitted"] is True
         assert info.diagnostics["linear_operator_jitted"] is True
+        assert info.diagnostics["linear_update_residual_inf_norm"] == pytest.approx(
+            1.0e-12
+        )
+        assert info.diagnostics["linear_update_relative_residual"] == pytest.approx(
+            2.0e-12
+        )
+        assert info.diagnostics["linear_update_residual_evaluation_count"] == 1
+        assert info.diagnostics["linear_update_residual_seconds"] == pytest.approx(
+            0.003
+        )
         assert info.diagnostics["line_search_mode"] == "full_step"
         assert info.diagnostics["check_initial_residual"] is False
         assert info.diagnostics["initial_residual_mode"] == "linearize"

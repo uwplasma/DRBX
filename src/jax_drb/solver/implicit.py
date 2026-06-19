@@ -48,6 +48,10 @@ class ImplicitStepInfo:
     linear_solver_success: bool | None = None
     linear_solver_reported_iterations: int | None = None
     linear_solver_solve_method: str | None = None
+    linear_update_residual_inf_norm: float | None = None
+    linear_update_relative_residual: float | None = None
+    linear_update_residual_evaluation_count: int = 0
+    linear_update_residual_seconds: float = 0.0
     linear_operator_call_count: int = 0
     linear_operator_dispatch_seconds: float = 0.0
     linear_operator_jitted: bool = False
@@ -1212,6 +1216,7 @@ def solve_jax_linearized_newton_system(
     initial_residual_mode: str = "residual",
     jit_residual: bool = False,
     jit_linear_operator: bool = False,
+    diagnose_linear_update_residual: bool = False,
     line_search_mode: str = "backtracking",
     line_search_initial_step_scale: float = 1.0,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
@@ -1264,6 +1269,10 @@ def solve_jax_linearized_newton_system(
     last_linear_solver_status: int | float | str | None = None
     last_linear_solver_success: bool | None = None
     last_linear_solver_reported_iterations: int | None = None
+    last_linear_update_residual_inf_norm: float | None = None
+    last_linear_update_relative_residual: float | None = None
+    linear_update_residual_evaluation_count = 0
+    linear_update_residual_seconds = 0.0
     linear_operator_call_count = 0
     linear_operator_dispatch_seconds = 0.0
     resolved_solve_method = _resolve_jax_gmres_solve_method(linear_solver_solve_method)
@@ -1315,6 +1324,12 @@ def solve_jax_linearized_newton_system(
             linear_solver_solve_method=(
                 resolved_solve_method if linear_backend == "jax_gmres" else None
             ),
+            linear_update_residual_inf_norm=last_linear_update_residual_inf_norm,
+            linear_update_relative_residual=last_linear_update_relative_residual,
+            linear_update_residual_evaluation_count=(
+                linear_update_residual_evaluation_count
+            ),
+            linear_update_residual_seconds=linear_update_residual_seconds,
             linear_operator_call_count=linear_operator_call_count,
             linear_operator_dispatch_seconds=linear_operator_dispatch_seconds,
             linear_operator_jitted=bool(jit_linear_operator),
@@ -1452,6 +1467,22 @@ def solve_jax_linearized_newton_system(
             else int(linear_operator_calls_this_solve)
         )
         update = jnp.asarray(update, dtype=jnp.float64)
+        if bool(diagnose_linear_update_residual):
+            linear_update_started_at = perf_counter()
+            linear_update_residual = linear_operator(update) + residual_value
+            linear_update_residual = _block(linear_update_residual)
+            linear_update_residual_seconds += perf_counter() - linear_update_started_at
+            linear_update_residual_evaluation_count += 1
+            last_linear_update_residual_inf_norm = float(
+                jnp.max(jnp.abs(linear_update_residual))
+            )
+            rhs_inf_norm = max(
+                float(jnp.max(jnp.abs(residual_value))),
+                np.finfo(np.float64).tiny,
+            )
+            last_linear_update_relative_residual = (
+                float(last_linear_update_residual_inf_norm) / rhs_inf_norm
+            )
 
         if resolved_line_search_mode == "full_step":
             line_search_started_at = perf_counter()

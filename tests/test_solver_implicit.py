@@ -1589,8 +1589,43 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
     assert info.linear_solver_status == 0
     assert info.linear_solver_success is True
     assert info.linear_solver_reported_iterations is None
+    assert info.linear_update_residual_inf_norm is None
+    assert info.linear_update_relative_residual is None
+    assert info.linear_update_residual_evaluation_count == 0
+    assert info.linear_update_residual_seconds == pytest.approx(0.0)
     assert info.linear_operator_call_count > 0
     assert info.linear_iterations == info.linear_operator_call_count
+
+
+def test_jax_linearized_newton_solver_can_diagnose_update_residual() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([1.0, -0.5], dtype=jnp.float64)
+    weights = jnp.array([2.0, -3.0], dtype=jnp.float64)
+
+    def residual(state):
+        return weights * (jnp.asarray(state, dtype=jnp.float64) - target)
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        np.array([0.0, 0.0], dtype=np.float64),
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=3,
+        linear_restart=4,
+        linear_maxiter=4,
+        diagnose_linear_update_residual=True,
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is True
+    assert info.linear_update_residual_inf_norm is not None
+    assert info.linear_update_residual_inf_norm < 1.0e-10
+    assert info.linear_update_relative_residual is not None
+    assert info.linear_update_relative_residual < 1.0e-10
+    assert info.linear_update_residual_evaluation_count >= 1
+    assert info.linear_update_residual_seconds >= 0.0
 
 
 def test_jax_linearized_newton_solver_reports_custom_linear_tolerance() -> None:
