@@ -1751,9 +1751,15 @@ Python wrapper. A bounded hydrogen active-array profile on June 19, 2026 passed
 the direct-counting gate with `linear_solve_count=1`,
 `linear_solver_status=0`, `linear_solver_success=true`, residual `8.8536e-2`,
 one nonlinear iteration, two residual evaluations, one line-search trial, and
-`2.32 s` profiled runtime. Keep this as an opt-in production-style profiling
-knob; it is not a default-promotion result because the evidence is
-backend-dependent and does not yet cover heavy full-output CPU/GPU windows.
+`2.32 s` profiled runtime. The same evidence path now exists for output-window
+fixed-BDF2 comparisons through `fixed_bdf2_total_linear_solve_count` and the
+`--require-fixed-bdf2-min-linear-solve-count` gate. A bounded
+`recycling_1d_one_step` fixed-BDF2 active-array run with direct counting and a
+jitted operator executed `20` active-array RHS steps, `20` jitted
+JAX-linearized steps, and `23` JAX GMRES solve attempts in `44.04 s`, with no
+linear solver failures and residual `2.8993e-6`. Keep this as an opt-in
+production-style profiling knob; it is not a default-promotion result because
+the evidence still needs heavier CPU/GPU windows and same-fidelity scaling.
 
 The generic JAX-linearized solver now also reuses the already-known residual
 norm for the final accepted state when a bounded solve exits because the

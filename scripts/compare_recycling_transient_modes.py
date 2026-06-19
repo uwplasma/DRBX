@@ -253,6 +253,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-min-linear-solve-count",
+        type=int,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_total_linear_solve_count at or above this value. Use "
+            "this with direct linear-operator counting, where Python-visible "
+            "operator calls are intentionally unavailable."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-bdf2-max-linear-update-residual",
         type=float,
         default=None,
@@ -646,6 +657,7 @@ def _validate_fixed_bdf2_diagnostics(
     required_line_search_mode: str | None = None,
     max_linear_iterations: int | None = None,
     max_linear_operator_calls: int | None = None,
+    min_linear_solve_count: int | None = None,
     max_linear_update_residual_inf_norm: float | None = None,
     max_linear_update_relative_residual: float | None = None,
     max_preconditioner_builds: int | None = None,
@@ -774,6 +786,16 @@ def _validate_fixed_bdf2_diagnostics(
                 key="fixed_bdf2_total_linear_operator_call_count",
                 maximum=int(max_linear_operator_calls),
                 label="fixed BDF2 linear operator calls",
+            )
+        )
+    if min_linear_solve_count is not None:
+        errors.extend(
+            _validate_minimum_integer_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_total_linear_solve_count",
+                minimum=int(min_linear_solve_count),
+                label="fixed BDF2 linear solve attempts",
             )
         )
     if max_linear_update_residual_inf_norm is not None:
@@ -1093,6 +1115,31 @@ def _validate_maximum_integer_diagnostic(
     return errors
 
 
+def _validate_minimum_integer_diagnostic(
+    mode: str,
+    diagnostics: dict[str, object],
+    *,
+    key: str,
+    minimum: int,
+    label: str,
+) -> list[str]:
+    errors: list[str] = []
+    if int(minimum) < 0:
+        errors.append(f"{mode} received a negative {label} gate")
+        return errors
+    try:
+        reported = int(diagnostics[key])
+    except KeyError:
+        errors.append(f"{mode} did not report {key}")
+        return errors
+    except (TypeError, ValueError):
+        errors.append(f"{mode} did not report an integer {key}")
+        return errors
+    if reported < int(minimum):
+        errors.append(f"{mode} reported {reported} {label}, below {int(minimum)}")
+    return errors
+
+
 def _validate_maximum_float_diagnostic(
     mode: str,
     diagnostics: dict[str, object],
@@ -1170,6 +1217,13 @@ def main() -> int:
     ):
         raise ValueError(
             "--require-fixed-bdf2-max-linear-operator-calls must be nonnegative."
+        )
+    if (
+        args.require_fixed_bdf2_min_linear_solve_count is not None
+        and int(args.require_fixed_bdf2_min_linear_solve_count) < 0
+    ):
+        raise ValueError(
+            "--require-fixed-bdf2-min-linear-solve-count must be nonnegative."
         )
     if args.require_fixed_bdf2_max_linear_update_residual is not None:
         value = float(args.require_fixed_bdf2_max_linear_update_residual)
@@ -1354,6 +1408,9 @@ def main() -> int:
                     ),
                     max_linear_operator_calls=(
                         args.require_fixed_bdf2_max_linear_operator_calls
+                    ),
+                    min_linear_solve_count=(
+                        args.require_fixed_bdf2_min_linear_solve_count
                     ),
                     max_linear_update_residual_inf_norm=(
                         args.require_fixed_bdf2_max_linear_update_residual

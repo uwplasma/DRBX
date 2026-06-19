@@ -143,9 +143,9 @@ and tests all move together.
 | Plan authority and release hygiene | 96% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 98% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, and the bounded hydrogen active-array gate passes with a jitted operator and clean JAX-GMRES status. Default promotion still needs heavier output-window parity/runtime evidence. |
+| JAX-native recycling solver | 98.5% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, and both one-step and bounded fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves. Default promotion still needs heavier CPU/GPU parity/runtime evidence before replacing stable finite-difference defaults. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
-| Performance and scaling | 66% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, and direct-counting gates can now prove solve execution without Python callback overhead. Remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
+| Performance and scaling | 67% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, and direct-counting output-window gates can now prove solve execution without Python callback overhead. Remaining scaling work is heavy CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -2657,6 +2657,23 @@ Use this log for concise decision records. Do not paste terminal output here.
   `98%` and performance/scaling to `66%`; the remaining promotion blocker is
   still heavier output-window CPU/GPU parity/runtime evidence, not missing
   direct-mode solve evidence.
+- 2026-06-19: Extended the fixed-BDF2 output-window compare and promotion
+  wrappers with a `fixed_bdf2_total_linear_solve_count` gate
+  (`--require-fixed-bdf2-min-linear-solve-count` and
+  `--fixed-bdf2-min-linear-solve-count`). This lets production-style
+  direct-counting JAX profiles prove solve execution without reintroducing
+  Python operator-call wrappers. A real bounded local compare of
+  `recycling_1d_one_step` with
+  `mode=fixed_bdf2_active_array_jax_linearized`, timestep `10`, `steps=2`,
+  `runtime:recycling_jax_linear_jit_linear_operator=true`,
+  `runtime:recycling_jax_linear_operator_counting=direct`, and
+  `initial_residual_mode=linearize` passed with `20` active-array RHS steps,
+  `20` jitted JAX-linearized solver steps, `23` JAX GMRES solve attempts,
+  zero linear solver failures, zero unconverged fixed-BDF2 steps, residual
+  `2.8993e-6`, and elapsed wall time `44.04 s`. Decision: raise JAX-native
+  recycling solver to `98.5%` and performance/scaling to `67%`; the remaining
+  blocker is now heavier CPU/GPU scaling and parity evidence, not a missing
+  output-window solve-execution gate.
 
 ## Definition Of Done
 

@@ -82,6 +82,7 @@ def _build_case_command(
     fixed_bdf2_linear_tolerance_factor: float | None = None,
     fixed_bdf2_max_linear_iterations: int | None = None,
     fixed_bdf2_max_linear_operator_calls: int | None = None,
+    fixed_bdf2_min_linear_solve_count: int | None = None,
     fixed_bdf2_max_linear_update_residual: float | None = None,
     fixed_bdf2_max_linear_update_relative_residual: float | None = None,
     fixed_bdf2_max_preconditioner_builds: int | None = None,
@@ -256,6 +257,18 @@ def _build_case_command(
                 (
                     "--require-fixed-bdf2-max-linear-operator-calls",
                     str(max_linear_operator_calls),
+                )
+            )
+        if fixed_bdf2_min_linear_solve_count is not None:
+            min_linear_solve_count = int(fixed_bdf2_min_linear_solve_count)
+            if min_linear_solve_count < 0:
+                raise ValueError(
+                    "fixed_bdf2_min_linear_solve_count must be nonnegative."
+                )
+            command.extend(
+                (
+                    "--require-fixed-bdf2-min-linear-solve-count",
+                    str(min_linear_solve_count),
                 )
             )
         if fixed_bdf2_max_linear_update_residual is not None:
@@ -530,6 +543,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-min-linear-solve-count",
+        type=int,
+        default=None,
+        help=(
+            "Forward --require-fixed-bdf2-min-linear-solve-count to the "
+            "fixed-BDF2 compare phase. This proves direct-counting JAX "
+            "linearized profiles executed linear solves even when Python-visible "
+            "operator callbacks are disabled."
+        ),
+    )
+    parser.add_argument(
         "--fixed-bdf2-max-linear-update-residual",
         type=float,
         default=None,
@@ -652,6 +676,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fixed_bdf2_max_linear_operator_calls=(
                     args.fixed_bdf2_max_linear_operator_calls
                 ),
+                fixed_bdf2_min_linear_solve_count=(
+                    args.fixed_bdf2_min_linear_solve_count
+                ),
                 fixed_bdf2_max_linear_update_residual=(
                     args.fixed_bdf2_max_linear_update_residual
                 ),
@@ -717,6 +744,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "fixed_bdf2_max_linear_operator_calls": (
                     args.fixed_bdf2_max_linear_operator_calls
+                ),
+                "fixed_bdf2_min_linear_solve_count": (
+                    args.fixed_bdf2_min_linear_solve_count
                 ),
                 "fixed_bdf2_max_linear_update_residual": (
                     args.fixed_bdf2_max_linear_update_residual

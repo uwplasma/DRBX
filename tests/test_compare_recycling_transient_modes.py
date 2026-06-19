@@ -58,6 +58,10 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "full",
             "--require-fixed-bdf2-max-linear-iterations",
             "3600",
+            "--require-fixed-bdf2-max-linear-operator-calls",
+            "128",
+            "--require-fixed-bdf2-min-linear-solve-count",
+            "2",
             "--require-fixed-bdf2-max-linear-update-residual",
             "1e-8",
             "--require-fixed-bdf2-max-linear-update-relative-residual",
@@ -110,6 +114,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.require_fixed_bdf2_linear_operator_jitted is True
     assert args.require_fixed_bdf2_line_search_mode == "full"
     assert args.require_fixed_bdf2_max_linear_iterations == 3600
+    assert args.require_fixed_bdf2_max_linear_operator_calls == 128
+    assert args.require_fixed_bdf2_min_linear_solve_count == 2
     assert args.require_fixed_bdf2_max_linear_update_residual == 1.0e-8
     assert args.require_fixed_bdf2_max_linear_update_relative_residual == 1.0e-4
     assert args.require_fixed_bdf2_max_preconditioner_builds == 2
@@ -141,6 +147,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert "--require-fixed-bdf2-linear-operator-jitted" in help_text
     assert "--require-fixed-bdf2-line-search-mode" in help_text
     assert "--require-fixed-bdf2-max-linear-iterations" in help_text
+    assert "--require-fixed-bdf2-max-linear-operator-calls" in help_text
+    assert "--require-fixed-bdf2-min-linear-solve-count" in help_text
     assert "--require-fixed-bdf2-max-linear-update-residual" in help_text
     assert "--require-fixed-bdf2-max-linear-update-relative-residual" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-builds" in help_text
@@ -531,6 +539,7 @@ def test_fixed_bdf2_diagnostics_gate_accepts_active_array_route() -> None:
             "fixed_bdf2_linear_operator_jitted_steps": 2,
             "fixed_bdf2_line_search_mode": "full_step",
             "fixed_bdf2_total_linear_iterations": 3200,
+            "fixed_bdf2_total_linear_solve_count": 2,
             "fixed_bdf2_total_linear_operator_call_count": 96,
         },
         required_linear_preconditioner="local-block-diag",
@@ -539,6 +548,7 @@ def test_fixed_bdf2_diagnostics_gate_accepts_active_array_route() -> None:
         required_line_search_mode="full",
         max_linear_iterations=3600,
         max_linear_operator_calls=128,
+        min_linear_solve_count=2,
         max_preconditioner_builds=2,
     )
 
@@ -787,6 +797,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
             "fixed_bdf2_evolve_feedback_integrals": True,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
             "fixed_bdf2_total_linear_iterations": 3600,
+            "fixed_bdf2_total_linear_solve_count": 1,
             "fixed_bdf2_total_linear_operator_call_count": 512,
             "fixed_bdf2_max_linear_update_residual_inf_norm": 2.0e-8,
             "fixed_bdf2_max_linear_update_relative_residual": 2.0e-4,
@@ -795,6 +806,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
         },
         max_linear_iterations=3200,
         max_linear_operator_calls=128,
+        min_linear_solve_count=2,
         max_linear_update_residual_inf_norm=1.0e-8,
         max_linear_update_relative_residual=1.0e-4,
         max_preconditioner_builds=2,
@@ -809,6 +821,10 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
         (
             "fixed_bdf2_active_array_jax_linearized reported 512 fixed BDF2 "
             "linear operator calls, exceeding 128"
+        ),
+        (
+            "fixed_bdf2_active_array_jax_linearized reported 1 fixed BDF2 "
+            "linear solve attempts, below 2"
         ),
         (
             "fixed_bdf2_active_array_jax_linearized reported 2.00000000e-08 "
