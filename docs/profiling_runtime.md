@@ -317,7 +317,7 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --case dthe \
   --rhs-backend fixed_full_field_array \
   --override mesh:ny=100 \
-  --batch-sizes 1,4,16,64 \
+  --batch-sizes 1,4,16,64,128,256 \
   --timed-runs 7 \
   --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_batched_jvp_gate_cpu
 ```
@@ -354,14 +354,33 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --output-dir tmp/profiles/recycling_dthe_batched_jvp_gate_smoke
 ```
 
-The retained local CPU artifact now sweeps batches through 256 states and
-shows about `4.94x` residual throughput speedup and `3.11x` JVP throughput
-speedup over serial same-kernel calls, with batched/serial residual and JVP
-mismatch at roundoff. The residual JVP agrees with centered finite difference
-to about `2.19e-9`, and the objective directional derivative agrees to about
-`4.35e-8`. A remote GPU run on the same heavy residual was not retained as a
-release speedup because the JVP compile latency was still too high for a
-bounded validation gate.
+The retained local CPU fixed-full-field artifact now sweeps batches through
+`256` states and shows about `3.87x` residual throughput speedup and `2.44x`
+JVP throughput speedup over serial same-kernel calls, with batched/serial
+residual and JVP mismatch at roundoff. Its best residual throughput is about
+`4.34e4` states/s and its best JVP throughput is about `1.10e4` states/s. The
+residual JVP agrees with centered finite difference to about `5.97e-9`, and
+the objective directional derivative agrees to about `1.34e-7`.
+
+The active-array migration seam has a separate retained CPU artifact:
+
+```bash
+PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
+  --case dthe \
+  --rhs-backend active_array \
+  --override mesh:ny=100 \
+  --batch-sizes 1,4,16,64 \
+  --timed-runs 3 \
+  --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_active_array_batched_jvp_gate_cpu
+```
+
+That artifact reaches about `2.66x` residual throughput speedup and `2.20x`
+JVP throughput speedup through batch `64`, with best residual and JVP
+throughputs of about `3.04e4` and `9.82e3` states/s. It retains the same
+finite-difference derivative checks as the fixed-full-field artifact. This is
+the current best local evidence that the transformable active-array residual
+can be batched and differentiated without falling back to Python residual
+loops.
 
 For larger GPU or multi-device evidence, use the research-campaign wrapper
 rather than hand-editing decks. These campaigns enable repeated timings,
@@ -380,10 +399,15 @@ PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
 ```
 
 The `gpu-dthe-jax-linearized-gate` command is a large fixed-layout residual
-trace/memory run. The `gpu-dthe-batched-jvp-gate` command is the multi-device
-batched residual/JVP throughput run. Neither command promotes the full
-output-window BDF solve as GPU-accelerated; they are evidence-gathering gates
-for the residual and derivative kernels that must become production-safe first.
+trace/memory run. The `gpu-dthe-batched-jvp-gate` command is the fixed-full-field
+batched residual/JVP throughput run. The
+`gpu-dthe-active-array-batched-jvp-gate` command measures the same family after
+the residual is routed through the active-array backend, currently with pmap
+disabled so the first GPU artifact is a single-device compiler/memory health
+probe rather than a multi-device speedup claim. Neither command promotes the
+full output-window BDF solve as GPU-accelerated; they are evidence-gathering
+gates for the residual and derivative kernels that must become production-safe
+first.
 The wrapper intentionally rejects reference roots that do not contain
 `tests/integrated/1D-recycling-dthe/data/BOUT.inp`; that failure means the
 reference prerequisite is missing, not that the GPU gate has failed.
@@ -396,14 +420,16 @@ staged `BOUT.inp` with `--input-path` only when testing a nonstandard deck:
 JAX_PLATFORMS=cuda CUDA_VISIBLE_DEVICES=0,1 \
 PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --case dthe \
+  --rhs-backend active_array \
   --override mesh:ny=100 \
   --batch-sizes 2,4,8,16 \
   --timed-runs 3 \
+  --disable-pmap \
   --skip-objective-grad-check \
   --jax-trace \
   --device-memory-profile \
-  --compilation-cache-dir tmp/jax_cache/recycling_dthe_batched_jvp_gate_gpu_readiness \
-  --output-dir tmp/profiles/recycling_dthe_batched_jvp_gate_gpu_readiness
+  --compilation-cache-dir tmp/jax_cache/recycling_dthe_active_array_batched_jvp_gate_gpu_readiness \
+  --output-dir tmp/profiles/recycling_dthe_active_array_batched_jvp_gate_gpu_readiness
 ```
 
 For a nonstandard staged deck, add:
@@ -411,6 +437,17 @@ For a nonstandard staged deck, add:
 ```bash
 --input-path /path/to/1D-recycling-dthe/data/BOUT.inp
 ```
+
+The current `office` GPU evidence for active-array batched JVPs should be read
+narrowly. A tiny `ny=16`, batch `1,2`, single-device CUDA probe completed with
+JVP/finite-difference relative error `3.95e-10` and batch-2 JVP throughput
+about `1.40e3` states/s, proving that the reduced active-array residual can
+execute on the GPU. Larger `ny=100` active-array pmap and single-device probes
+did not complete within the practical profiling window; both were host/compiler
+or memory bound, allocated roughly `12 GiB` of GPU memory, showed near-zero GPU
+utilization, and wrote no JSON summary. This is negative evidence for claiming
+GPU speedup today, and it points the next implementation step toward reducing
+compiled active-array residual size before attempting multi-GPU promotion.
 
 The current GPU speedup evidence instead comes from the source-term throughput
 gate:
