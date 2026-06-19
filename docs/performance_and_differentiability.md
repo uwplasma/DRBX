@@ -573,6 +573,11 @@ JVPs against centered finite differences. The remaining host-oriented sheath
 barrier is now the surrounding orchestration: no-flow guard application,
 zero-current ion-sum reconstruction, full-field dictionary plumbing, and the
 Hermès parity gates that decide when those pieces can move into the fixed
+layout residual. The release coverage lane now treats the full
+`recycling_1d_short_window` transient as an explicit slow research gate rather
+than a default promoted-coverage test: the non-slow suite verifies the same
+committed short-window artifact contract, while the multi-minute stiff
+transient remains available for campaign-quality parity evidence.
 active-array residual.
 
 ## Current GPU-Native Audit

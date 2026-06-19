@@ -1825,6 +1825,45 @@ Use this log for concise decision records. Do not paste terminal output here.
   consumed-map diagnostics; the older coil movie JSON is stale by missing
   `map_source`; the hybrid movie JSON is current. This adds a promotion guard
   for README/docs/paper figures and makes regeneration requirements explicit.
+- 2026-06-18: Split the open-field `recycling_1d_short_window` validation
+  between the slow research campaign and the promoted coverage gate. The full
+  stiff transient still runs as a `slow` physics validation against the
+  committed operational baseline band, but it no longer blocks the default
+  `-m "not slow"` promoted-coverage audit after spending more than `118 s`
+  inside the single transient test on the local MacBook. A new bounded
+  non-slow contract gate verifies that the curated short-window case remains
+  staged as `parity_mode="short_window"`, that the committed artifact contains
+  the same comparison fields, and that the six stored time slices correspond
+  to the initial state plus five configured outputs. This keeps release
+  coverage deterministic while preserving the full transient as explicit
+  research evidence.
+- 2026-06-18: Removed duplicate native-runner short-window execution from the
+  promoted coverage slice by caching identical `run_config_case` calls inside
+  `tests/test_native_runner.py`. Summary, array, and benchmark assertions still
+  inspect the same generated native histories, but repeated diffusion,
+  drift-wave, and vorticity short-window pairs no longer rerun the
+  transient just to build a second comparison view. Focused evidence:
+  diffusion, drift-wave, and vorticity pairs passed in `15.50 s`, with cached
+  array checks returning in about `0.01 s`.
+- 2026-06-18: Moved the 51-output fluid-MMS short-window execution checks into
+  the explicit slow research campaign after coverage instrumentation left that
+  single history at the second promoted-audit stall point. The non-slow
+  promoted suite now verifies the committed `fluid_1d_mms` short-window
+  artifact contract instead: case name, `short_window` parity mode, comparison
+  fields `Ni/Pi/NVi`, all `51` time points from `0` to `5`, and finite
+  `(51, 1, 132, 1)` arrays. Focused evidence: the new contract plus the cached
+  drift-wave pair passed in `13.03 s`, and the full fluid-MMS execution tests
+  are deselected by `-m "not slow"` while remaining available through the slow
+  campaign.
+- 2026-06-18: Restored the promoted solver coverage gate above the release
+  threshold with bounded diagnostic and residual-contract tests rather than
+  reintroducing multi-minute histories into the fast lane. New CLI tests cover
+  invalid neutral accepted-step solver controls and reference CVODE order
+  validation, which protects user-facing parity diagnostics. New fixed-layout
+  residual tests cover field-shape, feedback-shape, RHS-return-type, and
+  batched-JVP tangent-shape failures at the JAX-native recycling seam. The
+  refreshed promoted audit now completes with `601` passed, `14` skipped,
+  `10` deselected, `1` xfailed, and `95.07%` total promoted coverage.
 
 ## Definition Of Done
 

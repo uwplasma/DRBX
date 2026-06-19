@@ -333,6 +333,76 @@ def test_fixed_array_rhs_rejects_static_shape_and_key_mismatches() -> None:
         valid_rhs(bad_state)
 
 
+def test_fixed_array_state_rhs_rejects_shape_and_type_contract_mismatches() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    layout = type(
+        "Layout",
+        (),
+        {
+            "field_names": ("density",),
+            "feedback_names": ("controller",),
+            "active_shape": (2,),
+        },
+    )()
+    good_state = RecyclingFixedState(
+        field_values=(jnp.asarray([1.0, 2.0], dtype=jnp.float64),),
+        feedback_values=jnp.asarray([0.5], dtype=jnp.float64),
+    )
+    passthrough_rhs = build_fixed_array_state_rhs(
+        lambda fields, feedback: RecyclingFixedState(
+            field_values=(fields["density"],),
+            feedback_values=feedback,
+        ),
+        layout=layout,
+    )
+
+    bad_field_shape_state = RecyclingFixedState(
+        field_values=([1.0],),
+        feedback_values=jnp.asarray([0.5], dtype=jnp.float64),
+    )
+    with pytest.raises(
+        ValueError, match="Fixed state field 'density' has shape"
+    ):
+        passthrough_rhs(bad_field_shape_state)
+
+    bad_feedback_shape_state = RecyclingFixedState(
+        field_values=good_state.field_values,
+        feedback_values=[0.5, 0.6],
+    )
+    with pytest.raises(ValueError, match="feedback_values has shape"):
+        passthrough_rhs(bad_feedback_shape_state)
+
+    wrong_type_rhs = build_fixed_array_state_rhs(
+        lambda fields, _feedback: {"density": fields["density"]},
+        layout=layout,
+    )
+    with pytest.raises(TypeError, match="State RHS must return"):
+        wrong_type_rhs(good_state)
+
+
+def test_fixed_residual_batched_jvp_rejects_bad_tangent_shapes() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    residual = lambda state: 2.0 * jnp.asarray(state, dtype=jnp.float64)
+    packed_state = jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64)
+
+    with pytest.raises(ValueError, match="exactly one leading batch axis"):
+        fixed_residual_jvp_batch_action(
+            residual,
+            packed_state,
+            jnp.asarray([1.0, 0.0, 0.0], dtype=jnp.float64),
+        )
+    with pytest.raises(ValueError, match="Batched residual tangent entries"):
+        fixed_residual_jvp_batch_action(
+            residual,
+            packed_state,
+            jnp.ones((2, 2), dtype=jnp.float64),
+        )
+
+
 def test_fixed_host_rhs_bridge_matches_dthe_packed_rhs_oracle() -> None:
     (
         config,

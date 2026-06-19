@@ -26,6 +26,10 @@ from jax_drb.validation import (
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_RUN_CONFIG_CASE_CACHE: dict[
+    tuple[str, str, str, tuple[str, ...], str | None],
+    NativeExecutionResult,
+] = {}
 
 
 _EVOLVE_DENSITY_INPUT = """
@@ -103,6 +107,32 @@ def _run_native_diffusion_input(text: str):
         parity_mode="one_step",
         compare_variables=("Nh", "Ph"),
     )
+
+
+def _run_config_case_from_text_cached(
+    input_text: str,
+    *,
+    case_name: str,
+    parity_mode: str,
+    compare_variables: tuple[str, ...],
+    reference_case: ReferenceCase | None = None,
+) -> NativeExecutionResult:
+    key = (
+        input_text,
+        case_name,
+        parity_mode,
+        tuple(compare_variables),
+        repr(reference_case) if reference_case is not None else None,
+    )
+    if key not in _RUN_CONFIG_CASE_CACHE:
+        _RUN_CONFIG_CASE_CACHE[key] = run_config_case(
+            parse_bout_input(input_text),
+            case_name=case_name,
+            parity_mode=parity_mode,
+            compare_variables=compare_variables,
+            reference_case=reference_case,
+        )
+    return _RUN_CONFIG_CASE_CACHE[key]
 
 
 @pytest.mark.parametrize(
@@ -506,9 +536,8 @@ def test_native_runner_tracks_committed_diffusion_baseline() -> None:
 
 
 def test_native_runner_tracks_diffusion_short_window_summary_baseline() -> None:
-    config = parse_bout_input(_DIFFUSION_INPUT)
-    result = run_config_case(
-        config,
+    result = _run_config_case_from_text_cached(
+        _DIFFUSION_INPUT,
         case_name="diffusion_short_window",
         parity_mode="short_window",
         compare_variables=("Nh", "Ph"),
@@ -540,9 +569,8 @@ def test_native_runner_tracks_diffusion_one_step_array_baseline() -> None:
 
 
 def test_native_runner_tracks_diffusion_short_window_array_baseline() -> None:
-    config = parse_bout_input(_DIFFUSION_INPUT)
-    result = run_config_case(
-        config,
+    result = _run_config_case_from_text_cached(
+        _DIFFUSION_INPUT,
         case_name="diffusion_short_window",
         parity_mode="short_window",
         compare_variables=("Nh", "Ph"),
@@ -643,10 +671,10 @@ def test_native_runner_tracks_fluid_one_step_array_baseline() -> None:
     assert comparison.ok, comparison.issues
 
 
+@pytest.mark.slow
 def test_native_runner_tracks_fluid_short_window_summary_baseline() -> None:
-    config = parse_bout_input(_FLUID_1D_MMS_INPUT)
-    result = run_config_case(
-        config,
+    result = _run_config_case_from_text_cached(
+        _FLUID_1D_MMS_INPUT,
         case_name="fluid_1d_mms",
         parity_mode="short_window",
         compare_variables=("Ni", "Pi", "NVi"),
@@ -660,10 +688,33 @@ def test_native_runner_tracks_fluid_short_window_summary_baseline() -> None:
     assert result.time_points == tuple(0.1 * index for index in range(51))
 
 
+def test_native_runner_tracks_fluid_short_window_committed_baseline_contract() -> None:
+    expected_summary = load_summary_json(
+        _REPO_ROOT / "references/baselines/reference/fluid_1d_mms.json"
+    )
+    expected_arrays = load_portable_array_payload(
+        _REPO_ROOT / "references/baselines/reference_arrays/fluid_1d_mms.npz"
+    )
+
+    assert expected_summary["case_name"] == "fluid_1d_mms"
+    assert expected_summary["parity_mode"] == "short_window"
+    assert expected_summary["compare_variables"] == ["Ni", "Pi", "NVi"]
+    assert len(expected_summary["time_points"]) == 51
+    assert expected_summary["time_points"][0] == 0.0
+    assert np.isclose(expected_summary["time_points"][-1], 5.0)
+    assert set(expected_summary["compare_variables"]) <= set(
+        expected_arrays["variables"]
+    )
+    for field in expected_summary["compare_variables"]:
+        values = np.asarray(expected_arrays["variables"][field])
+        assert values.shape == (51, 1, 132, 1)
+        assert np.all(np.isfinite(values))
+
+
+@pytest.mark.slow
 def test_native_runner_tracks_fluid_short_window_array_baseline() -> None:
-    config = parse_bout_input(_FLUID_1D_MMS_INPUT)
-    result = run_config_case(
-        config,
+    result = _run_config_case_from_text_cached(
+        _FLUID_1D_MMS_INPUT,
         case_name="fluid_1d_mms",
         parity_mode="short_window",
         compare_variables=("Ni", "Pi", "NVi"),
@@ -873,8 +924,8 @@ def test_native_runner_tracks_drift_wave_one_step_array_baseline() -> None:
 
 def test_native_runner_tracks_drift_wave_short_window_benchmark_scalars() -> None:
     config = parse_bout_input(_DRIFT_WAVE_INPUT)
-    result = run_config_case(
-        config,
+    result = _run_config_case_from_text_cached(
+        _DRIFT_WAVE_INPUT,
         case_name="drift_wave_short_window",
         parity_mode="short_window",
         compare_variables=("Ni", "Ne", "NVe", "Vort", "phi"),
@@ -905,9 +956,8 @@ def test_native_runner_tracks_drift_wave_short_window_benchmark_scalars() -> Non
 
 
 def test_native_runner_tracks_drift_wave_short_window_arrays_with_documented_tolerances() -> None:
-    config = parse_bout_input(_DRIFT_WAVE_INPUT)
-    result = run_config_case(
-        config,
+    result = _run_config_case_from_text_cached(
+        _DRIFT_WAVE_INPUT,
         case_name="drift_wave_short_window",
         parity_mode="short_window",
         compare_variables=("Ni", "Ne", "NVe", "Vort", "phi"),
@@ -939,9 +989,8 @@ def test_native_runner_tracks_drift_wave_short_window_arrays_with_documented_tol
 
 
 def test_native_runner_tracks_vorticity_short_window_summary_baseline() -> None:
-    config = parse_bout_input(_VORTICITY_INPUT)
-    result = run_config_case(
-        config,
+    result = _run_config_case_from_text_cached(
+        _VORTICITY_INPUT,
         case_name="vorticity_short_window",
         parity_mode="short_window",
         compare_variables=("Vort", "phi"),
@@ -956,9 +1005,8 @@ def test_native_runner_tracks_vorticity_short_window_summary_baseline() -> None:
 
 
 def test_native_runner_tracks_vorticity_short_window_array_baseline() -> None:
-    config = parse_bout_input(_VORTICITY_INPUT)
-    result = run_config_case(
-        config,
+    result = _run_config_case_from_text_cached(
+        _VORTICITY_INPUT,
         case_name="vorticity_short_window",
         parity_mode="short_window",
         compare_variables=("Vort", "phi"),

@@ -629,6 +629,52 @@ def test_trace_neutral_mixed_accepted_steps_command_writes_report(
     assert "--internal-substeps must be positive" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"steps": 0}, "--steps must be positive"),
+        ({"time_tolerance": 0.0}, "--time-tolerance must be positive"),
+        ({"residual_tolerance": 0.0}, "--residual-tolerance must be positive"),
+        ({"step_tolerance": 0.0}, "--step-tolerance must be positive"),
+        (
+            {"max_nonlinear_iterations": 0},
+            "--max-nonlinear-iterations must be positive",
+        ),
+        ({"linear_restart": 0}, "--linear-restart must be positive"),
+        ({"linear_maxiter": 0}, "--linear-maxiter must be positive"),
+        ({"linear_rtol": 0.0}, "--linear-rtol must be positive"),
+    ],
+)
+def test_trace_neutral_mixed_accepted_steps_rejects_invalid_solver_controls(
+    tmp_path: Path,
+    capsys,
+    override: dict[str, object],
+    message: str,
+) -> None:
+    args = {
+        "reference_root": tmp_path,
+        "case_name": "neutral_mixed_one_step",
+        "input_path": None,
+        "internal_substeps": 8,
+        "steps": 1,
+        "reference_trace_json": None,
+        "reference_stage": "post_accepted",
+        "time_tolerance": 1.0e-9,
+        "solver_mode": "matrix_free",
+        "residual_tolerance": 1.0e-8,
+        "step_tolerance": 1.0e-10,
+        "max_nonlinear_iterations": 8,
+        "linear_restart": 20,
+        "linear_maxiter": 200,
+        "linear_rtol": 1.0e-8,
+        "json_out": tmp_path / "native_trace.json",
+    }
+    args.update(override)
+
+    assert _trace_neutral_mixed_accepted_steps_command(argparse.Namespace(**args)) == 1
+    assert message in capsys.readouterr().out
+
+
 def test_compare_neutral_mixed_accepted_traces_command_writes_report(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
@@ -752,6 +798,26 @@ def test_trace_neutral_mixed_reference_accepted_steps_command_writes_jsonl(
         == 1
     )
     assert "--timeout-seconds must be positive" in capsys.readouterr().out
+
+
+def test_trace_neutral_mixed_reference_accepted_steps_rejects_bad_cvode_order(
+    tmp_path: Path, capsys
+) -> None:
+    assert (
+        _trace_neutral_mixed_reference_accepted_steps_command(
+            argparse.Namespace(
+                reference_root=tmp_path / "reference",
+                workdir=tmp_path / "work",
+                hermes_binary=None,
+                trace_out=None,
+                species="h",
+                cvode_max_order=0,
+                timeout_seconds=30.0,
+            )
+        )
+        == 1
+    )
+    assert "--cvode-max-order must be positive" in capsys.readouterr().out
 
 
 def test_compare_recycling_command_uses_formatted_report(monkeypatch, capsys) -> None:

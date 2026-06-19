@@ -481,6 +481,7 @@ def test_recycling_1d_rhs_matches_array_baseline() -> None:
     assert comparison.ok, comparison.issues
 
 
+@pytest.mark.slow
 def test_recycling_1d_short_window_stays_within_operational_baseline_band() -> None:
     entries = _run_open_field_case_against_committed_baseline(
         "recycling_1d_short_window"
@@ -493,6 +494,29 @@ def test_recycling_1d_short_window_stays_within_operational_baseline_band() -> N
     assert entries["Pd"].max_abs_diff < 8.5e-3
     assert entries["NVd"].max_abs_diff < 3.5e-3
     assert entries["Pe"].max_abs_diff < 2.1e-2
+
+
+def test_recycling_1d_short_window_committed_baseline_contract() -> None:
+    case = next(
+        case
+        for case in load_reference_cases()
+        if case.name == "recycling_1d_short_window"
+    )
+    expected = load_portable_array_payload(
+        _ARRAY_BASELINE_DIR / "recycling_1d_short_window.npz"
+    )
+
+    assert case.parity_mode == "short_window"
+    assert set(case.compare_variables) <= set(expected["variables"])
+    assert {"Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"} <= set(
+        expected["variables"]
+    )
+    for field in case.compare_variables:
+        values = np.asarray(expected["variables"][field])
+        assert values.ndim == 4
+        # The short-window artifact stores the initial state plus five outputs.
+        assert values.shape[0] == 6
+        assert np.all(np.isfinite(values))
 
 
 def test_tokamak_recycling_rhs_matches_summary_baseline() -> None:
