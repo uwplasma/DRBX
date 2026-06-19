@@ -36,6 +36,8 @@ FRAMES = 4
 SUBSTEPS_PER_FRAME = 2
 GRID_DT = 2.0e-3
 RELATIVE_TOLERANCE = 0.30
+POTENTIAL_ITERATIONS = 768
+POTENTIAL_REGULARIZATION = 5.0
 REQUIRE_PUBLICATION_READY = False
 
 
@@ -58,6 +60,8 @@ class ImportedDrbMovieRefinementCampaignSettings:
     substeps_per_frame: int
     grid_dt: float
     relative_tolerance: float
+    potential_iterations: int
+    potential_regularization: float
     require_publication_ready: bool
 
 
@@ -80,6 +84,8 @@ def build_refinement_campaign_settings(
     substeps_per_frame: int = SUBSTEPS_PER_FRAME,
     grid_dt: float = GRID_DT,
     relative_tolerance: float = RELATIVE_TOLERANCE,
+    potential_iterations: int = POTENTIAL_ITERATIONS,
+    potential_regularization: float = POTENTIAL_REGULARIZATION,
     require_publication_ready: bool = REQUIRE_PUBLICATION_READY,
 ) -> ImportedDrbMovieRefinementCampaignSettings:
     """Resolve top-level parameters for a report-only movie refinement run."""
@@ -104,6 +110,8 @@ def build_refinement_campaign_settings(
         substeps_per_frame=int(substeps_per_frame),
         grid_dt=float(grid_dt),
         relative_tolerance=float(relative_tolerance),
+        potential_iterations=int(potential_iterations),
+        potential_regularization=float(potential_regularization),
         require_publication_ready=bool(require_publication_ready),
     )
 
@@ -132,6 +140,8 @@ def run_refinement_campaign(
         substeps_per_frame=settings.substeps_per_frame,
         grid_dt=settings.grid_dt,
         relative_tolerance=settings.relative_tolerance,
+        potential_iterations=settings.potential_iterations,
+        potential_regularization=settings.potential_regularization,
     )
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     print(f"wrote movie refinement summary: {artifacts.report_json_path}")
@@ -151,6 +161,7 @@ def run_refinement_campaign(
             f"grid_shapes={suggestion.get('suggested_grid_shapes')}, "
             "effective_frame_dt_values="
             f"{suggestion.get('recommended_time_effective_frame_dt_values')}, "
+            f"potential_action={suggestion.get('potential_solve_action')}, "
             f"notes={suggestion.get('recommendation_notes')}"
         )
     if settings.require_publication_ready and not bool(report["publication_ready"]):

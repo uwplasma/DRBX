@@ -288,6 +288,35 @@ def test_essos_imported_drb_movie_refinement_uses_floor_for_tiny_potential_resid
     assert diagnostics["passed"] is True
 
 
+def test_essos_imported_drb_movie_refinement_flags_residual_only_solver_budget() -> None:
+    grid_reports = (
+        _movie_report(grid=(8, 16, 32), final_potential_residual_l2=1.0e-4),
+        _movie_report(grid=(16, 32, 64), final_potential_residual_l2=4.0e-4),
+    )
+    time_reports = (
+        _movie_report(grid=(16, 32, 64), dt=2.0e-3, final_potential_residual_l2=4.0e-4),
+        _movie_report(grid=(16, 32, 64), dt=1.0e-3, final_potential_residual_l2=4.0e-4),
+    )
+
+    summary = build_essos_imported_drb_movie_refinement_summary(
+        grid_reports=grid_reports,
+        time_reports=time_reports,
+        relative_tolerance=0.20,
+    )
+
+    assert summary["publication_ready"] is False
+    suggestion = summary["next_campaign_suggestion"]
+    assert suggestion["potential_solve_action"] == (
+        "rerun_same_grid_time_pair_with_larger_potential_iterations"
+    )
+    assert suggestion["suggested_next_grid"] is None
+    assert suggestion["suggested_grid_shapes"] == []
+    assert any(
+        "larger potential_iterations" in note
+        for note in suggestion["recommendation_notes"]
+    )
+
+
 def test_essos_imported_drb_movie_refinement_summary_package_reads_reports(tmp_path: Path) -> None:
     first = _movie_report(grid=(4, 8, 16), dt=2.0e-3, substeps_per_frame=2)
     second = _movie_report(grid=(8, 16, 32), dt=1.0e-3, substeps_per_frame=2)
@@ -343,11 +372,15 @@ def test_essos_imported_drb_movie_refinement_campaign_writes_report_only_json(
         time_shape=(8, 16, 32),
         time_dt_values=(2.0e-3, 1.0e-3),
         grid_dt=2.0e-3,
+        potential_iterations=1536,
+        potential_regularization=4.0,
     )
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
 
     assert report["publication_ready"] is True
     assert len(calls) == 3
+    assert all(call["potential_iterations"] == 1536 for call in calls)
+    assert all(call["potential_regularization"] == 4.0 for call in calls)
     assert len(artifacts.grid_report_json_paths) == 2
     assert len(artifacts.time_report_json_paths) == 2
     assert artifacts.grid_report_json_paths[1] == artifacts.time_report_json_paths[0]
