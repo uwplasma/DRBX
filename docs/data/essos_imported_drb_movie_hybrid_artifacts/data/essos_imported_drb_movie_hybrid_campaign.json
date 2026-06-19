@@ -56,6 +56,7 @@
   "max_fluctuation_rms": 0.06041517430076385,
   "movie_audit_passed": true,
   "movie_bbox_unique_count": 2,
+  "movie_evidence_role": "movie_showcase_connection_control_pending_grid_time_refinement",
   "movie_file_size_bytes": 1762990,
   "movie_frame_count": 24,
   "movie_frame_rms_max": 3.858065796561208,
@@ -70,12 +71,24 @@
     24,
     64
   ],
+  "movie_promotion_rejection_reasons": [
+    "movie_grid_refinement_not_passed",
+    "movie_time_refinement_not_passed",
+    "long_time_statistical_stationarity_not_demonstrated"
+  ],
   "movie_render_coordinate_model": "raw_vmec_fourier_surface_registered_to_vmec_jax_plot",
   "neutral_momentum_relative_error": 0.0,
   "neutral_particle_relative_error": 1.1794623611435777e-18,
   "particle_recycling_relative_error": 1.1269975411250111e-15,
   "passed": true,
+  "publication_ready": false,
   "radial_flux_proxy": -0.0022117826302729153,
+  "required_publication_gates": [
+    "connection_length_refinement_summary_promotion_ready",
+    "movie_grid_refinement_passed",
+    "movie_time_refinement_passed",
+    "long_time_statistical_stationarity_or_convergence_passed"
+  ],
   "source": "ESSOS-imported Landreman-Paul QA hybrid FCI maps with JAXDRB fixed-layout DRB transient",
   "substeps_per_frame": 5,
   "total_charge_exchange": 25.450262057028784,

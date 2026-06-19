@@ -74,8 +74,12 @@ The audit only reads committed JSON reports. It does not rerun the external
 geometry import or the transient, but it catches reports that predate the
 current map-source, GIF-audit, and validation metadata. As of the June 18,
 2026 regeneration pass, the coil and hybrid movie JSON reports both match the
-current schema; promotion to publication evidence still requires the heavier
-live geometry and transient reruns described in the validation plan.
+current schema. The report separates `passed` from `publication_ready`:
+`passed=true` means the reduced transient, closures, and GIF artifact satisfy
+the current movie QA checks, while `publication_ready=false` remains in force
+until the associated connection-length summary is promotion-ready and the movie
+itself passes grid-refinement, time-refinement, and long-time statistical
+gates.
 
 ## Current Gate
 
@@ -104,13 +108,18 @@ The current public report passes the following checks:
 
 ![ESSOS imported QA-coil DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif)
 
-The promoted `hybrid` movie uses VMEC-coordinate map locations with
+The preferred current `hybrid` showcase uses VMEC-coordinate map locations with
 coil-derived endpoint masks. It passes the same closure checks while reducing
 the compact potential residual to about `1.0e-2` on a `7 x 24 x 64` grid. The
 report records endpoint fraction about `0.74`, magnetic-field modulation about
 `1.43`, ion-density fluctuation RMS growth from about `2.6e-2` to `6.0e-2`,
 particle recycling residual about `1.1e-15`, neutral particle residual about
-`1.2e-18`, and a fixed-camera GIF audit with `24` frames.
+`1.2e-18`, and a fixed-camera GIF audit with `24` frames. Its
+`movie_evidence_role` is
+`movie_showcase_connection_control_pending_grid_time_refinement`, reflecting
+that the live hybrid connection-length control has passed but the turbulence
+movie still needs grid/time refinement before being used as publication
+evidence.
 
 ![ESSOS imported QA-hybrid DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_diagnostics.png)
 

@@ -384,7 +384,9 @@ The imported PyTree/JVP campaign currently passes:
 
 ![ESSOS imported PyTree/JVP hybrid validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_hybrid_artifacts__images__essos_imported_pytree_hybrid_campaign.png)
 
-The ESSOS-imported QA-coil DRB movie campaign currently passes:
+The ESSOS-imported QA-coil DRB movie campaign currently passes movie-QA checks,
+but its report keeps `publication_ready=false` while coil connection-length,
+grid-refinement, and time-refinement gates remain open:
 
 - fixed-layout DRB transient on the imported Landreman-Paul QA FCI maps;
 - endpoint fraction: about `0.87`;
@@ -402,7 +404,10 @@ The ESSOS-imported QA-coil DRB movie campaign currently passes:
 The hybrid DRB movie is the preferred current showcase for the imported-map
 lane because the visual interpolation follows the VMEC-coordinate map while
 the open-field endpoint masks still activate sheath, recycling, and neutral
-closures.
+closures. Its report role is
+`movie_showcase_connection_control_pending_grid_time_refinement`, so it should
+be treated as a polished reduced-transient demonstration rather than final
+publication evidence.
 
 ![ESSOS imported QA-hybrid DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_diagnostics.png)
 

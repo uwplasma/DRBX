@@ -190,6 +190,7 @@ from .essos_imported_pytree_campaign import (
 from .essos_imported_drb_movie_campaign import (
     EssosImportedDrbMovieArtifacts,
     build_essos_imported_drb_movie_campaign,
+    classify_essos_imported_drb_movie_evidence,
     create_essos_imported_drb_movie_package,
     save_essos_imported_drb_3d_frame,
     save_essos_imported_drb_3d_movie,

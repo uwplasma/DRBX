@@ -46,6 +46,40 @@ class EssosImportedDrbMovieResult:
     arrays: dict[str, np.ndarray]
 
 
+def classify_essos_imported_drb_movie_evidence(map_source: str) -> dict[str, Any]:
+    """Classify whether an imported-field movie is publication evidence."""
+
+    normalized = str(map_source).strip().lower()
+    required_gates = [
+        "connection_length_refinement_summary_promotion_ready",
+        "movie_grid_refinement_passed",
+        "movie_time_refinement_passed",
+        "long_time_statistical_stationarity_or_convergence_passed",
+    ]
+    reasons = [
+        "movie_grid_refinement_not_passed",
+        "movie_time_refinement_not_passed",
+        "long_time_statistical_stationarity_not_demonstrated",
+    ]
+    if normalized == "coil":
+        evidence_role = "movie_showcase_pending_connection_grid_time_refinement"
+        reasons.insert(0, "coil_connection_length_refinement_not_promotion_ready")
+    elif normalized == "hybrid":
+        evidence_role = "movie_showcase_connection_control_pending_grid_time_refinement"
+    elif normalized == "vmec":
+        evidence_role = "closed_field_movie_control_pending_open_sol_endpoint_evidence"
+        reasons.insert(0, "closed_field_control_not_open_sol_endpoint_evidence")
+    else:
+        evidence_role = "movie_showcase_pending_validation"
+        reasons.insert(0, f"unknown_map_source:{normalized}")
+    return {
+        "publication_ready": False,
+        "movie_evidence_role": evidence_role,
+        "movie_promotion_rejection_reasons": reasons,
+        "required_publication_gates": required_gates,
+    }
+
+
 def create_essos_imported_drb_movie_package(
     *,
     output_root: str | Path,
@@ -579,6 +613,7 @@ def _build_essos_imported_drb_movie_report(
             "coil and hybrid map sources include open-field sheath/recycling endpoints, while "
             "the VMEC map source is a closed-field coordinate-map reference"
         ),
+        **classify_essos_imported_drb_movie_evidence(map_source),
         "geometry": geometry.metadata,
         "movie_physics_grid": [int(value) for value in geometry.shape],
         "movie_render_coordinate_model": "raw_vmec_fourier_surface_registered_to_vmec_jax_plot",

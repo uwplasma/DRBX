@@ -21,6 +21,7 @@ from jax_drb.validation import (
     create_essos_fieldline_import_package,
     create_essos_imported_connection_length_refinement_package,
     create_live_essos_imported_connection_length_refinement_package,
+    classify_essos_imported_drb_movie_evidence,
     create_essos_imported_drb_movie_package,
     create_essos_imported_fci_campaign_package,
     create_essos_imported_pytree_campaign_package,
@@ -56,6 +57,30 @@ def _has_essos_landreman_runtime() -> bool:
     except FileNotFoundError:
         return False
     return essos_runtime_available()
+
+
+def test_essos_imported_drb_movie_evidence_classification_is_conservative() -> None:
+    coil = classify_essos_imported_drb_movie_evidence("coil")
+    hybrid = classify_essos_imported_drb_movie_evidence("hybrid")
+    vmec = classify_essos_imported_drb_movie_evidence("vmec")
+
+    assert coil["publication_ready"] is False
+    assert coil["movie_evidence_role"] == "movie_showcase_pending_connection_grid_time_refinement"
+    assert "coil_connection_length_refinement_not_promotion_ready" in coil[
+        "movie_promotion_rejection_reasons"
+    ]
+    assert hybrid["publication_ready"] is False
+    assert hybrid["movie_evidence_role"] == (
+        "movie_showcase_connection_control_pending_grid_time_refinement"
+    )
+    assert "movie_grid_refinement_not_passed" in hybrid["movie_promotion_rejection_reasons"]
+    assert vmec["publication_ready"] is False
+    assert vmec["movie_evidence_role"] == (
+        "closed_field_movie_control_pending_open_sol_endpoint_evidence"
+    )
+    assert "connection_length_refinement_summary_promotion_ready" in vmec[
+        "required_publication_gates"
+    ]
 
 
 def test_imported_connection_length_refinement_campaign_is_self_contained(tmp_path: Path) -> None:
@@ -478,6 +503,11 @@ def test_essos_imported_maps_generate_drb_movie_gate(tmp_path: Path) -> None:
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     assert report["passed"] is True
     assert report["source"] == "ESSOS-imported Landreman-Paul QA coil FCI maps with JAXDRB fixed-layout DRB transient"
+    assert report["publication_ready"] is False
+    assert report["movie_evidence_role"] == "movie_showcase_pending_connection_grid_time_refinement"
+    assert "coil_connection_length_refinement_not_promotion_ready" in report[
+        "movie_promotion_rejection_reasons"
+    ]
     assert report["final_potential_residual_l2"] < 5.0
     assert report["final_fluctuation_rms"] > 1.0e-4
     assert report["particle_recycling_relative_error"] < 1.0e-10
