@@ -25,6 +25,7 @@ on:
           - dthe-active-array-output-jvp-profile
           - dthe-active-array-batched-jvp-gate
           - dthe-active-array-linearized-update-gate
+          - dthe-active-array-linearized-update-jvp-diag-gate
           - dthe-batched-jvp-gate
           - fixed-bdf2-direct-counting-gate
           - adaptive-bdf-jax-lineax-gate

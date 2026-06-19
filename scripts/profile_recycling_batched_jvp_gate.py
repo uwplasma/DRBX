@@ -169,8 +169,23 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--linearized-update-jit-operator", action="store_true")
     parser.add_argument(
         "--linearized-update-preconditioner",
-        choices=("none", "state_scale"),
+        choices=("none", "state_scale", "jvp_diag", "linearized_diag", "jacobian_diag"),
         default="none",
+    )
+    parser.add_argument(
+        "--linearized-update-preconditioner-floor",
+        type=float,
+        default=1.0e-10,
+        help="Regularization floor for opt-in JVP-diagonal update preconditioners.",
+    )
+    parser.add_argument(
+        "--linearized-update-preconditioner-max-unknowns",
+        type=int,
+        default=2048,
+        help=(
+            "Maximum packed unknown count allowed for opt-in JVP-diagonal "
+            "update preconditioner builds."
+        ),
     )
     return parser.parse_args()
 
@@ -245,6 +260,12 @@ def main() -> None:
             linearized_update_solve_method=str(args.linearized_update_solve_method),
             linearized_update_jit_operator=bool(args.linearized_update_jit_operator),
             linearized_update_preconditioner=str(args.linearized_update_preconditioner),
+            linearized_update_preconditioner_floor=float(
+                args.linearized_update_preconditioner_floor
+            ),
+            linearized_update_preconditioner_max_unknowns=int(
+                args.linearized_update_preconditioner_max_unknowns
+            ),
         )
 
     memory_profile_path = None

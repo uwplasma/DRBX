@@ -424,8 +424,25 @@ The retained local CPU artifact uses the in-tree D/T/He fixture at `ny=16`.
 It records GMRES solver status `0`, a successful jitted matrix-free operator,
 linear-update relative residual `3.26e-16`, and post-update nonlinear residual
 `2.11e-11` on the active-array fixed-layout residual. The update check took
-about `11.94 s` inside a `33.4 s` campaign run. Treat this as solver-health
+about `5.48 s` inside a `15.6 s` campaign run. Treat this as solver-health
 evidence for future preconditioner work, not a speedup claim.
+
+The companion JVP-diagonal preconditioner screen is:
+
+```bash
+PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-active-array-linearized-update-jvp-diag-gate \
+  --reference-root /path/to/reference/root
+```
+
+On the same `ny=16` D/T/He fixture, `jvp_diag` built a `304`-entry diagonal in
+about `1.25 s` and preserved solver health: GMRES status `0`, linear-update
+relative residual `2.94e-15`, and post-update nonlinear residual `2.11e-11`.
+It did not improve this residual family. The diagonal entries lie between
+`1.000000007` and `1.000043761` in absolute value, so the preconditioner is
+nearly the identity and the update check took about `11.42 s`. Keep it as an
+auditable diagnostic and move performance effort toward transport/block
+preconditioners or cheaper residual/JVP kernels.
 
 For larger GPU or multi-device evidence, use the research-campaign wrapper
 rather than hand-editing decks. These campaigns enable repeated timings,
