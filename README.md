@@ -394,20 +394,20 @@ devices are visible, pass an identity-map runtime sanity check, and then pass
 the real-kernel parity check.
 
 The heavier D/T/He fixed-layout recycling residual also has CPU and GPU
-profile evidence. The current GPU gate reaches the same residual norm as the
-CPU gate and lowers peak RSS on the small fixed-layout problem, but it is not
-yet claimed as a GPU speedup because this problem size is still launch- and
-compile-overhead limited. The full production BDF recycling lane remains the
-active target for JAX-native residual and Jacobian-action promotion.
+profile evidence. The current same-fidelity GPU gate reaches the same residual
+norm as the CPU gate, but it is much slower and uses more sampled process-tree
+RSS on the full-field residual. That is useful negative evidence: the full
+production BDF recycling lane remains the active target for active-array
+residuals, smaller JAX residual/JVP kernels, and batched GPU promotion.
 
 The new batched recycling residual/JVP gate verifies the D/T/He fixed-layout
 residual under `jit`, `vmap`, `jvp`, and `grad` on the real recycling state.
-It uses the fixed full-field active-array RHS by default and keeps the older
-host bridge only as an explicit diagnostic comparison backend.
-On the local CPU run, the retained batch sweep through 256 states gives about
-`4.94x` residual throughput speedup and about `3.11x` JVP
-throughput speedup over serial same-kernel calls, while the
-JVP/finite-difference error is about `2.19e-9`.
+It uses the fixed full-field RHS by default, exposes the active-array RHS as
+the migration seam, and keeps the older host bridge only as an explicit
+diagnostic comparison backend. On the local CPU run, the retained batch sweep
+through `64` states gives about `2.49x` residual throughput speedup and about
+`2.13x` JVP throughput speedup over serial same-kernel calls, while the
+JVP/finite-difference error is about `5.97e-9`.
 
 The adaptive-BDF recycling solver also has a bounded JAX-linearized promotion
 gate. It is intentionally opt-in rather than the production default: the stable

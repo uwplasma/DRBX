@@ -87,6 +87,69 @@ def _assert_batched_jvp_command(
             rhs_backend
         )
     assert command.command[command.command.index("--batch-sizes") + 1] == batch_sizes
+    if not requires_gpu:
+        assert "--disable-pmap" in command.command
+
+
+def _assert_current_dthe_jax_linearized_command(
+    command,
+    *,
+    requires_gpu: bool,
+) -> None:
+    assert command.required_reference_inputs == ("dthe",)
+    assert command.requires_gpu is requires_gpu
+    assert "profile_recycling_jax_linearized_gate.py" in command.command[1]
+    assert command.command[command.command.index("--case") + 1] == "dthe"
+    assert command.command[command.command.index("--timestep") + 1] == "1.0"
+    assert command.command[command.command.index("--linear-restart") + 1] == "20"
+    assert command.command[command.command.index("--linear-maxiter") + 1] == "20"
+    assert command.command[
+        command.command.index("--line-search-initial-step-scale") + 1
+    ] == "0.25"
+    assert "--skip-initial-residual-check" not in command.command
+    assert "--jit-linear-operator" in command.command
+    assert "--require-linear-operator-jitted" in command.command
+    assert command.command[command.command.index("--initial-residual-mode") + 1] == (
+        "linearize"
+    )
+    assert command.command[command.command.index("--require-initial-residual-mode") + 1] == (
+        "linearize"
+    )
+    assert command.command[
+        command.command.index("--require-min-nonlinear-iterations") + 1
+    ] == "1"
+    assert command.command[
+        command.command.index("--require-min-linear-iterations") + 1
+    ] == "1"
+    assert command.command[
+        command.command.index("--require-max-linear-iterations") + 1
+    ] == "400"
+    assert command.command[
+        command.command.index("--require-max-residual-inf-norm") + 1
+    ] == "7.4"
+    assert command.command[
+        command.command.index("--require-max-residual-evaluations") + 1
+    ] == "2"
+    assert command.command[
+        command.command.index("--require-max-line-search-trials") + 1
+    ] == "1"
+    assert command.command[
+        command.command.index("--require-min-linear-operator-calls") + 1
+    ] == "1"
+    assert "--rss-profile" in command.command
+    assert "--skip-cprofile" in command.command
+    if requires_gpu:
+        assert command.timeout_seconds == 900
+        assert "--jax-trace" in command.command
+        assert "--device-memory-profile" in command.command
+        assert "--compilation-cache-dir" in command.command
+        assert any(
+            "recycling_dthe_jax_linearized_gate_gpu_current" in part
+            for part in command.command
+        )
+    else:
+        assert "--jax-trace" not in command.command
+        assert "--device-memory-profile" not in command.command
 
 
 def _workflow_campaign_options() -> tuple[str, ...]:
@@ -204,45 +267,7 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) 
     assert str(reference_root) in heavy.command
     assert "--rss-profile" in heavy.command
     assert gate.name == "dthe-jax-linearized-gate"
-    assert "--case" in gate.command
-    assert "dthe" in gate.command
-    assert gate.command[gate.command.index("--timestep") + 1] == "1.0"
-    assert gate.command[gate.command.index("--linear-restart") + 1] == "20"
-    assert gate.command[gate.command.index("--linear-maxiter") + 1] == "20"
-    assert gate.command[
-        gate.command.index("--line-search-initial-step-scale") + 1
-    ] == "0.25"
-    assert "--skip-initial-residual-check" not in gate.command
-    assert "--jit-linear-operator" in gate.command
-    assert "--require-linear-operator-jitted" in gate.command
-    assert gate.command[gate.command.index("--initial-residual-mode") + 1] == (
-        "linearize"
-    )
-    assert gate.command[gate.command.index("--require-initial-residual-mode") + 1] == (
-        "linearize"
-    )
-    assert gate.command[
-        gate.command.index("--require-min-nonlinear-iterations") + 1
-    ] == "1"
-    assert gate.command[
-        gate.command.index("--require-min-linear-iterations") + 1
-    ] == "1"
-    assert gate.command[
-        gate.command.index("--require-max-linear-iterations") + 1
-    ] == "400"
-    assert gate.command[
-        gate.command.index("--require-max-residual-inf-norm") + 1
-    ] == "7.4"
-    assert gate.command[
-        gate.command.index("--require-max-residual-evaluations") + 1
-    ] == "2"
-    assert gate.command[
-        gate.command.index("--require-max-line-search-trials") + 1
-    ] == "1"
-    assert gate.command[
-        gate.command.index("--require-min-linear-operator-calls") + 1
-    ] == "1"
-    assert "--skip-cprofile" in gate.command
+    _assert_current_dthe_jax_linearized_command(gate, requires_gpu=False)
 
 
 def test_research_campaign_adaptive_bdf_gate_writes_json_report(tmp_path: Path) -> None:
@@ -313,8 +338,19 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(
         fast_timeout_seconds=300,
     )
 
-    linearized, fixed_bdf2, active_batched, active_output, full_output, batched = (
-        commands
+    (
+        current_linearized,
+        linearized,
+        fixed_bdf2,
+        active_batched,
+        active_output,
+        full_output,
+        batched,
+    ) = commands
+    assert current_linearized.name == "gpu-dthe-current-jax-linearized-gate"
+    _assert_current_dthe_jax_linearized_command(
+        current_linearized,
+        requires_gpu=True,
     )
     assert linearized.name == "gpu-dthe-jax-linearized-gate"
     assert linearized.required_reference_inputs == ("dthe",)

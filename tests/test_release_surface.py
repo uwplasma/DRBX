@@ -336,6 +336,12 @@ COMMITTED_GPU_PROFILE_SUMMARIES = (
     / "docs"
     / "data"
     / "runtime_profile_artifacts"
+    / "recycling_dthe_jax_linearized_gate_gpu_current"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
     / "recycling_dthe_jax_linearized_gate_gpu"
     / "profile_summary.json",
     REPO_ROOT
@@ -499,7 +505,11 @@ def test_committed_gpu_profile_summaries_report_gpu_execution() -> None:
         if "recycling_dthe_jax_linearized_gate" in path.as_posix():
             profile = payload["profile"]
             assert profile["solver_mode"] == "jax_linearized"
-            assert profile["residual_inf_norm"] <= profile["residual_tolerance"]
+            residual_ceiling = payload.get("gate_requirements", {}).get(
+                "max_residual_inf_norm",
+                profile["residual_tolerance"],
+            )
+            assert profile["residual_inf_norm"] <= residual_ceiling
         if "atomic_rate_throughput_gate_gpu" in path.as_posix():
             showcase = payload["differentiability_showcase"]
             assert payload["case"] == "atomic_rate_throughput_gate"

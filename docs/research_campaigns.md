@@ -71,8 +71,9 @@ python scripts/run_research_campaign_bundle.py \
 ```
 
 Use the GPU bundle on a self-hosted machine with CUDA-visible devices when
-collecting larger fixed-layout residual, full output-window, trace, memory, and
-pmap evidence:
+collecting same-fidelity D/T/He residual evidence, larger fixed-layout
+residual traces, full output-window profiles, memory snapshots, and pmap
+evidence:
 
 ```bash
 JAX_PLATFORMS=cuda CUDA_VISIBLE_DEVICES=0,1 \
@@ -106,13 +107,17 @@ repeated direct tokamak recycling solves rather than a synthetic microkernel,
 and the committed artifact reaches about `4.79x` steady-state speedup from
 `1 -> 8` worker processes on the retained `16`-solve ensemble.
 
-The GPU bundle contains fixed-layout residual, fixed-BDF2 output-window,
+The GPU bundle contains the current `dt=1.0` D/T/He fixed-layout residual gate,
+a separate larger active-array residual trace, fixed-BDF2 output-window,
 active-array output-window, full-field compatibility output-window, and
-batched-JVP lanes. The fixed-layout JAX-linearized gate measures the
-residual/JVP seam with the jitted matrix-free operator and now requires the
-active-array RHS backend for the large D/T/He residual profile, so trace and
-memory evidence does not accidentally fall back to the slower full-field
-compatibility residual. The bounded non-SciPy fixed-BDF2 path still reports
+batched-JVP lanes. The `gpu-dthe-current-jax-linearized-gate` command mirrors
+the CPU `dthe-jax-linearized-gate` timestep, GMRES budget, residual ceiling,
+line-search trial budget, and residual-evaluation budget, then adds JAX trace,
+device-memory, and persistent-compilation-cache outputs. The older
+`gpu-dthe-jax-linearized-gate` remains a larger active-array readiness probe and
+requires the active-array RHS backend, so trace and memory evidence does not
+accidentally fall back to the slower full-field compatibility residual. The
+bounded non-SciPy fixed-BDF2 path still reports
 both fixed-full-field and active-array diagnostics before any default solver
 promotion. The `fixed-bdf2-direct-counting-gate` campaign is the bounded local
 counterpart for that output-window path. On June 19, 2026 it ran
@@ -152,7 +157,7 @@ The fixed-full-field `gpu-dthe-batched-jvp-gate` and active-array
 `gpu-dthe-active-array-batched-jvp-gate` lanes measure ensemble throughput on
 the same D/T/He residual family. The local active-array counterpart is
 `dthe-active-array-batched-jvp-gate`; its retained `ny=100` CPU artifact
-reaches about `2.72x` residual and `2.01x` JVP same-kernel speedup through
+reaches about `2.47x` residual and `2.09x` JVP same-kernel speedup through
 batch `64`, with JVP/finite-difference relative error about `5.97e-9`. The
 active-array GPU batched campaign is deliberately single-device for now
 (`--disable-pmap`) and uses residual/JVP batch partitions of `16` because
@@ -307,12 +312,15 @@ summaries under `docs/data/runtime_profile_artifacts/`. The current
 `dt=1.0`, `950`-active-variable CPU gate passes with residual `7.315`, one
 line-search trial, two residual evaluations, five jitted matrix-free operator
 calls, `8.92 s` profiled runtime, and about `2.86 GiB` sampled peak
-process-tree RSS. The retained office-GPU summaries in the same directory are
-older tiny-step readiness probes; they show that the seam is
-accelerator-executable and lower-memory on that smaller residual, but they are
-not same-fidelity speedup evidence for the current `dt=1.0` gate. The next GPU
-claim must refresh the GPU artifact with the current gate or use a heavier
-same-shape batch that amortizes compile and launch overhead.
+process-tree RSS. The same-fidelity
+`gpu-dthe-current-jax-linearized-gate` now passes on one RTX A4000 with the
+same residual, line-search, residual-evaluation, and operator-call counts, but
+it takes `109.49 s` and samples peak process-tree RSS near `12.34 GiB`. The
+retained older office-GPU summaries remain useful tiny-step readiness probes,
+but the current-gate result is negative speedup evidence for the full-field
+fixed-layout residual. The next GPU claim should use active-array residuals,
+smaller compiled kernels, or heavier same-shape batching that amortizes compile
+and launch overhead.
 
 ## Promotion Policy
 

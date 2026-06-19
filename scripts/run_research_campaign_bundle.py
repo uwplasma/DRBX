@@ -231,6 +231,7 @@ def _campaign_command_map(
                 "1,4,16,64",
                 "--timed-runs",
                 "3",
+                "--disable-pmap",
             ),
             requires_reference=True,
             required_reference_inputs=("dthe",),
@@ -261,6 +262,7 @@ def _campaign_command_map(
                 "1,4,16,64",
                 "--timed-runs",
                 "3",
+                "--disable-pmap",
             ),
             requires_reference=True,
             required_reference_inputs=("dthe",),
@@ -422,6 +424,69 @@ def _campaign_command_map(
             requires_reference=True,
             required_reference_inputs=("dthe",),
             requires_gpu=True,
+        ),
+        "gpu-dthe-current-jax-linearized-gate": CampaignCommand(
+            name="gpu-dthe-current-jax-linearized-gate",
+            description=(
+                "Same-fidelity D/T/He JAX-linearized residual gate for GPU "
+                "comparison against the current CPU dt=1.0 campaign."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_jax_linearized_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--output-dir",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_dthe_jax_linearized_gate_gpu_current"
+                ),
+                "--timestep",
+                "1.0",
+                "--linear-restart",
+                "20",
+                "--linear-maxiter",
+                "20",
+                "--line-search-initial-step-scale",
+                "0.25",
+                "--initial-residual-mode",
+                "linearize",
+                "--jit-linear-operator",
+                "--require-initial-residual-mode",
+                "linearize",
+                "--require-linear-operator-jitted",
+                "--require-min-nonlinear-iterations",
+                "1",
+                "--require-min-linear-iterations",
+                "1",
+                "--require-max-linear-iterations",
+                "400",
+                "--require-max-residual-inf-norm",
+                "7.4",
+                "--require-max-residual-evaluations",
+                "2",
+                "--require-max-line-search-trials",
+                "1",
+                "--require-min-linear-operator-calls",
+                "1",
+                "--rss-profile",
+                "--skip-cprofile",
+                "--jax-trace",
+                "--device-memory-profile",
+                "--compilation-cache-dir",
+                str(
+                    repo_root
+                    / "tmp"
+                    / "jax_cache"
+                    / "recycling_dthe_jax_linearized_gate_gpu_current"
+                ),
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+            requires_gpu=True,
+            timeout_seconds=900,
         ),
         "gpu-dthe-full-output-jvp-profile": CampaignCommand(
             name="gpu-dthe-full-output-jvp-profile",
@@ -646,6 +711,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
         elif name == "all-gpu":
             expanded.extend(
                 (
+                    "gpu-dthe-current-jax-linearized-gate",
                     "gpu-dthe-jax-linearized-gate",
                     "gpu-fixed-bdf2-direct-counting-gate",
                     "gpu-dthe-active-array-batched-jvp-gate",
@@ -755,7 +821,8 @@ def main() -> int:
             "dthe-jax-linearized-gate, dthe-batched-jvp-gate, "
             "dthe-active-array-batched-jvp-gate, "
             "dthe-active-array-output-jvp-profile, fixed-bdf2-direct-counting-gate, "
-            "gpu-dthe-jax-linearized-gate, gpu-fixed-bdf2-direct-counting-gate, "
+            "gpu-dthe-current-jax-linearized-gate, gpu-dthe-jax-linearized-gate, "
+            "gpu-fixed-bdf2-direct-counting-gate, "
             "gpu-dthe-active-array-batched-jvp-gate, "
             "gpu-dthe-active-array-output-jvp-profile, "
             "gpu-dthe-batched-jvp-gate, "

@@ -275,6 +275,7 @@ wall-clock time from improving consistently.
 The current GPU evidence for the heavier fixed-layout seam lives in:
 
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/profile_summary.json`
+- `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_gpu_current/profile_summary.json`
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_gpu/profile_summary.json`
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_gpu_warm/profile_summary.json`
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_ny100_dt1e4_cpu/profile_summary.json`
@@ -283,11 +284,13 @@ The current GPU evidence for the heavier fixed-layout seam lives in:
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_ny200_dt1e4_gpu/profile_summary.json`
 - `docs/data/runtime_profile_artifacts/recycling_dthe_batched_jvp_gate_cpu/profile_summary.json`
 
-Those summaries show equal residual closure between CPU and GPU, lower sampled
-peak RSS on GPU for the small D/T/He fixed-layout gate, and slower warm GPU
-wall time on the retained problem size. The correct profiling conclusion is
-that the residual seam is accelerator-executable, while the reviewer-facing
-speedup claim still requires a larger transformed residual or a batched heavy
+Those summaries show equal residual closure between CPU and GPU. The
+same-fidelity `dt=1.0` D/T/He gate now passes on GPU but is much slower
+(`109.49 s` versus `8.92 s`) and uses more sampled process-tree RSS
+(`12.34 GiB` versus `2.86 GiB`) than the CPU artifact. The correct profiling
+conclusion is that the current full-field residual seam is
+accelerator-executable but not GPU-efficient; reviewer-facing speedup claims
+need active-array residuals, smaller compiled kernels, or a batched heavy
 ensemble.
 
 The larger real-kernel D/T/He GMRES gates use `mesh:ny=100` and `mesh:ny=200`
@@ -317,8 +320,9 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --case dthe \
   --rhs-backend fixed_full_field_array \
   --override mesh:ny=100 \
-  --batch-sizes 1,4,16,64,128,256 \
-  --timed-runs 7 \
+  --batch-sizes 1,4,16,64 \
+  --timed-runs 3 \
+  --disable-pmap \
   --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_batched_jvp_gate_cpu
 ```
 
@@ -364,10 +368,10 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
 ```
 
 The retained local CPU fixed-full-field artifact now sweeps batches through
-`256` states and shows about `3.66x` residual throughput speedup and `2.38x`
+`64` states and shows about `2.49x` residual throughput speedup and `2.13x`
 JVP throughput speedup over serial same-kernel calls, with batched/serial
 residual and JVP mismatch at roundoff. Its best residual throughput is about
-`4.14e4` states/s and its best JVP throughput is about `1.03e4` states/s. The
+`3.21e4` states/s and its best JVP throughput is about `9.19e3` states/s. The
 residual JVP agrees with centered finite difference to about `5.97e-9`, and
 the objective directional derivative agrees to about `1.34e-7`.
 
@@ -380,12 +384,13 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --override mesh:ny=100 \
   --batch-sizes 1,4,16,64 \
   --timed-runs 3 \
+  --disable-pmap \
   --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_active_array_batched_jvp_gate_cpu
 ```
 
-That artifact reaches about `2.72x` residual throughput speedup and `2.01x`
+That artifact reaches about `2.47x` residual throughput speedup and `2.09x`
 JVP throughput speedup through batch `64`, with best residual and JVP
-throughputs of about `3.43e4` and `8.73e3` states/s. It retains the same
+throughputs of about `3.14e4` and `9.10e3` states/s. It retains the same
 finite-difference derivative checks as the fixed-full-field artifact. This is
 the current best local evidence that the transformable active-array residual
 can be batched and differentiated without falling back to Python residual
