@@ -2967,6 +2967,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   strict residual-health gate now; the extra residual action is measurable
   overhead, so cheaper direct-counting profiles remain separate timing
   evidence.
+- 2026-06-19: Re-ran `fixed-bdf2-direct-counting-gate` into a temporary output
+  root after the strict gate was committed. The production-style hydrogen
+  output-window probe passed in `45.8 s`, reported zero failed or unknown
+  fixed-BDF2 subsolves, kept `fixed_bdf2_max_residual_inf_norm=2.899e-6`,
+  preserved the `46` residual-evaluation budget, and recorded no
+  post-GMRES linear-update residual checks by construction. Decision: keep the
+  strict residual gate and direct-counting timing gate paired; do not promote
+  the active-array fixed-BDF2 route by default until heavier D/T/He and GPU
+  output-window profiles show the same health without host-bound slowdown.
 
 ## Definition Of Done
 
