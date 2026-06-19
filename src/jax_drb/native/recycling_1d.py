@@ -2298,6 +2298,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_max_residual_inf_norm": 0.0,
         "fixed_bdf2_total_nonlinear_iterations": 0,
         "fixed_bdf2_total_linear_iterations": 0,
+        "fixed_bdf2_total_linear_solve_count": 0,
         "fixed_bdf2_total_linear_operator_call_count": 0,
         "fixed_bdf2_max_linear_update_residual_inf_norm": None,
         "fixed_bdf2_max_linear_update_relative_residual": None,
@@ -2342,6 +2343,9 @@ def _advance_recycling_1d_fixed_bdf2_history(
         diagnostics["fixed_bdf2_total_linear_iterations"] = int(
             diagnostics["fixed_bdf2_total_linear_iterations"]
         ) + int(info.linear_iterations)
+        diagnostics["fixed_bdf2_total_linear_solve_count"] = int(
+            diagnostics["fixed_bdf2_total_linear_solve_count"]
+        ) + int(info.diagnostics.get("linear_solve_count", 0) or 0)
         diagnostics["fixed_bdf2_total_linear_operator_call_count"] = int(
             diagnostics["fixed_bdf2_total_linear_operator_call_count"]
         ) + int(info.diagnostics.get("linear_operator_call_count", 0))
@@ -2830,6 +2834,7 @@ def _new_adaptive_bdf_interval_stats(
         "adaptive_bdf_residual_evaluation_count": 0,
         "adaptive_bdf_jacobian_refresh_count": 0,
         "adaptive_bdf_linear_iterations": 0,
+        "adaptive_bdf_linear_solve_count": 0,
         "adaptive_bdf_linear_operator_call_count": 0,
         "adaptive_bdf_max_linear_update_residual_inf_norm": None,
         "adaptive_bdf_max_linear_update_relative_residual": None,
@@ -3150,6 +3155,10 @@ def _record_adaptive_bdf_step_solver_info(
             "adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses",
         ),
         (
+            "linear_solve_count",
+            "adaptive_bdf_linear_solve_count",
+        ),
+        (
             "linear_operator_call_count",
             "adaptive_bdf_linear_operator_call_count",
         ),
@@ -3169,9 +3178,12 @@ def _record_adaptive_bdf_step_solver_info(
         stats["adaptive_bdf_linear_iterations"]
     ) + int(getattr(info, "linear_iterations", 0) or 0)
     linear_iterations = int(getattr(info, "linear_iterations", 0) or 0)
+    linear_solve_count = int(diagnostics.get("linear_solve_count", 0) or 0)
     linear_solver_backend = diagnostics.get("linear_solver_backend")
     linear_solver_attempted = (
-        linear_iterations > 0 or linear_solver_backend is not None
+        linear_iterations > 0
+        or linear_solve_count > 0
+        or linear_solver_backend is not None
     )
     if diagnostics.get("linear_solver_success") is False:
         stats["adaptive_bdf_linear_solver_failed_steps"] = (
@@ -3326,6 +3338,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_residual_evaluation_count",
         "adaptive_bdf_jacobian_refresh_count",
         "adaptive_bdf_linear_iterations",
+        "adaptive_bdf_linear_solve_count",
         "adaptive_bdf_linear_operator_call_count",
         "adaptive_bdf_linear_update_residual_evaluation_count",
         "adaptive_bdf_linear_preconditioner_build_count",
@@ -7271,6 +7284,7 @@ def _as_recycling_step_info(
         "jacobian_assembly_seconds": float(
             getattr(info, "jacobian_assembly_seconds", 0.0)
         ),
+        "linear_solve_count": int(getattr(info, "linear_solve_count", 0)),
         "linear_solve_seconds": float(getattr(info, "linear_solve_seconds", 0.0)),
         "line_search_seconds": float(getattr(info, "line_search_seconds", 0.0)),
         "line_search_trial_count": int(

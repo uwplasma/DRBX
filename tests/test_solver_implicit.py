@@ -580,6 +580,7 @@ def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     assert sparse_info.residual_evaluation_count >= 1
     assert sparse_info.jacobian_refresh_count >= 1
     assert sparse_info.jacobian_assembly_seconds >= 0.0
+    assert sparse_info.linear_solve_count >= 1
     assert sparse_info.linear_solve_seconds >= 0.0
     assert sparse_info.linear_solver_backend == "scipy_gmres"
     assert sparse_info.linear_solver_tolerance == pytest.approx(1.0e-10)
@@ -1280,6 +1281,7 @@ def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:
     )
     assert info.jvp_jacobian_gather_on_device is True
     assert info.linear_solver_backend == "scipy_spsolve"
+    assert info.linear_solve_count == info.nonlinear_iterations
     assert info.linear_solver_tolerance == pytest.approx(1.0e-10)
     assert info.linear_solver_status == "ok"
     assert info.linear_solver_success is True
@@ -1368,6 +1370,7 @@ def test_sparse_newton_solver_returns_immediately_when_initial_state_satisfies_r
     np.testing.assert_allclose(solution, initial)
     assert info.nonlinear_iterations == 0
     assert info.linear_iterations == 0
+    assert info.linear_solve_count == 0
 
 
 def test_sparse_newton_solver_uses_thread_count_from_environment(
@@ -1405,6 +1408,7 @@ def test_sparse_newton_solver_uses_thread_count_from_environment(
     np.testing.assert_allclose(solution, np.array([1.0]))
     assert captured_workers == [3]
     assert info.linear_iterations == 1
+    assert info.linear_solve_count == 1
     assert info.linear_solver_backend == "scipy_spsolve"
     assert info.linear_solver_status == "ok"
     assert info.linear_solver_success is True
@@ -1776,6 +1780,7 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
     assert info.residual_evaluation_count >= 1
     assert info.jacobian_refresh_count >= 1
     assert info.jacobian_assembly_seconds >= 0.0
+    assert info.linear_solve_count >= 1
     assert info.linear_solve_seconds >= 0.0
     assert info.converged is True
     assert info.linear_solver_backend == "jax_gmres"

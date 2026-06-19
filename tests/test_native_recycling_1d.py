@@ -3737,6 +3737,7 @@ def test_adaptive_bdf_stats_record_linear_update_residual_diagnostics() -> None:
             "converged": True,
             "linear_solver_backend": "jax_gmres",
             "linear_solver_success": True,
+            "linear_solve_count": 1,
             "linear_update_residual_inf_norm": 2.0e-11,
             "linear_update_relative_residual": 3.0e-5,
             "linear_update_residual_evaluation_count": 1,
@@ -3746,6 +3747,7 @@ def test_adaptive_bdf_stats_record_linear_update_residual_diagnostics() -> None:
 
     recycling_1d_mod._record_adaptive_bdf_step_solver_info(stats, info)
 
+    assert stats["adaptive_bdf_linear_solve_count"] == 1
     assert stats["adaptive_bdf_linear_update_residual_evaluation_count"] == 1
     assert stats["adaptive_bdf_linear_update_residual_seconds"] == pytest.approx(0.004)
     assert stats["adaptive_bdf_max_linear_update_residual_inf_norm"] == pytest.approx(
@@ -3920,6 +3922,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             active_shape=tuple(active_shape),
             nonlinear_iterations=1,
             linear_iterations=1,
+            linear_solve_count=1,
             jacobian_mode="jvp",
             residual_jitted=kwargs["jit_residual"],
             linear_operator_jitted=kwargs["jit_linear_operator"],
@@ -4017,6 +4020,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
         assert info.diagnostics["residual_jitted"] is True
         assert info.diagnostics["linear_operator_jitted"] is True
         assert info.diagnostics["linear_operator_counting"] == "direct"
+        assert info.diagnostics["linear_solve_count"] == 1
         assert info.diagnostics["linear_update_residual_inf_norm"] == pytest.approx(
             1.0e-12
         )
@@ -4252,6 +4256,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
             active_shape=tuple(active_shape),
             nonlinear_iterations=1,
             linear_iterations=1,
+            linear_solve_count=1,
             jacobian_mode="jvp",
             residual_jitted=kwargs["jit_residual"],
             line_search_mode=kwargs["line_search_mode"],
@@ -4323,6 +4328,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     )
     if solver_mode.startswith("jax_linearized"):
         assert info.diagnostics["residual_jitted"] is True
+        assert info.diagnostics["linear_solve_count"] == 1
         assert info.diagnostics["line_search_mode"] == "full_step"
         assert info.diagnostics["check_initial_residual"] is False
         assert info.diagnostics["initial_residual_mode"] == "linearize"

@@ -366,6 +366,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--require-min-linear-solve-count",
+        type=int,
+        default=None,
+        help=(
+            "Fail after profiling when diagnostics.linear_solve_count is below "
+            "this nonnegative floor. Use this with "
+            "--linear-operator-counting=direct, where Python-visible operator "
+            "calls and iteration counts are intentionally not instrumented."
+        ),
+    )
+    parser.add_argument(
         "--require-min-nonlinear-iterations",
         type=int,
         default=None,
@@ -498,6 +509,11 @@ def _validate_args(args: argparse.Namespace) -> None:
     if args.require_min_linear_iterations is not None:
         if int(args.require_min_linear_iterations) < 0:
             raise SystemExit("--require-min-linear-iterations must be nonnegative.")
+    if args.require_min_linear_solve_count is not None:
+        if int(args.require_min_linear_solve_count) < 0:
+            raise SystemExit(
+                "--require-min-linear-solve-count must be nonnegative."
+            )
     if args.require_min_nonlinear_iterations is not None:
         if int(args.require_min_nonlinear_iterations) < 0:
             raise SystemExit(
@@ -1002,6 +1018,17 @@ def _profile_gate_errors(
                 label="linear iterations",
             )
         )
+    min_linear_solve_count = getattr(args, "require_min_linear_solve_count", None)
+    if min_linear_solve_count is not None:
+        errors.extend(
+            _validate_minimum_integer_value(
+                profile_report,
+                key="linear_solve_count",
+                minimum=int(min_linear_solve_count),
+                label="linear solve attempts",
+                source=diagnostics,
+            )
+        )
     min_nonlinear_iterations = getattr(args, "require_min_nonlinear_iterations", None)
     if min_nonlinear_iterations is not None:
         errors.extend(
@@ -1128,6 +1155,7 @@ def _profile_once(
         "residual_inf_norm": float(info.residual_inf_norm),
         "nonlinear_iterations": int(info.nonlinear_iterations),
         "linear_iterations": int(info.linear_iterations),
+        "linear_solve_count": int(info.diagnostics.get("linear_solve_count", 0)),
         "linear_solver_status": info.diagnostics.get("linear_solver_status"),
         "linear_solver_success": info.diagnostics.get("linear_solver_success"),
         "linear_solver_reported_iterations": info.diagnostics.get(
@@ -1270,6 +1298,7 @@ def main() -> int:
             "min_linear_operator_calls": args.require_min_linear_operator_calls,
             "max_linear_operator_calls": args.require_max_linear_operator_calls,
             "min_linear_iterations": args.require_min_linear_iterations,
+            "min_linear_solve_count": args.require_min_linear_solve_count,
             "min_nonlinear_iterations": args.require_min_nonlinear_iterations,
             "max_preconditioner_builds": args.require_max_preconditioner_builds,
             "max_preconditioner_applies": args.require_max_preconditioner_applies,

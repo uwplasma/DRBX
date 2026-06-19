@@ -34,6 +34,7 @@ class ImplicitStepInfo:
     residual_evaluation_seconds: float = 0.0
     jacobian_refresh_count: int = 0
     jacobian_assembly_seconds: float = 0.0
+    linear_solve_count: int = 0
     linear_solve_seconds: float = 0.0
     line_search_seconds: float = 0.0
     line_search_trial_count: int = 0
@@ -793,6 +794,7 @@ def solve_sparse_newton_system(
     residual_evaluation_seconds = 0.0
     jacobian_refresh_count = 0
     jacobian_assembly_seconds = 0.0
+    linear_solve_count = 0
     linear_solve_seconds = 0.0
     line_search_seconds = 0.0
     fallback_used = False
@@ -843,6 +845,7 @@ def solve_sparse_newton_system(
             residual_evaluation_seconds=residual_evaluation_seconds,
             jacobian_refresh_count=jacobian_refresh_count,
             jacobian_assembly_seconds=jacobian_assembly_seconds,
+            linear_solve_count=linear_solve_count,
             linear_solve_seconds=linear_solve_seconds,
             line_search_seconds=line_search_seconds,
             fallback_used=fallback_used,
@@ -1034,6 +1037,7 @@ def solve_sparse_newton_system(
         linear_iterations = 0
         linear_solve_started_at = perf_counter()
         if prefer_direct_linear_solve:
+            linear_solve_count += 1
             update = spsolve(jacobian_csc, -residual_value)
             total_linear_iterations += 1
             update_is_finite = bool(np.all(np.isfinite(update)))
@@ -1057,9 +1061,11 @@ def solve_sparse_newton_system(
                 callback=callback,
                 callback_type="pr_norm",
             )
+            linear_solve_count += 1
             total_linear_iterations += linear_iterations
             gmres_update_is_finite = bool(np.all(np.isfinite(update)))
             if exit_code != 0:
+                linear_solve_count += 1
                 update = spsolve(jacobian_csc, -residual_value)
                 total_linear_iterations += 1
                 direct_update_is_finite = bool(np.all(np.isfinite(update)))
@@ -1237,6 +1243,7 @@ def solve_jax_linearized_newton_system(
     residual_evaluation_seconds = 0.0
     jacobian_refresh_count = 0
     jacobian_assembly_seconds = 0.0
+    linear_solve_count = 0
     linear_solve_seconds = 0.0
     line_search_seconds = 0.0
     line_search_trial_count = 0
@@ -1315,6 +1322,7 @@ def solve_jax_linearized_newton_system(
             residual_evaluation_seconds=residual_evaluation_seconds,
             jacobian_refresh_count=jacobian_refresh_count,
             jacobian_assembly_seconds=jacobian_assembly_seconds,
+            linear_solve_count=linear_solve_count,
             linear_solve_seconds=linear_solve_seconds,
             line_search_seconds=line_search_seconds,
             line_search_trial_count=line_search_trial_count,
@@ -1445,6 +1453,7 @@ def solve_jax_linearized_newton_system(
 
         linear_solve_started_at = perf_counter()
         linear_operator_calls_before_solve = int(linear_operator_call_count)
+        linear_solve_count += 1
         solve_result = _solve_jax_linearized_update(
             solve_linear_map,
             -residual_value,

@@ -143,9 +143,9 @@ and tests all move together.
 | Plan authority and release hygiene | 96% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 97% | Make the documented full-output JAX-transformable recycling path fast enough for broader opt-in promotion beyond bounded fixture gates; the D/T/He JAX-linearized gate now has positive `jit_linear_operator` speedup evidence, while default promotion still needs heavier output-window parity/runtime evidence. |
+| JAX-native recycling solver | 98% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, and the bounded hydrogen active-array gate passes with a jitted operator and clean JAX-GMRES status. Default promotion still needs heavier output-window parity/runtime evidence. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
-| Performance and scaling | 65% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`; remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
+| Performance and scaling | 66% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, and direct-counting gates can now prove solve execution without Python callback overhead. Remaining scaling work is output-window CPU/GPU evidence and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 78% | Finish term-level neutral/recycling/sheath gates and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
@@ -2643,6 +2643,20 @@ Use this log for concise decision records. Do not paste terminal output here.
   remaining imported-field limitation is the broader scientific promotion to a
   long-window or less-reduced turbulence claim, not media hosting or renderer
   polish.
+- 2026-06-19: Added explicit `linear_solve_count` diagnostics to the implicit
+  solver, recycling step adapter, fixed-BDF2/adaptive BDF summaries, and the
+  JAX-linearized profile gate. This closes the reporting gap where
+  `runtime:recycling_jax_linear_operator_counting=direct` correctly avoids
+  Python-visible operator callbacks and can therefore report
+  `linear_iterations=0` and `linear_operator_call_count=0` despite executing a
+  JAX GMRES solve. The bounded hydrogen active-array gate now passes with
+  `rhs_backend=active_array`, `initial_residual_mode=linearize`,
+  `linear_operator_jitted=true`, `linear_operator_counting=direct`,
+  `linear_solve_count=1`, solver status `0`, residual `8.8536e-2`, and
+  profiled runtime `2.32 s`. Decision: raise JAX-native recycling solver to
+  `98%` and performance/scaling to `66%`; the remaining promotion blocker is
+  still heavier output-window CPU/GPU parity/runtime evidence, not missing
+  direct-mode solve evidence.
 
 ## Definition Of Done
 
