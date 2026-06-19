@@ -910,6 +910,19 @@ final COO data buffer rather than allocating a temporary per color group. This
 keeps the opt-in sparse-JVP path memory-stable during larger color sweeps, but
 it is intentionally not claimed as a solver-promotion result because the
 measured blocker remains `jax.linearize` plus grouped tangent pushes.
+The sparse-JVP Newton loop now reuses the primal residual produced by
+`jax.linearize` when a JVP Jacobian is refreshed, and it carries the accepted
+line-search residual into the next nonlinear iteration. This removes the
+previous pattern of evaluating the residual immediately before calling
+`jax.linearize` on the same state. The focused unit gate now has `4` nonlinear
+iterations, `4` JVP Jacobian refreshes, and only `4` standalone residual
+evaluations, while preserving the sparse-JVP Jacobian parity checks. A bounded
+hydrogen `adaptive_bdf_sparse_jvp` recycling gate passed with `61` sparse-JVP
+solver steps, `72` JVP Jacobian refreshes, `63` standalone residual
+evaluations, `0` failed linear solves, and elapsed time `43.29 s`. This is a
+real host-side residual-call reduction for sparse-JVP Newton; the dominant
+remaining cost is still the JAX linearization and grouped-push work inside
+Jacobian assembly.
 The adaptive controller now keeps BDF2 history across timestep changes using
 the variable-step BDF2 residual
 `U^{n+1} - a_1 U^n + a_0 U^{n-1} - b Δt R(U^{n+1})`, with
