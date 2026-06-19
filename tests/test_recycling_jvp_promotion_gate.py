@@ -93,6 +93,7 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
         fixed_bdf2_timestep=10.0,
         fixed_bdf2_linear_preconditioner="local_block_diag",
         fixed_bdf2_linear_preconditioner_refresh=100,
+        fixed_bdf2_jit_linear_operator=True,
         fixed_bdf2_max_linear_iterations=3200,
         fixed_bdf2_max_linear_operator_calls=128,
         fixed_bdf2_max_preconditioner_builds=2,
@@ -112,6 +113,8 @@ def test_recycling_jvp_promotion_gate_builds_preconditioned_fixed_bdf2_command()
         "runtime:recycling_jax_linear_preconditioner_refresh=100"
         in overrides
     )
+    assert "runtime:recycling_jax_linear_jit_linear_operator=true" in overrides
+    assert "--require-fixed-bdf2-linear-operator-jitted" in command
     assert command[
         command.index("--require-fixed-bdf2-linear-preconditioner") + 1
     ] == "local_block_diag"

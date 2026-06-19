@@ -80,6 +80,7 @@ def _build_case_command(
     fixed_bdf2_max_linear_operator_calls: int | None = None,
     fixed_bdf2_max_preconditioner_builds: int | None = None,
     fixed_bdf2_max_preconditioner_applies: int | None = None,
+    fixed_bdf2_jit_linear_operator: bool = False,
 ) -> list[str]:
     resolved_mode_timeout = (
         gate_case.mode_timeout_seconds
@@ -154,6 +155,14 @@ def _build_case_command(
                     "--override",
                     "runtime:recycling_fixed_bdf2_max_internal_timestep="
                     f"{float(gate_case.fixed_bdf2_max_internal_timestep):g}",
+                )
+            )
+        if bool(fixed_bdf2_jit_linear_operator):
+            command.extend(
+                (
+                    "--override",
+                    "runtime:recycling_jax_linear_jit_linear_operator=true",
+                    "--require-fixed-bdf2-linear-operator-jitted",
                 )
             )
         if fixed_bdf2_max_linear_iterations is not None:
@@ -328,6 +337,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--fixed-bdf2-jit-linear-operator",
+        action="store_true",
+        help=(
+            "Forward runtime:recycling_jax_linear_jit_linear_operator=true to the "
+            "fixed-BDF2 phase and require fixed_bdf2_linear_operator_jitted_steps "
+            "in the compare report. This gates the JAX-compiled matrix-free "
+            "Krylov action used by heavier recycling profiles."
+        ),
+    )
+    parser.add_argument(
         "--fixed-bdf2-max-linear-iterations",
         type=int,
         default=None,
@@ -442,6 +461,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fixed_bdf2_max_preconditioner_applies=(
                     args.fixed_bdf2_max_preconditioner_applies
                 ),
+                fixed_bdf2_jit_linear_operator=bool(
+                    args.fixed_bdf2_jit_linear_operator
+                ),
             )
             resolved_mode_timeout = (
                 gate_case.mode_timeout_seconds
@@ -465,6 +487,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "fixed_bdf2_linear_preconditioner_refresh": (
                     args.fixed_bdf2_linear_preconditioner_refresh
+                ),
+                "fixed_bdf2_jit_linear_operator": bool(
+                    args.fixed_bdf2_jit_linear_operator
                 ),
                 "fixed_bdf2_max_linear_iterations": (
                     args.fixed_bdf2_max_linear_iterations

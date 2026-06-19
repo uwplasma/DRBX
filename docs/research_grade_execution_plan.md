@@ -2246,7 +2246,8 @@ Use this log for concise decision records. Do not paste terminal output here.
   on GPU or with persistent cache enabled.
 - 2026-06-19: Promoted `jit_linear_operator` into the real recycling profile
   harness with `--jit-linear-operator` and
-  `--require-linear-operator-jitted`. On the D/T/He JAX-linearized
+  `--require-linear-operator-jitted`, and into the fixed-BDF2 promotion wrapper
+  with `--fixed-bdf2-jit-linear-operator`. On the D/T/He JAX-linearized
   backward-Euler gate (`timestep=1.0`, `linear_restart=10`,
   `linear_maxiter=10`, `initial_residual_mode=linearize`), the unjitted control
   took `26.27 s`, residual `7.31568`, `5` matrix-free operator calls, and
