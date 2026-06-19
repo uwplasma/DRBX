@@ -143,7 +143,7 @@ and tests all move together.
 | Plan authority and release hygiene | 96% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 98.6% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, and both one-step and bounded fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus a residual-evaluation budget. Default promotion still needs heavier CPU/GPU parity/runtime evidence before replacing stable finite-difference defaults. |
+| JAX-native recycling solver | 98.7% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, both one-step and bounded fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus a residual-evaluation budget, and fixed residuals now have an opt-in instrumented linearized-action seam for matrix-free/JVP profiling. Default promotion still needs heavier CPU/GPU parity/runtime evidence before replacing stable finite-difference defaults. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov count. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
 | Performance and scaling | 70% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, the fixed-BDF2 direct-counting output-window gate proves solve execution without Python callback overhead and reports mean residual/solve costs, and the active-array D/T/He residual/JVP gate now has retained CPU batched-throughput evidence. A same-fidelity current D/T/He GPU gate now passes but is `12.3x` slower and uses `4.3x` more sampled RSS than CPU, so remaining scaling work is active-array residuals, reduced compiled residual size, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
@@ -2853,6 +2853,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   best throughputs `3.14e4`/`9.10e3` states/s. Decision: keep local CPU
   retained summaries as vmap/batched evidence; use separate GPU campaigns for
   pmap or CUDA evidence.
+- 2026-06-19: Added an opt-in `FixedResidualLinearizedAction` seam to
+  `recycling_fixed_residual.py`. It wraps a single `jax.linearize` call,
+  validates serial and batched tangent shapes, exposes reusable
+  Jacobian-vector and batched-JVP actions, and records host-side dispatch
+  counters/timings for future matrix-free and preconditioner profile
+  artifacts. Focused fixed-residual, layout, and implicit-solver tests passed
+  (`20` fixed-residual tests and `89` layout/implicit tests). Decision: keep
+  the legacy `linearize_fixed_residual_action` behavior unchanged and make the
+  instrumented action explicit, so the next solver pass can wire diagnostics
+  into profile scripts without broadening default behavior or claiming a
+  speedup.
 
 ## Definition Of Done
 

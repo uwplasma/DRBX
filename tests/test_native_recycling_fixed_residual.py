@@ -21,6 +21,7 @@ from jax_drb.native.recycling_fixed_residual import (
     build_fixed_array_rhs,
     build_fixed_array_state_rhs,
     build_fixed_backward_euler_residual,
+    build_fixed_residual_linearized_action,
     build_fixed_host_rhs_bridge,
     fixed_residual_jvp_batch_action,
     fixed_state_from_fields,
@@ -401,6 +402,79 @@ def test_fixed_residual_batched_jvp_rejects_bad_tangent_shapes() -> None:
             packed_state,
             jnp.ones((2, 2), dtype=jnp.float64),
         )
+
+
+def test_instrumented_fixed_residual_linearized_action_tracks_dispatches() -> None:
+    pytest.importorskip("jax")
+    import jax
+    import jax.numpy as jnp
+
+    residual_call_count = 0
+
+    def residual(state):
+        nonlocal residual_call_count
+        residual_call_count += 1
+        state_array = jnp.asarray(state, dtype=jnp.float64)
+        return jnp.asarray(
+            (
+                state_array[0] + 2.0 * state_array[1],
+                state_array[1] ** 2 + state_array[2],
+                jnp.sin(state_array[0]) + 0.5 * state_array[2],
+            ),
+            dtype=jnp.float64,
+        )
+
+    state = jnp.asarray([0.25, 0.5, -0.75], dtype=jnp.float64)
+    direction = jnp.asarray([1.0, -0.25, 0.125], dtype=jnp.float64)
+    tangent_batch = jnp.stack((direction, -2.0 * direction))
+
+    action = build_fixed_residual_linearized_action(residual, state)
+    dense_jacobian = jax.jacfwd(residual)(state)
+
+    np.testing.assert_allclose(
+        np.asarray(action.residual_value),
+        np.asarray(residual(state)),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(action.apply(direction)),
+        np.asarray(dense_jacobian @ direction),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(action.apply_batch(tangent_batch)),
+        np.asarray(jax.vmap(lambda tangent: dense_jacobian @ tangent)(tangent_batch)),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+    diagnostics = action.diagnostics()
+    assert diagnostics["state_shape"] == (3,)
+    assert diagnostics["call_count"] == 1
+    assert diagnostics["batched_call_count"] == 1
+    assert diagnostics["dispatch_seconds"] >= 0.0
+    assert diagnostics["batched_dispatch_seconds"] >= 0.0
+    assert residual_call_count >= 1
+
+
+def test_instrumented_fixed_residual_linearized_action_rejects_bad_shapes() -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    residual = lambda state: 3.0 * jnp.asarray(state, dtype=jnp.float64)
+    action = build_fixed_residual_linearized_action(
+        residual,
+        jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64),
+    )
+
+    with pytest.raises(ValueError, match="Residual tangent has shape"):
+        action.apply(jnp.ones((2,), dtype=jnp.float64))
+    with pytest.raises(ValueError, match="exactly one leading batch axis"):
+        action.apply_batch(jnp.ones((3,), dtype=jnp.float64))
+    with pytest.raises(ValueError, match="Batched residual tangent entries"):
+        action.apply_batch(jnp.ones((2, 2), dtype=jnp.float64))
 
 
 def test_fixed_host_rhs_bridge_matches_dthe_packed_rhs_oracle() -> None:

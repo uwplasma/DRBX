@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Callable
 
 import jax
@@ -409,6 +410,98 @@ def build_fixed_bdf2_residual(
         return packed - history_state - rhs_coefficient * pack_fixed_state(rhs_state)
 
     return residual
+
+
+@dataclass
+class FixedResidualLinearizedAction:
+    """Instrumented reusable Jacobian action for a fixed-layout residual.
+
+    This object is the narrow matrix-free seam used by recycling solver probes:
+    one call to :func:`jax.linearize` gives the residual and a reusable
+    Jacobian-vector action, while host-side tests and profile scripts can
+    inspect how many serial or batched actions were dispatched. The counters are
+    intentionally diagnostic only; pass ``apply`` or ``apply_batch`` to solvers,
+    not the mutable object itself, when tracing with JAX.
+    """
+
+    residual_value: jax.Array
+    linear_action: Callable[[object], jax.Array]
+    state_shape: tuple[int, ...]
+    call_count: int = 0
+    batched_call_count: int = 0
+    dispatch_seconds: float = 0.0
+    batched_dispatch_seconds: float = 0.0
+
+    def _validate_tangent(self, tangent: object) -> jax.Array:
+        tangent_array = jnp.asarray(tangent, dtype=jnp.float64)
+        tangent_shape = tuple(tangent_array.shape)
+        if tangent_shape != self.state_shape:
+            raise ValueError(
+                f"Residual tangent has shape {tangent_shape}, expected {self.state_shape}."
+            )
+        return tangent_array
+
+    def _validate_tangent_batch(self, tangent_batch: object) -> jax.Array:
+        tangent_batch_array = jnp.asarray(tangent_batch, dtype=jnp.float64)
+        tangent_batch_shape = tuple(tangent_batch_array.shape)
+        if len(tangent_batch_shape) != len(self.state_shape) + 1:
+            raise ValueError(
+                "Batched residual tangent array must include exactly one leading "
+                f"batch axis, got shape {tangent_batch_shape} for state shape "
+                f"{self.state_shape}."
+            )
+        if tangent_batch_shape[1:] != self.state_shape:
+            raise ValueError(
+                "Batched residual tangent entries have shape "
+                f"{tangent_batch_shape[1:]}, expected {self.state_shape}."
+            )
+        return tangent_batch_array
+
+    def apply(self, tangent: object) -> jax.Array:
+        """Apply the linearized residual Jacobian to one tangent vector."""
+
+        tangent_array = self._validate_tangent(tangent)
+        started_at = perf_counter()
+        result = self.linear_action(tangent_array)
+        self.dispatch_seconds += perf_counter() - started_at
+        self.call_count += 1
+        return result
+
+    def apply_batch(self, tangent_batch: object) -> jax.Array:
+        """Apply the same linearization to a leading batch of tangent vectors."""
+
+        tangent_batch_array = self._validate_tangent_batch(tangent_batch)
+        started_at = perf_counter()
+        result = jax.vmap(self.linear_action)(tangent_batch_array)
+        self.batched_dispatch_seconds += perf_counter() - started_at
+        self.batched_call_count += 1
+        return result
+
+    def diagnostics(self) -> dict[str, float | int | tuple[int, ...]]:
+        """Return host-side dispatch counters for profile artifacts."""
+
+        return {
+            "state_shape": self.state_shape,
+            "call_count": int(self.call_count),
+            "batched_call_count": int(self.batched_call_count),
+            "dispatch_seconds": float(self.dispatch_seconds),
+            "batched_dispatch_seconds": float(self.batched_dispatch_seconds),
+        }
+
+
+def build_fixed_residual_linearized_action(
+    residual_function: Callable[[object], jax.Array],
+    packed_state: object,
+) -> FixedResidualLinearizedAction:
+    """Linearize a fixed-layout residual once and return an instrumented action."""
+
+    state_array = jnp.asarray(packed_state, dtype=jnp.float64)
+    residual_value, linear_action = jax.linearize(residual_function, state_array)
+    return FixedResidualLinearizedAction(
+        residual_value=residual_value,
+        linear_action=linear_action,
+        state_shape=tuple(state_array.shape),
+    )
 
 
 def linearize_fixed_residual_action(
