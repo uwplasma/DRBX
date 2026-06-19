@@ -433,6 +433,55 @@ def _campaign_command_map(
             required_reference_inputs=("dthe",),
             timeout_seconds=300,
         ),
+        "dthe-fixed-bdf2-active-array-gate": CampaignCommand(
+            name="dthe-fixed-bdf2-active-array-gate",
+            description=(
+                "Bounded D/T/He fixed-BDF2 active-array output-window gate "
+                "through the matrix-free JAX-GMRES route."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "compare_recycling_transient_modes.py"),
+                "--case",
+                "recycling_dthe_one_step",
+                *reference_args,
+                "--mode",
+                "fixed_bdf2_active_array_jax_linearized",
+                "--diagnostics-only",
+                "--require-fixed-bdf2-diagnostics",
+                "--require-fixed-bdf2-max-residual",
+                "1e-10",
+                "--require-fixed-bdf2-linear-solver-backend",
+                "jax_gmres",
+                "--require-fixed-bdf2-linear-operator-jitted",
+                "--require-fixed-bdf2-min-linear-solve-count",
+                "2",
+                "--require-fixed-bdf2-max-residual-evaluations",
+                "4",
+                "--timestep",
+                "1e-4",
+                "--steps",
+                "2",
+                "--mode-timeout-seconds",
+                "180",
+                "--override",
+                "runtime:recycling_jax_linear_jit_linear_operator=true",
+                "--override",
+                "runtime:recycling_jax_linear_operator_counting=direct",
+                "--override",
+                "runtime:recycling_jax_linear_initial_residual_mode=linearize",
+                "--output-json",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_dthe_fixed_bdf2_active_array_direct_counting_cpu"
+                    / "profile_summary.json"
+                ),
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+            timeout_seconds=300,
+        ),
         "fixed-bdf2-direct-counting-gate": CampaignCommand(
             name="fixed-bdf2-direct-counting-gate",
             description=(
@@ -889,6 +938,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
                     "dthe-active-array-batched-jvp-gate",
                     "dthe-active-array-linearized-update-gate",
                     "dthe-active-array-linearized-update-throughput-probe",
+                    "dthe-fixed-bdf2-active-array-gate",
                     "fixed-bdf2-direct-counting-gate",
                     "fixed-bdf2-linear-update-residual-gate",
                     "adaptive-bdf-jax-lineax-gate",
@@ -1010,7 +1060,9 @@ def main() -> int:
             "local-cpu-scaling, live-reference, heavy-recycling-profile, "
             "dthe-jax-linearized-gate, dthe-batched-jvp-gate, "
             "dthe-active-array-batched-jvp-gate, "
-            "dthe-active-array-output-jvp-profile, fixed-bdf2-direct-counting-gate, "
+            "dthe-active-array-output-jvp-profile, "
+            "dthe-fixed-bdf2-active-array-gate, "
+            "fixed-bdf2-direct-counting-gate, "
             "gpu-dthe-current-jax-linearized-gate, gpu-dthe-jax-linearized-gate, "
             "gpu-fixed-bdf2-direct-counting-gate, "
             "gpu-dthe-active-array-batched-jvp-gate, "

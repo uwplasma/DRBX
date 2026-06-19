@@ -50,6 +50,16 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the bounded D/T/He fixed-BDF2 active-array output-window gate when changing
+the matrix-free recycling history route. This is the current local replacement
+for the timeout-bound SciPy-BDF sparse-JVP output-window profile:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-fixed-bdf2-active-array-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the adaptive-BDF JAX-versus-Lineax controller-health gate after changing the
 adaptive residual route or linear-action solver:
 
@@ -173,6 +183,15 @@ Python operator-call callbacks. The compact checked-in summary also reports
 mean per-call timings: `0.242 s` per residual evaluation and `1.345 s` per
 JAX-GMRES solve attempt:
 [profile_summary.json](data/runtime_profile_artifacts/recycling_1d_fixed_bdf2_active_array_direct_counting_cpu/profile_summary.json).
+The D/T/He companion `dthe-fixed-bdf2-active-array-gate` runs
+`recycling_dthe_one_step` for two output steps at `dt=1e-4` through the
+active-array fixed-BDF2/JAX-GMRES path. Its retained artifact reports one
+startup backward-Euler step, one BDF2 corrector, two active-array RHS steps,
+two jitted JAX-linearized actions, two JAX-GMRES solves, four residual
+evaluations, zero failed or unconverged implicit steps, maximum residual
+`4.10e-14`, and `11.27 s` mode elapsed time:
+[profile_summary.json](data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_direct_counting_cpu/profile_summary.json).
+This is the current local output-window D/T/He matrix-free promotion gate.
 The matching `gpu-fixed-bdf2-direct-counting-gate` is intentionally guarded by
 a process-level timeout in addition to the inner mode timeout. The first
 office-GPU attempt on one RTX A4000 entered the solve but remained host-side
