@@ -309,11 +309,16 @@ def _movie_time_refinement_key(report: dict[str, Any]) -> float:
 
 def _movie_report_label(report: dict[str, Any], index: int) -> str:
     case = report.get("case")
-    if case:
-        return str(case)
     grid = report.get("movie_physics_grid")
+    grid_label = ""
     if isinstance(grid, (list, tuple)) and len(grid) == 3:
-        return f"report_{index}_{int(grid[0])}x{int(grid[1])}x{int(grid[2])}"
+        grid_label = f"{int(grid[0])}x{int(grid[1])}x{int(grid[2])}"
+    frame_dt = _movie_time_refinement_key(report)
+    if case:
+        suffix = f"{grid_label}_frame_dt={frame_dt:g}" if grid_label else f"frame_dt={frame_dt:g}"
+        return f"{case}:{suffix}"
+    if grid_label:
+        return f"report_{index}_{grid_label}_frame_dt={frame_dt:g}"
     return f"report_{index}"
 
 

@@ -1987,6 +1987,22 @@ Use this log for concise decision records. Do not paste terminal output here.
   `env PYTHONPATH=src pytest -q tests/test_essos_fieldline_import.py -k 'drb_movie_refinement'`
   passed with `4` tests, and the example regenerated
   `docs/data/essos_imported_drb_movie_refinement_artifacts/data/essos_imported_drb_movie_refinement_summary.json`.
+- 2026-06-18: Ran a live report-only hybrid movie refinement probe in `tmp/`
+  without writing GIFs or NPZ media. The probe compared
+  `(3,4,8)` and `(4,6,12)` hybrid reports at `frames=4`,
+  `substeps_per_frame=2`, `dt=2e-3`, `rho=0.20..0.60`, `maxtime=24`, and
+  `times_to_trace=80`, plus a `(4,6,12)` timestep control at `dt=1e-3`.
+  All three individual movie reports passed the reduced movie-QA gate. The
+  time-refinement pair passed the new summary gate with maximum relative metric
+  change `0.130` and consistent radial-flux sign. The grid pair failed with
+  maximum relative metric change `6.28`: `final_fluctuation_rms` and compact
+  potential residual were stable, but the low-mode spectral-power fraction
+  changed from `1.0` to `0.193` and the radial-flux proxy changed sign from
+  `+3.64e-4` to `-6.89e-5`. This is useful negative evidence: the current
+  short hybrid movie configuration is timestep-stable at fixed grid but not
+  grid-converged enough for publication/movie promotion. Next 3D work should
+  refine the physics campaign and radial-flux observable before heavier
+  release-hosted movie regeneration.
 
 ## Definition Of Done
 
