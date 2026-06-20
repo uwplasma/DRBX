@@ -162,6 +162,7 @@ def _native_history_series(
     reference_root: Path,
     timestep: float,
     steps: int,
+    solver_mode: str | None = None,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, StructuredMesh]:
     input_path = _case_input_path(case_name, reference_root)
     config = load_bout_input(input_path)
@@ -175,7 +176,7 @@ def _native_history_series(
         dataset_scalars=resolved_dataset_scalars(run_config),
         timestep=timestep,
         steps=steps,
-        solver_mode=_solver_mode_for_case(case_name),
+        solver_mode=solver_mode if solver_mode is not None else _solver_mode_for_case(case_name),
         residual_tolerance=1.0e-8,
         max_nonlinear_iterations=30,
     )
@@ -193,6 +194,10 @@ def main() -> None:
     parser.add_argument("--reference-workdir", type=Path)
     parser.add_argument("--timestep", type=float, default=25.0)
     parser.add_argument("--steps", type=int, default=40)
+    parser.add_argument(
+        "--solver-mode",
+        help="Native recycling solver mode to compare against the same reference history.",
+    )
     parser.add_argument("--field", action="append", dest="fields")
     parser.add_argument("--x-index", type=int, default=0)
     parser.add_argument("--y-offset", type=int, default=0, help="Offset from the selected target edge in trimmed active-space.")
@@ -224,6 +229,7 @@ def main() -> None:
         reference_root=args.reference_root,
         timestep=float(args.timestep),
         steps=int(args.steps),
+        solver_mode=args.solver_mode,
     )
     if reference_time.shape != native_time.shape:
         reference_workdir = _run_dense_reference()
@@ -259,6 +265,7 @@ def main() -> None:
         target_edge=args.target_edge,
     )
     print(f"case={args.case}")
+    print(f"native_solver_mode={args.solver_mode or _solver_mode_for_case(args.case)}")
     print(f"reference_workdir={reference_workdir}")
     print(f"cell_trimmed={trimmed_index}")
     print(f"cell_global={global_index}")
@@ -272,6 +279,7 @@ def main() -> None:
     if args.json_out is not None:
         payload: dict[str, Any] = {
             "case": args.case,
+            "native_solver_mode": args.solver_mode or _solver_mode_for_case(args.case),
             "reference_workdir": str(reference_workdir),
             "cell_trimmed": trimmed_index,
             "cell_global": global_index,
