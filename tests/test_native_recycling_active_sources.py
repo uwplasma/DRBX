@@ -15,6 +15,7 @@ from jax_drb.native.recycling_1d import (
 )
 from jax_drb.native.recycling_active_sources import (
     add_field_rhs_contribution,
+    assemble_fixed_layout_recycling_field_rhs_from_sources,
     fixed_layout_recycling_source_field_rhs_from_active_fields,
 )
 from jax_drb.native.recycling_collision_closure import (
@@ -376,3 +377,125 @@ def test_composed_active_sources_sum_hydrogen_neutral_and_target_terms() -> None
             rtol=1.0e-9,
             atol=1.0e-10,
         )
+
+
+def test_active_source_assembly_inserts_neutral_sources_once() -> None:
+    (
+        _config,
+        mesh,
+        metrics,
+        _scalars,
+        runtime_model,
+        species,
+        prepared,
+        ion_boundary,
+        layout,
+        _state,
+        _active_fields,
+    ) = _build_context(_HYDROGEN_INPUT)
+    active_shape = layout.active_shape
+    density_source = np.linspace(0.1, 0.3, np.prod(active_shape), dtype=np.float64).reshape(active_shape)
+    pressure_source = np.linspace(0.2, 0.5, np.prod(active_shape), dtype=np.float64).reshape(active_shape)
+    momentum_source = np.linspace(-0.4, 0.4, np.prod(active_shape), dtype=np.float64).reshape(active_shape)
+
+    baseline = assemble_fixed_layout_recycling_field_rhs_from_sources(
+        source_field_rhs={},
+        layout=layout,
+        species=species,
+        prepared=prepared,
+        ion_velocity=ion_boundary.velocity,
+        mesh=mesh,
+        metrics=metrics,
+        explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+    )
+    sourced = assemble_fixed_layout_recycling_field_rhs_from_sources(
+        source_field_rhs={
+            "Nd": density_source,
+            "Pd": pressure_source,
+            "NVd": momentum_source,
+        },
+        layout=layout,
+        species=species,
+        prepared=prepared,
+        ion_velocity=ion_boundary.velocity,
+        mesh=mesh,
+        metrics=metrics,
+        explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(sourced["Nd"]) - np.asarray(baseline["Nd"]),
+        density_source,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(sourced["Pd"]) - np.asarray(baseline["Pd"]),
+        pressure_source,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(sourced["NVd"]) - np.asarray(baseline["NVd"]),
+        momentum_source,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
+def test_active_source_assembly_is_jvp_transformable() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    (
+        _config,
+        mesh,
+        metrics,
+        _scalars,
+        runtime_model,
+        species,
+        prepared,
+        ion_boundary,
+        layout,
+        _state,
+        _active_fields,
+    ) = _build_context(_HYDROGEN_INPUT)
+    active_shape = layout.active_shape
+    base_density_source = jnp.linspace(0.1, 0.3, int(np.prod(active_shape)), dtype=jnp.float64).reshape(active_shape)
+    base_pressure_source = jnp.linspace(0.2, 0.5, int(np.prod(active_shape)), dtype=jnp.float64).reshape(active_shape)
+    base_momentum_source = jnp.linspace(-0.4, 0.4, int(np.prod(active_shape)), dtype=jnp.float64).reshape(active_shape)
+
+    def qoi(scale):
+        assembled = assemble_fixed_layout_recycling_field_rhs_from_sources(
+            source_field_rhs={
+                "Nd": base_density_source * scale,
+                "Pd": base_pressure_source * scale,
+                "NVd": base_momentum_source * scale,
+            },
+            layout=layout,
+            species=species,
+            prepared=prepared,
+            ion_velocity=ion_boundary.velocity,
+            mesh=mesh,
+            metrics=metrics,
+            explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+        )
+        return (
+            jnp.sum(assembled["Nd"])
+            + 0.1 * jnp.sum(assembled["Pd"])
+            + 0.01 * jnp.sum(assembled["NVd"])
+        )
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    step = 1.0e-5
+    finite_difference = (
+        qoi(jnp.array(1.0 + step)) - qoi(jnp.array(1.0 - step))
+    ) / (2.0 * step)
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(tangent))
+    np.testing.assert_allclose(
+        float(tangent),
+        float(finite_difference),
+        rtol=1.0e-5,
+        atol=1.0e-8,
+    )

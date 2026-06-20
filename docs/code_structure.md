@@ -149,7 +149,11 @@ boundary path is separately promoted. The source composition layer in
 [src/jax_drb/native/recycling_active_sources.py](../src/jax_drb/native/recycling_active_sources.py)
 is the first aggregate active-RHS seam: it sums the promoted reaction,
 collision, neutral-diffusion, and target-recycling source maps before they are
-connected to the complete residual. A second adapter,
+connected to the complete residual. The same module also owns
+`assemble_fixed_layout_recycling_field_rhs_from_sources`, which inserts active
+source blocks into the existing ion, electron, and neutral open-field RHS
+assembly without double counting the `(2/3)Q` pressure-source conversion. A
+second adapter,
 `build_fixed_full_field_array_rhs`, stages remaining guard-cell kernels and
 closure terms such as conduction and viscosity through the same fixed-state
 interface while each term is still being migrated to active-array form. New
