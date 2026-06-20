@@ -40,6 +40,7 @@ class ImplicitStepInfo:
     line_search_trial_count: int = 0
     line_search_last_step_scale: float | None = None
     line_search_initial_step_scale: float = 1.0
+    line_search_min_step_scale: float = 1.0 / 64.0
     fallback_used: bool = False
     jacobian_mode: str = "fd"
     converged: bool | None = None
@@ -1227,6 +1228,7 @@ def solve_jax_linearized_newton_system(
     diagnose_linear_update_residual: bool = False,
     line_search_mode: str = "backtracking",
     line_search_initial_step_scale: float = 1.0,
+    line_search_min_step_scale: float = 1.0 / 64.0,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         import jax
@@ -1248,6 +1250,16 @@ def solve_jax_linearized_newton_system(
     line_search_seconds = 0.0
     line_search_trial_count = 0
     line_search_last_step_scale: float | None = None
+    raw_line_search_min_step_scale = float(line_search_min_step_scale)
+    if (
+        not np.isfinite(raw_line_search_min_step_scale)
+        or raw_line_search_min_step_scale <= 0.0
+    ):
+        raw_line_search_min_step_scale = 1.0 / 64.0
+    resolved_line_search_min_step_scale = min(
+        1.0,
+        max(raw_line_search_min_step_scale, np.finfo(np.float64).tiny),
+    )
     raw_line_search_initial_step_scale = float(line_search_initial_step_scale)
     if (
         not np.isfinite(raw_line_search_initial_step_scale)
@@ -1256,7 +1268,7 @@ def solve_jax_linearized_newton_system(
         raw_line_search_initial_step_scale = 1.0
     resolved_line_search_initial_step_scale = min(
         1.0,
-        max(raw_line_search_initial_step_scale, 1.0 / 64.0),
+        max(raw_line_search_initial_step_scale, resolved_line_search_min_step_scale),
     )
     linear_preconditioner_build_seconds = 0.0
     linear_preconditioner_build_count = 0
@@ -1329,6 +1341,7 @@ def solve_jax_linearized_newton_system(
             line_search_trial_count=line_search_trial_count,
             line_search_last_step_scale=line_search_last_step_scale,
             line_search_initial_step_scale=resolved_line_search_initial_step_scale,
+            line_search_min_step_scale=resolved_line_search_min_step_scale,
             jacobian_mode=jacobian_mode,
             converged=bool(converged),
             linear_solver_backend=linear_backend,
@@ -1535,7 +1548,7 @@ def solve_jax_linearized_newton_system(
         candidate_state = state
         candidate_residual_inf_norm = residual_inf_norm
         line_search_started_at = perf_counter()
-        while step_scale >= 1.0 / 64.0:
+        while step_scale >= resolved_line_search_min_step_scale:
             trial_state = state + step_scale * update
             finite_trial = _block(jnp.all(jnp.isfinite(trial_state)))
             if not bool(finite_trial):

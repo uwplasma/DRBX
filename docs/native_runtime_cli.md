@@ -182,6 +182,19 @@ The matching environment variable is
 bounded to `(0, 1]`, and the default is `1`, preserving the standard backtracking
 search. This control is not a physics-model change; it only avoids predictable
 rejected residual evaluations in quality-gated JAX-linearized solver studies.
+For large-step robustness studies, the minimum backtracking floor can also be
+lowered without changing the default solver behavior:
+
+```toml
+[runtime]
+recycling_jax_linear_line_search_min_step_scale = 1e-4
+```
+
+The matching environment variable is
+`JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MIN_STEP_SCALE`. The default remains
+`1/64`; smaller values are experimental and must be paired with residual,
+line-search-trial, and runtime gates because they can spend extra residual
+evaluations without improving the nonlinear solve.
 The line-search policy itself can be selected with
 `runtime:recycling_jax_linear_line_search_mode=backtracking` or `full_step`, or
 with `JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE`. The default

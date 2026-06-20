@@ -2822,6 +2822,10 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         raising=False,
     )
     monkeypatch.delenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MIN_STEP_SCALE",
+        raising=False,
+    )
+    monkeypatch.delenv(
         "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE",
         raising=False,
     )
@@ -2836,6 +2840,10 @@ def test_recycling_backend_environment_resolvers_are_bounded(
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_line_search_initial_step_scale()
         == pytest.approx(1.0)
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_line_search_min_step_scale()
+        == pytest.approx(1.0 / 64.0)
     )
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_line_search_mode()
@@ -2916,6 +2924,20 @@ def test_recycling_backend_environment_resolvers_are_bounded(
         recycling_1d_mod._resolve_recycling_jax_linear_line_search_initial_step_scale()
         == pytest.approx(1.0)
     )
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MIN_STEP_SCALE", "0.001"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_line_search_min_step_scale()
+        == pytest.approx(0.001)
+    )
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MIN_STEP_SCALE", "2.0"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_line_search_min_step_scale()
+        == pytest.approx(1.0)
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE", "full")
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_line_search_mode()
@@ -2932,6 +2954,13 @@ def test_recycling_backend_environment_resolvers_are_bounded(
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_line_search_initial_step_scale()
         == pytest.approx(1.0)
+    )
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MIN_STEP_SCALE", "bad"
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_line_search_min_step_scale()
+        == pytest.approx(1.0 / 64.0)
     )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "yes")
     assert recycling_1d_mod._resolve_recycling_jax_linear_jit_residual() is True
@@ -3111,6 +3140,7 @@ def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
         recycling_jax_linear_maxiter = 6
         recycling_jax_linear_tolerance_factor = 12.5
         recycling_jax_linear_line_search_initial_step_scale = 0.5
+        recycling_jax_linear_line_search_min_step_scale = 0.001
         recycling_jax_linear_line_search_mode = full_step
         recycling_jax_linear_jit_residual = true
         recycling_jax_linear_jit_linear_operator = true
@@ -3156,6 +3186,12 @@ def test_recycling_jax_linear_solver_controls_prefer_runtime_config(
             config
         )
         == pytest.approx(0.5)
+    )
+    assert (
+        recycling_1d_mod._resolve_recycling_jax_linear_line_search_min_step_scale(
+            config
+        )
+        == pytest.approx(0.001)
     )
     assert (
         recycling_1d_mod._resolve_recycling_jax_linear_line_search_mode(config)
@@ -3956,6 +3992,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
         assert kwargs["linear_operator_counting"] == "direct"
         assert kwargs["diagnose_linear_update_residual"] is True
         assert kwargs["line_search_mode"] == "full_step"
+        assert kwargs["line_search_min_step_scale"] == pytest.approx(0.001)
         assert kwargs["check_initial_residual"] is False
         assert kwargs["initial_residual_mode"] == "linearize"
         assert kwargs["linear_solver_solve_method"] == "incremental"
@@ -3988,6 +4025,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             if kwargs["diagnose_linear_update_residual"]
             else 0.0,
             line_search_mode=kwargs["line_search_mode"],
+            line_search_min_step_scale=kwargs["line_search_min_step_scale"],
             check_initial_residual=kwargs["check_initial_residual"],
             initial_residual_mode=kwargs["initial_residual_mode"],
             linear_solver_solve_method=(
@@ -4022,6 +4060,9 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_OPERATOR_COUNTING", "direct")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_DIAGNOSE_UPDATE_RESIDUAL", "1")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE", "full_step")
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MIN_STEP_SCALE", "0.001"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL", "0")
     monkeypatch.setenv(
         "JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE", "linearize"
@@ -4290,6 +4331,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
         assert kwargs["linear_maxiter"] == 6
         assert kwargs["jit_residual"] is True
         assert kwargs["line_search_mode"] == "full_step"
+        assert kwargs["line_search_min_step_scale"] == pytest.approx(0.001)
         assert kwargs["check_initial_residual"] is False
         assert kwargs["initial_residual_mode"] == "linearize"
         assert kwargs["linear_solver_solve_method"] == "incremental"
@@ -4308,6 +4350,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
             jacobian_mode="jvp",
             residual_jitted=kwargs["jit_residual"],
             line_search_mode=kwargs["line_search_mode"],
+            line_search_min_step_scale=kwargs["line_search_min_step_scale"],
             check_initial_residual=kwargs["check_initial_residual"],
             initial_residual_mode=kwargs["initial_residual_mode"],
             linear_solver_solve_method=(
@@ -4337,6 +4380,9 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "6")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL", "1")
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE", "full_step")
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MIN_STEP_SCALE", "0.001"
+    )
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_CHECK_INITIAL_RESIDUAL", "0")
     monkeypatch.setenv(
         "JAX_DRB_RECYCLING_JAX_LINEAR_INITIAL_RESIDUAL_MODE", "linearize"

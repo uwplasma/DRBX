@@ -59,6 +59,8 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "10",
             "--line-search-initial-step-scale",
             "0.25",
+            "--line-search-min-step-scale",
+            "0.001",
             "--require-max-linear-iterations",
             "3200",
             "--require-max-residual-inf-norm",
@@ -100,6 +102,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.linear_maxiter == 20
     assert args.linear_tolerance_factor == 10.0
     assert args.line_search_initial_step_scale == 0.25
+    assert args.line_search_min_step_scale == 0.001
     assert args.require_linear_preconditioner == "local_block_diag"
     assert args.require_initial_residual_mode == "linearize"
     assert args.require_linear_operator_jitted is True
@@ -186,6 +189,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
         linear_maxiter=10,
         linear_tolerance_factor=2.5,
         line_search_initial_step_scale=0.25,
+        line_search_min_step_scale=0.001,
     )
 
     assert module._effective_overrides(args) == [
@@ -200,6 +204,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
         "runtime:recycling_jax_linear_maxiter=10",
         "runtime:recycling_jax_linear_tolerance_factor=2.5",
         "runtime:recycling_jax_linear_line_search_initial_step_scale=0.25",
+        "runtime:recycling_jax_linear_line_search_min_step_scale=0.001",
         "runtime:recycling_jax_linear_preconditioner=local_block_diag",
         "runtime:recycling_jax_linear_preconditioner_refresh=100",
     ]
@@ -253,6 +258,10 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
         (
             {"line_search_initial_step_scale": 1.5},
             "--line-search-initial-step-scale must be finite and in (0, 1]",
+        ),
+        (
+            {"line_search_min_step_scale": 1.5},
+            "--line-search-min-step-scale must be finite and in (0, 1]",
         ),
         (
             {"require_max_residual_inf_norm": float("nan")},
@@ -324,6 +333,7 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "linear_maxiter": None,
             "linear_tolerance_factor": None,
             "line_search_initial_step_scale": None,
+            "line_search_min_step_scale": None,
             "require_max_linear_iterations": None,
             "require_max_residual_inf_norm": None,
             "require_max_linear_update_residual": None,

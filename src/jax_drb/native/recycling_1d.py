@@ -4978,6 +4978,9 @@ def advance_recycling_1d_backward_euler_step(
         line_search_initial_step_scale = (
             _resolve_recycling_jax_linear_line_search_initial_step_scale(config)
         )
+        line_search_min_step_scale = (
+            _resolve_recycling_jax_linear_line_search_min_step_scale(config)
+        )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         jit_linear_operator = _resolve_recycling_jax_linear_jit_linear_operator(config)
         linear_operator_counting = (
@@ -5036,6 +5039,7 @@ def advance_recycling_1d_backward_euler_step(
             diagnose_linear_update_residual=diagnose_linear_update_residual,
             line_search_mode=line_search_mode,
             line_search_initial_step_scale=line_search_initial_step_scale,
+            line_search_min_step_scale=line_search_min_step_scale,
         )
     else:
         raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
@@ -5191,6 +5195,9 @@ def advance_recycling_1d_bdf2_step(
         line_search_initial_step_scale = (
             _resolve_recycling_jax_linear_line_search_initial_step_scale(config)
         )
+        line_search_min_step_scale = (
+            _resolve_recycling_jax_linear_line_search_min_step_scale(config)
+        )
         jit_residual = _resolve_recycling_jax_linear_jit_residual(config)
         jit_linear_operator = _resolve_recycling_jax_linear_jit_linear_operator(config)
         linear_operator_counting = (
@@ -5249,6 +5256,7 @@ def advance_recycling_1d_bdf2_step(
             diagnose_linear_update_residual=diagnose_linear_update_residual,
             line_search_mode=line_search_mode,
             line_search_initial_step_scale=line_search_initial_step_scale,
+            line_search_min_step_scale=line_search_min_step_scale,
         )
     else:
         raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
@@ -6558,6 +6566,20 @@ def _resolve_recycling_jax_linear_line_search_initial_step_scale(
     return min(float(value), 1.0)
 
 
+def _resolve_recycling_jax_linear_line_search_min_step_scale(
+    config: BoutConfig | None = None,
+) -> float:
+    value = _resolve_positive_float_runtime_option(
+        config,
+        option_name="recycling_jax_linear_line_search_min_step_scale",
+        env_name="JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MIN_STEP_SCALE",
+        default=1.0 / 64.0,
+    )
+    if not np.isfinite(value) or value <= 0.0:
+        return 1.0 / 64.0
+    return min(float(value), 1.0)
+
+
 def _resolve_recycling_jax_linear_line_search_mode(
     config: BoutConfig | None = None,
 ) -> str:
@@ -7719,6 +7741,9 @@ def _as_recycling_step_info(
         ),
         "line_search_initial_step_scale": float(
             getattr(info, "line_search_initial_step_scale", 1.0)
+        ),
+        "line_search_min_step_scale": float(
+            getattr(info, "line_search_min_step_scale", 1.0 / 64.0)
         ),
         "line_search_mode": str(getattr(info, "line_search_mode", "backtracking")),
         "fallback_used": bool(getattr(info, "fallback_used", False)),

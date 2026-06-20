@@ -3452,6 +3452,30 @@ Use this log for concise decision records. Do not paste terminal output here.
   is not publication-ready until an anisotropic toroidal-resolution refinement
   pass closes the spectral-centroid blocker; current media remain showcase or
   validation-development artifacts, not final turbulence evidence.
+- 2026-06-19: Added an opt-in JAX-linearized Newton backtracking-floor control
+  for recycling robustness studies. The core solver now accepts
+  `line_search_min_step_scale`, recycling resolves
+  `runtime:recycling_jax_linear_line_search_min_step_scale` and
+  `JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MIN_STEP_SCALE`, and the profiling
+  script exposes `--line-search-min-step-scale`. Defaults remain unchanged at
+  `1/64`. Focused tests for solver behavior, profiler parsing/overrides, and
+  recycling runtime config/env parsing passed. A hard promoted-source D/T/He
+  probe with `dt=1.0`, `mesh:ny=100`, `line_search_initial_step_scale=1.0`,
+  and `line_search_min_step_scale=1e-4` still stalled at residual `1.414e2`
+  after two nonlinear attempts, two linear solves, ten matrix-free operator
+  calls, five residual evaluations, and three line-search trials. Decision:
+  lowering the floor alone is not enough; the next solver patch should address
+  nonlinear globalization and nonfinite update handling.
+- 2026-06-19: Completed the next anisotropic 3D imported-field movie
+  refinement probe in `/tmp` with hybrid map source, Jacobi potential solve,
+  and report-only grids `(16,24,48)->(16,24,96)`. Time refinement passed again,
+  but grid refinement remains not publication-ready. The dominant blocker is
+  still toroidal spectral-centroid motion with relative change `1.004`; radial
+  flux metrics are now near-tolerance misses with relative changes `0.304` and
+  `0.302` against the `0.30` tolerance. The deterministic next-campaign
+  suggestion is `(32,36,192)`. Decision: do not promote the current
+  imported-field turbulence movie as publication evidence; run a longer or
+  higher-toroidal-resolution report-only search before regenerating media.
 
 ## Definition Of Done
 

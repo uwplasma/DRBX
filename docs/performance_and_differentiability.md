@@ -1456,6 +1456,11 @@ line-search trials from `3` to `1`, and local wall time from `7.84 s` to
 `7.34 s`. The local D/T/He research gate now requires this reduced residual
 evaluation count with `--require-max-residual-evaluations=2` and
 `--require-max-line-search-trials=1`.
+The minimum backtracking floor is separately exposed as
+`runtime:recycling_jax_linear_line_search_min_step_scale` for robustness
+sweeps. It remains experimental: lowering the floor from `1/64` to `1e-4` on
+the harder promoted-source `dt=1.0` probe did not reduce the stalled residual,
+so the current blocker is nonlinear globalization rather than this floor alone.
 
 The same gate now records and gates matrix-free linear-operator calls. The
 generic JAX-linearized solver reports `linear_operator_call_count` and

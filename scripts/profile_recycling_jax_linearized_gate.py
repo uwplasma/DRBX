@@ -233,6 +233,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--line-search-min-step-scale",
+        type=float,
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_line_search_min_step_scale=<s>. "
+            "The value must be finite and in (0, 1]. Use this to test whether "
+            "large recycling steps need smaller backtracking floors than the "
+            "stable default 1/64."
+        ),
+    )
+    parser.add_argument(
         "--linear-preconditioner",
         default=None,
         help=(
@@ -490,6 +501,12 @@ def _validate_args(args: argparse.Namespace) -> None:
             raise SystemExit(
                 "--line-search-initial-step-scale must be finite and in (0, 1]."
             )
+    if args.line_search_min_step_scale is not None:
+        scale = float(args.line_search_min_step_scale)
+        if not math.isfinite(scale) or scale <= 0.0 or scale > 1.0:
+            raise SystemExit(
+                "--line-search-min-step-scale must be finite and in (0, 1]."
+            )
     if args.require_max_residual_inf_norm is not None:
         ceiling = float(args.require_max_residual_inf_norm)
         if not math.isfinite(ceiling) or ceiling < 0.0:
@@ -688,6 +705,15 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
             )
         overrides.append(
             "runtime:recycling_jax_linear_line_search_initial_step_scale="
+            f"{scale:.17g}"
+        )
+    line_search_min_step_scale = getattr(args, "line_search_min_step_scale", None)
+    if line_search_min_step_scale is not None:
+        scale = float(line_search_min_step_scale)
+        if not math.isfinite(scale) or scale <= 0.0 or scale > 1.0:
+            raise ValueError("line_search_min_step_scale must be finite and in (0, 1].")
+        overrides.append(
+            "runtime:recycling_jax_linear_line_search_min_step_scale="
             f"{scale:.17g}"
         )
     linear_preconditioner = getattr(args, "linear_preconditioner", None)
