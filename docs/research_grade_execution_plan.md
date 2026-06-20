@@ -3650,6 +3650,23 @@ Use this log for concise decision records. Do not paste terminal output here.
   optional-source path as a safe residual-graph reduction; it is a small runtime
   improvement only and does not change the remaining blocker, which is reducing
   Krylov operator count or full transport stencil cost.
+- 2026-06-20: Added an opt-in active-window transport seam for the promoted
+  active-source recycling RHS. The new active electron pressure, electron
+  force-balance, ion, and neutral RHS assemblers evaluate the same open-field
+  conservative stencils directly on the active window instead of allocating
+  full result arrays and slicing afterward. Added low-level active-vs-full
+  parity over a multi-cell open-field line and a high-level D/T/He
+  active-transport-vs-full-transport fallback gate; focused source/RHS tests
+  passed (`27 passed`). The strict D/T/He fixed-BDF2 campaign also passed with
+  residual `4.10110678e-14`, worst `Pd+`
+  `max_abs_delta=4.99220688e-08`, two JAX-GMRES solves, and ten operator calls.
+  However, making active transport the default regressed fixed-BDF2 elapsed
+  time to `22.054 s` versus the restored default at `8.850 s`, with no Krylov
+  operator-count reduction. Decision: keep active-window transport as an
+  opt-in parity-tested research seam, not a production default. The next
+  performance attempt should target Krylov operator count or fused source/
+  transport kernels rather than duplicating the full transport formulas in
+  separate active-window functions.
 
 ## Definition Of Done
 

@@ -13,9 +13,13 @@ from jax_drb.native.recycling_rhs_terms import (
     ElectronPressureRhsTerms,
     IonRhsTerms,
     NeutralRhsTerms,
+    assemble_electron_parallel_force_active_terms,
     assemble_electron_parallel_force_terms,
+    assemble_electron_pressure_active_rhs_terms,
     assemble_electron_pressure_rhs_terms,
+    assemble_ion_active_rhs_terms,
     assemble_ion_rhs_terms,
+    assemble_neutral_active_rhs_terms,
     assemble_neutral_rhs_terms,
 )
 
@@ -52,6 +56,42 @@ def _mesh_and_metrics() -> tuple[StructuredMesh, StructuredMetrics]:
         g_22=ones,
         g23=np.zeros_like(ones),
         Bxy=ones,
+    )
+
+
+def _multi_y_mesh_and_metrics() -> tuple[StructuredMesh, StructuredMetrics]:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=4,
+        nz=1,
+        mxg=0,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=0,
+        jyseps1_2=0,
+        jyseps2_2=0,
+        ny_inner=2,
+        has_lower_y_target=True,
+        has_upper_y_target=True,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.linspace(-1.0, 1.0, 6, dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    shape = (1, 6, 1)
+    grid = np.linspace(0.0, 1.0, 6, dtype=np.float64).reshape(shape)
+    return mesh, StructuredMetrics(
+        dx=np.ones(shape, dtype=np.float64),
+        dy=1.0 + 0.1 * grid,
+        dz=np.ones(shape, dtype=np.float64),
+        J=1.0 + 0.2 * grid,
+        g11=np.ones(shape, dtype=np.float64),
+        g22=1.0 + 0.05 * grid,
+        g33=np.ones(shape, dtype=np.float64),
+        g_22=1.0 + 0.15 * grid,
+        g23=np.zeros(shape, dtype=np.float64),
+        Bxy=np.ones(shape, dtype=np.float64),
     )
 
 
@@ -314,6 +354,140 @@ def test_absent_sources_match_full_zero_sources() -> None:
     np.testing.assert_allclose(neutral_none.density_total, neutral_zero.density_total)
     np.testing.assert_allclose(neutral_none.pressure_total, neutral_zero.pressure_total)
     np.testing.assert_allclose(neutral_none.momentum_total, neutral_zero.momentum_total)
+
+
+def test_active_rhs_terms_match_full_field_slices() -> None:
+    mesh, metrics = _multi_y_mesh_and_metrics()
+    active = (slice(mesh.xstart, mesh.xend + 1), slice(mesh.ystart, mesh.yend + 1), slice(None))
+    shape = (1, mesh.local_ny, 1)
+    y = np.linspace(0.0, 1.0, mesh.local_ny, dtype=np.float64).reshape(shape)
+    density = 2.0 + 0.4 * y
+    pressure = 3.0 + 0.7 * y + 0.05 * y * y
+    velocity = -0.3 + 0.15 * y
+    fastest_wave = 1.2 + 0.2 * y
+    source = 0.1 + 0.03 * y
+    momentum_error = -0.02 + 0.01 * y
+    state = SimpleNamespace(
+        density=density,
+        pressure=pressure,
+        momentum_error=momentum_error,
+    )
+
+    full_electron = assemble_electron_pressure_rhs_terms(
+        explicit_pressure_source=source,
+        electron_pressure=pressure,
+        electron_velocity=velocity,
+        electron_fastest_wave=fastest_wave,
+        electron_energy_source=2.0 * source,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    active_electron = assemble_electron_pressure_active_rhs_terms(
+        explicit_pressure_source=source,
+        electron_pressure=pressure,
+        electron_velocity=velocity,
+        electron_fastest_wave=fastest_wave,
+        electron_energy_source=2.0 * source,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    np.testing.assert_allclose(active_electron.total, full_electron.total[active])
+
+    full_force = assemble_electron_parallel_force_terms(
+        electron_pressure=pressure,
+        electron_density=density,
+        electron_momentum_source=source,
+        ion_density={"d+": 1.4 * density},
+        ion_charge={"d+": 1.0},
+        ion_momentum_source={"d+": -source},
+        mesh=mesh,
+        metrics=metrics,
+    )
+    active_force = assemble_electron_parallel_force_active_terms(
+        electron_pressure=pressure,
+        electron_density=density,
+        electron_momentum_source=source,
+        ion_density={"d+": 1.4 * density},
+        ion_charge={"d+": 1.0},
+        ion_momentum_source={"d+": -source},
+        mesh=mesh,
+        metrics=metrics,
+    )
+    np.testing.assert_allclose(active_force.force_density, full_force.force_density[active])
+    np.testing.assert_allclose(active_force.epar, full_force.epar[active])
+    np.testing.assert_allclose(
+        active_force.ion_momentum_source["d+"],
+        full_force.ion_momentum_source["d+"][active],
+    )
+
+    full_ion = assemble_ion_rhs_terms(
+        density_source=source,
+        explicit_pressure_source=2.0 * source,
+        momentum_source=-0.5 * source,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        ion_state=state,
+        ion_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=3.0 * source,
+    )
+    active_ion = assemble_ion_active_rhs_terms(
+        density_source=source,
+        explicit_pressure_source=2.0 * source,
+        momentum_source=-0.5 * source,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        ion_state=state,
+        ion_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=3.0 * source,
+    )
+    np.testing.assert_allclose(active_ion.density_total, full_ion.density_total[active])
+    np.testing.assert_allclose(active_ion.pressure_total, full_ion.pressure_total[active])
+    np.testing.assert_allclose(active_ion.momentum_total, full_ion.momentum_total[active])
+
+    full_neutral = assemble_neutral_rhs_terms(
+        density_source=source,
+        explicit_pressure_source=2.0 * source,
+        momentum_source=-0.5 * source,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        neutral_state=state,
+        neutral_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=3.0 * source,
+    )
+    active_neutral = assemble_neutral_active_rhs_terms(
+        density_source=source,
+        explicit_pressure_source=2.0 * source,
+        momentum_source=-0.5 * source,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        neutral_state=state,
+        neutral_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=3.0 * source,
+    )
+    np.testing.assert_allclose(
+        active_neutral.density_total,
+        full_neutral.density_total[active],
+    )
+    np.testing.assert_allclose(
+        active_neutral.pressure_total,
+        full_neutral.pressure_total[active],
+    )
+    np.testing.assert_allclose(
+        active_neutral.momentum_total,
+        full_neutral.momentum_total[active],
+    )
 
 
 def test_electron_pressure_rhs_terms_are_jax_jvp_transformable() -> None:

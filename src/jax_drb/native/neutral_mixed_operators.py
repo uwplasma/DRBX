@@ -323,6 +323,181 @@ def div_par_mod_open(
     return result
 
 
+def div_par_mod_open_active(
+    field: np.ndarray,
+    velocity: np.ndarray,
+    wave_speed: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    fix_flux: bool = True,
+) -> np.ndarray:
+    """Return the active-domain slice of :func:`div_par_mod_open` directly."""
+
+    if not fix_flux:
+        raise NotImplementedError(
+            "Native neutral mixed advection currently supports fix_flux=True only."
+        )
+    if use_jax_backend(field, velocity, wave_speed):
+        field_array = jnp.asarray(field, dtype=jnp.float64)
+        velocity_array = jnp.asarray(velocity, dtype=jnp.float64)
+        wave_array = jnp.asarray(wave_speed, dtype=jnp.float64)
+        dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
+        J = jnp.asarray(metrics.J, dtype=jnp.float64)
+        g22 = jnp.asarray(metrics.g_22, dtype=jnp.float64)
+
+        ix = slice(mesh.xstart, mesh.xend + 1)
+        jy = slice(mesh.ystart, mesh.yend + 1)
+        jminus = slice(mesh.ystart - 1, mesh.yend)
+        jplus = slice(mesh.ystart + 1, mesh.yend + 2)
+
+        center = field_array[ix, jy, :]
+        minus = field_array[ix, jminus, :]
+        plus = field_array[ix, jplus, :]
+        s_left, s_right = _mc_edges_jax(center, minus, plus)
+
+        velocity_center = velocity_array[ix, jy, :]
+        velocity_minus = velocity_array[ix, jminus, :]
+        velocity_plus = velocity_array[ix, jplus, :]
+        v_left, v_right = _mc_edges_jax(
+            velocity_center,
+            velocity_minus,
+            velocity_plus,
+        )
+
+        J_center = J[ix, jy, :]
+        J_minus = J[ix, jminus, :]
+        J_plus = J[ix, jplus, :]
+        dy_center = dy[ix, jy, :]
+        dy_minus = dy[ix, jminus, :]
+        dy_plus = dy[ix, jplus, :]
+        g22_center = g22[ix, jy, :]
+        g22_minus = g22[ix, jminus, :]
+        g22_plus = g22[ix, jplus, :]
+        wave_center = wave_array[ix, jy, :]
+        wave_minus = wave_array[ix, jminus, :]
+        wave_plus = wave_array[ix, jplus, :]
+
+        right_common = (J_center + J_plus) / (
+            jnp.sqrt(g22_center) + jnp.sqrt(g22_plus)
+        )
+        flux_factor_rc = right_common / (dy_center * J_center)
+        flux_factor_rp = right_common / (dy_plus * J_plus)
+
+        left_common = (J_center + J_minus) / (
+            jnp.sqrt(g22_center) + jnp.sqrt(g22_minus)
+        )
+        flux_factor_lc = left_common / (dy_center * J_center)
+        flux_factor_lm = left_common / (dy_minus * J_minus)
+
+        amax_right = jnp.maximum(
+            jnp.maximum(wave_center, wave_plus),
+            jnp.maximum(jnp.abs(velocity_center), jnp.abs(velocity_plus)),
+        )
+        boundary_right = 0.5 * (center + plus) * 0.5 * (
+            velocity_center + velocity_plus
+        )
+        interior_right = s_right * 0.5 * (v_right + amax_right)
+        right_boundary_mask = (
+            jnp.zeros((1, center.shape[1], 1), dtype=bool)
+            .at[:, -1, :]
+            .set(True)
+        )
+        right_flux = jnp.where(right_boundary_mask, boundary_right, interior_right)
+
+        amax_left = jnp.maximum(
+            jnp.maximum(wave_center, wave_minus),
+            jnp.maximum(jnp.abs(velocity_center), jnp.abs(velocity_minus)),
+        )
+        boundary_left = 0.5 * (center + minus) * 0.5 * (
+            velocity_center + velocity_minus
+        )
+        interior_left = s_left * 0.5 * (v_left - amax_left)
+        left_boundary_mask = (
+            jnp.zeros((1, center.shape[1], 1), dtype=bool)
+            .at[:, 0, :]
+            .set(True)
+        )
+        left_flux = jnp.where(left_boundary_mask, boundary_left, interior_left)
+
+        result = right_flux * flux_factor_rc - left_flux * flux_factor_lc
+        result = result.at[:, 1:, :].add(
+            -right_flux[:, :-1, :] * flux_factor_rp[:, :-1, :]
+        )
+        result = result.at[:, :-1, :].add(
+            left_flux[:, 1:, :] * flux_factor_lm[:, 1:, :]
+        )
+        return result
+
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
+
+    ix = slice(mesh.xstart, mesh.xend + 1)
+    jy = slice(mesh.ystart, mesh.yend + 1)
+    jminus = slice(mesh.ystart - 1, mesh.yend)
+    jplus = slice(mesh.ystart + 1, mesh.yend + 2)
+
+    center = np.asarray(field[ix, jy, :], dtype=np.float64)
+    minus = np.asarray(field[ix, jminus, :], dtype=np.float64)
+    plus = np.asarray(field[ix, jplus, :], dtype=np.float64)
+    s_left, s_right = _mc_edges(center, minus, plus)
+
+    velocity_center = np.asarray(velocity[ix, jy, :], dtype=np.float64)
+    velocity_minus = np.asarray(velocity[ix, jminus, :], dtype=np.float64)
+    velocity_plus = np.asarray(velocity[ix, jplus, :], dtype=np.float64)
+    v_left, v_right = _mc_edges(velocity_center, velocity_minus, velocity_plus)
+
+    J_center = np.asarray(J[ix, jy, :], dtype=np.float64)
+    J_minus = np.asarray(J[ix, jminus, :], dtype=np.float64)
+    J_plus = np.asarray(J[ix, jplus, :], dtype=np.float64)
+    dy_center = np.asarray(dy[ix, jy, :], dtype=np.float64)
+    dy_minus = np.asarray(dy[ix, jminus, :], dtype=np.float64)
+    dy_plus = np.asarray(dy[ix, jplus, :], dtype=np.float64)
+    g22_center = np.asarray(g22[ix, jy, :], dtype=np.float64)
+    g22_minus = np.asarray(g22[ix, jminus, :], dtype=np.float64)
+    g22_plus = np.asarray(g22[ix, jplus, :], dtype=np.float64)
+    wave_center = np.asarray(wave_speed[ix, jy, :], dtype=np.float64)
+    wave_minus = np.asarray(wave_speed[ix, jminus, :], dtype=np.float64)
+    wave_plus = np.asarray(wave_speed[ix, jplus, :], dtype=np.float64)
+
+    right_common = (J_center + J_plus) / (np.sqrt(g22_center) + np.sqrt(g22_plus))
+    flux_factor_rc = right_common / (dy_center * J_center)
+    flux_factor_rp = right_common / (dy_plus * J_plus)
+
+    left_common = (J_center + J_minus) / (np.sqrt(g22_center) + np.sqrt(g22_minus))
+    flux_factor_lc = left_common / (dy_center * J_center)
+    flux_factor_lm = left_common / (dy_minus * J_minus)
+
+    amax_right = np.maximum.reduce(
+        (wave_center, wave_plus, np.abs(velocity_center), np.abs(velocity_plus))
+    )
+    boundary_right = 0.5 * (center + plus) * 0.5 * (
+        velocity_center + velocity_plus
+    )
+    interior_right = s_right * 0.5 * (v_right + amax_right)
+    right_boundary_mask = np.zeros((1, center.shape[1], 1), dtype=bool)
+    right_boundary_mask[:, -1, :] = True
+    right_flux = np.where(right_boundary_mask, boundary_right, interior_right)
+
+    amax_left = np.maximum.reduce(
+        (wave_center, wave_minus, np.abs(velocity_center), np.abs(velocity_minus))
+    )
+    boundary_left = 0.5 * (center + minus) * 0.5 * (
+        velocity_center + velocity_minus
+    )
+    interior_left = s_left * 0.5 * (v_left - amax_left)
+    left_boundary_mask = np.zeros((1, center.shape[1], 1), dtype=bool)
+    left_boundary_mask[:, 0, :] = True
+    left_flux = np.where(left_boundary_mask, boundary_left, interior_left)
+
+    result = right_flux * flux_factor_rc - left_flux * flux_factor_lc
+    if result.shape[1] > 1:
+        result[:, 1:, :] -= right_flux[:, :-1, :] * flux_factor_rp[:, :-1, :]
+        result[:, :-1, :] += left_flux[:, 1:, :] * flux_factor_lm[:, 1:, :]
+    return result
+
+
 def div_par_fvv_open(
     density: np.ndarray,
     velocity: np.ndarray,
@@ -476,6 +651,197 @@ def div_par_fvv_open(
     result[ix, jplus, :] -= right_flux * flux_factor_rp
     result[ix, jy, :] -= left_flux * flux_factor_lc
     result[ix, jminus, :] += left_flux * flux_factor_lm
+    return result
+
+
+def div_par_fvv_open_active(
+    density: np.ndarray,
+    velocity: np.ndarray,
+    wave_speed: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    fix_flux: bool = True,
+) -> np.ndarray:
+    """Return the active-domain slice of :func:`div_par_fvv_open` directly."""
+
+    if use_jax_backend(density, velocity, wave_speed):
+        density_array = jnp.asarray(density, dtype=jnp.float64)
+        velocity_array = jnp.asarray(velocity, dtype=jnp.float64)
+        wave_array = jnp.asarray(wave_speed, dtype=jnp.float64)
+        dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
+        J = jnp.asarray(metrics.J, dtype=jnp.float64)
+        g22 = jnp.asarray(metrics.g_22, dtype=jnp.float64)
+
+        ix = slice(mesh.xstart, mesh.xend + 1)
+        jy = slice(mesh.ystart, mesh.yend + 1)
+        jminus = slice(mesh.ystart - 1, mesh.yend)
+        jplus = slice(mesh.ystart + 1, mesh.yend + 2)
+
+        density_center = density_array[ix, jy, :]
+        density_minus = density_array[ix, jminus, :]
+        density_plus = density_array[ix, jplus, :]
+        velocity_center = velocity_array[ix, jy, :]
+        velocity_minus = velocity_array[ix, jminus, :]
+        velocity_plus = velocity_array[ix, jplus, :]
+        wave_center = wave_array[ix, jy, :]
+        wave_minus = wave_array[ix, jminus, :]
+        wave_plus = wave_array[ix, jplus, :]
+
+        s_left, s_right = _mc_edges_jax(density_center, density_minus, density_plus)
+        v_left, v_right = _mc_edges_jax(
+            velocity_center,
+            velocity_minus,
+            velocity_plus,
+        )
+
+        J_center = J[ix, jy, :]
+        J_minus = J[ix, jminus, :]
+        J_plus = J[ix, jplus, :]
+        dy_center = dy[ix, jy, :]
+        dy_minus = dy[ix, jminus, :]
+        dy_plus = dy[ix, jplus, :]
+        g22_center = g22[ix, jy, :]
+        g22_minus = g22[ix, jminus, :]
+        g22_plus = g22[ix, jplus, :]
+
+        right_common = (J_center + J_plus) / (
+            jnp.sqrt(g22_center) + jnp.sqrt(g22_plus)
+        )
+        flux_factor_rc = right_common / (dy_center * J_center)
+        flux_factor_rp = right_common / (dy_plus * J_plus)
+
+        left_common = (J_center + J_minus) / (
+            jnp.sqrt(g22_center) + jnp.sqrt(g22_minus)
+        )
+        flux_factor_lc = left_common / (dy_center * J_center)
+        flux_factor_lm = left_common / (dy_minus * J_minus)
+
+        v_mid_right = 0.5 * (velocity_center + velocity_plus)
+        n_mid_right = 0.5 * (density_center + density_plus)
+        amax_right = jnp.maximum(
+            jnp.maximum(wave_center, wave_plus),
+            jnp.maximum(jnp.abs(velocity_center), jnp.abs(velocity_plus)),
+        )
+        boundary_right = n_mid_right * v_mid_right * v_mid_right
+        interior_right = s_right * 0.5 * (v_right + amax_right) * v_right
+        if not fix_flux:
+            boundary_right = (
+                s_right * v_right * v_right
+                + amax_right * n_mid_right * (v_right - v_mid_right)
+            )
+        right_boundary_mask = (
+            jnp.zeros((1, density_center.shape[1], 1), dtype=bool)
+            .at[:, -1, :]
+            .set(True)
+        )
+        right_flux = jnp.where(right_boundary_mask, boundary_right, interior_right)
+
+        v_mid_left = 0.5 * (velocity_center + velocity_minus)
+        n_mid_left = 0.5 * (density_center + density_minus)
+        amax_left = jnp.maximum(
+            jnp.maximum(wave_center, wave_minus),
+            jnp.maximum(jnp.abs(velocity_center), jnp.abs(velocity_minus)),
+        )
+        boundary_left = n_mid_left * v_mid_left * v_mid_left
+        interior_left = s_left * 0.5 * (v_left - amax_left) * v_left
+        if not fix_flux:
+            boundary_left = (
+                s_left * v_left * v_left
+                - amax_left * n_mid_left * (v_left - v_mid_left)
+            )
+        left_boundary_mask = (
+            jnp.zeros((1, density_center.shape[1], 1), dtype=bool)
+            .at[:, 0, :]
+            .set(True)
+        )
+        left_flux = jnp.where(left_boundary_mask, boundary_left, interior_left)
+
+        result = right_flux * flux_factor_rc - left_flux * flux_factor_lc
+        result = result.at[:, 1:, :].add(
+            -right_flux[:, :-1, :] * flux_factor_rp[:, :-1, :]
+        )
+        result = result.at[:, :-1, :].add(
+            left_flux[:, 1:, :] * flux_factor_lm[:, 1:, :]
+        )
+        return result
+
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
+
+    ix = slice(mesh.xstart, mesh.xend + 1)
+    jy = slice(mesh.ystart, mesh.yend + 1)
+    jminus = slice(mesh.ystart - 1, mesh.yend)
+    jplus = slice(mesh.ystart + 1, mesh.yend + 2)
+
+    density_center = np.asarray(density[ix, jy, :], dtype=np.float64)
+    density_minus = np.asarray(density[ix, jminus, :], dtype=np.float64)
+    density_plus = np.asarray(density[ix, jplus, :], dtype=np.float64)
+    velocity_center = np.asarray(velocity[ix, jy, :], dtype=np.float64)
+    velocity_minus = np.asarray(velocity[ix, jminus, :], dtype=np.float64)
+    velocity_plus = np.asarray(velocity[ix, jplus, :], dtype=np.float64)
+    wave_center = np.asarray(wave_speed[ix, jy, :], dtype=np.float64)
+    wave_minus = np.asarray(wave_speed[ix, jminus, :], dtype=np.float64)
+    wave_plus = np.asarray(wave_speed[ix, jplus, :], dtype=np.float64)
+
+    s_left, s_right = _mc_edges(density_center, density_minus, density_plus)
+    v_left, v_right = _mc_edges(velocity_center, velocity_minus, velocity_plus)
+
+    J_center = np.asarray(J[ix, jy, :], dtype=np.float64)
+    J_minus = np.asarray(J[ix, jminus, :], dtype=np.float64)
+    J_plus = np.asarray(J[ix, jplus, :], dtype=np.float64)
+    dy_center = np.asarray(dy[ix, jy, :], dtype=np.float64)
+    dy_minus = np.asarray(dy[ix, jminus, :], dtype=np.float64)
+    dy_plus = np.asarray(dy[ix, jplus, :], dtype=np.float64)
+    g22_center = np.asarray(g22[ix, jy, :], dtype=np.float64)
+    g22_minus = np.asarray(g22[ix, jminus, :], dtype=np.float64)
+    g22_plus = np.asarray(g22[ix, jplus, :], dtype=np.float64)
+
+    right_common = (J_center + J_plus) / (np.sqrt(g22_center) + np.sqrt(g22_plus))
+    flux_factor_rc = right_common / (dy_center * J_center)
+    flux_factor_rp = right_common / (dy_plus * J_plus)
+
+    left_common = (J_center + J_minus) / (np.sqrt(g22_center) + np.sqrt(g22_minus))
+    flux_factor_lc = left_common / (dy_center * J_center)
+    flux_factor_lm = left_common / (dy_minus * J_minus)
+
+    v_mid_right = 0.5 * (velocity_center + velocity_plus)
+    n_mid_right = 0.5 * (density_center + density_plus)
+    amax_right = np.maximum.reduce(
+        (wave_center, wave_plus, np.abs(velocity_center), np.abs(velocity_plus))
+    )
+    boundary_right = n_mid_right * v_mid_right * v_mid_right
+    interior_right = s_right * 0.5 * (v_right + amax_right) * v_right
+    if not fix_flux:
+        boundary_right = (
+            s_right * v_right * v_right
+            + amax_right * n_mid_right * (v_right - v_mid_right)
+        )
+    right_boundary_mask = np.zeros((1, density_center.shape[1], 1), dtype=bool)
+    right_boundary_mask[:, -1, :] = True
+    right_flux = np.where(right_boundary_mask, boundary_right, interior_right)
+
+    v_mid_left = 0.5 * (velocity_center + velocity_minus)
+    n_mid_left = 0.5 * (density_center + density_minus)
+    amax_left = np.maximum.reduce(
+        (wave_center, wave_minus, np.abs(velocity_center), np.abs(velocity_minus))
+    )
+    boundary_left = n_mid_left * v_mid_left * v_mid_left
+    interior_left = s_left * 0.5 * (v_left - amax_left) * v_left
+    if not fix_flux:
+        boundary_left = (
+            s_left * v_left * v_left
+            - amax_left * n_mid_left * (v_left - v_mid_left)
+        )
+    left_boundary_mask = np.zeros((1, density_center.shape[1], 1), dtype=bool)
+    left_boundary_mask[:, 0, :] = True
+    left_flux = np.where(left_boundary_mask, boundary_left, interior_left)
+
+    result = right_flux * flux_factor_rc - left_flux * flux_factor_lc
+    if result.shape[1] > 1:
+        result[:, 1:, :] -= right_flux[:, :-1, :] * flux_factor_rp[:, :-1, :]
+        result[:, :-1, :] += left_flux[:, 1:, :] * flux_factor_lm[:, 1:, :]
     return result
 
 
@@ -723,3 +1089,49 @@ def grad_par_open(
         )
     )
     return result
+
+
+def grad_par_open_active(
+    field: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> np.ndarray:
+    """Return the active-domain slice of :func:`grad_par_open` directly."""
+
+    if use_jax_backend(field):
+        field_array = jnp.asarray(field, dtype=jnp.float64)
+        dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
+        g22 = jnp.asarray(metrics.g_22, dtype=jnp.float64)
+        x_slice = slice(mesh.xstart, mesh.xend + 1)
+        y_slice = slice(mesh.ystart, mesh.yend + 1)
+        return (
+            0.5
+            * (
+                field_array[x_slice, mesh.ystart + 1 : mesh.yend + 2, :]
+                - field_array[x_slice, mesh.ystart - 1 : mesh.yend, :]
+            )
+            / (dy[x_slice, y_slice, :] * jnp.sqrt(g22[x_slice, y_slice, :]))
+        )
+
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
+    x_slice = slice(mesh.xstart, mesh.xend + 1)
+    y_slice = slice(mesh.ystart, mesh.yend + 1)
+    return (
+        0.5
+        * (
+            np.asarray(
+                field[x_slice, mesh.ystart + 1 : mesh.yend + 2, :],
+                dtype=np.float64,
+            )
+            - np.asarray(
+                field[x_slice, mesh.ystart - 1 : mesh.yend, :],
+                dtype=np.float64,
+            )
+        )
+        / (
+            np.asarray(dy[x_slice, y_slice, :], dtype=np.float64)
+            * np.sqrt(np.asarray(g22[x_slice, y_slice, :], dtype=np.float64))
+        )
+    )

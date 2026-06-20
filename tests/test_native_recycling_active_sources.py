@@ -668,6 +668,77 @@ def test_active_source_assembly_deferred_sources_match_full_scatter() -> None:
         )
 
 
+def test_active_source_assembly_active_transport_matches_full_transport_fallback() -> None:
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        species,
+        prepared,
+        ion_boundary,
+        layout,
+        _state,
+        active_fields,
+    ) = _build_context(_DTHE_INPUT)
+    collision_rates, ionisation_rates, charge_exchange_rates = _rate_inputs(
+        config,
+        species,
+        prepared,
+        scalars,
+    )
+    source_field_rhs = fixed_layout_recycling_source_field_rhs_from_active_fields(
+        config,
+        active_fields=active_fields,
+        layout=layout,
+        species=species,
+        species_templates=runtime_model.species_templates,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        collision_rates=collision_rates,
+        ionisation_rates=ionisation_rates,
+        charge_exchange_rates=charge_exchange_rates,
+        include_dthe_reactions=True,
+        include_pointwise_collisions=True,
+        include_neutral_parallel_diffusion=True,
+    )
+
+    active_transport = assemble_fixed_layout_recycling_field_rhs_from_sources(
+        source_field_rhs=source_field_rhs,
+        layout=layout,
+        species=species,
+        prepared=prepared,
+        ion_velocity=ion_boundary.velocity,
+        mesh=mesh,
+        metrics=metrics,
+        explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+        use_active_transport_terms=True,
+    )
+    full_transport = assemble_fixed_layout_recycling_field_rhs_from_sources(
+        source_field_rhs=source_field_rhs,
+        layout=layout,
+        species=species,
+        prepared=prepared,
+        ion_velocity=ion_boundary.velocity,
+        mesh=mesh,
+        metrics=metrics,
+        explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+        use_active_transport_terms=False,
+    )
+
+    assert active_transport.keys() == full_transport.keys()
+    for name in active_transport:
+        np.testing.assert_allclose(
+            np.asarray(active_transport[name]),
+            np.asarray(full_transport[name]),
+            rtol=1.0e-9,
+            atol=1.0e-10,
+            err_msg=f"active transport mismatch for {name}",
+        )
+
+
 def test_active_source_assembly_is_jvp_transformable() -> None:
     jax = pytest.importorskip("jax")
     jnp = pytest.importorskip("jax.numpy")

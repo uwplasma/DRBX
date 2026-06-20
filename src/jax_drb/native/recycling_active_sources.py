@@ -19,9 +19,13 @@ from .recycling_neutral_diffusion import (
 )
 from .recycling_reactions import fixed_layout_dthe_reaction_field_rhs_from_active_fields
 from .recycling_rhs_terms import (
+    assemble_electron_parallel_force_active_terms,
     assemble_electron_parallel_force_terms,
+    assemble_electron_pressure_active_rhs_terms,
     assemble_electron_pressure_rhs_terms,
+    assemble_ion_active_rhs_terms,
     assemble_ion_rhs_terms,
+    assemble_neutral_active_rhs_terms,
     assemble_neutral_rhs_terms,
 )
 from .recycling_setup import OpenFieldSpecies
@@ -163,6 +167,7 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
     explicit_pressure_sources: Mapping[str, np.ndarray] | None = None,
     pressure_source_override_names: tuple[str, ...] = (),
     defer_active_source_scatter: bool = True,
+    use_active_transport_terms: bool = False,
 ) -> dict[str, np.ndarray]:
     """Insert active source blocks into the existing open-field RHS assembly.
 
@@ -178,6 +183,12 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
     function falls back to full scattering when an electron momentum source is
     present, because that term changes the parallel electric field before ion
     momentum sources are assembled.
+
+    When ``use_active_transport_terms`` is true, the conservative open-field
+    transport and force-balance terms are evaluated directly on the active
+    window using the same halo inputs as the full-field operators.  This keeps
+    a parity-tested opt-in path available for residual-graph experiments while
+    preserving the older full-field transport path as the production default.
     """
 
     unknown_fields = set(source_field_rhs) - set(layout.field_names)
@@ -231,7 +242,12 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
             use_jax=use_jax,
         )
 
-    electron_force_terms = assemble_electron_parallel_force_terms(
+    electron_force_assembler = (
+        assemble_electron_parallel_force_active_terms
+        if use_active_transport_terms
+        else assemble_electron_parallel_force_terms
+    )
+    electron_force_terms = electron_force_assembler(
         electron_pressure=prepared["e"].pressure,
         electron_density=prepared["e"].density,
         electron_momentum_source=momentum_source["e"],
@@ -251,7 +267,12 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
     for ion in ions:
         state = prepared[ion.name]
         fastest_wave = sqrt_nonnegative(array(state.temperature, dtype=dtype) / ion.atomic_mass)
-        terms = assemble_ion_rhs_terms(
+        ion_assembler = (
+            assemble_ion_active_rhs_terms
+            if use_active_transport_terms
+            else assemble_ion_rhs_terms
+        )
+        terms = ion_assembler(
             density_source=density_source[ion.name],
             explicit_pressure_source=_optional_full_pressure_source(
                 pressure_sources.get(ion.name),
@@ -268,15 +289,38 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
             metrics=metrics,
             energy_source=energy_source[ion.name],
         )
-        _set_active_if_layout_field(assembled, ion.density_name, terms.density_total, layout)
-        _set_active_if_layout_field(assembled, ion.pressure_name, terms.pressure_total, layout)
-        _set_active_if_layout_field(assembled, ion.momentum_name, terms.momentum_total, layout)
+        _set_rhs_value_if_layout_field(
+            assembled,
+            ion.density_name,
+            terms.density_total,
+            layout,
+            value_is_active=use_active_transport_terms,
+        )
+        _set_rhs_value_if_layout_field(
+            assembled,
+            ion.pressure_name,
+            terms.pressure_total,
+            layout,
+            value_is_active=use_active_transport_terms,
+        )
+        _set_rhs_value_if_layout_field(
+            assembled,
+            ion.momentum_name,
+            terms.momentum_total,
+            layout,
+            value_is_active=use_active_transport_terms,
+        )
 
     electron_state = prepared["e"]
     electron_fastest_wave = sqrt_nonnegative(
         array(electron_state.temperature, dtype=dtype) / species["e"].atomic_mass
     )
-    electron_terms = assemble_electron_pressure_rhs_terms(
+    electron_pressure_assembler = (
+        assemble_electron_pressure_active_rhs_terms
+        if use_active_transport_terms
+        else assemble_electron_pressure_rhs_terms
+    )
+    electron_terms = electron_pressure_assembler(
         explicit_pressure_source=_optional_full_pressure_source(
             pressure_sources.get("e"),
             template=electron_state.density,
@@ -289,12 +333,23 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
         mesh=mesh,
         metrics=metrics,
     )
-    _set_active_if_layout_field(assembled, species["e"].pressure_name, electron_terms.total, layout)
+    _set_rhs_value_if_layout_field(
+        assembled,
+        species["e"].pressure_name,
+        electron_terms.total,
+        layout,
+        value_is_active=use_active_transport_terms,
+    )
 
     for neutral in neutrals:
         state = prepared[neutral.name]
         fastest_wave = sqrt_nonnegative(array(state.temperature, dtype=dtype) / neutral.atomic_mass)
-        terms = assemble_neutral_rhs_terms(
+        neutral_assembler = (
+            assemble_neutral_active_rhs_terms
+            if use_active_transport_terms
+            else assemble_neutral_rhs_terms
+        )
+        terms = neutral_assembler(
             density_source=density_source[neutral.name],
             explicit_pressure_source=_optional_full_pressure_source(
                 pressure_sources.get(neutral.name),
@@ -312,9 +367,27 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
             energy_source=energy_source[neutral.name],
             include_energy_source=neutral.name not in pressure_override_names,
         )
-        _set_active_if_layout_field(assembled, neutral.density_name, terms.density_total, layout)
-        _set_active_if_layout_field(assembled, neutral.pressure_name, terms.pressure_total, layout)
-        _set_active_if_layout_field(assembled, neutral.momentum_name, terms.momentum_total, layout)
+        _set_rhs_value_if_layout_field(
+            assembled,
+            neutral.density_name,
+            terms.density_total,
+            layout,
+            value_is_active=use_active_transport_terms,
+        )
+        _set_rhs_value_if_layout_field(
+            assembled,
+            neutral.pressure_name,
+            terms.pressure_total,
+            layout,
+            value_is_active=use_active_transport_terms,
+        )
+        _set_rhs_value_if_layout_field(
+            assembled,
+            neutral.momentum_name,
+            terms.momentum_total,
+            layout,
+            value_is_active=use_active_transport_terms,
+        )
 
     if defer_sources:
         _add_deferred_active_source_rhs(
@@ -484,11 +557,14 @@ def _optional_full_pressure_source(
     return np.asarray(value, dtype=np.float64)
 
 
-def _set_active_if_layout_field(
+def _set_rhs_value_if_layout_field(
     assembled: dict[str, np.ndarray],
     field_name: str,
     value: np.ndarray,
     layout: RecyclingPackedStateLayout,
+    *,
+    value_is_active: bool,
 ) -> None:
-    if field_name in layout.field_names:
-        assembled[field_name] = value[layout.active_slices]
+    if field_name not in layout.field_names:
+        return
+    assembled[field_name] = value if value_is_active else value[layout.active_slices]
