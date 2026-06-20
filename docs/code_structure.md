@@ -157,9 +157,10 @@ bounded opt-in residual backend in
 [src/jax_drb/native/recycling_1d.py](../src/jax_drb/native/recycling_1d.py),
 `rhs_backend="promoted_active_sources"`, now feeds the composed source map
 through the backward-Euler, BDF2, and adaptive-BDF fixed residual builders for
-no-feedback cases. That backend is a migration and profiling gate, not the
-stable default: feedback, remaining full-field transport closures, and broad
-production-window parity still use the full-field oracle path. A second adapter,
+bounded cases with or without upstream density-feedback integrals in the
+implicit state. That backend is a migration and profiling gate, not the stable
+default: remaining full-field transport closures and broad production-window
+parity still use the full-field oracle path. A second adapter,
 `build_fixed_full_field_array_rhs`, stages remaining guard-cell kernels and
 closure terms such as conduction and viscosity through the same fixed-state
 interface while each term is still being migrated to active-array form. New
