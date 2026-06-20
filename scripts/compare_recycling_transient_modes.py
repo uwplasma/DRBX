@@ -1289,6 +1289,13 @@ def _canonical_preconditioner_name(name: str) -> str:
     return aliases.get(normalized, normalized)
 
 
+def _preconditioner_requires_dynamic_build(name: str | None) -> bool:
+    """Return whether a requested preconditioner should report JVP-build work."""
+
+    normalized = _canonical_preconditioner_name(str(name or ""))
+    return normalized not in {"state_scale", "field_scale"}
+
+
 def _canonical_linear_solver_backend(name: str) -> str:
     normalized = str(name).strip().lower().replace("-", "_")
     aliases = {
@@ -1361,7 +1368,11 @@ def _validate_required_linear_preconditioner(
         build_count = int(diagnostics.get(count_key, 0))
     except (TypeError, ValueError):
         build_count = 0
-    if build_count <= 0:
+    if build_count < 0:
+        errors.append(
+            f"{mode} reported negative {expected} preconditioner build count"
+        )
+    elif _preconditioner_requires_dynamic_build(expected) and build_count <= 0:
         errors.append(f"{mode} did not report any {expected} preconditioner builds")
     try:
         build_seconds = float(diagnostics.get(seconds_key, float("nan")))

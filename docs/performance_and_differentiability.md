@@ -1162,6 +1162,19 @@ toward fewer
 accepted trial solves, lower residual/JVP kernel cost, or a stronger
 Schur/transport preconditioner with measurable iteration-count reduction before
 spending more D/T/He wall time.
+The same conclusion now holds on the retained `dt=1e-2` D/T/He substepped
+full-field fixed-BDF2 gate. The unpreconditioned reference completed in
+`44.43 s` with `32.10 s` in JAX-GMRES solves and worst pointwise field delta
+`1.099e-4` on `NVd+`. A targeted `momentum_line` probe preserved the same
+field delta and residual but slowed to `140.69 s`, including `33.49 s` spent
+building eight line-block preconditioners and `96.09 s` in JAX-GMRES. A
+static `field_scale` probe also preserved the same field delta but slowed to
+`86.37 s`, with no build cost and `74.56 s` in JAX-GMRES. These full-field
+same-fidelity results rule out the current scaling and line-block
+preconditioners as default-promotion candidates for D/T/He recycling; the next
+performance work must reduce residual/JVP cost or build a qualitatively
+stronger block/transport approximation that lowers Krylov work on the same
+gate.
 
 The solver-level preconditioner seam does have bounded positive gates. A stiff
 one-dimensional line-transport residual with a deliberately small JAX-GMRES
@@ -1184,8 +1197,11 @@ fixed-BDF2 campaigns, pass
 `scripts/run_recycling_jvp_promotion_gate.py`; the wrapper forwards
 `runtime:recycling_jax_linear_preconditioner=<name>` and also asks
 `scripts/compare_recycling_transient_modes.py` to require
-`fixed_bdf2_linear_preconditioner=<name>` plus a positive preconditioner-build
-count. The lower-level compare script also exposes
+`fixed_bdf2_linear_preconditioner=<name>`. Dynamic JVP-derived
+preconditioners must also report a positive build count and finite nonnegative
+build time; static `state_scale` and `field_scale` preconditioners validly
+report zero dynamic builds but still report finite nonnegative build time. The
+lower-level compare script also exposes
 `--require-fixed-bdf2-linear-preconditioner=<name>` and
 `--require-adaptive-bdf-linear-preconditioner=<name>` for manual campaigns.
 These gates are deliberately stricter than a runtime-only override: they fail

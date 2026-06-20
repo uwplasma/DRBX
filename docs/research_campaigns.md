@@ -299,6 +299,16 @@ steps, `32.10 s` in linear solves, `10.70 s` in residual evaluations, and
 [profile_summary.json](data/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_active_array_substepped_full_field_cpu/profile_summary.json).
 This promotes an explicit full-field correctness gate at `dt=1e-2`; it does
 not make the route a default solver or a speedup claim.
+A same-fidelity preconditioner follow-up keeps that decision unchanged. On
+the same substepped D/T/He full-field gate, `momentum_line` preserved the
+`NVd+ = 1.099e-4` worst field delta and `6.17e-10` residual but slowed the run
+to `140.69 s`, with `33.49 s` spent building eight line-block preconditioners
+and `96.09 s` in JAX-GMRES solves. The static `field_scale` preconditioner
+also preserved the same parity metrics but slowed to `86.37 s`, with no
+dynamic build cost and `74.56 s` in JAX-GMRES solves. These are negative
+promotion results for the current D/T/He route; the next solver campaign
+should reduce residual/JVP cost or change the block/transport approximation,
+not rerun the same scaling or selected-line preconditioners.
 The matching `gpu-fixed-bdf2-direct-counting-gate` is intentionally guarded by
 a process-level timeout in addition to the inner mode timeout. The first
 office-GPU attempt on one RTX A4000 entered the solve but remained host-side
