@@ -3608,6 +3608,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   operator calls and residual `4.10110678e-14`, while the same command with
   `runtime:recycling_jax_linear_operator_counting=direct` failed as intended on
   `0 fixed BDF2 linear operator calls, below 10`.
+- 2026-06-20: Probed cheap backend/preconditioner alternatives on the same
+  promoted active-source fixed-BDF2 evidence gate. `jax_bicgstab` preserved
+  residual/parity but took `22.15 s` and retained ten operator calls;
+  `field_scale` preserved residual/parity but took `19.29 s` with fourteen
+  preconditioner applies and ten operator calls; `state_scale` preserved
+  residual/parity but took `17.41 s` with fourteen preconditioner applies and
+  ten operator calls. Decision: backend switching and scalar field/state
+  scaling are not promotion candidates for this D/T/He output-window gate. The
+  next performance implementation should reduce the promoted active-source RHS
+  residual/JVP cost directly, especially the full-field zero/scatter/re-slice
+  assembly in `_assemble_fixed_layout_recycling_field_rhs_from_sources`, or
+  build a physics preconditioner that demonstrably lowers Krylov operator calls
+  on this exact gate.
 
 ## Definition Of Done
 
