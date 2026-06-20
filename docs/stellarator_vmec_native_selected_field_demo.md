@@ -15,9 +15,20 @@ before running the file.
 
 Default behavior:
 
-- use the explicit external pair when `/tmp/jax_drb_wout_reference.nc` and `/tmp/jax_drb_wout_candidate.nc` exist;
-- materialize a candidate from the reference when only the reference path is provided;
+- use the explicit external pair when `REFERENCE_EQUILIBRIUM_PATH` and
+  `CANDIDATE_EQUILIBRIUM_PATH` are set, or when the legacy local files
+  `/tmp/jax_drb_wout_reference.nc` and `/tmp/jax_drb_wout_candidate.nc` exist;
+- materialize a candidate from the reference when only the reference path is
+  provided;
 - otherwise generate a synthetic preview pair.
+
+The committed clean-clone artifact is intentionally the synthetic-preview
+path. It validates the native selected-field adapter, report schema, plotting
+surface, and provenance plumbing without committing VMEC NetCDF equilibria to
+the lightweight repository. It is therefore excluded from the actionable
+reference-parity queue until a real external VMEC reference/candidate pair is
+provided through the constants above or through a release-hosted reference
+bundle.
 
 Committed artifacts:
 

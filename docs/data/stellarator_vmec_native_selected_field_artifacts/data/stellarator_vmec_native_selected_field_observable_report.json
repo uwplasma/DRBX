@@ -3,7 +3,7 @@
   "benchmark_adapter": "native_stellarator_vmec_selected_field",
   "geometry_family": "stellarator_vmec_3d",
   "metadata": {
-    "candidate_origin": "provided_external_input",
+    "candidate_origin": "synthetic_preview_pair",
     "compare_surface": "jax_native_vmec_profile_bundle",
     "native_capability_tier": "native_exact_reduced",
     "selected_fields": [
@@ -11,7 +11,7 @@
       "pressure",
       "toroidal_flux"
     ],
-    "source_mode": "explicit_pair"
+    "source_mode": "synthetic_preview"
   },
   "observable_groups": [
     {

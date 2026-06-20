@@ -48,6 +48,8 @@ def test_create_native_traced_field_line_selected_field_package_writes_artifacts
         reference_mesh_spec=reference,
         candidate_mesh_spec=candidate,
         output_root=tmp_path / "output",
+        source_mode="synthetic_preview",
+        candidate_origin="synthetic_preview_pair",
     )
     assert artifacts.parity_json_path.exists()
     assert artifacts.parity_arrays_npz_path.exists()
@@ -63,3 +65,5 @@ def test_create_native_traced_field_line_selected_field_package_writes_artifacts
     runtime = json.loads(artifacts.runtime_report_json_path.read_text(encoding="utf-8"))
     assert runtime["native_capability_tier"] == "native_exact_reduced"
     assert runtime["selected_fields"] == ["g11", "g33"]
+    assert runtime["source_mode"] == "synthetic_preview"
+    assert runtime["candidate_origin"] == "synthetic_preview_pair"

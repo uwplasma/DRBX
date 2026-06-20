@@ -18,8 +18,14 @@ Run the demo with:
 python examples/geometry-3D/traced-field-line/native_selected_field_demo.py
 ```
 
-When the external FCI pair is available locally, the demo uses it directly.
-Otherwise it falls back to a tiny synthetic pair so the workflow remains runnable.
+When the external FCI pair is available locally, the demo uses it directly and
+marks the runtime report as an explicit pair. Otherwise it falls back to a tiny
+synthetic pair so the workflow remains runnable, and the runtime report is
+marked as `source_mode=synthetic_preview` with
+`candidate_origin=synthetic_preview_pair`. The clean-clone committed artifact
+therefore validates the adapter, plot, and report plumbing but is filtered out
+of the actionable reference-parity queue until a real FCI reference/candidate
+pair is supplied.
 
 Committed artifacts:
 

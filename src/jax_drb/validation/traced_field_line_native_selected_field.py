@@ -46,6 +46,8 @@ def create_native_traced_field_line_selected_field_package(
     output_root: str | Path,
     case_label: str = "traced_field_line_native_selected_field",
     field_names: tuple[str, ...] = ("g11", "g33"),
+    source_mode: str = "explicit_pair",
+    candidate_origin: str = "provided_external_input",
 ) -> NativeTracedFieldLineSelectedFieldArtifacts:
     root = Path(output_root)
     data_dir = root / "data"
@@ -97,6 +99,8 @@ def create_native_traced_field_line_selected_field_package(
             "compare_surface": "jax_native_reduced_radial_profile",
             "native_capability_tier": "native_exact_reduced",
             "selected_fields": list(result.field_names),
+            "source_mode": source_mode,
+            "candidate_origin": candidate_origin,
         },
     )
     observable_report_json_path = write_geometry_observable_report(
@@ -108,6 +112,8 @@ def create_native_traced_field_line_selected_field_package(
         elapsed_seconds=elapsed_seconds,
         reference_mesh_spec=Path(reference_mesh_spec),
         candidate_mesh_spec=Path(candidate_mesh_spec),
+        source_mode=source_mode,
+        candidate_origin=candidate_origin,
         path=data_dir / f"{case_label}_runtime_report.json",
     )
     return NativeTracedFieldLineSelectedFieldArtifacts(
@@ -306,6 +312,8 @@ def _write_runtime_report(
     elapsed_seconds: float,
     reference_mesh_spec: Path,
     candidate_mesh_spec: Path,
+    source_mode: str,
+    candidate_origin: str,
     path: Path,
 ) -> Path:
     payload = {
@@ -313,6 +321,8 @@ def _write_runtime_report(
         "benchmark_adapter": "native_traced_field_line_selected_field",
         "native_capability_tier": "native_exact_reduced",
         "selected_fields": list(field_names),
+        "source_mode": str(source_mode),
+        "candidate_origin": str(candidate_origin),
         "elapsed_seconds": float(elapsed_seconds),
         "jax_backend": jax.default_backend(),
         "reference_input_name": reference_mesh_spec.name,

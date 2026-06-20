@@ -134,7 +134,7 @@ movie is never a validation gate by itself.
 
 ## Current Completion Snapshot
 
-Audit date: 2026-06-19. Percentages are approximate and evidence-based. A lane
+Audit date: 2026-06-20. Percentages are approximate and evidence-based. A lane
 moves only when implementation, validation, plots or diagnostics, documentation,
 and tests all move together.
 
@@ -142,9 +142,9 @@ and tests all move together.
 | --- | ---: | --- |
 | Plan authority and release hygiene | 96% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
-| Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
+| Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to traced-field-line `g33`, D/T/He and hydrogen recycling `NVd`, sheath, target-source, and longer-window diverted-tokamak campaigns. |
 | JAX-native recycling solver | 99.92% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, hydrogen and D/T/He fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus residual-evaluation budgets, and the D/T/He route now has explicit eight-step physical-output parity gates against stable BDF at `dt=1e-4` and `dt=1e-3`, a retained `dt=1e-2` scalar density/pressure observable screen, and a retained `dt=1e-2` substepped full-field pointwise screen with an internal timestep cap. Term-level active-array seams now cover D/T/He reactions, pointwise collision friction/heat exchange, fixed-layout thermal-force/ion-viscosity/conduction transport closures, stencil-aware neutral parallel diffusion, sheath-prepared target recycling source mapping, scalar upstream-density feedback, a composed source-RHS builder, a source-to-total-RHS insertion helper, and an opt-in `promoted_active_sources` residual backend that matches the full D/T/He fixture RHS on the active slice, has an explicit two-output-window fixed-BDF2 production-gate mode with roundoff-level parity against stable BDF on the lightweight D/T/He fixture, and now has a named cProfile/RSS research-campaign gate that must exercise a nontrivial Newton/JVP solve at `dt=1e-4`. Fixed residuals also have opt-in instrumented linearized-action and single-update JAX-GMRES seams for matrix-free/JVP profiling. Default promotion still needs longer/heavier production-window parity, same-fidelity CPU/GPU runtime evidence, and cheaper production-window solves; the D/T/He active-array SciPy-BDF sparse-JVP output-window route remains locally timeout-bound and should be replaced by the matrix-free fixed-BDF2 path. |
-| Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, static scaling, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov cost on promoted recycling gates; the latest D/T/He substepped full-field probes slowed from `44.43 s` unpreconditioned to `86.37 s` with `field_scale` and `140.69 s` with `momentum_line`. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
+| Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, static scaling, sampled local/feedback field-block, multiplicative line-plus-field Schur, `target_schur`, and `neutral_plasma_schur` probes do not reduce the actual Krylov cost or convergence burden on promoted recycling gates; the latest D/T/He substepped full-field probes slowed from `44.43 s` unpreconditioned to `86.37 s` with `field_scale` and `140.69 s` with `momentum_line`, while the final compact Schur probes failed the `dt=10` convergence gate at residual about `6.31e1`. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
 | Performance and scaling | 76% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, the fixed-BDF2 direct-counting output-window gates prove hydrogen and D/T/He solve execution without Python callback overhead and report mean residual/solve costs, and the eight-step D/T/He physical-parity, `dt=1e-3` ramp, `dt=1e-2` scalar-observable, and `dt=1e-2` substepped full-field gates record the current bounded matrix-free cost split against stable BDF. The active-array D/T/He residual/JVP gate also has retained CPU batched-throughput evidence, and the promoted active-source backend now has a bounded nontrivial `ny=100`, `dt=1e-4` Newton/JVP profile with residual `1.74e-12`, one nonlinear update, one JAX-GMRES solve, five operator calls, warm jitted profiled time `8.29 s`, and sampled RSS delta `362 MiB`. Trivial `ny=200` and `ny=400` promoted-source residual-check sweeps passed but are recorded only as size/RSS sanity checks because they perform zero nonlinear or linear solves. The retained substepped full-field gate closes pointwise accuracy but costs `44.43 s` after warm compilation versus `0.97 s` stable BDF on the fixture, and same-fidelity `field_scale`, `momentum_line`, and residual-JIT probes are slower, so it is correctness evidence only. The local D/T/He active-array output-window sparse-JVP profile still times out before artifact generation, and a same-fidelity current D/T/He GPU gate passes but is `12.3x` slower and uses `4.3x` more sampled RSS than CPU. Remaining scaling work is reduced compiled residual size, cheaper residual/JVP kernels, production-window matrix-free output solves, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 80% | Neutral parallel diffusion and target recycling source mapping now have active-layout seams with full-field active-slice parity and JVP gates; finish full sheath orchestration, target/sheath coupling gates, and detachment observables across promoted tokamak lanes. |
@@ -3849,19 +3849,48 @@ Use this log for concise decision records. Do not paste terminal output here.
   near-zero normalization artifacts. The regenerated report now keeps
   `integrated_2d_recycling_one_step` on near-zero `NVd` as the raw top parity
   offender with absolute error context, but adds `actionable_parity_offenders`
-  and `top_offenders.actionable_parity`. The current actionable top parity
-  lanes are `stellarator_vmec_native_selected_field` on `toroidal_flux`,
-  `traced_field_line_native_selected_field` on `g33`, then
-  `recycling_dthe_one_step` on `NVd`. Decision: the next parity/3D work should
-  start from selected-field geometry construction and then D/T/He recycling,
-  not from near-zero `NVd` normalization-sensitive cases.
+  and `top_offenders.actionable_parity`. At that point, the actionable top
+  parity lanes were selected-field geometry construction followed by
+  `recycling_dthe_one_step` on `NVd`. Later clean-clone provenance regeneration
+  moved geometry preview adapters out of the actionable queue until explicit
+  reference/candidate inputs are supplied.
 - 2026-06-20: Propagated selected-field source provenance into the reduced
-  Hermès comparison summary and offender register. The current top actionable
-  VMEC selected-field offender is confirmed as `source_mode=explicit_pair`
-  with `candidate_origin=provided_external_input`, so it remains actionable.
-  Synthetic-preview selected-field lanes now carry `diagnostic_preview=true`
-  and are filtered out of `actionable_parity_offenders` until replaced by
-  explicit reference/candidate inputs.
+  Hermès comparison summary and offender register. At that point, the VMEC
+  selected-field artifact reported `source_mode=explicit_pair` with
+  `candidate_origin=provided_external_input`, so it remained actionable.
+  Synthetic-preview selected-field lanes carry `diagnostic_preview=true` and
+  are filtered out of `actionable_parity_offenders` until replaced by explicit
+  reference/candidate inputs.
+- 2026-06-20: Re-ran the native VMEC selected-field demo from a clean clone
+  state after confirming the legacy `/tmp/jax_drb_wout_reference.nc` and
+  `/tmp/jax_drb_wout_candidate.nc` files were absent. The regenerated committed
+  artifact now reports `source_mode=synthetic_preview` and
+  `candidate_origin=synthetic_preview_pair`, which is reproducible and honest
+  for the lightweight repository. The offender register filters that preview
+  lane out of `actionable_parity_offenders`. Decision: do not claim VMEC
+  selected-field publication parity from a missing local `/tmp` pair; require
+  an explicit external or release-hosted VMEC pair before ranking that lane.
+- 2026-06-20: Added equivalent source-provenance metadata to the native
+  traced-field-line selected-field runtime report and regenerated the artifact
+  from the clean-clone fallback. The committed report now records
+  `source_mode=synthetic_preview` and `candidate_origin=synthetic_preview_pair`
+  for `reference.fci.nc`/`candidate.fci.nc`, so this adapter/plot demo is also
+  filtered from actionable parity until a real FCI reference/candidate pair is
+  supplied. The current actionable order after filtering near-zero and preview
+  lanes is D/T/He recycling `NVd`, 1D hydrogen recycling `NVd`, and
+  neutral-mixed `NVh`.
+- 2026-06-20: Per the capped preconditioner policy, ran only two additional
+  physics-motivated compact active-array probes on the hydrogen recycling
+  JAX-linearized gate: `target_schur` and `neutral_plasma_schur`, both with
+  `timestep=10`, `initial_residual_mode=linearize`, and preconditioner refresh
+  `100`. Both candidates exercised one JAX-GMRES solve, five operator calls,
+  seven preconditioner applications, and one build, but both failed the
+  convergence gate with residual about `6.31e1`. Decision: stop local
+  preconditioner probing for now. The next recycling performance work should
+  reduce residual/JVP graph cost or introduce a materially different
+  operator-count-reducing physics preconditioner; the immediate priority shifts
+  back to Hermès parity, traced-field-line geometry metrics, and production
+  validation lanes.
 
 ## Definition Of Done
 

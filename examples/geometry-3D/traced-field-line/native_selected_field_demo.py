@@ -43,12 +43,16 @@ if external_pair is None:
             reference_mesh_spec=reference,
             candidate_mesh_spec=candidate,
             output_root=OUTPUT_ROOT,
+            source_mode="synthetic_preview",
+            candidate_origin="synthetic_preview_pair",
         )
 else:
     artifacts = create_native_traced_field_line_selected_field_package(
         reference_mesh_spec=external_pair[0],
         candidate_mesh_spec=external_pair[1],
         output_root=OUTPUT_ROOT,
+        source_mode="explicit_pair",
+        candidate_origin="provided_external_input",
     )
 
 print(f"parity: {artifacts.parity_json_path}")
