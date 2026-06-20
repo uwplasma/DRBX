@@ -1485,6 +1485,19 @@ promoted-source backward-Euler residual is JAX-differentiable on the retained
 large D/T/He recycling case. The remaining issue is cost, not differentiability:
 the same run took about `101.90 s`, 65 matrix-free operator calls, and 34
 residual evaluations on the local CPU.
+The immediate post-fix performance sweep sharpened that conclusion. Removing
+update diagnostics, switching to direct operator counting, lowering the initial
+line-search step, loosening the inner tolerance, and lowering GMRES restart did
+not produce a converged speedup on the hard D/T/He gate. `jit_residual=true`
+is the only simple knob that reduced bounded four-step runtime (`58.4 s` to
+`48.0 s`), but it changed the full nonlinear trajectory enough to stall before
+the convergence tolerance. The profiling harness now provides
+`--require-converged` so performance artifacts used in documentation, scaling
+plots, or paper claims must prove nonlinear convergence in addition to finite
+JVP/operator health. This keeps differentiability evidence separate from
+runtime evidence: the promoted-source residual is differentiable on the hard
+gate, while a production-grade fast path still needs cheaper residual/JVP
+kernels or a stronger preconditioner.
 
 The same gate now records and gates matrix-free linear-operator calls. The
 generic JAX-linearized solver reports `linear_operator_call_count` and

@@ -349,6 +349,26 @@ runs and a 14-iteration request converges in 13 iterations to residual
 matrix-free operator calls, so this is correctness evidence rather than a
 performance promotion.
 
+Performance gates should also require nonlinear convergence when the artifact
+is used for speed or scaling claims. The profiling command supports
+`--require-converged`, which fails unless the report contains
+`diagnostics.converged=true`. This became necessary after the finite-JVP fixes:
+`runtime:recycling_jax_linear_jit_residual=true` reduced a bounded four-step
+D/T/He profile from `58.4 s` to `48.0 s`, but on the full hard gate it stalled
+at residual `3.93` after 11 nonlinear iterations. A smaller line-search floor
+kept the run finite but still did not converge (`0.106` after 20 iterations).
+Those artifacts are useful profiling diagnostics, but they are not valid
+runtime speedup evidence.
+
+The current post-finite-JVP CPU sweep rules out several simple promotion knobs
+for this gate. Disabling update diagnostics does not materially change runtime
+(`101.3 s` to `100.8 s`), direct operator counting is slower (`107.6 s`),
+starting line search at `0.5` fails to converge within the retained budget, and
+looser inner tolerances either increase work or stall. A restart-5 GMRES run
+also failed to improve runtime or convergence. The next performance lane should
+therefore reduce residual/JVP kernel cost or introduce a genuinely spectral
+preconditioner; it should not promote these simple toggles.
+
 The current GPU evidence for the heavier fixed-layout seam lives in:
 
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/profile_summary.json`
