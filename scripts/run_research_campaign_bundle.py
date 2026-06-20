@@ -217,8 +217,9 @@ def _campaign_command_map(
         "dthe-promoted-active-sources-profile-gate": CampaignCommand(
             name="dthe-promoted-active-sources-profile-gate",
             description=(
-                "D/T/He promoted active-source recycling residual cProfile/RSS "
-                "Newton/JVP gate through the JAX-linearized profiling seam."
+                "Warm, jitted D/T/He promoted active-source recycling residual "
+                "cProfile/RSS Newton/JVP gate through the JAX-linearized "
+                "profiling seam."
             ),
             command=(
                 python_executable,
@@ -248,8 +249,12 @@ def _campaign_command_map(
                 "linearize",
                 "--require-initial-residual-mode",
                 "linearize",
+                "--warmup-runs",
+                "1",
                 "--timed-runs",
                 "1",
+                "--jit-linear-operator",
+                "--require-linear-operator-jitted",
                 "--require-min-nonlinear-iterations",
                 "1",
                 "--require-min-linear-solve-count",

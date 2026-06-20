@@ -286,8 +286,9 @@ now requires a real JAX-linearized Newton/JVP update. It passed with
 `solver_mode=promoted_active_sources_jax_linearized`,
 `rhs_backend=promoted_active_sources`, active size `1900`, state size `1979`,
 residual infinity norm `1.74e-12`, one nonlinear iteration, one JAX-GMRES
-linear solve, five matrix-free operator calls, two residual evaluations, median
-run time `7.71 s` without cProfile, and sampled peak RSS delta `907 MiB`. Matched
+linear solve, five matrix-free operator calls, two residual evaluations, warm
+jitted profiled solve time `8.29 s`, and sampled RSS run time `8.00 s` with
+peak RSS delta `362 MiB`. Matched
 `active_array` and `fixed_full_field_array` runs closed to the same residual in
 `7.81 s` and `7.80 s`, respectively. This is nontrivial profiling evidence for
 the source-kernel migration seam; it is still not a long-window or
@@ -295,10 +296,13 @@ default-promotion claim. Easier `ny=200` and `ny=400` promoted-source sweeps
 passed as size/RSS sanity checks, but they performed zero nonlinear or linear
 solves and should not be used as speedup evidence.
 
-The campaign wrapper keeps cProfile enabled. The same strengthened
-`dthe-promoted-active-sources-profile-gate` passed locally in `26.8 s` wall
-time and reported `14.60 s` inside the profiled solve with sampled RSS delta
-`909 MiB`.
+The campaign wrapper keeps cProfile enabled but now performs one warmup run and
+requires the jitted JVP linear operator before the profiled solve. This avoids
+using cold XLA compilation as the primary performance signal. In the local
+post-warmup profile, the one-update solve spent `5.08 s` in JAX-GMRES/JVP,
+`2.80 s` in residual evaluation and linearization, and `0.31 s` in line search.
+Those numbers identify the next performance target as residual/JVP kernel cost
+and Krylov operator count, not Python dictionary assembly.
 
 A deliberately aggressive `dt=1.0` one-update probe failed on
 `promoted_active_sources`, `active_array`, and `fixed_full_field_array` with

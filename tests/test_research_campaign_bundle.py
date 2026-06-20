@@ -514,6 +514,9 @@ def _assert_dthe_promoted_active_sources_profile_command(command) -> None:
     assert command.command[
         command.command.index("--require-initial-residual-mode") + 1
     ] == "linearize"
+    assert command.command[command.command.index("--warmup-runs") + 1] == "1"
+    assert "--jit-linear-operator" in command.command
+    assert "--require-linear-operator-jitted" in command.command
     assert command.command[
         command.command.index("--require-min-nonlinear-iterations") + 1
     ] == "1"
