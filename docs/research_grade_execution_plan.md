@@ -3476,6 +3476,26 @@ Use this log for concise decision records. Do not paste terminal output here.
   suggestion is `(32,36,192)`. Decision: do not promote the current
   imported-field turbulence movie as publication evidence; run a longer or
   higher-toroidal-resolution report-only search before regenerating media.
+- 2026-06-19: Added finite JVP update-health diagnostics to the JAX-linearized
+  recycling solver and profiling gate. `ImplicitStepInfo` now records
+  `linear_operator_finite`; recycling forwards it into diagnostics; and
+  `profile_recycling_jax_linearized_gate.py` supports
+  `--require-linear-operator-finite`. With
+  `runtime:recycling_jax_linear_diagnose_update_residual=true`, a nonfinite
+  `J(u) \delta u + R(u)` marks the linear solve as
+  `nonfinite_linearized_update` and exits before accepting additional poisoned
+  trial states. Focused tests for solver diagnostics, recycling propagation,
+  and profiler gate semantics passed. The hard promoted-source D/T/He probe
+  with `dt=1.0`, `mesh:ny=100`, `line_search_initial_step_scale=1.0`, and
+  `line_search_min_step_scale=1e-4` now reports
+  `linear_operator_finite=false`, `linear_solver_success=false`, residual
+  `1.414e2`, two nonlinear attempts, two linear solves, ten operator calls,
+  four residual evaluations, two line-search trials, local runtime `10.87 s`,
+  and sampled RSS delta `819 MiB`. The same probe intentionally fails when
+  run with `--require-linear-operator-finite`. Decision: this closes a
+  diagnostic/runtime-waste gap, but not convergence; the next solver work is to
+  find and fix the residual/JVP term that produces the nonfinite linearized
+  action before promoting the heavy recycling BDF path.
 
 ## Definition Of Done
 

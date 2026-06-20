@@ -195,6 +195,13 @@ The matching environment variable is
 `1/64`; smaller values are experimental and must be paired with residual,
 line-search-trial, and runtime gates because they can spend extra residual
 evaluations without improving the nonlinear solve.
+When
+`runtime:recycling_jax_linear_diagnose_update_residual = true`, the solver also
+records whether the linearized Krylov update has a finite diagnostic residual
+through `diagnostics.linear_operator_finite`. The profiling command can require
+this with `--require-linear-operator-finite`. A false value means the current
+JVP action is not safe to promote, even if the Krylov backend reports a nominal
+success status.
 The line-search policy itself can be selected with
 `runtime:recycling_jax_linear_line_search_mode=backtracking` or `full_step`, or
 with `JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE`. The default

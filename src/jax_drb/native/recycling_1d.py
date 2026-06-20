@@ -7757,6 +7757,7 @@ def _as_recycling_step_info(
             info, "linear_solver_reported_iterations", None
         ),
         "linear_solver_solve_method": getattr(info, "linear_solver_solve_method", None),
+        "linear_operator_finite": getattr(info, "linear_operator_finite", None),
         "linear_update_residual_inf_norm": getattr(
             info, "linear_update_residual_inf_norm", None
         ),

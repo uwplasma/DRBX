@@ -4024,6 +4024,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             linear_update_residual_seconds=0.003
             if kwargs["diagnose_linear_update_residual"]
             else 0.0,
+            linear_operator_finite=bool(kwargs["diagnose_linear_update_residual"]),
             line_search_mode=kwargs["line_search_mode"],
             line_search_min_step_scale=kwargs["line_search_min_step_scale"],
             check_initial_residual=kwargs["check_initial_residual"],
@@ -4120,6 +4121,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
         assert info.diagnostics["linear_update_residual_seconds"] == pytest.approx(
             0.003
         )
+        assert info.diagnostics["linear_operator_finite"] is True
         assert info.diagnostics["line_search_mode"] == "full_step"
         assert info.diagnostics["check_initial_residual"] is False
         assert info.diagnostics["initial_residual_mode"] == "linearize"

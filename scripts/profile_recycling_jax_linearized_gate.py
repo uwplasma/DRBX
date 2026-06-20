@@ -291,6 +291,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--require-linear-operator-finite",
+        action="store_true",
+        help=(
+            "Fail after profiling unless diagnostics.linear_operator_finite is true. "
+            "Use this with runtime:recycling_jax_linear_diagnose_update_residual=true "
+            "to prove that the JVP action on the accepted Krylov update is finite."
+        ),
+    )
+    parser.add_argument(
         "--require-rhs-backend",
         choices=("fixed_full_field_array", "active_array", "promoted_active_sources"),
         default=None,
@@ -979,6 +988,12 @@ def _profile_gate_errors(
             diagnostics = {}
         if not bool(diagnostics.get("linear_operator_jitted", False)):
             errors.append("profile did not report diagnostics.linear_operator_jitted=true")
+    if bool(getattr(args, "require_linear_operator_finite", False)):
+        diagnostics = profile_report.get("diagnostics", {})
+        if not isinstance(diagnostics, dict):
+            diagnostics = {}
+        if diagnostics.get("linear_operator_finite") is not True:
+            errors.append("profile did not report diagnostics.linear_operator_finite=true")
     required_rhs_backend = getattr(args, "require_rhs_backend", None)
     if required_rhs_backend is not None:
         diagnostics = profile_report.get("diagnostics", {})
@@ -1373,6 +1388,7 @@ def main() -> int:
             "linear_preconditioner": args.require_linear_preconditioner,
             "initial_residual_mode": args.require_initial_residual_mode,
             "linear_operator_jitted": bool(args.require_linear_operator_jitted),
+            "linear_operator_finite": bool(args.require_linear_operator_finite),
             "rhs_backend": args.require_rhs_backend,
             "max_linear_iterations": args.require_max_linear_iterations,
             "max_residual_inf_norm": args.require_max_residual_inf_norm,

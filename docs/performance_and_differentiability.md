@@ -1461,6 +1461,15 @@ The minimum backtracking floor is separately exposed as
 sweeps. It remains experimental: lowering the floor from `1/64` to `1e-4` on
 the harder promoted-source `dt=1.0` probe did not reduce the stalled residual,
 so the current blocker is nonlinear globalization rather than this floor alone.
+The same hard probe now exposes a stricter JVP-health diagnostic:
+`linear_operator_finite=false` with
+`linear_solver_status=nonfinite_linearized_update`. When update-residual
+diagnostics are enabled, the solver stops before accepting a Krylov update whose
+linearized residual is nonfinite, and the profiling harness can require this
+condition to be false with `--require-linear-operator-finite`. This avoids
+overstating the JAX-native recycling path: the current heavy promoted-source
+probe is instrumented and cheaper to fail, but it is not yet a promotable
+end-to-end differentiable BDF default.
 
 The same gate now records and gates matrix-free linear-operator calls. The
 generic JAX-linearized solver reports `linear_operator_call_count` and

@@ -50,6 +50,7 @@ class ImplicitStepInfo:
     linear_solver_success: bool | None = None
     linear_solver_reported_iterations: int | None = None
     linear_solver_solve_method: str | None = None
+    linear_operator_finite: bool | None = None
     linear_update_residual_inf_norm: float | None = None
     linear_update_relative_residual: float | None = None
     linear_update_residual_evaluation_count: int = 0
@@ -1290,6 +1291,7 @@ def solve_jax_linearized_newton_system(
     last_linear_solver_status: int | float | str | None = None
     last_linear_solver_success: bool | None = None
     last_linear_solver_reported_iterations: int | None = None
+    last_linear_operator_finite: bool | None = None
     last_linear_update_residual_inf_norm: float | None = None
     last_linear_update_relative_residual: float | None = None
     linear_update_residual_evaluation_count = 0
@@ -1352,6 +1354,7 @@ def solve_jax_linearized_newton_system(
             linear_solver_solve_method=(
                 resolved_solve_method if linear_backend == "jax_gmres" else None
             ),
+            linear_operator_finite=last_linear_operator_finite,
             linear_update_residual_inf_norm=last_linear_update_residual_inf_norm,
             linear_update_relative_residual=last_linear_update_relative_residual,
             linear_update_residual_evaluation_count=(
@@ -1518,6 +1521,9 @@ def solve_jax_linearized_newton_system(
             last_linear_update_residual_inf_norm = float(
                 jnp.max(jnp.abs(linear_update_residual))
             )
+            last_linear_operator_finite = bool(
+                _block(jnp.all(jnp.isfinite(linear_update_residual)))
+            )
             rhs_inf_norm = max(
                 float(jnp.max(jnp.abs(residual_value))),
                 np.finfo(np.float64).tiny,
@@ -1525,6 +1531,10 @@ def solve_jax_linearized_newton_system(
             last_linear_update_relative_residual = (
                 float(last_linear_update_residual_inf_norm) / rhs_inf_norm
             )
+            if not last_linear_operator_finite:
+                last_linear_solver_status = "nonfinite_linearized_update"
+                last_linear_solver_success = False
+                break
 
         if resolved_line_search_mode == "full_step":
             line_search_started_at = perf_counter()

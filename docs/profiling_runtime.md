@@ -325,6 +325,20 @@ evaluations, and three line-search trials. The next large-step robustness work
 should therefore target nonlinear globalization and nonfinite update handling,
 not just the line-search floor.
 
+The profiling gate can now require finite JVP update health with
+`--require-linear-operator-finite`. This check uses
+`diagnostics.linear_operator_finite`, which is populated when
+`runtime:recycling_jax_linear_diagnose_update_residual=true` evaluates
+`J(u) \delta u + R(u)` for the Krylov update. On the hard `dt=1.0`,
+`mesh:ny=100` promoted-source probe, that diagnostic is currently false:
+the solver reports `linear_solver_status=nonfinite_linearized_update`,
+`linear_solver_success=false`, and exits before feeding the poisoned update
+into additional trial residuals. This reduced local profiled runtime from
+`20.64 s` to `10.87 s` and sampled RSS delta from `1837 MiB` to `819 MiB`,
+but the residual remains `1.41e2`. A probe with
+`--require-linear-operator-finite` therefore fails intentionally until the
+underlying residual/JVP source of the nonfinite action is fixed.
+
 The current GPU evidence for the heavier fixed-layout seam lives in:
 
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/profile_summary.json`

@@ -1788,6 +1788,7 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
     assert info.linear_solver_status == 0
     assert info.linear_solver_success is True
     assert info.linear_solver_reported_iterations is None
+    assert info.linear_operator_finite is None
     assert info.linear_update_residual_inf_norm is None
     assert info.linear_update_relative_residual is None
     assert info.linear_update_residual_evaluation_count == 0
@@ -1825,6 +1826,43 @@ def test_jax_linearized_newton_solver_can_diagnose_update_residual() -> None:
     assert info.linear_update_relative_residual < 1.0e-10
     assert info.linear_update_residual_evaluation_count >= 1
     assert info.linear_update_residual_seconds >= 0.0
+    assert info.linear_operator_finite is True
+
+
+def test_jax_linearized_newton_solver_rejects_nonfinite_linear_update() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+
+    @jax.custom_jvp
+    def residual(state):
+        return jnp.asarray(state, dtype=jnp.float64) - 1.0
+
+    @residual.defjvp
+    def residual_jvp(primals, tangents):
+        (state,), (tangent,) = primals, tangents
+        return residual(state), jnp.full_like(tangent, jnp.nan)
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        np.array([0.0], dtype=np.float64),
+        active_shape=(1,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=2,
+        linear_restart=2,
+        linear_maxiter=2,
+        diagnose_linear_update_residual=True,
+    )
+
+    np.testing.assert_allclose(solution, np.array([0.0]), rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is False
+    assert info.residual_inf_norm == pytest.approx(1.0)
+    assert info.linear_operator_finite is False
+    assert info.linear_solver_status == "nonfinite_linearized_update"
+    assert info.linear_solver_success is False
+    assert np.isnan(info.linear_update_residual_inf_norm)
+    assert np.isnan(info.linear_update_relative_residual)
+    assert info.line_search_trial_count == 0
 
 
 def test_jax_linearized_newton_solver_reports_custom_linear_tolerance() -> None:
