@@ -1171,10 +1171,13 @@ building eight line-block preconditioners and `96.09 s` in JAX-GMRES. A
 static `field_scale` probe also preserved the same field delta but slowed to
 `86.37 s`, with no build cost and `74.56 s` in JAX-GMRES. These full-field
 same-fidelity results rule out the current scaling and line-block
-preconditioners as default-promotion candidates for D/T/He recycling; the next
-performance work must reduce residual/JVP cost or build a qualitatively
-stronger block/transport approximation that lowers Krylov work on the same
-gate.
+preconditioners as default-promotion candidates for D/T/He recycling. Residual
+JIT is also not a promotion route on this gate: setting
+`runtime:recycling_jax_linear_jit_residual=true` preserved the same parity
+metrics but slowed to `152.32 s`, with residual-evaluation time increasing
+from `10.70 s` to `61.52 s`. The next performance work must reduce
+residual/JVP cost structurally or build a qualitatively stronger
+block/transport approximation that lowers Krylov work on the same gate.
 
 The solver-level preconditioner seam does have bounded positive gates. A stiff
 one-dimensional line-transport residual with a deliberately small JAX-GMRES
