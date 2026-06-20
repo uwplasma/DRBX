@@ -132,7 +132,18 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Profile the active-array JAX-linearized recycling residual instead "
             "of the fixed-full-field residual. This keeps the same physical "
             "fields and fixed-layout packing but avoids full-field residual "
-            "work when collecting CPU/GPU evidence."
+            "work when collecting CPU/GPU evidence. Kept as a compatibility "
+            "alias for --rhs-backend=active_array."
+        ),
+    )
+    parser.add_argument(
+        "--rhs-backend",
+        choices=("fixed_full_field_array", "active_array", "promoted_active_sources"),
+        default=None,
+        help=(
+            "Fixed-layout residual backend to profile. The promoted_active_sources "
+            "backend exercises the composed active source kernels and is an "
+            "opt-in migration/profiling route, not the stable default."
         ),
     )
     parser.add_argument(
@@ -270,13 +281,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--require-rhs-backend",
-        choices=("fixed_full_field_array", "active_array"),
+        choices=("fixed_full_field_array", "active_array", "promoted_active_sources"),
         default=None,
         help=(
             "Fail after profiling unless diagnostics.rhs_backend matches this "
-            "fixed-layout residual backend. Use 'active_array' with "
-            "--active-array-rhs when collecting promoted output-window or "
-            "CPU/GPU profiles."
+            "fixed-layout residual backend. Use --rhs-backend to select the "
+            "profiled backend explicitly."
         ),
     )
     parser.add_argument(
@@ -426,6 +436,25 @@ def _validate_args(args: argparse.Namespace) -> None:
         args.require_linear_preconditioner
     ).strip():
         raise SystemExit("--require-linear-preconditioner must be nonempty.")
+    rhs_backend = getattr(args, "rhs_backend", None)
+    if bool(getattr(args, "active_array_rhs", False)) and rhs_backend not in {
+        None,
+        "active_array",
+    }:
+        raise SystemExit(
+            "--active-array-rhs is a compatibility alias for "
+            "--rhs-backend=active_array and cannot be combined with another "
+            "--rhs-backend value."
+        )
+    if (
+        rhs_backend == "promoted_active_sources"
+        and str(getattr(args, "linear_solver_backend", "jax_gmres"))
+        != "jax_gmres"
+    ):
+        raise SystemExit(
+            "--rhs-backend=promoted_active_sources currently supports "
+            "--linear-solver-backend=jax_gmres only."
+        )
     required_initial_residual_mode = getattr(
         args, "require_initial_residual_mode", None
     )
@@ -564,18 +593,44 @@ def _resolve_input(args: argparse.Namespace) -> Path:
     ).resolve()
 
 
+def _selected_rhs_backend(args: argparse.Namespace) -> str:
+    rhs_backend = getattr(args, "rhs_backend", None)
+    if rhs_backend is not None:
+        return str(rhs_backend)
+    if bool(getattr(args, "active_array_rhs", False)):
+        return "active_array"
+    return "fixed_full_field_array"
+
+
 def _solver_mode_for_backend(
-    linear_solver_backend: str, *, active_array_rhs: bool = False
+    linear_solver_backend: str,
+    *,
+    active_array_rhs: bool = False,
+    rhs_backend: str | None = None,
 ) -> str:
+    selected_backend = (
+        str(rhs_backend)
+        if rhs_backend is not None
+        else ("active_array" if bool(active_array_rhs) else "fixed_full_field_array")
+    )
+    if selected_backend == "promoted_active_sources":
+        if str(linear_solver_backend) == "lineax_gmres":
+            raise ValueError(
+                "promoted_active_sources currently supports the JAX-GMRES "
+                "linearized route only."
+            )
+        return "promoted_active_sources_jax_linearized"
+    if selected_backend not in {"fixed_full_field_array", "active_array"}:
+        raise ValueError(f"Unsupported RHS backend {selected_backend!r}.")
     if str(linear_solver_backend) == "lineax_gmres":
         return (
             "active_array_jax_linearized_lineax"
-            if bool(active_array_rhs)
+            if selected_backend == "active_array"
             else "jax_linearized_lineax"
         )
     return (
         "active_array_jax_linearized"
-        if bool(active_array_rhs)
+        if selected_backend == "active_array"
         else "jax_linearized"
     )
 
@@ -1098,9 +1153,10 @@ def _profile_once(
     )
     fields = _build_recycling_state_fields(runtime_model)
     feedback_integrals = {name: 0.0 for name in runtime_model.feedback_names}
+    rhs_backend = _selected_rhs_backend(args)
     solver_mode = _solver_mode_for_backend(
         args.linear_solver_backend,
-        active_array_rhs=bool(getattr(args, "active_array_rhs", False)),
+        rhs_backend=rhs_backend,
     )
 
     started = perf_counter()
@@ -1128,6 +1184,7 @@ def _profile_once(
         "case": str(args.case),
         "solver_mode": solver_mode,
         "linear_solver_backend": str(args.linear_solver_backend),
+        "rhs_backend_requested": rhs_backend,
         "active_array_rhs_requested": bool(
             getattr(args, "active_array_rhs", False)
         ),

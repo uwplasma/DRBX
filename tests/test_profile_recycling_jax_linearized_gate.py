@@ -38,6 +38,8 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "--linear-operator-counting",
             "direct",
             "--active-array-rhs",
+            "--rhs-backend",
+            "active_array",
             "--linear-preconditioner",
             "local-block-diag",
             "--linear-preconditioner-refresh",
@@ -91,6 +93,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.jit_linear_operator is True
     assert args.linear_operator_counting == "direct"
     assert args.active_array_rhs is True
+    assert args.rhs_backend == "active_array"
     assert args.linear_preconditioner == "local-block-diag"
     assert args.linear_preconditioner_refresh == 100
     assert args.linear_restart == 20
@@ -115,6 +118,19 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.require_max_preconditioner_builds == 2
     assert args.require_max_preconditioner_applies == 40
 
+    promoted_args = module._parse_args(
+        [
+            "--input-path",
+            "/tmp/BOUT.inp",
+            "--rhs-backend",
+            "promoted_active_sources",
+            "--require-rhs-backend",
+            "promoted_active_sources",
+        ]
+    )
+    assert promoted_args.rhs_backend == "promoted_active_sources"
+    assert promoted_args.require_rhs_backend == "promoted_active_sources"
+
 
 def test_help_documents_preconditioner_and_budget_gates(
     capsys: pytest.CaptureFixture[str],
@@ -134,6 +150,7 @@ def test_help_documents_preconditioner_and_budget_gates(
     assert "--linear-tolerance-factor" in help_text
     assert "--line-search-initial-step-scale" in help_text
     assert "--active-array-rhs" in help_text
+    assert "--rhs-backend" in help_text
     assert "--require-linear-preconditioner" in help_text
     assert "--require-initial-residual-mode" in help_text
     assert "--require-linear-operator-jitted" in help_text
@@ -200,6 +217,20 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
         (
             {"require_linear_preconditioner": ""},
             "--require-linear-preconditioner must be nonempty",
+        ),
+        (
+            {
+                "active_array_rhs": True,
+                "rhs_backend": "promoted_active_sources",
+            },
+            "--active-array-rhs is a compatibility alias for --rhs-backend=active_array",
+        ),
+        (
+            {
+                "rhs_backend": "promoted_active_sources",
+                "linear_solver_backend": "lineax_gmres",
+            },
+            "--rhs-backend=promoted_active_sources currently supports --linear-solver-backend=jax_gmres only",
         ),
         (
             {"require_initial_residual_mode": "bad"},
@@ -283,6 +314,9 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "linear_preconditioner": None,
             "linear_preconditioner_refresh": None,
             "require_linear_preconditioner": None,
+            "rhs_backend": None,
+            "active_array_rhs": False,
+            "linear_solver_backend": "jax_gmres",
             "require_initial_residual_mode": None,
             "initial_residual_mode": None,
             "linear_operator_counting": None,

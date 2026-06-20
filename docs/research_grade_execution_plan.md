@@ -3343,6 +3343,23 @@ Use this log for concise decision records. Do not paste terminal output here.
   `max_abs_delta=1.16191501e-11` on `Pd+`. Decision: the promoted backend now
   has a public opt-in production-window gate; next work is heavier-window
   parity/profiling and runtime reduction before any default-promotion decision.
+- 2026-06-19: Extended `scripts/profile_recycling_jax_linearized_gate.py` with
+  a first-class `--rhs-backend` selector covering `fixed_full_field_array`,
+  `active_array`, and `promoted_active_sources`, while retaining
+  `--active-array-rhs` as a compatibility alias. The promoted backend maps to
+  `promoted_active_sources_jax_linearized` and intentionally rejects the Lineax
+  backend until a promoted Lineax solver mode exists. Focused validation
+  passed:
+  `PYTHONPATH=src pytest -q tests/test_profile_recycling_jax_linearized_gate.py tests/test_research_campaign_bundle.py`
+  (`45 passed`) and
+  `PYTHONPATH=src ruff check scripts/profile_recycling_jax_linearized_gate.py tests/test_profile_recycling_jax_linearized_gate.py tests/test_research_campaign_bundle.py`.
+  A lightweight real D/T/He profile gate passed:
+  `PYTHONPATH=src python scripts/profile_recycling_jax_linearized_gate.py --reference-root tests/fixtures/reference-root --case dthe --output-dir /tmp/jax_drb_promoted_profile --rhs-backend promoted_active_sources --require-rhs-backend promoted_active_sources --timestep 1e-6 --residual-tolerance 1e-4 --max-nonlinear-iterations 1 --skip-cprofile --require-max-residual-inf-norm 1e-4`.
+  It reported `solver_mode=promoted_active_sources_jax_linearized`,
+  `rhs_backend=promoted_active_sources`, `residual_inf_norm=2.40893806e-11`,
+  and `profiled_run_seconds=0.40664833` on the lightweight fixture. Decision:
+  heavier cProfile/RSS/GPU runs can now target the promoted backend without
+  ad hoc script edits.
 
 ## Definition Of Done
 

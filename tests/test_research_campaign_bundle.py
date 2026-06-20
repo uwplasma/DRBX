@@ -1258,6 +1258,16 @@ def test_jax_linearized_profiler_reports_lineax_solver_mode() -> None:
         module._solver_mode_for_backend("lineax_gmres", active_array_rhs=True)
         == "active_array_jax_linearized_lineax"
     )
+    assert (
+        module._solver_mode_for_backend(
+            "jax_gmres", rhs_backend="promoted_active_sources"
+        )
+        == "promoted_active_sources_jax_linearized"
+    )
+    with pytest.raises(ValueError, match="promoted_active_sources"):
+        module._solver_mode_for_backend(
+            "lineax_gmres", rhs_backend="promoted_active_sources"
+        )
 
 
 def test_jax_linearized_profiler_jit_residual_appends_runtime_override() -> None:
