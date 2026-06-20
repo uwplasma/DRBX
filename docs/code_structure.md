@@ -153,7 +153,13 @@ connected to the complete residual. The same module also owns
 `assemble_fixed_layout_recycling_field_rhs_from_sources`, which inserts active
 source blocks into the existing ion, electron, and neutral open-field RHS
 assembly without double counting the `(2/3)Q` pressure-source conversion. A
-second adapter,
+bounded opt-in residual backend in
+[src/jax_drb/native/recycling_1d.py](../src/jax_drb/native/recycling_1d.py),
+`rhs_backend="promoted_active_sources"`, now feeds the composed source map
+through the backward-Euler, BDF2, and adaptive-BDF fixed residual builders for
+no-feedback cases. That backend is a migration and profiling gate, not the
+stable default: feedback, remaining full-field transport closures, and broad
+production-window parity still use the full-field oracle path. A second adapter,
 `build_fixed_full_field_array_rhs`, stages remaining guard-cell kernels and
 closure terms such as conduction and viscosity through the same fixed-state
 interface while each term is still being migrated to active-array form. New
