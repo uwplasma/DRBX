@@ -315,6 +315,16 @@ promoted-source probe, scale-1 backtracking reduced the residual to
 operator calls, five residual evaluations, and three line-search trials; a true
 full-step probe diverged to `7.47e23`.
 
+An opt-in minimum backtracking floor is available through
+`runtime:recycling_jax_linear_line_search_min_step_scale` and the profiling
+flag `--line-search-min-step-scale`. The default remains `1/64`. On the same
+hard `dt=1.0`, `mesh:ny=100` promoted-source probe, lowering the floor to
+`1e-4` did not improve the final residual; the solve still stopped at
+`1.41e2` after two nonlinear attempts, ten operator calls, five residual
+evaluations, and three line-search trials. The next large-step robustness work
+should therefore target nonlinear globalization and nonfinite update handling,
+not just the line-search floor.
+
 The current GPU evidence for the heavier fixed-layout seam lives in:
 
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/profile_summary.json`
