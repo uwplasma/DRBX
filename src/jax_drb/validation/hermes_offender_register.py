@@ -59,6 +59,9 @@ def build_hermes_offender_register_report(
     comparison_report = _load_json(comparison_summary_json) if comparison_summary_json is not None else None
     live_cases = list(live_report.get("cases", []))
     parity_offenders = _build_parity_offenders(live_cases, comparison_report=comparison_report)
+    actionable_parity_offenders = _build_actionable_parity_offenders(
+        parity_offenders
+    )
     runtime_offenders = _build_runtime_offenders(live_cases)
     memory_offenders = _build_memory_offenders(live_cases)
     return {
@@ -70,10 +73,14 @@ def build_hermes_offender_register_report(
         },
         "case_count": len(live_cases),
         "parity_offenders": parity_offenders,
+        "actionable_parity_offenders": actionable_parity_offenders,
         "runtime_offenders": runtime_offenders,
         "memory_offenders": memory_offenders,
         "top_offenders": {
             "parity": None if not parity_offenders else parity_offenders[0],
+            "actionable_parity": None
+            if not actionable_parity_offenders
+            else actionable_parity_offenders[0],
             "runtime": None if not runtime_offenders else runtime_offenders[0],
             "memory": None if not memory_offenders else memory_offenders[0],
         },
@@ -85,10 +92,13 @@ def build_hermes_offender_register_report(
             ),
             "near_zero_policy": (
                 "Normalization-sensitive cases are not automatically treated as physical failures; "
-                "their absolute max error must be inspected before changing equations."
+                "their absolute max error must be inspected before changing equations. "
+                "The actionable_parity_offenders list filters those cases out "
+                "so the next parity task is not chosen from a near-zero "
+                "normalization artifact."
             ),
             "next_actions": [
-                "re-run the top live offender with profiler and component diagnostics",
+                "work the top actionable parity offender with component diagnostics",
                 "localize the dominant field to a closure, boundary rule, or compare-window convention",
                 "add a direct operator test before changing the broad transient runner",
                 "record memory peaks for the top slow recycling and neutral cases",
@@ -221,6 +231,17 @@ def _build_parity_offenders(
     return _with_ranks(offenders)
 
 
+def _build_actionable_parity_offenders(
+    parity_offenders: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    actionable = [
+        {key: value for key, value in offender.items() if key != "rank"}
+        for offender in parity_offenders
+        if not bool(offender.get("normalization_sensitive", False))
+    ]
+    return _with_ranks(actionable)
+
+
 def _build_runtime_offenders(live_cases: list[dict[str, Any]]) -> list[dict[str, object]]:
     offenders: list[dict[str, object]] = []
     for case in live_cases:
@@ -252,7 +273,12 @@ def _build_memory_offenders(live_cases: list[dict[str, Any]]) -> list[dict[str, 
         reference_peak = _optional_float(case.get("reference_peak_rss_bytes"))
         native_delta = _optional_float(case.get("native_peak_rss_delta_bytes"))
         reference_delta = _optional_float(case.get("reference_peak_rss_delta_bytes"))
-        if native_peak is None and reference_peak is None and native_delta is None:
+        if (
+            native_peak is None
+            and reference_peak is None
+            and native_delta is None
+            and reference_delta is None
+        ):
             continue
         case_name = str(case.get("case_name", ""))
         ratio = _optional_float(case.get("native_to_reference_peak_rss_ratio"))

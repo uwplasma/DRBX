@@ -3832,6 +3832,29 @@ Use this log for concise decision records. Do not paste terminal output here.
   did not reduce residual/JVP kernel cost or Krylov count. Decision: keep
   default backtracking; retain `full_step` as a reproducible diagnostic
   lower-bound probe only.
+- 2026-06-20: Capped the next solver-control/preconditioner sweep before
+  returning to parity and 3D lanes. `runtime:recycling_jax_linear_tolerance_factor=100`
+  reduced the warm one-update D/T/He promoted-source profile from `8.29 s` to
+  `4.53 s` while preserving residual `1.74087479e-12`, but the stricter
+  two-step fixed-BDF2 promoted-source parity gate remained effectively
+  unchanged (`9.37 s`, residual `4.10110678e-14`, worst `Pd+`
+  `max_abs_delta=4.99220688e-08`). Two bounded preconditioner probes also
+  passed the one-update gate: `state_scale` reached `4.32 s` and `field_diag`
+  reached `6.12 s`; both still used five JVP operator calls. Decision: stop
+  broad preconditioner probing for now. Treat tolerance/preconditioners as
+  diagnostic knobs until a production-window gate shows reduced wall time,
+  residual/JVP cost, or Krylov operator count.
+- 2026-06-20: Updated the Hermès offender register so raw normalized parity
+  ranking no longer drives the next physics task when the top entries are
+  near-zero normalization artifacts. The regenerated report now keeps
+  `integrated_2d_recycling_one_step` on near-zero `NVd` as the raw top parity
+  offender with absolute error context, but adds `actionable_parity_offenders`
+  and `top_offenders.actionable_parity`. The current actionable top parity
+  lanes are `stellarator_vmec_native_selected_field` on `toroidal_flux`,
+  `traced_field_line_native_selected_field` on `g33`, then
+  `recycling_dthe_one_step` on `NVd`. Decision: the next parity/3D work should
+  start from selected-field geometry construction and then D/T/He recycling,
+  not from near-zero `NVd` normalization-sensitive cases.
 
 ## Definition Of Done
 
