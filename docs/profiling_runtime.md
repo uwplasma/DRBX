@@ -337,6 +337,17 @@ inactive-branch subgradient at the clipping point, so the same probe passes
 `--require-linear-operator-finite`. This does not make the large-step solve
 converged: the residual remains a nonlinear globalization and
 preconditioning problem, not a nonfinite operator-action problem.
+The follow-up 5-iteration probe exposed one more zero-tangent singularity at
+the accepted 4-step state. The new `diagnostics.linear_update_finite` and
+`diagnostics.linear_update_inf_norm` fields showed that the Krylov update vector
+was finite, while `J(u) \delta u + R(u)` was not. Term localization mapped the
+bad residual entry to the electron pressure field at the upper target-adjacent
+cell. After routing the full zero-current sheath sonic square roots through the
+same finite-JVP helper, the hard D/T/He gate remains finite for longer Newton
+runs and a 14-iteration request converges in 13 iterations to residual
+`1.75e-11`. The cost is still high, about `101.90 s` locally with 65
+matrix-free operator calls, so this is correctness evidence rather than a
+performance promotion.
 
 The current GPU evidence for the heavier fixed-layout seam lives in:
 

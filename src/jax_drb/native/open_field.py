@@ -361,7 +361,7 @@ def compute_full_ion_zero_current_sum_term(
         0.0,
         100.0,
     )
-    return s_i * float(charge) * sin_alpha * jnp.sqrt(c_i_sq)
+    return s_i * float(charge) * sin_alpha * sqrt_nonnegative(c_i_sq)
 
 
 def compute_zero_current_electron_sheath_potential(
@@ -405,7 +405,10 @@ def compute_zero_current_electron_sheath_potential(
         safe_temperature
         * jnp.log(
             jnp.maximum(
-                jnp.sqrt(safe_temperature / (float(electron_thermal_mass) * (2.0 * jnp.pi)))
+                sqrt_nonnegative(
+                    safe_temperature
+                    / (float(electron_thermal_mass) * (2.0 * jnp.pi))
+                )
                 * (1.0 - float(secondary_electron_coef))
                 / ion_sum,
                 1.0e-12,

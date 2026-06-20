@@ -3514,6 +3514,26 @@ Use this log for concise decision records. Do not paste terminal output here.
   two-iteration gate. Decision: the next JAX-native recycling work should target
   nonlinear globalization, physics/block preconditioning, and runtime of the
   finite JVP/Krylov path rather than nonfinite operator-action guards.
+- 2026-06-19: Closed the next D/T/He finite-JVP blocker that appeared after
+  allowing more nonlinear iterations. A 5-iteration promoted-source probe
+  reached the accepted 4-step state and then failed with
+  `linear_operator_finite=false`; new update-vector diagnostics showed the
+  Krylov update itself was finite and zero, so the failure was another
+  zero-tangent residual singularity. A direct zero-tangent residual map
+  localized the single bad entry to `Pe` at the upper target-adjacent active
+  cell. The remaining singular JAX branch was in the full zero-current sheath
+  path, where the ion current sum still used a raw `sqrt(c_i_sq)` at a clipped
+  sonic point. Routed the full-ion zero-current current sum and zero-current
+  electron thermal factor through `sqrt_nonnegative` and added open-field
+  regression coverage for finite zero tangents at the sonic clip. The hard
+  D/T/He gate now passes `--require-linear-operator-finite` for 5, 8, 12, and
+  14 requested nonlinear iterations; the 14-iteration request converged in 13
+  nonlinear iterations to residual `1.75e-11` with 65 operator calls, 34
+  residual evaluations, 20 line-search trials, and local runtime `101.90 s`.
+  Decision: the promoted-source backward-Euler residual is now demonstrably
+  differentiable through this hard large-step D/T/He gate; remaining promotion
+  work is runtime, preconditioning, and extending the same finite-JVP evidence
+  to output-window BDF/recycling histories.
 
 ## Definition Of Done
 

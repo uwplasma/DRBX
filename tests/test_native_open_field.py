@@ -585,6 +585,40 @@ def test_zero_current_ion_sum_and_potential_match_numpy_and_are_jvp_transformabl
     np.testing.assert_allclose(np.asarray(tangent), np.asarray(finite_difference), rtol=1.0e-4, atol=1.0e-6)
 
 
+def test_zero_current_sheath_terms_have_finite_zero_tangent_at_sonic_clip() -> None:
+    shape = (1, 2)
+    zeros = jnp.zeros(shape, dtype=jnp.float64)
+    ones = jnp.ones(shape, dtype=jnp.float64)
+
+    def qoi(temperature):
+        ion_sum = compute_full_ion_zero_current_sum_term(
+            ion_density_boundary=ones,
+            ion_density_neighbor=ones,
+            electron_density_boundary=ones,
+            electron_density_neighbor=ones,
+            ion_temperature_boundary=temperature,
+            electron_temperature_boundary=temperature,
+            electron_density_gradient=zeros,
+            ion_density_gradient=zeros,
+            sin_alpha_neighbor=ones,
+            atomic_mass=2.0,
+            charge=1.0,
+        )
+        potential = compute_zero_current_electron_sheath_potential(
+            electron_temperature_boundary=temperature,
+            ion_current_sum=ion_sum,
+            wall_potential_boundary=zeros,
+            electron_thermal_mass=1.0 / 1836.0,
+            secondary_electron_coef=0.0,
+        )
+        return jnp.sum(ion_sum) + jnp.sum(potential)
+
+    primal, tangent = jax.jvp(qoi, (zeros,), (jnp.zeros_like(zeros),))
+
+    assert bool(jnp.all(jnp.isfinite(primal)))
+    assert bool(jnp.all(jnp.isfinite(tangent)))
+
+
 def test_simple_ion_sheath_boundary_matches_numpy_and_is_jvp_transformable() -> None:
     sheath_density = np.asarray([[1.2, 1.4]], dtype=np.float64)
     sheath_temperature = np.asarray([[2.0, 2.5]], dtype=np.float64)

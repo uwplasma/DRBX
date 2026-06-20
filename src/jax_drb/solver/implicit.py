@@ -51,6 +51,8 @@ class ImplicitStepInfo:
     linear_solver_reported_iterations: int | None = None
     linear_solver_solve_method: str | None = None
     linear_operator_finite: bool | None = None
+    linear_update_finite: bool | None = None
+    linear_update_inf_norm: float | None = None
     linear_update_residual_inf_norm: float | None = None
     linear_update_relative_residual: float | None = None
     linear_update_residual_evaluation_count: int = 0
@@ -1292,6 +1294,8 @@ def solve_jax_linearized_newton_system(
     last_linear_solver_success: bool | None = None
     last_linear_solver_reported_iterations: int | None = None
     last_linear_operator_finite: bool | None = None
+    last_linear_update_finite: bool | None = None
+    last_linear_update_inf_norm: float | None = None
     last_linear_update_residual_inf_norm: float | None = None
     last_linear_update_relative_residual: float | None = None
     linear_update_residual_evaluation_count = 0
@@ -1355,6 +1359,8 @@ def solve_jax_linearized_newton_system(
                 resolved_solve_method if linear_backend == "jax_gmres" else None
             ),
             linear_operator_finite=last_linear_operator_finite,
+            linear_update_finite=last_linear_update_finite,
+            linear_update_inf_norm=last_linear_update_inf_norm,
             linear_update_residual_inf_norm=last_linear_update_residual_inf_norm,
             linear_update_relative_residual=last_linear_update_relative_residual,
             linear_update_residual_evaluation_count=(
@@ -1513,6 +1519,12 @@ def solve_jax_linearized_newton_system(
         )
         update = jnp.asarray(update, dtype=jnp.float64)
         if bool(diagnose_linear_update_residual):
+            last_linear_update_finite = bool(_block(jnp.all(jnp.isfinite(update))))
+            last_linear_update_inf_norm = float(_block(jnp.max(jnp.abs(update))))
+            if not last_linear_update_finite:
+                last_linear_solver_status = "nonfinite_linear_update"
+                last_linear_solver_success = False
+                break
             linear_update_started_at = perf_counter()
             linear_update_residual = linear_operator(update) + residual_value
             linear_update_residual = _block(linear_update_residual)

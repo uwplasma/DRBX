@@ -4122,6 +4122,8 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             0.003
         )
         assert info.diagnostics["linear_operator_finite"] is True
+        assert info.diagnostics["linear_update_finite"] is None
+        assert info.diagnostics["linear_update_inf_norm"] is None
         assert info.diagnostics["line_search_mode"] == "full_step"
         assert info.diagnostics["check_initial_residual"] is False
         assert info.diagnostics["initial_residual_mode"] == "linearize"

@@ -204,6 +204,10 @@ JVP action is not safe to promote, even if the Krylov backend reports a nominal
 success status. The promoted-source D/T/He gate now uses this diagnostic to
 separate finite operator-action health from the still-open nonlinear
 globalization and preconditioning work.
+When this diagnostic is enabled, the solver also records
+`diagnostics.linear_update_finite` and `diagnostics.linear_update_inf_norm`.
+These distinguish a nonfinite Krylov update vector from a finite update that
+still triggers a nonfinite JVP action.
 The line-search policy itself can be selected with
 `runtime:recycling_jax_linear_line_search_mode=backtracking` or `full_step`, or
 with `JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE`. The default

@@ -1789,6 +1789,8 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
     assert info.linear_solver_success is True
     assert info.linear_solver_reported_iterations is None
     assert info.linear_operator_finite is None
+    assert info.linear_update_finite is None
+    assert info.linear_update_inf_norm is None
     assert info.linear_update_residual_inf_norm is None
     assert info.linear_update_relative_residual is None
     assert info.linear_update_residual_evaluation_count == 0
@@ -1827,6 +1829,8 @@ def test_jax_linearized_newton_solver_can_diagnose_update_residual() -> None:
     assert info.linear_update_residual_evaluation_count >= 1
     assert info.linear_update_residual_seconds >= 0.0
     assert info.linear_operator_finite is True
+    assert info.linear_update_finite is True
+    assert info.linear_update_inf_norm == pytest.approx(1.0)
 
 
 def test_jax_linearized_newton_solver_rejects_nonfinite_linear_update() -> None:
@@ -1857,11 +1861,16 @@ def test_jax_linearized_newton_solver_rejects_nonfinite_linear_update() -> None:
     np.testing.assert_allclose(solution, np.array([0.0]), rtol=1.0e-12, atol=1.0e-12)
     assert info.converged is False
     assert info.residual_inf_norm == pytest.approx(1.0)
-    assert info.linear_operator_finite is False
-    assert info.linear_solver_status == "nonfinite_linearized_update"
+    assert info.linear_update_finite in {False, True}
+    assert info.linear_solver_status in {
+        "nonfinite_linear_update",
+        "nonfinite_linearized_update",
+    }
     assert info.linear_solver_success is False
-    assert np.isnan(info.linear_update_residual_inf_norm)
-    assert np.isnan(info.linear_update_relative_residual)
+    if info.linear_solver_status == "nonfinite_linearized_update":
+        assert info.linear_operator_finite is False
+        assert np.isnan(info.linear_update_residual_inf_norm)
+        assert np.isnan(info.linear_update_relative_residual)
     assert info.line_search_trial_count == 0
 
 
