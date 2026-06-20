@@ -310,6 +310,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--require-converged",
+        action="store_true",
+        help=(
+            "Fail after profiling unless the nonlinear implicit solve reports "
+            "converged=true. Use this for runtime and scaling artifacts so a "
+            "fast but stalled solve cannot pass the gate."
+        ),
+    )
+    parser.add_argument(
         "--require-max-linear-iterations",
         type=int,
         default=None,
@@ -994,6 +1003,13 @@ def _profile_gate_errors(
             diagnostics = {}
         if diagnostics.get("linear_operator_finite") is not True:
             errors.append("profile did not report diagnostics.linear_operator_finite=true")
+    if bool(getattr(args, "require_converged", False)):
+        diagnostics = profile_report.get("diagnostics", {})
+        if not isinstance(diagnostics, dict):
+            diagnostics = {}
+        converged = diagnostics.get("converged", profile_report.get("converged"))
+        if converged is not True:
+            errors.append("profile did not report converged=true")
     required_rhs_backend = getattr(args, "require_rhs_backend", None)
     if required_rhs_backend is not None:
         diagnostics = profile_report.get("diagnostics", {})
@@ -1389,6 +1405,7 @@ def main() -> int:
             "initial_residual_mode": args.require_initial_residual_mode,
             "linear_operator_jitted": bool(args.require_linear_operator_jitted),
             "linear_operator_finite": bool(args.require_linear_operator_finite),
+            "converged": bool(args.require_converged),
             "rhs_backend": args.require_rhs_backend,
             "max_linear_iterations": args.require_max_linear_iterations,
             "max_residual_inf_norm": args.require_max_residual_inf_norm,

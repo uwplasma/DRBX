@@ -3534,6 +3534,25 @@ Use this log for concise decision records. Do not paste terminal output here.
   differentiable through this hard large-step D/T/He gate; remaining promotion
   work is runtime, preconditioning, and extending the same finite-JVP evidence
   to output-window BDF/recycling histories.
+- 2026-06-19: Ran the first post-finite-JVP runtime sweep on the same hard
+  promoted-source D/T/He backward-Euler gate. The converged diagnostic baseline
+  remained about `101.3 s`; disabling update diagnostics saved almost nothing
+  (`100.8 s`), `initial_residual_mode=linearize` saved one residual evaluation
+  and about `0.8 s`, direct operator counting was slower (`107.6 s`), starting
+  the line search at `0.5` did not converge, and loosening the linear tolerance
+  either made the solve slower (`factor=10`) or stalled the nonlinear residual
+  (`factor=100` and `1000`). Lowering GMRES restart to `5` was also negative:
+  it kept 65 operator calls, increased line-search work, and stalled at
+  residual `1.29e-3`. Bounded cProfile showed the current split as `43.1 s`
+  in JAX-GMRES linear solves and `14.1 s` in residual evaluation for four
+  nonlinear iterations, with repeated JAX tracing/cache misses inside GMRES.
+  `jit_residual=true` improved that bounded four-step profile from `58.4 s` to
+  `48.0 s`, but the full gate stalled (`residual=3.93` at 11 iterations, or
+  `0.106` after 20 iterations with a smaller line-search floor). Decision:
+  keep `jit_residual` opt-in and do not claim a runtime speedup from it until
+  convergence gates pass. Added `--require-converged` to the profiling harness
+  so future performance/scaling artifacts cannot pass when they are merely fast
+  and finite but not nonlinearly converged.
 
 ## Definition Of Done
 

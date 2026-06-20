@@ -50,6 +50,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "linearize",
             "--require-linear-operator-jitted",
             "--require-linear-operator-finite",
+            "--require-converged",
             "--require-rhs-backend",
             "active_array",
             "--linear-restart",
@@ -108,6 +109,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.require_initial_residual_mode == "linearize"
     assert args.require_linear_operator_jitted is True
     assert args.require_linear_operator_finite is True
+    assert args.require_converged is True
     assert args.require_rhs_backend == "active_array"
     assert args.require_max_linear_iterations == 3200
     assert args.require_max_residual_inf_norm == 7.4
@@ -330,6 +332,7 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "active_array_rhs": False,
             "linear_solver_backend": "jax_gmres",
             "require_initial_residual_mode": None,
+            "require_converged": False,
             "initial_residual_mode": None,
             "linear_operator_counting": None,
             "linear_restart": None,
@@ -365,6 +368,7 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
         require_initial_residual_mode="linearized",
         require_linear_operator_jitted=True,
         require_linear_operator_finite=True,
+        require_converged=True,
         require_rhs_backend="active_array",
         require_max_linear_iterations=3200,
         require_max_residual_inf_norm=7.4,
@@ -384,11 +388,13 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
         "linear_iterations": 3200,
         "nonlinear_iterations": 1,
         "residual_inf_norm": 7.315,
+        "converged": True,
         "diagnostics": {
             "linear_preconditioner": "local_block_diag",
             "initial_residual_mode": "linearize",
             "linear_operator_jitted": True,
             "linear_operator_finite": True,
+            "converged": True,
             "rhs_backend": "active_array",
             "linear_preconditioner_build_count": 2,
             "linear_preconditioner_build_seconds": 0.125,
@@ -403,6 +409,41 @@ def test_profile_gate_errors_accept_dynamic_preconditioner_with_budgets() -> Non
     }
 
     assert module._profile_gate_errors(profile_report, args) == []
+
+
+def test_profile_gate_errors_reject_unconverged_profile_when_required() -> None:
+    module = _load_module()
+    args = SimpleNamespace(
+        require_linear_preconditioner=None,
+        require_initial_residual_mode=None,
+        require_linear_operator_jitted=False,
+        require_linear_operator_finite=False,
+        require_converged=True,
+        require_rhs_backend=None,
+        require_max_linear_iterations=None,
+        require_max_residual_inf_norm=None,
+        require_max_linear_update_residual=None,
+        require_max_linear_update_relative_residual=None,
+        require_max_residual_evaluations=None,
+        require_max_line_search_trials=None,
+        require_min_linear_operator_calls=None,
+        require_max_linear_operator_calls=None,
+        require_min_linear_iterations=None,
+        require_min_linear_solve_count=None,
+        require_min_nonlinear_iterations=None,
+        require_max_preconditioner_builds=None,
+        require_max_preconditioner_applies=None,
+    )
+    profile_report = {
+        "linear_iterations": 65,
+        "nonlinear_iterations": 11,
+        "residual_inf_norm": 3.9,
+        "diagnostics": {"converged": False},
+    }
+
+    assert module._profile_gate_errors(profile_report, args) == [
+        "profile did not report converged=true"
+    ]
 
 
 def test_profile_gate_errors_accept_field_diag_as_dynamic_preconditioner() -> None:
