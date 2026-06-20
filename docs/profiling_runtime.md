@@ -281,15 +281,30 @@ PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
-A bounded `ny=100` local run against the lightweight D/T/He fixture passed with
+A bounded `ny=100`, `dt=1e-4` local run against the lightweight D/T/He fixture
+now requires a real JAX-linearized Newton/JVP update. It passed with
 `solver_mode=promoted_active_sources_jax_linearized`,
 `rhs_backend=promoted_active_sources`, active size `1900`, state size `1979`,
-residual infinity norm `3.82e-10`, median profiled run time `0.926 s`, sampled
-peak RSS delta `0.44 MiB`, and cProfile top cost in
-`advance_recycling_1d_backward_euler_step`, `solve_jax_linearized_newton_system`,
-the fixed residual, and the promoted RHS. This is profiling evidence for the
-source-kernel migration seam; it is not yet a long-window or default-promotion
-claim.
+residual infinity norm `1.74e-12`, one nonlinear iteration, one JAX-GMRES
+linear solve, five matrix-free operator calls, two residual evaluations, median
+run time `7.71 s` without cProfile, and sampled peak RSS delta `907 MiB`. Matched
+`active_array` and `fixed_full_field_array` runs closed to the same residual in
+`7.81 s` and `7.80 s`, respectively. This is nontrivial profiling evidence for
+the source-kernel migration seam; it is still not a long-window or
+default-promotion claim. Easier `ny=200` and `ny=400` promoted-source sweeps
+passed as size/RSS sanity checks, but they performed zero nonlinear or linear
+solves and should not be used as speedup evidence.
+
+The campaign wrapper keeps cProfile enabled. The same strengthened
+`dthe-promoted-active-sources-profile-gate` passed locally in `26.8 s` wall
+time and reported `14.60 s` inside the profiled solve with sampled RSS delta
+`909 MiB`.
+
+A deliberately aggressive `dt=1.0` one-update probe failed on
+`promoted_active_sources`, `active_array`, and `fixed_full_field_array` with
+residuals near `2.73e2`. Treat that as a shared nonlinear/Krylov robustness
+limit for the current one-update profile gate, not as a promoted-source
+parity failure.
 
 The current GPU evidence for the heavier fixed-layout seam lives in:
 
