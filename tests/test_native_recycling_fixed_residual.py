@@ -15,6 +15,11 @@ from jax_drb.native.recycling_1d import (
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
     _compute_recycling_1d_packed_rhs,
+    _prepare_open_field_states,
+)
+from jax_drb.native.recycling_collisions import compute_collision_frequencies
+from jax_drb.native.recycling_collision_closure import (
+    fixed_layout_collision_friction_heat_exchange_field_rhs_from_active_fields,
 )
 from jax_drb.native.recycling_fixed_residual import (
     RecyclingFixedState,
@@ -300,6 +305,63 @@ def test_fixed_array_rhs_accepts_active_dthe_reaction_field_terms() -> None:
             np.asarray(value),
             np.asarray(direct_rhs[name]),
         )
+    np.testing.assert_allclose(
+        np.asarray(result.feedback_values),
+        np.zeros_like(np.asarray(state.feedback_values)),
+    )
+
+
+def test_fixed_array_rhs_accepts_active_collision_field_terms() -> None:
+    config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, layout = (
+        _dthe_fixture_context()
+    )
+    state = fixed_state_from_fields(
+        fields,
+        feedback_integrals=feedback_integrals,
+        layout=layout,
+    )
+    prepared, _, _ = _prepare_open_field_states(
+        runtime_model.species_templates,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    collision_rates = compute_collision_frequencies(
+        config,
+        runtime_model.species_templates,
+        prepared,
+        dataset_scalars=scalars,
+    )
+    active_collision_rates = {
+        key: value[layout.active_slices] for key, value in collision_rates.items()
+    }
+
+    def collision_rhs(active_fields, _feedback):
+        return fixed_layout_collision_friction_heat_exchange_field_rhs_from_active_fields(
+            config,
+            active_fields=active_fields,
+            species=runtime_model.species_templates,
+            collision_rates=active_collision_rates,
+        )
+
+    rhs = build_fixed_array_rhs(collision_rhs, layout=layout)
+    result = rhs(state)
+    direct_rhs = collision_rhs(
+        {
+            name: value
+            for name, value in zip(layout.field_names, state.field_values, strict=True)
+        },
+        state.feedback_values,
+    )
+
+    for name, value in zip(layout.field_names, result.field_values, strict=True):
+        expected = (
+            np.asarray(direct_rhs[name])
+            if name in direct_rhs
+            else np.zeros_like(np.asarray(value))
+        )
+        np.testing.assert_allclose(np.asarray(value), expected)
     np.testing.assert_allclose(
         np.asarray(result.feedback_values),
         np.zeros_like(np.asarray(state.feedback_values)),

@@ -15,6 +15,8 @@ from jax_drb.native.recycling_collision_closure import (
     apply_collision_closure,
     conduction_collision_time,
     conduction_kappa_coefficient,
+    fixed_layout_collision_friction_heat_exchange_field_rhs_from_active_fields,
+    fixed_layout_collision_friction_heat_exchange_from_active_fields,
     ion_thermal_force_pair,
     momentum_coefficient,
     parallel_ion_viscous_stress_open,
@@ -132,6 +134,26 @@ def _line_mesh_and_metrics() -> tuple[StructuredMesh, StructuredMetrics]:
         Bxy=ones,
     )
     return mesh, metrics
+
+
+def _active_slices(mesh: StructuredMesh):
+    return (
+        slice(mesh.xstart, mesh.xend + 1),
+        slice(mesh.ystart, mesh.yend + 1),
+        slice(None),
+    )
+
+
+def _active_collision_fields(species, active_slices) -> dict[str, object]:
+    active_fields = {}
+    for name, sp in species.items():
+        if name != "e":
+            active_fields[sp.density_name] = sp.density[active_slices]
+        if sp.has_pressure:
+            active_fields[sp.pressure_name] = sp.pressure[active_slices]
+        if sp.has_momentum and name != "e":
+            active_fields[sp.momentum_name] = sp.momentum[active_slices]
+    return active_fields
 
 
 def test_momentum_coefficient_matches_braginskii_charge_branches() -> None:
@@ -467,6 +489,133 @@ def test_collision_closure_accepts_precomputed_collision_and_cx_rates() -> None:
         np.testing.assert_allclose(reused.energy_source[name], baseline.energy_source[name])
     for name in baseline.momentum_source:
         np.testing.assert_allclose(reused.momentum_source[name], baseline.momentum_source[name])
+
+
+def test_active_collision_friction_heat_exchange_matches_dictionary_active_slice() -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    species = initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    collision_rates = compute_collision_frequencies(
+        config,
+        species,
+        prepared,
+        dataset_scalars=scalars,
+    )
+    friction_config = _MiniConfig(
+        {"model": {"components": ("braginskii_friction", "braginskii_heat_exchange")}}
+    )
+    baseline = apply_collision_closure(
+        friction_config,
+        species,
+        prepared,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        collision_rates=collision_rates,
+        cx_rates={},
+    )
+    active_slices = _active_slices(mesh)
+    active_rates = {
+        key: value[active_slices] for key, value in collision_rates.items()
+    }
+    active_terms = fixed_layout_collision_friction_heat_exchange_from_active_fields(
+        friction_config,
+        active_fields=_active_collision_fields(species, active_slices),
+        species=species,
+        collision_rates=active_rates,
+    )
+
+    for name in baseline.energy_source:
+        np.testing.assert_allclose(
+            np.asarray(active_terms.energy_source[name]),
+            np.asarray(baseline.energy_source[name][active_slices]),
+        )
+    for name in baseline.momentum_source:
+        np.testing.assert_allclose(
+            np.asarray(active_terms.momentum_source[name]),
+            np.asarray(baseline.momentum_source[name][active_slices]),
+        )
+
+
+def test_active_collision_friction_heat_exchange_field_rhs_maps_sources() -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    species = initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    collision_rates = compute_collision_frequencies(
+        config,
+        species,
+        prepared,
+        dataset_scalars=scalars,
+    )
+    active_slices = _active_slices(mesh)
+    active_rates = {
+        key: value[active_slices] for key, value in collision_rates.items()
+    }
+    friction_config = _MiniConfig(
+        {"model": {"components": ("braginskii_friction", "braginskii_heat_exchange")}}
+    )
+    active_fields = _active_collision_fields(species, active_slices)
+    active_terms = fixed_layout_collision_friction_heat_exchange_from_active_fields(
+        friction_config,
+        active_fields=active_fields,
+        species=species,
+        collision_rates=active_rates,
+    )
+    field_rhs = fixed_layout_collision_friction_heat_exchange_field_rhs_from_active_fields(
+        friction_config,
+        active_fields=active_fields,
+        species=species,
+        collision_rates=active_rates,
+    )
+
+    for name, sp in species.items():
+        if sp.has_pressure:
+            np.testing.assert_allclose(
+                np.asarray(field_rhs[sp.pressure_name]),
+                (2.0 / 3.0) * np.asarray(active_terms.energy_source[name]),
+            )
+        if sp.has_momentum:
+            np.testing.assert_allclose(
+                np.asarray(field_rhs[sp.momentum_name]),
+                np.asarray(active_terms.momentum_source[name]),
+            )
+
+
+def test_active_collision_friction_heat_exchange_reports_missing_fields() -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    species = initialize_species(config, mesh=mesh)
+
+    with pytest.raises(KeyError, match="Missing active collision fields"):
+        fixed_layout_collision_friction_heat_exchange_from_active_fields(
+            _MiniConfig(
+                {"model": {"components": ("braginskii_friction", "braginskii_heat_exchange")}}
+            ),
+            active_fields={},
+            species=species,
+            collision_rates={},
+        )
 
 
 def test_collision_closure_friction_lane_is_jax_jvp_transformable() -> None:

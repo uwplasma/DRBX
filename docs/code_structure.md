@@ -127,13 +127,19 @@ reaction block in
 `fixed_layout_dthe_reaction_terms_from_active_fields` consumes active-domain
 `N`, `P`, and `NV` blocks without guard-cell reconstruction, and
 `fixed_layout_dthe_reaction_field_rhs_from_active_fields` maps those sources
-into field-RHS contributions for `build_fixed_array_rhs`. A second adapter,
-`build_fixed_full_field_array_rhs`, stages guard-cell kernels and closure terms
-such as collision friction/heat exchange, neutral parallel diffusion, and
-target recycling through the same fixed-state interface while each term is
-still being migrated to active-array form. New source, collision, diffusion,
-target, and sheath terms should enter through one of those adapters before
-being promoted into the full transient solve. The current sheath extraction
+into field-RHS contributions for `build_fixed_array_rhs`. The second promoted
+pointwise term is the collision friction/heat-exchange block in
+[src/jax_drb/native/recycling_collision_closure.py](../src/jax_drb/native/recycling_collision_closure.py):
+`fixed_layout_collision_friction_heat_exchange_from_active_fields` consumes
+active fields plus precomputed active collision frequencies, and the matching
+field-RHS helper maps the resulting pressure and momentum sources into the same
+fixed-array adapter. A second adapter, `build_fixed_full_field_array_rhs`,
+stages guard-cell kernels and closure terms such as neutral parallel
+diffusion, target recycling, conduction, and viscosity through the same
+fixed-state interface while each term is still being migrated to active-array
+form. New source, collision, diffusion, target, and sheath terms should enter
+through one of those adapters before being promoted into the full transient
+solve. The current sheath extraction
 follows that rule: no-flow electron preparation,
 zero-current ion-sum reconstruction, simple ion, full ion, and full electron
 sheath response formulas now live in

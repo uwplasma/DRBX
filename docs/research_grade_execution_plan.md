@@ -3174,6 +3174,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   collision closure, sheath/target recycling, and final open-field transport
   assembly so the full fixed-layout residual can stop calling the full-field
   species RHS.
+- 2026-06-19: Promoted the second pointwise recycling physics term into the
+  active-array residual seam. `fixed_layout_collision_friction_heat_exchange_from_active_fields`
+  now evaluates Braginskii friction and heat exchange directly on active-domain
+  fields with precomputed active collision frequencies, and
+  `fixed_layout_collision_friction_heat_exchange_field_rhs_from_active_fields`
+  maps those local sources into pressure and momentum RHS contributions for
+  `build_fixed_array_rhs`. Validation compares the active helper against
+  `apply_collision_closure` on D/T/He fixture active slices with only
+  `braginskii_friction` and `braginskii_heat_exchange` enabled, checks missing
+  active-field diagnostics, runs the full collision-closure module
+  (`12 passed`), and proves the mapped field RHS can run through the
+  fixed-residual adapter (`4` selected fixed-residual tests). Decision: keep
+  thermal force, viscosity, conduction, neutral diffusion, sheath, and target
+  recycling on the full-field path until each has a stencil-aware active-grid
+  parity gate.
 
 ## Definition Of Done
 

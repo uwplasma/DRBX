@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import math
 
@@ -19,7 +20,11 @@ from .recycling_collisions import (
 from .recycling_neutral_diffusion import configured_component_names
 from .recycling_reactions import charge_exchange_collision_rates
 from .recycling_setup import OpenFieldSpecies
-from .recycling_state import PreparedSpeciesState
+from .recycling_state import (
+    PreparedSpeciesState,
+    safe_temperature as _safe_temperature,
+    soft_floor as _soft_floor,
+)
 
 
 @dataclass(frozen=True)
@@ -27,6 +32,237 @@ class CollisionClosureTerms:
     energy_source: dict[str, np.ndarray]
     momentum_source: dict[str, np.ndarray]
     diagnostics: dict[str, np.ndarray]
+
+
+def fixed_layout_collision_friction_heat_exchange_from_active_fields(
+    config: BoutConfig,
+    *,
+    active_fields: Mapping[str, np.ndarray],
+    species: Mapping[str, OpenFieldSpecies],
+    collision_rates: Mapping[tuple[str, str], np.ndarray],
+) -> CollisionClosureTerms:
+    """Return pointwise collision friction and heat-exchange active sources.
+
+    This is the fixed-layout active-array counterpart to the local part of
+    :func:`apply_collision_closure`. It deliberately excludes gradient terms
+    such as thermal forces, ion viscosity, and conduction, which require
+    stencil-specific active-grid ports.
+    """
+
+    configured_components = set(configured_component_names(config))
+    use_jax = use_jax_backend(
+        *(active_fields.values()),
+        *(collision_rates.values()),
+    )
+    prepared = _prepared_active_collision_states(active_fields, species, use_jax=use_jax)
+    energy_source = {
+        name: (
+            jnp.zeros_like(jnp.asarray(state.density, dtype=jnp.float64))
+            if use_jax
+            else np.zeros_like(np.asarray(state.density, dtype=np.float64))
+        )
+        for name, state in prepared.items()
+    }
+    momentum_source = {
+        name: (
+            jnp.zeros_like(jnp.asarray(state.density, dtype=jnp.float64))
+            if use_jax
+            else np.zeros_like(np.asarray(state.density, dtype=np.float64))
+        )
+        for name, state in prepared.items()
+    }
+    diagnostics: dict[str, np.ndarray] = {}
+
+    names = tuple(species)
+    for index, first_name in enumerate(names):
+        first_species = species[first_name]
+        first_state = prepared[first_name]
+        for second_name in names[index + 1 :]:
+            rate_key = (first_name, second_name)
+            if rate_key not in collision_rates:
+                continue
+            second_species = species[second_name]
+            second_state = prepared[second_name]
+            nu_12 = collision_rates[rate_key]
+            a1 = float(first_species.atomic_mass)
+            a2 = float(second_species.atomic_mass)
+
+            if "braginskii_friction" in configured_components:
+                coeff = momentum_coefficient(
+                    first_name,
+                    float(first_species.charge),
+                    second_name,
+                    float(second_species.charge),
+                )
+                friction = (
+                    coeff
+                    * a1
+                    * nu_12
+                    * first_state.density
+                    * (second_state.velocity - first_state.velocity)
+                )
+                momentum_source[first_name] = momentum_source[first_name] + friction
+                momentum_source[second_name] = momentum_source[second_name] - friction
+                diagnostics[f"F{first_name}{second_name}_coll"] = friction
+                diagnostics[f"F{second_name}{first_name}_coll"] = -friction
+
+                if first_species.has_pressure or second_species.has_pressure:
+                    velocity_delta = second_state.velocity - first_state.velocity
+                    first_heating = (a2 / (a1 + a2)) * velocity_delta * friction
+                    second_heating = (a1 / (a1 + a2)) * velocity_delta * friction
+                    energy_source[first_name] = energy_source[first_name] + first_heating
+                    energy_source[second_name] = energy_source[second_name] + second_heating
+                    diagnostics[f"E{first_name}{second_name}_coll_friction"] = first_heating
+                    diagnostics[f"E{second_name}{first_name}_coll_friction"] = second_heating
+
+            if "braginskii_heat_exchange" in configured_components and (
+                first_species.has_pressure or second_species.has_pressure
+            ):
+                heat_exchange = (
+                    3.0
+                    * (a1 / (a1 + a2))
+                    * nu_12
+                    * first_state.density
+                    * (second_state.temperature - first_state.temperature)
+                )
+                energy_source[first_name] = energy_source[first_name] + heat_exchange
+                energy_source[second_name] = energy_source[second_name] - heat_exchange
+
+    return CollisionClosureTerms(
+        energy_source=energy_source,
+        momentum_source=momentum_source,
+        diagnostics=diagnostics,
+    )
+
+
+def fixed_layout_collision_friction_heat_exchange_field_rhs_from_active_fields(
+    config: BoutConfig,
+    *,
+    active_fields: Mapping[str, np.ndarray],
+    species: Mapping[str, OpenFieldSpecies],
+    collision_rates: Mapping[tuple[str, str], np.ndarray],
+) -> dict[str, np.ndarray]:
+    """Map active pointwise collision sources into field-RHS contributions."""
+
+    terms = fixed_layout_collision_friction_heat_exchange_from_active_fields(
+        config,
+        active_fields=active_fields,
+        species=species,
+        collision_rates=collision_rates,
+    )
+    field_rhs: dict[str, np.ndarray] = {}
+    for name, sp in species.items():
+        if sp.has_pressure:
+            field_rhs[sp.pressure_name] = (2.0 / 3.0) * terms.energy_source[name]
+        if sp.has_momentum:
+            field_rhs[sp.momentum_name] = terms.momentum_source[name]
+    return field_rhs
+
+
+def _prepared_active_collision_states(
+    active_fields: Mapping[str, np.ndarray],
+    species: Mapping[str, OpenFieldSpecies],
+    *,
+    use_jax: bool,
+) -> dict[str, PreparedSpeciesState]:
+    prepared: dict[str, PreparedSpeciesState] = {}
+
+    def _array(value):
+        return (
+            jnp.asarray(value, dtype=jnp.float64)
+            if use_jax
+            else np.asarray(value, dtype=np.float64)
+        )
+
+    ion_names = tuple(name for name, sp in species.items() if sp.charge > 0.0)
+    missing = []
+    for name, sp in species.items():
+        if name != "e" and sp.density_name not in active_fields:
+            missing.append(sp.density_name)
+        if sp.pressure_name not in active_fields:
+            missing.append(sp.pressure_name)
+        if sp.has_momentum and name != "e" and sp.momentum_name not in active_fields:
+            missing.append(sp.momentum_name)
+    if missing:
+        missing_text = ", ".join(sorted(set(missing)))
+        raise KeyError(f"Missing active collision fields: {missing_text}")
+
+    density_cache: dict[str, np.ndarray] = {}
+    for name, sp in species.items():
+        if sp.density_name in active_fields:
+            density_cache[name] = _array(active_fields[sp.density_name])
+        elif name == "e" and ion_names:
+            density_cache[name] = _active_electron_density(
+                active_fields,
+                species=species,
+                ion_names=ion_names,
+                use_jax=use_jax,
+            )
+
+    for name, sp in species.items():
+        density = density_cache[name]
+        pressure = _array(active_fields[sp.pressure_name])
+        temperature = _safe_temperature(pressure, density, float(sp.density_floor))
+        if sp.momentum_name in active_fields:
+            momentum = _array(active_fields[sp.momentum_name])
+        else:
+            momentum = (
+                jnp.zeros_like(jnp.asarray(density, dtype=jnp.float64))
+                if use_jax
+                else np.zeros_like(np.asarray(density, dtype=np.float64))
+            )
+        limited_density = _soft_floor(density, float(sp.density_floor))
+        if use_jax:
+            velocity = momentum / jnp.maximum(
+                float(sp.atomic_mass) * limited_density,
+                1.0e-8,
+            )
+        else:
+            velocity = momentum / np.maximum(
+                float(sp.atomic_mass) * limited_density,
+                1.0e-8,
+            )
+        prepared[name] = PreparedSpeciesState(
+            density=density,
+            pressure=pressure,
+            temperature=temperature,
+            velocity=velocity,
+            momentum=momentum,
+            momentum_error=(
+                jnp.zeros_like(jnp.asarray(momentum, dtype=jnp.float64))
+                if use_jax
+                else np.zeros_like(np.asarray(momentum, dtype=np.float64))
+            ),
+        )
+    return prepared
+
+
+def _active_electron_density(
+    active_fields: Mapping[str, np.ndarray],
+    *,
+    species: Mapping[str, OpenFieldSpecies],
+    ion_names: tuple[str, ...],
+    use_jax: bool,
+) -> np.ndarray:
+    first = active_fields[species[ion_names[0]].density_name]
+    result = (
+        jnp.zeros_like(jnp.asarray(first, dtype=jnp.float64))
+        if use_jax
+        else np.zeros_like(np.asarray(first, dtype=np.float64))
+    )
+    for name in ion_names:
+        density = active_fields[species[name].density_name]
+        if use_jax:
+            result = result + float(species[name].charge) * jnp.asarray(
+                density,
+                dtype=jnp.float64,
+            )
+        else:
+            result = result + float(species[name].charge) * np.asarray(
+                density,
+                dtype=np.float64,
+            )
+    return result
 
 
 def momentum_coefficient(name1: str, charge1: float, name2: str, charge2: float) -> float:
