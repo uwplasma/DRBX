@@ -7,6 +7,7 @@ import numpy as np
 
 from .array_backend import use_jax_backend
 from .mesh import StructuredMesh
+from .safe_math import sqrt_nonnegative
 
 
 @dataclass(frozen=True)
@@ -485,7 +486,7 @@ def compute_simple_ion_sheath_boundary(
         (float(sheath_ion_polytropic) * temperature + float(charge) * electron_temperature) / float(atomic_mass),
         0.0,
     )
-    sonic_speed = jnp.sqrt(c_i_sq)
+    sonic_speed = sqrt_nonnegative(c_i_sq)
     sheath_velocity = jnp.where(
         float(direction) >= 0.0,
         jnp.maximum(velocity, sonic_speed),
@@ -591,7 +592,9 @@ def compute_full_electron_sheath_boundary(
         0.0,
     )
     safe_temperature = jnp.maximum(temperature, 0.0)
-    thermal_speed = jnp.sqrt(safe_temperature / (2.0 * jnp.pi * float(electron_thermal_mass)))
+    thermal_speed = sqrt_nonnegative(
+        safe_temperature / (2.0 * jnp.pi * float(electron_thermal_mass))
+    )
     exponential = jnp.exp(-delta_phi / jnp.maximum(temperature, 1.0e-12))
     sheath_velocity = jnp.where(
         temperature < 1.0e-10,
@@ -700,7 +703,7 @@ def compute_full_ion_sheath_boundary(
         100.0,
     )
     gamma_i = 2.5 + 0.5 * float(atomic_mass) * c_i_sq / temperature
-    speed = jnp.sqrt(c_i_sq)
+    speed = sqrt_nonnegative(c_i_sq)
     sheath_velocity = float(direction) * speed
     guard_velocity = 2.0 * sheath_velocity - velocity
     guard_momentum = 2.0 * float(atomic_mass) * density * sheath_velocity - momentum

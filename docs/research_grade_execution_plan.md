@@ -3496,6 +3496,24 @@ Use this log for concise decision records. Do not paste terminal output here.
   diagnostic/runtime-waste gap, but not convergence; the next solver work is to
   find and fix the residual/JVP term that produces the nonfinite linearized
   action before promoting the heavy recycling BDF path.
+- 2026-06-19: Closed the finite-JVP blocker exposed by the hard promoted-source
+  D/T/He probe. Direct term isolation showed that target recycling and sheath
+  boundary sources had finite update actions; the nonfinite tangent entered
+  through clipped characteristic and collision relative-speed square roots in
+  collision/friction/transport terms. Added a backend-preserving
+  `sqrt_nonnegative` helper with a custom JAX subgradient at the clipping point
+  and routed the open-field sheath speeds, characteristic speeds, and
+  multispecies collision relative speeds through it. Focused regression tests
+  now check finite zero-tangent behavior for the helper and for the collision
+  closure at zero relative temperature. The same hard `dt=1.0`, `mesh:ny=100`,
+  promoted-source D/T/He probe now passes
+  `--require-linear-operator-finite` with `linear_operator_finite=true`,
+  `linear_solver_success=true`, ten linear-operator calls, ten residual
+  evaluations, seven line-search trials, local runtime `16.38 s`, and residual
+  `1.399e2`; convergence is still not solved in the deliberately capped
+  two-iteration gate. Decision: the next JAX-native recycling work should target
+  nonlinear globalization, physics/block preconditioning, and runtime of the
+  finite JVP/Krylov path rather than nonfinite operator-action guards.
 
 ## Definition Of Done
 

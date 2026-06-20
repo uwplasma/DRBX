@@ -9,6 +9,7 @@ import jax.numpy as jnp
 
 from ..config.boutinp import BoutConfig
 from .array_backend import use_jax_backend
+from .safe_math import sqrt_nonnegative
 
 
 _QE = 1.602176634e-19
@@ -141,7 +142,7 @@ def compute_collision_frequencies(
         if not electron_neutral or neutral_name == "e" or neutral_species.charge != 0.0:
             continue
         neutral_state = prepared[neutral_name]
-        vth_e = xp.sqrt((_MP / _ME) * xp.maximum(prepared["e"].temperature, 0.0))
+        vth_e = sqrt_nonnegative((_MP / _ME) * prepared["e"].temperature)
         nu_en = vth_e * nnorm * neutral_state.density * 5.0e-19 * rho_s0
         nu_en = xp.asarray(nu_en, dtype=xp.float64)
         collision_rates[("e", neutral_name)] = nu_en
@@ -215,35 +216,26 @@ def compute_collision_frequencies(
                 else:
                     if not ion_neutral:
                         continue
-                    vrel = xp.sqrt(
-                        xp.maximum(
-                            first_state.temperature / first_species.atomic_mass
-                            + second_state.temperature / second_species.atomic_mass,
-                            0.0,
-                        )
+                    vrel = sqrt_nonnegative(
+                        first_state.temperature / first_species.atomic_mass
+                        + second_state.temperature / second_species.atomic_mass
                     )
                     collide(first_name, second_name, vrel * second_state.density * nnorm * 5.0e-19 * rho_s0)
             else:
                 if second_charged:
                     if not ion_neutral:
                         continue
-                    vrel = xp.sqrt(
-                        xp.maximum(
-                            first_state.temperature / first_species.atomic_mass
-                            + second_state.temperature / second_species.atomic_mass,
-                            0.0,
-                        )
+                    vrel = sqrt_nonnegative(
+                        first_state.temperature / first_species.atomic_mass
+                        + second_state.temperature / second_species.atomic_mass
                     )
                     collide(first_name, second_name, vrel * second_state.density * nnorm * 5.0e-19 * rho_s0)
                 else:
                     if not neutral_neutral:
                         continue
-                    vrel = xp.sqrt(
-                        xp.maximum(
-                            first_state.temperature / first_species.atomic_mass
-                            + second_state.temperature / second_species.atomic_mass,
-                            0.0,
-                        )
+                    vrel = sqrt_nonnegative(
+                        first_state.temperature / first_species.atomic_mass
+                        + second_state.temperature / second_species.atomic_mass
                     )
                     collide(first_name, second_name, vrel * second_state.density * nnorm * (math.pi * (2.8e-10**2)) * rho_s0)
     return collision_rates

@@ -201,7 +201,9 @@ records whether the linearized Krylov update has a finite diagnostic residual
 through `diagnostics.linear_operator_finite`. The profiling command can require
 this with `--require-linear-operator-finite`. A false value means the current
 JVP action is not safe to promote, even if the Krylov backend reports a nominal
-success status.
+success status. The promoted-source D/T/He gate now uses this diagnostic to
+separate finite operator-action health from the still-open nonlinear
+globalization and preconditioning work.
 The line-search policy itself can be selected with
 `runtime:recycling_jax_linear_line_search_mode=backtracking` or `full_step`, or
 with `JAX_DRB_RECYCLING_JAX_LINEAR_LINE_SEARCH_MODE`. The default

@@ -27,6 +27,7 @@ from .recycling_rhs_terms import (
 from .recycling_setup import OpenFieldSpecies
 from .recycling_state import PreparedSpeciesState
 from .recycling_targets import fixed_layout_target_recycling_field_rhs
+from .safe_math import sqrt_nonnegative
 
 
 def add_field_rhs_contribution(
@@ -188,8 +189,6 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
     )
     array = jnp.asarray if use_jax else np.asarray
     dtype = jnp.float64 if use_jax else np.float64
-    maximum = jnp.maximum if use_jax else np.maximum
-    sqrt = jnp.sqrt if use_jax else np.sqrt
 
     density_source: dict[str, np.ndarray] = {}
     energy_source: dict[str, np.ndarray] = {}
@@ -235,7 +234,7 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
 
     for ion in ions:
         state = prepared[ion.name]
-        fastest_wave = sqrt(maximum(array(state.temperature, dtype=dtype), 0.0) / ion.atomic_mass)
+        fastest_wave = sqrt_nonnegative(array(state.temperature, dtype=dtype) / ion.atomic_mass)
         terms = assemble_ion_rhs_terms(
             density_source=density_source[ion.name],
             explicit_pressure_source=_full_pressure_source(
@@ -258,9 +257,8 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
         _set_active_if_layout_field(assembled, ion.momentum_name, terms.momentum_total, layout)
 
     electron_state = prepared["e"]
-    electron_fastest_wave = sqrt(
-        maximum(array(electron_state.temperature, dtype=dtype), 0.0)
-        / species["e"].atomic_mass
+    electron_fastest_wave = sqrt_nonnegative(
+        array(electron_state.temperature, dtype=dtype) / species["e"].atomic_mass
     )
     electron_terms = assemble_electron_pressure_rhs_terms(
         explicit_pressure_source=_full_pressure_source(
@@ -279,7 +277,7 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
 
     for neutral in neutrals:
         state = prepared[neutral.name]
-        fastest_wave = sqrt(maximum(array(state.temperature, dtype=dtype), 0.0) / neutral.atomic_mass)
+        fastest_wave = sqrt_nonnegative(array(state.temperature, dtype=dtype) / neutral.atomic_mass)
         terms = assemble_neutral_rhs_terms(
             density_source=density_source[neutral.name],
             explicit_pressure_source=_full_pressure_source(

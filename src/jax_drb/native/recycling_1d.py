@@ -152,6 +152,7 @@ from .recycling_state import (
     safe_temperature as _safe_temperature,
     soft_floor as _soft_floor,
 )
+from .safe_math import sqrt_nonnegative as _sqrt_nonnegative
 from .recycling_sanitize import sanitize_recycling_fields as _sanitize_recycling_fields
 from .recycling_targets import (
     RecyclingTerms as _RecyclingTerms,
@@ -475,8 +476,6 @@ def _compute_recycling_1d_rhs_from_species(
     )
     rhs_array = jnp.asarray if use_jax_rhs else np.asarray
     rhs_dtype = jnp.float64 if use_jax_rhs else np.float64
-    rhs_maximum = jnp.maximum if use_jax_rhs else np.maximum
-    rhs_sqrt = jnp.sqrt if use_jax_rhs else np.sqrt
     diagnostics["Epar"] = rhs_array(electron_force_terms.epar, dtype=rhs_dtype)
     diagnostics["Ve"] = rhs_array(electron_boundary.velocity, dtype=rhs_dtype)
 
@@ -486,7 +485,7 @@ def _compute_recycling_1d_rhs_from_species(
     for ion in ions:
         ion_state = prepared[ion.name]
         temperature = ion_state.temperature
-        fastest_wave = rhs_sqrt(rhs_maximum(temperature, 0.0) / ion.atomic_mass)
+        fastest_wave = _sqrt_nonnegative(temperature / ion.atomic_mass)
         explicit_pressure_source = pressure_sources.get(ion.name)
         if explicit_pressure_source is None:
             explicit_pressure_source = _explicit_pressure_source(
@@ -518,8 +517,8 @@ def _compute_recycling_1d_rhs_from_species(
         variables[f"ddt({ion.momentum_name})"] = ion_rhs_terms.momentum_total[None, ...]
 
     electron_velocity = rhs_array(electron_boundary.velocity, dtype=rhs_dtype)
-    electron_fastest_wave = rhs_sqrt(
-        rhs_maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass
+    electron_fastest_wave = _sqrt_nonnegative(
+        prepared["e"].temperature / electron.atomic_mass
     )
     electron_explicit_pressure_source = pressure_sources.get("e")
     if electron_explicit_pressure_source is None:
@@ -546,7 +545,7 @@ def _compute_recycling_1d_rhs_from_species(
     for neutral in neutrals:
         neutral_state = prepared[neutral.name]
         temperature = neutral_state.temperature
-        fastest_wave = rhs_sqrt(rhs_maximum(temperature, 0.0) / neutral.atomic_mass)
+        fastest_wave = _sqrt_nonnegative(temperature / neutral.atomic_mass)
         neutral_explicit_pressure_source = pressure_sources.get(neutral.name)
         if neutral_explicit_pressure_source is None:
             neutral_explicit_pressure_source = _explicit_pressure_source(
