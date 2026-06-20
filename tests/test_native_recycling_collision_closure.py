@@ -547,6 +547,44 @@ def test_active_collision_friction_heat_exchange_matches_dictionary_active_slice
         )
 
 
+def test_collision_closure_reports_energy_diagnostics_for_parity_audits() -> None:
+    mesh, metrics = _line_mesh_and_metrics()
+    config = _MiniConfig(
+        {"model": {"components": ("braginskii_friction", "braginskii_heat_exchange")}}
+    )
+    species = {
+        "d+": _species("d+", charge=1.0, atomic_mass=2.0),
+        "t+": _species("t+", charge=1.0, atomic_mass=3.0),
+    }
+    prepared = {
+        "d+": _prepared(density=1.5, temperature=1.0, velocity=0.25),
+        "t+": _prepared(density=2.0, temperature=3.0, velocity=-0.5),
+    }
+    rates = {("d+", "t+"): _field(0.2)}
+
+    terms = apply_collision_closure(
+        config,
+        species,
+        prepared,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars={},
+        collision_rates=rates,
+        cx_rates={},
+    )
+
+    d_energy_components = (
+        terms.diagnostics["Ed+t+_coll_friction"]
+        + terms.diagnostics["Ed+t+_coll_heat_exchange"]
+    )
+    t_energy_components = (
+        terms.diagnostics["Et+d+_coll_friction"]
+        + terms.diagnostics["Et+d+_coll_heat_exchange"]
+    )
+    np.testing.assert_allclose(terms.energy_source["d+"], d_energy_components)
+    np.testing.assert_allclose(terms.energy_source["t+"], t_energy_components)
+
+
 def test_active_collision_friction_heat_exchange_field_rhs_maps_sources() -> None:
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)

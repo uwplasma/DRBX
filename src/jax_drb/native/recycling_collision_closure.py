@@ -784,6 +784,12 @@ def apply_collision_closure(
                 )
                 energy_source[first_name] += heat_exchange
                 energy_source[second_name] -= heat_exchange
+                diagnostics[f"E{first_name}{second_name}_coll_heat_exchange"] = (
+                    heat_exchange if use_jax else np.asarray(heat_exchange, dtype=np.float64)
+                )
+                diagnostics[f"E{second_name}{first_name}_coll_heat_exchange"] = (
+                    -heat_exchange if use_jax else np.asarray(-heat_exchange, dtype=np.float64)
+                )
 
     if "braginskii_thermal_force" in configured_components and thermal_force_enabled(config, "electron_ion", True):
         electron_temperature_gradient = _grad_par_open(prepared["e"].temperature, mesh=mesh, metrics=metrics)
@@ -836,8 +842,12 @@ def apply_collision_closure(
                 metrics=metrics,
             )
             momentum_source[name] += viscosity_source
-            energy_source[name] -= prepared[name].velocity * viscosity_source
+            viscosity_energy = -prepared[name].velocity * viscosity_source
+            energy_source[name] += viscosity_energy
             diagnostics[f"DivPiPar_{name}"] = viscosity_source if use_jax else np.asarray(viscosity_source, dtype=np.float64)
+            diagnostics[f"E{name}_viscosity"] = (
+                viscosity_energy if use_jax else np.asarray(viscosity_energy, dtype=np.float64)
+            )
 
     if "braginskii_conduction" in configured_components:
         for name, sp in species.items():
@@ -865,12 +875,16 @@ def apply_collision_closure(
                 kappa_par = apply_noflow_scalar_guards(kappa_par, mesh=mesh, lower_y=True, upper_y=True)
                 if not use_jax:
                     kappa_par = np.asarray(kappa_par, dtype=np.float64)
-            energy_source[name] += _div_par_k_grad_par_open(
+            conduction_energy = _div_par_k_grad_par_open(
                 kappa_par,
                 temperature,
                 mesh=mesh,
                 metrics=metrics,
                 boundary_flux=False,
+            )
+            energy_source[name] += conduction_energy
+            diagnostics[f"E{name}_conduction"] = (
+                conduction_energy if use_jax else np.asarray(conduction_energy, dtype=np.float64)
             )
 
     return CollisionClosureTerms(
