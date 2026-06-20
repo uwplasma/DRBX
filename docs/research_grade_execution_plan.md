@@ -3908,6 +3908,30 @@ Use this log for concise decision records. Do not paste terminal output here.
   target near-target ion/neutral momentum-source state/history sequencing and
   source evaluation timing, not target recycling, density transport, pressure
   gradient, or collision/CX coefficients.
+- 2026-06-20: Corrected that D/T/He diagnosis and closed the dominant
+  near-target momentum parity bug. The boundary-cell and neutral-transient
+  diagnostics now reconstruct the full D/T/He/e state before evaluating RHS
+  terms, instead of silently rebuilding missing tritium and helium fields from
+  defaults when only deuterium fields were printed. With full-state
+  reconstruction, the remaining Hermès `SNVd+` discrepancy localized to the
+  active target-row parallel ion-viscosity term `DivPiPar_d+`. A direct
+  Hermès rerun with `braginskii_ion_viscosity:diagnose=true` showed that
+  native and reference matched interior viscosity rows to roundoff but differed
+  only at the upper target row because the sheath boundary writes a velocity
+  guard that is not algebraically identical to `NV/(A N)` in the guard cell.
+  `_prepare_open_field_states` now preserves the sheath-supplied ion velocity
+  guard and records the resulting `A N V - NV` inconsistency in
+  `momentum_error`, rather than reconstructing velocity from guard momentum and
+  density. The exact-reference-state `DivPiPar_d+` active error drops to
+  `1.1e-9`; the aggregate one-step RHS diagnostic gives
+  `ddt(NVd+) = 7.44e-8` and `SNVd+ = 7.44e-8` max-absolute errors, with
+  significant relative errors near `2e-5`. The one-step target-cell state
+  error in `NVd+` drops from `1.57e-2` to `3.78e-4`; the largest printed
+  target-cell state error is now `Pd+ = 1.02e-3`. A regression test now locks
+  the sheath-velocity guard invariant. Decision: term-level D/T/He momentum
+  parity is closed; remaining work in this lane is smaller state-evolution
+  pressure parity plus broader multi-step validation, not another collision,
+  target-recycling, or preconditioner retune.
 
 ## Definition Of Done
 

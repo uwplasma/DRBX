@@ -1015,30 +1015,29 @@ def _prepare_open_field_states(
         use_jax_ion_prepared = use_jax_backend(
             ion_boundary.density[ion.name],
             ion_boundary.momentum[ion.name],
+            ion_boundary.velocity[ion.name],
         )
         ion_prepared_array = jnp.asarray if use_jax_ion_prepared else np.asarray
         ion_prepared_dtype = jnp.float64 if use_jax_ion_prepared else np.float64
-        ion_prepared_maximum = jnp.maximum if use_jax_ion_prepared else np.maximum
         ion_boundary_density = ion_prepared_array(
             ion_boundary.density[ion.name], dtype=ion_prepared_dtype
         )
         ion_boundary_momentum = ion_prepared_array(
             ion_boundary.momentum[ion.name], dtype=ion_prepared_dtype
         )
-        ion_reconstructed_velocity = ion_boundary_momentum / ion_prepared_maximum(
-            ion.atomic_mass * _soft_floor(ion_boundary_density, ion.density_floor),
-            1.0e-8,
+        ion_boundary_velocity = ion_prepared_array(
+            ion_boundary.velocity[ion.name], dtype=ion_prepared_dtype
         )
         prepared[ion.name] = _PreparedSpeciesState(
             density=ion_boundary.density[ion.name],
             pressure=ion_boundary.pressure[ion.name],
             temperature=ion_boundary.temperature[ion.name],
             velocity=ion_prepared_array(
-                ion_reconstructed_velocity, dtype=ion_prepared_dtype
+                ion_boundary_velocity, dtype=ion_prepared_dtype
             ),
             momentum=ion_boundary_momentum,
             momentum_error=ion_prepared_array(
-                ion.atomic_mass * ion_boundary_density * ion_reconstructed_velocity
+                ion.atomic_mass * ion_boundary_density * ion_boundary_velocity
                 - ion_boundary_momentum,
                 dtype=ion_prepared_dtype,
             ),

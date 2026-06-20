@@ -29,6 +29,7 @@ from jax_drb.native.reference_dump import (
 from jax_drb.native.recycling_1d import (
     OpenFieldSpecies,
     _FullSheathSettings,
+    _IonBoundaryResult,
     _PreparedSpeciesState,
     _SimpleSheathSettings,
     _apply_electron_sheath_boundary,
@@ -1421,6 +1422,93 @@ def test_prepare_open_field_states_keeps_dump_backed_ion_guards_when_preserving_
     )
     assert np.any(np.abs(ion_boundary_default.energy_source["d+"]) > 0.0)
     np.testing.assert_allclose(ion_boundary_ion_only.energy_source["d+"], 0.0)
+
+
+def test_prepare_open_field_states_preserves_sheath_velocity_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mesh, metrics = _minimal_open_field_mesh_and_metrics()
+    config = parse_bout_input("[sheath_boundary]\nlower_y = false\nupper_y = true\n")
+    density = np.full((1, 3, 1), 2.0, dtype=np.float64)
+    pressure = np.full((1, 3, 1), 4.0, dtype=np.float64)
+    ion_momentum = np.full((1, 3, 1), 12.0, dtype=np.float64)
+    electron_momentum = np.zeros((1, 3, 1), dtype=np.float64)
+    species = {
+        "d+": OpenFieldSpecies(
+            name="d+",
+            density=density,
+            pressure=pressure,
+            momentum=ion_momentum,
+            charge=1.0,
+            atomic_mass=2.0,
+            density_floor=1.0e-8,
+            has_pressure=True,
+            has_momentum=True,
+            noflow_lower_y=False,
+            noflow_upper_y=False,
+            target_recycle=False,
+            recycle_as=None,
+            target_recycle_multiplier=0.0,
+            target_recycle_energy=0.0,
+            target_fast_recycle_fraction=0.0,
+            target_fast_recycle_energy_factor=1.0,
+        ),
+        "e": OpenFieldSpecies(
+            name="e",
+            density=density,
+            pressure=pressure,
+            momentum=electron_momentum,
+            charge=-1.0,
+            atomic_mass=1.0 / 1836.0,
+            density_floor=1.0e-8,
+            has_pressure=True,
+            has_momentum=False,
+            noflow_lower_y=False,
+            noflow_upper_y=False,
+            target_recycle=False,
+            recycle_as=None,
+            target_recycle_multiplier=0.0,
+            target_recycle_energy=0.0,
+            target_fast_recycle_fraction=0.0,
+            target_fast_recycle_energy_factor=1.0,
+        ),
+    }
+    sheath_velocity = np.full((1, 3, 1), 7.0, dtype=np.float64)
+    sheath_momentum = np.full((1, 3, 1), 12.0, dtype=np.float64)
+
+    def fake_ion_sheath_boundary(*_args, **_kwargs):
+        return _IonBoundaryResult(
+            density={"d+": density},
+            pressure={"d+": pressure},
+            temperature={"d+": pressure / density},
+            velocity={"d+": sheath_velocity},
+            momentum={"d+": sheath_momentum},
+            energy_source={"d+": np.zeros_like(density, dtype=np.float64)},
+        )
+
+    monkeypatch.setattr(
+        recycling_1d_mod,
+        "_apply_ion_sheath_boundary",
+        fake_ion_sheath_boundary,
+    )
+
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars={},
+        apply_sheath_boundaries=True,
+    )
+
+    guard = (0, mesh.yend + 1, 0)
+    assert prepared["d+"].velocity[guard] == pytest.approx(sheath_velocity[guard])
+    assert prepared["d+"].velocity[guard] != pytest.approx(
+        sheath_momentum[guard] / (2.0 * density[guard])
+    )
+    assert prepared["d+"].momentum_error[guard] == pytest.approx(
+        2.0 * density[guard] * sheath_velocity[guard] - sheath_momentum[guard]
+    )
 
 
 def test_ion_sheath_boundary_reconstructs_velocity_with_density_floor() -> None:

@@ -19,6 +19,27 @@ from jax_drb.runtime.run_config import RunConfiguration
 
 
 DEFAULT_STATE_FIELDS = ("Nd", "Pd", "NVd", "NVd+", "Nd+", "Pd+", "Pe")
+RECONSTRUCTION_STATE_FIELDS = (
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nd",
+    "Pd",
+    "NVd",
+    "Nt+",
+    "Pt+",
+    "NVt+",
+    "Nt",
+    "Pt",
+    "NVt",
+    "Nhe+",
+    "Phe+",
+    "NVhe+",
+    "Nhe",
+    "Phe",
+    "NVhe",
+    "Pe",
+)
 DEFAULT_RHS_FIELDS = (
     "ddt(Nd)",
     "ddt(Pd)",
@@ -97,6 +118,9 @@ def main() -> None:
     args = parser.parse_args()
 
     state_fields = tuple(args.state_fields) if args.state_fields else DEFAULT_STATE_FIELDS
+    reconstruction_state_fields = tuple(
+        dict.fromkeys((*RECONSTRUCTION_STATE_FIELDS, *state_fields))
+    )
     rhs_fields = tuple(args.rhs_fields) if args.rhs_fields else DEFAULT_RHS_FIELDS
 
     workdir = Path(tempfile.mkdtemp(prefix=f"jaxdrb-{args.case}-neutral-transient-"))
@@ -108,7 +132,7 @@ def main() -> None:
     )
     dump_path = workdir / "BOUT.dmp.0.nc"
     restart_path = workdir / "BOUT.restart.0.nc"
-    reference_state = _load_last_fields(dump_path, state_fields)
+    reference_state = _load_last_fields(dump_path, reconstruction_state_fields)
     reference_rhs = _load_last_fields(dump_path, rhs_fields)
 
     config = load_bout_input(workdir / "BOUT.inp")

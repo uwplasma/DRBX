@@ -25,6 +25,27 @@ from jax_drb.runtime.run_config import RunConfiguration
 
 
 DEFAULT_STATE_FIELDS = ("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe")
+RECONSTRUCTION_STATE_FIELDS = (
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nd",
+    "Pd",
+    "NVd",
+    "Nt+",
+    "Pt+",
+    "NVt+",
+    "Nt",
+    "Pt",
+    "NVt",
+    "Nhe+",
+    "Phe+",
+    "NVhe+",
+    "Nhe",
+    "Phe",
+    "NVhe",
+    "Pe",
+)
 DEFAULT_RHS_FIELDS = (
     "ddt(Nd+)",
     "ddt(Pd+)",
@@ -46,6 +67,16 @@ DEFAULT_ION_TERM_NAMES = (
     "pressure_gradient",
     "momentum_source",
     "momentum_total",
+)
+DEFAULT_SOURCE_COMPONENT_NAMES = (
+    "reaction_momentum",
+    "anomalous_momentum",
+    "collision_momentum",
+    "neutral_diffusion_momentum",
+    "pre_electron_force_momentum",
+    "electron_force_delta",
+    "final_momentum",
+    "Epar",
 )
 
 
@@ -132,6 +163,110 @@ def _extract_ion_rhs_terms(
     return captured_terms[ion_name]
 
 
+def _extract_ion_source_components(
+    config,
+    *,
+    mesh: StructuredMesh,
+    metrics,
+    dataset_scalars: dict[str, float],
+    state_fields: dict[str, np.ndarray],
+    feedback_integrals: dict[str, float],
+    ion_name: str,
+) -> dict[str, np.ndarray]:
+    runtime_model = recycling_1d_mod._build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+        field_overrides=state_fields,
+    )
+    species = recycling_1d_mod._override_species_fields(
+        runtime_model.species_templates,
+        fields=state_fields,
+        mesh=mesh,
+    )
+    captured: dict[str, dict[str, np.ndarray] | np.ndarray] = {}
+    original_reactions = recycling_1d_mod._reaction_sources
+    original_anomalous = recycling_1d_mod._apply_anomalous_diffusion
+    original_collisions = recycling_1d_mod._apply_collision_closure
+    original_neutral_diffusion = recycling_1d_mod._apply_neutral_parallel_diffusion
+    original_electron_force = recycling_1d_mod._assemble_electron_parallel_force_terms
+
+    def wrapped_reactions(*args, **kwargs):
+        terms = original_reactions(*args, **kwargs)
+        captured["reaction_momentum"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in terms.momentum_source.items()
+        }
+        return terms
+
+    def wrapped_anomalous(*args, **kwargs):
+        terms = original_anomalous(*args, **kwargs)
+        captured["anomalous_momentum"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in terms.momentum_source.items()
+        }
+        return terms
+
+    def wrapped_collisions(*args, **kwargs):
+        terms = original_collisions(*args, **kwargs)
+        captured["collision_momentum"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in terms.momentum_source.items()
+        }
+        return terms
+
+    def wrapped_neutral_diffusion(*args, **kwargs):
+        terms = original_neutral_diffusion(*args, **kwargs)
+        captured["neutral_diffusion_momentum"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in terms.momentum_source.items()
+        }
+        return terms
+
+    def wrapped_electron_force(*args, **kwargs):
+        terms = original_electron_force(*args, **kwargs)
+        incoming = kwargs.get("ion_momentum_source", {})
+        incoming_ion = np.asarray(incoming[ion_name], dtype=np.float64)
+        final_ion = np.asarray(terms.ion_momentum_source[ion_name], dtype=np.float64)
+        captured["pre_electron_force_momentum"] = {ion_name: incoming_ion}
+        captured["electron_force_delta"] = {ion_name: final_ion - incoming_ion}
+        captured["final_momentum"] = {ion_name: final_ion}
+        captured["Epar"] = np.asarray(terms.epar, dtype=np.float64)
+        return terms
+
+    with (
+        mock.patch.object(recycling_1d_mod, "_reaction_sources", side_effect=wrapped_reactions),
+        mock.patch.object(recycling_1d_mod, "_apply_anomalous_diffusion", side_effect=wrapped_anomalous),
+        mock.patch.object(recycling_1d_mod, "_apply_collision_closure", side_effect=wrapped_collisions),
+        mock.patch.object(recycling_1d_mod, "_apply_neutral_parallel_diffusion", side_effect=wrapped_neutral_diffusion),
+        mock.patch.object(recycling_1d_mod, "_assemble_electron_parallel_force_terms", side_effect=wrapped_electron_force),
+    ):
+        recycling_1d_mod._compute_recycling_1d_rhs_from_species(
+            config,
+            species=species,
+            controllers=runtime_model.controllers,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            feedback_integrals=feedback_integrals,
+            explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+            density_source_overrides=runtime_model.density_source_overrides,
+            pressure_source_overrides=runtime_model.pressure_source_overrides,
+            momentum_source_overrides=runtime_model.momentum_source_overrides,
+            preserve_dump_target_state=runtime_model.preserve_dump_target_state,
+            preserve_dump_ion_target_state_only=runtime_model.preserve_dump_ion_target_state_only,
+        )
+
+    components: dict[str, np.ndarray] = {}
+    for name in DEFAULT_SOURCE_COMPONENT_NAMES:
+        value = captured.get(name)
+        if isinstance(value, dict) and ion_name in value:
+            components[name] = np.asarray(value[ion_name], dtype=np.float64)
+        elif isinstance(value, np.ndarray):
+            components[name] = np.asarray(value, dtype=np.float64)
+    return components
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Compare state and RHS terms at selected recycling boundary-adjacent cells on a short reference run.",
@@ -148,6 +283,9 @@ def main() -> None:
     args = parser.parse_args()
 
     state_fields = tuple(args.state_fields) if args.state_fields else DEFAULT_STATE_FIELDS
+    reconstruction_state_fields = tuple(
+        dict.fromkeys((*RECONSTRUCTION_STATE_FIELDS, *state_fields))
+    )
     rhs_fields = tuple(args.rhs_fields) if args.rhs_fields else DEFAULT_RHS_FIELDS
 
     workdir = Path(tempfile.mkdtemp(prefix=f"jaxdrb-{args.case}-boundary-cell-"))
@@ -167,7 +305,7 @@ def main() -> None:
     metrics = build_structured_metrics(config, run_config, mesh)
     dataset_scalars = resolved_dataset_scalars(run_config)
 
-    reference_state = _load_last_fields(dump_path, state_fields)
+    reference_state = _load_last_fields(dump_path, reconstruction_state_fields)
     reference_rhs_dump = _load_last_fields(dump_path, rhs_fields)
     snapshot = extract_recycling_controller_snapshot(
         dump_path,
@@ -187,7 +325,7 @@ def main() -> None:
     )
     native_state = {
         name: np.asarray(native_history.variable_history[name][1], dtype=np.float64)
-        for name in state_fields
+        for name in reconstruction_state_fields
         if name in native_history.variable_history
     }
     native_integrals = {
@@ -221,6 +359,24 @@ def main() -> None:
         ion_name=str(args.ion_name),
     )
     native_ion_terms = _extract_ion_rhs_terms(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        state_fields=native_state,
+        feedback_integrals=native_integrals,
+        ion_name=str(args.ion_name),
+    )
+    reference_source_components = _extract_ion_source_components(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        state_fields=reference_state,
+        feedback_integrals=snapshot.restart_integrals,
+        ion_name=str(args.ion_name),
+    )
+    native_source_components = _extract_ion_source_components(
         config,
         mesh=mesh,
         metrics=metrics,
@@ -266,6 +422,15 @@ def main() -> None:
             reference_value = _cell_value(getattr(reference_ion_terms, term_name), cell)
             print(
                 f"  ion {args.ion_name} {term_name}: native={native_value:.12e} "
+                f"reference_eval={reference_value:.12e} diff={native_value - reference_value:.12e}"
+            )
+        for component_name in DEFAULT_SOURCE_COMPONENT_NAMES:
+            if component_name not in native_source_components or component_name not in reference_source_components:
+                continue
+            native_value = _cell_value(native_source_components[component_name], cell)
+            reference_value = _cell_value(reference_source_components[component_name], cell)
+            print(
+                f"  source {args.ion_name} {component_name}: native={native_value:.12e} "
                 f"reference_eval={reference_value:.12e} diff={native_value - reference_value:.12e}"
             )
 

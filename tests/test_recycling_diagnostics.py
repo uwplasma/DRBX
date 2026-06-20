@@ -64,6 +64,41 @@ def test_extract_active_cell_series_reads_expected_history() -> None:
     assert np.array_equal(series, np.asarray([1.0, 2.0, 4.0], dtype=np.float64))
 
 
+def test_target_cell_history_forwards_solver_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    module = _load_script_module(
+        "scripts/diagnose_recycling_target_cell_history.py",
+        "recycling_target_history_diag_solver_mode",
+    )
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr(module, "_case_input_path", lambda _case, _root: tmp_path / "BOUT.inp")
+    monkeypatch.setattr(module, "load_bout_input", lambda _path: object())
+    monkeypatch.setattr(module.RunConfiguration, "from_config", lambda _config: object())
+    monkeypatch.setattr(
+        module,
+        "build_structured_mesh",
+        lambda _config, _run_config: SimpleNamespace(xstart=0, xend=0, ystart=0, yend=0),
+    )
+    monkeypatch.setattr(module, "build_structured_metrics", lambda *_args: object())
+    monkeypatch.setattr(module, "resolved_dataset_scalars", lambda _run_config: {})
+
+    def _fake_history(*_args, **kwargs):
+        captured["solver_mode"] = kwargs["solver_mode"]
+        return SimpleNamespace(variable_history={"Nd+": np.zeros((2, 1, 1, 1))})
+
+    monkeypatch.setattr(module, "advance_recycling_1d_implicit_history", _fake_history)
+
+    module._native_history_series(
+        case_name="recycling_dthe_one_step",
+        reference_root=tmp_path,
+        timestep=1.0,
+        steps=1,
+        solver_mode="fixed_bdf2_active_array_jax_linearized",
+    )
+
+    assert captured["solver_mode"] == "fixed_bdf2_active_array_jax_linearized"
+
+
 def test_controller_integral_series_from_term_divides_by_gain() -> None:
     module = _load_script_module(
         "scripts/diagnose_recycling_controller_history.py",
