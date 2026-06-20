@@ -2076,6 +2076,9 @@ def advance_recycling_1d_implicit_history(
         "fixed_bdf2_active_array_jax_linearized_lineax": (
             "active_array_jax_linearized_lineax"
         ),
+        "fixed_bdf2_promoted_active_sources_jax_linearized": (
+            "promoted_active_sources_jax_linearized"
+        ),
     }
     if solver_mode in fixed_bdf2_step_modes:
         return _advance_recycling_1d_fixed_bdf2_history(
@@ -2328,6 +2331,7 @@ def _advance_recycling_1d_fixed_bdf2_history(
         "fixed_bdf2_mean_linear_preconditioner_build_seconds": None,
         "fixed_bdf2_mean_linear_preconditioner_apply_seconds": None,
         "fixed_bdf2_active_array_rhs_steps": 0,
+        "fixed_bdf2_promoted_active_source_rhs_steps": 0,
         "fixed_bdf2_residual_jitted_steps": 0,
         "fixed_bdf2_linear_operator_jitted_steps": 0,
         "fixed_bdf2_unconverged_solver_steps": 0,
@@ -2430,6 +2434,10 @@ def _advance_recycling_1d_fixed_bdf2_history(
         if info.diagnostics.get("rhs_backend") == "active_array":
             diagnostics["fixed_bdf2_active_array_rhs_steps"] = (
                 int(diagnostics["fixed_bdf2_active_array_rhs_steps"]) + 1
+            )
+        if info.diagnostics.get("rhs_backend") == "promoted_active_sources":
+            diagnostics["fixed_bdf2_promoted_active_source_rhs_steps"] = (
+                int(diagnostics["fixed_bdf2_promoted_active_source_rhs_steps"]) + 1
             )
         step_solver_mode_name = str(info.diagnostics.get("solver_mode", ""))
         if "jax_linearized" in step_solver_mode_name:
@@ -3876,6 +3884,8 @@ def _recycling_solver_rhs_backend(solver_mode: str) -> str:
         "active_array_jax_linearized_lineax",
     }:
         return "active_array"
+    if solver_mode == "promoted_active_sources_jax_linearized":
+        return "promoted_active_sources"
     return "host_bridge"
 
 
@@ -4954,6 +4964,7 @@ def advance_recycling_1d_backward_euler_step(
         "jax_linearized_lineax",
         "active_array_jax_linearized",
         "active_array_jax_linearized_lineax",
+        "promoted_active_sources_jax_linearized",
     }:
         linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(
             config
@@ -5166,6 +5177,7 @@ def advance_recycling_1d_bdf2_step(
         "jax_linearized_lineax",
         "active_array_jax_linearized",
         "active_array_jax_linearized_lineax",
+        "promoted_active_sources_jax_linearized",
     }:
         linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(
             config

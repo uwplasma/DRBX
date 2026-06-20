@@ -31,6 +31,7 @@ SOLVER_MODES = (
     "fixed_bdf2_jax_linearized_lineax",
     "fixed_bdf2_active_array_jax_linearized",
     "fixed_bdf2_active_array_jax_linearized_lineax",
+    "fixed_bdf2_promoted_active_sources_jax_linearized",
     "adaptive_be",
     "adaptive_bdf",
     "adaptive_bdf_sparse_jvp",
@@ -50,6 +51,7 @@ FIXED_BDF2_MODES = (
     "fixed_bdf2_jax_linearized_lineax",
     "fixed_bdf2_active_array_jax_linearized",
     "fixed_bdf2_active_array_jax_linearized_lineax",
+    "fixed_bdf2_promoted_active_sources_jax_linearized",
 )
 FIXED_BDF2_STEP_SOLVER_MODES = {
     "fixed_bdf2_jax_linearized": "jax_linearized",
@@ -58,12 +60,16 @@ FIXED_BDF2_STEP_SOLVER_MODES = {
     "fixed_bdf2_active_array_jax_linearized_lineax": (
         "active_array_jax_linearized_lineax"
     ),
+    "fixed_bdf2_promoted_active_sources_jax_linearized": (
+        "promoted_active_sources_jax_linearized"
+    ),
 }
 FIXED_BDF2_RHS_BACKENDS = {
     "fixed_bdf2_jax_linearized": "fixed_full_field_array",
     "fixed_bdf2_jax_linearized_lineax": "fixed_full_field_array",
     "fixed_bdf2_active_array_jax_linearized": "active_array",
     "fixed_bdf2_active_array_jax_linearized_lineax": "active_array",
+    "fixed_bdf2_promoted_active_sources_jax_linearized": "promoted_active_sources",
 }
 ADAPTIVE_BDF_MODES = (
     "adaptive_bdf",
@@ -112,8 +118,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "Solver modes to compare. May be repeated. Use bdf_fixed_full_field_jvp "
             "or bdf_active_array_jvp to exercise the fixed-layout JVP BDF paths; "
             "use fixed_bdf2_active_array_jax_linearized for the non-SciPy "
-            "active-array fixed-BDF2 path. Defaults include the main supported "
-            "set for the case."
+            "active-array fixed-BDF2 path, and use "
+            "fixed_bdf2_promoted_active_sources_jax_linearized for the opt-in "
+            "promoted source-kernel fixed-BDF2 path. Defaults include the main "
+            "supported set for the case."
         ),
     )
     parser.add_argument(
@@ -948,8 +956,12 @@ def _validate_fixed_bdf2_diagnostics(
         )
     if expected_rhs_backend == "fixed_full_field_array":
         rhs_steps = int(diagnostics.get("fixed_bdf2_fixed_full_field_rhs_steps", 0))
-    else:
+    elif expected_rhs_backend == "active_array":
         rhs_steps = int(diagnostics.get("fixed_bdf2_active_array_rhs_steps", 0))
+    else:
+        rhs_steps = int(
+            diagnostics.get("fixed_bdf2_promoted_active_source_rhs_steps", 0)
+        )
     if rhs_steps <= 0:
         errors.append(
             f"{mode} did not report any {expected_rhs_backend} fixed-layout RHS steps"

@@ -163,9 +163,12 @@ bounded opt-in residual backend in
 `rhs_backend="promoted_active_sources"`, now feeds the composed source map
 through the backward-Euler, BDF2, and adaptive-BDF fixed residual builders for
 bounded cases with or without upstream density-feedback integrals in the
-implicit state. That backend is a migration and profiling gate, not the stable
-default: broad production-window parity and runtime/performance gates still use
-the full-field oracle path. A second adapter,
+implicit state. The public comparison mode
+`fixed_bdf2_promoted_active_sources_jax_linearized` exposes this backend for
+bounded production-window parity and profiling without changing the stable
+default solver. That backend is still a migration and profiling gate, not the
+stable default: broad long-window parity and runtime/performance gates still
+use the full-field oracle path. A second adapter,
 `build_fixed_full_field_array_rhs`, stages remaining guard-cell kernels and
 operator families through the same fixed-state interface while each term is
 still being migrated to active-array form. New source, collision, diffusion,
