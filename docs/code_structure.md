@@ -121,7 +121,13 @@ caches species metadata and target flags before repeated residual/JVP calls.
 Coupled kernels that compute field
 and controller-feedback derivatives from the same source evaluation can use
 `build_fixed_array_state_rhs` to return a complete `RecyclingFixedState` in one
-pass. A second adapter,
+pass. The first promoted pointwise term in this staged lane is the D/T/He
+reaction block in
+[src/jax_drb/native/recycling_reactions.py](../src/jax_drb/native/recycling_reactions.py):
+`fixed_layout_dthe_reaction_terms_from_active_fields` consumes active-domain
+`N`, `P`, and `NV` blocks without guard-cell reconstruction, and
+`fixed_layout_dthe_reaction_field_rhs_from_active_fields` maps those sources
+into field-RHS contributions for `build_fixed_array_rhs`. A second adapter,
 `build_fixed_full_field_array_rhs`, stages guard-cell kernels and closure terms
 such as collision friction/heat exchange, neutral parallel diffusion, and
 target recycling through the same fixed-state interface while each term is
