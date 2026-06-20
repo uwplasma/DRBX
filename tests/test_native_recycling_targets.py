@@ -11,12 +11,23 @@ from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
 from jax_drb.native.metrics import StructuredMetrics, build_structured_metrics
 from jax_drb.native.recycling_1d import (
     OpenFieldSpecies,
+    _build_recycling_runtime_model,
+    _build_recycling_state_fields,
     _initialize_species,
     _prepare_open_field_states,
     compute_recycling_1d_rhs,
 )
+from jax_drb.native.recycling_fixed_residual import (
+    RecyclingFixedState,
+    build_fixed_array_rhs,
+    fixed_state_from_fields,
+    fixed_state_to_full_fields,
+)
+from jax_drb.native.recycling_layout import build_recycling_packed_state_layout
+from jax_drb.native.recycling_setup import build_species_field_overrider
 from jax_drb.native.recycling_targets import (
     electron_zero_current_velocity,
+    fixed_layout_target_recycling_field_rhs,
     grad_par_electron_force_balance_open,
     target_recycling_sources,
 )
@@ -26,10 +37,85 @@ from jax_drb.native.units import resolved_dataset_scalars
 
 
 _INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+_INPUT_1D_FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "reference-root"
+    / "tests"
+    / "integrated"
+    / "1D-recycling"
+    / "data"
+    / "BOUT.inp"
+)
+
+
+def _input_1d_path() -> Path:
+    if _INPUT_1D.exists():
+        return _INPUT_1D
+    if _INPUT_1D_FIXTURE.exists():
+        return _INPUT_1D_FIXTURE
+    raise AssertionError("1D recycling fixture deck is missing")
+
+
+def _build_runtime_target_case():
+    config = load_bout_input(_input_1d_path())
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    override_species = build_species_field_overrider(
+        runtime_model.species_templates,
+        mesh=mesh,
+    )
+    species = override_species(fields)
+    prepared, ion_boundary, _electron_boundary = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
+    neutrals = tuple(
+        sp for sp in species.values() if sp.charge == 0.0 and sp.name != "e"
+    )
+    layout = build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=runtime_model.field_names,
+        feedback_names=runtime_model.feedback_names,
+        mesh=mesh,
+    )
+    state = fixed_state_from_fields(
+        fields,
+        feedback_integrals={name: 0.0 for name in runtime_model.feedback_names},
+        layout=layout,
+    )
+    return (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        fields,
+        species,
+        prepared,
+        ion_boundary,
+        ions,
+        neutrals,
+        layout,
+        state,
+    )
 
 
 def test_target_recycling_sources_use_prepared_ion_state() -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = load_bout_input(_input_1d_path())
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -129,7 +215,7 @@ def test_recycling_rhs_passes_configured_sheath_gamma_i_to_target_recycling(monk
 
 
 def test_electron_zero_current_velocity_uses_prepared_ion_density() -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = load_bout_input(_input_1d_path())
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -172,7 +258,7 @@ def test_electron_zero_current_velocity_uses_prepared_ion_density() -> None:
 
 
 def test_electron_force_balance_gradient_matches_bout_dy_over_sqrt_g22_stencil() -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = load_bout_input(_input_1d_path())
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -204,7 +290,7 @@ def test_electron_force_balance_gradient_matches_bout_dy_over_sqrt_g22_stencil()
 def test_electron_force_balance_gradient_is_jax_jvp_transformable() -> None:
     jax = pytest.importorskip("jax")
     jnp = pytest.importorskip("jax.numpy")
-    config = load_bout_input(_INPUT_1D)
+    config = load_bout_input(_input_1d_path())
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -308,3 +394,149 @@ def test_target_recycling_sources_are_jax_jvp_transformable() -> None:
     assert np.isfinite(float(tangent))
     assert abs(float(tangent)) > 0.0
     np.testing.assert_allclose(float(tangent), float(finite_difference), rtol=1.0e-7, atol=1.0e-9)
+
+
+def test_fixed_layout_target_recycling_field_rhs_matches_full_source_active_slice() -> None:
+    (
+        _config,
+        mesh,
+        metrics,
+        _scalars,
+        _runtime_model,
+        _fields,
+        _species,
+        prepared,
+        ion_boundary,
+        ions,
+        neutrals,
+        layout,
+        _state,
+    ) = _build_runtime_target_case()
+
+    full_terms = target_recycling_sources(
+        ions=ions,
+        prepared=prepared,
+        neutrals=neutrals,
+        ion_velocity=ion_boundary.velocity,
+        mesh=mesh,
+        metrics=metrics,
+        gamma_i=2.5,
+    )
+    active_rhs = fixed_layout_target_recycling_field_rhs(
+        ions=ions,
+        prepared=prepared,
+        neutrals=neutrals,
+        ion_velocity=ion_boundary.velocity,
+        layout=layout,
+        mesh=mesh,
+        metrics=metrics,
+        gamma_i=2.5,
+    )
+
+    active_slices = layout.active_slices
+    layout_fields = set(layout.field_names)
+    for neutral in neutrals:
+        if neutral.density_name in layout_fields:
+            np.testing.assert_allclose(
+                np.asarray(active_rhs[neutral.density_name]),
+                np.asarray(full_terms.density_source[neutral.name][active_slices]),
+                rtol=1.0e-12,
+                atol=1.0e-12,
+            )
+        if neutral.has_pressure and neutral.pressure_name in layout_fields:
+            np.testing.assert_allclose(
+                np.asarray(active_rhs[neutral.pressure_name]),
+                (2.0 / 3.0)
+                * np.asarray(full_terms.energy_source[neutral.name][active_slices]),
+                rtol=1.0e-12,
+                atol=1.0e-12,
+            )
+
+
+def test_fixed_layout_target_recycling_promotes_to_fixed_array_rhs() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        _fields,
+        _species,
+        _prepared,
+        _ion_boundary,
+        _ions,
+        _neutrals,
+        layout,
+        state,
+    ) = _build_runtime_target_case()
+    override_species = build_species_field_overrider(
+        runtime_model.species_templates,
+        mesh=mesh,
+    )
+    ion_momentum_index = layout.field_names.index("NVd+")
+
+    def field_rhs(active_fields: dict[str, object], _feedback: object) -> dict[str, object]:
+        candidate = RecyclingFixedState(
+            field_values=tuple(active_fields[name] for name in layout.field_names),
+            feedback_values=jnp.asarray([], dtype=jnp.float64),
+        )
+        full_fields = fixed_state_to_full_fields(candidate, layout=layout)
+        species = override_species(full_fields)
+        prepared, ion_boundary, _electron_boundary = _prepare_open_field_states(
+            species,
+            config=config,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=scalars,
+        )
+        ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
+        neutrals = tuple(
+            sp for sp in species.values() if sp.charge == 0.0 and sp.name != "e"
+        )
+        return fixed_layout_target_recycling_field_rhs(
+            ions=ions,
+            prepared=prepared,
+            neutrals=neutrals,
+            ion_velocity=ion_boundary.velocity,
+            layout=layout,
+            mesh=mesh,
+            metrics=metrics,
+            gamma_i=2.5,
+        )
+
+    fixed_rhs = build_fixed_array_rhs(field_rhs, layout=layout)
+
+    def qoi(scale):
+        scaled_fields = list(state.field_values)
+        scaled_fields[ion_momentum_index] = (
+            jnp.asarray(scaled_fields[ion_momentum_index], dtype=jnp.float64)
+            * scale
+        )
+        rhs_state = fixed_rhs(
+            RecyclingFixedState(
+                field_values=tuple(scaled_fields),
+                feedback_values=jnp.asarray(state.feedback_values, dtype=jnp.float64),
+            )
+        )
+        rhs_fields = {
+            name: value
+            for name, value in zip(layout.field_names, rhs_state.field_values, strict=True)
+        }
+        return jnp.sum(rhs_fields["Nd"]) + 0.1 * jnp.sum(rhs_fields["Pd"])
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    step = 1.0e-5
+    finite_difference = (
+        qoi(jnp.array(1.0 + step)) - qoi(jnp.array(1.0 - step))
+    ) / (2.0 * step)
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(tangent))
+    np.testing.assert_allclose(
+        float(tangent),
+        float(finite_difference),
+        rtol=1.0e-5,
+        atol=1.0e-8,
+    )
