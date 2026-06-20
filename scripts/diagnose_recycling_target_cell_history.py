@@ -142,7 +142,9 @@ def _case_input_path(case_name: str, reference_root: Path) -> Path:
 
 
 def _solver_mode_for_case(case_name: str) -> str:
-    return "continuation" if case_name == "recycling_1d_one_step" else "bdf"
+    if case_name in {"recycling_1d_one_step", "recycling_dthe_one_step"}:
+        return "bdf"
+    raise ValueError(f"unsupported case: {case_name}")
 
 
 def _load_reference_series(path: Path, *, fields: tuple[str, ...]) -> tuple[dict[str, np.ndarray], np.ndarray]:

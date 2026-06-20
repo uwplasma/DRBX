@@ -99,6 +99,16 @@ def test_target_cell_history_forwards_solver_mode(monkeypatch: pytest.MonkeyPatc
     assert captured["solver_mode"] == "fixed_bdf2_active_array_jax_linearized"
 
 
+def test_target_cell_history_defaults_recycling_cases_to_bdf() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_recycling_target_cell_history.py",
+        "recycling_target_history_diag_default_solver",
+    )
+
+    assert module._solver_mode_for_case("recycling_1d_one_step") == "bdf"
+    assert module._solver_mode_for_case("recycling_dthe_one_step") == "bdf"
+
+
 def test_controller_integral_series_from_term_divides_by_gain() -> None:
     module = _load_script_module(
         "scripts/diagnose_recycling_controller_history.py",
