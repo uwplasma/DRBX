@@ -112,8 +112,13 @@ fixed-layout RHS arrays directly, and is JVP-tested without repacking through
 the older field/feedback split callback. Solver hot paths use
 `build_fixed_state_to_full_fields` to cache static guard-cell templates during
 fixed-state reconstruction; `fixed_state_to_full_fields` remains the simple
-one-shot reconstruction API for tests and host-side utilities. Coupled kernels
-that compute field
+one-shot reconstruction API for tests and host-side utilities.
+`build_fixed_state_to_feedback_integrals` does the same for controller
+integral dictionaries in solver residuals, while
+`build_species_field_overrider` in
+[src/jax_drb/native/recycling_setup.py](../src/jax_drb/native/recycling_setup.py)
+caches species metadata and target flags before repeated residual/JVP calls.
+Coupled kernels that compute field
 and controller-feedback derivatives from the same source evaluation can use
 `build_fixed_array_state_rhs` to return a complete `RecyclingFixedState` in one
 pass. A second adapter,

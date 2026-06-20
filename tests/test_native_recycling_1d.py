@@ -456,6 +456,54 @@ def test_compute_recycling_1d_rhs_uses_preloaded_explicit_pressure_sources(
     assert "ddt(Pe)" in result.variables
 
 
+def test_cached_species_field_overrider_matches_legacy_jax_fields() -> None:
+    config = _load_reference_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+    )
+    fields = {
+        name: jnp.asarray(value, dtype=jnp.float64)
+        for name, value in _build_recycling_state_fields(runtime_model).items()
+    }
+
+    cached_overrider = recycling_1d_mod._build_species_field_overrider(
+        runtime_model.species_templates,
+        mesh=mesh,
+    )
+    cached = cached_overrider(fields)
+    legacy = recycling_1d_mod._override_species_fields(
+        runtime_model.species_templates,
+        fields=fields,
+        mesh=mesh,
+    )
+
+    assert cached.keys() == legacy.keys()
+    for name in cached:
+        cached_species = cached[name]
+        legacy_species = legacy[name]
+        assert cached_species.charge == legacy_species.charge
+        assert cached_species.atomic_mass == legacy_species.atomic_mass
+        assert cached_species.has_pressure == legacy_species.has_pressure
+        assert cached_species.has_momentum == legacy_species.has_momentum
+        np.testing.assert_allclose(
+            np.asarray(cached_species.density),
+            np.asarray(legacy_species.density),
+        )
+        np.testing.assert_allclose(
+            np.asarray(cached_species.pressure),
+            np.asarray(legacy_species.pressure),
+        )
+        np.testing.assert_allclose(
+            np.asarray(cached_species.momentum),
+            np.asarray(legacy_species.momentum),
+        )
+
+
 def test_recycling_1d_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "recycling_1d_rhs.json")
     actual = run_curated_case(

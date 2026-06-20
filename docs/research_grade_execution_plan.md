@@ -3142,6 +3142,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   `44.25 s` elapsed. Decision: keep the cached-template helper as another
   safe residual-path cleanup; remaining performance work is still dominated by
   full-field physics evaluation, internal substeps, and Krylov work.
+- 2026-06-19: Added two more fixed-layout metadata caches in the recycling
+  residual path. `build_species_field_overrider` caches static species field
+  names, dataclass metadata, and target flags for repeated residual/JVP calls,
+  while `build_fixed_state_to_feedback_integrals` caches the base controller
+  integral layout. The public one-shot helpers remain available for ordinary
+  callers, but `_build_fixed_full_field_recycling_rhs` now reuses both cached
+  closures. Focused tests passed (`28` fixed-residual tests and `4` selected
+  recycling-1D active-array/species tests). The D/T/He substepped active-array
+  JAX-linearized gate remained parity-clean with worst `NVd+` delta
+  `1.099e-4`, residual `6.17e-10`, eight internal JAX-GMRES solves, and
+  `44.26 s` elapsed. Decision: keep the cleanup because it reduces Python
+  metadata churn without changing physics, but do not call it a speedup; the
+  next performance lane must port concrete source, sheath, collision,
+  neutral-diffusion, and equation-assembly terms to direct active-array
+  kernels so residual/JVP work no longer reconstructs full guard-cell species.
 
 ## Definition Of Done
 

@@ -130,6 +130,7 @@ from .recycling_setup import (
     OpenFieldSpecies,
     RecyclingRuntimeModel as _RecyclingRuntimeModel,
     build_recycling_runtime_model as _build_recycling_runtime_model,
+    build_species_field_overrider as _build_species_field_overrider,
     evaluate_field_option as _evaluate_field_option,
     evaluate_field_value as _evaluate_field_value,
     evaluate_option_field as _evaluate_option_field,
@@ -184,8 +185,8 @@ from .recycling_fixed_residual import (
     build_fixed_bdf2_residual as _build_fixed_bdf2_residual,
     build_fixed_backward_euler_residual as _build_fixed_backward_euler_residual,
     build_fixed_host_rhs_bridge as _build_fixed_host_rhs_bridge,
+    build_fixed_state_to_feedback_integrals as _build_fixed_state_to_feedback_integrals,
     build_fixed_state_to_full_fields as _build_fixed_state_to_full_fields,
-    fixed_state_to_feedback_integrals as _fixed_state_to_feedback_integrals,
     pack_fixed_state as _pack_fixed_state,
     unpack_fixed_state as _unpack_fixed_state,
 )
@@ -6750,19 +6751,19 @@ def _build_fixed_full_field_recycling_rhs(
     """Build a fixed-layout RHS that returns active arrays without repacking."""
 
     state_to_full_fields = _build_fixed_state_to_full_fields(layout)
+    state_to_feedback_integrals = _build_fixed_state_to_feedback_integrals(
+        layout,
+        base_feedback_integrals=base_feedback_integrals,
+    )
+    override_species = _build_species_field_overrider(
+        runtime_model.species_templates,
+        mesh=mesh,
+    )
 
     def rhs(state: _RecyclingFixedState) -> _RecyclingFixedState:
         full_fields = state_to_full_fields(state)
-        state_integrals = _fixed_state_to_feedback_integrals(
-            state,
-            layout=layout,
-            base_feedback_integrals=base_feedback_integrals,
-        )
-        species = _override_species_fields(
-            runtime_model.species_templates,
-            fields=full_fields,
-            mesh=mesh,
-        )
+        state_integrals = state_to_feedback_integrals(state)
+        species = override_species(full_fields)
         result = _compute_recycling_1d_rhs_from_species(
             config,
             species=species,

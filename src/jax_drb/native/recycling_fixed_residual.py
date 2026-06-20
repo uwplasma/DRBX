@@ -263,6 +263,26 @@ def fixed_state_to_feedback_integrals(
     return integrals
 
 
+def build_fixed_state_to_feedback_integrals(
+    layout: RecyclingPackedStateLayout,
+    *,
+    base_feedback_integrals: dict[str, object] | None = None,
+) -> Callable[[RecyclingFixedState], dict[str, object]]:
+    """Build a cached fixed-state to feedback-integral restoration closure."""
+
+    base_items = tuple((base_feedback_integrals or {}).items())
+    feedback_names = tuple(layout.feedback_names)
+
+    def restore(state: RecyclingFixedState) -> dict[str, object]:
+        integrals = dict(base_items)
+        for index, name in enumerate(feedback_names):
+            value = state.feedback_values[index]
+            integrals[name] = value if use_jax_backend(value) else float(value)
+        return integrals
+
+    return restore
+
+
 def build_fixed_host_rhs_bridge(
     packed_rhs_function: Callable[[dict[str, object], dict[str, object]], object],
     *,
@@ -277,14 +297,15 @@ def build_fixed_host_rhs_bridge(
     current validated RHS before each term is ported to pure JAX kernels.
     """
 
+    state_to_feedback_integrals = build_fixed_state_to_feedback_integrals(
+        layout,
+        base_feedback_integrals=base_feedback_integrals,
+    )
+
     def rhs(state: RecyclingFixedState) -> RecyclingFixedState:
         packed_rhs = packed_rhs_function(
             fixed_state_to_full_fields(state, layout=layout),
-            fixed_state_to_feedback_integrals(
-                state,
-                layout=layout,
-                base_feedback_integrals=base_feedback_integrals,
-            ),
+            state_to_feedback_integrals(state),
         )
         return unpack_fixed_state(packed_rhs, layout=layout)
 

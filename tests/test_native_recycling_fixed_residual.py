@@ -23,6 +23,7 @@ from jax_drb.native.recycling_fixed_residual import (
     build_fixed_backward_euler_residual,
     build_fixed_residual_linearized_action,
     build_fixed_host_rhs_bridge,
+    build_fixed_state_to_feedback_integrals,
     build_fixed_state_to_full_fields,
     fixed_residual_jvp_batch_action,
     fixed_state_from_fields,
@@ -162,6 +163,40 @@ def test_cached_full_field_reconstructor_matches_direct_fixture_state() -> None:
             np.testing.assert_allclose(
                 np.asarray(cached_fields[name][layout.active_slices]),
                 np.asarray(state.field_values[runtime_model.field_names.index(name)]),
+                rtol=0.0,
+                atol=0.0,
+            )
+
+
+def test_cached_feedback_integral_reconstructor_matches_direct_fixture_state() -> None:
+    _, _, _, _, _, fields, feedback_integrals, layout = _dthe_fixture_context()
+    base_integrals = {**feedback_integrals, "extra_controller": 2.0}
+    restore_cached = build_fixed_state_to_feedback_integrals(
+        layout,
+        base_feedback_integrals=base_integrals,
+    )
+    jax_state = fixed_state_from_fields(
+        fields,
+        feedback_integrals=feedback_integrals,
+        layout=layout,
+    )
+    host_state = unpack_fixed_state(
+        np.asarray(pack_fixed_state(jax_state), dtype=np.float64),
+        layout=layout,
+    )
+
+    for state in (jax_state, host_state):
+        direct_integrals = fixed_state_to_feedback_integrals(
+            state,
+            layout=layout,
+            base_feedback_integrals=base_integrals,
+        )
+        cached_integrals = restore_cached(state)
+        assert cached_integrals.keys() == direct_integrals.keys()
+        for name in direct_integrals:
+            np.testing.assert_allclose(
+                np.asarray(cached_integrals[name]),
+                np.asarray(direct_integrals[name]),
                 rtol=0.0,
                 atol=0.0,
             )
