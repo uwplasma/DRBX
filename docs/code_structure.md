@@ -109,7 +109,11 @@ fixed-state RHS for parity against the D/T/He Hermès recycling deck. The
 active-array transient backend is the production-facing lane for new ports: it
 uses the same fixed-state interface as the full-field bridge, returns
 fixed-layout RHS arrays directly, and is JVP-tested without repacking through
-the older field/feedback split callback. Coupled kernels that compute field
+the older field/feedback split callback. Solver hot paths use
+`build_fixed_state_to_full_fields` to cache static guard-cell templates during
+fixed-state reconstruction; `fixed_state_to_full_fields` remains the simple
+one-shot reconstruction API for tests and host-side utilities. Coupled kernels
+that compute field
 and controller-feedback derivatives from the same source evaluation can use
 `build_fixed_array_state_rhs` to return a complete `RecyclingFixedState` in one
 pass. A second adapter,

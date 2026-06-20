@@ -207,6 +207,47 @@ def fixed_state_to_full_fields(state: RecyclingFixedState, *, layout: RecyclingP
     return fields
 
 
+def build_fixed_state_to_full_fields(
+    layout: RecyclingPackedStateLayout,
+) -> Callable[[RecyclingFixedState], dict[str, object]]:
+    """Build a cached fixed-state to full-field reconstruction closure.
+
+    The solver residual calls this path repeatedly from ``jax.linearize`` and
+    Krylov JVPs. Caching the static guard-cell templates avoids re-coercing
+    those arrays on every residual evaluation while preserving the same output
+    contract as :func:`fixed_state_to_full_fields`.
+    """
+
+    jax_templates = tuple(
+        jnp.asarray(template, dtype=jnp.float64) for template in layout.field_templates
+    )
+    numpy_templates = tuple(
+        np.asarray(template, dtype=np.float64) for template in layout.field_templates
+    )
+
+    def restore(state: RecyclingFixedState) -> dict[str, object]:
+        use_jax = use_jax_backend(*state.field_values)
+        fields: dict[str, object] = {}
+        templates = jax_templates if use_jax else numpy_templates
+        for name, active_value, template in zip(
+            layout.field_names,
+            state.field_values,
+            templates,
+            strict=True,
+        ):
+            if use_jax:
+                active_array = jnp.asarray(active_value, dtype=jnp.float64)
+                full_field = template.at[layout.active_slices].set(active_array)
+            else:
+                active_array = np.asarray(active_value, dtype=np.float64)
+                full_field = np.array(template, dtype=np.float64, copy=True)
+                full_field[layout.active_slices] = active_array
+            fields[name] = full_field
+        return fields
+
+    return restore
+
+
 def fixed_state_to_feedback_integrals(
     state: RecyclingFixedState,
     *,

@@ -184,8 +184,8 @@ from .recycling_fixed_residual import (
     build_fixed_bdf2_residual as _build_fixed_bdf2_residual,
     build_fixed_backward_euler_residual as _build_fixed_backward_euler_residual,
     build_fixed_host_rhs_bridge as _build_fixed_host_rhs_bridge,
+    build_fixed_state_to_full_fields as _build_fixed_state_to_full_fields,
     fixed_state_to_feedback_integrals as _fixed_state_to_feedback_integrals,
-    fixed_state_to_full_fields as _fixed_state_to_full_fields,
     pack_fixed_state as _pack_fixed_state,
     unpack_fixed_state as _unpack_fixed_state,
 )
@@ -6749,8 +6749,10 @@ def _build_fixed_full_field_recycling_rhs(
 ) -> Callable[[_RecyclingFixedState], _RecyclingFixedState]:
     """Build a fixed-layout RHS that returns active arrays without repacking."""
 
+    state_to_full_fields = _build_fixed_state_to_full_fields(layout)
+
     def rhs(state: _RecyclingFixedState) -> _RecyclingFixedState:
-        full_fields = _fixed_state_to_full_fields(state, layout=layout)
+        full_fields = state_to_full_fields(state)
         state_integrals = _fixed_state_to_feedback_integrals(
             state,
             layout=layout,

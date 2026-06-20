@@ -3128,6 +3128,20 @@ Use this log for concise decision records. Do not paste terminal output here.
   as reduced residual-path complexity, not a promoted speedup; the next
   performance improvement must eliminate full-field reconstruction, reduce
   internal substeps at fixed parity, or lower Krylov work.
+- 2026-06-19: Added `build_fixed_state_to_full_fields`, a cached full-field
+  reconstruction closure for fixed recycling states, and routed
+  `_build_fixed_full_field_recycling_rhs` through it. The direct
+  `fixed_state_to_full_fields` API remains available for one-shot tests and
+  host utilities, while solver residuals now reuse pre-coerced JAX/NumPy
+  guard-cell templates across repeated residual and Krylov JVP calls. Added a
+  fixture test that compares cached and direct reconstruction for both JAX and
+  host states. Focused validation passed (`5` fixed-residual tests, `7`
+  history tests, `2` recycling-1D routing tests), and the same D/T/He
+  substepped full-field gate remained parity-clean with worst `NVd+` delta
+  `1.099e-4`, residual `6.17e-10`, eight internal JAX-GMRES solves, and
+  `44.25 s` elapsed. Decision: keep the cached-template helper as another
+  safe residual-path cleanup; remaining performance work is still dominated by
+  full-field physics evaluation, internal substeps, and Krylov work.
 
 ## Definition Of Done
 
