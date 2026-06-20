@@ -272,6 +272,25 @@ reported linear-solve subphase time on a nontrivial D/T/He fixed-layout gate,
 but current closure rebuilding and compilation overhead still keep total
 wall-clock time from improving consistently.
 
+The promoted active-source backend is now selectable in the same profiler with
+`--rhs-backend promoted_active_sources`. For local campaign runs, use:
+
+```bash
+PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-promoted-active-sources-profile-gate \
+  --reference-root /path/to/reference/root
+```
+
+A bounded `ny=100` local run against the lightweight D/T/He fixture passed with
+`solver_mode=promoted_active_sources_jax_linearized`,
+`rhs_backend=promoted_active_sources`, active size `1900`, state size `1979`,
+residual infinity norm `3.82e-10`, median profiled run time `0.926 s`, sampled
+peak RSS delta `0.44 MiB`, and cProfile top cost in
+`advance_recycling_1d_backward_euler_step`, `solve_jax_linearized_newton_system`,
+the fixed residual, and the promoted RHS. This is profiling evidence for the
+source-kernel migration seam; it is not yet a long-window or default-promotion
+claim.
+
 The current GPU evidence for the heavier fixed-layout seam lives in:
 
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/profile_summary.json`
