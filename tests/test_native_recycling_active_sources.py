@@ -15,6 +15,7 @@ from jax_drb.native.recycling_1d import (
     build_recycling_1d_backward_euler_residual_context,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
+    _current_feedback_errors,
     _prepare_open_field_states,
 )
 from jax_drb.native.recycling_active_sources import (
@@ -62,6 +63,11 @@ _BOUNDED_PROMOTED_DTHE_OVERRIDES = (
     "d+:type=(evolve_density, evolve_pressure, evolve_momentum, noflow_boundary)",
     "t+:type=(evolve_density, evolve_pressure, evolve_momentum, noflow_boundary)",
     "he+:type=(evolve_density, evolve_pressure, evolve_momentum, noflow_boundary)",
+)
+_BOUNDED_PROMOTED_DTHE_FEEDBACK_OVERRIDES = (
+    "hermes:components=(d+, d, t+, t, he+, he, e, sheath_boundary, "
+    "braginskii_collisions, braginskii_friction, braginskii_heat_exchange, "
+    "recycling, reactions, electron_force_balance, neutral_parallel_diffusion)",
 )
 
 
@@ -573,6 +579,146 @@ def test_promoted_active_source_rhs_matches_bounded_full_rhs() -> None:
         )
 
 
+def test_promoted_active_source_rhs_matches_bounded_feedback_full_rhs() -> None:
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        _species,
+        _prepared,
+        _ion_boundary,
+        layout,
+        state,
+        _active_fields,
+    ) = _build_context(
+        _DTHE_INPUT,
+        overrides=_BOUNDED_PROMOTED_DTHE_FEEDBACK_OVERRIDES,
+    )
+    feedback_integrals = {name: 0.0 for name in runtime_model.feedback_names}
+
+    assert runtime_model.controllers
+    assert tuple(layout.feedback_names) == runtime_model.feedback_names
+    full_rhs = _build_fixed_full_field_recycling_rhs(
+        config,
+        runtime_model=runtime_model,
+        layout=layout,
+        base_feedback_integrals=feedback_integrals,
+        feedback_previous_errors=None,
+        feedback_timestep=None,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    promoted_rhs = _build_promoted_active_source_recycling_rhs(
+        config,
+        runtime_model=runtime_model,
+        layout=layout,
+        base_feedback_integrals=feedback_integrals,
+        feedback_previous_errors=None,
+        feedback_timestep=None,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+
+    expected = full_rhs(state)
+    actual = promoted_rhs(state)
+
+    for name, expected_value, actual_value in zip(
+        layout.field_names,
+        expected.field_values,
+        actual.field_values,
+        strict=True,
+    ):
+        np.testing.assert_allclose(
+            np.asarray(actual_value),
+            np.asarray(expected_value),
+            rtol=1.0e-9,
+            atol=1.0e-10,
+            err_msg=f"promoted active feedback RHS mismatch for {name}",
+        )
+    np.testing.assert_allclose(
+        np.asarray(actual.feedback_values),
+        np.asarray(expected.feedback_values),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
+def test_promoted_active_source_rhs_matches_feedback_predictor_full_rhs() -> None:
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        _species,
+        _prepared,
+        _ion_boundary,
+        layout,
+        state,
+        _active_fields,
+    ) = _build_context(
+        _DTHE_INPUT,
+        overrides=_BOUNDED_PROMOTED_DTHE_FEEDBACK_OVERRIDES,
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    feedback_integrals = {name: 0.25 for name in runtime_model.feedback_names}
+    previous_errors = _current_feedback_errors(
+        fields,
+        controllers=runtime_model.controllers,
+        mesh=mesh,
+    )
+
+    full_rhs = _build_fixed_full_field_recycling_rhs(
+        config,
+        runtime_model=runtime_model,
+        layout=layout,
+        base_feedback_integrals=feedback_integrals,
+        feedback_previous_errors=previous_errors,
+        feedback_timestep=2.5e-5,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    promoted_rhs = _build_promoted_active_source_recycling_rhs(
+        config,
+        runtime_model=runtime_model,
+        layout=layout,
+        base_feedback_integrals=feedback_integrals,
+        feedback_previous_errors=previous_errors,
+        feedback_timestep=2.5e-5,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+
+    expected = full_rhs(state)
+    actual = promoted_rhs(state)
+
+    for name, expected_value, actual_value in zip(
+        layout.field_names,
+        expected.field_values,
+        actual.field_values,
+        strict=True,
+    ):
+        np.testing.assert_allclose(
+            np.asarray(actual_value),
+            np.asarray(expected_value),
+            rtol=1.0e-9,
+            atol=1.0e-10,
+            err_msg=f"promoted active feedback predictor mismatch for {name}",
+        )
+    np.testing.assert_allclose(
+        np.asarray(actual.feedback_values),
+        np.asarray(expected.feedback_values),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
 def test_promoted_active_source_backward_euler_residual_is_jvp_transformable() -> None:
     jax = pytest.importorskip("jax")
     jnp = pytest.importorskip("jax.numpy")
@@ -599,6 +745,60 @@ def test_promoted_active_source_backward_euler_residual_is_jvp_transformable() -
         metrics=metrics,
         dataset_scalars=scalars,
         timestep=1.0e-5,
+        rhs_backend="promoted_active_sources",
+    )
+    packed_state = jnp.asarray(context.packed_previous_state, dtype=jnp.float64)
+
+    def qoi(scale):
+        residual = context.residual(packed_state * scale)
+        return jnp.sum(residual)
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    step = 1.0e-5
+    finite_difference = (
+        qoi(jnp.array(1.0 + step)) - qoi(jnp.array(1.0 - step))
+    ) / (2.0 * step)
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(tangent))
+    np.testing.assert_allclose(
+        float(tangent),
+        float(finite_difference),
+        rtol=1.0e-4,
+        atol=1.0e-7,
+    )
+
+
+def test_promoted_active_source_feedback_residual_is_jvp_transformable() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        _species,
+        _prepared,
+        _ion_boundary,
+        _layout,
+        _state,
+        _active_fields,
+    ) = _build_context(
+        _DTHE_INPUT,
+        overrides=_BOUNDED_PROMOTED_DTHE_FEEDBACK_OVERRIDES,
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    context = build_recycling_1d_backward_euler_residual_context(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals={name: 0.0 for name in runtime_model.feedback_names},
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=1.0e-5,
+        evolve_feedback_integrals=True,
         rhs_backend="promoted_active_sources",
     )
     packed_state = jnp.asarray(context.packed_previous_state, dtype=jnp.float64)

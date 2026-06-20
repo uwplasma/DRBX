@@ -6944,6 +6944,38 @@ def _active_sheath_energy_source_field_rhs(
     return field_rhs
 
 
+def _active_feedback_source_field_rhs(
+    feedback_terms: _DensityFeedbackTerms,
+    *,
+    species: dict[str, OpenFieldSpecies],
+    layout: _RecyclingPackedStateLayout,
+) -> dict[str, object]:
+    field_rhs: dict[str, object] = {}
+    for name, sp in species.items():
+        if sp.density_name in layout.field_names:
+            _add_field_rhs_contribution(
+                field_rhs,
+                {
+                    sp.density_name: _active_source_slice(
+                        feedback_terms.density_source[name],
+                        layout=layout,
+                    )
+                },
+            )
+        if sp.pressure_name in layout.field_names:
+            _add_field_rhs_contribution(
+                field_rhs,
+                {
+                    sp.pressure_name: (2.0 / 3.0)
+                    * _active_source_slice(
+                        feedback_terms.energy_source[name],
+                        layout=layout,
+                    )
+                },
+            )
+    return field_rhs
+
+
 def _build_promoted_active_source_recycling_rhs(
     config: BoutConfig,
     *,
@@ -6966,14 +6998,11 @@ def _build_promoted_active_source_recycling_rhs(
     replace the full-field oracle.
     """
 
-    if runtime_model.controllers:
-        raise ValueError(
-            "rhs_backend='promoted_active_sources' does not yet support upstream "
-            "density feedback controllers. Use rhs_backend='active_array' or "
-            "'fixed_full_field_array' for controller cases."
-        )
-    _ = base_feedback_integrals, feedback_previous_errors, feedback_timestep
     state_to_full_fields = _build_fixed_state_to_full_fields(layout)
+    state_to_feedback_integrals = _build_fixed_state_to_feedback_integrals(
+        layout,
+        base_feedback_integrals=base_feedback_integrals,
+    )
     override_species = _build_species_field_overrider(
         runtime_model.species_templates,
         mesh=mesh,
@@ -6989,6 +7018,7 @@ def _build_promoted_active_source_recycling_rhs(
 
     def rhs(state: _RecyclingFixedState) -> _RecyclingFixedState:
         full_fields = state_to_full_fields(state)
+        state_integrals = state_to_feedback_integrals(state)
         species = override_species(full_fields)
         active_fields = _fixed_state_to_field_dict(state, layout=layout)
         prepared, ion_boundary, electron_boundary = _prepare_open_field_states(
@@ -7062,6 +7092,23 @@ def _build_promoted_active_source_recycling_rhs(
                 layout=layout,
             ),
         )
+        feedback_terms = _apply_upstream_density_feedback(
+            species,
+            prepared,
+            controllers=runtime_model.controllers,
+            mesh=mesh,
+            feedback_integrals=state_integrals,
+            feedback_previous_errors=feedback_previous_errors,
+            feedback_timestep=feedback_timestep,
+        )
+        _add_field_rhs_contribution(
+            source_field_rhs,
+            _active_feedback_source_field_rhs(
+                feedback_terms,
+                species=species,
+                layout=layout,
+            ),
+        )
         source_field_rhs.update(
             _active_species_source_override_field_rhs(
                 runtime_model.density_source_overrides,
@@ -7094,6 +7141,17 @@ def _build_promoted_active_source_recycling_rhs(
             state.feedback_values,
         )
         if use_jax_result:
+            feedback_rhs = (
+                jnp.asarray(
+                    [
+                        feedback_terms.feedback_integral_rhs.get(name, 0.0)
+                        for name in layout.feedback_names
+                    ],
+                    dtype=jnp.float64,
+                )
+                if layout.feedback_names
+                else jnp.asarray([], dtype=jnp.float64)
+            )
             return _RecyclingFixedState(
                 field_values=tuple(
                     jnp.asarray(
@@ -7104,8 +7162,19 @@ def _build_promoted_active_source_recycling_rhs(
                         layout.field_names, state.field_values, strict=True
                     )
                 ),
-                feedback_values=jnp.zeros_like(state.feedback_values, dtype=jnp.float64),
+                feedback_values=feedback_rhs,
             )
+        feedback_rhs_np = (
+            np.asarray(
+                [
+                    feedback_terms.feedback_integral_rhs.get(name, 0.0)
+                    for name in layout.feedback_names
+                ],
+                dtype=np.float64,
+            )
+            if layout.feedback_names
+            else np.asarray([], dtype=np.float64)
+        )
         return _RecyclingFixedState(
             field_values=tuple(
                 np.asarray(
@@ -7116,9 +7185,7 @@ def _build_promoted_active_source_recycling_rhs(
                     layout.field_names, state.field_values, strict=True
                 )
             ),
-            feedback_values=np.zeros_like(
-                np.asarray(state.feedback_values, dtype=np.float64)
-            ),
+            feedback_values=feedback_rhs_np,
         )
 
     return rhs
