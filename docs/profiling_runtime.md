@@ -315,6 +315,19 @@ diagnostic lower-bound probe for accepted Newton updates, not as a default or
 publication speedup until long-window fixed-BDF2 and full-output profiles
 improve under the same mode.
 
+A short capped solver-control sweep tested whether the warm one-update profile
+was simply over-solving the linearized Newton correction. Raising
+`runtime:recycling_jax_linear_tolerance_factor` to `100` preserved the same
+one-update residual and reduced the profiler run to `4.53 s`, but the stricter
+two-step fixed-BDF2 promoted-source gate remained essentially unchanged
+(`9.37 s`, residual `4.10e-14`, worst `Pd+` pairwise delta `4.99e-8`).
+Two preconditioner probes were also bounded deliberately: `state_scale` reached
+`4.32 s` and `field_diag` reached `6.12 s` on the one-update profile, but both
+still required five JVP operator calls. The current conclusion is that
+preconditioner/tolerance controls are useful diagnostic knobs, while
+production-window speedup still requires cheaper residual/JVP kernels or fewer
+matrix-free Krylov actions.
+
 A deliberately aggressive `dt=1.0` one-update probe failed on
 `promoted_active_sources`, `active_array`, and `fixed_full_field_array` with
 residuals near `2.73e2`. Treat that as a shared nonlinear/Krylov robustness

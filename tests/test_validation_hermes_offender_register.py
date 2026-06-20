@@ -129,12 +129,72 @@ def test_build_hermes_offender_register_ranks_parity_runtime_and_memory(tmp_path
     assert report["parity_offenders"][0]["case_name"] == "neutral_mixed_one_step"
     assert report["parity_offenders"][0]["component_hint"] == "neutral mixed target-band state history and boundary sequencing"
     assert "source formulas are already closed" in report["parity_offenders"][0]["recommended_next_action"]
+    assert report["actionable_parity_offenders"][0]["case_name"] == (
+        "neutral_mixed_one_step"
+    )
+    assert report["top_offenders"]["actionable_parity"]["case_name"] == (
+        "neutral_mixed_one_step"
+    )
     assert "/Users/" not in json.dumps(report["source_artifacts"], sort_keys=True)
     assert report["runtime_offenders"][0]["case_name"] == "neutral_mixed_one_step"
     assert report["runtime_offenders"][0]["runtime_status"] == "native_slower"
     assert report["memory_offenders"][0]["memory_measurement_status"] == "sampled_process_tree_rss"
     assert report["memory_offenders"][0]["native_to_reference_peak_rss_ratio"] == 3.0
     assert report["top_offenders"]["parity"]["rank"] == 1
+
+
+def test_build_hermes_offender_register_filters_normalization_sensitive_actionables(
+    tmp_path: Path,
+) -> None:
+    live_path = tmp_path / "live.json"
+    comparison_path = tmp_path / "comparison.json"
+    live_path.write_text(
+        json.dumps(
+            {
+                "reference_code": "hermes-3",
+                "case_count": 2,
+                "cases": [
+                    _case(
+                        "near_zero_recycling_one_step",
+                        field="NVd",
+                        rel_l2=0.99,
+                        rel_max=1.2,
+                        abs_error=1.0e-12,
+                        runtime_ratio=1.0,
+                        normalization_sensitive=True,
+                    ),
+                    _case(
+                        "recycling_dthe_one_step",
+                        field="NVd",
+                        rel_l2=0.05,
+                        rel_max=0.06,
+                        abs_error=1.0e-2,
+                        runtime_ratio=3.0,
+                    ),
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    comparison_path.write_text(
+        json.dumps({"reference_code": "hermes-3", "lane_count": 0, "lanes": []}),
+        encoding="utf-8",
+    )
+
+    report = build_hermes_offender_register_report(
+        live_rerun_json=live_path,
+        comparison_summary_json=comparison_path,
+    )
+
+    assert report["parity_offenders"][0]["case_name"] == "near_zero_recycling_one_step"
+    assert report["parity_offenders"][0]["normalization_sensitive"] is True
+    assert report["actionable_parity_offenders"][0]["case_name"] == (
+        "recycling_dthe_one_step"
+    )
+    assert report["top_offenders"]["actionable_parity"]["case_name"] == (
+        "recycling_dthe_one_step"
+    )
 
 
 def test_create_hermes_offender_register_package_writes_json_and_plot(tmp_path: Path) -> None:

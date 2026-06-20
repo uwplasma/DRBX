@@ -697,6 +697,11 @@ What this documents:
   `integrated_2d_recycling_one_step` on near-zero `NVd`, which is explicitly
   flagged as normalization-sensitive because the absolute error is about
   `7.47e-12`;
+- the current top actionable parity offender after filtering those near-zero
+  normalization-sensitive cases:
+  `stellarator_vmec_native_selected_field` on `toroidal_flux`, followed by the
+  traced-field-line selected-field `g33` lane and the D/T/He recycling `NVd`
+  lane;
 - the current top runtime offender: `recycling_dthe_one_step`, pointing to
   sparse Jacobian, residual, pack/unpack, and target-recycling closure
   profiling;
