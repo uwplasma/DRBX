@@ -192,3 +192,46 @@ def grad_par_electron_force_balance_open(
         / (dy[x_slice, y_slice, :] * np.sqrt(g_22[x_slice, y_slice, :]))
     )
     return result
+
+
+def grad_par_electron_force_balance_open_active(
+    field: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> np.ndarray:
+    """Return the active-domain slice of electron force-balance gradient."""
+
+    if use_jax_backend(field):
+        field_array = jnp.asarray(field, dtype=jnp.float64)
+        dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
+        g_22 = jnp.asarray(metrics.g_22, dtype=jnp.float64)
+        x_slice = slice(mesh.xstart, mesh.xend + 1)
+        y_slice = slice(mesh.ystart, mesh.yend + 1)
+        return (
+            0.5
+            * (
+                field_array[x_slice, mesh.ystart + 1 : mesh.yend + 2, :]
+                - field_array[x_slice, mesh.ystart - 1 : mesh.yend, :]
+            )
+            / (dy[x_slice, y_slice, :] * jnp.sqrt(g_22[x_slice, y_slice, :]))
+        )
+
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    g_22 = np.asarray(metrics.g_22, dtype=np.float64)
+    x_slice = slice(mesh.xstart, mesh.xend + 1)
+    y_slice = slice(mesh.ystart, mesh.yend + 1)
+    return (
+        0.5
+        * (
+            np.asarray(
+                field[x_slice, mesh.ystart + 1 : mesh.yend + 2, :],
+                dtype=np.float64,
+            )
+            - np.asarray(
+                field[x_slice, mesh.ystart - 1 : mesh.yend, :],
+                dtype=np.float64,
+            )
+        )
+        / (dy[x_slice, y_slice, :] * np.sqrt(g_22[x_slice, y_slice, :]))
+    )
