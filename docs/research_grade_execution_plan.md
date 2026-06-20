@@ -3714,6 +3714,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   candidate for this output-window route. Preconditioning work should now avoid
   JVP-built dynamic preconditioners unless they demonstrably reduce Krylov
   operator count enough to pay for their build cost.
+- 2026-06-20: Reduced duplicated open-field pressure-gradient stencil work in
+  ion and neutral RHS assembly. The ion and neutral pressure equations need
+  `Grad_par(P)` for parallel pressure advection, and the corresponding momentum
+  equations need the same gradient with opposite sign for the pressure-gradient
+  force. The full-field and active-domain assemblers now compute this gradient
+  once per species and reuse it for both terms. Added an implementation-level
+  regression test that counts one pressure-gradient stencil call per ion or
+  neutral assembler invocation, while the existing full-vs-active and
+  JAX-vs-NumPy/JVP tests preserve equation parity. The strict D/T/He promoted
+  active-source fixed-BDF2 gate passed with unchanged residual/parity, two
+  JAX-GMRES solves, ten operator calls, and warm fixed-BDF2 elapsed `9.559 s`
+  after an expected first-run recompilation outlier. Decision: keep this as a
+  small residual-graph cleanup; it does not close the performance lane because
+  Krylov operator count and overall residual/JVP cost are still the main
+  blockers.
 
 ## Definition Of Done
 

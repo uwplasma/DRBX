@@ -332,7 +332,8 @@ def assemble_ion_rhs_terms(
     density_array = array(ion_state.density, dtype=dtype)
     pressure_array = array(ion_state.pressure, dtype=dtype)
     momentum_error_array = array(ion_state.momentum_error, dtype=dtype)
-    pressure_gradient = -_grad_par_open(pressure_array, mesh=mesh, metrics=metrics)
+    pressure_gradient_raw = _grad_par_open(pressure_array, mesh=mesh, metrics=metrics)
+    pressure_gradient = -pressure_gradient_raw
     density_transport = -_div_par_mod_open(
         density_array,
         ion_velocity_array,
@@ -347,11 +348,7 @@ def assemble_ion_rhs_terms(
         mesh=mesh,
         metrics=metrics,
     )
-    parallel_advection = (2.0 / 3.0) * ion_velocity_array * _grad_par_open(
-        pressure_array,
-        mesh=mesh,
-        metrics=metrics,
-    )
+    parallel_advection = (2.0 / 3.0) * ion_velocity_array * pressure_gradient_raw
     energy_source_term = (2.0 / 3.0) * _source_or_zero(
         energy_source,
         use_jax=use_jax,
@@ -438,11 +435,12 @@ def assemble_ion_active_rhs_terms(
         active_slices=active,
         use_jax=use_jax,
     )
-    pressure_gradient = -_grad_par_open_active(
+    pressure_gradient_raw = _grad_par_open_active(
         pressure_array,
         mesh=mesh,
         metrics=metrics,
     )
+    pressure_gradient = -pressure_gradient_raw
     density_transport = -_div_par_mod_open_active(
         density_array,
         velocity_array,
@@ -457,11 +455,7 @@ def assemble_ion_active_rhs_terms(
         mesh=mesh,
         metrics=metrics,
     )
-    parallel_advection = (2.0 / 3.0) * velocity_array[active] * _grad_par_open_active(
-        pressure_array,
-        mesh=mesh,
-        metrics=metrics,
-    )
+    parallel_advection = (2.0 / 3.0) * velocity_array[active] * pressure_gradient_raw
     energy_source_term = (2.0 / 3.0) * _source_active_or_zero(
         energy_source,
         active_slices=active,
@@ -560,11 +554,8 @@ def assemble_neutral_rhs_terms(
         mesh=mesh,
         metrics=metrics,
     )
-    parallel_advection = (2.0 / 3.0) * velocity_array * _grad_par_open(
-        pressure_array,
-        mesh=mesh,
-        metrics=metrics,
-    )
+    pressure_gradient_raw = _grad_par_open(pressure_array, mesh=mesh, metrics=metrics)
+    parallel_advection = (2.0 / 3.0) * velocity_array * pressure_gradient_raw
     if include_energy_source:
         energy_source_term = (2.0 / 3.0) * _source_or_zero(
             energy_source,
@@ -580,7 +571,7 @@ def assemble_neutral_rhs_terms(
         metrics=metrics,
         fix_flux=False,
     )
-    pressure_gradient = -_grad_par_open(pressure_array, mesh=mesh, metrics=metrics)
+    pressure_gradient = -pressure_gradient_raw
     density_total = density_source_array + density_transport
     pressure_total = explicit_pressure_source_array + parallel_divergence + parallel_advection + energy_source_term
     momentum_total = momentum_advection + pressure_gradient + momentum_source_array + momentum_error_array
@@ -666,11 +657,12 @@ def assemble_neutral_active_rhs_terms(
         mesh=mesh,
         metrics=metrics,
     )
-    parallel_advection = (2.0 / 3.0) * velocity_array[active] * _grad_par_open_active(
+    pressure_gradient_raw = _grad_par_open_active(
         pressure_array,
         mesh=mesh,
         metrics=metrics,
     )
+    parallel_advection = (2.0 / 3.0) * velocity_array[active] * pressure_gradient_raw
     if include_energy_source:
         energy_source_term = (2.0 / 3.0) * _source_active_or_zero(
             energy_source,
@@ -687,11 +679,7 @@ def assemble_neutral_active_rhs_terms(
         metrics=metrics,
         fix_flux=False,
     )
-    pressure_gradient = -_grad_par_open_active(
-        pressure_array,
-        mesh=mesh,
-        metrics=metrics,
-    )
+    pressure_gradient = -pressure_gradient_raw
     momentum_error_array = array(neutral_state.momentum_error, dtype=dtype)[active]
     density_total = density_source_array + density_transport
     pressure_total = (

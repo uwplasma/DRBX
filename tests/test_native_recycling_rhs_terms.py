@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+import jax_drb.native.recycling_rhs_terms as rhs_terms_mod
 from jax_drb.native.mesh import StructuredMesh
 from jax_drb.native.metrics import StructuredMetrics
 from jax_drb.native.recycling_rhs_terms import (
@@ -488,6 +489,103 @@ def test_active_rhs_terms_match_full_field_slices() -> None:
         active_neutral.momentum_total,
         full_neutral.momentum_total[active],
     )
+
+
+def test_ion_and_neutral_rhs_terms_reuse_pressure_gradient_stencil(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mesh, metrics = _multi_y_mesh_and_metrics()
+    active = (
+        slice(mesh.xstart, mesh.xend + 1),
+        slice(mesh.ystart, mesh.yend + 1),
+        slice(None),
+    )
+    shape = (1, mesh.local_ny, 1)
+    state = SimpleNamespace(
+        density=np.full(shape, 2.0, dtype=np.float64),
+        pressure=np.linspace(3.0, 4.0, mesh.local_ny, dtype=np.float64).reshape(shape),
+        momentum_error=np.zeros(shape, dtype=np.float64),
+    )
+    velocity = np.full(shape, 0.25, dtype=np.float64)
+    fastest_wave = np.full(shape, 1.5, dtype=np.float64)
+    call_counts = {"full": 0, "active": 0}
+
+    def fake_grad_par_open(pressure, *, mesh, metrics):
+        del mesh, metrics
+        call_counts["full"] += 1
+        return np.ones_like(pressure, dtype=np.float64)
+
+    def fake_grad_par_open_active(pressure, *, mesh, metrics):
+        del mesh, metrics
+        call_counts["active"] += 1
+        return np.ones_like(pressure[active], dtype=np.float64)
+
+    monkeypatch.setattr(rhs_terms_mod, "_grad_par_open", fake_grad_par_open)
+    monkeypatch.setattr(
+        rhs_terms_mod,
+        "_grad_par_open_active",
+        fake_grad_par_open_active,
+    )
+
+    assemble_ion_rhs_terms(
+        density_source=None,
+        explicit_pressure_source=None,
+        momentum_source=None,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        ion_state=state,
+        ion_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=None,
+    )
+    assert call_counts["full"] == 1
+
+    assemble_neutral_rhs_terms(
+        density_source=None,
+        explicit_pressure_source=None,
+        momentum_source=None,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        neutral_state=state,
+        neutral_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=None,
+    )
+    assert call_counts["full"] == 2
+
+    assemble_ion_active_rhs_terms(
+        density_source=None,
+        explicit_pressure_source=None,
+        momentum_source=None,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        ion_state=state,
+        ion_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=None,
+    )
+    assert call_counts["active"] == 1
+
+    assemble_neutral_active_rhs_terms(
+        density_source=None,
+        explicit_pressure_source=None,
+        momentum_source=None,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        neutral_state=state,
+        neutral_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=None,
+    )
+    assert call_counts["active"] == 2
 
 
 def test_electron_pressure_rhs_terms_are_jax_jvp_transformable() -> None:
