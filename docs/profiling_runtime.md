@@ -304,6 +304,17 @@ post-warmup profile, the one-update solve spent `5.08 s` in JAX-GMRES/JVP,
 Those numbers identify the next performance target as residual/JVP kernel cost
 and Krylov operator count, not Python dictionary assembly.
 
+The profiler also exposes `--line-search-mode {backtracking,full_step}` as a
+first-class equivalent of
+`runtime:recycling_jax_linear_line_search_mode=<mode>`. A matched warm
+`full_step` D/T/He promoted-source probe preserved the residual
+(`1.74e-12`) and removed the measurable line-search time, but the profiled
+solve was effectively unchanged (`8.36 s` versus `8.29 s` for default
+backtracking) with the same five JVP operator calls. Treat `full_step` as a
+diagnostic lower-bound probe for accepted Newton updates, not as a default or
+publication speedup until long-window fixed-BDF2 and full-output profiles
+improve under the same mode.
+
 A deliberately aggressive `dt=1.0` one-update probe failed on
 `promoted_active_sources`, `active_array`, and `fixed_full_field_array` with
 residuals near `2.73e2`. Treat that as a shared nonlinear/Krylov robustness
