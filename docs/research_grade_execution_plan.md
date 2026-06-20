@@ -3704,6 +3704,16 @@ Use this log for concise decision records. Do not paste terminal output here.
   closeout for several tempting switches, not a claimed runtime breakthrough.
   The remaining P2/P8 work is still to reduce residual/JVP kernel cost or
   lower Krylov operator count with a cheaper same-case preconditioner.
+- 2026-06-20: Probed the cheaper dynamic `field_sample_diag` preconditioner on
+  the same strict D/T/He promoted active-source fixed-BDF2 gate after the
+  line-search synchronization cleanup. It preserved residual/parity
+  (`4.10110678e-14`, worst `Pd+` `max_abs_delta=4.99220688e-08`) but still
+  required ten JVP operator calls, added fourteen preconditioner applications,
+  built two sampled diagonals totaling `5.879 s`, and slowed fixed-BDF2 elapsed
+  time to `29.429 s`. Decision: `field_sample_diag` is not a production
+  candidate for this output-window route. Preconditioning work should now avoid
+  JVP-built dynamic preconditioners unless they demonstrably reduce Krylov
+  operator count enough to pay for their build cost.
 
 ## Definition Of Done
 
