@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 import numpy as np
 import jax.numpy as jnp
 
@@ -276,32 +277,107 @@ def override_species_fields(
     fields: dict[str, np.ndarray],
     mesh: StructuredMesh,
 ) -> dict[str, OpenFieldSpecies]:
-    species: dict[str, OpenFieldSpecies] = {}
-    dynamic_values = tuple(
-        fields.get(field_name)
-        for template in species_templates.values()
-        for field_name in (template.density_name, template.pressure_name, template.momentum_name)
-        if field_name in fields
-    )
-    use_jax = use_jax_backend(*dynamic_values)
+    return build_species_field_overrider(species_templates, mesh=mesh)(fields)
 
-    def _array(value):
-        return jnp.asarray(value, dtype=jnp.float64) if use_jax else np.asarray(value, dtype=np.float64)
 
+def build_species_field_overrider(
+    species_templates: dict[str, OpenFieldSpecies],
+    *,
+    mesh: StructuredMesh,
+) -> Callable[[dict[str, np.ndarray]], dict[str, OpenFieldSpecies]]:
+    """Cache static species metadata for repeated field override calls.
+
+    Recycling residuals evaluate the same species layout many times inside
+    Newton/Krylov iterations.  This closure keeps the legacy numerical behavior
+    of :func:`override_species_fields`, but avoids rebuilding field-name lists
+    and static dataclass dictionaries for every residual or JVP evaluation.
+    """
+
+    entries = []
+    dynamic_field_names: list[str] = []
+    dynamic_field_name_set: set[str] = set()
     for name, template in species_templates.items():
-        density = _array(fields.get(template.density_name, template.density))
-        pressure = _array(fields.get(template.pressure_name, template.pressure))
-        momentum = _array(fields.get(template.momentum_name, template.momentum))
-        if template.noflow_lower_y and mesh.has_lower_y_target:
-            density = _array(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False))
-            pressure = _array(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False))
-            momentum = _array(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=True, upper_y=False))
-        if template.noflow_upper_y and mesh.has_upper_y_target:
-            density = _array(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=False, upper_y=True))
-            pressure = _array(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=False, upper_y=True))
-            momentum = _array(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=False, upper_y=True))
-        species[name] = OpenFieldSpecies(**{**template.__dict__, "density": density, "pressure": pressure, "momentum": momentum})
-    return species
+        field_names = (
+            template.density_name,
+            template.pressure_name,
+            template.momentum_name,
+        )
+        for field_name in field_names:
+            if field_name not in dynamic_field_name_set:
+                dynamic_field_names.append(field_name)
+                dynamic_field_name_set.add(field_name)
+        static_kwargs = {
+            key: value
+            for key, value in template.__dict__.items()
+            if key not in {"density", "pressure", "momentum"}
+        }
+        entries.append((name, template, field_names, static_kwargs))
+
+    has_lower_y_target = bool(mesh.has_lower_y_target)
+    has_upper_y_target = bool(mesh.has_upper_y_target)
+
+    def override(fields: dict[str, np.ndarray]) -> dict[str, OpenFieldSpecies]:
+        dynamic_values = tuple(
+            fields[field_name]
+            for field_name in dynamic_field_names
+            if field_name in fields
+        )
+        use_jax = use_jax_backend(*dynamic_values)
+
+        def _array(value):
+            return (
+                jnp.asarray(value, dtype=jnp.float64)
+                if use_jax
+                else np.asarray(value, dtype=np.float64)
+            )
+
+        species: dict[str, OpenFieldSpecies] = {}
+        for name, template, field_names, static_kwargs in entries:
+            density_name, pressure_name, momentum_name = field_names
+            density = _array(fields.get(density_name, template.density))
+            pressure = _array(fields.get(pressure_name, template.pressure))
+            momentum = _array(fields.get(momentum_name, template.momentum))
+            if template.noflow_lower_y and has_lower_y_target:
+                density = _array(
+                    apply_noflow_scalar_guards(
+                        density, mesh=mesh, lower_y=True, upper_y=False
+                    )
+                )
+                pressure = _array(
+                    apply_noflow_scalar_guards(
+                        pressure, mesh=mesh, lower_y=True, upper_y=False
+                    )
+                )
+                momentum = _array(
+                    apply_noflow_flow_guards(
+                        momentum, mesh=mesh, lower_y=True, upper_y=False
+                    )
+                )
+            if template.noflow_upper_y and has_upper_y_target:
+                density = _array(
+                    apply_noflow_scalar_guards(
+                        density, mesh=mesh, lower_y=False, upper_y=True
+                    )
+                )
+                pressure = _array(
+                    apply_noflow_scalar_guards(
+                        pressure, mesh=mesh, lower_y=False, upper_y=True
+                    )
+                )
+                momentum = _array(
+                    apply_noflow_flow_guards(
+                        momentum, mesh=mesh, lower_y=False, upper_y=True
+                    )
+                )
+            species[name] = OpenFieldSpecies(
+                **static_kwargs,
+                density=density,
+                pressure=pressure,
+                momentum=momentum,
+            )
+        return species
+
+    return override
 
 
 def load_density_feedback_controllers(

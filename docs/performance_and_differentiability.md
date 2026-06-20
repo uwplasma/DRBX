@@ -1953,6 +1953,18 @@ For the current release, that distinction is now explicit in the source tree:
 - the measured bottlenecks are still more about solver structure and host
   barriers than about the absence of one extra library.
 
+The latest fixed-layout recycling cleanup caches static species metadata and
+controller-integral layouts inside the residual builder. On the retained
+D/T/He substepped active-array JAX-linearized gate, this preserved the exact
+bounded parity surface (`NVd+ = 1.099e-4`, residual `6.17e-10`) and completed
+in `44.26 s`, effectively unchanged from the preceding cached-template gate.
+This is useful because it removes avoidable Python/object churn from every
+residual and JVP call, but it is not a material performance result. The next
+material speed lane is to express concrete sheath, collision, neutral
+diffusion, recycling-source, and equation-assembly terms directly on
+fixed-layout active arrays so the JAX-linearized residual no longer needs to
+reconstruct full guard-cell species for each Krylov action.
+
 ## Guidance For Users
 
 If you need:
