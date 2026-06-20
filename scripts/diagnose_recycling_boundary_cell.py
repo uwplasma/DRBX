@@ -63,6 +63,11 @@ DEFAULT_ION_TERM_NAMES = (
     "density_source",
     "density_transport",
     "density_total",
+    "explicit_pressure_source",
+    "parallel_divergence",
+    "parallel_advection",
+    "energy_source",
+    "pressure_total",
     "momentum_advection",
     "pressure_gradient",
     "momentum_source",
@@ -70,9 +75,16 @@ DEFAULT_ION_TERM_NAMES = (
 )
 DEFAULT_SOURCE_COMPONENT_NAMES = (
     "reaction_momentum",
+    "reaction_energy",
     "anomalous_momentum",
+    "anomalous_energy",
+    "ion_boundary_energy",
     "collision_momentum",
+    "collision_energy",
     "neutral_diffusion_momentum",
+    "neutral_diffusion_energy",
+    "target_recycling_energy",
+    "feedback_energy",
     "pre_electron_force_momentum",
     "electron_force_delta",
     "final_momentum",
@@ -187,8 +199,11 @@ def _extract_ion_source_components(
     captured: dict[str, dict[str, np.ndarray] | np.ndarray] = {}
     original_reactions = recycling_1d_mod._reaction_sources
     original_anomalous = recycling_1d_mod._apply_anomalous_diffusion
+    original_prepare = recycling_1d_mod._prepare_open_field_states
     original_collisions = recycling_1d_mod._apply_collision_closure
     original_neutral_diffusion = recycling_1d_mod._apply_neutral_parallel_diffusion
+    original_target_recycling = recycling_1d_mod._target_recycling_sources
+    original_feedback = recycling_1d_mod._apply_upstream_density_feedback
     original_electron_force = recycling_1d_mod._assemble_electron_parallel_force_terms
 
     def wrapped_reactions(*args, **kwargs):
@@ -196,6 +211,10 @@ def _extract_ion_source_components(
         captured["reaction_momentum"] = {
             name: np.asarray(value, dtype=np.float64)
             for name, value in terms.momentum_source.items()
+        }
+        captured["reaction_energy"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in terms.energy_source.items()
         }
         return terms
 
@@ -205,7 +224,23 @@ def _extract_ion_source_components(
             name: np.asarray(value, dtype=np.float64)
             for name, value in terms.momentum_source.items()
         }
+        captured["anomalous_energy"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in terms.energy_source.items()
+        }
         return terms
+
+    def wrapped_prepare(*args, **kwargs):
+        prepared, ion_boundary, electron_boundary = original_prepare(*args, **kwargs)
+        captured["ion_boundary_energy"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in ion_boundary.energy_source.items()
+        }
+        captured["electron_boundary_energy"] = np.asarray(
+            electron_boundary.energy_source,
+            dtype=np.float64,
+        )
+        return prepared, ion_boundary, electron_boundary
 
     def wrapped_collisions(*args, **kwargs):
         terms = original_collisions(*args, **kwargs)
@@ -213,6 +248,12 @@ def _extract_ion_source_components(
             name: np.asarray(value, dtype=np.float64)
             for name, value in terms.momentum_source.items()
         }
+        captured["collision_energy"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in terms.energy_source.items()
+        }
+        for diagnostic_name, value in terms.diagnostics.items():
+            captured[diagnostic_name] = np.asarray(value, dtype=np.float64)
         return terms
 
     def wrapped_neutral_diffusion(*args, **kwargs):
@@ -220,6 +261,26 @@ def _extract_ion_source_components(
         captured["neutral_diffusion_momentum"] = {
             name: np.asarray(value, dtype=np.float64)
             for name, value in terms.momentum_source.items()
+        }
+        captured["neutral_diffusion_energy"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in terms.energy_source.items()
+        }
+        return terms
+
+    def wrapped_target_recycling(*args, **kwargs):
+        terms = original_target_recycling(*args, **kwargs)
+        captured["target_recycling_energy"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in terms.energy_source.items()
+        }
+        return terms
+
+    def wrapped_feedback(*args, **kwargs):
+        terms = original_feedback(*args, **kwargs)
+        captured["feedback_energy"] = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in terms.energy_source.items()
         }
         return terms
 
@@ -237,8 +298,11 @@ def _extract_ion_source_components(
     with (
         mock.patch.object(recycling_1d_mod, "_reaction_sources", side_effect=wrapped_reactions),
         mock.patch.object(recycling_1d_mod, "_apply_anomalous_diffusion", side_effect=wrapped_anomalous),
+        mock.patch.object(recycling_1d_mod, "_prepare_open_field_states", side_effect=wrapped_prepare),
         mock.patch.object(recycling_1d_mod, "_apply_collision_closure", side_effect=wrapped_collisions),
         mock.patch.object(recycling_1d_mod, "_apply_neutral_parallel_diffusion", side_effect=wrapped_neutral_diffusion),
+        mock.patch.object(recycling_1d_mod, "_target_recycling_sources", side_effect=wrapped_target_recycling),
+        mock.patch.object(recycling_1d_mod, "_apply_upstream_density_feedback", side_effect=wrapped_feedback),
         mock.patch.object(recycling_1d_mod, "_assemble_electron_parallel_force_terms", side_effect=wrapped_electron_force),
     ):
         recycling_1d_mod._compute_recycling_1d_rhs_from_species(
@@ -263,6 +327,9 @@ def _extract_ion_source_components(
         if isinstance(value, dict) and ion_name in value:
             components[name] = np.asarray(value[ion_name], dtype=np.float64)
         elif isinstance(value, np.ndarray):
+            components[name] = np.asarray(value, dtype=np.float64)
+    for name, value in captured.items():
+        if isinstance(value, np.ndarray):
             components[name] = np.asarray(value, dtype=np.float64)
     return components
 
@@ -424,7 +491,18 @@ def main() -> None:
                 f"  ion {args.ion_name} {term_name}: native={native_value:.12e} "
                 f"reference_eval={reference_value:.12e} diff={native_value - reference_value:.12e}"
             )
-        for component_name in DEFAULT_SOURCE_COMPONENT_NAMES:
+        dynamic_component_names = tuple(
+            name
+            for name in sorted(
+                set(native_source_components) | set(reference_source_components)
+            )
+            if name.startswith(f"E{args.ion_name}")
+            or name.startswith(f"DivPiPar_{args.ion_name}")
+        )
+        source_component_names = tuple(
+            dict.fromkeys((*DEFAULT_SOURCE_COMPONENT_NAMES, *dynamic_component_names))
+        )
+        for component_name in source_component_names:
             if component_name not in native_source_components or component_name not in reference_source_components:
                 continue
             native_value = _cell_value(native_source_components[component_name], cell)
