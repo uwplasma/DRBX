@@ -145,7 +145,11 @@ target-recycling source mapper in
 `fixed_layout_target_recycling_field_rhs`, converts sheath-prepared target
 recycling sources into active neutral density and pressure RHS blocks; full
 sheath-state preparation remains in the recycling orchestrator until that
-boundary path is separately promoted. A second adapter,
+boundary path is separately promoted. The source composition layer in
+[src/jax_drb/native/recycling_active_sources.py](../src/jax_drb/native/recycling_active_sources.py)
+is the first aggregate active-RHS seam: it sums the promoted reaction,
+collision, neutral-diffusion, and target-recycling source maps before they are
+connected to the complete residual. A second adapter,
 `build_fixed_full_field_array_rhs`, stages remaining guard-cell kernels and
 closure terms such as conduction and viscosity through the same fixed-state
 interface while each term is still being migrated to active-array form. New
