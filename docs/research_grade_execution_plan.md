@@ -3744,6 +3744,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   real promoted gate modestly but still does not reduce Krylov operator count,
   so remaining P2/P8 work should continue with fused source/transport kernels
   or a genuinely cheap operator-count-reducing preconditioner.
+- 2026-06-20: Extended the paired `Div_par_mod`/`Div_par_fvv` helper to the
+  active-domain recycling RHS path used by the promoted active-source
+  fixed-BDF2 gate. The new active helper keeps the individual active-slice
+  formulas and `fvv_fix_flux` modes unchanged while sharing limiter edges,
+  metric factors, wave-speed maxima, and target masks between particle
+  advection and parallel inertia. Added NumPy, JAX, active-vs-full-slice, and
+  flux-mode parity tests for the active paired helper; focused operator/RHS
+  tests passed (`24 passed`) and lint passed. The strict D/T/He promoted
+  active-source fixed-BDF2 gate still passed with residual
+  `4.10110678e-14`, worst `Pd+` `max_abs_delta=4.99220688e-08`, two
+  JAX-GMRES solves, ten operator calls, and fixed-BDF2 elapsed `9.375 s`.
+  Decision: keep this as implementation-level graph cleanup and parity
+  hardening, but do not raise performance or preconditioning completion because
+  Krylov operator count and wall time did not improve versus the prior warm
+  gate.
 
 ## Definition Of Done
 
