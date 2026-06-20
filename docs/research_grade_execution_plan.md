@@ -3667,6 +3667,23 @@ Use this log for concise decision records. Do not paste terminal output here.
   performance attempt should target Krylov operator count or fused source/
   transport kernels rather than duplicating the full transport formulas in
   separate active-window functions.
+- 2026-06-20: Probed the existing `neutral_plasma_schur` composite
+  preconditioner on the strict D/T/He promoted active-source fixed-BDF2 gate.
+  The default safety cap rejected the run because the selected plasma-neutral
+  line block has `950` unknowns, larger than the default
+  `max_line_unknowns=512`; rerunning with explicit `1200` caps preserved
+  residual/parity (`4.10110678e-14`, worst `Pd+`
+  `max_abs_delta=4.99220688e-08`) but did not reduce the Krylov budget
+  (`10` operator calls, two solves) and slowed fixed-BDF2 elapsed time to
+  `47.658 s`. The cost was dominated by two dynamic preconditioner builds
+  totaling `23.661 s`, while preconditioner applies were cheap (`0.103 s`).
+  Added fixed-BDF2 comparison gates for maximum preconditioner build/apply
+  seconds so future performance campaigns can reject correct-but-too-slow
+  dynamic preconditioners automatically. Decision: no current line/Schur
+  preconditioner should be promoted for the D/T/He fixed-BDF2 output-window
+  route; the next performance work should either reduce the unpreconditioned
+  residual/JVP kernel cost or use a genuinely cheaper approximate
+  preconditioner that lowers operator count without a large build.
 
 ## Definition Of Done
 

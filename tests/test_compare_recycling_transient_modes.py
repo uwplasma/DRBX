@@ -80,8 +80,12 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "1e-4",
             "--require-fixed-bdf2-max-preconditioner-builds",
             "2",
+            "--require-fixed-bdf2-max-preconditioner-build-seconds",
+            "0.25",
             "--require-fixed-bdf2-max-preconditioner-applies",
             "40",
+            "--require-fixed-bdf2-max-preconditioner-apply-seconds",
+            "0.5",
             "--require-adaptive-bdf-no-fallback",
             "--require-adaptive-bdf-no-unconverged-substeps",
             "--require-adaptive-bdf-linear-preconditioner",
@@ -137,7 +141,9 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.require_fixed_bdf2_max_linear_update_residual == 1.0e-8
     assert args.require_fixed_bdf2_max_linear_update_relative_residual == 1.0e-4
     assert args.require_fixed_bdf2_max_preconditioner_builds == 2
+    assert args.require_fixed_bdf2_max_preconditioner_build_seconds == 0.25
     assert args.require_fixed_bdf2_max_preconditioner_applies == 40
+    assert args.require_fixed_bdf2_max_preconditioner_apply_seconds == 0.5
     assert args.require_adaptive_bdf_no_fallback is True
     assert args.require_adaptive_bdf_no_unconverged_substeps is True
     assert args.require_adaptive_bdf_linear_preconditioner == "parallel-line"
@@ -174,7 +180,9 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert "--require-fixed-bdf2-pairwise-l2-rel-max" in help_text
     assert "--require-fixed-bdf2-pairwise-inventory-rel-max" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-builds" in help_text
+    assert "--require-fixed-bdf2-max-preconditioner-build-seconds" in help_text
     assert "--require-fixed-bdf2-max-preconditioner-applies" in help_text
+    assert "--require-fixed-bdf2-max-preconditioner-apply-seconds" in help_text
     assert "--require-adaptive-bdf-linear-preconditioner" in help_text
     assert "--require-adaptive-bdf-max-linear-update-residual" in help_text
     assert "--require-adaptive-bdf-max-linear-update-relative-residual" in help_text
@@ -1043,7 +1051,9 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
             "fixed_bdf2_max_linear_update_residual_inf_norm": 2.0e-8,
             "fixed_bdf2_max_linear_update_relative_residual": 2.0e-4,
             "fixed_bdf2_total_linear_preconditioner_build_count": 9,
+            "fixed_bdf2_total_linear_preconditioner_build_seconds": 3.5,
             "fixed_bdf2_total_linear_preconditioner_apply_count": 35,
+            "fixed_bdf2_total_linear_preconditioner_apply_seconds": 0.75,
         },
         max_linear_iterations=3200,
         max_residual_evaluations=46,
@@ -1053,7 +1063,9 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
         max_linear_update_residual_inf_norm=1.0e-8,
         max_linear_update_relative_residual=1.0e-4,
         max_preconditioner_builds=2,
+        max_preconditioner_build_seconds=0.5,
         max_preconditioner_applies=30,
+        max_preconditioner_apply_seconds=0.25,
     )
 
     assert errors == [
@@ -1086,8 +1098,16 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
             "preconditioner builds, exceeding 2"
         ),
         (
+            "fixed_bdf2_active_array_jax_linearized reported 3.50000000e+00 "
+            "fixed BDF2 preconditioner build seconds, exceeding 5.00000000e-01"
+        ),
+        (
             "fixed_bdf2_active_array_jax_linearized reported 35 fixed BDF2 "
             "preconditioner applies, exceeding 30"
+        ),
+        (
+            "fixed_bdf2_active_array_jax_linearized reported 7.50000000e-01 "
+            "fixed BDF2 preconditioner apply seconds, exceeding 2.50000000e-01"
         ),
     ]
 

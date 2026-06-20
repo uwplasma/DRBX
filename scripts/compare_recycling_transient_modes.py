@@ -359,6 +359,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-max-preconditioner-build-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_total_linear_preconditioner_build_seconds at or below "
+            "this finite nonnegative ceiling. Pair this with build-count gates "
+            "to reject correct but too-expensive dynamic preconditioners."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-bdf2-max-preconditioner-applies",
         type=int,
         default=None,
@@ -367,6 +378,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "fixed_bdf2_total_linear_preconditioner_apply_count at or below this "
             "value. Pair this with operator-call budgets to reject preconditioners "
             "that are applied frequently without reducing Krylov work."
+        ),
+    )
+    parser.add_argument(
+        "--require-fixed-bdf2-max-preconditioner-apply-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_total_linear_preconditioner_apply_seconds at or below "
+            "this finite nonnegative ceiling."
         ),
     )
     parser.add_argument(
@@ -956,7 +977,9 @@ def _validate_fixed_bdf2_diagnostics(
     max_linear_update_residual_inf_norm: float | None = None,
     max_linear_update_relative_residual: float | None = None,
     max_preconditioner_builds: int | None = None,
+    max_preconditioner_build_seconds: float | None = None,
     max_preconditioner_applies: int | None = None,
+    max_preconditioner_apply_seconds: float | None = None,
 ) -> list[str]:
     errors: list[str] = []
     expected_step_solver = FIXED_BDF2_STEP_SOLVER_MODES[mode]
@@ -1157,6 +1180,16 @@ def _validate_fixed_bdf2_diagnostics(
                 label="fixed BDF2 preconditioner builds",
             )
         )
+    if max_preconditioner_build_seconds is not None:
+        errors.extend(
+            _validate_maximum_float_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_total_linear_preconditioner_build_seconds",
+                maximum=float(max_preconditioner_build_seconds),
+                label="fixed BDF2 preconditioner build seconds",
+            )
+        )
     if max_preconditioner_applies is not None:
         errors.extend(
             _validate_maximum_integer_diagnostic(
@@ -1165,6 +1198,16 @@ def _validate_fixed_bdf2_diagnostics(
                 key="fixed_bdf2_total_linear_preconditioner_apply_count",
                 maximum=int(max_preconditioner_applies),
                 label="fixed BDF2 preconditioner applies",
+            )
+        )
+    if max_preconditioner_apply_seconds is not None:
+        errors.extend(
+            _validate_maximum_float_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_total_linear_preconditioner_apply_seconds",
+                maximum=float(max_preconditioner_apply_seconds),
+                label="fixed BDF2 preconditioner apply seconds",
             )
         )
     return errors
@@ -1593,6 +1636,13 @@ def main() -> int:
         raise ValueError(
             "--require-fixed-bdf2-max-preconditioner-builds must be nonnegative."
         )
+    if args.require_fixed_bdf2_max_preconditioner_build_seconds is not None:
+        value = float(args.require_fixed_bdf2_max_preconditioner_build_seconds)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(
+                "--require-fixed-bdf2-max-preconditioner-build-seconds must be "
+                "finite and nonnegative."
+            )
     if (
         args.require_fixed_bdf2_max_preconditioner_applies is not None
         and int(args.require_fixed_bdf2_max_preconditioner_applies) < 0
@@ -1600,6 +1650,13 @@ def main() -> int:
         raise ValueError(
             "--require-fixed-bdf2-max-preconditioner-applies must be nonnegative."
         )
+    if args.require_fixed_bdf2_max_preconditioner_apply_seconds is not None:
+        value = float(args.require_fixed_bdf2_max_preconditioner_apply_seconds)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(
+                "--require-fixed-bdf2-max-preconditioner-apply-seconds must be "
+                "finite and nonnegative."
+            )
     if args.require_adaptive_bdf_max_linear_update_residual is not None:
         value = float(args.require_adaptive_bdf_max_linear_update_residual)
         if not np.isfinite(value) or value < 0.0:
@@ -1806,8 +1863,14 @@ def main() -> int:
                     max_preconditioner_builds=(
                         args.require_fixed_bdf2_max_preconditioner_builds
                     ),
+                    max_preconditioner_build_seconds=(
+                        args.require_fixed_bdf2_max_preconditioner_build_seconds
+                    ),
                     max_preconditioner_applies=(
                         args.require_fixed_bdf2_max_preconditioner_applies
+                    ),
+                    max_preconditioner_apply_seconds=(
+                        args.require_fixed_bdf2_max_preconditioner_apply_seconds
                     ),
                 )
             )
