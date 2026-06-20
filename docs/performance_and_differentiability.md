@@ -1470,6 +1470,21 @@ subgradient at the clipping point, and the probe passes
 recycling path: the current heavy promoted-source probe has a finite JVP action,
 but it is not yet a promotable end-to-end differentiable BDF default until
 large-step convergence, preconditioning, and runtime gates also pass.
+The subsequent longer-run check found and fixed the same class of issue in the
+full zero-current sheath path. At the accepted four-step D/T/He state, a
+zero-tangent residual map had one nonfinite entry in the electron pressure
+equation at the upper target-adjacent cell. The ion current sum and
+zero-current electron thermal factor now use the finite-JVP square-root helper,
+and update-vector diagnostics separately report
+`diagnostics.linear_update_finite` and `diagnostics.linear_update_inf_norm`.
+With those guards, the hard promoted-source `dt=1.0`, `mesh:ny=100` gate
+converges when the nonlinear budget is raised: a 14-iteration request stopped
+after 13 Newton iterations at residual `1.75e-11` with finite update and
+operator diagnostics. This is the strongest local evidence so far that the
+promoted-source backward-Euler residual is JAX-differentiable on the retained
+large D/T/He recycling case. The remaining issue is cost, not differentiability:
+the same run took about `101.90 s`, 65 matrix-free operator calls, and 34
+residual evaluations on the local CPU.
 
 The same gate now records and gates matrix-free linear-operator calls. The
 generic JAX-linearized solver reports `linear_operator_call_count` and
