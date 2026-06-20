@@ -181,7 +181,6 @@ from .recycling_layout import (
 )
 from .recycling_fixed_residual import (
     RecyclingFixedState as _RecyclingFixedState,
-    build_fixed_array_state_rhs as _build_fixed_array_state_rhs,
     build_fixed_bdf2_residual as _build_fixed_bdf2_residual,
     build_fixed_backward_euler_residual as _build_fixed_backward_euler_residual,
     build_fixed_host_rhs_bridge as _build_fixed_host_rhs_bridge,
@@ -6843,12 +6842,13 @@ def _build_active_array_recycling_rhs(
     """Build the opt-in active-array RHS migration seam.
 
     This backend keeps the validated full-field kernel as the oracle while
-    routing through ``build_fixed_array_rhs``. It gives promoted solver tests a
-    stable active-array surface before individual sheath, neutral, collision,
-    and recycling source terms are moved off guard-cell reconstruction.
+    returning fixed-layout active arrays directly. It gives promoted solver
+    tests a stable active-array surface before individual sheath, neutral,
+    collision, and recycling source terms are moved off guard-cell
+    reconstruction.
     """
 
-    full_field_rhs = _build_fixed_full_field_recycling_rhs(
+    return _build_fixed_full_field_recycling_rhs(
         config,
         runtime_model=runtime_model,
         layout=layout,
@@ -6858,21 +6858,6 @@ def _build_active_array_recycling_rhs(
         mesh=mesh,
         metrics=metrics,
         dataset_scalars=dataset_scalars,
-    )
-
-    def state_rhs(
-        active_fields: dict[str, object], feedback_values: object
-    ) -> _RecyclingFixedState:
-        state = _RecyclingFixedState(
-            field_values=tuple(active_fields[name] for name in layout.field_names),
-            feedback_values=jnp.asarray(feedback_values, dtype=jnp.float64),
-        )
-        return full_field_rhs(state)
-
-    return _build_fixed_array_state_rhs(
-        state_rhs,
-        layout=layout,
-        validate_shapes=False,
     )
 
 

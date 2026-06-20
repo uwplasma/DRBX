@@ -63,12 +63,12 @@ serial same-kernel calls. The retained artifact also checks the reusable
 
 The same profile gate now accepts `--rhs-backend active_array`. That backend is
 not a new physics model; it is the opt-in migration seam that passes the
-validated full-field recycling RHS through the fixed-array state seam,
+validated full-field recycling RHS through the fixed-layout state interface,
 preserving D/T/He backward-Euler and BDF2 residual parity while giving the next
 term-by-term sheath, collision, neutral-diffusion, and target-recycling ports a
-stable active-field surface. Kernels whose field and feedback derivatives share
-the same expensive source evaluation use `build_fixed_array_state_rhs` so the
-coupled RHS is evaluated once per residual call; `build_fixed_array_rhs`
+stable active-field surface. New kernels whose field and feedback derivatives
+share the same expensive source evaluation can use `build_fixed_array_state_rhs`
+so the coupled RHS is evaluated once per residual call; `build_fixed_array_rhs`
 remains the lighter adapter for independent field and feedback terms.
 
 The source-term lane now also has a dedicated accelerator-throughput gate:
@@ -818,9 +818,10 @@ The next non-SciPy output-window promotion lane is
 `fixed_bdf2_active_array_jax_linearized`, with matching `_lineax` variants.
 These modes take a fixed-layout backward-Euler startup step, then fixed-layout
 BDF2 output steps, and evolve controller integrals inside the packed residual
-state. The active-array variants route the same output-window path through
-`build_fixed_array_state_rhs`, avoiding the split field/feedback callback used
-by the earlier migration adapter. They are still opt-in research gates; they
+state. The active-array variants route the same output-window path through the
+direct fixed-state RHS interface, avoiding the split field/feedback callback and
+the extra field-dictionary wrapper used by earlier migration adapters. They are
+still opt-in research gates; they
 exist to measure JAX-linearized full-output behavior without the `solve_ivp`
 callback barrier before any default solver change. The promotion gate now also
 rejects unconverged steps, unknown convergence status, failed inner linear

@@ -3111,6 +3111,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   path. The next useful performance implementation is a structural reduction
   in residual/JVP work, fewer internal subsolves at fixed parity, or a
   genuinely Krylov-effective block/transport preconditioner.
+- 2026-06-19: Removed the redundant active-array wrapper in
+  `_build_active_array_recycling_rhs`. The previous path built the validated
+  full-field fixed-state RHS, converted the fixed state to a field dictionary
+  through `build_fixed_array_state_rhs`, and immediately reconstructed the same
+  fixed state before calling the full-field RHS. The new path returns the
+  full-field fixed-state RHS directly while preserving
+  `rhs_backend="active_array"` diagnostics and the same fixed-layout residual
+  contract. Focused active-array tests pass (`4` fixed-residual tests, `7`
+  history tests, `2` recycling-1D routing tests), and the same D/T/He
+  substepped full-field gate remains parity-clean: worst `NVd+` delta
+  `1.099e-4`, residual `6.17e-10`, eight internal JAX-GMRES solves, and
+  `44.40 s` elapsed versus the retained `44.43 s`. Decision: keep the cleanup
+  as reduced residual-path complexity, not a promoted speedup; the next
+  performance improvement must eliminate full-field reconstruction, reduce
+  internal substeps at fixed parity, or lower Krylov work.
 
 ## Definition Of Done
 

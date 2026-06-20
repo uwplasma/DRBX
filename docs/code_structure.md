@@ -106,12 +106,13 @@ linearized solves. The same module owns both migration adapters. The
 host-oracle bridge reconstructs full guard-cell fields and
 controller-integral dictionaries, calls the current packed RHS, and returns a
 fixed-state RHS for parity against the D/T/He Hermès recycling deck. The
-active-array RHS adapter is the production-facing lane for new ports: it takes
-active-domain field dictionaries and controller scalars directly, returns
-fixed-layout RHS arrays, and is JVP-tested without rebuilding full-field
-dictionaries. Coupled kernels that compute field and controller-feedback
-derivatives from the same source evaluation use `build_fixed_array_state_rhs`
-to return a complete `RecyclingFixedState` in one pass. A second adapter,
+active-array transient backend is the production-facing lane for new ports: it
+uses the same fixed-state interface as the full-field bridge, returns
+fixed-layout RHS arrays directly, and is JVP-tested without repacking through
+the older field/feedback split callback. Coupled kernels that compute field
+and controller-feedback derivatives from the same source evaluation can use
+`build_fixed_array_state_rhs` to return a complete `RecyclingFixedState` in one
+pass. A second adapter,
 `build_fixed_full_field_array_rhs`, stages guard-cell kernels and closure terms
 such as collision friction/heat exchange, neutral parallel diffusion, and
 target recycling through the same fixed-state interface while each term is
