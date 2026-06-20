@@ -613,6 +613,61 @@ def test_active_source_assembly_inserts_neutral_sources_once() -> None:
     )
 
 
+def test_active_source_assembly_deferred_sources_match_full_scatter() -> None:
+    (
+        _config,
+        mesh,
+        metrics,
+        _scalars,
+        runtime_model,
+        species,
+        prepared,
+        ion_boundary,
+        layout,
+        _state,
+        _active_fields,
+    ) = _build_context(_HYDROGEN_INPUT)
+    active_shape = layout.active_shape
+    source_count = int(np.prod(active_shape))
+    source_field_rhs = {
+        "Nd": np.linspace(0.1, 0.3, source_count, dtype=np.float64).reshape(active_shape),
+        "Pd": np.linspace(0.2, 0.5, source_count, dtype=np.float64).reshape(active_shape),
+        "NVd": np.linspace(-0.4, 0.4, source_count, dtype=np.float64).reshape(active_shape),
+    }
+
+    deferred = assemble_fixed_layout_recycling_field_rhs_from_sources(
+        source_field_rhs=source_field_rhs,
+        layout=layout,
+        species=species,
+        prepared=prepared,
+        ion_velocity=ion_boundary.velocity,
+        mesh=mesh,
+        metrics=metrics,
+        explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+        defer_active_source_scatter=True,
+    )
+    scattered = assemble_fixed_layout_recycling_field_rhs_from_sources(
+        source_field_rhs=source_field_rhs,
+        layout=layout,
+        species=species,
+        prepared=prepared,
+        ion_velocity=ion_boundary.velocity,
+        mesh=mesh,
+        metrics=metrics,
+        explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+        defer_active_source_scatter=False,
+    )
+
+    assert deferred.keys() == scattered.keys()
+    for name in deferred:
+        np.testing.assert_allclose(
+            np.asarray(deferred[name]),
+            np.asarray(scattered[name]),
+            rtol=1.0e-12,
+            atol=1.0e-12,
+        )
+
+
 def test_active_source_assembly_is_jvp_transformable() -> None:
     jax = pytest.importorskip("jax")
     jnp = pytest.importorskip("jax.numpy")

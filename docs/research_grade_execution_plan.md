@@ -3621,6 +3621,20 @@ Use this log for concise decision records. Do not paste terminal output here.
   assembly in `_assemble_fixed_layout_recycling_field_rhs_from_sources`, or
   build a physics preconditioner that demonstrably lowers Krylov operator calls
   on this exact gate.
+- 2026-06-20: Reduced the promoted active-source RHS graph by deferring
+  additive source scatter until after full-field transport and force-balance
+  stencils are evaluated. The new default path avoids full-field
+  zero/scatter/slice operations for density, pressure, and non-electron
+  momentum sources, with an automatic fallback when an electron momentum source
+  would modify `E_parallel` before ion momentum assembly. Added an explicit
+  deferred-vs-full-scatter parity test and retained the active-source JVP gate
+  (`15 passed`). The strict D/T/He promoted fixed-BDF2 campaign still passes
+  with residual `4.10110678e-14`, worst pairwise `Pd+`
+  `max_abs_delta=4.99220688e-08`, two JAX-GMRES solves, and ten operator calls.
+  Warm fixed-BDF2 elapsed time was `8.97 s`, comparable to the previous best,
+  so this is a residual-graph simplification and parity-preserving cleanup, not
+  yet a performance-lane completion. Remaining runtime work must reduce
+  residual/JVP kernel cost further or lower Krylov operator count.
 
 ## Definition Of Done
 

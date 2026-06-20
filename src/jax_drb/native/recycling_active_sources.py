@@ -162,6 +162,7 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
     metrics: StructuredMetrics,
     explicit_pressure_sources: Mapping[str, np.ndarray] | None = None,
     pressure_source_override_names: tuple[str, ...] = (),
+    defer_active_source_scatter: bool = True,
 ) -> dict[str, np.ndarray]:
     """Insert active source blocks into the existing open-field RHS assembly.
 
@@ -169,6 +170,14 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
     entries are inserted directly, while pressure entries are converted back to
     internal energy sources using ``Q = 3 P_rhs / 2`` because the pressure
     equation receives ``(2/3) Q``.
+
+    By default additive source entries are kept on the active layout until the
+    final active RHS has been assembled.  This avoids repeated full-field
+    zero/scatter/slice operations in the JAX-linearized residual path while
+    preserving the same full-field transport and force-balance stencils.  The
+    function falls back to full scattering when an electron momentum source is
+    present, because that term changes the parallel electric field before ion
+    momentum sources are assembled.
     """
 
     unknown_fields = set(source_field_rhs) - set(layout.field_names)
@@ -189,6 +198,13 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
     )
     array = jnp.asarray if use_jax else np.asarray
     dtype = jnp.float64 if use_jax else np.float64
+    defer_sources = bool(defer_active_source_scatter) and _can_defer_source_scatter(
+        source_field_rhs,
+        species=species,
+    )
+    scattered_source_rhs: Mapping[str, np.ndarray] = (
+        {} if defer_sources else source_field_rhs
+    )
 
     density_source: dict[str, np.ndarray] = {}
     energy_source: dict[str, np.ndarray] = {}
@@ -196,20 +212,20 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
     for name, sp in species.items():
         template = prepared[name].density
         density_source[name] = _full_source_from_field_rhs(
-            source_field_rhs.get(sp.density_name),
+            scattered_source_rhs.get(sp.density_name),
             template=template,
             layout=layout,
             use_jax=use_jax,
         )
         pressure_rhs = _full_source_from_field_rhs(
-            source_field_rhs.get(sp.pressure_name),
+            scattered_source_rhs.get(sp.pressure_name),
             template=template,
             layout=layout,
             use_jax=use_jax,
         )
         energy_source[name] = 1.5 * pressure_rhs
         momentum_source[name] = _full_source_from_field_rhs(
-            source_field_rhs.get(sp.momentum_name),
+            scattered_source_rhs.get(sp.momentum_name),
             template=template,
             layout=layout,
             use_jax=use_jax,
@@ -300,7 +316,81 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
         _set_active_if_layout_field(assembled, neutral.pressure_name, terms.pressure_total, layout)
         _set_active_if_layout_field(assembled, neutral.momentum_name, terms.momentum_total, layout)
 
+    if defer_sources:
+        _add_deferred_active_source_rhs(
+            assembled,
+            source_field_rhs,
+            layout=layout,
+            species=species,
+            use_jax=use_jax,
+            pressure_source_override_names=tuple(pressure_override_names),
+        )
+
     return assembled
+
+
+def _can_defer_source_scatter(
+    source_field_rhs: Mapping[str, np.ndarray],
+    *,
+    species: Mapping[str, OpenFieldSpecies],
+) -> bool:
+    """Return whether active sources can be added after full stencil assembly."""
+
+    electron = species.get("e")
+    if electron is None:
+        return True
+    return electron.momentum_name not in source_field_rhs
+
+
+def _add_deferred_active_source_rhs(
+    assembled: dict[str, np.ndarray],
+    source_field_rhs: Mapping[str, np.ndarray],
+    *,
+    layout: RecyclingPackedStateLayout,
+    species: Mapping[str, OpenFieldSpecies],
+    use_jax: bool,
+    pressure_source_override_names: tuple[str, ...] = (),
+) -> None:
+    pressure_overrides = frozenset(pressure_source_override_names)
+    for species_name, sp in species.items():
+        _add_deferred_field_source(
+            assembled,
+            sp.density_name,
+            source_field_rhs.get(sp.density_name),
+            layout=layout,
+            use_jax=use_jax,
+        )
+        if not (sp.charge == 0.0 and species_name in pressure_overrides):
+            _add_deferred_field_source(
+                assembled,
+                sp.pressure_name,
+                source_field_rhs.get(sp.pressure_name),
+                layout=layout,
+                use_jax=use_jax,
+            )
+        _add_deferred_field_source(
+            assembled,
+            sp.momentum_name,
+            source_field_rhs.get(sp.momentum_name),
+            layout=layout,
+            use_jax=use_jax,
+        )
+
+
+def _add_deferred_field_source(
+    assembled: dict[str, np.ndarray],
+    field_name: str,
+    value: np.ndarray | None,
+    *,
+    layout: RecyclingPackedStateLayout,
+    use_jax: bool,
+) -> None:
+    if value is None or field_name not in layout.field_names:
+        return
+    source = _active_source_from_field_rhs(value, layout=layout, use_jax=use_jax)
+    assembled[field_name] = (
+        source if field_name not in assembled else assembled[field_name] + source
+    )
 
 
 def _active_rate_slices(
@@ -329,6 +419,26 @@ def _full_rate_dict_or_none(
     if not all(tuple(value.shape) == full_shape for value in rates.values()):
         return None
     return dict(rates)
+
+
+def _active_source_from_field_rhs(
+    value: np.ndarray,
+    *,
+    layout: RecyclingPackedStateLayout,
+    use_jax: bool,
+) -> np.ndarray:
+    array = jnp.asarray if use_jax else np.asarray
+    dtype = jnp.float64 if use_jax else np.float64
+    source = array(value, dtype=dtype)
+    if tuple(source.shape) == tuple(layout.active_shape):
+        return source
+    full_shape = tuple(layout.field_templates[0].shape)
+    if tuple(source.shape) == full_shape:
+        return source[layout.active_slices]
+    raise ValueError(
+        f"Source RHS shape {tuple(source.shape)} does not match active shape "
+        f"{tuple(layout.active_shape)} or full shape {full_shape}."
+    )
 
 
 def _full_source_from_field_rhs(
