@@ -61,6 +61,8 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
             "10",
             "--line-search-initial-step-scale",
             "0.25",
+            "--line-search-mode",
+            "full_step",
             "--line-search-min-step-scale",
             "0.001",
             "--require-max-linear-iterations",
@@ -104,6 +106,7 @@ def test_parser_accepts_preconditioner_and_budget_gates() -> None:
     assert args.linear_maxiter == 20
     assert args.linear_tolerance_factor == 10.0
     assert args.line_search_initial_step_scale == 0.25
+    assert args.line_search_mode == "full_step"
     assert args.line_search_min_step_scale == 0.001
     assert args.require_linear_preconditioner == "local_block_diag"
     assert args.require_initial_residual_mode == "linearize"
@@ -156,6 +159,7 @@ def test_help_documents_preconditioner_and_budget_gates(
     assert "--linear-maxiter" in help_text
     assert "--linear-tolerance-factor" in help_text
     assert "--line-search-initial-step-scale" in help_text
+    assert "--line-search-mode" in help_text
     assert "--active-array-rhs" in help_text
     assert "--rhs-backend" in help_text
     assert "--require-linear-preconditioner" in help_text
@@ -194,6 +198,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
         linear_maxiter=10,
         linear_tolerance_factor=2.5,
         line_search_initial_step_scale=0.25,
+        line_search_mode="full_step",
         line_search_min_step_scale=0.001,
     )
 
@@ -209,6 +214,7 @@ def test_effective_overrides_append_linear_preconditioner_controls() -> None:
         "runtime:recycling_jax_linear_maxiter=10",
         "runtime:recycling_jax_linear_tolerance_factor=2.5",
         "runtime:recycling_jax_linear_line_search_initial_step_scale=0.25",
+        "runtime:recycling_jax_linear_line_search_mode=full_step",
         "runtime:recycling_jax_linear_line_search_min_step_scale=0.001",
         "runtime:recycling_jax_linear_preconditioner=local_block_diag",
         "runtime:recycling_jax_linear_preconditioner_refresh=100",
@@ -339,6 +345,7 @@ def test_validate_args_rejects_invalid_preconditioner_controls() -> None:
             "linear_maxiter": None,
             "linear_tolerance_factor": None,
             "line_search_initial_step_scale": None,
+            "line_search_mode": None,
             "line_search_min_step_scale": None,
             "require_max_linear_iterations": None,
             "require_max_residual_inf_norm": None,

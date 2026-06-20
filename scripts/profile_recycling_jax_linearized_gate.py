@@ -233,6 +233,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--line-search-mode",
+        choices=("backtracking", "full_step"),
+        default=None,
+        help=(
+            "Forward runtime:recycling_jax_linear_line_search_mode=<mode>. "
+            "Use full_step only as an explicit diagnostic or robustness probe; "
+            "the default production path remains backtracking."
+        ),
+    )
+    parser.add_argument(
         "--line-search-min-step-scale",
         type=float,
         default=None,
@@ -725,6 +735,14 @@ def _effective_overrides(args: argparse.Namespace) -> list[str]:
             "runtime:recycling_jax_linear_line_search_initial_step_scale="
             f"{scale:.17g}"
         )
+    line_search_mode = getattr(args, "line_search_mode", None)
+    if line_search_mode is not None:
+        mode = str(line_search_mode).strip().lower().replace("-", "_")
+        if mode not in {"backtracking", "full_step"}:
+            raise ValueError(
+                "line_search_mode must be 'backtracking' or 'full_step'."
+            )
+        overrides.append(f"runtime:recycling_jax_linear_line_search_mode={mode}")
     line_search_min_step_scale = getattr(args, "line_search_min_step_scale", None)
     if line_search_min_step_scale is not None:
         scale = float(line_search_min_step_scale)

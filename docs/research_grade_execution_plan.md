@@ -3820,6 +3820,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   jitted campaign for future performance evidence; the next code work should
   reduce residual/JVP kernel cost or Krylov operator count, not optimize around
   cold compilation artifacts.
+- 2026-06-20: Promoted recycling line-search mode selection to a first-class
+  profiler option. `scripts/profile_recycling_jax_linearized_gate.py` now
+  accepts `--line-search-mode {backtracking,full_step}` instead of requiring a
+  raw BOUT override for this solver-control probe. A matched warm D/T/He
+  `promoted_active_sources` run with `full_step` preserved residual
+  `1.74087479e-12`, one nonlinear update, one JAX-GMRES solve, and five
+  operator calls, but the profiled solve was neutral-to-slightly-slower
+  (`8.36 s` versus `8.29 s` for default backtracking). It reduced sampled RSS
+  slightly (`347.80 MiB` versus `361.52 MiB`) and removed line-search work, but
+  did not reduce residual/JVP kernel cost or Krylov count. Decision: keep
+  default backtracking; retain `full_step` as a reproducible diagnostic
+  lower-bound probe only.
 
 ## Definition Of Done
 
