@@ -5,7 +5,11 @@ import pytest
 
 from jax_drb.native.mesh import StructuredMesh
 from jax_drb.native.metrics import StructuredMetrics
-from jax_drb.native.neutral_mixed_operators import div_par_fvv_open, div_par_mod_open
+from jax_drb.native.neutral_mixed_operators import (
+    div_par_fvv_open,
+    div_par_mod_and_fvv_open,
+    div_par_mod_open,
+)
 
 
 def _mesh_and_metrics() -> tuple[StructuredMesh, StructuredMetrics]:
@@ -114,6 +118,87 @@ def test_parallel_inertia_jax_branch_matches_numpy_for_both_flux_modes() -> None
             fix_flux=fix_flux,
         )
         np.testing.assert_allclose(np.asarray(jax_result), numpy_result, rtol=1.0e-12, atol=1.0e-12)
+
+
+@pytest.mark.parametrize("fvv_fix_flux", [True, False])
+def test_paired_parallel_advection_and_inertia_match_individual_operators(
+    fvv_fix_flux: bool,
+) -> None:
+    mesh, metrics = _mesh_and_metrics()
+    field, velocity, wave_speed = _sample_fields(mesh)
+    inertia_density = 1.0 + 0.25 * field
+
+    paired_advection, paired_inertia = div_par_mod_and_fvv_open(
+        field,
+        inertia_density,
+        velocity,
+        wave_speed,
+        mesh=mesh,
+        metrics=metrics,
+        fvv_fix_flux=fvv_fix_flux,
+    )
+
+    np.testing.assert_allclose(
+        paired_advection,
+        div_par_mod_open(field, velocity, wave_speed, mesh=mesh, metrics=metrics),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        paired_inertia,
+        div_par_fvv_open(
+            inertia_density,
+            velocity,
+            wave_speed,
+            mesh=mesh,
+            metrics=metrics,
+            fix_flux=fvv_fix_flux,
+        ),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
+@pytest.mark.parametrize("fvv_fix_flux", [True, False])
+def test_paired_parallel_advection_and_inertia_jax_branch_matches_numpy(
+    fvv_fix_flux: bool,
+) -> None:
+    jnp = pytest.importorskip("jax.numpy")
+    mesh, metrics = _mesh_and_metrics()
+    field, velocity, wave_speed = _sample_fields(mesh)
+    inertia_density = 1.0 + 0.25 * field
+
+    numpy_advection, numpy_inertia = div_par_mod_and_fvv_open(
+        field,
+        inertia_density,
+        velocity,
+        wave_speed,
+        mesh=mesh,
+        metrics=metrics,
+        fvv_fix_flux=fvv_fix_flux,
+    )
+    jax_advection, jax_inertia = div_par_mod_and_fvv_open(
+        jnp.asarray(field),
+        jnp.asarray(inertia_density),
+        jnp.asarray(velocity),
+        jnp.asarray(wave_speed),
+        mesh=mesh,
+        metrics=metrics,
+        fvv_fix_flux=fvv_fix_flux,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(jax_advection),
+        numpy_advection,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(jax_inertia),
+        numpy_inertia,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
 
 
 def test_parallel_advection_jvp_matches_centered_finite_difference() -> None:
