@@ -3891,6 +3891,23 @@ Use this log for concise decision records. Do not paste terminal output here.
   operator-count-reducing physics preconditioner; the immediate priority shifts
   back to Hermès parity, traced-field-line geometry metrics, and production
   validation lanes.
+- 2026-06-20: Reopened the top actionable D/T/He recycling parity lane with
+  focused local Hermès diagnostics rather than a broad rerun. The neutral
+  transient diagnostic on `recycling_dthe_one_step`, `timestep=25`, and native
+  `bdf` shows charged density/pressure/electron fields are already tight
+  (`Nd`, `Pd`, `Nd+`, `Pd+`, and `Pe` below the `1e-3 .. 4e-3` state-error
+  band), while significant errors remain in `NVd`, `NVd+`, `ddt(NVd)`,
+  `ddt(NVd+)`, `SNVd`, and especially `SNVd+`. Collision and charge-exchange
+  force diagnostics are tight to roundoff or small absolute levels, so the
+  next fix should not retune collision tables. The boundary-cell split at the
+  upper target-adjacent cells confirms target recycling is tight
+  (`Sd_target_recycle` diff about `-6.23e-6` at the worst target cell),
+  density source/transport and pressure gradient are tight, but the `d+`
+  momentum source differs by about `-4.38e-3` and the momentum total by about
+  `-5.28e-3` at `(0, 51, 0)`. Decision: the next D/T/He parity patch should
+  target near-target ion/neutral momentum-source state/history sequencing and
+  source evaluation timing, not target recycling, density transport, pressure
+  gradient, or collision/CX coefficients.
 
 ## Definition Of Done
 
