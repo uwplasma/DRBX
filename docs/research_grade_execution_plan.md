@@ -3855,6 +3855,13 @@ Use this log for concise decision records. Do not paste terminal output here.
   `recycling_dthe_one_step` on `NVd`. Decision: the next parity/3D work should
   start from selected-field geometry construction and then D/T/He recycling,
   not from near-zero `NVd` normalization-sensitive cases.
+- 2026-06-20: Propagated selected-field source provenance into the reduced
+  Hermès comparison summary and offender register. The current top actionable
+  VMEC selected-field offender is confirmed as `source_mode=explicit_pair`
+  with `candidate_origin=provided_external_input`, so it remains actionable.
+  Synthetic-preview selected-field lanes now carry `diagnostic_preview=true`
+  and are filtered out of `actionable_parity_offenders` until replaced by
+  explicit reference/candidate inputs.
 
 ## Definition Of Done
 
