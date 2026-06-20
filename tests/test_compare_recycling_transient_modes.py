@@ -658,6 +658,7 @@ def test_fixed_bdf2_diagnostics_gate_accepts_jax_linearized_route() -> None:
             "fixed_bdf2_bdf2_steps": 1,
             "fixed_bdf2_evolve_feedback_integrals": True,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
     )
 
@@ -677,6 +678,7 @@ def test_fixed_bdf2_diagnostics_gate_accepts_lineax_route() -> None:
             "fixed_bdf2_bdf2_steps": 1,
             "fixed_bdf2_evolve_feedback_integrals": True,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
     )
 
@@ -768,6 +770,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_wrong_linear_backend() -> None:
             "fixed_bdf2_evolve_feedback_integrals": True,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
             "fixed_bdf2_linear_solver_backend": "jax_gmres",
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
         required_linear_solver_backend="bicgstab",
     )
@@ -793,6 +796,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_missing_jitted_linear_operator() ->
             "fixed_bdf2_evolve_feedback_integrals": True,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
             "fixed_bdf2_linear_operator_jitted_steps": 1,
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
         require_linear_operator_jitted=True,
     )
@@ -818,6 +822,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_wrong_line_search_mode() -> None:
             "fixed_bdf2_evolve_feedback_integrals": True,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
             "fixed_bdf2_line_search_mode": "backtracking",
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
         required_line_search_mode="full_step",
     )
@@ -843,6 +848,7 @@ def test_fixed_bdf2_diagnostics_gate_accepts_active_array_lineax_route() -> None
             "fixed_bdf2_bdf2_steps": 1,
             "fixed_bdf2_evolve_feedback_integrals": True,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-11,
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
     )
 
@@ -864,6 +870,7 @@ def test_fixed_bdf2_diagnostics_gate_rejects_unhealthy_solver_status() -> None:
             "fixed_bdf2_unknown_convergence_solver_steps": 1,
             "fixed_bdf2_linear_solver_failed_steps": 1,
             "fixed_bdf2_max_residual_inf_norm": 1.0e-2,
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
         max_residual_inf_norm=1.0e-5,
     )
@@ -889,6 +896,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_fallback_route() -> None:
             "fixed_bdf2_bdf2_steps": 0,
             "fixed_bdf2_evolve_feedback_integrals": False,
             "fixed_bdf2_max_residual_inf_norm": "nan",
+            "fixed_bdf2_total_linear_solve_count": 0,
         },
     )
 
@@ -902,6 +910,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_fallback_route() -> None:
         "fixed_bdf2_jax_linearized_lineax did not report any accepted fixed BDF2 intervals",
         "fixed_bdf2_jax_linearized_lineax did not report any actual fixed BDF2 corrector steps",
         "fixed_bdf2_jax_linearized_lineax did not report a finite fixed BDF2 residual norm",
+        "fixed_bdf2_jax_linearized_lineax reported 0 fixed BDF2 linear solve attempts, below 1",
     ]
 
 
@@ -920,6 +929,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_missing_preconditioner() -> None:
             "fixed_bdf2_linear_preconditioner": None,
             "fixed_bdf2_total_linear_preconditioner_build_count": 0,
             "fixed_bdf2_total_linear_preconditioner_build_seconds": float("nan"),
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
         required_linear_preconditioner="parallel-line",
     )
@@ -955,6 +965,7 @@ def test_fixed_bdf2_diagnostics_gate_accepts_sheath_line_alias() -> None:
             "fixed_bdf2_linear_preconditioner": "sheath_line",
             "fixed_bdf2_total_linear_preconditioner_build_count": 1,
             "fixed_bdf2_total_linear_preconditioner_build_seconds": 0.0,
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
         required_linear_preconditioner="target-sheath",
     )
@@ -977,6 +988,7 @@ def test_fixed_bdf2_diagnostics_gate_accepts_static_field_scale_without_builds()
             "fixed_bdf2_linear_preconditioner": "field_scale",
             "fixed_bdf2_total_linear_preconditioner_build_count": 0,
             "fixed_bdf2_total_linear_preconditioner_build_seconds": 0.0,
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
         required_linear_preconditioner="field-scale",
     )
@@ -999,6 +1011,7 @@ def test_fixed_bdf2_diagnostics_gate_accepts_target_schur_alias() -> None:
             "fixed_bdf2_linear_preconditioner": "target_schur",
             "fixed_bdf2_total_linear_preconditioner_build_count": 1,
             "fixed_bdf2_total_linear_preconditioner_build_seconds": 0.0,
+            "fixed_bdf2_total_linear_solve_count": 2,
         },
         required_linear_preconditioner="sheath-schur",
     )

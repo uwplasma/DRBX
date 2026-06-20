@@ -225,7 +225,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
             "the expected fixed-layout RHS backend, JAX-linearized Jacobian "
-            "actions, and packed feedback-integral evolution."
+            "actions, packed feedback-integral evolution, and at least one "
+            "fixed-BDF2 linear solve attempt."
         ),
     )
     parser.add_argument(
@@ -1091,6 +1092,16 @@ def _validate_fixed_bdf2_diagnostics(
                 diagnostics,
                 key="fixed_bdf2_total_linear_solve_count",
                 minimum=int(min_linear_solve_count),
+                label="fixed BDF2 linear solve attempts",
+            )
+        )
+    else:
+        errors.extend(
+            _validate_minimum_integer_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_total_linear_solve_count",
+                minimum=1,
                 label="fixed BDF2 linear solve attempts",
             )
         )

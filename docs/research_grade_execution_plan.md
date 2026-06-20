@@ -3336,13 +3336,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   `PYTHONPATH=src pytest -q tests/test_compare_recycling_transient_modes.py tests/test_native_recycling_active_sources.py tests/test_recycling_jvp_promotion_gate.py tests/test_profile_recycling_jax_linearized_gate.py`
   (`91 passed`), and
   `PYTHONPATH=src ruff check scripts/compare_recycling_transient_modes.py tests/test_compare_recycling_transient_modes.py`.
-  A two-output-window lightweight D/T/He production gate also passed:
+  A two-output-window lightweight D/T/He route check also passed under the
+  then-current diagnostics:
   `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case recycling_dthe_one_step --reference-root tests/fixtures/reference-root --mode bdf --mode fixed_bdf2_promoted_active_sources_jax_linearized --diagnostics-only --timestep 1e-6 --steps 2 --max-nonlinear-iterations 4 --field Nd+ --field Pd+ --field Pe --require-fixed-bdf2-diagnostics --require-fixed-bdf2-max-residual 1e-4 --mode-timeout-seconds 120 --output-json /tmp/jax_drb_promoted_active_sources_gate.json`.
-  The run exercised one startup step plus one BDF2 corrector, reported two
-  promoted active-source RHS steps, and matched stable BDF with worst checked
-  `max_abs_delta=1.16191501e-11` on `Pd+`. Decision: the promoted backend now
-  has a public opt-in production-window gate; next work is heavier-window
-  parity/profiling and runtime reduction before any default-promotion decision.
+  The run exercised one startup step plus one BDF2 corrector and reported two
+  promoted active-source RHS steps, but the later stricter 2026-06-20 gate
+  reclassifies this `dt=1e-6` case as route-only evidence because it performs
+  zero nonlinear iterations and zero linear solves. Decision: the promoted
+  backend has a public opt-in output-window route; nontrivial production-window
+  promotion evidence must use the stricter solve-attempt gate below.
 - 2026-06-19: Extended `scripts/profile_recycling_jax_linearized_gate.py` with
   a first-class `--rhs-backend` selector covering `fixed_full_field_array`,
   `active_array`, and `promoted_active_sources`, while retaining
@@ -3553,6 +3555,27 @@ Use this log for concise decision records. Do not paste terminal output here.
   convergence gates pass. Added `--require-converged` to the profiling harness
   so future performance/scaling artifacts cannot pass when they are merely fast
   and finite but not nonlinearly converged.
+- 2026-06-20: Tightened the output-window fixed-BDF2 promotion gate so
+  `--require-fixed-bdf2-diagnostics` now rejects no-work matrix-free evidence
+  unless the mode reports at least one fixed-BDF2 linear solve attempt. This
+  makes the ordinary diagnostics gate consistent with the later performance
+  gates: route correctness, accepted BDF2 intervals, finite residuals, and a
+  nontrivial JAX-linearized solve must all be present before a fixed-layout
+  output-window run can be counted as promotion evidence. Focused validation
+  passed with
+  `PYTHONPATH=src pytest -q tests/test_compare_recycling_transient_modes.py`
+  (`49 passed`) and
+  `PYTHONPATH=src pytest -q tests/test_recycling_jvp_promotion_gate.py tests/test_research_campaign_bundle.py -q`
+  (`44 passed`). The old `dt=1e-6` promoted-source fixed-BDF2 route now fails
+  the stricter diagnostics exactly because it reports zero linear solves. The
+  nontrivial replacement gate passed:
+  `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case recycling_dthe_one_step --reference-root tests/fixtures/reference-root --mode bdf --mode fixed_bdf2_promoted_active_sources_jax_linearized --diagnostics-only --timestep 1e-4 --steps 2 --max-nonlinear-iterations 4 --field Nd+ --field Pd+ --field Pe --require-fixed-bdf2-diagnostics --require-fixed-bdf2-max-residual 1e-4 --mode-timeout-seconds 180 --output-json /tmp/jax_drb_promoted_active_sources_gate_strict_dt1e4.json`.
+  It reported two nonlinear iterations, two JAX-GMRES linear solves, ten
+  JAX-linearized operator calls, residual `4.10110678e-14`, and stable-BDF
+  pairwise worst `Pd+` max delta `4.99220688e-08`. Decision: future fixed-BDF2
+  recycling artifacts cannot be promoted from a residual-check/no-solve path;
+  the next solver pass should reduce the cost of those nontrivial solves rather
+  than relaxing evidence criteria.
 
 ## Definition Of Done
 
