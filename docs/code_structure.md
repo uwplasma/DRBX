@@ -145,7 +145,12 @@ target-recycling source mapper in
 `fixed_layout_target_recycling_field_rhs`, converts sheath-prepared target
 recycling sources into active neutral density and pressure RHS blocks; full
 sheath-state preparation remains in the recycling orchestrator until that
-boundary path is separately promoted. The source composition layer in
+boundary path is separately promoted. The gradient collision-transport seam in
+[src/jax_drb/native/recycling_collision_closure.py](../src/jax_drb/native/recycling_collision_closure.py),
+`fixed_layout_collision_transport_field_rhs_from_prepared`, maps electron/ion
+thermal forces, ion-ion thermal forces, parallel ion viscosity, and parallel
+thermal conduction from sheath/no-flow-prepared fields into active pressure and
+momentum RHS blocks. The source composition layer in
 [src/jax_drb/native/recycling_active_sources.py](../src/jax_drb/native/recycling_active_sources.py)
 is the first aggregate active-RHS seam: it sums the promoted reaction,
 collision, neutral-diffusion, and target-recycling source maps before they are
@@ -159,12 +164,12 @@ bounded opt-in residual backend in
 through the backward-Euler, BDF2, and adaptive-BDF fixed residual builders for
 bounded cases with or without upstream density-feedback integrals in the
 implicit state. That backend is a migration and profiling gate, not the stable
-default: remaining full-field transport closures and broad production-window
-parity still use the full-field oracle path. A second adapter,
+default: broad production-window parity and runtime/performance gates still use
+the full-field oracle path. A second adapter,
 `build_fixed_full_field_array_rhs`, stages remaining guard-cell kernels and
-closure terms such as conduction and viscosity through the same fixed-state
-interface while each term is still being migrated to active-array form. New
-source, collision, diffusion, target, and sheath terms should enter through
+operator families through the same fixed-state interface while each term is
+still being migrated to active-array form. New source, collision, diffusion,
+target, and sheath terms should enter through
 one of those adapters before being promoted into the full transient solve. The
 current sheath extraction
 follows that rule: no-flow electron preparation,
