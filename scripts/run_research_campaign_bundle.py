@@ -218,7 +218,7 @@ def _campaign_command_map(
             name="dthe-promoted-active-sources-profile-gate",
             description=(
                 "D/T/He promoted active-source recycling residual cProfile/RSS "
-                "gate through the JAX-linearized profiling seam."
+                "Newton/JVP gate through the JAX-linearized profiling seam."
             ),
             command=(
                 python_executable,
@@ -239,15 +239,25 @@ def _campaign_command_map(
                 "--override",
                 "mesh:ny=100",
                 "--timestep",
-                "1e-6",
-                "--residual-tolerance",
                 "1e-4",
+                "--residual-tolerance",
+                "1e-6",
                 "--max-nonlinear-iterations",
                 "1",
+                "--initial-residual-mode",
+                "linearize",
+                "--require-initial-residual-mode",
+                "linearize",
                 "--timed-runs",
                 "1",
+                "--require-min-nonlinear-iterations",
+                "1",
+                "--require-min-linear-solve-count",
+                "1",
+                "--require-min-linear-operator-calls",
+                "1",
                 "--require-max-residual-inf-norm",
-                "1e-4",
+                "1e-6",
                 "--cprofile-top",
                 "35",
                 "--rss-profile",

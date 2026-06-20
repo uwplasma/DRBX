@@ -54,7 +54,10 @@ Use the promoted active-source D/T/He profile gate after changing reaction,
 collision, neutral-diffusion, target-recycling, feedback, or source-composition
 kernels in the promoted recycling residual. This gate records cProfile and RSS
 evidence for the opt-in `promoted_active_sources` backend without changing the
-stable default solver:
+stable default solver. It is intentionally nontrivial: the profile uses
+`dt=1e-4`, obtains the initial residual from the first linearization, and
+requires at least one nonlinear iteration, one JAX-GMRES solve, one
+matrix-free operator call, and residual closure below `1e-6`.
 
 ```bash
 python scripts/run_research_campaign_bundle.py \

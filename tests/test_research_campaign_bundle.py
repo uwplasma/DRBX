@@ -501,15 +501,30 @@ def _assert_dthe_promoted_active_sources_profile_command(command) -> None:
         "promoted_active_sources"
     )
     assert "mesh:ny=100" in command.command
-    assert command.command[command.command.index("--timestep") + 1] == "1e-6"
+    assert command.command[command.command.index("--timestep") + 1] == "1e-4"
     assert command.command[command.command.index("--residual-tolerance") + 1] == (
-        "1e-4"
+        "1e-6"
     )
     assert command.command[command.command.index("--max-nonlinear-iterations") + 1] == (
         "1"
     )
+    assert command.command[command.command.index("--initial-residual-mode") + 1] == (
+        "linearize"
+    )
+    assert command.command[
+        command.command.index("--require-initial-residual-mode") + 1
+    ] == "linearize"
+    assert command.command[
+        command.command.index("--require-min-nonlinear-iterations") + 1
+    ] == "1"
+    assert command.command[
+        command.command.index("--require-min-linear-solve-count") + 1
+    ] == "1"
+    assert command.command[
+        command.command.index("--require-min-linear-operator-calls") + 1
+    ] == "1"
     assert command.command[command.command.index("--require-max-residual-inf-norm") + 1] == (
-        "1e-4"
+        "1e-6"
     )
     assert command.command[command.command.index("--cprofile-top") + 1] == "35"
     assert "--rss-profile" in command.command
