@@ -5,6 +5,8 @@
     "all_reports_passed": false,
     "axis_progression_passed": false,
     "diagnostic": "essos_imported_drb_movie_refinement",
+    "dominant_failed_metrics": [],
+    "failed_metric_reports": [],
     "map_source_consistent": false,
     "max_relative_metric_change": null,
     "metric_keys": [
@@ -18,10 +20,12 @@
       "spectral_edge_band_power_fraction",
       "final_potential_residual_l2"
     ],
+    "near_tolerance_failed_metric_reports": [],
     "pair_reports": [],
     "passed": false,
     "reason": "need_at_least_two_grid_reports",
     "refinement_axis": "grid",
+    "refinement_recommendations": [],
     "relative_tolerance": 0.3,
     "report_count": 1,
     "spectral_resolution_passed": false,
@@ -34,12 +38,46 @@
     "movie_time_refinement_not_passed",
     "need_at_least_two_time_reports"
   ],
+  "next_campaign_suggestion": {
+    "claim_scope": "planning aid only; suggested settings are not validation evidence until the regenerated refinement summary passes",
+    "current_effective_frame_dt": null,
+    "current_finest_grid": null,
+    "current_finest_grid_cell_count": null,
+    "current_potential_iterations": null,
+    "diagnostic": "essos_imported_drb_movie_next_campaign_suggestion",
+    "dominant_grid_blockers": [],
+    "dominant_time_blockers": [],
+    "grid_refinement_passed_current": false,
+    "max_total_cells": null,
+    "near_tolerance_grid_blockers": [],
+    "near_tolerance_time_blockers": [],
+    "potential_solve_action": "no_potential_residual_blocker",
+    "publication_ready_current": false,
+    "recommendation_notes": [
+      "at least two grid reports are required before suggesting a grid"
+    ],
+    "recommended_potential_iterations": null,
+    "recommended_time_effective_frame_dt_values": [],
+    "suggested_grid_fits_cell_budget": null,
+    "suggested_grid_multiplier": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "suggested_grid_shapes": [],
+    "suggested_next_grid": null,
+    "suggested_next_grid_cell_count": null,
+    "time_refinement_action": "no_time_refinement_reports_available",
+    "time_refinement_passed_current": false
+  },
   "publication_ready": false,
   "relative_tolerance": 0.3,
   "time_refinement_diagnostics": {
     "all_reports_passed": false,
     "axis_progression_passed": false,
     "diagnostic": "essos_imported_drb_movie_refinement",
+    "dominant_failed_metrics": [],
+    "failed_metric_reports": [],
     "map_source_consistent": false,
     "max_relative_metric_change": null,
     "metric_keys": [
@@ -53,10 +91,12 @@
       "spectral_edge_band_power_fraction",
       "final_potential_residual_l2"
     ],
+    "near_tolerance_failed_metric_reports": [],
     "pair_reports": [],
     "passed": false,
     "reason": "need_at_least_two_time_reports",
     "refinement_axis": "time",
+    "refinement_recommendations": [],
     "relative_tolerance": 0.3,
     "report_count": 1,
     "spectral_resolution_passed": false,
