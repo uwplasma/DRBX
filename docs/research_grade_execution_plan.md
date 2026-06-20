@@ -3433,6 +3433,25 @@ Use this log for concise decision records. Do not paste terminal output here.
   Decision: do not use requested Newton budget as evidence of actual nonlinear
   work; the next solver change should target globalization/stagnation handling
   and residual scaling for large-output-window recycling steps.
+- 2026-06-19: Reran the 3D imported-field evidence gates locally after the
+  solver-profile work. The focused ESSOS/imported-field pytest slice passed:
+  `PYTHONPATH=src pytest -q tests/test_essos_fieldline_import.py -k 'connection_length_refinement or drb_movie_refinement or artifact_schema'`
+  (`27 passed, 13 deselected`). The manufactured connection-length refinement
+  example passed with `promotion_ready=true`, observed order `1.785`,
+  RMS error `6.71e-3`, and \(L_\infty\) error `1.14e-2`. The committed
+  restored movie-refinement summary was refreshed to the current schema and
+  still records `publication_ready=false` because it only contains one
+  grid/time report. Fresh report-only hybrid movie refinement campaigns in
+  `/tmp` gave the following progression: compact `(3,4,8)->(4,6,12)` failed
+  both grid and time refinement because spectral edge content and radial flux
+  were not stable; `(4,6,12)->(8,12,24)` with Jacobi potential solve passed
+  time refinement but failed grid refinement on radial flux and toroidal
+  spectral centroid; `(8,12,24)->(16,24,48)` again passed time refinement and
+  removed the radial-flux blockers, leaving only toroidal spectral-centroid
+  movement with suggested next grid `(16,24,96)`. Decision: the 3D movie lane
+  is not publication-ready until an anisotropic toroidal-resolution refinement
+  pass closes the spectral-centroid blocker; current media remain showcase or
+  validation-development artifacts, not final turbulence evidence.
 
 ## Definition Of Done
 
