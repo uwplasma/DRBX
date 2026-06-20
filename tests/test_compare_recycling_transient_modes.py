@@ -70,6 +70,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "46",
             "--require-fixed-bdf2-max-linear-operator-calls",
             "128",
+            "--require-fixed-bdf2-min-linear-operator-calls",
+            "10",
             "--require-fixed-bdf2-min-linear-solve-count",
             "2",
             "--require-fixed-bdf2-max-linear-update-residual",
@@ -130,6 +132,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.require_fixed_bdf2_max_linear_iterations == 3600
     assert args.require_fixed_bdf2_max_residual_evaluations == 46
     assert args.require_fixed_bdf2_max_linear_operator_calls == 128
+    assert args.require_fixed_bdf2_min_linear_operator_calls == 10
     assert args.require_fixed_bdf2_min_linear_solve_count == 2
     assert args.require_fixed_bdf2_max_linear_update_residual == 1.0e-8
     assert args.require_fixed_bdf2_max_linear_update_relative_residual == 1.0e-4
@@ -713,6 +716,7 @@ def test_fixed_bdf2_diagnostics_gate_accepts_active_array_route() -> None:
         required_line_search_mode="full",
         max_linear_iterations=3600,
         max_linear_operator_calls=128,
+        min_linear_operator_calls=10,
         min_linear_solve_count=2,
         max_preconditioner_builds=2,
     )
@@ -750,6 +754,7 @@ def test_fixed_bdf2_diagnostics_gate_accepts_promoted_active_sources_route() -> 
         required_line_search_mode="full",
         max_linear_iterations=3600,
         max_linear_operator_calls=128,
+        min_linear_operator_calls=10,
         min_linear_solve_count=2,
         max_preconditioner_builds=2,
     )
@@ -1034,7 +1039,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
             "fixed_bdf2_total_linear_iterations": 3600,
             "fixed_bdf2_total_residual_evaluation_count": 47,
             "fixed_bdf2_total_linear_solve_count": 1,
-            "fixed_bdf2_total_linear_operator_call_count": 512,
+            "fixed_bdf2_total_linear_operator_call_count": 0,
             "fixed_bdf2_max_linear_update_residual_inf_norm": 2.0e-8,
             "fixed_bdf2_max_linear_update_relative_residual": 2.0e-4,
             "fixed_bdf2_total_linear_preconditioner_build_count": 9,
@@ -1043,6 +1048,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
         max_linear_iterations=3200,
         max_residual_evaluations=46,
         max_linear_operator_calls=128,
+        min_linear_operator_calls=10,
         min_linear_solve_count=2,
         max_linear_update_residual_inf_norm=1.0e-8,
         max_linear_update_relative_residual=1.0e-4,
@@ -1060,8 +1066,8 @@ def test_fixed_bdf2_diagnostics_gate_reports_performance_budget_failures() -> No
             "residual evaluations, exceeding 46"
         ),
         (
-            "fixed_bdf2_active_array_jax_linearized reported 512 fixed BDF2 "
-            "linear operator calls, exceeding 128"
+            "fixed_bdf2_active_array_jax_linearized reported 0 fixed BDF2 "
+            "linear operator calls, below 10"
         ),
         (
             "fixed_bdf2_active_array_jax_linearized reported 1 fixed BDF2 "

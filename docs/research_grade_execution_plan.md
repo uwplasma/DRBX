@@ -3582,7 +3582,8 @@ Use this log for concise decision records. Do not paste terminal output here.
   the manual workflow option list, and locked the command with unit tests. The
   campaign requires the promoted active-source route, stable-BDF pairwise
   comparison, JIT-wrapped JAX-GMRES, at least two linear solves, at most four
-  residual evaluations, at most twelve linear-operator calls, and
+  residual evaluations, between ten and twelve instrumented linear-operator
+  calls, and
   `fixed_bdf2_max_residual_inf_norm <= 1e-4`. The local wrapper command passed
   against `tests/fixtures/reference-root` in `10.4 s` and wrote
   `/tmp/jax_drb_promoted_fixed_bdf2_campaign/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_promoted_active_sources_cpu/profile_summary.json`.
@@ -3593,6 +3594,20 @@ Use this log for concise decision records. Do not paste terminal output here.
   a reproducible nontrivial output-window campaign; next P2/P8 work should
   reduce the remaining linear-solve cost and then extend the same campaign
   pattern to longer/heavier windows before default promotion.
+- 2026-06-20: Hardened the fixed-BDF2 diagnostics gate with
+  `--require-fixed-bdf2-min-linear-operator-calls` and added that requirement
+  to `dthe-fixed-bdf2-promoted-active-sources-gate`. A production-style
+  `runtime:recycling_jax_linear_operator_counting=direct` probe preserved
+  residual/parity but reported zero Python-visible operator calls and was
+  slower on the fixture (`11.36 s` fixed-BDF2 elapsed), so it must remain a
+  profiling mode rather than promotion evidence. Decision: fixed-BDF2
+  research-campaign gates must now prove both accepted linear solves and
+  instrumented JVP/linear-map work; no-count performance probes are useful only
+  when paired with a separate instrumented evidence run. Validation:
+  `dthe-fixed-bdf2-promoted-active-sources-gate` passed locally with ten
+  operator calls and residual `4.10110678e-14`, while the same command with
+  `runtime:recycling_jax_linear_operator_counting=direct` failed as intended on
+  `0 fixed BDF2 linear operator calls, below 10`.
 
 ## Definition Of Done
 

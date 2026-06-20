@@ -305,6 +305,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--require-fixed-bdf2-min-linear-operator-calls",
+        type=int,
+        default=None,
+        help=(
+            "Fail unless every requested fixed_bdf2_*jax_linearized mode reports "
+            "fixed_bdf2_total_linear_operator_call_count at or above this value. "
+            "Use this with instrumented counting when a gate must prove that the "
+            "matrix-free JVP/linear-map path was actually exercised."
+        ),
+    )
+    parser.add_argument(
         "--require-fixed-bdf2-min-linear-solve-count",
         type=int,
         default=None,
@@ -940,6 +951,7 @@ def _validate_fixed_bdf2_diagnostics(
     max_linear_iterations: int | None = None,
     max_residual_evaluations: int | None = None,
     max_linear_operator_calls: int | None = None,
+    min_linear_operator_calls: int | None = None,
     min_linear_solve_count: int | None = None,
     max_linear_update_residual_inf_norm: float | None = None,
     max_linear_update_relative_residual: float | None = None,
@@ -1082,6 +1094,16 @@ def _validate_fixed_bdf2_diagnostics(
                 diagnostics,
                 key="fixed_bdf2_total_linear_operator_call_count",
                 maximum=int(max_linear_operator_calls),
+                label="fixed BDF2 linear operator calls",
+            )
+        )
+    if min_linear_operator_calls is not None:
+        errors.extend(
+            _validate_minimum_integer_diagnostic(
+                mode,
+                diagnostics,
+                key="fixed_bdf2_total_linear_operator_call_count",
+                minimum=int(min_linear_operator_calls),
                 label="fixed BDF2 linear operator calls",
             )
         )
@@ -1537,6 +1559,13 @@ def main() -> int:
             "--require-fixed-bdf2-max-linear-operator-calls must be nonnegative."
         )
     if (
+        args.require_fixed_bdf2_min_linear_operator_calls is not None
+        and int(args.require_fixed_bdf2_min_linear_operator_calls) < 0
+    ):
+        raise ValueError(
+            "--require-fixed-bdf2-min-linear-operator-calls must be nonnegative."
+        )
+    if (
         args.require_fixed_bdf2_min_linear_solve_count is not None
         and int(args.require_fixed_bdf2_min_linear_solve_count) < 0
     ):
@@ -1761,6 +1790,9 @@ def main() -> int:
                     ),
                     max_linear_operator_calls=(
                         args.require_fixed_bdf2_max_linear_operator_calls
+                    ),
+                    min_linear_operator_calls=(
+                        args.require_fixed_bdf2_min_linear_operator_calls
                     ),
                     min_linear_solve_count=(
                         args.require_fixed_bdf2_min_linear_solve_count

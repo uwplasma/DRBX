@@ -560,6 +560,9 @@ def _assert_dthe_fixed_bdf2_promoted_active_sources_command(command) -> None:
         command.command.index("--require-fixed-bdf2-max-linear-operator-calls") + 1
     ] == "12"
     assert command.command[
+        command.command.index("--require-fixed-bdf2-min-linear-operator-calls") + 1
+    ] == "10"
+    assert command.command[
         command.command.index("--require-fixed-bdf2-pairwise-max") + 1
     ] == "1e-6"
     assert command.command[command.command.index("--timestep") + 1] == "1e-4"

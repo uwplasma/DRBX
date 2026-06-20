@@ -295,6 +295,8 @@ def _campaign_command_map(
                 "4",
                 "--require-fixed-bdf2-max-linear-operator-calls",
                 "12",
+                "--require-fixed-bdf2-min-linear-operator-calls",
+                "10",
                 "--require-fixed-bdf2-pairwise-max",
                 "1e-6",
                 "--field",
