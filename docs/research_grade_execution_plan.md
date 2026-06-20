@@ -3576,6 +3576,23 @@ Use this log for concise decision records. Do not paste terminal output here.
   recycling artifacts cannot be promoted from a residual-check/no-solve path;
   the next solver pass should reduce the cost of those nontrivial solves rather
   than relaxing evidence criteria.
+- 2026-06-20: Promoted the stricter D/T/He promoted-active-source fixed-BDF2
+  output-window check into the research-campaign bundle as
+  `dthe-fixed-bdf2-promoted-active-sources-gate`, exposed it in `all-local` and
+  the manual workflow option list, and locked the command with unit tests. The
+  campaign requires the promoted active-source route, stable-BDF pairwise
+  comparison, JIT-wrapped JAX-GMRES, at least two linear solves, at most four
+  residual evaluations, at most twelve linear-operator calls, and
+  `fixed_bdf2_max_residual_inf_norm <= 1e-4`. The local wrapper command passed
+  against `tests/fixtures/reference-root` in `10.4 s` and wrote
+  `/tmp/jax_drb_promoted_fixed_bdf2_campaign/runtime_profile_artifacts/recycling_dthe_fixed_bdf2_promoted_active_sources_cpu/profile_summary.json`.
+  The measured promoted-source fixed-BDF2 solve took `8.854 s`, reported two
+  nonlinear iterations, two JAX-GMRES linear solves, ten operator calls,
+  residual `4.10110678e-14`, and stable-BDF pairwise worst `Pd+`
+  `max_abs_delta=4.99220688e-08`. Decision: the promoted source backend now has
+  a reproducible nontrivial output-window campaign; next P2/P8 work should
+  reduce the remaining linear-solve cost and then extend the same campaign
+  pattern to longer/heavier windows before default promotion.
 
 ## Definition Of Done
 
