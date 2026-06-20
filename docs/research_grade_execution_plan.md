@@ -3157,6 +3157,23 @@ Use this log for concise decision records. Do not paste terminal output here.
   next performance lane must port concrete source, sheath, collision,
   neutral-diffusion, and equation-assembly terms to direct active-array
   kernels so residual/JVP work no longer reconstructs full guard-cell species.
+- 2026-06-19: Promoted the first concrete D/T/He physics term into the
+  active-array residual seam. `fixed_layout_dthe_reaction_terms_from_active_fields`
+  now evaluates ionisation, recombination, and D/T charge exchange directly on
+  active-domain `N`, `P`, and `NV` field blocks with no guard-cell
+  reconstruction, and `fixed_layout_dthe_reaction_field_rhs_from_active_fields`
+  maps those pointwise sources into density, pressure, and momentum field-RHS
+  contributions. Validation compares the active helper against the full
+  dictionary D/T/He reaction path on active fixture slices, checks missing
+  active-field diagnostics, and proves the mapped field RHS can run through
+  `build_fixed_array_rhs`. Tests passed:
+  `PYTHONPATH=src pytest -q tests/test_native_recycling_reactions.py`
+  (`23 passed`) and the fixed-residual active-reaction slice (`4 passed`).
+  Decision: this is the first term-level active-array port, not a default
+  full-solver promotion. The next terms to port are neutral diffusion,
+  collision closure, sheath/target recycling, and final open-field transport
+  assembly so the full fixed-layout residual can stop calling the full-field
+  species RHS.
 
 ## Definition Of Done
 

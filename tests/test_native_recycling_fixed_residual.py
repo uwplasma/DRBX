@@ -34,6 +34,9 @@ from jax_drb.native.recycling_fixed_residual import (
     solve_fixed_residual_linearized_update,
     unpack_fixed_state,
 )
+from jax_drb.native.recycling_reactions import (
+    fixed_layout_dthe_reaction_field_rhs_from_active_fields,
+)
 import jax_drb.native.recycling_fixed_residual as fixed_residual_mod
 from jax_drb.native.recycling_layout import (
     build_recycling_packed_state_layout,
@@ -262,6 +265,45 @@ def test_fixed_array_rhs_only_allocates_zero_defaults_for_missing_fields(
     np.testing.assert_allclose(np.asarray(result.field_values[0]), np.asarray([2.0]))
     np.testing.assert_allclose(np.asarray(result.field_values[1]), np.asarray([0.0]))
     assert zero_shapes == [(1,)]
+
+
+def test_fixed_array_rhs_accepts_active_dthe_reaction_field_terms() -> None:
+    config, _, _, scalars, runtime_model, fields, feedback_integrals, layout = (
+        _dthe_fixture_context()
+    )
+    state = fixed_state_from_fields(
+        fields,
+        feedback_integrals=feedback_integrals,
+        layout=layout,
+    )
+
+    def reaction_rhs(active_fields, _feedback):
+        return fixed_layout_dthe_reaction_field_rhs_from_active_fields(
+            config,
+            active_fields=active_fields,
+            species=runtime_model.species_templates,
+            dataset_scalars=scalars,
+        )
+
+    rhs = build_fixed_array_rhs(reaction_rhs, layout=layout)
+    result = rhs(state)
+    direct_rhs = reaction_rhs(
+        {
+            name: value
+            for name, value in zip(layout.field_names, state.field_values, strict=True)
+        },
+        state.feedback_values,
+    )
+
+    for name, value in zip(layout.field_names, result.field_values, strict=True):
+        np.testing.assert_allclose(
+            np.asarray(value),
+            np.asarray(direct_rhs[name]),
+        )
+    np.testing.assert_allclose(
+        np.asarray(result.feedback_values),
+        np.zeros_like(np.asarray(state.feedback_values)),
+    )
 
 
 def test_fixed_array_state_rhs_evaluates_shared_kernel_once() -> None:

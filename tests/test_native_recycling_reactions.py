@@ -20,7 +20,9 @@ from jax_drb.native.recycling_reactions import (
     amjuel_recombination,
     charge_exchange,
     charge_exchange_collision_rates,
+    fixed_layout_dthe_reaction_field_rhs_from_active_fields,
     fixed_layout_dthe_reaction_sources,
+    fixed_layout_dthe_reaction_terms_from_active_fields,
     fixed_layout_hydrogen_reaction_sources,
     is_charge_exchange_reaction,
     neutral_charge_exchange_collision_rates,
@@ -89,6 +91,42 @@ def _small_scalars() -> dict[str, float]:
 
 def _stack_species_fields(species: dict[str, SimpleNamespace], names: tuple[str, ...], field_name: str) -> np.ndarray:
     return np.stack([np.asarray(getattr(species[name], field_name), dtype=np.float64) for name in names], axis=0)
+
+
+def _active_slices(mesh):
+    return (
+        slice(mesh.xstart, mesh.xend + 1),
+        slice(mesh.ystart, mesh.yend + 1),
+        slice(None),
+    )
+
+
+def _dthe_active_fields(species, active_slices) -> dict[str, object]:
+    atom_names = ("d", "t", "he")
+    ion_names = ("d+", "t+", "he+")
+    active_fields = {
+        species[name].density_name: jnp.asarray(
+            species[name].density[active_slices], dtype=jnp.float64
+        )
+        for name in (*atom_names, *ion_names)
+    }
+    active_fields.update(
+        {
+            species[name].pressure_name: jnp.asarray(
+                species[name].pressure[active_slices], dtype=jnp.float64
+            )
+            for name in (*atom_names, *ion_names, "e")
+        }
+    )
+    active_fields.update(
+        {
+            species[name].momentum_name: jnp.asarray(
+                species[name].momentum[active_slices], dtype=jnp.float64
+            )
+            for name in (*atom_names, *ion_names)
+        }
+    )
+    return active_fields
 
 
 def _single_species_reaction_config():
@@ -459,6 +497,107 @@ def test_fixed_layout_dthe_reaction_sources_match_dictionary_path() -> None:
     np.testing.assert_allclose(fixed_terms.electron_density_source, dictionary_terms.density_source["e"])
     np.testing.assert_allclose(fixed_terms.electron_energy_source, dictionary_terms.energy_source["e"])
     np.testing.assert_allclose(fixed_terms.electron_momentum_source, dictionary_terms.momentum_source["e"])
+
+
+def test_fixed_layout_dthe_active_reaction_terms_match_dictionary_active_slice() -> None:
+    config = load_bout_input(_INPUT_DTHE)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    species = _initialize_species(config, mesh=mesh)
+    atom_names = ("d", "t", "he")
+    ion_names = ("d+", "t+", "he+")
+    electron_density = sum(species[name].density for name in ion_names)
+    scalars = resolved_dataset_scalars(run_config)
+    active_slices = _active_slices(mesh)
+    active_fields = _dthe_active_fields(species, active_slices)
+
+    dictionary_terms = reaction_sources(
+        config,
+        species=species,
+        electron_density=electron_density,
+        dataset_scalars=scalars,
+    )
+    active_terms = fixed_layout_dthe_reaction_terms_from_active_fields(
+        config,
+        active_fields=active_fields,
+        species=species,
+        dataset_scalars=scalars,
+    )
+
+    for name in (*atom_names, *ion_names, "e"):
+        np.testing.assert_allclose(
+            np.asarray(active_terms.density_source[name]),
+            np.asarray(dictionary_terms.density_source[name][active_slices]),
+        )
+        np.testing.assert_allclose(
+            np.asarray(active_terms.energy_source[name]),
+            np.asarray(dictionary_terms.energy_source[name][active_slices]),
+        )
+        np.testing.assert_allclose(
+            np.asarray(active_terms.momentum_source[name]),
+            np.asarray(dictionary_terms.momentum_source[name][active_slices]),
+        )
+
+
+def test_fixed_layout_dthe_active_reaction_field_rhs_matches_source_mapping() -> None:
+    config = load_bout_input(_INPUT_DTHE)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    species = _initialize_species(config, mesh=mesh)
+    atom_names = ("d", "t", "he")
+    ion_names = ("d+", "t+", "he+")
+    electron_density = sum(species[name].density for name in ion_names)
+    scalars = resolved_dataset_scalars(run_config)
+    active_slices = _active_slices(mesh)
+    active_fields = _dthe_active_fields(species, active_slices)
+
+    dictionary_terms = reaction_sources(
+        config,
+        species=species,
+        electron_density=electron_density,
+        dataset_scalars=scalars,
+    )
+    field_rhs = fixed_layout_dthe_reaction_field_rhs_from_active_fields(
+        config,
+        active_fields=active_fields,
+        species=species,
+        dataset_scalars=scalars,
+    )
+
+    for name in (*atom_names, *ion_names):
+        sp = species[name]
+        np.testing.assert_allclose(
+            np.asarray(field_rhs[sp.density_name]),
+            np.asarray(dictionary_terms.density_source[name][active_slices]),
+        )
+        np.testing.assert_allclose(
+            np.asarray(field_rhs[sp.pressure_name]),
+            (2.0 / 3.0)
+            * np.asarray(dictionary_terms.energy_source[name][active_slices]),
+        )
+        np.testing.assert_allclose(
+            np.asarray(field_rhs[sp.momentum_name]),
+            np.asarray(dictionary_terms.momentum_source[name][active_slices]),
+        )
+    np.testing.assert_allclose(
+        np.asarray(field_rhs[species["e"].pressure_name]),
+        (2.0 / 3.0) * np.asarray(dictionary_terms.energy_source["e"][active_slices]),
+    )
+
+
+def test_fixed_layout_dthe_active_reaction_terms_report_missing_fields() -> None:
+    config = load_bout_input(_INPUT_DTHE)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    species = _initialize_species(config, mesh=mesh)
+
+    with pytest.raises(KeyError, match="Missing active reaction fields"):
+        fixed_layout_dthe_reaction_terms_from_active_fields(
+            config,
+            active_fields={},
+            species=species,
+            dataset_scalars=resolved_dataset_scalars(run_config),
+        )
 
 
 def test_reaction_sources_without_diagnostics_matches_fixed_dthe_dictionary_path() -> None:

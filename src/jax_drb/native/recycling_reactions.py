@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import re
 from typing import Any, NamedTuple
@@ -673,7 +674,6 @@ def _accumulate_amjuel_recombination(
     momentum_source: dict[str, np.ndarray],
     diagnostics: dict[str, np.ndarray],
 ) -> None:
-    atom = species[atom_name]
     ion = species[ion_name]
     electron_pressure = species["e"].pressure
     electron_temperature = _safe_temperature(electron_pressure, electron_density, species["e"].density_floor)
@@ -933,6 +933,183 @@ def _fixed_layout_dthe_reaction_terms(
         momentum_source=momentum_source,
         diagnostics={},
     )
+
+
+def fixed_layout_dthe_reaction_terms_from_active_fields(
+    config: BoutConfig,
+    *,
+    active_fields: Mapping[str, np.ndarray],
+    species: Mapping[str, Any],
+    dataset_scalars: dict[str, float],
+    atom_names: tuple[str, str, str] = ("d", "t", "he"),
+    ion_names: tuple[str, str, str] = ("d+", "t+", "he+"),
+) -> ReactionTerms:
+    """Return D/T/He reaction sources directly on active-domain fields.
+
+    Reactions are pointwise, so they do not need guard-cell reconstruction.
+    This adapter is the active-array counterpart to
+    :func:`_fixed_layout_dthe_reaction_terms`: it consumes fixed-layout field
+    blocks keyed by evolving variable name and returns source dictionaries keyed
+    by species name. Stencil and boundary terms are intentionally left out.
+    """
+
+    _require_active_species_fields(active_fields, species, (*atom_names, *ion_names))
+    electron = species["e"]
+    electron_pressure = active_fields[electron.pressure_name]
+    electron_density = _active_electron_density(
+        active_fields,
+        species=species,
+        ion_names=ion_names,
+    )
+    fixed = fixed_layout_dthe_reaction_sources(
+        neutral_density=_stack_active_species_fields(
+            active_fields, species, atom_names, "density_name"
+        ),
+        neutral_pressure=_stack_active_species_fields(
+            active_fields, species, atom_names, "pressure_name"
+        ),
+        neutral_momentum=_stack_active_species_fields(
+            active_fields, species, atom_names, "momentum_name"
+        ),
+        ion_density=_stack_active_species_fields(
+            active_fields, species, ion_names, "density_name"
+        ),
+        ion_pressure=_stack_active_species_fields(
+            active_fields, species, ion_names, "pressure_name"
+        ),
+        ion_momentum=_stack_active_species_fields(
+            active_fields, species, ion_names, "momentum_name"
+        ),
+        electron_density=electron_density,
+        electron_pressure=electron_pressure,
+        dataset_scalars=dataset_scalars,
+        atom_names=atom_names,
+        atom_masses=tuple(float(species[name].atomic_mass) for name in atom_names),
+        ion_masses=tuple(float(species[name].atomic_mass) for name in ion_names),
+        cx_multipliers=tuple(
+            charge_exchange_rate_multiplier(config, atom_name=name)
+            for name in atom_names
+        ),
+        neutral_density_floors=tuple(
+            float(species[name].density_floor) for name in atom_names
+        ),
+        ion_density_floors=tuple(
+            float(species[name].density_floor) for name in ion_names
+        ),
+        electron_density_floor=float(electron.density_floor),
+    )
+
+    density_source: dict[str, np.ndarray] = {}
+    energy_source: dict[str, np.ndarray] = {}
+    momentum_source: dict[str, np.ndarray] = {}
+    for index, name in enumerate(atom_names):
+        density_source[name] = fixed.neutral_density_source[index]
+        energy_source[name] = fixed.neutral_energy_source[index]
+        momentum_source[name] = fixed.neutral_momentum_source[index]
+    for index, name in enumerate(ion_names):
+        density_source[name] = fixed.ion_density_source[index]
+        energy_source[name] = fixed.ion_energy_source[index]
+        momentum_source[name] = fixed.ion_momentum_source[index]
+    density_source["e"] = fixed.electron_density_source
+    energy_source["e"] = fixed.electron_energy_source
+    momentum_source["e"] = fixed.electron_momentum_source
+    return ReactionTerms(
+        density_source=density_source,
+        energy_source=energy_source,
+        momentum_source=momentum_source,
+        diagnostics={},
+    )
+
+
+def fixed_layout_dthe_reaction_field_rhs_from_active_fields(
+    config: BoutConfig,
+    *,
+    active_fields: Mapping[str, np.ndarray],
+    species: Mapping[str, Any],
+    dataset_scalars: dict[str, float],
+    atom_names: tuple[str, str, str] = ("d", "t", "he"),
+    ion_names: tuple[str, str, str] = ("d+", "t+", "he+"),
+) -> dict[str, np.ndarray]:
+    """Map active D/T/He reaction sources into field-RHS contributions."""
+
+    reaction_terms = fixed_layout_dthe_reaction_terms_from_active_fields(
+        config,
+        active_fields=active_fields,
+        species=species,
+        dataset_scalars=dataset_scalars,
+        atom_names=atom_names,
+        ion_names=ion_names,
+    )
+    field_rhs: dict[str, np.ndarray] = {}
+    for name in (*atom_names, *ion_names):
+        sp = species[name]
+        field_rhs[sp.density_name] = reaction_terms.density_source[name]
+        field_rhs[sp.pressure_name] = (2.0 / 3.0) * reaction_terms.energy_source[name]
+        field_rhs[sp.momentum_name] = reaction_terms.momentum_source[name]
+    electron = species["e"]
+    field_rhs[electron.pressure_name] = (2.0 / 3.0) * reaction_terms.energy_source[
+        "e"
+    ]
+    return field_rhs
+
+
+def _require_active_species_fields(
+    active_fields: Mapping[str, np.ndarray],
+    species: Mapping[str, Any],
+    names: tuple[str, ...],
+) -> None:
+    missing = []
+    for name in names:
+        sp = species[name]
+        for field_name in (sp.density_name, sp.pressure_name, sp.momentum_name):
+            if field_name not in active_fields:
+                missing.append(field_name)
+    electron_pressure_name = species["e"].pressure_name
+    if electron_pressure_name not in active_fields:
+        missing.append(electron_pressure_name)
+    if missing:
+        missing_text = ", ".join(sorted(set(missing)))
+        raise KeyError(f"Missing active reaction fields: {missing_text}")
+
+
+def _stack_active_species_fields(
+    active_fields: Mapping[str, np.ndarray],
+    species: Mapping[str, Any],
+    names: tuple[str, ...],
+    variable_attr: str,
+) -> np.ndarray:
+    arrays = [active_fields[getattr(species[name], variable_attr)] for name in names]
+    if _use_jax_backend(*arrays):
+        return jnp.stack(
+            [jnp.asarray(array, dtype=jnp.float64) for array in arrays],
+            axis=0,
+        )
+    return np.stack([np.asarray(array, dtype=np.float64) for array in arrays], axis=0)
+
+
+def _active_electron_density(
+    active_fields: Mapping[str, np.ndarray],
+    *,
+    species: Mapping[str, Any],
+    ion_names: tuple[str, ...],
+) -> np.ndarray:
+    ion_arrays = [
+        active_fields[species[name].density_name]
+        for name in ion_names
+    ]
+    use_jax = _use_jax_backend(*ion_arrays)
+    result = (
+        jnp.zeros_like(jnp.asarray(ion_arrays[0], dtype=jnp.float64))
+        if use_jax
+        else np.zeros_like(np.asarray(ion_arrays[0], dtype=np.float64))
+    )
+    for name, density in zip(ion_names, ion_arrays, strict=True):
+        charge = float(species[name].charge)
+        if use_jax:
+            result = result + charge * jnp.asarray(density, dtype=jnp.float64)
+        else:
+            result = result + charge * np.asarray(density, dtype=np.float64)
+    return result
 
 
 def _stack_species_axis(species: dict[str, Any], names: tuple[str, ...], field_name: str) -> np.ndarray:
