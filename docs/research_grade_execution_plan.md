@@ -3415,6 +3415,24 @@ Use this log for concise decision records. Do not paste terminal output here.
   (`46 passed`) and
   `PYTHONPATH=src ruff check scripts/run_research_campaign_bundle.py tests/test_research_campaign_bundle.py scripts/profile_recycling_jax_linearized_gate.py tests/test_profile_recycling_jax_linearized_gate.py`.
   Decision: the campaign layer now rejects no-op promoted-source profile runs.
+- 2026-06-19: Fixed a shared JAX-linearized Newton diagnostics issue exposed by
+  the hard `dt=1.0` promoted-source probe. Failed solves now report the number
+  of nonlinear attempts actually executed instead of the configured maximum
+  iteration budget. The regression test
+  `test_jax_linearized_newton_solver_reports_actual_attempts_after_stall`
+  locks a no-root stall case where the solver attempts two nonlinear updates
+  even when `max_nonlinear_iterations=8`. The D/T/He promoted-source
+  `dt=1.0`, `mesh:ny=100`, scale-1 backtracking probe now reports residual
+  `1.414e2`, two nonlinear attempts, two linear solves, ten matrix-free
+  operator calls, five residual evaluations, and three line-search trials. A
+  true `full_step` probe diverged to residual `7.47e23`, so damping remains
+  necessary. Focused validation passed:
+  `PYTHONPATH=src pytest -q tests/test_solver_implicit.py tests/test_profile_recycling_jax_linearized_gate.py tests/test_research_campaign_bundle.py`
+  (`123 passed`) and
+  `PYTHONPATH=src ruff check src/jax_drb/solver/implicit.py tests/test_solver_implicit.py scripts/run_research_campaign_bundle.py tests/test_research_campaign_bundle.py`.
+  Decision: do not use requested Newton budget as evidence of actual nonlinear
+  work; the next solver change should target globalization/stagnation handling
+  and residual scaling for large-output-window recycling steps.
 
 ## Definition Of Done
 

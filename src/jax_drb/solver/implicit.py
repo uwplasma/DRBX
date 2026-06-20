@@ -1295,6 +1295,7 @@ def solve_jax_linearized_newton_system(
     )
     instrument_linear_operator = resolved_linear_operator_counting == "instrumented"
     known_state_residual_inf_norm: float | None = None
+    last_nonlinear_iteration = 0
 
     def _block(value):
         if value is None:
@@ -1378,6 +1379,7 @@ def solve_jax_linearized_newton_system(
             )
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
+        last_nonlinear_iteration = int(nonlinear_iteration)
         linearize_started_at = perf_counter()
         residual_value, linear_map = jax.linearize(residual_function, state)
         residual_value = _block(residual_value)
@@ -1582,7 +1584,7 @@ def solve_jax_linearized_newton_system(
         known_state_residual_inf_norm = float(jnp.max(jnp.abs(final_residual)))
     return np.asarray(state, dtype=np.float64), _info(
         residual_inf_norm=float(known_state_residual_inf_norm),
-        nonlinear_iterations=int(max_nonlinear_iterations),
+        nonlinear_iterations=int(last_nonlinear_iteration),
         converged=float(known_state_residual_inf_norm) < float(residual_tolerance),
     )
 

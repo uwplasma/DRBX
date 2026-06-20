@@ -306,6 +306,15 @@ residuals near `2.73e2`. Treat that as a shared nonlinear/Krylov robustness
 limit for the current one-update profile gate, not as a promoted-source
 parity failure.
 
+Solver-health counters are now guarded against overstating stalled runs. If a
+JAX-linearized solve exits early after a rejected or stagnant line-search
+sequence, `nonlinear_iterations` reports the actual attempted updates rather
+than the requested maximum budget. In the hard `dt=1.0`, `mesh:ny=100`
+promoted-source probe, scale-1 backtracking reduced the residual to
+`1.41e2` and correctly reported two nonlinear attempts, two linear solves, ten
+operator calls, five residual evaluations, and three line-search trials; a true
+full-step probe diverged to `7.47e23`.
+
 The current GPU evidence for the heavier fixed-layout seam lives in:
 
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/profile_summary.json`
