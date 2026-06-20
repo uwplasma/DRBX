@@ -6,22 +6,22 @@
   ],
   "variable_errors": {
     "iota": {
-      "max_abs_error": 3.545602700327777e-11,
+      "max_abs_error": 0.005299999999999971,
       "name": "iota",
-      "relative_l2_error": 3.542507113258713e-11,
-      "rms_error": 7.445354554326265e-12
+      "relative_l2_error": 0.01,
+      "rms_error": 0.004619575422579284
     },
     "pressure": {
-      "max_abs_error": 0.0,
+      "max_abs_error": 24.0,
       "name": "pressure",
-      "relative_l2_error": 0.0,
-      "rms_error": 0.0
+      "relative_l2_error": 0.020000000000000014,
+      "rms_error": 16.480240601724255
     },
     "toroidal_flux": {
-      "max_abs_error": 0.03938369338999987,
+      "max_abs_error": 0.03149999999999986,
       "name": "toroidal_flux",
-      "relative_l2_error": 0.4745023299999996,
-      "rms_error": 0.022794960565606835
+      "relative_l2_error": 0.014999999999999918,
+      "rms_error": 0.015025307351490663
     }
   }
 }

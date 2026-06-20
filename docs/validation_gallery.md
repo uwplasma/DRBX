@@ -303,9 +303,12 @@ What this documents:
 What this documents:
 
 - the first native reduced rung on a non-tokamak 3D geometry family;
-- a JAX-native radial-profile reduction on explicit traced-field-line metric pairs;
+- a JAX-native radial-profile reduction on traced-field-line metric pairs, with
+  clean-clone synthetic-preview provenance and an explicit-pair path for local
+  or release-hosted FCI samples;
 - the same public parity, comparison, observable, and runtime artifact surfaces used by the native tokamak reduced rung;
-- an honest bridge between external-pair validation-only geometry adapters and future broader native non-tokamak execution work.
+- an adapter/plot/report bridge between geometry-preview fixtures and future
+  reference-backed native non-tokamak execution work.
 
 ## Stellarator FCI Validation
 
@@ -442,7 +445,11 @@ What this documents:
 - the second native reduced rung on a non-tokamak 3D geometry family;
 - a JAX-native profile reduction on `iota`, `pressure`, and `toroidal_flux`;
 - the same parity, comparison, observable, and runtime artifact surface used by the traced-field-line native rung;
-- a stronger general-geometry 3D story than a single non-tokamak native proof point.
+- clean-clone synthetic-preview provenance that exercises the adapter and
+  figure/report pipeline without committing VMEC NetCDF files to the lightweight
+  repository;
+- a regeneration path for explicit external VMEC reference/candidate inputs,
+  which is required before treating this lane as actionable publication parity.
 
 ## Native 3D Runtime Campaign
 
@@ -697,11 +704,10 @@ What this documents:
   `integrated_2d_recycling_one_step` on near-zero `NVd`, which is explicitly
   flagged as normalization-sensitive because the absolute error is about
   `7.47e-12`;
-- the current top actionable parity offender after filtering those near-zero
-  normalization-sensitive cases:
-  `stellarator_vmec_native_selected_field` on `toroidal_flux`, followed by the
-  traced-field-line selected-field `g33` lane and the D/T/He recycling `NVd`
-  lane;
+- the current top actionable parity offender after filtering near-zero
+  normalization-sensitive cases and synthetic-preview geometry adapters:
+  D/T/He recycling `NVd`, followed by 1D hydrogen recycling `NVd` and the
+  neutral-mixed `NVh` target-band offender;
 - the current top runtime offender: `recycling_dthe_one_step`, pointing to
   sparse Jacobian, residual, pack/unpack, and target-recycling closure
   profiling;
