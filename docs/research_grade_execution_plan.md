@@ -3759,6 +3759,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   hardening, but do not raise performance or preconditioning completion because
   Krylov operator count and wall time did not improve versus the prior warm
   gate.
+- 2026-06-20: Prototyped a paired active-domain pressure helper that returned
+  `Div_par_mod(P)` and `Grad_par(P)` together for electron, ion, and neutral
+  pressure equations. Focused operator/RHS tests passed (`26 passed`), and the
+  strict D/T/He promoted active-source fixed-BDF2 gate preserved residual and
+  parity (`4.10110678e-14`, worst `Pd+` `max_abs_delta=4.99220688e-08`) but
+  still required two JAX-GMRES solves and ten operator calls, with fixed-BDF2
+  elapsed time increasing to `9.431 s`. Decision: reject this uncommitted
+  helper because it added substantial duplicate stencil code without improving
+  the real promoted gate. Future graph-reduction work should target fused
+  source/RHS composition or solver/preconditioner structure rather than more
+  one-off pressure-stencil helpers.
 
 ## Definition Of Done
 
