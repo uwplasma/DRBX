@@ -143,7 +143,7 @@ and tests all move together.
 | Plan authority and release hygiene | 96% | Keep this file current and prevent new competing roadmap files. |
 | Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.1% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to recycling, sheath, target-source, and longer-window diverted-tokamak campaigns. |
-| JAX-native recycling solver | 99.82% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, hydrogen and D/T/He fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus residual-evaluation budgets, and the D/T/He route now has explicit eight-step physical-output parity gates against stable BDF at `dt=1e-4` and `dt=1e-3`, a retained `dt=1e-2` scalar density/pressure observable screen, and a retained `dt=1e-2` substepped full-field pointwise screen with an internal timestep cap. Term-level active-array seams now cover D/T/He reactions, pointwise collision friction/heat exchange, stencil-aware neutral parallel diffusion, sheath-prepared target recycling source mapping, a composed source-RHS builder, and a source-to-total-RHS insertion helper. Fixed residuals also have opt-in instrumented linearized-action and single-update JAX-GMRES seams for matrix-free/JVP profiling. Default promotion still needs same-fidelity CPU/GPU runtime evidence, cheaper production-window solves, and the final full-sheath/open-field assembly composition; the D/T/He active-array SciPy-BDF sparse-JVP output-window route remains locally timeout-bound and should be replaced by the matrix-free fixed-BDF2 path. |
+| JAX-native recycling solver | 99.84% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, hydrogen and D/T/He fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus residual-evaluation budgets, and the D/T/He route now has explicit eight-step physical-output parity gates against stable BDF at `dt=1e-4` and `dt=1e-3`, a retained `dt=1e-2` scalar density/pressure observable screen, and a retained `dt=1e-2` substepped full-field pointwise screen with an internal timestep cap. Term-level active-array seams now cover D/T/He reactions, pointwise collision friction/heat exchange, stencil-aware neutral parallel diffusion, sheath-prepared target recycling source mapping, a composed source-RHS builder, a source-to-total-RHS insertion helper, and an opt-in `promoted_active_sources` residual backend that feeds those source blocks through the BE/BDF residual contexts on bounded no-feedback cases. Fixed residuals also have opt-in instrumented linearized-action and single-update JAX-GMRES seams for matrix-free/JVP profiling. Default promotion still needs scalar feedback, remaining full-field transport closure replacement, same-fidelity CPU/GPU runtime evidence, and cheaper production-window solves; the D/T/He active-array SciPy-BDF sparse-JVP output-window route remains locally timeout-bound and should be replaced by the matrix-free fixed-BDF2 path. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, static scaling, sampled local/feedback field-block, and multiplicative line-plus-field Schur probes do not reduce the actual Krylov cost on promoted recycling gates; the latest D/T/He substepped full-field probes slowed from `44.43 s` unpreconditioned to `86.37 s` with `field_scale` and `140.69 s` with `momentum_line`. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. |
 | Performance and scaling | 74% | The heavier D/T/He JAX-linearized profile now shows same-case matrix-free Krylov speedup from `jit_linear_operator`, the fixed-BDF2 direct-counting output-window gates prove hydrogen and D/T/He solve execution without Python callback overhead and report mean residual/solve costs, and the eight-step D/T/He physical-parity, `dt=1e-3` ramp, `dt=1e-2` scalar-observable, and `dt=1e-2` substepped full-field gates record the current bounded matrix-free cost split against stable BDF. The active-array D/T/He residual/JVP gate also has retained CPU batched-throughput evidence. The retained substepped full-field gate closes pointwise accuracy but costs `44.43 s` after warm compilation versus `0.97 s` stable BDF on the fixture, and same-fidelity `field_scale`, `momentum_line`, and residual-JIT probes are slower, so it is correctness evidence only. The local D/T/He active-array output-window sparse-JVP profile still times out before artifact generation, and a same-fidelity current D/T/He GPU gate passes but is `12.3x` slower and uses `4.3x` more sampled RSS than CPU. Remaining scaling work is reduced compiled residual size, cheaper residual/JVP kernels, production-window matrix-free output solves, heavier same-shape GPU batches, and multi-device batching on promoted kernels. |
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
@@ -3259,6 +3259,31 @@ Use this log for concise decision records. Do not paste terminal output here.
   helper inside an opt-in active residual branch, then progressively replace
   the remaining full-field sheath, transport, conduction, viscosity, and
   feedback terms.
+- 2026-06-19: Fed the composed active source map through a bounded opt-in
+  recycling residual backend. `rhs_backend="promoted_active_sources"` is now
+  accepted by the backward-Euler, BDF2, and adaptive-BDF fixed residual
+  builders, but no public solver mode maps to it by default. The backend
+  reconstructs the full guard-cell state only for the still-unported
+  preparation/rate calculations, composes D/T/He reactions, pointwise
+  friction/heat exchange, neutral parallel diffusion, sheath energy sources,
+  target recycling, and density/momentum source overrides as active field-RHS
+  blocks, and then inserts those blocks through the fixed-layout open-field
+  RHS assembler. It intentionally raises on upstream density-feedback
+  controllers so unsupported feedback terms cannot be silently omitted.
+  Focused validation passed:
+  `PYTHONPATH=src pytest -q tests/test_native_recycling_active_sources.py`
+  (`8 passed`), the broader promoted recycling slice
+  (`tests/test_native_recycling_active_sources.py`,
+  `tests/test_recycling_jvp_promotion_gate.py`, and
+  `tests/test_profile_recycling_jax_linearized_gate.py`, `36 passed`), and
+  `PYTHONPATH=src ruff check tests/test_native_recycling_active_sources.py src/jax_drb/native/recycling_active_sources.py`.
+  Direct `ruff` on `recycling_1d.py` still reports legacy unused-import and
+  redefinition findings that predate this patch, so this pass did not attempt
+  a broad cleanup of the monolithic file. Decision: the next P2 work should
+  port scalar feedback, no-flow/sheath orchestration details, conduction,
+  viscosity, and remaining transport/source pieces into the promoted backend,
+  then rerun production-window parity and CPU/GPU performance evidence before
+  any default-promotion decision.
 
 ## Definition Of Done
 

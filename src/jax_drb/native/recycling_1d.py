@@ -187,8 +187,14 @@ from .recycling_fixed_residual import (
     build_fixed_host_rhs_bridge as _build_fixed_host_rhs_bridge,
     build_fixed_state_to_feedback_integrals as _build_fixed_state_to_feedback_integrals,
     build_fixed_state_to_full_fields as _build_fixed_state_to_full_fields,
+    fixed_state_to_field_dict as _fixed_state_to_field_dict,
     pack_fixed_state as _pack_fixed_state,
     unpack_fixed_state as _unpack_fixed_state,
+)
+from .recycling_active_sources import (
+    add_field_rhs_contribution as _add_field_rhs_contribution,
+    assemble_fixed_layout_recycling_field_rhs_from_sources as _assemble_fixed_layout_recycling_field_rhs_from_sources,
+    fixed_layout_recycling_source_field_rhs_from_active_fields as _fixed_layout_recycling_source_field_rhs_from_active_fields,
 )
 from .recycling_progress import (
     build_recycling_progress_details as _build_recycling_progress_details,
@@ -4480,7 +4486,19 @@ def build_recycling_1d_backward_euler_residual_context(
     )
 
     feedback_timestep = None if packed_feedback_names else timestep
-    if rhs_backend == "active_array":
+    if rhs_backend == "promoted_active_sources":
+        fixed_rhs = _build_promoted_active_source_recycling_rhs(
+            config,
+            runtime_model=runtime_model,
+            layout=layout,
+            base_feedback_integrals=feedback_integrals,
+            feedback_previous_errors=previous_feedback_errors,
+            feedback_timestep=feedback_timestep,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+        )
+    elif rhs_backend == "active_array":
         fixed_rhs = _build_active_array_recycling_rhs(
             config,
             runtime_model=runtime_model,
@@ -4648,7 +4666,19 @@ def build_recycling_1d_bdf2_residual_context(
         )
 
     feedback_timestep = None if packed_feedback_names else timestep
-    if rhs_backend == "active_array":
+    if rhs_backend == "promoted_active_sources":
+        fixed_rhs = _build_promoted_active_source_recycling_rhs(
+            config,
+            runtime_model=runtime_model,
+            layout=layout,
+            base_feedback_integrals=feedback_integrals,
+            feedback_previous_errors=previous_feedback_errors,
+            feedback_timestep=feedback_timestep,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+        )
+    elif rhs_backend == "active_array":
         fixed_rhs = _build_active_array_recycling_rhs(
             config,
             runtime_model=runtime_model,
@@ -5340,7 +5370,12 @@ def _advance_recycling_1d_bdf_history(
     rhs_evaluation_seconds = 0.0
     rhs_object_evaluation_seconds = 0.0
     rhs_numpy_conversion_seconds = 0.0
-    if rhs_backend not in {"host_bridge", "fixed_full_field_array", "active_array"}:
+    if rhs_backend not in {
+        "host_bridge",
+        "fixed_full_field_array",
+        "active_array",
+        "promoted_active_sources",
+    }:
         raise ValueError(f"Unsupported recycling BDF rhs_backend={rhs_backend!r}.")
     resolved_jacobian_mode = (
         _resolve_recycling_bdf_jacobian_mode()
@@ -5384,7 +5419,19 @@ def _advance_recycling_1d_bdf_history(
             layout=layout,
         )
 
-    if rhs_backend == "active_array":
+    if rhs_backend == "promoted_active_sources":
+        fixed_rhs = _build_promoted_active_source_recycling_rhs(
+            config,
+            runtime_model=runtime_model,
+            layout=layout,
+            base_feedback_integrals=current_integrals,
+            feedback_previous_errors=None,
+            feedback_timestep=None if feedback_names else timestep,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+        )
+    elif rhs_backend == "active_array":
         fixed_rhs = _build_active_array_recycling_rhs(
             config,
             runtime_model=runtime_model,
@@ -6817,6 +6864,261 @@ def _build_fixed_full_field_recycling_rhs(
                 np.asarray(value, dtype=np.float64) for value in field_rhs
             ),
             feedback_values=feedback_rhs_np,
+        )
+
+    return rhs
+
+
+_ACTIVE_DTHE_REACTION_SPECIES = frozenset(("d", "d+", "t", "t+", "he", "he+"))
+
+
+def _active_source_slice(
+    value: object,
+    *,
+    layout: _RecyclingPackedStateLayout,
+) -> object:
+    use_jax = use_jax_backend(value)
+    array = jnp.asarray if use_jax else np.asarray
+    dtype = jnp.float64 if use_jax else np.float64
+    source = array(value, dtype=dtype)
+    if tuple(source.shape) == tuple(layout.active_shape):
+        return source
+    if tuple(source.shape) == tuple(layout.field_templates[0].shape):
+        return source[layout.active_slices]
+    raise ValueError(
+        f"Source override shape {tuple(source.shape)} does not match active shape "
+        f"{tuple(layout.active_shape)} or full field shape "
+        f"{tuple(layout.field_templates[0].shape)}."
+    )
+
+
+def _active_species_source_override_field_rhs(
+    overrides: dict[str, np.ndarray] | None,
+    *,
+    species: dict[str, OpenFieldSpecies],
+    layout: _RecyclingPackedStateLayout,
+    field_attribute: str,
+) -> dict[str, object]:
+    if not overrides:
+        return {}
+    field_rhs: dict[str, object] = {}
+    for species_name, value in overrides.items():
+        sp = species.get(species_name)
+        if sp is None:
+            continue
+        field_name = getattr(sp, field_attribute)
+        if field_name in layout.field_names:
+            field_rhs[field_name] = _active_source_slice(value, layout=layout)
+    return field_rhs
+
+
+def _active_sheath_energy_source_field_rhs(
+    *,
+    species: dict[str, OpenFieldSpecies],
+    ion_boundary: _IonBoundaryResult,
+    electron_boundary: _ElectronBoundaryResult,
+    layout: _RecyclingPackedStateLayout,
+) -> dict[str, object]:
+    field_rhs: dict[str, object] = {}
+    for ion in (sp for sp in species.values() if sp.charge > 0.0):
+        if ion.pressure_name in layout.field_names:
+            _add_field_rhs_contribution(
+                field_rhs,
+                {
+                    ion.pressure_name: (2.0 / 3.0)
+                    * _active_source_slice(
+                        ion_boundary.energy_source[ion.name],
+                        layout=layout,
+                    )
+                },
+            )
+    electron = species["e"]
+    if electron.pressure_name in layout.field_names:
+        _add_field_rhs_contribution(
+            field_rhs,
+            {
+                electron.pressure_name: (2.0 / 3.0)
+                * _active_source_slice(electron_boundary.energy_source, layout=layout)
+            },
+        )
+    return field_rhs
+
+
+def _build_promoted_active_source_recycling_rhs(
+    config: BoutConfig,
+    *,
+    runtime_model: _RecyclingRuntimeModel,
+    layout: _RecyclingPackedStateLayout,
+    base_feedback_integrals: dict[str, object],
+    feedback_previous_errors: dict[str, float] | None,
+    feedback_timestep: float | None,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+) -> Callable[[_RecyclingFixedState], _RecyclingFixedState]:
+    """Build the opt-in active-source recycling RHS promotion branch.
+
+    This backend is intentionally narrower than ``active_array``. It composes
+    the source blocks already promoted to active-layout kernels and then feeds
+    them through the common conservative open-field RHS assembler. It is an
+    executable migration gate, not the stable production default: upstream
+    feedback and remaining transport closures must be ported before this can
+    replace the full-field oracle.
+    """
+
+    if runtime_model.controllers:
+        raise ValueError(
+            "rhs_backend='promoted_active_sources' does not yet support upstream "
+            "density feedback controllers. Use rhs_backend='active_array' or "
+            "'fixed_full_field_array' for controller cases."
+        )
+    _ = base_feedback_integrals, feedback_previous_errors, feedback_timestep
+    state_to_full_fields = _build_fixed_state_to_full_fields(layout)
+    override_species = _build_species_field_overrider(
+        runtime_model.species_templates,
+        mesh=mesh,
+    )
+    components = _configured_component_names(config)
+    include_pointwise_collisions = bool(
+        {"braginskii_friction", "braginskii_heat_exchange"} & set(components)
+    )
+    include_neutral_parallel_diffusion = "neutral_parallel_diffusion" in components
+    pressure_sources: dict[str, object] = dict(runtime_model.explicit_pressure_sources)
+    if runtime_model.pressure_source_overrides:
+        pressure_sources.update(runtime_model.pressure_source_overrides)
+
+    def rhs(state: _RecyclingFixedState) -> _RecyclingFixedState:
+        full_fields = state_to_full_fields(state)
+        species = override_species(full_fields)
+        active_fields = _fixed_state_to_field_dict(state, layout=layout)
+        prepared, ion_boundary, electron_boundary = _prepare_open_field_states(
+            species,
+            config=config,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            preserve_dump_target_state=runtime_model.preserve_dump_target_state,
+            preserve_dump_ion_target_state_only=runtime_model.preserve_dump_ion_target_state_only,
+        )
+        collision_rates = _compute_collision_frequencies(
+            config,
+            species,
+            prepared,
+            dataset_scalars=dataset_scalars,
+        )
+        charge_exchange_rates = _charge_exchange_collision_rates(
+            config,
+            species=species,
+            prepared=prepared,
+            dataset_scalars=dataset_scalars,
+        )
+        ionisation_rates = _neutral_ionisation_collision_rates(
+            config,
+            species=species,
+            prepared=prepared,
+            dataset_scalars=dataset_scalars,
+        )
+        simple_sheath_settings = _load_simple_sheath_settings(
+            config,
+            mesh=mesh,
+            dataset_scalars=dataset_scalars,
+        )
+        ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
+        include_dthe_reactions = (
+            "reactions" in components
+            and _ACTIVE_DTHE_REACTION_SPECIES.issubset(species)
+        )
+        include_target_recycling = any(ion.target_recycle for ion in ions)
+        source_field_rhs = _fixed_layout_recycling_source_field_rhs_from_active_fields(
+            config,
+            active_fields=active_fields,
+            layout=layout,
+            species=species,
+            species_templates=runtime_model.species_templates,
+            prepared=prepared,
+            ion_velocity=ion_boundary.velocity,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            collision_rates=collision_rates,
+            ionisation_rates=ionisation_rates,
+            charge_exchange_rates=charge_exchange_rates,
+            gamma_i=0.0
+            if simple_sheath_settings is None
+            else simple_sheath_settings.gamma_i,
+            lower_geometry=runtime_model.lower_target_geometry,
+            upper_geometry=runtime_model.upper_target_geometry,
+            include_dthe_reactions=include_dthe_reactions,
+            include_pointwise_collisions=include_pointwise_collisions,
+            include_neutral_parallel_diffusion=include_neutral_parallel_diffusion,
+            include_target_recycling=include_target_recycling,
+        )
+        _add_field_rhs_contribution(
+            source_field_rhs,
+            _active_sheath_energy_source_field_rhs(
+                species=species,
+                ion_boundary=ion_boundary,
+                electron_boundary=electron_boundary,
+                layout=layout,
+            ),
+        )
+        source_field_rhs.update(
+            _active_species_source_override_field_rhs(
+                runtime_model.density_source_overrides,
+                species=species,
+                layout=layout,
+                field_attribute="density_name",
+            )
+        )
+        source_field_rhs.update(
+            _active_species_source_override_field_rhs(
+                runtime_model.momentum_source_overrides,
+                species=species,
+                layout=layout,
+                field_attribute="momentum_name",
+            )
+        )
+        field_rhs = _assemble_fixed_layout_recycling_field_rhs_from_sources(
+            source_field_rhs=source_field_rhs,
+            layout=layout,
+            species=species,
+            prepared=prepared,
+            ion_velocity=ion_boundary.velocity,
+            mesh=mesh,
+            metrics=metrics,
+            explicit_pressure_sources=pressure_sources,
+        )
+        use_jax_result = use_jax_backend(
+            *(field_rhs.values()),
+            *(state.field_values),
+            state.feedback_values,
+        )
+        if use_jax_result:
+            return _RecyclingFixedState(
+                field_values=tuple(
+                    jnp.asarray(
+                        field_rhs.get(name, jnp.zeros_like(value)),
+                        dtype=jnp.float64,
+                    )
+                    for name, value in zip(
+                        layout.field_names, state.field_values, strict=True
+                    )
+                ),
+                feedback_values=jnp.zeros_like(state.feedback_values, dtype=jnp.float64),
+            )
+        return _RecyclingFixedState(
+            field_values=tuple(
+                np.asarray(
+                    field_rhs.get(name, np.zeros_like(value, dtype=np.float64)),
+                    dtype=np.float64,
+                )
+                for name, value in zip(
+                    layout.field_names, state.field_values, strict=True
+                )
+            ),
+            feedback_values=np.zeros_like(
+                np.asarray(state.feedback_values, dtype=np.float64)
+            ),
         )
 
     return rhs

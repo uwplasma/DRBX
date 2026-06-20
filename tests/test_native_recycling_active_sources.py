@@ -5,10 +5,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jax_drb.config.boutinp import load_bout_input
+from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.recycling_1d import (
+    _build_fixed_full_field_recycling_rhs,
+    _build_promoted_active_source_recycling_rhs,
+    build_recycling_1d_bdf2_residual_context,
+    build_recycling_1d_backward_euler_residual_context,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
     _prepare_open_field_states,
@@ -51,10 +55,20 @@ _REFERENCE_ROOT = (
 )
 _DTHE_INPUT = _REFERENCE_ROOT / "1D-recycling-dthe" / "data" / "BOUT.inp"
 _HYDROGEN_INPUT = _REFERENCE_ROOT / "1D-recycling" / "data" / "BOUT.inp"
+_BOUNDED_PROMOTED_DTHE_OVERRIDES = (
+    "hermes:components=(d+, d, t+, t, he+, he, e, sheath_boundary, "
+    "braginskii_collisions, braginskii_friction, braginskii_heat_exchange, "
+    "recycling, reactions, electron_force_balance, neutral_parallel_diffusion)",
+    "d+:type=(evolve_density, evolve_pressure, evolve_momentum, noflow_boundary)",
+    "t+:type=(evolve_density, evolve_pressure, evolve_momentum, noflow_boundary)",
+    "he+:type=(evolve_density, evolve_pressure, evolve_momentum, noflow_boundary)",
+)
 
 
-def _build_context(input_path: Path):
+def _build_context(input_path: Path, overrides: tuple[str, ...] = ()):
     config = load_bout_input(input_path)
+    if overrides:
+        config = apply_bout_overrides(config, overrides)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -498,4 +512,164 @@ def test_active_source_assembly_is_jvp_transformable() -> None:
         float(finite_difference),
         rtol=1.0e-5,
         atol=1.0e-8,
+    )
+
+
+def test_promoted_active_source_rhs_matches_bounded_full_rhs() -> None:
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        _species,
+        _prepared,
+        _ion_boundary,
+        layout,
+        state,
+        _active_fields,
+    ) = _build_context(_DTHE_INPUT, overrides=_BOUNDED_PROMOTED_DTHE_OVERRIDES)
+
+    assert not runtime_model.controllers
+    full_rhs = _build_fixed_full_field_recycling_rhs(
+        config,
+        runtime_model=runtime_model,
+        layout=layout,
+        base_feedback_integrals={},
+        feedback_previous_errors=None,
+        feedback_timestep=None,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    promoted_rhs = _build_promoted_active_source_recycling_rhs(
+        config,
+        runtime_model=runtime_model,
+        layout=layout,
+        base_feedback_integrals={},
+        feedback_previous_errors=None,
+        feedback_timestep=None,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+
+    expected = full_rhs(state)
+    actual = promoted_rhs(state)
+
+    assert tuple(layout.feedback_names) == ()
+    for name, expected_value, actual_value in zip(
+        layout.field_names,
+        expected.field_values,
+        actual.field_values,
+        strict=True,
+    ):
+        np.testing.assert_allclose(
+            np.asarray(actual_value),
+            np.asarray(expected_value),
+            rtol=1.0e-9,
+            atol=1.0e-10,
+            err_msg=f"promoted active source RHS mismatch for {name}",
+        )
+
+
+def test_promoted_active_source_backward_euler_residual_is_jvp_transformable() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        _species,
+        _prepared,
+        _ion_boundary,
+        _layout,
+        _state,
+        _active_fields,
+    ) = _build_context(_DTHE_INPUT, overrides=_BOUNDED_PROMOTED_DTHE_OVERRIDES)
+    fields = _build_recycling_state_fields(runtime_model)
+    context = build_recycling_1d_backward_euler_residual_context(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals={},
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=1.0e-5,
+        rhs_backend="promoted_active_sources",
+    )
+    packed_state = jnp.asarray(context.packed_previous_state, dtype=jnp.float64)
+
+    def qoi(scale):
+        residual = context.residual(packed_state * scale)
+        return jnp.sum(residual)
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    step = 1.0e-5
+    finite_difference = (
+        qoi(jnp.array(1.0 + step)) - qoi(jnp.array(1.0 - step))
+    ) / (2.0 * step)
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(tangent))
+    np.testing.assert_allclose(
+        float(tangent),
+        float(finite_difference),
+        rtol=1.0e-4,
+        atol=1.0e-7,
+    )
+
+
+def test_promoted_active_source_bdf2_residual_is_jvp_transformable() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        _species,
+        _prepared,
+        _ion_boundary,
+        _layout,
+        _state,
+        _active_fields,
+    ) = _build_context(_DTHE_INPUT, overrides=_BOUNDED_PROMOTED_DTHE_OVERRIDES)
+    fields = _build_recycling_state_fields(runtime_model)
+    context = build_recycling_1d_bdf2_residual_context(
+        config,
+        fields,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals={},
+        previous_feedback_integrals={},
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=1.0e-5,
+        rhs_backend="promoted_active_sources",
+    )
+    packed_state = jnp.asarray(context.packed_previous_state, dtype=jnp.float64)
+
+    def qoi(scale):
+        residual = context.residual(packed_state * scale)
+        return jnp.sum(residual)
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    step = 1.0e-5
+    finite_difference = (
+        qoi(jnp.array(1.0 + step)) - qoi(jnp.array(1.0 - step))
+    ) / (2.0 * step)
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(tangent))
+    np.testing.assert_allclose(
+        float(tangent),
+        float(finite_difference),
+        rtol=1.0e-4,
+        atol=1.0e-7,
     )
