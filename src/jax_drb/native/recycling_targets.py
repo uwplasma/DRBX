@@ -9,7 +9,7 @@ from .array_backend import use_jax_backend
 from .mesh import StructuredMesh
 from .metrics import StructuredMetrics
 from .open_field import TargetBoundaryGeometry, compute_target_recycling_sources
-from .recycling_layout import RecyclingPackedStateLayout
+from .recycling_layout import RecyclingPackedStateLayout, recycling_layout_field_name_set
 from .recycling_setup import OpenFieldSpecies
 from .recycling_state import PreparedSpeciesState
 
@@ -119,7 +119,7 @@ def fixed_layout_target_recycling_field_rhs(
         lower_geometry=lower_geometry,
         upper_geometry=upper_geometry,
     )
-    layout_fields = set(layout.field_names)
+    layout_fields = recycling_layout_field_name_set(layout)
     active_slices = layout.active_slices
     field_rhs: dict[str, np.ndarray] = {}
     for neutral in neutrals:
