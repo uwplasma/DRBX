@@ -654,6 +654,303 @@ def div_par_fvv_open(
     return result
 
 
+def div_par_mod_and_fvv_open(
+    field: np.ndarray,
+    inertia_density: np.ndarray,
+    velocity: np.ndarray,
+    wave_speed: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    fvv_fix_flux: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return paired ``Div_par_mod`` and ``Div_par_fvv`` full-field operators.
+
+    The recycling RHS often needs particle advection and parallel inertia for
+    the same species, velocity, wave speed, metric, and boundary masks.  This
+    paired helper keeps the mathematical operators identical to the individual
+    calls while sharing the expensive velocity-edge, face-metric, and wave-speed
+    preparation.
+    """
+
+    if use_jax_backend(field, inertia_density, velocity, wave_speed):
+        field_array = jnp.asarray(field, dtype=jnp.float64)
+        density_array = jnp.asarray(inertia_density, dtype=jnp.float64)
+        velocity_array = jnp.asarray(velocity, dtype=jnp.float64)
+        wave_array = jnp.asarray(wave_speed, dtype=jnp.float64)
+        div_mod_result = jnp.zeros_like(field_array, dtype=jnp.float64)
+        div_fvv_result = jnp.zeros_like(density_array, dtype=jnp.float64)
+        dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
+        J = jnp.asarray(metrics.J, dtype=jnp.float64)
+        g22 = jnp.asarray(metrics.g_22, dtype=jnp.float64)
+
+        ix = slice(mesh.xstart, mesh.xend + 1)
+        jy = slice(mesh.ystart, mesh.yend + 1)
+        jminus = slice(mesh.ystart - 1, mesh.yend)
+        jplus = slice(mesh.ystart + 1, mesh.yend + 2)
+
+        field_center = field_array[ix, jy, :]
+        field_minus = field_array[ix, jminus, :]
+        field_plus = field_array[ix, jplus, :]
+        field_left, field_right = _mc_edges_jax(
+            field_center,
+            field_minus,
+            field_plus,
+        )
+
+        density_center = density_array[ix, jy, :]
+        density_minus = density_array[ix, jminus, :]
+        density_plus = density_array[ix, jplus, :]
+        density_left, density_right = _mc_edges_jax(
+            density_center,
+            density_minus,
+            density_plus,
+        )
+
+        velocity_center = velocity_array[ix, jy, :]
+        velocity_minus = velocity_array[ix, jminus, :]
+        velocity_plus = velocity_array[ix, jplus, :]
+        v_left, v_right = _mc_edges_jax(
+            velocity_center,
+            velocity_minus,
+            velocity_plus,
+        )
+
+        J_center = J[ix, jy, :]
+        J_minus = J[ix, jminus, :]
+        J_plus = J[ix, jplus, :]
+        dy_center = dy[ix, jy, :]
+        dy_minus = dy[ix, jminus, :]
+        dy_plus = dy[ix, jplus, :]
+        g22_center = g22[ix, jy, :]
+        g22_minus = g22[ix, jminus, :]
+        g22_plus = g22[ix, jplus, :]
+        wave_center = wave_array[ix, jy, :]
+        wave_minus = wave_array[ix, jminus, :]
+        wave_plus = wave_array[ix, jplus, :]
+
+        right_common = (J_center + J_plus) / (
+            jnp.sqrt(g22_center) + jnp.sqrt(g22_plus)
+        )
+        flux_factor_rc = right_common / (dy_center * J_center)
+        flux_factor_rp = right_common / (dy_plus * J_plus)
+
+        left_common = (J_center + J_minus) / (
+            jnp.sqrt(g22_center) + jnp.sqrt(g22_minus)
+        )
+        flux_factor_lc = left_common / (dy_center * J_center)
+        flux_factor_lm = left_common / (dy_minus * J_minus)
+
+        amax_right = jnp.maximum(
+            jnp.maximum(wave_center, wave_plus),
+            jnp.maximum(jnp.abs(velocity_center), jnp.abs(velocity_plus)),
+        )
+        mod_boundary_right = 0.5 * (field_center + field_plus) * 0.5 * (
+            velocity_center + velocity_plus
+        )
+        mod_interior_right = field_right * 0.5 * (v_right + amax_right)
+        fvv_v_mid_right = 0.5 * (velocity_center + velocity_plus)
+        fvv_n_mid_right = 0.5 * (density_center + density_plus)
+        fvv_boundary_right = fvv_n_mid_right * fvv_v_mid_right * fvv_v_mid_right
+        fvv_interior_right = density_right * 0.5 * (v_right + amax_right) * v_right
+        if not fvv_fix_flux:
+            fvv_boundary_right = (
+                density_right * v_right * v_right
+                + amax_right * fvv_n_mid_right * (v_right - fvv_v_mid_right)
+            )
+        right_boundary_mask = (
+            jnp.zeros((1, field_center.shape[1], 1), dtype=bool)
+            .at[:, -1, :]
+            .set(True)
+        )
+        mod_right_flux = jnp.where(
+            right_boundary_mask,
+            mod_boundary_right,
+            mod_interior_right,
+        )
+        fvv_right_flux = jnp.where(
+            right_boundary_mask,
+            fvv_boundary_right,
+            fvv_interior_right,
+        )
+
+        amax_left = jnp.maximum(
+            jnp.maximum(wave_center, wave_minus),
+            jnp.maximum(jnp.abs(velocity_center), jnp.abs(velocity_minus)),
+        )
+        mod_boundary_left = 0.5 * (field_center + field_minus) * 0.5 * (
+            velocity_center + velocity_minus
+        )
+        mod_interior_left = field_left * 0.5 * (v_left - amax_left)
+        fvv_v_mid_left = 0.5 * (velocity_center + velocity_minus)
+        fvv_n_mid_left = 0.5 * (density_center + density_minus)
+        fvv_boundary_left = fvv_n_mid_left * fvv_v_mid_left * fvv_v_mid_left
+        fvv_interior_left = density_left * 0.5 * (v_left - amax_left) * v_left
+        if not fvv_fix_flux:
+            fvv_boundary_left = (
+                density_left * v_left * v_left
+                - amax_left * fvv_n_mid_left * (v_left - fvv_v_mid_left)
+            )
+        left_boundary_mask = (
+            jnp.zeros((1, field_center.shape[1], 1), dtype=bool)
+            .at[:, 0, :]
+            .set(True)
+        )
+        mod_left_flux = jnp.where(
+            left_boundary_mask,
+            mod_boundary_left,
+            mod_interior_left,
+        )
+        fvv_left_flux = jnp.where(
+            left_boundary_mask,
+            fvv_boundary_left,
+            fvv_interior_left,
+        )
+
+        div_mod_result = div_mod_result.at[ix, jy, :].add(
+            mod_right_flux * flux_factor_rc
+        )
+        div_mod_result = div_mod_result.at[ix, jplus, :].add(
+            -mod_right_flux * flux_factor_rp
+        )
+        div_mod_result = div_mod_result.at[ix, jy, :].add(
+            -mod_left_flux * flux_factor_lc
+        )
+        div_mod_result = div_mod_result.at[ix, jminus, :].add(
+            mod_left_flux * flux_factor_lm
+        )
+
+        div_fvv_result = div_fvv_result.at[ix, jy, :].add(
+            fvv_right_flux * flux_factor_rc
+        )
+        div_fvv_result = div_fvv_result.at[ix, jplus, :].add(
+            -fvv_right_flux * flux_factor_rp
+        )
+        div_fvv_result = div_fvv_result.at[ix, jy, :].add(
+            -fvv_left_flux * flux_factor_lc
+        )
+        div_fvv_result = div_fvv_result.at[ix, jminus, :].add(
+            fvv_left_flux * flux_factor_lm
+        )
+        return div_mod_result, div_fvv_result
+
+    field_array = np.asarray(field, dtype=np.float64)
+    density_array = np.asarray(inertia_density, dtype=np.float64)
+    velocity_array = np.asarray(velocity, dtype=np.float64)
+    wave_array = np.asarray(wave_speed, dtype=np.float64)
+    div_mod_result = np.zeros_like(field_array, dtype=np.float64)
+    div_fvv_result = np.zeros_like(density_array, dtype=np.float64)
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
+
+    ix = slice(mesh.xstart, mesh.xend + 1)
+    jy = slice(mesh.ystart, mesh.yend + 1)
+    jminus = slice(mesh.ystart - 1, mesh.yend)
+    jplus = slice(mesh.ystart + 1, mesh.yend + 2)
+
+    field_center = field_array[ix, jy, :]
+    field_minus = field_array[ix, jminus, :]
+    field_plus = field_array[ix, jplus, :]
+    field_left, field_right = _mc_edges(field_center, field_minus, field_plus)
+
+    density_center = density_array[ix, jy, :]
+    density_minus = density_array[ix, jminus, :]
+    density_plus = density_array[ix, jplus, :]
+    density_left, density_right = _mc_edges(
+        density_center,
+        density_minus,
+        density_plus,
+    )
+
+    velocity_center = velocity_array[ix, jy, :]
+    velocity_minus = velocity_array[ix, jminus, :]
+    velocity_plus = velocity_array[ix, jplus, :]
+    v_left, v_right = _mc_edges(velocity_center, velocity_minus, velocity_plus)
+
+    J_center = np.asarray(J[ix, jy, :], dtype=np.float64)
+    J_minus = np.asarray(J[ix, jminus, :], dtype=np.float64)
+    J_plus = np.asarray(J[ix, jplus, :], dtype=np.float64)
+    dy_center = np.asarray(dy[ix, jy, :], dtype=np.float64)
+    dy_minus = np.asarray(dy[ix, jminus, :], dtype=np.float64)
+    dy_plus = np.asarray(dy[ix, jplus, :], dtype=np.float64)
+    g22_center = np.asarray(g22[ix, jy, :], dtype=np.float64)
+    g22_minus = np.asarray(g22[ix, jminus, :], dtype=np.float64)
+    g22_plus = np.asarray(g22[ix, jplus, :], dtype=np.float64)
+    wave_center = wave_array[ix, jy, :]
+    wave_minus = wave_array[ix, jminus, :]
+    wave_plus = wave_array[ix, jplus, :]
+
+    right_common = (J_center + J_plus) / (np.sqrt(g22_center) + np.sqrt(g22_plus))
+    flux_factor_rc = right_common / (dy_center * J_center)
+    flux_factor_rp = right_common / (dy_plus * J_plus)
+
+    left_common = (J_center + J_minus) / (np.sqrt(g22_center) + np.sqrt(g22_minus))
+    flux_factor_lc = left_common / (dy_center * J_center)
+    flux_factor_lm = left_common / (dy_minus * J_minus)
+
+    amax_right = np.maximum.reduce(
+        (wave_center, wave_plus, np.abs(velocity_center), np.abs(velocity_plus))
+    )
+    mod_boundary_right = 0.5 * (field_center + field_plus) * 0.5 * (
+        velocity_center + velocity_plus
+    )
+    mod_interior_right = field_right * 0.5 * (v_right + amax_right)
+    fvv_v_mid_right = 0.5 * (velocity_center + velocity_plus)
+    fvv_n_mid_right = 0.5 * (density_center + density_plus)
+    fvv_boundary_right = fvv_n_mid_right * fvv_v_mid_right * fvv_v_mid_right
+    fvv_interior_right = density_right * 0.5 * (v_right + amax_right) * v_right
+    if not fvv_fix_flux:
+        fvv_boundary_right = (
+            density_right * v_right * v_right
+            + amax_right * fvv_n_mid_right * (v_right - fvv_v_mid_right)
+        )
+    right_boundary_mask = np.zeros((1, field_center.shape[1], 1), dtype=bool)
+    right_boundary_mask[:, -1, :] = True
+    mod_right_flux = np.where(
+        right_boundary_mask,
+        mod_boundary_right,
+        mod_interior_right,
+    )
+    fvv_right_flux = np.where(
+        right_boundary_mask,
+        fvv_boundary_right,
+        fvv_interior_right,
+    )
+
+    amax_left = np.maximum.reduce(
+        (wave_center, wave_minus, np.abs(velocity_center), np.abs(velocity_minus))
+    )
+    mod_boundary_left = 0.5 * (field_center + field_minus) * 0.5 * (
+        velocity_center + velocity_minus
+    )
+    mod_interior_left = field_left * 0.5 * (v_left - amax_left)
+    fvv_v_mid_left = 0.5 * (velocity_center + velocity_minus)
+    fvv_n_mid_left = 0.5 * (density_center + density_minus)
+    fvv_boundary_left = fvv_n_mid_left * fvv_v_mid_left * fvv_v_mid_left
+    fvv_interior_left = density_left * 0.5 * (v_left - amax_left) * v_left
+    if not fvv_fix_flux:
+        fvv_boundary_left = (
+            density_left * v_left * v_left
+            - amax_left * fvv_n_mid_left * (v_left - fvv_v_mid_left)
+        )
+    left_boundary_mask = np.zeros((1, field_center.shape[1], 1), dtype=bool)
+    left_boundary_mask[:, 0, :] = True
+    mod_left_flux = np.where(left_boundary_mask, mod_boundary_left, mod_interior_left)
+    fvv_left_flux = np.where(left_boundary_mask, fvv_boundary_left, fvv_interior_left)
+
+    div_mod_result[ix, jy, :] += mod_right_flux * flux_factor_rc
+    div_mod_result[ix, jplus, :] -= mod_right_flux * flux_factor_rp
+    div_mod_result[ix, jy, :] -= mod_left_flux * flux_factor_lc
+    div_mod_result[ix, jminus, :] += mod_left_flux * flux_factor_lm
+
+    div_fvv_result[ix, jy, :] += fvv_right_flux * flux_factor_rc
+    div_fvv_result[ix, jplus, :] -= fvv_right_flux * flux_factor_rp
+    div_fvv_result[ix, jy, :] -= fvv_left_flux * flux_factor_lc
+    div_fvv_result[ix, jminus, :] += fvv_left_flux * flux_factor_lm
+    return div_mod_result, div_fvv_result
+
+
 def div_par_fvv_open_active(
     density: np.ndarray,
     velocity: np.ndarray,

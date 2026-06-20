@@ -3729,6 +3729,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   small residual-graph cleanup; it does not close the performance lane because
   Krylov operator count and overall residual/JVP cost are still the main
   blockers.
+- 2026-06-20: Added a paired full-field `Div_par_mod`/`Div_par_fvv` open-field
+  helper for the recycling RHS. Ion and neutral full-field RHS assembly often
+  needs particle advection and parallel inertia with the same velocity, wave
+  speed, metric factors, limiter edges, wave-speed maxima, and target masks.
+  The paired helper returns the exact individual operators while sharing that
+  setup work; the active-domain opt-in path remains unchanged because the
+  earlier full active-transport promotion was slower on the D/T/He gate. Added
+  NumPy/JAX parity tests for the paired helper and retained RHS parity tests.
+  The strict D/T/He promoted active-source fixed-BDF2 gate passed with
+  unchanged residual/parity, two JAX-GMRES solves, ten operator calls, and warm
+  fixed-BDF2 elapsed `9.330 s` after an expected first-run recompilation
+  outlier. Decision: keep this residual/JVP kernel cleanup. It improves the
+  real promoted gate modestly but still does not reduce Krylov operator count,
+  so remaining P2/P8 work should continue with fused source/transport kernels
+  or a genuinely cheap operator-count-reducing preconditioner.
 
 ## Definition Of Done
 

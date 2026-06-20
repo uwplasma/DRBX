@@ -10,9 +10,10 @@ import numpy as np
 from .array_backend import use_jax_backend
 from .mesh import StructuredMesh
 from .metrics import StructuredMetrics
-from .neutral_mixed import _div_par_fvv_open, _div_par_mod_open, _grad_par_open
+from .neutral_mixed import _div_par_mod_open, _grad_par_open
 from .neutral_mixed_operators import (
     div_par_fvv_open_active as _div_par_fvv_open_active,
+    div_par_mod_and_fvv_open as _div_par_mod_and_fvv_open,
     div_par_mod_open_active as _div_par_mod_open_active,
     grad_par_open_active as _grad_par_open_active,
 )
@@ -334,13 +335,19 @@ def assemble_ion_rhs_terms(
     momentum_error_array = array(ion_state.momentum_error, dtype=dtype)
     pressure_gradient_raw = _grad_par_open(pressure_array, mesh=mesh, metrics=metrics)
     pressure_gradient = -pressure_gradient_raw
-    density_transport = -_div_par_mod_open(
-        density_array,
-        ion_velocity_array,
-        fastest_wave_array,
-        mesh=mesh,
-        metrics=metrics,
+    density_parallel_advection, momentum_parallel_advection = (
+        _div_par_mod_and_fvv_open(
+            density_array,
+            soft_floor(density_array, density_floor),
+            ion_velocity_array,
+            fastest_wave_array,
+            mesh=mesh,
+            metrics=metrics,
+            fvv_fix_flux=False,
+        )
     )
+    density_transport = -density_parallel_advection
+    momentum_advection = -float(atomic_mass) * momentum_parallel_advection
     parallel_divergence = -(5.0 / 3.0) * _div_par_mod_open(
         pressure_array,
         ion_velocity_array,
@@ -352,14 +359,6 @@ def assemble_ion_rhs_terms(
     energy_source_term = (2.0 / 3.0) * _source_or_zero(
         energy_source,
         use_jax=use_jax,
-    )
-    momentum_advection = -float(atomic_mass) * _div_par_fvv_open(
-        soft_floor(density_array, density_floor),
-        ion_velocity_array,
-        fastest_wave_array,
-        mesh=mesh,
-        metrics=metrics,
-        fix_flux=False,
     )
     density_total = density_source_array + density_transport
     pressure_total = explicit_pressure_source_array + parallel_divergence + parallel_advection + energy_source_term
@@ -540,13 +539,18 @@ def assemble_neutral_rhs_terms(
     velocity_array = array(neutral_velocity, dtype=dtype)
     fastest_wave_array = array(fastest_wave, dtype=dtype)
 
-    density_transport = -_div_par_mod_open(
-        density_array,
-        velocity_array,
-        fastest_wave_array,
-        mesh=mesh,
-        metrics=metrics,
+    density_parallel_advection, momentum_parallel_advection = (
+        _div_par_mod_and_fvv_open(
+            density_array,
+            soft_floor(density_array, density_floor),
+            velocity_array,
+            fastest_wave_array,
+            mesh=mesh,
+            metrics=metrics,
+            fvv_fix_flux=False,
+        )
     )
+    density_transport = -density_parallel_advection
     parallel_divergence = -(5.0 / 3.0) * _div_par_mod_open(
         pressure_array,
         velocity_array,
@@ -563,14 +567,7 @@ def assemble_neutral_rhs_terms(
         )
     else:
         energy_source_term = _source_or_zero(None, use_jax=use_jax)
-    momentum_advection = -float(atomic_mass) * _div_par_fvv_open(
-        soft_floor(density_array, density_floor),
-        velocity_array,
-        fastest_wave_array,
-        mesh=mesh,
-        metrics=metrics,
-        fix_flux=False,
-    )
+    momentum_advection = -float(atomic_mass) * momentum_parallel_advection
     pressure_gradient = -pressure_gradient_raw
     density_total = density_source_array + density_transport
     pressure_total = explicit_pressure_source_array + parallel_divergence + parallel_advection + energy_source_term
