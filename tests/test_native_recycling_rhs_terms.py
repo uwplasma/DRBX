@@ -222,6 +222,100 @@ def test_neutral_rhs_terms_sum_to_total_and_respect_total_pressure_source_overri
     )
 
 
+def test_absent_sources_match_full_zero_sources() -> None:
+    mesh, metrics = _mesh_and_metrics()
+    shape = (1, 3, 1)
+    zero = np.zeros(shape, dtype=np.float64)
+    pressure = np.array([[[3.0], [4.0], [5.0]]], dtype=np.float64)
+    velocity = np.array([[[-1.0], [-0.5], [0.0]]], dtype=np.float64)
+    fastest_wave = np.full(shape, 1.5, dtype=np.float64)
+    state = SimpleNamespace(
+        density=np.array([[[2.0], [2.5], [3.0]]], dtype=np.float64),
+        pressure=np.array([[[4.0], [5.0], [6.0]]], dtype=np.float64),
+        momentum_error=np.full(shape, 0.125, dtype=np.float64),
+    )
+
+    electron_none = assemble_electron_pressure_rhs_terms(
+        explicit_pressure_source=None,
+        electron_pressure=pressure,
+        electron_velocity=velocity,
+        electron_fastest_wave=fastest_wave,
+        electron_energy_source=None,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    electron_zero = assemble_electron_pressure_rhs_terms(
+        explicit_pressure_source=zero,
+        electron_pressure=pressure,
+        electron_velocity=velocity,
+        electron_fastest_wave=fastest_wave,
+        electron_energy_source=zero,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    np.testing.assert_allclose(electron_none.total, electron_zero.total)
+
+    ion_none = assemble_ion_rhs_terms(
+        density_source=None,
+        explicit_pressure_source=None,
+        momentum_source=None,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        ion_state=state,
+        ion_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=None,
+    )
+    ion_zero = assemble_ion_rhs_terms(
+        density_source=zero,
+        explicit_pressure_source=zero,
+        momentum_source=zero,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        ion_state=state,
+        ion_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=zero,
+    )
+    np.testing.assert_allclose(ion_none.density_total, ion_zero.density_total)
+    np.testing.assert_allclose(ion_none.pressure_total, ion_zero.pressure_total)
+    np.testing.assert_allclose(ion_none.momentum_total, ion_zero.momentum_total)
+
+    neutral_none = assemble_neutral_rhs_terms(
+        density_source=None,
+        explicit_pressure_source=None,
+        momentum_source=None,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        neutral_state=state,
+        neutral_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=None,
+    )
+    neutral_zero = assemble_neutral_rhs_terms(
+        density_source=zero,
+        explicit_pressure_source=zero,
+        momentum_source=zero,
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        neutral_state=state,
+        neutral_velocity=velocity,
+        fastest_wave=fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+        energy_source=zero,
+    )
+    np.testing.assert_allclose(neutral_none.density_total, neutral_zero.density_total)
+    np.testing.assert_allclose(neutral_none.pressure_total, neutral_zero.pressure_total)
+    np.testing.assert_allclose(neutral_none.momentum_total, neutral_zero.momentum_total)
+
+
 def test_electron_pressure_rhs_terms_are_jax_jvp_transformable() -> None:
     jax = pytest.importorskip("jax")
     jnp = pytest.importorskip("jax.numpy")

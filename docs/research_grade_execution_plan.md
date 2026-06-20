@@ -3635,6 +3635,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   so this is a residual-graph simplification and parity-preserving cleanup, not
   yet a performance-lane completion. Remaining runtime work must reduce
   residual/JVP kernel cost further or lower Krylov operator count.
+- 2026-06-20: Removed another source of promoted active-source residual graph
+  bloat by allowing electron, ion, and neutral RHS term assemblers to accept
+  absent additive sources as `None` and use scalar zero instead of full zero
+  fields. The active-source assembler now propagates missing density, pressure,
+  energy, and momentum sources as `None` after the deferred-scatter path, while
+  explicit nonzero pressure/source arrays still use the full-field branch and
+  electron-momentum coupling still falls back correctly. Added
+  `test_absent_sources_match_full_zero_sources`; focused RHS/source tests
+  passed (`25 passed`). The strict D/T/He promoted fixed-BDF2 gate passed with
+  residual `4.10110678e-14`, worst `Pd+`
+  `max_abs_delta=4.99220688e-08`, two JAX-GMRES solves, ten operator calls,
+  and warm fixed-BDF2 elapsed `8.842 s`. Decision: keep the scalar-zero
+  optional-source path as a safe residual-graph reduction; it is a small runtime
+  improvement only and does not change the remaining blocker, which is reducing
+  Krylov operator count or full transport stencil cost.
 
 ## Definition Of Done
 

@@ -223,7 +223,7 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
             layout=layout,
             use_jax=use_jax,
         )
-        energy_source[name] = 1.5 * pressure_rhs
+        energy_source[name] = None if pressure_rhs is None else 1.5 * pressure_rhs
         momentum_source[name] = _full_source_from_field_rhs(
             scattered_source_rhs.get(sp.momentum_name),
             template=template,
@@ -253,7 +253,7 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
         fastest_wave = sqrt_nonnegative(array(state.temperature, dtype=dtype) / ion.atomic_mass)
         terms = assemble_ion_rhs_terms(
             density_source=density_source[ion.name],
-            explicit_pressure_source=_full_pressure_source(
+            explicit_pressure_source=_optional_full_pressure_source(
                 pressure_sources.get(ion.name),
                 template=state.density,
                 use_jax=use_jax,
@@ -277,7 +277,7 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
         array(electron_state.temperature, dtype=dtype) / species["e"].atomic_mass
     )
     electron_terms = assemble_electron_pressure_rhs_terms(
-        explicit_pressure_source=_full_pressure_source(
+        explicit_pressure_source=_optional_full_pressure_source(
             pressure_sources.get("e"),
             template=electron_state.density,
             use_jax=use_jax,
@@ -296,7 +296,7 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
         fastest_wave = sqrt_nonnegative(array(state.temperature, dtype=dtype) / neutral.atomic_mass)
         terms = assemble_neutral_rhs_terms(
             density_source=density_source[neutral.name],
-            explicit_pressure_source=_full_pressure_source(
+            explicit_pressure_source=_optional_full_pressure_source(
                 pressure_sources.get(neutral.name),
                 template=state.density,
                 use_jax=use_jax,
@@ -447,11 +447,11 @@ def _full_source_from_field_rhs(
     template: np.ndarray,
     layout: RecyclingPackedStateLayout,
     use_jax: bool,
-) -> np.ndarray:
+) -> np.ndarray | None:
+    if value is None:
+        return None
     if use_jax:
         full = jnp.zeros_like(jnp.asarray(template, dtype=jnp.float64))
-        if value is None:
-            return full
         source = jnp.asarray(value, dtype=jnp.float64)
         if tuple(source.shape) == tuple(layout.active_shape):
             return full.at[layout.active_slices].set(source)
@@ -459,8 +459,6 @@ def _full_source_from_field_rhs(
             return source
     else:
         full = np.zeros_like(np.asarray(template, dtype=np.float64), dtype=np.float64)
-        if value is None:
-            return full
         source = np.asarray(value, dtype=np.float64)
         if tuple(source.shape) == tuple(layout.active_shape):
             full[layout.active_slices] = source
@@ -473,23 +471,17 @@ def _full_source_from_field_rhs(
     )
 
 
-def _full_pressure_source(
+def _optional_full_pressure_source(
     value: np.ndarray | None,
     *,
     template: np.ndarray,
     use_jax: bool,
-) -> np.ndarray:
+) -> np.ndarray | None:
+    if value is None:
+        return None
     if use_jax:
-        return (
-            jnp.zeros_like(jnp.asarray(template, dtype=jnp.float64))
-            if value is None
-            else jnp.asarray(value, dtype=jnp.float64)
-        )
-    return (
-        np.zeros_like(np.asarray(template, dtype=np.float64), dtype=np.float64)
-        if value is None
-        else np.asarray(value, dtype=np.float64)
-    )
+        return jnp.asarray(value, dtype=jnp.float64)
+    return np.asarray(value, dtype=np.float64)
 
 
 def _set_active_if_layout_field(

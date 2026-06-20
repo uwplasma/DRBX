@@ -76,11 +76,11 @@ def soft_floor(value: np.ndarray, minimum: float) -> np.ndarray:
 
 def assemble_electron_pressure_rhs_terms(
     *,
-    explicit_pressure_source: np.ndarray,
+    explicit_pressure_source: np.ndarray | None,
     electron_pressure: np.ndarray,
     electron_velocity: np.ndarray,
     electron_fastest_wave: np.ndarray,
-    electron_energy_source: np.ndarray,
+    electron_energy_source: np.ndarray | None,
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
 ) -> ElectronPressureRhsTerms:
@@ -93,7 +93,7 @@ def assemble_electron_pressure_rhs_terms(
     )
     array = jnp.asarray if use_jax else np.asarray
     dtype = jnp.float64 if use_jax else np.float64
-    explicit = array(explicit_pressure_source, dtype=dtype)
+    explicit = _source_or_zero(explicit_pressure_source, use_jax=use_jax)
     pressure = array(electron_pressure, dtype=dtype)
     velocity = array(electron_velocity, dtype=dtype)
     fastest_wave = array(electron_fastest_wave, dtype=dtype)
@@ -109,7 +109,10 @@ def assemble_electron_pressure_rhs_terms(
         mesh=mesh,
         metrics=metrics,
     )
-    energy_source = (2.0 / 3.0) * array(electron_energy_source, dtype=dtype)
+    energy_source = (2.0 / 3.0) * _source_or_zero(
+        electron_energy_source,
+        use_jax=use_jax,
+    )
     total = explicit + parallel_divergence + parallel_advection + energy_source
     return ElectronPressureRhsTerms(
         explicit_pressure_source=explicit,
@@ -124,10 +127,10 @@ def assemble_electron_parallel_force_terms(
     *,
     electron_pressure: np.ndarray,
     electron_density: np.ndarray,
-    electron_momentum_source: np.ndarray,
+    electron_momentum_source: np.ndarray | None,
     ion_density: Mapping[str, np.ndarray],
     ion_charge: Mapping[str, float],
-    ion_momentum_source: Mapping[str, np.ndarray],
+    ion_momentum_source: Mapping[str, np.ndarray | None],
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
     density_floor: float = 1.0e-5,
@@ -149,7 +152,10 @@ def assemble_electron_parallel_force_terms(
         mesh=mesh,
         metrics=metrics,
     )
-    force_density = force_density + array(electron_momentum_source, dtype=dtype)
+    force_density = force_density + _source_or_zero(
+        electron_momentum_source,
+        use_jax=use_jax,
+    )
     epar = force_density / maximum(array(electron_density, dtype=dtype), float(density_floor))
     updated_ion_momentum_source: dict[str, np.ndarray] = {}
     for name, density in ion_density.items():
@@ -157,7 +163,10 @@ def assemble_electron_parallel_force_terms(
             array(density, dtype=dtype),
             charge=float(ion_charge[name]),
             epar=epar,
-            existing_source=array(ion_momentum_source[name], dtype=dtype),
+            existing_source=_source_or_zero(
+                ion_momentum_source.get(name),
+                use_jax=use_jax,
+            ),
         )
     return ElectronParallelForceTerms(
         force_density=force_density,
@@ -168,9 +177,9 @@ def assemble_electron_parallel_force_terms(
 
 def assemble_ion_rhs_terms(
     *,
-    density_source: np.ndarray,
-    explicit_pressure_source: np.ndarray,
-    momentum_source: np.ndarray,
+    density_source: np.ndarray | None,
+    explicit_pressure_source: np.ndarray | None,
+    momentum_source: np.ndarray | None,
     atomic_mass: float,
     density_floor: float,
     ion_state: Any,
@@ -178,7 +187,7 @@ def assemble_ion_rhs_terms(
     fastest_wave: np.ndarray,
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
-    energy_source: np.ndarray,
+    energy_source: np.ndarray | None,
 ) -> IonRhsTerms:
     use_jax = use_jax_backend(
         density_source,
@@ -193,11 +202,14 @@ def assemble_ion_rhs_terms(
     )
     array = jnp.asarray if use_jax else np.asarray
     dtype = jnp.float64 if use_jax else np.float64
-    density_source_array = array(density_source, dtype=dtype)
+    density_source_array = _source_or_zero(density_source, use_jax=use_jax)
     ion_velocity_array = array(ion_velocity, dtype=dtype)
     fastest_wave_array = array(fastest_wave, dtype=dtype)
-    explicit_pressure_source_array = array(explicit_pressure_source, dtype=dtype)
-    momentum_source_array = array(momentum_source, dtype=dtype)
+    explicit_pressure_source_array = _source_or_zero(
+        explicit_pressure_source,
+        use_jax=use_jax,
+    )
+    momentum_source_array = _source_or_zero(momentum_source, use_jax=use_jax)
     density_array = array(ion_state.density, dtype=dtype)
     pressure_array = array(ion_state.pressure, dtype=dtype)
     momentum_error_array = array(ion_state.momentum_error, dtype=dtype)
@@ -221,7 +233,10 @@ def assemble_ion_rhs_terms(
         mesh=mesh,
         metrics=metrics,
     )
-    energy_source_term = (2.0 / 3.0) * array(energy_source, dtype=dtype)
+    energy_source_term = (2.0 / 3.0) * _source_or_zero(
+        energy_source,
+        use_jax=use_jax,
+    )
     momentum_advection = -float(atomic_mass) * _div_par_fvv_open(
         soft_floor(density_array, density_floor),
         ion_velocity_array,
@@ -257,9 +272,9 @@ def assemble_ion_rhs_terms(
 
 def assemble_neutral_rhs_terms(
     *,
-    density_source: np.ndarray,
-    explicit_pressure_source: np.ndarray,
-    momentum_source: np.ndarray,
+    density_source: np.ndarray | None,
+    explicit_pressure_source: np.ndarray | None,
+    momentum_source: np.ndarray | None,
     atomic_mass: float,
     density_floor: float,
     neutral_state: Any,
@@ -267,7 +282,7 @@ def assemble_neutral_rhs_terms(
     fastest_wave: np.ndarray,
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
-    energy_source: np.ndarray,
+    energy_source: np.ndarray | None,
     include_energy_source: bool = True,
 ) -> NeutralRhsTerms:
     use_jax = use_jax_backend(
@@ -283,9 +298,12 @@ def assemble_neutral_rhs_terms(
     )
     array = jnp.asarray if use_jax else np.asarray
     dtype = jnp.float64 if use_jax else np.float64
-    density_source_array = array(density_source, dtype=dtype)
-    explicit_pressure_source_array = array(explicit_pressure_source, dtype=dtype)
-    momentum_source_array = array(momentum_source, dtype=dtype)
+    density_source_array = _source_or_zero(density_source, use_jax=use_jax)
+    explicit_pressure_source_array = _source_or_zero(
+        explicit_pressure_source,
+        use_jax=use_jax,
+    )
+    momentum_source_array = _source_or_zero(momentum_source, use_jax=use_jax)
     density_array = array(neutral_state.density, dtype=dtype)
     pressure_array = array(neutral_state.pressure, dtype=dtype)
     momentum_error_array = array(neutral_state.momentum_error, dtype=dtype)
@@ -312,9 +330,12 @@ def assemble_neutral_rhs_terms(
         metrics=metrics,
     )
     if include_energy_source:
-        energy_source_term = (2.0 / 3.0) * array(energy_source, dtype=dtype)
+        energy_source_term = (2.0 / 3.0) * _source_or_zero(
+            energy_source,
+            use_jax=use_jax,
+        )
     else:
-        energy_source_term = jnp.zeros_like(pressure_array, dtype=jnp.float64) if use_jax else np.zeros_like(pressure_array, dtype=np.float64)
+        energy_source_term = _source_or_zero(None, use_jax=use_jax)
     momentum_advection = -float(atomic_mass) * _div_par_fvv_open(
         soft_floor(density_array, density_floor),
         velocity_array,
@@ -342,3 +363,11 @@ def assemble_neutral_rhs_terms(
         momentum_error=momentum_error_array,
         momentum_total=momentum_total,
     )
+
+
+def _source_or_zero(value: np.ndarray | None, *, use_jax: bool):
+    """Return an additive source, using scalar zero when the source is absent."""
+
+    if value is None:
+        return jnp.asarray(0.0, dtype=jnp.float64) if use_jax else np.asarray(0.0, dtype=np.float64)
+    return jnp.asarray(value, dtype=jnp.float64) if use_jax else np.asarray(value, dtype=np.float64)
