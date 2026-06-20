@@ -308,7 +308,10 @@ also preserved the same parity metrics but slowed to `86.37 s`, with no
 dynamic build cost and `74.56 s` in JAX-GMRES solves. These are negative
 promotion results for the current D/T/He route; the next solver campaign
 should reduce residual/JVP cost or change the block/transport approximation,
-not rerun the same scaling or selected-line preconditioners.
+not rerun the same scaling or selected-line preconditioners. Residual JIT is
+also negative on this same gate: `runtime:recycling_jax_linear_jit_residual=true`
+preserved parity but slowed to `152.32 s`, with residual-evaluation time
+increasing from `10.70 s` to `61.52 s`.
 The matching `gpu-fixed-bdf2-direct-counting-gate` is intentionally guarded by
 a process-level timeout in addition to the inner mode timeout. The first
 office-GPU attempt on one RTX A4000 entered the solve but remained host-side
