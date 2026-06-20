@@ -9,6 +9,7 @@ from .array_backend import use_jax_backend
 from .mesh import StructuredMesh
 from .metrics import StructuredMetrics
 from .open_field import TargetBoundaryGeometry, compute_target_recycling_sources
+from .recycling_layout import RecyclingPackedStateLayout
 from .recycling_setup import OpenFieldSpecies
 from .recycling_state import PreparedSpeciesState
 
@@ -90,6 +91,47 @@ def target_recycling_sources(
         )
 
     return RecyclingTerms(density_source=density_source, energy_source=energy_source, diagnostics=diagnostics)
+
+
+def fixed_layout_target_recycling_field_rhs(
+    *,
+    ions: tuple[OpenFieldSpecies, ...],
+    prepared: dict[str, PreparedSpeciesState],
+    neutrals: tuple[OpenFieldSpecies, ...],
+    ion_velocity: dict[str, np.ndarray],
+    layout: RecyclingPackedStateLayout,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    gamma_i: float,
+    lower_geometry: TargetBoundaryGeometry | None = None,
+    upper_geometry: TargetBoundaryGeometry | None = None,
+) -> dict[str, np.ndarray]:
+    """Map prepared target-recycling sources into active fixed-layout RHS terms."""
+
+    terms = target_recycling_sources(
+        ions=ions,
+        prepared=prepared,
+        neutrals=neutrals,
+        ion_velocity=ion_velocity,
+        mesh=mesh,
+        metrics=metrics,
+        gamma_i=gamma_i,
+        lower_geometry=lower_geometry,
+        upper_geometry=upper_geometry,
+    )
+    layout_fields = set(layout.field_names)
+    active_slices = layout.active_slices
+    field_rhs: dict[str, np.ndarray] = {}
+    for neutral in neutrals:
+        if neutral.density_name in layout_fields:
+            field_rhs[neutral.density_name] = terms.density_source[neutral.name][
+                active_slices
+            ]
+        if neutral.has_pressure and neutral.pressure_name in layout_fields:
+            field_rhs[neutral.pressure_name] = (
+                (2.0 / 3.0) * terms.energy_source[neutral.name][active_slices]
+            )
+    return field_rhs
 
 
 def electron_zero_current_velocity(

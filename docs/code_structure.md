@@ -139,13 +139,19 @@ parallel diffusion in
 `fixed_layout_neutral_parallel_diffusion_field_rhs_from_active_fields`
 reconstructs the fixed guard-cell template inside a backend-preserving kernel,
 applies the open-field diffusion operator, and returns only active-domain
-density, pressure, and momentum RHS blocks for `build_fixed_array_rhs`. A
-second adapter, `build_fixed_full_field_array_rhs`, stages guard-cell kernels
-and closure terms such as target recycling, conduction, and viscosity through
-the same fixed-state interface while each term is still being migrated to
-active-array form. New source, collision, diffusion, target, and sheath terms
-should enter through one of those adapters before being promoted into the full
-transient solve. The current sheath extraction
+density, pressure, and momentum RHS blocks for `build_fixed_array_rhs`. The
+target-recycling source mapper in
+[src/jax_drb/native/recycling_targets.py](../src/jax_drb/native/recycling_targets.py),
+`fixed_layout_target_recycling_field_rhs`, converts sheath-prepared target
+recycling sources into active neutral density and pressure RHS blocks; full
+sheath-state preparation remains in the recycling orchestrator until that
+boundary path is separately promoted. A second adapter,
+`build_fixed_full_field_array_rhs`, stages remaining guard-cell kernels and
+closure terms such as conduction and viscosity through the same fixed-state
+interface while each term is still being migrated to active-array form. New
+source, collision, diffusion, target, and sheath terms should enter through
+one of those adapters before being promoted into the full transient solve. The
+current sheath extraction
 follows that rule: no-flow electron preparation,
 zero-current ion-sum reconstruction, simple ion, full ion, and full electron
 sheath response formulas now live in
