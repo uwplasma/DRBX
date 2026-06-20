@@ -6756,18 +6756,10 @@ def _build_fixed_full_field_recycling_rhs(
             layout=layout,
             base_feedback_integrals=base_feedback_integrals,
         )
-        if use_jax_backend(*(full_fields[name] for name in full_fields)):
-            state_fields = {
-                name: jnp.asarray(value, dtype=jnp.float64)
-                for name, value in full_fields.items()
-            }
-        else:
-            state_fields = {
-                name: np.asarray(value, dtype=np.float64)
-                for name, value in full_fields.items()
-            }
         species = _override_species_fields(
-            runtime_model.species_templates, fields=state_fields, mesh=mesh
+            runtime_model.species_templates,
+            fields=full_fields,
+            mesh=mesh,
         )
         result = _compute_recycling_1d_rhs_from_species(
             config,
