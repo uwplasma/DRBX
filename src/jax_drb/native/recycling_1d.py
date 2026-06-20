@@ -180,6 +180,7 @@ from .recycling_layout import (
     recycling_active_domain_slices as _recycling_active_domain_slices,
     recycling_active_field_size as _recycling_active_field_size,
     recycling_active_shape as _recycling_active_shape,
+    recycling_layout_field_name_set as _recycling_layout_field_name_set,
     unpack_recycling_active_state as _unpack_recycling_active_state,
 )
 from .recycling_fixed_residual import (
@@ -6935,13 +6936,14 @@ def _active_species_source_override_field_rhs(
 ) -> dict[str, object]:
     if not overrides:
         return {}
+    layout_fields = _recycling_layout_field_name_set(layout)
     field_rhs: dict[str, object] = {}
     for species_name, value in overrides.items():
         sp = species.get(species_name)
         if sp is None:
             continue
         field_name = getattr(sp, field_attribute)
-        if field_name in layout.field_names:
+        if field_name in layout_fields:
             field_rhs[field_name] = _active_source_slice(value, layout=layout)
     return field_rhs
 
@@ -6954,8 +6956,9 @@ def _active_sheath_energy_source_field_rhs(
     layout: _RecyclingPackedStateLayout,
 ) -> dict[str, object]:
     field_rhs: dict[str, object] = {}
+    layout_fields = _recycling_layout_field_name_set(layout)
     for ion in (sp for sp in species.values() if sp.charge > 0.0):
-        if ion.pressure_name in layout.field_names:
+        if ion.pressure_name in layout_fields:
             _add_field_rhs_contribution(
                 field_rhs,
                 {
@@ -6967,7 +6970,7 @@ def _active_sheath_energy_source_field_rhs(
                 },
             )
     electron = species["e"]
-    if electron.pressure_name in layout.field_names:
+    if electron.pressure_name in layout_fields:
         _add_field_rhs_contribution(
             field_rhs,
             {
@@ -6985,8 +6988,9 @@ def _active_feedback_source_field_rhs(
     layout: _RecyclingPackedStateLayout,
 ) -> dict[str, object]:
     field_rhs: dict[str, object] = {}
+    layout_fields = _recycling_layout_field_name_set(layout)
     for name, sp in species.items():
-        if sp.density_name in layout.field_names:
+        if sp.density_name in layout_fields:
             _add_field_rhs_contribution(
                 field_rhs,
                 {
@@ -6996,7 +7000,7 @@ def _active_feedback_source_field_rhs(
                     )
                 },
             )
-        if sp.pressure_name in layout.field_names:
+        if sp.pressure_name in layout_fields:
             _add_field_rhs_contribution(
                 field_rhs,
                 {

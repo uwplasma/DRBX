@@ -11,7 +11,7 @@ from .array_backend import use_jax_backend
 from .metrics import StructuredMetrics
 from .mesh import StructuredMesh
 from .neutral_mixed import _div_par_k_grad_par_open
-from .recycling_layout import RecyclingPackedStateLayout
+from .recycling_layout import RecyclingPackedStateLayout, recycling_layout_field_name_set
 from .recycling_boundaries import (
     apply_open_field_dirichlet_scalar_guards,
     apply_open_field_neumann_scalar_guards,
@@ -89,7 +89,7 @@ def fixed_layout_neutral_parallel_diffusion_field_rhs_from_active_fields(
         else None,
     )
 
-    layout_fields = set(layout.field_names)
+    layout_fields = recycling_layout_field_name_set(layout)
     active_slices = layout.active_slices
     field_rhs: dict[str, np.ndarray] = {}
     for name, sp in species.items():

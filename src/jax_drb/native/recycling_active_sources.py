@@ -13,7 +13,7 @@ from .open_field import TargetBoundaryGeometry
 from .recycling_collision_closure import (
     fixed_layout_collision_friction_heat_exchange_field_rhs_from_active_fields,
 )
-from .recycling_layout import RecyclingPackedStateLayout
+from .recycling_layout import RecyclingPackedStateLayout, recycling_layout_field_name_set
 from .recycling_neutral_diffusion import (
     fixed_layout_neutral_parallel_diffusion_field_rhs_from_active_fields,
 )
@@ -191,7 +191,8 @@ def assemble_fixed_layout_recycling_field_rhs_from_sources(
     preserving the older full-field transport path as the production default.
     """
 
-    unknown_fields = set(source_field_rhs) - set(layout.field_names)
+    layout_fields = recycling_layout_field_name_set(layout)
+    unknown_fields = set(source_field_rhs) - layout_fields
     if unknown_fields:
         unknown = ", ".join(repr(name) for name in sorted(unknown_fields))
         raise ValueError(f"Source RHS returned unknown layout entries: {unknown}.")
@@ -458,7 +459,8 @@ def _add_deferred_field_source(
     layout: RecyclingPackedStateLayout,
     use_jax: bool,
 ) -> None:
-    if value is None or field_name not in layout.field_names:
+    layout_fields = recycling_layout_field_name_set(layout)
+    if value is None or field_name not in layout_fields:
         return
     source = _active_source_from_field_rhs(value, layout=layout, use_jax=use_jax)
     assembled[field_name] = (
@@ -565,6 +567,7 @@ def _set_rhs_value_if_layout_field(
     *,
     value_is_active: bool,
 ) -> None:
-    if field_name not in layout.field_names:
+    layout_fields = recycling_layout_field_name_set(layout)
+    if field_name not in layout_fields:
         return
     assembled[field_name] = value if value_is_active else value[layout.active_slices]

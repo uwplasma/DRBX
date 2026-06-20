@@ -114,6 +114,8 @@ def test_pack_and_unpack_recycling_state_round_trip() -> None:
         feedback_names=feedback_names,
         mesh=mesh,
     )
+    assert layout.field_name_set == frozenset(field_names)
+    assert layout.feedback_name_set == frozenset(feedback_names)
     packed = pack_recycling_active_state(
         fields,
         feedback_integrals=feedback_integrals,

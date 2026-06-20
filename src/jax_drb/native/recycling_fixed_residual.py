@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .array_backend import use_jax_backend
-from .recycling_layout import RecyclingPackedStateLayout
+from .recycling_layout import RecyclingPackedStateLayout, recycling_layout_field_name_set
 
 
 def _active_cell_count(layout: RecyclingPackedStateLayout) -> int:
@@ -331,7 +331,8 @@ def build_fixed_array_rhs(
         _validate_fixed_state_shapes(state, layout=layout)
         fields = fixed_state_to_field_dict(state, layout=layout)
         field_rhs = field_rhs_function(fields, state.feedback_values)
-        unknown_fields = set(field_rhs) - set(layout.field_names)
+        layout_fields = recycling_layout_field_name_set(layout)
+        unknown_fields = set(field_rhs) - layout_fields
         if unknown_fields:
             unknown = ", ".join(repr(name) for name in sorted(unknown_fields))
             raise ValueError(f"Field RHS returned unknown layout entries: {unknown}.")

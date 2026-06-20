@@ -3792,6 +3792,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   operator calls. Fixed-BDF2 elapsed was `9.464 s`, so this is retained as
   residual-graph hygiene but does not raise the performance/preconditioning
   completion percentages.
+- 2026-06-20: Added cached field-name membership metadata to
+  `RecyclingPackedStateLayout` and routed fixed-residual/source/neutral/target
+  seams through a lazy compatibility helper. This removes repeated
+  `set(layout.field_names)` construction from transformable residual assembly
+  while preserving duck-typed test layouts. Focused layout, fixed-residual,
+  active-source, neutral-diffusion, target-recycling, and FCI-map tests passed
+  (`87 passed`). The strict D/T/He promoted active-source fixed-BDF2 gate again
+  preserved residual/parity (`4.10110678e-14`, worst `Pd+`
+  `max_abs_delta=4.99220688e-08`) with two JAX-GMRES solves and ten operator
+  calls; fixed-BDF2 elapsed was `9.340 s`. Decision: keep as residual metadata
+  cleanup, but still do not raise performance or preconditioning completion
+  until a change reduces residual/JVP cost or Krylov operator count
+  materially.
 
 ## Definition Of Done
 

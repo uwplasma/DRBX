@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import jax.numpy as jnp
@@ -26,6 +26,21 @@ class RecyclingPackedStateLayout:
     active_shape: tuple[int, int, int]
     field_size: int
     field_templates: tuple[np.ndarray, ...]
+    field_name_set: frozenset[str] = field(init=False, repr=False, compare=False)
+    feedback_name_set: frozenset[str] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "field_name_set", frozenset(self.field_names))
+        object.__setattr__(self, "feedback_name_set", frozenset(self.feedback_names))
+
+
+def recycling_layout_field_name_set(layout: object) -> frozenset[str]:
+    """Return cached field-name membership for real or duck-typed layouts."""
+
+    cached = getattr(layout, "field_name_set", None)
+    if cached is not None:
+        return cached
+    return frozenset(getattr(layout, "field_names"))
 
 
 def recycling_active_domain_slices(mesh: StructuredMesh) -> tuple[slice, slice, slice]:
