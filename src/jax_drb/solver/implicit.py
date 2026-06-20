@@ -1572,19 +1572,17 @@ def solve_jax_linearized_newton_system(
         line_search_started_at = perf_counter()
         while step_scale >= resolved_line_search_min_step_scale:
             trial_state = state + step_scale * update
-            finite_trial = _block(jnp.all(jnp.isfinite(trial_state)))
-            if not bool(finite_trial):
-                step_scale *= 0.5
-                continue
+            finite_trial = jnp.all(jnp.isfinite(trial_state))
             residual_started_at = perf_counter()
             trial_residual = residual_function(trial_state)
-            trial_residual = _block(trial_residual)
+            trial_residual, finite_trial = _block((trial_residual, finite_trial))
             line_search_trial_count += 1
             residual_evaluation_count += 1
             residual_evaluation_seconds += perf_counter() - residual_started_at
             trial_residual_inf_norm = float(jnp.max(jnp.abs(trial_residual)))
             if (
-                np.isfinite(trial_residual_inf_norm)
+                bool(finite_trial)
+                and np.isfinite(trial_residual_inf_norm)
                 and trial_residual_inf_norm <= residual_inf_norm
             ):
                 candidate_state = trial_state

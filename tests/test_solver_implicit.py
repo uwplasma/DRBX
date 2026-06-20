@@ -2646,6 +2646,32 @@ def test_jax_linearized_newton_solver_reports_line_search_damping() -> None:
     assert info.linear_operator_dispatch_seconds >= 0.0
 
 
+def test_jax_linearized_newton_solver_rejects_nonfinite_trial_residual() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    def residual(state):
+        state_array = jnp.asarray(state)
+        return jnp.where(state_array > 1.0, jnp.nan, state_array - 2.0)
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        np.array([0.0], dtype=np.float64),
+        active_shape=(1,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=1,
+        linear_restart=4,
+        linear_maxiter=4,
+        line_search_initial_step_scale=1.0,
+    )
+
+    np.testing.assert_allclose(solution, np.array([1.0]), rtol=1.0e-12, atol=1.0e-12)
+    assert info.converged is False
+    assert info.residual_inf_norm == pytest.approx(1.0)
+    assert info.line_search_last_step_scale == pytest.approx(0.5)
+    assert info.line_search_trial_count == 2
+
+
 def test_jax_linearized_newton_solver_allows_smaller_minimum_damping() -> None:
     jnp = pytest.importorskip("jax.numpy")
 

@@ -3684,6 +3684,26 @@ Use this log for concise decision records. Do not paste terminal output here.
   route; the next performance work should either reduce the unpreconditioned
   residual/JVP kernel cost or use a genuinely cheaper approximate
   preconditioner that lowers operator count without a large build.
+- 2026-06-20: Ran another promoted fixed-BDF2 solver-control pass on the same
+  strict D/T/He active-source gate. The default baseline passed with fixed-BDF2
+  elapsed `9.85 s`, two JAX-GMRES solves, ten JVP operator calls, residual
+  `4.10110678e-14`, and worst `Pd+` pairwise delta `4.99220688e-08`.
+  `runtime:recycling_jax_linear_jit_residual=true` preserved parity but slowed
+  the gate to `38.98 s`; `runtime:recycling_jax_linear_operator_counting=direct`
+  preserved parity but slowed to `12.13 s` and removed operator-count evidence;
+  `runtime:recycling_jax_linear_line_search_mode=full_step` preserved parity
+  but forced extra linearizations and slowed to `11.63 s`; and
+  `runtime:recycling_jax_linear_gmres_solve_method=incremental` preserved parity
+  but slowed to `23.88 s`. Kept all four controls opt-in. The implementation
+  pass batched the backtracking line-search trial-state finiteness check with
+  the trial residual readiness wait, preserving the nonfinite-state guard while
+  reducing an avoidable host-device synchronization point. Focused solver tests
+  passed (`80 passed`) and the strict D/T/He gate still passed with unchanged
+  parity, two solves, ten operator calls, and fixed-BDF2 elapsed `9.97 s`.
+  Decision: this is a safe host-device barrier cleanup and a negative-benchmark
+  closeout for several tempting switches, not a claimed runtime breakthrough.
+  The remaining P2/P8 work is still to reduce residual/JVP kernel cost or
+  lower Krylov operator count with a cheaper same-case preconditioner.
 
 ## Definition Of Done
 
