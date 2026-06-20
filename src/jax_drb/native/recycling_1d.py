@@ -92,6 +92,7 @@ from .recycling_collision_closure import (
     conduction_collision_time as _conduction_collision_time,
     conduction_kappa_coefficient as _conduction_kappa_coefficient,
     div_par_parallel_ion_viscosity_open as _div_par_parallel_ion_viscosity_open,
+    fixed_layout_collision_transport_field_rhs_from_prepared as _fixed_layout_collision_transport_field_rhs_from_prepared,
     ion_thermal_force_pair as _ion_thermal_force_pair,
     momentum_coefficient as _momentum_coefficient,
     parallel_ion_viscous_stress_open as _parallel_ion_viscous_stress_open,
@@ -7090,6 +7091,20 @@ def _build_promoted_active_source_recycling_rhs(
                 ion_boundary=ion_boundary,
                 electron_boundary=electron_boundary,
                 layout=layout,
+            ),
+        )
+        _add_field_rhs_contribution(
+            source_field_rhs,
+            _fixed_layout_collision_transport_field_rhs_from_prepared(
+                config,
+                species=species,
+                prepared=prepared,
+                layout=layout,
+                mesh=mesh,
+                metrics=metrics,
+                dataset_scalars=dataset_scalars,
+                collision_rates=collision_rates,
+                charge_exchange_rates=charge_exchange_rates,
             ),
         )
         feedback_terms = _apply_upstream_density_feedback(

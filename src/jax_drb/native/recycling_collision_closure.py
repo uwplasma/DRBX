@@ -17,6 +17,7 @@ from .recycling_collisions import (
     compute_collision_frequencies,
     ion_parallel_viscosity_inputs,
 )
+from .recycling_layout import RecyclingPackedStateLayout
 from .recycling_neutral_diffusion import configured_component_names
 from .recycling_reactions import charge_exchange_collision_rates
 from .recycling_setup import OpenFieldSpecies
@@ -156,6 +157,200 @@ def fixed_layout_collision_friction_heat_exchange_field_rhs_from_active_fields(
             field_rhs[sp.pressure_name] = (2.0 / 3.0) * terms.energy_source[name]
         if sp.has_momentum:
             field_rhs[sp.momentum_name] = terms.momentum_source[name]
+    return field_rhs
+
+
+def fixed_layout_collision_transport_field_rhs_from_prepared(
+    config: BoutConfig,
+    *,
+    species: Mapping[str, OpenFieldSpecies],
+    prepared: Mapping[str, PreparedSpeciesState],
+    layout: RecyclingPackedStateLayout,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    collision_rates: Mapping[tuple[str, str], np.ndarray] | None = None,
+    charge_exchange_rates: Mapping[str, np.ndarray] | None = None,
+) -> dict[str, np.ndarray]:
+    """Return active field-RHS blocks for gradient collision closures.
+
+    Pointwise friction and heat exchange already have an active-field helper.
+    This helper covers the remaining transport-like collision closures from
+    :func:`apply_collision_closure`: electron/ion thermal forces, ion-ion
+    thermal forces, parallel ion viscosity, and parallel thermal conduction.
+    It deliberately consumes sheath/no-flow-prepared full fields while those
+    boundary-preparation kernels are still being migrated, but returns only the
+    active fixed-layout field RHS needed by the promoted residual seam.
+    """
+
+    configured_components = set(configured_component_names(config))
+    use_jax = use_jax_backend(
+        *(state.density for state in prepared.values()),
+        *(state.temperature for state in prepared.values()),
+        *(state.velocity for state in prepared.values()),
+        *((rate for rate in collision_rates.values()) if collision_rates is not None else ()),
+        *((rate for rate in charge_exchange_rates.values()) if charge_exchange_rates is not None else ()),
+    )
+    zero_like = jnp.zeros_like if use_jax else np.zeros_like
+    as_array = jnp.asarray if use_jax else np.asarray
+    dtype = jnp.float64 if use_jax else np.float64
+    energy_source = {
+        name: zero_like(as_array(state.density, dtype=dtype), dtype=dtype)
+        for name, state in prepared.items()
+    }
+    momentum_source = {
+        name: zero_like(as_array(state.density, dtype=dtype), dtype=dtype)
+        for name, state in prepared.items()
+    }
+    collision_rate_dict = (
+        compute_collision_frequencies(
+            config,
+            dict(species),
+            dict(prepared),
+            dataset_scalars=dataset_scalars,
+        )
+        if collision_rates is None
+        else dict(collision_rates)
+    )
+    cx_rate_dict = (
+        charge_exchange_collision_rates(
+            config,
+            species=dict(species),
+            prepared=dict(prepared),
+            dataset_scalars=dataset_scalars,
+        )
+        if charge_exchange_rates is None
+        else dict(charge_exchange_rates)
+    )
+
+    if (
+        "braginskii_thermal_force" in configured_components
+        and thermal_force_enabled(config, "electron_ion", True)
+    ):
+        electron_temperature_gradient = _grad_par_open(
+            prepared["e"].temperature,
+            mesh=mesh,
+            metrics=metrics,
+        )
+        for name, sp in species.items():
+            if name == "e" or sp.charge <= 0.0:
+                continue
+            ion_force = (
+                prepared[name].density
+                * (0.71 * (float(sp.charge) ** 2))
+                * electron_temperature_gradient
+            )
+            momentum_source[name] = momentum_source[name] + ion_force
+            momentum_source["e"] = momentum_source["e"] - ion_force
+
+    if (
+        "braginskii_thermal_force" in configured_components
+        and thermal_force_enabled(config, "ion_ion", True)
+    ):
+        ion_names = tuple(
+            name
+            for name, sp in species.items()
+            if name != "e" and sp.charge != 0.0
+        )
+        override_mass_restrictions = thermal_force_enabled(
+            config,
+            "override_ion_mass_restrictions",
+            False,
+        )
+        for index, first_name in enumerate(ion_names):
+            for second_name in ion_names[index + 1 :]:
+                pair = ion_thermal_force_pair(
+                    first_name,
+                    second_name,
+                    species=dict(species),
+                    prepared=dict(prepared),
+                    mesh=mesh,
+                    metrics=metrics,
+                    override_mass_restrictions=override_mass_restrictions,
+                )
+                if pair is None:
+                    continue
+                light_name, heavy_name, heavy_force = pair
+                momentum_source[heavy_name] = momentum_source[heavy_name] + heavy_force
+                momentum_source[light_name] = momentum_source[light_name] - heavy_force
+
+    if "braginskii_ion_viscosity" in configured_components:
+        for name, sp in species.items():
+            if name == "e" or sp.charge == 0.0:
+                continue
+            viscosity_inputs = ion_parallel_viscosity_inputs(
+                species_name=name,
+                species=dict(species),
+                prepared=dict(prepared),
+                collision_rates=collision_rate_dict,
+                cx_rates=cx_rate_dict,
+            )
+            viscosity_source = div_par_parallel_ion_viscosity_open(
+                viscosity_inputs.eta,
+                prepared[name].velocity,
+                mesh=mesh,
+                metrics=metrics,
+            )
+            momentum_source[name] = momentum_source[name] + viscosity_source
+            energy_source[name] = (
+                energy_source[name] - prepared[name].velocity * viscosity_source
+            )
+
+    if "braginskii_conduction" in configured_components:
+        for name, sp in species.items():
+            if not sp.has_pressure:
+                continue
+            if config.has_option(name, "thermal_conduction") and not bool(
+                config.parsed(name, "thermal_conduction")
+            ):
+                continue
+            tau = conduction_collision_time(
+                config,
+                species=dict(species),
+                prepared=dict(prepared),
+                collision_rates=collision_rate_dict,
+                cx_rates=cx_rate_dict,
+                species_name=name,
+            )
+            kappa_coefficient = conduction_kappa_coefficient(config, sp)
+            if use_jax:
+                temperature = jnp.asarray(prepared[name].temperature, dtype=jnp.float64)
+                pressure = jnp.maximum(
+                    jnp.asarray(prepared[name].pressure, dtype=jnp.float64),
+                    0.0,
+                )
+            else:
+                temperature = np.asarray(prepared[name].temperature, dtype=np.float64)
+                pressure = np.maximum(
+                    np.asarray(prepared[name].pressure, dtype=np.float64),
+                    0.0,
+                )
+            kappa_par = kappa_coefficient * pressure * tau / float(sp.atomic_mass)
+            if mesh.myg > 0:
+                kappa_par = apply_noflow_scalar_guards(
+                    kappa_par,
+                    mesh=mesh,
+                    lower_y=True,
+                    upper_y=True,
+                )
+                if not use_jax:
+                    kappa_par = np.asarray(kappa_par, dtype=np.float64)
+            energy_source[name] = energy_source[name] + _div_par_k_grad_par_open(
+                kappa_par,
+                temperature,
+                mesh=mesh,
+                metrics=metrics,
+                boundary_flux=False,
+            )
+
+    field_rhs: dict[str, np.ndarray] = {}
+    for name, sp in species.items():
+        if sp.has_pressure and sp.pressure_name in layout.field_names:
+            field_rhs[sp.pressure_name] = (
+                (2.0 / 3.0) * energy_source[name]
+            )[layout.active_slices]
+        if sp.has_momentum and sp.momentum_name in layout.field_names:
+            field_rhs[sp.momentum_name] = momentum_source[name][layout.active_slices]
     return field_rhs
 
 

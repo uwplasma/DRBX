@@ -24,7 +24,9 @@ from jax_drb.native.recycling_active_sources import (
     fixed_layout_recycling_source_field_rhs_from_active_fields,
 )
 from jax_drb.native.recycling_collision_closure import (
+    apply_collision_closure,
     fixed_layout_collision_friction_heat_exchange_field_rhs_from_active_fields,
+    fixed_layout_collision_transport_field_rhs_from_prepared,
 )
 from jax_drb.native.recycling_collisions import compute_collision_frequencies
 from jax_drb.native.recycling_fixed_residual import (
@@ -68,6 +70,10 @@ _BOUNDED_PROMOTED_DTHE_FEEDBACK_OVERRIDES = (
     "hermes:components=(d+, d, t+, t, he+, he, e, sheath_boundary, "
     "braginskii_collisions, braginskii_friction, braginskii_heat_exchange, "
     "recycling, reactions, electron_force_balance, neutral_parallel_diffusion)",
+)
+_BOUNDED_COLLISION_TRANSPORT_DTHE_OVERRIDES = (
+    "hermes:components=(d+, d, t+, t, he+, he, e, braginskii_collisions, "
+    "braginskii_thermal_force, braginskii_ion_viscosity, braginskii_conduction)",
 )
 
 
@@ -231,6 +237,150 @@ def test_composed_active_sources_sum_dthe_reaction_collision_and_neutral_terms()
             rtol=1.0e-9,
             atol=1.0e-10,
         )
+
+
+def test_collision_transport_field_rhs_matches_full_collision_closure() -> None:
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        species,
+        prepared,
+        _ion_boundary,
+        layout,
+        _state,
+        _active_fields,
+    ) = _build_context(
+        _DTHE_INPUT,
+        overrides=_BOUNDED_COLLISION_TRANSPORT_DTHE_OVERRIDES,
+    )
+    collision_rates, _ionisation_rates, charge_exchange_rates = _rate_inputs(
+        config,
+        species,
+        prepared,
+        scalars,
+    )
+
+    full_terms = apply_collision_closure(
+        config,
+        dict(species),
+        dict(prepared),
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        collision_rates=collision_rates,
+        cx_rates=charge_exchange_rates,
+    )
+    expected: dict[str, object] = {}
+    for name, sp in species.items():
+        if sp.has_pressure and sp.pressure_name in layout.field_names:
+            expected[sp.pressure_name] = (
+                (2.0 / 3.0) * full_terms.energy_source[name]
+            )[layout.active_slices]
+        if sp.has_momentum and sp.momentum_name in layout.field_names:
+            expected[sp.momentum_name] = full_terms.momentum_source[name][
+                layout.active_slices
+            ]
+
+    actual = fixed_layout_collision_transport_field_rhs_from_prepared(
+        config,
+        species=species,
+        prepared=prepared,
+        layout=layout,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        collision_rates=collision_rates,
+        charge_exchange_rates=charge_exchange_rates,
+    )
+
+    assert actual.keys() == expected.keys()
+    for name in expected:
+        np.testing.assert_allclose(
+            np.asarray(actual[name]),
+            np.asarray(expected[name]),
+            rtol=1.0e-9,
+            atol=1.0e-10,
+            err_msg=f"collision transport RHS mismatch for {name}",
+        )
+
+
+def test_collision_transport_field_rhs_is_jvp_transformable() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        _runtime_model,
+        species,
+        prepared,
+        _ion_boundary,
+        layout,
+        _state,
+        _active_fields,
+    ) = _build_context(
+        _DTHE_INPUT,
+        overrides=_BOUNDED_COLLISION_TRANSPORT_DTHE_OVERRIDES,
+    )
+    collision_rates, _ionisation_rates, charge_exchange_rates = _rate_inputs(
+        config,
+        species,
+        prepared,
+        scalars,
+    )
+
+    def qoi(scale):
+        scaled_prepared = {
+            name: state.__class__(
+                density=jnp.asarray(state.density, dtype=jnp.float64),
+                pressure=jnp.asarray(state.pressure, dtype=jnp.float64) * scale,
+                temperature=jnp.asarray(state.temperature, dtype=jnp.float64) * scale,
+                velocity=jnp.asarray(state.velocity, dtype=jnp.float64),
+                momentum=jnp.asarray(state.momentum, dtype=jnp.float64),
+                momentum_error=jnp.asarray(
+                    state.momentum_error,
+                    dtype=jnp.float64,
+                ),
+            )
+            for name, state in prepared.items()
+        }
+        rhs = fixed_layout_collision_transport_field_rhs_from_prepared(
+            config,
+            species=species,
+            prepared=scaled_prepared,
+            layout=layout,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=scalars,
+            collision_rates={
+                key: jnp.asarray(value, dtype=jnp.float64)
+                for key, value in collision_rates.items()
+            },
+            charge_exchange_rates={
+                key: jnp.asarray(value, dtype=jnp.float64)
+                for key, value in charge_exchange_rates.items()
+            },
+        )
+        return sum(jnp.sum(jnp.asarray(value, dtype=jnp.float64)) for value in rhs.values())
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    step = 1.0e-5
+    finite_difference = (
+        qoi(jnp.array(1.0 + step)) - qoi(jnp.array(1.0 - step))
+    ) / (2.0 * step)
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(tangent))
+    np.testing.assert_allclose(
+        float(tangent),
+        float(finite_difference),
+        rtol=1.0e-4,
+        atol=1.0e-7,
+    )
 
 
 def test_composed_active_sources_promote_to_fixed_array_rhs_and_jvp() -> None:
@@ -710,6 +860,69 @@ def test_promoted_active_source_rhs_matches_feedback_predictor_full_rhs() -> Non
             rtol=1.0e-9,
             atol=1.0e-10,
             err_msg=f"promoted active feedback predictor mismatch for {name}",
+        )
+    np.testing.assert_allclose(
+        np.asarray(actual.feedback_values),
+        np.asarray(expected.feedback_values),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
+def test_promoted_active_source_rhs_matches_full_dthe_collision_transport_fixture() -> None:
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        _species,
+        _prepared,
+        _ion_boundary,
+        layout,
+        state,
+        _active_fields,
+    ) = _build_context(_DTHE_INPUT)
+    feedback_integrals = {name: 0.0 for name in runtime_model.feedback_names}
+
+    full_rhs = _build_fixed_full_field_recycling_rhs(
+        config,
+        runtime_model=runtime_model,
+        layout=layout,
+        base_feedback_integrals=feedback_integrals,
+        feedback_previous_errors=None,
+        feedback_timestep=None,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    promoted_rhs = _build_promoted_active_source_recycling_rhs(
+        config,
+        runtime_model=runtime_model,
+        layout=layout,
+        base_feedback_integrals=feedback_integrals,
+        feedback_previous_errors=None,
+        feedback_timestep=None,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+
+    expected = full_rhs(state)
+    actual = promoted_rhs(state)
+
+    for name, expected_value, actual_value in zip(
+        layout.field_names,
+        expected.field_values,
+        actual.field_values,
+        strict=True,
+    ):
+        np.testing.assert_allclose(
+            np.asarray(actual_value),
+            np.asarray(expected_value),
+            rtol=1.0e-9,
+            atol=1.0e-10,
+            err_msg=f"promoted active full D/T/He RHS mismatch for {name}",
         )
     np.testing.assert_allclose(
         np.asarray(actual.feedback_values),
