@@ -488,6 +488,34 @@ def _assert_current_dthe_jax_linearized_command(
         assert "--device-memory-profile" not in command.command
 
 
+def _assert_dthe_promoted_active_sources_profile_command(command) -> None:
+    assert command.required_reference_inputs == ("dthe",)
+    assert command.requires_gpu is False
+    assert command.timeout_seconds == 300
+    assert "profile_recycling_jax_linearized_gate.py" in command.command[1]
+    assert command.command[command.command.index("--case") + 1] == "dthe"
+    assert command.command[command.command.index("--rhs-backend") + 1] == (
+        "promoted_active_sources"
+    )
+    assert command.command[command.command.index("--require-rhs-backend") + 1] == (
+        "promoted_active_sources"
+    )
+    assert "mesh:ny=100" in command.command
+    assert command.command[command.command.index("--timestep") + 1] == "1e-6"
+    assert command.command[command.command.index("--residual-tolerance") + 1] == (
+        "1e-4"
+    )
+    assert command.command[command.command.index("--max-nonlinear-iterations") + 1] == (
+        "1"
+    )
+    assert command.command[command.command.index("--require-max-residual-inf-norm") + 1] == (
+        "1e-4"
+    )
+    assert command.command[command.command.index("--cprofile-top") + 1] == "35"
+    assert "--rss-profile" in command.command
+    assert "--skip-cprofile" not in command.command
+
+
 def _workflow_campaign_options() -> tuple[str, ...]:
     lines = _WORKFLOW.read_text(encoding="utf-8").splitlines()
     in_campaign = False
@@ -549,6 +577,9 @@ def test_research_campaign_all_local_includes_fixed_bdf2_direct_counting() -> No
         ("all-local",)
     )
     assert "dthe-active-array-linearized-update-throughput-probe" in (
+        module.expand_campaign_names(("all-local",))
+    )
+    assert "dthe-promoted-active-sources-profile-gate" in (
         module.expand_campaign_names(("all-local",))
     )
     assert "dthe-fixed-bdf2-active-array-gate" in module.expand_campaign_names(
@@ -616,6 +647,28 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) 
     assert "--rss-profile" in heavy.command
     assert gate.name == "dthe-jax-linearized-gate"
     _assert_current_dthe_jax_linearized_command(gate, requires_gpu=False)
+
+
+def test_research_campaign_promoted_active_sources_profile_is_gated(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module(
+        "scripts/run_research_campaign_bundle.py",
+        "research_campaign_promoted_active_sources_profile",
+    )
+    reference_root = _make_dthe_reference_root(tmp_path)
+
+    (command,) = module.build_campaign_commands(
+        campaign_names=("dthe-promoted-active-sources-profile-gate",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=reference_root,
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    assert command.name == "dthe-promoted-active-sources-profile-gate"
+    _assert_dthe_promoted_active_sources_profile_command(command)
 
 
 def test_research_campaign_adaptive_bdf_gate_writes_json_report(tmp_path: Path) -> None:

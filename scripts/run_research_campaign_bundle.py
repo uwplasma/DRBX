@@ -214,6 +214,48 @@ def _campaign_command_map(
             requires_reference=True,
             required_reference_inputs=("dthe",),
         ),
+        "dthe-promoted-active-sources-profile-gate": CampaignCommand(
+            name="dthe-promoted-active-sources-profile-gate",
+            description=(
+                "D/T/He promoted active-source recycling residual cProfile/RSS "
+                "gate through the JAX-linearized profiling seam."
+            ),
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_jax_linearized_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--output-dir",
+                str(
+                    output_root
+                    / "runtime_profile_artifacts"
+                    / "recycling_dthe_promoted_active_sources_profile_cpu"
+                ),
+                "--rhs-backend",
+                "promoted_active_sources",
+                "--require-rhs-backend",
+                "promoted_active_sources",
+                "--override",
+                "mesh:ny=100",
+                "--timestep",
+                "1e-6",
+                "--residual-tolerance",
+                "1e-4",
+                "--max-nonlinear-iterations",
+                "1",
+                "--timed-runs",
+                "1",
+                "--require-max-residual-inf-norm",
+                "1e-4",
+                "--cprofile-top",
+                "35",
+                "--rss-profile",
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+            timeout_seconds=300,
+        ),
         "dthe-batched-jvp-gate": CampaignCommand(
             name="dthe-batched-jvp-gate",
             description="Batched D/T/He recycling residual/JVP differentiability and throughput gate.",
@@ -1209,6 +1251,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
                     "atomic-rate-throughput-gate",
                     "local-cpu-scaling",
                     "dthe-jax-linearized-gate",
+                    "dthe-promoted-active-sources-profile-gate",
                     "dthe-batched-jvp-gate",
                     "dthe-active-array-batched-jvp-gate",
                     "dthe-active-array-linearized-update-gate",

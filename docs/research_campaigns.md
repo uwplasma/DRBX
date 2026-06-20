@@ -50,6 +50,18 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the promoted active-source D/T/He profile gate after changing reaction,
+collision, neutral-diffusion, target-recycling, feedback, or source-composition
+kernels in the promoted recycling residual. This gate records cProfile and RSS
+evidence for the opt-in `promoted_active_sources` backend without changing the
+stable default solver:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign dthe-promoted-active-sources-profile-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the bounded D/T/He fixed-BDF2 active-array output-window gate when changing
 the matrix-free recycling history route. This is the current local replacement
 for the timeout-bound SciPy-BDF sparse-JVP output-window profile:
