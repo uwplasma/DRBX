@@ -18,16 +18,26 @@
       "worst_relative_l2_field": "Ne"
     },
     {
+      "benchmark_adapter": "native_traced_field_line_selected_field",
+      "candidate_input_name": "radial_const_4_2_4_1.fci.nc",
       "geometry_family": "traced_field_line_3d",
       "lane_name": "traced_field_line_native_selected_field",
+      "native_capability_tier": "native_exact_reduced",
+      "reference_input_name": "poloidal_const_4_2_4_1.fci.nc",
       "worst_max_abs_error": 0.2807673403807507,
       "worst_max_abs_field": "g33",
       "worst_relative_l2_error": 0.11287030791489619,
       "worst_relative_l2_field": "g33"
     },
     {
+      "benchmark_adapter": "native_stellarator_vmec_selected_field",
+      "candidate_input_name": "jax_drb_wout_candidate.nc",
+      "candidate_origin": "provided_external_input",
       "geometry_family": "stellarator_vmec_3d",
       "lane_name": "stellarator_vmec_native_selected_field",
+      "native_capability_tier": "native_exact_reduced",
+      "reference_input_name": "jax_drb_wout_reference.nc",
+      "source_mode": "explicit_pair",
       "worst_max_abs_error": 0.03938369338999987,
       "worst_max_abs_field": "toroidal_flux",
       "worst_relative_l2_error": 0.4745023299999996,

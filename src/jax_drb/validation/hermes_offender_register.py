@@ -203,6 +203,7 @@ def _build_parity_offenders(
             dominant_field = str(lane.get("worst_relative_l2_field") or lane.get("worst_max_abs_field") or "")
             rel_l2 = float(lane.get("worst_relative_l2_error", 0.0))
             max_abs = float(lane.get("worst_max_abs_error", 0.0))
+            diagnostic_preview = _is_diagnostic_preview_lane(lane)
             offenders.append(
                 {
                     "source": "committed_geometry_summary",
@@ -211,6 +212,15 @@ def _build_parity_offenders(
                     "capability_tier": "reduced_geometry_comparison",
                     "parity_mode": "selected_field",
                     "dominant_field": dominant_field,
+                    "source_mode": _optional_string(lane.get("source_mode")),
+                    "candidate_origin": _optional_string(lane.get("candidate_origin")),
+                    "reference_input_name": _optional_string(
+                        lane.get("reference_input_name")
+                    ),
+                    "candidate_input_name": _optional_string(
+                        lane.get("candidate_input_name")
+                    ),
+                    "diagnostic_preview": diagnostic_preview,
                     "component_hint": _component_hint(str(lane.get("lane_name", "")), dominant_field),
                     "rank_metric": rel_l2,
                     "worst_relative_l2_error": rel_l2,
@@ -218,7 +228,14 @@ def _build_parity_offenders(
                     "worst_relative_to_expected_max": None,
                     "worst_max_abs_diff": max_abs,
                     "normalization_sensitive": False,
-                    "recommended_next_action": "compare selected-field geometry construction against the reference adapter inputs",
+                    "recommended_next_action": (
+                        "replace the synthetic preview pair with explicit "
+                        "reference and candidate inputs before treating this "
+                        "as a parity failure"
+                        if diagnostic_preview
+                        else "compare selected-field geometry construction "
+                        "against the reference adapter inputs"
+                    ),
                 }
             )
     offenders.sort(
@@ -238,6 +255,7 @@ def _build_actionable_parity_offenders(
         {key: value for key, value in offender.items() if key != "rank"}
         for offender in parity_offenders
         if not bool(offender.get("normalization_sensitive", False))
+        and not bool(offender.get("diagnostic_preview", False))
     ]
     return _with_ranks(actionable)
 
@@ -388,6 +406,11 @@ def _component_hint(case_name: str, field_name: str) -> str:
 
 
 def _recommended_parity_action(case: dict[str, Any], field_name: str) -> str:
+    if bool(case.get("diagnostic_preview", False)):
+        return (
+            "replace the synthetic preview pair with explicit reference and "
+            "candidate inputs before treating this as a parity failure"
+        )
     if bool(case.get("normalization_sensitive", False)):
         return "inspect absolute error and near-zero support before changing equations"
     case_name = str(case.get("case_name", "")).lower()
@@ -442,6 +465,18 @@ def _optional_float(value: object) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _is_diagnostic_preview_lane(lane: dict[str, Any]) -> bool:
+    source_mode = str(lane.get("source_mode", "")).lower()
+    candidate_origin = str(lane.get("candidate_origin", "")).lower()
+    return "synthetic_preview" in source_mode or "synthetic_preview" in candidate_origin
 
 
 def _resolve_or_default(path: str | Path | None, default_relative: str) -> Path:

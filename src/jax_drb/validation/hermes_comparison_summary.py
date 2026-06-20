@@ -23,6 +23,8 @@ def create_hermes_comparison_summary_package(
     tokamak_short_window_parity_json: str | Path | None = None,
     traced_native_parity_json: str | Path | None = None,
     stellarator_native_parity_json: str | Path | None = None,
+    traced_native_runtime_json: str | Path | None = None,
+    stellarator_native_runtime_json: str | Path | None = None,
     case_label: str = "hermes_comparison_summary",
 ) -> HermesComparisonSummaryArtifacts:
     root = Path(output_root)
@@ -31,6 +33,25 @@ def create_hermes_comparison_summary_package(
     data_dir.mkdir(parents=True, exist_ok=True)
     images_dir.mkdir(parents=True, exist_ok=True)
 
+    traced_runtime_path = (
+        _resolve_or_default(
+            traced_native_runtime_json,
+            "docs/data/traced_field_line_native_selected_field_artifacts/data/traced_field_line_native_selected_field_runtime_report.json",
+        )
+        if traced_native_runtime_json is not None or traced_native_parity_json is None
+        else None
+    )
+    stellarator_runtime_path = (
+        _resolve_or_default(
+            stellarator_native_runtime_json,
+            "docs/data/stellarator_vmec_native_selected_field_artifacts/data/stellarator_vmec_native_selected_field_runtime_report.json",
+        )
+        if (
+            stellarator_native_runtime_json is not None
+            or stellarator_native_parity_json is None
+        )
+        else None
+    )
     report = build_hermes_comparison_summary_report(
         tokamak_one_step_parity_json=_resolve_or_default(
             tokamak_one_step_parity_json,
@@ -48,6 +69,8 @@ def create_hermes_comparison_summary_package(
             stellarator_native_parity_json,
             "docs/data/stellarator_vmec_native_selected_field_artifacts/data/stellarator_vmec_native_selected_field.json",
         ),
+        traced_native_runtime_json=traced_runtime_path,
+        stellarator_native_runtime_json=stellarator_runtime_path,
     )
     summary_json_path = data_dir / f"{case_label}.json"
     summary_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -64,12 +87,24 @@ def build_hermes_comparison_summary_report(
     tokamak_short_window_parity_json: str | Path,
     traced_native_parity_json: str | Path,
     stellarator_native_parity_json: str | Path,
+    traced_native_runtime_json: str | Path | None = None,
+    stellarator_native_runtime_json: str | Path | None = None,
 ) -> dict[str, object]:
     lanes = [
         _parity_entry("tokamak_native_one_step", "diverted_tokamak_3d", _load_json(tokamak_one_step_parity_json)),
         _parity_entry("tokamak_native_short_window", "diverted_tokamak_3d", _load_json(tokamak_short_window_parity_json)),
-        _parity_entry("traced_field_line_native_selected_field", "traced_field_line_3d", _load_json(traced_native_parity_json)),
-        _parity_entry("stellarator_vmec_native_selected_field", "stellarator_vmec_3d", _load_json(stellarator_native_parity_json)),
+        _parity_entry(
+            "traced_field_line_native_selected_field",
+            "traced_field_line_3d",
+            _load_json(traced_native_parity_json),
+            runtime_report=_load_optional_json(traced_native_runtime_json),
+        ),
+        _parity_entry(
+            "stellarator_vmec_native_selected_field",
+            "stellarator_vmec_3d",
+            _load_json(stellarator_native_parity_json),
+            runtime_report=_load_optional_json(stellarator_native_runtime_json),
+        ),
     ]
     return {
         "reference_code": "hermes-3",
@@ -133,7 +168,13 @@ def save_hermes_comparison_summary_plot(report: dict[str, object], path: str | P
     return target
 
 
-def _parity_entry(lane_name: str, geometry_family: str, payload: dict[str, object]) -> dict[str, object]:
+def _parity_entry(
+    lane_name: str,
+    geometry_family: str,
+    payload: dict[str, object],
+    *,
+    runtime_report: dict[str, object] | None = None,
+) -> dict[str, object]:
     variable_errors = payload["variable_errors"]
     worst_rel_name, worst_rel_error = max(
         ((name, float(values["relative_l2_error"])) for name, values in variable_errors.items()),
@@ -143,7 +184,7 @@ def _parity_entry(lane_name: str, geometry_family: str, payload: dict[str, objec
         ((name, float(values["max_abs_error"])) for name, values in variable_errors.items()),
         key=lambda item: item[1],
     )
-    return {
+    entry = {
         "lane_name": lane_name,
         "geometry_family": geometry_family,
         "worst_relative_l2_field": worst_rel_name,
@@ -151,6 +192,18 @@ def _parity_entry(lane_name: str, geometry_family: str, payload: dict[str, objec
         "worst_max_abs_field": worst_abs_name,
         "worst_max_abs_error": worst_abs_error,
     }
+    if runtime_report is not None:
+        for key in (
+            "source_mode",
+            "candidate_origin",
+            "reference_input_name",
+            "candidate_input_name",
+            "native_capability_tier",
+            "benchmark_adapter",
+        ):
+            if key in runtime_report:
+                entry[key] = runtime_report[key]
+    return entry
 
 
 def _resolve_or_default(path: str | Path | None, default_relative: str) -> Path:
@@ -161,3 +214,12 @@ def _resolve_or_default(path: str | Path | None, default_relative: str) -> Path:
 
 def _load_json(path: str | Path) -> dict[str, object]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _load_optional_json(path: str | Path | None) -> dict[str, object] | None:
+    if path is None:
+        return None
+    resolved = Path(path)
+    if not resolved.exists():
+        return None
+    return _load_json(resolved)

@@ -106,6 +106,8 @@ def _write_inputs(tmp_path: Path) -> tuple[Path, Path]:
                         "worst_relative_l2_error": 0.4,
                         "worst_max_abs_field": "toroidal_flux",
                         "worst_max_abs_error": 0.03,
+                        "source_mode": "explicit_pair",
+                        "candidate_origin": "provided_external_input",
                     }
                 ],
             },
@@ -195,6 +197,63 @@ def test_build_hermes_offender_register_filters_normalization_sensitive_actionab
     assert report["top_offenders"]["actionable_parity"]["case_name"] == (
         "recycling_dthe_one_step"
     )
+
+
+def test_build_hermes_offender_register_filters_synthetic_preview_actionables(
+    tmp_path: Path,
+) -> None:
+    live_path = tmp_path / "live.json"
+    comparison_path = tmp_path / "comparison.json"
+    live_path.write_text(
+        json.dumps({"reference_code": "hermes-3", "case_count": 0, "cases": []}),
+        encoding="utf-8",
+    )
+    comparison_path.write_text(
+        json.dumps(
+            {
+                "reference_code": "hermes-3",
+                "lane_count": 2,
+                "lanes": [
+                    {
+                        "lane_name": "stellarator_vmec_native_selected_field",
+                        "geometry_family": "stellarator_vmec_3d",
+                        "worst_relative_l2_field": "toroidal_flux",
+                        "worst_relative_l2_error": 0.5,
+                        "worst_max_abs_field": "toroidal_flux",
+                        "worst_max_abs_error": 0.04,
+                        "source_mode": "synthetic_preview",
+                        "candidate_origin": "synthetic_preview_pair",
+                    },
+                    {
+                        "lane_name": "traced_field_line_native_selected_field",
+                        "geometry_family": "traced_field_line_3d",
+                        "worst_relative_l2_field": "g33",
+                        "worst_relative_l2_error": 0.1,
+                        "worst_max_abs_field": "g33",
+                        "worst_max_abs_error": 0.2,
+                        "source_mode": "explicit_pair",
+                        "candidate_origin": "provided_external_input",
+                    },
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_hermes_offender_register_report(
+        live_rerun_json=live_path,
+        comparison_summary_json=comparison_path,
+    )
+
+    assert report["parity_offenders"][0]["case_name"] == (
+        "stellarator_vmec_native_selected_field"
+    )
+    assert report["parity_offenders"][0]["diagnostic_preview"] is True
+    assert report["actionable_parity_offenders"][0]["case_name"] == (
+        "traced_field_line_native_selected_field"
+    )
+    assert "synthetic preview" in report["parity_offenders"][0]["recommended_next_action"]
 
 
 def test_create_hermes_offender_register_package_writes_json_and_plot(tmp_path: Path) -> None:
