@@ -330,14 +330,13 @@ The profiling gate can now require finite JVP update health with
 `diagnostics.linear_operator_finite`, which is populated when
 `runtime:recycling_jax_linear_diagnose_update_residual=true` evaluates
 `J(u) \delta u + R(u)` for the Krylov update. On the hard `dt=1.0`,
-`mesh:ny=100` promoted-source probe, that diagnostic is currently false:
-the solver reports `linear_solver_status=nonfinite_linearized_update`,
-`linear_solver_success=false`, and exits before feeding the poisoned update
-into additional trial residuals. This reduced local profiled runtime from
-`20.64 s` to `10.87 s` and sampled RSS delta from `1837 MiB` to `819 MiB`,
-but the residual remains `1.41e2`. A probe with
-`--require-linear-operator-finite` therefore fails intentionally until the
-underlying residual/JVP source of the nonfinite action is fixed.
+`mesh:ny=100` promoted-source probe, this diagnostic originally failed because
+the linearized action touched clipped characteristic and collision
+relative-speed square roots. The fixed-JVP square-root helper now selects the
+inactive-branch subgradient at the clipping point, so the same probe passes
+`--require-linear-operator-finite`. This does not make the large-step solve
+converged: the residual remains a nonlinear globalization and
+preconditioning problem, not a nonfinite operator-action problem.
 
 The current GPU evidence for the heavier fixed-layout seam lives in:
 
