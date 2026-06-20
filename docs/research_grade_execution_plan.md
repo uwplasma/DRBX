@@ -3770,6 +3770,28 @@ Use this log for concise decision records. Do not paste terminal output here.
   the real promoted gate. Future graph-reduction work should target fused
   source/RHS composition or solver/preconditioner structure rather than more
   one-off pressure-stencil helpers.
+- 2026-06-20: Swept the JAX-linearized GMRES tolerance factor on the same
+  strict D/T/He promoted active-source fixed-BDF2 gate. Factors `2`, `5`,
+  `10`, `25`, `50`, and `100` all preserved the roundoff-level fixed-BDF2
+  residual (`4.10110678e-14`) and worst-field parity (`Pd+`
+  `max_abs_delta=4.99220688e-08`), but none reduced the two linear solves or
+  ten matrix-free operator calls. Warm fixed-BDF2 elapsed times stayed in the
+  `9.257 s` to `9.453 s` range, with no monotonic improvement. Decision: do
+  not change the default or opt-in tolerance controls as a performance fix;
+  the next useful work remains source/RHS composition, residual/JVP graph
+  reduction, or a genuinely operator-count-reducing preconditioner.
+- 2026-06-20: Removed eager zero-default construction from the promoted
+  active-source RHS return path. The previous `dict.get(name, zeros_like(...))`
+  pattern built a zero field for every evolved field even when the assembler
+  had already produced that field. The new helper constructs the zero only for
+  genuinely missing fields and has a direct regression test. Focused active
+  source/RHS/operator tests passed (`41 passed`), syntax and whitespace checks
+  passed, and the strict D/T/He promoted active-source fixed-BDF2 gate preserved
+  residual/parity (`4.10110678e-14`, worst `Pd+`
+  `max_abs_delta=4.99220688e-08`) with the same two JAX-GMRES solves and ten
+  operator calls. Fixed-BDF2 elapsed was `9.464 s`, so this is retained as
+  residual-graph hygiene but does not raise the performance/preconditioning
+  completion percentages.
 
 ## Definition Of Done
 

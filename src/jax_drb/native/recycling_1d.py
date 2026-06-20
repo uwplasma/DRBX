@@ -7010,6 +7010,22 @@ def _active_feedback_source_field_rhs(
     return field_rhs
 
 
+def _promoted_field_rhs_value_or_zero(
+    field_rhs: dict[str, object],
+    field_name: str,
+    template: object,
+    *,
+    use_jax: bool,
+) -> object:
+    """Return an assembled RHS value without eagerly constructing zero defaults."""
+
+    if field_name in field_rhs:
+        return field_rhs[field_name]
+    if use_jax:
+        return jnp.zeros_like(template)
+    return np.zeros_like(template, dtype=np.float64)
+
+
 def _build_promoted_active_source_recycling_rhs(
     config: BoutConfig,
     *,
@@ -7203,7 +7219,12 @@ def _build_promoted_active_source_recycling_rhs(
             return _RecyclingFixedState(
                 field_values=tuple(
                     jnp.asarray(
-                        field_rhs.get(name, jnp.zeros_like(value)),
+                        _promoted_field_rhs_value_or_zero(
+                            field_rhs,
+                            name,
+                            value,
+                            use_jax=True,
+                        ),
                         dtype=jnp.float64,
                     )
                     for name, value in zip(
@@ -7226,7 +7247,12 @@ def _build_promoted_active_source_recycling_rhs(
         return _RecyclingFixedState(
             field_values=tuple(
                 np.asarray(
-                    field_rhs.get(name, np.zeros_like(value, dtype=np.float64)),
+                    _promoted_field_rhs_value_or_zero(
+                        field_rhs,
+                        name,
+                        value,
+                        use_jax=False,
+                    ),
                     dtype=np.float64,
                 )
                 for name, value in zip(

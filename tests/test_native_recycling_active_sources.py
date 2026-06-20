@@ -11,6 +11,7 @@ from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.recycling_1d import (
     _build_fixed_full_field_recycling_rhs,
     _build_promoted_active_source_recycling_rhs,
+    _promoted_field_rhs_value_or_zero,
     build_recycling_1d_bdf2_residual_context,
     build_recycling_1d_backward_euler_residual_context,
     _build_recycling_runtime_model,
@@ -75,6 +76,29 @@ _BOUNDED_COLLISION_TRANSPORT_DTHE_OVERRIDES = (
     "hermes:components=(d+, d, t+, t, he+, he, e, braginskii_collisions, "
     "braginskii_thermal_force, braginskii_ion_viscosity, braginskii_conduction)",
 )
+
+
+def test_promoted_field_rhs_value_or_zero_avoids_eager_default_construction() -> None:
+    value = np.asarray([1.0, 2.0], dtype=np.float64)
+
+    assert (
+        _promoted_field_rhs_value_or_zero(
+            {"N": value},
+            "N",
+            object(),
+            use_jax=True,
+        )
+        is value
+    )
+    np.testing.assert_allclose(
+        _promoted_field_rhs_value_or_zero(
+            {},
+            "missing",
+            np.asarray([3.0, 4.0], dtype=np.float64),
+            use_jax=False,
+        ),
+        np.asarray([0.0, 0.0], dtype=np.float64),
+    )
 
 
 def _build_context(input_path: Path, overrides: tuple[str, ...] = ()):
