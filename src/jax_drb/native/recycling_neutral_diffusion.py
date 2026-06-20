@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -10,6 +11,7 @@ from .array_backend import use_jax_backend
 from .metrics import StructuredMetrics
 from .mesh import StructuredMesh
 from .neutral_mixed import _div_par_k_grad_par_open
+from .recycling_layout import RecyclingPackedStateLayout
 from .recycling_boundaries import (
     apply_open_field_dirichlet_scalar_guards,
     apply_open_field_neumann_scalar_guards,
@@ -19,8 +21,8 @@ from .recycling_reactions import (
     neutral_charge_exchange_collision_rates,
     neutral_ionisation_collision_rates,
 )
-from .recycling_setup import OpenFieldSpecies
-from .recycling_state import PreparedSpeciesState
+from .recycling_setup import OpenFieldSpecies, build_species_field_overrider
+from .recycling_state import PreparedSpeciesState, prepare_species_state
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,109 @@ def configured_component_names(config: BoutConfig) -> tuple[str, ...]:
                 return tuple(str(value).strip() for value in values)
             return (str(values).strip(),)
     return ()
+
+
+def fixed_layout_neutral_parallel_diffusion_field_rhs_from_active_fields(
+    config: BoutConfig,
+    *,
+    active_fields: Mapping[str, np.ndarray],
+    layout: RecyclingPackedStateLayout,
+    species_templates: Mapping[str, OpenFieldSpecies],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    collision_rates: Mapping[tuple[str, str], np.ndarray] | None = None,
+    ionisation_rates: Mapping[str, np.ndarray] | None = None,
+    charge_exchange_rates: Mapping[str, np.ndarray] | None = None,
+) -> dict[str, np.ndarray]:
+    """Map neutral parallel diffusion sources into active fixed-layout RHS terms.
+
+    Neutral diffusion is stencil-based, so unlike pointwise reaction and
+    collision kernels it must recover the guard-cell template before applying
+    open-field boundary formulas. The public contract remains active arrays:
+    the returned dictionary is keyed by fixed-layout field names and each value
+    has ``layout.active_shape``.
+    """
+
+    full_fields = _fixed_layout_full_fields_from_active_fields(
+        active_fields,
+        layout=layout,
+    )
+    species = build_species_field_overrider(dict(species_templates), mesh=mesh)(
+        full_fields
+    )
+    prepared = {
+        name: prepare_species_state(sp, mesh=mesh) for name, sp in species.items()
+    }
+    terms = apply_neutral_parallel_diffusion(
+        config,
+        species=species,
+        prepared=prepared,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        collision_rates=dict(collision_rates) if collision_rates is not None else None,
+        ionisation_rates=dict(ionisation_rates) if ionisation_rates is not None else None,
+        charge_exchange_rates=dict(charge_exchange_rates)
+        if charge_exchange_rates is not None
+        else None,
+    )
+
+    layout_fields = set(layout.field_names)
+    active_slices = layout.active_slices
+    field_rhs: dict[str, np.ndarray] = {}
+    for name, sp in species.items():
+        if sp.density_name in layout_fields:
+            field_rhs[sp.density_name] = terms.density_source[name][active_slices]
+        if sp.has_pressure and sp.pressure_name in layout_fields:
+            field_rhs[sp.pressure_name] = (
+                (2.0 / 3.0) * terms.energy_source[name][active_slices]
+            )
+        if sp.has_momentum and sp.momentum_name in layout_fields:
+            field_rhs[sp.momentum_name] = terms.momentum_source[name][active_slices]
+    return field_rhs
+
+
+def _fixed_layout_full_fields_from_active_fields(
+    active_fields: Mapping[str, np.ndarray],
+    *,
+    layout: RecyclingPackedStateLayout,
+) -> dict[str, np.ndarray]:
+    missing = [name for name in layout.field_names if name not in active_fields]
+    if missing:
+        missing_text = ", ".join(repr(name) for name in missing)
+        raise KeyError(f"Missing active neutral-diffusion fields: {missing_text}.")
+
+    use_jax = use_jax_backend(*(active_fields[name] for name in layout.field_names))
+    full_fields: dict[str, np.ndarray] = {}
+    for name, template in zip(
+        layout.field_names,
+        layout.field_templates,
+        strict=True,
+    ):
+        if use_jax:
+            active = jnp.asarray(active_fields[name], dtype=jnp.float64)
+            if tuple(active.shape) != tuple(layout.active_shape):
+                raise ValueError(
+                    f"Active field {name!r} has shape {tuple(active.shape)}, "
+                    f"expected {tuple(layout.active_shape)}."
+                )
+            full_fields[name] = (
+                jnp.asarray(template, dtype=jnp.float64)
+                .at[layout.active_slices]
+                .set(active)
+            )
+        else:
+            active = np.asarray(active_fields[name], dtype=np.float64)
+            if tuple(active.shape) != tuple(layout.active_shape):
+                raise ValueError(
+                    f"Active field {name!r} has shape {tuple(active.shape)}, "
+                    f"expected {tuple(layout.active_shape)}."
+                )
+            full = np.array(template, dtype=np.float64, copy=True)
+            full[layout.active_slices] = active
+            full_fields[name] = full
+    return full_fields
 
 
 def apply_neutral_parallel_diffusion(
