@@ -88,6 +88,37 @@ For definitions of one-sided, target-to-target, and effective parallel
 connection length, and for the exact code paths used by each geometry source,
 see [Connection Length](connection_length.md).
 
+Direct-coil open-field promotion now has a separate categorical endpoint-label
+refinement gate. This is necessary because `target_exit_length` is a
+wall/endpoint distance and is discontinuous when a neighboring cell changes
+from non-target to target. The endpoint-label gate compares the directional
+labels consumed by the sheath/recycling kernels, using the convention
+`0` for no target, `1` for a forward endpoint, `2` for a backward endpoint, and
+`3` for a bidirectional endpoint. Live nested grids are compared by
+nearest-neighbor restriction at the coarse logical coordinates; self-contained
+manufactured tests use block-majority restriction. The JSON report records
+all-label agreement, endpoint-only agreement, forward/backward/bidirectional
+confusion matrices, valid overlap, endpoint false positives, endpoint false
+negatives, and directional mismatches. The scalar `adjacent_step_length`
+refinement remains the smooth FCI-map quality gate, while scalar
+`target_exit_length` refinement is retained as a target-distance diagnostic
+and not as the sole promotion blocker for a direct-coil movie.
+
+The first live direct-coil endpoint-label rerun on June 21, 2026 kept the
+direct-coil open-field lane diagnostic. The FCI endpoint/source gate passed:
+the interior connection-resolution roughness had `p95 = 2.98e-2`, endpoint
+roughness was correctly localized to endpoint-touching faces, target-exit
+lengths were finite only on endpoint cells, and source accounting closed. The
+new endpoint-label nested-refinement gate did not pass. The
+`(3, 4, 6) -> (6, 8, 12)` pair had all-label and endpoint-only agreement
+`0.444`; the `(6, 8, 12) -> (12, 16, 24)` pair improved to all-label
+agreement `0.616` and endpoint-only agreement `0.573`, but remained below the
+promotion thresholds. The smooth `adjacent_step_length` gate still had small
+finest error but weak observed order (`0.104`). These results keep pure
+direct-coil open-field media out of README/paper promotion and move the next
+promoted visual path to VMEC closed-field controls and the hybrid
+VMEC-coordinate/coil-endpoint open-SOL lane.
+
 The self-contained gate now records more than the finest-grid error. It stores
 successive RMS and \(L_\infty\) error-reduction factors and explicitly requires
 monotonic error reduction when three or more nested levels are available. The

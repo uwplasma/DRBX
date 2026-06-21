@@ -35,6 +35,8 @@ from jax_drb.validation.essos_imported_fci_campaign import (
     _IMPORTED_FCI_DIAGNOSTIC_SCHEMA,
     _IMPORTED_FCI_REQUIRED_REPORT_FIELDS,
     build_essos_imported_connection_length_refinement_diagnostics,
+    build_essos_imported_endpoint_label_refinement_diagnostics,
+    create_essos_imported_endpoint_label_refinement_package,
     build_essos_imported_fci_map_diagnostics,
 )
 
@@ -732,6 +734,72 @@ def test_imported_fci_connection_length_refinement_can_relax_finite_overlap() ->
     assert relaxed["passed"] is True
     assert relaxed["promotion_ready"] is False
     assert relaxed["evidence_role"] == "advisory_no_observed_order"
+
+
+def test_imported_fci_endpoint_label_refinement_marks_promotion_ready() -> None:
+    coarse = np.zeros((2, 2, 2), dtype=np.int8)
+    coarse[0, :, 0] = 1
+    coarse[1, :, 1] = 2
+    coarse[1, 1, 0] = 3
+    medium = np.repeat(np.repeat(np.repeat(coarse, 2, axis=0), 2, axis=1), 2, axis=2)
+    fine = np.repeat(np.repeat(np.repeat(medium, 2, axis=0), 2, axis=1), 2, axis=2)
+
+    report = build_essos_imported_endpoint_label_refinement_diagnostics(
+        [coarse, medium, fine],
+        labels=["coarse", "medium", "fine"],
+        minimum_agreement_fraction=1.0,
+        minimum_endpoint_agreement_fraction=1.0,
+        require_three_levels=True,
+    )
+
+    assert report["passed"] is True
+    assert report["promotion_ready"] is True
+    assert report["evidence_role"] == "promotion_ready"
+    assert report["pair_reports"][0]["agreement_fraction"] == 1.0
+    assert report["pair_reports"][0]["endpoint_agreement_fraction"] == 1.0
+    assert report["pair_reports"][0]["confusion_matrix"][1][1] > 0
+    assert report["promotion_rejection_reasons"] == []
+
+
+def test_imported_fci_endpoint_label_refinement_rejects_endpoint_instability() -> None:
+    coarse = np.zeros((2, 2, 2), dtype=np.int8)
+    coarse[0, :, 0] = 1
+    coarse[1, :, 1] = 2
+    medium = np.repeat(np.repeat(np.repeat(coarse, 2, axis=0), 2, axis=1), 2, axis=2)
+    medium[:2, :, :2] = 0
+
+    report = build_essos_imported_endpoint_label_refinement_diagnostics(
+        [coarse, medium],
+        labels=["coarse", "medium"],
+        minimum_agreement_fraction=0.95,
+        minimum_endpoint_agreement_fraction=0.95,
+        require_three_levels=False,
+    )
+
+    assert report["passed"] is False
+    assert report["promotion_ready"] is False
+    assert report["evidence_role"] == "endpoint_label_instability"
+    assert "endpoint_label_agreement_below_threshold" in report["promotion_rejection_reasons"]
+    assert report["pair_reports"][0]["endpoint_false_negative_fraction"] > 0.0
+    assert report["pair_reports"][0]["confusion_matrix"][1][0] > 0
+
+
+def test_imported_fci_endpoint_label_refinement_package_writes_artifacts(tmp_path: Path) -> None:
+    artifacts = create_essos_imported_endpoint_label_refinement_package(
+        output_root=tmp_path / "endpoint_labels",
+        case_label="endpoint_labels",
+        level_shapes=((4, 6, 8), (8, 12, 16), (16, 24, 32)),
+        minimum_agreement_fraction=0.0,
+        minimum_endpoint_agreement_fraction=0.0,
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert report["diagnostics"]["diagnostic"] == "essos_imported_endpoint_label_refinement"
+    assert artifacts.arrays_npz_path.exists()
+    assert artifacts.plot_png_path.exists()
+    with np.load(artifacts.arrays_npz_path) as arrays:
+        assert "level_0_target_label_toroidal" in arrays.files
+        assert "pair_0_confusion_matrix" in arrays.files
 
 
 def test_imported_fci_connection_length_refinement_rejects_bad_finite_fraction() -> None:
