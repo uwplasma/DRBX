@@ -19,6 +19,14 @@ virtual-casing workflows the plasma-current contribution should use the
 internal branch, because the plasma currents are inside the LCFS and the
 JAXDRB import layer only receives the exported field values.
 
+The finite-beta SOL promotion path is controlled by the
+[Research-Grade Execution Plan](research_grade_execution_plan.md#post-release-open-lane-completion-plan).
+VMEC-extender supplies exterior-field artifacts and coordinate conventions; it
+does not by itself validate wall hits, target labels, sheath/recycling
+closures, neutral transport, or turbulent SOL dynamics. Those gates must be run
+in JAXDRB after a real exterior-field artifact passes the strict import and
+field-line diagnostics below.
+
 ## Import Contract
 
 The NetCDF file must define dimensions `nR`, `nphi`, and `nZ`; coordinate

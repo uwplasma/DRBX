@@ -366,6 +366,7 @@ closely reproduced from:
 - [examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py](examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py)
 - [examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py](examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py)
 - [examples/geometry-3D/stellarator-fci/validation_campaign_demo.py](examples/geometry-3D/stellarator-fci/validation_campaign_demo.py)
+- [examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py](examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py)
 - [examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py](examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py)
 - [examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py](examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py)
 - [examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py](examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py)
@@ -417,6 +418,16 @@ Run the self-contained connection-length refinement gate:
 ```bash
 PYTHONPATH=src python \
   examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py
+```
+
+Run the direct-coil open-SOL workflow contract. The default command is
+self-contained and writes a dry-run promotion ledger under `artifacts/`; edit
+the live flags at the top of the script to regenerate the ESSOS coil FCI,
+connection-length, endpoint/source, and stationarity gates from local geometry:
+
+```bash
+PYTHONPATH=src python \
+  examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py
 ```
 
 Run the imported FCI campaign. By default this is a safe dry run for `coil`;

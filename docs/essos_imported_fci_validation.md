@@ -13,6 +13,16 @@ trajectories into fixed-shape plane-to-plane maps, builds a lightweight
 VMEC-shaped metric for the imported logical grid, and then evaluates JAX-native
 sheath/recycling and neutral reaction-diffusion closures on those maps.
 
+The current authoritative promotion sequence is in
+[Research-Grade Execution Plan](research_grade_execution_plan.md#post-release-open-lane-completion-plan).
+In that sequence, `coil`, `vmec`, and `hybrid` have different meanings:
+direct-coil open-field maps must pass their own endpoint and connection-length
+gates before a movie can be promoted; VMEC maps are closed-field controls; and
+hybrid maps are the current bridge that combines smooth VMEC map coordinates
+with coil-derived endpoint masks. The convenience workflow
+`examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py` records
+that gate order in one script.
+
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
 script follows the same top-level-parameter style as the SIMSOPT examples:
