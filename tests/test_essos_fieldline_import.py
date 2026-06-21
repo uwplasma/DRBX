@@ -37,6 +37,7 @@ from jax_drb.validation import (
 )
 import jax_drb.validation.essos_imported_fci_campaign as imported_fci_campaign
 import jax_drb.validation.essos_imported_drb_movie_campaign as imported_movie_campaign
+import jax_drb.geometry.essos_import as essos_import
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -68,6 +69,22 @@ def _has_essos_landreman_runtime() -> bool:
     except FileNotFoundError:
         return False
     return essos_runtime_available()
+
+
+def test_target_exit_lengths_are_masked_to_fci_endpoint_cells() -> None:
+    raw_exit_length = np.array([0.5, 1.5, np.nan, 3.0], dtype=np.float64)
+    boundary = np.array([True, False, True, True])
+
+    masked = essos_import._mask_exit_length_to_boundary(raw_exit_length, boundary)
+
+    np.testing.assert_allclose(
+        masked,
+        np.array([0.5, np.nan, np.nan, 3.0]),
+        equal_nan=True,
+    )
+
+    with pytest.raises(ValueError, match="shapes must match"):
+        essos_import._mask_exit_length_to_boundary(raw_exit_length, boundary[:-1])
 
 
 def _movie_report(

@@ -584,17 +584,25 @@ def _build_essos_coil_fci_map_data(
     )
     b_xyz = np.asarray(jax.vmap(field.B)(local_jnp.asarray(initial_xyz, dtype=local_jnp.float64)), dtype=np.float64)
     bmag = np.linalg.norm(b_xyz, axis=1).reshape(shape)
-    forward_exit_length = _structured_exit_length_from_trajectories(
+    raw_forward_exit_length = _structured_exit_length_from_trajectories(
         forward_trajectories,
         coordinates_x=coordinates_x,
         coordinates_y=coordinates_y,
         coordinates_z=coordinates_z,
-    ).reshape(shape)
-    backward_exit_length = _structured_exit_length_from_trajectories(
+    )
+    raw_backward_exit_length = _structured_exit_length_from_trajectories(
         backward_trajectories,
         coordinates_x=coordinates_x,
         coordinates_y=coordinates_y,
         coordinates_z=coordinates_z,
+    )
+    forward_exit_length = _mask_exit_length_to_boundary(
+        raw_forward_exit_length,
+        forward_boundary,
+    ).reshape(shape)
+    backward_exit_length = _mask_exit_length_to_boundary(
+        raw_backward_exit_length,
+        backward_boundary,
     ).reshape(shape)
     exit_length = _combine_bidirectional_exit_lengths(
         forward_exit_length,
@@ -1217,6 +1225,19 @@ def _combine_bidirectional_exit_lengths(
     combined[only_forward] = forward[only_forward]
     combined[only_backward] = backward[only_backward]
     return combined
+
+
+def _mask_exit_length_to_boundary(exit_length: np.ndarray, boundary: np.ndarray) -> np.ndarray:
+    """Keep target-exit lengths only where an FCI direction reaches a boundary."""
+
+    length = np.asarray(exit_length, dtype=np.float64)
+    mask = np.asarray(boundary, dtype=bool)
+    if length.shape != mask.shape:
+        raise ValueError(
+            "Target-exit length and boundary mask shapes must match: "
+            f"length={length.shape}, boundary={mask.shape}."
+        )
+    return np.where(mask & np.isfinite(length), length, np.nan)
 
 
 def _metric_from_coordinates(
