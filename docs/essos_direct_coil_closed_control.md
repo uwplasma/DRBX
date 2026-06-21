@@ -25,12 +25,31 @@ It writes:
 - `artifacts/essos_direct_coil_closed_control/data/essos_direct_coil_closed_control.json`
 - `artifacts/essos_direct_coil_closed_control/data/essos_direct_coil_closed_control.npz`
 - `artifacts/essos_direct_coil_closed_control/images/essos_direct_coil_closed_control.png`
+- `artifacts/essos_direct_coil_closed_control/refinement/data/essos_direct_coil_closed_control_refinement.json`
+- `artifacts/essos_direct_coil_closed_control/refinement/data/essos_direct_coil_closed_control_refinement.npz`
+- `artifacts/essos_direct_coil_closed_control/refinement/images/essos_direct_coil_closed_control_refinement.png`
 
 The JSON report contains the number of seeds, Poincare point count, toroidal
 turn statistics, normalized same-section return-distance percentiles, closed
 and near-closed fractions, and a `closed_control_passed` flag. The NPZ arrays
 include the trajectories, Poincare points, per-line return distances, return
 points, and integer line classifications.
+
+The refinement report reruns the same closed-control diagnostic at increasing
+seed and trace samples. Its promotion gate checks that:
+
+- every level passes the base closed-control gate;
+- target, sheath, recycling, and neutral-source semantics are absent at every
+  level;
+- the closed-or-near-closed fraction stays above the configured floor;
+- the closed-or-near-closed fraction is stable across levels;
+- the closed versus near-closed split is not excessively sensitive to sampling;
+- the 95th-percentile normalized return distance remains below the
+  near-closed tolerance;
+- the Poincare sampling density remains above the configured minimum.
+
+This is a closed-field return-map stability gate. It is not a target-to-target
+connection-length, sheath, recycling, or neutral-transport validation.
 
 ## Run The Live Direct-Coil Control
 
@@ -53,8 +72,9 @@ PYTHONPATH=src MPLBACKEND=Agg python \
 
 The live mode seeds a VMEC-shaped shell, asks ESSOS to trace the direct
 Biot-Savart coil field, imports only arrays into JAXDRB, and runs the same
-return-map classifier. If the closed or near-closed fraction is too small, the
-report remains useful diagnostic evidence but is not promotion-ready.
+return-map classifier and optional refinement gate. If the closed or
+near-closed fraction is too small, the report remains useful diagnostic
+evidence but is not promotion-ready.
 
 ## Interpretation
 
