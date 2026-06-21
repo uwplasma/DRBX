@@ -103,14 +103,14 @@ The detailed guide is [Stellarator Examples](stellarator_examples.md).
 
 The VMEC-extender entry is a self-contained synthetic validation example that
 writes its own compact NetCDF field grids before running the import and SOL
-smoke gates. The ESSOS imported-geometry entries document developer
+verification gates. The ESSOS imported-geometry entries document developer
 regeneration of external-geometry artifacts; users can inspect the published
 figures and movies after `fetch_example_artifacts.py`, while rerunning those
 adapters requires the geometry source checkout named by the page.
 
 | Example | What it teaches |
 | --- | --- |
-| [`examples/geometry-3D/vmec-extender/imported_field_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/vmec-extender/imported_field_demo.py) | VMEC-extender field-grid import and compact SOL smoke gate. |
+| [`examples/geometry-3D/vmec-extender/imported_field_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/vmec-extender/imported_field_demo.py) | VMEC-extender field-grid import and compact SOL verification gate. |
 | [`examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | External QA field-line import into portable arrays. |
 | [`examples/geometry-3D/essos-field-lines/imported_fci_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_fci_campaign.py) | Imported FCI maps with sheath/recycling and neutral validation. |
 | [`examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py) | Self-contained nested connection-length refinement gate for imported-field promotion. |

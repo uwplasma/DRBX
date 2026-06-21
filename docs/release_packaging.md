@@ -219,6 +219,23 @@ The current package release is intended to support:
 - reduced but real 3D tokamak, traced-field-line, and stellarator workflows,
 - artifact-driven parity, runtime, convergence, and profiling reports.
 
+The release does not promote the full output-window recycling JAX/JVP solver
+as the default path yet. The stable default remains the validated compatibility
+BDF route; JAX-linearized, sparse-JVP, fixed-BDF2, active-array, and
+matrix-free seams are release-supported as opt-in research gates only where the
+matching parity, residual-health, and runtime reports exist.
+
+Latest local closeout evidence:
+
+- bounded closeout coverage: `96.0%`, `88` tests passed;
+- promoted solver/public-surface coverage: `95.16%`, `804` passed, `14`
+  skipped, `10` deselected, and `1` expected xfail;
+- fast bounded research checks: all default slices passed locally;
+- docs build: `mkdocs build --strict --clean` passed locally;
+- footprint/package audit: `.git` about `27M`, reachable pack about
+  `6.43 MiB`, largest tracked file below `328 KiB`, wheel about `712 KiB`,
+  and sdist about `616 KiB`.
+
 It is not the full closure of every research workflow in the broader validation matrix. The detailed status remains in:
 
 - [hermes_capability_audit.md](hermes_capability_audit.md)

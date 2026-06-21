@@ -11,7 +11,7 @@
 [![JAX](https://img.shields.io/badge/JAX-enabled-0a9396.svg)](https://jax.readthedocs.io/)
 [![Read the Docs](https://readthedocs.org/projects/jax-drb/badge/?version=latest)](https://jax-drb.readthedocs.io/)
 
-`jax_drb` is a JAX-native edge and scrape-off-layer plasma code for drift-reduced Braginskii models, electrostatic turbulence, neutral transport, curated tokamak workflows, and reusable 3D geometry diagnostics.
+`jax_drb` is a JAX-first edge and scrape-off-layer plasma code for drift-reduced Braginskii models, electrostatic turbulence, neutral transport, curated tokamak workflows, and reusable 3D geometry diagnostics.
 
 Documentation is available at [jax-drb.readthedocs.io](https://jax-drb.readthedocs.io/).
 
@@ -22,8 +22,15 @@ The codebase is organized around:
 - portable analysis and visualization artifacts,
 - explicit capability tiers for curated benchmark lanes,
 - reusable 3D geometry, movie, and selected-field comparison tools,
-- gridded VMEC-extender edge-field import with physical-phi interpolation, FCI map construction, and a compact SOL smoke gate,
+- gridded VMEC-extender edge-field import with physical-phi interpolation, FCI map construction, and a compact SOL verification gate,
 - differentiable driver paths for sensitivity analysis, uncertainty propagation, and inverse design.
+
+The stable release boundary is explicit: compact native solvers, selected
+operator gates, fixed-layout residual seams, and differentiable examples are
+promoted where their tests and artifacts say so; full output-window recycling
+still defaults to the validated compatibility BDF path, with JAX-linearized and
+JVP variants kept as opt-in research gates until same-fidelity parity and
+runtime evidence are strong enough to promote them.
 
 ![Diverted tokamak dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
 
@@ -224,7 +231,7 @@ Detailed terminal mode is designed to keep long runs from looking hung. The CLI 
 
 Curated validation cases are labeled explicitly:
 
-- `native_exact`: fully native and strong enough for the main public benchmark surface,
+- `native_exact`: fully native on its promoted compare surface and strong enough for the main public benchmark surface,
 - `native_operational`: native and useful, but still carrying bounded residuals,
 - `scaffolded_reference_backed`: useful for diagnostics or geometry staging, but not counted as native closure.
 
