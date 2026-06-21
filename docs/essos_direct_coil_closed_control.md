@@ -117,6 +117,24 @@ examples should use either this return-map control or the smoother VMEC map
 lane, and they should continue to omit target, sheath, recycling, and neutral
 losses unless an explicit endpoint mask is introduced.
 
+The first compact live same-source refinement run used three levels,
+`(3, 3, 256)`, `(4, 4, 384)`, and `(5, 4, 512)`, with `maxtime = 240`.
+It also passed the current refinement gate:
+
+- Levels: `3`
+- Minimum closed-or-near-closed fraction: `1.0`
+- Closed-or-near-closed fraction spread: `0.0`
+- Maximum 95th-percentile normalized return distance: `8.62e-2`
+- Minimum Poincare points per seed line: `39.9`
+- Target semantics applied: `False`
+- Sheath/recycling semantics applied: `False`
+- Promotion rejection reasons: none
+
+This closes the compact live return-map stability gate for the direct-coil
+closed-control lane. A closed direct-coil turbulence movie still needs a
+separate reduced or full closed-field physics campaign and frame-by-frame
+visual QA before it should be promoted in the README.
+
 ## Why This Gate Exists
 
 Open-field stellarator SOL examples need endpoint masks, one-sided connection
