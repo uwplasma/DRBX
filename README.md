@@ -74,6 +74,10 @@ with access to `uwplasma/jax_drb`, then run the same fetch command. The command
 restores release-backed docs media under `docs/data/` and heavy validation
 baselines under `references/baselines/`.
 
+Set `JAX_DRB_ARTIFACT_CACHE_DIR=/path/to/cache` to share downloaded release
+archives across clean checkouts. The older `JAX_DRB_ARTIFACT_CACHE` name is
+also accepted.
+
 After that, users can run the documented user-facing examples and inspect the
 generated or restored PNG/GIF/NPZ outputs. Users do not need to install or
 download any external plasma code to run those examples or the README/docs

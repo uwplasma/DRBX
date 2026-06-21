@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
 import urllib.request
 import zipfile
 
@@ -29,8 +30,8 @@ DOCS_MEDIA_SENTINELS = (
         "stellarator_sol_showcase.gif"
     ),
     Path(
-        "docs/data/essos_imported_drb_movie_artifacts/movies/"
-        "essos_imported_drb_movie_campaign.gif"
+        "docs/data/essos_imported_drb_movie_stationarity_jacobi_media/movies/"
+        "movie_compact.gif"
     ),
 )
 
@@ -55,9 +56,7 @@ def ensure_reference_baselines(
             "Heavy reference baselines are not present and JAX_DRB_OFFLINE_ARTIFACTS is enabled."
         )
 
-    cache_dir = Path(
-        os.environ.get("JAX_DRB_ARTIFACT_CACHE", resolved_root / ".jax_drb_artifact_cache")
-    )
+    cache_dir = _artifact_cache_dir(resolved_root)
     cache_dir.mkdir(parents=True, exist_ok=True)
     archive_path = cache_dir / REFERENCE_BASELINES_ASSET
     if force or not archive_path.exists():
@@ -99,9 +98,7 @@ def ensure_docs_media(
             "Docs media are not present and JAX_DRB_OFFLINE_ARTIFACTS is enabled."
         )
 
-    cache_dir = Path(
-        os.environ.get("JAX_DRB_ARTIFACT_CACHE", resolved_root / ".jax_drb_artifact_cache")
-    )
+    cache_dir = _artifact_cache_dir(resolved_root)
     cache_dir.mkdir(parents=True, exist_ok=True)
     archive_path = cache_dir / DOCS_MEDIA_ASSET
     if force or not archive_path.exists():
@@ -132,6 +129,16 @@ def _download_release_asset(url: str, destination: Path, *, asset_name: str) -> 
     if _download_with_gh(asset_name, destination):
         return
     _download_with_urllib(url, destination)
+
+
+def _artifact_cache_dir(root: Path) -> Path:
+    configured = (
+        os.environ.get("JAX_DRB_ARTIFACT_CACHE_DIR")
+        or os.environ.get("JAX_DRB_ARTIFACT_CACHE")
+    )
+    if configured:
+        return Path(configured).expanduser()
+    return root / ".jax_drb_artifact_cache"
 
 
 def _download_with_gh(asset_name: str, destination: Path) -> bool:
@@ -171,16 +178,26 @@ def _download_with_urllib(url: str, destination: Path) -> None:
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if token:
         request.add_header("Authorization", f"Bearer {token}")
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response, temporary.open(
-            "wb"
-        ) as output:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                output.write(chunk)
-        temporary.replace(destination)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
+    timeout = float(os.environ.get("JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT", "120"))
+    attempts = max(1, int(os.environ.get("JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS", "3")))
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response, temporary.open(
+                "wb"
+            ) as output:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    output.write(chunk)
+            temporary.replace(destination)
+            return
+        except Exception as error:  # pragma: no cover - type depends on urllib backend
+            last_error = error
+            if temporary.exists():
+                temporary.unlink()
+            if attempt < attempts:
+                time.sleep(min(2.0, 0.25 * attempt))
+    assert last_error is not None
+    raise last_error
