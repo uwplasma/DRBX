@@ -202,7 +202,7 @@ and tests all move together.
 | Lane | Completion | Current blocker |
 | --- | ---: | --- |
 | Plan authority and release hygiene | 96% | Keep this file current and prevent new competing roadmap files. |
-| Meaningful promoted coverage | 96% | Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
+| Meaningful promoted coverage | 97% | The promoted solver/public-surface coverage gate now includes the full meaningful recycling and runner evidence layer and passes at `95.16%`. Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.3% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to traced-field-line `g33`, sheath, target-source, and longer-window diverted-tokamak campaigns. Hydrogen and D/T/He one-step target parity are no longer active formula offenders under the BDF parity path; the remaining D/T/He one-step `Pd+` pressure difference is localized to conduction-energy state sensitivity at the large `dt=25` gate and shrinks under timestep refinement. |
 | JAX-native recycling solver | 99.92% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, hydrogen and D/T/He fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus residual-evaluation budgets, and the D/T/He route now has explicit eight-step physical-output parity gates against stable BDF at `dt=1e-4` and `dt=1e-3`, a retained `dt=1e-2` scalar density/pressure observable screen, and a retained `dt=1e-2` substepped full-field pointwise screen with an internal timestep cap. Term-level active-array seams now cover D/T/He reactions, pointwise collision friction/heat exchange, fixed-layout thermal-force/ion-viscosity/conduction transport closures, stencil-aware neutral parallel diffusion, sheath-prepared target recycling source mapping, scalar upstream-density feedback, a composed source-RHS builder, a source-to-total-RHS insertion helper, and an opt-in `promoted_active_sources` residual backend that matches the full D/T/He fixture RHS on the active slice, has an explicit two-output-window fixed-BDF2 production-gate mode with roundoff-level parity against stable BDF on the lightweight D/T/He fixture, and now has a named cProfile/RSS research-campaign gate that must exercise a nontrivial Newton/JVP solve at `dt=1e-4`. Fixed residuals also have opt-in instrumented linearized-action and single-update JAX-GMRES seams for matrix-free/JVP profiling. Default promotion still needs longer/heavier production-window parity, same-fidelity CPU/GPU runtime evidence, and cheaper production-window solves; the D/T/He active-array SciPy-BDF sparse-JVP output-window route remains locally timeout-bound and should be replaced by the matrix-free fixed-BDF2 path. |
 | Effective preconditioning | 63% | Bounded solver gates prove `parallel_line`, `neutral_line`, `momentum_line`, `sheath_line`, sampled `field_block_sample`, feedback-aware `field_block_feedback_diag`, and compositional `target_schur` probes can reduce JAX-GMRES residuals when they match the dominant operator. Real hydrogen and D/T/He fixed-BDF2 recycling sweeps now show exact selected-line, static scaling, sampled local/feedback field-block, multiplicative line-plus-field Schur, `target_schur`, and `neutral_plasma_schur` probes do not reduce the actual Krylov cost or convergence burden on promoted recycling gates; the latest D/T/He substepped full-field probes slowed from `44.43 s` unpreconditioned to `86.37 s` with `field_scale` and `140.69 s` with `momentum_line`, while the final compact Schur probes failed the `dt=10` convergence gate at residual about `6.31e1`. In the 3D imported-field movie lane, Jacobi preconditioning of the FCI potential solve closes the high-poloidal residual/time blocker where raw iteration count fails. This is not a release blocker unless a materially different preconditioner is introduced before tagging. |
@@ -217,7 +217,7 @@ and tests all move together.
 
 Release-closeout interpretation:
 
-- The next release is approximately `88%` complete. The remaining work is
+- The next release is approximately `91%` complete. The remaining work is
   closeout, not a new research expansion.
 - Lanes below `80%` are not all tag blockers. They are blockers only if the
   README, docs, release notes, or API claim the unfinished portion as promoted.
@@ -4045,6 +4045,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   evidence before tagging. Subordinate testing, example-status, validation,
   and imported-geometry pages now carry explicit plan-authority notes so they
   remain appendices rather than competing roadmaps.
+- 2026-06-20: Closed the immediate promoted-coverage release blocker with
+  meaningful tests rather than threshold changes. `scripts/run_promoted_solver_coverage.py`
+  now includes the existing recycling source, target, state, boundary,
+  collision, reaction, JVP-promotion, runner, and integrated-recycling tests
+  that exercise the modules counted by the promoted coverage target. Added
+  focused recycling tests for positive feedback clamps, active/full source
+  slicing, species source override mapping, sheath-energy and feedback source
+  active-layout mapping, promoted zero fallback, and mixed BE/BDF2 residual
+  formulas. The promoted solver gate now passes with `804 passed`, `14 skipped`,
+  `10 deselected`, `1 xfailed`, and total promoted coverage `95.16%`.
+  The closeout coverage gate passes at `96.0%` with `88 passed`; the fast
+  research checks pass all default slices; `mkdocs build --strict --clean` and
+  `git diff --check` pass locally. Footprint/package audit remains lightweight:
+  `.git` is `27M`, reachable pack size is `6.43 MiB`, largest tracked files are
+  below `328 KiB`, the wheel is `712 KiB`, and the sdist is `616 KiB`.
 
 ## Definition Of Done
 

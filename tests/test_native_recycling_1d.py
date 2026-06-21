@@ -4527,6 +4527,254 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     assert np.isfinite(next_fields["Nd+"]).all()
 
 
+def test_upstream_density_feedback_clamps_integral_and_source_when_configured() -> None:
+    mesh, _metrics = _minimal_open_field_mesh_and_metrics()
+    shape = (1, 3, 1)
+    density = np.full(shape, 2.0, dtype=np.float64)
+    pressure = np.full(shape, 4.0, dtype=np.float64)
+    momentum = np.full(shape, 1.0, dtype=np.float64)
+    species = {
+        "d": OpenFieldSpecies(
+            name="d",
+            density=density,
+            pressure=pressure,
+            momentum=momentum,
+            charge=0.0,
+            atomic_mass=2.0,
+            density_floor=1.0e-8,
+            has_pressure=True,
+            has_momentum=True,
+            noflow_lower_y=False,
+            noflow_upper_y=False,
+            target_recycle=False,
+            recycle_as=None,
+            target_recycle_multiplier=0.0,
+            target_recycle_energy=0.0,
+            target_fast_recycle_fraction=0.0,
+            target_fast_recycle_energy_factor=1.0,
+        )
+    }
+    prepared = {
+        "d": _PreparedSpeciesState(
+            density=density,
+            pressure=pressure,
+            temperature=pressure / density,
+            velocity=momentum / (2.0 * density),
+            momentum=momentum,
+            momentum_error=np.zeros_like(density),
+        )
+    }
+    controller = recycling_1d_mod._DensityFeedbackController(
+        species_name="d",
+        density_upstream=1.0,
+        density_controller_p=3.0,
+        density_controller_i=5.0,
+        density_integral_positive=True,
+        density_source_positive=True,
+        density_source_shape=np.ones(shape, dtype=np.float64),
+        diagnose=True,
+    )
+
+    terms = recycling_1d_mod._apply_upstream_density_feedback(
+        species,
+        prepared,
+        controllers={"d": controller},
+        mesh=mesh,
+        feedback_integrals={"d": -4.0},
+        feedback_previous_errors={"d": -2.0},
+        feedback_timestep=0.5,
+    )
+
+    np.testing.assert_allclose(terms.density_source["d"], 0.0)
+    np.testing.assert_allclose(terms.energy_source["d"], 0.0)
+    assert terms.feedback_integral_rhs["d"] == pytest.approx(-1.0)
+    assert terms.diagnostics["density_feedback_src_mult_d"] == pytest.approx(0.0)
+
+
+def test_active_source_helpers_map_physical_sources_to_active_layout() -> None:
+    mesh, _metrics = _minimal_open_field_mesh_and_metrics()
+    full_shape = (1, 3, 1)
+    fields = {
+        "Nd": np.zeros(full_shape, dtype=np.float64),
+        "Pd": np.zeros(full_shape, dtype=np.float64),
+        "Pd+": np.zeros(full_shape, dtype=np.float64),
+        "Pe": np.zeros(full_shape, dtype=np.float64),
+    }
+    layout = recycling_1d_mod._build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=("Nd", "Pd", "Pd+", "Pe"),
+        feedback_names=(),
+        mesh=mesh,
+    )
+    full_source = np.array([[[1.0], [2.0], [3.0]]], dtype=np.float64)
+    active_source = np.array([[[4.0]]], dtype=np.float64)
+
+    def make_species(name: str, *, charge: float) -> OpenFieldSpecies:
+        return OpenFieldSpecies(
+            name=name,
+            density=full_source,
+            pressure=2.0 * full_source,
+            momentum=np.zeros_like(full_source),
+            charge=charge,
+            atomic_mass=2.0 if charge >= 0.0 else 1.0 / 1836.0,
+            density_floor=1.0e-8,
+            has_pressure=True,
+            has_momentum=True,
+            noflow_lower_y=False,
+            noflow_upper_y=False,
+            target_recycle=False,
+            recycle_as=None,
+            target_recycle_multiplier=0.0,
+            target_recycle_energy=0.0,
+            target_fast_recycle_fraction=0.0,
+            target_fast_recycle_energy_factor=1.0,
+        )
+
+    species = {
+        "d": make_species("d", charge=0.0),
+        "d+": make_species("d+", charge=1.0),
+        "e": make_species("e", charge=-1.0),
+    }
+
+    np.testing.assert_allclose(
+        recycling_1d_mod._active_source_slice(full_source, layout=layout),
+        full_source[layout.active_slices],
+    )
+    np.testing.assert_allclose(
+        recycling_1d_mod._active_source_slice(active_source, layout=layout),
+        active_source,
+    )
+    with pytest.raises(ValueError, match="Source override shape"):
+        recycling_1d_mod._active_source_slice(np.ones((2, 2)), layout=layout)
+
+    overrides = recycling_1d_mod._active_species_source_override_field_rhs(
+        {"d": full_source, "missing": full_source},
+        species=species,
+        layout=layout,
+        field_attribute="density_name",
+    )
+    assert set(overrides) == {"Nd"}
+    np.testing.assert_allclose(overrides["Nd"], full_source[layout.active_slices])
+
+    ion_boundary = _IonBoundaryResult(
+        density={"d+": full_source},
+        pressure={"d+": full_source},
+        temperature={"d+": full_source},
+        velocity={"d+": full_source},
+        momentum={"d+": full_source},
+        energy_source={"d+": full_source},
+    )
+    electron_boundary = recycling_1d_mod._ElectronBoundaryResult(
+        density=full_source,
+        temperature=full_source,
+        pressure=full_source,
+        velocity=full_source,
+        momentum=full_source,
+        energy_source=3.0 * full_source,
+    )
+    sheath_rhs = recycling_1d_mod._active_sheath_energy_source_field_rhs(
+        species=species,
+        ion_boundary=ion_boundary,
+        electron_boundary=electron_boundary,
+        layout=layout,
+    )
+    np.testing.assert_allclose(
+        sheath_rhs["Pd+"],
+        (2.0 / 3.0) * full_source[layout.active_slices],
+    )
+    np.testing.assert_allclose(sheath_rhs["Pe"], 2.0 * full_source[layout.active_slices])
+
+    feedback_terms = recycling_1d_mod._DensityFeedbackTerms(
+        density_source={name: full_source for name in species},
+        energy_source={name: 1.5 * full_source for name in species},
+        diagnostics={},
+        feedback_integral_rhs={},
+    )
+    feedback_rhs = recycling_1d_mod._active_feedback_source_field_rhs(
+        feedback_terms,
+        species=species,
+        layout=layout,
+    )
+    np.testing.assert_allclose(feedback_rhs["Nd"], full_source[layout.active_slices])
+    np.testing.assert_allclose(feedback_rhs["Pd"], full_source[layout.active_slices])
+
+    fallback = recycling_1d_mod._promoted_field_rhs_value_or_zero(
+        {},
+        "missing",
+        jnp.ones(layout.active_shape, dtype=jnp.float64),
+        use_jax=True,
+    )
+    np.testing.assert_allclose(np.asarray(fallback), 0.0)
+
+
+def test_mixed_be_and_bdf2_residuals_match_time_discretization_formulas() -> None:
+    packed = np.array([1.2, 2.4, 0.7], dtype=np.float64)
+    previous = np.array([1.0, 2.0, 0.5], dtype=np.float64)
+    previous_previous = np.array([0.8, 1.7, 0.4], dtype=np.float64)
+    rhs = np.array([0.2, -0.1, 0.3], dtype=np.float64)
+    timestep = 0.25
+
+    be = recycling_1d_mod._build_recycling_mixed_be_residual(
+        jnp.asarray(packed, dtype=jnp.float64),
+        jnp.asarray(previous, dtype=jnp.float64),
+        rhs_fields=jnp.asarray(rhs, dtype=jnp.float64),
+        feedback_integrals={"ctrl": packed[-1]},
+        previous_feedback_integrals={"ctrl": previous[-1]},
+        current_feedback_errors={"ctrl": 9.0},
+        previous_feedback_errors={"ctrl": 8.0},
+        field_names=("a", "b"),
+        feedback_names=("ctrl",),
+        timestep=timestep,
+    )
+    np.testing.assert_allclose(
+        np.asarray(be),
+        packed - previous - timestep * rhs,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+    bdf2 = recycling_1d_mod._build_recycling_mixed_bdf2_residual(
+        packed,
+        previous,
+        previous_previous,
+        rhs_fields=rhs,
+        feedback_integrals={"ctrl": packed[-1]},
+        previous_feedback_integrals={"ctrl": previous[-1]},
+        previous_previous_feedback_integrals={"ctrl": previous_previous[-1]},
+        current_feedback_errors={"ctrl": 9.0},
+        previous_feedback_errors={"ctrl": 8.0},
+        field_names=("a", "b"),
+        feedback_names=("ctrl",),
+        timestep=timestep,
+    )
+    np.testing.assert_allclose(
+        bdf2,
+        packed
+        - (4.0 / 3.0) * previous
+        + (1.0 / 3.0) * previous_previous
+        - (2.0 / 3.0) * timestep * rhs,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+    field_only = recycling_1d_mod._build_recycling_mixed_be_residual(
+        packed[:2],
+        previous[:2],
+        rhs_fields=rhs[:2],
+        feedback_integrals={},
+        previous_feedback_integrals={},
+        current_feedback_errors={},
+        previous_feedback_errors={},
+        field_names=("a", "b"),
+        feedback_names=(),
+        timestep=timestep,
+    )
+    np.testing.assert_allclose(
+        field_only,
+        packed[:2] - previous[:2] - timestep * rhs[:2],
+    )
+
+
 @pytest.mark.slow
 def test_recycling_bdf_history_supplies_sparse_jacobian_callback(
     monkeypatch: pytest.MonkeyPatch,
