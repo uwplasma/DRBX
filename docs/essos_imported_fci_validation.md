@@ -21,10 +21,14 @@ gates before a movie can be promoted; VMEC maps are closed-field controls; and
 hybrid maps are the current bridge that combines smooth VMEC map coordinates
 with coil-derived endpoint masks. The convenience workflow
 `examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py` records
-that gate order in one script. Its optional `RUN_LIVE_MEDIA_GATE` stage writes
-the direct-coil GIF/PNG/NPZ diagnostic media only after the user explicitly
-enables it; the output remains diagnostic unless the same workflow summary also
-shows green geometry, endpoint/source, refinement, and visual-QA evidence.
+that gate order in one script. The live FCI stage now also feeds
+`direct_coil_source_profile_gate`, a machine-readable JSON check on the exact
+target-label, heat-load, neutral-source, radial-profile, and source-balance
+artifacts used for open-SOL promotion. Its optional `RUN_LIVE_MEDIA_GATE`
+stage writes the direct-coil GIF/PNG/NPZ diagnostic media only after the user
+explicitly enables it; the output remains diagnostic unless the same workflow
+summary also shows green geometry, endpoint/source/profile, refinement, and
+visual-QA evidence.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration

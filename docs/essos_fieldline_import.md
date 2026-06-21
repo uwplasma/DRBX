@@ -11,8 +11,11 @@ The active completion sequence is defined in
 For `main`, the next direct-coil open-field target is the
 `direct_coil_open_sol_demo.py` workflow: first validate pure-coil FCI maps,
 endpoint masks, connection-length refinement, sheath/recycling/neutral source
-accounting, stationarity reports, and the optional diagnostic media stage;
-only then promote a direct-coil turbulence movie. VMEC closed-field controls
+accounting, the explicit source/profile gate, stationarity reports, and the
+optional diagnostic media stage; only then promote a direct-coil turbulence
+movie. The source/profile gate checks target labels, heat-load maps, neutral
+source maps, radial profiles, and source-balance residuals from the same
+endpoint masks consumed by the closures. VMEC closed-field controls
 and hybrid VMEC/coil open-SOL
 bridges are separate lanes, not interchangeable interpretations of the same
 field-line artifact.
