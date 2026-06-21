@@ -150,10 +150,15 @@ from .essos_vmec_fieldline_surface_campaign import (
 )
 from .essos_direct_coil_closed_control_campaign import (
     EssosDirectCoilClosedControlArtifacts,
+    EssosDirectCoilClosedControlRefinementArtifacts,
     EssosDirectCoilClosedControlResult,
     build_essos_direct_coil_closed_control_campaign,
+    build_essos_direct_coil_closed_control_refinement_campaign,
+    build_essos_direct_coil_closed_control_refinement_diagnostics,
     create_essos_direct_coil_closed_control_package,
+    create_essos_direct_coil_closed_control_refinement_package,
     save_essos_direct_coil_closed_control_plot,
+    save_essos_direct_coil_closed_control_refinement_plot,
 )
 from .essos_vmec_closed_field_campaign import (
     EssosVmecClosedFieldArtifacts,
@@ -651,10 +656,15 @@ __all__ = [
     "create_essos_vmec_fieldline_surface_package",
     "save_essos_vmec_fieldline_surface_plot",
     "EssosDirectCoilClosedControlArtifacts",
+    "EssosDirectCoilClosedControlRefinementArtifacts",
     "EssosDirectCoilClosedControlResult",
     "build_essos_direct_coil_closed_control_campaign",
+    "build_essos_direct_coil_closed_control_refinement_campaign",
+    "build_essos_direct_coil_closed_control_refinement_diagnostics",
     "create_essos_direct_coil_closed_control_package",
+    "create_essos_direct_coil_closed_control_refinement_package",
     "save_essos_direct_coil_closed_control_plot",
+    "save_essos_direct_coil_closed_control_refinement_plot",
     "EssosVmecClosedFieldArtifacts",
     "EssosVmecClosedFieldDryRunArtifacts",
     "build_essos_vmec_closed_field_report",

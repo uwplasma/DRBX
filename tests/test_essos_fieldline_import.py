@@ -29,8 +29,10 @@ from jax_drb.validation import (
     build_essos_imported_drb_movie_stationarity_report,
     build_essos_imported_fci_source_profile_gate,
     build_live_essos_imported_connection_length_levels,
+    build_essos_direct_coil_closed_control_refinement_diagnostics,
     create_essos_fieldline_import_package,
     create_essos_direct_coil_closed_control_package,
+    create_essos_direct_coil_closed_control_refinement_package,
     create_essos_vmec_closed_field_dry_run_package,
     create_essos_vmec_closed_field_transient_dry_run_package,
     create_essos_vmec_closed_field_transient_package_from_geometry,
@@ -1746,6 +1748,69 @@ def test_essos_direct_coil_closed_control_separates_diagnostic_from_promotion(tm
     assert "not_enough_poincare_points" in report["promotion_rejection_reasons"]
     assert "closed_or_near_fraction_below_threshold" in report["promotion_rejection_reasons"]
     assert report["target_semantics_applied"] is False
+
+
+def test_essos_direct_coil_closed_control_refinement_package_is_stable(tmp_path: Path) -> None:
+    artifacts = create_essos_direct_coil_closed_control_refinement_package(
+        output_root=tmp_path / "essos_direct_coil_closed_control_refinement",
+        level_settings=((3, 3, 256), (5, 4, 512), (7, 6, 768)),
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert report["n_levels"] == 3
+    assert report["all_level_closed_controls_passed"] is True
+    assert report["target_semantics_absent"] is True
+    assert report["sheath_recycling_semantics_absent"] is True
+    assert report["closed_or_near_fraction_min"] >= report["minimum_closed_or_near_fraction"]
+    assert report["return_distance_bound_passed"] is True
+    assert report["promotion_ready"] is True
+    assert artifacts.arrays_npz_path.exists()
+    assert artifacts.plot_png_path.exists()
+    with np.load(artifacts.arrays_npz_path) as arrays:
+        assert arrays["level_summary"].shape == (3, 12)
+        assert "return_distance_normalized_p95" in set(arrays["level_summary_columns"].astype(str))
+
+
+def test_essos_direct_coil_closed_control_refinement_diagnostics_reject_open_levels() -> None:
+    reports = [
+        {
+            "closed_control_passed": True,
+            "target_semantics_applied": False,
+            "sheath_recycling_semantics_applied": False,
+            "closed_fraction": 0.50,
+            "near_closed_fraction": 0.45,
+            "open_like_fraction": 0.05,
+            "no_return_fraction": 0.0,
+            "closed_or_near_fraction": 0.95,
+            "return_distance_normalized_p95": 0.08,
+            "near_closed_return_tolerance": 0.15,
+            "poincare_point_count": 120,
+            "n_field_lines": 6,
+        },
+        {
+            "closed_control_passed": False,
+            "target_semantics_applied": False,
+            "sheath_recycling_semantics_applied": False,
+            "closed_fraction": 0.0,
+            "near_closed_fraction": 0.10,
+            "open_like_fraction": 0.65,
+            "no_return_fraction": 0.25,
+            "closed_or_near_fraction": 0.10,
+            "return_distance_normalized_p95": 0.40,
+            "near_closed_return_tolerance": 0.15,
+            "poincare_point_count": 8,
+            "n_field_lines": 8,
+        },
+    ]
+
+    diagnostic = build_essos_direct_coil_closed_control_refinement_diagnostics(reports)
+
+    assert diagnostic["promotion_ready"] is False
+    assert "not_all_level_closed_controls_passed" in diagnostic["promotion_rejection_reasons"]
+    assert "closed_or_near_fraction_below_threshold" in diagnostic["promotion_rejection_reasons"]
+    assert "return_distance_p95_exceeds_near_closed_tolerance" in diagnostic[
+        "promotion_rejection_reasons"
+    ]
 
 
 def test_essos_vmec_closed_field_dry_run_contract_is_self_contained(tmp_path: Path) -> None:

@@ -26,6 +26,13 @@ class EssosDirectCoilClosedControlArtifacts:
 
 
 @dataclass(frozen=True)
+class EssosDirectCoilClosedControlRefinementArtifacts:
+    report_json_path: Path
+    arrays_npz_path: Path
+    plot_png_path: Path
+
+
+@dataclass(frozen=True)
 class EssosDirectCoilClosedControlResult:
     report: dict[str, Any]
     arrays: dict[str, np.ndarray]
@@ -178,6 +185,358 @@ def build_essos_direct_coil_closed_control_campaign(
     )
 
 
+def create_essos_direct_coil_closed_control_refinement_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_direct_coil_closed_control_refinement",
+    use_live_essos: bool = False,
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    level_settings: tuple[tuple[int, int, int], ...] = (
+        (3, 3, 256),
+        (5, 4, 512),
+        (7, 6, 768),
+    ),
+    rho_min: float = 0.20,
+    rho_max: float = 0.82,
+    maxtime: float = 900.0,
+    trace_tolerance: float = 1.0e-8,
+    poincare_sections: tuple[float, ...] = (0.0, float(np.pi / 2.0), float(np.pi), float(3.0 * np.pi / 2.0)),
+    closed_return_tolerance: float = 3.0e-2,
+    near_closed_return_tolerance: float = 1.5e-1,
+    minimum_closed_or_near_fraction: float = 0.20,
+    maximum_closed_or_near_fraction_spread: float = 5.0e-2,
+    maximum_class_fraction_spread: float = 2.5e-1,
+    minimum_poincare_points_per_line: float = 4.0,
+) -> EssosDirectCoilClosedControlRefinementArtifacts:
+    """Write the direct-coil closed-control refinement artifact.
+
+    The refinement gate reruns the same closed/near-closed diagnostic at
+    progressively larger seed and trace samples. It is intentionally summary
+    based: closed-field controls are promoted by stable return-map
+    classification and bounded same-section return distance, not by open-SOL
+    target-to-target connection-length semantics.
+    """
+
+    root = Path(output_root)
+    data_dir = root / "data"
+    images_dir = root / "images"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    report, arrays = build_essos_direct_coil_closed_control_refinement_campaign(
+        use_live_essos=use_live_essos,
+        coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
+        essos_root=essos_root,
+        level_settings=level_settings,
+        rho_min=rho_min,
+        rho_max=rho_max,
+        maxtime=maxtime,
+        trace_tolerance=trace_tolerance,
+        poincare_sections=poincare_sections,
+        closed_return_tolerance=closed_return_tolerance,
+        near_closed_return_tolerance=near_closed_return_tolerance,
+        minimum_closed_or_near_fraction=minimum_closed_or_near_fraction,
+        maximum_closed_or_near_fraction_spread=maximum_closed_or_near_fraction_spread,
+        maximum_class_fraction_spread=maximum_class_fraction_spread,
+        minimum_poincare_points_per_line=minimum_poincare_points_per_line,
+    )
+    report_json_path = data_dir / f"{case_label}.json"
+    report_json_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    arrays_npz_path = data_dir / f"{case_label}.npz"
+    np.savez_compressed(arrays_npz_path, **arrays)
+    plot_png_path = images_dir / f"{case_label}.png"
+    save_essos_direct_coil_closed_control_refinement_plot(report, arrays, plot_png_path)
+    return EssosDirectCoilClosedControlRefinementArtifacts(
+        report_json_path=report_json_path,
+        arrays_npz_path=arrays_npz_path,
+        plot_png_path=plot_png_path,
+    )
+
+
+def build_essos_direct_coil_closed_control_refinement_campaign(
+    *,
+    use_live_essos: bool = False,
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    level_settings: tuple[tuple[int, int, int], ...] = (
+        (3, 3, 256),
+        (5, 4, 512),
+        (7, 6, 768),
+    ),
+    rho_min: float = 0.20,
+    rho_max: float = 0.82,
+    maxtime: float = 900.0,
+    trace_tolerance: float = 1.0e-8,
+    poincare_sections: tuple[float, ...] = (0.0, float(np.pi / 2.0), float(np.pi), float(3.0 * np.pi / 2.0)),
+    closed_return_tolerance: float = 3.0e-2,
+    near_closed_return_tolerance: float = 1.5e-1,
+    minimum_closed_or_near_fraction: float = 0.20,
+    maximum_closed_or_near_fraction_spread: float = 5.0e-2,
+    maximum_class_fraction_spread: float = 2.5e-1,
+    minimum_poincare_points_per_line: float = 4.0,
+) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
+    """Build the direct-coil closed-control refinement report and arrays."""
+
+    if len(level_settings) < 2:
+        raise ValueError("Closed-control refinement requires at least two levels.")
+    level_reports: list[dict[str, Any]] = []
+    level_summary: list[list[float]] = []
+    for level_index, (n_radial, n_poloidal, trace_samples) in enumerate(level_settings):
+        if int(n_radial) < 2 or int(n_poloidal) < 2 or int(trace_samples) < 32:
+            raise ValueError(
+                "Each closed-control refinement level must use at least two "
+                "radial seeds, two poloidal seeds, and 32 trace samples."
+            )
+        if use_live_essos:
+            result = build_essos_direct_coil_closed_control_campaign(
+                use_live_essos=True,
+                coil_json_path=coil_json_path,
+                vmec_wout_path=vmec_wout_path,
+                essos_root=essos_root,
+                rho_min=rho_min,
+                rho_max=rho_max,
+                n_radial_seeds=int(n_radial),
+                n_poloidal_seeds=int(n_poloidal),
+                maxtime=maxtime,
+                times_to_trace=int(trace_samples),
+                trace_tolerance=trace_tolerance,
+                poincare_sections=poincare_sections,
+                closed_return_tolerance=closed_return_tolerance,
+                near_closed_return_tolerance=near_closed_return_tolerance,
+                minimum_closed_or_near_fraction=minimum_closed_or_near_fraction,
+            )
+        else:
+            inputs = _manufactured_direct_coil_closed_control_inputs(
+                n_radial_seeds=int(n_radial),
+                n_poloidal_seeds=int(n_poloidal),
+                times_to_trace=int(trace_samples),
+            )
+            result = _build_closed_control_from_inputs(
+                inputs,
+                poincare_sections=poincare_sections,
+                closed_return_tolerance=closed_return_tolerance,
+                near_closed_return_tolerance=near_closed_return_tolerance,
+                minimum_closed_or_near_fraction=minimum_closed_or_near_fraction,
+            )
+        level_report = dict(result.report)
+        level_report["level_index"] = int(level_index)
+        level_report["level_settings"] = {
+            "n_radial_seeds": int(n_radial),
+            "n_poloidal_seeds": int(n_poloidal),
+            "times_to_trace": int(trace_samples),
+        }
+        level_reports.append(level_report)
+        level_summary.append(
+            [
+                float(level_index),
+                float(level_report["n_field_lines"]),
+                float(level_report["n_times"]),
+                float(level_report["toroidal_turns_mean"]),
+                float(level_report["poincare_point_count"]),
+                float(level_report["return_distance_normalized_p95"]),
+                float(level_report["closed_fraction"]),
+                float(level_report["near_closed_fraction"]),
+                float(level_report["open_like_fraction"]),
+                float(level_report["no_return_fraction"]),
+                float(level_report["closed_or_near_fraction"]),
+                float(level_report["closed_control_passed"]),
+            ]
+        )
+
+    diagnostics = build_essos_direct_coil_closed_control_refinement_diagnostics(
+        level_reports,
+        minimum_closed_or_near_fraction=minimum_closed_or_near_fraction,
+        maximum_closed_or_near_fraction_spread=maximum_closed_or_near_fraction_spread,
+        maximum_class_fraction_spread=maximum_class_fraction_spread,
+        minimum_poincare_points_per_line=minimum_poincare_points_per_line,
+    )
+    report: dict[str, Any] = {
+        "case": "essos_direct_coil_closed_control_refinement",
+        "source": (
+            "live ESSOS direct-coil closed-control refinement"
+            if use_live_essos
+            else "self-contained manufactured direct-coil closed-control refinement"
+        ),
+        "claim_scope": (
+            "Closed/near-closed direct-coil refinement gate. It checks stability "
+            "of return-map classification and bounded same-section return "
+            "distance across larger seed/time samples, while forbidding open-SOL "
+            "target, sheath, recycling, and neutral semantics."
+        ),
+        "level_settings": [
+            {
+                "n_radial_seeds": int(n_radial),
+                "n_poloidal_seeds": int(n_poloidal),
+                "times_to_trace": int(trace_samples),
+            }
+            for n_radial, n_poloidal, trace_samples in level_settings
+        ],
+        "level_reports": level_reports,
+        **diagnostics,
+    }
+    arrays = {
+        "level_summary": np.asarray(level_summary, dtype=np.float64),
+        "level_summary_columns": np.asarray(
+            [
+                "level_index",
+                "n_field_lines",
+                "n_times",
+                "toroidal_turns_mean",
+                "poincare_point_count",
+                "return_distance_normalized_p95",
+                "closed_fraction",
+                "near_closed_fraction",
+                "open_like_fraction",
+                "no_return_fraction",
+                "closed_or_near_fraction",
+                "closed_control_passed",
+            ],
+            dtype="U48",
+        ),
+    }
+    return report, arrays
+
+
+def build_essos_direct_coil_closed_control_refinement_diagnostics(
+    level_reports: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    minimum_closed_or_near_fraction: float = 0.20,
+    maximum_closed_or_near_fraction_spread: float = 5.0e-2,
+    maximum_class_fraction_spread: float = 2.5e-1,
+    minimum_poincare_points_per_line: float = 4.0,
+) -> dict[str, Any]:
+    """Summarize whether closed-control return-map evidence is stable."""
+
+    if len(level_reports) < 2:
+        raise ValueError("Closed-control refinement diagnostics require at least two reports.")
+    closed_or_near = np.asarray(
+        [float(report.get("closed_or_near_fraction", np.nan)) for report in level_reports],
+        dtype=np.float64,
+    )
+    closed = np.asarray(
+        [float(report.get("closed_fraction", np.nan)) for report in level_reports],
+        dtype=np.float64,
+    )
+    near = np.asarray(
+        [float(report.get("near_closed_fraction", np.nan)) for report in level_reports],
+        dtype=np.float64,
+    )
+    open_like = np.asarray(
+        [float(report.get("open_like_fraction", np.nan)) for report in level_reports],
+        dtype=np.float64,
+    )
+    no_return = np.asarray(
+        [float(report.get("no_return_fraction", np.nan)) for report in level_reports],
+        dtype=np.float64,
+    )
+    return_p95 = np.asarray(
+        [float(report.get("return_distance_normalized_p95", np.inf)) for report in level_reports],
+        dtype=np.float64,
+    )
+    near_tolerance = np.asarray(
+        [float(report.get("near_closed_return_tolerance", np.nan)) for report in level_reports],
+        dtype=np.float64,
+    )
+    poincare_density = np.asarray(
+        [
+            float(report.get("poincare_point_count", 0.0)) / max(float(report.get("n_field_lines", 0.0)), 1.0)
+            for report in level_reports
+        ],
+        dtype=np.float64,
+    )
+    all_closed_controls_passed = all(bool(report.get("closed_control_passed", False)) for report in level_reports)
+    target_semantics_absent = all(not bool(report.get("target_semantics_applied", True)) for report in level_reports)
+    sheath_semantics_absent = all(
+        not bool(report.get("sheath_recycling_semantics_applied", True)) for report in level_reports
+    )
+    finite = bool(
+        np.all(np.isfinite(closed_or_near))
+        and np.all(np.isfinite(closed))
+        and np.all(np.isfinite(near))
+        and np.all(np.isfinite(open_like))
+        and np.all(np.isfinite(no_return))
+        and np.all(np.isfinite(return_p95))
+        and np.all(np.isfinite(near_tolerance))
+        and np.all(np.isfinite(poincare_density))
+    )
+    closed_or_near_min = _finite_min(closed_or_near)
+    closed_or_near_spread = _finite_range(closed_or_near)
+    closed_fraction_spread = _finite_range(closed)
+    near_fraction_spread = _finite_range(near)
+    open_or_no_return_max = _finite_max(open_like + no_return)
+    return_p95_max = _finite_max(return_p95)
+    near_tolerance_max = _finite_max(near_tolerance)
+    poincare_density_min = _finite_min(poincare_density)
+
+    closed_or_near_floor_passed = bool(closed_or_near_min >= float(minimum_closed_or_near_fraction))
+    closed_or_near_stability_passed = bool(
+        closed_or_near_spread <= float(maximum_closed_or_near_fraction_spread)
+    )
+    class_fraction_stability_passed = bool(
+        closed_fraction_spread <= float(maximum_class_fraction_spread)
+        and near_fraction_spread <= float(maximum_class_fraction_spread)
+    )
+    return_distance_bound_passed = bool(return_p95_max <= near_tolerance_max)
+    poincare_density_passed = bool(poincare_density_min >= float(minimum_poincare_points_per_line))
+    open_fraction_passed = bool(open_or_no_return_max <= 1.0 - float(minimum_closed_or_near_fraction))
+
+    rejection_reasons = [
+        reason
+        for reason, active in (
+            ("nonfinite_refinement_metrics", not finite),
+            ("not_all_level_closed_controls_passed", not all_closed_controls_passed),
+            ("target_semantics_present", not target_semantics_absent),
+            ("sheath_recycling_semantics_present", not sheath_semantics_absent),
+            ("closed_or_near_fraction_below_threshold", not closed_or_near_floor_passed),
+            ("closed_or_near_fraction_unstable", not closed_or_near_stability_passed),
+            ("closed_near_split_unstable", not class_fraction_stability_passed),
+            ("return_distance_p95_exceeds_near_closed_tolerance", not return_distance_bound_passed),
+            ("insufficient_poincare_points_per_line", not poincare_density_passed),
+            ("open_or_no_return_fraction_too_large", not open_fraction_passed),
+        )
+        if active
+    ]
+    promotion_ready = bool(not rejection_reasons)
+    return {
+        "diagnostic": "essos_direct_coil_closed_control_refinement",
+        "n_levels": int(len(level_reports)),
+        "finite_refinement_metrics": finite,
+        "all_level_closed_controls_passed": bool(all_closed_controls_passed),
+        "target_semantics_absent": bool(target_semantics_absent),
+        "sheath_recycling_semantics_absent": bool(sheath_semantics_absent),
+        "minimum_closed_or_near_fraction": float(minimum_closed_or_near_fraction),
+        "maximum_closed_or_near_fraction_spread": float(maximum_closed_or_near_fraction_spread),
+        "maximum_class_fraction_spread": float(maximum_class_fraction_spread),
+        "minimum_poincare_points_per_line": float(minimum_poincare_points_per_line),
+        "closed_or_near_fraction_min": float(closed_or_near_min),
+        "closed_or_near_fraction_spread": float(closed_or_near_spread),
+        "closed_fraction_spread": float(closed_fraction_spread),
+        "near_closed_fraction_spread": float(near_fraction_spread),
+        "open_or_no_return_fraction_max": float(open_or_no_return_max),
+        "return_distance_normalized_p95_max": float(return_p95_max),
+        "near_closed_return_tolerance_max": float(near_tolerance_max),
+        "poincare_points_per_line_min": float(poincare_density_min),
+        "closed_or_near_floor_passed": closed_or_near_floor_passed,
+        "closed_or_near_stability_passed": closed_or_near_stability_passed,
+        "class_fraction_stability_passed": class_fraction_stability_passed,
+        "return_distance_bound_passed": return_distance_bound_passed,
+        "poincare_density_passed": poincare_density_passed,
+        "open_fraction_passed": open_fraction_passed,
+        "passed": promotion_ready,
+        "promotion_ready": promotion_ready,
+        "evidence_role": (
+            "closed_control_refinement_gate_passed"
+            if promotion_ready
+            else "closed_control_refinement_gate_failed"
+        ),
+        "promotion_rejection_reasons": rejection_reasons,
+    }
+
+
 def save_essos_direct_coil_closed_control_plot(
     report: dict[str, Any],
     arrays: dict[str, np.ndarray],
@@ -292,6 +651,92 @@ def save_essos_direct_coil_closed_control_plot(
         bbox={"facecolor": "white", "edgecolor": "0.82", "alpha": 0.96},
     )
     fig.suptitle("ESSOS direct-coil closed/near-closed field-line control", fontsize=15, fontweight="semibold")
+    save_publication_figure(fig, path)
+    return Path(path)
+
+
+def save_essos_direct_coil_closed_control_refinement_plot(
+    report: dict[str, Any],
+    arrays: dict[str, np.ndarray],
+    path: str | Path,
+) -> Path:
+    """Save the direct-coil closed-control refinement QA figure."""
+
+    summary = np.asarray(arrays["level_summary"], dtype=np.float64)
+    columns = [str(value) for value in np.asarray(arrays["level_summary_columns"])]
+    column_index = {name: index for index, name in enumerate(columns)}
+    levels = summary[:, column_index["level_index"]]
+    closed = summary[:, column_index["closed_fraction"]]
+    near = summary[:, column_index["near_closed_fraction"]]
+    open_like = summary[:, column_index["open_like_fraction"]]
+    no_return = summary[:, column_index["no_return_fraction"]]
+    return_p95 = summary[:, column_index["return_distance_normalized_p95"]]
+    poincare_density = summary[:, column_index["poincare_point_count"]] / np.maximum(
+        summary[:, column_index["n_field_lines"]],
+        1.0,
+    )
+
+    fig, axes = plt.subplots(2, 2, figsize=(13.6, 8.0), constrained_layout=True)
+    axf, axr, axp, axt = axes.ravel()
+    width = 0.72
+    axf.bar(levels, closed, width=width, color="#0A6E7D", label="closed")
+    axf.bar(levels, near, bottom=closed, width=width, color="#CA6702", label="near-closed")
+    axf.bar(levels, open_like, bottom=closed + near, width=width, color="#577590", label="open-like")
+    axf.bar(levels, no_return, bottom=closed + near + open_like, width=width, color="0.65", label="no return")
+    axf.axhline(report["minimum_closed_or_near_fraction"], color="black", lw=1.0, ls="--")
+    style_axis(
+        axf,
+        title="return-map classification by refinement level",
+        xlabel="refinement level",
+        ylabel="fraction",
+        grid="y",
+    )
+    axf.set_ylim(0.0, 1.04)
+    axf.legend(frameon=False, fontsize=8)
+
+    axr.plot(levels, return_p95, marker="o", color="#BB3E03", lw=2.0)
+    axr.axhline(report["near_closed_return_tolerance_max"], color="black", lw=1.0, ls="--")
+    style_axis(
+        axr,
+        title="same-section return distance",
+        xlabel="refinement level",
+        ylabel="p95 normalized distance",
+        grid="both",
+    )
+
+    axp.plot(levels, poincare_density, marker="s", color="#2A9D8F", lw=2.0)
+    axp.axhline(report["minimum_poincare_points_per_line"], color="black", lw=1.0, ls="--")
+    style_axis(
+        axp,
+        title="Poincare sampling density",
+        xlabel="refinement level",
+        ylabel="points per seed line",
+        grid="both",
+    )
+
+    axt.axis("off")
+    axt.text(
+        0.02,
+        0.95,
+        "\n".join(
+            [
+                "Closed-control refinement gate",
+                f"levels: {report['n_levels']}",
+                f"closed/near min: {report['closed_or_near_fraction_min']:.3f}",
+                f"closed/near spread: {report['closed_or_near_fraction_spread']:.3e}",
+                f"return p95 max: {report['return_distance_normalized_p95_max']:.3e}",
+                f"Poincare/line min: {report['poincare_points_per_line_min']:.1f}",
+                f"target semantics absent: {report['target_semantics_absent']}",
+                f"sheath/recycling absent: {report['sheath_recycling_semantics_absent']}",
+                f"promotion ready: {report['promotion_ready']}",
+            ]
+        ),
+        transform=axt.transAxes,
+        va="top",
+        fontsize=11,
+        bbox={"facecolor": "white", "edgecolor": "0.82", "alpha": 0.96},
+    )
+    fig.suptitle("ESSOS direct-coil closed-control refinement", fontsize=15, fontweight="semibold")
     save_publication_figure(fig, path)
     return Path(path)
 
@@ -719,6 +1164,22 @@ def _finite_min(values: np.ndarray) -> float:
     if finite.size == 0:
         return float("inf")
     return float(np.min(finite))
+
+
+def _finite_max(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return float("-inf")
+    return float(np.max(finite))
+
+
+def _finite_range(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return float("inf")
+    return float(np.max(finite) - np.min(finite))
 
 
 def _line_label_colors(labels: np.ndarray) -> np.ndarray:
