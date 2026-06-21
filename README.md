@@ -524,6 +524,7 @@ Testing policy and refactor coverage goals are documented in:
 Build locally:
 
 ```bash
+python scripts/audit_release_readiness.py
 python -m build
 ```
 

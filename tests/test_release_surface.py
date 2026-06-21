@@ -10,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "CITATION.cff",
+    REPO_ROOT / "MANIFEST.in",
     REPO_ROOT / ".readthedocs.yaml",
     REPO_ROOT / "mkdocs.yml",
     REPO_ROOT / "README.md",
@@ -128,6 +129,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "scripts" / "profile_atomic_rate_throughput_gate.py",
     REPO_ROOT / "scripts" / "run_research_campaign_bundle.py",
     REPO_ROOT / "scripts" / "fetch_example_artifacts.py",
+    REPO_ROOT / "scripts" / "audit_release_readiness.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_toroidal_movie.py",

@@ -38,15 +38,20 @@ release-backed media and compact fixtures.
   `v1.0.2` tag is already a published historical release.
 - A `CITATION.cff` file has been added for manuscript and software-citation
   workflows.
+- `scripts/audit_release_readiness.py` now provides a fast pre-tag audit for
+  version consistency, release notes, citation metadata, artifact manifest
+  counts, PyPI and ReadTheDocs workflow wiring, unpinned runtime dependencies,
+  version-tag reuse, and repository footprint invariants.
 
 ## Validation
 
 The current release candidate passes the bounded closeout gate at `96.0%`
-coverage with `88` focused release-surface tests and passes the promoted
+coverage with `90` focused release-surface tests and passes the promoted
 native-solver/public-surface gate at `95.16%` coverage with `804` passed,
 `14` skipped, `10` deselected, and `1` expected xfail on the local developer
-machine. The fast bounded research-check wrapper also passes all default slices
-locally, and `mkdocs build --strict --clean` passes with only existing
+machine. The release-readiness audit passes for target version `1.0.3` with
+footprint checking enabled. The fast bounded research-check wrapper also passes
+all default slices locally, and `mkdocs build --strict --clean` passes with only existing
 informational notices for excluded generated artifacts and external example
 references.
 

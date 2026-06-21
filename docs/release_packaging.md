@@ -169,39 +169,50 @@ reference-parity, and runtime campaigns.
 
 Before publishing a version:
 
-1. run the bounded closeout and promoted solver coverage gates:
+1. run the fast release-readiness audit:
+
+```bash
+python scripts/audit_release_readiness.py
+```
+
+This verifies version consistency across `pyproject.toml`, `jax_drb.__version__`,
+release notes, MkDocs navigation, README links, `CITATION.cff`, artifact
+manifest counts, PyPI/ReadTheDocs workflow wiring, unpinned runtime
+dependencies, absent version-tag reuse, and footprint-audit invariants.
+
+2. run the bounded closeout and promoted solver coverage gates:
 
 ```bash
 python scripts/run_closeout_coverage.py
 python scripts/run_promoted_solver_coverage.py
 ```
 
-2. run the fast bounded validation slice:
+3. run the fast bounded validation slice:
 
 ```bash
 python scripts/run_fast_research_checks.py
 ```
 
-3. check the repository footprint before creating release artifacts:
+4. check the repository footprint before creating release artifacts:
 
 ```bash
 python scripts/audit_repository_footprint.py --top 20 --min-size-mib 1
 ```
 
-4. build the distributions locally:
+5. build the distributions locally:
 
 ```bash
 python -m build
 ```
 
-5. verify the public docs and artifact surface:
+6. verify the public docs and artifact surface:
 
 ```bash
 mkdocs build --strict
 pytest -q tests/test_release_surface.py
 ```
 
-6. verify the release artifact bundle and docs-media restore path when release
+7. verify the release artifact bundle and docs-media restore path when release
    assets have changed:
 
 ```bash
@@ -213,11 +224,11 @@ Use a version tag such as `v1.0.3` only for package releases. Use an artifact
 tag such as `validation-artifacts-YYYY-MM-DD` for docs-media or baseline
 refreshes so the publish workflow remains skipped.
 
-7. dispatch the bounded research campaign workflows that are expected for the
+8. dispatch the bounded research campaign workflows that are expected for the
    release candidate, then wait for GitHub `test`, `docs`, and `coverage` to
    complete successfully on the target commit.
 
-8. optionally run the Python version matrix locally or through CI.
+9. optionally run the Python version matrix locally or through CI.
 
 ## Current Release Boundary
 
@@ -241,9 +252,11 @@ matching parity, residual-health, and runtime reports exist.
 
 Latest local closeout evidence:
 
-- bounded closeout coverage: `96.0%`, `88` tests passed;
+- bounded closeout coverage: `96.0%`, `90` tests passed;
 - promoted solver/public-surface coverage: `95.16%`, `804` passed, `14`
   skipped, `10` deselected, and `1` expected xfail;
+- release-readiness audit: `scripts/audit_release_readiness.py` passed for
+  target version `1.0.3` with footprint checking enabled;
 - fast bounded research checks: all default slices passed locally;
 - docs build: `mkdocs build --strict --clean` passed locally;
 - docs-media artifact restore: `174/174` manifest media files restored from

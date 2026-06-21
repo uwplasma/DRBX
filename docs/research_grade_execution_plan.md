@@ -201,7 +201,7 @@ and tests all move together.
 
 | Lane | Completion | Current blocker |
 | --- | ---: | --- |
-| Plan authority and release hygiene | 98% | Keep this file current and prevent new competing roadmap files. The release target is now correctly retargeted to `1.0.3` because `v1.0.2` is already published. |
+| Plan authority and release hygiene | 99% | Keep this file current and prevent new competing roadmap files. The release target is correctly retargeted to `1.0.3`, and `scripts/audit_release_readiness.py` now provides a repeatable fast pre-tag audit for metadata, artifact, workflow, dependency, tag, and footprint invariants. |
 | Meaningful promoted coverage | 98% | The promoted solver/public-surface coverage gate now includes the full meaningful recycling and runner evidence layer and passes at `95.16%` after the 1.0.3 metadata/artifact changes. Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.3% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to traced-field-line `g33`, sheath, target-source, and longer-window diverted-tokamak campaigns. Hydrogen and D/T/He one-step target parity are no longer active formula offenders under the BDF parity path; the remaining D/T/He one-step `Pd+` pressure difference is localized to conduction-energy state sensitivity at the large `dt=25` gate and shrinks under timestep refinement. |
 | JAX-native recycling solver | 99.92% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, hydrogen and D/T/He fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus residual-evaluation budgets, and the D/T/He route now has explicit eight-step physical-output parity gates against stable BDF at `dt=1e-4` and `dt=1e-3`, a retained `dt=1e-2` scalar density/pressure observable screen, and a retained `dt=1e-2` substepped full-field pointwise screen with an internal timestep cap. Term-level active-array seams now cover D/T/He reactions, pointwise collision friction/heat exchange, fixed-layout thermal-force/ion-viscosity/conduction transport closures, stencil-aware neutral parallel diffusion, sheath-prepared target recycling source mapping, scalar upstream-density feedback, a composed source-RHS builder, a source-to-total-RHS insertion helper, and an opt-in `promoted_active_sources` residual backend that matches the full D/T/He fixture RHS on the active slice, has an explicit two-output-window fixed-BDF2 production-gate mode with roundoff-level parity against stable BDF on the lightweight D/T/He fixture, and now has a named cProfile/RSS research-campaign gate that must exercise a nontrivial Newton/JVP solve at `dt=1e-4`. Fixed residuals also have opt-in instrumented linearized-action and single-update JAX-GMRES seams for matrix-free/JVP profiling. Default promotion still needs longer/heavier production-window parity, same-fidelity CPU/GPU runtime evidence, and cheaper production-window solves; the D/T/He active-array SciPy-BDF sparse-JVP output-window route remains locally timeout-bound and should be replaced by the matrix-free fixed-BDF2 path. |
@@ -213,11 +213,11 @@ and tests all move together.
 | 3D stellarator imported-field/VMEC SOL | 99% | The refinement gate now compares normalized spectral-centroid fractions rather than raw mode indices. With that correction and Jacobi FCI-potential preconditioning, the high-resolution `16x48x48 -> 16x96x48` report-only movie candidate passes both grid and time refinement, the `16x96x48`, `frames=12`, `substeps=3` JSON-only stationarity gate passes, matching local media has passed frame-contact-sheet visual QA, and compact release-hosted README/docs media now exists. The remaining blocker is broader long-window/non-reduced turbulence promotion, not geometry, renderer-only interpolation, or media hosting. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 98% | README, examples, release-packaging docs, and 1.0.3 release notes now state the stable-default versus opt-in research-gate boundary. The docs-media release bundle has been refreshed and `scripts/fetch_example_artifacts.py --skip-baselines --force` restores `174/174` manifest media files in an isolated root; the self-contained docs/example slice and representative tokamak/stellarator commands pass locally. Keep rechecking this gate only when README media, release assets, or example commands change. |
-| Repo footprint | 96% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs and the 1.0.3 wheel/sdist remain about `709 KiB` and `614 KiB`. |
+| Repo footprint | 97% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs and the 1.0.3 wheel/sdist remain about `709 KiB` and `614 KiB`. The fast release-readiness audit now checks the footprint invariants directly. |
 
 Release-closeout interpretation:
 
-- The next release is approximately `98%` complete. The remaining work is
+- The next release is approximately `99%` complete. The remaining work is
   closeout, not a new research expansion.
 - Lanes below `80%` are not all tag blockers. They are blockers only if the
   README, docs, release notes, or API claim the unfinished portion as promoted.
@@ -304,6 +304,7 @@ Steps:
 4. Before any tag, run local release gates:
 
 ```bash
+PYTHONPATH=src python scripts/audit_release_readiness.py
 PYTHONPATH=src python scripts/run_closeout_coverage.py
 PYTHONPATH=src python scripts/run_promoted_solver_coverage.py
 PYTHONPATH=src python scripts/run_fast_research_checks.py
@@ -4055,7 +4056,7 @@ Use this log for concise decision records. Do not paste terminal output here.
   active-layout mapping, promoted zero fallback, and mixed BE/BDF2 residual
   formulas. The promoted solver gate now passes with `804 passed`, `14 skipped`,
   `10 deselected`, `1 xfailed`, and total promoted coverage `95.16%`.
-  The closeout coverage gate passes at `96.0%` with `88 passed`; the fast
+  The closeout coverage gate passes at `96.0%` with `90 passed`; the fast
   research checks pass all default slices; `mkdocs build --strict --clean` and
   `git diff --check` pass locally. Footprint/package audit remains lightweight:
   `.git` is `27M`, reachable pack size is `6.43 MiB`, largest tracked files are
@@ -4068,7 +4069,7 @@ Use this log for concise decision records. Do not paste terminal output here.
   defaults to the validated compatibility BDF path while JAX-linearized/JVP
   routes remain opt-in research gates. The examples page and packaging page now
   repeat that boundary, and the release notes now record the current
-  local evidence: closeout coverage `96.0%` with `88` passed, promoted
+  local evidence: closeout coverage `96.0%` with `90` passed, promoted
   solver/public-surface coverage `95.16%` with `804` passed, fast research
   checks passing, docs strict build passing, and the latest lightweight
   footprint/package audit. Decision: docs/examples move to `96%` and release
@@ -4117,7 +4118,7 @@ Use this log for concise decision records. Do not paste terminal output here.
   available, hosted CI.
 - 2026-06-20: Reran the local release gates after retargeting metadata to
   `1.0.3`. `scripts/run_closeout_coverage.py` passes at `96.0%` with
-  `88 passed`; `scripts/run_promoted_solver_coverage.py` passes at `95.16%`
+  `90 passed`; `scripts/run_promoted_solver_coverage.py` passes at `95.16%`
   with `804 passed`, `14 skipped`, `10 deselected`, and `1 xfailed`;
   `scripts/run_fast_research_checks.py` passes all default slices
   (`135`, `3`, `76`, `3`, `121`, and `198` tests in the reported slices).
@@ -4132,6 +4133,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   ready for `v1.0.3`; release closeout moves to `98%`. The only remaining
   release-blocking evidence is hosted GitHub Actions/ReadTheDocs/PyPI workflow
   confirmation when runner billing is available or explicitly requested.
+- 2026-06-20: Added `scripts/audit_release_readiness.py` as the fast,
+  repeatable pre-tag release audit. It checks `pyproject.toml`,
+  `jax_drb.__version__`, version-specific release notes, README and MkDocs
+  links, `CITATION.cff`, unpinned runtime dependency specifications, docs-media
+  manifest counts and required README media, PyPI publish workflow wiring,
+  ReadTheDocs configuration, absence of accidental version-tag reuse, and the
+  repository footprint invariants from `audit_repository_footprint.py`.
+  The script passes locally for `1.0.3` with footprint checking enabled, its
+  focused tests pass, and it is now included in the closeout coverage slice and
+  release checklist. Decision: plan authority moves to `99%`, repo footprint to
+  `97%`, and release closeout to `99%`. Remaining release-blocking evidence is
+  hosted GitHub Actions, ReadTheDocs, and PyPI workflow confirmation after
+  runner billing is available or the user explicitly asks to run those checks.
 
 ## Definition Of Done
 
