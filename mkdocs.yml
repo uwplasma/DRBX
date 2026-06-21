@@ -112,6 +112,7 @@ nav:
       - Geometry Roadmap: geometry_roadmap.md
       - Implementation Inventory: implementation_inventory.md
       - Release Packaging: release_packaging.md
+      - Release Notes 1.0.3: release_notes_1_0_3.md
       - Release Notes 1.0.2: release_notes_1_0_2.md
       - Release Notes 1.0.1: release_notes_1_0_1.md
       - Release Notes 1.0.0: release_notes_1_0_0.md

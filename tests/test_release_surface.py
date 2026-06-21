@@ -9,6 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 PUBLIC_RELEASE_FILES = (
+    REPO_ROOT / "CITATION.cff",
     REPO_ROOT / ".readthedocs.yaml",
     REPO_ROOT / "mkdocs.yml",
     REPO_ROOT / "README.md",
@@ -54,6 +55,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "autodiff_diffusion_uncertainty_demo.md",
     REPO_ROOT / "docs" / "closeout_coverage.md",
     REPO_ROOT / "docs" / "release_packaging.md",
+    REPO_ROOT / "docs" / "release_notes_1_0_3.md",
     REPO_ROOT / "docs" / "release_notes_1_0_2.md",
     REPO_ROOT / "docs" / "release_notes_1_0_1.md",
     REPO_ROOT / "docs" / "release_notes_1_0_0.md",

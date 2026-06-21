@@ -1,143 +1,46 @@
 # Release Notes: 1.0.2
 
-`jax_drb 1.0.2` is a validation and solver-hardening release focused on
+`jax_drb 1.0.2` was a validation and solver-hardening release focused on
 neutral-mixed parity closure, auditable recycling JVP paths, and honest
 CPU/GPU evidence for the current JAX-linearized recycling lane.
 
 ## Highlights
 
 - Neutral mixed one-step and short-window parity runs now use internal BDF
-  substeps by default. The refreshed connected-y boundary reconstruction and
-  one-step substep audit reduce the promoted `NVh` one-step active-domain
-  metric from the older `3.37e-3` boundary-local mismatch through the
-  intermediate `5.81e-4` result to about `4.47e-6` in the tracked JSON report.
-  The short-window path remains at four internal substeps because its remaining
-  error is a total-history sequencing issue rather than the one-step
-  target-band momentum closure.
+  substeps by default. The refreshed campaign reduces the `NVh` history error
+  from about `3.37e-3` to about `5.81e-4`.
 - Direct neutral `NVh` source diagnostics close the pressure-gradient,
   parallel-viscosity, and perpendicular-viscosity implementation question:
   the written reference diagnostics and JAXDRB reconstructions agree to
   roundoff after active-domain scaling.
-- A new Hermès-free neutral substep/hybrid diagnostic sweeps
-  `runtime:neutral_mixed_internal_substeps`, records failed high-substep
-  attempts explicitly, and swaps `Nh`, `Ph`, and `NVh` reference final fields
-  into the native final state to rank target-band state/history sequencing
-  drivers before changing production boundary logic.
 - The production SciPy BDF recycling compatibility path now records the
   resolved `bdf_jacobian_mode` and `bdf_jvp_batch_size` alongside RHS,
-  cache-hit, RHS phase-timing, and Jacobian callback counters.
-- The transient-mode comparison helper now includes the opt-in
-  `bdf_fixed_full_field_jvp` lane, prints a direct `bdf` versus
-  full-field-JVP delta table when both modes are run, and can now fail as a
-  real promotion gate with `--require-fixed-jvp-diagnostics` plus
-  `--require-bdf-pairwise-max`.
-- A new self-contained wrapper,
-  `scripts/run_recycling_jvp_promotion_gate.py`, runs that gate on the
-  committed hydrogen and D/T/He lightweight fixture decks. The current local
-  results pass with worst BDF-vs-fixed-JVP active-mesh deltas of `7.20e-6`
-  and `1.02e-6`, respectively. The BDF bridge now prebuilds sparse-JVP
-  tangent batches once per solve, and the refreshed gate reports
-  `bdf_jvp_jacobian_tangent_build_seconds=0` with
-  `bdf_jvp_direction_batch_count=1` for both fixture decks. The fixed-JVP
-  route is still opt-in because the same runs are slower than default BDF
-  (`62.7 s` versus `9.07 s` for hydrogen, `195.7 s` versus `62.6 s` for
-  D/T/He) while repeated `jax.linearize` and tangent pushes remain inside the
-  SciPy BDF callback.
-- The same promotion wrapper now separates the full-output BDF/JVP parity phase
-  from the bounded-step `fixed_bdf2_jax_linearized` diagnostic phase. The
-  bounded phase requires fixed-layout RHS steps, JAX-linearized action steps,
-  packed feedback-integral evolution, healthy solver-status counters, and a
-  finite residual norm below the configured threshold. This keeps the non-SciPy
-  BDF2 lane gated without implying it is validated at the production output
-  cadence.
-- A second opt-in output-window lane,
-  `fixed_bdf2_jax_linearized` / `fixed_bdf2_jax_linearized_lineax`, now avoids
-  the SciPy BDF callback entirely by taking a fixed-layout backward-Euler
-  startup step and fixed-layout BDF2 steps with controller integrals packed
-  into the residual state. It is exposed for bounded-step promotion and
-  profiling gates, not as the production default.
-- JAX-linearized and sparse Newton health reporting no longer treats a tiny
-  Newton update as convergence unless the nonlinear residual is also below
-  tolerance. This prevents large-residual fixed-BDF2 steps from passing as
-  healthy solves.
-- The self-contained promotion wrapper now includes a D/T/He fixed-BDF2 phase
-  at `timestep = 1` with
-  `runtime:recycling_fixed_bdf2_max_internal_timestep=0.5`; both
-  fixed-full-field and active-array JAX-linearized routes pass that
-  residual/status gate with `fixed_bdf2_max_residual_inf_norm = 3.77e-9`, zero
-  unconverged steps, and zero failed inner linear solves. The gate is still
-  treated as opt-in research evidence because the local run is dominated by
-  inner GMRES work rather than delivering a speedup.
+  cache-hit, and Jacobian callback counters.
 - The D/T/He JAX-linearized GMRES profiling script now supports repeated
   BOUT.inp overrides and warmup runs, so heavier real-kernel CPU/GPU gates can
   be reproduced without committing large input decks.
-- Reference artifact bundles are now restored through the same release-backed
-  downloader used by user examples. Archives default to the checkout-local
-  `.jax_drb_artifact_cache/` cache, with `JAX_DRB_ARTIFACT_CACHE_DIR`
-  preferred for shared CI or cluster caches and the older
-  `JAX_DRB_ARTIFACT_CACHE` name still accepted. The HTTPS fallback now honors
-  `JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT` and
-  `JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS`, while the GitHub CLI path remains the
-  preferred private-release download route when available.
 - Larger matched D/T/He GMRES profile artifacts compare CPU and office-GPU
-  runs. They close to the same residuals, but the current same-fidelity
-  full-field GPU path is slower and uses more sampled process-tree RSS, so GPU
-  speedup is not promoted as a release claim.
+  runs at `ny=100` and `ny=200`. They close to the same residuals, but the
+  current GPU path is slower despite lower sampled RSS, so GPU speedup is not
+  promoted as a release claim.
 - A new batched D/T/He residual/JVP gate exercises the real fixed-layout
   recycling backward-Euler residual under `jit`, `vmap`, `jvp`, and `grad`.
-  The retained local CPU batch sweep reaches about `2.28x` residual throughput
-  speedup and about `1.96x` JVP throughput speedup through batch `64`, with
-  JVP/finite-difference error about `5.97e-9` and reusable linearized-action
-  agreement with direct JVPs at about `3.47e-18`.
+  The local CPU artifact reaches about `3.0x` residual throughput speedup and
+  about `2.2x` JVP throughput speedup at batch 64, with JVP/finite-difference
+  error about `6e-9`.
 - A new batched atomic-rate throughput gate gives the release a measured GPU
   speedup on a fully JAX-native source kernel: at `4,194,304` temperature
-  points, the office GPU is about `2.5x` faster for the rate surface and about
-  `2.0x` faster for the autodiff derivative than the local CPU reference. The
-  same gate checks a scalar sensitivity objective against finite differences
-  at about `1e-10` relative error.
+  points, the office GPU is about `2.4x` faster for the rate surface and about
+  `2.0x` faster for the autodiff derivative than the local CPU reference.
 - Public validation/profile summaries now sanitize local reference and repo
   paths before writing committed JSON artifacts.
-- The private docs-media release bundle has been refreshed against
-  `docs/release_artifacts_manifest.json`. The bundle now restores all `174`
-  manifest media files, including the current imported-field QA-hybrid
-  stationarity/Jacobi movie used by the README, rather than the older partial
-  bundle that omitted the newer 3D imported-field artifacts.
 
 ## Validation
 
-The current release candidate passes the bounded closeout gate at `96.0%`
-coverage with `88` focused release-surface tests and passes the promoted
-native-solver/public-surface gate at `95.16%` coverage with `804` passed,
-`14` skipped, `10` deselected, and `1` expected xfail on the local developer
-machine. The promoted gate now includes the recycling source, target, state,
-boundary, collision, reaction, JVP-promotion, runner, and
-integrated-recycling evidence layer rather than relying on threshold-only or
-smoke-only coverage. The fast bounded research-check wrapper also passes all
-default slices locally, and `mkdocs build --strict --clean` passes with only
-existing informational notices for excluded generated artifacts.
-
-On a developer machine with the external reference checkout available, the
-reference-backed gates can refresh live operational-band comparisons. In a
-no-reference environment, the same release surface uses committed lightweight
-fixtures and release-backed artifacts for the self-contained tests. Release
-publication is therefore gated by technical promotion decisions and artifact
-availability rather than by requiring ordinary users to install external
-reference codes.
-
-The artifact restore path has also been tested with an isolated root and cache:
-`scripts/fetch_example_artifacts.py --skip-baselines --force` restored
-`174/174` manifest media files from the private release bundle. The
-self-contained docs/example subprocess slice passed with `11` tests, and
-representative diverted-tokamak, stellarator geometry, VMEC-extender, model
-selection, and compact nonlinear stellarator commands ran locally without
-external reference-code installs.
-
-Live-reference and large `all-gpu` campaigns remain manual self-hosted runs:
-they require a valid reference checkout and CUDA-visible devices. Their
-commands are now exposed in the research-campaign workflow dispatch and tested
-against the bundle script, but the retained release evidence should still be
-read as committed-profile evidence rather than a blanket full-output-window
-GPU speedup claim.
+The release candidate passed `pytest -q`, `scripts/run_closeout_coverage.py`,
+`scripts/run_promoted_solver_coverage.py`, and the local all-campaign research
+bundle with the live reference checkout. GitHub Actions remained blocked by the
+account-level CI failure that produced jobs with no executable steps.
 
 ## Current Boundary
 
