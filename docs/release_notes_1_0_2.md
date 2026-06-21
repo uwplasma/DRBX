@@ -71,12 +71,14 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
 - The D/T/He JAX-linearized GMRES profiling script now supports repeated
   BOUT.inp overrides and warmup runs, so heavier real-kernel CPU/GPU gates can
   be reproduced without committing large input decks.
-- Reference artifact bundles are now downloaded with retry and cached under
-  `~/.cache/jax_drb/artifact_bundles` by default, with
-  `JAX_DRB_ARTIFACT_CACHE_DIR`, `JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT`, and
-  `JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS` available for CI or cluster overrides.
-  This keeps live integrated-reference gates from redownloading the same mesh
-  bundle for every output-window test.
+- Reference artifact bundles are now restored through the same release-backed
+  downloader used by user examples. Archives default to the checkout-local
+  `.jax_drb_artifact_cache/` cache, with `JAX_DRB_ARTIFACT_CACHE_DIR`
+  preferred for shared CI or cluster caches and the older
+  `JAX_DRB_ARTIFACT_CACHE` name still accepted. The HTTPS fallback now honors
+  `JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT` and
+  `JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS`, while the GitHub CLI path remains the
+  preferred private-release download route when available.
 - Larger matched D/T/He GMRES profile artifacts compare CPU and office-GPU
   runs. They close to the same residuals, but the current same-fidelity
   full-field GPU path is slower and uses more sampled process-tree RSS, so GPU
@@ -95,6 +97,11 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
   at about `1e-10` relative error.
 - Public validation/profile summaries now sanitize local reference and repo
   paths before writing committed JSON artifacts.
+- The private docs-media release bundle has been refreshed against
+  `docs/release_artifacts_manifest.json`. The bundle now restores all `174`
+  manifest media files, including the current imported-field QA-hybrid
+  stationarity/Jacobi movie used by the README, rather than the older partial
+  bundle that omitted the newer 3D imported-field artifacts.
 
 ## Validation
 
@@ -116,6 +123,14 @@ fixtures and release-backed artifacts for the self-contained tests. Release
 publication is therefore gated by technical promotion decisions and artifact
 availability rather than by requiring ordinary users to install external
 reference codes.
+
+The artifact restore path has also been tested with an isolated root and cache:
+`scripts/fetch_example_artifacts.py --skip-baselines --force` restored
+`174/174` manifest media files from the private release bundle. The
+self-contained docs/example subprocess slice passed with `11` tests, and
+representative diverted-tokamak, stellarator geometry, VMEC-extender, model
+selection, and compact nonlinear stellarator commands ran locally without
+external reference-code installs.
 
 Live-reference and large `all-gpu` campaigns remain manual self-hosted runs:
 they require a valid reference checkout and CUDA-visible devices. Their

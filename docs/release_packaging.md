@@ -44,6 +44,11 @@ published page tree, but it is kept in the docs directory so release reviewers
 can verify which PNG, GIF, MP4, NPZ, and baseline bundle URLs are expected for
 a given artifact tag.
 
+The current docs-media bundle has been refreshed against that manifest and
+contains `174` media files, including the diverted-tokamak movie arrays, the
+3D tokamak GIF, the compact stellarator FCI showcase, and the imported-field
+QA-hybrid stationarity/Jacobi movie used in the README.
+
 Users with repository access can restore both bundles from a fresh clone with:
 
 ```bash
@@ -54,11 +59,15 @@ python scripts/fetch_example_artifacts.py
 For non-CLI automation, set `GH_TOKEN` or `GITHUB_TOKEN` to a token with access
 to `uwplasma/jax_drb`. The downloader uses the GitHub CLI first because private
 release assets need authentication, then falls back to token-authenticated HTTPS.
-Set `JAX_DRB_ARTIFACT_CACHE=/path/to/cache` to reuse downloaded archives across
-checkouts, or `JAX_DRB_OFFLINE_ARTIFACTS=1` to require that artifacts already
-exist locally. Use `python scripts/fetch_example_artifacts.py --skip-baselines`
-when the task only needs README/docs media and self-contained example arrays,
-not the heavier reference baselines.
+Set `JAX_DRB_ARTIFACT_CACHE_DIR=/path/to/cache` to reuse downloaded archives
+across checkouts; the older `JAX_DRB_ARTIFACT_CACHE` name is also accepted.
+Set `JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT` and
+`JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS` to tune the HTTPS fallback used when the
+GitHub CLI is unavailable. Set `JAX_DRB_OFFLINE_ARTIFACTS=1` to require that
+artifacts already exist locally. Use
+`python scripts/fetch_example_artifacts.py --skip-baselines` when the task only
+needs README/docs media and self-contained example arrays, not the heavier
+reference baselines.
 
 This artifact path is the supported self-contained user workflow. Users do not
 need to download any external plasma code to run the examples, view or
@@ -232,9 +241,16 @@ Latest local closeout evidence:
   skipped, `10` deselected, and `1` expected xfail;
 - fast bounded research checks: all default slices passed locally;
 - docs build: `mkdocs build --strict --clean` passed locally;
+- docs-media artifact restore: `174/174` manifest media files restored from
+  the private release bundle using `scripts/fetch_example_artifacts.py
+  --skip-baselines --force` with an isolated root and cache;
+- self-contained example slice: `11` docs/example subprocess tests passed;
+- representative user examples: diverted tokamak movie/profile, model
+  selection guide, stellarator geometry, VMEC-extender import, and compact
+  nonlinear stellarator movie commands passed locally;
 - footprint/package audit: `.git` about `27M`, reachable pack about
-  `6.43 MiB`, largest tracked file below `328 KiB`, wheel about `712 KiB`,
-  and sdist about `616 KiB`.
+  `6.43 MiB`, largest tracked file below `328 KiB`, wheel about `709 KiB`,
+  and sdist about `614 KiB`.
 
 It is not the full closure of every research workflow in the broader validation matrix. The detailed status remains in:
 

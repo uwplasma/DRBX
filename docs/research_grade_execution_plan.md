@@ -212,12 +212,12 @@ and tests all move together.
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
 | 3D stellarator imported-field/VMEC SOL | 99% | The refinement gate now compares normalized spectral-centroid fractions rather than raw mode indices. With that correction and Jacobi FCI-potential preconditioning, the high-resolution `16x48x48 -> 16x96x48` report-only movie candidate passes both grid and time refinement, the `16x96x48`, `frames=12`, `substeps=3` JSON-only stationarity gate passes, matching local media has passed frame-contact-sheet visual QA, and compact release-hosted README/docs media now exists. The remaining blocker is broader long-window/non-reduced turbulence promotion, not geometry, renderer-only interpolation, or media hosting. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
-| Docs and examples | 96% | README, examples, release-packaging docs, and 1.0.2 release notes now state the stable-default versus opt-in research-gate boundary and point users to self-contained artifact restore plus documented movie/plot examples. Keep checking that every advertised README figure/movie has a command and no hidden private-reference dependency. |
+| Docs and examples | 97% | README, examples, release-packaging docs, and 1.0.2 release notes now state the stable-default versus opt-in research-gate boundary. The docs-media release bundle has been refreshed and `scripts/fetch_example_artifacts.py --skip-baselines --force` restores `174/174` manifest media files in an isolated root; the self-contained docs/example slice and representative tokamak/stellarator commands pass locally. Keep rechecking this gate only when README media, release assets, or example commands change. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
 
 Release-closeout interpretation:
 
-- The next release is approximately `92%` complete. The remaining work is
+- The next release is approximately `94%` complete. The remaining work is
   closeout, not a new research expansion.
 - Lanes below `80%` are not all tag blockers. They are blockers only if the
   README, docs, release notes, or API claim the unfinished portion as promoted.
@@ -4059,7 +4059,7 @@ Use this log for concise decision records. Do not paste terminal output here.
   research checks pass all default slices; `mkdocs build --strict --clean` and
   `git diff --check` pass locally. Footprint/package audit remains lightweight:
   `.git` is `27M`, reachable pack size is `6.43 MiB`, largest tracked files are
-  below `328 KiB`, the wheel is `712 KiB`, and the sdist is `616 KiB`.
+  below `328 KiB`, the wheel is `709 KiB`, and the sdist is `614 KiB`.
 - 2026-06-20: Performed the README, examples, release-packaging, and release
   notes claim-boundary pass for the 1.0.2 closeout. The README now describes
   JAXDRB as JAX-first rather than implying every promoted workflow is already
@@ -4075,6 +4075,33 @@ Use this log for concise decision records. Do not paste terminal output here.
   closeout to `92%`; the next closeout items are final metadata/tagging,
   artifact-restore recheck, and hosted CI only when runner billing is available
   or explicitly requested.
+- 2026-06-20: Closed the artifact-restore release blocker and fixed a stale
+  docs-media bundle. A forced isolated restore of `jax_drb_docs_media.zip`
+  initially failed because the private release bundle contained only `138`
+  entries and missed the current imported-field QA-hybrid media advertised in
+  the README/docs. Rebuilt the bundle from
+  `docs/release_artifacts_manifest.json`, downloaded the six locally absent
+  individual release assets, uploaded the refreshed `jax_drb_docs_media.zip`
+  with `174` entries and size `51,057,105` bytes, and updated the manifest. The
+  restore sentinel now checks the current
+  `essos_imported_drb_movie_stationarity_jacobi_media/movies/movie_compact.gif`
+  path rather than the older imported-coil campaign GIF. A clean isolated
+  restore with `JAX_DRB_ARTIFACT_CACHE_DIR=/tmp/jaxdrb_artifact_cache_probe`
+  and `--skip-baselines --force` restores `174/174` manifest media files,
+  including the diverted tokamak movie, 3D tokamak movie, compact stellarator
+  FCI movie, and imported QA-hybrid movie. The artifact downloader now accepts
+  the documented `JAX_DRB_ARTIFACT_CACHE_DIR` cache variable while preserving
+  the older `JAX_DRB_ARTIFACT_CACHE` alias, and the HTTPS fallback honors
+  `JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT` plus
+  `JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS`. Focused runtime-artifact and
+  release-surface tests pass (`22` tests), the self-contained docs/example
+  subprocess slice passes (`11` tests), and representative user commands for
+  the diverted-tokamak movie/profile, model-selection guide, stellarator
+  geometry, VMEC-extender import, and compact nonlinear stellarator movie pass
+  locally without any external reference-code install. Decision: docs/examples
+  move to `97%` and release closeout to `94%`; remaining release work is final
+  metadata/version/tag/notes and hosted CI when runner billing is available or
+  explicitly requested.
 
 ## Definition Of Done
 

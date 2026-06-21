@@ -3,8 +3,8 @@
   "bundles": {
     "docs_media": {
       "asset": "jax_drb_docs_media.zip",
-      "contents_count": 139,
-      "size_bytes": 32857219,
+      "contents_count": 174,
+      "size_bytes": 51057105,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_docs_media.zip"
     },
     "reference_baselines": {
