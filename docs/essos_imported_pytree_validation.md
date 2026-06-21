@@ -1,5 +1,11 @@
 # ESSOS Imported PyTree/JVP Validation
 
+!!! note "Plan authority"
+    This page is an imported-geometry validation report. The active execution
+    plan is [Research-Grade Execution Plan](research_grade_execution_plan.md).
+    If this page conflicts with that plan, follow the execution plan and update
+    this page afterward.
+
 This page documents the first fixed-layout PyTree/JVP gate driven by imported
 Landreman-Paul QA field-line maps. The external geometry adapter can supply
 coil-traced maps, VMEC-coordinate maps, or a hybrid map that uses VMEC
