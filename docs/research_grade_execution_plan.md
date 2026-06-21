@@ -205,28 +205,18 @@ Global success definitions:
 
 Current best next steps:
 
-1. Add a direct-coil endpoint-mask nested-refinement diagnostic. The scalar
-   `target_exit_length` is discontinuous across endpoint masks, so the next
-   refinement gate should compare directional endpoint labels and target
-   projection stability under nested grids, while keeping adjacent-step length
-   as the smooth FCI-map metric.
-2. Rerun the live direct-coil workflow with endpoint-label refinement,
-   adjacent-step refinement, endpoint/source accounting, and map-quality plots.
-   If those gates pass, continue to source/profile plots and a direct-coil
-   diagnostic movie. If they remain rough, record negative evidence and move
-   the promoted visual path to VMEC closed-field and hybrid.
-3. Add a VMEC closed-field tutorial with closed-map FCI/operator gates,
+1. Add a VMEC closed-field tutorial with closed-map FCI/operator gates,
    reduced linear/nonlinear examples, profile/spectrum plots, and one polished
    movie that does not claim open-SOL target physics.
-4. Upgrade the hybrid VMEC/coil open-SOL campaign with longer/refined
+2. Upgrade the hybrid VMEC/coil open-SOL campaign with longer/refined
    transients, source/target/profile plots, endpoint-source accounting, grid
    and timestep refinement, and frame-by-frame movie QA.
-5. Add the finite-beta VMEC-extender artifact workflow only after stable
+3. Add the finite-beta VMEC-extender artifact workflow only after stable
    upstream artifact exports exist, or use a frozen exported artifact as a
    fixture. Validate field conventions before any finite-beta SOL transient.
-6. Add HSX QHS, NCSX, and Dommaschk examples only after the Landreman-Paul QA
+4. Add HSX QHS, NCSX, and Dommaschk examples only after the Landreman-Paul QA
    direct-coil, closed-VMEC, and hybrid semantics are unambiguous.
-7. Keep coverage above `95%`, update docs/readme with every promoted artifact,
+5. Keep coverage above `95%`, update docs/readme with every promoted artifact,
    and run footprint/package audits before tagging any new version.
 
 ## Final Release Goal
@@ -447,7 +437,7 @@ Current planning audit:
 
 | Lane | Status | Completion | Immediate blocker |
 | --- | --- | ---: | --- |
-| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, pure-coil adjacent-step diagnostics, a main-branch direct-coil open-SOL workflow contract, endpoint-aware FCI map-quality diagnostics, and live endpoint/source-accounting evidence exist. Target-exit lengths are now masked to endpoint cells, and the live FCI endpoint/source gate passes because interior FCI resolution is green while endpoint jumps are correctly classified as physical endpoint-mask discontinuities. | 58% | Direct-coil media remains unpromoted. The next blocker is a source-appropriate live nested-refinement gate: compare smooth adjacent-step length for FCI-map quality, compare categorical endpoint labels for target projection stability, and keep scalar `target_exit_length` as diagnostic because it is discontinuous at endpoint masks. |
+| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, pure-coil adjacent-step diagnostics, a main-branch direct-coil open-SOL workflow contract, endpoint-aware FCI map-quality diagnostics, live endpoint/source-accounting evidence, and a categorical endpoint-label refinement gate now exist. Target-exit lengths are masked to endpoint cells, and the live FCI endpoint/source gate passes because interior FCI resolution is green while endpoint jumps are correctly classified as physical endpoint-mask discontinuities. The first live endpoint-label refinement rerun failed with minimum all-label and endpoint agreement `0.444`, and adjacent-step observed order remains `0.104`. | 64% diagnostic | Direct-coil media remains unpromoted. The direct-coil open-field lane should now be treated as diagnostic geometry evidence until endpoint-label stability or map construction improves; the promoted visual path moves to VMEC closed-field controls and hybrid open-SOL. |
 | ESSOS direct-coil closed-field controls | ESSOS-owned tracing can generate closed or long-lived trajectories, but the current promoted JAXDRB direct-coil lane is open-field endpoint focused. | 25% | Add a closed/near-closed direct-coil control that reports Poincare islands/surfaces, return or parallel-step quality, and no sheath/recycling semantics unless a target mask is deliberately supplied. |
 | VMEC closed-field stellarator lane | VMEC-coordinate maps are available as the smooth closed-field control for Landreman-Paul QA-style surfaces. | 55% | Add explicit closed-field examples and tests that do not use open-target/sheath semantics, then generate closed-surface turbulence/profile plots. |
 | Hybrid open-SOL stellarator lane | Current strongest compact evidence uses VMEC map coordinates with coil-derived endpoint masks and `|B|` modulation. | 75% | Upgrade from compact reduced movie evidence to longer/refined open-SOL campaigns with endpoint, sheath, recycling, neutral, profile, and movie QA gates. |
@@ -838,37 +828,24 @@ Definitions of success:
 
 Use this order when implementation resumes:
 
-1. Add endpoint-label nested-refinement diagnostics for direct-coil maps:
-   fine-to-coarse label restriction, endpoint-only agreement, directional
-   confusion matrices, target-projection stability, and source-mask overlap.
-2. Rerun the live direct-coil workflow with the new endpoint-label gate plus
-   the existing adjacent-step refinement and endpoint/source gates. Start from
-   the current evidence: endpoint-aware FCI/source accounting passes with
-   interior `p95` roughness `2.98e-2`; adjacent-step finest RMS is
-   `7.63e-3`, \(L_\infty\) is `1.44e-2`, and observed order is `0.104`;
-   target-exit scalar refinement is discontinuous and remains diagnostic.
-3. If endpoint-label stability and adjacent-step quality pass, generate
-   direct-coil source/profile plots and a polished direct-coil open-SOL movie.
-   If they fail, record direct-coil open-field as diagnostic geometry evidence
-   and do not promote the movie.
-4. Add the direct-coil closed/near-closed control example and validation plots:
+1. Add the direct-coil closed/near-closed control example and validation plots:
    Poincare context, return-map quality, closed/open classification, and
    optional reduced closed-field dynamics.
-5. Add the VMEC closed-field tutorial, plots, and validation gates. Use it as
+2. Add the VMEC closed-field tutorial, plots, and validation gates. Use it as
    the smooth non-axisymmetric closed-map control for direct-coil and hybrid
    comparisons.
-6. Upgrade the hybrid open-SOL campaign with longer refined transients,
+3. Upgrade the hybrid open-SOL campaign with longer refined transients,
    source/target/profile plots, grid/time checks, and movie QA. Promote hybrid
    as the first open-SOL bridge only if its endpoint/source/refinement gates
    remain green.
-7. Re-run docs-media restore and release-surface checks after adding or moving
+4. Re-run docs-media restore and release-surface checks after adding or moving
    media.
-8. Only after direct-coil, direct-coil closed-control, closed-VMEC, and hybrid
+5. Only after direct-coil, direct-coil closed-control, closed-VMEC, and hybrid
    semantics are unambiguous, generate or import a real VMEC-extender
    finite-beta exterior-field artifact and run Milestone D.
-9. Add HSX, NCSX, and Dommaschk devices one at a time through the per-device
+6. Add HSX, NCSX, and Dommaschk devices one at a time through the per-device
    success gates.
-10. Resume full DRB, JAX-native recycling default, performance, GPU, and
+7. Resume full DRB, JAX-native recycling default, performance, GPU, and
     architecture work only when those lanes are required by a promoted geometry
     example or release claim.
 
@@ -1790,6 +1767,37 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-21: Ran the live direct-coil workflow with the new endpoint-label
+  refinement gate enabled, plus FCI/source accounting, adjacent-step
+  refinement, and diagnostic target-exit refinement. The FCI endpoint/source
+  stage remains green: `passed = true`, `connection_length_resolution_passed =
+  true`, `map_diagnostics_passed = true`, interior roughness `p95 = 2.98e-2`,
+  and endpoint-touch roughness localized to physical endpoint-mask faces. The
+  endpoint-label refinement gate fails promotion with `evidence_role =
+  endpoint_label_instability`; the coarse-to-middle pair has all-label and
+  endpoint-only agreement `0.444`, and the middle-to-fine pair has all-label
+  agreement `0.616` and endpoint-only agreement `0.573`. The smooth
+  `adjacent_step_length` gate still has small finest RMS `7.63e-3` and
+  \(L_\infty\) `1.44e-2`, but observed order is only `0.104`. The scalar
+  `target_exit_length` stage is now correctly diagnostic-only and still fails
+  as a discontinuous target-distance quantity. Decision: pure direct-coil
+  open-field media remains unpromoted; move the promoted visual path to
+  direct-coil closed/near-closed controls, VMEC closed-field controls, and
+  hybrid open-SOL.
+- 2026-06-21: Implemented the direct-coil endpoint-label nested-refinement
+  gate requested by the current plan. The new validation surface builds
+  directional labels from the same forward/backward FCI boundary masks consumed
+  by the sheath/recycling kernels, restricts nested grids by nearest-neighbor
+  live coordinates or block-majority manufactured grids, and reports all-label
+  agreement, endpoint-only agreement, directional confusion matrices,
+  false-positive/false-negative endpoint fractions, and promotion status.
+  The direct-coil workflow now treats `adjacent_step_length` and
+  endpoint-label stability as promotion gates, while keeping scalar
+  `target_exit_length` refinement as a diagnostic-only target-distance report
+  because it is discontinuous at endpoint-mask changes. Focused endpoint-label
+  and connection-refinement tests pass. Decision: the next work item is the
+  live direct-coil rerun with endpoint-label refinement, adjacent-step
+  refinement, and endpoint/source accounting enabled.
 - 2026-06-21: Performed a final plan-only consolidation for the remaining
   stellarator open/closed SOL lanes. Verified current PR status with `gh`:
   `uwplasma/jax_drb#2` is merged, `uwplasma/vmec_jax#18` is merged,

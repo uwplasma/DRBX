@@ -33,12 +33,27 @@ class EssosImportedConnectionLengthRefinementArtifacts:
 
 
 @dataclass(frozen=True)
+class EssosImportedEndpointLabelRefinementArtifacts:
+    report_json_path: Path
+    arrays_npz_path: Path
+    plot_png_path: Path
+
+
+@dataclass(frozen=True)
 class EssosImportedConnectionLengthLevels:
     levels: tuple[np.ndarray, ...]
     labels: tuple[str, ...]
     metadata: tuple[dict[str, Any], ...]
     coordinates: tuple[dict[str, np.ndarray], ...] = ()
     quantity: str = "raw_connection_length"
+
+
+@dataclass(frozen=True)
+class EssosImportedEndpointLabelLevels:
+    levels: tuple[np.ndarray, ...]
+    labels: tuple[str, ...]
+    metadata: tuple[dict[str, Any], ...]
+    coordinates: tuple[dict[str, np.ndarray], ...] = ()
 
 
 _IMPORTED_FCI_ARRAY_KEYS = (
@@ -427,6 +442,120 @@ def create_live_essos_imported_connection_length_refinement_package(
     return artifacts
 
 
+def create_essos_imported_endpoint_label_refinement_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_imported_endpoint_label_refinement",
+    endpoint_label_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
+    coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None = None,
+    labels: tuple[str, ...] | list[str] | None = None,
+    level_shapes: tuple[tuple[int, int, int], ...] = (
+        (4, 6, 8),
+        (8, 12, 16),
+        (16, 24, 32),
+    ),
+    minimum_agreement_fraction: float = 0.98,
+    minimum_endpoint_agreement_fraction: float = 0.95,
+    minimum_valid_pair_fraction: float = 1.0,
+    require_three_levels: bool = True,
+) -> EssosImportedEndpointLabelRefinementArtifacts:
+    """Write a nested-grid categorical endpoint-label refinement gate."""
+
+    root = Path(output_root)
+    data_dir = root / "data"
+    images_dir = root / "images"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    report, arrays = build_essos_imported_endpoint_label_refinement_campaign(
+        endpoint_label_levels=endpoint_label_levels,
+        coordinate_levels=coordinate_levels,
+        labels=labels,
+        level_shapes=level_shapes,
+        minimum_agreement_fraction=minimum_agreement_fraction,
+        minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
+        minimum_valid_pair_fraction=minimum_valid_pair_fraction,
+        require_three_levels=require_three_levels,
+    )
+    report_json_path = data_dir / f"{case_label}.json"
+    report_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    arrays_npz_path = data_dir / f"{case_label}.npz"
+    np.savez_compressed(arrays_npz_path, **arrays)
+    plot_png_path = images_dir / f"{case_label}.png"
+    save_essos_imported_endpoint_label_refinement_plot(report, arrays, plot_png_path)
+    return EssosImportedEndpointLabelRefinementArtifacts(
+        report_json_path=report_json_path,
+        arrays_npz_path=arrays_npz_path,
+        plot_png_path=plot_png_path,
+    )
+
+
+def create_live_essos_imported_endpoint_label_refinement_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_imported_endpoint_label_refinement_live",
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    map_source: str = "coil",
+    level_shapes: tuple[tuple[int, int, int], ...] = (
+        (3, 4, 6),
+        (6, 8, 12),
+        (12, 16, 24),
+    ),
+    rho_min: float = 0.12,
+    rho_max: float = 0.34,
+    maxtime: float = 40.0,
+    times_to_trace: int = 160,
+    trace_tolerance: float = 1.0e-8,
+    minimum_agreement_fraction: float = 0.90,
+    minimum_endpoint_agreement_fraction: float = 0.80,
+    minimum_valid_pair_fraction: float = 1.0,
+    require_three_levels: bool = True,
+) -> EssosImportedEndpointLabelRefinementArtifacts:
+    """Write a live imported endpoint-label refinement gate."""
+
+    live_levels = build_live_essos_imported_endpoint_label_levels(
+        coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
+        essos_root=essos_root,
+        map_source=map_source,
+        level_shapes=level_shapes,
+        rho_min=rho_min,
+        rho_max=rho_max,
+        maxtime=maxtime,
+        times_to_trace=times_to_trace,
+        trace_tolerance=trace_tolerance,
+    )
+    artifacts = create_essos_imported_endpoint_label_refinement_package(
+        output_root=output_root,
+        case_label=case_label,
+        endpoint_label_levels=live_levels.levels,
+        coordinate_levels=live_levels.coordinates,
+        labels=live_levels.labels,
+        minimum_agreement_fraction=minimum_agreement_fraction,
+        minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
+        minimum_valid_pair_fraction=minimum_valid_pair_fraction,
+        require_three_levels=require_three_levels,
+    )
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    report["source"] = "live imported endpoint-label refinement gate"
+    report["map_source"] = str(map_source)
+    report["geometry_metadata"] = list(live_levels.metadata)
+    report["live_imported"] = True
+    artifacts.report_json_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    with np.load(artifacts.arrays_npz_path) as data:
+        arrays = {key: np.asarray(data[key]) for key in data.files}
+    save_essos_imported_endpoint_label_refinement_plot(
+        report,
+        arrays,
+        artifacts.plot_png_path,
+    )
+    return artifacts
+
+
 def build_live_essos_imported_connection_length_levels(
     *,
     coil_json_path: str | Path | None = None,
@@ -504,6 +633,85 @@ def build_live_essos_imported_connection_length_levels(
         metadata=tuple(metadata),
         coordinates=coordinate_tuple,
         quantity=connection_quantity,
+    )
+
+
+def build_live_essos_imported_endpoint_label_levels(
+    *,
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    map_source: str = "coil",
+    level_shapes: tuple[tuple[int, int, int], ...] = (
+        (3, 4, 6),
+        (6, 8, 12),
+        (12, 16, 24),
+    ),
+    rho_min: float = 0.12,
+    rho_max: float = 0.34,
+    maxtime: float = 40.0,
+    times_to_trace: int = 160,
+    trace_tolerance: float = 1.0e-8,
+) -> EssosImportedEndpointLabelLevels:
+    """Build nested live imported endpoint-label arrays for refinement tests."""
+
+    if len(level_shapes) < 2:
+        raise ValueError("At least two level_shapes are required for endpoint-label refinement.")
+    levels: list[np.ndarray] = []
+    labels: list[str] = []
+    metadata: list[dict[str, Any]] = []
+    coordinate_levels: list[dict[str, np.ndarray]] = []
+    normalized_source = _normalize_imported_fci_map_source(map_source)
+    for shape in level_shapes:
+        if len(shape) != 3:
+            raise ValueError(f"Each endpoint-label refinement shape must be (nx, ny, nz), got {shape!r}.")
+        nx, ny, nz = (int(value) for value in shape)
+        geometry = build_essos_imported_fci_geometry(
+            coil_json_path=coil_json_path,
+            vmec_wout_path=vmec_wout_path,
+            essos_root=essos_root,
+            map_source=normalized_source,
+            nx=nx,
+            ny=ny,
+            nz=nz,
+            rho_min=rho_min,
+            rho_max=rho_max,
+            maxtime=maxtime,
+            times_to_trace=times_to_trace,
+            trace_tolerance=trace_tolerance,
+        )
+        endpoint_labels = _target_label_array(
+            np.asarray(geometry.maps.forward_boundary, dtype=bool),
+            np.asarray(geometry.maps.backward_boundary, dtype=bool),
+        )
+        if endpoint_labels.shape != (nx, ny, nz):
+            raise ValueError(
+                "Imported endpoint-label shape mismatch: "
+                f"expected {(nx, ny, nz)}, got {endpoint_labels.shape}."
+            )
+        levels.append(endpoint_labels.astype(np.int8))
+        coordinates = _connection_length_geometry_coordinates(geometry)
+        if coordinates:
+            coordinates = {
+                key: np.asarray(value, dtype=np.float64)
+                for key, value in coordinates.items()
+            }
+        labels.append(f"{normalized_source}_{nx}x{ny}x{nz}")
+        level_metadata = dict(geometry.metadata)
+        level_metadata["endpoint_label_semantics"] = "0 none, 1 forward, 2 backward, 3 bidirectional"
+        metadata.append(level_metadata)
+        if coordinates:
+            coordinate_levels.append(coordinates)
+    coordinate_tuple: tuple[dict[str, np.ndarray], ...]
+    if len(coordinate_levels) == len(levels):
+        coordinate_tuple = tuple(coordinate_levels)
+    else:
+        coordinate_tuple = ()
+    return EssosImportedEndpointLabelLevels(
+        levels=tuple(levels),
+        labels=tuple(labels),
+        metadata=tuple(metadata),
+        coordinates=coordinate_tuple,
     )
 
 
@@ -640,6 +848,312 @@ def build_essos_imported_connection_length_refinement_campaign(
         for key, values in coordinates.items():
             arrays[f"level_{index}_{key}"] = np.asarray(values, dtype=np.float64)
     return report, arrays
+
+
+def build_essos_imported_endpoint_label_refinement_campaign(
+    *,
+    endpoint_label_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
+    coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None = None,
+    labels: tuple[str, ...] | list[str] | None = None,
+    level_shapes: tuple[tuple[int, int, int], ...] = (
+        (4, 6, 8),
+        (8, 12, 16),
+        (16, 24, 32),
+    ),
+    minimum_agreement_fraction: float = 0.98,
+    minimum_endpoint_agreement_fraction: float = 0.95,
+    minimum_valid_pair_fraction: float = 1.0,
+    require_three_levels: bool = True,
+) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
+    """Build report and arrays for nested endpoint-label refinement."""
+
+    if endpoint_label_levels is None:
+        levels = _manufactured_endpoint_label_levels(level_shapes)
+        level_labels = [f"manufactured_{shape[0]}x{shape[1]}x{shape[2]}" for shape in level_shapes]
+        source = "manufactured non-axisymmetric endpoint-label refinement gate"
+        manufactured = True
+    else:
+        levels = [np.asarray(level, dtype=np.int8) for level in endpoint_label_levels]
+        level_labels = (
+            [f"level_{index}" for index in range(len(levels))]
+            if labels is None
+            else [str(label) for label in labels]
+        )
+        source = "user-supplied imported endpoint-label refinement gate"
+        manufactured = False
+
+    diagnostics = build_essos_imported_endpoint_label_refinement_diagnostics(
+        levels,
+        labels=level_labels,
+        coordinate_levels=coordinate_levels,
+        minimum_agreement_fraction=minimum_agreement_fraction,
+        minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
+        minimum_valid_pair_fraction=minimum_valid_pair_fraction,
+        require_three_levels=require_three_levels,
+    )
+    pair_reports = diagnostics["pair_reports"]
+    agreement_values = [float(pair["agreement_fraction"]) for pair in pair_reports]
+    endpoint_agreement_values = [
+        float(pair["endpoint_agreement_fraction"])
+        for pair in pair_reports
+        if pair["endpoint_agreement_fraction"] is not None
+    ]
+    report = {
+        "case": "essos_imported_endpoint_label_refinement",
+        "source": source,
+        "manufactured": manufactured,
+        "diagnostics": diagnostics,
+        "level_shapes": [[int(value) for value in level.shape] for level in levels],
+        "minimum_agreement_fraction_actual": min(agreement_values) if agreement_values else None,
+        "minimum_endpoint_agreement_fraction_actual": (
+            min(endpoint_agreement_values) if endpoint_agreement_values else None
+        ),
+        "minimum_agreement_fraction_required": float(minimum_agreement_fraction),
+        "minimum_endpoint_agreement_fraction_required": float(
+            minimum_endpoint_agreement_fraction
+        ),
+        "minimum_valid_pair_fraction": diagnostics["minimum_valid_pair_fraction"],
+        "require_three_levels": bool(require_three_levels),
+        "valid_pairs_passed": bool(diagnostics["valid_pairs_passed"]),
+        "agreement_passed": bool(diagnostics["agreement_passed"]),
+        "endpoint_agreement_passed": bool(diagnostics["endpoint_agreement_passed"]),
+        "level_count_passed": bool(diagnostics["level_count_passed"]),
+        "promotion_ready": bool(diagnostics["promotion_ready"]),
+        "advisory_only": bool(diagnostics["advisory_only"]),
+        "evidence_role": diagnostics["evidence_role"],
+        "promotion_rejection_reasons": list(diagnostics["promotion_rejection_reasons"]),
+        "passed": bool(diagnostics["passed"]),
+    }
+    arrays: dict[str, np.ndarray] = {
+        "summary": np.asarray(
+            [
+                (
+                    np.nan
+                    if report["minimum_agreement_fraction_actual"] is None
+                    else float(report["minimum_agreement_fraction_actual"])
+                ),
+                (
+                    np.nan
+                    if report["minimum_endpoint_agreement_fraction_actual"] is None
+                    else float(report["minimum_endpoint_agreement_fraction_actual"])
+                ),
+                float(report["passed"]),
+            ],
+            dtype=np.float64,
+        ),
+        "pair_agreement_fraction": np.asarray(agreement_values, dtype=np.float64),
+        "pair_endpoint_agreement_fraction": np.asarray(
+            [
+                np.nan if pair["endpoint_agreement_fraction"] is None else float(pair["endpoint_agreement_fraction"])
+                for pair in pair_reports
+            ],
+            dtype=np.float64,
+        ),
+        "pair_valid_fraction": np.asarray(
+            [pair["valid_fraction"] for pair in pair_reports],
+            dtype=np.float64,
+        ),
+    }
+    for index, level in enumerate(levels):
+        arrays[f"level_{index}"] = np.asarray(level, dtype=np.int8)
+        arrays[f"level_{index}_target_label_toroidal"] = _project_endpoint_labels_toroidal(level).astype(np.float32)
+    for index, pair in enumerate(pair_reports):
+        arrays[f"pair_{index}_confusion_matrix"] = np.asarray(
+            pair["confusion_matrix"],
+            dtype=np.int64,
+        )
+    coordinate_payloads = _normalize_connection_coordinate_levels(
+        coordinate_levels,
+        expected_shapes=[level.shape for level in levels],
+    )
+    for index, coordinates in enumerate(coordinate_payloads):
+        for key, values in coordinates.items():
+            arrays[f"level_{index}_{key}"] = np.asarray(values, dtype=np.float64)
+    return report, arrays
+
+
+def build_essos_imported_endpoint_label_refinement_diagnostics(
+    endpoint_label_levels: tuple[np.ndarray, ...] | list[np.ndarray],
+    labels: tuple[str, ...] | list[str] | None = None,
+    *,
+    coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None = None,
+    minimum_agreement_fraction: float = 0.98,
+    minimum_endpoint_agreement_fraction: float = 0.95,
+    minimum_valid_pair_fraction: float = 1.0,
+    require_three_levels: bool = True,
+) -> dict[str, Any]:
+    """Compare nested categorical endpoint labels on imported FCI maps.
+
+    This diagnostic is intentionally categorical. Scalar target-exit lengths
+    jump when an endpoint mask changes, so pure-coil open-SOL promotion should
+    check whether the directional target labels themselves are stable under
+    nested refinement rather than treating target-distance jumps as smooth
+    convergence errors.
+    """
+
+    levels = [_normalize_endpoint_label_level(level) for level in endpoint_label_levels]
+    if len(levels) < 2:
+        raise ValueError("Endpoint-label refinement diagnostics require at least two levels.")
+    valid_pair_threshold = float(minimum_valid_pair_fraction)
+    agreement_threshold = float(minimum_agreement_fraction)
+    endpoint_threshold = float(minimum_endpoint_agreement_fraction)
+    if not (0.0 < valid_pair_threshold <= 1.0):
+        raise ValueError("minimum_valid_pair_fraction must be in the interval (0, 1].")
+    if not (0.0 <= agreement_threshold <= 1.0):
+        raise ValueError("minimum_agreement_fraction must be in the interval [0, 1].")
+    if not (0.0 <= endpoint_threshold <= 1.0):
+        raise ValueError("minimum_endpoint_agreement_fraction must be in the interval [0, 1].")
+    for index, level in enumerate(levels):
+        if level.ndim != 3:
+            raise ValueError(
+                "Endpoint-label refinement levels must be three-dimensional; "
+                f"level {index} has shape {level.shape}."
+            )
+
+    if labels is None:
+        level_labels = [f"level_{index}" for index in range(len(levels))]
+    else:
+        level_labels = [str(label) for label in labels]
+        if len(level_labels) != len(levels):
+            raise ValueError("Endpoint-label refinement labels must match level count.")
+    coordinate_payloads = _normalize_connection_coordinate_levels(
+        coordinate_levels,
+        expected_shapes=[level.shape for level in levels],
+    )
+    use_coordinate_restriction = bool(coordinate_payloads)
+    restriction_method = (
+        "coordinate_nearest_neighbor" if use_coordinate_restriction else "block_majority"
+    )
+
+    pair_reports: list[dict[str, Any]] = []
+    for index, (coarse, fine) in enumerate(zip(levels, levels[1:])):
+        if use_coordinate_restriction:
+            restricted = _sample_endpoint_labels_at_coarse_coordinates(
+                fine=fine,
+                fine_coordinates=coordinate_payloads[index + 1],
+                coarse_coordinates=coordinate_payloads[index],
+            )
+        else:
+            restricted = _restrict_endpoint_labels_to_coarse_grid(
+                fine=fine,
+                coarse_shape=coarse.shape,
+            )
+        valid = _endpoint_labels_valid(coarse) & _endpoint_labels_valid(restricted)
+        endpoint_union = valid & ((coarse > 0) | (restricted > 0))
+        agreement = valid & (coarse == restricted)
+        endpoint_agreement = endpoint_union & (coarse == restricted)
+        valid_count = int(np.sum(valid))
+        endpoint_union_count = int(np.sum(endpoint_union))
+        confusion = _endpoint_label_confusion_matrix(coarse, restricted, valid_mask=valid)
+        pair_reports.append(
+            {
+                "coarse_label": level_labels[index],
+                "fine_label": level_labels[index + 1],
+                "coarse_shape": [int(value) for value in coarse.shape],
+                "fine_shape": [int(value) for value in fine.shape],
+                "restriction_method": restriction_method,
+                "valid_fraction": float(np.mean(valid)),
+                "agreement_fraction": _safe_fraction(np.sum(agreement), valid_count, default=0.0),
+                "endpoint_union_fraction": float(np.mean(endpoint_union)),
+                "endpoint_agreement_fraction": (
+                    _safe_fraction(np.sum(endpoint_agreement), endpoint_union_count, default=1.0)
+                    if endpoint_union_count
+                    else None
+                ),
+                "coarse_endpoint_fraction": float(np.mean((coarse > 0) & valid)),
+                "restricted_endpoint_fraction": float(np.mean((restricted > 0) & valid)),
+                "endpoint_false_positive_fraction": float(np.mean(valid & (coarse == 0) & (restricted > 0))),
+                "endpoint_false_negative_fraction": float(np.mean(valid & (coarse > 0) & (restricted == 0))),
+                "directional_mismatch_fraction": float(np.mean(valid & (coarse > 0) & (restricted > 0) & (coarse != restricted))),
+                "confusion_matrix": confusion.tolist(),
+            }
+        )
+
+    valid_pairs = all(
+        float(pair["valid_fraction"]) >= valid_pair_threshold
+        for pair in pair_reports
+    )
+    agreement_passed = all(
+        float(pair["agreement_fraction"]) >= agreement_threshold
+        for pair in pair_reports
+    )
+    endpoint_agreement_passed = all(
+        pair["endpoint_agreement_fraction"] is None
+        or float(pair["endpoint_agreement_fraction"]) >= endpoint_threshold
+        for pair in pair_reports
+    )
+    level_count_passed = bool(len(levels) >= 3 or not require_three_levels)
+    passed = bool(valid_pairs and agreement_passed and endpoint_agreement_passed)
+    promotion_ready = bool(passed and level_count_passed)
+    rejection_reasons: list[str] = []
+    if not valid_pairs:
+        rejection_reasons.append("invalid_or_missing_label_pairs")
+    if not agreement_passed:
+        rejection_reasons.append("label_agreement_below_threshold")
+    if not endpoint_agreement_passed:
+        rejection_reasons.append("endpoint_label_agreement_below_threshold")
+    if not level_count_passed:
+        rejection_reasons.append("three_level_refinement_required")
+    if promotion_ready:
+        evidence_role = "promotion_ready"
+    elif not valid_pairs:
+        evidence_role = "invalid_label_pairs"
+    elif not endpoint_agreement_passed:
+        evidence_role = "endpoint_label_instability"
+    elif not agreement_passed:
+        evidence_role = "label_instability"
+    elif not level_count_passed:
+        evidence_role = "advisory_two_level_label_gate"
+    else:
+        evidence_role = "advisory_only"
+    return {
+        "diagnostic": "essos_imported_endpoint_label_refinement",
+        "label_semantics": "0 none, 1 forward, 2 backward, 3 bidirectional",
+        "restriction_method": restriction_method,
+        "level_count": len(levels),
+        "level_labels": level_labels,
+        "pair_reports": pair_reports,
+        "minimum_valid_pair_fraction": valid_pair_threshold,
+        "minimum_agreement_fraction": agreement_threshold,
+        "minimum_endpoint_agreement_fraction": endpoint_threshold,
+        "require_three_levels": bool(require_three_levels),
+        "valid_pairs_passed": bool(valid_pairs),
+        "agreement_passed": bool(agreement_passed),
+        "endpoint_agreement_passed": bool(endpoint_agreement_passed),
+        "level_count_passed": bool(level_count_passed),
+        "promotion_ready": bool(promotion_ready),
+        "advisory_only": bool(not promotion_ready and passed),
+        "evidence_role": evidence_role,
+        "promotion_rejection_reasons": rejection_reasons,
+        "passed": bool(passed),
+    }
+
+
+def _manufactured_endpoint_label_levels(
+    level_shapes: tuple[tuple[int, int, int], ...],
+) -> list[np.ndarray]:
+    if len(level_shapes) < 2:
+        raise ValueError("At least two manufactured endpoint-label levels are required.")
+    return [
+        _manufactured_endpoint_label_level(tuple(int(value) for value in shape))
+        for shape in level_shapes
+    ]
+
+
+def _manufactured_endpoint_label_level(shape: tuple[int, int, int]) -> np.ndarray:
+    if len(shape) != 3 or any(value <= 0 for value in shape):
+        raise ValueError(f"Endpoint-label level shape must contain three positive values; got {shape!r}.")
+    nx, ny, nz = shape
+    radial = (np.arange(nx, dtype=np.float64) + 0.5) / float(nx)
+    toroidal = 2.0 * np.pi * (np.arange(ny, dtype=np.float64) + 0.5) / float(ny)
+    poloidal = 2.0 * np.pi * (np.arange(nz, dtype=np.float64) + 0.5) / float(nz)
+    rho, phi, theta = np.meshgrid(radial, toroidal, poloidal, indexing="ij")
+    forward = (rho > 0.72) & (np.sin(2.0 * phi - theta) > 0.25)
+    backward = (rho < 0.28) & (np.cos(phi + 2.0 * theta) > 0.35)
+    bidirectional_band = (rho > 0.45) & (rho < 0.55) & (np.cos(3.0 * phi - theta) > 0.82)
+    forward = forward | bidirectional_band
+    backward = backward | bidirectional_band
+    return _target_label_array(forward, backward).astype(np.int8)
 
 
 def _manufactured_connection_length_levels(
@@ -1558,6 +2072,111 @@ def save_essos_imported_connection_length_refinement_plot(
     return resolved
 
 
+def save_essos_imported_endpoint_label_refinement_plot(
+    report: dict[str, Any],
+    arrays: dict[str, np.ndarray],
+    path: str | Path,
+) -> Path:
+    """Save a publication-style plot for nested endpoint-label refinement."""
+
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics = report["diagnostics"]
+    level_count = int(diagnostics["level_count"])
+    coarsest = np.asarray(arrays["level_0_target_label_toroidal"], dtype=np.float64)
+    finest = np.asarray(arrays[f"level_{level_count - 1}_target_label_toroidal"], dtype=np.float64)
+    pair_indices = np.arange(len(diagnostics["pair_reports"]), dtype=np.float64)
+    pair_labels = [
+        f"{_format_grid_shape(pair['coarse_shape'])}\n-> {_format_grid_shape(pair['fine_shape'])}"
+        for pair in diagnostics["pair_reports"]
+    ]
+    agreement = np.asarray(arrays["pair_agreement_fraction"], dtype=np.float64)
+    endpoint_agreement = np.asarray(arrays["pair_endpoint_agreement_fraction"], dtype=np.float64)
+    confusion = np.asarray(
+        arrays[f"pair_{len(diagnostics['pair_reports']) - 1}_confusion_matrix"],
+        dtype=np.float64,
+    )
+
+    fig, axes = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
+    label_cmap = plt.get_cmap("viridis", 4)
+    coarse_image = axes[0, 0].imshow(
+        coarsest.T,
+        origin="lower",
+        aspect="auto",
+        cmap=label_cmap,
+        vmin=-0.5,
+        vmax=3.5,
+    )
+    axes[0, 0].set_title("coarse projected target labels")
+    axes[0, 0].set_xlabel("toroidal index")
+    axes[0, 0].set_ylabel("poloidal index")
+    coarse_bar = fig.colorbar(coarse_image, ax=axes[0, 0], label="0 none, 1 fwd, 2 bwd, 3 both")
+    coarse_bar.set_ticks([0, 1, 2, 3])
+
+    fine_image = axes[0, 1].imshow(
+        finest.T,
+        origin="lower",
+        aspect="auto",
+        cmap=label_cmap,
+        vmin=-0.5,
+        vmax=3.5,
+    )
+    axes[0, 1].set_title("finest projected target labels")
+    axes[0, 1].set_xlabel("toroidal index")
+    axes[0, 1].set_ylabel("poloidal index")
+    fine_bar = fig.colorbar(fine_image, ax=axes[0, 1], label="0 none, 1 fwd, 2 bwd, 3 both")
+    fine_bar.set_ticks([0, 1, 2, 3])
+
+    axes[1, 0].plot(pair_indices, agreement, "o-", lw=2.0, label="all labels")
+    axes[1, 0].plot(pair_indices, endpoint_agreement, "s--", lw=2.0, label="endpoint union")
+    axes[1, 0].axhline(
+        float(diagnostics["minimum_agreement_fraction"]),
+        color="0.35",
+        lw=1.0,
+        ls=":",
+        label="all-label threshold",
+    )
+    axes[1, 0].axhline(
+        float(diagnostics["minimum_endpoint_agreement_fraction"]),
+        color="0.55",
+        lw=1.0,
+        ls="--",
+        label="endpoint threshold",
+    )
+    axes[1, 0].set_xticks(pair_indices, pair_labels)
+    axes[1, 0].set_ylim(0.0, 1.03)
+    axes[1, 0].set_title("restricted fine-grid label agreement")
+    axes[1, 0].set_ylabel("agreement fraction")
+    axes[1, 0].grid(alpha=0.25)
+    axes[1, 0].legend(frameon=False, fontsize=8)
+
+    matrix = axes[1, 1].imshow(confusion, origin="lower", cmap="magma")
+    axes[1, 1].set_title("finest-pair confusion matrix")
+    axes[1, 1].set_xlabel("restricted fine label")
+    axes[1, 1].set_ylabel("coarse label")
+    axes[1, 1].set_xticks([0, 1, 2, 3])
+    axes[1, 1].set_yticks([0, 1, 2, 3])
+    for i in range(4):
+        for j in range(4):
+            axes[1, 1].text(j, i, str(int(confusion[i, j])), ha="center", va="center", color="white", fontsize=8)
+    fig.colorbar(matrix, ax=axes[1, 1], label="cell count")
+
+    min_endpoint = report.get("minimum_endpoint_agreement_fraction_actual")
+    min_agreement = report.get("minimum_agreement_fraction_actual")
+    min_agreement_text = "n/a" if min_agreement is None else f"{float(min_agreement):.3f}"
+    min_endpoint_text = "n/a" if min_endpoint is None else f"{float(min_endpoint):.3f}"
+    fig.suptitle(
+        f"Imported-field endpoint-label refinement gate: "
+        f"passed={report['passed']}, "
+        f"min agreement={min_agreement_text}, "
+        f"min endpoint agreement={min_endpoint_text}",
+        fontsize=13,
+    )
+    fig.savefig(resolved, dpi=180)
+    plt.close(fig)
+    return resolved
+
+
 def _connection_quantity_plot_label(quantity: str) -> str:
     normalized = _normalize_connection_refinement_quantity(quantity)
     if normalized == "parallel_step_per_toroidal_radian":
@@ -1823,6 +2442,53 @@ def _target_label_array(forward_boundary: np.ndarray, backward_boundary: np.ndar
             "Forward and backward boundary masks must have the same shape for target labels."
         )
     return forward.astype(np.int8) + 2 * backward.astype(np.int8)
+
+
+def _normalize_endpoint_label_level(level: np.ndarray) -> np.ndarray:
+    labels = np.asarray(level)
+    if not np.all(np.isfinite(labels.astype(np.float64, copy=False))):
+        raise ValueError("Endpoint-label levels must contain finite values.")
+    rounded = np.rint(labels).astype(np.int8)
+    if not np.all((rounded >= 0) & (rounded <= 3)):
+        raise ValueError("Endpoint labels must be integers in {0, 1, 2, 3}.")
+    if not np.allclose(labels.astype(np.float64), rounded.astype(np.float64)):
+        raise ValueError("Endpoint labels must be integer-valued.")
+    return rounded
+
+
+def _endpoint_labels_valid(labels: np.ndarray) -> np.ndarray:
+    array = np.asarray(labels)
+    return np.isfinite(array.astype(np.float64, copy=False)) & (array >= 0) & (array <= 3)
+
+
+def _safe_fraction(numerator: int | np.integer[Any], denominator: int, *, default: float) -> float:
+    if int(denominator) <= 0:
+        return float(default)
+    return float(numerator) / float(denominator)
+
+
+def _endpoint_label_confusion_matrix(
+    coarse: np.ndarray,
+    restricted: np.ndarray,
+    *,
+    valid_mask: np.ndarray,
+) -> np.ndarray:
+    confusion = np.zeros((4, 4), dtype=np.int64)
+    coarse_labels = np.asarray(coarse, dtype=np.int8)[valid_mask]
+    restricted_labels = np.asarray(restricted, dtype=np.int8)[valid_mask]
+    for coarse_label in range(4):
+        for restricted_label in range(4):
+            confusion[coarse_label, restricted_label] = int(
+                np.sum((coarse_labels == coarse_label) & (restricted_labels == restricted_label))
+            )
+    return confusion
+
+
+def _project_endpoint_labels_toroidal(labels: np.ndarray) -> np.ndarray:
+    endpoint_labels = _normalize_endpoint_label_level(labels)
+    any_forward = np.any((endpoint_labels & 1) > 0, axis=0)
+    any_backward = np.any((endpoint_labels & 2) > 0, axis=0)
+    return _target_label_array(any_forward, any_backward).astype(np.float64)
 
 
 def _target_label_toroidal_projection(maps: Any) -> np.ndarray:
@@ -2470,6 +3136,27 @@ def _sample_connection_length_at_coarse_coordinates(
     return (1.0 - wz) * c0 + wz * c1
 
 
+def _sample_endpoint_labels_at_coarse_coordinates(
+    *,
+    fine: np.ndarray,
+    fine_coordinates: dict[str, np.ndarray],
+    coarse_coordinates: dict[str, np.ndarray],
+) -> np.ndarray:
+    fine_labels = _normalize_endpoint_label_level(fine)
+    fine_rho = _coordinate_axis(fine_coordinates["minor_radius"], axis=0)
+    fine_phi = _coordinate_axis(fine_coordinates["toroidal_angle"], axis=1)
+    fine_theta = _coordinate_axis(fine_coordinates["poloidal_angle"], axis=2)
+    coarse_rho = np.asarray(coarse_coordinates["minor_radius"], dtype=np.float64)
+    coarse_phi = np.asarray(coarse_coordinates["toroidal_angle"], dtype=np.float64)
+    coarse_theta = np.asarray(coarse_coordinates["poloidal_angle"], dtype=np.float64)
+
+    x, valid_x = _nearest_linear_axis_indices(fine_rho, coarse_rho)
+    y = _nearest_periodic_axis_indices(fine_phi, coarse_phi, period=2.0 * np.pi)
+    z = _nearest_periodic_axis_indices(fine_theta, coarse_theta, period=2.0 * np.pi)
+    sampled = fine_labels[x, y, z].astype(np.int8)
+    return np.where(valid_x, sampled, np.int8(-1)).astype(np.int8)
+
+
 def _coordinate_axis(values: np.ndarray, *, axis: int) -> np.ndarray:
     array = np.asarray(values, dtype=np.float64)
     if array.ndim == 1:
@@ -2530,6 +3217,69 @@ def _periodic_axis_indices(
     x1 = (x0 + 1) % axis_values.size
     weights = coordinate - np.floor(coordinate)
     return x0, x1, np.asarray(weights, dtype=np.float64)
+
+
+def _nearest_linear_axis_indices(axis_values: np.ndarray, targets: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    axis_values = np.asarray(axis_values, dtype=np.float64)
+    if axis_values.ndim != 1 or axis_values.size == 0:
+        raise ValueError("Nearest-neighbor axis must be a non-empty 1D array.")
+    if axis_values.size == 1:
+        zeros = np.zeros_like(targets, dtype=int)
+        return zeros, np.isfinite(np.asarray(targets, dtype=np.float64))
+    if np.any(np.diff(axis_values) <= 0.0):
+        raise ValueError("Nearest-neighbor linear axis must be strictly increasing.")
+    coordinate = np.interp(
+        np.asarray(targets, dtype=np.float64),
+        axis_values,
+        np.arange(axis_values.size, dtype=np.float64),
+        left=np.nan,
+        right=np.nan,
+    )
+    valid = np.isfinite(coordinate)
+    indices = np.rint(np.where(valid, coordinate, 0.0)).astype(int)
+    indices = np.clip(indices, 0, axis_values.size - 1)
+    return indices, valid
+
+
+def _nearest_periodic_axis_indices(
+    axis_values: np.ndarray,
+    targets: np.ndarray,
+    *,
+    period: float,
+) -> np.ndarray:
+    axis_values = np.asarray(axis_values, dtype=np.float64)
+    if axis_values.ndim != 1 or axis_values.size == 0:
+        raise ValueError("Nearest-neighbor periodic axis must be a non-empty 1D array.")
+    if axis_values.size == 1:
+        return np.zeros_like(targets, dtype=int)
+    spacing = float(period) / float(axis_values.size)
+    coordinate = np.mod(np.asarray(targets, dtype=np.float64) - axis_values[0], float(period))
+    coordinate = coordinate / max(spacing, 1.0e-30)
+    return np.rint(coordinate).astype(int) % axis_values.size
+
+
+def _restrict_endpoint_labels_to_coarse_grid(
+    *,
+    fine: np.ndarray,
+    coarse_shape: tuple[int, int, int],
+) -> np.ndarray:
+    fine_labels = _normalize_endpoint_label_level(fine)
+    if len(coarse_shape) != 3:
+        raise ValueError(f"Coarse endpoint-label shape must be 3D; got {coarse_shape}.")
+    fine_shape = tuple(int(value) for value in fine_labels.shape)
+    ratios = []
+    for coarse_size, fine_size in zip(coarse_shape, fine_shape):
+        if coarse_size <= 0 or fine_size <= 0 or fine_size % coarse_size != 0:
+            raise ValueError(
+                "Endpoint-label refinement levels must be nested by integer "
+                f"ratios; coarse={coarse_shape}, fine={fine_shape}."
+            )
+        ratios.append(fine_size // coarse_size)
+    nx, ny, nz = coarse_shape
+    rx, ry, rz = ratios
+    blocks = fine_labels.reshape(nx, rx, ny, ry, nz, rz)
+    count_stack = np.stack([np.sum(blocks == label, axis=(1, 3, 5)) for label in range(4)], axis=0)
+    return np.argmax(count_stack, axis=0).astype(np.int8)
 
 
 def _restrict_connection_length_to_coarse_grid(

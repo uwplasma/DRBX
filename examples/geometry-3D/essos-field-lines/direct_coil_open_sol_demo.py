@@ -10,6 +10,7 @@ from jax_drb.validation import (
     create_essos_imported_drb_movie_stationarity_package,
     create_essos_imported_fci_campaign_package,
     create_live_essos_imported_connection_length_refinement_package,
+    create_live_essos_imported_endpoint_label_refinement_package,
 )
 from jax_drb.validation.essos_imported_fci_campaign import (
     create_essos_imported_fci_dry_run_artifact_package,
@@ -24,6 +25,7 @@ RUN_EXAMPLE = True
 WRITE_DRY_RUN_CONTRACT = True
 RUN_LIVE_FCI_GATE = False
 RUN_LIVE_CONNECTION_REFINEMENT_GATE = False
+RUN_LIVE_ENDPOINT_LABEL_REFINEMENT_GATE = False
 RUN_LIVE_STATIONARITY_GATE = False
 REQUIRE_PROMOTION_READY = False
 
@@ -37,7 +39,8 @@ PRECISION = "float64"
 # Direct-coil open-field semantics. Do not change this to "hybrid" or "vmec"
 # in this script; those are separate control/bridge examples in the plan.
 MAP_SOURCE = "coil"
-REFINEMENT_QUANTITIES = ("adjacent_step_length", "target_exit_length")
+REFINEMENT_QUANTITIES = ("adjacent_step_length",)
+DIAGNOSTIC_REFINEMENT_QUANTITIES = ("target_exit_length",)
 
 # FCI/open-endpoint validation gate.
 FCI_NX = 5
@@ -63,6 +66,8 @@ REFINEMENT_CONVERGENCE_THRESHOLD = 0.10
 REFINEMENT_LINF_THRESHOLD = 0.20
 REFINEMENT_MINIMUM_OBSERVED_ORDER = 0.50
 REFINEMENT_REQUIRE_OBSERVED_ORDER = True
+ENDPOINT_LABEL_MINIMUM_AGREEMENT_FRACTION = 0.90
+ENDPOINT_LABEL_MINIMUM_ENDPOINT_AGREEMENT_FRACTION = 0.80
 
 # Report-only reduced transient gate. This is not the final GIF-producing
 # campaign; it checks whether the direct-coil settings are stable enough to
@@ -96,6 +101,7 @@ class DirectCoilOpenSolSettings:
     write_dry_run_contract: bool
     run_live_fci_gate: bool
     run_live_connection_refinement_gate: bool
+    run_live_endpoint_label_refinement_gate: bool
     run_live_stationarity_gate: bool
     require_promotion_ready: bool
 
@@ -111,6 +117,7 @@ def build_settings(
     write_dry_run_contract: bool = WRITE_DRY_RUN_CONTRACT,
     run_live_fci_gate: bool = RUN_LIVE_FCI_GATE,
     run_live_connection_refinement_gate: bool = RUN_LIVE_CONNECTION_REFINEMENT_GATE,
+    run_live_endpoint_label_refinement_gate: bool = RUN_LIVE_ENDPOINT_LABEL_REFINEMENT_GATE,
     run_live_stationarity_gate: bool = RUN_LIVE_STATIONARITY_GATE,
     require_promotion_ready: bool = REQUIRE_PROMOTION_READY,
 ) -> DirectCoilOpenSolSettings:
@@ -126,6 +133,7 @@ def build_settings(
         write_dry_run_contract=bool(write_dry_run_contract),
         run_live_fci_gate=bool(run_live_fci_gate),
         run_live_connection_refinement_gate=bool(run_live_connection_refinement_gate),
+        run_live_endpoint_label_refinement_gate=bool(run_live_endpoint_label_refinement_gate),
         run_live_stationarity_gate=bool(run_live_stationarity_gate),
         require_promotion_ready=bool(require_promotion_ready),
     )
@@ -153,7 +161,7 @@ def write_workflow_summary(
     live_stage_reports = [
         report
         for report in stage_reports
-        if report["status"] not in {"skipped", "contract_only"}
+        if report["status"] not in {"skipped", "contract_only", "diagnostic"}
     ]
     promotion_ready = bool(live_stage_reports) and all(
         bool(report.get("promotion_ready", False)) for report in live_stage_reports
@@ -162,6 +170,7 @@ def write_workflow_summary(
         "diagnostic": "essos_direct_coil_open_sol_workflow",
         "map_source": MAP_SOURCE,
         "connection_refinement_quantities": list(REFINEMENT_QUANTITIES),
+        "diagnostic_connection_refinement_quantities": list(DIAGNOSTIC_REFINEMENT_QUANTITIES),
         "claim_boundary": (
             "Direct ESSOS coil-field open-SOL workflow. The default run writes a "
             "contract only; a promoted movie requires live FCI, connection-length, "
@@ -177,6 +186,7 @@ def write_workflow_summary(
             "write_dry_run_contract": settings.write_dry_run_contract,
             "run_live_fci_gate": settings.run_live_fci_gate,
             "run_live_connection_refinement_gate": settings.run_live_connection_refinement_gate,
+            "run_live_endpoint_label_refinement_gate": settings.run_live_endpoint_label_refinement_gate,
             "run_live_stationarity_gate": settings.run_live_stationarity_gate,
             "require_promotion_ready": settings.require_promotion_ready,
         },
@@ -185,7 +195,7 @@ def write_workflow_summary(
         "promotion_rejection_reasons": [
             report["stage"]
             for report in stage_reports
-            if report["status"] not in {"skipped", "contract_only"}
+            if report["status"] not in {"skipped", "contract_only", "diagnostic"}
             and not bool(report.get("promotion_ready", False))
         ],
     }
@@ -269,13 +279,14 @@ def run_connection_refinement_gate(
     settings: DirectCoilOpenSolSettings,
     *,
     quantity: str,
+    diagnostic: bool = False,
 ) -> dict[str, Any]:
     """Run or describe one pure-coil connection-length refinement blocker."""
 
     if not settings.run_live_connection_refinement_gate:
         return {
             "stage": f"direct_coil_{quantity}_refinement_gate",
-            "status": "skipped",
+            "status": "diagnostic" if diagnostic else "skipped",
             "promotion_ready": False,
             "next_action": (
                 "Set RUN_LIVE_CONNECTION_REFINEMENT_GATE=True to test whether "
@@ -305,8 +316,53 @@ def run_connection_refinement_gate(
     report = _read_json(artifacts.report_json_path)
     return {
         "stage": f"direct_coil_{quantity}_refinement_gate",
-        "status": "ran",
+        "status": "diagnostic" if diagnostic else "ran",
         "connection_quantity": quantity,
+        "report_json_path": _path_text(artifacts.report_json_path),
+        "arrays_npz_path": _path_text(artifacts.arrays_npz_path),
+        "plot_png_path": _path_text(artifacts.plot_png_path),
+        "passed": bool(report.get("passed", False)),
+        "promotion_ready": False if diagnostic else bool(report.get("promotion_ready", report.get("passed", False))),
+        "evidence_role": report.get("evidence_role"),
+        "diagnostic_only": bool(diagnostic),
+        "promotion_rejection_reasons": report.get("promotion_rejection_reasons", []),
+    }
+
+
+def run_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> dict[str, Any]:
+    """Run or describe categorical endpoint-label refinement for direct-coil maps."""
+
+    if not settings.run_live_endpoint_label_refinement_gate:
+        return {
+            "stage": "direct_coil_endpoint_label_refinement_gate",
+            "status": "skipped",
+            "promotion_ready": False,
+            "next_action": (
+                "Set RUN_LIVE_ENDPOINT_LABEL_REFINEMENT_GATE=True to compare "
+                "nested directional endpoint labels before promoting direct-coil media."
+            ),
+        }
+
+    artifacts = create_live_essos_imported_endpoint_label_refinement_package(
+        output_root=settings.output_root / "endpoint_labels",
+        case_label=f"{settings.case_label}_endpoint_labels",
+        coil_json_path=settings.coil_json_path,
+        vmec_wout_path=settings.vmec_wout_path,
+        essos_root=settings.essos_root,
+        map_source=MAP_SOURCE,
+        level_shapes=REFINEMENT_LEVEL_SHAPES,
+        rho_min=FCI_RHO_MIN,
+        rho_max=FCI_RHO_MAX,
+        maxtime=REFINEMENT_MAXTIME,
+        times_to_trace=REFINEMENT_TIMES_TO_TRACE,
+        trace_tolerance=FCI_TRACE_TOLERANCE,
+        minimum_agreement_fraction=ENDPOINT_LABEL_MINIMUM_AGREEMENT_FRACTION,
+        minimum_endpoint_agreement_fraction=ENDPOINT_LABEL_MINIMUM_ENDPOINT_AGREEMENT_FRACTION,
+    )
+    report = _read_json(artifacts.report_json_path)
+    return {
+        "stage": "direct_coil_endpoint_label_refinement_gate",
+        "status": "ran",
         "report_json_path": _path_text(artifacts.report_json_path),
         "arrays_npz_path": _path_text(artifacts.arrays_npz_path),
         "plot_png_path": _path_text(artifacts.plot_png_path),
@@ -375,9 +431,14 @@ def run_direct_coil_workflow(settings: DirectCoilOpenSolSettings) -> Path:
 
     stage_reports = [
         run_fci_gate(settings),
+        run_endpoint_label_refinement_gate(settings),
         *(
             run_connection_refinement_gate(settings, quantity=quantity)
             for quantity in REFINEMENT_QUANTITIES
+        ),
+        *(
+            run_connection_refinement_gate(settings, quantity=quantity, diagnostic=True)
+            for quantity in DIAGNOSTIC_REFINEMENT_QUANTITIES
         ),
         run_stationarity_gate(settings),
     ]
