@@ -7,10 +7,12 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from jax_drb.geometry import (
+    FciMaps,
     build_essos_imported_fci_geometry,
     essos_runtime_available,
     load_essos_field_line_bundle_npz,
@@ -26,6 +28,7 @@ from jax_drb.validation import (
     build_live_essos_imported_connection_length_levels,
     create_essos_fieldline_import_package,
     create_essos_direct_coil_closed_control_package,
+    create_essos_vmec_closed_field_dry_run_package,
     create_essos_imported_connection_length_refinement_package,
     create_essos_imported_drb_movie_refinement_campaign_package,
     create_essos_imported_drb_movie_stationarity_package,
@@ -35,6 +38,9 @@ from jax_drb.validation import (
     create_essos_imported_fci_campaign_package,
     create_essos_imported_pytree_campaign_package,
     create_essos_vmec_fieldline_surface_package,
+)
+from jax_drb.validation.essos_vmec_closed_field_campaign import (
+    build_essos_vmec_closed_field_report,
 )
 import jax_drb.validation.essos_imported_fci_campaign as imported_fci_campaign
 import jax_drb.validation.essos_imported_drb_movie_campaign as imported_movie_campaign
@@ -1616,6 +1622,63 @@ def test_essos_direct_coil_closed_control_separates_diagnostic_from_promotion(tm
     assert "not_enough_poincare_points" in report["promotion_rejection_reasons"]
     assert "closed_or_near_fraction_below_threshold" in report["promotion_rejection_reasons"]
     assert report["target_semantics_applied"] is False
+
+
+def test_essos_vmec_closed_field_dry_run_contract_is_self_contained(tmp_path: Path) -> None:
+    artifacts = create_essos_vmec_closed_field_dry_run_package(
+        output_root=tmp_path / "vmec_closed",
+        case_label="vmec_closed",
+        nx=3,
+        ny=4,
+        nz=6,
+    )
+
+    report = json.loads(artifacts.contract_json_path.read_text(encoding="utf-8"))
+    assert report["self_contained"] is True
+    assert report["requires_essos_runtime"] is False
+    assert report["live_run_requires_essos_runtime"] is True
+    assert report["map_source"] == "vmec"
+    assert "target/sheath" in report["claim_scope"]
+    assert "forward_boundary_fraction == 0" in report["required_live_gates"]
+
+
+def test_essos_vmec_closed_field_report_locks_closed_semantics() -> None:
+    nx, ny, nz = 3, 4, 6
+    x = np.arange(nx, dtype=np.float64)[:, None, None]
+    y = np.arange(ny, dtype=np.float64)[None, :, None]
+    z = np.arange(nz, dtype=np.float64)[None, None, :]
+    shape = (nx, ny, nz)
+    maps = FciMaps(
+        forward_x=jnp.broadcast_to(jnp.arange(nx, dtype=jnp.float64)[:, None, None], shape),
+        forward_z=jnp.broadcast_to(jnp.arange(nz, dtype=jnp.float64)[None, None, :], shape),
+        backward_x=jnp.broadcast_to(jnp.arange(nx, dtype=jnp.float64)[:, None, None], shape),
+        backward_z=jnp.broadcast_to(jnp.arange(nz, dtype=jnp.float64)[None, None, :], shape),
+        forward_boundary=jnp.zeros(shape, dtype=bool),
+        backward_boundary=jnp.zeros(shape, dtype=bool),
+        dphi=0.25,
+    )
+    geometry = SimpleNamespace(
+        shape=shape,
+        maps=maps,
+        metric=SimpleNamespace(J=jnp.ones(shape, dtype=jnp.float64)),
+        magnetic_field_magnitude=jnp.asarray(np.broadcast_to(1.0 + 0.08 * np.cos(y + z), shape), dtype=jnp.float64),
+        connection_length=jnp.ones(shape, dtype=jnp.float64) * 0.25,
+        coordinates_x=jnp.asarray(1.5 + 0.1 * x * np.ones(shape), dtype=jnp.float64),
+        coordinates_y=jnp.asarray(np.zeros(shape), dtype=jnp.float64),
+        coordinates_z=jnp.asarray(0.1 * z * np.ones(shape), dtype=jnp.float64),
+        metadata={"geometry_family": "unit_test_vmec_closed", "map_source": "vmec"},
+    )
+
+    report, arrays = build_essos_vmec_closed_field_report(geometry)
+
+    assert report["passed"] is True
+    assert report["closed_field_semantics_passed"] is True
+    assert report["target_semantics_applied"] is False
+    assert report["endpoint_fraction"] == 0.0
+    assert report["constant_grad_parallel_linf"] == pytest.approx(0.0)
+    assert report["constant_laplace_parallel_linf"] == pytest.approx(0.0)
+    assert report["constant_conservative_parallel_diffusion_linf"] == pytest.approx(0.0)
+    assert arrays["endpoint_count_toroidal"].shape == (ny, nz)
 
 
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")

@@ -49,6 +49,7 @@ nav:
       - VMEC Extender Edge Fields: vmec_extender_edge_fields.md
       - ESSOS Field-Line Import: essos_fieldline_import.md
       - ESSOS Direct-Coil Closed Control: essos_direct_coil_closed_control.md
+      - ESSOS VMEC Closed Field: essos_vmec_closed_field.md
       - ESSOS VMEC Field-Line Surface: essos_vmec_fieldline_surface.md
       - ESSOS Imported FCI Validation: essos_imported_fci_validation.md
       - ESSOS Imported PyTree Validation: essos_imported_pytree_validation.md

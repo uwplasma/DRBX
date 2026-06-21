@@ -438,8 +438,8 @@ Current planning audit:
 | Lane | Status | Completion | Immediate blocker |
 | --- | --- | ---: | --- |
 | ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, pure-coil adjacent-step diagnostics, a main-branch direct-coil open-SOL workflow contract, endpoint-aware FCI map-quality diagnostics, live endpoint/source-accounting evidence, and a categorical endpoint-label refinement gate now exist. Target-exit lengths are masked to endpoint cells, and the live FCI endpoint/source gate passes because interior FCI resolution is green while endpoint jumps are correctly classified as physical endpoint-mask discontinuities. The first live endpoint-label refinement rerun failed with minimum all-label and endpoint agreement `0.444`, and adjacent-step observed order remains `0.104`. | 64% diagnostic | Direct-coil media remains unpromoted. The direct-coil open-field lane should now be treated as diagnostic geometry evidence until endpoint-label stability or map construction improves; the promoted visual path moves to VMEC closed-field controls and hybrid open-SOL. |
-| ESSOS direct-coil closed-field controls | A self-contained direct-coil closed/near-closed control package now exists with manufactured non-axisymmetric traces, Poincare sections, same-section return-distance classification, JSON/NPZ/PNG artifacts, tests, docs, and an example script. The live ESSOS mode is wired as opt-in and deliberately reports no target, sheath, recycling, or neutral semantics. | 45% | Run the live Landreman-Paul QA direct-coil control, compare its Poincare/return-map behavior with ESSOS traces, and decide whether it is a usable closed/near-closed control or only diagnostic long-lived/open-field evidence. |
-| VMEC closed-field stellarator lane | VMEC-coordinate maps are available as the smooth closed-field control for Landreman-Paul QA-style surfaces. | 55% | Add explicit closed-field examples and tests that do not use open-target/sheath semantics, then generate closed-surface turbulence/profile plots. |
+| ESSOS direct-coil closed-field controls | A self-contained direct-coil closed/near-closed control package now exists with manufactured non-axisymmetric traces, Poincare sections, same-section return-distance classification, JSON/NPZ/PNG artifacts, tests, docs, and an example script. The first live Landreman-Paul QA run also passes the return-map gate: 16 seed lines, 639 Poincare points, mean toroidal turns `10.11`, closed fraction `0.125`, near-closed fraction `0.875`, no open-like/no-return lines, and normalized return-distance p95 `8.45e-2`. The report deliberately applies no target, sheath, recycling, or neutral semantics. | 60% | Add a same-source refinement or longer-window control before promoting any closed direct-coil movie; keep the VMEC lane as the smoother closed-field physics tutorial path. |
+| VMEC closed-field stellarator lane | An explicit VMEC closed-field tutorial/gate now exists with a self-contained dry-run contract, opt-in live ESSOS/VMEC regeneration, zero-endpoint-mask semantics, constant-state FCI operator checks, documentation, and tests. The first live Landreman-Paul QA compact gate passes on a `(4, 6, 16)` map with zero forward/backward endpoint fractions, finite map coordinates, `|B|` modulation `1.247`, mean closed-step length `1.149`, and zero constant-field gradient, Laplacian, and conservative-diffusion residuals. | 70% | Add closed-field reduced transient/profile/spectrum/movie evidence using the VMEC map without target/sheath/recycling semantics, then compare it with direct-coil and hybrid lanes. |
 | Hybrid open-SOL stellarator lane | Current strongest compact evidence uses VMEC map coordinates with coil-derived endpoint masks and `|B|` modulation. | 75% | Upgrade from compact reduced movie evidence to longer/refined open-SOL campaigns with endpoint, sheath, recycling, neutral, profile, and movie QA gates. |
 | VMEC-extender finite-beta exterior-field lane | JAXDRB already has the NetCDF import contract and synthetic SOL smoke gate. The JAXDRB VMEC-extender PR is merged, `vmec_jax` direct-coil provider context is merged, and upstream virtual-casing and ESSOS extender PRs remain open. | 35% | Wait for, or vendor only artifact-compatible outputs from, upstream exporter workflows; then validate real finite-beta exterior fields with field, metric, wall-hit, and connection-length gates. |
 | Device expansion | Landreman-Paul QA compact lane exists; HSX, NCSX, and Dommaschk examples remain planned. | 30% | Add device-specific source metadata, geometry plots, connection-length maps, and one validated reduced physics transient per device. |
@@ -470,7 +470,7 @@ Focused current-lane plan:
 | S3 | Direct-coil open-SOL source/profile package | Run direct-coil sheath/recycling/neutral gates on the exact endpoint masks consumed by the transient; add plots for target labels, particle source, neutral source, neutral density, heat/particle flux, radial profiles, and surface averages. | Endpoint labels reconstruct consumed masks exactly, particle/current/neutral balances close to tolerance, and connection-resolution/refinement status is green or the example remains diagnostic. |
 | S4 | Direct-coil open-field movie | Only after S1-S3, run a compact nonlinear reduced or full DRB transient on the direct-coil map and render a polished movie with fixed camera, no jitter, visible non-axisymmetry, colorbar, time, and a one-sentence physics annotation. | Frame-by-frame QA passes and the same script regenerates the movie from clean-clone inputs plus release-hosted assets; otherwise the movie stays out of README promotion. |
 | S5 | Direct-coil closed/near-closed control | The self-contained control, artifact writer, example, docs, and tests are in tree. Next, run the live ESSOS direct-coil control and compare Poincare/return-map behavior against the source trace. Keep target, sheath, recycling, and neutral semantics disabled unless an explicit endpoint mask is supplied. | Users can see the difference between direct-coil closed/near-closed tracing and open-field endpoint tracing; closed controls are not mislabeled as SOL target simulations. |
-| S6 | VMEC closed-field control | Add a closed-field VMEC tutorial and validation gate that deliberately omits open-target/sheath semantics; include closed-surface parallel-step, periodic FCI, diffusion, bracket/vorticity, profile, and movie diagnostics. | Users can run a closed-field stellarator example and compare it to open direct-coil and hybrid cases without mixing target-to-target connection-length language into closed maps. |
+| S6 | VMEC closed-field control | The dry-run/live validation tutorial and closed-FCI operator gate are in tree. Next add closed-field reduced transient/profile/spectrum/movie diagnostics that use periodic VMEC maps and explicitly omit target, sheath, recycling, and neutral-loss semantics. | Users can run a closed-field stellarator example and compare it to open direct-coil and hybrid cases without mixing target-to-target connection-length language into closed maps. |
 | S7 | Hybrid VMEC/coil open-SOL | Promote the hybrid lane only after longer/refined endpoint/source/profile/movie evidence; use VMEC smooth maps for coordinates and coil traces for endpoint masks and `|B|` modulation. | Hybrid connection-length, endpoint masks, sheath/recycling/neutrals, grid/time refinement, and movie QA are all green; README identifies hybrid as the promoted open-SOL bridge if pure-coil remains rough. |
 | S8 | VMEC-extender finite-beta | When upstream artifacts are stable, import a finite-beta exterior-field NetCDF through the existing contract and run field, RHS, wall/endpoint, FCI, connection-length, and compact SOL smoke gates. | A finite-beta exterior-field example is promoted only with strict metadata, coordinate, field-line, wall/endpoint, and operator evidence; otherwise it remains an artifact-import demonstration. |
 | S9 | Device expansion | Add HSX QHS, NCSX, Landreman-Paul QA, and Dommaschk cases one at a time through the same per-device gate. | Each device has source metadata, boundary/Poincare plot, connection or closed-step map, FCI convergence, one physics result, refinement label, and release-hosted media. |
@@ -828,13 +828,11 @@ Definitions of success:
 
 Use this order when implementation resumes:
 
-1. Run the live direct-coil closed/near-closed control and inspect its
-   Poincare/return-map classification. If the direct-coil traces are not
-   closed or near-closed enough, record them as diagnostic long-lived/open
-   evidence and keep the closed-field promoted path on VMEC maps.
-2. Add the VMEC closed-field tutorial, plots, and validation gates. Use it as
-   the smooth non-axisymmetric closed-map control for direct-coil and hybrid
-   comparisons.
+1. Add VMEC closed-field reduced transient/profile/spectrum/movie diagnostics
+   on top of the validated periodic VMEC FCI map. Keep target, sheath,
+   recycling, and neutral-loss semantics disabled in that closed-field lane.
+2. Add a longer-window or refinement check for the live direct-coil
+   closed/near-closed control before any closed direct-coil movie claim.
 3. Upgrade the hybrid open-SOL campaign with longer refined transients,
    source/target/profile plots, grid/time checks, and movie QA. Promote hybrid
    as the first open-SOL bridge only if its endpoint/source/refinement gates
@@ -1768,6 +1766,32 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-21: Added the explicit VMEC closed-field control gate. The new
+  campaign writes a self-contained dry-run contract by default and, when
+  `RUN_LIVE_VMEC=True`, builds an ESSOS/VMEC `map_source="vmec"` FCI geometry
+  and checks the closed-map invariants: zero endpoint masks, finite periodic
+  map coordinates, non-axisymmetric \(|B|\) modulation, closed-step length,
+  and zero response of `grad_parallel_fci`, `laplace_parallel_fci`, and
+  conservative parallel diffusion on a constant field. The first live
+  Landreman-Paul QA compact run passed on a `(4, 6, 16)` grid with
+  endpoint fraction `0.0`, map-coordinate finite fraction `1.0`, \(|B|\)
+  modulation `1.247`, mean closed-step length `1.149`, and all three
+  constant-field residuals equal to `0.0` to reported precision. Decision:
+  move the VMEC closed-field lane to `70%`; next add closed-field reduced
+  transient/profile/spectrum/movie evidence without target, sheath,
+  recycling, or neutral-loss semantics.
+- 2026-06-21: Ran the live Landreman-Paul QA direct-coil closed/near-closed
+  control using ESSOS-owned Biot-Savart tracing with 16 seed lines,
+  `maxtime = 240`, and 1200 samples. The return-map gate passed with 639
+  Poincare points, mean toroidal turns `10.11`, closed fraction `0.125`,
+  near-closed fraction `0.875`, open-like fraction `0.0`, no-return fraction
+  `0.0`, median normalized return distance `6.68e-2`, and p95 normalized
+  return distance `8.45e-2`. The diagnostic figure is visually
+  non-axisymmetric and the report keeps target, sheath, recycling, and neutral
+  semantics disabled. Decision: move direct-coil closed controls to `60%`.
+  A longer-window/refinement check is still required before any closed
+  direct-coil movie claim; proceed next with the smoother VMEC closed-field
+  tutorial/gate as the promoted closed-field path.
 - 2026-06-21: Added the first direct-coil closed/near-closed control lane.
   The new campaign writes JSON, NPZ, and PNG artifacts; classifies field-line
   seeds by same-section return distance as closed, near-closed, open-like, or
