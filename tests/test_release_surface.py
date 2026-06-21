@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import runpy
 from pathlib import Path
 
 
@@ -465,6 +466,41 @@ def test_user_examples_are_self_contained_by_default() -> None:
     assert "developer/live-reference" in examples_doc
     assert "from jax_drb.reference.paths import default_reference_root" not in diverted_demo
     assert "REFERENCE_ROOT: Path | None = None" in diverted_demo
+
+
+def test_direct_coil_open_sol_default_contract_includes_media_stage(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    runpy.run_path(
+        str(
+            REPO_ROOT
+            / "examples"
+            / "geometry-3D"
+            / "essos-field-lines"
+            / "direct_coil_open_sol_demo.py"
+        )
+    )
+
+    summary_path = (
+        tmp_path
+        / "artifacts"
+        / "essos_direct_coil_open_sol"
+        / "data"
+        / "essos_direct_coil_open_sol_workflow_summary.json"
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    stage_by_name = {stage["stage"]: stage for stage in summary["stage_reports"]}
+
+    assert summary["map_source"] == "coil"
+    assert summary["settings"]["run_live_media_gate"] is False
+    assert summary["promotion_ready"] is False
+    assert stage_by_name["direct_coil_diagnostic_turbulence_media"]["status"] == "skipped"
+    assert "Set RUN_LIVE_MEDIA_GATE=True" in stage_by_name[
+        "direct_coil_diagnostic_turbulence_media"
+    ]["next_action"]
 
 
 def test_pypi_publish_workflow_ignores_artifact_releases() -> None:

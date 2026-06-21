@@ -1792,6 +1792,17 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-21: Advanced the main-branch direct ESSOS-coil package by adding an
+  explicit optional diagnostic media stage to
+  `examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py`. The
+  default clean-clone run remains a dry-run promotion ledger; setting
+  `RUN_LIVE_MEDIA_GATE = True` now calls the imported DRB movie package with
+  `map_source = "coil"` and writes report, arrays, snapshots, diagnostics,
+  poster, and GIF artifacts under the workflow output root. The stage records
+  `movie_evidence_role` and promotion rejection reasons from the conservative
+  movie report, so direct-coil media can exist on `main` as diagnostic
+  evidence without becoming README-promoted until geometry, endpoint/source,
+  refinement, stationarity, and visual-QA gates are green.
 - 2026-06-21: Re-audited the single-plan structure, local branches, examples,
   and upstream PRs for the stellarator open/closed-field push. Confirmed
   `plan_jax_drb.md` remains only a redirect and

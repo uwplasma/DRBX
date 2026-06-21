@@ -7,6 +7,7 @@ from typing import Any
 
 from jax_drb.runtime import configure_jax_runtime
 from jax_drb.validation import (
+    create_essos_imported_drb_movie_package,
     create_essos_imported_drb_movie_stationarity_package,
     create_essos_imported_fci_campaign_package,
     create_live_essos_imported_connection_length_refinement_package,
@@ -27,6 +28,7 @@ RUN_LIVE_FCI_GATE = False
 RUN_LIVE_CONNECTION_REFINEMENT_GATE = False
 RUN_LIVE_ENDPOINT_LABEL_REFINEMENT_GATE = False
 RUN_LIVE_STATIONARITY_GATE = False
+RUN_LIVE_MEDIA_GATE = False
 REQUIRE_PROMOTION_READY = False
 
 OUTPUT_ROOT = Path("artifacts/essos_direct_coil_open_sol")
@@ -89,6 +91,24 @@ MOVIE_TAIL_FRACTION = 0.50
 MOVIE_RELATIVE_TOLERANCE = 0.35
 MOVIE_MIN_FRAMES = 12
 
+# Optional GIF/PNG media stage. This produces diagnostic artifacts from the
+# same direct-coil map source. It is intentionally disabled by default because
+# direct-coil media must stay out of README promotion until the geometry and
+# refinement gates above are green.
+MEDIA_NX = MOVIE_NX
+MEDIA_NY = MOVIE_NY
+MEDIA_NZ = MOVIE_NZ
+MEDIA_RHO_MIN = MOVIE_RHO_MIN
+MEDIA_RHO_MAX = MOVIE_RHO_MAX
+MEDIA_MAXTIME = MOVIE_MAXTIME
+MEDIA_TIMES_TO_TRACE = MOVIE_TIMES_TO_TRACE
+MEDIA_FRAMES = MOVIE_FRAMES
+MEDIA_SUBSTEPS_PER_FRAME = MOVIE_SUBSTEPS_PER_FRAME
+MEDIA_DT = MOVIE_DT
+MEDIA_POTENTIAL_ITERATIONS = MOVIE_POTENTIAL_ITERATIONS
+MEDIA_POTENTIAL_REGULARIZATION = MOVIE_POTENTIAL_REGULARIZATION
+MEDIA_POTENTIAL_PRECONDITIONER = MOVIE_POTENTIAL_PRECONDITIONER
+
 
 @dataclass(frozen=True)
 class DirectCoilOpenSolSettings:
@@ -103,6 +123,7 @@ class DirectCoilOpenSolSettings:
     run_live_connection_refinement_gate: bool
     run_live_endpoint_label_refinement_gate: bool
     run_live_stationarity_gate: bool
+    run_live_media_gate: bool
     require_promotion_ready: bool
 
 
@@ -119,6 +140,7 @@ def build_settings(
     run_live_connection_refinement_gate: bool = RUN_LIVE_CONNECTION_REFINEMENT_GATE,
     run_live_endpoint_label_refinement_gate: bool = RUN_LIVE_ENDPOINT_LABEL_REFINEMENT_GATE,
     run_live_stationarity_gate: bool = RUN_LIVE_STATIONARITY_GATE,
+    run_live_media_gate: bool = RUN_LIVE_MEDIA_GATE,
     require_promotion_ready: bool = REQUIRE_PROMOTION_READY,
 ) -> DirectCoilOpenSolSettings:
     """Resolve top-level direct-coil open-SOL workflow settings."""
@@ -135,6 +157,7 @@ def build_settings(
         run_live_connection_refinement_gate=bool(run_live_connection_refinement_gate),
         run_live_endpoint_label_refinement_gate=bool(run_live_endpoint_label_refinement_gate),
         run_live_stationarity_gate=bool(run_live_stationarity_gate),
+        run_live_media_gate=bool(run_live_media_gate),
         require_promotion_ready=bool(require_promotion_ready),
     )
 
@@ -188,6 +211,7 @@ def write_workflow_summary(
             "run_live_connection_refinement_gate": settings.run_live_connection_refinement_gate,
             "run_live_endpoint_label_refinement_gate": settings.run_live_endpoint_label_refinement_gate,
             "run_live_stationarity_gate": settings.run_live_stationarity_gate,
+            "run_live_media_gate": settings.run_live_media_gate,
             "require_promotion_ready": settings.require_promotion_ready,
         },
         "stage_reports": stage_reports,
@@ -426,6 +450,64 @@ def run_stationarity_gate(settings: DirectCoilOpenSolSettings) -> dict[str, Any]
     }
 
 
+def run_media_gate(settings: DirectCoilOpenSolSettings) -> dict[str, Any]:
+    """Run or describe the diagnostic direct-coil GIF/PNG media stage."""
+
+    if not settings.run_live_media_gate:
+        return {
+            "stage": "direct_coil_diagnostic_turbulence_media",
+            "status": "skipped",
+            "promotion_ready": False,
+            "next_action": (
+                "Set RUN_LIVE_MEDIA_GATE=True only after the live FCI, "
+                "endpoint-label, connection-length, and stationarity gates "
+                "have been reviewed for this direct-coil map source."
+            ),
+        }
+
+    configure_jax_runtime(precision=settings.precision)
+    artifacts = create_essos_imported_drb_movie_package(
+        output_root=settings.output_root / "media",
+        case_label=f"{settings.case_label}_diagnostic_media",
+        coil_json_path=settings.coil_json_path,
+        vmec_wout_path=settings.vmec_wout_path,
+        essos_root=settings.essos_root,
+        map_source=MAP_SOURCE,
+        nx=MEDIA_NX,
+        ny=MEDIA_NY,
+        nz=MEDIA_NZ,
+        rho_min=MEDIA_RHO_MIN,
+        rho_max=MEDIA_RHO_MAX,
+        maxtime=MEDIA_MAXTIME,
+        times_to_trace=MEDIA_TIMES_TO_TRACE,
+        frames=MEDIA_FRAMES,
+        substeps_per_frame=MEDIA_SUBSTEPS_PER_FRAME,
+        dt=MEDIA_DT,
+        potential_iterations=MEDIA_POTENTIAL_ITERATIONS,
+        potential_regularization=MEDIA_POTENTIAL_REGULARIZATION,
+        potential_preconditioner=MEDIA_POTENTIAL_PRECONDITIONER,
+    )
+    report = _read_json(artifacts.report_json_path)
+    return {
+        "stage": "direct_coil_diagnostic_turbulence_media",
+        "status": "ran",
+        "report_json_path": _path_text(artifacts.report_json_path),
+        "arrays_npz_path": _path_text(artifacts.arrays_npz_path),
+        "snapshot_png_path": _path_text(artifacts.snapshot_png_path),
+        "diagnostics_png_path": _path_text(artifacts.diagnostics_png_path),
+        "poster_png_path": _path_text(artifacts.poster_png_path),
+        "movie_gif_path": _path_text(artifacts.movie_gif_path),
+        "passed": bool(report.get("passed", False)),
+        "movie_visual_qa_passed": bool(report.get("movie_visual_qa_passed", False)),
+        "promotion_ready": bool(report.get("publication_ready", False)),
+        "movie_evidence_role": report.get("movie_evidence_role"),
+        "movie_promotion_rejection_reasons": report.get(
+            "movie_promotion_rejection_reasons",
+            [],
+        ),
+    }
+
+
 def run_direct_coil_workflow(settings: DirectCoilOpenSolSettings) -> Path:
     """Run the configured direct-coil open-SOL workflow stages."""
 
@@ -441,6 +523,7 @@ def run_direct_coil_workflow(settings: DirectCoilOpenSolSettings) -> Path:
             for quantity in DIAGNOSTIC_REFINEMENT_QUANTITIES
         ),
         run_stationarity_gate(settings),
+        run_media_gate(settings),
     ]
     return write_workflow_summary(settings, stage_reports)
 
