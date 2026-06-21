@@ -348,7 +348,7 @@ Current planning audit:
 
 | Lane | Status | Completion | Immediate blocker |
 | --- | --- | ---: | --- |
-| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, and pure-coil adjacent-step diagnostics exist. Pure-coil adjacent-step refinement has improved but does not yet show promotion-grade observed order. | 35% | Build a direct-coil open-SOL campaign on `main` with stronger nested-grid connection-length evidence, endpoint masks, FCI operator convergence, and a visually QA'd reduced transient before promoting a movie. |
+| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, pure-coil adjacent-step diagnostics, and a main-branch direct-coil open-SOL workflow contract exist. Pure-coil adjacent-step refinement has improved but does not yet show promotion-grade observed order. | 40% | Run the direct-coil workflow live with stronger nested-grid connection-length evidence, endpoint masks, FCI operator convergence, source accounting, and a visually QA'd reduced transient before promoting a movie. |
 | VMEC closed-field stellarator lane | VMEC-coordinate maps are available as the smooth closed-field control for Landreman-Paul QA-style surfaces. | 55% | Add explicit closed-field examples and tests that do not use open-target/sheath semantics, then generate closed-surface turbulence/profile plots. |
 | Hybrid open-SOL stellarator lane | Current strongest compact evidence uses VMEC map coordinates with coil-derived endpoint masks and `|B|` modulation. | 75% | Upgrade from compact reduced movie evidence to longer/refined open-SOL campaigns with endpoint, sheath, recycling, neutral, profile, and movie QA gates. |
 | VMEC-extender finite-beta exterior-field lane | JAXDRB already has the NetCDF import contract and synthetic SOL smoke gate. Upstream virtual-casing and ESSOS extender PRs remain open. | 35% | Wait for, or vendor only artifact-compatible outputs from, upstream exporter workflows; then validate real finite-beta exterior fields with field, metric, wall-hit, and connection-length gates. |
@@ -4553,6 +4553,19 @@ Use this log for concise decision records. Do not paste terminal output here.
   the hybrid open-SOL bridge only after refined endpoint/source/profile/movie
   evidence, and defer real VMEC-extender finite-beta SOL promotion until a
   stable exterior-field artifact and wall/connection-length gates are green.
+- 2026-06-21: Started executing the post-release stellarator SOL plan on
+  `main`. Added
+  `examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py` as the
+  direct-coil open-field workflow entry point. The default run is
+  self-contained and writes a dry-run promotion ledger under ignored
+  `artifacts/`; live FCI, live pure-coil connection-length refinement, and
+  live reduced-transient stationarity gates are opt-in because they require
+  local geometry tooling and can be expensive. README, examples docs, ESSOS
+  imported-field docs, and VMEC-extender docs now point back to this plan and
+  distinguish direct-coil open-field, VMEC closed-field, hybrid open-SOL, and
+  VMEC-extender finite-beta semantics. Decision: the next implementation pass
+  should run or strengthen the live direct-coil refinement/source gates rather
+  than promoting direct-coil media from the dry-run workflow.
 
 ## Definition Of Done
 

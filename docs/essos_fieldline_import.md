@@ -6,6 +6,16 @@ section extraction are performed by ESSOS. `jax_drb` stores the resulting
 trajectories, field samples, coil curves, and sanitized metadata as portable
 arrays for downstream geometry, FCI, and SOL-operator workflows.
 
+The active completion sequence is defined in
+[Research-Grade Execution Plan](research_grade_execution_plan.md#post-release-open-lane-completion-plan).
+For `main`, the next direct-coil open-field target is the
+`direct_coil_open_sol_demo.py` workflow: first validate pure-coil FCI maps,
+endpoint masks, connection-length refinement, sheath/recycling/neutral source
+accounting, and stationarity reports; only then promote a direct-coil
+turbulence movie. VMEC closed-field controls and hybrid VMEC/coil open-SOL
+bridges are separate lanes, not interchangeable interpretations of the same
+field-line artifact.
+
 The published import figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. Regenerating the
 field-line import from the external coil geometry is a developer workflow and
