@@ -193,6 +193,53 @@ Release blockers that remain before tagging:
 | Footprint/package audit | No large tracked blobs, accidental NetCDF dumps, trace bundles, local caches, or media files enter git or the sdist/wheel. |
 | Release metadata | Version, changelog/release notes, tag notes, PyPI workflow status, ReadTheDocs status, and experimental boundaries are current. |
 
+## Final Release Sprint
+
+This is the only active near-term checklist. The broader technical tracks later
+in this file remain the post-release roadmap unless a row below explicitly
+pulls one of them into the release.
+
+Final goal:
+
+> Release `jax_drb 1.0.3` as a lightweight, self-contained, documented,
+> locally verified research-code release with conservative claim boundaries and
+> no new broad research expansion before tagging.
+
+Current release decision:
+
+- Local release evidence is sufficient for a release candidate: coverage,
+  docs, fast research checks, package build, artifact restore, release-surface
+  tests, and footprint audit have passed locally.
+- Hosted GitHub Actions, ReadTheDocs, and PyPI confirmation remain external
+  confirmation gates while runner billing is unavailable. They should be run
+  when billing is restored or when the user explicitly asks for a hosted
+  release attempt.
+- No new preconditioner, full-output JAX-native recycling default,
+  device-scale stellarator turbulence, broad multi-GPU speedup, or architecture
+  split should be required for `1.0.3` unless a release note, README sentence,
+  public API, or docs page currently claims that capability as promoted.
+
+Active release checklist:
+
+| Order | Lane | Required final action | Release status |
+| --- | --- | --- | --- |
+| 1 | Plan authority | Keep this file as the only active plan, keep `plan_jax_drb.md` as a redirect, and ensure plan-like appendices state that they are subordinate. | Close after this pass if the diff shows no competing plan. |
+| 2 | Claim boundary | Verify README, docs, release notes, and package metadata say stable defaults remain compatibility BDF where appropriate, while JAX/JVP, matrix-free, GPU, and broad 3D lanes are scoped or opt-in. | Close with a text audit; do not add new physics work. |
+| 3 | User reproducibility | Verify every README figure/movie points to a release-hosted artifact or a documented example command and that ordinary users do not need external reference-code installs. | Close with `fetch_example_artifacts.py --skip-baselines` and release-surface tests. |
+| 4 | Local gates | Run the fast local release bundle: release-readiness audit, closeout coverage, promoted-solver coverage, fast research checks, strict docs build, release-surface tests, package build, and footprint audit. | Close when commands pass on the current commit. |
+| 5 | Release notes and tag prep | Render or review `docs/release_notes_1_0_3.md`, confirm `CITATION.cff`, `pyproject.toml`, `jax_drb.__version__`, README, MkDocs nav, and release docs all agree on `1.0.3`. | Close before creating `v1.0.3`. |
+| 6 | Hosted release confirmation | After runner billing is available, run hosted CI/coverage/docs/ReadTheDocs/PyPI workflow confirmation, or explicitly record a user-approved local-only release decision. | Only remaining external gate. |
+
+Stop rule:
+
+- If the active checklist is green except hosted confirmation, stop expanding
+  technical scope and prepare the release/tag decision.
+- If a lower-completion lane below is not claimed as promoted in README/docs,
+  it is not a `1.0.3` blocker.
+- If a lower-completion lane is claimed as promoted, either add the missing
+  evidence immediately or change the claim to opt-in, bounded, experimental,
+  or post-release.
+
 ## Current Completion Snapshot
 
 Audit date: 2026-06-20. Percentages are approximate and evidence-based. A lane
@@ -263,29 +310,38 @@ claim boundaries are complete.
 
 ## Current Implementation Backlog
 
-This backlog is the executable checklist for the next implementation phase.
-Work should proceed in this order unless a task is blocked by missing external
-reference data, unavailable GPU hardware, or reviewer/user decision. Later
-independent lanes may run in parallel only when they do not broaden unsupported
-claims.
+The active backlog for `1.0.3` is intentionally short. The project has enough
+local evidence to finish a conservative release; the main risk now is reopening
+large research lanes before the tag. Work should proceed in this order and
+stop when the final release sprint is green.
 
 | Priority | Track | Concrete next actions | Exit gate |
 | --- | --- | --- | --- |
-| P0 | Plan authority and repo hygiene | Keep this file as the only active plan; keep `plan_jax_drb.md` as a redirect; audit roadmap-like Markdown pages after each major decision; keep hosted CI out of the critical path while billing is exhausted; keep heavy traces, NetCDF dumps, profile bundles, and movies out of git. | Clean plan diff, no competing roadmap, clean `git status`, footprint audit before tag. |
-| P1 | Reference-backed neutral parity | Keep the closed neutral `NVh` accepted-step source split under regression, rerun the reference monitor after future neutral/recycling changes, and apply the same exact-reference-state source-register pattern to remaining recycling, sheath, target-source, and longer-window parity campaigns. | Accepted-step trace matches the reference time grid, pressure-gradient/diffusion/viscosity remain roundoff-closed, `SNVh_parallel_inertia` stays roundoff-bounded, and regression tests lock the flux-mode decision. |
-| P2 | JAX-native recycling residual | Finish documenting and testing the already implemented fixed-layout seams, then decide release labeling for full-output BDF/JVP. Do not make it the default unless same-fidelity parity and runtime evidence are green. | Compatibility solver parity, JVP versus finite-difference tests, no hidden fallback, bounded solver-health report, and docs labeling default versus opt-in paths. |
-| P3 | Effective preconditioning | Stop broad local preconditioner sweeps for this release. Keep current negative evidence, retain the FCI Jacobi win where it is proven, and only add a new recycling preconditioner if it is materially different and tested on the real gate. | Either no runtime claim is made, or a same-case speedup/reduced residual-JVP-Krylov count is proven after build cost with no parity or memory regression. |
-| P4 | Drift-reduced Braginskii model surface | Finish release-facing equations, symbol definitions, normalizations, Boussinesq/non-Boussinesq labels, vorticity/potential status, ExB bracket status, curvature/interchange status, selected electromagnetic/Alfven labels, open/closed-field semantics, and limiting-case/MMS tests. Remove or clearly label demo-only nonlinear forcing. | Equation-to-code map and tests for every promoted term, Boussinesq comparison plot or status label, vorticity/bracket gates or status label, no unsupported README claim. |
-| P5 | Neutral/recycling/sheath/detachment physics | Complete source accounting for ionization, recombination, charge exchange, radiation, neutral diffusion, recycling, pumping, no-flow, zero-current, sheath heat transmission, target sources, and detachment controller metrics. | Term-level parity or analytic tests, target flux/source balance, detachment scan plots, docs derivations with implementation links. |
-| P6 | Self-contained diverted tokamak program | Provide clean-clone tutorials that generate or fetch release-hosted fixtures; run 1D recycling, 1D detachment, 2D/3D diverted transport, multispecies D/T/He, impurity/radiation, and nonlinear turbulence windows; generate movies, OMP/target profiles, source maps, and neutral/radiation diagnostics. | Users can run examples and regenerate advertised README/docs media without installing reference codes; large fixtures remain release-hosted. |
-| P7 | 3D stellarator geometry and SOL | For release, promote only the compact VMEC/imported-field/coil/hybrid validation lanes with connection-length, FCI, refinement, and movie QA. Keep broad HSX, NCSX, Landreman-Paul QA, and Dommaschk device-scale turbulence as documented examples or post-release targets unless they meet the full evidence bundle. | Per-promoted-device validation bundle with grid/time refinement and frame-by-frame movie QA before any turbulence claim. |
-| P8 | Performance, parallelization, and differentiability | Use `jit`, `vmap`, `jvp`, VJP/grad, persistent compilation cache, batched ensembles, CPU-device scaling, GPU kernels, and multi-GPU/sharded ensembles only on parity-proven JAX-native paths. Compare derivatives against finite differences and timings against same-fidelity baselines. | For release, cProfile/RSS/JAX-trace evidence and differentiability plots must match the exact promoted kernels; broader CPU/GPU claims stay experimental. |
-| P9 | Docs, examples, coverage, and release | Make README concise and docs comprehensive; every advertised figure/movie has a command; examples follow SIMSOPT-style top-level parameters plus imported API functions; maintain promoted coverage above `95%`; run footprint/package audits; prepare release notes/tag/PyPI workflow when hosted CI can run. | `mkdocs build --strict --clean`, closeout/promoted coverage above `95%`, clean-clone examples, package audit, release notes and experimental boundaries current. |
+| P0 | Single truth plan | Keep this file as the only active plan, leave `plan_jax_drb.md` as a redirect, and keep roadmap-like pages subordinate. | No competing roadmap or conflicting completion status is found in plan-like Markdown files. |
+| P1 | Release claim audit | Audit README, docs overview pages, examples matrix, release notes, and package metadata for unsupported claims. Do not broaden claims; tighten wording where needed. | Stable defaults, opt-in JAX/JVP paths, compact 3D examples, GPU/performance limits, and reference-code boundaries are stated consistently. |
+| P2 | Self-contained examples and media | Verify release-backed media restore and representative tokamak/stellarator example commands. Keep large fixtures out of git. | `fetch_example_artifacts.py --skip-baselines`, release-surface tests, and representative example commands pass locally or have a documented external reason. |
+| P3 | Local release gates | Run the fast local release bundle and record the result in the execution log. | Release-readiness audit, closeout coverage, promoted-solver coverage, fast research checks, strict docs build, package build, and footprint audit pass. |
+| P4 | Version and release package | Confirm `1.0.3` metadata, `CITATION.cff`, release notes, tag notes, PyPI workflow wiring, and ReadTheDocs config. | The release can be tagged without changing source, docs, metadata, or artifacts. |
+| P5 | Hosted confirmation | When Actions billing/runners are available or the user explicitly asks, run hosted test/docs/coverage/research workflow confirmations and ReadTheDocs/PyPI publication checks. | Hosted confirmation passes, or a user-approved local-only release decision is recorded. |
+
+Post-release research backlog:
+
+| Track | Release decision |
+| --- | --- |
+| Reference parity expansion | Keep closed neutral and recycling offenders locked. New live-reference campaigns are post-release unless they fix a claimed promoted surface. |
+| Full-output JAX-native recycling default | Keep stable compatibility BDF as default for `1.0.3`. Full-output JAX/JVP promotion remains opt-in until longer production-window parity and same-fidelity runtime evidence are green. |
+| Effective recycling preconditioning | Stop cheap local sweeps for `1.0.3`; retain negative evidence and the proven FCI Jacobi win. Reopen only with a materially different physics/block preconditioner. |
+| Complete DRB physics expansion | Keep documented promoted terms and label reduced/scaffolded terms. Broader Boussinesq/non-Boussinesq, electromagnetic, and full vorticity/bracket expansion remains post-release unless already documented as promoted. |
+| Device-scale stellarator turbulence | Promote compact imported-field/VMEC/coil/hybrid examples only within their validated scope. HSX, NCSX, Landreman-Paul QA, and Dommaschk long-window predictive turbulence remain post-release. |
+| Broad CPU/GPU and multi-GPU scaling | Release only same-fidelity evidence already documented. Larger GPU/multi-GPU demonstrations remain post-release unless a current release claim depends on them. |
+| Architecture split | Keep public APIs stable and tested. Full module splitting of remaining large files is post-release maintainability work unless needed for a release blocker. |
 
 ## Ordered Execution Plan
 
-This order should be followed unless a lane is blocked and a later independent
-lane can progress without broadening unsupported claims.
+The detailed order below is the long-form technical roadmap. For the `1.0.3`
+release, follow the short active backlog above first. Use the sections below
+only when a release claim directly depends on that technical lane, or after the
+release has been tagged.
 
 ### 1. Freeze Planning, Claim Boundaries, And Release Hygiene
 
@@ -1203,14 +1259,17 @@ Use this log for concise decision records. Do not paste terminal output here.
   with P1 retained as a regression discipline for future reference runs.
 - 2026-06-18: Revisited the roadmap/status Markdown pages after billing was
   exhausted and CI polling was explicitly deprioritized. The plan now has a
-  single `Current Implementation Backlog` with priorities `P0` through `P9`,
+  single historical `Current Implementation Backlog` with priorities `P0`
+  through `P9`,
   covering plan authority, neutral parity, JAX-native recycling,
   preconditioning, drift-reduced Braginskii coverage, neutral/recycling/sheath
   physics, self-contained diverted tokamak examples, 3D stellarator SOL
   geometry, performance/differentiability, docs/examples/coverage/release, and
   repo-footprint controls. Roadmap-like docs were audited and status/example
   pages now carry explicit authority notes pointing back to this file, so old
-  campaign-local "next step" text cannot override the master plan.
+  campaign-local "next step" text cannot override the master plan. This broad
+  backlog is now superseded for `1.0.3` by the final release sprint recorded
+  on 2026-06-20.
 - 2026-06-18: Rechecked CI after commit `9a068ca`. Hosted `test`,
   `coverage`, and `docs` failed before runner assignment: each job completed in
   a few seconds with an empty step list, empty runner name, no downloadable log,
@@ -4146,6 +4205,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   `97%`, and release closeout to `99%`. Remaining release-blocking evidence is
   hosted GitHub Actions, ReadTheDocs, and PyPI workflow confirmation after
   runner billing is available or the user explicitly asks to run those checks.
+- 2026-06-20: Performed the final release-scope consolidation pass. The active
+  backlog is now deliberately short: single-truth plan, release-claim audit,
+  self-contained examples/media, local release gates, version/release package,
+  and hosted confirmation when runners are available or explicitly requested.
+  Broader reference-parity expansion, full-output JAX-native recycling default
+  promotion, new recycling preconditioner sweeps, complete DRB physics
+  expansion, device-scale stellarator turbulence, broad multi-GPU scaling, and
+  the remaining architecture split are now explicitly post-release work unless
+  a current README/docs/API claim depends on them. Decision: do not open new
+  research lanes before `v1.0.3` just because they remain valuable; either
+  tighten the claim boundary or tag after the local release bundle and hosted
+  confirmation decision.
 
 ## Definition Of Done
 

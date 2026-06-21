@@ -341,21 +341,25 @@ visualization, detachment/control demonstrations, repository footprint
 management, compact differentiability/UQ/inverse-design examples, and CPU/GPU
 profiling hooks on promoted native paths.
 
-## Remaining Blockers
+## Post-Release Evidence Gaps
 
-The remaining release blockers are more specific than the historical campaign
-wishlist:
+The canonical release checklist is
+[research_grade_execution_plan.md](research_grade_execution_plan.md). The items
+below are not `1.0.3` tag blockers unless the README, docs, release notes, or a
+public API claim one of them as a promoted capability. They are the next
+evidence gaps to close after the conservative release boundary is tagged:
 
-- close the neutral-mixed target-band state/history sequencing that still
-  drives the `NVh` parity offender after direct source formulas were matched;
+- keep the closed neutral-mixed `NVh` component split under regression and
+  extend the same accepted-state/source-register method to future neutral,
+  recycling, sheath, and target-source campaigns;
 - promote the full recycling BDF residual from host/SciPy finite-difference
-  Jacobian assembly to a faster JAX-transformable active-array path before
-  making matrix-free/JVP solves default;
+  Jacobian assembly to a faster JAX-transformable active-array path before any
+  future default matrix-free/JVP solve claim;
 - collect a larger real-kernel GPU scaling bundle on a valid reference root and
-  CUDA machine, rather than relying only on compact source-kernel evidence;
+  CUDA machine before broad GPU-speedup or multi-GPU claims;
 - extend non-axisymmetric reduced dynamics from compact movie windows to
   longer grid/timestep-sensitive turbulence campaigns with wall-resolved target
-  geometry.
+  geometry before device-scale predictive stellarator-turbulence claims.
 
 ## Publication Scope
 
