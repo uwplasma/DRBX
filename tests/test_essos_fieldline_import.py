@@ -25,6 +25,7 @@ from jax_drb.validation import (
     build_essos_imported_drb_movie_stationarity_report,
     build_live_essos_imported_connection_length_levels,
     create_essos_fieldline_import_package,
+    create_essos_direct_coil_closed_control_package,
     create_essos_imported_connection_length_refinement_package,
     create_essos_imported_drb_movie_refinement_campaign_package,
     create_essos_imported_drb_movie_stationarity_package,
@@ -1560,6 +1561,61 @@ def test_essos_imported_fci_map_sources_expose_coil_vmec_and_hybrid_semantics() 
     assert not np.allclose(np.asarray(coil.maps.forward_z), np.asarray(vmec.maps.forward_z))
     assert float(np.min(np.asarray(vmec.connection_length))) > 0.0
     assert float(np.max(np.asarray(vmec.magnetic_field_magnitude)) / np.min(np.asarray(vmec.magnetic_field_magnitude))) > 1.01
+
+
+def test_essos_direct_coil_closed_control_self_contained_package(tmp_path: Path) -> None:
+    artifacts = create_essos_direct_coil_closed_control_package(
+        output_root=tmp_path / "essos_direct_coil_closed_control",
+        n_radial_seeds=3,
+        n_poloidal_seeds=3,
+        times_to_trace=512,
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    assert report["source_mode"] == "self_contained_contract"
+    assert report["target_semantics_applied"] is False
+    assert report["sheath_recycling_semantics_applied"] is False
+    assert report["poincare_point_count"] >= report["n_field_lines"]
+    assert report["closed_fraction"] > 0.0
+    assert report["closed_or_near_fraction"] >= report["minimum_closed_or_near_fraction"]
+    assert report["closed_control_passed"] is True
+    assert artifacts.arrays_npz_path.exists()
+    assert artifacts.plot_png_path.exists()
+    with np.load(artifacts.arrays_npz_path) as arrays:
+        assert "line_return_distance_normalized" in arrays.files
+        assert "line_classification" in arrays.files
+        assert set(np.asarray(arrays["line_classification"], dtype=int)) <= {0, 1, 2, 3}
+
+
+def test_essos_direct_coil_closed_control_separates_diagnostic_from_promotion(tmp_path: Path) -> None:
+    time = np.linspace(0.0, 1.5 * np.pi, 96)
+    trajectories = []
+    initial = []
+    for radius in (1.3, 1.45):
+        x = radius * np.cos(time)
+        y = radius * np.sin(time)
+        z = 0.1 * np.sin(0.5 * time)
+        line = np.stack([x, y, z], axis=-1)
+        trajectories.append(line)
+        initial.append(line[0])
+
+    artifacts = create_essos_direct_coil_closed_control_package(
+        output_root=tmp_path / "open_like_control",
+        trajectories_xyz=np.asarray(trajectories),
+        initial_xyz=np.asarray(initial),
+        times=time,
+        poincare_sections=(0.0,),
+        minimum_closed_or_near_fraction=0.50,
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    assert report["closed_control_passed"] is False
+    assert report["promotion_ready"] is False
+    assert "not_enough_poincare_points" in report["promotion_rejection_reasons"]
+    assert "closed_or_near_fraction_below_threshold" in report["promotion_rejection_reasons"]
+    assert report["target_semantics_applied"] is False
 
 
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")
