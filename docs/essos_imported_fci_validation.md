@@ -1,5 +1,11 @@
 # ESSOS Imported FCI Validation
 
+!!! note "Plan authority"
+    This page is an imported-geometry validation report. The active execution
+    plan is [Research-Grade Execution Plan](research_grade_execution_plan.md).
+    If this page conflicts with that plan, follow the execution plan and update
+    this page afterward.
+
 This page documents the first downstream use of externally traced
 Landreman-Paul QA field lines inside `jax_drb` FCI operators. ESSOS supplies
 the coil-field evaluation and adaptive trajectories. `jax_drb` converts those
