@@ -98,16 +98,24 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
 
 ## Validation
 
-The current release candidate passed the bounded closeout gate at `97%`
-coverage and the promoted native-solver gate at `95%` coverage on the local
-developer machine. On a developer machine with the external reference checkout
-available, the promoted gate runs the live operational-band comparisons. In a
-no-reference CI environment the same gate uses committed lightweight BOUT input
-fixtures for the recycling solver-unit coverage, skips only the
-external-reference-only operational-band checks, and still passes the promoted
-surface at `95%` coverage (`450` passed, `14` skipped, `7` deselected, and `1`
-expected xfail in the local CI-like simulation). Release publication is
-therefore gated by technical promotion decisions rather than CI availability.
+The current release candidate passes the bounded closeout gate at `96.0%`
+coverage with `88` focused release-surface tests and passes the promoted
+native-solver/public-surface gate at `95.16%` coverage with `804` passed,
+`14` skipped, `10` deselected, and `1` expected xfail on the local developer
+machine. The promoted gate now includes the recycling source, target, state,
+boundary, collision, reaction, JVP-promotion, runner, and
+integrated-recycling evidence layer rather than relying on threshold-only or
+smoke-only coverage. The fast bounded research-check wrapper also passes all
+default slices locally, and `mkdocs build --strict --clean` passes with only
+existing informational notices for excluded generated artifacts.
+
+On a developer machine with the external reference checkout available, the
+reference-backed gates can refresh live operational-band comparisons. In a
+no-reference environment, the same release surface uses committed lightweight
+fixtures and release-backed artifacts for the self-contained tests. Release
+publication is therefore gated by technical promotion decisions and artifact
+availability rather than by requiring ordinary users to install external
+reference codes.
 
 Live-reference and large `all-gpu` campaigns remain manual self-hosted runs:
 they require a valid reference checkout and CUDA-visible devices. Their

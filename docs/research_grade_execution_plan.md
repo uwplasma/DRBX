@@ -212,12 +212,12 @@ and tests all move together.
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
 | 3D stellarator imported-field/VMEC SOL | 99% | The refinement gate now compares normalized spectral-centroid fractions rather than raw mode indices. With that correction and Jacobi FCI-potential preconditioning, the high-resolution `16x48x48 -> 16x96x48` report-only movie candidate passes both grid and time refinement, the `16x96x48`, `frames=12`, `substeps=3` JSON-only stationarity gate passes, matching local media has passed frame-contact-sheet visual QA, and compact release-hosted README/docs media now exists. The remaining blocker is broader long-window/non-reduced turbulence promotion, not geometry, renderer-only interpolation, or media hosting. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
-| Docs and examples | 95% | Make every advertised README figure/movie reproducible by a documented example and move extended validation detail into docs. |
+| Docs and examples | 96% | README, examples, release-packaging docs, and 1.0.2 release notes now state the stable-default versus opt-in research-gate boundary and point users to self-contained artifact restore plus documented movie/plot examples. Keep checking that every advertised README figure/movie has a command and no hidden private-reference dependency. |
 | Repo footprint | 94% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs. |
 
 Release-closeout interpretation:
 
-- The next release is approximately `91%` complete. The remaining work is
+- The next release is approximately `92%` complete. The remaining work is
   closeout, not a new research expansion.
 - Lanes below `80%` are not all tag blockers. They are blockers only if the
   README, docs, release notes, or API claim the unfinished portion as promoted.
@@ -4060,6 +4060,21 @@ Use this log for concise decision records. Do not paste terminal output here.
   `git diff --check` pass locally. Footprint/package audit remains lightweight:
   `.git` is `27M`, reachable pack size is `6.43 MiB`, largest tracked files are
   below `328 KiB`, the wheel is `712 KiB`, and the sdist is `616 KiB`.
+- 2026-06-20: Performed the README, examples, release-packaging, and release
+  notes claim-boundary pass for the 1.0.2 closeout. The README now describes
+  JAXDRB as JAX-first rather than implying every promoted workflow is already
+  fully JAX-native, replaces reduced-gate wording with verification-gate
+  wording, and states that full output-window recycling still
+  defaults to the validated compatibility BDF path while JAX-linearized/JVP
+  routes remain opt-in research gates. The examples page and packaging page now
+  repeat that boundary, and the 1.0.2 release notes now record the current
+  local evidence: closeout coverage `96.0%` with `88` passed, promoted
+  solver/public-surface coverage `95.16%` with `804` passed, fast research
+  checks passing, docs strict build passing, and the latest lightweight
+  footprint/package audit. Decision: docs/examples move to `96%` and release
+  closeout to `92%`; the next closeout items are final metadata/tagging,
+  artifact-restore recheck, and hosted CI only when runner billing is available
+  or explicitly requested.
 
 ## Definition Of Done
 
