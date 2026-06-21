@@ -148,6 +148,13 @@ from .essos_vmec_fieldline_surface_campaign import (
     create_essos_vmec_fieldline_surface_package,
     save_essos_vmec_fieldline_surface_plot,
 )
+from .essos_direct_coil_closed_control_campaign import (
+    EssosDirectCoilClosedControlArtifacts,
+    EssosDirectCoilClosedControlResult,
+    build_essos_direct_coil_closed_control_campaign,
+    create_essos_direct_coil_closed_control_package,
+    save_essos_direct_coil_closed_control_plot,
+)
 from .vmec_extender_edge_field_campaign import (
     VmecExtenderEdgeFieldCampaignArtifacts,
     build_vmec_extender_edge_field_campaign_report,
@@ -624,6 +631,11 @@ __all__ = [
     "build_essos_vmec_fieldline_surface_campaign",
     "create_essos_vmec_fieldline_surface_package",
     "save_essos_vmec_fieldline_surface_plot",
+    "EssosDirectCoilClosedControlArtifacts",
+    "EssosDirectCoilClosedControlResult",
+    "build_essos_direct_coil_closed_control_campaign",
+    "create_essos_direct_coil_closed_control_package",
+    "save_essos_direct_coil_closed_control_plot",
     "EssosImportedConnectionLengthLevels",
     "EssosImportedConnectionLengthRefinementArtifacts",
     "EssosImportedEndpointLabelLevels",
