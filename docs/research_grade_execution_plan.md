@@ -336,6 +336,324 @@ Post-release research backlog:
 | Broad CPU/GPU and multi-GPU scaling | Release only same-fidelity evidence already documented. Larger GPU/multi-GPU demonstrations remain post-release unless a current release claim depends on them. |
 | Architecture split | Keep public APIs stable and tested. Full module splitting of remaining large files is post-release maintainability work unless needed for a release blocker. |
 
+## Post-Release Open-Lane Completion Plan
+
+This section is the active technical plan after the conservative `1.0.3`
+release closeout. It is the single source of truth for the remaining research
+lanes. Subordinate geometry, validation, runtime, testing, and release pages
+may add derivations or reports, but they must not change the order, success
+criteria, or claim boundary recorded here.
+
+Current planning audit:
+
+| Lane | Status | Completion | Immediate blocker |
+| --- | --- | ---: | --- |
+| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, and pure-coil adjacent-step diagnostics exist. Pure-coil adjacent-step refinement has improved but does not yet show promotion-grade observed order. | 35% | Build a direct-coil open-SOL campaign on `main` with stronger nested-grid connection-length evidence, endpoint masks, FCI operator convergence, and a visually QA'd reduced transient before promoting a movie. |
+| VMEC closed-field stellarator lane | VMEC-coordinate maps are available as the smooth closed-field control for Landreman-Paul QA-style surfaces. | 55% | Add explicit closed-field examples and tests that do not use open-target/sheath semantics, then generate closed-surface turbulence/profile plots. |
+| Hybrid open-SOL stellarator lane | Current strongest compact evidence uses VMEC map coordinates with coil-derived endpoint masks and `|B|` modulation. | 75% | Upgrade from compact reduced movie evidence to longer/refined open-SOL campaigns with endpoint, sheath, recycling, neutral, profile, and movie QA gates. |
+| VMEC-extender finite-beta exterior-field lane | JAXDRB already has the NetCDF import contract and synthetic SOL smoke gate. Upstream virtual-casing and ESSOS extender PRs remain open. | 35% | Wait for, or vendor only artifact-compatible outputs from, upstream exporter workflows; then validate real finite-beta exterior fields with field, metric, wall-hit, and connection-length gates. |
+| Device expansion | Landreman-Paul QA compact lane exists; HSX, NCSX, and Dommaschk examples remain planned. | 30% | Add device-specific source metadata, geometry plots, connection-length maps, and one validated reduced physics transient per device. |
+| Full DRB physics surface | Equation/code maps and selected gates exist; reduced demo forcing remains labeled where full bracket/vorticity is not active. | 65% | Promote real vorticity/bracket, Boussinesq/non-Boussinesq, electromagnetic selected-field, sheath, recycling, and neutral terms through equation-level tests and examples. |
+| JAX-native recycling and performance | Fixed-layout seams and scoped JAX/JVP gates are strong; default full-output recycling remains compatibility BDF. | 60% for default promotion | Reduce production-window residual/JVP cost or add a proven physics/block preconditioner before changing the default. |
+| Reference-backed parity | Hydrogen and D/T/He dominant offenders are closed or bounded; broader live campaigns remain valuable. | 99% for current blockers | Keep term-level parity discipline while extending to imported-field geometry and longer diverted-tokamak windows. |
+| Docs, examples, coverage, footprint | Release closeout evidence is strong. | 98% | Keep every new promoted plot/movie backed by a documented command, tests, and release-hosted artifacts. |
+
+### VMEC-Extender And Upstream PR Decision
+
+The June 21, 2026 PR audit found no open pull request against
+`uwplasma/jax_drb`. The local remote-tracking branch
+`origin/feature/vmec-extender-edge-fields` is a historical branch whose
+NetCDF import contract, interpolation tests, field-line RHS helpers, and
+synthetic SOL smoke gate have already been represented on `main`.
+
+Relevant upstream PRs:
+
+| Repository | PR | Provides | Remaining limitation | JAXDRB decision |
+| --- | --- | --- | --- | --- |
+| `uwplasma/virtual_casing_jax` | [#2](https://github.com/uwplasma/virtual_casing_jax/pull/2) | VMEC exterior-field virtual-casing core, R-phi-Z grid export, smooth exterior-field objectives, field-line comparator contracts, and finite-beta QH comparison scaffolding. | Full end-to-end gradients through a VMEC solve, completed external STELLOPT/BMW benchmark reports, and gallery-grade figures are not complete. | Use as the finite-beta exterior-field source when merged or when a stable NetCDF artifact is exported. Do not add a direct runtime dependency to normal JAXDRB examples. |
+| `uwplasma/ESSOS` | [#31](https://github.com/uwplasma/ESSOS/pull/31) | ESSOS VMEC-extender adapter, CLI validation/grid/trace workflows, sample export, Poincare/connection sample format, and coil-coupled diagnostics. | Depends on the virtual-casing PR; matched free-boundary coil validation, wall-limited connection lengths, and publication-gallery plots remain pending. | Use ESSOS for field evaluation and tracing. JAXDRB should import arrays and own SOL operators, diagnostics, examples, and claim boundaries. |
+| `uwplasma/vmec_jax` | [#12](https://github.com/uwplasma/vmec_jax/pull/12) | Contributor guardrails for phi/zeta, branch signs, x64, and static-shape expectations. | Closed support PR; no physics behavior changed. | Treat as convention guidance, not a required implementation dependency. |
+
+Finite-beta SOL interpretation:
+
+- VMEC-extender helps by supplying a prescribed finite-beta exterior magnetic
+  field outside the LCFS through physical `(R, phi, Z)` arrays.
+- It does not by itself provide wall geometry, target classification,
+  sheath/recycling closures, neutral transport, or a validated open-SOL plasma
+  result.
+- JAXDRB should first validate the field artifact, the coordinate conventions,
+  the field-line RHS, the metric/FCI operators, and the wall/endpoint maps;
+  only then should finite-beta SOL movies or turbulence plots be promoted.
+
+### Milestone A: ESSOS Direct-Coil Open-Field Simulations On `main`
+
+Final goal:
+
+Run a self-contained JAXDRB SOL campaign that imports ESSOS coil-field traces
+from `ESSOS_biot_savart_LandremanPaulQA.json`, constructs open-field maps,
+applies target/sheath/recycling/neutral closures on validated endpoint masks,
+and produces a polished reduced-turbulence movie plus connection-length,
+target, source, and profile plots. ESSOS owns Biot-Savart and tracing; JAXDRB
+owns import, FCI maps, SOL residuals, diagnostics, examples, docs, and movies.
+
+Concrete changes to make:
+
+1. Add a direct-coil campaign entry point, preferably
+   `examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py`, with
+   SIMSOPT-style top-level parameters and small helper functions only.
+2. Extend the imported-FCI validation path so `map_source="coil"` can run a
+   promotion-grade multi-grid connection-length/refinement campaign rather
+   than only an advisory or negative-observed-order diagnostic.
+3. Add direction-aware endpoint and target-label plots for pure-coil maps:
+   forward exits, backward exits, bidirectional exits, adjacent-step length,
+   target-exit length, and finite-overlap masks.
+4. Add conservative FCI operator gates on the direct-coil maps:
+   interpolation identity, parallel-gradient MMS where meaningful, metric-
+   weighted diffusion conservation, boundary-mask exactness, and endpoint
+   source accounting.
+5. Add open-field sheath/recycling/neutral tests on the direct-coil endpoint
+   masks, including zero-current reconstruction, Bohm flux, neutral
+   diffusion, ionization, recombination, charge exchange, and recycling-source
+   accounting.
+6. Run a compact nonlinear/reduced transient only after the geometry and
+   operator gates pass. Use fixed camera, stable map interpolation, consistent
+   color limits, time annotation, colorbar, and a short figure sentence.
+7. Move the polished direct-coil movie and figures to release assets; keep only
+   scripts, small JSON summaries, and manifest entries in git.
+
+Definitions of success:
+
+- Field-line and Poincare figures agree qualitatively with ESSOS-generated
+  geometry and do not look axisymmetric when the QA geometry is non-axisymmetric.
+- Connection-length diagnostics report finite fraction, nonnegative fraction,
+  endpoint fraction, and nested-grid convergence on a source-appropriate
+  quantity. If pure-coil adjacent-step observed order remains weak, the lane
+  remains geometry/diagnostic evidence and the movie is not promoted.
+- FCI operator and endpoint-source gates pass with numerical tolerances tied
+  to grid spacing and documented in tests.
+- The movie passes frame-by-frame visual QA: no jitter, no camera drift, no
+  renderer-only interpolation artifact, visible non-axisymmetric geometry,
+  visible radial/open-field structure, readable colorbar, and physical time.
+- README/docs say "direct-coil open-field reduced transient" unless the full
+  DRB, sheath, recycling, neutral, and refinement gates are all green.
+
+### Milestone B: VMEC Closed-Field Stellarator Simulations
+
+Final goal:
+
+Provide closed-field stellarator examples on VMEC-coordinate maps that teach
+users how to run closed-surface simulations without incorrectly using open-SOL
+target, sheath, or recycling semantics.
+
+Concrete changes to make:
+
+1. Add a closed-field tutorial script, preferably
+   `examples/geometry-3D/vmec-closed-field/closed_field_turbulence_demo.py`,
+   using top-level parameters for device, radial shell, grid, timestep,
+   model level, and output root.
+2. Add device presets for Landreman-Paul QA and HSX QHS vacuum first, then
+   NCSX after the source metadata and boundary plots are stable.
+3. Add closed-field validation gates:
+   periodic parallel-gradient consistency, parallel-step convergence,
+   closed-surface FCI interpolation, metric-weighted diffusion conservation,
+   bracket/vorticity limiting cases, and conserved or controlled scalar
+   quantities.
+4. Add closed-field plotting utilities for surface geometry, `|B|` modulation,
+   field-line label context, fluctuation amplitude, radial/surface averages,
+   spectra, and turbulence movie frames.
+5. Document explicitly that closed VMEC maps do not define target-to-target
+   connection length, sheath losses, or recycling unless an artificial loss
+   model is deliberately selected and labeled.
+
+Definitions of success:
+
+- Closed-field examples run from a clean clone with no external reference-code
+  install required, using committed small fixtures or release-hosted artifacts.
+- Closed-field diagnostics use periodic parallel-step or effective parallel
+  metrics, not open target-to-target quantities.
+- At least one closed-field movie and one profile/spectrum figure are
+  generated from documented commands and pass visual QA.
+- The closed-field lane provides the control comparison for open direct-coil
+  and hybrid SOL lanes.
+
+### Milestone C: Hybrid VMEC/Coil Open-SOL Simulations
+
+Final goal:
+
+Promote the hybrid lane as the first practical stellarator open-SOL route:
+VMEC gives smooth non-axisymmetric coordinates and metric structure; ESSOS
+coil traces supply endpoint masks, connection-length proxy, and `|B|`
+modulation needed for open-field losses.
+
+Concrete changes to make:
+
+1. Keep the current hybrid compact movie as release-scoped evidence, but add a
+   longer refined campaign before making a publication-level turbulence claim.
+2. Add strict consumed-map checks so sheath/recycling closures consume exactly
+   the forward/backward endpoint masks generated by the imported map.
+3. Add source-balance plots: particle source, neutral density, recycling
+   source, target heat/particle flux, and target-label maps.
+4. Add grid and timestep refinement for the hybrid reduced transient, with
+   profile diagnostics in addition to movie stationarity metrics.
+5. Add a tutorial script, preferably
+   `examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py`, that
+   uses top-level parameters and imports plotting functions from `jax_drb`.
+
+Definitions of success:
+
+- Hybrid connection-length and endpoint masks pass the live multi-grid gate
+  using the source-appropriate normalized quantity.
+- Sheath/recycling/neutral accounting residuals remain below documented
+  tolerances on the same endpoint masks consumed by the transient.
+- The hybrid movie shows non-axisymmetric geometry, open-field losses, radial
+  structure, and turbulent evolution without jitter or visual aliasing.
+- README claims identify this as the promoted open-SOL bridge until pure-coil
+  direct maps pass their own promotion gates.
+
+### Milestone D: VMEC-Extender Finite-Beta Exterior-Field SOL
+
+Final goal:
+
+Use VMEC-extender finite-beta exterior-field artifacts to run prescribed-field
+SOL simulations on grids outside the VMEC LCFS, with the finite-beta magnetic
+field, geometry, connection lengths, wall/endpoint maps, and JAXDRB SOL
+operators all validated separately.
+
+Concrete changes to make:
+
+1. Keep the JAXDRB runtime dependency as a NetCDF artifact contract:
+   coordinates `R`, physical `phi`, `Z`; field components `BR`, `Bphi`, `BZ`;
+   `absB`; `nfp`; `phi_period` or full-torus metadata; branch/source/unit
+   metadata; and provenance.
+2. Add an optional developer workflow that calls the upstream exporter when
+   available, but keep ordinary examples artifact-based and self-contained.
+3. Add real-artifact validation:
+   node samples, midpoint interpolation, physical-phi periodicity, `absB`
+   closure, `dR/dphi=R BR/Bphi`, `dZ/dphi=R BZ/Bphi`, divergence/field-period
+   diagnostics, and LCFS/exterior-domain bounds.
+4. Add finite-beta exterior connection-length and wall-hit diagnostics. Record
+   whether the field line is closed, leaves the imported box, hits a wall, or
+   reaches a target classifier.
+5. Add metric/FCI gates on the imported exterior grid. If full metric tensors
+   are not in the artifact, compute only the metrics justified by the imported
+   coordinates and label the limitations.
+6. Add a compact finite-beta SOL smoke transient only after the field artifact,
+   endpoint/wall maps, and FCI operators pass.
+
+Definitions of success:
+
+- A real finite-beta exterior-field artifact passes strict metadata and
+  coordinate-convention checks without unsafe overrides.
+- Field-line/Poincare/connection diagnostics agree with the upstream exporter
+  within documented tolerances.
+- The finite-beta SOL example records which quantities are prescribed-field
+  geometry and which are self-consistent plasma variables.
+- No finite-beta SOL movie is promoted until wall/endpoint and operator gates
+  are green.
+
+### Milestone E: Device Program For HSX, NCSX, Landreman-Paul QA, And Dommaschk
+
+Final goal:
+
+Create a small but reviewer-proof device matrix in which each device has a
+geometry source, validation plots, open/closed semantics, and one bounded
+physics result.
+
+Device order:
+
+1. Landreman-Paul QA: use ESSOS coils, VMEC closed map, hybrid open-SOL bridge,
+   and eventually VMEC-extender finite-beta exterior field.
+2. HSX QHS vacuum: use
+   [landreman/vmec_equilibria HSX/QHS_vac](https://github.com/landreman/vmec_equilibria/tree/master/HSX/QHS_vac)
+   as the first additional closed-field VMEC case.
+3. NCSX: add after the closed-field VMEC tutorial is stable and source
+   metadata/provenance are documented.
+4. Dommaschk potentials: use the BSTING/Zoidberg workflows as FCI and
+   visualization references, but keep JAXDRB responsible for imported arrays,
+   operators, physics, tests, docs, and claims.
+
+Per-device success gates:
+
+- source metadata and license/provenance;
+- boundary/surface plot and field-line or Poincare plot;
+- connection-length or closed parallel-step map;
+- endpoint/sheath mask map for open/hybrid cases;
+- FCI operator convergence plot;
+- one linear or reduced nonlinear physics output figure;
+- grid/time refinement or explicit reduced-scope label;
+- release-hosted media and documented regeneration command.
+
+### Milestone F: Full DRB Physics, Recycling, And Differentiability Promotion
+
+Final goal:
+
+Move from compact geometry/reduced-transient demonstrations to full
+drift-reduced Braginskii examples with selectable models, boundaries, and
+geometries, while preserving differentiability claims only on pure-JAX paths.
+
+Concrete changes to make:
+
+1. Replace any promoted surrogate nonlinear transfer term with the real
+   ExB bracket/vorticity/potential path, or keep the surrogate labeled as
+   pedagogical only.
+2. Add Boussinesq and non-Boussinesq comparisons with potential solve,
+   vorticity response, particle/heat flux, symmetry/asymmetry metrics, and
+   runtime cost.
+3. Promote neutral/sheath/recycling/detachment terms through component tests,
+   source accounting, target-response scans, and term-level parity where
+   reference output exists.
+4. Continue the JAX-native recycling path behind an opt-in API until
+   full-output production-window parity, runtime, memory, and solver-health
+   evidence justify default promotion.
+5. Add differentiability examples only on pure-JAX residual/objective surfaces:
+   `jvp`, `grad`, finite-difference comparison, UQ, sensitivity, and inverse
+   design/control examples.
+6. Add CPU/GPU scaling only on same-fidelity real kernels or ensembles. Do not
+   promote toy-kernel speedups as solver speedups.
+
+Definitions of success:
+
+- Every promoted equation term has a derivation, code link, unit/normalization
+  statement, and physics/numerical test.
+- Every promoted model switch has an example and a plot explaining the effect.
+- Full-output recycling remains stable and parity-bounded; JAX/JVP paths are
+  either demonstrably competitive or explicitly opt-in.
+- Differentiability plots include finite-difference error curves and state the
+  non-differentiable boundaries, if any.
+
+### Immediate Execution Sequence
+
+Use this order when implementation resumes:
+
+1. Add a short PR-audit note to the VMEC-extender and ESSOS imported-field docs
+   pointing back to this section, without creating a new roadmap.
+2. Implement the direct-coil open-field campaign entry point with top-level
+   parameters and a dry-run schema mode.
+3. Run pure-coil nested connection-length/refinement on a stronger grid and
+   classify the result as promotion-ready or negative-control evidence.
+4. Add direct-coil endpoint/source accounting tests and plots.
+5. Add the VMEC closed-field tutorial and closed-field validation gates.
+6. Upgrade the hybrid open-SOL campaign with longer refined transient,
+   source/target/profile plots, and movie QA.
+7. Re-run docs-media restore and release-surface checks after adding media.
+8. Only after A-C are stable, generate or import a real VMEC-extender
+   finite-beta exterior-field artifact and run Milestone D.
+9. Add HSX, NCSX, and Dommaschk devices one at a time through the per-device
+   success gates.
+10. Resume full DRB, JAX-native recycling default, performance, GPU, and
+    architecture work only after the geometry examples have unambiguous claim
+    boundaries.
+
+Stop conditions:
+
+- If a connection-length or refinement gate fails, record the negative
+  evidence and keep the corresponding movie out of README promotion.
+- If a PR/upstream exporter changes artifact conventions, update the import
+  contract and tests before regenerating physics movies.
+- If a figure or movie is visually ambiguous, jittery, axisymmetric-looking,
+  or inconsistent with the source geometry, do not promote it; fix the
+  geometry, grid, renderer, or physical campaign first.
+
 ## Ordered Execution Plan
 
 The detailed order below is the long-form technical roadmap. For the `1.0.3`
@@ -4217,6 +4535,24 @@ Use this log for concise decision records. Do not paste terminal output here.
   research lanes before `v1.0.3` just because they remain valuable; either
   tighten the claim boundary or tag after the local release bundle and hosted
   confirmation decision.
+- 2026-06-21: Added the post-release open-lane completion plan as the single
+  authoritative sequence for ESSOS direct-coil open-field simulations, VMEC
+  closed-field controls, hybrid VMEC/coil open-SOL simulations, VMEC-extender
+  finite-beta exterior-field integration, HSX/NCSX/Landreman-Paul QA/Dommaschk
+  device expansion, full DRB physics promotion, JAX-native recycling default
+  promotion, differentiability, and performance/scaling evidence. GitHub PR
+  audit found no open PR against `uwplasma/jax_drb`; the historical
+  `origin/feature/vmec-extender-edge-fields` branch already maps to the
+  importer/contract work present on `main`. The active upstream dependencies
+  are `uwplasma/virtual_casing_jax#2` for the finite-beta exterior-field core
+  and `uwplasma/ESSOS#31` for VMEC-extender trace/grid workflows; both are
+  useful but do not by themselves promote a finite-beta SOL result because
+  wall-limited connection lengths, matched free-boundary coil validation, and
+  gallery-grade plots remain open. Decision: on `main`, proceed first with the
+  ESSOS direct-coil open-field lane and VMEC closed-field control lane, promote
+  the hybrid open-SOL bridge only after refined endpoint/source/profile/movie
+  evidence, and defer real VMEC-extender finite-beta SOL promotion until a
+  stable exterior-field artifact and wall/connection-length gates are green.
 
 ## Definition Of Done
 
