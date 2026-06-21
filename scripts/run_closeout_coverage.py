@@ -25,6 +25,7 @@ CLOSEOUT_TESTS = (
     "tests/test_validation_hermes_comparison_summary.py",
     "tests/test_validation_hermes_capability_audit.py",
     "tests/test_packaging_metadata.py",
+    "tests/test_release_readiness_audit.py",
     "tests/test_release_surface.py",
 )
 COVERAGE_TARGETS = (
