@@ -14,7 +14,7 @@ VMEC-shaped metric for the imported logical grid, and then evaluates JAX-native
 sheath/recycling and neutral reaction-diffusion closures on those maps.
 
 The current authoritative promotion sequence is in
-[Research-Grade Execution Plan](research_grade_execution_plan.md#post-release-open-lane-completion-plan).
+[Research-Grade Execution Plan](research_grade_execution_plan.md#current-authoritative-open-lane-implementation-plan).
 In that sequence, `coil`, `vmec`, and `hybrid` have different meanings:
 direct-coil open-field maps must pass their own endpoint and connection-length
 gates before a movie can be promoted; VMEC maps are closed-field controls; and

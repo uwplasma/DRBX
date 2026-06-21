@@ -132,12 +132,12 @@ Unpromoted examples, reduced forcing terms, and visualization-only movies must
 be explicitly labeled as reduced, pedagogical, exploratory, or scaffolded. A
 movie is never a validation gate by itself.
 
-## Active Development Goal After The Conservative Release
+## Current Active Development Goal
 
 Audit date: 2026-06-21. This is the current single execution objective for the
 open research lanes. It supersedes scattered prompt history and old roadmap
-notes, while keeping the conservative `1.0.3` release-closeout language below
-as historical release hygiene.
+notes, while keeping conservative release-closeout language below as historical
+evidence only.
 
 Final goal:
 
@@ -241,123 +241,76 @@ Current best next steps:
 7. Keep coverage above `95%`, update docs/README with every promoted artifact,
    and run footprint/package audits before tagging any new version.
 
-## Final Release Goal
+## Current Research-Grade Release Target
 
-The next version should be treated as a focused research-code release, not as
-the completion of every long-term research lane. The attainable goal is:
+The active target is a focused research-code release after the conservative
+closeout work. The goal is not to claim every long-term research direction.
+The goal is to make the next release coherent and reviewer-defensible:
 
-> Ship a lightweight JAXDRB release whose stable default paths are documented,
-> self-contained, tested above `95%` promoted coverage, parity-bounded against
-> reference data where references exist, and accompanied by reproducible
-> tokamak, stellarator, validation, performance, and differentiability examples.
+> Ship a lightweight JAXDRB release whose stable paths are documented,
+> self-contained, tested above `95%` promoted coverage, parity-bounded where
+> reference data exist, and accompanied by reproducible tokamak and stellarator
+> examples with explicit claim boundaries.
 
-For this release, a capability is promoted only if it has implementation,
-tests, docs, plots or reports, and bounded runtime/footprint evidence. Anything
-else remains opt-in or explicitly experimental.
+A capability is promoted only when it has implementation, tests,
+documentation, plots or reports, and bounded runtime/footprint evidence.
+Anything else remains opt-in, diagnostic, exploratory, or artifact-import only.
 
-Promoted release scope:
+Promoted scope for the next release:
 
-- Stable install, import, package, CLI, docs, README, and release-hosted media
-  workflows.
-- Stable compatibility recycling/BDF paths with the latest hydrogen and D/T/He
-  term-level parity diagnostics.
-- Promoted active-source and fixed-layout JAX seams that already pass
-  correctness, JVP, and coverage gates, labeled with their exact solver scope.
-- Self-contained tokamak and stellarator tutorials that regenerate the
-  advertised figures and movies without requiring users to install reference
-  codes.
-- Compact validated 3D imported-field/VMEC/coil/hybrid geometry workflows with
-  connection-length, FCI, refinement, and reduced-transient evidence.
-- Differentiability examples on pure-JAX promoted surfaces with finite
-  difference comparisons.
-- Performance evidence limited to the kernels and fidelity levels already
-  profiled.
+- stable install, import, package, CLI, docs, README, and release-hosted media
+  workflows;
+- stable compatibility recycling/BDF paths with current hydrogen and D/T/He
+  term-level parity diagnostics;
+- pure-JAX active-source, fixed-layout, FCI, and differentiability seams that
+  already pass correctness, JVP, finite-difference, and coverage gates;
+- self-contained tokamak and stellarator tutorials that regenerate the
+  advertised figures and movies without ordinary users installing reference
+  codes;
+- direct ESSOS-coil open/closed-field diagnostic workflows on `main`;
+- VMEC closed-field controls with no target/sheath/recycling semantics;
+- hybrid VMEC/coil open-SOL examples only when endpoint, source, profile,
+  refinement, and movie-QA gates are green;
+- finite-beta VMEC-extender only as a strict artifact-import lane until real
+  upstream artifacts pass all field, convention, wall/endpoint, and FCI gates.
 
-Explicitly deferred or experimental for this release:
+Explicitly deferred or experimental unless a later gate promotes them:
 
-- Default promotion of the full-output-window JAX-native recycling solver until
-  heavy production-window parity and runtime evidence beat or match the stable
-  compatibility path.
-- More local preconditioner sweeps unless a materially different physics/block
-  preconditioner is introduced; the current evidence says most cheap variants
-  do not reduce the real recycling Krylov cost.
-- Broad multi-GPU claims beyond same-fidelity profiled kernels and batched
-  examples already validated.
-- Device-scale long-window stellarator turbulence predictions for HSX, NCSX,
-  Landreman-Paul QA, and Dommaschk cases. The release may include documented
-  reduced/compact examples and import pipelines, but not overclaim predictive
-  device-scale turbulence.
-- A complete architecture split of every large module. The release requires
-  tested public APIs and compatibility shims, while the remaining split stays a
-  post-release maintainability lane.
+- full-output-window JAX-native recycling as the default solver;
+- additional cheap preconditioner sweeps that do not materially change the
+  physics/block approximation;
+- broad multi-GPU claims beyond same-fidelity profiled kernels and batched
+  examples already validated;
+- predictive, long-window device-scale turbulence for HSX, NCSX,
+  Landreman-Paul QA, and Dommaschk cases;
+- complete module splitting of every large file when the public API is already
+  stable and tested.
 
-Release blockers that remain before tagging:
+Release blockers before tagging a new version:
 
 | Blocker | Required evidence |
 | --- | --- |
-| Local release gates | `scripts/run_closeout_coverage.py`, `scripts/run_promoted_solver_coverage.py`, selected fast research checks, and `mkdocs build --strict --clean` pass locally. |
-| README/docs/example consistency | Every advertised figure/movie has a command, a small fixture or release-hosted artifact path, and no hidden private-reference dependency for ordinary users. |
-| Parity closeout | Current hydrogen and D/T/He target/recycling status is summarized as closed, bounded, or experimental in the offender register and docs. |
-| JAX-native claim boundary | Full recycling JAX/JVP paths are either promoted with same-fidelity evidence or kept opt-in with a clear label. |
-| Footprint/package audit | No large tracked blobs, accidental NetCDF dumps, trace bundles, local caches, or media files enter git or the sdist/wheel. |
-| Release metadata | Version, changelog/release notes, tag notes, PyPI workflow status, ReadTheDocs status, and experimental boundaries are current. |
+| Plan authority | This file remains the single active plan; `plan_jax_drb.md` stays a redirect; subordinate docs do not carry conflicting priorities. |
+| User reproducibility | Every advertised figure/movie has a command, a small fixture or release-hosted artifact path, and no hidden private-reference dependency for ordinary users. |
+| Local release gates | `scripts/run_closeout_coverage.py`, `scripts/run_promoted_solver_coverage.py`, selected fast research checks, release-surface tests, and `mkdocs build --strict --clean` pass locally. |
+| Parity and claim boundary | Current hydrogen, D/T/He, target/recycling, and imported-field status is summarized as closed, bounded, diagnostic, or experimental in docs and reports. |
+| Solver boundary | Full recycling JAX/JVP paths are either promoted with same-fidelity evidence or kept opt-in with clear labels. |
+| Footprint/package audit | No large tracked blobs, accidental NetCDF dumps, trace bundles, local caches, or media files enter git, sdist, or wheel. |
+| Metadata | Version, changelog/release notes, tag notes, PyPI workflow status, ReadTheDocs status, and experimental boundaries are current. |
 
-## Final Release Sprint
-
-This is the only active near-term checklist. The broader technical tracks later
-in this file remain the post-release roadmap unless a row below explicitly
-pulls one of them into the release.
-
-Final goal:
-
-> Release `jax_drb 1.0.3` as a lightweight, self-contained, documented,
-> locally verified research-code release with conservative claim boundaries and
-> no new broad research expansion before tagging.
-
-Current release decision:
-
-- Local release evidence is sufficient for a release candidate: coverage,
-  docs, fast research checks, package build, artifact restore, release-surface
-  tests, and footprint audit have passed locally.
-- Hosted GitHub Actions, ReadTheDocs, and PyPI confirmation remain external
-  confirmation gates while runner billing is unavailable. They should be run
-  when billing is restored or when the user explicitly asks for a hosted
-  release attempt.
-- No new preconditioner, full-output JAX-native recycling default,
-  device-scale stellarator turbulence, broad multi-GPU speedup, or architecture
-  split should be required for `1.0.3` unless a release note, README sentence,
-  public API, or docs page currently claims that capability as promoted.
-
-Active release checklist:
-
-| Order | Lane | Required final action | Release status |
-| --- | --- | --- | --- |
-| 1 | Plan authority | Keep this file as the only active plan, keep `plan_jax_drb.md` as a redirect, and ensure plan-like appendices state that they are subordinate. | Close after this pass if the diff shows no competing plan. |
-| 2 | Claim boundary | Verify README, docs, release notes, and package metadata say stable defaults remain compatibility BDF where appropriate, while JAX/JVP, matrix-free, GPU, and broad 3D lanes are scoped or opt-in. | Close with a text audit; do not add new physics work. |
-| 3 | User reproducibility | Verify every README figure/movie points to a release-hosted artifact or a documented example command and that ordinary users do not need external reference-code installs. | Close with `fetch_example_artifacts.py --skip-baselines` and release-surface tests. |
-| 4 | Local gates | Run the fast local release bundle: release-readiness audit, closeout coverage, promoted-solver coverage, fast research checks, strict docs build, release-surface tests, package build, and footprint audit. | Close when commands pass on the current commit. |
-| 5 | Release notes and tag prep | Render or review `docs/release_notes_1_0_3.md`, confirm `CITATION.cff`, `pyproject.toml`, `jax_drb.__version__`, README, MkDocs nav, and release docs all agree on `1.0.3`. | Close before creating `v1.0.3`. |
-| 6 | Hosted release confirmation | After runner billing is available, run hosted CI/coverage/docs/ReadTheDocs/PyPI workflow confirmation, or explicitly record a user-approved local-only release decision. | Only remaining external gate. |
-
-Stop rule:
-
-- If the active checklist is green except hosted confirmation, stop expanding
-  technical scope and prepare the release/tag decision.
-- If a lower-completion lane below is not claimed as promoted in README/docs,
-  it is not a `1.0.3` blocker.
-- If a lower-completion lane is claimed as promoted, either add the missing
-  evidence immediately or change the claim to opt-in, bounded, experimental,
-  or post-release.
+The old `1.0.3` release sprint is now historical evidence only. Do not treat it
+as the active implementation checklist; the active checklist starts at
+[Current Authoritative Open-Lane Implementation Plan](#current-authoritative-open-lane-implementation-plan).
 
 ## Current Completion Snapshot
 
-Audit date: 2026-06-20. Percentages are approximate and evidence-based. A lane
+Audit date: 2026-06-21. Percentages are approximate and evidence-based. A lane
 moves only when implementation, validation, plots or diagnostics, documentation,
 and tests all move together.
 
 | Lane | Completion | Current blocker |
 | --- | ---: | --- |
-| Plan authority and release hygiene | 99% | Keep this file current and prevent new competing roadmap files. The release target is correctly retargeted to `1.0.3`, and `scripts/audit_release_readiness.py` now provides a repeatable fast pre-tag audit for metadata, artifact, workflow, dependency, tag, and footprint invariants. |
+| Plan authority and release hygiene | 99% | Keep this file current and prevent new competing roadmap files. `scripts/audit_release_readiness.py` provides a repeatable fast pre-tag audit for metadata, artifact, workflow, dependency, tag, and footprint invariants. |
 | Meaningful promoted coverage | 98% | The promoted solver/public-surface coverage gate now includes the full meaningful recycling and runner evidence layer and passes at `95.16%` after the 1.0.3 metadata/artifact changes. Keep `scripts/run_promoted_solver_coverage.py` above `95%` after each solver and geometry promotion. |
 | Reference-backed parity | 99.3% | Keep the closed neutral `NVh` source split locked while extending the same term-level parity discipline to traced-field-line `g33`, sheath, target-source, and longer-window diverted-tokamak campaigns. Hydrogen and D/T/He one-step target parity are no longer active formula offenders under the BDF parity path; the remaining D/T/He one-step `Pd+` pressure difference is localized to conduction-energy state sensitivity at the large `dt=25` gate and shrinks under timestep refinement. |
 | JAX-native recycling solver | 99.92% | The active-array JAX-linearized residual now exposes direct-counting solve-attempt evidence without Python operator callbacks, hydrogen and D/T/He fixed-BDF2 output-window gates pass with jitted JAX-GMRES solves plus residual-evaluation budgets, and the D/T/He route now has explicit eight-step physical-output parity gates against stable BDF at `dt=1e-4` and `dt=1e-3`, a retained `dt=1e-2` scalar density/pressure observable screen, and a retained `dt=1e-2` substepped full-field pointwise screen with an internal timestep cap. Term-level active-array seams now cover D/T/He reactions, pointwise collision friction/heat exchange, fixed-layout thermal-force/ion-viscosity/conduction transport closures, stencil-aware neutral parallel diffusion, sheath-prepared target recycling source mapping, scalar upstream-density feedback, a composed source-RHS builder, a source-to-total-RHS insertion helper, and an opt-in `promoted_active_sources` residual backend that matches the full D/T/He fixture RHS on the active slice, has an explicit two-output-window fixed-BDF2 production-gate mode with roundoff-level parity against stable BDF on the lightweight D/T/He fixture, and now has a named cProfile/RSS research-campaign gate that must exercise a nontrivial Newton/JVP solve at `dt=1e-4`. Fixed residuals also have opt-in instrumented linearized-action and single-update JAX-GMRES seams for matrix-free/JVP profiling. Default promotion still needs longer/heavier production-window parity, same-fidelity CPU/GPU runtime evidence, and cheaper production-window solves; the D/T/He active-array SciPy-BDF sparse-JVP output-window route remains locally timeout-bound and should be replaced by the matrix-free fixed-BDF2 path. |
@@ -366,17 +319,17 @@ and tests all move together.
 | Drift-reduced Braginskii model surface | 65% | Finish equation-to-code maps, Boussinesq/non-Boussinesq comparisons, vorticity/potential gates, and EM selected-field promotion. |
 | Neutral, recycling, sheath, detachment | 80% | Neutral parallel diffusion and target recycling source mapping now have active-layout seams with full-field active-slice parity and JVP gates; finish full sheath orchestration, target/sheath coupling gates, and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
-| Compact imported-field/VMEC/hybrid showcase | 99% within compact scope | The compact hybrid movie and high-resolution reduced-transient reports pass the current release-scoped grid/time/stationarity and visual-QA gates. This is not a broad device-scale stellarator turbulence claim. The broader open/closed stellarator SOL program is tracked separately in the post-release open-lane plan below. |
+| Compact imported-field/VMEC/hybrid showcase | 99% within compact scope | The compact hybrid movie and high-resolution reduced-transient reports pass the current compact grid/time/stationarity and visual-QA gates. This is not a broad device-scale stellarator turbulence claim. The broader open/closed stellarator SOL program is tracked separately in the active open-lane plan below. |
 | 3D stellarator open/closed SOL program | 61% overall | The direct ESSOS-coil FCI endpoint/source gate now passes with endpoint-aware map-quality diagnostics: interior FCI resolution is green, endpoint/source accounting closes, and target-exit lengths are finite only on endpoint cells. Direct-coil adjacent-step and target-exit nested refinement still fail, so direct-coil media remains unpromoted. The VMEC closed-field lane now has an integrated reduced transient/profile/spectrum/movie package with dry-run contracts, public exports, docs, zero-endpoint tests, and a compact live Landreman-Paul QA run; the movie is stable but visually quiet, so it is closed-field control evidence rather than promoted turbulence media. Hybrid open-SOL promotion, finite-beta VMEC-extender exterior fields, and HSX/NCSX/Dommaschk expansion remain active lanes. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
-| Docs and examples | 98% | README, examples, release-packaging docs, and 1.0.3 release notes now state the stable-default versus opt-in research-gate boundary. The docs-media release bundle has been refreshed and `scripts/fetch_example_artifacts.py --skip-baselines --force` restores `174/174` manifest media files in an isolated root; the self-contained docs/example slice and representative tokamak/stellarator commands pass locally. Keep rechecking this gate only when README media, release assets, or example commands change. |
-| Repo footprint | 97% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs and the 1.0.3 wheel/sdist remain about `709 KiB` and `614 KiB`. The fast release-readiness audit now checks the footprint invariants directly. |
+| Docs and examples | 98% | README, examples, and release-packaging docs state the stable-default versus opt-in research-gate boundary. The docs-media release bundle has been refreshed and `scripts/fetch_example_artifacts.py --skip-baselines --force` restores `174/174` manifest media files in an isolated root; the self-contained docs/example slice and representative tokamak/stellarator commands pass locally. Keep rechecking this gate only when README media, release assets, or example commands change. |
+| Repo footprint | 97% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs and the wheel/sdist remain small. The fast release-readiness audit now checks the footprint invariants directly. |
 
 Release-closeout interpretation:
 
-- The conservative `1.0.3` release-closeout surface is approximately `99%`
-  complete. The open research lanes above and below are not complete, and
-  their lower completion percentages control any future promoted claims.
+- The conservative closeout surface is approximately `99%` complete. The open
+  research lanes above and below are not complete, and their lower completion
+  percentages control any future promoted claims.
 - Lanes below `80%` are not all tag blockers. They are blockers only if the
   README, docs, release notes, or API claim the unfinished portion as promoted.
 - The default rule is conservative: ship stable defaults, keep unproven solver,
@@ -419,12 +372,12 @@ claim boundaries are complete.
 | Documentation/examples | README, ReadTheDocs, model-selection guide, tokamak tutorial, stellarator tutorial, validation gallery, performance guide | every advertised figure/movie has a command, no private reference-code dependency for users, extended derivations in docs, and concise README. |
 | Coverage/release | promoted solver surface, public CLI/API, examples, validation campaigns, package, footprint | `95%` promoted coverage, local release gates, package audit, no large blobs, release-hosted assets, release notes, tag, and PyPI workflow readiness. |
 
-## Conservative Release Backlog (Historical)
+## Historical Release Closeout
 
-This release backlog is retained as historical context for the conservative
-`1.0.3` closeout. It is not the current research implementation backlog. The
-active technical backlog is the
-[Post-Release Open-Lane Completion Plan](#post-release-open-lane-completion-plan)
+The old conservative release backlog is retained only as historical evidence.
+It is not the current research implementation backlog. The active technical
+backlog is the
+[Current Authoritative Open-Lane Implementation Plan](#current-authoritative-open-lane-implementation-plan)
 below, which now controls stellarator open/closed-field work, finite-beta
 VMEC-extender planning, and the remaining research-grade code lanes.
 
@@ -434,28 +387,27 @@ VMEC-extender planning, and the remaining research-grade code lanes.
 | P1 | Release claim audit | Audit README, docs overview pages, examples matrix, release notes, and package metadata for unsupported claims. Do not broaden claims; tighten wording where needed. | Stable defaults, opt-in JAX/JVP paths, compact 3D examples, GPU/performance limits, and reference-code boundaries are stated consistently. |
 | P2 | Self-contained examples and media | Verify release-backed media restore and representative tokamak/stellarator example commands. Keep large fixtures out of git. | `fetch_example_artifacts.py --skip-baselines`, release-surface tests, and representative example commands pass locally or have a documented external reason. |
 | P3 | Local release gates | Run the fast local release bundle and record the result in the execution log. | Release-readiness audit, closeout coverage, promoted-solver coverage, fast research checks, strict docs build, package build, and footprint audit pass. |
-| P4 | Version and release package | Confirm `1.0.3` metadata, `CITATION.cff`, release notes, tag notes, PyPI workflow wiring, and ReadTheDocs config. | The release can be tagged without changing source, docs, metadata, or artifacts. |
+| P4 | Version and release package | Confirm version metadata, `CITATION.cff`, release notes, tag notes, PyPI workflow wiring, and ReadTheDocs config. | The release can be tagged without changing source, docs, metadata, or artifacts. |
 | P5 | Hosted confirmation | When Actions billing/runners are available or the user explicitly asks, run hosted test/docs/coverage/research workflow confirmations and ReadTheDocs/PyPI publication checks. | Hosted confirmation passes, or a user-approved local-only release decision is recorded. |
 
-Post-release research backlog:
+Historical research decisions from that closeout:
 
 | Track | Release decision |
 | --- | --- |
 | Reference parity expansion | Keep closed neutral and recycling offenders locked. New live-reference campaigns are post-release unless they fix a claimed promoted surface. |
-| Full-output JAX-native recycling default | Keep stable compatibility BDF as default for `1.0.3`. Full-output JAX/JVP promotion remains opt-in until longer production-window parity and same-fidelity runtime evidence are green. |
-| Effective recycling preconditioning | Stop cheap local sweeps for `1.0.3`; retain negative evidence and the proven FCI Jacobi win. Reopen only with a materially different physics/block preconditioner. |
+| Full-output JAX-native recycling default | Keep stable compatibility BDF as default. Full-output JAX/JVP promotion remains opt-in until longer production-window parity and same-fidelity runtime evidence are green. |
+| Effective recycling preconditioning | Stop cheap local sweeps; retain negative evidence and the proven FCI Jacobi win. Reopen only with a materially different physics/block preconditioner. |
 | Complete DRB physics expansion | Keep documented promoted terms and label reduced/scaffolded terms. Broader Boussinesq/non-Boussinesq, electromagnetic, and full vorticity/bracket expansion remains post-release unless already documented as promoted. |
 | Device-scale stellarator turbulence | Promote compact imported-field/VMEC/coil/hybrid examples only within their validated scope. HSX, NCSX, Landreman-Paul QA, and Dommaschk long-window predictive turbulence remain post-release. |
 | Broad CPU/GPU and multi-GPU scaling | Release only same-fidelity evidence already documented. Larger GPU/multi-GPU demonstrations remain post-release unless a current release claim depends on them. |
 | Architecture split | Keep public APIs stable and tested. Full module splitting of remaining large files is post-release maintainability work unless needed for a release blocker. |
 
-## Post-Release Open-Lane Completion Plan
+## Current Authoritative Open-Lane Implementation Plan
 
-This section is the active technical plan after the conservative `1.0.3`
-release closeout. It is the single source of truth for the remaining research
-lanes. Subordinate geometry, validation, runtime, testing, and release pages
-may add derivations or reports, but they must not change the order, success
-criteria, or claim boundary recorded here.
+This section is the active technical plan. It is the single source of truth for
+the remaining research lanes. Subordinate geometry, validation, runtime,
+testing, and release pages may add derivations or reports, but they must not
+change the order, success criteria, or claim boundary recorded here.
 
 Current planning audit:
 
@@ -938,10 +890,9 @@ Stop conditions:
 
 ## Ordered Execution Plan
 
-The detailed order below is the long-form technical roadmap. For the `1.0.3`
-release, follow the short active backlog above first. Use the sections below
-only when a release claim directly depends on that technical lane, or after the
-release has been tagged.
+The detailed order below is the long-form technical roadmap that supports the
+active open-lane plan above. Use it when implementing a lane or when a release
+claim depends on that technical surface.
 
 ### 1. Freeze Planning, Claim Boundaries, And Release Hygiene
 
@@ -1844,6 +1795,20 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-21: Refactored the plan authority wording so this file has one
+  active target: the current open-lane implementation plan. The previous
+  `1.0.3` release sprint is retained only as historical release-closeout
+  evidence, and the active plan now explicitly prioritizes direct ESSOS-coil
+  open/closed-field simulations on `main`, VMEC closed-field controls, hybrid
+  VMEC/coil open-SOL promotion, and VMEC-extender finite-beta artifact import.
+  Rechecked the VMEC-extender PR status with `gh`: `uwplasma/jax_drb#2` is
+  merged, while `uwplasma/virtual_casing_jax#2`, `uwplasma/ESSOS#31`, and
+  `uwplasma/ESSOS#33` remain open upstream artifact/export enablers. Decision:
+  keep ordinary JAXDRB examples self-contained and artifact-based; use ESSOS
+  direct-coil fields first on `main`; use VMEC-extender for finite-beta SOL only
+  after a frozen provenance-rich exterior-field artifact passes strict field,
+  convention, wall/endpoint, connection-length, FCI/operator, and compact SOL
+  gates.
 - 2026-06-21: Advanced the main-branch direct ESSOS-coil package by adding an
   explicit optional diagnostic media stage to
   `examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py`. The
