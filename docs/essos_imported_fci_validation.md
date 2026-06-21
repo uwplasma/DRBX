@@ -166,10 +166,9 @@ The audit compares the checked-in JSON reports against the fields produced by
 the current validation code. It is useful before promoting README figures or
 paper plots because it flags stale reports whose PNG/movie assets may still
 exist but whose JSON no longer contains the current connection-length,
-endpoint, target-label, refinement, or consumed-map diagnostics. As of the
-June 18, 2026 audit, the three committed imported-FCI reports are stale against
-the newer diagnostic schema and should be regenerated before being used as
-fresh publication evidence.
+endpoint, target-label, map-quality, refinement, or consumed-map diagnostics.
+As of the June 21, 2026 regeneration, the committed `coil`, `vmec`, and
+`hybrid` imported-FCI JSON reports match the current schema.
 Quick regeneration keeps `REQUIRE_CONNECTION_RESOLUTION = False`, so the
 single-grid roughness diagnostic is recorded but remains advisory. Promotion
 runs for publication figures, README movies, or release evidence should set
@@ -240,9 +239,10 @@ particle balance residuals, current residuals, and neutral momentum balance.
 The imported-map diagnostics now separately report connection-length finite and
 nonnegative fractions, radial connection-length means, grid/refinement metadata,
 single-grid connection-length resolution diagnostics, map-coordinate
-displacement proxies, a consumed-map check requiring the sheath endpoint count
-to match the forward-plus-backward FCI boundary masks, a direction-aware target
-label diagnostic, and an endpoint-length diagnostic. The target labels use
+displacement proxies, a map-quality summary, a consumed-map check requiring the
+sheath endpoint count to match the forward-plus-backward FCI boundary masks, a
+direction-aware target label diagnostic, and an endpoint-length diagnostic. The
+target labels use
 `0` for closed/non-target cells, `1` for forward exits, `2` for backward exits,
 and `3` for bidirectional exits; the report verifies that these labels exactly
 reconstruct the endpoint counts consumed by the sheath and recycling closures.
@@ -256,11 +256,19 @@ open-field map. The compact NPZ and PNG artifacts now include `target_exit_toroi
 `adjacent_step_toroidal`, plus `target_label_toroidal`; the summary plot shows
 directional target labels and the target-exit map for open-field artifacts, and
 falls back to endpoint counts and the connection-length proxy for closed VMEC
-maps. The resolution
-diagnostics record normalized neighbor jumps, per-axis 95th-percentile jumps,
-an underresolved-face fraction, and an advisory pass flag. They catch obviously
-grid-scale connection-length roughness before a live imported run is promoted,
-but they are not a replacement for a multi-grid refinement campaign. Set
+maps. The resolution diagnostics record normalized neighbor jumps, per-axis
+95th-percentile jumps, per-axis underresolved-face fractions, dominant rough
+and underresolved directions, endpoint-touch versus interior roughness, an
+underresolved-face fraction, and an advisory pass flag. The
+`map_quality_diagnostics` block then converts these low-level numbers into a
+short recommendation. In the current committed artifacts, the `coil` and
+`hybrid` reports are toroidally dominated and endpoint-touch dominated, so the
+next direct-coil work should target target-classifier and target-exit
+construction before movie promotion; the closed `vmec` report is an
+interior-only closed-map control and should not be used for open-target
+sheath/recycling claims. These diagnostics catch obviously grid-scale
+connection-length roughness before a live imported run is promoted, but they
+are not a replacement for a multi-grid refinement campaign. Set
 `require_connection_resolution=True` in the campaign API, or
 `REQUIRE_CONNECTION_RESOLUTION = True` in the example script, when the
 single-grid diagnostic should reject the imported map instead of only

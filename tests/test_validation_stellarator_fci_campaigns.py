@@ -147,9 +147,11 @@ def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, 
     assert contract["planned_artifacts"]["dry_run_contract_json"].endswith("custom_imported_fci_dry_run_contract.json")
     assert "connection_length_diagnostics" in contract["required_report_fields"]
     assert "connection_length_resolution_diagnostics" in contract["required_report_fields"]
+    assert "map_quality_diagnostics" in contract["required_report_fields"]
     assert "endpoint_length_diagnostics" in contract["required_report_fields"]
     assert "target_label_diagnostics" in contract["required_report_fields"]
     assert "connection_length_resolution_diagnostics" in contract["diagnostic_schema"]
+    assert "map_quality_diagnostics" in contract["diagnostic_schema"]
     assert "endpoint_length_diagnostics" in contract["diagnostic_schema"]
     assert "target_label_diagnostics" in contract["diagnostic_schema"]
     assert "refinement_diagnostics" in contract["diagnostic_schema"]
@@ -359,12 +361,17 @@ def test_imported_fci_map_diagnostics_verify_consumed_endpoint_masks() -> None:
     assert diagnostics["passed"] is True
     assert diagnostics["connection_length_diagnostics"]["finite_fraction"] == 1.0
     assert diagnostics["connection_length_diagnostics"]["nonnegative_fraction"] == 1.0
+    assert diagnostics["map_quality_diagnostics"]["recommended_next_action"]
     assert diagnostics["refinement_diagnostics"]["shape"] == [3, 4, 8]
     assert diagnostics["consumed_map_diagnostics"]["endpoint_count_matches_boundary_masks"] is True
     assert diagnostics["consumed_map_diagnostics"]["orphan_endpoint_fraction"] == 0.0
     assert diagnostics["consumed_map_diagnostics"]["unconsumed_boundary_fraction"] == 0.0
     assert diagnostics["endpoint_length_diagnostics"]["passed"] is True
     assert diagnostics["endpoint_length_diagnostics"]["target_exit_finite_endpoint_fraction"] == 1.0
+    assert diagnostics["endpoint_length_diagnostics"]["target_exit_p95"] == 2.0
+    assert sum(diagnostics["endpoint_length_diagnostics"]["target_exit_histogram_counts"]) == int(
+        np.sum(endpoint_count > 0.0)
+    )
     assert diagnostics["endpoint_length_diagnostics"]["forward_exit_finite_forward_boundary_fraction"] == 1.0
     assert diagnostics["endpoint_length_diagnostics"]["backward_exit_finite_backward_boundary_fraction"] == 1.0
     assert diagnostics["endpoint_length_diagnostics"]["forward_exit_nonnegative_finite_fraction"] == 1.0
@@ -429,6 +436,16 @@ def test_imported_fci_connection_length_resolution_diagnostics_are_advisory() ->
     assert rough_resolution["passed"] is False
     assert rough_resolution["normalized_face_jump_p95"] > smooth_resolution["normalized_face_jump_p95"]
     assert rough_resolution["underresolved_face_fraction"] > 0.5
+    assert rough_resolution["dominant_rough_direction"] in {"radial", "toroidal", "poloidal"}
+    assert rough_resolution["radial_underresolved_face_fraction"] is not None
+    assert rough["map_quality_diagnostics"]["dominant_rough_direction"] == rough_resolution[
+        "dominant_rough_direction"
+    ]
+    assert rough["map_quality_diagnostics"]["roughness_localization"] in {
+        "distributed",
+        "endpoint_touch_dominated",
+        "interior_dominated",
+    }
 
     strict_rough = build_essos_imported_fci_map_diagnostics(
         maps=maps,
@@ -444,6 +461,27 @@ def test_imported_fci_connection_length_resolution_diagnostics_are_advisory() ->
     assert strict_rough["connection_length_resolution_required"] is True
     assert strict_rough["connection_length_resolution_passed"] is False
     assert strict_rough["passed"] is False
+
+    endpoint_rough = np.array(smooth_connection, copy=True)
+    endpoint_rough[forward_boundary | backward_boundary] += 12.0
+    endpoint_localized = build_essos_imported_fci_map_diagnostics(
+        maps=maps,
+        connection_length=endpoint_rough,
+        adjacent_step_length=adjacent_step_length,
+        target_exit_length=target_exit_length,
+        forward_target_exit_length=np.where(forward_boundary, 2.1, np.nan),
+        backward_target_exit_length=np.where(backward_boundary, 2.2, np.nan),
+        endpoint_count=endpoint_count,
+        map_source="hybrid",
+        require_connection_resolution=True,
+    )
+    assert (
+        endpoint_localized["map_quality_diagnostics"]["roughness_localization"]
+        == "endpoint_touch_dominated"
+    )
+    assert "target classifier" in endpoint_localized["map_quality_diagnostics"][
+        "recommended_next_action"
+    ]
 
 
 def test_imported_fci_map_diagnostics_require_endpoint_lengths_for_open_fields() -> None:
@@ -573,6 +611,8 @@ def test_imported_fci_connection_length_refinement_diagnostics_rank_nested_grids
     assert report["evidence_role"] == "advisory_only"
     assert report["promotion_rejection_reasons"] == ["observed_order_not_required"]
     assert report["pair_reports"][0]["normalized_rms_error"] > report["pair_reports"][1]["normalized_rms_error"]
+    assert report["pair_reports"][0]["max_error_indices"] is not None
+    assert report["pair_reports"][0]["max_error_normalized"] == report["pair_reports"][0]["normalized_linf_error"]
     assert report["observed_orders"][0]["observed_order"] > 1.0
     assert report["monotonic_rms_error_reduction"] is True
     assert report["monotonic_linf_error_reduction"] is True
