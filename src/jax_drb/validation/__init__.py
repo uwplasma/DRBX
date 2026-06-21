@@ -163,6 +163,16 @@ from .essos_vmec_closed_field_campaign import (
     create_essos_vmec_closed_field_package,
     save_essos_vmec_closed_field_plot,
 )
+from .essos_vmec_closed_field_transient_campaign import (
+    EssosVmecClosedFieldTransientArtifacts,
+    EssosVmecClosedFieldTransientDryRunArtifacts,
+    build_essos_vmec_closed_field_transient_campaign,
+    create_essos_vmec_closed_field_transient_dry_run_package,
+    create_essos_vmec_closed_field_transient_package,
+    create_essos_vmec_closed_field_transient_package_from_geometry,
+    save_essos_vmec_closed_field_transient_movie,
+    save_essos_vmec_closed_field_transient_plot,
+)
 from .vmec_extender_edge_field_campaign import (
     VmecExtenderEdgeFieldCampaignArtifacts,
     build_vmec_extender_edge_field_campaign_report,
@@ -650,6 +660,14 @@ __all__ = [
     "create_essos_vmec_closed_field_dry_run_package",
     "create_essos_vmec_closed_field_package",
     "save_essos_vmec_closed_field_plot",
+    "EssosVmecClosedFieldTransientArtifacts",
+    "EssosVmecClosedFieldTransientDryRunArtifacts",
+    "build_essos_vmec_closed_field_transient_campaign",
+    "create_essos_vmec_closed_field_transient_dry_run_package",
+    "create_essos_vmec_closed_field_transient_package",
+    "create_essos_vmec_closed_field_transient_package_from_geometry",
+    "save_essos_vmec_closed_field_transient_movie",
+    "save_essos_vmec_closed_field_transient_plot",
     "EssosImportedConnectionLengthLevels",
     "EssosImportedConnectionLengthRefinementArtifacts",
     "EssosImportedEndpointLabelLevels",

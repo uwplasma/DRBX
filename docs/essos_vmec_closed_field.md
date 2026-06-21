@@ -20,6 +20,7 @@ PYTHONPATH=src MPLBACKEND=Agg python \
 It writes:
 
 - `artifacts/essos_vmec_closed_field/data/essos_vmec_closed_field_campaign_dry_run_contract.json`
+- `artifacts/essos_vmec_closed_field/data/essos_vmec_closed_field_transient_dry_run_contract.json`
 
 ## Run The Live VMEC Gate
 
@@ -44,6 +45,49 @@ The live package writes:
 - `artifacts/essos_vmec_closed_field/data/essos_vmec_closed_field_campaign.json`
 - `artifacts/essos_vmec_closed_field/data/essos_vmec_closed_field_campaign.npz`
 - `artifacts/essos_vmec_closed_field/images/essos_vmec_closed_field_campaign.png`
+
+## Run The Reduced Closed-Field Transient
+
+The same example can also generate a compact reduced transient, profile,
+spectrum, and GIF movie on the periodic VMEC map. Set:
+
+```python
+RUN_LIVE_VMEC_TRANSIENT = True
+ESSOS_ROOT = Path("/path/to/ESSOS")
+```
+
+The transient package writes:
+
+- `artifacts/essos_vmec_closed_field/data/essos_vmec_closed_field_transient.json`
+- `artifacts/essos_vmec_closed_field/data/essos_vmec_closed_field_transient.npz`
+- `artifacts/essos_vmec_closed_field/images/essos_vmec_closed_field_transient.png`
+- `artifacts/essos_vmec_closed_field/movies/essos_vmec_closed_field_transient.gif`
+
+The reduced scalar model is
+
+\[
+\partial_t n =
+-\alpha_E\{\phi,n\}_{x,z}
++ \nabla_\parallel(\chi_\parallel\nabla_\parallel n)
++ \nabla_\perp\cdot(\chi_\perp\nabla_\perp n)
++ S_0 .
+\]
+
+The parallel gradient and diffusion use the periodic VMEC FCI maps. The
+perpendicular diffusion uses the conservative logical \(x,z\) metric-weighted
+operator. The bracket \(\{\phi,n\}_{x,z}\) is the logical perpendicular
+\(E\times B\) bracket used as a closed-field nonlinear transport control.
+The source \(S_0\) is a zero-volume-mean drive:
+
+\[
+\int J S_0\,dV = 0,
+\]
+
+and the implementation removes the \(J\)-weighted mean of the full right-hand
+side at every explicit substep. This makes the transient a profile/spectrum
+and conservation control for closed maps. It is not a target-connected SOL
+model: endpoint masks must be zero, target losses are disabled,
+sheath/recycling terms are disabled, and neutral-loss terms are disabled.
 
 ## Current Live Landreman-Paul QA Result
 
@@ -79,3 +123,9 @@ The generated PNG contains:
 The zero endpoint-mask panel is intentional. For a closed VMEC map, target and
 sheath semantics are disabled unless a separate artificial loss model is
 explicitly selected and labeled.
+
+The transient figure extends this control with a fixed VMEC cross-section,
+final density, radial profile evolution, fluctuation and mass-drift traces,
+and the final toroidal-poloidal spectrum. The GIF uses a fixed camera and
+shows the density fluctuation on the closed section with a colorbar and time
+annotation.

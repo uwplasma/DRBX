@@ -445,11 +445,12 @@ PYTHONPATH=src python \
   examples/geometry-3D/essos-field-lines/direct_coil_closed_field_demo.py
 ```
 
-Run the VMEC closed-field control. The default command writes a self-contained
-live-run contract; set `RUN_LIVE_VMEC = True` in the script to regenerate the
-periodic VMEC FCI map, zero-endpoint-mask check, and constant-state operator
-gate. This is the smooth closed-field tutorial path and does not apply target,
-sheath, recycling, or neutral-loss semantics:
+Run the VMEC closed-field control. The default command writes self-contained
+live-run contracts for the periodic FCI/operator gate and the reduced
+closed-field transient. Set `RUN_LIVE_VMEC = True` to regenerate the periodic
+VMEC FCI map and set `RUN_LIVE_VMEC_TRANSIENT = True` to generate the
+profile/spectrum plot and GIF. This is the smooth closed-field tutorial path
+and does not apply target, sheath, recycling, or neutral-loss semantics:
 
 ```bash
 PYTHONPATH=src python \
