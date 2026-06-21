@@ -284,6 +284,67 @@ raw diffusion source formula.
 
 ![Autodiff diffusion uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
 
+### Release-Closed Example Gallery
+
+These are the main `1.0.3` release-scope artifacts. They are intentionally
+release-hosted instead of tracked in git. Restore the local copies first:
+
+```bash
+python scripts/fetch_example_artifacts.py --skip-baselines --force
+```
+
+Regenerate the diverted tokamak movie and profile analysis from the restored
+arrays:
+
+```bash
+PYTHONPATH=src python examples/diverted_tokamak_movie_demo.py
+PYTHONPATH=src python examples/diverted_tokamak_profile_analysis_demo.py
+```
+
+![Diverted tokamak profile analysis](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__images__diverted_tokamak_turbulence_profiles.png)
+
+Run the core self-contained operator, neutral, and recycling validation
+campaigns:
+
+```bash
+PYTHONPATH=src python examples/engineering/fluid_1d_mms_convergence_demo.py
+PYTHONPATH=src python examples/engineering/open_field_operator_campaign_demo.py
+PYTHONPATH=src python examples/engineering/target_recycling_campaign_demo.py
+PYTHONPATH=src python examples/engineering/neutral_parallel_diffusion_campaign_demo.py
+PYTHONPATH=src python examples/engineering/neutral_mixed_term_balance_campaign_demo.py
+```
+
+![Open-field operator validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__open_field_operator_campaign_artifacts__images__open_field_operator_campaign.png)
+
+![Neutral mixed NVh term-balance audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
+
+Run the compact differentiability examples:
+
+```bash
+PYTHONPATH=src python examples/autodiff_diffusion_sensitivity_demo.py
+PYTHONPATH=src python examples/autodiff_diffusion_uncertainty_demo.py
+PYTHONPATH=src python examples/autodiff_diffusion_inverse_design_demo.py
+```
+
+![Autodiff sensitivity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png)
+
+![Autodiff inverse design](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png)
+
+Run the local CPU scaling example:
+
+```bash
+PYTHONPATH=src python examples/strong_scaling_diffusion_demo.py \
+  --skip-gpu \
+  --cpu-device-counts 1,2,4 \
+  --total-batch 32 \
+  --nx 512 \
+  --ny 64 \
+  --steps 12 \
+  --repeats 2
+```
+
+![Local CPU scaling](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__local_cpu_scaling_campaign_artifacts__images__local_cpu_scaling_campaign.png)
+
 ## 3D Geometry And Movies
 
 `jax_drb` includes reusable 3D geometry tooling for:
@@ -316,6 +377,82 @@ For nonlinear stellarator physics, start with
 [examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py](examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py):
 it shows the potential/vorticity solve and tested logical \(E\times B\)
 bracket explicitly before the faster movie-oriented reduced benchmark.
+
+### ESSOS Coil, VMEC, And Hybrid Stellarator Maps
+
+The ESSOS lane separates field generation from plasma evolution. ESSOS owns
+the coil representation, Biot-Savart field evaluation, adaptive tracing, and
+Poincare extraction. JAXDRB imports those arrays, builds fixed-shape FCI maps,
+and runs JAX-native geometry, sheath/recycling, neutral, PyTree/JVP, and
+reduced DRB validation gates on the imported maps.
+
+The imported stellarator scripts support three map semantics:
+
+- `coil`: ESSOS Biot-Savart coil-traced adjacent-plane endpoints with
+  open-field endpoint masks. This is the direct open-field coil-geometry lane.
+- `vmec`: VMEC-coordinate closed-field map from \(d\theta/d\phi =
+  B^\theta/B^\phi\), preserving closed flux surfaces and disabling target
+  endpoint masks. This is the closed-field control.
+- `hybrid`: VMEC-coordinate map positions with coil-derived endpoint masks,
+  connection-length proxy, and \(|B|\) modulation. This is the current
+  open-field SOL bridge used by the strongest release-hosted imported QA
+  movie.
+
+Current status: open-field `coil` and `hybrid` maps are implemented and carry
+endpoint/sheath/recycling diagnostics, but pure-coil long traces do not remain
+on a single scaled VMEC seed surface over the long trace. Therefore the
+release promotes compact imported-field validation and the high-resolution
+hybrid movie, not a device-scale predictive coil-field turbulence claim. The
+closed-field path should use the `vmec` map source until a coil-only closed
+surface construction passes its own Poincare and refinement gates.
+
+Restore the release-hosted ESSOS/VMEC/hybrid figures and movie:
+
+```bash
+python scripts/fetch_example_artifacts.py --skip-baselines --force
+```
+
+Run the self-contained connection-length refinement gate:
+
+```bash
+PYTHONPATH=src python \
+  examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py
+```
+
+Run the imported FCI campaign. By default this is a safe dry run for `coil`;
+edit the constants at the top of the script to set
+`MAP_SOURCES_TO_RUN = ("coil", "vmec", "hybrid")`, set `DRY_RUN = False`, and
+provide `JAX_DRB_ESSOS_ROOT`, `COIL_JSON_PATH`, or `VMEC_WOUT_PATH` when
+regenerating live imported geometry:
+
+```bash
+JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
+PYTHONPATH=src python \
+  examples/geometry-3D/essos-field-lines/imported_fci_campaign.py
+```
+
+Run the current high-resolution hybrid stationarity gate:
+
+```bash
+PYTHONPATH=src python \
+  examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py
+```
+
+Regenerate a movie package from the external geometry by editing
+`MAP_SOURCE = "coil"`, `"vmec"`, or `"hybrid"` near the top of
+`imported_drb_movie_campaign.py`, then running:
+
+```bash
+JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
+PYTHONPATH=src python \
+  examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py
+```
+
+![ESSOS imported QA-hybrid diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png)
+
+![ESSOS imported QA-hybrid snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__snapshots.png)
+
+![ESSOS imported QA-hybrid movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
 
 Detailed guides:
 
