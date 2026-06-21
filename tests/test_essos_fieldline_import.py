@@ -1387,6 +1387,34 @@ def test_live_imported_connection_length_refinement_can_use_step_length_per_radi
     assert np.max(arrays["level_0"]) < 4.0
 
 
+def test_connection_length_refinement_artifacts_use_finite_means(tmp_path: Path) -> None:
+    level_0 = np.array(
+        [
+            [[1.0, np.nan], [3.0, np.nan]],
+            [[np.nan, 5.0], [7.0, np.nan]],
+        ],
+        dtype=np.float64,
+    )
+    level_1 = np.repeat(np.repeat(np.repeat(level_0, 2, axis=0), 2, axis=1), 2, axis=2)
+
+    artifacts = create_essos_imported_connection_length_refinement_package(
+        output_root=tmp_path / "nan_refinement",
+        case_label="nan_refinement",
+        connection_levels=(level_0, level_1),
+        convergence_threshold=1.0,
+        linf_threshold=1.0,
+    )
+
+    with np.load(artifacts.arrays_npz_path) as arrays:
+        np.testing.assert_allclose(arrays["level_0_radial_mean"], np.array([2.0, 6.0]))
+        np.testing.assert_allclose(
+            arrays["level_0_toroidal_mean"],
+            np.array([[1.0, 5.0], [5.0, np.nan]]),
+            equal_nan=True,
+        )
+    assert artifacts.plot_png_path.exists()
+
+
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")
 def test_essos_fieldline_import_generates_portable_artifacts(tmp_path: Path) -> None:
     artifacts = create_essos_fieldline_import_package(

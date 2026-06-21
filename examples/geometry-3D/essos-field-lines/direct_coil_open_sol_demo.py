@@ -37,7 +37,7 @@ PRECISION = "float64"
 # Direct-coil open-field semantics. Do not change this to "hybrid" or "vmec"
 # in this script; those are separate control/bridge examples in the plan.
 MAP_SOURCE = "coil"
-CONNECTION_QUANTITY = "adjacent_step_length"
+REFINEMENT_QUANTITIES = ("adjacent_step_length", "target_exit_length")
 
 # FCI/open-endpoint validation gate.
 FCI_NX = 5
@@ -161,7 +161,7 @@ def write_workflow_summary(
     payload = {
         "diagnostic": "essos_direct_coil_open_sol_workflow",
         "map_source": MAP_SOURCE,
-        "connection_quantity": CONNECTION_QUANTITY,
+        "connection_refinement_quantities": list(REFINEMENT_QUANTITIES),
         "claim_boundary": (
             "Direct ESSOS coil-field open-SOL workflow. The default run writes a "
             "contract only; a promoted movie requires live FCI, connection-length, "
@@ -265,28 +265,32 @@ def run_fci_gate(settings: DirectCoilOpenSolSettings) -> dict[str, Any]:
     }
 
 
-def run_connection_refinement_gate(settings: DirectCoilOpenSolSettings) -> dict[str, Any]:
-    """Run or describe the pure-coil connection-length refinement blocker."""
+def run_connection_refinement_gate(
+    settings: DirectCoilOpenSolSettings,
+    *,
+    quantity: str,
+) -> dict[str, Any]:
+    """Run or describe one pure-coil connection-length refinement blocker."""
 
     if not settings.run_live_connection_refinement_gate:
         return {
-            "stage": "direct_coil_connection_length_refinement_gate",
+            "stage": f"direct_coil_{quantity}_refinement_gate",
             "status": "skipped",
             "promotion_ready": False,
             "next_action": (
                 "Set RUN_LIVE_CONNECTION_REFINEMENT_GATE=True to test whether "
-                "pure-coil adjacent-step maps have promotion-grade observed order."
+                f"pure-coil {quantity} maps have promotion-grade refinement evidence."
             ),
         }
 
     artifacts = create_live_essos_imported_connection_length_refinement_package(
         output_root=settings.output_root / "connection_length",
-        case_label=f"{settings.case_label}_connection_length",
+        case_label=f"{settings.case_label}_{quantity}",
         coil_json_path=settings.coil_json_path,
         vmec_wout_path=settings.vmec_wout_path,
         essos_root=settings.essos_root,
         map_source=MAP_SOURCE,
-        connection_quantity=CONNECTION_QUANTITY,
+        connection_quantity=quantity,
         level_shapes=REFINEMENT_LEVEL_SHAPES,
         rho_min=FCI_RHO_MIN,
         rho_max=FCI_RHO_MAX,
@@ -300,8 +304,9 @@ def run_connection_refinement_gate(settings: DirectCoilOpenSolSettings) -> dict[
     )
     report = _read_json(artifacts.report_json_path)
     return {
-        "stage": "direct_coil_connection_length_refinement_gate",
+        "stage": f"direct_coil_{quantity}_refinement_gate",
         "status": "ran",
+        "connection_quantity": quantity,
         "report_json_path": _path_text(artifacts.report_json_path),
         "arrays_npz_path": _path_text(artifacts.arrays_npz_path),
         "plot_png_path": _path_text(artifacts.plot_png_path),
@@ -370,7 +375,10 @@ def run_direct_coil_workflow(settings: DirectCoilOpenSolSettings) -> Path:
 
     stage_reports = [
         run_fci_gate(settings),
-        run_connection_refinement_gate(settings),
+        *(
+            run_connection_refinement_gate(settings, quantity=quantity)
+            for quantity in REFINEMENT_QUANTITIES
+        ),
         run_stationarity_gate(settings),
     ]
     return write_workflow_summary(settings, stage_reports)

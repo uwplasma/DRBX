@@ -601,8 +601,8 @@ def build_essos_imported_connection_length_refinement_campaign(
     }
     for index, level in enumerate(levels):
         arrays[f"level_{index}"] = np.asarray(level, dtype=np.float64)
-        arrays[f"level_{index}_radial_mean"] = np.mean(level, axis=(1, 2))
-        arrays[f"level_{index}_toroidal_mean"] = np.mean(level, axis=0)
+        arrays[f"level_{index}_radial_mean"] = _finite_mean(level, axis=(1, 2))
+        arrays[f"level_{index}_toroidal_mean"] = _finite_mean(level, axis=0)
     coordinate_payloads = _normalize_connection_coordinate_levels(
         coordinate_levels,
         expected_shapes=[level.shape for level in levels],
@@ -1448,7 +1448,7 @@ def save_essos_imported_connection_length_refinement_plot(
 
     fig, axes = plt.subplots(2, 2, figsize=(12.5, 9.0), constrained_layout=True)
     coarse_image = axes[0, 0].imshow(
-        np.mean(coarsest, axis=0).T,
+        _finite_mean(coarsest, axis=0).T,
         origin="lower",
         aspect="auto",
         cmap="viridis",
@@ -1459,7 +1459,7 @@ def save_essos_imported_connection_length_refinement_plot(
     fig.colorbar(coarse_image, ax=axes[0, 0], label=quantity_label)
 
     fine_image = axes[0, 1].imshow(
-        np.mean(finest, axis=0).T,
+        _finite_mean(finest, axis=0).T,
         origin="lower",
         aspect="auto",
         cmap="viridis",
