@@ -441,6 +441,17 @@ PYTHONPATH=src python \
   examples/geometry-3D/essos-field-lines/direct_coil_closed_field_demo.py
 ```
 
+Run the VMEC closed-field control. The default command writes a self-contained
+live-run contract; set `RUN_LIVE_VMEC = True` in the script to regenerate the
+periodic VMEC FCI map, zero-endpoint-mask check, and constant-state operator
+gate. This is the smooth closed-field tutorial path and does not apply target,
+sheath, recycling, or neutral-loss semantics:
+
+```bash
+PYTHONPATH=src python \
+  examples/geometry-3D/essos-field-lines/vmec_closed_field_demo.py
+```
+
 Run the imported FCI campaign. By default this is a safe dry run for `coil`;
 edit the constants at the top of the script to set
 `MAP_SOURCES_TO_RUN = ("coil", "vmec", "hybrid")`, set `DRY_RUN = False`, and
@@ -490,6 +501,7 @@ Detailed guides:
 - [docs/vmec_extender_edge_fields.md](docs/vmec_extender_edge_fields.md)
 - [docs/essos_imported_fci_validation.md](docs/essos_imported_fci_validation.md)
 - [docs/essos_direct_coil_closed_control.md](docs/essos_direct_coil_closed_control.md)
+- [docs/essos_vmec_closed_field.md](docs/essos_vmec_closed_field.md)
 - [docs/essos_vmec_fieldline_surface.md](docs/essos_vmec_fieldline_surface.md)
 - [docs/non_axisymmetric_stellarator_sol_plan.md](docs/non_axisymmetric_stellarator_sol_plan.md)
 - [docs/dynamics_gallery.md](docs/dynamics_gallery.md)

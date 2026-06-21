@@ -75,6 +75,28 @@ are intended to separate a useful closed/near-closed control from a clearly
 open or no-return trace bundle before any closed-field turbulence example is
 promoted.
 
+## Current Live Landreman-Paul QA Result
+
+The first live direct-coil run used 16 seed lines on a VMEC-shaped shell,
+`maxtime = 240`, and 1200 trace samples. The control passed the current
+return-map gate:
+
+- Poincare points: `639`
+- Mean toroidal turns: `10.11`
+- Closed fraction: `0.125`
+- Near-closed fraction: `0.875`
+- Open-like fraction: `0.0`
+- No-return fraction: `0.0`
+- Median normalized return distance: `6.68e-2`
+- 95th-percentile normalized return distance: `8.45e-2`
+
+This is useful closed/near-closed direct-coil evidence, but it does not change
+the open-SOL claim boundary. Open-field direct-coil media still requires
+endpoint-label and adjacent-step refinement to pass. Closed-field physics
+examples should use either this return-map control or the smoother VMEC map
+lane, and they should continue to omit target, sheath, recycling, and neutral
+losses unless an explicit endpoint mask is introduced.
+
 ## Why This Gate Exists
 
 Open-field stellarator SOL examples need endpoint masks, one-sided connection
