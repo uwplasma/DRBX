@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jax-drb"
-version = "1.0.2"
-description = "Fresh JAX edge/SOL plasma code with differentiable, hardware-agnostic solver infrastructure."
+version = "1.0.3"
+description = "JAX-first edge and scrape-off-layer plasma code with differentiable, hardware-agnostic solver infrastructure."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

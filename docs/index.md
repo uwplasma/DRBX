@@ -1,6 +1,6 @@
 # JAXDRB Documentation
 
-JAXDRB is a JAX-native edge and scrape-off-layer plasma code for
+JAXDRB is a JAX-first edge and scrape-off-layer plasma code for
 drift-reduced Braginskii models, electrostatic turbulence, neutral transport,
 curated tokamak workflows, and reusable 3D geometry diagnostics.
 

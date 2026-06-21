@@ -221,12 +221,17 @@ refreshes so the publish workflow remains skipped.
 
 ## Current Release Boundary
 
+The current package release target is `1.0.3`. The already published `v1.0.2`
+tag must not be moved; publish the next package release as `v1.0.3` when the
+remaining local and hosted gates are accepted.
+
 The current package release is intended to support:
 
 - standalone CLI and Python-driver workflows,
 - promoted native-exact and native-operational validation lanes,
 - reduced but real 3D tokamak, traced-field-line, and stellarator workflows,
-- artifact-driven parity, runtime, convergence, and profiling reports.
+- artifact-driven parity, runtime, convergence, and profiling reports,
+- software citation through the root `CITATION.cff` file.
 
 The release does not promote the full output-window recycling JAX/JVP solver
 as the default path yet. The stable default remains the validated compatibility
