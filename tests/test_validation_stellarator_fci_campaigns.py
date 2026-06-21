@@ -479,7 +479,20 @@ def test_imported_fci_connection_length_resolution_diagnostics_are_advisory() ->
         endpoint_localized["map_quality_diagnostics"]["roughness_localization"]
         == "endpoint_touch_dominated"
     )
-    assert "target classifier" in endpoint_localized["map_quality_diagnostics"][
+    assert endpoint_localized["connection_length_resolution_passed"] is True
+    assert (
+        endpoint_localized["connection_length_resolution_diagnostics"][
+            "endpoint_aware_passed"
+        ]
+        is True
+    )
+    assert (
+        endpoint_localized["connection_length_resolution_diagnostics"][
+            "interior_resolution_passed"
+        ]
+        is True
+    )
+    assert "endpoint-mask refinement" in endpoint_localized["map_quality_diagnostics"][
         "recommended_next_action"
     ]
 

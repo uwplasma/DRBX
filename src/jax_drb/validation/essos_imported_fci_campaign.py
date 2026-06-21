@@ -120,6 +120,9 @@ _IMPORTED_FCI_DIAGNOSTIC_SCHEMA = {
         "dominant_underresolved_direction",
         "endpoint_touch_normalized_jump_p95",
         "interior_normalized_jump_p95",
+        "interior_resolution_passed",
+        "endpoint_touch_dominated",
+        "endpoint_aware_passed",
         "advisory_threshold",
         "passed",
     ],
@@ -2054,12 +2057,31 @@ def _connection_length_resolution_diagnostics(
             "dominant_underresolved_direction": dominant_underresolved_direction,
             "endpoint_touch_normalized_jump_p95": region_stats["endpoint_touch_normalized_jump_p95"],
             "interior_normalized_jump_p95": region_stats["interior_normalized_jump_p95"],
+            "interior_resolution_passed": False,
+            "endpoint_touch_dominated": False,
+            "endpoint_aware_passed": False,
             "advisory_threshold": threshold,
             "passed": False,
         }
 
     p95 = float(np.percentile(finite_jumps, 95.0))
     finite_face_fraction = float(finite_jumps.size / max(all_jumps.size, 1))
+    endpoint_p95 = region_stats["endpoint_touch_normalized_jump_p95"]
+    interior_p95 = region_stats["interior_normalized_jump_p95"]
+    interior_resolution_passed = (
+        interior_p95 is not None and float(interior_p95) <= threshold
+    )
+    endpoint_touch_dominated = (
+        endpoint_p95 is not None
+        and interior_p95 is not None
+        and float(endpoint_p95) > 1.25 * float(interior_p95)
+    )
+    global_resolution_passed = finite_face_fraction == 1.0 and p95 <= threshold
+    endpoint_aware_passed = (
+        finite_face_fraction == 1.0
+        and endpoint_touch_dominated
+        and interior_resolution_passed
+    )
     return {
         "finite_face_fraction": finite_face_fraction,
         "normalized_face_jump_mean": float(np.mean(finite_jumps)),
@@ -2080,8 +2102,11 @@ def _connection_length_resolution_diagnostics(
         "dominant_underresolved_direction": dominant_underresolved_direction,
         "endpoint_touch_normalized_jump_p95": region_stats["endpoint_touch_normalized_jump_p95"],
         "interior_normalized_jump_p95": region_stats["interior_normalized_jump_p95"],
+        "interior_resolution_passed": bool(interior_resolution_passed),
+        "endpoint_touch_dominated": bool(endpoint_touch_dominated),
+        "endpoint_aware_passed": bool(endpoint_aware_passed),
         "advisory_threshold": threshold,
-        "passed": bool(finite_face_fraction == 1.0 and p95 <= threshold),
+        "passed": bool(global_resolution_passed or endpoint_aware_passed),
     }
 
 
@@ -2116,6 +2141,9 @@ def _map_quality_diagnostics(
         localization = "distributed"
 
     resolution_passed = bool(connection_resolution_diagnostics.get("passed", False))
+    endpoint_aware_passed = bool(
+        connection_resolution_diagnostics.get("endpoint_aware_passed", False)
+    )
     endpoint_passed = bool(endpoint_length_diagnostics.get("passed", False))
     if source == "vmec":
         recommended = (
@@ -2126,6 +2154,12 @@ def _map_quality_diagnostics(
         recommended = (
             "Fix endpoint/target-exit reconstruction before running an open-SOL "
             "transient; sheath and recycling would consume incomplete masks."
+        )
+    elif resolution_passed and endpoint_aware_passed:
+        recommended = (
+            "Interior FCI map resolution is green; target-exit jumps are localized "
+            "on physical endpoint-mask faces. Validate endpoint-mask refinement, "
+            "source accounting, and target plots before promoting an open-SOL movie."
         )
     elif not resolution_passed and localization == "endpoint_touch_dominated":
         recommended = (

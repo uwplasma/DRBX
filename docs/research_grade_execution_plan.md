@@ -350,7 +350,7 @@ and tests all move together.
 | Neutral, recycling, sheath, detachment | 80% | Neutral parallel diffusion and target recycling source mapping now have active-layout seams with full-field active-slice parity and JVP gates; finish full sheath orchestration, target/sheath coupling gates, and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
 | Compact imported-field/VMEC/hybrid showcase | 99% within compact scope | The compact hybrid movie and high-resolution reduced-transient reports pass the current release-scoped grid/time/stationarity and visual-QA gates. This is not a broad device-scale stellarator turbulence claim. The broader open/closed stellarator SOL program is tracked separately in the post-release open-lane plan below. |
-| 3D stellarator open/closed SOL program | 52% overall | Direct ESSOS-coil open-field maps, VMEC closed-field controls, hybrid open-SOL promotion, finite-beta VMEC-extender exterior fields, and HSX/NCSX/Dommaschk expansion remain active lanes. The immediate blocker is direct-coil map/refinement roughness and target-exit semantics before direct-coil media can be promoted. |
+| 3D stellarator open/closed SOL program | 57% overall | The direct ESSOS-coil FCI endpoint/source gate now passes with endpoint-aware map-quality diagnostics: interior FCI resolution is green, endpoint/source accounting closes, and target-exit lengths are finite only on endpoint cells. Direct-coil adjacent-step and target-exit nested refinement still fail, so direct-coil media remains unpromoted. VMEC closed-field controls, hybrid open-SOL promotion, finite-beta VMEC-extender exterior fields, and HSX/NCSX/Dommaschk expansion remain active lanes. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 98% | README, examples, release-packaging docs, and 1.0.3 release notes now state the stable-default versus opt-in research-gate boundary. The docs-media release bundle has been refreshed and `scripts/fetch_example_artifacts.py --skip-baselines --force` restores `174/174` manifest media files in an isolated root; the self-contained docs/example slice and representative tokamak/stellarator commands pass locally. Keep rechecking this gate only when README media, release assets, or example commands change. |
 | Repo footprint | 97% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs and the 1.0.3 wheel/sdist remain about `709 KiB` and `614 KiB`. The fast release-readiness audit now checks the footprint invariants directly. |
@@ -442,7 +442,7 @@ Current planning audit:
 
 | Lane | Status | Completion | Immediate blocker |
 | --- | --- | ---: | --- |
-| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, pure-coil adjacent-step diagnostics, a main-branch direct-coil open-SOL workflow contract, fresh live FCI/source-accounting evidence, and source-level map-quality diagnostics exist. Source accounting closes to near roundoff, but pure-coil adjacent-step refinement remains weak-order and target-exit refinement remains rough. | 45% | Rerun the live direct-coil gates with the new map-quality diagnostics, then improve direct-coil map/refinement construction before promoting direct-coil media. |
+| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, pure-coil adjacent-step diagnostics, a main-branch direct-coil open-SOL workflow contract, endpoint-aware FCI map-quality diagnostics, and live endpoint/source-accounting evidence exist. Target-exit lengths are now masked to endpoint cells, and the live FCI endpoint/source gate passes because interior FCI resolution is green while endpoint jumps are correctly classified as physical endpoint-mask discontinuities. | 55% | Direct-coil media remains unpromoted. The next blocker is not source accounting; it is live nested refinement: adjacent-step observed order remains low and target-exit length remains nonmonotone/discontinuous. Decide whether direct coil stays diagnostic or whether a refined endpoint-mask/target projection can pass before moving to VMEC closed-field controls and hybrid promotion. |
 | VMEC closed-field stellarator lane | VMEC-coordinate maps are available as the smooth closed-field control for Landreman-Paul QA-style surfaces. | 55% | Add explicit closed-field examples and tests that do not use open-target/sheath semantics, then generate closed-surface turbulence/profile plots. |
 | Hybrid open-SOL stellarator lane | Current strongest compact evidence uses VMEC map coordinates with coil-derived endpoint masks and `|B|` modulation. | 75% | Upgrade from compact reduced movie evidence to longer/refined open-SOL campaigns with endpoint, sheath, recycling, neutral, profile, and movie QA gates. |
 | VMEC-extender finite-beta exterior-field lane | JAXDRB already has the NetCDF import contract and synthetic SOL smoke gate. Upstream virtual-casing and ESSOS extender PRs remain open. | 35% | Wait for, or vendor only artifact-compatible outputs from, upstream exporter workflows; then validate real finite-beta exterior fields with field, metric, wall-hit, and connection-length gates. |
@@ -4796,6 +4796,25 @@ Use this log for concise decision records. Do not paste terminal output here.
   provenance-rich artifacts for finite-beta SOL after field, branch/sign,
   endpoint/wall, connection-length, FCI/operator, sheath/recycling/neutral,
   and refinement gates pass.
+- 2026-06-21: Advanced the direct ESSOS-coil open-field gate. Target-exit
+  lengths are now masked to cells whose traced FCI direction actually reaches
+  a boundary, so `target_exit_length` is finite on endpoint cells and NaN on
+  non-endpoint cells. Added endpoint-aware single-grid map-quality acceptance:
+  large jumps on faces touching endpoint masks remain reported, but the FCI map
+  can pass when the interior map is resolved. The live direct-coil FCI
+  endpoint/source gate now passes with `connection_length_resolution_passed =
+  true`, `interior_resolution_passed = true`, `endpoint_aware_passed = true`,
+  `interior_normalized_jump_p95 = 2.98e-2`, and
+  `endpoint_touch_normalized_jump_p95 = 1.93`. Endpoint/source accounting also
+  passes: target-exit finite endpoint fraction is `1.0`, finite non-endpoint
+  fraction is `0.0`, and target labels reconstruct the consumed endpoint masks
+  exactly. The full direct-coil workflow remains not promotion-ready because
+  nested refinement still fails: adjacent-step length has small finest RMS
+  `7.63e-3` but observed order `0.104`, while target-exit length has finest
+  RMS `0.590`, \(L_\infty\) `3.01`, and observed order `-0.241`. Decision:
+  move the ESSOS direct-coil lane to `55%`; keep direct-coil media unpromoted
+  and either improve endpoint-mask/target projection refinement next or shift
+  the promoted visual path to VMEC closed-field and hybrid open-SOL lanes.
 
 ## Definition Of Done
 

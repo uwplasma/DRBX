@@ -259,16 +259,22 @@ falls back to endpoint counts and the connection-length proxy for closed VMEC
 maps. The resolution diagnostics record normalized neighbor jumps, per-axis
 95th-percentile jumps, per-axis underresolved-face fractions, dominant rough
 and underresolved directions, endpoint-touch versus interior roughness, an
-underresolved-face fraction, and an advisory pass flag. The
-`map_quality_diagnostics` block then converts these low-level numbers into a
-short recommendation. In the current committed artifacts, the `coil` and
-`hybrid` reports are toroidally dominated and endpoint-touch dominated, so the
-next direct-coil work should target target-classifier and target-exit
-construction before movie promotion; the closed `vmec` report is an
-interior-only closed-map control and should not be used for open-target
-sheath/recycling claims. These diagnostics catch obviously grid-scale
-connection-length roughness before a live imported run is promoted, but they
-are not a replacement for a multi-grid refinement campaign. Set
+underresolved-face fraction, and an advisory pass flag. For open-field maps the
+diagnostic is endpoint-aware: if large jumps are localized on physical
+endpoint-mask faces while the interior map is resolved, the report sets
+`endpoint_aware_passed=true` and `interior_resolution_passed=true` while still
+recording the large `endpoint_touch_normalized_jump_p95`. This avoids treating
+a physical target-exit discontinuity as an interior FCI interpolation failure.
+The `map_quality_diagnostics` block then converts these low-level numbers into
+a short recommendation. In the current committed artifacts, the `coil` and
+`hybrid` reports are toroidally dominated and endpoint-touch dominated, but
+their interior FCI map resolution is green and their endpoint/source accounting
+closes. They still require endpoint-mask refinement, target/source plots, and
+nested refinement evidence before movie promotion; the closed `vmec` report is
+an interior-only closed-map control and should not be used for open-target
+sheath/recycling claims. These diagnostics catch grid-scale connection-length
+roughness before a live imported run is promoted, but they are not a
+replacement for a multi-grid refinement campaign. Set
 `require_connection_resolution=True` in the campaign API, or
 `REQUIRE_CONNECTION_RESOLUTION = True` in the example script, when the
 single-grid diagnostic should reject the imported map instead of only
