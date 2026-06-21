@@ -27,6 +27,7 @@ from jax_drb.validation import (
     build_essos_imported_drb_movie_refinement_next_campaign,
     build_essos_imported_drb_movie_refinement_summary,
     build_essos_imported_drb_movie_stationarity_report,
+    build_essos_imported_fci_source_profile_gate,
     build_live_essos_imported_connection_length_levels,
     create_essos_fieldline_import_package,
     create_essos_direct_coil_closed_control_package,
@@ -1592,6 +1593,54 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     assert "adjacent_step_toroidal" in arrays.files
     assert np.max(arrays["target_label_toroidal"]) > 0.0
     assert np.any(np.isfinite(arrays["target_exit_toroidal"]))
+
+
+def test_essos_imported_fci_source_profile_gate_checks_target_sources_and_profiles() -> None:
+    report = {
+        "map_source": "coil",
+        "consumed_map_diagnostics": {
+            "endpoint_count_matches_boundary_masks": True,
+        },
+        "target_label_diagnostics": {
+            "endpoint_count_matches_target_labels": True,
+            "passed": True,
+        },
+        "particle_recycling_relative_error": 2.0e-13,
+        "current_balance_relative_error": 3.0e-13,
+        "neutral_particle_relative_error": 4.0e-13,
+        "neutral_momentum_relative_error": 5.0e-13,
+        "neutral_diffusion_relative_integral": 2.0e-3,
+    }
+    arrays = {
+        "target_label_toroidal": np.asarray([[0.0, 1.0], [2.0, 3.0]]),
+        "heat_load_toroidal": np.asarray([[0.0, 0.4], [0.2, 0.8]]),
+        "ionisation_toroidal": np.asarray([[0.1, 0.2], [0.3, 0.4]]),
+        "radial_grid": np.asarray([0.12, 0.20, 0.34]),
+        "radial_profiles": np.asarray(
+            [
+                [1.0, 2.0, 0.10, 0.20],
+                [1.1, 2.1, 0.20, 0.25],
+                [1.2, 2.2, 0.30, 0.30],
+            ]
+        ),
+        "summary": np.asarray([1.0, 2.0, 3.0, 0.1, 0.2, 1.0e-3]),
+    }
+
+    gate = build_essos_imported_fci_source_profile_gate(report, arrays)
+
+    assert gate["passed"] is True
+    assert gate["promotion_ready"] is True
+    assert gate["evidence_role"] == "source_profile_gate_passed"
+    assert gate["target_labels_present"] is True
+    assert gate["heat_load_positive"] is True
+    assert gate["ionisation_source_positive"] is True
+    assert gate["radial_grid_ordered"] is True
+
+    missing_target_arrays = dict(arrays)
+    missing_target_arrays["target_label_toroidal"] = np.zeros((2, 2))
+    failed = build_essos_imported_fci_source_profile_gate(report, missing_target_arrays)
+    assert failed["passed"] is False
+    assert "open_map_target_labels_missing" in failed["promotion_rejection_reasons"]
 
 
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil/VMEC inputs are not available")

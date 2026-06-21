@@ -71,6 +71,14 @@ _IMPORTED_FCI_ARRAY_KEYS = (
     "radial_profiles",
     "summary",
 )
+_IMPORTED_FCI_SOURCE_PROFILE_ARRAY_KEYS = (
+    "target_label_toroidal",
+    "heat_load_toroidal",
+    "ionisation_toroidal",
+    "radial_grid",
+    "radial_profiles",
+    "summary",
+)
 _IMPORTED_FCI_REQUIRED_REPORT_FIELDS = (
     "case",
     "source",
@@ -1534,6 +1542,203 @@ def build_essos_imported_fci_campaign(
         ),
     }
     return report, arrays
+
+
+def build_essos_imported_fci_source_profile_gate(
+    report: dict[str, Any],
+    arrays: Any,
+    *,
+    particle_balance_tolerance: float = 1.0e-10,
+    neutral_balance_tolerance: float = 1.0e-10,
+    neutral_diffusion_tolerance: float = 5.0e-2,
+) -> dict[str, Any]:
+    """Check that imported FCI source/profile artifacts support SOL claims.
+
+    The gate consumes the JSON/NPZ output from
+    :func:`build_essos_imported_fci_campaign`. It makes the source/profile
+    evidence explicit for workflow ledgers: target-label maps, heat-load maps,
+    neutral-source maps, radial profiles, and source-balance residuals must all
+    be present and finite on the same endpoint masks consumed by the closures.
+    """
+
+    map_source = _normalize_imported_fci_map_source(str(report.get("map_source", "coil")))
+    array_names = set(getattr(arrays, "files", []))
+    if not array_names and hasattr(arrays, "keys"):
+        array_names = set(str(key) for key in arrays.keys())
+    missing_array_keys = [
+        key for key in _IMPORTED_FCI_SOURCE_PROFILE_ARRAY_KEYS if key not in array_names
+    ]
+
+    def _array(name: str) -> np.ndarray:
+        if name in missing_array_keys:
+            return np.asarray([], dtype=np.float64)
+        return np.asarray(arrays[name], dtype=np.float64)
+
+    target_labels = _array("target_label_toroidal")
+    heat_load = _array("heat_load_toroidal")
+    ionisation = _array("ionisation_toroidal")
+    radial_grid = _array("radial_grid")
+    radial_profiles = _array("radial_profiles")
+    summary = _array("summary")
+
+    finite_source_maps = bool(
+        not missing_array_keys
+        and np.all(np.isfinite(target_labels))
+        and np.all(np.isfinite(heat_load))
+        and np.all(np.isfinite(ionisation))
+    )
+    radial_profile_shape_passed = bool(
+        radial_profiles.ndim == 2
+        and radial_profiles.shape[0] == radial_grid.size
+        and radial_profiles.shape[1] >= 4
+        and radial_grid.size >= 2
+    )
+    radial_profile_finite = bool(
+        radial_profile_shape_passed
+        and np.all(np.isfinite(radial_grid))
+        and np.all(np.isfinite(radial_profiles))
+    )
+    radial_grid_ordered = bool(
+        radial_grid.size >= 2 and np.all(np.diff(radial_grid) > 0.0)
+    )
+    open_map = map_source != "vmec"
+    target_labels_present = bool(np.any(target_labels > 0.0)) if target_labels.size else False
+    heat_positive = bool(np.nanmax(heat_load) > 0.0) if heat_load.size else False
+    ionisation_positive = bool(np.nanmax(ionisation) > 0.0) if ionisation.size else False
+    particle_loss_profile_positive = bool(
+        radial_profile_shape_passed and np.nanmax(radial_profiles[:, 2]) > 0.0
+    )
+    ionisation_profile_positive = bool(
+        radial_profile_shape_passed and np.nanmax(radial_profiles[:, 3]) > 0.0
+    )
+    summary_finite = bool(summary.size >= 6 and np.all(np.isfinite(summary[:6])))
+
+    consumed_map = report.get("consumed_map_diagnostics", {})
+    target_labels_report = report.get("target_label_diagnostics", {})
+    consumed_masks_exact = bool(consumed_map.get("endpoint_count_matches_boundary_masks", False))
+    target_labels_exact = bool(
+        target_labels_report.get("endpoint_count_matches_target_labels", False)
+    )
+    target_label_gate_passed = bool(target_labels_report.get("passed", False))
+    particle_balance = float(report.get("particle_recycling_relative_error", np.inf))
+    current_balance = float(report.get("current_balance_relative_error", np.inf))
+    neutral_particle_balance = float(report.get("neutral_particle_relative_error", np.inf))
+    neutral_momentum_balance = float(report.get("neutral_momentum_relative_error", np.inf))
+    neutral_diffusion_balance = float(report.get("neutral_diffusion_relative_integral", np.inf))
+    balance_passed = bool(
+        particle_balance <= float(particle_balance_tolerance)
+        and current_balance <= float(particle_balance_tolerance)
+        and neutral_particle_balance <= float(neutral_balance_tolerance)
+        and neutral_momentum_balance <= float(neutral_balance_tolerance)
+        and neutral_diffusion_balance <= float(neutral_diffusion_tolerance)
+    )
+
+    if open_map:
+        source_profile_passed = bool(
+            finite_source_maps
+            and radial_profile_finite
+            and radial_grid_ordered
+            and target_labels_present
+            and heat_positive
+            and ionisation_positive
+            and particle_loss_profile_positive
+            and ionisation_profile_positive
+            and summary_finite
+            and consumed_masks_exact
+            and target_labels_exact
+            and target_label_gate_passed
+            and balance_passed
+        )
+    else:
+        source_profile_passed = bool(
+            finite_source_maps
+            and radial_profile_finite
+            and radial_grid_ordered
+            and not target_labels_present
+            and ionisation_positive
+            and summary_finite
+            and consumed_masks_exact
+            and target_labels_exact
+            and target_label_gate_passed
+            and balance_passed
+        )
+
+    rejection_reasons: list[str] = []
+    if missing_array_keys:
+        rejection_reasons.append("missing_source_profile_arrays")
+    if not finite_source_maps:
+        rejection_reasons.append("nonfinite_source_maps")
+    if not radial_profile_shape_passed:
+        rejection_reasons.append("radial_profile_shape_invalid")
+    if radial_profile_shape_passed and not radial_profile_finite:
+        rejection_reasons.append("nonfinite_radial_profiles")
+    if radial_profile_shape_passed and not radial_grid_ordered:
+        rejection_reasons.append("radial_grid_not_strictly_increasing")
+    if open_map and not target_labels_present:
+        rejection_reasons.append("open_map_target_labels_missing")
+    if open_map and not heat_positive:
+        rejection_reasons.append("open_map_heat_load_missing")
+    if not ionisation_positive:
+        rejection_reasons.append("neutral_ionisation_source_missing")
+    if open_map and not particle_loss_profile_positive:
+        rejection_reasons.append("particle_loss_profile_missing")
+    if not ionisation_profile_positive:
+        rejection_reasons.append("ionisation_profile_missing")
+    if not summary_finite:
+        rejection_reasons.append("summary_integrals_missing_or_nonfinite")
+    if not consumed_masks_exact:
+        rejection_reasons.append("endpoint_masks_not_consumed_exactly")
+    if not target_labels_exact:
+        rejection_reasons.append("target_labels_do_not_reconstruct_endpoint_counts")
+    if not target_label_gate_passed:
+        rejection_reasons.append("target_label_gate_failed")
+    if not balance_passed:
+        rejection_reasons.append("source_balance_residual_above_tolerance")
+
+    evidence_role = "source_profile_gate_passed"
+    if not source_profile_passed:
+        if missing_array_keys:
+            evidence_role = "missing_source_profile_artifacts"
+        elif not balance_passed:
+            evidence_role = "source_balance_incomplete"
+        elif not (consumed_masks_exact and target_labels_exact and target_label_gate_passed):
+            evidence_role = "endpoint_mask_consumption_incomplete"
+        else:
+            evidence_role = "source_profile_incomplete"
+
+    return {
+        "diagnostic": "essos_imported_fci_source_profile_gate",
+        "map_source": map_source,
+        "open_map": bool(open_map),
+        "required_array_keys": list(_IMPORTED_FCI_SOURCE_PROFILE_ARRAY_KEYS),
+        "missing_array_keys": missing_array_keys,
+        "finite_source_maps": bool(finite_source_maps),
+        "radial_profile_shape": list(radial_profiles.shape),
+        "radial_profile_shape_passed": bool(radial_profile_shape_passed),
+        "radial_profile_finite": bool(radial_profile_finite),
+        "radial_grid_ordered": bool(radial_grid_ordered),
+        "target_labels_present": bool(target_labels_present),
+        "heat_load_positive": bool(heat_positive),
+        "ionisation_source_positive": bool(ionisation_positive),
+        "particle_loss_profile_positive": bool(particle_loss_profile_positive),
+        "ionisation_profile_positive": bool(ionisation_profile_positive),
+        "summary_integrals_finite": bool(summary_finite),
+        "consumed_endpoint_masks_exact": bool(consumed_masks_exact),
+        "target_labels_reconstruct_endpoint_counts": bool(target_labels_exact),
+        "target_label_gate_passed": bool(target_label_gate_passed),
+        "particle_recycling_relative_error": particle_balance,
+        "current_balance_relative_error": current_balance,
+        "neutral_particle_relative_error": neutral_particle_balance,
+        "neutral_momentum_relative_error": neutral_momentum_balance,
+        "neutral_diffusion_relative_integral": neutral_diffusion_balance,
+        "particle_balance_tolerance": float(particle_balance_tolerance),
+        "neutral_balance_tolerance": float(neutral_balance_tolerance),
+        "neutral_diffusion_tolerance": float(neutral_diffusion_tolerance),
+        "promotion_ready": bool(source_profile_passed),
+        "passed": bool(source_profile_passed),
+        "evidence_role": evidence_role,
+        "promotion_rejection_reasons": rejection_reasons,
+    }
 
 
 def build_essos_imported_fci_map_diagnostics(

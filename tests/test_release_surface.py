@@ -497,6 +497,10 @@ def test_direct_coil_open_sol_default_contract_includes_media_stage(
     assert summary["map_source"] == "coil"
     assert summary["settings"]["run_live_media_gate"] is False
     assert summary["promotion_ready"] is False
+    assert stage_by_name["direct_coil_source_profile_gate"]["status"] == "contract_only"
+    assert "target-label, heat-load" in stage_by_name[
+        "direct_coil_source_profile_gate"
+    ]["next_action"]
     assert stage_by_name["direct_coil_diagnostic_turbulence_media"]["status"] == "skipped"
     assert "Set RUN_LIVE_MEDIA_GATE=True" in stage_by_name[
         "direct_coil_diagnostic_turbulence_media"

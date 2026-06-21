@@ -413,7 +413,7 @@ Current planning audit:
 
 | Lane | Status | Completion | Immediate blocker |
 | --- | --- | ---: | --- |
-| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, pure-coil adjacent-step diagnostics, a main-branch direct-coil open-SOL workflow contract, endpoint-aware FCI map-quality diagnostics, live endpoint/source-accounting evidence, and a categorical endpoint-label refinement gate now exist. Target-exit lengths are masked to endpoint cells, and the live FCI endpoint/source gate passes because interior FCI resolution is green while endpoint jumps are correctly classified as physical endpoint-mask discontinuities. The first live endpoint-label refinement rerun failed with minimum all-label and endpoint agreement `0.444`, and adjacent-step observed order remains `0.104`. | 64% diagnostic | Direct-coil media remains unpromoted. The direct-coil open-field lane should now be treated as diagnostic geometry evidence until endpoint-label stability or map construction improves; the promoted visual path moves to VMEC closed-field controls and hybrid open-SOL. |
+| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, pure-coil adjacent-step diagnostics, a main-branch direct-coil open-SOL workflow contract, endpoint-aware FCI map-quality diagnostics, live endpoint/source-accounting evidence, a reusable source/profile gate, and a categorical endpoint-label refinement gate now exist. Target-exit lengths are masked to endpoint cells, and the live FCI endpoint/source gate passes because interior FCI resolution is green while endpoint jumps are correctly classified as physical endpoint-mask discontinuities. The explicit source/profile gate checks target labels, sheath heat load, neutral source maps, radial profiles, and source-balance residuals from the same consumed endpoint masks. The first live endpoint-label refinement rerun failed with minimum all-label and endpoint agreement `0.444`, and adjacent-step observed order remains `0.104`. | 66% diagnostic | Direct-coil media remains unpromoted. The direct-coil open-field lane should now be treated as diagnostic geometry evidence until endpoint-label stability or map construction improves; the promoted visual path moves to VMEC closed-field controls and hybrid open-SOL. |
 | ESSOS direct-coil closed-field controls | A self-contained direct-coil closed/near-closed control package now exists with manufactured non-axisymmetric traces, Poincare sections, same-section return-distance classification, JSON/NPZ/PNG artifacts, tests, docs, and an example script. The first live Landreman-Paul QA run also passes the return-map gate: 16 seed lines, 639 Poincare points, mean toroidal turns `10.11`, closed fraction `0.125`, near-closed fraction `0.875`, no open-like/no-return lines, and normalized return-distance p95 `8.45e-2`. The report deliberately applies no target, sheath, recycling, or neutral semantics. | 60% | Add a same-source refinement or longer-window control before promoting any closed direct-coil movie; keep the VMEC lane as the smoother closed-field physics tutorial path. |
 | VMEC closed-field stellarator lane | An explicit VMEC closed-field tutorial/gate now exists with a self-contained dry-run contract, opt-in live ESSOS/VMEC regeneration, zero-endpoint-mask semantics, constant-state FCI operator checks, documentation, and tests. The reduced closed-field transient/profile/spectrum/movie campaign is now exported, reachable from the example, documented with its equation and closed-field claim boundary, and tested on a periodic VMEC-shaped fixture with endpoint rejection. The first live Landreman-Paul QA compact gate passes on a `(4, 6, 16)` map with zero forward/backward endpoint fractions, finite map coordinates, `|B|` modulation `1.247`, mean closed-step length `1.149`, and zero constant-field gradient, Laplacian, and conservative-diffusion residuals. A default live `(5, 8, 20)` transient also passes with endpoint fraction `0`, mass drift `2.1e-15`, final RMS `3.38e-2`, positive density, and finite spectrum; frame QA shows a stable but visually quiet control movie. | 82% | Keep this as closed-field profile/spectrum/control evidence. For promoted turbulence media, move next to hybrid open-SOL or a stronger full-DRB closed-field model rather than overstating this reduced control movie. |
 | Hybrid open-SOL stellarator lane | Current strongest compact evidence uses VMEC map coordinates with coil-derived endpoint masks and `|B|` modulation. | 75% | Upgrade from compact reduced movie evidence to longer/refined open-SOL campaigns with endpoint, sheath, recycling, neutral, profile, and movie QA gates. |
@@ -437,6 +437,66 @@ are required by the geometry work below. Direct-coil turbulence movies are
 allowed as generated diagnostic artifacts on `main`; README/docs promotion
 requires the same geometry, endpoint/source, refinement, and visual-QA evidence
 used for the figures.
+
+Final closeout roadmap for this phase:
+
+1. **Direct ESSOS-coil open field on `main`** is the next executable lane.
+   The immediate implementation goal is not a publication claim; it is a
+   complete diagnostic package with field-line/Poincare plots, endpoint masks,
+   consumed-map FCI gates, source/profile/target plots, and a diagnostic movie.
+   The lane promotes only if endpoint-label refinement and movie QA become
+   stable. Otherwise it remains the direct-coil geometry evidence used to
+   justify the hybrid bridge.
+2. **Direct ESSOS-coil closed/near-closed controls** run beside the open-field
+   lane. They must prove that the same coil source produces closed,
+   near-closed, island-like, or long-connection trajectories without importing
+   target, sheath, recycling, or neutral semantics from open-SOL cases.
+3. **VMEC closed-field controls** provide the smooth non-axisymmetric closed
+   reference. These examples use periodic/closed-map operators, profile and
+   spectrum diagnostics, and closed-field movies, while explicitly excluding
+   target-to-target connection length, sheath losses, recycling, and neutral
+   losses unless a deliberately artificial loss model is selected.
+4. **Hybrid VMEC/coil open SOL** is the first candidate for promoted
+   open-field stellarator media. It should use smooth VMEC coordinates and
+   metrics with coil-derived endpoint masks, target/source accounting, `|B|`
+   modulation, grid/timestep refinement, and movie QA. If direct-coil maps
+   remain rough, hybrid becomes the README-facing open-SOL bridge.
+5. **VMEC-extender finite-beta SOL** stays artifact-based until upstream
+   exporters are stable. The merged JAXDRB PR provides the import and smoke
+   machinery, but finite-beta examples need frozen provenance-rich artifacts
+   before promotion. VMEC-extender helps by supplying prescribed finite-beta
+   exterior fields; it does not provide wall labels, endpoint masks, sheath
+   or recycling closures, neutral transport, or a validated SOL result by
+   itself.
+6. **Device expansion** starts only after the three geometry semantics above
+   are clean. The order is Landreman-Paul QA, HSX QHS vacuum, NCSX, then
+   Dommaschk potentials. Each device must pass the same source-metadata,
+   geometry, field-line/Poincare, open/closed map, FCI, physics-result,
+   refinement, media, and documentation gates.
+7. **Full DRB physics, recycling, differentiability, and performance** resume
+   only when a promoted geometry lane needs them. The priority is equation-
+   level tests and parity for real bracket/vorticity, Boussinesq versus
+   non-Boussinesq, sheath, recycling, neutrals, and selected electromagnetic
+   closures; then pure-JAX differentiability and same-fidelity CPU/GPU scaling
+   on promoted kernels.
+
+Phase-level definitions of success:
+
+- Direct-coil open-field success means the example is self-contained, produces
+  explicit diagnostic artifacts, and refuses README promotion when geometry or
+  visual gates fail.
+- Closed-field success means periodic/closed-map metrics, zero endpoint masks,
+  stable profile/spectrum diagnostics, and no accidental open-target language.
+- Hybrid open-SOL success means endpoint masks, sheath/recycling/neutral
+  source accounting, target/source/profile plots, grid/time checks, and visual
+  QA all pass on the same consumed map.
+- Finite-beta VMEC-extender success means a real artifact passes metadata,
+  physical-phi, branch/sign, interpolation, field-line, wall/endpoint,
+  connection-length, FCI/operator, and compact SOL gates before any movie is
+  promoted.
+- Release success means all promoted plots and movies have commands, tests or
+  manual gates, docs, release-hosted heavy artifacts, small package footprint,
+  and coverage remains above `95%`.
 
 Focused current-lane plan:
 
@@ -1795,6 +1855,22 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-21: Rechecked the open-lane plan, local VMEC-extender branch, and
+  current upstream PR state before resuming implementation. `plan_jax_drb.md`
+  remains a redirect, and the roadmap-like docs remain subordinate appendices,
+  so `docs/research_grade_execution_plan.md` is still the single active plan.
+  Reconfirmed with `gh` that `uwplasma/jax_drb#2` is merged,
+  `uwplasma/virtual_casing_jax#2`, `uwplasma/ESSOS#31`, and
+  `uwplasma/ESSOS#33` remain open artifact/export enablers, and the relevant
+  `vmec_jax` finite-pressure/free-boundary context PRs are already merged or
+  longer-term ecosystem work. Added a phase-level closeout roadmap: direct
+  ESSOS-coil open/closed diagnostic packages first on `main`, VMEC closed-field
+  controls second, hybrid VMEC/coil open-SOL promotion third, VMEC-extender
+  finite-beta artifact import fourth, then HSX/NCSX/Dommaschk expansion and
+  full DRB/JAX-native/performance promotion only where a promoted geometry lane
+  requires it. Decision: direct-coil movies may be generated on `main` but stay
+  diagnostic until endpoint-label refinement, source/profile accounting,
+  connection/operator gates, and frame-by-frame visual QA are green.
 - 2026-06-21: Refactored the plan authority wording so this file has one
   active target: the current open-lane implementation plan. The previous
   `1.0.3` release sprint is retained only as historical release-closeout

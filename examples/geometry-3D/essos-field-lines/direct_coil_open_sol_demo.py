@@ -5,8 +5,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from jax_drb.runtime import configure_jax_runtime
 from jax_drb.validation import (
+    build_essos_imported_fci_source_profile_gate,
     create_essos_imported_drb_movie_package,
     create_essos_imported_drb_movie_stationarity_package,
     create_essos_imported_fci_campaign_package,
@@ -299,6 +302,46 @@ def run_fci_gate(settings: DirectCoilOpenSolSettings) -> dict[str, Any]:
     }
 
 
+def run_source_profile_gate(
+    settings: DirectCoilOpenSolSettings,
+    fci_stage: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate target/source/profile artifacts produced by the FCI gate."""
+
+    if fci_stage.get("status") != "ran":
+        return {
+            "stage": "direct_coil_source_profile_gate",
+            "status": "contract_only" if settings.write_dry_run_contract else "skipped",
+            "promotion_ready": False,
+            "next_action": (
+                "Set RUN_LIVE_FCI_GATE=True to generate target-label, heat-load, "
+                "neutral-source, and radial-profile artifacts for this map."
+            ),
+        }
+
+    report_path = Path(str(fci_stage["report_json_path"]))
+    arrays_path = Path(str(fci_stage["arrays_npz_path"]))
+    report = _read_json(report_path)
+    with np.load(arrays_path) as arrays:
+        gate = build_essos_imported_fci_source_profile_gate(report, arrays)
+
+    gate_path = settings.output_root / "data" / f"{settings.case_label}_source_profile_gate.json"
+    gate_path.parent.mkdir(parents=True, exist_ok=True)
+    gate_path.write_text(json.dumps(gate, indent=2, sort_keys=True), encoding="utf-8")
+    return {
+        "stage": "direct_coil_source_profile_gate",
+        "status": "ran",
+        "report_json_path": _path_text(gate_path),
+        "source_report_json_path": _path_text(report_path),
+        "source_arrays_npz_path": _path_text(arrays_path),
+        "source_plot_png_path": fci_stage.get("plot_png_path"),
+        "passed": bool(gate.get("passed", False)),
+        "promotion_ready": bool(gate.get("promotion_ready", False)),
+        "evidence_role": gate.get("evidence_role"),
+        "promotion_rejection_reasons": gate.get("promotion_rejection_reasons", []),
+    }
+
+
 def run_connection_refinement_gate(
     settings: DirectCoilOpenSolSettings,
     *,
@@ -511,8 +554,10 @@ def run_media_gate(settings: DirectCoilOpenSolSettings) -> dict[str, Any]:
 def run_direct_coil_workflow(settings: DirectCoilOpenSolSettings) -> Path:
     """Run the configured direct-coil open-SOL workflow stages."""
 
+    fci_stage = run_fci_gate(settings)
     stage_reports = [
-        run_fci_gate(settings),
+        fci_stage,
+        run_source_profile_gate(settings, fci_stage),
         run_endpoint_label_refinement_gate(settings),
         *(
             run_connection_refinement_gate(settings, quantity=quantity)
