@@ -13,8 +13,10 @@ import pytest
 
 from jax_drb.geometry import (
     FciMaps,
+    MetricTensor3D,
     build_essos_imported_fci_geometry,
     essos_runtime_available,
+    identity_fci_maps,
     load_essos_field_line_bundle_npz,
     resolve_essos_landreman_qa_json,
     resolve_essos_landreman_qa_wout,
@@ -29,6 +31,8 @@ from jax_drb.validation import (
     create_essos_fieldline_import_package,
     create_essos_direct_coil_closed_control_package,
     create_essos_vmec_closed_field_dry_run_package,
+    create_essos_vmec_closed_field_transient_dry_run_package,
+    create_essos_vmec_closed_field_transient_package_from_geometry,
     create_essos_imported_connection_length_refinement_package,
     create_essos_imported_drb_movie_refinement_campaign_package,
     create_essos_imported_drb_movie_stationarity_package,
@@ -41,6 +45,9 @@ from jax_drb.validation import (
 )
 from jax_drb.validation.essos_vmec_closed_field_campaign import (
     build_essos_vmec_closed_field_report,
+)
+from jax_drb.validation.essos_vmec_closed_field_transient_campaign import (
+    build_essos_vmec_closed_field_transient_campaign,
 )
 import jax_drb.validation.essos_imported_fci_campaign as imported_fci_campaign
 import jax_drb.validation.essos_imported_drb_movie_campaign as imported_movie_campaign
@@ -65,6 +72,74 @@ def _logical_coordinates(shape: tuple[int, int, int]) -> dict[str, np.ndarray]:
         "toroidal_angle": toroidal_angle,
         "poloidal_angle": poloidal_angle,
     }
+
+
+def _identity_metric_3d(shape: tuple[int, int, int]) -> MetricTensor3D:
+    ones = jnp.ones(shape, dtype=jnp.float64)
+    zeros = jnp.zeros(shape, dtype=jnp.float64)
+    return MetricTensor3D(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        Bxy=ones,
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g12=zeros,
+        g13=zeros,
+        g23=zeros,
+        g_11=ones,
+        g_22=ones,
+        g_33=ones,
+        g_12=zeros,
+        g_13=zeros,
+        g_23=zeros,
+    )
+
+
+def _vmec_closed_transient_test_geometry(
+    *,
+    shape: tuple[int, int, int] = (4, 5, 8),
+    with_endpoint: bool = False,
+) -> SimpleNamespace:
+    nx, ny, nz = shape
+    logical = _logical_coordinates(shape)
+    rho = logical["minor_radius"]
+    phi = logical["toroidal_angle"]
+    theta = logical["poloidal_angle"]
+    major_radius = 1.45 + rho * np.cos(theta)
+    coordinates_x = major_radius * np.cos(phi)
+    coordinates_y = major_radius * np.sin(phi)
+    coordinates_z = rho * np.sin(theta)
+    maps = identity_fci_maps(nx=nx, ny=ny, nz=nz, dphi=0.25)
+    if with_endpoint:
+        forward_boundary = np.zeros(shape, dtype=bool)
+        forward_boundary[0, 0, 0] = True
+        maps = FciMaps(
+            forward_x=maps.forward_x,
+            forward_z=maps.forward_z,
+            backward_x=maps.backward_x,
+            backward_z=maps.backward_z,
+            forward_boundary=jnp.asarray(forward_boundary),
+            backward_boundary=maps.backward_boundary,
+            dphi=maps.dphi,
+        )
+    magnetic_field = 1.0 + 0.08 * np.cos(theta - 2.0 * phi) + 0.025 * np.sin(3.0 * phi)
+    return SimpleNamespace(
+        shape=shape,
+        maps=maps,
+        metric=_identity_metric_3d(shape),
+        magnetic_field_magnitude=jnp.asarray(magnetic_field, dtype=jnp.float64),
+        connection_length=jnp.ones(shape, dtype=jnp.float64) * 0.25,
+        coordinates_x=jnp.asarray(coordinates_x, dtype=jnp.float64),
+        coordinates_y=jnp.asarray(coordinates_y, dtype=jnp.float64),
+        coordinates_z=jnp.asarray(coordinates_z, dtype=jnp.float64),
+        minor_radius=jnp.asarray(rho, dtype=jnp.float64),
+        toroidal_angle=jnp.asarray(phi, dtype=jnp.float64),
+        poloidal_angle=jnp.asarray(theta, dtype=jnp.float64),
+        metadata={"geometry_family": "unit_test_vmec_closed", "map_source": "vmec"},
+    )
 
 
 def _has_essos_landreman_runtime() -> bool:
@@ -1679,6 +1754,72 @@ def test_essos_vmec_closed_field_report_locks_closed_semantics() -> None:
     assert report["constant_laplace_parallel_linf"] == pytest.approx(0.0)
     assert report["constant_conservative_parallel_diffusion_linf"] == pytest.approx(0.0)
     assert arrays["endpoint_count_toroidal"].shape == (ny, nz)
+
+
+def test_essos_vmec_closed_field_transient_dry_run_contract_is_self_contained(tmp_path: Path) -> None:
+    artifacts = create_essos_vmec_closed_field_transient_dry_run_package(
+        output_root=tmp_path / "vmec_closed_transient",
+        case_label="vmec_closed_transient",
+        nx=4,
+        ny=5,
+        nz=8,
+        frames=3,
+        substeps_per_frame=2,
+        write_movie=False,
+    )
+
+    report = json.loads(artifacts.contract_json_path.read_text(encoding="utf-8"))
+    assert report["self_contained"] is True
+    assert report["requires_essos_runtime"] is False
+    assert report["live_run_requires_essos_runtime"] is True
+    assert report["map_source"] == "vmec"
+    assert "profile and spectrum" in report["claim_scope"]
+    assert "no target endpoints" in report["claim_scope"]
+    assert "endpoint_fraction == 0" in report["required_live_gates"]
+    assert report["planned_artifacts"]["movie_gif"] is None
+
+
+def test_essos_vmec_closed_field_transient_package_locks_closed_semantics(tmp_path: Path) -> None:
+    geometry = _vmec_closed_transient_test_geometry()
+
+    artifacts = create_essos_vmec_closed_field_transient_package_from_geometry(
+        geometry,
+        output_root=tmp_path / "vmec_closed_transient",
+        case_label="vmec_closed_transient",
+        frames=4,
+        substeps_per_frame=2,
+        dt=1.0e-3,
+        write_movie=False,
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    assert report["closed_field_control_ready"] is True
+    assert report["endpoint_fraction"] == 0.0
+    assert report["target_semantics_applied"] is False
+    assert report["sheath_recycling_semantics_applied"] is False
+    assert report["neutral_loss_semantics_applied"] is False
+    assert report["open_sol_publication_ready"] is False
+    assert report["mass_relative_drift"] < 2.0e-2
+    assert report["final_fluctuation_rms"] > 1.0e-5
+    assert report["spectrum_finite"] is True
+    assert artifacts.movie_gif_path is None
+    assert artifacts.plot_png_path.exists()
+    with np.load(artifacts.arrays_npz_path) as arrays:
+        assert arrays["density_fluctuation_history"].shape == (5, 4, 5, 8)
+        assert arrays["profile_history"].shape == (5, 4)
+        assert arrays["final_spectrum_log10"].ndim == 2
+
+
+def test_essos_vmec_closed_field_transient_rejects_endpoint_maps() -> None:
+    geometry = _vmec_closed_transient_test_geometry(with_endpoint=True)
+
+    with pytest.raises(ValueError, match="requires zero endpoint masks"):
+        build_essos_vmec_closed_field_transient_campaign(
+            geometry,
+            frames=1,
+            substeps_per_frame=1,
+        )
 
 
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")
