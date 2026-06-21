@@ -423,7 +423,11 @@ PYTHONPATH=src python \
 Run the direct-coil open-SOL workflow contract. The default command is
 self-contained and writes a dry-run promotion ledger under `artifacts/`; edit
 the live flags at the top of the script to regenerate the ESSOS coil FCI,
-connection-length, endpoint/source, and stationarity gates from local geometry:
+connection-length, endpoint/source, stationarity, and diagnostic media gates
+from local geometry. The `RUN_LIVE_MEDIA_GATE` flag writes GIF/PNG/NPZ media
+from the direct coil field, but the workflow keeps that media out of promotion
+unless the geometry, source-accounting, refinement, and visual-QA gates also
+pass:
 
 ```bash
 PYTHONPATH=src python \
