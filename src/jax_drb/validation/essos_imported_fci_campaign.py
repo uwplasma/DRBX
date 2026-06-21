@@ -70,6 +70,7 @@ _IMPORTED_FCI_REQUIRED_REPORT_FIELDS = (
     "connection_length_max",
     "connection_length_diagnostics",
     "connection_length_resolution_diagnostics",
+    "map_quality_diagnostics",
     "connection_length_resolution_required",
     "connection_length_resolution_passed",
     "endpoint_length_diagnostics",
@@ -105,22 +106,47 @@ _IMPORTED_FCI_DIAGNOSTIC_SCHEMA = {
         "normalized_face_jump_p95",
         "normalized_face_jump_max",
         "underresolved_face_fraction",
+        "radial_finite_face_fraction",
+        "toroidal_finite_face_fraction",
+        "poloidal_finite_face_fraction",
+        "radial_underresolved_face_fraction",
+        "toroidal_underresolved_face_fraction",
+        "poloidal_underresolved_face_fraction",
         "minimum_cells_per_connection_scale",
         "radial_normalized_jump_p95",
         "toroidal_normalized_jump_p95",
         "poloidal_normalized_jump_p95",
+        "dominant_rough_direction",
+        "dominant_underresolved_direction",
+        "endpoint_touch_normalized_jump_p95",
+        "interior_normalized_jump_p95",
         "advisory_threshold",
         "passed",
+    ],
+    "map_quality_diagnostics": [
+        "dominant_rough_direction",
+        "dominant_underresolved_direction",
+        "roughness_localization",
+        "endpoint_touch_normalized_jump_p95",
+        "interior_normalized_jump_p95",
+        "target_exit_endpoint_p95",
+        "adjacent_step_nonendpoint_p95",
+        "recommended_next_action",
     ],
     "endpoint_length_diagnostics": [
         "endpoint_cell_count",
         "target_exit_finite_endpoint_fraction",
         "target_exit_nonnegative_finite_fraction",
+        "target_exit_p05",
+        "target_exit_p95",
+        "target_exit_histogram_edges",
+        "target_exit_histogram_counts",
         "forward_exit_finite_forward_boundary_fraction",
         "backward_exit_finite_backward_boundary_fraction",
         "forward_exit_nonnegative_finite_fraction",
         "backward_exit_nonnegative_finite_fraction",
         "adjacent_step_finite_nonendpoint_fraction",
+        "adjacent_step_nonendpoint_p95",
         "passed",
     ],
     "target_label_diagnostics": [
@@ -888,6 +914,7 @@ def build_essos_imported_fci_campaign(
         "connection_length_max": float(np.max(connection)),
         "connection_length_diagnostics": map_diagnostics["connection_length_diagnostics"],
         "connection_length_resolution_diagnostics": map_diagnostics["connection_length_resolution_diagnostics"],
+        "map_quality_diagnostics": map_diagnostics["map_quality_diagnostics"],
         "connection_length_resolution_required": bool(
             map_diagnostics["connection_length_resolution_required"]
         ),
@@ -1045,7 +1072,10 @@ def build_essos_imported_fci_map_diagnostics(
         "zero_fraction": float(np.mean(finite_connection & (np.abs(connection) <= 1.0e-14))),
         "radial_mean_profile": radial_mean_profile,
     }
-    connection_resolution_diagnostics = _connection_length_resolution_diagnostics(connection)
+    connection_resolution_diagnostics = _connection_length_resolution_diagnostics(
+        connection,
+        endpoint_mask=endpoint > 0.0,
+    )
 
     x_index = np.broadcast_to(np.arange(nx, dtype=np.float64)[:, None, None], shape)
     z_index = np.broadcast_to(np.arange(nz, dtype=np.float64)[None, None, :], shape)
@@ -1131,6 +1161,11 @@ def build_essos_imported_fci_map_diagnostics(
         forward_target_exit_length=forward_target_exit_length,
         backward_target_exit_length=backward_target_exit_length,
     )
+    map_quality_diagnostics = _map_quality_diagnostics(
+        map_source=map_source,
+        connection_resolution_diagnostics=connection_resolution_diagnostics,
+        endpoint_length_diagnostics=endpoint_length_diagnostics,
+    )
     connection_passed = (
         connection_diagnostics["finite_fraction"] == 1.0
         and connection_diagnostics["nonnegative_fraction"] == 1.0
@@ -1159,6 +1194,7 @@ def build_essos_imported_fci_map_diagnostics(
         "map_source": map_source,
         "connection_length_diagnostics": connection_diagnostics,
         "connection_length_resolution_diagnostics": connection_resolution_diagnostics,
+        "map_quality_diagnostics": map_quality_diagnostics,
         "connection_length_resolution_required": bool(require_connection_resolution),
         "connection_length_resolution_passed": connection_resolution_passed,
         "endpoint_length_diagnostics": endpoint_length_diagnostics,
@@ -1243,6 +1279,14 @@ def build_essos_imported_connection_length_refinement_diagnostics(
         finite_diff = diff[finite_mask]
         scale = _connection_length_pair_scale(coarse, restricted)
         normalized = np.abs(finite_diff) / scale if finite_diff.size else np.asarray([], dtype=np.float64)
+        finite_indices = np.argwhere(finite_mask)
+        if normalized.size:
+            max_error_position = int(np.argmax(normalized))
+            max_error_indices = [int(value) for value in finite_indices[max_error_position]]
+            max_error_normalized = float(normalized[max_error_position])
+        else:
+            max_error_indices = None
+            max_error_normalized = None
         ratio = min(
             fine.shape[axis] / coarse.shape[axis]
             for axis in range(3)
@@ -1273,6 +1317,8 @@ def build_essos_imported_connection_length_refinement_diagnostics(
                 "normalized_linf_error": (
                     float(np.max(normalized)) if normalized.size else None
                 ),
+                "max_error_indices": max_error_indices,
+                "max_error_normalized": max_error_normalized,
             }
         )
 
@@ -1865,6 +1911,7 @@ def _endpoint_length_diagnostics(
     forward_finite = np.isfinite(forward_exit)
     backward_finite = np.isfinite(backward_exit)
     adjacent_finite = np.isfinite(adjacent)
+    adjacent_nonendpoint_values = adjacent[adjacent_finite & nonendpoint_mask]
     target_nonnegative = target_finite & (target_exit >= 0.0)
     forward_nonnegative = forward_finite & (forward_exit >= 0.0)
     backward_nonnegative = backward_finite & (backward_exit >= 0.0)
@@ -1897,14 +1944,22 @@ def _endpoint_length_diagnostics(
         "target_exit_finite_nonendpoint_fraction": _fraction(target_finite, nonendpoint_mask),
         "target_exit_nonnegative_finite_fraction": _fraction(target_nonnegative, target_finite),
         "target_exit_min": _optional_percentile(target_values, 0.0),
+        "target_exit_p05": _optional_percentile(target_values, 5.0),
         "target_exit_median": _optional_percentile(target_values, 50.0),
+        "target_exit_p95": _optional_percentile(target_values, 95.0),
         "target_exit_max": _optional_percentile(target_values, 100.0),
+        "target_exit_histogram_edges": _histogram_edges(target_values, bins=8),
+        "target_exit_histogram_counts": _histogram_counts(target_values, bins=8),
         "forward_exit_finite_forward_boundary_fraction": forward_boundary_coverage,
         "backward_exit_finite_backward_boundary_fraction": backward_boundary_coverage,
         "forward_exit_nonnegative_finite_fraction": forward_nonnegative_fraction,
         "backward_exit_nonnegative_finite_fraction": backward_nonnegative_fraction,
         "adjacent_step_finite_fraction": float(np.mean(adjacent_finite)),
         "adjacent_step_finite_nonendpoint_fraction": _fraction(adjacent_finite, nonendpoint_mask),
+        "adjacent_step_nonendpoint_p95": _optional_percentile(
+            adjacent_nonendpoint_values,
+            95.0,
+        ),
         "adjacent_step_nonnegative_finite_fraction": _fraction(
             adjacent_nonnegative,
             adjacent_finite,
@@ -1934,6 +1989,7 @@ def _fraction(mask: np.ndarray, where: np.ndarray) -> float | None:
 def _connection_length_resolution_diagnostics(
     connection: np.ndarray,
     *,
+    endpoint_mask: np.ndarray | None = None,
     advisory_threshold: float = 0.5,
 ) -> dict[str, Any]:
     """Estimate whether a single imported connection-length grid is resolved.
@@ -1943,12 +1999,40 @@ def _connection_length_resolution_diagnostics(
     """
 
     values = np.asarray(connection, dtype=np.float64)
+    endpoint = None if endpoint_mask is None else np.asarray(endpoint_mask, dtype=bool)
+    if endpoint is not None and endpoint.shape != values.shape:
+        raise ValueError(
+            "Endpoint mask shape must match connection-length shape for roughness diagnostics: "
+            f"endpoint={endpoint.shape}, connection={values.shape}."
+        )
     radial_jumps = _normalized_connection_neighbor_jumps(values, axis=0, periodic=False)
     toroidal_jumps = _normalized_connection_neighbor_jumps(values, axis=1, periodic=True)
     poloidal_jumps = _normalized_connection_neighbor_jumps(values, axis=2, periodic=True)
+    radial_stats = _axis_jump_diagnostics(radial_jumps, threshold=advisory_threshold)
+    toroidal_stats = _axis_jump_diagnostics(toroidal_jumps, threshold=advisory_threshold)
+    poloidal_stats = _axis_jump_diagnostics(poloidal_jumps, threshold=advisory_threshold)
+    region_stats = _connection_jump_region_diagnostics(
+        values,
+        endpoint_mask=endpoint,
+        advisory_threshold=advisory_threshold,
+    )
     all_jumps = np.concatenate([radial_jumps, toroidal_jumps, poloidal_jumps])
     finite_jumps = all_jumps[np.isfinite(all_jumps)]
     threshold = float(advisory_threshold)
+    dominant_rough_direction = _dominant_direction(
+        {
+            "radial": radial_stats["normalized_jump_p95"],
+            "toroidal": toroidal_stats["normalized_jump_p95"],
+            "poloidal": poloidal_stats["normalized_jump_p95"],
+        }
+    )
+    dominant_underresolved_direction = _dominant_direction(
+        {
+            "radial": radial_stats["underresolved_face_fraction"],
+            "toroidal": toroidal_stats["underresolved_face_fraction"],
+            "poloidal": poloidal_stats["underresolved_face_fraction"],
+        }
+    )
     if finite_jumps.size == 0:
         return {
             "finite_face_fraction": 0.0,
@@ -1956,10 +2040,20 @@ def _connection_length_resolution_diagnostics(
             "normalized_face_jump_p95": None,
             "normalized_face_jump_max": None,
             "underresolved_face_fraction": 1.0,
+            "radial_finite_face_fraction": radial_stats["finite_face_fraction"],
+            "toroidal_finite_face_fraction": toroidal_stats["finite_face_fraction"],
+            "poloidal_finite_face_fraction": poloidal_stats["finite_face_fraction"],
+            "radial_underresolved_face_fraction": radial_stats["underresolved_face_fraction"],
+            "toroidal_underresolved_face_fraction": toroidal_stats["underresolved_face_fraction"],
+            "poloidal_underresolved_face_fraction": poloidal_stats["underresolved_face_fraction"],
             "minimum_cells_per_connection_scale": None,
             "radial_normalized_jump_p95": _optional_percentile(radial_jumps, 95.0),
             "toroidal_normalized_jump_p95": _optional_percentile(toroidal_jumps, 95.0),
             "poloidal_normalized_jump_p95": _optional_percentile(poloidal_jumps, 95.0),
+            "dominant_rough_direction": dominant_rough_direction,
+            "dominant_underresolved_direction": dominant_underresolved_direction,
+            "endpoint_touch_normalized_jump_p95": region_stats["endpoint_touch_normalized_jump_p95"],
+            "interior_normalized_jump_p95": region_stats["interior_normalized_jump_p95"],
             "advisory_threshold": threshold,
             "passed": False,
         }
@@ -1972,13 +2066,226 @@ def _connection_length_resolution_diagnostics(
         "normalized_face_jump_p95": p95,
         "normalized_face_jump_max": float(np.max(finite_jumps)),
         "underresolved_face_fraction": float(np.mean(finite_jumps > threshold)),
+        "radial_finite_face_fraction": radial_stats["finite_face_fraction"],
+        "toroidal_finite_face_fraction": toroidal_stats["finite_face_fraction"],
+        "poloidal_finite_face_fraction": poloidal_stats["finite_face_fraction"],
+        "radial_underresolved_face_fraction": radial_stats["underresolved_face_fraction"],
+        "toroidal_underresolved_face_fraction": toroidal_stats["underresolved_face_fraction"],
+        "poloidal_underresolved_face_fraction": poloidal_stats["underresolved_face_fraction"],
         "minimum_cells_per_connection_scale": float(1.0 / max(p95, 1.0e-30)),
         "radial_normalized_jump_p95": _optional_percentile(radial_jumps, 95.0),
         "toroidal_normalized_jump_p95": _optional_percentile(toroidal_jumps, 95.0),
         "poloidal_normalized_jump_p95": _optional_percentile(poloidal_jumps, 95.0),
+        "dominant_rough_direction": dominant_rough_direction,
+        "dominant_underresolved_direction": dominant_underresolved_direction,
+        "endpoint_touch_normalized_jump_p95": region_stats["endpoint_touch_normalized_jump_p95"],
+        "interior_normalized_jump_p95": region_stats["interior_normalized_jump_p95"],
         "advisory_threshold": threshold,
         "passed": bool(finite_face_fraction == 1.0 and p95 <= threshold),
     }
+
+
+def _map_quality_diagnostics(
+    *,
+    map_source: str,
+    connection_resolution_diagnostics: dict[str, Any],
+    endpoint_length_diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    """Convert low-level map diagnostics into an actionable QA summary."""
+
+    source = _normalize_imported_fci_map_source(map_source)
+    dominant_rough = connection_resolution_diagnostics.get("dominant_rough_direction")
+    dominant_underresolved = connection_resolution_diagnostics.get(
+        "dominant_underresolved_direction"
+    )
+    endpoint_p95 = connection_resolution_diagnostics.get(
+        "endpoint_touch_normalized_jump_p95"
+    )
+    interior_p95 = connection_resolution_diagnostics.get("interior_normalized_jump_p95")
+    if endpoint_p95 is None and interior_p95 is None:
+        localization = "unresolved_no_finite_faces"
+    elif endpoint_p95 is None:
+        localization = "interior_only"
+    elif interior_p95 is None:
+        localization = "endpoint_touch_only"
+    elif float(endpoint_p95) > 1.25 * float(interior_p95):
+        localization = "endpoint_touch_dominated"
+    elif float(interior_p95) > 1.25 * float(endpoint_p95):
+        localization = "interior_dominated"
+    else:
+        localization = "distributed"
+
+    resolution_passed = bool(connection_resolution_diagnostics.get("passed", False))
+    endpoint_passed = bool(endpoint_length_diagnostics.get("passed", False))
+    if source == "vmec":
+        recommended = (
+            "Closed VMEC map: use periodic parallel-step and closed-field tests; "
+            "do not promote open-target sheath/recycling claims from this map."
+        )
+    elif not endpoint_passed:
+        recommended = (
+            "Fix endpoint/target-exit reconstruction before running an open-SOL "
+            "transient; sheath and recycling would consume incomplete masks."
+        )
+    elif not resolution_passed and localization == "endpoint_touch_dominated":
+        recommended = (
+            "Refine or smooth the target classifier/exit-length construction; "
+            "roughness is concentrated on faces touching open-field endpoints."
+        )
+    elif not resolution_passed:
+        recommended = (
+            "Increase physical map resolution or improve interpolation/restriction "
+            f"along the {dominant_rough or dominant_underresolved or 'dominant'} direction "
+            "before movie promotion."
+        )
+    else:
+        recommended = (
+            "Map-quality diagnostics are green; proceed to nested refinement, "
+            "source-accounting, and movie QA gates."
+        )
+
+    return {
+        "dominant_rough_direction": dominant_rough,
+        "dominant_underresolved_direction": dominant_underresolved,
+        "roughness_localization": localization,
+        "endpoint_touch_normalized_jump_p95": endpoint_p95,
+        "interior_normalized_jump_p95": interior_p95,
+        "target_exit_endpoint_p95": endpoint_length_diagnostics.get("target_exit_p95"),
+        "adjacent_step_nonendpoint_p95": endpoint_length_diagnostics.get(
+            "adjacent_step_nonendpoint_p95"
+        ),
+        "recommended_next_action": recommended,
+    }
+
+
+def _axis_jump_diagnostics(
+    jumps: np.ndarray,
+    *,
+    threshold: float,
+) -> dict[str, float | None]:
+    values = np.asarray(jumps, dtype=np.float64)
+    finite = values[np.isfinite(values)]
+    if values.size == 0:
+        return {
+            "finite_face_fraction": None,
+            "normalized_jump_p95": None,
+            "underresolved_face_fraction": None,
+        }
+    if finite.size == 0:
+        return {
+            "finite_face_fraction": 0.0,
+            "normalized_jump_p95": None,
+            "underresolved_face_fraction": 1.0,
+        }
+    return {
+        "finite_face_fraction": float(finite.size / values.size),
+        "normalized_jump_p95": float(np.percentile(finite, 95.0)),
+        "underresolved_face_fraction": float(np.mean(finite > float(threshold))),
+    }
+
+
+def _dominant_direction(values_by_direction: dict[str, float | None]) -> str | None:
+    finite_items = [
+        (direction, float(value))
+        for direction, value in values_by_direction.items()
+        if value is not None and np.isfinite(float(value))
+    ]
+    if not finite_items:
+        return None
+    return max(finite_items, key=lambda item: item[1])[0]
+
+
+def _connection_jump_region_diagnostics(
+    values: np.ndarray,
+    *,
+    endpoint_mask: np.ndarray | None,
+    advisory_threshold: float,
+) -> dict[str, float | None]:
+    if endpoint_mask is None:
+        return {
+            "endpoint_touch_normalized_jump_p95": None,
+            "endpoint_touch_underresolved_face_fraction": None,
+            "interior_normalized_jump_p95": None,
+            "interior_underresolved_face_fraction": None,
+        }
+
+    endpoint_jumps: list[np.ndarray] = []
+    interior_jumps: list[np.ndarray] = []
+    for axis, periodic in ((0, False), (1, True), (2, True)):
+        jumps, touches_endpoint = _normalized_connection_neighbor_jump_array_with_mask(
+            values,
+            endpoint_mask=endpoint_mask,
+            axis=axis,
+            periodic=periodic,
+        )
+        endpoint_jumps.append(jumps[touches_endpoint])
+        interior_jumps.append(jumps[~touches_endpoint])
+    endpoint_values = np.concatenate(endpoint_jumps) if endpoint_jumps else np.asarray([])
+    interior_values = np.concatenate(interior_jumps) if interior_jumps else np.asarray([])
+    return {
+        "endpoint_touch_normalized_jump_p95": _optional_percentile(endpoint_values, 95.0),
+        "endpoint_touch_underresolved_face_fraction": _underresolved_fraction(
+            endpoint_values,
+            threshold=advisory_threshold,
+        ),
+        "interior_normalized_jump_p95": _optional_percentile(interior_values, 95.0),
+        "interior_underresolved_face_fraction": _underresolved_fraction(
+            interior_values,
+            threshold=advisory_threshold,
+        ),
+    }
+
+
+def _normalized_connection_neighbor_jump_array_with_mask(
+    values: np.ndarray,
+    *,
+    endpoint_mask: np.ndarray,
+    axis: int,
+    periodic: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    if values.shape[axis] < 2:
+        return np.asarray([], dtype=np.float64), np.asarray([], dtype=bool)
+    if periodic:
+        left = values
+        right = np.roll(values, -1, axis=axis)
+        left_endpoint = endpoint_mask
+        right_endpoint = np.roll(endpoint_mask, -1, axis=axis)
+    else:
+        left = np.take(values, indices=range(values.shape[axis] - 1), axis=axis)
+        right = np.take(values, indices=range(1, values.shape[axis]), axis=axis)
+        left_endpoint = np.take(endpoint_mask, indices=range(values.shape[axis] - 1), axis=axis)
+        right_endpoint = np.take(endpoint_mask, indices=range(1, values.shape[axis]), axis=axis)
+    scale = 0.5 * (np.abs(left) + np.abs(right))
+    floor = _connection_length_scale_floor(values)
+    jumps = np.abs(right - left) / np.maximum(scale, floor)
+    touches_endpoint = np.asarray(left_endpoint | right_endpoint, dtype=bool)
+    return jumps.reshape(-1), touches_endpoint.reshape(-1)
+
+
+def _underresolved_fraction(values: np.ndarray, *, threshold: float) -> float | None:
+    finite = np.asarray(values, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return None
+    return float(np.mean(finite > float(threshold)))
+
+
+def _histogram_edges(values: np.ndarray, *, bins: int) -> list[float]:
+    finite = np.asarray(values, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return []
+    _, edges = np.histogram(finite, bins=int(bins))
+    return [float(value) for value in edges]
+
+
+def _histogram_counts(values: np.ndarray, *, bins: int) -> list[int]:
+    finite = np.asarray(values, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return []
+    counts, _ = np.histogram(finite, bins=int(bins))
+    return [int(value) for value in counts]
 
 
 def _connection_length_geometry_coordinates(geometry: Any) -> dict[str, np.ndarray]:

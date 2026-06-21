@@ -348,7 +348,7 @@ Current planning audit:
 
 | Lane | Status | Completion | Immediate blocker |
 | --- | --- | ---: | --- |
-| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, pure-coil adjacent-step diagnostics, a main-branch direct-coil open-SOL workflow contract, and fresh live FCI/source-accounting evidence exist. Source accounting closes to near roundoff, but pure-coil adjacent-step refinement remains weak-order and target-exit refinement remains rough. | 43% | Improve direct-coil map/refinement construction and connection-resolution diagnostics before promoting direct-coil media. |
+| ESSOS direct-coil open-field stellarator lane | Imported field-line artifacts, Poincare figures, pure-coil adjacent-step diagnostics, a main-branch direct-coil open-SOL workflow contract, fresh live FCI/source-accounting evidence, and source-level map-quality diagnostics exist. Source accounting closes to near roundoff, but pure-coil adjacent-step refinement remains weak-order and target-exit refinement remains rough. | 45% | Rerun the live direct-coil gates with the new map-quality diagnostics, then improve direct-coil map/refinement construction before promoting direct-coil media. |
 | VMEC closed-field stellarator lane | VMEC-coordinate maps are available as the smooth closed-field control for Landreman-Paul QA-style surfaces. | 55% | Add explicit closed-field examples and tests that do not use open-target/sheath semantics, then generate closed-surface turbulence/profile plots. |
 | Hybrid open-SOL stellarator lane | Current strongest compact evidence uses VMEC map coordinates with coil-derived endpoint masks and `|B|` modulation. | 75% | Upgrade from compact reduced movie evidence to longer/refined open-SOL campaigns with endpoint, sheath, recycling, neutral, profile, and movie QA gates. |
 | VMEC-extender finite-beta exterior-field lane | JAXDRB already has the NetCDF import contract and synthetic SOL smoke gate. Upstream virtual-casing and ESSOS extender PRs remain open. | 35% | Wait for, or vendor only artifact-compatible outputs from, upstream exporter workflows; then validate real finite-beta exterior fields with field, metric, wall-hit, and connection-length gates. |
@@ -661,7 +661,8 @@ Use this order when implementation resumes:
 1. Commit the current direct-coil workflow and validation-plan update after the
    focused ESSOS/imported-field tests, release-surface tests, and strict docs
    build pass locally.
-2. Fix the direct-coil map/refinement blocker. Start from the existing live
+2. Rerun the live direct-coil gates with the new map-quality diagnostics, then
+   fix the direct-coil map/refinement blocker. Start from the existing live
    evidence: adjacent-step finest RMS `7.63e-3`, \(L_\infty\) `1.44e-2`,
    observed order `0.104`; target-exit finest RMS `0.228`, \(L_\infty\)
    `2.07`; source accounting closes but connection roughness `p95=1.83`
@@ -4633,6 +4634,18 @@ Use this log for concise decision records. Do not paste terminal output here.
   both adjacent-step and target-exit refinement quantities when live refinement
   is enabled, and refinement plots use finite-aware means so open-field NaNs do
   not blank diagnostic panels.
+- 2026-06-21: Added source-level map-quality diagnostics for the direct-coil
+  blocker. Imported-FCI reports now include `map_quality_diagnostics`,
+  directional finite-face and underresolved-face fractions, dominant rough and
+  underresolved directions, endpoint-touch versus interior connection-length
+  jump percentiles, target-exit histograms, adjacent-step nonendpoint
+  percentiles, and nested-refinement max-error indices. The existing
+  pass/fail thresholds and physics gates are unchanged; the next live
+  direct-coil rerun should use these diagnostics to decide whether the
+  weak-order blocker is target-classifier localized, interpolation/restriction
+  localized, or intrinsic to the open-field discontinuity. Decision: raise the
+  ESSOS direct-coil lane to `45%`, but keep direct-coil media unpromoted until
+  the live rerun closes the connection-resolution and refinement gates.
 
 ## Definition Of Done
 
