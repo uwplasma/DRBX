@@ -61,6 +61,20 @@ PYTHONPATH=src .venv/bin/python \
 For the hybrid bridge, set `MAP_SOURCE = "hybrid"` and `OUTPUT_ROOT =
 Path("docs/data/essos_imported_drb_movie_hybrid_artifacts")`; for the
 closed-field control, set `MAP_SOURCE = "vmec"` and use a separate output root.
+For the full hybrid promotion sequence, prefer the top-level workflow ledger:
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py
+```
+
+That script writes a self-contained dry-run contract by default. Live media
+generation is deliberately the last optional stage, after the same map has
+passed FCI/source-profile accounting, hybrid parallel-step refinement,
+stationarity, and grid/time movie checks. A hybrid GIF should stay diagnostic
+unless the workflow summary reports `promotion_ready=true` and the frames have
+been visually reviewed for camera stability, non-axisymmetric geometry, radial
+open-field structure, readable color scale, and physical time annotation.
 
 To run a lightweight grid/time movie-promotion sweep before rendering any
 large artifacts, use the report-only refinement campaign:

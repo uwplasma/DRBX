@@ -98,6 +98,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "validation_campaign_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "landreman_paul_qa_import.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "direct_coil_open_sol_demo.py",
+    REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "hybrid_open_sol_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_fci_campaign.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_connection_length_refinement_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_pytree_campaign.py",
@@ -505,6 +506,46 @@ def test_direct_coil_open_sol_default_contract_includes_media_stage(
     assert "Set RUN_LIVE_MEDIA_GATE=True" in stage_by_name[
         "direct_coil_diagnostic_turbulence_media"
     ]["next_action"]
+
+
+def test_hybrid_open_sol_default_contract_includes_promotion_gates(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    runpy.run_path(
+        str(
+            REPO_ROOT
+            / "examples"
+            / "geometry-3D"
+            / "essos-field-lines"
+            / "hybrid_open_sol_demo.py"
+        )
+    )
+
+    summary_path = (
+        tmp_path
+        / "artifacts"
+        / "essos_hybrid_open_sol"
+        / "data"
+        / "essos_hybrid_open_sol_workflow_summary.json"
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    stage_by_name = {stage["stage"]: stage for stage in summary["stage_reports"]}
+
+    assert summary["map_source"] == "hybrid"
+    assert summary["connection_quantity"] == "parallel_step_per_toroidal_radian"
+    assert summary["settings"]["run_live_media_gate"] is False
+    assert summary["promotion_ready"] is False
+    assert stage_by_name["hybrid_fci_endpoint_source_gate"]["status"] == "contract_only"
+    assert stage_by_name["hybrid_source_profile_gate"]["status"] == "contract_only"
+    assert "target-label, heat-load" in stage_by_name[
+        "hybrid_source_profile_gate"
+    ]["next_action"]
+    assert stage_by_name["hybrid_parallel_step_refinement_gate"]["status"] == "skipped"
+    assert stage_by_name["hybrid_movie_grid_time_refinement_gate"]["status"] == "skipped"
+    assert stage_by_name["hybrid_diagnostic_turbulence_media"]["status"] == "skipped"
 
 
 def test_pypi_publish_workflow_ignores_artifact_releases() -> None:
