@@ -95,6 +95,23 @@ For definitions of one-sided, target-to-target, and effective parallel
 connection length, and for the exact code paths used by each geometry source,
 see [Connection Length](connection_length.md).
 
+The hybrid open-SOL promotion path has a single workflow ledger:
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py
+```
+
+The default run is self-contained and writes a dry-run contract under
+`artifacts/essos_hybrid_open_sol/`. It is intentionally not a promoted physics
+result. Set the live flags at the top of the script only after ESSOS coil and
+VMEC inputs are available. The live stages run in the required order:
+FCI/source-profile, target-label/source accounting, hybrid
+parallel-step-per-radian refinement, reduced-transient stationarity, grid/time
+movie refinement, and optional media generation. The summary JSON must report
+`promotion_ready=true` before any hybrid open-SOL figure or movie can be used
+as README or publication evidence.
+
 Direct-coil open-field promotion now has a separate categorical endpoint-label
 refinement gate. This is necessary because `target_exit_length` is a
 wall/endpoint distance and is discontinuous when a neighboring cell changes

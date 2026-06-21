@@ -436,6 +436,19 @@ PYTHONPATH=src python \
   examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py
 ```
 
+Run the hybrid VMEC/coil open-SOL workflow contract. This is the planned
+promotion path when pure direct-coil endpoint maps remain too rough: VMEC
+provides smooth map coordinates, while coil traces provide endpoint masks and
+magnetic-field modulation. The default command is self-contained and writes a
+dry-run promotion ledger; live mode adds FCI/source-profile,
+parallel-step-refinement, stationarity, grid/time-refinement, and optional
+media gates before any hybrid movie can be promoted:
+
+```bash
+PYTHONPATH=src python \
+  examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py
+```
+
 Run the direct-coil closed/near-closed control. The default command is
 self-contained and classifies manufactured non-axisymmetric traces. It now
 writes both a base return-map/Poincare report and a refinement report that
