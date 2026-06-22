@@ -13,6 +13,20 @@ visually plausible 3D movie, but to make the geometry, operators, validation
 metrics, differentiability boundary, and documentation strong enough for
 research use.
 
+Current execution status:
+
+- The active priority order is defined in
+  [Research-Grade Execution Plan](research_grade_execution_plan.md#current-authoritative-open-lane-implementation-plan),
+  not in this appendix.
+- The analytic non-axisymmetric lane below is the reusable validation baseline
+  for metrics, FCI operators, sheath/recycling, neutrals, vorticity, and
+  PyTree/JVP seams.
+- The current main-branch device sequence is direct ESSOS-coil open diagnostics
+  and direct-coil closed controls first, VMEC closed-field controls second,
+  hybrid VMEC/coil open-SOL promotion third, and VMEC-extender finite-beta
+  only through frozen exterior-field artifacts after the strict artifact gates
+  pass.
+
 The plan follows the verification pattern used in the stellarator edge/SOL
 literature: first validate metric tensors and traced field-line maps, then
 validate parallel and perpendicular operators on manufactured fields, then run

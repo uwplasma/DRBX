@@ -569,6 +569,21 @@ def run_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> d
                 "minimum_conservative_projection_endpoint_agreement_fraction_actual"
             )
         ),
+        "signed_target_transition_available": bool(
+            report.get("signed_target_transition_available", False)
+        ),
+        "dominant_signed_target_transition_mode": report.get(
+            "dominant_signed_target_transition_mode"
+        ),
+        "minimum_signed_target_transition_consistency_fraction_actual": report.get(
+            "minimum_signed_target_transition_consistency_fraction_actual"
+        ),
+        "maximum_signed_target_projection_false_positive_fraction_actual": report.get(
+            "maximum_signed_target_projection_false_positive_fraction_actual"
+        ),
+        "signed_target_transition_shell_only_instability": bool(
+            report.get("signed_target_transition_shell_only_instability", False)
+        ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
             "dominant_endpoint_boundary_localization"
         ),
@@ -671,6 +686,21 @@ def run_collocated_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSet
             report.get(
                 "minimum_conservative_projection_endpoint_agreement_fraction_actual"
             )
+        ),
+        "signed_target_transition_available": bool(
+            report.get("signed_target_transition_available", False)
+        ),
+        "dominant_signed_target_transition_mode": report.get(
+            "dominant_signed_target_transition_mode"
+        ),
+        "minimum_signed_target_transition_consistency_fraction_actual": report.get(
+            "minimum_signed_target_transition_consistency_fraction_actual"
+        ),
+        "maximum_signed_target_projection_false_positive_fraction_actual": report.get(
+            "maximum_signed_target_projection_false_positive_fraction_actual"
+        ),
+        "signed_target_transition_shell_only_instability": bool(
+            report.get("signed_target_transition_shell_only_instability", False)
         ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
             "dominant_endpoint_boundary_localization"
@@ -783,6 +813,21 @@ def run_boundary_resolved_endpoint_label_refinement_gate(
             report.get(
                 "minimum_conservative_projection_endpoint_agreement_fraction_actual"
             )
+        ),
+        "signed_target_transition_available": bool(
+            report.get("signed_target_transition_available", False)
+        ),
+        "dominant_signed_target_transition_mode": report.get(
+            "dominant_signed_target_transition_mode"
+        ),
+        "minimum_signed_target_transition_consistency_fraction_actual": report.get(
+            "minimum_signed_target_transition_consistency_fraction_actual"
+        ),
+        "maximum_signed_target_projection_false_positive_fraction_actual": report.get(
+            "maximum_signed_target_projection_false_positive_fraction_actual"
+        ),
+        "signed_target_transition_shell_only_instability": bool(
+            report.get("signed_target_transition_shell_only_instability", False)
         ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
             "dominant_endpoint_boundary_localization"

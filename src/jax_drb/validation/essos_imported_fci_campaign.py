@@ -54,6 +54,8 @@ class EssosImportedEndpointLabelLevels:
     labels: tuple[str, ...]
     metadata: tuple[dict[str, Any], ...]
     coordinates: tuple[dict[str, np.ndarray], ...] = ()
+    forward_target_exit_levels: tuple[np.ndarray, ...] = ()
+    backward_target_exit_levels: tuple[np.ndarray, ...] = ()
 
 
 _IMPORTED_FCI_ARRAY_KEYS = (
@@ -460,6 +462,8 @@ def create_essos_imported_endpoint_label_refinement_package(
     case_label: str = "essos_imported_endpoint_label_refinement",
     endpoint_label_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
     coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None = None,
+    forward_target_exit_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
+    backward_target_exit_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
     labels: tuple[str, ...] | list[str] | None = None,
     level_shapes: tuple[tuple[int, int, int], ...] = (
         (4, 6, 8),
@@ -484,6 +488,8 @@ def create_essos_imported_endpoint_label_refinement_package(
     report, arrays = build_essos_imported_endpoint_label_refinement_campaign(
         endpoint_label_levels=endpoint_label_levels,
         coordinate_levels=coordinate_levels,
+        forward_target_exit_levels=forward_target_exit_levels,
+        backward_target_exit_levels=backward_target_exit_levels,
         labels=labels,
         level_shapes=level_shapes,
         minimum_agreement_fraction=minimum_agreement_fraction,
@@ -550,6 +556,8 @@ def create_live_essos_imported_endpoint_label_refinement_package(
         case_label=case_label,
         endpoint_label_levels=live_levels.levels,
         coordinate_levels=live_levels.coordinates,
+        forward_target_exit_levels=live_levels.forward_target_exit_levels,
+        backward_target_exit_levels=live_levels.backward_target_exit_levels,
         labels=live_levels.labels,
         minimum_agreement_fraction=minimum_agreement_fraction,
         minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
@@ -681,6 +689,8 @@ def build_live_essos_imported_endpoint_label_levels(
     labels: list[str] = []
     metadata: list[dict[str, Any]] = []
     coordinate_levels: list[dict[str, np.ndarray]] = []
+    forward_exit_levels: list[np.ndarray] = []
+    backward_exit_levels: list[np.ndarray] = []
     normalized_source = _normalize_imported_fci_map_source(map_source)
     for shape in level_shapes:
         if len(shape) != 3:
@@ -710,6 +720,12 @@ def build_live_essos_imported_endpoint_label_levels(
                 f"expected {(nx, ny, nz)}, got {endpoint_labels.shape}."
             )
         levels.append(endpoint_labels.astype(np.int8))
+        forward_exit_levels.append(
+            np.asarray(geometry.forward_target_exit_length, dtype=np.float64)
+        )
+        backward_exit_levels.append(
+            np.asarray(geometry.backward_target_exit_length, dtype=np.float64)
+        )
         coordinates = _connection_length_geometry_coordinates(geometry)
         if coordinates:
             coordinates = {
@@ -732,6 +748,8 @@ def build_live_essos_imported_endpoint_label_levels(
         labels=tuple(labels),
         metadata=tuple(metadata),
         coordinates=coordinate_tuple,
+        forward_target_exit_levels=tuple(forward_exit_levels),
+        backward_target_exit_levels=tuple(backward_exit_levels),
     )
 
 
@@ -874,6 +892,8 @@ def build_essos_imported_endpoint_label_refinement_campaign(
     *,
     endpoint_label_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
     coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None = None,
+    forward_target_exit_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
+    backward_target_exit_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
     labels: tuple[str, ...] | list[str] | None = None,
     level_shapes: tuple[tuple[int, int, int], ...] = (
         (4, 6, 8),
@@ -908,6 +928,8 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         levels,
         labels=level_labels,
         coordinate_levels=coordinate_levels,
+        forward_target_exit_levels=forward_target_exit_levels,
+        backward_target_exit_levels=backward_target_exit_levels,
         minimum_agreement_fraction=minimum_agreement_fraction,
         minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
         minimum_endpoint_union_fraction=minimum_endpoint_union_fraction,
@@ -977,6 +999,25 @@ def build_essos_imported_endpoint_label_refinement_campaign(
                 "minimum_conservative_projection_endpoint_agreement_fraction_actual"
             ]
         ),
+        "signed_target_transition_available": bool(
+            diagnostics["signed_target_transition_available"]
+        ),
+        "dominant_signed_target_transition_mode": (
+            diagnostics["dominant_signed_target_transition_mode"]
+        ),
+        "minimum_signed_target_transition_consistency_fraction_actual": (
+            diagnostics[
+                "minimum_signed_target_transition_consistency_fraction_actual"
+            ]
+        ),
+        "maximum_signed_target_projection_false_positive_fraction_actual": (
+            diagnostics[
+                "maximum_signed_target_projection_false_positive_fraction_actual"
+            ]
+        ),
+        "signed_target_transition_shell_only_instability": bool(
+            diagnostics["signed_target_transition_shell_only_instability"]
+        ),
         "level_count_passed": bool(diagnostics["level_count_passed"]),
         "promotion_ready": bool(diagnostics["promotion_ready"]),
         "advisory_only": bool(diagnostics["advisory_only"]),
@@ -1038,6 +1079,26 @@ def build_essos_imported_endpoint_label_refinement_campaign(
     for index, coordinates in enumerate(coordinate_payloads):
         for key, values in coordinates.items():
             arrays[f"level_{index}_{key}"] = np.asarray(values, dtype=np.float64)
+    forward_exit_payloads = _normalize_optional_endpoint_exit_levels(
+        forward_target_exit_levels,
+        expected_shapes=[level.shape for level in levels],
+        name="forward_target_exit_levels",
+    )
+    backward_exit_payloads = _normalize_optional_endpoint_exit_levels(
+        backward_target_exit_levels,
+        expected_shapes=[level.shape for level in levels],
+        name="backward_target_exit_levels",
+    )
+    for index, values in enumerate(forward_exit_payloads):
+        arrays[f"level_{index}_forward_target_exit_length"] = np.asarray(
+            values,
+            dtype=np.float64,
+        )
+    for index, values in enumerate(backward_exit_payloads):
+        arrays[f"level_{index}_backward_target_exit_length"] = np.asarray(
+            values,
+            dtype=np.float64,
+        )
     return report, arrays
 
 
@@ -1046,6 +1107,8 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
     labels: tuple[str, ...] | list[str] | None = None,
     *,
     coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None = None,
+    forward_target_exit_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
+    backward_target_exit_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
     minimum_agreement_fraction: float = 0.98,
     minimum_endpoint_agreement_fraction: float = 0.95,
     minimum_endpoint_union_fraction: float = 0.0,
@@ -1098,6 +1161,20 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
     coordinate_payloads = _normalize_connection_coordinate_levels(
         coordinate_levels,
         expected_shapes=[level.shape for level in levels],
+    )
+    forward_exit_payloads = _normalize_optional_endpoint_exit_levels(
+        forward_target_exit_levels,
+        expected_shapes=[level.shape for level in levels],
+        name="forward_target_exit_levels",
+    )
+    backward_exit_payloads = _normalize_optional_endpoint_exit_levels(
+        backward_target_exit_levels,
+        expected_shapes=[level.shape for level in levels],
+        name="backward_target_exit_levels",
+    )
+    signed_exit_payloads_available = bool(
+        len(forward_exit_payloads) == len(levels)
+        and len(backward_exit_payloads) == len(levels)
     )
     use_coordinate_restriction = bool(coordinate_payloads)
     restriction_method = (
@@ -1177,6 +1254,43 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         else:
             projection_neighborhood_metrics = _endpoint_projection_neighborhood_unavailable()
             conservative_projection_metrics = _endpoint_conservative_projection_unavailable()
+        signed_transition_metrics = _endpoint_signed_target_transition_metrics_for_pair(
+            coarse=coarse,
+            restricted=restricted,
+            valid=valid,
+            use_coordinate_restriction=use_coordinate_restriction,
+            signed_exit_payloads_available=signed_exit_payloads_available,
+            coarse_forward_exit=(
+                forward_exit_payloads[index]
+                if signed_exit_payloads_available
+                else None
+            ),
+            coarse_backward_exit=(
+                backward_exit_payloads[index]
+                if signed_exit_payloads_available
+                else None
+            ),
+            fine_forward_exit=(
+                forward_exit_payloads[index + 1]
+                if signed_exit_payloads_available
+                else None
+            ),
+            fine_backward_exit=(
+                backward_exit_payloads[index + 1]
+                if signed_exit_payloads_available
+                else None
+            ),
+            fine_coordinates=(
+                coordinate_payloads[index + 1]
+                if use_coordinate_restriction
+                else None
+            ),
+            coarse_coordinates=(
+                coordinate_payloads[index]
+                if use_coordinate_restriction
+                else None
+            ),
+        )
         directional_transition_shell = np.asarray(
             boundary_localization_metrics.pop("directional_transition_shell"),
             dtype=bool,
@@ -1233,6 +1347,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
                 **boundary_localization_metrics,
                 **projection_neighborhood_metrics,
                 **conservative_projection_metrics,
+                **signed_transition_metrics,
                 **interior_metrics,
                 "dominant_instability_mode": instability_mode,
                 "recommended_next_action": _endpoint_instability_next_action(instability_mode),
@@ -1357,6 +1472,50 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         if pair.get("conservative_projection_available", False)
         and pair.get("conservative_projection_endpoint_agreement_fraction") is not None
     ]
+    signed_target_transition_available = any(
+        bool(pair.get("signed_target_transition_available", False))
+        for pair in pair_reports
+    )
+    signed_target_transition_consistency_values = [
+        float(pair["signed_target_transition_consistency_fraction"])
+        for pair in pair_reports
+        if pair.get("signed_target_transition_available", False)
+    ]
+    signed_target_projection_false_positive_values = [
+        float(pair["signed_target_projection_false_positive_fraction"])
+        for pair in pair_reports
+        if pair.get("signed_target_transition_available", False)
+    ]
+    signed_target_transition_modes = [
+        str(pair["signed_target_transition_mode"])
+        for pair in pair_reports
+        if pair.get("signed_target_transition_available", False)
+    ]
+    dominant_signed_target_transition_mode = (
+        _dominant_endpoint_instability_mode(signed_target_transition_modes)
+        if signed_target_transition_modes
+        else "unavailable"
+    )
+    minimum_signed_target_transition_consistency = (
+        min(signed_target_transition_consistency_values)
+        if signed_target_transition_consistency_values
+        else None
+    )
+    maximum_signed_target_projection_false_positive = (
+        max(signed_target_projection_false_positive_values)
+        if signed_target_projection_false_positive_values
+        else None
+    )
+    signed_transition_shell_only_instability = bool(
+        not promotion_ready
+        and target_boundary_only_instability
+        and signed_target_transition_available
+        and dominant_signed_target_transition_mode == "signed_transition_supported"
+        and minimum_signed_target_transition_consistency is not None
+        and float(minimum_signed_target_transition_consistency) >= 0.90
+        and maximum_signed_target_projection_false_positive is not None
+        and float(maximum_signed_target_projection_false_positive) <= 0.05
+    )
     return {
         "diagnostic": "essos_imported_endpoint_label_refinement",
         "label_semantics": "0 none, 1 forward, 2 backward, 3 bidirectional",
@@ -1417,6 +1576,22 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
             min(conservative_projection_endpoint_agreement_values)
             if conservative_projection_endpoint_agreement_values
             else None
+        ),
+        "signed_target_transition_available": bool(
+            signed_target_transition_available
+        ),
+        "signed_target_transition_modes": signed_target_transition_modes,
+        "dominant_signed_target_transition_mode": (
+            dominant_signed_target_transition_mode
+        ),
+        "minimum_signed_target_transition_consistency_fraction_actual": (
+            minimum_signed_target_transition_consistency
+        ),
+        "maximum_signed_target_projection_false_positive_fraction_actual": (
+            maximum_signed_target_projection_false_positive
+        ),
+        "signed_target_transition_shell_only_instability": (
+            signed_transition_shell_only_instability
         ),
         "projection_recommended_next_action": _endpoint_boundary_localization_next_action(
             dominant_boundary_localization
@@ -1646,6 +1821,224 @@ def _endpoint_conservative_projection_metrics(
         "conservative_projection_directional_mismatch_fraction": float(
             np.mean(directional_mismatch)
         ),
+    }
+
+
+def _endpoint_signed_target_transition_unavailable(
+    reason: str,
+) -> dict[str, float | bool | str | int | None]:
+    return {
+        "signed_target_transition_available": False,
+        "signed_target_transition_mode": "unavailable",
+        "signed_target_transition_unavailable_reason": reason,
+        "signed_target_transition_mismatch_count": 0,
+        "coarse_signed_exit_label_consistency_fraction": None,
+        "restricted_signed_exit_label_consistency_fraction": None,
+        "signed_target_transition_consistency_fraction": None,
+        "signed_target_projection_false_positive_fraction": 0.0,
+        "signed_target_coarse_unsupported_fraction": 0.0,
+        "signed_target_restricted_unlabeled_hit_fraction": 0.0,
+        "signed_target_direction_disagreement_fraction": 0.0,
+        "signed_target_transition_recommended_next_action": reason,
+    }
+
+
+def _endpoint_signed_target_transition_metrics_for_pair(
+    *,
+    coarse: np.ndarray,
+    restricted: np.ndarray,
+    valid: np.ndarray,
+    use_coordinate_restriction: bool,
+    signed_exit_payloads_available: bool,
+    coarse_forward_exit: np.ndarray | None,
+    coarse_backward_exit: np.ndarray | None,
+    fine_forward_exit: np.ndarray | None,
+    fine_backward_exit: np.ndarray | None,
+    fine_coordinates: dict[str, np.ndarray] | None,
+    coarse_coordinates: dict[str, np.ndarray] | None,
+) -> dict[str, float | bool | str | int | None]:
+    """Classify endpoint-label mismatches using signed target-exit evidence."""
+
+    if not signed_exit_payloads_available:
+        return _endpoint_signed_target_transition_unavailable(
+            "Signed target-transition diagnostics require forward and backward "
+            "target-exit length levels."
+        )
+    if not use_coordinate_restriction:
+        return _endpoint_signed_target_transition_unavailable(
+            "Signed target-transition diagnostics currently require coordinate "
+            "nearest-neighbor restriction so label and exit evidence use the "
+            "same fine-grid sample."
+        )
+    if fine_coordinates is None or coarse_coordinates is None:
+        return _endpoint_signed_target_transition_unavailable(
+            "Signed target-transition diagnostics require coarse and fine "
+            "minor-radius, toroidal-angle, and poloidal-angle coordinates."
+        )
+    required_arrays = (
+        coarse_forward_exit,
+        coarse_backward_exit,
+        fine_forward_exit,
+        fine_backward_exit,
+    )
+    if any(array is None for array in required_arrays):
+        return _endpoint_signed_target_transition_unavailable(
+            "Signed target-transition diagnostics require all four signed "
+            "target-exit arrays."
+        )
+
+    coarse_labels = _normalize_endpoint_label_level(coarse)
+    restricted_labels = _normalize_endpoint_label_level(restricted)
+    valid_mask = np.asarray(valid, dtype=bool)
+    coarse_forward = np.asarray(coarse_forward_exit, dtype=np.float64)
+    coarse_backward = np.asarray(coarse_backward_exit, dtype=np.float64)
+    sampled_forward = _sample_scalar_nearest_at_coarse_coordinates(
+        fine=np.asarray(fine_forward_exit, dtype=np.float64),
+        fine_coordinates=fine_coordinates,
+        coarse_coordinates=coarse_coordinates,
+    )
+    sampled_backward = _sample_scalar_nearest_at_coarse_coordinates(
+        fine=np.asarray(fine_backward_exit, dtype=np.float64),
+        fine_coordinates=fine_coordinates,
+        coarse_coordinates=coarse_coordinates,
+    )
+    if (
+        coarse_forward.shape != coarse_labels.shape
+        or coarse_backward.shape != coarse_labels.shape
+        or sampled_forward.shape != coarse_labels.shape
+        or sampled_backward.shape != coarse_labels.shape
+    ):
+        raise ValueError(
+            "Signed target-transition arrays must match the coarse endpoint "
+            f"shape {coarse_labels.shape}."
+        )
+
+    coarse_evidence = _target_label_array(
+        np.isfinite(coarse_forward),
+        np.isfinite(coarse_backward),
+    )
+    restricted_evidence = _target_label_array(
+        np.isfinite(sampled_forward),
+        np.isfinite(sampled_backward),
+    )
+    valid_signed = (
+        valid_mask
+        & _endpoint_labels_valid(coarse_labels)
+        & _endpoint_labels_valid(restricted_labels)
+        & _endpoint_labels_valid(coarse_evidence)
+        & _endpoint_labels_valid(restricted_evidence)
+    )
+    mismatch = valid_signed & (coarse_labels != restricted_labels)
+    mismatch_count = int(np.sum(mismatch))
+    valid_count = int(np.sum(valid_signed))
+    coarse_consistent = valid_signed & (coarse_labels == coarse_evidence)
+    restricted_consistent = valid_signed & (restricted_labels == restricted_evidence)
+    mismatch_both_consistent = mismatch & coarse_consistent & restricted_consistent
+    restricted_endpoint_unsupported = (
+        mismatch
+        & (restricted_labels > 0)
+        & ((restricted_labels & restricted_evidence) != restricted_labels)
+    )
+    coarse_endpoint_unsupported = (
+        mismatch
+        & (coarse_labels > 0)
+        & ((coarse_labels & coarse_evidence) != coarse_labels)
+    )
+    restricted_unlabeled_hit = (
+        mismatch
+        & (restricted_evidence > 0)
+        & ((restricted_labels & restricted_evidence) != restricted_evidence)
+    )
+    signed_direction_disagreement = (
+        mismatch_both_consistent
+        & (coarse_evidence > 0)
+        & (restricted_evidence > 0)
+        & (coarse_evidence != restricted_evidence)
+    )
+    transition_consistency = _safe_fraction(
+        int(np.sum(mismatch_both_consistent)),
+        mismatch_count,
+        default=1.0,
+    )
+    projection_false_positive = _safe_fraction(
+        int(np.sum(restricted_endpoint_unsupported)),
+        mismatch_count,
+        default=0.0,
+    )
+    coarse_unsupported = _safe_fraction(
+        int(np.sum(coarse_endpoint_unsupported)),
+        mismatch_count,
+        default=0.0,
+    )
+    restricted_unlabeled = _safe_fraction(
+        int(np.sum(restricted_unlabeled_hit)),
+        mismatch_count,
+        default=0.0,
+    )
+    direction_disagreement = _safe_fraction(
+        int(np.sum(signed_direction_disagreement)),
+        mismatch_count,
+        default=0.0,
+    )
+    if mismatch_count == 0:
+        mode = "stable"
+        next_action = "Signed target-exit evidence agrees because there are no label mismatches."
+    elif projection_false_positive >= 0.25:
+        mode = "nearest_projection_false_positive"
+        next_action = (
+            "Restricted fine labels contain endpoint bits that are not supported "
+            "by finite signed target-exit lengths. Inspect nearest projection "
+            "and wall-hit retention before changing the physical target mask."
+        )
+    elif coarse_unsupported >= 0.25:
+        mode = "coarse_classifier_or_trace_unsupported"
+        next_action = (
+            "Coarse endpoint labels are not supported by finite signed target-exit "
+            "lengths. Inspect coarse wall-hit classification or trace history."
+        )
+    elif restricted_unlabeled >= 0.25:
+        mode = "restricted_unlabeled_target_hit"
+        next_action = (
+            "Fine-grid signed target exits are finite where the restricted label "
+            "does not mark an endpoint. Inspect label construction from signed "
+            "target-exit arrays."
+        )
+    elif transition_consistency >= 0.75:
+        mode = "signed_transition_supported"
+        next_action = (
+            "Endpoint-label mismatches are supported by signed forward/backward "
+            "target-exit evidence. Treat this as a target transition-shell "
+            "resolution issue and refine or classify the signed shell before "
+            "promoting pure-coil media."
+        )
+    else:
+        mode = "mixed_signed_target_transition"
+        next_action = (
+            "Signed target-exit evidence is mixed. Inspect the signed "
+            "transition shell, nearest projection, and coarse/fine target "
+            "classifiers before media promotion."
+        )
+    return {
+        "signed_target_transition_available": True,
+        "signed_target_transition_mode": mode,
+        "signed_target_transition_unavailable_reason": None,
+        "signed_target_transition_mismatch_count": mismatch_count,
+        "coarse_signed_exit_label_consistency_fraction": _safe_fraction(
+            int(np.sum(coarse_consistent)),
+            valid_count,
+            default=1.0,
+        ),
+        "restricted_signed_exit_label_consistency_fraction": _safe_fraction(
+            int(np.sum(restricted_consistent)),
+            valid_count,
+            default=1.0,
+        ),
+        "signed_target_transition_consistency_fraction": transition_consistency,
+        "signed_target_projection_false_positive_fraction": projection_false_positive,
+        "signed_target_coarse_unsupported_fraction": coarse_unsupported,
+        "signed_target_restricted_unlabeled_hit_fraction": restricted_unlabeled,
+        "signed_target_direction_disagreement_fraction": direction_disagreement,
+        "signed_target_transition_recommended_next_action": next_action,
     }
 
 
@@ -3354,6 +3747,9 @@ def save_essos_imported_endpoint_label_refinement_plot(
         if conservative_endpoint is None
         else f"{float(conservative_endpoint):.3f}"
     )
+    signed_mode = str(
+        report.get("dominant_signed_target_transition_mode", "unavailable")
+    )
     fig.suptitle(
         "Imported-field endpoint-label refinement gate\n"
         f"passed={report['passed']}, min all={min_agreement_text}, "
@@ -3362,7 +3758,8 @@ def save_essos_imported_endpoint_label_refinement_plot(
         f"interior all={interior_agreement_text} over {interior_valid_text}\n"
         f"projection-neighborhood support={projection_support_text}, "
         f"supported={projection_neighborhood_supported}, "
-        f"conservative endpoint={conservative_endpoint_text}",
+        f"conservative endpoint={conservative_endpoint_text}, "
+        f"signed mode={signed_mode}",
         fontsize=12,
     )
     fig.savefig(resolved, dpi=180, bbox_inches="tight")
@@ -4294,6 +4691,28 @@ def _normalize_connection_coordinate_levels(
     return tuple(normalized)
 
 
+def _normalize_optional_endpoint_exit_levels(
+    exit_levels: tuple[np.ndarray, ...] | list[np.ndarray] | None,
+    *,
+    expected_shapes: list[tuple[int, ...]],
+    name: str,
+) -> tuple[np.ndarray, ...]:
+    if exit_levels is None:
+        return ()
+    if len(exit_levels) != len(expected_shapes):
+        raise ValueError(f"{name} count must match endpoint-label level count.")
+    normalized: list[np.ndarray] = []
+    for index, (level, expected_shape) in enumerate(zip(exit_levels, expected_shapes)):
+        values = np.asarray(level, dtype=np.float64)
+        if values.shape != expected_shape:
+            raise ValueError(
+                f"{name} level {index} has shape {values.shape}; "
+                f"expected {expected_shape}."
+            )
+        normalized.append(values)
+    return tuple(normalized)
+
+
 def _sample_connection_length_at_coarse_coordinates(
     *,
     fine: np.ndarray,
@@ -4327,6 +4746,27 @@ def _sample_connection_length_at_coarse_coordinates(
     c0 = (1.0 - wy) * c00 + wy * c10
     c1 = (1.0 - wy) * c01 + wy * c11
     return (1.0 - wz) * c0 + wz * c1
+
+
+def _sample_scalar_nearest_at_coarse_coordinates(
+    *,
+    fine: np.ndarray,
+    fine_coordinates: dict[str, np.ndarray],
+    coarse_coordinates: dict[str, np.ndarray],
+) -> np.ndarray:
+    fine_values = np.asarray(fine, dtype=np.float64)
+    fine_rho = _coordinate_axis(fine_coordinates["minor_radius"], axis=0)
+    fine_phi = _coordinate_axis(fine_coordinates["toroidal_angle"], axis=1)
+    fine_theta = _coordinate_axis(fine_coordinates["poloidal_angle"], axis=2)
+    coarse_rho = np.asarray(coarse_coordinates["minor_radius"], dtype=np.float64)
+    coarse_phi = np.asarray(coarse_coordinates["toroidal_angle"], dtype=np.float64)
+    coarse_theta = np.asarray(coarse_coordinates["poloidal_angle"], dtype=np.float64)
+
+    x, valid_x = _nearest_linear_axis_indices(fine_rho, coarse_rho)
+    y = _nearest_periodic_axis_indices(fine_phi, coarse_phi, period=2.0 * np.pi)
+    z = _nearest_periodic_axis_indices(fine_theta, coarse_theta, period=2.0 * np.pi)
+    sampled = fine_values[x, y, z].astype(np.float64)
+    return np.where(valid_x, sampled, np.nan).astype(np.float64)
 
 
 def _sample_endpoint_labels_at_coarse_coordinates(
