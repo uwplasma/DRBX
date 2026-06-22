@@ -33,6 +33,7 @@ from jax_drb.validation import (
     create_essos_fieldline_import_package,
     create_essos_direct_coil_closed_control_package,
     create_essos_direct_coil_closed_control_refinement_package,
+    create_essos_direct_coil_closed_control_transient_package,
     create_essos_vmec_closed_field_dry_run_package,
     create_essos_vmec_closed_field_transient_dry_run_package,
     create_essos_vmec_closed_field_transient_package_from_geometry,
@@ -1811,6 +1812,71 @@ def test_essos_direct_coil_closed_control_refinement_diagnostics_reject_open_lev
     assert "return_distance_p95_exceeds_near_closed_tolerance" in diagnostic[
         "promotion_rejection_reasons"
     ]
+
+
+def test_essos_direct_coil_closed_control_transient_package_is_self_contained(tmp_path: Path) -> None:
+    artifacts = create_essos_direct_coil_closed_control_transient_package(
+        output_root=tmp_path / "essos_direct_coil_closed_control_transient",
+        n_radial_seeds=3,
+        n_poloidal_seeds=3,
+        times_to_trace=256,
+        frames=4,
+        substeps_per_frame=2,
+        samples_per_line=64,
+        write_movie=True,
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    assert report["closed_control_media_ready"] is True
+    assert report["movie_visual_qa_passed"] is True
+    assert report["open_sol_publication_ready"] is False
+    assert report["target_semantics_applied"] is False
+    assert report["sheath_recycling_semantics_applied"] is False
+    assert report["neutral_loss_semantics_applied"] is False
+    assert report["mass_relative_drift"] < 5.0e-3
+    assert report["final_fluctuation_rms"] > 1.0e-5
+    assert artifacts.arrays_npz_path.exists()
+    assert artifacts.plot_png_path.exists()
+    assert artifacts.movie_gif_path is not None
+    assert artifacts.movie_gif_path.exists()
+    with np.load(artifacts.arrays_npz_path) as arrays:
+        assert arrays["density_fluctuation_history"].shape == (5, 9, 64)
+        assert arrays["sampled_trajectories_xyz"].shape == (9, 64, 3)
+        assert np.all(np.isfinite(arrays["density_fluctuation_history"]))
+
+
+def test_essos_direct_coil_closed_control_transient_rejects_open_like_base(tmp_path: Path) -> None:
+    time = np.linspace(0.0, 1.5 * np.pi, 96)
+    trajectories = []
+    initial = []
+    for radius in (1.3, 1.45):
+        x = radius * np.cos(time)
+        y = radius * np.sin(time)
+        z = 0.1 * np.sin(0.5 * time)
+        line = np.stack([x, y, z], axis=-1)
+        trajectories.append(line)
+        initial.append(line[0])
+
+    artifacts = create_essos_direct_coil_closed_control_transient_package(
+        output_root=tmp_path / "open_like_transient",
+        trajectories_xyz=np.asarray(trajectories),
+        initial_xyz=np.asarray(initial),
+        times=time,
+        poincare_sections=(0.0,),
+        minimum_closed_or_near_fraction=0.50,
+        frames=3,
+        substeps_per_frame=1,
+        samples_per_line=32,
+        write_movie=False,
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert report["passed"] is False
+    assert report["closed_control_media_ready"] is False
+    assert report["open_sol_publication_ready"] is False
+    assert "base_closed_control_failed" in report["promotion_rejection_reasons"]
+    assert artifacts.movie_gif_path is None
 
 
 def test_essos_vmec_closed_field_dry_run_contract_is_self_contained(tmp_path: Path) -> None:

@@ -28,6 +28,10 @@ It writes:
 - `artifacts/essos_direct_coil_closed_control/refinement/data/essos_direct_coil_closed_control_refinement.json`
 - `artifacts/essos_direct_coil_closed_control/refinement/data/essos_direct_coil_closed_control_refinement.npz`
 - `artifacts/essos_direct_coil_closed_control/refinement/images/essos_direct_coil_closed_control_refinement.png`
+- `artifacts/essos_direct_coil_closed_control/transient/data/essos_direct_coil_closed_control_transient.json`
+- `artifacts/essos_direct_coil_closed_control/transient/data/essos_direct_coil_closed_control_transient.npz`
+- `artifacts/essos_direct_coil_closed_control/transient/images/essos_direct_coil_closed_control_transient.png`
+- `artifacts/essos_direct_coil_closed_control/transient/movies/essos_direct_coil_closed_control_transient.gif`
 
 The JSON report contains the number of seeds, Poincare point count, toroidal
 turn statistics, normalized same-section return-distance percentiles, closed
@@ -50,6 +54,17 @@ seed and trace samples. Its promotion gate checks that:
 
 This is a closed-field return-map stability gate. It is not a target-to-target
 connection-length, sheath, recycling, or neutral-transport validation.
+
+The transient package then runs a compact periodic scalar model along the same
+closed or near-closed trace bundle. The model advances a line-following density
+fluctuation with periodic advection, field-line diffusion, and a zero-mean
+non-axisymmetric drive. Each timestep removes the per-line mean of the right
+hand side, so the diagnostic is a closed-field profile/fluctuation control
+rather than a source or sink balance. The report records fluctuation RMS, mass
+drift, line-mean spread, positive-density checks, fixed-camera/fixed-color
+movie flags, and a `closed_control_media_ready` flag. It also records
+`open_sol_publication_ready = false`, because this trace bundle has no endpoint
+mask, target sheath, recycling source, or neutral-loss channel.
 
 ## Run The Live Direct-Coil Control
 
@@ -131,9 +146,11 @@ It also passed the current refinement gate:
 - Promotion rejection reasons: none
 
 This closes the compact live return-map stability gate for the direct-coil
-closed-control lane. A closed direct-coil turbulence movie still needs a
-separate reduced or full closed-field physics campaign and frame-by-frame
-visual QA before it should be promoted in the README.
+closed-control lane. The self-contained example now also writes a reduced
+closed-trace transient and fixed-camera GIF. That media closes the local
+closed-control tutorial gap, but it remains a closed-field diagnostic unless a
+future live direct-coil run and frame-by-frame visual QA are promoted for the
+README.
 
 ## Why This Gate Exists
 
