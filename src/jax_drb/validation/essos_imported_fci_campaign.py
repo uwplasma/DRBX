@@ -1080,6 +1080,14 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
                 coarse_shape=coarse.shape,
             )
         valid = _endpoint_labels_valid(coarse) & _endpoint_labels_valid(restricted)
+        coarse_forward = (coarse & 1) > 0
+        restricted_forward = (restricted & 1) > 0
+        coarse_backward = (coarse & 2) > 0
+        restricted_backward = (restricted & 2) > 0
+        forward_union = valid & (coarse_forward | restricted_forward)
+        backward_union = valid & (coarse_backward | restricted_backward)
+        forward_agreement = valid & (coarse_forward == restricted_forward)
+        backward_agreement = valid & (coarse_backward == restricted_backward)
         endpoint_union = valid & ((coarse > 0) | (restricted > 0))
         agreement = valid & (coarse == restricted)
         endpoint_agreement = endpoint_union & (coarse == restricted)
@@ -1089,6 +1097,17 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         false_negative_fraction = float(np.mean(valid & (coarse > 0) & (restricted == 0)))
         directional_mismatch_fraction = float(
             np.mean(valid & (coarse > 0) & (restricted > 0) & (coarse != restricted))
+        )
+        component_metrics = _endpoint_direction_component_metrics(
+            valid=valid,
+            coarse_forward=coarse_forward,
+            restricted_forward=restricted_forward,
+            coarse_backward=coarse_backward,
+            restricted_backward=restricted_backward,
+            forward_union=forward_union,
+            backward_union=backward_union,
+            forward_agreement=forward_agreement,
+            backward_agreement=backward_agreement,
         )
         instability_mode = _endpoint_instability_mode(
             endpoint_union_fraction=float(np.mean(endpoint_union)),
@@ -1117,6 +1136,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
                 "endpoint_false_positive_fraction": false_positive_fraction,
                 "endpoint_false_negative_fraction": false_negative_fraction,
                 "directional_mismatch_fraction": directional_mismatch_fraction,
+                **component_metrics,
                 "dominant_instability_mode": instability_mode,
                 "recommended_next_action": _endpoint_instability_next_action(instability_mode),
                 "confusion_matrix": confusion.tolist(),
@@ -1177,6 +1197,10 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         str(pair["dominant_instability_mode"]) for pair in pair_reports
     ]
     dominant_instability_mode = _dominant_endpoint_instability_mode(instability_modes)
+    component_error_modes = [
+        str(pair["dominant_direction_component_error"]) for pair in pair_reports
+    ]
+    dominant_component_error = _dominant_endpoint_instability_mode(component_error_modes)
     return {
         "diagnostic": "essos_imported_endpoint_label_refinement",
         "label_semantics": "0 none, 1 forward, 2 backward, 3 bidirectional",
@@ -1199,12 +1223,77 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         "evidence_role": evidence_role,
         "endpoint_instability_modes": instability_modes,
         "dominant_endpoint_instability_mode": dominant_instability_mode,
+        "direction_component_error_modes": component_error_modes,
+        "dominant_direction_component_error": dominant_component_error,
         "recommended_next_action": _endpoint_instability_next_action(
             dominant_instability_mode
         ),
         "promotion_rejection_reasons": rejection_reasons,
         "passed": bool(passed),
     }
+
+
+def _endpoint_direction_component_metrics(
+    *,
+    valid: np.ndarray,
+    coarse_forward: np.ndarray,
+    restricted_forward: np.ndarray,
+    coarse_backward: np.ndarray,
+    restricted_backward: np.ndarray,
+    forward_union: np.ndarray,
+    backward_union: np.ndarray,
+    forward_agreement: np.ndarray,
+    backward_agreement: np.ndarray,
+) -> dict[str, float | str]:
+    valid_count = int(np.sum(valid))
+    forward_union_count = int(np.sum(forward_union))
+    backward_union_count = int(np.sum(backward_union))
+    forward_false_positive = valid & (~coarse_forward) & restricted_forward
+    forward_false_negative = valid & coarse_forward & (~restricted_forward)
+    backward_false_positive = valid & (~coarse_backward) & restricted_backward
+    backward_false_negative = valid & coarse_backward & (~restricted_backward)
+    metrics: dict[str, float | str] = {
+        "forward_component_agreement_fraction": _safe_fraction(
+            int(np.sum(forward_agreement)), valid_count, default=0.0
+        ),
+        "backward_component_agreement_fraction": _safe_fraction(
+            int(np.sum(backward_agreement)), valid_count, default=0.0
+        ),
+        "forward_component_union_fraction": float(np.mean(forward_union)),
+        "backward_component_union_fraction": float(np.mean(backward_union)),
+        "forward_component_endpoint_agreement_fraction": (
+            _safe_fraction(int(np.sum(forward_agreement & forward_union)), forward_union_count, default=1.0)
+            if forward_union_count
+            else 1.0
+        ),
+        "backward_component_endpoint_agreement_fraction": (
+            _safe_fraction(int(np.sum(backward_agreement & backward_union)), backward_union_count, default=1.0)
+            if backward_union_count
+            else 1.0
+        ),
+        "forward_component_false_positive_fraction": float(np.mean(forward_false_positive)),
+        "forward_component_false_negative_fraction": float(np.mean(forward_false_negative)),
+        "backward_component_false_positive_fraction": float(np.mean(backward_false_positive)),
+        "backward_component_false_negative_fraction": float(np.mean(backward_false_negative)),
+    }
+    forward_error = (
+        float(metrics["forward_component_false_positive_fraction"])
+        + float(metrics["forward_component_false_negative_fraction"])
+    )
+    backward_error = (
+        float(metrics["backward_component_false_positive_fraction"])
+        + float(metrics["backward_component_false_negative_fraction"])
+    )
+    if max(forward_error, backward_error) <= 0.0:
+        dominant = "stable"
+    elif forward_error > 1.25 * backward_error:
+        dominant = "forward_component"
+    elif backward_error > 1.25 * forward_error:
+        dominant = "backward_component"
+    else:
+        dominant = "balanced_forward_backward_components"
+    metrics["dominant_direction_component_error"] = dominant
+    return metrics
 
 
 def _endpoint_instability_mode(
