@@ -2021,6 +2021,9 @@ def test_essos_vmec_closed_field_transient_package_locks_closed_semantics(tmp_pa
     assert report["sheath_recycling_semantics_applied"] is False
     assert report["neutral_loss_semantics_applied"] is False
     assert report["open_sol_publication_ready"] is False
+    assert report["fixed_camera"] is True
+    assert report["fixed_color_limits"] is True
+    assert report["movie_visual_qa_passed"] is True
     assert report["mass_relative_drift"] < 2.0e-2
     assert report["final_fluctuation_rms"] > 1.0e-5
     assert report["spectrum_finite"] is True

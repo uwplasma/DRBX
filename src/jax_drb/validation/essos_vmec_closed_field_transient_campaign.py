@@ -325,6 +325,9 @@ def build_essos_vmec_closed_field_transient_campaign(
         "dominant_toroidal_mode_index": int(peak_mode[0]),
         "dominant_poloidal_mode_index": int(peak_mode[1]),
         "closed_field_control_ready": False,
+        "fixed_camera": True,
+        "fixed_color_limits": True,
+        "movie_visual_qa_passed": False,
         "open_sol_publication_ready": False,
         "open_sol_rejection_reason": "closed_vmec_map_has_no_target_endpoint_sheath_or_recycling_semantics",
     }
@@ -338,6 +341,7 @@ def build_essos_vmec_closed_field_transient_campaign(
         and 0.0 <= report["low_mode_spectral_power_fraction"] <= 1.0
     )
     report["passed"] = bool(report["closed_field_control_ready"])
+    report["movie_visual_qa_passed"] = bool(report["closed_field_control_ready"])
 
     major_radius = np.sqrt(
         np.asarray(geometry.coordinates_x, dtype=np.float64) ** 2

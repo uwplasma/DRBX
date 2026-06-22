@@ -129,3 +129,21 @@ final density, radial profile evolution, fluctuation and mass-drift traces,
 and the final toroidal-poloidal spectrum. The GIF uses a fixed camera and
 shows the density fluctuation on the closed section with a colorbar and time
 annotation.
+
+A fresh local live transient on the `(5, 8, 20)` Landreman-Paul QA VMEC map
+also passed the closed-field control gate:
+
+- Endpoint fraction: `0.0`
+- Mass relative drift: `2.1e-15`
+- Final fluctuation RMS: `3.38e-2`
+- Spectrum finite: `True`
+- Target semantics applied: `False`
+- Sheath/recycling semantics applied: `False`
+- Neutral-loss semantics applied: `False`
+
+The report now records `fixed_camera = true`, `fixed_color_limits = true`,
+and `movie_visual_qa_passed = true` when the closed-field transient gate
+passes. A manually generated contact sheet showed no frame jitter or color
+rescaling. The motion remains intentionally quiet, so this is closed-field
+profile/spectrum/control evidence rather than promoted stellarator SOL
+turbulence media.
