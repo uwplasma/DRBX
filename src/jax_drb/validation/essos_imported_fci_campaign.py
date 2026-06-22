@@ -3166,12 +3166,27 @@ def save_essos_imported_endpoint_label_refinement_plot(
     projection_suspected = bool(
         diagnostics.get("target_boundary_projection_suspected", False)
     )
+    projection_support_values = [
+        float(pair["projection_neighborhood_mismatch_support_fraction"])
+        for pair in diagnostics["pair_reports"]
+        if pair.get("projection_neighborhood_available", False)
+    ]
+    projection_support_text = (
+        "n/a"
+        if not projection_support_values
+        else f"{max(projection_support_values):.3f}"
+    )
+    projection_neighborhood_supported = bool(
+        diagnostics.get("projection_neighborhood_supported", False)
+    )
     fig.suptitle(
         "Imported-field endpoint-label refinement gate\n"
         f"passed={report['passed']}, min all={min_agreement_text}, "
         f"min endpoint={min_endpoint_text}, min endpoint population={min_endpoint_union_text}\n"
         f"boundary={boundary_mode}, target-projection suspected={projection_suspected}, "
-        f"interior all={interior_agreement_text} over {interior_valid_text}",
+        f"interior all={interior_agreement_text} over {interior_valid_text}\n"
+        f"projection-neighborhood support={projection_support_text}, "
+        f"supported={projection_neighborhood_supported}",
         fontsize=12,
     )
     fig.savefig(resolved, dpi=180, bbox_inches="tight")
