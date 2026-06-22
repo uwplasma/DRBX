@@ -320,7 +320,7 @@ and tests all move together.
 | Neutral, recycling, sheath, detachment | 80% | Neutral parallel diffusion and target recycling source mapping now have active-layout seams with full-field active-slice parity and JVP gates; finish full sheath orchestration, target/sheath coupling gates, and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
 | Compact imported-field/VMEC/hybrid showcase | 99% within compact scope | The compact hybrid movie and high-resolution reduced-transient reports pass the current compact grid/time/stationarity and visual-QA gates. This is not a broad device-scale stellarator turbulence claim. The broader open/closed stellarator SOL program is tracked separately in the active open-lane plan below. |
-| 3D stellarator open/closed SOL program | 61% overall | The direct ESSOS-coil FCI endpoint/source gate now passes with endpoint-aware map-quality diagnostics: interior FCI resolution is green, endpoint/source accounting closes, and target-exit lengths are finite only on endpoint cells. Direct-coil adjacent-step and target-exit nested refinement still fail, so direct-coil media remains unpromoted. The VMEC closed-field lane now has an integrated reduced transient/profile/spectrum/movie package with dry-run contracts, public exports, docs, zero-endpoint tests, and a compact live Landreman-Paul QA run; the movie is stable but visually quiet, so it is closed-field control evidence rather than promoted turbulence media. Hybrid open-SOL promotion, finite-beta VMEC-extender exterior fields, and HSX/NCSX/Dommaschk expansion remain active lanes. |
+| 3D stellarator open/closed SOL program | 67% overall | The direct ESSOS-coil FCI endpoint/source gate now passes with endpoint-aware map-quality diagnostics: interior FCI resolution is green, endpoint/source accounting closes, and target-exit lengths are finite only on endpoint cells. Direct-coil adjacent-step and endpoint-label nested refinement still fail, so direct-coil media remains unpromoted. The direct-coil closed/near-closed and VMEC closed-field controls have integrated transient/profile/spectrum/movie packages with dry-run contracts, public exports, docs, and compact live Landreman-Paul QA evidence; they are control evidence, not open-target SOL evidence. The hybrid FCI/source-profile lane now has green live evidence with target particle-loss maps and visual QA, but still needs the heavier stationarity/refinement/media promotion preset. Finite-beta VMEC-extender exterior fields and HSX/NCSX/Dommaschk expansion remain active artifact/device lanes. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 98% | README, examples, and release-packaging docs state the stable-default versus opt-in research-gate boundary. The docs-media release bundle has been refreshed and `scripts/fetch_example_artifacts.py --skip-baselines --force` restores `174/174` manifest media files in an isolated root; the self-contained docs/example slice and representative tokamak/stellarator commands pass locally. Keep rechecking this gate only when README media, release assets, or example commands change. |
 | Repo footprint | 97% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs and the wheel/sdist remain small. The fast release-readiness audit now checks the footprint invariants directly. |
@@ -435,9 +435,11 @@ Current VMEC-extender decision, rechecked with `gh` on 2026-06-22:
   VMEC-extender NetCDF import contract, physical-phi interpolation checks,
   field-line RHS helpers, and synthetic compact SOL smoke gate.
 - `uwplasma/virtual_casing_jax#2`, `uwplasma/ESSOS#31`, and
-  `uwplasma/ESSOS#33` remain upstream artifact/export enablers. They are
-  useful for finite-beta exterior-field artifacts but are not prerequisites
-  for main-branch direct-coil or hybrid examples.
+  `uwplasma/ESSOS#33` remain upstream artifact/export enablers. The current
+  `gh` check reports virtual-casing `#2` open with a clean merge state, and
+  ESSOS `#31` and `#33` open with blocked merge state. They are useful for
+  finite-beta exterior-field artifacts but are not prerequisites for
+  main-branch direct-coil or hybrid examples.
 - `uwplasma/vmec_jax#18` and `uwplasma/vmec_jax#19` are merged and are useful
   finite-pressure/free-boundary context. Current open `vmec_jax` PRs are
   ecosystem context, not direct JAXDRB SOL dependencies.
@@ -462,6 +464,11 @@ Single-plan audit:
 - Generated Python bytecode, local traces, NetCDF outputs, profiler bundles,
   and media remain untracked local artifacts or release assets; they are not
   part of the plan or source package.
+
+No other active roadmap files were found in the June 22, 2026 Markdown audit.
+All remaining work is represented by the lane board below. Historical campaign
+pages may still contain old "next step" prose, but those notes are subordinate
+evidence unless they are copied into this board.
 
 Focused final objective:
 
@@ -527,6 +534,50 @@ VMEC/coil lane unless pure-coil endpoint refinement becomes clean first.
 VMEC-extender finite-beta simulations are a separate artifact-intake milestone,
 not a blocker for the direct-coil or hybrid examples on `main`.
 
+Final closeout sequence:
+
+1. Keep `main` self-contained and finish direct ESSOS-coil open diagnostics.
+   The next code changes are endpoint projection/target-boundary
+   classification, adjacent-step and target-exit nested diagnostics, source
+   and target flux plots, and a diagnostic reduced movie generated from the
+   exact endpoint masks consumed by the closure gates.
+2. Package direct ESSOS-coil closed/near-closed controls. The next changes are
+   release-hosted media manifests, README/docs commands, and a compact
+   open-versus-closed comparison figure that explicitly disables
+   target/sheath/recycling language for closed maps.
+3. Use VMEC closed-field simulations as the smooth non-axisymmetric control.
+   The next changes are optional stronger bracket/vorticity forcing and
+   profile/spectrum polish, only if the equations are mapped to code and
+   tests.
+4. Promote the hybrid VMEC/coil lane as the first open-SOL stellarator movie
+   candidate. The next changes are the heavier stationarity preset, grid/time
+   refinement, target/source/profile plot regeneration, combined
+   `release_evidence` audit, release-hosted media, and frame-by-frame visual
+   QA on the same consumed map.
+5. Keep VMEC-extender finite-beta SOL artifact-gated. The next changes are a
+   real/frozen artifact manifest, physical-phi and branch/sign tests,
+   field-line/Poincare comparator checks, endpoint/wall classifier contract,
+   FCI/operator gates, and a compact SOL smoke transient only after those
+   gates pass.
+6. Add the device matrix one device at a time: Landreman-Paul QA first, HSX
+   QHS vacuum second, NCSX third, Dommaschk fourth. Each device must pass the
+   same source-metadata, geometry, open/closed classification, operator,
+   physics, refinement, media, and docs gates before README promotion.
+7. Carry the real DRB model surface onto promoted geometries: potential-fed
+   \(E\times B\), vorticity, Boussinesq/non-Boussinesq comparisons,
+   sheath/recycling, neutrals, detachment, and selected electromagnetic terms.
+   Any remaining surrogate nonlinear-transfer term must stay pedagogical and
+   clearly labeled.
+8. Treat broad recycling-solver, preconditioning, CPU/GPU, and
+   differentiability work as support lanes. Try only a bounded number of
+   materially different preconditioners, keep stable compatibility BDF as the
+   default until full-output JAX/JVP gates are green, and tie every speedup
+   claim to same-fidelity runtime and memory evidence.
+9. Before tagging, rerun the local release gates: docs strict build, promoted
+   coverage above `95%`, release-surface tests, artifact restore, package
+   audit, and footprint audit. Hosted CI can wait while hosted runner billing
+   is unavailable.
+
 Authoritative lane board:
 
 | Order | Lane | Current state | Specific next changes | Definition of success |
@@ -534,7 +585,7 @@ Authoritative lane board:
 | 1 | Direct ESSOS-coil open-field simulations on `main` | 72%, diagnostic | Make `direct_coil_open_sol_demo.py` the canonical pure-coil open-field workflow. Keep the current imported source/profile gate with target particle-loss flux. The endpoint-label gate now requires nonzero endpoint-union population and classifies instability mode; live even-ratio and odd-ratio/collocated diagnostics both fail, so the blocker is endpoint projection/target classification rather than missing endpoints, one-sided sign error, or simple non-collocated seed aliasing. Next changes: improve endpoint-label projection at target-boundary cells, target-exit and adjacent-step nested diagnostics, neutral-source refinements, target heat/particle flux plots, and a diagnostic reduced turbulence movie from the exact consumed endpoint masks. | A clean clone can run the direct-coil open command, obtain JSON/NPZ/PNG/GIF artifacts, and see a report that either sets `promotion_ready=true` or explicitly lists geometry blockers. Source accounting closes on the exact endpoint masks consumed by sheath/recycling/neutrals. Direct-coil media stays out of README promotion while endpoint agreement, endpoint population, target-exit length, or adjacent-step refinement are weak. |
 | 2 | Direct ESSOS-coil closed and near-closed controls | 84% | Keep `direct_coil_closed_field_demo.py` as the pure-coil closed-control workflow. Next changes: package release-hosted media, add README/docs commands, keep restored-trace transient synchronized with return-map/refinement provenance, and add a short closed-control comparison panel beside the open-field diagnostic in docs. | Users can run a closed/near-closed coil-control example and see non-axisymmetric Poincare, return-map, profile, spectrum/movie diagnostics, explicit closed/near-closed classification, and explicit absence of `target`, `sheath`, `recycling`, `neutral_loss`, and target-to-target connection-length semantics. |
 | 3 | VMEC closed-field stellarator controls | 86% | Keep VMEC-coordinate maps as the smooth closed-field control. Optional changes are limited to stronger periodic bracket/vorticity forcing and clearer profile/spectrum plots; endpoint masks remain zero and no target semantics are allowed. | Closed VMEC examples pass zero-endpoint, periodic parallel-step/operator, mass/profile/spectrum, fixed-camera, and fixed-color QA gates. Docs state that target, sheath, recycling, and neutral losses are absent unless deliberately selected as an artificial model. |
-| 4 | Hybrid VMEC/coil open-SOL bridge | 88% | Promote `hybrid_open_sol_demo.py` from compact evidence to the first promoted open-SOL candidate. Next changes: run the heavier live promotion preset, regenerate target/source/profile plots and media, keep the combined `release_evidence` audit green, and add grid/time and frame-by-frame movie QA after each media change. | The workflow summary reports green FCI/source-profile, endpoint-mask consumption, parallel-step refinement, source balances, stationarity, grid/time checks, and visual QA on the same consumed map. README identifies hybrid as the promoted stellarator open-SOL bridge if pure-coil maps remain rough. |
+| 4 | Hybrid VMEC/coil open-SOL bridge | 89% | Promote `hybrid_open_sol_demo.py` from compact evidence to the first promoted open-SOL candidate. Current live FCI/source-profile evidence is green with target particle-loss maps and visual QA; next changes are the heavier live promotion stationarity preset, regenerated media, combined `release_evidence` audit, grid/time checks, and frame-by-frame movie QA after each media change. | The workflow summary reports green FCI/source-profile, endpoint-mask consumption, parallel-step refinement, source balances, stationarity, grid/time checks, and visual QA on the same consumed map. README identifies hybrid as the promoted stellarator open-SOL bridge if pure-coil maps remain rough. |
 | 5 | VMEC-extender finite-beta exterior-field artifact lane | 35% | Keep the synthetic import contract on `main`. Next changes: write the real/frozen artifact intake checklist and example manifest. Once an exterior-field artifact exists, validate metadata, physical `phi`, branch/sign convention, interpolation, field-line RHS, Poincare/wall/endpoint labels, connection lengths, FCI operators, compact SOL closures, and figure/movie QA. | A finite-beta example is promoted only after a real/frozen artifact passes strict field, wall/endpoint, connection, operator, sheath/recycling/neutral, refinement, and visual-QA gates. Until then it remains a synthetic import-contract demonstration and no upstream branch is a user dependency. |
 | 6 | Device matrix | 30% | Add devices one at a time: Landreman-Paul QA first, HSX QHS vacuum second, NCSX third, Dommaschk potentials fourth. Each device must use the same source-metadata, geometry, open/closed-map, FCI/operator, physics, refinement, media, and docs gates. | Each promoted device has provenance, boundary/Poincare plots, connection-length or closed-step maps, endpoint labels where open, one validated physics result, release-hosted media if large, and a documented regeneration command. |
 | 7 | Full DRB physics on promoted geometries | 74% | Carry selected-potential \(E\times B\), Boussinesq/non-Boussinesq vorticity, sheath, recycling, neutral, detachment, and selected electromagnetic terms onto promoted imported-field examples. Replace surrogate nonlinear-transfer terms in promoted examples with the real bracket/vorticity path, or keep the surrogate explicitly pedagogical. | Every promoted term has equations, implementation links, tests, plots, and parity or literature anchors. Coverage stays above `95%`, and performance/differentiability claims use the same promoted pure-JAX path. |
@@ -652,18 +703,21 @@ JAXDRB status:
 Upstream status:
 
 - `uwplasma/virtual_casing_jax` PR
-  [#2](https://github.com/uwplasma/virtual_casing_jax/pull/2) is open and
+  [#2](https://github.com/uwplasma/virtual_casing_jax/pull/2) is open with a
+  clean merge state and
   provides the prescribed exterior-field core: VMEC boundary bridge,
   virtual-casing internal/external branch handling, off-surface field
   evaluation, R-phi-Z grid export, MGRID-like export, FIELDLINES-style
   comparison contracts, and finite-beta QH benchmark scaffolding.
 - `uwplasma/ESSOS` PR
-  [#31](https://github.com/uwplasma/ESSOS/pull/31) is open and provides the
+  [#31](https://github.com/uwplasma/ESSOS/pull/31) is open with blocked merge
+  state and provides the
   ESSOS side: `VmecExtendedField`, `essos-vmec-extender validate/grid/trace`,
   trace-sample NPZ export, Poincare sample formatting, and approximate
   connection-length samples from ESSOS trajectories.
 - `uwplasma/ESSOS` PR
-  [#33](https://github.com/uwplasma/ESSOS/pull/33) is open and provides MGRID
+  [#33](https://github.com/uwplasma/ESSOS/pull/33) is open with blocked merge
+  state and provides MGRID
   export from ESSOS coils, which is relevant for future VMEC or
   VMEC-extender provenance but not required for the current direct-coil import
   lane.
@@ -1949,6 +2003,19 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-22: Refroze the single authoritative plan for the remaining open
+  lanes. The Markdown audit found no other active roadmap that should override
+  this file; subordinate pages are appendices only. The final sequence is now:
+  direct ESSOS-coil open diagnostics on `main`, direct-coil closed/near-closed
+  controls, VMEC closed-field controls, hybrid VMEC/coil open-SOL promotion,
+  VMEC-extender finite-beta artifact intake, device expansion, full DRB physics
+  promotion, and bounded solver/performance/release gates. Rechecked PR status
+  with `gh`: `uwplasma/jax_drb#2` remains merged, `uwplasma/virtual_casing_jax#2`
+  is open/clean, `uwplasma/ESSOS#31` and `#33` are open/blocked, and
+  `uwplasma/vmec_jax#18/#19` remain merged finite-pressure/free-boundary
+  context. Decision: main-branch work proceeds with ESSOS direct-coil and
+  hybrid examples now; VMEC-extender finite-beta SOL stays behind a real/frozen
+  artifact gate.
 - 2026-06-22: Strengthened the direct ESSOS-coil endpoint-label refinement
   gate by adding `minimum_endpoint_union_fraction`. The generic imported-label
   diagnostic can still allow zero endpoint population for closed-map studies,
@@ -1996,6 +2063,15 @@ Use this log for concise decision records. Do not paste terminal output here.
   `forward_component`. Decision: move the direct-coil open-field lane to
   `72%`; even-ratio non-collocation is not the sole blocker, so the next fix
   should target endpoint projection and target-boundary classification.
+- 2026-06-22: Reran the live hybrid FCI/source-profile gate locally in
+  `/tmp/jax_drb_hybrid_live_fci_source_profile`. The gate passes with
+  `target_fraction = 0.90375`, connection-resolution and map diagnostics
+  passing, particle-recycling error `2.2e-15`, neutral-particle error
+  `2.5e-18`, zero current-balance and neutral-momentum errors, a positive
+  target particle-loss map, and visually checked FCI/source-profile plots.
+  Decision: move the hybrid open-SOL lane to `89%`; remaining promotion
+  blockers are the heavy stationarity preset, grid/time refinement, media
+  regeneration, and frame-by-frame visual QA on the same consumed map.
 - 2026-06-22: Added target particle-flux map support to the imported FCI
   source/profile evidence lane. Regenerated FCI artifacts now include
   `particle_loss_toroidal`, the source/profile gate records whether that
