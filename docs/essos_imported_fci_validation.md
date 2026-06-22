@@ -102,6 +102,11 @@ outside the transition shell, but the boundary-excluded valid fraction is only
 `0.022` on the coarse odd-ratio probe. This is useful localization evidence,
 not a promotion pass: the target boundary still occupies too much of the
 coarse direct-coil diagnostic grid to advertise a pure-coil open-SOL movie.
+The direct-coil workflow therefore applies a stricter boundary-excluded
+coverage requirement of `0.20`; the same live run fails that requirement while
+passing boundary-excluded agreement. The next promoted pure-coil gate must use
+a target projection or grid choice with enough non-boundary interior support,
+not merely perfect agreement on a tiny interior subset.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
