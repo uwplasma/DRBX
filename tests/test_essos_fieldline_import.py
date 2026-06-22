@@ -1379,6 +1379,55 @@ def test_connection_length_refinement_can_require_observed_order_for_promotion(t
     assert packaged_report["diagnostics"]["observed_order_available"] is True
 
 
+def test_endpoint_label_refinement_rejects_vacuous_open_endpoint_population() -> None:
+    coarse = np.zeros((2, 2, 2), dtype=np.int8)
+    fine = np.zeros((4, 4, 4), dtype=np.int8)
+
+    report = imported_fci_campaign.build_essos_imported_endpoint_label_refinement_diagnostics(
+        (coarse, fine),
+        minimum_agreement_fraction=1.0,
+        minimum_endpoint_agreement_fraction=1.0,
+        minimum_endpoint_union_fraction=0.01,
+        require_three_levels=False,
+    )
+
+    assert report["valid_pairs_passed"] is True
+    assert report["agreement_passed"] is True
+    assert report["endpoint_agreement_passed"] is True
+    assert report["endpoint_presence_passed"] is False
+    assert report["passed"] is False
+    assert report["promotion_ready"] is False
+    assert report["evidence_role"] == "endpoint_labels_missing_or_underpopulated"
+    assert "endpoint_union_fraction_below_threshold" in report["promotion_rejection_reasons"]
+    assert report["pair_reports"][0]["endpoint_union_fraction"] == 0.0
+    assert report["pair_reports"][0]["endpoint_agreement_fraction"] is None
+
+
+def test_endpoint_label_refinement_records_endpoint_population_artifacts(tmp_path: Path) -> None:
+    coarse = np.ones((2, 2, 2), dtype=np.int8)
+    fine = np.ones((4, 4, 4), dtype=np.int8)
+
+    artifacts = imported_fci_campaign.create_essos_imported_endpoint_label_refinement_package(
+        output_root=tmp_path / "endpoint_label_refinement",
+        endpoint_label_levels=(coarse, fine),
+        minimum_agreement_fraction=1.0,
+        minimum_endpoint_agreement_fraction=1.0,
+        minimum_endpoint_union_fraction=0.5,
+        require_three_levels=False,
+    )
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    arrays = np.load(artifacts.arrays_npz_path)
+
+    assert report["passed"] is True
+    assert report["promotion_ready"] is True
+    assert report["minimum_endpoint_union_fraction_actual"] == 1.0
+    assert report["minimum_endpoint_union_fraction_required"] == 0.5
+    assert report["endpoint_presence_passed"] is True
+    assert report["diagnostics"]["minimum_endpoint_union_fraction"] == 0.5
+    assert arrays["pair_endpoint_union_fraction"].tolist() == [1.0]
+    assert artifacts.plot_png_path.exists()
+
+
 def test_live_imported_connection_length_refinement_uses_geometry_levels(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

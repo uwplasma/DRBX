@@ -54,6 +54,13 @@ middle-to-fine endpoint agreement is `0.573`, below the `0.90` all-label and
 `0.80` endpoint thresholds. This is the current reason to treat pure
 direct-coil movies as diagnostic and to use the hybrid VMEC/coil lane as the
 promotion path for open-SOL media.
+The current endpoint-label gate also records the endpoint-union population in
+each nested comparison and, for the direct-coil open-SOL workflow, requires a
+nonzero endpoint population. This prevents a misleading pass in which all
+levels agree only because nearly every cell is classified as non-target.
+Generic closed-field diagnostics can still set that threshold to zero because
+closed maps are validated by periodic/return-map metrics instead of target
+contact.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
@@ -162,9 +169,10 @@ labels consumed by the sheath/recycling kernels, using the convention
 `3` for a bidirectional endpoint. Live nested grids are compared by
 nearest-neighbor restriction at the coarse logical coordinates; self-contained
 manufactured tests use block-majority restriction. The JSON report records
-all-label agreement, endpoint-only agreement, forward/backward/bidirectional
-confusion matrices, valid overlap, endpoint false positives, endpoint false
-negatives, and directional mismatches. The scalar `adjacent_step_length`
+all-label agreement, endpoint-union agreement, endpoint-union population,
+forward/backward/bidirectional confusion matrices, valid overlap, endpoint
+false positives, endpoint false negatives, and directional mismatches. The
+scalar `adjacent_step_length`
 refinement remains the smooth FCI-map quality gate, while scalar
 `target_exit_length` refinement is retained as a target-distance diagnostic
 and not as the sole promotion blocker for a direct-coil movie.

@@ -430,7 +430,10 @@ connection-length, endpoint/source, stationarity, and diagnostic media gates
 from local geometry. The live FCI stage now feeds a separate source/profile
 gate JSON and PNG that check target labels, sheath heat load, neutral
 ionisation, target particle-loss flux, radial profiles, and source-balance
-residuals from the same consumed endpoint masks. The `RUN_LIVE_MEDIA_GATE`
+residuals from the same consumed endpoint masks. The endpoint-label refinement
+gate also requires a nonzero endpoint population, so open-field promotion
+cannot pass on mostly interior cells with no target contact. The
+`RUN_LIVE_MEDIA_GATE`
 flag writes GIF/PNG/NPZ media from the direct coil field, but the workflow keeps
 that media out of promotion unless the
 geometry, source-accounting, refinement, and visual-QA gates also pass. The
