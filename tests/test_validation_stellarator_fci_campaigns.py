@@ -1057,9 +1057,15 @@ def test_stellarator_drb_pytree_campaign_generates_jvp_and_scaling_metrics(tmp_p
     assert report["boussinesq_non_boussinesq_rhs_state_linf"] < 1.0e-12
     assert report["non_boussinesq_jvp_relative_error"] < 5.0e-3
     assert report["density_over_b_squared_contrast"] > 1.0
+    assert report["potential_feedback_strength"] > 0.0
+    assert report["potential_feedback_plasma_rhs_linf"] > 1.0e-8
+    assert report["potential_feedback_neutral_rhs_linf"] < 1.0e-12
+    assert report["potential_feedback_jvp_relative_error"] < 5.0e-3
     assert report["vmap_serial_linf"] < 1.0e-8
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()
+    with np.load(artifacts.arrays_npz_path) as arrays:
+        assert "potential_feedback_plasma_rhs_difference_slice" in arrays.files
 
 
 def test_stellarator_sol_showcase_generates_dynamics_movie_and_metrics(tmp_path: Path) -> None:
