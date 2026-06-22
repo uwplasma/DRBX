@@ -500,6 +500,15 @@ def run_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> d
         "passed": bool(report.get("passed", False)),
         "promotion_ready": bool(report.get("promotion_ready", report.get("passed", False))),
         "evidence_role": report.get("evidence_role"),
+        "target_boundary_projection_suspected": bool(
+            report.get("diagnostics", {}).get("target_boundary_projection_suspected", False)
+        ),
+        "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
+            "dominant_endpoint_boundary_localization"
+        ),
+        "projection_recommended_next_action": report.get("diagnostics", {}).get(
+            "projection_recommended_next_action"
+        ),
         "promotion_rejection_reasons": report.get("promotion_rejection_reasons", []),
     }
 
@@ -552,6 +561,15 @@ def run_collocated_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSet
         ),
         "dominant_direction_component_error": report.get("diagnostics", {}).get(
             "dominant_direction_component_error"
+        ),
+        "target_boundary_projection_suspected": bool(
+            report.get("diagnostics", {}).get("target_boundary_projection_suspected", False)
+        ),
+        "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
+            "dominant_endpoint_boundary_localization"
+        ),
+        "projection_recommended_next_action": report.get("diagnostics", {}).get(
+            "projection_recommended_next_action"
         ),
         "promotion_rejection_reasons": report.get("promotion_rejection_reasons", []),
     }

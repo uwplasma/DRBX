@@ -1109,6 +1109,11 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
             forward_agreement=forward_agreement,
             backward_agreement=backward_agreement,
         )
+        boundary_localization_metrics = _endpoint_label_boundary_localization_metrics(
+            coarse=coarse,
+            restricted=restricted,
+            valid=valid,
+        )
         instability_mode = _endpoint_instability_mode(
             endpoint_union_fraction=float(np.mean(endpoint_union)),
             false_positive_fraction=false_positive_fraction,
@@ -1137,6 +1142,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
                 "endpoint_false_negative_fraction": false_negative_fraction,
                 "directional_mismatch_fraction": directional_mismatch_fraction,
                 **component_metrics,
+                **boundary_localization_metrics,
                 "dominant_instability_mode": instability_mode,
                 "recommended_next_action": _endpoint_instability_next_action(instability_mode),
                 "confusion_matrix": confusion.tolist(),
@@ -1201,6 +1207,15 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         str(pair["dominant_direction_component_error"]) for pair in pair_reports
     ]
     dominant_component_error = _dominant_endpoint_instability_mode(component_error_modes)
+    boundary_localization_modes = [
+        str(pair["mismatch_boundary_localization"]) for pair in pair_reports
+    ]
+    dominant_boundary_localization = _dominant_endpoint_instability_mode(
+        boundary_localization_modes
+    )
+    target_boundary_projection_suspected = any(
+        bool(pair["target_boundary_projection_suspected"]) for pair in pair_reports
+    )
     return {
         "diagnostic": "essos_imported_endpoint_label_refinement",
         "label_semantics": "0 none, 1 forward, 2 backward, 3 bidirectional",
@@ -1225,6 +1240,12 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         "dominant_endpoint_instability_mode": dominant_instability_mode,
         "direction_component_error_modes": component_error_modes,
         "dominant_direction_component_error": dominant_component_error,
+        "boundary_localization_modes": boundary_localization_modes,
+        "dominant_endpoint_boundary_localization": dominant_boundary_localization,
+        "target_boundary_projection_suspected": bool(target_boundary_projection_suspected),
+        "projection_recommended_next_action": _endpoint_boundary_localization_next_action(
+            dominant_boundary_localization
+        ),
         "recommended_next_action": _endpoint_instability_next_action(
             dominant_instability_mode
         ),
@@ -1296,6 +1317,96 @@ def _endpoint_direction_component_metrics(
     return metrics
 
 
+def _endpoint_label_boundary_localization_metrics(
+    *,
+    coarse: np.ndarray,
+    restricted: np.ndarray,
+    valid: np.ndarray,
+) -> dict[str, float | bool | str]:
+    coarse_labels = _normalize_endpoint_label_level(coarse)
+    restricted_labels = _normalize_endpoint_label_level(restricted)
+    valid_mask = np.asarray(valid, dtype=bool)
+    mismatch = valid_mask & (coarse_labels != restricted_labels)
+    mismatch_count = int(np.sum(mismatch))
+    coarse_endpoint = coarse_labels > 0
+    restricted_endpoint = restricted_labels > 0
+    endpoint_transition = valid_mask & (
+        _label_transition_shell(coarse_endpoint.astype(np.int8), valid_mask)
+        | _label_transition_shell(restricted_endpoint.astype(np.int8), valid_mask)
+    )
+    directional_transition = valid_mask & (
+        _label_transition_shell(coarse_labels, valid_mask)
+        | _label_transition_shell(restricted_labels, valid_mask)
+    )
+    on_endpoint_transition = _safe_fraction(
+        int(np.sum(mismatch & endpoint_transition)),
+        mismatch_count,
+        default=1.0,
+    )
+    on_directional_transition = _safe_fraction(
+        int(np.sum(mismatch & directional_transition)),
+        mismatch_count,
+        default=1.0,
+    )
+    outside_directional_transition = _safe_fraction(
+        int(np.sum(mismatch & ~directional_transition)),
+        mismatch_count,
+        default=0.0,
+    )
+    if mismatch_count == 0:
+        localization = "stable"
+    elif on_directional_transition >= 0.75:
+        localization = "direction_boundary_localized"
+    elif on_endpoint_transition >= 0.75:
+        localization = "endpoint_boundary_localized"
+    elif outside_directional_transition >= 0.50:
+        localization = "bulk_label_mismatch"
+    else:
+        localization = "mixed_boundary_bulk_mismatch"
+    return {
+        "label_mismatch_fraction": float(np.mean(mismatch)),
+        "endpoint_transition_shell_fraction": float(np.mean(endpoint_transition)),
+        "directional_transition_shell_fraction": float(np.mean(directional_transition)),
+        "mismatch_on_endpoint_transition_fraction": float(on_endpoint_transition),
+        "mismatch_on_directional_transition_fraction": float(on_directional_transition),
+        "mismatch_outside_directional_transition_fraction": float(
+            outside_directional_transition
+        ),
+        "mismatch_boundary_localization": localization,
+        "target_boundary_projection_suspected": bool(
+            localization in {"endpoint_boundary_localized", "direction_boundary_localized"}
+        ),
+    }
+
+
+def _label_transition_shell(labels: np.ndarray, valid: np.ndarray) -> np.ndarray:
+    values = np.asarray(labels)
+    valid_mask = np.asarray(valid, dtype=bool)
+    if values.shape != valid_mask.shape:
+        raise ValueError(
+            "Label-transition shell requires labels and valid mask with the same shape; "
+            f"got labels={values.shape}, valid={valid_mask.shape}."
+        )
+    shell = np.zeros(values.shape, dtype=bool)
+    if values.shape[0] > 1:
+        pair = (
+            valid_mask[1:, :, :]
+            & valid_mask[:-1, :, :]
+            & (values[1:, :, :] != values[:-1, :, :])
+        )
+        shell[1:, :, :] |= pair
+        shell[:-1, :, :] |= pair
+    for axis in (1, 2):
+        if values.shape[axis] <= 1:
+            continue
+        next_values = np.roll(values, -1, axis=axis)
+        next_valid = np.roll(valid_mask, -1, axis=axis)
+        pair = valid_mask & next_valid & (values != next_values)
+        shell |= pair
+        shell |= np.roll(pair, 1, axis=axis)
+    return shell
+
+
 def _endpoint_instability_mode(
     *,
     endpoint_union_fraction: float,
@@ -1350,6 +1461,33 @@ def _endpoint_instability_next_action(mode: str) -> str:
             "exit direction is not stable under refinement."
         )
     return "Endpoint labels are stable under the configured nested comparison."
+
+
+def _endpoint_boundary_localization_next_action(mode: str) -> str:
+    if mode == "direction_boundary_localized":
+        return (
+            "Endpoint-label mismatches are concentrated on directional target "
+            "transition shells; prioritize target-boundary projection and "
+            "forward/backward wall-hit classification before changing the bulk map."
+        )
+    if mode == "endpoint_boundary_localized":
+        return (
+            "Endpoint-label mismatches are concentrated on endpoint-presence "
+            "transition shells; prioritize wall/target hit projection and "
+            "near-target interpolation."
+        )
+    if mode == "bulk_label_mismatch":
+        return (
+            "Endpoint-label mismatches are not confined to target-boundary "
+            "transition shells; inspect field-line tracing, map source, and "
+            "coordinate restriction before promoting media."
+        )
+    if mode == "mixed_boundary_bulk_mismatch":
+        return (
+            "Endpoint-label mismatches have both boundary and bulk components; "
+            "split the next live diagnostic into target-boundary and interior masks."
+        )
+    return "Endpoint-label mismatches are stable or absent under the configured comparison."
 
 
 def _manufactured_endpoint_label_levels(
