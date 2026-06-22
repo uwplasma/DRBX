@@ -271,6 +271,56 @@ def test_fci_drb_pytree_rhs_is_jvp_transformable() -> None:
     assert bool(jnp.isfinite(derivative))
 
 
+def test_fci_drb_rhs_potential_boussinesq_switch_changes_potential_only() -> None:
+    geometry = build_synthetic_stellarator_geometry(nx=6, ny=5, nz=10)
+    radial = geometry.radial
+    theta = geometry.poloidal_angle
+    phi = geometry.toroidal_angle
+    state = FciDrbState(
+        ion_density=1.0 + 0.35 * radial + 0.08 * jnp.cos(theta - 2.0 * phi),
+        electron_density=1.0 + 0.35 * radial + 0.08 * jnp.cos(theta - 2.0 * phi),
+        neutral_density=0.2 + 0.1 * radial,
+        ion_pressure=0.08 + 0.02 * radial,
+        electron_pressure=0.10 + 0.03 * radial,
+        neutral_pressure=0.01 + 0.003 * radial,
+        ion_momentum=0.02 * jnp.cos(2.0 * theta - 5.0 * phi),
+        neutral_momentum=0.01 * jnp.sin(theta - 5.0 * phi),
+        vorticity=0.04 * jnp.sin(2.0 * theta - 5.0 * phi),
+    )
+    boussinesq = compute_fci_drb_rhs(
+        state,
+        maps=geometry.maps,
+        metric=geometry.metric,
+        parameters=FciDrbRhsParameters(
+            potential_iterations=10,
+            potential_boussinesq=True,
+        ),
+    )
+    non_boussinesq = compute_fci_drb_rhs(
+        state,
+        maps=geometry.maps,
+        metric=geometry.metric,
+        parameters=FciDrbRhsParameters(
+            potential_iterations=10,
+            potential_boussinesq=False,
+        ),
+    )
+    potential_relative_difference = jnp.linalg.norm(
+        non_boussinesq.potential - boussinesq.potential
+    ) / jnp.maximum(jnp.linalg.norm(boussinesq.potential), 1.0e-30)
+    rhs_difference = max(
+        float(jnp.max(jnp.abs(left - right)))
+        for left, right in zip(
+            jax.tree_util.tree_leaves(boussinesq.rhs),
+            jax.tree_util.tree_leaves(non_boussinesq.rhs),
+            strict=True,
+        )
+    )
+
+    assert float(potential_relative_difference) > 1.0e-4
+    assert rhs_difference < 1.0e-12
+
+
 def _identity_metric_3d(*, nx: int, ny: int, nz: int) -> MetricTensor3D:
     shape = (nx, ny, nz)
     ones = jnp.ones(shape, dtype=jnp.float64)
