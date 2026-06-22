@@ -69,6 +69,11 @@ the same live label levels classifies both nested-pair failures as
 `directional_endpoint_mismatch`, so the next direct-coil geometry fix should
 inspect forward/backward target classification and bidirectional cells at
 collocated seeds rather than only increasing endpoint population.
+The component-level report shows this is not a single sign error: forward and
+backward endpoint bits both have false positives and false negatives. The
+dominant direction-component error is
+`balanced_forward_backward_components`, which points to endpoint projection and
+seed-collocation stability rather than a one-sided target-label bug.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
