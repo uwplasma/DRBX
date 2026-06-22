@@ -1545,6 +1545,37 @@ def test_endpoint_label_refinement_classifies_target_boundary_localized_mismatch
     assert strict_report["target_boundary_only_instability"] is False
 
 
+def test_endpoint_label_refinement_reports_projection_neighborhood_support() -> None:
+    coarse = np.zeros((4, 4, 4), dtype=np.int8)
+    fine = np.zeros((4, 4, 4), dtype=np.int8)
+    coarse[:2, :, :] = 1
+    fine[:3, :, :] = 1
+    coordinates = _logical_coordinates((4, 4, 4))
+
+    report = imported_fci_campaign.build_essos_imported_endpoint_label_refinement_diagnostics(
+        (coarse, fine),
+        coordinate_levels=(coordinates, coordinates),
+        minimum_agreement_fraction=0.90,
+        minimum_endpoint_agreement_fraction=0.80,
+        minimum_endpoint_union_fraction=0.01,
+        require_three_levels=False,
+    )
+
+    pair = report["pair_reports"][0]
+    assert report["passed"] is False
+    assert report["projection_neighborhood_supported"] is True
+    assert pair["restriction_method"] == "coordinate_nearest_neighbor"
+    assert pair["mismatch_boundary_localization"] == "direction_boundary_localized"
+    assert pair["projection_neighborhood_available"] is True
+    assert pair["projection_neighborhood_radius_cells"] == 1
+    assert pair["projection_neighborhood_supported"] is True
+    assert pair["projection_neighborhood_mismatch_support_fraction"] == 1.0
+    assert pair["projection_neighborhood_endpoint_mismatch_support_fraction"] == 1.0
+    assert "conservative target-boundary projection" in pair[
+        "projection_neighborhood_recommended_next_action"
+    ]
+
+
 def test_live_imported_connection_length_refinement_uses_geometry_levels(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

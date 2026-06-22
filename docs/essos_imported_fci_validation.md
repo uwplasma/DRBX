@@ -119,6 +119,15 @@ evidence for the bulk direct-coil FCI map and negative evidence for the current
 target-boundary projection. Pure-coil open-SOL media therefore remains
 diagnostic until the target projection, adjacent-step refinement, and consumed
 source/profile gates pass on the same map.
+The endpoint-label report now also includes a projection-neighborhood
+diagnostic for coordinate-restricted comparisons. For each mismatched coarse
+cell, it checks whether the coarse endpoint label appears in a one-cell local
+fine-grid neighborhood around the nearest projected sample. Large
+`projection_neighborhood_mismatch_support_fraction` values mean the mismatch is
+consistent with a discontinuous target-boundary projection rather than a bulk
+field-line-map failure. Small values mean the coarse label is absent even in
+the local fine neighborhood, so the next investigation should move to field
+line tracing, wall-hit retention, or the target classifier.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
