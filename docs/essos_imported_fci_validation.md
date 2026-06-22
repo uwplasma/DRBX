@@ -74,6 +74,16 @@ backward endpoint bits both have false positives and false negatives. The
 dominant direction-component error is
 `balanced_forward_backward_components`, which points to endpoint projection and
 seed-collocation stability rather than a one-sided target-label bug.
+The endpoint-label gate now also classifies where the mismatch lives. It builds
+endpoint-presence and directional transition shells on the coarse and
+restricted labels, then reports whether failed cells are concentrated near
+target-boundary transitions or spread through the bulk map. The direct-coil
+workflow summary surfaces `dominant_endpoint_boundary_localization`,
+`target_boundary_projection_suspected`, and a
+`projection_recommended_next_action`. This keeps the next live diagnostic
+actionable: a boundary-localized failure points to wall-hit projection and
+forward/backward target classification, while a bulk mismatch points to field
+line tracing, map source, or coordinate restriction.
 A separate odd-ratio live rerun using `(3, 5, 9) -> (7, 15, 27)` grids keeps
 coarse periodic seed angles collocated on the refined grid. That diagnostic
 also fails promotion: all-label agreement is `0.474`, endpoint agreement is
@@ -193,6 +203,9 @@ manufactured tests use block-majority restriction. The JSON report records
 all-label agreement, endpoint-union agreement, endpoint-union population,
 forward/backward/bidirectional confusion matrices, valid overlap, endpoint
 false positives, endpoint false negatives, and directional mismatches. The
+report also records endpoint-presence and directional transition-shell
+localization for each failed pair, so target-boundary projection errors are
+separated from bulk map/restriction errors before any movie is promoted. The
 scalar `adjacent_step_length`
 refinement remains the smooth FCI-map quality gate, while scalar
 `target_exit_length` refinement is retained as a target-distance diagnostic
