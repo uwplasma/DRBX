@@ -89,7 +89,8 @@ The first native lane now consists of:
   charge-exchange reaction gate.
 - `src/jax_drb/native/fci_vorticity.py`, which implements the first
   metric-weighted perpendicular vorticity operator and mean-free conjugate
-  gradient potential inversion.
+  gradient potential inversion, with Boussinesq and non-Boussinesq
+  polarization coefficients.
 - `src/jax_drb/native/fci_drb_rhs.py`, which assembles the first
   transformable PyTree RHS combining sheath/recycling, neutral
   diffusion/reactions, vorticity diffusion, and the potential-inversion seam.
@@ -118,7 +119,8 @@ The first native lane now consists of:
 - `src/jax_drb/validation/stellarator_neutral_physics_campaign.py`, which
   writes the neutral diffusion/reaction conservation artifact.
 - `src/jax_drb/validation/stellarator_vorticity_campaign.py`, which writes
-  the vorticity inversion and radial \(E\times B\) proxy artifact.
+  the Boussinesq/non-Boussinesq vorticity inversion, constant-coefficient
+  limit, and radial \(E\times B\) proxy artifact.
 - `src/jax_drb/native/fci.py::logical_exb_bracket_xz`, which provides the
   first tested JAX-native perpendicular \(E\times B\) bracket seam for
   pedagogical nonlinear stellarator examples and imported-geometry movie
@@ -224,8 +226,11 @@ constant field on the synthetic stellarator metric, dissipates metric-weighted
 energy monotonically, and shows about `17%` cross-term contribution relative to
 the full operator. The neutral gate closes particle reaction balance to about
 `1.2e-18` relative error and momentum balance below display precision. The
-vorticity inversion reconstructs the manufactured potential with relative L2
-error about `1.30e-3` and residual about `2.01e-4`. The compact PyTree RHS is
+vorticity inversion now checks both Boussinesq and non-Boussinesq polarization:
+the manufactured-potential errors are about `1.30e-3` and `1.44e-3`, the
+variable-coefficient operator differs from the Boussinesq operator by about
+`0.365`, and the two operators agree to about `1.66e-10` in the constant
+\(n/B^2\) limit. The compact PyTree RHS is
 `jax.jvp` transformable on the combined component state, with documentation-grid
 JVP relative error about `6.4e-14`, `vmap` serial mismatch about `8.9e-16`, and
 a passing two-device GPU smoke profile on the same fixed-layout objective.
@@ -541,9 +546,9 @@ remaining production closures should be implemented as separate gates:
 4. Expand the current neutral density/pressure/reaction gate to mixed neutral
    momentum, finite wall interaction length, recycling source deposition, and
    imported target masks.
-5. Promote the current vorticity/potential solve from Boussinesq inversion to
-   the non-Boussinesq density-weighted operator and add an implicit solve
-   preconditioner gate.
+5. Route the now-tested Boussinesq and non-Boussinesq vorticity/potential
+   operators into the production FCI RHS examples, then add implicit
+   solve/preconditioner gates for the larger imported-field problem.
 6. Expand the compact `fci_drb_rhs.py` PyTree RHS into the production
    fixed-layout residual with target-normal boundary terms, full parallel
    momentum advection, pressure advection/compression, curvature drive, and

@@ -220,16 +220,22 @@ S_cx = k_cx n_n n_i sqrt(T_n + T_i)
 
 and verifies that ionisation/recombination conserve plasma-plus-neutral
 particles while charge exchange conserves particles and exchanges ion/neutral
-momentum. The vorticity gate applies and inverts
+momentum. The vorticity gate applies and inverts the perpendicular
+polarization relation
 
 ```text
-Omega = - div_perp((n / B^2) grad_perp phi)
+Omega = - div_perp(K_pol grad_perp phi)
+K_pol = <n / B^2>      (Boussinesq)
+K_pol = n / B^2        (non-Boussinesq)
 ```
 
-with the metric-weighted perpendicular operator. These are still component
-gates, but they are now source-compatible with the fixed-layout residual
-interface and have JAX-native Jacobian-vector products through
-`linearize_fixed_residual_action` and `fixed_residual_jvp_action`.
+with the metric-weighted perpendicular operator. The campaign checks both
+inversions, verifies that the two operators differ on a nonuniform density
+field, and verifies that they become identical to roundoff when \(n/B^2\) is
+constant. These are still component gates, but they are now source-compatible
+with the fixed-layout residual interface and have JAX-native
+Jacobian-vector products through `linearize_fixed_residual_action` and
+`fixed_residual_jvp_action`.
 The compact combined state in `native/fci_drb_rhs.py` is the first PyTree RHS
 surface for this lane; it is intentionally small, but already combines the
 target, neutral, and vorticity components in a form that can be passed through

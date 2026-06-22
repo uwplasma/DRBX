@@ -55,34 +55,139 @@ def build_stellarator_vorticity_campaign(
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     geometry = build_synthetic_stellarator_geometry(nx=nx, ny=ny, nz=nz)
     phi_exact = _manufactured_potential(geometry)
-    density = 1.0 + 0.25 * geometry.radial + 0.04 * jnp.cos(2.0 * geometry.poloidal_angle - 5.0 * geometry.toroidal_angle)
-    vorticity = apply_fci_vorticity_operator(phi_exact, density, geometry.metric)
-    solve = solve_fci_vorticity_potential_cg(vorticity, density, geometry.metric, iterations=600)
+    density = _manufactured_density(geometry)
+    boussinesq_vorticity = apply_fci_vorticity_operator(
+        phi_exact,
+        density,
+        geometry.metric,
+        boussinesq=True,
+    )
+    non_boussinesq_vorticity = apply_fci_vorticity_operator(
+        phi_exact,
+        density,
+        geometry.metric,
+        boussinesq=False,
+    )
+    boussinesq_solve = solve_fci_vorticity_potential_cg(
+        boussinesq_vorticity,
+        density,
+        geometry.metric,
+        iterations=600,
+        boussinesq=True,
+    )
+    non_boussinesq_solve = solve_fci_vorticity_potential_cg(
+        non_boussinesq_vorticity,
+        density,
+        geometry.metric,
+        iterations=600,
+        boussinesq=False,
+    )
     phi_centered = _remove_weighted_mean(np.asarray(phi_exact), np.asarray(geometry.metric.J))
-    phi_solved = np.asarray(solve.potential, dtype=np.float64)
-    error = phi_solved - phi_centered
-    relative_l2_error = float(np.sqrt(np.mean(error * error)) / max(np.sqrt(np.mean(phi_centered * phi_centered)), 1.0e-30))
-    residual_l2 = float(np.asarray(solve.residual_l2))
-    exb_radial = _radial_exb_proxy(phi_solved, geometry)
+    boussinesq_phi = np.asarray(boussinesq_solve.potential, dtype=np.float64)
+    non_boussinesq_phi = np.asarray(non_boussinesq_solve.potential, dtype=np.float64)
+    boussinesq_error = boussinesq_phi - phi_centered
+    non_boussinesq_error = non_boussinesq_phi - phi_centered
+    phi_norm = max(np.sqrt(np.mean(phi_centered * phi_centered)), 1.0e-30)
+    boussinesq_relative_l2_error = float(
+        np.sqrt(np.mean(boussinesq_error * boussinesq_error)) / phi_norm
+    )
+    non_boussinesq_relative_l2_error = float(
+        np.sqrt(np.mean(non_boussinesq_error * non_boussinesq_error)) / phi_norm
+    )
+    boussinesq_residual_l2 = float(np.asarray(boussinesq_solve.residual_l2))
+    non_boussinesq_residual_l2 = float(np.asarray(non_boussinesq_solve.residual_l2))
+    boussinesq_vorticity_np = np.asarray(boussinesq_vorticity, dtype=np.float64)
+    non_boussinesq_vorticity_np = np.asarray(non_boussinesq_vorticity, dtype=np.float64)
+    vorticity_difference = non_boussinesq_vorticity_np - boussinesq_vorticity_np
+    operator_difference_relative_l2 = float(
+        np.sqrt(np.mean(vorticity_difference * vorticity_difference))
+        / max(np.sqrt(np.mean(boussinesq_vorticity_np * boussinesq_vorticity_np)), 1.0e-30)
+    )
+    coefficient = np.asarray(density / jnp.maximum(jnp.square(geometry.metric.Bxy), 1.0e-30))
+    coefficient_contrast = float(np.max(coefficient) / max(float(np.min(coefficient)), 1.0e-30))
+    constant_coefficient_density = 1.7 * jnp.square(geometry.metric.Bxy)
+    constant_boussinesq_operator = apply_fci_vorticity_operator(
+        phi_exact,
+        constant_coefficient_density,
+        geometry.metric,
+        boussinesq=True,
+    )
+    constant_non_boussinesq_operator = apply_fci_vorticity_operator(
+        phi_exact,
+        constant_coefficient_density,
+        geometry.metric,
+        boussinesq=False,
+    )
+    constant_coefficient_operator_linf = float(
+        np.max(
+            np.abs(
+                np.asarray(constant_boussinesq_operator)
+                - np.asarray(constant_non_boussinesq_operator)
+            )
+        )
+    )
+    exb_radial = _radial_exb_proxy(non_boussinesq_phi, geometry)
     report: dict[str, Any] = {
-        "case": "non_axisymmetric_metric_weighted_vorticity_inversion",
+        "case": "non_axisymmetric_boussinesq_non_boussinesq_vorticity_inversion",
         "geometry": geometry.metadata,
-        "iterations": int(solve.iterations),
-        "relative_l2_potential_error": relative_l2_error,
-        "relative_residual_l2": residual_l2,
+        "iterations": int(non_boussinesq_solve.iterations),
+        "boussinesq_relative_l2_potential_error": boussinesq_relative_l2_error,
+        "non_boussinesq_relative_l2_potential_error": non_boussinesq_relative_l2_error,
+        "relative_l2_potential_error": non_boussinesq_relative_l2_error,
+        "boussinesq_relative_residual_l2": boussinesq_residual_l2,
+        "non_boussinesq_relative_residual_l2": non_boussinesq_residual_l2,
+        "relative_residual_l2": non_boussinesq_residual_l2,
+        "operator_difference_relative_l2": operator_difference_relative_l2,
+        "constant_coefficient_operator_linf": constant_coefficient_operator_linf,
+        "density_min": float(np.min(np.asarray(density))),
+        "density_max": float(np.max(np.asarray(density))),
+        "density_over_b_squared_contrast": coefficient_contrast,
         "radial_exb_proxy_rms": float(np.sqrt(np.mean(exb_radial * exb_radial))),
-        "potential_rms": float(np.sqrt(np.mean(phi_solved * phi_solved))),
-        "vorticity_rms": float(np.sqrt(np.mean(np.asarray(vorticity) * np.asarray(vorticity)))),
+        "potential_rms": float(np.sqrt(np.mean(non_boussinesq_phi * non_boussinesq_phi))),
+        "boussinesq_vorticity_rms": float(
+            np.sqrt(np.mean(boussinesq_vorticity_np * boussinesq_vorticity_np))
+        ),
+        "non_boussinesq_vorticity_rms": float(
+            np.sqrt(np.mean(non_boussinesq_vorticity_np * non_boussinesq_vorticity_np))
+        ),
+        "vorticity_rms": float(
+            np.sqrt(np.mean(non_boussinesq_vorticity_np * non_boussinesq_vorticity_np))
+        ),
     }
-    report["passed"] = relative_l2_error < 2.5e-2 and residual_l2 < 5.0e-3 and report["radial_exb_proxy_rms"] > 1.0e-4
+    report["passed"] = (
+        boussinesq_relative_l2_error < 2.5e-2
+        and non_boussinesq_relative_l2_error < 2.5e-2
+        and boussinesq_residual_l2 < 5.0e-3
+        and non_boussinesq_residual_l2 < 5.0e-3
+        and operator_difference_relative_l2 > 5.0e-2
+        and constant_coefficient_operator_linf < 1.0e-8
+        and report["radial_exb_proxy_rms"] > 1.0e-4
+    )
     arrays = {
         "phi_exact_slice": phi_centered[:, 0, :].astype(np.float32),
-        "phi_solved_slice": phi_solved[:, 0, :].astype(np.float32),
-        "phi_error_slice": error[:, 0, :].astype(np.float32),
-        "vorticity_slice": np.asarray(vorticity[:, 0, :], dtype=np.float32),
+        "phi_solved_slice": non_boussinesq_phi[:, 0, :].astype(np.float32),
+        "boussinesq_phi_solved_slice": boussinesq_phi[:, 0, :].astype(np.float32),
+        "non_boussinesq_phi_solved_slice": non_boussinesq_phi[:, 0, :].astype(np.float32),
+        "phi_error_slice": non_boussinesq_error[:, 0, :].astype(np.float32),
+        "boussinesq_phi_error_slice": boussinesq_error[:, 0, :].astype(np.float32),
+        "non_boussinesq_phi_error_slice": non_boussinesq_error[:, 0, :].astype(np.float32),
+        "vorticity_slice": non_boussinesq_vorticity_np[:, 0, :].astype(np.float32),
+        "boussinesq_vorticity_slice": boussinesq_vorticity_np[:, 0, :].astype(np.float32),
+        "non_boussinesq_vorticity_slice": non_boussinesq_vorticity_np[:, 0, :].astype(np.float32),
+        "vorticity_difference_slice": vorticity_difference[:, 0, :].astype(np.float32),
+        "density_over_b_squared_slice": coefficient[:, 0, :].astype(np.float32),
         "radial_exb_slice": exb_radial[:, 0, :].astype(np.float32),
         "summary": np.asarray(
-            [relative_l2_error, residual_l2, report["radial_exb_proxy_rms"], report["potential_rms"]],
+            [
+                boussinesq_relative_l2_error,
+                non_boussinesq_relative_l2_error,
+                boussinesq_residual_l2,
+                non_boussinesq_residual_l2,
+                operator_difference_relative_l2,
+                constant_coefficient_operator_linf,
+                report["radial_exb_proxy_rms"],
+                report["potential_rms"],
+            ],
             dtype=np.float32,
         ),
     }
@@ -96,34 +201,76 @@ def save_stellarator_vorticity_plot(
 ) -> Path:
     resolved = Path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(2, 3, figsize=(15.3, 8.6), constrained_layout=True)
+    fig, axes = plt.subplots(3, 3, figsize=(16.2, 12.2), constrained_layout=True)
     image0 = axes[0, 0].imshow(arrays["phi_exact_slice"], origin="lower", aspect="auto", cmap="viridis")
     axes[0, 0].set_title("manufactured potential")
     fig.colorbar(image0, ax=axes[0, 0])
-    image1 = axes[0, 1].imshow(arrays["phi_solved_slice"], origin="lower", aspect="auto", cmap="viridis")
-    axes[0, 1].set_title("CG reconstructed potential")
+    image1 = axes[0, 1].imshow(arrays["boussinesq_phi_solved_slice"], origin="lower", aspect="auto", cmap="viridis")
+    axes[0, 1].set_title("Boussinesq reconstructed potential")
     fig.colorbar(image1, ax=axes[0, 1])
-    vmax = float(np.max(np.abs(arrays["phi_error_slice"])))
-    image2 = axes[0, 2].imshow(arrays["phi_error_slice"], origin="lower", aspect="auto", cmap="coolwarm", vmin=-vmax, vmax=vmax)
-    axes[0, 2].set_title("potential reconstruction error")
+    image2 = axes[0, 2].imshow(arrays["non_boussinesq_phi_solved_slice"], origin="lower", aspect="auto", cmap="viridis")
+    axes[0, 2].set_title("non-Boussinesq reconstructed potential")
     fig.colorbar(image2, ax=axes[0, 2])
-    image3 = axes[1, 0].imshow(arrays["vorticity_slice"], origin="lower", aspect="auto", cmap="magma")
-    axes[1, 0].set_title("metric-weighted vorticity")
+    image3 = axes[1, 0].imshow(arrays["boussinesq_vorticity_slice"], origin="lower", aspect="auto", cmap="magma")
+    axes[1, 0].set_title("Boussinesq vorticity")
     fig.colorbar(image3, ax=axes[1, 0])
-    image4 = axes[1, 1].imshow(arrays["radial_exb_slice"], origin="lower", aspect="auto", cmap="coolwarm")
-    axes[1, 1].set_title("radial E x B proxy")
+    image4 = axes[1, 1].imshow(arrays["non_boussinesq_vorticity_slice"], origin="lower", aspect="auto", cmap="magma")
+    axes[1, 1].set_title("non-Boussinesq vorticity")
     fig.colorbar(image4, ax=axes[1, 1])
-    labels = ["phi L2 err", "residual", "ExB rms", "phi rms"]
-    axes[1, 2].bar(np.arange(4), arrays["summary"], color=["#9b2226", "#0a9396", "#ee9b00", "#005f73"])
-    axes[1, 2].set_xticks(np.arange(4), labels, rotation=18, ha="right")
-    axes[1, 2].set_yscale("log")
-    axes[1, 2].grid(axis="y", alpha=0.25)
-    axes[1, 2].set_title("inversion metrics")
-    for axis in axes.ravel()[:5]:
+    vmax_vort = float(np.max(np.abs(arrays["vorticity_difference_slice"])))
+    image5 = axes[1, 2].imshow(
+        arrays["vorticity_difference_slice"],
+        origin="lower",
+        aspect="auto",
+        cmap="coolwarm",
+        vmin=-vmax_vort,
+        vmax=vmax_vort,
+    )
+    axes[1, 2].set_title("non-Boussinesq minus Boussinesq")
+    fig.colorbar(image5, ax=axes[1, 2])
+    vmax_bouss = float(np.max(np.abs(arrays["boussinesq_phi_error_slice"])))
+    image6 = axes[2, 0].imshow(
+        arrays["boussinesq_phi_error_slice"],
+        origin="lower",
+        aspect="auto",
+        cmap="coolwarm",
+        vmin=-vmax_bouss,
+        vmax=vmax_bouss,
+    )
+    axes[2, 0].set_title("Boussinesq potential error")
+    fig.colorbar(image6, ax=axes[2, 0])
+    vmax_non_bouss = float(np.max(np.abs(arrays["non_boussinesq_phi_error_slice"])))
+    image7 = axes[2, 1].imshow(
+        arrays["non_boussinesq_phi_error_slice"],
+        origin="lower",
+        aspect="auto",
+        cmap="coolwarm",
+        vmin=-vmax_non_bouss,
+        vmax=vmax_non_bouss,
+    )
+    axes[2, 1].set_title("non-Boussinesq potential error")
+    fig.colorbar(image7, ax=axes[2, 1])
+    labels = [
+        "Bq err",
+        "non-Bq err",
+        "Bq res",
+        "non-Bq res",
+        "op diff",
+        "const eq",
+        "ExB rms",
+        "phi rms",
+    ]
+    colors = ["#9b2226", "#bb3e03", "#0a9396", "#005f73", "#ee9b00", "#94d2bd", "#ca6702", "#001219"]
+    axes[2, 2].bar(np.arange(len(labels)), arrays["summary"], color=colors)
+    axes[2, 2].set_xticks(np.arange(len(labels)), labels, rotation=28, ha="right")
+    axes[2, 2].set_yscale("log")
+    axes[2, 2].grid(axis="y", alpha=0.25)
+    axes[2, 2].set_title("model and inversion metrics")
+    for axis in axes.ravel()[:8]:
         axis.set_xlabel("poloidal index")
         axis.set_ylabel("radial index")
     fig.suptitle(
-        "Non-axisymmetric vorticity/potential gate: metric-weighted perpendicular inversion and E x B proxy",
+        "Non-axisymmetric vorticity gate: Boussinesq vs non-Boussinesq perpendicular polarization",
         fontsize=14,
     )
     fig.savefig(resolved, dpi=190)
@@ -136,6 +283,16 @@ def _manufactured_potential(geometry: object) -> jnp.ndarray:
         jnp.sin(jnp.pi * geometry.radial) * jnp.cos(2.0 * geometry.poloidal_angle - 5.0 * geometry.toroidal_angle)
         + 0.20 * geometry.radial * jnp.sin(3.0 * geometry.poloidal_angle + 2.0 * geometry.toroidal_angle)
     )
+
+
+def _manufactured_density(geometry: object) -> jnp.ndarray:
+    density = (
+        1.0
+        + 0.35 * geometry.radial
+        + 0.12 * jnp.cos(geometry.poloidal_angle - 2.0 * geometry.toroidal_angle)
+        + 0.08 * jnp.cos(3.0 * geometry.toroidal_angle)
+    )
+    return jnp.maximum(density, 0.1)
 
 
 def _remove_weighted_mean(value: np.ndarray, weights: np.ndarray) -> np.ndarray:
