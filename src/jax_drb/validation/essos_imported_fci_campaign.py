@@ -1141,6 +1141,17 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
             restricted=restricted,
             valid=valid,
         )
+        if use_coordinate_restriction:
+            projection_neighborhood_metrics = _endpoint_projection_neighborhood_metrics(
+                coarse=coarse,
+                restricted=restricted,
+                valid=valid,
+                fine=fine,
+                fine_coordinates=coordinate_payloads[index + 1],
+                coarse_coordinates=coordinate_payloads[index],
+            )
+        else:
+            projection_neighborhood_metrics = _endpoint_projection_neighborhood_unavailable()
         directional_transition_shell = np.asarray(
             boundary_localization_metrics.pop("directional_transition_shell"),
             dtype=bool,
@@ -1195,6 +1206,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
                 "directional_mismatch_fraction": directional_mismatch_fraction,
                 **component_metrics,
                 **boundary_localization_metrics,
+                **projection_neighborhood_metrics,
                 **interior_metrics,
                 "dominant_instability_mode": instability_mode,
                 "recommended_next_action": _endpoint_instability_next_action(instability_mode),
@@ -1300,6 +1312,10 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         and boundary_excluded_agreement_passed
         and boundary_excluded_endpoint_agreement_passed
     )
+    projection_neighborhood_supported = any(
+        bool(pair.get("projection_neighborhood_supported", False))
+        for pair in pair_reports
+    )
     return {
         "diagnostic": "essos_imported_endpoint_label_refinement",
         "label_semantics": "0 none, 1 forward, 2 backward, 3 bidirectional",
@@ -1349,6 +1365,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         "dominant_endpoint_boundary_localization": dominant_boundary_localization,
         "target_boundary_projection_suspected": bool(target_boundary_projection_suspected),
         "target_boundary_only_instability": bool(target_boundary_only_instability),
+        "projection_neighborhood_supported": bool(projection_neighborhood_supported),
         "projection_recommended_next_action": _endpoint_boundary_localization_next_action(
             dominant_boundary_localization
         ),
@@ -1484,6 +1501,146 @@ def _endpoint_label_boundary_localization_metrics(
             localization in {"endpoint_boundary_localized", "direction_boundary_localized"}
         ),
     }
+
+
+def _endpoint_projection_neighborhood_unavailable() -> dict[str, float | bool | str | int]:
+    return {
+        "projection_neighborhood_available": False,
+        "projection_neighborhood_radius_cells": 0,
+        "projection_neighborhood_label_support_fraction": 0.0,
+        "projection_neighborhood_mismatch_support_fraction": 0.0,
+        "projection_neighborhood_endpoint_mismatch_support_fraction": 0.0,
+        "projection_neighborhood_supported": False,
+        "projection_neighborhood_recommended_next_action": (
+            "Coordinate-aware endpoint projection diagnostics require imported "
+            "minor-radius, toroidal-angle, and poloidal-angle coordinates."
+        ),
+    }
+
+
+def _endpoint_projection_neighborhood_metrics(
+    *,
+    coarse: np.ndarray,
+    restricted: np.ndarray,
+    valid: np.ndarray,
+    fine: np.ndarray,
+    fine_coordinates: dict[str, np.ndarray],
+    coarse_coordinates: dict[str, np.ndarray],
+    radius: int = 1,
+) -> dict[str, float | bool | str | int]:
+    """Report whether mismatched coarse labels exist near the fine-grid sample."""
+
+    coarse_labels = _normalize_endpoint_label_level(coarse)
+    restricted_labels = _normalize_endpoint_label_level(restricted)
+    valid_mask = np.asarray(valid, dtype=bool)
+    if coarse_labels.shape != restricted_labels.shape or coarse_labels.shape != valid_mask.shape:
+        raise ValueError(
+            "Endpoint projection-neighborhood metrics require coarse, restricted, "
+            "and valid arrays with identical shapes."
+        )
+    label_supported = _sample_endpoint_label_neighborhood_support_at_coarse_coordinates(
+        fine=fine,
+        fine_coordinates=fine_coordinates,
+        coarse_coordinates=coarse_coordinates,
+        coarse_labels=coarse_labels,
+        radius=radius,
+    )
+    mismatch = valid_mask & (coarse_labels != restricted_labels)
+    endpoint_mismatch = mismatch & ((coarse_labels > 0) | (restricted_labels > 0))
+    mismatch_count = int(np.sum(mismatch))
+    endpoint_mismatch_count = int(np.sum(endpoint_mismatch))
+    label_support = valid_mask & label_supported
+    mismatch_support = mismatch & label_supported
+    endpoint_mismatch_support = endpoint_mismatch & label_supported
+    mismatch_support_fraction = _safe_fraction(
+        int(np.sum(mismatch_support)),
+        mismatch_count,
+        default=0.0,
+    )
+    endpoint_mismatch_support_fraction = _safe_fraction(
+        int(np.sum(endpoint_mismatch_support)),
+        endpoint_mismatch_count,
+        default=0.0,
+    )
+    supported = bool(
+        mismatch_count > 0
+        and (
+            float(mismatch_support_fraction) >= 0.75
+            or float(endpoint_mismatch_support_fraction) >= 0.75
+        )
+    )
+    if supported:
+        next_action = (
+            "Most mismatched coarse endpoint labels are present in the local "
+            "fine-grid neighborhood. Prefer a conservative target-boundary "
+            "projection or signed wall-hit distance diagnostic before changing "
+            "the bulk field-line map."
+        )
+    elif mismatch_count > 0:
+        next_action = (
+            "Mismatched coarse endpoint labels are not recovered in the local "
+            "fine-grid neighborhood. Inspect field-line tracing, endpoint "
+            "retention, or the wall/target classifier rather than only the "
+            "nearest-neighbor projection."
+        )
+    else:
+        next_action = "Nearest-neighbor endpoint projection has no label mismatches."
+    return {
+        "projection_neighborhood_available": True,
+        "projection_neighborhood_radius_cells": int(radius),
+        "projection_neighborhood_label_support_fraction": _safe_fraction(
+            int(np.sum(label_support)),
+            int(np.sum(valid_mask)),
+            default=1.0,
+        ),
+        "projection_neighborhood_mismatch_support_fraction": float(
+            mismatch_support_fraction
+        ),
+        "projection_neighborhood_endpoint_mismatch_support_fraction": float(
+            endpoint_mismatch_support_fraction
+        ),
+        "projection_neighborhood_supported": supported,
+        "projection_neighborhood_recommended_next_action": next_action,
+    }
+
+
+def _sample_endpoint_label_neighborhood_support_at_coarse_coordinates(
+    *,
+    fine: np.ndarray,
+    fine_coordinates: dict[str, np.ndarray],
+    coarse_coordinates: dict[str, np.ndarray],
+    coarse_labels: np.ndarray,
+    radius: int = 1,
+) -> np.ndarray:
+    fine_labels = _normalize_endpoint_label_level(fine)
+    coarse_label_array = _normalize_endpoint_label_level(coarse_labels)
+    if int(radius) < 0:
+        raise ValueError("Endpoint projection-neighborhood radius must be nonnegative.")
+    fine_rho = _coordinate_axis(fine_coordinates["minor_radius"], axis=0)
+    fine_phi = _coordinate_axis(fine_coordinates["toroidal_angle"], axis=1)
+    fine_theta = _coordinate_axis(fine_coordinates["poloidal_angle"], axis=2)
+    coarse_rho = np.asarray(coarse_coordinates["minor_radius"], dtype=np.float64)
+    coarse_phi = np.asarray(coarse_coordinates["toroidal_angle"], dtype=np.float64)
+    coarse_theta = np.asarray(coarse_coordinates["poloidal_angle"], dtype=np.float64)
+    if coarse_label_array.shape != coarse_rho.shape:
+        raise ValueError(
+            "Coarse endpoint labels and coordinates must have identical shapes "
+            "for projection-neighborhood diagnostics."
+        )
+
+    x, valid_x = _nearest_linear_axis_indices(fine_rho, coarse_rho)
+    y = _nearest_periodic_axis_indices(fine_phi, coarse_phi, period=2.0 * np.pi)
+    z = _nearest_periodic_axis_indices(fine_theta, coarse_theta, period=2.0 * np.pi)
+    support = np.zeros(coarse_label_array.shape, dtype=bool)
+    radius_value = int(radius)
+    for dx in range(-radius_value, radius_value + 1):
+        xi = np.clip(x + dx, 0, fine_labels.shape[0] - 1)
+        for dy in range(-radius_value, radius_value + 1):
+            yi = (y + dy) % fine_labels.shape[1]
+            for dz in range(-radius_value, radius_value + 1):
+                zi = (z + dz) % fine_labels.shape[2]
+                support |= fine_labels[xi, yi, zi] == coarse_label_array
+    return support & valid_x
 
 
 def _label_transition_shell(labels: np.ndarray, valid: np.ndarray) -> np.ndarray:

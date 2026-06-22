@@ -200,6 +200,15 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _max_endpoint_pair_metric(report: dict[str, Any], key: str) -> float | None:
+    values = []
+    for pair in report.get("diagnostics", {}).get("pair_reports", []):
+        value = pair.get(key)
+        if value is not None:
+            values.append(float(value))
+    return max(values) if values else None
+
+
 def _stage_blocker(report: dict[str, Any]) -> dict[str, Any]:
     """Return a compact blocker record for a non-promoted workflow stage."""
 
@@ -534,6 +543,21 @@ def run_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> d
         "target_boundary_only_instability": bool(
             report.get("diagnostics", {}).get("target_boundary_only_instability", False)
         ),
+        "projection_neighborhood_supported": bool(
+            report.get("diagnostics", {}).get("projection_neighborhood_supported", False)
+        ),
+        "projection_neighborhood_mismatch_support_fraction_max": (
+            _max_endpoint_pair_metric(
+                report,
+                "projection_neighborhood_mismatch_support_fraction",
+            )
+        ),
+        "projection_neighborhood_endpoint_mismatch_support_fraction_max": (
+            _max_endpoint_pair_metric(
+                report,
+                "projection_neighborhood_endpoint_mismatch_support_fraction",
+            )
+        ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
             "dominant_endpoint_boundary_localization"
         ),
@@ -610,6 +634,21 @@ def run_collocated_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSet
         ),
         "target_boundary_only_instability": bool(
             report.get("diagnostics", {}).get("target_boundary_only_instability", False)
+        ),
+        "projection_neighborhood_supported": bool(
+            report.get("diagnostics", {}).get("projection_neighborhood_supported", False)
+        ),
+        "projection_neighborhood_mismatch_support_fraction_max": (
+            _max_endpoint_pair_metric(
+                report,
+                "projection_neighborhood_mismatch_support_fraction",
+            )
+        ),
+        "projection_neighborhood_endpoint_mismatch_support_fraction_max": (
+            _max_endpoint_pair_metric(
+                report,
+                "projection_neighborhood_endpoint_mismatch_support_fraction",
+            )
         ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
             "dominant_endpoint_boundary_localization"
@@ -696,6 +735,21 @@ def run_boundary_resolved_endpoint_label_refinement_gate(
         ),
         "target_boundary_only_instability": bool(
             report.get("diagnostics", {}).get("target_boundary_only_instability", False)
+        ),
+        "projection_neighborhood_supported": bool(
+            report.get("diagnostics", {}).get("projection_neighborhood_supported", False)
+        ),
+        "projection_neighborhood_mismatch_support_fraction_max": (
+            _max_endpoint_pair_metric(
+                report,
+                "projection_neighborhood_mismatch_support_fraction",
+            )
+        ),
+        "projection_neighborhood_endpoint_mismatch_support_fraction_max": (
+            _max_endpoint_pair_metric(
+                report,
+                "projection_neighborhood_endpoint_mismatch_support_fraction",
+            )
         ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
             "dominant_endpoint_boundary_localization"
