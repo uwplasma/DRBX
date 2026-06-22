@@ -9,6 +9,7 @@ import numpy as np
 
 from jax_drb.runtime import configure_jax_runtime
 from jax_drb.validation import (
+    audit_hybrid_open_sol_promotion_evidence,
     build_essos_imported_fci_source_profile_gate,
     create_essos_imported_drb_movie_package,
     create_essos_imported_drb_movie_refinement_campaign_package,
@@ -23,6 +24,7 @@ from jax_drb.validation.essos_imported_fci_campaign import (
 
 # SIMSOPT-style user parameters: edit these values, then run this file.
 RUN_EXAMPLE = True
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # The default writes a self-contained promotion ledger. Set the live flags only
 # when an ESSOS checkout plus Landreman-Paul QA coil and VMEC inputs are
@@ -35,6 +37,7 @@ RUN_LIVE_CONNECTION_REFINEMENT_GATE = False
 RUN_LIVE_STATIONARITY_GATE = False
 RUN_LIVE_MOVIE_REFINEMENT_GATE = False
 RUN_LIVE_MEDIA_GATE = False
+RUN_RELEASE_EVIDENCE_AUDIT = True
 REQUIRE_PROMOTION_READY = False
 
 OUTPUT_ROOT = Path("artifacts/essos_hybrid_open_sol")
@@ -46,6 +49,30 @@ PRECISION = "float64"
 
 MAP_SOURCE = "hybrid"
 CONNECTION_QUANTITY = "parallel_step_per_toroidal_radian"
+
+# Release-backed high-resolution hybrid evidence. These files are lightweight
+# JSON manifests/reports committed with the docs; large media live in releases.
+RELEASE_FCI_REPORT_JSON_PATH = (
+    REPO_ROOT
+    / "docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.json"
+)
+RELEASE_STATIONARITY_REPORT_JSON_PATH = (
+    REPO_ROOT
+    / (
+        "docs/data/essos_imported_drb_movie_stationarity_jacobi_artifacts/data/"
+        "essos_imported_drb_movie_stationarity_jacobi.json"
+    )
+)
+RELEASE_REFINEMENT_SUMMARY_JSON_PATH = (
+    REPO_ROOT
+    / (
+        "docs/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_artifacts/data/"
+        "essos_imported_drb_movie_refinement_poloidal_96_jacobi_summary.json"
+    )
+)
+RELEASE_MEDIA_MANIFEST_JSON_PATH = (
+    REPO_ROOT / "docs/data/essos_imported_drb_movie_stationarity_jacobi_media_manifest.json"
+)
 
 # FCI/open-endpoint validation gate.
 FCI_NX = 5
@@ -150,6 +177,11 @@ class HybridOpenSolSettings:
     run_live_stationarity_gate: bool
     run_live_movie_refinement_gate: bool
     run_live_media_gate: bool
+    run_release_evidence_audit: bool
+    release_fci_report_json_path: Path
+    release_stationarity_report_json_path: Path
+    release_refinement_summary_json_path: Path
+    release_media_manifest_json_path: Path
     require_promotion_ready: bool
     stationarity_preset: str
 
@@ -168,6 +200,11 @@ def build_settings(
     run_live_stationarity_gate: bool = RUN_LIVE_STATIONARITY_GATE,
     run_live_movie_refinement_gate: bool = RUN_LIVE_MOVIE_REFINEMENT_GATE,
     run_live_media_gate: bool = RUN_LIVE_MEDIA_GATE,
+    run_release_evidence_audit: bool = RUN_RELEASE_EVIDENCE_AUDIT,
+    release_fci_report_json_path: Path = RELEASE_FCI_REPORT_JSON_PATH,
+    release_stationarity_report_json_path: Path = RELEASE_STATIONARITY_REPORT_JSON_PATH,
+    release_refinement_summary_json_path: Path = RELEASE_REFINEMENT_SUMMARY_JSON_PATH,
+    release_media_manifest_json_path: Path = RELEASE_MEDIA_MANIFEST_JSON_PATH,
     require_promotion_ready: bool = REQUIRE_PROMOTION_READY,
     stationarity_preset: str = STATIONARITY_PRESET,
 ) -> HybridOpenSolSettings:
@@ -192,6 +229,11 @@ def build_settings(
         run_live_stationarity_gate=bool(run_live_stationarity_gate),
         run_live_movie_refinement_gate=bool(run_live_movie_refinement_gate),
         run_live_media_gate=bool(run_live_media_gate),
+        run_release_evidence_audit=bool(run_release_evidence_audit),
+        release_fci_report_json_path=Path(release_fci_report_json_path),
+        release_stationarity_report_json_path=Path(release_stationarity_report_json_path),
+        release_refinement_summary_json_path=Path(release_refinement_summary_json_path),
+        release_media_manifest_json_path=Path(release_media_manifest_json_path),
         require_promotion_ready=bool(require_promotion_ready),
         stationarity_preset=normalized_stationarity_preset,
     )
@@ -235,10 +277,11 @@ def write_workflow_summary(
     data_dir = settings.output_root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     summary_path = data_dir / f"{settings.case_label}_workflow_summary.json"
+    non_live_statuses = {"skipped", "contract_only", "diagnostic", "release_evidence"}
     live_stage_reports = [
         report
         for report in stage_reports
-        if report["status"] not in {"skipped", "contract_only", "diagnostic"}
+        if report["status"] not in non_live_statuses
     ]
     promotion_stage_reports = [
         report
@@ -259,6 +302,11 @@ def write_workflow_summary(
         for report in stage_reports
         if report["status"] == "diagnostic"
         and not bool(report.get("promotion_ready", False))
+    ]
+    release_evidence_stage_records = [
+        report
+        for report in stage_reports
+        if report["status"] == "release_evidence"
     ]
     promotion_rejection_reasons = [
         reason
@@ -295,10 +343,26 @@ def write_workflow_summary(
             "run_live_stationarity_gate": settings.run_live_stationarity_gate,
             "run_live_movie_refinement_gate": settings.run_live_movie_refinement_gate,
             "run_live_media_gate": settings.run_live_media_gate,
+            "run_release_evidence_audit": settings.run_release_evidence_audit,
+            "release_fci_report_json_path": _path_text(settings.release_fci_report_json_path),
+            "release_stationarity_report_json_path": _path_text(
+                settings.release_stationarity_report_json_path
+            ),
+            "release_refinement_summary_json_path": _path_text(
+                settings.release_refinement_summary_json_path
+            ),
+            "release_media_manifest_json_path": _path_text(
+                settings.release_media_manifest_json_path
+            ),
             "require_promotion_ready": settings.require_promotion_ready,
             "stationarity_preset": settings.stationarity_preset,
         },
         "stage_reports": stage_reports,
+        "release_evidence_ready": any(
+            bool(report.get("promotion_ready", False))
+            for report in release_evidence_stage_records
+        ),
+        "release_evidence_stage_count": len(release_evidence_stage_records),
         "promotion_ready": promotion_ready,
         "promotion_rejection_reasons": sorted(set(promotion_rejection_reasons)),
         "promotion_blocking_stages": blocking_stage_records,
@@ -313,6 +377,37 @@ def write_workflow_summary(
             f"{payload['promotion_rejection_reasons']}"
         )
     return summary_path
+
+
+def run_release_evidence_audit(settings: HybridOpenSolSettings) -> dict[str, Any] | None:
+    """Audit the committed release-backed high-resolution hybrid evidence."""
+
+    if not settings.run_release_evidence_audit:
+        return None
+
+    audit = audit_hybrid_open_sol_promotion_evidence(
+        fci_report_json_path=settings.release_fci_report_json_path,
+        stationarity_report_json_path=settings.release_stationarity_report_json_path,
+        refinement_summary_json_path=settings.release_refinement_summary_json_path,
+        media_manifest_json_path=settings.release_media_manifest_json_path,
+    )
+    audit_path = settings.output_root / "data" / f"{settings.case_label}_release_evidence_audit.json"
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True), encoding="utf-8")
+    print(f"wrote hybrid release-evidence audit: {audit_path}")
+    return {
+        "stage": "hybrid_release_evidence_audit",
+        "status": "release_evidence",
+        "promotion_ready": bool(audit.get("promotion_ready", False)),
+        "report_json_path": _path_text(audit_path),
+        "audited_evidence_paths": audit.get("evidence_paths", {}),
+        "audited_stage_reports": audit.get("stage_reports", []),
+        "promotion_rejection_reasons": audit.get("promotion_rejection_reasons", []),
+        "next_action": (
+            "Regenerate or repair the high-resolution hybrid FCI/source, "
+            "stationarity, grid/time-refinement, or media-manifest evidence."
+        ),
+    }
 
 
 def run_fci_gate(settings: HybridOpenSolSettings) -> dict[str, Any]:
@@ -675,6 +770,9 @@ def run_hybrid_workflow(settings: HybridOpenSolSettings) -> Path:
         run_movie_refinement_gate(settings),
         run_media_gate(settings),
     ]
+    release_evidence_stage = run_release_evidence_audit(settings)
+    if release_evidence_stage is not None:
+        stage_reports.append(release_evidence_stage)
     return write_workflow_summary(settings, stage_reports)
 
 

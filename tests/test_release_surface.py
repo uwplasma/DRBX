@@ -497,6 +497,9 @@ def test_direct_coil_open_sol_default_contract_includes_media_stage(
 
     assert summary["map_source"] == "coil"
     assert summary["settings"]["run_live_media_gate"] is False
+    assert summary["settings"]["run_release_evidence_audit"] is True
+    assert summary["release_evidence_ready"] is True
+    assert summary["release_evidence_stage_count"] == 1
     assert summary["promotion_ready"] is False
     assert "no_live_promotion_gates_ran" in summary["promotion_rejection_reasons"]
     assert any(
@@ -625,6 +628,11 @@ def test_hybrid_open_sol_default_contract_includes_promotion_gates(
     assert stage_by_name["hybrid_parallel_step_refinement_gate"]["status"] == "skipped"
     assert stage_by_name["hybrid_movie_grid_time_refinement_gate"]["status"] == "skipped"
     assert stage_by_name["hybrid_diagnostic_turbulence_media"]["status"] == "skipped"
+    release_audit = stage_by_name["hybrid_release_evidence_audit"]
+    assert release_audit["status"] == "release_evidence"
+    assert release_audit["promotion_ready"] is True
+    assert release_audit["promotion_rejection_reasons"] == []
+    assert Path(release_audit["report_json_path"]).exists()
 
 
 def test_hybrid_open_sol_partial_live_stages_do_not_promote(

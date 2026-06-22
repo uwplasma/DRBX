@@ -71,10 +71,16 @@ PYTHONPATH=src .venv/bin/python \
 That script writes a self-contained dry-run contract by default. Live media
 generation is deliberately the last optional stage, after the same map has
 passed FCI/source-profile accounting, hybrid parallel-step refinement,
-stationarity, and grid/time movie checks. A hybrid GIF should stay diagnostic
-unless the workflow summary reports `promotion_ready=true` and the frames have
-been visually reviewed for camera stability, non-axisymmetric geometry, radial
-open-field structure, readable color scale, and physical time annotation.
+stationarity, and grid/time movie checks. The default workflow also writes a
+report-only `hybrid_release_evidence_audit` stage against the committed
+high-resolution FCI/source, stationarity, grid/time-refinement, and
+release-media manifests. That audit confirms restored release-backed evidence,
+but it does not replace live promotion gates: the workflow still records
+`no_live_promotion_gates_ran` and keeps `promotion_ready=false` when live
+stages are skipped. A hybrid GIF should stay diagnostic unless the workflow
+summary reports `promotion_ready=true` and the frames have been visually
+reviewed for camera stability, non-axisymmetric geometry, radial open-field
+structure, readable color scale, and physical time annotation.
 The workflow exposes `STATIONARITY_PRESET = "quick"` for a bounded live smoke
 test of the stationarity plumbing. A quick run can pass internally, but the
 workflow records `quick_stationarity_preset_not_promotion_evidence` and keeps
@@ -351,9 +357,12 @@ assert audit["promotion_ready"]
 ```
 
 This gate remains report-only and lightweight. It is the correct check before
-using restored release-hosted hybrid media in the README or manuscript, but it
-is not a substitute for rerunning the heavier live promotion preset after
-changing the geometry, closures, renderer, timestep, or grid.
+using restored release-hosted hybrid media in the README or manuscript. The
+same check is now run automatically by
+`examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py` when
+`RUN_RELEASE_EVIDENCE_AUDIT = True`. It is not a substitute for rerunning the
+heavier live promotion preset after changing the geometry, closures, renderer,
+timestep, or grid.
 
 ## Current Gate
 
