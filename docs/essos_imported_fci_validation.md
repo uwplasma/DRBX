@@ -171,8 +171,10 @@ instead of only through the radial particle-loss profile.
 A local live hybrid pass on the same Landreman-Paul QA assets now clears the
 first three live gates. The FCI/source stage passes with target fraction
 `0.90375`, `|B|` modulation `1.4167`, particle-recycling relative error
-`2.2e-15`, neutral-particle relative error `2.5e-18`, and exact consumed
-endpoint-mask reconstruction. The hybrid parallel-step-per-radian refinement
+`2.2e-15`, neutral-particle relative error `2.5e-18`, zero current-balance
+and neutral-momentum errors, exact consumed endpoint-mask reconstruction, and
+a positive target particle-loss map. The regenerated FCI and source/profile
+figures were visually checked. The hybrid parallel-step-per-radian refinement
 gate also passes on three nested grids with finite overlap `1.0`, observed
 order `1.20`, finest normalized RMS error `5.90e-2`, finest normalized
 \(L_\infty\) error `1.18e-1`, and monotone RMS/\(L_\infty\) reduction. The
