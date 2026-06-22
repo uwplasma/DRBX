@@ -24,7 +24,10 @@ with coil-derived endpoint masks. The convenience workflow
 that gate order in one script. The live FCI stage now also feeds
 `direct_coil_source_profile_gate`, a machine-readable JSON check on the exact
 target-label, heat-load, neutral-source, radial-profile, and source-balance
-artifacts used for open-SOL promotion. Its optional `RUN_LIVE_MEDIA_GATE`
+artifacts used for open-SOL promotion. When live FCI arrays exist, that same
+gate also writes a standalone source/profile PNG showing the consumed
+directional target labels, target heat-load response, neutral ionisation
+source, and normalized radial profiles. Its optional `RUN_LIVE_MEDIA_GATE`
 stage writes the direct-coil GIF/PNG/NPZ diagnostic media only after the user
 explicitly enables it; the output remains diagnostic unless the same workflow
 summary also shows green geometry, endpoint/source/profile, refinement, and
@@ -131,7 +134,10 @@ FCI/source-profile, target-label/source accounting, hybrid
 parallel-step-per-radian refinement, reduced-transient stationarity, grid/time
 movie refinement, and optional media generation. The summary JSON must report
 `promotion_ready=true` before any hybrid open-SOL figure or movie can be used
-as README or publication evidence.
+as README or publication evidence. The live source/profile stage writes the
+same standalone target/source/profile PNG as the direct-coil workflow, so the
+hybrid bridge can be compared against the pure-coil lane with identical
+diagnostics.
 
 A local live hybrid pass on the same Landreman-Paul QA assets now clears the
 first three live gates. The FCI/source stage passes with target fraction
