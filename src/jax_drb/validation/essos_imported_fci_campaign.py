@@ -945,6 +945,15 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         "agreement_passed": bool(diagnostics["agreement_passed"]),
         "endpoint_agreement_passed": bool(diagnostics["endpoint_agreement_passed"]),
         "endpoint_presence_passed": bool(diagnostics["endpoint_presence_passed"]),
+        "minimum_boundary_excluded_valid_fraction_actual": (
+            diagnostics["minimum_boundary_excluded_valid_fraction_actual"]
+        ),
+        "minimum_boundary_excluded_agreement_fraction_actual": (
+            diagnostics["minimum_boundary_excluded_agreement_fraction_actual"]
+        ),
+        "minimum_boundary_excluded_endpoint_agreement_fraction_actual": (
+            diagnostics["minimum_boundary_excluded_endpoint_agreement_fraction_actual"]
+        ),
         "level_count_passed": bool(diagnostics["level_count_passed"]),
         "promotion_ready": bool(diagnostics["promotion_ready"]),
         "advisory_only": bool(diagnostics["advisory_only"]),
@@ -1114,6 +1123,31 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
             restricted=restricted,
             valid=valid,
         )
+        directional_transition_shell = np.asarray(
+            boundary_localization_metrics.pop("directional_transition_shell"),
+            dtype=bool,
+        )
+        interior_mask = valid & ~directional_transition_shell
+        interior_endpoint_union = interior_mask & ((coarse > 0) | (restricted > 0))
+        interior_endpoint_union_count = int(np.sum(interior_endpoint_union))
+        interior_metrics = {
+            "boundary_excluded_valid_fraction": float(np.mean(interior_mask)),
+            "boundary_excluded_label_agreement_fraction": _safe_fraction(
+                int(np.sum(interior_mask & (coarse == restricted))),
+                int(np.sum(interior_mask)),
+                default=1.0,
+            ),
+            "boundary_excluded_endpoint_union_fraction": float(np.mean(interior_endpoint_union)),
+            "boundary_excluded_endpoint_agreement_fraction": (
+                _safe_fraction(
+                    int(np.sum(interior_endpoint_union & (coarse == restricted))),
+                    interior_endpoint_union_count,
+                    default=1.0,
+                )
+                if interior_endpoint_union_count
+                else None
+            ),
+        }
         instability_mode = _endpoint_instability_mode(
             endpoint_union_fraction=float(np.mean(endpoint_union)),
             false_positive_fraction=false_positive_fraction,
@@ -1143,6 +1177,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
                 "directional_mismatch_fraction": directional_mismatch_fraction,
                 **component_metrics,
                 **boundary_localization_metrics,
+                **interior_metrics,
                 "dominant_instability_mode": instability_mode,
                 "recommended_next_action": _endpoint_instability_next_action(instability_mode),
                 "confusion_matrix": confusion.tolist(),
@@ -1166,6 +1201,26 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         float(pair["endpoint_union_fraction"]) >= endpoint_union_threshold
         for pair in pair_reports
     )
+    boundary_excluded_agreement_passed = all(
+        float(pair["boundary_excluded_label_agreement_fraction"]) >= agreement_threshold
+        for pair in pair_reports
+    )
+    boundary_excluded_endpoint_agreement_passed = all(
+        pair["boundary_excluded_endpoint_agreement_fraction"] is None
+        or float(pair["boundary_excluded_endpoint_agreement_fraction"]) >= endpoint_threshold
+        for pair in pair_reports
+    )
+    boundary_excluded_valid_values = [
+        float(pair["boundary_excluded_valid_fraction"]) for pair in pair_reports
+    ]
+    boundary_excluded_agreement_values = [
+        float(pair["boundary_excluded_label_agreement_fraction"]) for pair in pair_reports
+    ]
+    boundary_excluded_endpoint_agreement_values = [
+        float(pair["boundary_excluded_endpoint_agreement_fraction"])
+        for pair in pair_reports
+        if pair["boundary_excluded_endpoint_agreement_fraction"] is not None
+    ]
     level_count_passed = bool(len(levels) >= 3 or not require_three_levels)
     passed = bool(
         valid_pairs
@@ -1216,6 +1271,12 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
     target_boundary_projection_suspected = any(
         bool(pair["target_boundary_projection_suspected"]) for pair in pair_reports
     )
+    target_boundary_only_instability = bool(
+        not promotion_ready
+        and target_boundary_projection_suspected
+        and boundary_excluded_agreement_passed
+        and boundary_excluded_endpoint_agreement_passed
+    )
     return {
         "diagnostic": "essos_imported_endpoint_label_refinement",
         "label_semantics": "0 none, 1 forward, 2 backward, 3 bidirectional",
@@ -1232,6 +1293,23 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         "agreement_passed": bool(agreement_passed),
         "endpoint_agreement_passed": bool(endpoint_agreement_passed),
         "endpoint_presence_passed": bool(endpoint_presence_passed),
+        "boundary_excluded_agreement_passed": bool(boundary_excluded_agreement_passed),
+        "boundary_excluded_endpoint_agreement_passed": bool(
+            boundary_excluded_endpoint_agreement_passed
+        ),
+        "minimum_boundary_excluded_valid_fraction_actual": (
+            min(boundary_excluded_valid_values) if boundary_excluded_valid_values else None
+        ),
+        "minimum_boundary_excluded_agreement_fraction_actual": (
+            min(boundary_excluded_agreement_values)
+            if boundary_excluded_agreement_values
+            else None
+        ),
+        "minimum_boundary_excluded_endpoint_agreement_fraction_actual": (
+            min(boundary_excluded_endpoint_agreement_values)
+            if boundary_excluded_endpoint_agreement_values
+            else None
+        ),
         "level_count_passed": bool(level_count_passed),
         "promotion_ready": bool(promotion_ready),
         "advisory_only": bool(not promotion_ready and passed),
@@ -1243,6 +1321,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         "boundary_localization_modes": boundary_localization_modes,
         "dominant_endpoint_boundary_localization": dominant_boundary_localization,
         "target_boundary_projection_suspected": bool(target_boundary_projection_suspected),
+        "target_boundary_only_instability": bool(target_boundary_only_instability),
         "projection_recommended_next_action": _endpoint_boundary_localization_next_action(
             dominant_boundary_localization
         ),
@@ -1364,6 +1443,7 @@ def _endpoint_label_boundary_localization_metrics(
     else:
         localization = "mixed_boundary_bulk_mismatch"
     return {
+        "directional_transition_shell": directional_transition,
         "label_mismatch_fraction": float(np.mean(mismatch)),
         "endpoint_transition_shell_fraction": float(np.mean(endpoint_transition)),
         "directional_transition_shell_fraction": float(np.mean(directional_transition)),
@@ -2888,6 +2968,14 @@ def save_essos_imported_endpoint_label_refinement_plot(
     min_endpoint_union_text = (
         "n/a" if min_endpoint_union is None else f"{float(min_endpoint_union):.3f}"
     )
+    interior_agreement = report.get("minimum_boundary_excluded_agreement_fraction_actual")
+    interior_valid = report.get("minimum_boundary_excluded_valid_fraction_actual")
+    interior_agreement_text = (
+        "n/a" if interior_agreement is None else f"{float(interior_agreement):.3f}"
+    )
+    interior_valid_text = (
+        "n/a" if interior_valid is None else f"{float(interior_valid):.3f}"
+    )
     boundary_mode = str(
         diagnostics.get("dominant_endpoint_boundary_localization", "unknown")
     )
@@ -2898,7 +2986,8 @@ def save_essos_imported_endpoint_label_refinement_plot(
         "Imported-field endpoint-label refinement gate\n"
         f"passed={report['passed']}, min all={min_agreement_text}, "
         f"min endpoint={min_endpoint_text}, min endpoint population={min_endpoint_union_text}\n"
-        f"boundary={boundary_mode}, target-projection suspected={projection_suspected}",
+        f"boundary={boundary_mode}, target-projection suspected={projection_suspected}, "
+        f"interior all={interior_agreement_text} over {interior_valid_text}",
         fontsize=12,
     )
     fig.savefig(resolved, dpi=180, bbox_inches="tight")

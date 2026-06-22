@@ -1403,6 +1403,11 @@ def test_endpoint_label_refinement_rejects_vacuous_open_endpoint_population() ->
     assert report["dominant_direction_component_error"] == "stable"
     assert report["dominant_endpoint_boundary_localization"] == "stable"
     assert report["target_boundary_projection_suspected"] is False
+    assert report["boundary_excluded_agreement_passed"] is True
+    assert report["boundary_excluded_endpoint_agreement_passed"] is True
+    assert report["minimum_boundary_excluded_valid_fraction_actual"] == 1.0
+    assert report["minimum_boundary_excluded_agreement_fraction_actual"] == 1.0
+    assert report["target_boundary_only_instability"] is False
     assert "too few target-contact cells" in report["recommended_next_action"]
     assert "endpoint_union_fraction_below_threshold" in report["promotion_rejection_reasons"]
     assert report["pair_reports"][0]["endpoint_union_fraction"] == 0.0
@@ -1436,6 +1441,11 @@ def test_endpoint_label_refinement_records_endpoint_population_artifacts(tmp_pat
     assert report["diagnostics"]["dominant_direction_component_error"] == "stable"
     assert report["diagnostics"]["dominant_endpoint_boundary_localization"] == "stable"
     assert report["diagnostics"]["target_boundary_projection_suspected"] is False
+    assert report["diagnostics"]["boundary_excluded_agreement_passed"] is True
+    assert report["diagnostics"]["boundary_excluded_endpoint_agreement_passed"] is True
+    assert report["minimum_boundary_excluded_valid_fraction_actual"] == 1.0
+    assert report["minimum_boundary_excluded_agreement_fraction_actual"] == 1.0
+    assert report["diagnostics"]["target_boundary_only_instability"] is False
     assert report["diagnostics"]["minimum_endpoint_union_fraction"] == 0.5
     assert report["diagnostics"]["pair_reports"][0]["dominant_instability_mode"] == "stable"
     assert (
@@ -1465,6 +1475,11 @@ def test_endpoint_label_refinement_classifies_directional_endpoint_mismatch() ->
     assert report["dominant_direction_component_error"] == "balanced_forward_backward_components"
     assert report["dominant_endpoint_boundary_localization"] == "bulk_label_mismatch"
     assert report["target_boundary_projection_suspected"] is False
+    assert report["boundary_excluded_agreement_passed"] is False
+    assert report["boundary_excluded_endpoint_agreement_passed"] is False
+    assert report["minimum_boundary_excluded_valid_fraction_actual"] == 1.0
+    assert report["minimum_boundary_excluded_agreement_fraction_actual"] == 0.0
+    assert report["target_boundary_only_instability"] is False
     assert "exit direction is not stable" in report["recommended_next_action"]
     assert "not confined to target-boundary" in report["projection_recommended_next_action"]
     assert report["pair_reports"][0]["endpoint_union_fraction"] == 1.0
@@ -1472,6 +1487,8 @@ def test_endpoint_label_refinement_classifies_directional_endpoint_mismatch() ->
     assert report["pair_reports"][0]["dominant_instability_mode"] == "directional_endpoint_mismatch"
     assert report["pair_reports"][0]["mismatch_boundary_localization"] == "bulk_label_mismatch"
     assert report["pair_reports"][0]["target_boundary_projection_suspected"] is False
+    assert report["pair_reports"][0]["boundary_excluded_label_agreement_fraction"] == 0.0
+    assert report["pair_reports"][0]["boundary_excluded_endpoint_agreement_fraction"] == 0.0
     assert (
         report["pair_reports"][0]["dominant_direction_component_error"]
         == "balanced_forward_backward_components"
@@ -1499,11 +1516,17 @@ def test_endpoint_label_refinement_classifies_target_boundary_localized_mismatch
     assert report["endpoint_presence_passed"] is True
     assert report["dominant_endpoint_boundary_localization"] == "direction_boundary_localized"
     assert report["target_boundary_projection_suspected"] is True
+    assert report["boundary_excluded_agreement_passed"] is True
+    assert report["boundary_excluded_endpoint_agreement_passed"] is True
+    assert report["minimum_boundary_excluded_agreement_fraction_actual"] == 1.0
+    assert report["target_boundary_only_instability"] is True
     assert "target-boundary projection" in report["projection_recommended_next_action"]
     assert pair["mismatch_boundary_localization"] == "direction_boundary_localized"
     assert pair["target_boundary_projection_suspected"] is True
     assert pair["mismatch_on_directional_transition_fraction"] == 1.0
     assert pair["mismatch_outside_directional_transition_fraction"] == 0.0
+    assert pair["boundary_excluded_label_agreement_fraction"] == 1.0
+    assert pair["boundary_excluded_endpoint_agreement_fraction"] == 1.0
 
 
 def test_live_imported_connection_length_refinement_uses_geometry_levels(
