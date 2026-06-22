@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -153,6 +154,59 @@ def audit_essos_imported_artifact_reports(
     }
 
 
+def audit_hybrid_open_sol_promotion_evidence(
+    *,
+    fci_report_json_path: str | Path,
+    stationarity_report_json_path: str | Path,
+    refinement_summary_json_path: str | Path,
+    media_manifest_json_path: str | Path,
+) -> dict[str, Any]:
+    """Audit the release-backed hybrid open-SOL promotion evidence bundle.
+
+    The hybrid QA lane is promoted only when several independently generated
+    reports agree: imported FCI/source accounting, long-window stationarity,
+    grid/time refinement, and visual-QA/media provenance. This audit is a
+    lightweight manifest-level gate; it intentionally does not rerun ESSOS,
+    VMEC, JAXDRB transients, or media rendering.
+    """
+
+    paths = {
+        "fci_source_profile": Path(fci_report_json_path),
+        "stationarity": Path(stationarity_report_json_path),
+        "grid_time_refinement": Path(refinement_summary_json_path),
+        "media_manifest": Path(media_manifest_json_path),
+    }
+    loaded = {name: _load_json_mapping(path) for name, path in paths.items()}
+    stage_reports = (
+        _audit_hybrid_fci_stage(loaded["fci_source_profile"]),
+        _audit_hybrid_stationarity_stage(loaded["stationarity"]),
+        _audit_hybrid_refinement_stage(loaded["grid_time_refinement"]),
+        _audit_hybrid_media_stage(loaded["media_manifest"]),
+    )
+    promotion_rejection_reasons = sorted(
+        {
+            reason
+            for stage in stage_reports
+            if not stage["passed"]
+            for reason in stage["reasons"]
+        }
+    )
+    promotion_ready = not promotion_rejection_reasons
+
+    return {
+        "diagnostic": "essos_hybrid_open_sol_promotion_evidence_audit",
+        "claim_scope": (
+            "report-only audit of hybrid VMEC/coil open-SOL FCI, source, "
+            "stationarity, grid/time-refinement, media, and visual-QA evidence"
+        ),
+        "map_source": "hybrid",
+        "evidence_paths": {name: str(path) for name, path in paths.items()},
+        "stage_reports": list(stage_reports),
+        "promotion_ready": bool(promotion_ready),
+        "promotion_rejection_reasons": promotion_rejection_reasons,
+    }
+
+
 def _resolve_essos_imported_artifact_kind(
     report: Mapping[str, Any],
     artifact_kind: str,
@@ -183,6 +237,286 @@ def _diagnostic_schema_for_kind(kind: str) -> Mapping[str, Sequence[str]]:
     if kind == "movie":
         return {}
     raise ValueError(f"Unsupported imported artifact kind {kind!r}.")
+
+
+def _load_json_mapping(path: Path) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "path": str(path),
+        "exists": path.exists(),
+        "loaded": False,
+        "data": None,
+        "reasons": [],
+    }
+    if not path.exists():
+        result["reasons"] = ["missing_json"]
+        return result
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        result["reasons"] = [f"invalid_json:{exc.msg}"]
+        return result
+    if not isinstance(payload, Mapping):
+        result["reasons"] = ["json_is_not_an_object"]
+        return result
+    result["loaded"] = True
+    result["data"] = payload
+    return result
+
+
+def _audit_hybrid_fci_stage(loaded: Mapping[str, Any]) -> dict[str, Any]:
+    report = _loaded_report_or_none(loaded)
+    reasons = _loading_reasons("fci", loaded)
+    if report is not None:
+        if report.get("map_source") != "hybrid":
+            reasons.append("fci_map_source_not_hybrid")
+        if report.get("passed") is not True:
+            reasons.append("fci_report_not_passed")
+        if report.get("connection_length_resolution_passed") is not True:
+            reasons.append("fci_connection_length_resolution_not_passed")
+        if report.get("map_diagnostics_passed") is not True:
+            reasons.append("fci_map_diagnostics_not_passed")
+        if not _finite_greater_than(report.get("target_fraction"), 0.0):
+            reasons.append("fci_target_fraction_not_positive")
+        for key in (
+            "particle_recycling_relative_error",
+            "neutral_particle_relative_error",
+            "current_balance_relative_error",
+            "neutral_momentum_relative_error",
+        ):
+            if not _finite_abs_at_most(report.get(key), 1.0e-10):
+                reasons.append(f"fci_{key}_above_tolerance")
+    return _hybrid_stage_report(
+        "hybrid_fci_source_profile",
+        loaded,
+        reasons,
+        summary={
+            "target_fraction": None if report is None else report.get("target_fraction"),
+            "magnetic_field_modulation": None
+            if report is None
+            else report.get("magnetic_field_modulation"),
+        },
+    )
+
+
+def _audit_hybrid_stationarity_stage(loaded: Mapping[str, Any]) -> dict[str, Any]:
+    report = _loaded_report_or_none(loaded)
+    reasons = _loading_reasons("stationarity", loaded)
+    if report is not None:
+        if report.get("map_source") != "hybrid":
+            reasons.append("stationarity_map_source_not_hybrid")
+        if report.get("publication_ready") is not True:
+            reasons.append("stationarity_publication_ready_not_true")
+        if report.get("stationarity_passed") is not True:
+            reasons.append("stationarity_not_passed")
+        if report.get("underlying_movie_passed") is not True:
+            reasons.append("stationarity_underlying_movie_not_passed")
+        if not _integer_at_least(report.get("frames"), 12):
+            reasons.append("stationarity_too_few_frames")
+        if report.get("potential_preconditioner") != "jacobi":
+            reasons.append("stationarity_potential_preconditioner_not_jacobi")
+        if not _finite_abs_below(report.get("potential_tail_max"), 1.0e-8):
+            reasons.append("stationarity_potential_tail_too_large")
+        if not _finite_greater_than(report.get("min_density_tail"), 0.0):
+            reasons.append("stationarity_min_density_tail_not_positive")
+    return _hybrid_stage_report(
+        "hybrid_stationarity",
+        loaded,
+        reasons,
+        summary={
+            "frames": None if report is None else report.get("frames"),
+            "potential_tail_max": None
+            if report is None
+            else report.get("potential_tail_max"),
+        },
+    )
+
+
+def _audit_hybrid_refinement_stage(loaded: Mapping[str, Any]) -> dict[str, Any]:
+    report = _loaded_report_or_none(loaded)
+    reasons = _loading_reasons("refinement", loaded)
+    if report is not None:
+        if report.get("publication_ready") is not True:
+            reasons.append("refinement_publication_ready_not_true")
+        if report.get("grid_refinement_passed") is not True:
+            reasons.append("grid_refinement_not_passed")
+        if report.get("time_refinement_passed") is not True:
+            reasons.append("time_refinement_not_passed")
+        for key in ("grid_refinement_diagnostics", "time_refinement_diagnostics"):
+            diagnostics = report.get(key)
+            if not isinstance(diagnostics, Mapping):
+                reasons.append(f"{key}_missing")
+                continue
+            prefix = "grid" if key.startswith("grid") else "time"
+            if diagnostics.get("passed") is not True:
+                reasons.append(f"{prefix}_refinement_diagnostics_not_passed")
+            if diagnostics.get("all_reports_passed") is not True:
+                reasons.append(f"{prefix}_refinement_reports_not_all_passed")
+            if diagnostics.get("map_source") != "hybrid":
+                reasons.append(f"{prefix}_refinement_map_source_not_hybrid")
+            if diagnostics.get("map_source_consistent") is not True:
+                reasons.append(f"{prefix}_refinement_map_source_not_consistent")
+            if diagnostics.get("spectral_resolution_passed") is not True:
+                reasons.append(f"{prefix}_refinement_spectral_resolution_not_passed")
+            if not _finite_abs_at_most(
+                diagnostics.get("max_relative_metric_change"),
+                report.get("relative_tolerance", 0.3),
+            ):
+                reasons.append(f"{prefix}_refinement_metric_change_above_tolerance")
+    return _hybrid_stage_report(
+        "hybrid_grid_time_refinement",
+        loaded,
+        reasons,
+        summary={
+            "grid_max_relative_metric_change": _nested_get(
+                report,
+                "grid_refinement_diagnostics",
+                "max_relative_metric_change",
+            ),
+            "time_max_relative_metric_change": _nested_get(
+                report,
+                "time_refinement_diagnostics",
+                "max_relative_metric_change",
+            ),
+        },
+    )
+
+
+def _audit_hybrid_media_stage(loaded: Mapping[str, Any]) -> dict[str, Any]:
+    report = _loaded_report_or_none(loaded)
+    reasons = _loading_reasons("media", loaded)
+    if report is not None:
+        qa = report.get("qa")
+        files = report.get("files")
+        release_assets = report.get("release_assets")
+        file_paths = (
+            [str(item.get("path", "")) for item in files if isinstance(item, Mapping)]
+            if isinstance(files, Sequence) and not isinstance(files, (str, bytes))
+            else []
+        )
+        if report.get("map_source") != "hybrid":
+            reasons.append("media_map_source_not_hybrid")
+        if not isinstance(qa, Mapping):
+            reasons.append("media_qa_missing")
+        else:
+            if qa.get("visual_qa") != "passed_local_frame_contact_sheet":
+                reasons.append("media_visual_qa_not_passed")
+            if qa.get("camera_stability") != "passed":
+                reasons.append("media_camera_stability_not_passed")
+            if qa.get("non_axisymmetric_geometry_visible") is not True:
+                reasons.append("media_non_axisymmetric_geometry_not_visible")
+            if qa.get("opened_radial_toroidal_sector_visible") is not True:
+                reasons.append("media_opened_sector_not_visible")
+        if not isinstance(release_assets, Sequence) or isinstance(
+            release_assets,
+            (str, bytes),
+        ):
+            reasons.append("media_release_assets_missing")
+        else:
+            urls = [str(url) for url in release_assets]
+            if not urls:
+                reasons.append("media_release_assets_empty")
+            if any(
+                not url.startswith(
+                    "https://github.com/uwplasma/jax_drb/releases/download/"
+                )
+                for url in urls
+            ):
+                reasons.append("media_release_asset_url_not_project_release")
+        required_file_fragments = {
+            "gif": ".gif",
+            "diagnostics": "diagnostics",
+            "poster": "poster",
+            "snapshots": "snapshots",
+            "contact_sheet": "contact_sheet",
+        }
+        for label, fragment in required_file_fragments.items():
+            if not any(fragment in path for path in file_paths):
+                reasons.append(f"media_{label}_file_missing")
+    return _hybrid_stage_report(
+        "hybrid_media_manifest",
+        loaded,
+        reasons,
+        summary={
+            "file_count": None
+            if report is None or not isinstance(report.get("files"), Sequence)
+            else len(report.get("files", ())),
+            "release_asset_count": None
+            if report is None or not isinstance(report.get("release_assets"), Sequence)
+            else len(report.get("release_assets", ())),
+        },
+    )
+
+
+def _hybrid_stage_report(
+    stage: str,
+    loaded: Mapping[str, Any],
+    reasons: Sequence[str],
+    *,
+    summary: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "stage": stage,
+        "path": loaded["path"],
+        "exists": bool(loaded["exists"]),
+        "loaded": bool(loaded["loaded"]),
+        "passed": not reasons,
+        "reasons": list(reasons),
+        "summary": dict(summary or {}),
+    }
+
+
+def _loaded_report_or_none(loaded: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    data = loaded.get("data")
+    return data if isinstance(data, Mapping) else None
+
+
+def _loading_reasons(prefix: str, loaded: Mapping[str, Any]) -> list[str]:
+    return [f"{prefix}_{reason}" for reason in loaded.get("reasons", ())]
+
+
+def _finite_abs_at_most(value: Any, limit: float) -> bool:
+    return (
+        _finite_number(value)
+        and _finite_number(limit)
+        and abs(float(value)) <= float(limit)
+    )
+
+
+def _finite_abs_below(value: Any, limit: float) -> bool:
+    return (
+        _finite_number(value)
+        and _finite_number(limit)
+        and abs(float(value)) < float(limit)
+    )
+
+
+def _finite_greater_than(value: Any, threshold: float) -> bool:
+    return (
+        _finite_number(value)
+        and _finite_number(threshold)
+        and float(value) > float(threshold)
+    )
+
+
+def _integer_at_least(value: Any, threshold: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= threshold
+
+
+def _finite_number(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
+def _nested_get(report: Mapping[str, Any] | None, parent: str, child: str) -> Any:
+    if report is None:
+        return None
+    parent_value = report.get(parent)
+    if not isinstance(parent_value, Mapping):
+        return None
+    return parent_value.get(child)
 
 
 def _missing_nested_diagnostic_fields(

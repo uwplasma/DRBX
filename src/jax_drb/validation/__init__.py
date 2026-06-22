@@ -223,6 +223,7 @@ from .essos_imported_fci_campaign import (
 from .essos_imported_artifact_audit import (
     audit_essos_imported_artifact_report,
     audit_essos_imported_artifact_reports,
+    audit_hybrid_open_sol_promotion_evidence,
 )
 from .essos_imported_pytree_campaign import (
     EssosImportedPytreeCampaignArtifacts,
