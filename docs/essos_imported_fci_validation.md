@@ -28,7 +28,11 @@ artifacts used for open-SOL promotion. Its optional `RUN_LIVE_MEDIA_GATE`
 stage writes the direct-coil GIF/PNG/NPZ diagnostic media only after the user
 explicitly enables it; the output remains diagnostic unless the same workflow
 summary also shows green geometry, endpoint/source/profile, refinement, and
-visual-QA evidence.
+visual-QA evidence. The workflow summary now writes
+`promotion_rejection_reasons`, `promotion_blocking_stages`, and `next_actions`
+even for the default dry run. A clean-clone contract therefore reports
+`no_live_promotion_gates_ran` rather than silently producing
+`promotion_ready = false` with no explanation.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
