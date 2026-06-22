@@ -67,12 +67,31 @@ regeneration. Users can view restored figures and movies after
 `fetch_example_artifacts.py --skip-baselines`; rerunning the import adapters
 requires the local geometry source named by each page.
 
+Near-term vacuum-geometry closeout:
+
+- The direct ESSOS-coil open-field workflow is finalized as a diagnostic
+  contract and live-validation ledger. Its default output should say
+  `near_term_closeout_status = finalized_diagnostic_contract`; pure-coil media
+  remains unpromoted until live endpoint/source/refinement/movie gates pass.
+- The direct ESSOS-coil closed/near-closed control is finalized as a
+  self-contained closed-control example with no target, sheath, recycling, or
+  neutral-loss semantics.
+- The VMEC closed-field workflow is finalized as a self-contained contract by
+  default, with optional live VMEC regeneration for the smooth closed-field
+  control.
+- The hybrid VMEC/coil open-SOL bridge is finalized for the compact
+  release-backed vacuum evidence bundle when the default summary reports
+  `release_backed_compact_vacuum_bridge_ready`. Full finite-beta
+  VMEC-extender, full DRB physics on every geometry, and long-window
+  device-scale turbulence are deferred.
+
 | Example | Status | Main output | Documentation |
 | --- | --- | --- | --- |
 | [`examples/geometry-3D/vmec-extender/imported_field_demo.py`](../examples/geometry-3D/vmec-extender/imported_field_demo.py) | self-contained synthetic validation | imported edge-field arrays and SOL smoke diagnostics | [VMEC Extender Edge Fields](vmec_extender_edge_fields.md) |
 | [`examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py`](../examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | developer regeneration | field-line import JSON/PNG | [ESSOS Field-Line Import](essos_fieldline_import.md) |
 | [`examples/geometry-3D/essos-field-lines/direct_coil_closed_field_demo.py`](../examples/geometry-3D/essos-field-lines/direct_coil_closed_field_demo.py) | self-contained control with opt-in live ESSOS regeneration | closed/near-closed Poincare, return-map classification, refinement stability, and reduced closed-trace transient/movie QA | [ESSOS Direct-Coil Closed Control](essos_direct_coil_closed_control.md) |
-| [`examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py`](../examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py) | self-contained promotion ledger with opt-in live ESSOS/VMEC regeneration | hybrid FCI/source-profile, parallel-step refinement, stationarity, grid/time refinement, and media gates | [ESSOS Imported FCI Validation](essos_imported_fci_validation.md), [ESSOS Imported DRB Movie](essos_imported_drb_movie.md) |
+| [`examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py`](../examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py) | self-contained diagnostic contract with opt-in live ESSOS regeneration | direct-coil open-field FCI/source/profile/refinement/media ledger | [ESSOS Imported FCI Validation](essos_imported_fci_validation.md) |
+| [`examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py`](../examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py) | self-contained compact release-backed bridge with opt-in live ESSOS/VMEC regeneration | hybrid FCI/source-profile, parallel-step refinement, stationarity, grid/time refinement, media audit, and optional live media gates | [ESSOS Imported FCI Validation](essos_imported_fci_validation.md), [ESSOS Imported DRB Movie](essos_imported_drb_movie.md) |
 | [`examples/geometry-3D/essos-field-lines/vmec_closed_field_demo.py`](../examples/geometry-3D/essos-field-lines/vmec_closed_field_demo.py) | self-contained contracts with opt-in live ESSOS/VMEC regeneration | closed VMEC FCI map, constant-state operator gates, reduced transient, profile, spectrum, and GIF | [ESSOS VMEC Closed Field](essos_vmec_closed_field.md) |
 | [`examples/geometry-3D/essos-field-lines/imported_fci_campaign.py`](../examples/geometry-3D/essos-field-lines/imported_fci_campaign.py) | developer regeneration | imported FCI validation package | [ESSOS Imported FCI Validation](essos_imported_fci_validation.md) |
 | [`examples/geometry-3D/essos-field-lines/imported_artifact_schema_audit.py`](../examples/geometry-3D/essos-field-lines/imported_artifact_schema_audit.py) | self-contained artifact audit | stale/current schema report for imported FCI and movie JSON artifacts | [ESSOS Imported FCI Validation](essos_imported_fci_validation.md), [ESSOS Imported DRB Movie](essos_imported_drb_movie.md) |

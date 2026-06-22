@@ -402,13 +402,27 @@ The imported stellarator scripts support three map semantics:
   open-field SOL bridge used by the strongest release-hosted imported QA
   movie.
 
-Current status: open-field `coil` and `hybrid` maps are implemented and carry
-endpoint/sheath/recycling diagnostics, but pure-coil long traces do not remain
-on a single scaled VMEC seed surface over the long trace. Therefore the
-release promotes compact imported-field validation and the high-resolution
-hybrid movie, not a device-scale predictive coil-field turbulence claim. The
-closed-field path should use the `vmec` map source until a coil-only closed
-surface construction passes its own Poincare and refinement gates.
+Current vacuum-geometry closeout status:
+
+- Direct `coil` open-field workflows are finalized as diagnostic contracts and
+  live validation ledgers. They expose endpoint/source/profile/target-flux
+  gates and explain why pure-coil media is not promoted when endpoint
+  refinement is rough.
+- Direct `coil` closed/near-closed controls are self-contained now and generate
+  Poincare/return-map diagnostics plus a reduced closed-trace movie with no
+  target, sheath, recycling, or neutral-loss semantics.
+- `vmec` closed-field controls are self-contained contracts by default and the
+  live mode remains the smooth closed-field control path with zero endpoint
+  masks.
+- `hybrid` VMEC/coil open-SOL is the current compact release-backed bridge:
+  VMEC supplies smooth map coordinates while coil traces supply endpoint masks
+  and magnetic-field modulation. The committed release evidence passes the
+  compact validation/media audit, but this is still not a device-scale
+  predictive turbulence claim.
+
+Larger finite-beta VMEC-extender artifacts, full Braginskii physics on every
+geometry, and long-window device-scale turbulence are deferred to later
+research lanes.
 
 Restore the release-hosted ESSOS/VMEC/hybrid figures and movie:
 
@@ -441,8 +455,9 @@ flag writes GIF/PNG/NPZ media from the direct coil field, but the workflow keeps
 that media out of promotion unless the
 geometry, source-accounting, refinement, and visual-QA gates also pass. The
 summary JSON lists `promotion_rejection_reasons`, `promotion_blocking_stages`,
-and `next_actions`, so a default dry run explains that no live promotion gates
-have run rather than looking like a silent failure:
+`near_term_closeout_status`, `deferred_claims`, and `next_actions`, so a
+default dry run explains that the workflow is finalized as a diagnostic
+contract rather than looking like a silent failure:
 
 ```bash
 PYTHONPATH=src python \
@@ -459,7 +474,10 @@ media gates before any hybrid movie can be promoted. The
 `STATIONARITY_PRESET = "quick"` setting is a bounded workflow smoke test and
 is deliberately not promotion evidence; use `"promotion"` plus the documented
 grid/time and visual-QA gates before using a hybrid movie as README or paper
-evidence:
+evidence. The default ledger also audits the committed release-backed hybrid
+evidence and reports `near_term_closeout_status =
+"release_backed_compact_vacuum_bridge_ready"` when those compact evidence
+files are present and green:
 
 ```bash
 PYTHONPATH=src python \

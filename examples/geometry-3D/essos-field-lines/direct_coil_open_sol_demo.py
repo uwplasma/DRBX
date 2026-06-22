@@ -269,6 +269,12 @@ def write_workflow_summary(
     ]
     if not live_stage_reports:
         promotion_rejection_reasons.insert(0, "no_live_promotion_gates_ran")
+    if promotion_ready:
+        closeout_status = "live_promotion_ready"
+    elif not live_stage_reports:
+        closeout_status = "finalized_diagnostic_contract"
+    else:
+        closeout_status = "live_evidence_incomplete"
     next_actions = [
         record["next_action"]
         for record in [*blocking_stage_records, *diagnostic_stage_records]
@@ -306,6 +312,13 @@ def write_workflow_summary(
             "require_promotion_ready": settings.require_promotion_ready,
         },
         "stage_reports": stage_reports,
+        "near_term_closeout_status": closeout_status,
+        "deferred_claims": [
+            "promoted_pure_coil_open_sol_movie",
+            "predictive_device_scale_pure_coil_turbulence",
+            "finite_beta_vmec_extender_open_sol",
+            "full_drb_physics_on_pure_coil_geometry",
+        ],
         "promotion_ready": promotion_ready,
         "promotion_rejection_reasons": sorted(set(promotion_rejection_reasons)),
         "promotion_blocking_stages": blocking_stage_records,

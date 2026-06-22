@@ -309,6 +309,10 @@ def write_workflow_summary(
         for report in stage_reports
         if report["status"] == "release_evidence"
     ]
+    release_evidence_ready = any(
+        bool(report.get("promotion_ready", False))
+        for report in release_evidence_stage_records
+    )
     promotion_rejection_reasons = [
         reason
         for record in blocking_stage_records
@@ -316,6 +320,16 @@ def write_workflow_summary(
     ]
     if not live_stage_reports:
         promotion_rejection_reasons.insert(0, "no_live_promotion_gates_ran")
+    if promotion_ready:
+        closeout_status = "live_promotion_ready"
+    elif release_evidence_ready and not live_stage_reports:
+        closeout_status = "release_backed_compact_vacuum_bridge_ready"
+    elif release_evidence_ready:
+        closeout_status = "release_backed_evidence_ready_live_gates_incomplete"
+    elif live_stage_reports:
+        closeout_status = "live_evidence_incomplete"
+    else:
+        closeout_status = "workflow_contract_or_live_evidence_incomplete"
     next_actions = [
         record["next_action"]
         for record in [*blocking_stage_records, *diagnostic_stage_records]
@@ -359,11 +373,15 @@ def write_workflow_summary(
             "stationarity_preset": settings.stationarity_preset,
         },
         "stage_reports": stage_reports,
-        "release_evidence_ready": any(
-            bool(report.get("promotion_ready", False))
-            for report in release_evidence_stage_records
-        ),
+        "near_term_closeout_status": closeout_status,
+        "release_evidence_ready": release_evidence_ready,
         "release_evidence_stage_count": len(release_evidence_stage_records),
+        "deferred_claims": [
+            "live_regenerated_hybrid_promotion_bundle",
+            "predictive_device_scale_stellarator_turbulence",
+            "finite_beta_vmec_extender_open_sol",
+            "full_drb_physics_on_hybrid_geometry",
+        ],
         "promotion_ready": promotion_ready,
         "promotion_rejection_reasons": sorted(set(promotion_rejection_reasons)),
         "promotion_blocking_stages": blocking_stage_records,

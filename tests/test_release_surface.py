@@ -505,6 +505,9 @@ def test_direct_coil_open_sol_default_contract_includes_media_stage(
         is False
     )
     assert summary["promotion_ready"] is False
+    assert summary["near_term_closeout_status"] == "finalized_diagnostic_contract"
+    assert "promoted_pure_coil_open_sol_movie" in summary["deferred_claims"]
+    assert "finite_beta_vmec_extender_open_sol" in summary["deferred_claims"]
     assert "no_live_promotion_gates_ran" in summary["promotion_rejection_reasons"]
     assert any(
         blocker["stage"] == "direct_coil_diagnostic_turbulence_media"
@@ -593,6 +596,7 @@ def test_direct_coil_open_sol_partial_live_stages_do_not_promote(
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
 
     assert summary["promotion_ready"] is False
+    assert summary["near_term_closeout_status"] == "live_evidence_incomplete"
     assert summary["promotion_rejection_reasons"] == [
         "skipped_stage_not_live_promotion_evidence"
     ]
@@ -637,6 +641,12 @@ def test_hybrid_open_sol_default_contract_includes_promotion_gates(
     assert summary["release_evidence_ready"] is True
     assert summary["release_evidence_stage_count"] == 1
     assert summary["promotion_ready"] is False
+    assert (
+        summary["near_term_closeout_status"]
+        == "release_backed_compact_vacuum_bridge_ready"
+    )
+    assert "live_regenerated_hybrid_promotion_bundle" in summary["deferred_claims"]
+    assert "finite_beta_vmec_extender_open_sol" in summary["deferred_claims"]
     assert "no_live_promotion_gates_ran" in summary["promotion_rejection_reasons"]
     assert any(
         blocker["stage"] == "hybrid_diagnostic_turbulence_media"
@@ -723,6 +733,7 @@ def test_hybrid_open_sol_partial_live_stages_do_not_promote(
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
 
     assert summary["promotion_ready"] is False
+    assert summary["near_term_closeout_status"] == "live_evidence_incomplete"
     assert summary["promotion_rejection_reasons"] == [
         "skipped_stage_not_live_promotion_evidence"
     ]
