@@ -228,18 +228,73 @@ Current best next steps:
    exporter PRs are useful, but `main` should consume frozen
    provenance-rich `(R, physical phi, Z, BR, Bphi, BZ, |B|)` artifacts until
    those exporters stabilize.
-5. Add HSX QHS, NCSX, Landreman-Paul QA, and Dommaschk examples only through
-   the same per-device gates: source metadata, boundary/Poincare plot,
-   connection-length or closed-step map, FCI/operator convergence, one physics
-   result, refinement label, release-hosted media, and documented regeneration
-   command.
-6. Continue reference parity, JAX-native recycling, preconditioning,
-   performance, GPU, architecture, documentation, coverage, and footprint work
-   only where it supports a promoted simulation or release claim. Keep cheap
-   preconditioner sweeps bounded; prioritize Hermes-3 parity and geometry
-   semantics over more local solver variants.
-7. Keep coverage above `95%`, update docs/README with every promoted artifact,
-   and run footprint/package audits before tagging any new version.
+
+## Final Execution Roadmap To Follow Next
+
+This is the compact roadmap to execute before reopening broad implementation
+questions. It is deliberately narrower than the long appendices below: every
+item either promotes a user-facing result, removes a false claim boundary, or
+keeps the release lightweight and reproducible.
+
+Current upstream decision, verified with `gh` on 2026-06-22:
+
+- `uwplasma/jax_drb#2` is merged, so JAXDRB already has the VMEC-extender
+  artifact importer, physical-phi interpolation checks, field-line RHS helper,
+  synthetic compact SOL smoke gate, and docs on `main`.
+- `uwplasma/virtual_casing_jax#2` is open with clean merge state, while
+  `uwplasma/ESSOS#31` and `uwplasma/ESSOS#33` are open with blocked merge
+  state. They are finite-beta exterior-field artifact/export enablers, not
+  ordinary user dependencies.
+- `uwplasma/vmec_jax#18` and `uwplasma/vmec_jax#19` are merged and provide
+  useful finite-pressure/free-boundary context. Current open VMEC-JAX PRs are
+  ecosystem context, not direct JAXDRB SOL-runtime dependencies.
+- Therefore, `main` should ship direct ESSOS-coil imported-field examples
+  first, hybrid VMEC/coil examples second, and finite-beta VMEC-extender SOL
+  only through frozen provenance-rich artifacts until the real exterior-field
+  artifact gates pass.
+
+Roadmap:
+
+| Priority | Lane | Specific next changes | Definition of success |
+| --- | --- | --- | --- |
+| P0 | Plan and artifact control | Keep this file as the only authoritative plan; keep `plan_jax_drb.md` as a redirect; keep heavy NetCDF, trace, movie, profiler, and reference files out of git and in release assets or ignored local paths. | A new contributor can start from this file, no subordinate page contradicts it, and a clone stays small. |
+| P1 | Direct ESSOS-coil open-field SOL on `main` | Finish the pure-coil open workflow around `direct_coil_open_sol_demo.py`: target-exit nested diagnostics, adjacent-step nested diagnostics, source/profile and neutral-source diagnostics, target heat/particle flux plots, and one diagnostic reduced turbulence movie generated from the exact endpoint masks consumed by sheath/recycling/neutrals. Keep the signed-shell endpoint result as diagnostic evidence rather than hiding it with broad projection. | The report either sets `promotion_ready=true` or names the blocker. Source accounting closes on the consumed masks, target-exit lengths are finite only on endpoint cells, endpoint mismatch is classified as shell-localized or bulk, and the movie is not promoted unless geometry/operator/source/refinement/movie-QA gates all pass. |
+| P2 | Direct ESSOS-coil closed and near-closed controls | Package the pure-coil closed-control workflow with release-hosted media, README/docs commands, return-map/provenance synchronization, and an open-versus-closed comparison figure. | Users can regenerate closed/near-closed Poincare, return-map, profile, spectrum, and movie diagnostics with explicit absence of target, sheath, recycling, neutral-loss, and target-to-target connection-length semantics. |
+| P3 | VMEC closed-field stellarator control | Keep VMEC-coordinate maps as the smooth closed-field control. Add stronger periodic bracket/vorticity forcing and profile/spectrum polish only when equations, code links, and tests are updated together. | Closed VMEC examples pass zero-endpoint, closed-map operator, mass/profile/spectrum, fixed-camera, and fixed-color QA gates and never imply open-SOL target physics. |
+| P4 | Hybrid VMEC/coil open-SOL promotion | Run the heavier hybrid promotion preset: live FCI/source-profile regeneration, stationarity, grid/time refinement, exact endpoint-mask reconstruction, target/source/profile plots, combined `release_evidence` audit, release-hosted media, and frame-by-frame movie QA. | Hybrid becomes the first promoted stellarator open-SOL movie only if all gates are green on the same consumed map. README labels it as the promoted open-SOL bridge if pure direct-coil endpoint maps remain rough. |
+| P5 | VMEC-extender finite-beta artifact intake | Add a real/frozen artifact manifest and validation checklist for `(R, physical phi, Z, BR, Bphi, BZ, |B|)`, branch/sign metadata, field-line/Poincare samples, wall/endpoint labels, connection lengths, FCI/operator gates, compact SOL closures, and visual QA. | A finite-beta SOL result is promoted only after a frozen exterior-field artifact passes field, convention, wall/endpoint, connection-length, FCI/operator, sheath/recycling/neutral, refinement, and movie-QA gates. The synthetic importer remains a contract test, not a physics claim. |
+| P6 | Device matrix | Add devices one at a time: Landreman-Paul QA first, HSX QHS vacuum second, NCSX third, Dommaschk potentials fourth. Each device must reuse the same source-metadata, geometry, open/closed classification, operator, physics, refinement, media, and docs gates. | Each promoted device has provenance, boundary/Poincare plots, connection-length or closed-step maps, endpoint labels where open, one validated physics result, release-hosted media if large, and a documented command. |
+| P7 | Full DRB physics on promoted geometries | Carry the potential-fed \(E\times B\) bracket, vorticity/potential solve, Boussinesq and non-Boussinesq comparisons, sheath, recycling, neutrals, detachment, and selected electromagnetic terms onto the promoted geometry examples. Remove surrogate nonlinear-transfer terms from promoted examples or label them pedagogical. | Every promoted term has equations, implementation links, tests, plots, and parity or literature anchors. Coverage remains above `95%` on meaningful promoted surfaces. |
+| P8 | Reference parity, recycling solver, preconditioning, and scaling | Keep reference parity and stable compatibility BDF as the default unless full-output JAX/JVP recycling parity and same-fidelity runtime evidence are green. Try only a bounded number of materially different physics/block preconditioners, record negative evidence, and prioritize parity/geometry once they fail. Tie CPU/GPU claims to promoted heavy kernels only. | Solver, preconditioner, differentiability, CPU, GPU, and multi-device claims include parity, solver-health, compile/execute timing, memory, profiler evidence, and exact experimental/default labels. |
+| P9 | Tokamak tutorials, docs, examples, release gates | Keep diverted tokamak tutorials self-contained with small fixtures or release assets. Every README/docs plot or movie must have a command. Before tagging, run docs strict build, promoted coverage above `95%`, release-surface tests, media restore, package audit, and footprint audit. | A clean clone can install JAXDRB, run advertised tokamak and stellarator examples, regenerate or restore advertised media, and understand which outputs are native simulations versus validation fixtures. |
+
+Open/closed stellarator semantics:
+
+- Open-field examples use endpoint masks, one-sided or target-to-target
+  connection lengths, sheath/recycling/neutral closures, source balances, and
+  target heat/particle fluxes.
+- Closed-field examples use periodic or return-map parallel-step diagnostics,
+  conservative closed-surface operators, profiles, spectra, and turbulence
+  movies with no target/sheath/recycling language unless an artificial loss
+  model is explicitly selected.
+- Hybrid examples are open-field examples because they consume coil-derived
+  endpoint masks, even when VMEC supplies the smooth coordinate map.
+- VMEC-extender finite-beta examples are artifact-import examples until a real
+  exterior-field artifact passes the full open-field gate stack.
+
+Immediate next implementation pass:
+
+1. Commit the signed endpoint-shell refinement gate and docs.
+2. Add target-exit and adjacent-step nested diagnostics on the same direct
+   ESSOS-coil consumed masks.
+3. Add consumed-mask target heat/particle flux and neutral-source plots for
+   the direct-coil open workflow.
+4. Generate a diagnostic direct-coil movie and run frame-by-frame QA; keep it
+   out of README promotion unless the gate report is green.
+5. Package direct-coil closed-control media/commands and then run the hybrid
+   heavy promotion preset.
+6. After P1-P4 are stable, add the finite-beta VMEC-extender artifact checklist
+   and begin the HSX/NCSX/Dommaschk device matrix.
 
 ## Current Research-Grade Release Target
 
@@ -320,7 +375,7 @@ and tests all move together.
 | Neutral, recycling, sheath, detachment | 80% | Neutral parallel diffusion and target recycling source mapping now have active-layout seams with full-field active-slice parity and JVP gates; finish full sheath orchestration, target/sheath coupling gates, and detachment observables across promoted tokamak lanes. |
 | Diverted tokamak self-contained tutorials | 70% | Ensure clean-clone users can fetch small/release-hosted fixtures, run simulations, create movies, and analyze turbulent profiles. |
 | Compact imported-field/VMEC/hybrid showcase | 99% within compact scope | The compact hybrid movie and high-resolution reduced-transient reports pass the current compact grid/time/stationarity and visual-QA gates. This is not a broad device-scale stellarator turbulence claim. The broader open/closed stellarator SOL program is tracked separately in the active open-lane plan below. |
-| 3D stellarator open/closed SOL program | 76% overall | The direct ESSOS-coil FCI endpoint/source gate now passes with endpoint-aware map-quality diagnostics: interior FCI resolution is green, endpoint/source accounting closes, and target-exit lengths are finite only on endpoint cells. Direct-coil adjacent-step and endpoint-label nested refinement still fail, so direct-coil media remains unpromoted, but live endpoint-label reports now localize the main mismatch to directional target-boundary cells rather than the bulk map. The boundary-resolved `(7, 15, 27) -> (11, 25, 45)` run reaches enough boundary-excluded support (`0.248` valid fraction, above the `0.20` requirement) with boundary-excluded all-label and endpoint-label agreement `1.0`; the full endpoint agreement remains below threshold (`0.762`) because the target transition shell is still rough. Projection-neighborhood support is high (`0.855`), but a naive conservative endpoint-union projection worsens endpoint agreement to `0.660` with endpoint false positives `0.114`, so broad dilation is rejected. The signed forward/backward target-exit diagnostic now classifies the live blocker as `signed_transition_supported`, with transition consistency `0.981`, signed projection false positives `0.0187`, coarse label/exits consistency `1.0`, and restricted label/exits consistency `0.977`. The next fix is target-transition-shell resolution/classification, not nearest-projection false-positive repair or bulk map replacement. The direct-coil closed/near-closed and VMEC closed-field controls have integrated transient/profile/spectrum/movie packages with dry-run contracts, public exports, docs, and compact live Landreman-Paul QA evidence; they are control evidence, not open-target SOL evidence. The hybrid FCI/source-profile lane now has green live evidence with target particle-loss maps and visual QA, but still needs the heavier stationarity/refinement/media promotion preset. Finite-beta VMEC-extender exterior fields and HSX/NCSX/Dommaschk expansion remain active artifact/device lanes. |
+| 3D stellarator open/closed SOL program | 78% overall | The direct ESSOS-coil FCI endpoint/source gate now passes with endpoint-aware map-quality diagnostics: interior FCI resolution is green, endpoint/source accounting closes, and target-exit lengths are finite only on endpoint cells. Direct-coil adjacent-step and endpoint-label nested refinement still fail, so direct-coil media remains unpromoted, but live endpoint-label reports now localize the main mismatch to directional target-boundary cells rather than the bulk map. The current boundary-resolved `(7, 15, 27) -> (11, 25, 45)` shell rerun reaches enough boundary-excluded support (`0.248` valid fraction) with boundary-excluded all-label and endpoint-label agreement `1.0`; full endpoint agreement remains below threshold (`0.763`) because the target transition shell is rough. The stricter signed-shell gate reports `signed_transition_shell_refinement_supported`, shell mismatch coverage `1.0`, outside-shell label/evidence stability `1.0`, bulk mismatch `0.0`, transition consistency `0.988`, and projection false positives `0.0121`, while broad dilation remains rejected because conservative endpoint projection only reaches `0.656`. The direct-coil endpoint blocker is therefore now proven shell-localized rather than bulk-map or projection-false-positive dominated. The next evidence steps are target-exit, adjacent-step, source/profile, neutral-source, target heat/particle flux, and movie-QA gates on the same consumed endpoint masks. The direct-coil closed/near-closed and VMEC closed-field controls have integrated transient/profile/spectrum/movie packages with dry-run contracts, public exports, docs, and compact live Landreman-Paul QA evidence; they are control evidence, not open-target SOL evidence. The hybrid FCI/source-profile lane now has green live evidence with target particle-loss maps and visual QA, but still needs the heavier stationarity/refinement/media promotion preset. Finite-beta VMEC-extender exterior fields and HSX/NCSX/Dommaschk expansion remain active artifact/device lanes. |
 | Code architecture split | 60% | Split broad recycling, neutral, runner, CLI, and large test files into narrow directly tested modules. |
 | Docs and examples | 98% | README, examples, and release-packaging docs state the stable-default versus opt-in research-gate boundary. The docs-media release bundle has been refreshed and `scripts/fetch_example_artifacts.py --skip-baselines --force` restores `174/174` manifest media files in an isolated root; the self-contained docs/example slice and representative tokamak/stellarator commands pass locally. Keep rechecking this gate only when README media, release assets, or example commands change. |
 | Repo footprint | 97% | Repeat `.git`, tracked-large-file, wheel/sdist, docs-media, and local-cache audits before every tag; the latest repository audit found no large tracked or reachable-history blobs and the wheel/sdist remain small. The fast release-readiness audit now checks the footprint invariants directly. |
@@ -582,7 +637,7 @@ Authoritative lane board:
 
 | Order | Lane | Current state | Specific next changes | Definition of success |
 | --- | --- | ---: | --- | --- |
-| 1 | Direct ESSOS-coil open-field simulations on `main` | 82%, diagnostic | Make `direct_coil_open_sol_demo.py` the canonical pure-coil open-field workflow. Keep the current imported source/profile gate with target particle-loss flux. The endpoint-label gate now requires nonzero endpoint-union population, classifies instability mode, separates target-boundary-localized label mismatch from bulk map mismatch, reports boundary-excluded agreement, requires enough boundary-excluded coverage for direct-coil evidence, and compares labels against signed forward/backward target-exit lengths. Live even-ratio and odd-ratio/collocated diagnostics both fail. The boundary-resolved `(7, 15, 27) -> (11, 25, 45)` run clears the interior-support requirement with `0.248` valid fraction and boundary-excluded all-label and endpoint-label agreement `1.0`, while full endpoint agreement remains `0.762`. Coordinate-aware projection-neighborhood metrics show most mismatched coarse labels exist in the local fine stencil (`0.855` endpoint-mismatch support), but conservative one-cell endpoint-union projection is rejected because it lowers endpoint agreement to `0.660` and creates endpoint false positives `0.114`. The signed diagnostic classifies the remaining mismatch as `signed_transition_supported` with transition consistency `0.981` and projection false positives `0.0187`, so the blocker is target-transition-shell resolution/classification rather than missing endpoints, one-sided sign error, simple non-collocated seed aliasing, a broad projection/dilation fix, or a bulk map failure. Next changes: implement a target-transition-shell refinement/classification gate using signed forward/backward exit lengths; then rerun endpoint-label, target-exit, adjacent-step, and source/profile diagnostics on the same map, add neutral-source refinements, add target heat/particle flux plots, and generate a diagnostic reduced turbulence movie from the exact consumed endpoint masks. | A clean clone can run the direct-coil open command, obtain JSON/NPZ/PNG/GIF artifacts, and see a report that either sets `promotion_ready=true` or explicitly lists geometry blockers, including whether endpoint-label failures are boundary-localized or bulk. Source accounting closes on the exact endpoint masks consumed by sheath/recycling/neutrals. Direct-coil media stays out of README promotion while endpoint agreement, endpoint population, target-exit length, adjacent-step refinement, signed target-transition mode, or boundary-excluded valid fraction are weak. |
+| 1 | Direct ESSOS-coil open-field simulations on `main` | 85%, diagnostic | Make `direct_coil_open_sol_demo.py` the canonical pure-coil open-field workflow. Keep the current imported source/profile gate with target particle-loss flux. The endpoint-label gate now requires nonzero endpoint-union population, classifies instability mode, separates target-boundary-localized label mismatch from bulk map mismatch, reports boundary-excluded agreement, requires enough boundary-excluded coverage for direct-coil evidence, and compares labels against signed forward/backward target-exit lengths. Live even-ratio and odd-ratio/collocated diagnostics both fail, but the current boundary-resolved `(7, 15, 27) -> (11, 25, 45)` rerun proves the remaining endpoint-label mismatch is signed-shell-localized: full endpoint agreement is still diagnostic at `0.763`, boundary-excluded all-label and endpoint-label agreement are `1.0`, signed shell mode is `signed_transition_shell_refinement_supported`, shell mismatch coverage is `1.0`, outside-shell label/evidence stability is `1.0`, bulk mismatch is `0.0`, and signed projection false positives are only `0.0121`. Next changes: keep the endpoint shell as a diagnostic boundary rather than repairing it with broad projection; rerun target-exit and adjacent-step nested diagnostics, source/profile and neutral-source diagnostics, target heat/particle flux plots, then generate a diagnostic reduced turbulence movie from the exact consumed endpoint masks. | A clean clone can run the direct-coil open command, obtain JSON/NPZ/PNG/GIF artifacts, and see a report that either sets `promotion_ready=true` or explicitly lists geometry blockers, including whether endpoint-label failures are boundary-localized, signed-shell-localized, or bulk. Source accounting closes on the exact endpoint masks consumed by sheath/recycling/neutrals. Direct-coil media stays out of README promotion while endpoint agreement, endpoint population, target-exit length, adjacent-step refinement, target/source/flux gates, or movie QA are weak. |
 | 2 | Direct ESSOS-coil closed and near-closed controls | 84% | Keep `direct_coil_closed_field_demo.py` as the pure-coil closed-control workflow. Next changes: package release-hosted media, add README/docs commands, keep restored-trace transient synchronized with return-map/refinement provenance, and add a short closed-control comparison panel beside the open-field diagnostic in docs. | Users can run a closed/near-closed coil-control example and see non-axisymmetric Poincare, return-map, profile, spectrum/movie diagnostics, explicit closed/near-closed classification, and explicit absence of `target`, `sheath`, `recycling`, `neutral_loss`, and target-to-target connection-length semantics. |
 | 3 | VMEC closed-field stellarator controls | 86% | Keep VMEC-coordinate maps as the smooth closed-field control. Optional changes are limited to stronger periodic bracket/vorticity forcing and clearer profile/spectrum plots; endpoint masks remain zero and no target semantics are allowed. | Closed VMEC examples pass zero-endpoint, periodic parallel-step/operator, mass/profile/spectrum, fixed-camera, and fixed-color QA gates. Docs state that target, sheath, recycling, and neutral losses are absent unless deliberately selected as an artificial model. |
 | 4 | Hybrid VMEC/coil open-SOL bridge | 89% | Promote `hybrid_open_sol_demo.py` from compact evidence to the first promoted open-SOL candidate. Current live FCI/source-profile evidence is green with target particle-loss maps and visual QA; next changes are the heavier live promotion stationarity preset, regenerated media, combined `release_evidence` audit, grid/time checks, and frame-by-frame movie QA after each media change. | The workflow summary reports green FCI/source-profile, endpoint-mask consumption, parallel-step refinement, source balances, stationarity, grid/time checks, and visual QA on the same consumed map. README identifies hybrid as the promoted stellarator open-SOL bridge if pure-coil maps remain rough. |
@@ -614,9 +669,10 @@ Immediate implementation sequence:
    endpoint-union projection. The live conservative projection diagnostic made
    endpoint agreement worse. Signed wall-hit and target-transition-shell
    diagnostics are now implemented and the live boundary-resolved rerun
-   classified the remaining mismatch as `signed_transition_supported`. The next
-   implementation is a signed target-transition-shell refinement/classification
-   gate, not nearest-projection false-positive repair. Continue target-exit and
+   classified the remaining mismatch as `signed_transition_supported`. The
+   stricter signed shell-refinement gate is also implemented, and the live
+   boundary-resolved rerun now proves the mismatch is shell-localized rather
+   than bulk or projection-false-positive dominated. Continue target-exit and
    adjacent-step nested diagnostics, neutral-source refinements, consumed target
    heat/particle flux plots, diagnostic movie generation, and a report field
    that explains exactly why the media is promoted or diagnostic.
@@ -2012,6 +2068,39 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-22: Reran the live direct ESSOS-coil boundary-resolved
+  endpoint-label gate with the stricter signed-shell diagnostics in
+  `/tmp/jax_drb_direct_coil_signed_shell_gate_current`. The report remains
+  `promotion_ready=false` because full endpoint agreement is `0.763`, but the
+  shell diagnosis is now clean: `dominant_signed_target_transition_mode` is
+  `signed_transition_supported`,
+  `dominant_signed_target_transition_shell_mode` is
+  `signed_transition_shell_refinement_supported`, transition consistency is
+  `0.988`, projection false positives are `0.0121`, shell mismatch coverage is
+  `1.0`, outside-shell label stability is `1.0`, outside-shell signed-exit
+  evidence stability is `1.0`, and bulk mismatch is `0.0`. Boundary-excluded
+  all-label and endpoint agreement remain `1.0` over `0.248` valid fraction.
+  Decision: move direct ESSOS-coil open diagnostics to `85%` and the overall
+  3D stellarator open/closed SOL program to `78%`. The next technical work is
+  no longer broad endpoint projection; it is target-exit, adjacent-step,
+  source/profile, neutral-source, target heat/particle flux, and movie-QA
+  gates on the same consumed endpoint masks.
+- 2026-06-22: Implemented the signed target-transition-shell
+  refinement/classification gate in the imported endpoint-label diagnostics.
+  Pair reports now include shell mismatch coverage, outside-shell label
+  stability, outside-shell signed-exit evidence stability, shell fraction,
+  bulk mismatch fraction, a `signed_target_transition_shell_mode`, and a
+  boolean `signed_target_transition_shell_refinement_supported`. Aggregate
+  reports and direct-coil workflow summaries expose the same shell decision,
+  and the endpoint-label plot title reports signed mode, shell mode, and shell
+  coverage. Focused tests now distinguish three cases: a true shell-supported
+  transition, a nearest-projection false positive, and a bulk signed mismatch
+  that must not be treated as shell-only. Decision: move direct ESSOS-coil
+  open diagnostics to `83%` and the overall 3D stellarator open/closed SOL
+  program to `77%`. The next executable step is a live boundary-resolved
+  direct-coil rerun with the new shell fields, followed by target-exit,
+  adjacent-step, source/profile, neutral-source, target-flux, and movie-QA
+  gates on the same consumed endpoint masks.
 - 2026-06-22: Performed the requested final single-plan consolidation for the
   remaining open stellarator/tokamak SOL lanes. The active checklist is the
   `Current Authoritative Open-Lane Implementation Plan`; the later long-form

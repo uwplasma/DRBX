@@ -1005,6 +1005,9 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         "dominant_signed_target_transition_mode": (
             diagnostics["dominant_signed_target_transition_mode"]
         ),
+        "dominant_signed_target_transition_shell_mode": (
+            diagnostics["dominant_signed_target_transition_shell_mode"]
+        ),
         "minimum_signed_target_transition_consistency_fraction_actual": (
             diagnostics[
                 "minimum_signed_target_transition_consistency_fraction_actual"
@@ -1014,6 +1017,29 @@ def build_essos_imported_endpoint_label_refinement_campaign(
             diagnostics[
                 "maximum_signed_target_projection_false_positive_fraction_actual"
             ]
+        ),
+        "minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual": (
+            diagnostics[
+                "minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual"
+            ]
+        ),
+        "minimum_signed_target_transition_shell_label_stability_fraction_actual": (
+            diagnostics[
+                "minimum_signed_target_transition_shell_label_stability_fraction_actual"
+            ]
+        ),
+        "minimum_signed_target_transition_shell_evidence_stability_fraction_actual": (
+            diagnostics[
+                "minimum_signed_target_transition_shell_evidence_stability_fraction_actual"
+            ]
+        ),
+        "maximum_signed_target_transition_bulk_mismatch_fraction_actual": (
+            diagnostics[
+                "maximum_signed_target_transition_bulk_mismatch_fraction_actual"
+            ]
+        ),
+        "signed_target_transition_shell_refinement_supported": bool(
+            diagnostics["signed_target_transition_shell_refinement_supported"]
         ),
         "signed_target_transition_shell_only_instability": bool(
             diagnostics["signed_target_transition_shell_only_instability"]
@@ -1061,6 +1087,52 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         ),
         "pair_valid_fraction": np.asarray(
             [pair["valid_fraction"] for pair in pair_reports],
+            dtype=np.float64,
+        ),
+        "pair_signed_target_transition_shell_mismatch_coverage_fraction": np.asarray(
+            [
+                np.nan
+                if pair.get(
+                    "signed_target_transition_shell_mismatch_coverage_fraction"
+                )
+                is None
+                else float(
+                    pair[
+                        "signed_target_transition_shell_mismatch_coverage_fraction"
+                    ]
+                )
+                for pair in pair_reports
+            ],
+            dtype=np.float64,
+        ),
+        "pair_signed_target_transition_shell_label_stability_fraction": np.asarray(
+            [
+                np.nan
+                if pair.get(
+                    "signed_target_transition_shell_label_stability_fraction"
+                )
+                is None
+                else float(
+                    pair["signed_target_transition_shell_label_stability_fraction"]
+                )
+                for pair in pair_reports
+            ],
+            dtype=np.float64,
+        ),
+        "pair_signed_target_transition_shell_evidence_stability_fraction": np.asarray(
+            [
+                np.nan
+                if pair.get(
+                    "signed_target_transition_shell_evidence_stability_fraction"
+                )
+                is None
+                else float(
+                    pair[
+                        "signed_target_transition_shell_evidence_stability_fraction"
+                    ]
+                )
+                for pair in pair_reports
+            ],
             dtype=np.float64,
         ),
     }
@@ -1491,9 +1563,50 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         for pair in pair_reports
         if pair.get("signed_target_transition_available", False)
     ]
+    signed_target_transition_shell_modes = [
+        str(pair["signed_target_transition_shell_mode"])
+        for pair in pair_reports
+        if pair.get("signed_target_transition_available", False)
+    ]
+    signed_shell_mismatch_coverage_values = [
+        float(pair["signed_target_transition_shell_mismatch_coverage_fraction"])
+        for pair in pair_reports
+        if pair.get("signed_target_transition_available", False)
+        and pair.get("signed_target_transition_shell_mismatch_coverage_fraction")
+        is not None
+    ]
+    signed_shell_label_stability_values = [
+        float(pair["signed_target_transition_shell_label_stability_fraction"])
+        for pair in pair_reports
+        if pair.get("signed_target_transition_available", False)
+        and pair.get("signed_target_transition_shell_label_stability_fraction")
+        is not None
+    ]
+    signed_shell_evidence_stability_values = [
+        float(pair["signed_target_transition_shell_evidence_stability_fraction"])
+        for pair in pair_reports
+        if pair.get("signed_target_transition_available", False)
+        and pair.get("signed_target_transition_shell_evidence_stability_fraction")
+        is not None
+    ]
+    signed_shell_bulk_mismatch_values = [
+        float(pair["signed_target_transition_bulk_mismatch_fraction"])
+        for pair in pair_reports
+        if pair.get("signed_target_transition_available", False)
+    ]
+    signed_shell_refinement_supported_values = [
+        bool(pair["signed_target_transition_shell_refinement_supported"])
+        for pair in pair_reports
+        if pair.get("signed_target_transition_available", False)
+    ]
     dominant_signed_target_transition_mode = (
         _dominant_endpoint_instability_mode(signed_target_transition_modes)
         if signed_target_transition_modes
+        else "unavailable"
+    )
+    dominant_signed_target_transition_shell_mode = (
+        _dominant_endpoint_instability_mode(signed_target_transition_shell_modes)
+        if signed_target_transition_shell_modes
         else "unavailable"
     )
     minimum_signed_target_transition_consistency = (
@@ -1506,11 +1619,36 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         if signed_target_projection_false_positive_values
         else None
     )
+    minimum_signed_shell_mismatch_coverage = (
+        min(signed_shell_mismatch_coverage_values)
+        if signed_shell_mismatch_coverage_values
+        else None
+    )
+    minimum_signed_shell_label_stability = (
+        min(signed_shell_label_stability_values)
+        if signed_shell_label_stability_values
+        else None
+    )
+    minimum_signed_shell_evidence_stability = (
+        min(signed_shell_evidence_stability_values)
+        if signed_shell_evidence_stability_values
+        else None
+    )
+    maximum_signed_shell_bulk_mismatch = (
+        max(signed_shell_bulk_mismatch_values)
+        if signed_shell_bulk_mismatch_values
+        else None
+    )
+    signed_transition_shell_refinement_supported = bool(
+        signed_shell_refinement_supported_values
+        and all(signed_shell_refinement_supported_values)
+    )
     signed_transition_shell_only_instability = bool(
         not promotion_ready
         and target_boundary_only_instability
         and signed_target_transition_available
         and dominant_signed_target_transition_mode == "signed_transition_supported"
+        and signed_transition_shell_refinement_supported
         and minimum_signed_target_transition_consistency is not None
         and float(minimum_signed_target_transition_consistency) >= 0.90
         and maximum_signed_target_projection_false_positive is not None
@@ -1584,11 +1722,30 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         "dominant_signed_target_transition_mode": (
             dominant_signed_target_transition_mode
         ),
+        "signed_target_transition_shell_modes": signed_target_transition_shell_modes,
+        "dominant_signed_target_transition_shell_mode": (
+            dominant_signed_target_transition_shell_mode
+        ),
         "minimum_signed_target_transition_consistency_fraction_actual": (
             minimum_signed_target_transition_consistency
         ),
         "maximum_signed_target_projection_false_positive_fraction_actual": (
             maximum_signed_target_projection_false_positive
+        ),
+        "minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual": (
+            minimum_signed_shell_mismatch_coverage
+        ),
+        "minimum_signed_target_transition_shell_label_stability_fraction_actual": (
+            minimum_signed_shell_label_stability
+        ),
+        "minimum_signed_target_transition_shell_evidence_stability_fraction_actual": (
+            minimum_signed_shell_evidence_stability
+        ),
+        "maximum_signed_target_transition_bulk_mismatch_fraction_actual": (
+            maximum_signed_shell_bulk_mismatch
+        ),
+        "signed_target_transition_shell_refinement_supported": (
+            signed_transition_shell_refinement_supported
         ),
         "signed_target_transition_shell_only_instability": (
             signed_transition_shell_only_instability
@@ -1835,6 +1992,13 @@ def _endpoint_signed_target_transition_unavailable(
         "coarse_signed_exit_label_consistency_fraction": None,
         "restricted_signed_exit_label_consistency_fraction": None,
         "signed_target_transition_consistency_fraction": None,
+        "signed_target_transition_shell_mode": "unavailable",
+        "signed_target_transition_shell_mismatch_coverage_fraction": None,
+        "signed_target_transition_shell_label_stability_fraction": None,
+        "signed_target_transition_shell_evidence_stability_fraction": None,
+        "signed_target_transition_shell_fraction": 0.0,
+        "signed_target_transition_bulk_mismatch_fraction": 0.0,
+        "signed_target_transition_shell_refinement_supported": False,
         "signed_target_projection_false_positive_fraction": 0.0,
         "signed_target_coarse_unsupported_fraction": 0.0,
         "signed_target_restricted_unlabeled_hit_fraction": 0.0,
@@ -1980,6 +2144,60 @@ def _endpoint_signed_target_transition_metrics_for_pair(
         mismatch_count,
         default=0.0,
     )
+
+    signed_shell = valid_signed & (
+        _label_transition_shell(coarse_evidence, valid_signed)
+        | _label_transition_shell(restricted_evidence, valid_signed)
+    )
+    outside_signed_shell = valid_signed & ~signed_shell
+    outside_signed_shell_count = int(np.sum(outside_signed_shell))
+    shell_mismatch = mismatch & signed_shell
+    bulk_mismatch = mismatch & ~signed_shell
+    shell_mismatch_coverage = _safe_fraction(
+        int(np.sum(shell_mismatch)),
+        mismatch_count,
+        default=1.0,
+    )
+    bulk_mismatch_fraction = _safe_fraction(
+        int(np.sum(bulk_mismatch)),
+        mismatch_count,
+        default=0.0,
+    )
+    shell_label_stability = _safe_fraction(
+        int(np.sum(outside_signed_shell & (coarse_labels == restricted_labels))),
+        outside_signed_shell_count,
+        default=1.0,
+    )
+    shell_evidence_stability = _safe_fraction(
+        int(np.sum(outside_signed_shell & (coarse_evidence == restricted_evidence))),
+        outside_signed_shell_count,
+        default=1.0,
+    )
+    shell_refinement_supported = bool(
+        mismatch_count > 0
+        and float(shell_mismatch_coverage) >= 0.90
+        and float(shell_label_stability) >= 0.95
+        and float(shell_evidence_stability) >= 0.95
+        and float(transition_consistency) >= 0.90
+        and float(projection_false_positive) <= 0.05
+        and float(coarse_unsupported) <= 0.05
+        and float(restricted_unlabeled) <= 0.05
+    )
+    if mismatch_count == 0:
+        shell_mode = "stable"
+    elif projection_false_positive >= 0.25:
+        shell_mode = "signed_transition_shell_projection_false_positive"
+    elif coarse_unsupported >= 0.25:
+        shell_mode = "signed_transition_shell_coarse_unsupported"
+    elif restricted_unlabeled >= 0.25:
+        shell_mode = "signed_transition_shell_restricted_unlabeled_hit"
+    elif shell_refinement_supported:
+        shell_mode = "signed_transition_shell_refinement_supported"
+    elif shell_mismatch_coverage < 0.75:
+        shell_mode = "signed_transition_not_shell_localized"
+    else:
+        shell_mode = "mixed_signed_transition_shell"
+
     if mismatch_count == 0:
         mode = "stable"
         next_action = "Signed target-exit evidence agrees because there are no label mismatches."
@@ -2005,12 +2223,21 @@ def _endpoint_signed_target_transition_metrics_for_pair(
         )
     elif transition_consistency >= 0.75:
         mode = "signed_transition_supported"
-        next_action = (
-            "Endpoint-label mismatches are supported by signed forward/backward "
-            "target-exit evidence. Treat this as a target transition-shell "
-            "resolution issue and refine or classify the signed shell before "
-            "promoting pure-coil media."
-        )
+        if shell_refinement_supported:
+            next_action = (
+                "Endpoint-label mismatches are supported by signed forward/backward "
+                "target-exit evidence and are confined to the signed transition "
+                "shell. Treat this as a target transition-shell resolution issue; "
+                "promote only after a shell-aware refinement/classification gate "
+                "and downstream source/movie checks pass on the consumed masks."
+            )
+        else:
+            next_action = (
+                "Endpoint-label mismatches are supported by signed forward/backward "
+                "target-exit evidence but are not cleanly confined to a stable "
+                "signed transition shell. Inspect shell width, endpoint labels, "
+                "and sampled signed exits before promoting pure-coil media."
+            )
     else:
         mode = "mixed_signed_target_transition"
         next_action = (
@@ -2034,6 +2261,13 @@ def _endpoint_signed_target_transition_metrics_for_pair(
             default=1.0,
         ),
         "signed_target_transition_consistency_fraction": transition_consistency,
+        "signed_target_transition_shell_mode": shell_mode,
+        "signed_target_transition_shell_mismatch_coverage_fraction": shell_mismatch_coverage,
+        "signed_target_transition_shell_label_stability_fraction": shell_label_stability,
+        "signed_target_transition_shell_evidence_stability_fraction": shell_evidence_stability,
+        "signed_target_transition_shell_fraction": float(np.mean(signed_shell)),
+        "signed_target_transition_bulk_mismatch_fraction": bulk_mismatch_fraction,
+        "signed_target_transition_shell_refinement_supported": shell_refinement_supported,
         "signed_target_projection_false_positive_fraction": projection_false_positive,
         "signed_target_coarse_unsupported_fraction": coarse_unsupported,
         "signed_target_restricted_unlabeled_hit_fraction": restricted_unlabeled,
@@ -3750,6 +3984,17 @@ def save_essos_imported_endpoint_label_refinement_plot(
     signed_mode = str(
         report.get("dominant_signed_target_transition_mode", "unavailable")
     )
+    signed_shell_mode = str(
+        report.get("dominant_signed_target_transition_shell_mode", "unavailable")
+    )
+    signed_shell_coverage = report.get(
+        "minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual"
+    )
+    signed_shell_coverage_text = (
+        "n/a"
+        if signed_shell_coverage is None
+        else f"{float(signed_shell_coverage):.3f}"
+    )
     fig.suptitle(
         "Imported-field endpoint-label refinement gate\n"
         f"passed={report['passed']}, min all={min_agreement_text}, "
@@ -3759,7 +4004,8 @@ def save_essos_imported_endpoint_label_refinement_plot(
         f"projection-neighborhood support={projection_support_text}, "
         f"supported={projection_neighborhood_supported}, "
         f"conservative endpoint={conservative_endpoint_text}, "
-        f"signed mode={signed_mode}",
+        f"signed mode={signed_mode}, shell={signed_shell_mode}, "
+        f"shell coverage={signed_shell_coverage_text}",
         fontsize=12,
     )
     fig.savefig(resolved, dpi=180, bbox_inches="tight")

@@ -575,11 +575,29 @@ def run_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> d
         "dominant_signed_target_transition_mode": report.get(
             "dominant_signed_target_transition_mode"
         ),
+        "dominant_signed_target_transition_shell_mode": report.get(
+            "dominant_signed_target_transition_shell_mode"
+        ),
         "minimum_signed_target_transition_consistency_fraction_actual": report.get(
             "minimum_signed_target_transition_consistency_fraction_actual"
         ),
         "maximum_signed_target_projection_false_positive_fraction_actual": report.get(
             "maximum_signed_target_projection_false_positive_fraction_actual"
+        ),
+        "minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual": report.get(
+            "minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual"
+        ),
+        "minimum_signed_target_transition_shell_label_stability_fraction_actual": report.get(
+            "minimum_signed_target_transition_shell_label_stability_fraction_actual"
+        ),
+        "minimum_signed_target_transition_shell_evidence_stability_fraction_actual": report.get(
+            "minimum_signed_target_transition_shell_evidence_stability_fraction_actual"
+        ),
+        "maximum_signed_target_transition_bulk_mismatch_fraction_actual": report.get(
+            "maximum_signed_target_transition_bulk_mismatch_fraction_actual"
+        ),
+        "signed_target_transition_shell_refinement_supported": bool(
+            report.get("signed_target_transition_shell_refinement_supported", False)
         ),
         "signed_target_transition_shell_only_instability": bool(
             report.get("signed_target_transition_shell_only_instability", False)
@@ -693,11 +711,29 @@ def run_collocated_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSet
         "dominant_signed_target_transition_mode": report.get(
             "dominant_signed_target_transition_mode"
         ),
+        "dominant_signed_target_transition_shell_mode": report.get(
+            "dominant_signed_target_transition_shell_mode"
+        ),
         "minimum_signed_target_transition_consistency_fraction_actual": report.get(
             "minimum_signed_target_transition_consistency_fraction_actual"
         ),
         "maximum_signed_target_projection_false_positive_fraction_actual": report.get(
             "maximum_signed_target_projection_false_positive_fraction_actual"
+        ),
+        "minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual": report.get(
+            "minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual"
+        ),
+        "minimum_signed_target_transition_shell_label_stability_fraction_actual": report.get(
+            "minimum_signed_target_transition_shell_label_stability_fraction_actual"
+        ),
+        "minimum_signed_target_transition_shell_evidence_stability_fraction_actual": report.get(
+            "minimum_signed_target_transition_shell_evidence_stability_fraction_actual"
+        ),
+        "maximum_signed_target_transition_bulk_mismatch_fraction_actual": report.get(
+            "maximum_signed_target_transition_bulk_mismatch_fraction_actual"
+        ),
+        "signed_target_transition_shell_refinement_supported": bool(
+            report.get("signed_target_transition_shell_refinement_supported", False)
         ),
         "signed_target_transition_shell_only_instability": bool(
             report.get("signed_target_transition_shell_only_instability", False)
@@ -820,11 +856,29 @@ def run_boundary_resolved_endpoint_label_refinement_gate(
         "dominant_signed_target_transition_mode": report.get(
             "dominant_signed_target_transition_mode"
         ),
+        "dominant_signed_target_transition_shell_mode": report.get(
+            "dominant_signed_target_transition_shell_mode"
+        ),
         "minimum_signed_target_transition_consistency_fraction_actual": report.get(
             "minimum_signed_target_transition_consistency_fraction_actual"
         ),
         "maximum_signed_target_projection_false_positive_fraction_actual": report.get(
             "maximum_signed_target_projection_false_positive_fraction_actual"
+        ),
+        "minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual": report.get(
+            "minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual"
+        ),
+        "minimum_signed_target_transition_shell_label_stability_fraction_actual": report.get(
+            "minimum_signed_target_transition_shell_label_stability_fraction_actual"
+        ),
+        "minimum_signed_target_transition_shell_evidence_stability_fraction_actual": report.get(
+            "minimum_signed_target_transition_shell_evidence_stability_fraction_actual"
+        ),
+        "maximum_signed_target_transition_bulk_mismatch_fraction_actual": report.get(
+            "maximum_signed_target_transition_bulk_mismatch_fraction_actual"
+        ),
+        "signed_target_transition_shell_refinement_supported": bool(
+            report.get("signed_target_transition_shell_refinement_supported", False)
         ),
         "signed_target_transition_shell_only_instability": bool(
             report.get("signed_target_transition_shell_only_instability", False)

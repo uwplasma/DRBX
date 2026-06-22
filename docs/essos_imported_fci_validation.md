@@ -152,25 +152,45 @@ target-exit evidence and should be treated as a target-transition-shell
 resolution/classification problem, and `nearest_projection_false_positive`,
 which means a projected fine endpoint bit is not backed by finite signed
 target-exit evidence and should be treated as a projection or wall-hit
-retention bug. The next live direct-coil run should use this field, together
-with the boundary-excluded agreement and projection-neighborhood metrics, to
-choose the geometry repair before any pure-coil movie is promoted.
+retention bug.
 
-The first live signed rerun used the boundary-resolved `(7, 15, 27) ->
-(11, 25, 45)` direct-coil grids. It keeps pure-coil media diagnostic because
+The report also carries a stricter signed-shell refinement layer. The fields
+`dominant_signed_target_transition_shell_mode`,
+`minimum_signed_target_transition_shell_mismatch_coverage_fraction_actual`,
+`minimum_signed_target_transition_shell_label_stability_fraction_actual`,
+`minimum_signed_target_transition_shell_evidence_stability_fraction_actual`,
+`maximum_signed_target_transition_bulk_mismatch_fraction_actual`, and
+`signed_target_transition_shell_refinement_supported` answer the next
+question: are the label mismatches actually confined to the signed
+forward/backward target-exit shell, and are labels/evidence stable away from
+that shell? A true shell-resolution blocker should report
+`signed_transition_shell_refinement_supported`, high mismatch coverage, high
+outside-shell label/evidence stability, and low bulk mismatch. A
+`signed_transition_not_shell_localized` result means signed-exit consistency
+exists but the disagreement is bulk rather than a target-shell refinement
+problem. The next live direct-coil run should use these fields, together with
+the boundary-excluded agreement and projection-neighborhood metrics, to choose
+the geometry repair before any pure-coil movie is promoted.
+
+The current live signed-shell rerun used the boundary-resolved
+`(7, 15, 27) -> (11, 25, 45)` direct-coil grids and wrote the report to
+`/tmp/jax_drb_direct_coil_signed_shell_gate_current/data/direct_coil_signed_shell_gate_current.json`.
+It keeps pure-coil media diagnostic because
 the full endpoint-label agreement is `0.762`, below the `0.80` threshold. It
-also makes the next implementation choice sharper: the signed mode is
-`signed_transition_supported`, with signed transition consistency `0.981`,
-projection false-positive fraction `0.0187`, coarse label/exits consistency
-`1.0`, and restricted fine label/exits consistency `0.977`. Together with
-boundary-excluded endpoint agreement `1.0`, endpoint-mismatch neighborhood
-support `0.855`, and conservative-projection endpoint agreement only `0.660`,
-this identifies the remaining pure-coil blocker as a signed
-target-transition-shell resolution/classification problem rather than a bulk
-field-map failure or broad projection/dilation issue. The live report sets
-`signed_target_transition_shell_only_instability = true`, which is the
-diagnostic state that should trigger the next signed transition-shell
-refinement/classification implementation.
+also resolves the endpoint-projection question: the signed mode is
+`signed_transition_supported`, the shell mode is
+`signed_transition_shell_refinement_supported`, signed transition consistency
+is `0.988`, projection false-positive fraction is `0.0121`, shell mismatch
+coverage is `1.0`, outside-shell label stability is `1.0`, outside-shell
+signed-exit evidence stability is `1.0`, and bulk mismatch is `0.0`. Together
+with boundary-excluded endpoint agreement `1.0`, endpoint-mismatch
+neighborhood support `0.853`, and conservative-projection endpoint agreement
+only `0.656`, this identifies the remaining pure-coil blocker as a
+shell-localized target-transition resolution issue rather than a bulk field-map
+failure, broad projection/dilation issue, or nearest-projection false positive.
+The next direct-coil evidence step is therefore target-exit, adjacent-step,
+source/profile, neutral-source, target-flux, and movie-QA gates on the same
+consumed endpoint masks.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
