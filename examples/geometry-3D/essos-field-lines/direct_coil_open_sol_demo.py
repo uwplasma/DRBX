@@ -31,6 +31,7 @@ WRITE_DRY_RUN_CONTRACT = True
 RUN_LIVE_FCI_GATE = False
 RUN_LIVE_CONNECTION_REFINEMENT_GATE = False
 RUN_LIVE_ENDPOINT_LABEL_REFINEMENT_GATE = False
+RUN_LIVE_COLLOCATED_ENDPOINT_LABEL_REFINEMENT_GATE = False
 RUN_LIVE_STATIONARITY_GATE = False
 RUN_LIVE_MEDIA_GATE = False
 REQUIRE_PROMOTION_READY = False
@@ -75,6 +76,10 @@ REFINEMENT_REQUIRE_OBSERVED_ORDER = True
 ENDPOINT_LABEL_MINIMUM_AGREEMENT_FRACTION = 0.90
 ENDPOINT_LABEL_MINIMUM_ENDPOINT_AGREEMENT_FRACTION = 0.80
 ENDPOINT_LABEL_MINIMUM_ENDPOINT_UNION_FRACTION = 0.01
+COLLOCATED_ENDPOINT_LABEL_LEVEL_SHAPES = (
+    (3, 5, 9),
+    (7, 15, 27),
+)
 
 # Report-only reduced transient gate. This is not the final GIF-producing
 # campaign; it checks whether the direct-coil settings are stable enough to
@@ -127,6 +132,7 @@ class DirectCoilOpenSolSettings:
     run_live_fci_gate: bool
     run_live_connection_refinement_gate: bool
     run_live_endpoint_label_refinement_gate: bool
+    run_live_collocated_endpoint_label_refinement_gate: bool
     run_live_stationarity_gate: bool
     run_live_media_gate: bool
     require_promotion_ready: bool
@@ -144,6 +150,7 @@ def build_settings(
     run_live_fci_gate: bool = RUN_LIVE_FCI_GATE,
     run_live_connection_refinement_gate: bool = RUN_LIVE_CONNECTION_REFINEMENT_GATE,
     run_live_endpoint_label_refinement_gate: bool = RUN_LIVE_ENDPOINT_LABEL_REFINEMENT_GATE,
+    run_live_collocated_endpoint_label_refinement_gate: bool = RUN_LIVE_COLLOCATED_ENDPOINT_LABEL_REFINEMENT_GATE,
     run_live_stationarity_gate: bool = RUN_LIVE_STATIONARITY_GATE,
     run_live_media_gate: bool = RUN_LIVE_MEDIA_GATE,
     require_promotion_ready: bool = REQUIRE_PROMOTION_READY,
@@ -161,6 +168,9 @@ def build_settings(
         run_live_fci_gate=bool(run_live_fci_gate),
         run_live_connection_refinement_gate=bool(run_live_connection_refinement_gate),
         run_live_endpoint_label_refinement_gate=bool(run_live_endpoint_label_refinement_gate),
+        run_live_collocated_endpoint_label_refinement_gate=bool(
+            run_live_collocated_endpoint_label_refinement_gate
+        ),
         run_live_stationarity_gate=bool(run_live_stationarity_gate),
         run_live_media_gate=bool(run_live_media_gate),
         require_promotion_ready=bool(require_promotion_ready),
@@ -263,6 +273,9 @@ def write_workflow_summary(
             "run_live_fci_gate": settings.run_live_fci_gate,
             "run_live_connection_refinement_gate": settings.run_live_connection_refinement_gate,
             "run_live_endpoint_label_refinement_gate": settings.run_live_endpoint_label_refinement_gate,
+            "run_live_collocated_endpoint_label_refinement_gate": (
+                settings.run_live_collocated_endpoint_label_refinement_gate
+            ),
             "run_live_stationarity_gate": settings.run_live_stationarity_gate,
             "run_live_media_gate": settings.run_live_media_gate,
             "require_promotion_ready": settings.require_promotion_ready,
@@ -491,6 +504,59 @@ def run_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> d
     }
 
 
+def run_collocated_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> dict[str, Any]:
+    """Run an odd-ratio endpoint-label diagnostic with collocated seed angles."""
+
+    if not settings.run_live_collocated_endpoint_label_refinement_gate:
+        return {
+            "stage": "direct_coil_collocated_endpoint_label_refinement_gate",
+            "status": "diagnostic",
+            "promotion_ready": False,
+            "next_action": (
+                "Set RUN_LIVE_COLLOCATED_ENDPOINT_LABEL_REFINEMENT_GATE=True to "
+                "test whether endpoint-label instability is caused by non-collocated "
+                "even-ratio seed grids."
+            ),
+        }
+
+    artifacts = create_live_essos_imported_endpoint_label_refinement_package(
+        output_root=settings.output_root / "endpoint_labels_collocated",
+        case_label=f"{settings.case_label}_endpoint_labels_collocated",
+        coil_json_path=settings.coil_json_path,
+        vmec_wout_path=settings.vmec_wout_path,
+        essos_root=settings.essos_root,
+        map_source=MAP_SOURCE,
+        level_shapes=COLLOCATED_ENDPOINT_LABEL_LEVEL_SHAPES,
+        rho_min=FCI_RHO_MIN,
+        rho_max=FCI_RHO_MAX,
+        maxtime=REFINEMENT_MAXTIME,
+        times_to_trace=REFINEMENT_TIMES_TO_TRACE,
+        trace_tolerance=FCI_TRACE_TOLERANCE,
+        minimum_agreement_fraction=ENDPOINT_LABEL_MINIMUM_AGREEMENT_FRACTION,
+        minimum_endpoint_agreement_fraction=ENDPOINT_LABEL_MINIMUM_ENDPOINT_AGREEMENT_FRACTION,
+        minimum_endpoint_union_fraction=ENDPOINT_LABEL_MINIMUM_ENDPOINT_UNION_FRACTION,
+        require_three_levels=False,
+    )
+    report = _read_json(artifacts.report_json_path)
+    return {
+        "stage": "direct_coil_collocated_endpoint_label_refinement_gate",
+        "status": "diagnostic",
+        "report_json_path": _path_text(artifacts.report_json_path),
+        "arrays_npz_path": _path_text(artifacts.arrays_npz_path),
+        "plot_png_path": _path_text(artifacts.plot_png_path),
+        "passed": bool(report.get("passed", False)),
+        "promotion_ready": False,
+        "evidence_role": report.get("evidence_role"),
+        "dominant_endpoint_instability_mode": report.get("diagnostics", {}).get(
+            "dominant_endpoint_instability_mode"
+        ),
+        "dominant_direction_component_error": report.get("diagnostics", {}).get(
+            "dominant_direction_component_error"
+        ),
+        "promotion_rejection_reasons": report.get("promotion_rejection_reasons", []),
+    }
+
+
 def run_stationarity_gate(settings: DirectCoilOpenSolSettings) -> dict[str, Any]:
     """Run or describe the report-only direct-coil reduced-transient gate."""
 
@@ -610,6 +676,7 @@ def run_direct_coil_workflow(settings: DirectCoilOpenSolSettings) -> Path:
         fci_stage,
         run_source_profile_gate(settings, fci_stage),
         run_endpoint_label_refinement_gate(settings),
+        run_collocated_endpoint_label_refinement_gate(settings),
         *(
             run_connection_refinement_gate(settings, quantity=quantity)
             for quantity in REFINEMENT_QUANTITIES

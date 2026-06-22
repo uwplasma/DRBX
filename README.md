@@ -432,7 +432,10 @@ gate JSON and PNG that check target labels, sheath heat load, neutral
 ionisation, target particle-loss flux, radial profiles, and source-balance
 residuals from the same consumed endpoint masks. The endpoint-label refinement
 gate also requires a nonzero endpoint population, so open-field promotion
-cannot pass on mostly interior cells with no target contact. The
+cannot pass on mostly interior cells with no target contact. The optional
+`RUN_LIVE_COLLOCATED_ENDPOINT_LABEL_REFINEMENT_GATE` flag runs an odd-ratio
+endpoint-label diagnostic that checks whether the blocker is seed-grid
+collocation rather than target classification. The
 `RUN_LIVE_MEDIA_GATE`
 flag writes GIF/PNG/NPZ media from the direct coil field, but the workflow keeps
 that media out of promotion unless the
