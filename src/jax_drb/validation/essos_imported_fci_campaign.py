@@ -65,6 +65,7 @@ _IMPORTED_FCI_ARRAY_KEYS = (
     "connection_toroidal",
     "adjacent_step_toroidal",
     "target_exit_toroidal",
+    "particle_loss_toroidal",
     "heat_load_toroidal",
     "ionisation_toroidal",
     "radial_grid",
@@ -78,6 +79,9 @@ _IMPORTED_FCI_SOURCE_PROFILE_ARRAY_KEYS = (
     "radial_grid",
     "radial_profiles",
     "summary",
+)
+_IMPORTED_FCI_SOURCE_PROFILE_OPTIONAL_ARRAY_KEYS = (
+    "particle_loss_toroidal",
 )
 _IMPORTED_FCI_REQUIRED_REPORT_FIELDS = (
     "case",
@@ -1517,6 +1521,7 @@ def build_essos_imported_fci_campaign(
         "connection_toroidal": np.mean(connection, axis=0).astype(np.float32),
         "adjacent_step_toroidal": _finite_mean(adjacent_step, axis=0).astype(np.float32),
         "target_exit_toroidal": _finite_mean(target_exit, axis=0).astype(np.float32),
+        "particle_loss_toroidal": np.sum(particle_loss, axis=0).astype(np.float32),
         "heat_load_toroidal": np.sum(heat_load, axis=0).astype(np.float32),
         "ionisation_toroidal": np.sum(ionisation, axis=0).astype(np.float32),
         "radial_grid": np.mean(rho, axis=(1, 2)).astype(np.float32),
@@ -1574,7 +1579,13 @@ def build_essos_imported_fci_source_profile_gate(
             return np.asarray([], dtype=np.float64)
         return np.asarray(arrays[name], dtype=np.float64)
 
+    def _optional_array(name: str) -> np.ndarray:
+        if name not in array_names:
+            return np.asarray([], dtype=np.float64)
+        return np.asarray(arrays[name], dtype=np.float64)
+
     target_labels = _array("target_label_toroidal")
+    particle_loss = _optional_array("particle_loss_toroidal")
     heat_load = _array("heat_load_toroidal")
     ionisation = _array("ionisation_toroidal")
     radial_grid = _array("radial_grid")
@@ -1603,6 +1614,10 @@ def build_essos_imported_fci_source_profile_gate(
     )
     open_map = map_source != "vmec"
     target_labels_present = bool(np.any(target_labels > 0.0)) if target_labels.size else False
+    particle_loss_map_present = bool(particle_loss.size)
+    particle_loss_map_positive = bool(
+        np.nanmax(particle_loss) > 0.0
+    ) if particle_loss_map_present else False
     heat_positive = bool(np.nanmax(heat_load) > 0.0) if heat_load.size else False
     ionisation_positive = bool(np.nanmax(ionisation) > 0.0) if ionisation.size else False
     particle_loss_profile_positive = bool(
@@ -1711,6 +1726,7 @@ def build_essos_imported_fci_source_profile_gate(
         "map_source": map_source,
         "open_map": bool(open_map),
         "required_array_keys": list(_IMPORTED_FCI_SOURCE_PROFILE_ARRAY_KEYS),
+        "optional_array_keys": list(_IMPORTED_FCI_SOURCE_PROFILE_OPTIONAL_ARRAY_KEYS),
         "missing_array_keys": missing_array_keys,
         "finite_source_maps": bool(finite_source_maps),
         "radial_profile_shape": list(radial_profiles.shape),
@@ -1718,6 +1734,8 @@ def build_essos_imported_fci_source_profile_gate(
         "radial_profile_finite": bool(radial_profile_finite),
         "radial_grid_ordered": bool(radial_grid_ordered),
         "target_labels_present": bool(target_labels_present),
+        "particle_loss_map_present": bool(particle_loss_map_present),
+        "particle_loss_map_positive": bool(particle_loss_map_positive),
         "heat_load_positive": bool(heat_positive),
         "ionisation_source_positive": bool(ionisation_positive),
         "particle_loss_profile_positive": bool(particle_loss_profile_positive),
@@ -1758,12 +1776,13 @@ def save_essos_imported_fci_source_profile_gate_plot(
             return np.full(fallback_shape, np.nan, dtype=np.float64)
 
     target_labels = _array("target_label_toroidal", (1, 1))
+    particle_loss = _array("particle_loss_toroidal", target_labels.shape)
     heat_load = _array("heat_load_toroidal", target_labels.shape)
     ionisation = _array("ionisation_toroidal", target_labels.shape)
     radial_grid = _array("radial_grid", (0,))
     radial_profiles = _array("radial_profiles", (0, 0))
 
-    fig, axes = plt.subplots(2, 2, figsize=(12.0, 8.8), constrained_layout=True)
+    fig, axes = plt.subplots(2, 3, figsize=(15.8, 8.8), constrained_layout=True)
     extent = [0.0, 2.0 * np.pi, 0.0, 2.0 * np.pi]
 
     target_image = axes[0, 0].imshow(
@@ -1781,17 +1800,29 @@ def save_essos_imported_fci_source_profile_gate_plot(
     target_bar = fig.colorbar(target_image, ax=axes[0, 0], label="0 none, 1 fwd, 2 bwd, 3 both")
     target_bar.set_ticks([0, 1, 2, 3])
 
-    heat_image = axes[0, 1].imshow(
+    particle_loss_image = axes[0, 1].imshow(
+        np.ma.masked_invalid(particle_loss.T),
+        origin="lower",
+        aspect="auto",
+        extent=extent,
+        cmap="cividis",
+    )
+    axes[0, 1].set_title("target particle-loss flux")
+    axes[0, 1].set_xlabel("toroidal angle")
+    axes[0, 1].set_ylabel("poloidal angle")
+    fig.colorbar(particle_loss_image, ax=axes[0, 1], label="normalized particle loss")
+
+    heat_image = axes[0, 2].imshow(
         heat_load.T,
         origin="lower",
         aspect="auto",
         extent=extent,
         cmap="inferno",
     )
-    axes[0, 1].set_title("target heat-load response")
-    axes[0, 1].set_xlabel("toroidal angle")
-    axes[0, 1].set_ylabel("poloidal angle")
-    fig.colorbar(heat_image, ax=axes[0, 1], label="normalized heat load")
+    axes[0, 2].set_title("target heat-load response")
+    axes[0, 2].set_xlabel("toroidal angle")
+    axes[0, 2].set_ylabel("poloidal angle")
+    fig.colorbar(heat_image, ax=axes[0, 2], label="normalized heat load")
 
     source_image = axes[1, 0].imshow(
         ionisation.T,
@@ -1825,7 +1856,8 @@ def save_essos_imported_fci_source_profile_gate_plot(
     axes[1, 1].grid(alpha=0.25)
     if profile_count:
         axes[1, 1].legend(frameon=False, fontsize=8)
-    axes[1, 1].text(
+    axes[1, 2].axis("off")
+    axes[1, 2].text(
         0.03,
         0.96,
         "\n".join(
@@ -1833,10 +1865,11 @@ def save_essos_imported_fci_source_profile_gate_plot(
                 f"passed = {bool(gate.get('passed', False))}",
                 f"mask exact = {bool(gate.get('consumed_endpoint_masks_exact', False))}",
                 f"target labels exact = {bool(gate.get('target_labels_reconstruct_endpoint_counts', False))}",
+                f"particle map = {bool(gate.get('particle_loss_map_present', False))}",
                 f"neutral balance = {float(gate.get('neutral_particle_relative_error', np.nan)):.1e}",
             ]
         ),
-        transform=axes[1, 1].transAxes,
+        transform=axes[1, 2].transAxes,
         va="top",
         ha="left",
         fontsize=8,
