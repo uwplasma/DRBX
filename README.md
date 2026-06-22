@@ -448,7 +448,11 @@ provides smooth map coordinates, while coil traces provide endpoint masks and
 magnetic-field modulation. The default command is self-contained and writes a
 dry-run promotion ledger; live mode adds FCI/source-profile,
 parallel-step-refinement, stationarity, grid/time-refinement, and optional
-media gates before any hybrid movie can be promoted:
+media gates before any hybrid movie can be promoted. The
+`STATIONARITY_PRESET = "quick"` setting is a bounded workflow smoke test and
+is deliberately not promotion evidence; use `"promotion"` plus the documented
+grid/time and visual-QA gates before using a hybrid movie as README or paper
+evidence:
 
 ```bash
 PYTHONPATH=src python \

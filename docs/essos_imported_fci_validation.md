@@ -133,6 +133,17 @@ movie refinement, and optional media generation. The summary JSON must report
 `promotion_ready=true` before any hybrid open-SOL figure or movie can be used
 as README or publication evidence.
 
+A local live hybrid pass on the same Landreman-Paul QA assets now clears the
+first three live gates. The FCI/source stage passes with target fraction
+`0.90375`, `|B|` modulation `1.4167`, particle-recycling relative error
+`2.2e-15`, neutral-particle relative error `2.5e-18`, and exact consumed
+endpoint-mask reconstruction. The hybrid parallel-step-per-radian refinement
+gate also passes on three nested grids with finite overlap `1.0`, observed
+order `1.20`, finest normalized RMS error `5.90e-2`, finest normalized
+\(L_\infty\) error `1.18e-1`, and monotone RMS/\(L_\infty\) reduction. The
+workflow still refuses promotion until the promotion stationarity, grid/time
+movie-refinement, media, and visual-QA stages are run on the same map.
+
 Direct-coil open-field promotion now has a separate categorical endpoint-label
 refinement gate. This is necessary because `target_exit_length` is a
 wall/endpoint distance and is discontinuous when a neighboring cell changes

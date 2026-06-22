@@ -75,6 +75,12 @@ stationarity, and grid/time movie checks. A hybrid GIF should stay diagnostic
 unless the workflow summary reports `promotion_ready=true` and the frames have
 been visually reviewed for camera stability, non-axisymmetric geometry, radial
 open-field structure, readable color scale, and physical time annotation.
+The workflow exposes `STATIONARITY_PRESET = "quick"` for a bounded live smoke
+test of the stationarity plumbing. A quick run can pass internally, but the
+workflow records `quick_stationarity_preset_not_promotion_evidence` and keeps
+`promotion_ready=false`; use `STATIONARITY_PRESET = "promotion"` plus the
+grid/time and visual-QA gates below before using media as README or paper
+evidence.
 
 To run a lightweight grid/time movie-promotion sweep before rendering any
 large artifacts, use the report-only refinement campaign:

@@ -608,6 +608,15 @@ def test_hybrid_open_sol_default_contract_includes_promotion_gates(
     assert summary["connection_quantity"] == "parallel_step_per_toroidal_radian"
     assert summary["settings"]["run_live_media_gate"] is False
     assert summary["promotion_ready"] is False
+    assert "no_live_promotion_gates_ran" in summary["promotion_rejection_reasons"]
+    assert any(
+        blocker["stage"] == "hybrid_diagnostic_turbulence_media"
+        for blocker in summary["promotion_blocking_stages"]
+    )
+    assert any(
+        "Set RUN_LIVE_MEDIA_GATE=True" in action
+        for action in summary["next_actions"]
+    )
     assert stage_by_name["hybrid_fci_endpoint_source_gate"]["status"] == "contract_only"
     assert stage_by_name["hybrid_source_profile_gate"]["status"] == "contract_only"
     assert "target-label, heat-load" in stage_by_name[
@@ -616,6 +625,88 @@ def test_hybrid_open_sol_default_contract_includes_promotion_gates(
     assert stage_by_name["hybrid_parallel_step_refinement_gate"]["status"] == "skipped"
     assert stage_by_name["hybrid_movie_grid_time_refinement_gate"]["status"] == "skipped"
     assert stage_by_name["hybrid_diagnostic_turbulence_media"]["status"] == "skipped"
+
+
+def test_hybrid_open_sol_partial_live_stages_do_not_promote(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    module = runpy.run_path(
+        str(
+            REPO_ROOT
+            / "examples"
+            / "geometry-3D"
+            / "essos-field-lines"
+            / "hybrid_open_sol_demo.py"
+        )
+    )
+    settings = module["build_settings"](
+        output_root=tmp_path / "partial_hybrid_live",
+        case_label="partial_hybrid_live",
+        run_live_fci_gate=True,
+    )
+    summary_path = module["write_workflow_summary"](
+        settings,
+        [
+            {
+                "stage": "hybrid_fci_endpoint_source_gate",
+                "status": "ran",
+                "promotion_ready": True,
+            },
+            {
+                "stage": "hybrid_source_profile_gate",
+                "status": "ran",
+                "promotion_ready": True,
+            },
+            {
+                "stage": "hybrid_parallel_step_refinement_gate",
+                "status": "skipped",
+                "promotion_ready": False,
+                "next_action": "run hybrid refinement",
+            },
+            {
+                "stage": "hybrid_reduced_transient_stationarity_gate",
+                "status": "skipped",
+                "promotion_ready": False,
+                "next_action": "run hybrid stationarity",
+            },
+            {
+                "stage": "hybrid_movie_grid_time_refinement_gate",
+                "status": "skipped",
+                "promotion_ready": False,
+                "next_action": "run hybrid movie refinement",
+            },
+            {
+                "stage": "hybrid_diagnostic_turbulence_media",
+                "status": "skipped",
+                "promotion_ready": False,
+                "next_action": "run hybrid media",
+            },
+        ],
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+    assert summary["promotion_ready"] is False
+    assert summary["promotion_rejection_reasons"] == [
+        "skipped_stage_not_live_promotion_evidence"
+    ]
+    assert [
+        blocker["stage"] for blocker in summary["promotion_blocking_stages"]
+    ] == [
+        "hybrid_parallel_step_refinement_gate",
+        "hybrid_reduced_transient_stationarity_gate",
+        "hybrid_movie_grid_time_refinement_gate",
+        "hybrid_diagnostic_turbulence_media",
+    ]
+    assert summary["diagnostic_stages"] == []
+    assert summary["next_actions"] == [
+        "run hybrid refinement",
+        "run hybrid stationarity",
+        "run hybrid movie refinement",
+        "run hybrid media",
+    ]
 
 
 def test_pypi_publish_workflow_ignores_artifact_releases() -> None:

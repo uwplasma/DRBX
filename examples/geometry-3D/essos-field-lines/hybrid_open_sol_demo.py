@@ -72,6 +72,7 @@ REFINEMENT_MINIMUM_OBSERVED_ORDER = 0.50
 REFINEMENT_REQUIRE_OBSERVED_ORDER = True
 
 # Report-only reduced transient gate.
+STATIONARITY_PRESET = "quick"  # "quick" for workflow QA, "promotion" for media claims.
 MOVIE_NX = 16
 MOVIE_NY = 96
 MOVIE_NZ = 48
@@ -88,6 +89,25 @@ MOVIE_POTENTIAL_PRECONDITIONER = "jacobi"
 MOVIE_TAIL_FRACTION = 0.50
 MOVIE_RELATIVE_TOLERANCE = 0.35
 MOVIE_MIN_FRAMES = 12
+
+# Fast report-only stationarity smoke gate. Passing this preset proves the
+# workflow is wired correctly; it is not enough for README or publication media.
+QUICK_STATIONARITY_NX = 4
+QUICK_STATIONARITY_NY = 12
+QUICK_STATIONARITY_NZ = 24
+QUICK_STATIONARITY_RHO_MIN = 0.20
+QUICK_STATIONARITY_RHO_MAX = 0.60
+QUICK_STATIONARITY_MAXTIME = 18.0
+QUICK_STATIONARITY_TIMES_TO_TRACE = 48
+QUICK_STATIONARITY_FRAMES = 4
+QUICK_STATIONARITY_SUBSTEPS_PER_FRAME = 1
+QUICK_STATIONARITY_DT = 1.5e-3
+QUICK_STATIONARITY_POTENTIAL_ITERATIONS = 384
+QUICK_STATIONARITY_POTENTIAL_REGULARIZATION = 5.0
+QUICK_STATIONARITY_POTENTIAL_PRECONDITIONER = "jacobi"
+QUICK_STATIONARITY_TAIL_FRACTION = 0.50
+QUICK_STATIONARITY_RELATIVE_TOLERANCE = 0.75
+QUICK_STATIONARITY_MIN_FRAMES = 4
 
 # Report-only grid/time refinement around the current promoted compact shape.
 MOVIE_REFINEMENT_GRID_SHAPES = (
@@ -131,6 +151,7 @@ class HybridOpenSolSettings:
     run_live_movie_refinement_gate: bool
     run_live_media_gate: bool
     require_promotion_ready: bool
+    stationarity_preset: str
 
 
 def build_settings(
@@ -148,9 +169,16 @@ def build_settings(
     run_live_movie_refinement_gate: bool = RUN_LIVE_MOVIE_REFINEMENT_GATE,
     run_live_media_gate: bool = RUN_LIVE_MEDIA_GATE,
     require_promotion_ready: bool = REQUIRE_PROMOTION_READY,
+    stationarity_preset: str = STATIONARITY_PRESET,
 ) -> HybridOpenSolSettings:
     """Resolve top-level hybrid open-SOL workflow settings."""
 
+    normalized_stationarity_preset = str(stationarity_preset).strip().lower()
+    if normalized_stationarity_preset not in {"quick", "promotion"}:
+        raise ValueError(
+            "stationarity_preset must be 'quick' or 'promotion'; got "
+            f"{stationarity_preset!r}."
+        )
     return HybridOpenSolSettings(
         output_root=Path(output_root),
         case_label=str(case_label),
@@ -165,6 +193,7 @@ def build_settings(
         run_live_movie_refinement_gate=bool(run_live_movie_refinement_gate),
         run_live_media_gate=bool(run_live_media_gate),
         require_promotion_ready=bool(require_promotion_ready),
+        stationarity_preset=normalized_stationarity_preset,
     )
 
 
@@ -176,6 +205,25 @@ def _path_text(path: Path | None) -> str | None:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _stage_blocker(report: dict[str, Any]) -> dict[str, Any]:
+    """Return a compact blocker record for a non-promoted workflow stage."""
+
+    reasons = list(report.get("promotion_rejection_reasons", []))
+    reasons.extend(report.get("movie_promotion_rejection_reasons", []))
+    if not reasons:
+        status = str(report.get("status", "unknown"))
+        if status in {"skipped", "contract_only", "diagnostic"}:
+            reasons.append(f"{status}_stage_not_live_promotion_evidence")
+        else:
+            reasons.append("stage_not_promotion_ready")
+    return {
+        "stage": report.get("stage"),
+        "status": report.get("status"),
+        "reasons": reasons,
+        "next_action": report.get("next_action"),
+    }
 
 
 def write_workflow_summary(
@@ -192,9 +240,38 @@ def write_workflow_summary(
         for report in stage_reports
         if report["status"] not in {"skipped", "contract_only", "diagnostic"}
     ]
-    promotion_ready = bool(live_stage_reports) and all(
-        bool(report.get("promotion_ready", False)) for report in live_stage_reports
+    promotion_stage_reports = [
+        report
+        for report in stage_reports
+        if report["status"] != "diagnostic"
+    ]
+    promotion_ready = bool(promotion_stage_reports) and all(
+        bool(report.get("promotion_ready", False)) for report in promotion_stage_reports
     )
+    blocking_stage_records = [
+        _stage_blocker(report)
+        for report in stage_reports
+        if report["status"] != "diagnostic"
+        and not bool(report.get("promotion_ready", False))
+    ]
+    diagnostic_stage_records = [
+        _stage_blocker(report)
+        for report in stage_reports
+        if report["status"] == "diagnostic"
+        and not bool(report.get("promotion_ready", False))
+    ]
+    promotion_rejection_reasons = [
+        reason
+        for record in blocking_stage_records
+        for reason in record["reasons"]
+    ]
+    if not live_stage_reports:
+        promotion_rejection_reasons.insert(0, "no_live_promotion_gates_ran")
+    next_actions = [
+        record["next_action"]
+        for record in [*blocking_stage_records, *diagnostic_stage_records]
+        if record.get("next_action")
+    ]
     payload = {
         "diagnostic": "essos_hybrid_open_sol_workflow",
         "map_source": MAP_SOURCE,
@@ -219,15 +296,14 @@ def write_workflow_summary(
             "run_live_movie_refinement_gate": settings.run_live_movie_refinement_gate,
             "run_live_media_gate": settings.run_live_media_gate,
             "require_promotion_ready": settings.require_promotion_ready,
+            "stationarity_preset": settings.stationarity_preset,
         },
         "stage_reports": stage_reports,
         "promotion_ready": promotion_ready,
-        "promotion_rejection_reasons": [
-            report["stage"]
-            for report in stage_reports
-            if report["status"] not in {"skipped", "contract_only", "diagnostic"}
-            and not bool(report.get("promotion_ready", False))
-        ],
+        "promotion_rejection_reasons": sorted(set(promotion_rejection_reasons)),
+        "promotion_blocking_stages": blocking_stage_records,
+        "diagnostic_stages": diagnostic_stage_records,
+        "next_actions": next_actions,
     }
     summary_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     print(f"wrote hybrid open-SOL workflow summary: {summary_path}")
@@ -393,6 +469,54 @@ def run_connection_refinement_gate(settings: HybridOpenSolSettings) -> dict[str,
     }
 
 
+def _stationarity_parameter_bundle(settings: HybridOpenSolSettings) -> tuple[dict[str, Any], bool]:
+    """Return stationarity parameters and whether they can promote media."""
+
+    if settings.stationarity_preset == "promotion":
+        return (
+            {
+                "nx": MOVIE_NX,
+                "ny": MOVIE_NY,
+                "nz": MOVIE_NZ,
+                "rho_min": MOVIE_RHO_MIN,
+                "rho_max": MOVIE_RHO_MAX,
+                "maxtime": MOVIE_MAXTIME,
+                "times_to_trace": MOVIE_TIMES_TO_TRACE,
+                "frames": MOVIE_FRAMES,
+                "substeps_per_frame": MOVIE_SUBSTEPS_PER_FRAME,
+                "dt": MOVIE_DT,
+                "potential_iterations": MOVIE_POTENTIAL_ITERATIONS,
+                "potential_regularization": MOVIE_POTENTIAL_REGULARIZATION,
+                "potential_preconditioner": MOVIE_POTENTIAL_PRECONDITIONER,
+                "tail_fraction": MOVIE_TAIL_FRACTION,
+                "relative_tolerance": MOVIE_RELATIVE_TOLERANCE,
+                "min_frames": MOVIE_MIN_FRAMES,
+            },
+            True,
+        )
+    return (
+        {
+            "nx": QUICK_STATIONARITY_NX,
+            "ny": QUICK_STATIONARITY_NY,
+            "nz": QUICK_STATIONARITY_NZ,
+            "rho_min": QUICK_STATIONARITY_RHO_MIN,
+            "rho_max": QUICK_STATIONARITY_RHO_MAX,
+            "maxtime": QUICK_STATIONARITY_MAXTIME,
+            "times_to_trace": QUICK_STATIONARITY_TIMES_TO_TRACE,
+            "frames": QUICK_STATIONARITY_FRAMES,
+            "substeps_per_frame": QUICK_STATIONARITY_SUBSTEPS_PER_FRAME,
+            "dt": QUICK_STATIONARITY_DT,
+            "potential_iterations": QUICK_STATIONARITY_POTENTIAL_ITERATIONS,
+            "potential_regularization": QUICK_STATIONARITY_POTENTIAL_REGULARIZATION,
+            "potential_preconditioner": QUICK_STATIONARITY_POTENTIAL_PRECONDITIONER,
+            "tail_fraction": QUICK_STATIONARITY_TAIL_FRACTION,
+            "relative_tolerance": QUICK_STATIONARITY_RELATIVE_TOLERANCE,
+            "min_frames": QUICK_STATIONARITY_MIN_FRAMES,
+        },
+        False,
+    )
+
+
 def run_stationarity_gate(settings: HybridOpenSolSettings) -> dict[str, Any]:
     """Run or describe the report-only hybrid reduced-transient gate."""
 
@@ -408,6 +532,7 @@ def run_stationarity_gate(settings: HybridOpenSolSettings) -> dict[str, Any]:
         }
 
     configure_jax_runtime(precision=settings.precision)
+    stationarity_parameters, promotion_capable = _stationarity_parameter_bundle(settings)
     artifacts = create_essos_imported_drb_movie_stationarity_package(
         output_root=settings.output_root / "stationarity",
         case_label=f"{settings.case_label}_stationarity",
@@ -415,31 +540,20 @@ def run_stationarity_gate(settings: HybridOpenSolSettings) -> dict[str, Any]:
         vmec_wout_path=settings.vmec_wout_path,
         essos_root=settings.essos_root,
         map_source=MAP_SOURCE,
-        nx=MOVIE_NX,
-        ny=MOVIE_NY,
-        nz=MOVIE_NZ,
-        rho_min=MOVIE_RHO_MIN,
-        rho_max=MOVIE_RHO_MAX,
-        maxtime=MOVIE_MAXTIME,
-        times_to_trace=MOVIE_TIMES_TO_TRACE,
-        frames=MOVIE_FRAMES,
-        substeps_per_frame=MOVIE_SUBSTEPS_PER_FRAME,
-        dt=MOVIE_DT,
-        potential_iterations=MOVIE_POTENTIAL_ITERATIONS,
-        potential_regularization=MOVIE_POTENTIAL_REGULARIZATION,
-        potential_preconditioner=MOVIE_POTENTIAL_PRECONDITIONER,
-        tail_fraction=MOVIE_TAIL_FRACTION,
-        relative_tolerance=MOVIE_RELATIVE_TOLERANCE,
-        min_frames=MOVIE_MIN_FRAMES,
+        **stationarity_parameters,
     )
     report = _read_json(artifacts.report_json_path)
+    rejection_reasons = list(report.get("movie_promotion_rejection_reasons", []))
+    if bool(report.get("publication_ready", False)) and not promotion_capable:
+        rejection_reasons.append("quick_stationarity_preset_not_promotion_evidence")
     return {
         "stage": "hybrid_reduced_transient_stationarity_gate",
         "status": "ran",
+        "stationarity_preset": settings.stationarity_preset,
         "report_json_path": _path_text(artifacts.report_json_path),
         "stationarity_passed": bool(report.get("stationarity_passed", False)),
-        "promotion_ready": bool(report.get("publication_ready", False)),
-        "movie_promotion_rejection_reasons": report.get("movie_promotion_rejection_reasons", []),
+        "promotion_ready": bool(report.get("publication_ready", False) and promotion_capable),
+        "movie_promotion_rejection_reasons": rejection_reasons,
     }
 
 
