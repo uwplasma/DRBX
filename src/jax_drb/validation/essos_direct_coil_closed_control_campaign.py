@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from matplotlib import colors
 from matplotlib import pyplot as plt
 import numpy as np
+from PIL import Image
 
 from ..geometry import (
     build_essos_vmec_scaled_qa_coordinates,
@@ -30,6 +33,14 @@ class EssosDirectCoilClosedControlRefinementArtifacts:
     report_json_path: Path
     arrays_npz_path: Path
     plot_png_path: Path
+
+
+@dataclass(frozen=True)
+class EssosDirectCoilClosedControlTransientArtifacts:
+    report_json_path: Path
+    arrays_npz_path: Path
+    plot_png_path: Path
+    movie_gif_path: Path | None
 
 
 @dataclass(frozen=True)
@@ -537,6 +548,304 @@ def build_essos_direct_coil_closed_control_refinement_diagnostics(
     }
 
 
+def create_essos_direct_coil_closed_control_transient_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_direct_coil_closed_control_transient",
+    use_live_essos: bool = False,
+    coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    trajectories_xyz: np.ndarray | None = None,
+    initial_xyz: np.ndarray | None = None,
+    times: np.ndarray | None = None,
+    coil_gamma_xyz: np.ndarray | None = None,
+    rho_min: float = 0.20,
+    rho_max: float = 0.82,
+    n_radial_seeds: int = 5,
+    n_poloidal_seeds: int = 4,
+    maxtime: float = 900.0,
+    times_to_trace: int = 4200,
+    trace_tolerance: float = 1.0e-8,
+    poincare_sections: tuple[float, ...] = (0.0, float(np.pi / 2.0), float(np.pi), float(3.0 * np.pi / 2.0)),
+    closed_return_tolerance: float = 3.0e-2,
+    near_closed_return_tolerance: float = 1.5e-1,
+    minimum_closed_or_near_fraction: float = 0.20,
+    frames: int = 12,
+    substeps_per_frame: int = 4,
+    dt: float = 2.0e-2,
+    samples_per_line: int = 192,
+    parallel_diffusivity: float = 2.5e-2,
+    advection_strength: float = 6.0e-2,
+    drive_strength: float = 5.0e-2,
+    write_movie: bool = True,
+) -> EssosDirectCoilClosedControlTransientArtifacts:
+    """Write a reduced closed-trace transient on direct-coil field lines.
+
+    This is a closed/near-closed control media gate. It deliberately omits
+    target, sheath, recycling, and neutral-loss semantics; open-SOL physics
+    must use the direct-coil open-field or hybrid workflows with endpoint
+    masks.
+    """
+
+    root = Path(output_root)
+    data_dir = root / "data"
+    images_dir = root / "images"
+    movies_dir = root / "movies"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+    if write_movie:
+        movies_dir.mkdir(parents=True, exist_ok=True)
+
+    control = build_essos_direct_coil_closed_control_campaign(
+        use_live_essos=use_live_essos,
+        coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
+        essos_root=essos_root,
+        trajectories_xyz=trajectories_xyz,
+        initial_xyz=initial_xyz,
+        times=times,
+        coil_gamma_xyz=coil_gamma_xyz,
+        rho_min=rho_min,
+        rho_max=rho_max,
+        n_radial_seeds=n_radial_seeds,
+        n_poloidal_seeds=n_poloidal_seeds,
+        maxtime=maxtime,
+        times_to_trace=times_to_trace,
+        trace_tolerance=trace_tolerance,
+        poincare_sections=poincare_sections,
+        closed_return_tolerance=closed_return_tolerance,
+        near_closed_return_tolerance=near_closed_return_tolerance,
+        minimum_closed_or_near_fraction=minimum_closed_or_near_fraction,
+    )
+    report, arrays = build_essos_direct_coil_closed_control_transient_campaign(
+        control.report,
+        control.arrays,
+        frames=frames,
+        substeps_per_frame=substeps_per_frame,
+        dt=dt,
+        samples_per_line=samples_per_line,
+        parallel_diffusivity=parallel_diffusivity,
+        advection_strength=advection_strength,
+        drive_strength=drive_strength,
+    )
+    report_json_path = data_dir / f"{case_label}.json"
+    report_json_path.write_text(json.dumps(_json_safe(report), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    arrays_npz_path = data_dir / f"{case_label}.npz"
+    np.savez_compressed(arrays_npz_path, **arrays)
+    plot_png_path = images_dir / f"{case_label}.png"
+    save_essos_direct_coil_closed_control_transient_plot(report, arrays, plot_png_path)
+    movie_gif_path: Path | None = None
+    if write_movie:
+        movie_gif_path = movies_dir / f"{case_label}.gif"
+        save_essos_direct_coil_closed_control_transient_movie(report, arrays, movie_gif_path)
+    return EssosDirectCoilClosedControlTransientArtifacts(
+        report_json_path=report_json_path,
+        arrays_npz_path=arrays_npz_path,
+        plot_png_path=plot_png_path,
+        movie_gif_path=movie_gif_path,
+    )
+
+
+def build_essos_direct_coil_closed_control_transient_campaign(
+    control_report: dict[str, Any],
+    control_arrays: dict[str, np.ndarray],
+    *,
+    frames: int = 12,
+    substeps_per_frame: int = 4,
+    dt: float = 2.0e-2,
+    samples_per_line: int = 192,
+    parallel_diffusivity: float = 2.5e-2,
+    advection_strength: float = 6.0e-2,
+    drive_strength: float = 5.0e-2,
+) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
+    """Run a compact periodic scalar transient on closed direct-coil traces."""
+
+    trajectories = np.asarray(control_arrays["trajectories_xyz"], dtype=np.float64)
+    line_label = np.asarray(control_arrays["line_classification"], dtype=np.int32)
+    if trajectories.ndim != 3 or trajectories.shape[-1] != 3:
+        raise ValueError("trajectories_xyz must have shape (n_field_lines, n_times, 3).")
+    if int(frames) < 2 or int(substeps_per_frame) < 1:
+        raise ValueError("The closed-control transient needs at least two frames and one substep.")
+    n_lines, n_trace_times, _ = trajectories.shape
+    if n_lines == 0 or n_trace_times < 16:
+        raise ValueError("The closed-control transient needs nonempty traces with at least 16 samples.")
+
+    sample_count = int(np.clip(int(samples_per_line), 16, n_trace_times))
+    sample_indices = np.linspace(0, n_trace_times - 1, sample_count, dtype=int)
+    sampled = trajectories[:, sample_indices, :]
+    major = np.sqrt(sampled[:, :, 0] ** 2 + sampled[:, :, 1] ** 2)
+    vertical = sampled[:, :, 2]
+    phi = np.unwrap(np.arctan2(sampled[:, :, 1], sampled[:, :, 0]), axis=1)
+    phase = np.linspace(0.0, 2.0 * np.pi, sample_count, endpoint=False, dtype=np.float64)
+    normalized_major = _normalize_array(major)
+    normalized_vertical = _normalize_array(vertical)
+    closed_weight = np.where(line_label <= 1, 1.0, 0.45).reshape((-1, 1))
+
+    density = 1.0 + 0.045 * closed_weight * (
+        np.sin(phase[None, :] + 0.7 * np.arange(n_lines, dtype=np.float64)[:, None])
+        + 0.35 * np.cos(2.0 * phase[None, :] - 0.5 * normalized_major)
+        + 0.20 * normalized_vertical
+    )
+    density = np.maximum(density, 1.0e-6)
+    history: list[np.ndarray] = []
+    rms_history: list[float] = []
+    mass_history: list[float] = []
+    line_profile_history: list[np.ndarray] = []
+    grad_history: list[float] = []
+
+    def record(state: np.ndarray) -> None:
+        line_mean = np.mean(state, axis=1)
+        fluctuation = state - line_mean[:, None]
+        history.append(fluctuation.astype(np.float32))
+        rms_history.append(float(np.sqrt(np.mean(fluctuation**2))))
+        mass_history.append(float(np.sum(state)))
+        line_profile_history.append(line_mean.astype(np.float64))
+        grad_history.append(float(np.sqrt(np.mean(_periodic_gradient(state) ** 2))))
+
+    record(density)
+    total_substeps = int(frames) * int(substeps_per_frame)
+    for frame_index in range(int(frames)):
+        for local_index in range(int(substeps_per_frame)):
+            step_index = frame_index * int(substeps_per_frame) + local_index
+            scalar_time = float(step_index) / max(float(total_substeps - 1), 1.0)
+            drive = _closed_trace_drive(
+                phase,
+                normalized_major,
+                normalized_vertical,
+                phi,
+                scalar_time=scalar_time,
+            )
+            rhs = (
+                float(parallel_diffusivity) * _periodic_laplacian(density)
+                - float(advection_strength) * _periodic_gradient(density)
+                + float(drive_strength) * drive
+            )
+            rhs = rhs - np.mean(rhs, axis=1, keepdims=True)
+            density = np.maximum(density + float(dt) * rhs, 1.0e-8)
+        record(density)
+
+    density_history = np.asarray(history, dtype=np.float32)
+    line_profiles = np.asarray(line_profile_history, dtype=np.float64)
+    rms = np.asarray(rms_history, dtype=np.float64)
+    mass = np.asarray(mass_history, dtype=np.float64)
+    grad = np.asarray(grad_history, dtype=np.float64)
+    time = np.arange(int(frames) + 1, dtype=np.float64) * float(substeps_per_frame) * float(dt)
+    mass_relative_drift = float(
+        np.max(np.abs(mass - mass[0])) / max(abs(float(mass[0])), 1.0e-30)
+    )
+    temporal_rms_change = float(np.max(rms) - np.min(rms))
+    finite = bool(
+        np.all(np.isfinite(density_history))
+        and np.all(np.isfinite(line_profiles))
+        and np.all(np.isfinite(mass))
+        and np.all(np.isfinite(rms))
+    )
+    movie_vmax = float(np.nanpercentile(np.abs(density_history), 97.0))
+    if not np.isfinite(movie_vmax) or movie_vmax <= 0.0:
+        movie_vmax = 1.0e-3
+    closed_control_passed = bool(control_report.get("closed_control_passed", False))
+    no_open_semantics = bool(
+        not control_report.get("target_semantics_applied", True)
+        and not control_report.get("sheath_recycling_semantics_applied", True)
+    )
+    transient_ready = bool(
+        finite
+        and closed_control_passed
+        and no_open_semantics
+        and np.min(density) > 0.0
+        and mass_relative_drift < 5.0e-3
+        and rms[-1] > 1.0e-5
+        and temporal_rms_change > 1.0e-7
+    )
+    report: dict[str, Any] = {
+        "case": "essos_direct_coil_closed_control_transient",
+        "source": "JAXDRB reduced periodic scalar transient on direct-coil closed/near-closed traces",
+        "source_mode": control_report.get("source_mode", "unknown"),
+        "claim_scope": (
+            "Direct-coil closed/near-closed reduced transient. The model is a "
+            "periodic line-following scalar advection-diffusion control on the "
+            "validated trace bundle; it deliberately has no target endpoints, "
+            "sheath losses, recycling source, or neutral-loss semantics."
+        ),
+        "control_report_summary": {
+            "closed_control_passed": closed_control_passed,
+            "closed_fraction": float(control_report.get("closed_fraction", 0.0)),
+            "near_closed_fraction": float(control_report.get("near_closed_fraction", 0.0)),
+            "open_like_fraction": float(control_report.get("open_like_fraction", 0.0)),
+            "no_return_fraction": float(control_report.get("no_return_fraction", 0.0)),
+            "return_distance_normalized_p95": float(
+                control_report.get("return_distance_normalized_p95", np.inf)
+            ),
+        },
+        "target_semantics_applied": False,
+        "sheath_recycling_semantics_applied": False,
+        "neutral_loss_semantics_applied": False,
+        "open_sol_publication_ready": False,
+        "open_sol_rejection_reason": "closed_direct_coil_trace_has_no_endpoint_sheath_recycling_or_neutral_loss_semantics",
+        "frames": int(frames),
+        "substeps_per_frame": int(substeps_per_frame),
+        "dt": float(dt),
+        "samples_per_line": int(sample_count),
+        "n_field_lines": int(n_lines),
+        "parallel_diffusivity": float(parallel_diffusivity),
+        "advection_strength": float(advection_strength),
+        "drive_strength": float(drive_strength),
+        "finite_transient": finite,
+        "no_open_sol_semantics": no_open_semantics,
+        "initial_fluctuation_rms": float(rms[0]),
+        "final_fluctuation_rms": float(rms[-1]),
+        "max_fluctuation_rms": float(np.max(rms)),
+        "temporal_rms_change": temporal_rms_change,
+        "mass_relative_drift": mass_relative_drift,
+        "final_parallel_gradient_rms": float(grad[-1]),
+        "final_min_density": float(np.min(density)),
+        "final_max_density": float(np.max(density)),
+        "fixed_camera": True,
+        "fixed_color_limits": True,
+        "movie_visual_qa_passed": transient_ready,
+        "closed_control_media_ready": transient_ready,
+        "passed": transient_ready,
+        "promotion_ready": transient_ready,
+        "promotion_rejection_reasons": [
+            reason
+            for reason, active in (
+                ("base_closed_control_failed", not closed_control_passed),
+                ("open_sol_semantics_present", not no_open_semantics),
+                ("nonfinite_transient", not finite),
+                ("mass_drift_exceeds_threshold", mass_relative_drift >= 5.0e-3),
+                ("fluctuation_too_small", rms[-1] <= 1.0e-5),
+                ("temporal_variation_too_small", temporal_rms_change <= 1.0e-7),
+            )
+            if active
+        ],
+    }
+    arrays = {
+        "time": time.astype(np.float64),
+        "density_fluctuation_history": density_history,
+        "line_profile_history": line_profiles.astype(np.float32),
+        "fluctuation_rms_history": rms.astype(np.float64),
+        "mass_history": mass.astype(np.float64),
+        "parallel_gradient_rms_history": grad.astype(np.float64),
+        "sampled_trajectories_xyz": sampled.astype(np.float32),
+        "sampled_major_radius": major.astype(np.float32),
+        "sampled_vertical": vertical.astype(np.float32),
+        "sampled_phi": phi.astype(np.float32),
+        "line_classification": line_label.astype(np.int32),
+        "movie_vmax": np.asarray([movie_vmax], dtype=np.float64),
+        "summary": np.asarray(
+            [
+                report["final_fluctuation_rms"],
+                report["mass_relative_drift"],
+                report["temporal_rms_change"],
+                float(report["closed_control_media_ready"]),
+            ],
+            dtype=np.float64,
+        ),
+    }
+    return report, arrays
+
+
 def save_essos_direct_coil_closed_control_plot(
     report: dict[str, Any],
     arrays: dict[str, np.ndarray],
@@ -739,6 +1048,176 @@ def save_essos_direct_coil_closed_control_refinement_plot(
     fig.suptitle("ESSOS direct-coil closed-control refinement", fontsize=15, fontweight="semibold")
     save_publication_figure(fig, path)
     return Path(path)
+
+
+def save_essos_direct_coil_closed_control_transient_plot(
+    report: dict[str, Any],
+    arrays: dict[str, np.ndarray],
+    path: str | Path,
+) -> Path:
+    """Save the direct-coil closed-trace transient QA figure."""
+
+    history = np.asarray(arrays["density_fluctuation_history"], dtype=np.float64)
+    sampled = np.asarray(arrays["sampled_trajectories_xyz"], dtype=np.float64)
+    major = np.asarray(arrays["sampled_major_radius"], dtype=np.float64)
+    vertical = np.asarray(arrays["sampled_vertical"], dtype=np.float64)
+    line_label = np.asarray(arrays["line_classification"], dtype=np.int32)
+    time = np.asarray(arrays["time"], dtype=np.float64)
+    rms = np.asarray(arrays["fluctuation_rms_history"], dtype=np.float64)
+    mass = np.asarray(arrays["mass_history"], dtype=np.float64)
+    line_profiles = np.asarray(arrays["line_profile_history"], dtype=np.float64)
+    vmax = float(np.asarray(arrays["movie_vmax"], dtype=np.float64)[0])
+    norm = colors.TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
+
+    fig = plt.figure(figsize=(16.0, 9.0), constrained_layout=True)
+    ax3d = fig.add_subplot(2, 3, 1, projection="3d")
+    axrz = fig.add_subplot(2, 3, 2)
+    axline = fig.add_subplot(2, 3, 3)
+    axhist = fig.add_subplot(2, 3, 4)
+    axmass = fig.add_subplot(2, 3, 5)
+    axtext = fig.add_subplot(2, 3, 6)
+
+    final = history[-1]
+    stride = max(1, sampled.shape[1] // 96)
+    scatter = ax3d.scatter(
+        sampled[:, ::stride, 0].reshape(-1),
+        sampled[:, ::stride, 1].reshape(-1),
+        sampled[:, ::stride, 2].reshape(-1),
+        c=final[:, ::stride].reshape(-1),
+        s=4.0,
+        cmap="coolwarm",
+        norm=norm,
+        linewidths=0.0,
+        alpha=0.86,
+    )
+    ax3d.set_title("closed direct-coil trace transient")
+    ax3d.set_xlabel("X")
+    ax3d.set_ylabel("Y")
+    ax3d.set_zlabel("Z")
+    _set_equal_3d(ax3d, sampled.reshape((-1, 3)))
+    fig.colorbar(scatter, ax=ax3d, fraction=0.045, pad=0.02, label=r"$\tilde{n}$")
+
+    rz = axrz.scatter(
+        major.reshape(-1),
+        vertical.reshape(-1),
+        c=final.reshape(-1),
+        s=4.5,
+        cmap="coolwarm",
+        norm=norm,
+        linewidths=0.0,
+        alpha=0.82,
+    )
+    axrz.set_aspect("equal", adjustable="box")
+    style_axis(axrz, title="final R-Z fluctuation projection", xlabel="R", ylabel="Z", grid="both")
+    fig.colorbar(rz, ax=axrz, fraction=0.046, pad=0.03, label=r"$\tilde{n}$")
+
+    line_coordinate = np.linspace(0.0, 1.0, final.shape[1], endpoint=False)
+    for index in range(min(final.shape[0], 10)):
+        color = _line_label_colors(line_label)[index]
+        axline.plot(line_coordinate, final[index], lw=1.2, alpha=0.8, color=color)
+    style_axis(axline, title="final line-following fluctuations", xlabel="normalized line coordinate", ylabel=r"$\tilde{n}$")
+
+    axhist.hist(final.reshape(-1), bins=32, color="#0A6E7D", alpha=0.82)
+    style_axis(axhist, title="final fluctuation distribution", xlabel=r"$\tilde{n}$", ylabel="sample count", grid="y")
+
+    axmass.plot(time, rms, lw=2.0, color="#005f73", label="fluctuation RMS")
+    mass_drift = (mass - mass[0]) / max(abs(float(mass[0])), 1.0e-30)
+    axmass.plot(time, mass_drift, lw=1.8, color="#bb3e03", label="relative mass drift")
+    axmass.plot(time, np.std(line_profiles, axis=1), lw=1.5, color="#2A9D8F", label="line-mean spread")
+    axmass.legend(frameon=False, fontsize=8)
+    style_axis(axmass, title="closed-trace scalar controls", xlabel="time", grid="both")
+
+    summary = report["control_report_summary"]
+    axtext.axis("off")
+    axtext.text(
+        0.02,
+        0.96,
+        "\n".join(
+            [
+                "Direct-coil closed/near-closed transient",
+                f"source: {report['source_mode']}",
+                f"lines: {report['n_field_lines']}",
+                f"samples/line: {report['samples_per_line']}",
+                f"closed fraction: {summary['closed_fraction']:.2f}",
+                f"near-closed fraction: {summary['near_closed_fraction']:.2f}",
+                f"return p95: {summary['return_distance_normalized_p95']:.2e}",
+                f"final RMS: {report['final_fluctuation_rms']:.2e}",
+                f"mass drift: {report['mass_relative_drift']:.2e}",
+                f"media ready: {report['closed_control_media_ready']}",
+                "No target, sheath, recycling, or neutral-loss terms.",
+            ]
+        ),
+        transform=axtext.transAxes,
+        va="top",
+        fontsize=11,
+        bbox={"facecolor": "white", "edgecolor": "0.82", "alpha": 0.96},
+    )
+    fig.suptitle("ESSOS direct-coil closed-control reduced transient", fontsize=15, fontweight="semibold")
+    save_publication_figure(fig, path)
+    return Path(path)
+
+
+def save_essos_direct_coil_closed_control_transient_movie(
+    report: dict[str, Any],
+    arrays: dict[str, np.ndarray],
+    path: str | Path,
+) -> Path:
+    """Save a fixed-camera GIF for the direct-coil closed-trace transient."""
+
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    history = np.asarray(arrays["density_fluctuation_history"], dtype=np.float64)
+    sampled = np.asarray(arrays["sampled_trajectories_xyz"], dtype=np.float64)
+    time = np.asarray(arrays["time"], dtype=np.float64)
+    vmax = float(np.asarray(arrays["movie_vmax"], dtype=np.float64)[0])
+    norm = colors.TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
+    frame_indices = np.linspace(0, history.shape[0] - 1, min(18, history.shape[0]), dtype=int)
+    stride = max(1, sampled.shape[1] // 120)
+    points = sampled[:, ::stride, :].reshape((-1, 3))
+    with tempfile.TemporaryDirectory(prefix="jax_drb_direct_coil_closed_movie_") as temp_dir:
+        frame_paths: list[Path] = []
+        for local_index, frame_index in enumerate(frame_indices):
+            frame_path = Path(temp_dir) / f"frame_{local_index:03d}.png"
+            fig = plt.figure(figsize=(7.2, 5.6), constrained_layout=True)
+            axis = fig.add_subplot(1, 1, 1, projection="3d")
+            color_values = history[frame_index, :, ::stride].reshape(-1)
+            image = axis.scatter(
+                points[:, 0],
+                points[:, 1],
+                points[:, 2],
+                c=color_values,
+                s=5.0,
+                cmap="coolwarm",
+                norm=norm,
+                linewidths=0.0,
+                alpha=0.88,
+            )
+            _set_equal_3d(axis, sampled.reshape((-1, 3)))
+            axis.view_init(elev=22.0, azim=42.0)
+            axis.set_xlabel("X")
+            axis.set_ylabel("Y")
+            axis.set_zlabel("Z")
+            axis.set_title(
+                "Closed direct-coil trace: periodic density fluctuation\n"
+                f"t={time[frame_index]:.3f}, no target/sheath/recycling losses",
+                fontsize=11,
+            )
+            fig.colorbar(image, ax=axis, fraction=0.046, pad=0.02, label=r"$\tilde{n}$")
+            fig.savefig(frame_path, dpi=145, facecolor="white")
+            plt.close(fig)
+            frame_paths.append(frame_path)
+        first = Image.open(frame_paths[0]).convert("RGB").quantize(
+            colors=256,
+            method=Image.Quantize.MEDIANCUT,
+            dither=Image.Dither.NONE,
+        )
+        images = [first]
+        for frame_path in frame_paths[1:]:
+            images.append(Image.open(frame_path).convert("RGB").quantize(palette=first, dither=Image.Dither.NONE))
+        images[0].save(resolved, save_all=True, append_images=images[1:], duration=130, loop=0)
+        for image in images:
+            image.close()
+    return resolved
 
 
 def _build_live_essos_direct_coil_closed_control_inputs(
@@ -1148,6 +1627,59 @@ def _extract_poincare_hits(trajectories_xyz: np.ndarray, sections: np.ndarray) -
         "section_index": np.asarray(section_values, dtype=np.int32),
         "line_index": np.asarray(line_values, dtype=np.int32),
     }
+
+
+def _normalize_array(values: np.ndarray) -> np.ndarray:
+    array = np.asarray(values, dtype=np.float64)
+    center = np.nanmean(array)
+    scale = np.nanstd(array)
+    if not np.isfinite(scale) or scale <= 1.0e-12:
+        scale = 1.0
+    return (array - center) / scale
+
+
+def _periodic_gradient(values: np.ndarray) -> np.ndarray:
+    array = np.asarray(values, dtype=np.float64)
+    return 0.5 * (np.roll(array, -1, axis=1) - np.roll(array, 1, axis=1))
+
+
+def _periodic_laplacian(values: np.ndarray) -> np.ndarray:
+    array = np.asarray(values, dtype=np.float64)
+    return np.roll(array, -1, axis=1) - 2.0 * array + np.roll(array, 1, axis=1)
+
+
+def _closed_trace_drive(
+    phase: np.ndarray,
+    normalized_major: np.ndarray,
+    normalized_vertical: np.ndarray,
+    phi: np.ndarray,
+    *,
+    scalar_time: float,
+) -> np.ndarray:
+    angle = 2.0 * np.pi * float(scalar_time)
+    drive = (
+        np.sin(2.0 * phase[None, :] - 0.18 * phi + 1.4 * angle)
+        + 0.32 * np.cos(3.0 * phase[None, :] + 0.24 * normalized_major - 0.9 * angle)
+        + 0.18 * normalized_vertical
+    )
+    return drive - np.mean(drive, axis=1, keepdims=True)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        scalar = float(value)
+        return scalar if np.isfinite(scalar) else None
+    return value
 
 
 def _finite_percentile(values: np.ndarray, percentile: float) -> float:
