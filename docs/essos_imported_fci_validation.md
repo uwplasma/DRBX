@@ -96,7 +96,12 @@ localization classifies the blocker as
 true`, all label mismatches lying on directional transition shells, and zero
 mismatch fraction outside those shells. The next direct-coil code work should
 therefore focus on target-boundary projection and forward/backward wall-hit
-classification before changing the bulk field-line map.
+classification before changing the bulk field-line map. A follow-up
+boundary-excluded report gives all-label and endpoint-label agreement `1.0`
+outside the transition shell, but the boundary-excluded valid fraction is only
+`0.022` on the coarse odd-ratio probe. This is useful localization evidence,
+not a promotion pass: the target boundary still occupies too much of the
+coarse direct-coil diagnostic grid to advertise a pure-coil open-SOL movie.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
