@@ -208,13 +208,25 @@ def write_workflow_summary(
         for report in stage_reports
         if report["status"] not in {"skipped", "contract_only", "diagnostic"}
     ]
-    promotion_ready = bool(live_stage_reports) and all(
-        bool(report.get("promotion_ready", False)) for report in live_stage_reports
+    promotion_stage_reports = [
+        report
+        for report in stage_reports
+        if report["status"] != "diagnostic"
+    ]
+    promotion_ready = bool(promotion_stage_reports) and all(
+        bool(report.get("promotion_ready", False)) for report in promotion_stage_reports
     )
     blocking_stage_records = [
         _stage_blocker(report)
         for report in stage_reports
-        if not bool(report.get("promotion_ready", False))
+        if report["status"] != "diagnostic"
+        and not bool(report.get("promotion_ready", False))
+    ]
+    diagnostic_stage_records = [
+        _stage_blocker(report)
+        for report in stage_reports
+        if report["status"] == "diagnostic"
+        and not bool(report.get("promotion_ready", False))
     ]
     promotion_rejection_reasons = [
         reason
@@ -225,7 +237,7 @@ def write_workflow_summary(
         promotion_rejection_reasons.insert(0, "no_live_promotion_gates_ran")
     next_actions = [
         record["next_action"]
-        for record in blocking_stage_records
+        for record in [*blocking_stage_records, *diagnostic_stage_records]
         if record.get("next_action")
     ]
     payload = {
@@ -257,6 +269,7 @@ def write_workflow_summary(
         "promotion_ready": promotion_ready,
         "promotion_rejection_reasons": sorted(set(promotion_rejection_reasons)),
         "promotion_blocking_stages": blocking_stage_records,
+        "diagnostic_stages": diagnostic_stage_records,
         "next_actions": next_actions,
     }
     summary_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

@@ -517,6 +517,67 @@ def test_direct_coil_open_sol_default_contract_includes_media_stage(
     ]["next_action"]
 
 
+def test_direct_coil_open_sol_partial_live_stages_do_not_promote(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    module = runpy.run_path(
+        str(
+            REPO_ROOT
+            / "examples"
+            / "geometry-3D"
+            / "essos-field-lines"
+            / "direct_coil_open_sol_demo.py"
+        )
+    )
+    settings = module["build_settings"](
+        output_root=tmp_path / "partial_live",
+        case_label="partial_live",
+        run_live_fci_gate=True,
+    )
+    summary_path = module["write_workflow_summary"](
+        settings,
+        [
+            {
+                "stage": "direct_coil_fci_endpoint_source_gate",
+                "status": "ran",
+                "promotion_ready": True,
+            },
+            {
+                "stage": "direct_coil_source_profile_gate",
+                "status": "ran",
+                "promotion_ready": True,
+            },
+            {
+                "stage": "direct_coil_endpoint_label_refinement_gate",
+                "status": "skipped",
+                "promotion_ready": False,
+                "next_action": "run endpoint labels",
+            },
+            {
+                "stage": "direct_coil_target_exit_length_refinement_gate",
+                "status": "diagnostic",
+                "promotion_ready": False,
+                "next_action": "run target-exit diagnostics",
+            },
+        ],
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+    assert summary["promotion_ready"] is False
+    assert summary["promotion_rejection_reasons"] == [
+        "skipped_stage_not_live_promotion_evidence"
+    ]
+    assert [
+        blocker["stage"] for blocker in summary["promotion_blocking_stages"]
+    ] == ["direct_coil_endpoint_label_refinement_gate"]
+    assert [
+        stage["stage"] for stage in summary["diagnostic_stages"]
+    ] == ["direct_coil_target_exit_length_refinement_gate"]
+
+
 def test_hybrid_open_sol_default_contract_includes_promotion_gates(
     tmp_path: Path,
     monkeypatch,

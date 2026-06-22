@@ -1960,6 +1960,22 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-22: Ran a live lightweight direct ESSOS-coil FCI/source-profile gate
+  against local Landreman-Paul QA assets under
+  `/Users/rogerio/local/ESSOS/examples/input_files`. The FCI endpoint/source
+  stage and source-profile gate pass: target fraction `0.90375`,
+  magnetic-field modulation `1.4167`, particle-recycling relative error
+  `2.2e-15`, neutral-particle relative error `3.7e-18`, current and
+  neutral-momentum balance errors below reported precision, and target labels
+  reconstruct the consumed endpoint masks exactly. The source/target plot is
+  visually readable and non-axisymmetric. The workflow summary now correctly
+  remains `promotion_ready = false` because endpoint-label refinement,
+  adjacent-step refinement, stationarity, and media QA were not run; those
+  skipped stages appear as promotion blockers while the target-exit
+  refinement remains a diagnostic-only stage. Decision: the direct-coil FCI
+  and source-profile evidence is green for this lightweight live pass, but
+  direct-coil media remains unpromoted until the refinement and movie gates
+  are live and visually checked.
 - 2026-06-22: Advanced the direct ESSOS-coil open-field workflow contract
   without promoting direct-coil media. The default dry-run ledger in
   `direct_coil_open_sol_demo.py` now writes explicit
