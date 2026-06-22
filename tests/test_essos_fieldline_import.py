@@ -1576,6 +1576,38 @@ def test_endpoint_label_refinement_reports_projection_neighborhood_support() -> 
     ]
 
 
+def test_endpoint_label_refinement_reports_conservative_projection_agreement() -> None:
+    coarse = np.zeros((4, 4, 4), dtype=np.int8)
+    fine = np.zeros((4, 4, 4), dtype=np.int8)
+    coarse[:2, :, :] = 1
+    fine[:1, :, :] = 1
+    coordinates = _logical_coordinates((4, 4, 4))
+
+    report = imported_fci_campaign.build_essos_imported_endpoint_label_refinement_diagnostics(
+        (coarse, fine),
+        coordinate_levels=(coordinates, coordinates),
+        minimum_agreement_fraction=0.90,
+        minimum_endpoint_agreement_fraction=0.80,
+        minimum_endpoint_union_fraction=0.01,
+        require_three_levels=False,
+    )
+
+    pair = report["pair_reports"][0]
+    assert report["passed"] is False
+    assert report["conservative_projection_available"] is True
+    assert report["minimum_conservative_projection_agreement_fraction_actual"] == 1.0
+    assert (
+        report["minimum_conservative_projection_endpoint_agreement_fraction_actual"]
+        == 1.0
+    )
+    assert pair["endpoint_false_negative_fraction"] > 0.0
+    assert pair["conservative_projection_available"] is True
+    assert pair["conservative_projection_radius_cells"] == 1
+    assert pair["conservative_projection_agreement_fraction"] == 1.0
+    assert pair["conservative_projection_endpoint_agreement_fraction"] == 1.0
+    assert pair["conservative_projection_endpoint_false_negative_fraction"] == 0.0
+
+
 def test_live_imported_connection_length_refinement_uses_geometry_levels(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

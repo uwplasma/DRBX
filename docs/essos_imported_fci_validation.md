@@ -129,6 +129,18 @@ field-line-map failure. Small values mean the coarse label is absent even in
 the local fine neighborhood, so the next investigation should move to field
 line tracing, wall-hit retention, or the target classifier.
 
+The live boundary-resolved direct-coil run also now records a conservative
+one-cell endpoint-union projection diagnostic. That diagnostic is deliberately
+not a promotion rule. On the current `(7, 15, 27) -> (11, 25, 45)` live pair it
+rules out naive endpoint dilation as the fix: nearest projection gives endpoint
+agreement `0.763`, while the conservative union projection lowers endpoint
+agreement to `0.656`, increases endpoint-union population to `0.958`, and
+creates endpoint false positives `0.122`. The next direct-coil implementation
+therefore needs signed wall-hit/target-distance and transition-shell
+diagnostics that separate real forward/backward target hits from
+nearest-projection false positives before any pure-coil open-field movie is
+promoted.
+
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
 script follows the same top-level-parameter style as the SIMSOPT examples:
