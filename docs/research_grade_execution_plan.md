@@ -419,7 +419,7 @@ Current planning audit:
 | Hybrid open-SOL stellarator lane | Current strongest compact evidence uses VMEC map coordinates with coil-derived endpoint masks and `|B|` modulation. A self-contained workflow ledger now exists at `examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py`; by default it writes a dry-run promotion contract, and live mode runs FCI/source-profile, parallel-step refinement, stationarity, grid/time refinement, and media gates in the intended promotion order. | 78% | Upgrade from the dry-run ledger and compact reduced movie evidence to live longer/refined open-SOL campaigns with endpoint, sheath, recycling, neutral, profile, and movie QA gates. |
 | VMEC-extender finite-beta exterior-field lane | JAXDRB already has the NetCDF import contract and synthetic SOL smoke gate. The JAXDRB VMEC-extender PR is merged, `vmec_jax` direct-coil and segmented-controller context is merged, and upstream virtual-casing, ESSOS extender, and ESSOS MGRID-export PRs remain open. | 35% | Wait for, or vendor only artifact-compatible outputs from, upstream exporter workflows; then validate real finite-beta exterior fields with field, metric, wall-hit, and connection-length gates. |
 | Device expansion | Landreman-Paul QA compact lane exists; HSX, NCSX, and Dommaschk examples remain planned. | 30% | Add device-specific source metadata, geometry plots, connection-length maps, and one validated reduced physics transient per device. |
-| Full DRB physics surface | Equation/code maps and selected gates exist; the non-axisymmetric FCI vorticity gate now covers both Boussinesq and non-Boussinesq polarization, including variable-coefficient contrast and constant-\(n/B^2\) equivalence. Reduced demo forcing remains labeled where full bracket/vorticity is not active. | 68% | Route the tested vorticity/bracket choices into production examples, then promote electromagnetic selected-field, sheath, recycling, and neutral terms through equation-level tests and examples. |
+| Full DRB physics surface | Equation/code maps and selected gates exist; the non-axisymmetric FCI vorticity gate now covers both Boussinesq and non-Boussinesq polarization, including variable-coefficient contrast and constant-\(n/B^2\) equivalence. The compact FCI DRB PyTree RHS now exposes that potential-model switch and verifies the non-Boussinesq objective with JVP-versus-finite-difference evidence. Reduced demo forcing remains labeled where full bracket/vorticity is not active. | 70% | Feed the selected potential into full nonlinear \(E\times B\) bracket/advection in promoted examples, then promote electromagnetic selected-field, sheath, recycling, and neutral terms through equation-level tests and examples. |
 | JAX-native recycling and performance | Fixed-layout seams and scoped JAX/JVP gates are strong; default full-output recycling remains compatibility BDF. | 60% for default promotion | Reduce production-window residual/JVP cost or add a proven physics/block preconditioner before changing the default. |
 | Reference-backed parity | Hydrogen and D/T/He dominant offenders are closed or bounded; broader live campaigns remain valuable. | 99% for current blockers | Keep term-level parity discipline while extending to imported-field geometry and longer diverted-tokamak windows. |
 | Docs, examples, coverage, footprint | Release closeout evidence is strong. | 98% | Keep every new promoted plot/movie backed by a documented command, tests, and release-hosted artifacts. |
@@ -432,11 +432,85 @@ Current sprint objective:
 > control simulations, then hybrid VMEC/coil open-SOL promotion, and only
 > after those gates are stable, finite-beta VMEC-extender exterior fields.
 
-The sprint should not reopen broad solver, GPU, or release lanes unless they
-are required by the geometry work below. Direct-coil turbulence movies are
-allowed as generated diagnostic artifacts on `main`; README/docs promotion
-requires the same geometry, endpoint/source, refinement, and visual-QA evidence
-used for the figures.
+Execution rule:
+
+The sprint should not reopen broad solver, GPU, or release lanes unless the
+geometry or physics gate being promoted directly needs them. Direct-coil
+turbulence movies are allowed as generated diagnostic artifacts on `main`, but
+README/docs promotion requires the same geometry, endpoint/source, refinement,
+physics-source, and visual-QA evidence used for the figures. A failed gate is
+not a blocker to continuing the plan if the result is correctly labeled
+diagnostic and used to justify the next lane, usually the hybrid VMEC/coil
+bridge.
+
+Current authoritative implementation sequence:
+
+1. **ESSOS direct-coil open-field on `main`**. Keep this as the first
+   executable open-field lane. Use ESSOS for coil Biot-Savart evaluation and
+   tracing; use JAXDRB for imported arrays, FCI maps, endpoint masks, source
+   accounting, sheath/recycling/neutral closures, diagnostics, plots, and
+   movies. The direct-coil lane promotes only if categorical endpoint-label
+   refinement, interior FCI resolution, source accounting, and movie QA are
+   all green. Otherwise it remains diagnostic geometry evidence.
+2. **ESSOS direct-coil closed/near-closed controls**. Run in parallel with the
+   open-field lane to show the same coil source can produce closed,
+   near-closed, island-like, or long-connection trajectories without importing
+   target/sheath/recycling semantics. The closed-control outputs are promoted
+   as field-line/geometry controls, not as SOL target simulations.
+3. **VMEC closed-field control**. Use VMEC-coordinate maps as the smooth
+   non-axisymmetric closed-field reference. These examples must have zero
+   endpoint masks, periodic/closed parallel-step checks, profile/spectrum
+   diagnostics, and no target-to-target connection-length, sheath, recycling,
+   or neutral-loss language unless an explicit artificial loss model is
+   selected and labeled.
+4. **Hybrid VMEC/coil open SOL**. Promote this before pure direct-coil media if
+   pure-coil endpoint refinement remains rough. The hybrid lane uses smooth
+   VMEC coordinates and metrics, coil-derived endpoint masks and `|B|`
+   modulation, exact endpoint-mask consumption, sheath/recycling/neutral source
+   accounting, grid/time refinement, profile/source/target plots, and
+   frame-by-frame movie QA.
+5. **VMEC-extender finite-beta artifact import**. Treat this as a prescribed
+   exterior-field artifact lane. The merged JAXDRB PR gives the import
+   contract and synthetic smoke gate, while upstream virtual-casing and ESSOS
+   exporter PRs provide future real finite-beta artifacts. VMEC-extender helps
+   with finite-beta exterior magnetic fields, but it does not provide wall
+   labels, endpoint masks, sheath/recycling/neutral closures, or a validated
+   SOL result by itself.
+6. **Device expansion**. Add Landreman-Paul QA first, then HSX QHS vacuum,
+   NCSX, and Dommaschk potentials. Each device must pass the same source
+   metadata, boundary/Poincare, connection or closed-step, FCI/operator,
+   physics-result, refinement, media, and documentation gates before any README
+   claim is broadened.
+7. **Full DRB physics and solver support**. On promoted geometries, replace
+   surrogate nonlinear transfer terms with the real bracket/vorticity/potential
+   lane or keep them explicitly pedagogical. Then carry Boussinesq versus
+   non-Boussinesq, sheath, recycling, neutral, selected electromagnetic,
+   differentiability, and performance gates only as far as the promoted
+   geometry claim requires.
+
+Immediate next pass, in order:
+
+1. Run the direct-coil open-SOL workflow in dry-run and, when ESSOS inputs are
+   available, live mode. Inspect field-line/Poincare, endpoint-label
+   refinement, source/profile, and movie artifacts. If endpoint agreement
+   remains weak, document that result and do not promote direct-coil media.
+2. Add or refresh direct-coil closed/near-closed movie/profile diagnostics on
+   top of the existing return-map package. Confirm zero target/sheath/recycling
+   semantics and run visual QA.
+3. Refresh the VMEC closed-field transient/profile/spectrum package and keep it
+   as the smooth closed-field tutorial/control.
+4. Move the hybrid lane from workflow ledger and compact evidence to a longer
+   refined live campaign with exact endpoint-mask consumption, source-balance
+   residuals, target/source/profile plots, stationarity checks, grid/time
+   sensitivity, and a polished movie.
+5. Wait for or freeze a VMEC-extender finite-beta exterior-field artifact, then
+   run strict import, physical-phi, branch/sign, interpolation, field-line,
+   wall/endpoint, FCI/operator, and compact SOL smoke gates.
+6. Add HSX, NCSX, and Dommaschk cases only through the same per-device gate,
+   with release-hosted media and documented regeneration commands.
+7. After geometry claims are stable, finish the next physics promotion by
+   feeding the selected Boussinesq/non-Boussinesq potential into the nonlinear
+   \(E\times B\) bracket/advection path on the promoted examples.
 
 Final closeout roadmap for this phase:
 
@@ -523,7 +597,7 @@ File-level next implementation map:
 | Hybrid VMEC/coil open SOL | `examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py`, `examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py`, `examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_campaign.py`, `src/jax_drb/validation/essos_imported_drb_movie_campaign.py`, `docs/essos_imported_fci_validation.md`, `docs/essos_imported_drb_movie.md`, `docs/essos_imported_pytree_validation.md` | Use the new workflow ledger as the entry point. Move from dry-run and compact release-scoped movie evidence to a longer refined live campaign with FCI/source-profile accounting, target/source/profile plots, parallel-step refinement, stationarity, grid/timestep sensitivity, and optional media generation. | Hybrid connection-length gate, exact endpoint-mask consumption, source-balance residuals, stationarity/refinement report, frame-by-frame movie QA, and README/docs promotion only when the workflow summary reports `promotion_ready=true`. |
 | VMEC-extender finite-beta artifact import | `examples/geometry-3D/vmec-extender/imported_field_demo.py`, `src/jax_drb/geometry/vmec_extender_import.py`, `src/jax_drb/validation/vmec_extender_edge_field_campaign.py`, `src/jax_drb/validation/vmec_extender_sol_smoke_campaign.py`, `docs/vmec_extender_edge_fields.md` | Keep normal examples artifact-based. Add real-artifact validation once an upstream exporter or frozen fixture is available: metadata, physical-phi convention, branch/sign, field-line RHS, wall/endpoint classification, FCI/operator gates, then compact SOL transient. | Strict NetCDF contract, interpolation and `absB` closure, RHS finite-difference checks, field-line/Poincare agreement, wall/endpoint report, compact SOL smoke gate. |
 | Device expansion | new or existing scripts under `examples/geometry-3D/essos-field-lines/`, `examples/geometry-3D/stellarator-vmec/`, and `examples/geometry-3D/vmec-extender/`; device docs under `docs/stellarator_examples.md` | Add devices in this order: Landreman-Paul QA, HSX QHS vacuum, NCSX, Dommaschk. Each device gets provenance, boundary/Poincare plot, connection or closed-step map, FCI validation, one physics result, and a media command. | Per-device validation bundle, visual QA, artifact manifest, docs example, release-hosted media if large. |
-| Full DRB physics on promoted geometries | `src/jax_drb/native/fci.py`, `src/jax_drb/validation/stellarator_vorticity_campaign.py`, `src/jax_drb/validation/stellarator_sheath_recycling_campaign.py`, `src/jax_drb/validation/stellarator_neutral_physics_campaign.py`, `docs/equation_to_code_map.md`, `docs/physics_models.md` | Replace promoted surrogate nonlinear terms with the real bracket/vorticity/potential lane, or keep the surrogate labeled pedagogical. The Boussinesq/non-Boussinesq FCI polarization gate is now in place; next route that switch through production examples and promote sheath, recycling, neutral, and EM terms only with equation-level tests. | MMS/operator convergence, bracket antisymmetry or conservation checks, source accounting, target response, neutral source/loss checks, literature-anchored plots. |
+| Full DRB physics on promoted geometries | `src/jax_drb/native/fci.py`, `src/jax_drb/native/fci_drb_rhs.py`, `src/jax_drb/validation/stellarator_vorticity_campaign.py`, `src/jax_drb/validation/stellarator_drb_pytree_campaign.py`, `src/jax_drb/validation/stellarator_sheath_recycling_campaign.py`, `src/jax_drb/validation/stellarator_neutral_physics_campaign.py`, `docs/equation_to_code_map.md`, `docs/physics_models.md` | Replace promoted surrogate nonlinear terms with the real bracket/vorticity/potential lane, or keep the surrogate labeled pedagogical. The Boussinesq/non-Boussinesq FCI polarization gate and compact PyTree RHS route are now in place; next feed the selected potential into nonlinear \(E\times B\) advection on promoted geometry examples and promote sheath, recycling, neutral, and EM terms only with equation-level tests. | MMS/operator convergence, bracket antisymmetry or conservation checks, source accounting, target response, neutral source/loss checks, literature-anchored plots. |
 | JAX-native recycling and performance | `src/jax_drb/native/recycling_1d.py`, active-layout residual modules, `docs/performance_and_differentiability.md`, `docs/runtime_gap_remediation.md` | Keep stable compatibility BDF as default until full-output JAX/JVP production-window parity and same-fidelity runtime are green. Try only materially different physics/block preconditioners, then move back to parity and geometry lanes. | JVP-vs-finite-difference tests, solver-health report, parity bundle, cProfile/RSS/JAX trace, CPU/GPU evidence on the same promoted kernels. |
 | Documentation, examples, coverage, footprint | `README.md`, `docs/examples.md`, `docs/example_status_matrix.md`, `docs/research_grade_validation_matrix.md`, `.readthedocs.yaml`, `scripts/fetch_example_artifacts.py` | Every promoted figure/movie must have a command, an artifact manifest entry or small fixture, a docs page, and a claim boundary. Keep large outputs in release assets, not git. | `mkdocs build --strict --clean`, `scripts/run_promoted_solver_coverage.py`, release-surface tests, docs-media restore, footprint audit. |
 
@@ -542,7 +616,7 @@ Milestones for the next implementation campaign:
 
 ### VMEC-Extender And Upstream PR Decision
 
-The June 21, 2026 PR audit, rechecked with `gh`, gives the following planning
+The June 22, 2026 PR audit, rechecked with `gh`, gives the following planning
 decision. The VMEC-extender work is useful for finite-beta scrape-off-layer
 geometry, but it is not yet a `main`-branch dependency for ordinary JAXDRB
 examples.
@@ -595,7 +669,8 @@ Upstream status:
   [#21](https://github.com/uwplasma/vmec_jax/pull/21) cover differentiability
   refactoring and mirror-geometry infrastructure. They are useful longer-term
   ecosystem context but do not provide JAXDRB SOL endpoint masks,
-  sheath/recycling/neutral closures, or finite-beta exterior-field artifacts.
+  sheath/recycling/neutral closures, or a complete finite-beta exterior-field
+  artifact for JAXDRB consumption.
 
 Finite-beta SOL decision:
 
@@ -1857,6 +1932,21 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-21: Routed the Boussinesq/non-Boussinesq polarization choice through
+  the compact FCI DRB PyTree RHS. `FciDrbRhsParameters` now exposes
+  `potential_boussinesq`, preserving the old Boussinesq default while allowing
+  non-Boussinesq density-weighted potential solves in the same transformable
+  RHS surface. The PyTree campaign now compares both potential solves on the
+  same state, verifies that only the diagnostic potential seam changes while
+  source-array RHS terms remain identical, and runs a non-Boussinesq
+  objective through `jax.jvp` versus finite difference. The local default-grid
+  QA artifact passed with Boussinesq/non-Boussinesq potential relative
+  difference `1.04e-1`, source-state RHS Linf difference `0.0`,
+  density-over-\(B^2\) contrast `4.74`, and non-Boussinesq JVP relative error
+  `2.9e-9`. Decision: the compact RHS route is closed; the remaining full-DRB
+  blocker is feeding the selected potential into promoted nonlinear
+  \(E\times B\) bracket/advection examples and then carrying that through
+  imported-field/open-SOL campaigns.
 - 2026-06-21: Advanced the full DRB physics lane by promoting the existing FCI
   vorticity campaign from a single polarization inversion to an explicit
   Boussinesq versus non-Boussinesq gate. The campaign now applies and inverts

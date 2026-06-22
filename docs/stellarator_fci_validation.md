@@ -112,9 +112,10 @@ The current lane is split into small, directly tested modules:
   residual probes.
 - `FciDrbState` and `compute_fci_drb_rhs` assemble the first transformable
   PyTree RHS surface combining target, neutral, and vorticity components. The
-  focused regression suite checks that this combined state supports `jax.jvp`,
-  `jax.vmap`, and multi-device execution when more than one local device is
-  available.
+  compact RHS now threads the same Boussinesq/non-Boussinesq potential-solve
+  switch used by the vorticity component gate. The focused regression suite
+  checks that this combined state supports `jax.jvp`, `jax.vmap`, and
+  multi-device execution when more than one local device is available.
 
 The design rule is that geometry data and field-line maps are ordinary Python
 objects holding arrays that can be consumed by JAX kernels. The next refactor
@@ -360,8 +361,17 @@ The PyTree DRB campaign currently passes:
 - short fixed-layout 3D transient on the combined ion/electron/neutral
   density, pressure, momentum, and vorticity state;
 - JVP-versus-finite-difference relative derivative error: about `6.4e-14`;
+- non-Boussinesq objective JVP-versus-finite-difference relative derivative
+  error: about `2.9e-9`;
 - `vmap`-versus-serial objective mismatch: about `8.9e-16`;
 - final compact potential residual: about `1.32`;
+- Boussinesq versus non-Boussinesq potential relative difference on the same
+  state: about `1.04e-1`;
+- RHS source-state difference when only the potential model is switched:
+  below display precision, because the compact RHS currently exposes the
+  potential solve as a diagnostic seam rather than feeding it back into
+  \(E\times B\) advection;
+- density-over-\(B^2\) contrast in the compact PyTree state: about `4.74`;
 - local CPU warmed campaign time: about `2.1e-2` seconds for the documentation
   grid;
 - remote two-device GPU smoke profile: passing, with `pmap` execution around

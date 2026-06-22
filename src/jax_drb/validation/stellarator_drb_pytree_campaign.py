@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -58,10 +58,19 @@ def build_stellarator_drb_pytree_campaign(
     steps: int = 8,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     geometry = build_synthetic_stellarator_geometry(nx=nx, ny=ny, nz=nz)
-    parameters = FciDrbRhsParameters(potential_iterations=32)
+    parameters = FciDrbRhsParameters(potential_iterations=32, potential_boussinesq=True)
+    non_boussinesq_parameters = replace(parameters, potential_boussinesq=False)
     dt = 1.5e-5
     run_transient = _build_jitted_transient(geometry, parameters=parameters, dt=dt, steps=steps)
     initial = initial_fci_drb_state(geometry, drive_scale=1.0)
+    model_switch_report, model_switch_arrays = _build_boussinesq_model_switch_gate(
+        geometry,
+        initial=initial,
+        boussinesq_parameters=parameters,
+        non_boussinesq_parameters=non_boussinesq_parameters,
+        dt=dt,
+        steps=steps,
+    )
 
     t0 = time.perf_counter()
     final_state, history = run_transient(initial)
@@ -125,6 +134,7 @@ def build_stellarator_drb_pytree_campaign(
         "geometry": geometry.metadata,
         "steps": int(steps),
         "dt": float(dt),
+        "potential_boussinesq": bool(parameters.potential_boussinesq),
         "compile_and_first_execute_seconds": float(compile_and_first_execute_seconds),
         "warm_execute_seconds": float(warm_execute_seconds),
         "jvp_objective_value": float(value),
@@ -143,6 +153,7 @@ def build_stellarator_drb_pytree_campaign(
         "final_neutral_density_mean": float(np.mean(final_neutral)),
         "final_vorticity_rms": float(np.sqrt(np.mean(final_vorticity * final_vorticity))),
         "final_potential_residual_l2": float(history_np[-1, 4]),
+        **model_switch_report,
     }
     report["passed"] = (
         np.all(np.isfinite(history_np))
@@ -150,6 +161,9 @@ def build_stellarator_drb_pytree_campaign(
         and report["final_vorticity_rms"] > 0.0
         and report["final_potential_residual_l2"] < 2.0
         and jvp_relative_error < 5.0e-3
+        and report["non_boussinesq_jvp_relative_error"] < 5.0e-3
+        and report["boussinesq_non_boussinesq_potential_relative_l2"] > 1.0e-4
+        and report["boussinesq_non_boussinesq_rhs_state_linf"] < 1.0e-12
         and vmap_serial_linf < 1.0e-8
         and report["warm_execute_seconds"] > 0.0
     )
@@ -166,6 +180,7 @@ def build_stellarator_drb_pytree_campaign(
         "serial_scales_4": serial_scales.astype(np.float32),
         "pmap_values": np.asarray([] if pmap_values is None else pmap_values, dtype=np.float32),
         "jvp_summary": np.asarray([float(jvp_derivative), float(finite_difference), jvp_relative_error], dtype=np.float32),
+        **model_switch_arrays,
     }
     return report, arrays
 
@@ -195,6 +210,101 @@ def initial_fci_drb_state(geometry: SyntheticStellaratorGeometry, *, drive_scale
     )
 
 
+def _build_boussinesq_model_switch_gate(
+    geometry: SyntheticStellaratorGeometry,
+    *,
+    initial: FciDrbState,
+    boussinesq_parameters: FciDrbRhsParameters,
+    non_boussinesq_parameters: FciDrbRhsParameters,
+    dt: float,
+    steps: int,
+) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
+    boussinesq_result = compute_fci_drb_rhs(
+        initial,
+        maps=geometry.maps,
+        metric=geometry.metric,
+        parameters=boussinesq_parameters,
+    )
+    non_boussinesq_result = compute_fci_drb_rhs(
+        initial,
+        maps=geometry.maps,
+        metric=geometry.metric,
+        parameters=non_boussinesq_parameters,
+    )
+    _block_until_ready((boussinesq_result, non_boussinesq_result))
+    boussinesq_potential = np.asarray(boussinesq_result.potential, dtype=np.float64)
+    non_boussinesq_potential = np.asarray(non_boussinesq_result.potential, dtype=np.float64)
+    potential_difference = non_boussinesq_potential - boussinesq_potential
+    potential_relative_l2 = float(
+        np.sqrt(np.mean(potential_difference * potential_difference))
+        / max(np.sqrt(np.mean(boussinesq_potential * boussinesq_potential)), 1.0e-30)
+    )
+    rhs_state_linf = _state_linf_difference(
+        boussinesq_result.rhs,
+        non_boussinesq_result.rhs,
+    )
+    coefficient = np.asarray(
+        initial.ion_density / jnp.maximum(jnp.square(geometry.metric.Bxy), 1.0e-30),
+        dtype=np.float64,
+    )
+    coefficient_contrast = float(np.max(coefficient) / max(float(np.min(coefficient)), 1.0e-30))
+    non_boussinesq_objective = _build_objective(
+        geometry,
+        parameters=non_boussinesq_parameters,
+        dt=dt,
+        steps=steps,
+    )
+    value, derivative = jax.jvp(
+        non_boussinesq_objective,
+        (jnp.asarray(1.0, dtype=jnp.float64),),
+        (jnp.asarray(1.0, dtype=jnp.float64),),
+    )
+    _block_until_ready((value, derivative))
+    eps = 1.0e-3
+    finite_difference = (
+        non_boussinesq_objective(1.0 + eps)
+        - non_boussinesq_objective(1.0 - eps)
+    ) / (2.0 * eps)
+    _block_until_ready(finite_difference)
+    jvp_relative_error = float(
+        jnp.abs(derivative - finite_difference)
+        / jnp.maximum(jnp.abs(finite_difference), 1.0e-14)
+    )
+    report = {
+        "boussinesq_gate_potential_boussinesq": bool(boussinesq_parameters.potential_boussinesq),
+        "non_boussinesq_gate_potential_boussinesq": bool(
+            non_boussinesq_parameters.potential_boussinesq
+        ),
+        "boussinesq_potential_residual_l2": float(np.asarray(boussinesq_result.potential_residual_l2)),
+        "non_boussinesq_potential_residual_l2": float(np.asarray(non_boussinesq_result.potential_residual_l2)),
+        "boussinesq_non_boussinesq_potential_relative_l2": potential_relative_l2,
+        "boussinesq_non_boussinesq_rhs_state_linf": rhs_state_linf,
+        "density_over_b_squared_contrast": coefficient_contrast,
+        "non_boussinesq_jvp_objective_value": float(value),
+        "non_boussinesq_jvp_derivative": float(derivative),
+        "non_boussinesq_finite_difference_derivative": float(finite_difference),
+        "non_boussinesq_jvp_relative_error": jvp_relative_error,
+    }
+    arrays = {
+        "boussinesq_potential_slice": boussinesq_potential[:, 0, :].astype(np.float32),
+        "non_boussinesq_potential_slice": non_boussinesq_potential[:, 0, :].astype(np.float32),
+        "potential_model_difference_slice": potential_difference[:, 0, :].astype(np.float32),
+        "density_over_b_squared_slice": coefficient[:, 0, :].astype(np.float32),
+        "model_switch_summary": np.asarray(
+            [
+                potential_relative_l2,
+                report["boussinesq_potential_residual_l2"],
+                report["non_boussinesq_potential_residual_l2"],
+                rhs_state_linf,
+                jvp_relative_error,
+                coefficient_contrast,
+            ],
+            dtype=np.float32,
+        ),
+    }
+    return report, arrays
+
+
 def save_stellarator_drb_pytree_plot(
     report: dict[str, Any],
     arrays: dict[str, np.ndarray],
@@ -202,7 +312,7 @@ def save_stellarator_drb_pytree_plot(
 ) -> Path:
     resolved = Path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(2, 3, figsize=(15.8, 8.8), constrained_layout=True)
+    fig, axes = plt.subplots(3, 3, figsize=(16.2, 12.6), constrained_layout=True)
     history = arrays["history"]
     for column, label in ((0, "mean ion density"), (1, "mean neutral density"), (3, "vorticity RMS")):
         reference = max(abs(float(history[0, column])), 1.0e-30)
@@ -262,16 +372,74 @@ def save_stellarator_drb_pytree_plot(
         fontsize=8,
         bbox={"facecolor": "white", "alpha": 0.82, "edgecolor": "0.8"},
     )
-    for axis in (axes[0, 1], axes[0, 2]):
+
+    image6 = axes[2, 0].imshow(
+        arrays["boussinesq_potential_slice"],
+        origin="lower",
+        aspect="auto",
+        cmap="viridis",
+    )
+    axes[2, 0].set_title("Boussinesq potential solve")
+    fig.colorbar(image6, ax=axes[2, 0])
+
+    image7 = axes[2, 1].imshow(
+        arrays["non_boussinesq_potential_slice"],
+        origin="lower",
+        aspect="auto",
+        cmap="viridis",
+    )
+    axes[2, 1].set_title("non-Boussinesq potential solve")
+    fig.colorbar(image7, ax=axes[2, 1])
+
+    vmax = float(np.max(np.abs(arrays["potential_model_difference_slice"])))
+    image8 = axes[2, 2].imshow(
+        arrays["potential_model_difference_slice"],
+        origin="lower",
+        aspect="auto",
+        cmap="coolwarm",
+        vmin=-vmax,
+        vmax=vmax,
+    )
+    axes[2, 2].set_title("non-Boussinesq minus Boussinesq")
+    fig.colorbar(image8, ax=axes[2, 2])
+    axes[2, 2].text(
+        0.03,
+        0.96,
+        "\n".join(
+            [
+                f"rel. L2 = {report['boussinesq_non_boussinesq_potential_relative_l2']:.2e}",
+                f"non-Bq JVP err = {report['non_boussinesq_jvp_relative_error']:.1e}",
+                f"n/B^2 contrast = {report['density_over_b_squared_contrast']:.2f}",
+            ]
+        ),
+        transform=axes[2, 2].transAxes,
+        va="top",
+        ha="left",
+        fontsize=8,
+        bbox={"facecolor": "white", "alpha": 0.82, "edgecolor": "0.8"},
+    )
+    for axis in (axes[0, 1], axes[0, 2], axes[2, 0], axes[2, 1], axes[2, 2]):
         axis.set_xlabel("poloidal index")
         axis.set_ylabel("radial index")
     fig.suptitle(
-        "True 3D non-axisymmetric PyTree lane: transient RHS, JVP derivative, and batched execution",
+        "True 3D non-axisymmetric PyTree lane: DRB RHS, model switch, JVP, and batched execution",
         fontsize=14,
     )
     fig.savefig(resolved, dpi=190)
     plt.close(fig)
     return resolved
+
+
+def _state_linf_difference(left: FciDrbState, right: FciDrbState) -> float:
+    differences = [
+        float(np.max(np.abs(np.asarray(left_leaf) - np.asarray(right_leaf))))
+        for left_leaf, right_leaf in zip(
+            jax.tree_util.tree_leaves(left),
+            jax.tree_util.tree_leaves(right),
+            strict=True,
+        )
+    ]
+    return max(differences, default=0.0)
 
 
 def _build_jitted_transient(

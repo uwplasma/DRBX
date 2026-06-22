@@ -93,7 +93,8 @@ The first native lane now consists of:
   polarization coefficients.
 - `src/jax_drb/native/fci_drb_rhs.py`, which assembles the first
   transformable PyTree RHS combining sheath/recycling, neutral
-  diffusion/reactions, vorticity diffusion, and the potential-inversion seam.
+  diffusion/reactions, vorticity diffusion, and the Boussinesq/non-Boussinesq
+  potential-inversion seam.
 - `src/jax_drb/native/recycling_fixed_residual.py`, which now exposes
   `linearize_fixed_residual_action` and `fixed_residual_jvp_action` for
   JAX-native Jacobian-vector products on fixed-layout residuals.
@@ -233,7 +234,11 @@ variable-coefficient operator differs from the Boussinesq operator by about
 \(n/B^2\) limit. The compact PyTree RHS is
 `jax.jvp` transformable on the combined component state, with documentation-grid
 JVP relative error about `6.4e-14`, `vmap` serial mismatch about `8.9e-16`, and
-a passing two-device GPU smoke profile on the same fixed-layout objective.
+a non-Boussinesq objective JVP relative error about `2.9e-9`. The same compact
+RHS route shows about `1.04e-1` relative potential difference between the two
+polarization choices while leaving source-array RHS terms unchanged, because
+the current compact transient exposes the potential solve before feeding it
+back into full nonlinear \(E\times B\) advection.
 
 ## Geometry And Metric Equations
 
@@ -547,8 +552,9 @@ remaining production closures should be implemented as separate gates:
    momentum, finite wall interaction length, recycling source deposition, and
    imported target masks.
 5. Route the now-tested Boussinesq and non-Boussinesq vorticity/potential
-   operators into the production FCI RHS examples, then add implicit
-   solve/preconditioner gates for the larger imported-field problem.
+   operators from the compact FCI RHS into the promoted imported-field and
+   open-SOL examples, then add implicit solve/preconditioner gates for the
+   larger imported-field problem.
 6. Expand the compact `fci_drb_rhs.py` PyTree RHS into the production
    fixed-layout residual with target-normal boundary terms, full parallel
    momentum advection, pressure advection/compression, curvature drive, and

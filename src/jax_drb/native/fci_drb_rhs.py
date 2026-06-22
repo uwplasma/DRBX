@@ -51,6 +51,7 @@ class FciDrbRhsParameters:
     recycling_fraction: float = 0.98
     recycled_neutral_energy: float = 0.03
     vorticity_diffusivity: float = 2.0e-4
+    potential_boussinesq: bool = True
     potential_iterations: int = 40
     potential_regularization: float = 1.0e-9
     potential_preconditioner: str | None = None
@@ -103,6 +104,7 @@ def compute_fci_drb_rhs(
         state.ion_density,
         metric,
         iterations=parameters.potential_iterations,
+        boussinesq=parameters.potential_boussinesq,
         regularization=parameters.potential_regularization,
         preconditioner=parameters.potential_preconditioner,
     )

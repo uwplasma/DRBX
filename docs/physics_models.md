@@ -239,7 +239,13 @@ Jacobian-vector products through `linearize_fixed_residual_action` and
 The compact combined state in `native/fci_drb_rhs.py` is the first PyTree RHS
 surface for this lane; it is intentionally small, but already combines the
 target, neutral, and vorticity components in a form that can be passed through
-`jax.jvp`.
+`jax.jvp`. That compact RHS now threads the Boussinesq/non-Boussinesq
+polarization switch through the potential solve, and the PyTree campaign
+checks the non-Boussinesq objective with a JVP-versus-finite-difference gate.
+The present compact transient still treats that potential as a diagnostic seam:
+the next physics step is to feed the selected potential into the full nonlinear
+\(E\times B\) bracket for density, pressure, and vorticity advection on the
+same FCI maps.
 
 ## Numerical Algorithms
 

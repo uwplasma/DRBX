@@ -1051,6 +1051,12 @@ def test_stellarator_drb_pytree_campaign_generates_jvp_and_scaling_metrics(tmp_p
 
     assert report["passed"] is True
     assert report["jvp_relative_error"] < 5.0e-3
+    assert report["boussinesq_gate_potential_boussinesq"] is True
+    assert report["non_boussinesq_gate_potential_boussinesq"] is False
+    assert report["boussinesq_non_boussinesq_potential_relative_l2"] > 1.0e-4
+    assert report["boussinesq_non_boussinesq_rhs_state_linf"] < 1.0e-12
+    assert report["non_boussinesq_jvp_relative_error"] < 5.0e-3
+    assert report["density_over_b_squared_contrast"] > 1.0
     assert report["vmap_serial_linf"] < 1.0e-8
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()
