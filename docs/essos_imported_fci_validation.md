@@ -61,6 +61,10 @@ levels agree only because nearly every cell is classified as non-target.
 Generic closed-field diagnostics can still set that threshold to zero because
 closed maps are validated by periodic/return-map metrics instead of target
 contact.
+A live rerun with this stricter gate confirms that the blocker is true
+directional endpoint instability rather than missing target contact:
+minimum endpoint-union population is `0.898`, while the minimum all-label and
+endpoint-agreement fractions remain `0.444`.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
