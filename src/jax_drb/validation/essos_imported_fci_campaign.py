@@ -469,6 +469,7 @@ def create_essos_imported_endpoint_label_refinement_package(
     minimum_agreement_fraction: float = 0.98,
     minimum_endpoint_agreement_fraction: float = 0.95,
     minimum_endpoint_union_fraction: float = 0.0,
+    minimum_boundary_excluded_valid_fraction: float = 0.0,
     minimum_valid_pair_fraction: float = 1.0,
     require_three_levels: bool = True,
 ) -> EssosImportedEndpointLabelRefinementArtifacts:
@@ -488,6 +489,7 @@ def create_essos_imported_endpoint_label_refinement_package(
         minimum_agreement_fraction=minimum_agreement_fraction,
         minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
         minimum_endpoint_union_fraction=minimum_endpoint_union_fraction,
+        minimum_boundary_excluded_valid_fraction=minimum_boundary_excluded_valid_fraction,
         minimum_valid_pair_fraction=minimum_valid_pair_fraction,
         require_three_levels=require_three_levels,
     )
@@ -525,6 +527,7 @@ def create_live_essos_imported_endpoint_label_refinement_package(
     minimum_agreement_fraction: float = 0.90,
     minimum_endpoint_agreement_fraction: float = 0.80,
     minimum_endpoint_union_fraction: float = 0.0,
+    minimum_boundary_excluded_valid_fraction: float = 0.0,
     minimum_valid_pair_fraction: float = 1.0,
     require_three_levels: bool = True,
 ) -> EssosImportedEndpointLabelRefinementArtifacts:
@@ -551,6 +554,7 @@ def create_live_essos_imported_endpoint_label_refinement_package(
         minimum_agreement_fraction=minimum_agreement_fraction,
         minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
         minimum_endpoint_union_fraction=minimum_endpoint_union_fraction,
+        minimum_boundary_excluded_valid_fraction=minimum_boundary_excluded_valid_fraction,
         minimum_valid_pair_fraction=minimum_valid_pair_fraction,
         require_three_levels=require_three_levels,
     )
@@ -879,6 +883,7 @@ def build_essos_imported_endpoint_label_refinement_campaign(
     minimum_agreement_fraction: float = 0.98,
     minimum_endpoint_agreement_fraction: float = 0.95,
     minimum_endpoint_union_fraction: float = 0.0,
+    minimum_boundary_excluded_valid_fraction: float = 0.0,
     minimum_valid_pair_fraction: float = 1.0,
     require_three_levels: bool = True,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
@@ -906,6 +911,7 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         minimum_agreement_fraction=minimum_agreement_fraction,
         minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
         minimum_endpoint_union_fraction=minimum_endpoint_union_fraction,
+        minimum_boundary_excluded_valid_fraction=minimum_boundary_excluded_valid_fraction,
         minimum_valid_pair_fraction=minimum_valid_pair_fraction,
         require_three_levels=require_three_levels,
     )
@@ -939,6 +945,9 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         "minimum_endpoint_union_fraction_required": float(
             minimum_endpoint_union_fraction
         ),
+        "minimum_boundary_excluded_valid_fraction_required": float(
+            minimum_boundary_excluded_valid_fraction
+        ),
         "minimum_valid_pair_fraction": diagnostics["minimum_valid_pair_fraction"],
         "require_three_levels": bool(require_three_levels),
         "valid_pairs_passed": bool(diagnostics["valid_pairs_passed"]),
@@ -947,6 +956,9 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         "endpoint_presence_passed": bool(diagnostics["endpoint_presence_passed"]),
         "minimum_boundary_excluded_valid_fraction_actual": (
             diagnostics["minimum_boundary_excluded_valid_fraction_actual"]
+        ),
+        "boundary_excluded_valid_fraction_passed": bool(
+            diagnostics["boundary_excluded_valid_fraction_passed"]
         ),
         "minimum_boundary_excluded_agreement_fraction_actual": (
             diagnostics["minimum_boundary_excluded_agreement_fraction_actual"]
@@ -1026,6 +1038,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
     minimum_agreement_fraction: float = 0.98,
     minimum_endpoint_agreement_fraction: float = 0.95,
     minimum_endpoint_union_fraction: float = 0.0,
+    minimum_boundary_excluded_valid_fraction: float = 0.0,
     minimum_valid_pair_fraction: float = 1.0,
     require_three_levels: bool = True,
 ) -> dict[str, Any]:
@@ -1045,6 +1058,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
     agreement_threshold = float(minimum_agreement_fraction)
     endpoint_threshold = float(minimum_endpoint_agreement_fraction)
     endpoint_union_threshold = float(minimum_endpoint_union_fraction)
+    boundary_excluded_valid_threshold = float(minimum_boundary_excluded_valid_fraction)
     if not (0.0 < valid_pair_threshold <= 1.0):
         raise ValueError("minimum_valid_pair_fraction must be in the interval (0, 1].")
     if not (0.0 <= agreement_threshold <= 1.0):
@@ -1053,6 +1067,10 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         raise ValueError("minimum_endpoint_agreement_fraction must be in the interval [0, 1].")
     if not (0.0 <= endpoint_union_threshold <= 1.0):
         raise ValueError("minimum_endpoint_union_fraction must be in the interval [0, 1].")
+    if not (0.0 <= boundary_excluded_valid_threshold <= 1.0):
+        raise ValueError(
+            "minimum_boundary_excluded_valid_fraction must be in the interval [0, 1]."
+        )
     for index, level in enumerate(levels):
         if level.ndim != 3:
             raise ValueError(
@@ -1213,6 +1231,10 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
     boundary_excluded_valid_values = [
         float(pair["boundary_excluded_valid_fraction"]) for pair in pair_reports
     ]
+    boundary_excluded_valid_fraction_passed = all(
+        value >= boundary_excluded_valid_threshold
+        for value in boundary_excluded_valid_values
+    )
     boundary_excluded_agreement_values = [
         float(pair["boundary_excluded_label_agreement_fraction"]) for pair in pair_reports
     ]
@@ -1274,6 +1296,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
     target_boundary_only_instability = bool(
         not promotion_ready
         and target_boundary_projection_suspected
+        and boundary_excluded_valid_fraction_passed
         and boundary_excluded_agreement_passed
         and boundary_excluded_endpoint_agreement_passed
     )
@@ -1288,11 +1311,15 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         "minimum_agreement_fraction": agreement_threshold,
         "minimum_endpoint_agreement_fraction": endpoint_threshold,
         "minimum_endpoint_union_fraction": endpoint_union_threshold,
+        "minimum_boundary_excluded_valid_fraction": boundary_excluded_valid_threshold,
         "require_three_levels": bool(require_three_levels),
         "valid_pairs_passed": bool(valid_pairs),
         "agreement_passed": bool(agreement_passed),
         "endpoint_agreement_passed": bool(endpoint_agreement_passed),
         "endpoint_presence_passed": bool(endpoint_presence_passed),
+        "boundary_excluded_valid_fraction_passed": bool(
+            boundary_excluded_valid_fraction_passed
+        ),
         "boundary_excluded_agreement_passed": bool(boundary_excluded_agreement_passed),
         "boundary_excluded_endpoint_agreement_passed": bool(
             boundary_excluded_endpoint_agreement_passed

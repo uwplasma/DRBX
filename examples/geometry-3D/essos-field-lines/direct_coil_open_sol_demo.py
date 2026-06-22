@@ -76,6 +76,7 @@ REFINEMENT_REQUIRE_OBSERVED_ORDER = True
 ENDPOINT_LABEL_MINIMUM_AGREEMENT_FRACTION = 0.90
 ENDPOINT_LABEL_MINIMUM_ENDPOINT_AGREEMENT_FRACTION = 0.80
 ENDPOINT_LABEL_MINIMUM_ENDPOINT_UNION_FRACTION = 0.01
+ENDPOINT_LABEL_MINIMUM_BOUNDARY_EXCLUDED_VALID_FRACTION = 0.20
 COLLOCATED_ENDPOINT_LABEL_LEVEL_SHAPES = (
     (3, 5, 9),
     (7, 15, 27),
@@ -489,6 +490,9 @@ def run_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> d
         minimum_agreement_fraction=ENDPOINT_LABEL_MINIMUM_AGREEMENT_FRACTION,
         minimum_endpoint_agreement_fraction=ENDPOINT_LABEL_MINIMUM_ENDPOINT_AGREEMENT_FRACTION,
         minimum_endpoint_union_fraction=ENDPOINT_LABEL_MINIMUM_ENDPOINT_UNION_FRACTION,
+        minimum_boundary_excluded_valid_fraction=(
+            ENDPOINT_LABEL_MINIMUM_BOUNDARY_EXCLUDED_VALID_FRACTION
+        ),
     )
     report = _read_json(artifacts.report_json_path)
     return {
@@ -502,6 +506,18 @@ def run_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> d
         "evidence_role": report.get("evidence_role"),
         "target_boundary_projection_suspected": bool(
             report.get("diagnostics", {}).get("target_boundary_projection_suspected", False)
+        ),
+        "minimum_boundary_excluded_valid_fraction_actual": report.get(
+            "minimum_boundary_excluded_valid_fraction_actual"
+        ),
+        "minimum_boundary_excluded_valid_fraction_required": report.get(
+            "minimum_boundary_excluded_valid_fraction_required"
+        ),
+        "boundary_excluded_valid_fraction_passed": bool(
+            report.get("boundary_excluded_valid_fraction_passed", False)
+        ),
+        "target_boundary_only_instability": bool(
+            report.get("diagnostics", {}).get("target_boundary_only_instability", False)
         ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
             "dominant_endpoint_boundary_localization"
@@ -544,6 +560,9 @@ def run_collocated_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSet
         minimum_agreement_fraction=ENDPOINT_LABEL_MINIMUM_AGREEMENT_FRACTION,
         minimum_endpoint_agreement_fraction=ENDPOINT_LABEL_MINIMUM_ENDPOINT_AGREEMENT_FRACTION,
         minimum_endpoint_union_fraction=ENDPOINT_LABEL_MINIMUM_ENDPOINT_UNION_FRACTION,
+        minimum_boundary_excluded_valid_fraction=(
+            ENDPOINT_LABEL_MINIMUM_BOUNDARY_EXCLUDED_VALID_FRACTION
+        ),
         require_three_levels=False,
     )
     report = _read_json(artifacts.report_json_path)
@@ -564,6 +583,18 @@ def run_collocated_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSet
         ),
         "target_boundary_projection_suspected": bool(
             report.get("diagnostics", {}).get("target_boundary_projection_suspected", False)
+        ),
+        "minimum_boundary_excluded_valid_fraction_actual": report.get(
+            "minimum_boundary_excluded_valid_fraction_actual"
+        ),
+        "minimum_boundary_excluded_valid_fraction_required": report.get(
+            "minimum_boundary_excluded_valid_fraction_required"
+        ),
+        "boundary_excluded_valid_fraction_passed": bool(
+            report.get("boundary_excluded_valid_fraction_passed", False)
+        ),
+        "target_boundary_only_instability": bool(
+            report.get("diagnostics", {}).get("target_boundary_only_instability", False)
         ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
             "dominant_endpoint_boundary_localization"

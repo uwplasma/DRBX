@@ -1405,6 +1405,7 @@ def test_endpoint_label_refinement_rejects_vacuous_open_endpoint_population() ->
     assert report["target_boundary_projection_suspected"] is False
     assert report["boundary_excluded_agreement_passed"] is True
     assert report["boundary_excluded_endpoint_agreement_passed"] is True
+    assert report["boundary_excluded_valid_fraction_passed"] is True
     assert report["minimum_boundary_excluded_valid_fraction_actual"] == 1.0
     assert report["minimum_boundary_excluded_agreement_fraction_actual"] == 1.0
     assert report["target_boundary_only_instability"] is False
@@ -1443,6 +1444,8 @@ def test_endpoint_label_refinement_records_endpoint_population_artifacts(tmp_pat
     assert report["diagnostics"]["target_boundary_projection_suspected"] is False
     assert report["diagnostics"]["boundary_excluded_agreement_passed"] is True
     assert report["diagnostics"]["boundary_excluded_endpoint_agreement_passed"] is True
+    assert report["boundary_excluded_valid_fraction_passed"] is True
+    assert report["minimum_boundary_excluded_valid_fraction_required"] == 0.0
     assert report["minimum_boundary_excluded_valid_fraction_actual"] == 1.0
     assert report["minimum_boundary_excluded_agreement_fraction_actual"] == 1.0
     assert report["diagnostics"]["target_boundary_only_instability"] is False
@@ -1477,6 +1480,7 @@ def test_endpoint_label_refinement_classifies_directional_endpoint_mismatch() ->
     assert report["target_boundary_projection_suspected"] is False
     assert report["boundary_excluded_agreement_passed"] is False
     assert report["boundary_excluded_endpoint_agreement_passed"] is False
+    assert report["boundary_excluded_valid_fraction_passed"] is True
     assert report["minimum_boundary_excluded_valid_fraction_actual"] == 1.0
     assert report["minimum_boundary_excluded_agreement_fraction_actual"] == 0.0
     assert report["target_boundary_only_instability"] is False
@@ -1518,6 +1522,7 @@ def test_endpoint_label_refinement_classifies_target_boundary_localized_mismatch
     assert report["target_boundary_projection_suspected"] is True
     assert report["boundary_excluded_agreement_passed"] is True
     assert report["boundary_excluded_endpoint_agreement_passed"] is True
+    assert report["boundary_excluded_valid_fraction_passed"] is True
     assert report["minimum_boundary_excluded_agreement_fraction_actual"] == 1.0
     assert report["target_boundary_only_instability"] is True
     assert "target-boundary projection" in report["projection_recommended_next_action"]
@@ -1527,6 +1532,17 @@ def test_endpoint_label_refinement_classifies_target_boundary_localized_mismatch
     assert pair["mismatch_outside_directional_transition_fraction"] == 0.0
     assert pair["boundary_excluded_label_agreement_fraction"] == 1.0
     assert pair["boundary_excluded_endpoint_agreement_fraction"] == 1.0
+
+    strict_report = imported_fci_campaign.build_essos_imported_endpoint_label_refinement_diagnostics(
+        (coarse, restricted),
+        minimum_agreement_fraction=0.90,
+        minimum_endpoint_agreement_fraction=0.80,
+        minimum_endpoint_union_fraction=0.01,
+        minimum_boundary_excluded_valid_fraction=0.50,
+        require_three_levels=False,
+    )
+    assert strict_report["boundary_excluded_valid_fraction_passed"] is False
+    assert strict_report["target_boundary_only_instability"] is False
 
 
 def test_live_imported_connection_length_refinement_uses_geometry_levels(
