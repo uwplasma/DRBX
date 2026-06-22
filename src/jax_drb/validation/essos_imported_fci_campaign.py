@@ -1085,6 +1085,17 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         endpoint_agreement = endpoint_union & (coarse == restricted)
         valid_count = int(np.sum(valid))
         endpoint_union_count = int(np.sum(endpoint_union))
+        false_positive_fraction = float(np.mean(valid & (coarse == 0) & (restricted > 0)))
+        false_negative_fraction = float(np.mean(valid & (coarse > 0) & (restricted == 0)))
+        directional_mismatch_fraction = float(
+            np.mean(valid & (coarse > 0) & (restricted > 0) & (coarse != restricted))
+        )
+        instability_mode = _endpoint_instability_mode(
+            endpoint_union_fraction=float(np.mean(endpoint_union)),
+            false_positive_fraction=false_positive_fraction,
+            false_negative_fraction=false_negative_fraction,
+            directional_mismatch_fraction=directional_mismatch_fraction,
+        )
         confusion = _endpoint_label_confusion_matrix(coarse, restricted, valid_mask=valid)
         pair_reports.append(
             {
@@ -1103,9 +1114,11 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
                 ),
                 "coarse_endpoint_fraction": float(np.mean((coarse > 0) & valid)),
                 "restricted_endpoint_fraction": float(np.mean((restricted > 0) & valid)),
-                "endpoint_false_positive_fraction": float(np.mean(valid & (coarse == 0) & (restricted > 0))),
-                "endpoint_false_negative_fraction": float(np.mean(valid & (coarse > 0) & (restricted == 0))),
-                "directional_mismatch_fraction": float(np.mean(valid & (coarse > 0) & (restricted > 0) & (coarse != restricted))),
+                "endpoint_false_positive_fraction": false_positive_fraction,
+                "endpoint_false_negative_fraction": false_negative_fraction,
+                "directional_mismatch_fraction": directional_mismatch_fraction,
+                "dominant_instability_mode": instability_mode,
+                "recommended_next_action": _endpoint_instability_next_action(instability_mode),
                 "confusion_matrix": confusion.tolist(),
             }
         )
@@ -1160,6 +1173,10 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         evidence_role = "advisory_two_level_label_gate"
     else:
         evidence_role = "advisory_only"
+    instability_modes = [
+        str(pair["dominant_instability_mode"]) for pair in pair_reports
+    ]
+    dominant_instability_mode = _dominant_endpoint_instability_mode(instability_modes)
     return {
         "diagnostic": "essos_imported_endpoint_label_refinement",
         "label_semantics": "0 none, 1 forward, 2 backward, 3 bidirectional",
@@ -1180,9 +1197,70 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         "promotion_ready": bool(promotion_ready),
         "advisory_only": bool(not promotion_ready and passed),
         "evidence_role": evidence_role,
+        "endpoint_instability_modes": instability_modes,
+        "dominant_endpoint_instability_mode": dominant_instability_mode,
+        "recommended_next_action": _endpoint_instability_next_action(
+            dominant_instability_mode
+        ),
         "promotion_rejection_reasons": rejection_reasons,
         "passed": bool(passed),
     }
+
+
+def _endpoint_instability_mode(
+    *,
+    endpoint_union_fraction: float,
+    false_positive_fraction: float,
+    false_negative_fraction: float,
+    directional_mismatch_fraction: float,
+) -> str:
+    if endpoint_union_fraction <= 0.0:
+        return "no_endpoint_population"
+    candidates = {
+        "endpoint_false_positive": float(false_positive_fraction),
+        "endpoint_false_negative": float(false_negative_fraction),
+        "directional_endpoint_mismatch": float(directional_mismatch_fraction),
+    }
+    mode, value = max(candidates.items(), key=lambda item: item[1])
+    if value <= 0.0:
+        return "stable"
+    return mode
+
+
+def _dominant_endpoint_instability_mode(modes: list[str]) -> str:
+    active = [mode for mode in modes if mode != "stable"]
+    if not active:
+        return "stable"
+    unique_modes = sorted(set(active))
+    return max(unique_modes, key=lambda mode: active.count(mode))
+
+
+def _endpoint_instability_next_action(mode: str) -> str:
+    if mode == "no_endpoint_population":
+        return (
+            "Check the open-field seed region and wall/box classifier; the "
+            "endpoint-label gate has too few target-contact cells to validate "
+            "an open-SOL movie."
+        )
+    if mode == "endpoint_false_positive":
+        return (
+            "Inspect restricted fine-grid wall hits that appear where the "
+            "coarse grid is interior; tighten target projection or compare "
+            "endpoint masks at collocated seed coordinates."
+        )
+    if mode == "endpoint_false_negative":
+        return (
+            "Inspect coarse target cells that disappear after refinement; "
+            "increase tracing horizon or stabilize wall-hit retention near "
+            "target-boundary cells."
+        )
+    if mode == "directional_endpoint_mismatch":
+        return (
+            "Inspect forward/backward target classification and bidirectional "
+            "cells at collocated seeds; the target population exists but the "
+            "exit direction is not stable under refinement."
+        )
+    return "Endpoint labels are stable under the configured nested comparison."
 
 
 def _manufactured_endpoint_label_levels(

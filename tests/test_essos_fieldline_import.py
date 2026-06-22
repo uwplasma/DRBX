@@ -1398,9 +1398,13 @@ def test_endpoint_label_refinement_rejects_vacuous_open_endpoint_population() ->
     assert report["passed"] is False
     assert report["promotion_ready"] is False
     assert report["evidence_role"] == "endpoint_labels_missing_or_underpopulated"
+    assert report["dominant_endpoint_instability_mode"] == "no_endpoint_population"
+    assert report["endpoint_instability_modes"] == ["no_endpoint_population"]
+    assert "too few target-contact cells" in report["recommended_next_action"]
     assert "endpoint_union_fraction_below_threshold" in report["promotion_rejection_reasons"]
     assert report["pair_reports"][0]["endpoint_union_fraction"] == 0.0
     assert report["pair_reports"][0]["endpoint_agreement_fraction"] is None
+    assert report["pair_reports"][0]["dominant_instability_mode"] == "no_endpoint_population"
 
 
 def test_endpoint_label_refinement_records_endpoint_population_artifacts(tmp_path: Path) -> None:
@@ -1423,9 +1427,34 @@ def test_endpoint_label_refinement_records_endpoint_population_artifacts(tmp_pat
     assert report["minimum_endpoint_union_fraction_actual"] == 1.0
     assert report["minimum_endpoint_union_fraction_required"] == 0.5
     assert report["endpoint_presence_passed"] is True
+    assert report["diagnostics"]["dominant_endpoint_instability_mode"] == "stable"
+    assert report["diagnostics"]["endpoint_instability_modes"] == ["stable"]
     assert report["diagnostics"]["minimum_endpoint_union_fraction"] == 0.5
+    assert report["diagnostics"]["pair_reports"][0]["dominant_instability_mode"] == "stable"
     assert arrays["pair_endpoint_union_fraction"].tolist() == [1.0]
     assert artifacts.plot_png_path.exists()
+
+
+def test_endpoint_label_refinement_classifies_directional_endpoint_mismatch() -> None:
+    coarse = np.ones((2, 2, 2), dtype=np.int8)
+    fine = np.full((4, 4, 4), 2, dtype=np.int8)
+
+    report = imported_fci_campaign.build_essos_imported_endpoint_label_refinement_diagnostics(
+        (coarse, fine),
+        minimum_agreement_fraction=0.90,
+        minimum_endpoint_agreement_fraction=0.80,
+        minimum_endpoint_union_fraction=0.01,
+        require_three_levels=False,
+    )
+
+    assert report["passed"] is False
+    assert report["endpoint_presence_passed"] is True
+    assert report["dominant_endpoint_instability_mode"] == "directional_endpoint_mismatch"
+    assert report["endpoint_instability_modes"] == ["directional_endpoint_mismatch"]
+    assert "exit direction is not stable" in report["recommended_next_action"]
+    assert report["pair_reports"][0]["endpoint_union_fraction"] == 1.0
+    assert report["pair_reports"][0]["directional_mismatch_fraction"] == 1.0
+    assert report["pair_reports"][0]["dominant_instability_mode"] == "directional_endpoint_mismatch"
 
 
 def test_live_imported_connection_length_refinement_uses_geometry_levels(

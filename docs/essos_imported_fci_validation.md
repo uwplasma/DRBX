@@ -64,7 +64,11 @@ contact.
 A live rerun with this stricter gate confirms that the blocker is true
 directional endpoint instability rather than missing target contact:
 minimum endpoint-union population is `0.898`, while the minimum all-label and
-endpoint-agreement fractions remain `0.444`.
+endpoint-agreement fractions remain `0.444`. Rebuilding the diagnostic from
+the same live label levels classifies both nested-pair failures as
+`directional_endpoint_mismatch`, so the next direct-coil geometry fix should
+inspect forward/backward target classification and bidirectional cells at
+collocated seeds rather than only increasing endpoint population.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
