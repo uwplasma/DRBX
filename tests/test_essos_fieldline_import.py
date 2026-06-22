@@ -1608,6 +1608,84 @@ def test_endpoint_label_refinement_reports_conservative_projection_agreement() -
     assert pair["conservative_projection_endpoint_false_negative_fraction"] == 0.0
 
 
+def test_endpoint_label_refinement_reports_signed_target_transition_support() -> None:
+    coarse = np.zeros((4, 4, 4), dtype=np.int8)
+    fine = np.zeros((4, 4, 4), dtype=np.int8)
+    coarse[:2, :, :] = 1
+    fine[:3, :, :] = 1
+    coarse_forward_exit = np.where(coarse == 1, 0.25, np.nan)
+    fine_forward_exit = np.where(fine == 1, 0.20, np.nan)
+    coarse_backward_exit = np.full(coarse.shape, np.nan)
+    fine_backward_exit = np.full(fine.shape, np.nan)
+    coordinates = _logical_coordinates((4, 4, 4))
+
+    report = imported_fci_campaign.build_essos_imported_endpoint_label_refinement_diagnostics(
+        (coarse, fine),
+        coordinate_levels=(coordinates, coordinates),
+        forward_target_exit_levels=(coarse_forward_exit, fine_forward_exit),
+        backward_target_exit_levels=(coarse_backward_exit, fine_backward_exit),
+        minimum_agreement_fraction=0.90,
+        minimum_endpoint_agreement_fraction=0.80,
+        minimum_endpoint_union_fraction=0.01,
+        require_three_levels=False,
+    )
+
+    pair = report["pair_reports"][0]
+    assert report["passed"] is False
+    assert report["signed_target_transition_available"] is True
+    assert report["dominant_signed_target_transition_mode"] == "signed_transition_supported"
+    assert report["signed_target_transition_shell_only_instability"] is True
+    assert report["minimum_signed_target_transition_consistency_fraction_actual"] == 1.0
+    assert report["maximum_signed_target_projection_false_positive_fraction_actual"] == 0.0
+    assert pair["signed_target_transition_mode"] == "signed_transition_supported"
+    assert pair["coarse_signed_exit_label_consistency_fraction"] == 1.0
+    assert pair["restricted_signed_exit_label_consistency_fraction"] == 1.0
+    assert pair["signed_target_transition_consistency_fraction"] == 1.0
+    assert pair["signed_target_projection_false_positive_fraction"] == 0.0
+    assert "target transition-shell" in pair[
+        "signed_target_transition_recommended_next_action"
+    ]
+
+
+def test_endpoint_label_refinement_reports_signed_projection_false_positive() -> None:
+    coarse = np.zeros((4, 4, 4), dtype=np.int8)
+    fine = np.zeros((4, 4, 4), dtype=np.int8)
+    coarse[:2, :, :] = 1
+    fine[:3, :, :] = 1
+    coarse_forward_exit = np.where(coarse == 1, 0.25, np.nan)
+    fine_forward_exit = np.where(np.indices(fine.shape)[0] < 2, 0.20, np.nan)
+    coarse_backward_exit = np.full(coarse.shape, np.nan)
+    fine_backward_exit = np.full(fine.shape, np.nan)
+    coordinates = _logical_coordinates((4, 4, 4))
+
+    report = imported_fci_campaign.build_essos_imported_endpoint_label_refinement_diagnostics(
+        (coarse, fine),
+        coordinate_levels=(coordinates, coordinates),
+        forward_target_exit_levels=(coarse_forward_exit, fine_forward_exit),
+        backward_target_exit_levels=(coarse_backward_exit, fine_backward_exit),
+        minimum_agreement_fraction=0.90,
+        minimum_endpoint_agreement_fraction=0.80,
+        minimum_endpoint_union_fraction=0.01,
+        require_three_levels=False,
+    )
+
+    pair = report["pair_reports"][0]
+    assert report["signed_target_transition_available"] is True
+    assert (
+        report["dominant_signed_target_transition_mode"]
+        == "nearest_projection_false_positive"
+    )
+    assert report["signed_target_transition_shell_only_instability"] is False
+    assert report["minimum_signed_target_transition_consistency_fraction_actual"] == 0.0
+    assert report["maximum_signed_target_projection_false_positive_fraction_actual"] == 1.0
+    assert pair["signed_target_transition_mode"] == "nearest_projection_false_positive"
+    assert pair["signed_target_projection_false_positive_fraction"] == 1.0
+    assert pair["signed_target_transition_consistency_fraction"] == 0.0
+    assert "not supported by finite signed target-exit lengths" in pair[
+        "signed_target_transition_recommended_next_action"
+    ]
+
+
 def test_live_imported_connection_length_refinement_uses_geometry_levels(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

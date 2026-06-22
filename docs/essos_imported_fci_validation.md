@@ -141,6 +141,37 @@ diagnostics that separate real forward/backward target hits from
 nearest-projection false positives before any pure-coil open-field movie is
 promoted.
 
+That signed diagnostic is now part of the endpoint-label report schema. Live
+endpoint-label levels carry the same forward and backward target-exit length
+arrays used by the open-field map, and each nested comparison checks whether
+the categorical forward/backward endpoint bits are supported by finite signed
+target-exit evidence at the same coarse/fine projected samples. The report
+records `dominant_signed_target_transition_mode`; the important modes are
+`signed_transition_supported`, which means the mismatch is backed by physical
+target-exit evidence and should be treated as a target-transition-shell
+resolution/classification problem, and `nearest_projection_false_positive`,
+which means a projected fine endpoint bit is not backed by finite signed
+target-exit evidence and should be treated as a projection or wall-hit
+retention bug. The next live direct-coil run should use this field, together
+with the boundary-excluded agreement and projection-neighborhood metrics, to
+choose the geometry repair before any pure-coil movie is promoted.
+
+The first live signed rerun used the boundary-resolved `(7, 15, 27) ->
+(11, 25, 45)` direct-coil grids. It keeps pure-coil media diagnostic because
+the full endpoint-label agreement is `0.762`, below the `0.80` threshold. It
+also makes the next implementation choice sharper: the signed mode is
+`signed_transition_supported`, with signed transition consistency `0.981`,
+projection false-positive fraction `0.0187`, coarse label/exits consistency
+`1.0`, and restricted fine label/exits consistency `0.977`. Together with
+boundary-excluded endpoint agreement `1.0`, endpoint-mismatch neighborhood
+support `0.855`, and conservative-projection endpoint agreement only `0.660`,
+this identifies the remaining pure-coil blocker as a signed
+target-transition-shell resolution/classification problem rather than a bulk
+field-map failure or broad projection/dilation issue. The live report sets
+`signed_target_transition_shell_only_instability = true`, which is the
+diagnostic state that should trigger the next signed transition-shell
+refinement/classification implementation.
+
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
 script follows the same top-level-parameter style as the SIMSOPT examples:
