@@ -107,6 +107,16 @@ coverage requirement of `0.20`; the same live run fails that requirement while
 passing boundary-excluded agreement. The next promoted pure-coil gate must use
 a target projection or grid choice with enough non-boundary interior support,
 not merely perfect agreement on a tiny interior subset.
+A larger live endpoint-label comparison using `(7, 15, 27) -> (11, 25, 45)`
+grids is the current boundary-resolved diagnostic target. It gives enough
+interior support for this criterion, with boundary-excluded valid fraction
+`0.248` and boundary-excluded all-label and endpoint-label agreement `1.0`.
+The full endpoint-label gate still fails, with endpoint agreement `0.763`,
+because the mismatch remains concentrated on the target transition shell. This
+is positive evidence for the bulk direct-coil FCI map and negative evidence
+for the current target-boundary projection. Pure-coil open-SOL media therefore
+remains diagnostic until the target projection, adjacent-step refinement, and
+consumed source/profile gates pass on the same map.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
