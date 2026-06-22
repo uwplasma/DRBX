@@ -113,9 +113,13 @@ The current lane is split into small, directly tested modules:
 - `FciDrbState` and `compute_fci_drb_rhs` assemble the first transformable
   PyTree RHS surface combining target, neutral, and vorticity components. The
   compact RHS now threads the same Boussinesq/non-Boussinesq potential-solve
-  switch used by the vorticity component gate. The focused regression suite
-  checks that this combined state supports `jax.jvp`, `jax.vmap`, and
-  multi-device execution when more than one local device is available.
+  switch used by the vorticity component gate and an opt-in potential-fed
+  plasma \(E\times B\) advection path. That advection path acts on charged
+  density, pressure, ion parallel momentum, and vorticity; neutral gas fields
+  remain controlled by neutral diffusion and reaction closures. The focused
+  regression suite checks that this combined state supports `jax.jvp`,
+  `jax.vmap`, and multi-device execution when more than one local device is
+  available.
 
 The design rule is that geometry data and field-line maps are ordinary Python
 objects holding arrays that can be consumed by JAX kernels. The next refactor
@@ -368,9 +372,11 @@ The PyTree DRB campaign currently passes:
 - Boussinesq versus non-Boussinesq potential relative difference on the same
   state: about `1.04e-1`;
 - RHS source-state difference when only the potential model is switched:
-  below display precision, because the compact RHS currently exposes the
-  potential solve as a diagnostic seam rather than feeding it back into
-  \(E\times B\) advection;
+  below display precision when potential feedback is disabled, preserving the
+  old diagnostic-only default;
+- potential-fed ExB gate: the same Boussinesq/non-Boussinesq switch changes
+  plasma RHS terms when `plasma_exb_advection_strength > 0`, leaves neutral
+  ExB terms absent, and passes a JVP-versus-finite-difference objective gate;
 - density-over-\(B^2\) contrast in the compact PyTree state: about `4.74`;
 - local CPU warmed campaign time: about `2.1e-2` seconds for the documentation
   grid;
@@ -508,8 +514,9 @@ The dynamics plot and movie are a compact 3D showcase. The positive skewness,
 finite kurtosis, and radial localization metrics show that the field is not a
 static coloring of a torus. The benchmark is still a reduced scalar model, so
 the correct claim is that the geometry/operator/sheath/movie pipeline is now
-native and tested. The next physics claim requires a potential solve,
-source-driven steady state, neutral closures, and imported geometry validation.
+native and tested. The next broader physics claim requires carrying the
+potential-fed ExB path, source-driven steady state, neutral closures, and grid
+or timestep validation onto imported geometry.
 
 ## Remaining Gates
 

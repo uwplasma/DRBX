@@ -236,9 +236,13 @@ variable-coefficient operator differs from the Boussinesq operator by about
 JVP relative error about `6.4e-14`, `vmap` serial mismatch about `8.9e-16`, and
 a non-Boussinesq objective JVP relative error about `2.9e-9`. The same compact
 RHS route shows about `1.04e-1` relative potential difference between the two
-polarization choices while leaving source-array RHS terms unchanged, because
-the current compact transient exposes the potential solve before feeding it
-back into full nonlinear \(E\times B\) advection.
+polarization choices when the potential is inspected alone. It now also has an
+opt-in potential-fed \(E\times B\) path: the selected potential advects plasma
+density, pressure, ion parallel momentum, and vorticity, while neutral gas
+fields remain controlled by neutral diffusion/reaction closures. The current
+gate checks that the Boussinesq/non-Boussinesq potential choice changes plasma
+RHS terms, leaves neutral ExB terms absent, and remains compatible with
+`jax.jvp`.
 
 ## Geometry And Metric Equations
 
@@ -551,10 +555,10 @@ remaining production closures should be implemented as separate gates:
 4. Expand the current neutral density/pressure/reaction gate to mixed neutral
    momentum, finite wall interaction length, recycling source deposition, and
    imported target masks.
-5. Route the now-tested Boussinesq and non-Boussinesq vorticity/potential
-   operators from the compact FCI RHS into the promoted imported-field and
-   open-SOL examples, then add implicit solve/preconditioner gates for the
-   larger imported-field problem.
+5. Route the now-tested Boussinesq and non-Boussinesq vorticity/potential and
+   potential-fed plasma \(E\times B\) advection operators from the compact FCI
+   RHS into the promoted imported-field and open-SOL examples, then add
+   implicit solve/preconditioner gates for the larger imported-field problem.
 6. Expand the compact `fci_drb_rhs.py` PyTree RHS into the production
    fixed-layout residual with target-normal boundary terms, full parallel
    momentum advection, pressure advection/compression, curvature drive, and

@@ -240,12 +240,15 @@ The compact combined state in `native/fci_drb_rhs.py` is the first PyTree RHS
 surface for this lane; it is intentionally small, but already combines the
 target, neutral, and vorticity components in a form that can be passed through
 `jax.jvp`. That compact RHS now threads the Boussinesq/non-Boussinesq
-polarization switch through the potential solve, and the PyTree campaign
-checks the non-Boussinesq objective with a JVP-versus-finite-difference gate.
-The present compact transient still treats that potential as a diagnostic seam:
-the next physics step is to feed the selected potential into the full nonlinear
-\(E\times B\) bracket for density, pressure, and vorticity advection on the
-same FCI maps.
+polarization switch through the potential solve and exposes an opt-in
+potential-fed \(E\times B\) advection path for charged-fluid density,
+pressure, ion parallel momentum, and vorticity. Neutral gas density, pressure,
+and momentum are deliberately not ExB-advected in this compact closure; they
+remain controlled by neutral diffusion and reaction terms. The PyTree campaign
+checks both the non-Boussinesq objective and the potential-feedback objective
+with JVP-versus-finite-difference gates. The next physics step is to carry the
+same selected-potential advection path through promoted imported-field and
+open-SOL examples with grid, timestep, source-accounting, and movie-QA gates.
 
 ## Numerical Algorithms
 

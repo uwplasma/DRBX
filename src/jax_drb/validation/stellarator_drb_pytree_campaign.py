@@ -164,6 +164,9 @@ def build_stellarator_drb_pytree_campaign(
         and report["non_boussinesq_jvp_relative_error"] < 5.0e-3
         and report["boussinesq_non_boussinesq_potential_relative_l2"] > 1.0e-4
         and report["boussinesq_non_boussinesq_rhs_state_linf"] < 1.0e-12
+        and report["potential_feedback_plasma_rhs_linf"] > 1.0e-8
+        and report["potential_feedback_neutral_rhs_linf"] < 1.0e-12
+        and report["potential_feedback_jvp_relative_error"] < 5.0e-3
         and vmap_serial_linf < 1.0e-8
         and report["warm_execute_seconds"] > 0.0
     )
@@ -243,6 +246,36 @@ def _build_boussinesq_model_switch_gate(
         boussinesq_result.rhs,
         non_boussinesq_result.rhs,
     )
+    feedback_strength = 4.0e-2
+    boussinesq_feedback_parameters = replace(
+        boussinesq_parameters,
+        plasma_exb_advection_strength=feedback_strength,
+    )
+    non_boussinesq_feedback_parameters = replace(
+        non_boussinesq_parameters,
+        plasma_exb_advection_strength=feedback_strength,
+    )
+    boussinesq_feedback_result = compute_fci_drb_rhs(
+        initial,
+        maps=geometry.maps,
+        metric=geometry.metric,
+        parameters=boussinesq_feedback_parameters,
+    )
+    non_boussinesq_feedback_result = compute_fci_drb_rhs(
+        initial,
+        maps=geometry.maps,
+        metric=geometry.metric,
+        parameters=non_boussinesq_feedback_parameters,
+    )
+    _block_until_ready((boussinesq_feedback_result, non_boussinesq_feedback_result))
+    feedback_plasma_linf = _plasma_linf_difference(
+        boussinesq_feedback_result.rhs,
+        non_boussinesq_feedback_result.rhs,
+    )
+    feedback_neutral_linf = _neutral_linf_difference(
+        boussinesq_feedback_result.rhs,
+        non_boussinesq_feedback_result.rhs,
+    )
     coefficient = np.asarray(
         initial.ion_density / jnp.maximum(jnp.square(geometry.metric.Bxy), 1.0e-30),
         dtype=np.float64,
@@ -270,6 +303,27 @@ def _build_boussinesq_model_switch_gate(
         jnp.abs(derivative - finite_difference)
         / jnp.maximum(jnp.abs(finite_difference), 1.0e-14)
     )
+    feedback_objective = _build_objective(
+        geometry,
+        parameters=non_boussinesq_feedback_parameters,
+        dt=dt,
+        steps=steps,
+    )
+    feedback_value, feedback_derivative = jax.jvp(
+        feedback_objective,
+        (jnp.asarray(1.0, dtype=jnp.float64),),
+        (jnp.asarray(1.0, dtype=jnp.float64),),
+    )
+    _block_until_ready((feedback_value, feedback_derivative))
+    feedback_finite_difference = (
+        feedback_objective(1.0 + eps)
+        - feedback_objective(1.0 - eps)
+    ) / (2.0 * eps)
+    _block_until_ready(feedback_finite_difference)
+    feedback_jvp_relative_error = float(
+        jnp.abs(feedback_derivative - feedback_finite_difference)
+        / jnp.maximum(jnp.abs(feedback_finite_difference), 1.0e-14)
+    )
     report = {
         "boussinesq_gate_potential_boussinesq": bool(boussinesq_parameters.potential_boussinesq),
         "non_boussinesq_gate_potential_boussinesq": bool(
@@ -284,11 +338,31 @@ def _build_boussinesq_model_switch_gate(
         "non_boussinesq_jvp_derivative": float(derivative),
         "non_boussinesq_finite_difference_derivative": float(finite_difference),
         "non_boussinesq_jvp_relative_error": jvp_relative_error,
+        "potential_feedback_strength": feedback_strength,
+        "potential_feedback_boussinesq_rhs_state_linf": _state_linf_difference(
+            boussinesq_result.rhs,
+            boussinesq_feedback_result.rhs,
+        ),
+        "potential_feedback_non_boussinesq_rhs_state_linf": _state_linf_difference(
+            non_boussinesq_result.rhs,
+            non_boussinesq_feedback_result.rhs,
+        ),
+        "potential_feedback_plasma_rhs_linf": feedback_plasma_linf,
+        "potential_feedback_neutral_rhs_linf": feedback_neutral_linf,
+        "potential_feedback_jvp_objective_value": float(feedback_value),
+        "potential_feedback_jvp_derivative": float(feedback_derivative),
+        "potential_feedback_finite_difference_derivative": float(feedback_finite_difference),
+        "potential_feedback_jvp_relative_error": feedback_jvp_relative_error,
     }
     arrays = {
         "boussinesq_potential_slice": boussinesq_potential[:, 0, :].astype(np.float32),
         "non_boussinesq_potential_slice": non_boussinesq_potential[:, 0, :].astype(np.float32),
         "potential_model_difference_slice": potential_difference[:, 0, :].astype(np.float32),
+        "potential_feedback_plasma_rhs_difference_slice": np.asarray(
+            non_boussinesq_feedback_result.rhs.ion_density
+            - boussinesq_feedback_result.rhs.ion_density,
+            dtype=np.float64,
+        )[:, 0, :].astype(np.float32),
         "density_over_b_squared_slice": coefficient[:, 0, :].astype(np.float32),
         "model_switch_summary": np.asarray(
             [
@@ -298,6 +372,9 @@ def _build_boussinesq_model_switch_gate(
                 rhs_state_linf,
                 jvp_relative_error,
                 coefficient_contrast,
+                feedback_plasma_linf,
+                feedback_neutral_linf,
+                feedback_jvp_relative_error,
             ],
             dtype=np.float32,
         ),
@@ -410,6 +487,8 @@ def save_stellarator_drb_pytree_plot(
                 f"rel. L2 = {report['boussinesq_non_boussinesq_potential_relative_l2']:.2e}",
                 f"non-Bq JVP err = {report['non_boussinesq_jvp_relative_error']:.1e}",
                 f"n/B^2 contrast = {report['density_over_b_squared_contrast']:.2f}",
+                f"ExB plasma RHS = {report['potential_feedback_plasma_rhs_linf']:.1e}",
+                f"ExB JVP err = {report['potential_feedback_jvp_relative_error']:.1e}",
             ]
         ),
         transform=axes[2, 2].transAxes,
@@ -437,6 +516,33 @@ def _state_linf_difference(left: FciDrbState, right: FciDrbState) -> float:
             jax.tree_util.tree_leaves(left),
             jax.tree_util.tree_leaves(right),
             strict=True,
+        )
+    ]
+    return max(differences, default=0.0)
+
+
+def _plasma_linf_difference(left: FciDrbState, right: FciDrbState) -> float:
+    differences = [
+        float(np.max(np.abs(np.asarray(left_leaf) - np.asarray(right_leaf))))
+        for left_leaf, right_leaf in (
+            (left.ion_density, right.ion_density),
+            (left.electron_density, right.electron_density),
+            (left.ion_pressure, right.ion_pressure),
+            (left.electron_pressure, right.electron_pressure),
+            (left.ion_momentum, right.ion_momentum),
+            (left.vorticity, right.vorticity),
+        )
+    ]
+    return max(differences, default=0.0)
+
+
+def _neutral_linf_difference(left: FciDrbState, right: FciDrbState) -> float:
+    differences = [
+        float(np.max(np.abs(np.asarray(left_leaf) - np.asarray(right_leaf))))
+        for left_leaf, right_leaf in (
+            (left.neutral_density, right.neutral_density),
+            (left.neutral_pressure, right.neutral_pressure),
+            (left.neutral_momentum, right.neutral_momentum),
         )
     ]
     return max(differences, default=0.0)

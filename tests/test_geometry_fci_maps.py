@@ -321,6 +321,87 @@ def test_fci_drb_rhs_potential_boussinesq_switch_changes_potential_only() -> Non
     assert rhs_difference < 1.0e-12
 
 
+def test_fci_drb_rhs_potential_feedback_changes_plasma_rhs_and_is_jvp_safe() -> None:
+    geometry = build_synthetic_stellarator_geometry(nx=6, ny=5, nz=10)
+    radial = geometry.radial
+    theta = geometry.poloidal_angle
+    phi = geometry.toroidal_angle
+    state = FciDrbState(
+        ion_density=1.0 + 0.35 * radial + 0.08 * jnp.cos(theta - 2.0 * phi),
+        electron_density=1.0 + 0.32 * radial + 0.06 * jnp.sin(theta + phi),
+        neutral_density=0.2 + 0.1 * radial,
+        ion_pressure=(0.08 + 0.02 * radial) * (1.0 + 0.04 * jnp.cos(2.0 * theta)),
+        electron_pressure=(0.10 + 0.03 * radial) * (1.0 + 0.03 * jnp.sin(theta - phi)),
+        neutral_pressure=0.01 + 0.003 * radial,
+        ion_momentum=0.02 * jnp.cos(2.0 * theta - 5.0 * phi),
+        neutral_momentum=0.01 * jnp.sin(theta - 5.0 * phi),
+        vorticity=0.04 * jnp.sin(2.0 * theta - 5.0 * phi) + 0.01 * jnp.cos(theta + phi),
+    )
+    common = {
+        "potential_iterations": 10,
+        "plasma_exb_advection_strength": 0.04,
+    }
+    boussinesq = compute_fci_drb_rhs(
+        state,
+        maps=geometry.maps,
+        metric=geometry.metric,
+        parameters=FciDrbRhsParameters(potential_boussinesq=True, **common),
+    )
+    non_boussinesq = compute_fci_drb_rhs(
+        state,
+        maps=geometry.maps,
+        metric=geometry.metric,
+        parameters=FciDrbRhsParameters(potential_boussinesq=False, **common),
+    )
+    plasma_difference = max(
+        float(jnp.max(jnp.abs(left - right)))
+        for left, right in (
+            (boussinesq.rhs.ion_density, non_boussinesq.rhs.ion_density),
+            (boussinesq.rhs.electron_density, non_boussinesq.rhs.electron_density),
+            (boussinesq.rhs.ion_pressure, non_boussinesq.rhs.ion_pressure),
+            (boussinesq.rhs.electron_pressure, non_boussinesq.rhs.electron_pressure),
+            (boussinesq.rhs.ion_momentum, non_boussinesq.rhs.ion_momentum),
+            (boussinesq.rhs.vorticity, non_boussinesq.rhs.vorticity),
+        )
+    )
+    neutral_difference = max(
+        float(jnp.max(jnp.abs(left - right)))
+        for left, right in (
+            (boussinesq.rhs.neutral_density, non_boussinesq.rhs.neutral_density),
+            (boussinesq.rhs.neutral_pressure, non_boussinesq.rhs.neutral_pressure),
+            (boussinesq.rhs.neutral_momentum, non_boussinesq.rhs.neutral_momentum),
+        )
+    )
+
+    assert plasma_difference > 1.0e-8
+    assert neutral_difference < 1.0e-12
+
+    tangent = jax.tree_util.tree_map(lambda value: jnp.ones_like(value) * 1.0e-3, state)
+
+    def objective(candidate: FciDrbState) -> jnp.ndarray:
+        result = compute_fci_drb_rhs(
+            candidate,
+            maps=geometry.maps,
+            metric=geometry.metric,
+            parameters=FciDrbRhsParameters(
+                potential_iterations=8,
+                plasma_exb_advection_strength=0.04,
+                potential_boussinesq=False,
+            ),
+        )
+        return (
+            jnp.sum(result.rhs.ion_density)
+            + jnp.sum(result.rhs.electron_pressure)
+            + jnp.sum(result.rhs.vorticity)
+            + result.potential_residual_l2
+        )
+
+    value, derivative = jax.jvp(objective, (state,), (tangent,))
+
+    assert bool(jnp.isfinite(value))
+    assert bool(jnp.isfinite(derivative))
+
+
 def _identity_metric_3d(*, nx: int, ny: int, nz: int) -> MetricTensor3D:
     shape = (nx, ny, nz)
     ones = jnp.ones(shape, dtype=jnp.float64)
