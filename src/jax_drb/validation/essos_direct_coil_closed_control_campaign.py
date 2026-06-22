@@ -176,6 +176,7 @@ def build_essos_direct_coil_closed_control_campaign(
         )
         inputs = {
             "source": "user supplied direct-coil closed-control traces",
+            "source_mode": "provided_trace_bundle",
             "live_essos": False,
             "trajectories_xyz": trajectories,
             "initial_xyz": np.asarray(initial_xyz, dtype=np.float64),
@@ -1365,7 +1366,12 @@ def _build_closed_control_from_inputs(
     report: dict[str, Any] = {
         "case": "essos_direct_coil_closed_control",
         "source": inputs["source"],
-        "source_mode": "live_essos" if inputs["live_essos"] else "self_contained_contract",
+        "source_mode": str(
+            inputs.get(
+                "source_mode",
+                "live_essos" if inputs["live_essos"] else "self_contained_contract",
+            )
+        ),
         "claim_scope": (
             "Direct-coil closed/near-closed field-line diagnostic. This report "
             "classifies return-map behavior and deliberately does not apply "

@@ -66,6 +66,15 @@ movie flags, and a `closed_control_media_ready` flag. It also records
 `open_sol_publication_ready = false`, because this trace bundle has no endpoint
 mask, target sheath, recycling source, or neutral-loss channel.
 
+When a restored or precomputed live trace bundle is supplied directly through
+the validation API, the reports now preserve that provenance with
+`source_mode = "provided_trace_bundle"`. This is distinct from the
+self-contained manufactured fixture and from a fresh `use_live_essos = True`
+trace. The distinction matters for paper and README evidence: a transient made
+from a restored live Landreman-Paul QA trace bundle can support closed-field
+geometry/control claims, while the manufactured default remains a clean-clone
+tutorial fixture.
+
 ## Run The Live Direct-Coil Control
 
 To use the Landreman-Paul QA coil JSON from an ESSOS checkout, edit the top of
@@ -151,6 +160,24 @@ closed-trace transient and fixed-camera GIF. That media closes the local
 closed-control tutorial gap, but it remains a closed-field diagnostic unless a
 future live direct-coil run and frame-by-frame visual QA are promoted for the
 README.
+
+A follow-up local QA pass reused the same live Landreman-Paul QA trace bundle
+to generate the reduced closed-trace transient without retracing the field
+lines. The transient report preserved `source_mode = "provided_trace_bundle"`,
+used 16 field lines and 14 output frames, and passed the closed-control media
+gate:
+
+- Mass relative drift: `1.5e-16`
+- Final fluctuation RMS: `3.99e-2`
+- Temporal RMS change: `5.07e-3`
+- Final density range: `[0.908, 1.100]`
+- Movie visual QA: `True`
+- Open-SOL publication ready: `False`
+
+The regenerated plot and GIF contact sheet show fixed camera and color limits
+with no obvious frame jitter. This result moves the direct-coil closed-control
+lane forward as closed-field geometry/control evidence, but it still does not
+validate endpoint masks, sheath losses, target recycling, or neutral losses.
 
 ## Why This Gate Exists
 

@@ -463,10 +463,12 @@ Run the direct-coil closed/near-closed control. The default command is
 self-contained and classifies manufactured non-axisymmetric traces. It now
 writes both a base return-map/Poincare report and a refinement report that
 checks whether closed/near-closed classification, same-section return distance,
-and Poincare sampling remain stable as seed and trace samples increase. Set
+and Poincare sampling remain stable as seed and trace samples increase. It
+also writes a reduced closed-trace transient plot and GIF. Set
 `RUN_LIVE_ESSOS = True` in the script to classify live Landreman-Paul QA
-direct-coil traces from ESSOS. This remains a closed-field diagnostic and does
-not apply target, sheath, recycling, or neutral semantics:
+direct-coil traces from ESSOS, or reuse a restored live trace bundle through
+the validation API. This remains a closed-field diagnostic and does not apply
+target, sheath, recycling, or neutral semantics:
 
 ```bash
 PYTHONPATH=src python \

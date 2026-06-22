@@ -1751,6 +1751,47 @@ def test_essos_direct_coil_closed_control_separates_diagnostic_from_promotion(tm
     assert report["target_semantics_applied"] is False
 
 
+def test_essos_direct_coil_closed_control_preserves_supplied_trace_provenance(tmp_path: Path) -> None:
+    time = np.linspace(0.0, 4.0 * np.pi, 160)
+    trajectories = []
+    initial = []
+    for index, radius in enumerate((1.20, 1.32, 1.44)):
+        x = radius * np.cos(time)
+        y = radius * np.sin(time)
+        z = 0.08 * np.sin(time + 0.4 * index)
+        line = np.stack([x, y, z], axis=-1)
+        trajectories.append(line)
+        initial.append(line[0])
+
+    base = create_essos_direct_coil_closed_control_package(
+        output_root=tmp_path / "provided_trace_control",
+        trajectories_xyz=np.asarray(trajectories),
+        initial_xyz=np.asarray(initial),
+        times=time,
+        poincare_sections=(0.0, np.pi),
+        minimum_closed_or_near_fraction=0.50,
+    )
+    base_report = json.loads(base.report_json_path.read_text(encoding="utf-8"))
+    assert base_report["source_mode"] == "provided_trace_bundle"
+    assert base_report["source"] == "user supplied direct-coil closed-control traces"
+
+    transient = create_essos_direct_coil_closed_control_transient_package(
+        output_root=tmp_path / "provided_trace_transient",
+        trajectories_xyz=np.asarray(trajectories),
+        initial_xyz=np.asarray(initial),
+        times=time,
+        poincare_sections=(0.0, np.pi),
+        minimum_closed_or_near_fraction=0.50,
+        frames=3,
+        substeps_per_frame=1,
+        samples_per_line=48,
+        write_movie=False,
+    )
+    transient_report = json.loads(transient.report_json_path.read_text(encoding="utf-8"))
+    assert transient_report["source_mode"] == "provided_trace_bundle"
+    assert transient_report["open_sol_publication_ready"] is False
+
+
 def test_essos_direct_coil_closed_control_refinement_package_is_stable(tmp_path: Path) -> None:
     artifacts = create_essos_direct_coil_closed_control_refinement_package(
         output_root=tmp_path / "essos_direct_coil_closed_control_refinement",
