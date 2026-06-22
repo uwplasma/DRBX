@@ -103,10 +103,11 @@ The current lane is split into small, directly tested modules:
   ionisation, recombination, and charge-exchange source accounting on the same
   geometry.
 - `apply_fci_vorticity_operator` and `solve_fci_vorticity_potential_cg` add
-  the first non-axisymmetric metric-weighted vorticity/potential inversion and
-  radial \(E\times B\) proxy. The solver default remains fixed-iteration CG;
-  an opt-in `preconditioner="jacobi"` path applies a conservative diagonal
-  approximation to the perpendicular operator and is gated by a manufactured
+  the first non-axisymmetric metric-weighted vorticity/potential inversion,
+  radial \(E\times B\) proxy, and Boussinesq versus non-Boussinesq
+  polarization gate. The solver default remains fixed-iteration CG; an opt-in
+  `preconditioner="jacobi"` path applies a conservative diagonal approximation
+  to the perpendicular operator and is gated by a manufactured
   residual-reduction test before it is used for larger imported-field movie
   residual probes.
 - `FciDrbState` and `compute_fci_drb_rhs` assemble the first transformable
@@ -238,15 +239,25 @@ Charge exchange exchanges ion and neutral momentum and thermal energy while
 leaving particle number unchanged. The campaign therefore checks particle and
 momentum conservation separately from the metric-weighted diffusion integral.
 
-The first vorticity gate solves
+The first vorticity gate solves the perpendicular polarization relation
 
 ```text
-Omega = - div_perp((n / B^2) grad_perp phi)
+Omega = - div_perp(K_pol grad_perp phi)
+K_pol = <n / B^2>      (Boussinesq)
+K_pol = n / B^2        (non-Boussinesq)
 ```
 
 with a mean-free conjugate-gradient inversion on the metric-weighted
-perpendicular operator. This is the numerical seam needed before replacing
-the reduced radial-flux proxy with a true \(E\times B\) transport diagnostic.
+perpendicular operator. The Boussinesq form freezes the polarization
+coefficient at the grid mean used by the implementation, while the
+non-Boussinesq form keeps the local density and magnetic-field modulation. The
+campaign now verifies
+both inversions against the same manufactured potential, checks that the
+variable-coefficient operator differs from the Boussinesq operator on a
+nonuniform density field, and checks that both forms collapse to the same
+discrete operator when \(n/B^2\) is constant. This is the numerical seam needed
+before replacing the reduced radial-flux proxy with a true \(E\times B\)
+transport diagnostic.
 The native nonlinear advection seam now exposes the logical perpendicular
 bracket used by the pedagogical vorticity example:
 
@@ -331,8 +342,15 @@ The neutral physics campaign currently passes:
 
 The vorticity/potential campaign currently passes:
 
-- relative potential reconstruction error: about `1.30e-3`;
-- relative residual: about `2.01e-4`;
+- Boussinesq relative potential reconstruction error: about `1.30e-3`;
+- non-Boussinesq relative potential reconstruction error: about `1.44e-3`;
+- Boussinesq relative residual: about `2.04e-4`;
+- non-Boussinesq relative residual: about `4.76e-4`;
+- variable-coefficient operator difference: about `0.365` relative to the
+  Boussinesq operator;
+- constant-\(n/B^2\) Boussinesq/non-Boussinesq operator mismatch:
+  about `1.66e-10`;
+- density-over-\(B^2\) contrast in the manufactured probe: about `3.11`;
 - radial \(E\times B\) proxy RMS: about `1.04`.
 
 ![Stellarator vorticity validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__vorticity__images__stellarator_vorticity_campaign.png)

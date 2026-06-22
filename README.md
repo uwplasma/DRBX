@@ -244,6 +244,9 @@ The current promoted matrix includes:
 - exact compact 2D blob, drift-wave, and tokamak lanes,
 - exact and operational recycling lanes with external-reference gates,
 - native 3D reduced tokamak, traced-field-line, and stellarator selected-field bundles,
+- non-axisymmetric FCI vorticity gates that compare Boussinesq and
+  non-Boussinesq perpendicular polarization and verify their constant-\(n/B^2\)
+  limit,
 - control, reaction, impurity, neutral, and profiling campaign packages.
 
 The detailed status surface lives in:

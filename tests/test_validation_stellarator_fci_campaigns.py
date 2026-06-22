@@ -84,6 +84,55 @@ def test_fci_vorticity_jacobi_preconditioner_reduces_fixed_budget_residual() -> 
     assert float(jacobi.residual_l2) < 0.75 * float(unpreconditioned.residual_l2)
 
 
+def test_fci_vorticity_boussinesq_non_boussinesq_limit_and_contrast() -> None:
+    geometry = build_synthetic_stellarator_geometry(nx=8, ny=6, nz=14)
+    phi = (
+        jnp.sin(jnp.pi * geometry.radial)
+        * jnp.cos(2.0 * geometry.poloidal_angle - 3.0 * geometry.toroidal_angle)
+        + 0.15
+        * geometry.radial
+        * jnp.sin(geometry.poloidal_angle + 2.0 * geometry.toroidal_angle)
+    )
+    variable_density = (
+        1.0
+        + 0.40 * geometry.radial
+        + 0.12 * jnp.cos(geometry.poloidal_angle - geometry.toroidal_angle)
+    )
+    boussinesq = apply_fci_vorticity_operator(
+        phi,
+        variable_density,
+        geometry.metric,
+        boussinesq=True,
+    )
+    non_boussinesq = apply_fci_vorticity_operator(
+        phi,
+        variable_density,
+        geometry.metric,
+        boussinesq=False,
+    )
+    relative_difference = np.linalg.norm(np.asarray(non_boussinesq - boussinesq)) / max(
+        np.linalg.norm(np.asarray(boussinesq)),
+        1.0e-30,
+    )
+
+    constant_coefficient_density = 2.3 * jnp.square(geometry.metric.Bxy)
+    constant_boussinesq = apply_fci_vorticity_operator(
+        phi,
+        constant_coefficient_density,
+        geometry.metric,
+        boussinesq=True,
+    )
+    constant_non_boussinesq = apply_fci_vorticity_operator(
+        phi,
+        constant_coefficient_density,
+        geometry.metric,
+        boussinesq=False,
+    )
+
+    assert relative_difference > 5.0e-2
+    assert np.max(np.abs(np.asarray(constant_boussinesq - constant_non_boussinesq))) < 1.0e-10
+
+
 def test_imported_fci_example_resolves_source_specific_artifact_defaults(capsys) -> None:
     module = _load_imported_fci_campaign_example()
 
@@ -980,6 +1029,11 @@ def test_stellarator_vorticity_campaign_generates_inversion_metrics(tmp_path: Pa
     assert report["passed"] is True
     assert report["relative_l2_potential_error"] < 2.5e-2
     assert report["relative_residual_l2"] < 5.0e-3
+    assert report["boussinesq_relative_l2_potential_error"] < 2.5e-2
+    assert report["non_boussinesq_relative_l2_potential_error"] < 2.5e-2
+    assert report["operator_difference_relative_l2"] > 5.0e-2
+    assert report["constant_coefficient_operator_linf"] < 1.0e-8
+    assert report["density_over_b_squared_contrast"] > 1.0
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()
 
