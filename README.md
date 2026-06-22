@@ -11,19 +11,31 @@
 [![JAX](https://img.shields.io/badge/JAX-enabled-0a9396.svg)](https://jax.readthedocs.io/)
 [![Read the Docs](https://readthedocs.org/projects/jax-drb/badge/?version=latest)](https://jax-drb.readthedocs.io/)
 
-`jax_drb` is a JAX-first edge and scrape-off-layer plasma code for drift-reduced Braginskii models, electrostatic turbulence, neutral transport, curated tokamak workflows, and reusable 3D geometry diagnostics.
+`jax_drb` provides JAXDRB, a JAX-first edge and scrape-off-layer plasma
+toolkit for drift-reduced Braginskii modeling, electrostatic turbulence,
+neutral transport, differentiable reduced studies, curated tokamak workflows,
+and reusable 3D geometry diagnostics.
 
 Documentation is available at [jax-drb.readthedocs.io](https://jax-drb.readthedocs.io/).
 
-The codebase is organized around:
+JAXDRB is built for researchers who want a lightweight codebase that can run
+from a clean clone, produce publication-quality diagnostics, and expose
+JAX-transformable kernels where differentiability is already validated.
 
-- a standalone CLI and Python API,
-- restartable native runs with structured terminal progress,
-- portable analysis and visualization artifacts,
-- explicit capability tiers for curated benchmark lanes,
-- reusable 3D geometry, movie, and selected-field comparison tools,
-- gridded VMEC-extender edge-field import with physical-phi interpolation, FCI map construction, and a compact SOL verification gate,
-- differentiable driver paths for sensitivity analysis, uncertainty propagation, and inverse design.
+What ships in the current release:
+
+- a standalone CLI and Python API for native simulations and diagnostics,
+- restartable runs with structured progress, timing, and artifact provenance,
+- self-contained tokamak and stellarator examples backed by lightweight
+  release-hosted media,
+- validation campaigns with explicit capability tiers and conservative claim
+  boundaries,
+- reusable 3D geometry, movie, selected-field, connection-length, and FCI map
+  comparison tools,
+- gridded VMEC-extender edge-field import with physical-phi interpolation, FCI
+  map construction, and a compact SOL verification gate,
+- differentiable driver paths for sensitivity analysis, uncertainty
+  propagation, inverse design, and fixed-workload scaling.
 
 The stable release boundary is explicit: compact native solvers, selected
 operator gates, fixed-layout residual seams, and differentiable examples are
@@ -352,9 +364,9 @@ PYTHONPATH=src python examples/strong_scaling_diffusion_demo.py \
 
 `jax_drb` includes reusable 3D geometry tooling for:
 
-- tokamak sample-data scaffolds,
+- tokamak sample-data adapters,
 - traced-field-line metric and selected-plane workflows,
-- analytic stellarator and imported-equilibrium scaffolds,
+- analytic stellarator and imported-equilibrium adapters,
 - native reduced selected-field comparisons,
 - toroidal and slice-based movie generation.
 

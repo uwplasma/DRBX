@@ -52,6 +52,10 @@ release-backed media and compact fixtures.
   path and fail with an explicit `--reference-root` or
   `JAX_DRB_REFERENCE_ROOT` message instead of assuming a machine-local
   checkout path.
+- The anomalous-diffusion guard-cell preparation path is now safe for JAX
+  arrays as well as NumPy arrays, preserving the integrated 2D recycling and
+  production operational-band gates when the fixed-layout residual path carries
+  JAX-backed state arrays.
 
 ## Validation
 

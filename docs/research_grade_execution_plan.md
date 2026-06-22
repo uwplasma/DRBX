@@ -2100,6 +2100,13 @@ Use this log for concise decision records. Do not paste terminal output here.
   `scripts/audit_release_readiness.py --format json`, the focused
   release-surface geometry slice, `scripts/run_fast_research_checks.py
   --slice runtime_surface`, and `mkdocs build --strict --clean`.
+- 2026-06-22: Final release sweep exposed a full-suite JAX immutability
+  failure in anomalous-diffusion target guard-cell preparation on integrated
+  2D recycling and production operational-band gates. Replaced the in-place
+  guard-cell copies with a JAX-safe `.at[].set(...)` path, retained NumPy copy
+  semantics for host arrays, and promoted the anomalous-nu regression to use
+  JAX-backed fields. The targeted operational-band/anomalous-diffusion slice
+  passes with `11 passed, 27 deselected`.
 - 2026-06-22: Narrowed the immediate completion target to the finalizable
   vacuum geometry scope requested by the user. Direct ESSOS-coil open-field is
   finalized as a diagnostic contract/live-validation ledger with

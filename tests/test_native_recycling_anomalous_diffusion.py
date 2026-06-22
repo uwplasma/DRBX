@@ -152,13 +152,13 @@ def test_apply_anomalous_diffusion_adds_momentum_source_for_anomalous_nu() -> No
         Bxy=ones,
     )
     fields = {
-        "Nd+": np.ones((4, 5, 1), dtype=np.float64),
-        "Pd+": np.ones((4, 5, 1), dtype=np.float64),
-        "NVd+": np.linspace(-1.0, 1.0, 20, dtype=np.float64).reshape(4, 5, 1),
-        "Nd": np.zeros((4, 5, 1), dtype=np.float64),
-        "Pd": np.zeros((4, 5, 1), dtype=np.float64),
-        "NVd": np.zeros((4, 5, 1), dtype=np.float64),
-        "Pe": np.ones((4, 5, 1), dtype=np.float64),
+        "Nd+": jnp.ones((4, 5, 1), dtype=jnp.float64),
+        "Pd+": jnp.ones((4, 5, 1), dtype=jnp.float64),
+        "NVd+": jnp.linspace(-1.0, 1.0, 20, dtype=jnp.float64).reshape(4, 5, 1),
+        "Nd": jnp.zeros((4, 5, 1), dtype=jnp.float64),
+        "Pd": jnp.zeros((4, 5, 1), dtype=jnp.float64),
+        "NVd": jnp.zeros((4, 5, 1), dtype=jnp.float64),
+        "Pe": jnp.ones((4, 5, 1), dtype=jnp.float64),
     }
     species = initialize_species(
         config,

@@ -79,12 +79,9 @@ def apply_anomalous_diffusion(
             velocity_2d = xp.zeros_like(sp.density, dtype=xp.float64)
 
         if not anomalous_sheath_flux:
-            density_2d[:, mesh.ystart - 1, :] = density_2d[:, mesh.ystart, :]
-            density_2d[:, mesh.yend + 1, :] = density_2d[:, mesh.yend, :]
-            temperature_2d[:, mesh.ystart - 1, :] = temperature_2d[:, mesh.ystart, :]
-            temperature_2d[:, mesh.yend + 1, :] = temperature_2d[:, mesh.yend, :]
-            velocity_2d[:, mesh.ystart - 1, :] = velocity_2d[:, mesh.ystart, :]
-            velocity_2d[:, mesh.yend + 1, :] = velocity_2d[:, mesh.yend, :]
+            density_2d = _copy_target_guard_cells(density_2d, mesh=mesh, use_jax=use_jax)
+            temperature_2d = _copy_target_guard_cells(temperature_2d, mesh=mesh, use_jax=use_jax)
+            velocity_2d = _copy_target_guard_cells(velocity_2d, mesh=mesh, use_jax=use_jax)
 
         anomalous_d = (
             xp.full_like(sp.density, resolve_species_numeric_option(config, name, "anomalous_D") / diffusion_norm, dtype=xp.float64)
@@ -150,6 +147,25 @@ def apply_anomalous_diffusion(
         momentum_source=momentum_source,
         diagnostics=diagnostics,
     )
+
+
+def _copy_target_guard_cells(
+    field: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    use_jax: bool,
+) -> np.ndarray:
+    if use_jax:
+        return (
+            field.at[:, mesh.ystart - 1, :]
+            .set(field[:, mesh.ystart, :])
+            .at[:, mesh.yend + 1, :]
+            .set(field[:, mesh.yend, :])
+        )
+    result = np.array(field, copy=True)
+    result[:, mesh.ystart - 1, :] = result[:, mesh.ystart, :]
+    result[:, mesh.yend + 1, :] = result[:, mesh.yend, :]
+    return result
 
 
 def div_a_grad_perp_upwind_flows_nz1(
