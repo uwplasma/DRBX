@@ -2090,6 +2090,16 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-22: Performed a pre-tag quick-closeout audit. No small
+  release-blocking source, parity, tokamak, or stellarator implementation lane
+  remained besides release-boundary documentation and portable developer
+  script defaults. Updated the `1.0.3` notes with the near-term vacuum
+  geometry closeout, removed a public docs machine-local ESSOS path, and
+  switched parity/cache diagnostic scripts from hardcoded local reference
+  roots to the shared `JAX_DRB_REFERENCE_ROOT`/auto-discovery path. Verified
+  `scripts/audit_release_readiness.py --format json`, the focused
+  release-surface geometry slice, `scripts/run_fast_research_checks.py
+  --slice runtime_surface`, and `mkdocs build --strict --clean`.
 - 2026-06-22: Narrowed the immediate completion target to the finalizable
   vacuum geometry scope requested by the user. Direct ESSOS-coil open-field is
   finalized as a diagnostic contract/live-validation ledger with
@@ -2494,9 +2504,9 @@ Use this log for concise decision records. Do not paste terminal output here.
   open-SOL visual path to the hybrid VMEC/coil lane while retaining direct
   coil as diagnostic geometry/source evidence.
 - 2026-06-22: Ran a live lightweight direct ESSOS-coil FCI/source-profile gate
-  against local Landreman-Paul QA assets under
-  `/Users/rogerio/local/ESSOS/examples/input_files`. The FCI endpoint/source
-  stage and source-profile gate pass: target fraction `0.90375`,
+  against local Landreman-Paul QA assets selected through the example
+  `COIL_JSON_PATH`, `VMEC_WOUT_PATH`, and `ESSOS_ROOT` settings. The FCI
+  endpoint/source stage and source-profile gate pass: target fraction `0.90375`,
   magnetic-field modulation `1.4167`, particle-recycling relative error
   `2.2e-15`, neutral-particle relative error `3.7e-18`, current and
   neutral-momentum balance errors below reported precision, and target labels

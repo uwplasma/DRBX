@@ -43,6 +43,7 @@ from jax_drb.parity.reference import (
     run_reference_case,
     _resolve_override_placeholders,
 )
+from jax_drb.reference.paths import default_reference_root
 from jax_drb.runtime.run_config import RunConfiguration
 
 
@@ -221,7 +222,7 @@ def main() -> None:
     parser.add_argument(
         "--reference-root",
         type=Path,
-        default=Path("/Users/rogerio/local/hermes-3"),
+        default=default_reference_root(),
         help="Path to the local Hermes-3 checkout.",
     )
     parser.add_argument(
@@ -247,6 +248,8 @@ def main() -> None:
         help="Rerun Hermes once with braginskii_collisions:diagnose=true and print reference K*_coll values.",
     )
     args = parser.parse_args()
+    if args.reference_root is None:
+        raise SystemExit("Set --reference-root or JAX_DRB_REFERENCE_ROOT before running live parity diagnostics.")
 
     reference_root = args.reference_root.expanduser().resolve()
     _, config = _load_case_config(args.case, reference_root=reference_root)
