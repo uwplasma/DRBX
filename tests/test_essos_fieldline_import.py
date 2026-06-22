@@ -1619,6 +1619,7 @@ def test_essos_imported_fci_source_profile_gate_checks_target_sources_and_profil
     }
     arrays = {
         "target_label_toroidal": np.asarray([[0.0, 1.0], [2.0, 3.0]]),
+        "particle_loss_toroidal": np.asarray([[0.0, 0.3], [0.2, 0.5]]),
         "heat_load_toroidal": np.asarray([[0.0, 0.4], [0.2, 0.8]]),
         "ionisation_toroidal": np.asarray([[0.1, 0.2], [0.3, 0.4]]),
         "radial_grid": np.asarray([0.12, 0.20, 0.34]),
@@ -1638,6 +1639,8 @@ def test_essos_imported_fci_source_profile_gate_checks_target_sources_and_profil
     assert gate["promotion_ready"] is True
     assert gate["evidence_role"] == "source_profile_gate_passed"
     assert gate["target_labels_present"] is True
+    assert gate["particle_loss_map_present"] is True
+    assert gate["particle_loss_map_positive"] is True
     assert gate["heat_load_positive"] is True
     assert gate["ionisation_source_positive"] is True
     assert gate["radial_grid_ordered"] is True

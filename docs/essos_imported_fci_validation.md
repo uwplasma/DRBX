@@ -27,7 +27,8 @@ target-label, heat-load, neutral-source, radial-profile, and source-balance
 artifacts used for open-SOL promotion. When live FCI arrays exist, that same
 gate also writes a standalone source/profile PNG showing the consumed
 directional target labels, target heat-load response, neutral ionisation
-source, and normalized radial profiles. Its optional `RUN_LIVE_MEDIA_GATE`
+source, target particle-loss flux when regenerated with the current artifact
+schema, and normalized radial profiles. Its optional `RUN_LIVE_MEDIA_GATE`
 stage writes the direct-coil GIF/PNG/NPZ diagnostic media only after the user
 explicitly enables it; the output remains diagnostic unless the same workflow
 summary also shows green geometry, endpoint/source/profile, refinement, and
@@ -137,7 +138,9 @@ movie refinement, and optional media generation. The summary JSON must report
 as README or publication evidence. The live source/profile stage writes the
 same standalone target/source/profile PNG as the direct-coil workflow, so the
 hybrid bridge can be compared against the pure-coil lane with identical
-diagnostics.
+diagnostics. Current regenerated FCI arrays also include
+`particle_loss_toroidal`, so target particle flux can be inspected as a map
+instead of only through the radial particle-loss profile.
 
 A local live hybrid pass on the same Landreman-Paul QA assets now clears the
 first three live gates. The FCI/source stage passes with target fraction
