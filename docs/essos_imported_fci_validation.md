@@ -90,6 +90,13 @@ also fails promotion: all-label agreement is `0.474`, endpoint agreement is
 `0.458`, endpoint-union population is `0.970`, and the dominant component
 error is `forward_component`. This rules out even-ratio non-collocation as the
 only cause of the pure-coil blocker.
+A rerun of the same odd-ratio diagnostic after adding transition-shell
+localization classifies the blocker as
+`direction_boundary_localized`, with `target_boundary_projection_suspected =
+true`, all label mismatches lying on directional transition shells, and zero
+mismatch fraction outside those shells. The next direct-coil code work should
+therefore focus on target-boundary projection and forward/backward wall-hit
+classification before changing the bulk field-line map.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration

@@ -2888,10 +2888,17 @@ def save_essos_imported_endpoint_label_refinement_plot(
     min_endpoint_union_text = (
         "n/a" if min_endpoint_union is None else f"{float(min_endpoint_union):.3f}"
     )
+    boundary_mode = str(
+        diagnostics.get("dominant_endpoint_boundary_localization", "unknown")
+    )
+    projection_suspected = bool(
+        diagnostics.get("target_boundary_projection_suspected", False)
+    )
     fig.suptitle(
         "Imported-field endpoint-label refinement gate\n"
         f"passed={report['passed']}, min all={min_agreement_text}, "
-        f"min endpoint={min_endpoint_text}, min endpoint population={min_endpoint_union_text}",
+        f"min endpoint={min_endpoint_text}, min endpoint population={min_endpoint_union_text}\n"
+        f"boundary={boundary_mode}, target-projection suspected={projection_suspected}",
         fontsize=12,
     )
     fig.savefig(resolved, dpi=180, bbox_inches="tight")
