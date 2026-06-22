@@ -2534,7 +2534,7 @@ def save_essos_imported_endpoint_label_refinement_plot(
 
     axes[1, 0].plot(pair_indices, agreement, "o-", lw=2.0, label="all labels")
     axes[1, 0].plot(pair_indices, endpoint_agreement, "s--", lw=2.0, label="endpoint union")
-    axes[1, 0].plot(pair_indices, endpoint_union, "d-.", lw=1.8, label="endpoint population")
+    axes[1, 0].plot(pair_indices, endpoint_union, "d-.", lw=1.8, label="endpoint pop.")
     axes[1, 0].axhline(
         float(diagnostics["minimum_agreement_fraction"]),
         color="0.35",
@@ -2555,7 +2555,7 @@ def save_essos_imported_endpoint_label_refinement_plot(
             color="0.70",
             lw=1.0,
             ls="-.",
-            label="endpoint-pop threshold",
+            label="endpoint-pop. threshold",
         )
     axes[1, 0].set_xticks(pair_indices, pair_labels)
     axes[1, 0].set_ylim(0.0, 1.03)
@@ -2584,14 +2584,12 @@ def save_essos_imported_endpoint_label_refinement_plot(
         "n/a" if min_endpoint_union is None else f"{float(min_endpoint_union):.3f}"
     )
     fig.suptitle(
-        f"Imported-field endpoint-label refinement gate: "
-        f"passed={report['passed']}, "
-        f"min agreement={min_agreement_text}, "
-        f"min endpoint agreement={min_endpoint_text}, "
-        f"min endpoint population={min_endpoint_union_text}",
-        fontsize=13,
+        "Imported-field endpoint-label refinement gate\n"
+        f"passed={report['passed']}, min all={min_agreement_text}, "
+        f"min endpoint={min_endpoint_text}, min endpoint population={min_endpoint_union_text}",
+        fontsize=12,
     )
-    fig.savefig(resolved, dpi=180)
+    fig.savefig(resolved, dpi=180, bbox_inches="tight")
     plt.close(fig)
     return resolved
 
