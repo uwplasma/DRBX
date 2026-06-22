@@ -43,6 +43,13 @@ reported precision, and target-label reconstruction exactly matching the
 consumed endpoint masks. The workflow summary still reports
 `promotion_ready = false` because endpoint-label refinement, adjacent-step
 refinement, stationarity, and media QA were not run in that lightweight pass.
+Running the live pure-coil endpoint-label refinement gate on the same assets
+keeps direct-coil media unpromoted: coarse-to-middle all-label and endpoint
+agreement are both `0.444`, middle-to-fine all-label agreement is `0.616`, and
+middle-to-fine endpoint agreement is `0.573`, below the `0.90` all-label and
+`0.80` endpoint thresholds. This is the current reason to treat pure
+direct-coil movies as diagnostic and to use the hybrid VMEC/coil lane as the
+promotion path for open-SOL media.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
