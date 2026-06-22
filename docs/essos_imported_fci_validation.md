@@ -34,6 +34,16 @@ even for the default dry run. A clean-clone contract therefore reports
 `no_live_promotion_gates_ran` rather than silently producing
 `promotion_ready = false` with no explanation.
 
+A local live direct-coil FCI/source-profile check on the Landreman-Paul QA
+assets in `/Users/rogerio/local/ESSOS/examples/input_files` passes the FCI and
+source/profile stages: target fraction `0.90375`, magnetic-field modulation
+`1.4167`, particle-recycling relative error `2.2e-15`, neutral-particle
+relative error `3.7e-18`, current and neutral-momentum balance errors below
+reported precision, and target-label reconstruction exactly matching the
+consumed endpoint masks. The workflow summary still reports
+`promotion_ready = false` because endpoint-label refinement, adjacent-step
+refinement, stationarity, and media QA were not run in that lightweight pass.
+
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
 script follows the same top-level-parameter style as the SIMSOPT examples:
