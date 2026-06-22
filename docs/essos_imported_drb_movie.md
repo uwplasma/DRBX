@@ -326,6 +326,35 @@ until the associated connection-length summary is promotion-ready and the movie
 itself passes grid-refinement, time-refinement, and long-time statistical
 gates.
 
+For the high-resolution hybrid VMEC/coil open-SOL bundle, use the stricter
+promotion-evidence audit. It checks the FCI/source-profile report, the
+long-window stationarity report, the grid/time-refinement summary, and the
+release-media/visual-QA manifest as one bundle:
+
+```python
+from pathlib import Path
+
+from jax_drb.validation import audit_hybrid_open_sol_promotion_evidence
+
+repo = Path(".")
+audit = audit_hybrid_open_sol_promotion_evidence(
+    fci_report_json_path=repo
+    / "docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.json",
+    stationarity_report_json_path=repo
+    / "docs/data/essos_imported_drb_movie_stationarity_jacobi_artifacts/data/essos_imported_drb_movie_stationarity_jacobi.json",
+    refinement_summary_json_path=repo
+    / "docs/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_artifacts/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_summary.json",
+    media_manifest_json_path=repo
+    / "docs/data/essos_imported_drb_movie_stationarity_jacobi_media_manifest.json",
+)
+assert audit["promotion_ready"]
+```
+
+This gate remains report-only and lightweight. It is the correct check before
+using restored release-hosted hybrid media in the README or manuscript, but it
+is not a substitute for rerunning the heavier live promotion preset after
+changing the geometry, closures, renderer, timestep, or grid.
+
 ## Current Gate
 
 The current public report passes the following checks:

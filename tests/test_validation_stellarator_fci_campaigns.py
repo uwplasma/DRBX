@@ -21,6 +21,7 @@ from jax_drb.native.fci_vorticity import (
 from jax_drb.validation import (
     audit_essos_imported_artifact_report,
     audit_essos_imported_artifact_reports,
+    audit_hybrid_open_sol_promotion_evidence,
     create_stellarator_fci_geometry_campaign_package,
     create_stellarator_fci_operator_campaign_package,
     create_stellarator_fci_suite_campaign_package,
@@ -274,6 +275,73 @@ def test_imported_artifact_schema_audit_example_requires_current_artifacts() -> 
 
     assert summary["schema_passed"] is True
     assert summary["stale_report_count"] == 0
+
+
+def test_hybrid_open_sol_promotion_evidence_audit_accepts_committed_bundle() -> None:
+    audit = audit_hybrid_open_sol_promotion_evidence(
+        fci_report_json_path=REPO_ROOT
+        / "docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.json",
+        stationarity_report_json_path=REPO_ROOT
+        / "docs/data/essos_imported_drb_movie_stationarity_jacobi_artifacts/data/essos_imported_drb_movie_stationarity_jacobi.json",
+        refinement_summary_json_path=REPO_ROOT
+        / "docs/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_artifacts/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_summary.json",
+        media_manifest_json_path=REPO_ROOT
+        / "docs/data/essos_imported_drb_movie_stationarity_jacobi_media_manifest.json",
+    )
+
+    assert audit["diagnostic"] == "essos_hybrid_open_sol_promotion_evidence_audit"
+    assert audit["map_source"] == "hybrid"
+    assert audit["promotion_ready"] is True
+    assert audit["promotion_rejection_reasons"] == []
+    assert [stage["stage"] for stage in audit["stage_reports"]] == [
+        "hybrid_fci_source_profile",
+        "hybrid_stationarity",
+        "hybrid_grid_time_refinement",
+        "hybrid_media_manifest",
+    ]
+    assert all(stage["passed"] is True for stage in audit["stage_reports"])
+
+
+def test_hybrid_open_sol_promotion_evidence_audit_rejects_stale_media_manifest(
+    tmp_path: Path,
+) -> None:
+    media_manifest = {
+        "map_source": "coil",
+        "qa": {
+            "visual_qa": "failed",
+            "camera_stability": "passed",
+            "non_axisymmetric_geometry_visible": False,
+            "opened_radial_toroidal_sector_visible": True,
+        },
+        "release_assets": ["https://example.invalid/movie.gif"],
+        "files": [{"path": "movies/movie.gif"}],
+    }
+    media_path = tmp_path / "bad_media_manifest.json"
+    media_path.write_text(json.dumps(media_manifest), encoding="utf-8")
+
+    audit = audit_hybrid_open_sol_promotion_evidence(
+        fci_report_json_path=REPO_ROOT
+        / "docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.json",
+        stationarity_report_json_path=REPO_ROOT
+        / "docs/data/essos_imported_drb_movie_stationarity_jacobi_artifacts/data/essos_imported_drb_movie_stationarity_jacobi.json",
+        refinement_summary_json_path=REPO_ROOT
+        / "docs/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_artifacts/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_summary.json",
+        media_manifest_json_path=media_path,
+    )
+
+    media_stage = audit["stage_reports"][-1]
+    assert audit["promotion_ready"] is False
+    assert media_stage["stage"] == "hybrid_media_manifest"
+    assert media_stage["passed"] is False
+    assert "media_map_source_not_hybrid" in media_stage["reasons"]
+    assert "media_visual_qa_not_passed" in media_stage["reasons"]
+    assert "media_non_axisymmetric_geometry_not_visible" in media_stage["reasons"]
+    assert "media_release_asset_url_not_project_release" in media_stage["reasons"]
+    assert "media_diagnostics_file_missing" in media_stage["reasons"]
+    assert "media_contact_sheet_file_missing" in media_stage["reasons"]
+    assert set(media_stage["reasons"]).issubset(
+        set(audit["promotion_rejection_reasons"])
+    )
 
 
 def test_imported_connection_length_refinement_example_resolves_live_sources(
