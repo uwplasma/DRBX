@@ -432,7 +432,10 @@ gate JSON that checks target labels, sheath heat load, neutral ionisation,
 radial profiles, and source-balance residuals from the same consumed endpoint
 masks. The `RUN_LIVE_MEDIA_GATE` flag writes GIF/PNG/NPZ media from the direct
 coil field, but the workflow keeps that media out of promotion unless the
-geometry, source-accounting, refinement, and visual-QA gates also pass:
+geometry, source-accounting, refinement, and visual-QA gates also pass. The
+summary JSON lists `promotion_rejection_reasons`, `promotion_blocking_stages`,
+and `next_actions`, so a default dry run explains that no live promotion gates
+have run rather than looking like a silent failure:
 
 ```bash
 PYTHONPATH=src python \

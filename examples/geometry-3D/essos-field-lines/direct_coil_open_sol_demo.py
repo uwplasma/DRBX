@@ -175,6 +175,25 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _stage_blocker(report: dict[str, Any]) -> dict[str, Any]:
+    """Return a compact blocker record for a non-promoted workflow stage."""
+
+    reasons = list(report.get("promotion_rejection_reasons", []))
+    reasons.extend(report.get("movie_promotion_rejection_reasons", []))
+    if not reasons:
+        status = str(report.get("status", "unknown"))
+        if status in {"skipped", "contract_only", "diagnostic"}:
+            reasons.append(f"{status}_stage_not_live_promotion_evidence")
+        else:
+            reasons.append("stage_not_promotion_ready")
+    return {
+        "stage": report.get("stage"),
+        "status": report.get("status"),
+        "reasons": reasons,
+        "next_action": report.get("next_action"),
+    }
+
+
 def write_workflow_summary(
     settings: DirectCoilOpenSolSettings,
     stage_reports: list[dict[str, Any]],
@@ -192,6 +211,23 @@ def write_workflow_summary(
     promotion_ready = bool(live_stage_reports) and all(
         bool(report.get("promotion_ready", False)) for report in live_stage_reports
     )
+    blocking_stage_records = [
+        _stage_blocker(report)
+        for report in stage_reports
+        if not bool(report.get("promotion_ready", False))
+    ]
+    promotion_rejection_reasons = [
+        reason
+        for record in blocking_stage_records
+        for reason in record["reasons"]
+    ]
+    if not live_stage_reports:
+        promotion_rejection_reasons.insert(0, "no_live_promotion_gates_ran")
+    next_actions = [
+        record["next_action"]
+        for record in blocking_stage_records
+        if record.get("next_action")
+    ]
     payload = {
         "diagnostic": "essos_direct_coil_open_sol_workflow",
         "map_source": MAP_SOURCE,
@@ -219,12 +255,9 @@ def write_workflow_summary(
         },
         "stage_reports": stage_reports,
         "promotion_ready": promotion_ready,
-        "promotion_rejection_reasons": [
-            report["stage"]
-            for report in stage_reports
-            if report["status"] not in {"skipped", "contract_only", "diagnostic"}
-            and not bool(report.get("promotion_ready", False))
-        ],
+        "promotion_rejection_reasons": sorted(set(promotion_rejection_reasons)),
+        "promotion_blocking_stages": blocking_stage_records,
+        "next_actions": next_actions,
     }
     summary_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     print(f"wrote direct-coil workflow summary: {summary_path}")

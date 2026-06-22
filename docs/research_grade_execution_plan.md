@@ -1960,6 +1960,19 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-22: Advanced the direct ESSOS-coil open-field workflow contract
+  without promoting direct-coil media. The default dry-run ledger in
+  `direct_coil_open_sol_demo.py` now writes explicit
+  `promotion_rejection_reasons`, `promotion_blocking_stages`, and
+  `next_actions` even when no live ESSOS gates ran, so users see
+  `no_live_promotion_gates_ran` and the exact live FCI, source/profile,
+  endpoint-label, connection-refinement, stationarity, and media stages that
+  must run before any direct-coil movie can be promoted. The focused
+  release-surface test passes, and README/imported-FCI docs now describe the
+  machine-readable blocker ledger. Decision: keep direct-coil open-field media
+  diagnostic until live endpoint/source/refinement/movie QA evidence is green;
+  the next implementation step remains a live direct-coil or hybrid campaign
+  when geometry assets are available.
 - 2026-06-22: Performed the requested final plan-only consolidation for the
   remaining open stellarator and solver lanes. The authoritative plan now has
   a compact execution board that orders the next campaign as: ESSOS direct-coil
