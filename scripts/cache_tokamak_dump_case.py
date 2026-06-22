@@ -19,6 +19,7 @@ from jax_drb.native.runner import (
 )
 from jax_drb.parity.reference import run_reference_case
 from jax_drb.reference.cases import load_reference_cases
+from jax_drb.reference.paths import default_reference_root
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -30,13 +31,15 @@ def _parse_args() -> argparse.Namespace:
         description="Generate committed snapshot/history caches for a direct tokamak dump-backed case.",
     )
     parser.add_argument("case_name")
-    parser.add_argument("--reference-root", type=Path, default=Path("/Users/rogerio/local/hermes-3"))
+    parser.add_argument("--reference-root", type=Path, default=default_reference_root())
     parser.add_argument("--workdir", type=Path, default=None)
     return parser.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
+    if args.reference_root is None:
+        raise SystemExit("Set --reference-root or JAX_DRB_REFERENCE_ROOT before generating reference caches.")
     case = next((case for case in load_reference_cases() if case.name == args.case_name), None)
     if case is None:
         raise SystemExit(f"Unknown case {args.case_name!r}")

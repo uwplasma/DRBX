@@ -39,8 +39,9 @@ even for the default dry run. A clean-clone contract therefore reports
 `promotion_ready = false` with no explanation.
 
 A local live direct-coil FCI/source-profile check on the Landreman-Paul QA
-assets in `/Users/rogerio/local/ESSOS/examples/input_files` passes the FCI and
-source/profile stages: target fraction `0.90375`, magnetic-field modulation
+assets selected through the example's `COIL_JSON_PATH`, `VMEC_WOUT_PATH`, and
+`ESSOS_ROOT` settings passes the FCI and source/profile stages: target
+fraction `0.90375`, magnetic-field modulation
 `1.4167`, particle-recycling relative error `2.2e-15`, neutral-particle
 relative error `3.7e-18`, current and neutral-momentum balance errors below
 reported precision, and target-label reconstruction exactly matching the

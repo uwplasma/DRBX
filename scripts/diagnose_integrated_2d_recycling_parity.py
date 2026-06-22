@@ -10,6 +10,7 @@ from jax_drb.parity.arrays import build_array_payload_from_summary_payload, buil
 from jax_drb.parity.compare import compare_summary_payloads
 from jax_drb.parity.diff import build_scaled_array_diff_entries
 from jax_drb.parity.reference import build_case_baseline_payload, resolve_reference_case, run_reference_case
+from jax_drb.reference.paths import default_reference_root
 
 
 def main() -> None:
@@ -19,7 +20,7 @@ def main() -> None:
     parser.add_argument(
         "--reference-root",
         type=Path,
-        default=Path("/Users/rogerio/local/hermes-3"),
+        default=default_reference_root(),
         help="Path to the local reference checkout.",
     )
     parser.add_argument(
@@ -41,6 +42,8 @@ def main() -> None:
         help="Maximum number of field entries to print per case.",
     )
     args = parser.parse_args()
+    if args.reference_root is None:
+        raise SystemExit("Set --reference-root or JAX_DRB_REFERENCE_ROOT before running live parity diagnostics.")
 
     case_names = tuple(args.case) if args.case else ("integrated_2d_recycling_rhs", "integrated_2d_recycling_one_step")
     for case_name in case_names:

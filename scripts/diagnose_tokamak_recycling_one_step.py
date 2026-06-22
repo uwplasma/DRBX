@@ -14,6 +14,7 @@ from jax_drb.parity.arrays import (
 from jax_drb.parity.compare import compare_summary_payloads, load_summary_json
 from jax_drb.parity.diff import build_array_time_trace, build_scaled_array_diff_entries
 from jax_drb.parity.reference import build_case_baseline_payload, resolve_reference_case, run_reference_case
+from jax_drb.reference.paths import default_reference_root
 
 
 def default_tokamak_recycling_cases() -> tuple[str, ...]:
@@ -34,7 +35,7 @@ def main() -> None:
     parser.add_argument(
         "--reference-root",
         type=Path,
-        default=Path("/Users/rogerio/local/hermes-3"),
+        default=default_reference_root(),
         help="Path to the local Hermes-3 checkout.",
     )
     parser.add_argument(
@@ -65,6 +66,8 @@ def main() -> None:
         help="Expected max-abs threshold below which a field is treated as near-zero when reporting relative diffs.",
     )
     args = parser.parse_args()
+    if args.reference_root is None:
+        raise SystemExit("Set --reference-root or JAX_DRB_REFERENCE_ROOT before running live parity diagnostics.")
 
     case_names = tuple(args.case) if args.case else default_tokamak_recycling_cases()
     repo_root = Path(__file__).resolve().parents[1]

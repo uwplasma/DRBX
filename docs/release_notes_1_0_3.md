@@ -42,6 +42,16 @@ release-backed media and compact fixtures.
   version consistency, release notes, citation metadata, artifact manifest
   counts, PyPI and ReadTheDocs workflow wiring, unpinned runtime dependencies,
   version-tag reuse, and repository footprint invariants.
+- The near-term stellarator vacuum-geometry scope is now closed out with
+  machine-readable workflow boundaries: direct ESSOS-coil open-field workflows
+  are finalized as diagnostic contracts, direct ESSOS-coil closed/near-closed
+  and VMEC closed-field workflows are finalized as closed-control examples,
+  and the hybrid VMEC/coil path is finalized as the compact release-backed
+  open-SOL bridge.
+- Developer parity/cache scripts now use the shared reference-root discovery
+  path and fail with an explicit `--reference-root` or
+  `JAX_DRB_REFERENCE_ROOT` message instead of assuming a machine-local
+  checkout path.
 
 ## Validation
 
@@ -85,3 +95,11 @@ reproducible release examples with connection-length, FCI, refinement, and
 movie-QA support where documented. They are not promoted as device-scale
 long-window predictive turbulence calculations for HSX, NCSX,
 Landreman-Paul QA, or Dommaschk configurations.
+
+For the imported stellarator vacuum geometry lanes, the release boundary is:
+direct pure-coil open-field examples remain diagnostic until live
+endpoint/source/refinement/movie gates pass; direct-coil closed/near-closed
+and VMEC closed-field examples deliberately exclude target, sheath, recycling,
+and neutral-loss semantics; and the hybrid VMEC/coil movie is compact
+release-backed evidence, not a finite-beta, full-DRB, or device-scale
+prediction.
