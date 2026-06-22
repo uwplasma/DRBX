@@ -468,6 +468,7 @@ def create_essos_imported_endpoint_label_refinement_package(
     ),
     minimum_agreement_fraction: float = 0.98,
     minimum_endpoint_agreement_fraction: float = 0.95,
+    minimum_endpoint_union_fraction: float = 0.0,
     minimum_valid_pair_fraction: float = 1.0,
     require_three_levels: bool = True,
 ) -> EssosImportedEndpointLabelRefinementArtifacts:
@@ -486,6 +487,7 @@ def create_essos_imported_endpoint_label_refinement_package(
         level_shapes=level_shapes,
         minimum_agreement_fraction=minimum_agreement_fraction,
         minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
+        minimum_endpoint_union_fraction=minimum_endpoint_union_fraction,
         minimum_valid_pair_fraction=minimum_valid_pair_fraction,
         require_three_levels=require_three_levels,
     )
@@ -522,6 +524,7 @@ def create_live_essos_imported_endpoint_label_refinement_package(
     trace_tolerance: float = 1.0e-8,
     minimum_agreement_fraction: float = 0.90,
     minimum_endpoint_agreement_fraction: float = 0.80,
+    minimum_endpoint_union_fraction: float = 0.0,
     minimum_valid_pair_fraction: float = 1.0,
     require_three_levels: bool = True,
 ) -> EssosImportedEndpointLabelRefinementArtifacts:
@@ -547,6 +550,7 @@ def create_live_essos_imported_endpoint_label_refinement_package(
         labels=live_levels.labels,
         minimum_agreement_fraction=minimum_agreement_fraction,
         minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
+        minimum_endpoint_union_fraction=minimum_endpoint_union_fraction,
         minimum_valid_pair_fraction=minimum_valid_pair_fraction,
         require_three_levels=require_three_levels,
     )
@@ -874,6 +878,7 @@ def build_essos_imported_endpoint_label_refinement_campaign(
     ),
     minimum_agreement_fraction: float = 0.98,
     minimum_endpoint_agreement_fraction: float = 0.95,
+    minimum_endpoint_union_fraction: float = 0.0,
     minimum_valid_pair_fraction: float = 1.0,
     require_three_levels: bool = True,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
@@ -900,6 +905,7 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         coordinate_levels=coordinate_levels,
         minimum_agreement_fraction=minimum_agreement_fraction,
         minimum_endpoint_agreement_fraction=minimum_endpoint_agreement_fraction,
+        minimum_endpoint_union_fraction=minimum_endpoint_union_fraction,
         minimum_valid_pair_fraction=minimum_valid_pair_fraction,
         require_three_levels=require_three_levels,
     )
@@ -909,6 +915,9 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         float(pair["endpoint_agreement_fraction"])
         for pair in pair_reports
         if pair["endpoint_agreement_fraction"] is not None
+    ]
+    endpoint_union_values = [
+        float(pair["endpoint_union_fraction"]) for pair in pair_reports
     ]
     report = {
         "case": "essos_imported_endpoint_label_refinement",
@@ -920,15 +929,22 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         "minimum_endpoint_agreement_fraction_actual": (
             min(endpoint_agreement_values) if endpoint_agreement_values else None
         ),
+        "minimum_endpoint_union_fraction_actual": (
+            min(endpoint_union_values) if endpoint_union_values else None
+        ),
         "minimum_agreement_fraction_required": float(minimum_agreement_fraction),
         "minimum_endpoint_agreement_fraction_required": float(
             minimum_endpoint_agreement_fraction
+        ),
+        "minimum_endpoint_union_fraction_required": float(
+            minimum_endpoint_union_fraction
         ),
         "minimum_valid_pair_fraction": diagnostics["minimum_valid_pair_fraction"],
         "require_three_levels": bool(require_three_levels),
         "valid_pairs_passed": bool(diagnostics["valid_pairs_passed"]),
         "agreement_passed": bool(diagnostics["agreement_passed"]),
         "endpoint_agreement_passed": bool(diagnostics["endpoint_agreement_passed"]),
+        "endpoint_presence_passed": bool(diagnostics["endpoint_presence_passed"]),
         "level_count_passed": bool(diagnostics["level_count_passed"]),
         "promotion_ready": bool(diagnostics["promotion_ready"]),
         "advisory_only": bool(diagnostics["advisory_only"]),
@@ -949,6 +965,11 @@ def build_essos_imported_endpoint_label_refinement_campaign(
                     if report["minimum_endpoint_agreement_fraction_actual"] is None
                     else float(report["minimum_endpoint_agreement_fraction_actual"])
                 ),
+                (
+                    np.nan
+                    if report["minimum_endpoint_union_fraction_actual"] is None
+                    else float(report["minimum_endpoint_union_fraction_actual"])
+                ),
                 float(report["passed"]),
             ],
             dtype=np.float64,
@@ -959,6 +980,10 @@ def build_essos_imported_endpoint_label_refinement_campaign(
                 np.nan if pair["endpoint_agreement_fraction"] is None else float(pair["endpoint_agreement_fraction"])
                 for pair in pair_reports
             ],
+            dtype=np.float64,
+        ),
+        "pair_endpoint_union_fraction": np.asarray(
+            [pair["endpoint_union_fraction"] for pair in pair_reports],
             dtype=np.float64,
         ),
         "pair_valid_fraction": np.asarray(
@@ -991,6 +1016,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
     coordinate_levels: tuple[dict[str, np.ndarray], ...] | list[dict[str, np.ndarray]] | None = None,
     minimum_agreement_fraction: float = 0.98,
     minimum_endpoint_agreement_fraction: float = 0.95,
+    minimum_endpoint_union_fraction: float = 0.0,
     minimum_valid_pair_fraction: float = 1.0,
     require_three_levels: bool = True,
 ) -> dict[str, Any]:
@@ -1009,12 +1035,15 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
     valid_pair_threshold = float(minimum_valid_pair_fraction)
     agreement_threshold = float(minimum_agreement_fraction)
     endpoint_threshold = float(minimum_endpoint_agreement_fraction)
+    endpoint_union_threshold = float(minimum_endpoint_union_fraction)
     if not (0.0 < valid_pair_threshold <= 1.0):
         raise ValueError("minimum_valid_pair_fraction must be in the interval (0, 1].")
     if not (0.0 <= agreement_threshold <= 1.0):
         raise ValueError("minimum_agreement_fraction must be in the interval [0, 1].")
     if not (0.0 <= endpoint_threshold <= 1.0):
         raise ValueError("minimum_endpoint_agreement_fraction must be in the interval [0, 1].")
+    if not (0.0 <= endpoint_union_threshold <= 1.0):
+        raise ValueError("minimum_endpoint_union_fraction must be in the interval [0, 1].")
     for index, level in enumerate(levels):
         if level.ndim != 3:
             raise ValueError(
@@ -1094,12 +1123,23 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         or float(pair["endpoint_agreement_fraction"]) >= endpoint_threshold
         for pair in pair_reports
     )
+    endpoint_presence_passed = all(
+        float(pair["endpoint_union_fraction"]) >= endpoint_union_threshold
+        for pair in pair_reports
+    )
     level_count_passed = bool(len(levels) >= 3 or not require_three_levels)
-    passed = bool(valid_pairs and agreement_passed and endpoint_agreement_passed)
+    passed = bool(
+        valid_pairs
+        and agreement_passed
+        and endpoint_agreement_passed
+        and endpoint_presence_passed
+    )
     promotion_ready = bool(passed and level_count_passed)
     rejection_reasons: list[str] = []
     if not valid_pairs:
         rejection_reasons.append("invalid_or_missing_label_pairs")
+    if not endpoint_presence_passed:
+        rejection_reasons.append("endpoint_union_fraction_below_threshold")
     if not agreement_passed:
         rejection_reasons.append("label_agreement_below_threshold")
     if not endpoint_agreement_passed:
@@ -1110,6 +1150,8 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         evidence_role = "promotion_ready"
     elif not valid_pairs:
         evidence_role = "invalid_label_pairs"
+    elif not endpoint_presence_passed:
+        evidence_role = "endpoint_labels_missing_or_underpopulated"
     elif not endpoint_agreement_passed:
         evidence_role = "endpoint_label_instability"
     elif not agreement_passed:
@@ -1128,10 +1170,12 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         "minimum_valid_pair_fraction": valid_pair_threshold,
         "minimum_agreement_fraction": agreement_threshold,
         "minimum_endpoint_agreement_fraction": endpoint_threshold,
+        "minimum_endpoint_union_fraction": endpoint_union_threshold,
         "require_three_levels": bool(require_three_levels),
         "valid_pairs_passed": bool(valid_pairs),
         "agreement_passed": bool(agreement_passed),
         "endpoint_agreement_passed": bool(endpoint_agreement_passed),
+        "endpoint_presence_passed": bool(endpoint_presence_passed),
         "level_count_passed": bool(level_count_passed),
         "promotion_ready": bool(promotion_ready),
         "advisory_only": bool(not promotion_ready and passed),
@@ -2443,6 +2487,16 @@ def save_essos_imported_endpoint_label_refinement_plot(
     ]
     agreement = np.asarray(arrays["pair_agreement_fraction"], dtype=np.float64)
     endpoint_agreement = np.asarray(arrays["pair_endpoint_agreement_fraction"], dtype=np.float64)
+    endpoint_union = np.asarray(
+        arrays.get(
+            "pair_endpoint_union_fraction",
+            np.asarray(
+                [pair.get("endpoint_union_fraction", np.nan) for pair in diagnostics["pair_reports"]],
+                dtype=np.float64,
+            ),
+        ),
+        dtype=np.float64,
+    )
     confusion = np.asarray(
         arrays[f"pair_{len(diagnostics['pair_reports']) - 1}_confusion_matrix"],
         dtype=np.float64,
@@ -2480,6 +2534,7 @@ def save_essos_imported_endpoint_label_refinement_plot(
 
     axes[1, 0].plot(pair_indices, agreement, "o-", lw=2.0, label="all labels")
     axes[1, 0].plot(pair_indices, endpoint_agreement, "s--", lw=2.0, label="endpoint union")
+    axes[1, 0].plot(pair_indices, endpoint_union, "d-.", lw=1.8, label="endpoint population")
     axes[1, 0].axhline(
         float(diagnostics["minimum_agreement_fraction"]),
         color="0.35",
@@ -2494,6 +2549,14 @@ def save_essos_imported_endpoint_label_refinement_plot(
         ls="--",
         label="endpoint threshold",
     )
+    if float(diagnostics.get("minimum_endpoint_union_fraction", 0.0)) > 0.0:
+        axes[1, 0].axhline(
+            float(diagnostics["minimum_endpoint_union_fraction"]),
+            color="0.70",
+            lw=1.0,
+            ls="-.",
+            label="endpoint-pop threshold",
+        )
     axes[1, 0].set_xticks(pair_indices, pair_labels)
     axes[1, 0].set_ylim(0.0, 1.03)
     axes[1, 0].set_title("restricted fine-grid label agreement")
@@ -2513,14 +2576,19 @@ def save_essos_imported_endpoint_label_refinement_plot(
     fig.colorbar(matrix, ax=axes[1, 1], label="cell count")
 
     min_endpoint = report.get("minimum_endpoint_agreement_fraction_actual")
+    min_endpoint_union = report.get("minimum_endpoint_union_fraction_actual")
     min_agreement = report.get("minimum_agreement_fraction_actual")
     min_agreement_text = "n/a" if min_agreement is None else f"{float(min_agreement):.3f}"
     min_endpoint_text = "n/a" if min_endpoint is None else f"{float(min_endpoint):.3f}"
+    min_endpoint_union_text = (
+        "n/a" if min_endpoint_union is None else f"{float(min_endpoint_union):.3f}"
+    )
     fig.suptitle(
         f"Imported-field endpoint-label refinement gate: "
         f"passed={report['passed']}, "
         f"min agreement={min_agreement_text}, "
-        f"min endpoint agreement={min_endpoint_text}",
+        f"min endpoint agreement={min_endpoint_text}, "
+        f"min endpoint population={min_endpoint_union_text}",
         fontsize=13,
     )
     fig.savefig(resolved, dpi=180)

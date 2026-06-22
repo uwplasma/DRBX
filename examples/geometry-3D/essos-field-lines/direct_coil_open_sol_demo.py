@@ -74,6 +74,7 @@ REFINEMENT_MINIMUM_OBSERVED_ORDER = 0.50
 REFINEMENT_REQUIRE_OBSERVED_ORDER = True
 ENDPOINT_LABEL_MINIMUM_AGREEMENT_FRACTION = 0.90
 ENDPOINT_LABEL_MINIMUM_ENDPOINT_AGREEMENT_FRACTION = 0.80
+ENDPOINT_LABEL_MINIMUM_ENDPOINT_UNION_FRACTION = 0.01
 
 # Report-only reduced transient gate. This is not the final GIF-producing
 # campaign; it checks whether the direct-coil settings are stable enough to
@@ -474,6 +475,7 @@ def run_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> d
         trace_tolerance=FCI_TRACE_TOLERANCE,
         minimum_agreement_fraction=ENDPOINT_LABEL_MINIMUM_AGREEMENT_FRACTION,
         minimum_endpoint_agreement_fraction=ENDPOINT_LABEL_MINIMUM_ENDPOINT_AGREEMENT_FRACTION,
+        minimum_endpoint_union_fraction=ENDPOINT_LABEL_MINIMUM_ENDPOINT_UNION_FRACTION,
     )
     report = _read_json(artifacts.report_json_path)
     return {
