@@ -16,6 +16,7 @@ from jax_drb.validation import (
     create_essos_imported_drb_movie_stationarity_package,
     create_essos_imported_fci_campaign_package,
     create_live_essos_imported_connection_length_refinement_package,
+    save_essos_imported_fci_source_profile_gate_plot,
 )
 from jax_drb.validation.essos_imported_fci_campaign import (
     create_essos_imported_fci_dry_run_artifact_package,
@@ -496,16 +497,18 @@ def run_source_profile_gate(
     report_path = Path(str(fci_stage["report_json_path"]))
     arrays_path = Path(str(fci_stage["arrays_npz_path"]))
     report = _read_json(report_path)
+    gate_path = settings.output_root / "data" / f"{settings.case_label}_source_profile_gate.json"
+    gate_plot_path = settings.output_root / "images" / f"{settings.case_label}_source_profile_gate.png"
+    gate_path.parent.mkdir(parents=True, exist_ok=True)
     with np.load(arrays_path) as arrays:
         gate = build_essos_imported_fci_source_profile_gate(report, arrays)
-
-    gate_path = settings.output_root / "data" / f"{settings.case_label}_source_profile_gate.json"
-    gate_path.parent.mkdir(parents=True, exist_ok=True)
+        save_essos_imported_fci_source_profile_gate_plot(gate, arrays, gate_plot_path)
     gate_path.write_text(json.dumps(gate, indent=2, sort_keys=True), encoding="utf-8")
     return {
         "stage": "hybrid_source_profile_gate",
         "status": "ran",
         "report_json_path": _path_text(gate_path),
+        "plot_png_path": _path_text(gate_plot_path),
         "source_report_json_path": _path_text(report_path),
         "source_arrays_npz_path": _path_text(arrays_path),
         "source_plot_png_path": fci_stage.get("plot_png_path"),

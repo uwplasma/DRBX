@@ -46,6 +46,7 @@ from jax_drb.validation import (
     create_essos_imported_fci_campaign_package,
     create_essos_imported_pytree_campaign_package,
     create_essos_vmec_fieldline_surface_package,
+    save_essos_imported_fci_source_profile_gate_plot,
 )
 from jax_drb.validation.essos_vmec_closed_field_campaign import (
     build_essos_vmec_closed_field_report,
@@ -1598,7 +1599,9 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     assert np.any(np.isfinite(arrays["target_exit_toroidal"]))
 
 
-def test_essos_imported_fci_source_profile_gate_checks_target_sources_and_profiles() -> None:
+def test_essos_imported_fci_source_profile_gate_checks_target_sources_and_profiles(
+    tmp_path: Path,
+) -> None:
     report = {
         "map_source": "coil",
         "consumed_map_diagnostics": {
@@ -1638,6 +1641,13 @@ def test_essos_imported_fci_source_profile_gate_checks_target_sources_and_profil
     assert gate["heat_load_positive"] is True
     assert gate["ionisation_source_positive"] is True
     assert gate["radial_grid_ordered"] is True
+    plot_path = save_essos_imported_fci_source_profile_gate_plot(
+        gate,
+        arrays,
+        tmp_path / "source_profile_gate.png",
+    )
+    assert plot_path.exists()
+    assert plot_path.stat().st_size > 0
 
     missing_target_arrays = dict(arrays)
     missing_target_arrays["target_label_toroidal"] = np.zeros((2, 2))

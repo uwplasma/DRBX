@@ -497,9 +497,6 @@ def test_direct_coil_open_sol_default_contract_includes_media_stage(
 
     assert summary["map_source"] == "coil"
     assert summary["settings"]["run_live_media_gate"] is False
-    assert summary["settings"]["run_release_evidence_audit"] is True
-    assert summary["release_evidence_ready"] is True
-    assert summary["release_evidence_stage_count"] == 1
     assert summary["promotion_ready"] is False
     assert "no_live_promotion_gates_ran" in summary["promotion_rejection_reasons"]
     assert any(
@@ -610,6 +607,9 @@ def test_hybrid_open_sol_default_contract_includes_promotion_gates(
     assert summary["map_source"] == "hybrid"
     assert summary["connection_quantity"] == "parallel_step_per_toroidal_radian"
     assert summary["settings"]["run_live_media_gate"] is False
+    assert summary["settings"]["run_release_evidence_audit"] is True
+    assert summary["release_evidence_ready"] is True
+    assert summary["release_evidence_stage_count"] == 1
     assert summary["promotion_ready"] is False
     assert "no_live_promotion_gates_ran" in summary["promotion_rejection_reasons"]
     assert any(

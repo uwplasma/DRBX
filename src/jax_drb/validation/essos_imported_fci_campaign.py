@@ -1741,6 +1741,119 @@ def build_essos_imported_fci_source_profile_gate(
     }
 
 
+def save_essos_imported_fci_source_profile_gate_plot(
+    gate: dict[str, Any],
+    arrays: Any,
+    path: str | Path,
+) -> Path:
+    """Save a source/profile gate plot tied to the consumed endpoint masks."""
+
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+
+    def _array(name: str, fallback_shape: tuple[int, ...]) -> np.ndarray:
+        try:
+            return np.asarray(arrays[name], dtype=np.float64)
+        except (KeyError, TypeError):
+            return np.full(fallback_shape, np.nan, dtype=np.float64)
+
+    target_labels = _array("target_label_toroidal", (1, 1))
+    heat_load = _array("heat_load_toroidal", target_labels.shape)
+    ionisation = _array("ionisation_toroidal", target_labels.shape)
+    radial_grid = _array("radial_grid", (0,))
+    radial_profiles = _array("radial_profiles", (0, 0))
+
+    fig, axes = plt.subplots(2, 2, figsize=(12.0, 8.8), constrained_layout=True)
+    extent = [0.0, 2.0 * np.pi, 0.0, 2.0 * np.pi]
+
+    target_image = axes[0, 0].imshow(
+        target_labels.T,
+        origin="lower",
+        aspect="auto",
+        extent=extent,
+        cmap=plt.get_cmap("viridis", 4),
+        vmin=-0.5,
+        vmax=3.5,
+    )
+    axes[0, 0].set_title("consumed directional target labels")
+    axes[0, 0].set_xlabel("toroidal angle")
+    axes[0, 0].set_ylabel("poloidal angle")
+    target_bar = fig.colorbar(target_image, ax=axes[0, 0], label="0 none, 1 fwd, 2 bwd, 3 both")
+    target_bar.set_ticks([0, 1, 2, 3])
+
+    heat_image = axes[0, 1].imshow(
+        heat_load.T,
+        origin="lower",
+        aspect="auto",
+        extent=extent,
+        cmap="inferno",
+    )
+    axes[0, 1].set_title("target heat-load response")
+    axes[0, 1].set_xlabel("toroidal angle")
+    axes[0, 1].set_ylabel("poloidal angle")
+    fig.colorbar(heat_image, ax=axes[0, 1], label="normalized heat load")
+
+    source_image = axes[1, 0].imshow(
+        ionisation.T,
+        origin="lower",
+        aspect="auto",
+        extent=extent,
+        cmap="plasma",
+    )
+    axes[1, 0].set_title("neutral ionisation source")
+    axes[1, 0].set_xlabel("toroidal angle")
+    axes[1, 0].set_ylabel("poloidal angle")
+    fig.colorbar(source_image, ax=axes[1, 0], label="normalized source")
+
+    labels = ["|B|", "connection", "particle loss", "ionisation"]
+    colors = ["#005f73", "#9b2226", "#ee9b00", "#0a9396"]
+    profile_count = min(len(labels), radial_profiles.shape[1] if radial_profiles.ndim == 2 else 0)
+    for index in range(profile_count):
+        profile = np.asarray(radial_profiles[:, index], dtype=np.float64)
+        finite_profile = profile[np.isfinite(profile)]
+        scale = max(float(np.max(np.abs(finite_profile))), 1.0e-30) if finite_profile.size else 1.0
+        axes[1, 1].plot(
+            radial_grid,
+            profile / scale,
+            lw=2.1,
+            color=colors[index],
+            label=labels[index],
+        )
+    axes[1, 1].set_title("normalized radial source/profile diagnostics")
+    axes[1, 1].set_xlabel("minor-radius coordinate")
+    axes[1, 1].set_ylim(-0.05, 1.08)
+    axes[1, 1].grid(alpha=0.25)
+    if profile_count:
+        axes[1, 1].legend(frameon=False, fontsize=8)
+    axes[1, 1].text(
+        0.03,
+        0.96,
+        "\n".join(
+            [
+                f"passed = {bool(gate.get('passed', False))}",
+                f"mask exact = {bool(gate.get('consumed_endpoint_masks_exact', False))}",
+                f"target labels exact = {bool(gate.get('target_labels_reconstruct_endpoint_counts', False))}",
+                f"neutral balance = {float(gate.get('neutral_particle_relative_error', np.nan)):.1e}",
+            ]
+        ),
+        transform=axes[1, 1].transAxes,
+        va="top",
+        ha="left",
+        fontsize=8,
+        bbox={"facecolor": "white", "alpha": 0.84, "edgecolor": "0.8"},
+    )
+
+    fig.suptitle(
+        "Imported-field source/profile gate: "
+        f"map={gate.get('map_source', 'unknown')}, "
+        f"role={gate.get('evidence_role', 'unknown')}",
+        fontsize=13,
+    )
+    fig.savefig(resolved, dpi=180)
+    plt.close(fig)
+    return resolved
+
+
 def build_essos_imported_fci_map_diagnostics(
     *,
     maps: Any,

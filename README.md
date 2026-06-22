@@ -428,10 +428,11 @@ self-contained and writes a dry-run promotion ledger under `artifacts/`; edit
 the live flags at the top of the script to regenerate the ESSOS coil FCI,
 connection-length, endpoint/source, stationarity, and diagnostic media gates
 from local geometry. The live FCI stage now feeds a separate source/profile
-gate JSON that checks target labels, sheath heat load, neutral ionisation,
-radial profiles, and source-balance residuals from the same consumed endpoint
-masks. The `RUN_LIVE_MEDIA_GATE` flag writes GIF/PNG/NPZ media from the direct
-coil field, but the workflow keeps that media out of promotion unless the
+gate JSON and PNG that check target labels, sheath heat load, neutral
+ionisation, radial profiles, and source-balance residuals from the same
+consumed endpoint masks. The `RUN_LIVE_MEDIA_GATE` flag writes GIF/PNG/NPZ
+media from the direct coil field, but the workflow keeps that media out of
+promotion unless the
 geometry, source-accounting, refinement, and visual-QA gates also pass. The
 summary JSON lists `promotion_rejection_reasons`, `promotion_blocking_stages`,
 and `next_actions`, so a default dry run explains that no live promotion gates

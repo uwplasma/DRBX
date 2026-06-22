@@ -495,7 +495,7 @@ Authoritative lane board:
 
 | Order | Lane | Current state | Specific next changes | Definition of success |
 | --- | --- | ---: | --- | --- |
-| 1 | Direct ESSOS-coil open-field simulations on `main` | 66%, diagnostic | Make `direct_coil_open_sol_demo.py` the canonical pure-coil open-field workflow. Next edits: add endpoint-label restriction/refinement reports, consumed-mask target/source/profile plots, target heat and particle flux plots, neutral-source plots, and a diagnostic reduced turbulence movie generated from the same endpoint masks. Keep media out of README promotion while endpoint agreement, target-exit length, or adjacent-step refinement remain weak. | Users can run the direct-coil open-field command from a clone, obtain JSON/NPZ/PNG/GIF artifacts, and see a gate report that either promotes the media or explicitly labels it diagnostic with concrete geometry blockers. Source accounting closes on the exact endpoint masks consumed by sheath/recycling/neutrals. |
+| 1 | Direct ESSOS-coil open-field simulations on `main` | 67%, diagnostic | Make `direct_coil_open_sol_demo.py` the canonical pure-coil open-field workflow. The live source/profile gate now writes a standalone consumed-mask source/profile PNG. Next edits: add or rerun endpoint-label restriction/refinement reports, target particle-flux plots, neutral-source refinements, and a diagnostic reduced turbulence movie generated from the same endpoint masks. Keep media out of README promotion while endpoint agreement, target-exit length, or adjacent-step refinement remain weak. | Users can run the direct-coil open-field command from a clone, obtain JSON/NPZ/PNG/GIF artifacts, and see a gate report that either promotes the media or explicitly labels it diagnostic with concrete geometry blockers. Source accounting closes on the exact endpoint masks consumed by sheath/recycling/neutrals. |
 | 2 | Direct ESSOS-coil closed and near-closed controls | 84% | Keep `direct_coil_closed_field_demo.py` as the pure-coil closed-control workflow. Next edits: package release-hosted media, add a clean command in README/docs, and keep the restored-trace transient synchronized with return-map/refinement provenance. Do not add target, sheath, recycling, neutral-loss, or target-to-target connection-length language to this lane. | Users can run a closed/near-closed coil-control example and see non-axisymmetric Poincare, return-map, profile, spectrum/movie diagnostics, and explicit `target`, `sheath`, `recycling`, and `neutral_loss` absence. |
 | 3 | VMEC closed-field stellarator controls | 86% | Keep VMEC-coordinate maps as the smooth closed-field control. Optionally add stronger periodic bracket/vorticity forcing, but keep zero endpoint masks and no target semantics. | Closed VMEC examples pass zero-endpoint, periodic parallel-step/operator, mass/profile/spectrum, fixed-camera, and fixed-color QA gates. Docs state that target, sheath, recycling, and neutral losses are absent unless deliberately selected as an artificial model. |
 | 4 | Hybrid VMEC/coil open-SOL bridge | 88% | Promote `hybrid_open_sol_demo.py` from dry-run/compact evidence to the first promoted open-SOL candidate. The combined report-backed promotion audit is now wired into the workflow summary as a `release_evidence` stage that does not hide skipped live gates. Next edits: run the heavier live promotion preset, regenerate target/source/profile plots and media, and keep the audit green after any media changes. | The workflow summary reports green FCI/source-profile, endpoint-mask consumption, parallel-step refinement, source balances, stationarity, grid/time checks, and frame-by-frame movie QA. README identifies hybrid as the promoted stellarator open-SOL bridge if pure-coil maps remain rough. |
@@ -523,10 +523,10 @@ Immediate implementation sequence:
 
 1. Continue with the pure direct-coil open-field gate. Run or add the coil-map
    endpoint-label restriction diagnostic, target-exit and adjacent-step
-   refinement diagnostics, consumed-mask source/profile plots, target flux
-   plots, neutral-source plots, and a diagnostic movie. Gate: the open-field
-   report states `promotion_ready=true` only if geometry, operator, source,
-   refinement, and visual-QA checks are all green.
+   refinement diagnostics, target particle-flux plots, neutral-source
+   refinements, and a diagnostic movie. Gate: the open-field report states
+   `promotion_ready=true` only if geometry, operator, source, refinement, and
+   visual-QA checks are all green.
 2. Package the direct-coil closed/near-closed control as a clean-clone example.
    Gate: README/docs show the command and release-hosted media, while the JSON
    report proves closed/near-closed classification, mass control, fixed
@@ -1906,6 +1906,18 @@ Each promoted feature should carry the following evidence:
 
 Use this log for concise decision records. Do not paste terminal output here.
 
+- 2026-06-22: Added a standalone source/profile gate plot for imported FCI
+  workflows. `save_essos_imported_fci_source_profile_gate_plot` renders the
+  consumed directional target labels, target heat-load response, neutral
+  ionisation source, normalized radial profiles, and key source-accounting
+  booleans from the same arrays used by
+  `build_essos_imported_fci_source_profile_gate`. Both
+  `direct_coil_open_sol_demo.py` and `hybrid_open_sol_demo.py` now write this
+  PNG whenever live FCI/source-profile data exist. Focused tests cover the plot
+  helper and the workflow contract semantics. Decision: move the direct-coil
+  open-field lane to `67%`; remaining blockers are live endpoint-label and
+  adjacent-step refinement, target particle-flux detail, diagnostic movie QA,
+  and keeping pure-coil media unpromoted until those gates pass.
 - 2026-06-22: Integrated the hybrid open-SOL promotion audit into
   `hybrid_open_sol_demo.py`. The default workflow now writes a
   `hybrid_release_evidence_audit` stage with exact audited paths and stage

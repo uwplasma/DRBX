@@ -219,6 +219,7 @@ from .essos_imported_fci_campaign import (
     save_essos_imported_endpoint_label_refinement_plot,
     save_essos_imported_connection_length_refinement_plot,
     save_essos_imported_fci_campaign_plot,
+    save_essos_imported_fci_source_profile_gate_plot,
 )
 from .essos_imported_artifact_audit import (
     audit_essos_imported_artifact_report,
@@ -711,6 +712,7 @@ __all__ = [
     "save_essos_imported_endpoint_label_refinement_plot",
     "save_essos_imported_connection_length_refinement_plot",
     "save_essos_imported_fci_campaign_plot",
+    "save_essos_imported_fci_source_profile_gate_plot",
     "VmecExtenderEdgeFieldCampaignArtifacts",
     "build_vmec_extender_edge_field_campaign_report",
     "create_vmec_extender_edge_field_campaign_package",
