@@ -74,6 +74,12 @@ backward endpoint bits both have false positives and false negatives. The
 dominant direction-component error is
 `balanced_forward_backward_components`, which points to endpoint projection and
 seed-collocation stability rather than a one-sided target-label bug.
+A separate odd-ratio live rerun using `(3, 5, 9) -> (7, 15, 27)` grids keeps
+coarse periodic seed angles collocated on the refined grid. That diagnostic
+also fails promotion: all-label agreement is `0.474`, endpoint agreement is
+`0.458`, endpoint-union population is `0.970`, and the dominant component
+error is `forward_component`. This rules out even-ratio non-collocation as the
+only cause of the pure-coil blocker.
 
 The published FCI validation figures and arrays are restored by
 `python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
