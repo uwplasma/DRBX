@@ -558,6 +558,17 @@ def run_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSettings) -> d
                 "projection_neighborhood_endpoint_mismatch_support_fraction",
             )
         ),
+        "conservative_projection_available": bool(
+            report.get("diagnostics", {}).get("conservative_projection_available", False)
+        ),
+        "minimum_conservative_projection_agreement_fraction_actual": (
+            report.get("minimum_conservative_projection_agreement_fraction_actual")
+        ),
+        "minimum_conservative_projection_endpoint_agreement_fraction_actual": (
+            report.get(
+                "minimum_conservative_projection_endpoint_agreement_fraction_actual"
+            )
+        ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
             "dominant_endpoint_boundary_localization"
         ),
@@ -648,6 +659,17 @@ def run_collocated_endpoint_label_refinement_gate(settings: DirectCoilOpenSolSet
             _max_endpoint_pair_metric(
                 report,
                 "projection_neighborhood_endpoint_mismatch_support_fraction",
+            )
+        ),
+        "conservative_projection_available": bool(
+            report.get("diagnostics", {}).get("conservative_projection_available", False)
+        ),
+        "minimum_conservative_projection_agreement_fraction_actual": (
+            report.get("minimum_conservative_projection_agreement_fraction_actual")
+        ),
+        "minimum_conservative_projection_endpoint_agreement_fraction_actual": (
+            report.get(
+                "minimum_conservative_projection_endpoint_agreement_fraction_actual"
             )
         ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(
@@ -749,6 +771,17 @@ def run_boundary_resolved_endpoint_label_refinement_gate(
             _max_endpoint_pair_metric(
                 report,
                 "projection_neighborhood_endpoint_mismatch_support_fraction",
+            )
+        ),
+        "conservative_projection_available": bool(
+            report.get("diagnostics", {}).get("conservative_projection_available", False)
+        ),
+        "minimum_conservative_projection_agreement_fraction_actual": (
+            report.get("minimum_conservative_projection_agreement_fraction_actual")
+        ),
+        "minimum_conservative_projection_endpoint_agreement_fraction_actual": (
+            report.get(
+                "minimum_conservative_projection_endpoint_agreement_fraction_actual"
             )
         ),
         "dominant_endpoint_boundary_localization": report.get("diagnostics", {}).get(

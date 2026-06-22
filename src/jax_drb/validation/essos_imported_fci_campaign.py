@@ -966,6 +966,17 @@ def build_essos_imported_endpoint_label_refinement_campaign(
         "minimum_boundary_excluded_endpoint_agreement_fraction_actual": (
             diagnostics["minimum_boundary_excluded_endpoint_agreement_fraction_actual"]
         ),
+        "conservative_projection_available": bool(
+            diagnostics["conservative_projection_available"]
+        ),
+        "minimum_conservative_projection_agreement_fraction_actual": (
+            diagnostics["minimum_conservative_projection_agreement_fraction_actual"]
+        ),
+        "minimum_conservative_projection_endpoint_agreement_fraction_actual": (
+            diagnostics[
+                "minimum_conservative_projection_endpoint_agreement_fraction_actual"
+            ]
+        ),
         "level_count_passed": bool(diagnostics["level_count_passed"]),
         "promotion_ready": bool(diagnostics["promotion_ready"]),
         "advisory_only": bool(diagnostics["advisory_only"]),
@@ -1101,11 +1112,19 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
                 fine_coordinates=coordinate_payloads[index + 1],
                 coarse_coordinates=coordinate_payloads[index],
             )
+            conservative_projection = (
+                _sample_endpoint_label_neighborhood_union_at_coarse_coordinates(
+                    fine=fine,
+                    fine_coordinates=coordinate_payloads[index + 1],
+                    coarse_coordinates=coordinate_payloads[index],
+                )
+            )
         else:
             restricted = _restrict_endpoint_labels_to_coarse_grid(
                 fine=fine,
                 coarse_shape=coarse.shape,
             )
+            conservative_projection = None
         valid = _endpoint_labels_valid(coarse) & _endpoint_labels_valid(restricted)
         coarse_forward = (coarse & 1) > 0
         restricted_forward = (restricted & 1) > 0
@@ -1150,8 +1169,14 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
                 fine_coordinates=coordinate_payloads[index + 1],
                 coarse_coordinates=coordinate_payloads[index],
             )
+            conservative_projection_metrics = _endpoint_conservative_projection_metrics(
+                coarse=coarse,
+                conservative=conservative_projection,
+                base_valid=valid,
+            )
         else:
             projection_neighborhood_metrics = _endpoint_projection_neighborhood_unavailable()
+            conservative_projection_metrics = _endpoint_conservative_projection_unavailable()
         directional_transition_shell = np.asarray(
             boundary_localization_metrics.pop("directional_transition_shell"),
             dtype=bool,
@@ -1207,6 +1232,7 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
                 **component_metrics,
                 **boundary_localization_metrics,
                 **projection_neighborhood_metrics,
+                **conservative_projection_metrics,
                 **interior_metrics,
                 "dominant_instability_mode": instability_mode,
                 "recommended_next_action": _endpoint_instability_next_action(instability_mode),
@@ -1316,6 +1342,21 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         bool(pair.get("projection_neighborhood_supported", False))
         for pair in pair_reports
     )
+    conservative_projection_available = any(
+        bool(pair.get("conservative_projection_available", False))
+        for pair in pair_reports
+    )
+    conservative_projection_agreement_values = [
+        float(pair["conservative_projection_agreement_fraction"])
+        for pair in pair_reports
+        if pair.get("conservative_projection_available", False)
+    ]
+    conservative_projection_endpoint_agreement_values = [
+        float(pair["conservative_projection_endpoint_agreement_fraction"])
+        for pair in pair_reports
+        if pair.get("conservative_projection_available", False)
+        and pair.get("conservative_projection_endpoint_agreement_fraction") is not None
+    ]
     return {
         "diagnostic": "essos_imported_endpoint_label_refinement",
         "label_semantics": "0 none, 1 forward, 2 backward, 3 bidirectional",
@@ -1366,6 +1407,17 @@ def build_essos_imported_endpoint_label_refinement_diagnostics(
         "target_boundary_projection_suspected": bool(target_boundary_projection_suspected),
         "target_boundary_only_instability": bool(target_boundary_only_instability),
         "projection_neighborhood_supported": bool(projection_neighborhood_supported),
+        "conservative_projection_available": bool(conservative_projection_available),
+        "minimum_conservative_projection_agreement_fraction_actual": (
+            min(conservative_projection_agreement_values)
+            if conservative_projection_agreement_values
+            else None
+        ),
+        "minimum_conservative_projection_endpoint_agreement_fraction_actual": (
+            min(conservative_projection_endpoint_agreement_values)
+            if conservative_projection_endpoint_agreement_values
+            else None
+        ),
         "projection_recommended_next_action": _endpoint_boundary_localization_next_action(
             dominant_boundary_localization
         ),
@@ -1518,6 +1570,85 @@ def _endpoint_projection_neighborhood_unavailable() -> dict[str, float | bool | 
     }
 
 
+def _endpoint_conservative_projection_unavailable() -> dict[str, float | bool | str | int | None]:
+    return {
+        "conservative_projection_available": False,
+        "conservative_projection_radius_cells": 0,
+        "conservative_projection_agreement_fraction": 0.0,
+        "conservative_projection_endpoint_union_fraction": 0.0,
+        "conservative_projection_endpoint_agreement_fraction": None,
+        "conservative_projection_endpoint_false_positive_fraction": 0.0,
+        "conservative_projection_endpoint_false_negative_fraction": 0.0,
+        "conservative_projection_directional_mismatch_fraction": 0.0,
+    }
+
+
+def _endpoint_conservative_projection_metrics(
+    *,
+    coarse: np.ndarray,
+    conservative: np.ndarray | None,
+    base_valid: np.ndarray,
+    radius: int = 1,
+) -> dict[str, float | bool | str | int | None]:
+    if conservative is None:
+        return _endpoint_conservative_projection_unavailable()
+    coarse_labels = _normalize_endpoint_label_level(coarse)
+    conservative_array = np.asarray(conservative)
+    if not np.all(np.isfinite(conservative_array.astype(np.float64, copy=False))):
+        raise ValueError("Conservative endpoint projection must contain finite values.")
+    conservative_labels = np.rint(conservative_array).astype(np.int8)
+    if not np.allclose(
+        conservative_array.astype(np.float64),
+        conservative_labels.astype(np.float64),
+    ):
+        raise ValueError("Conservative endpoint projection must be integer-valued.")
+    valid = (
+        np.asarray(base_valid, dtype=bool)
+        & _endpoint_labels_valid(coarse_labels)
+        & _endpoint_labels_valid(conservative_labels)
+    )
+    valid_count = int(np.sum(valid))
+    endpoint_union = valid & ((coarse_labels > 0) | (conservative_labels > 0))
+    endpoint_union_count = int(np.sum(endpoint_union))
+    endpoint_agreement = endpoint_union & (coarse_labels == conservative_labels)
+    false_positive = valid & (coarse_labels == 0) & (conservative_labels > 0)
+    false_negative = valid & (coarse_labels > 0) & (conservative_labels == 0)
+    directional_mismatch = (
+        valid
+        & (coarse_labels > 0)
+        & (conservative_labels > 0)
+        & (coarse_labels != conservative_labels)
+    )
+    return {
+        "conservative_projection_available": True,
+        "conservative_projection_radius_cells": int(radius),
+        "conservative_projection_agreement_fraction": _safe_fraction(
+            int(np.sum(valid & (coarse_labels == conservative_labels))),
+            valid_count,
+            default=0.0,
+        ),
+        "conservative_projection_endpoint_union_fraction": float(np.mean(endpoint_union)),
+        "conservative_projection_endpoint_agreement_fraction": (
+            _safe_fraction(
+                int(np.sum(endpoint_agreement)),
+                endpoint_union_count,
+                default=1.0,
+            )
+            if endpoint_union_count
+            else None
+        ),
+        "conservative_projection_endpoint_false_positive_fraction": float(
+            np.mean(false_positive)
+        ),
+        "conservative_projection_endpoint_false_negative_fraction": float(
+            np.mean(false_negative)
+        ),
+        "conservative_projection_directional_mismatch_fraction": float(
+            np.mean(directional_mismatch)
+        ),
+    }
+
+
 def _endpoint_projection_neighborhood_metrics(
     *,
     coarse: np.ndarray,
@@ -1641,6 +1772,42 @@ def _sample_endpoint_label_neighborhood_support_at_coarse_coordinates(
                 zi = (z + dz) % fine_labels.shape[2]
                 support |= fine_labels[xi, yi, zi] == coarse_label_array
     return support & valid_x
+
+
+def _sample_endpoint_label_neighborhood_union_at_coarse_coordinates(
+    *,
+    fine: np.ndarray,
+    fine_coordinates: dict[str, np.ndarray],
+    coarse_coordinates: dict[str, np.ndarray],
+    radius: int = 1,
+) -> np.ndarray:
+    fine_labels = _normalize_endpoint_label_level(fine)
+    if int(radius) < 0:
+        raise ValueError("Endpoint conservative-projection radius must be nonnegative.")
+    fine_rho = _coordinate_axis(fine_coordinates["minor_radius"], axis=0)
+    fine_phi = _coordinate_axis(fine_coordinates["toroidal_angle"], axis=1)
+    fine_theta = _coordinate_axis(fine_coordinates["poloidal_angle"], axis=2)
+    coarse_rho = np.asarray(coarse_coordinates["minor_radius"], dtype=np.float64)
+    coarse_phi = np.asarray(coarse_coordinates["toroidal_angle"], dtype=np.float64)
+    coarse_theta = np.asarray(coarse_coordinates["poloidal_angle"], dtype=np.float64)
+
+    x, valid_x = _nearest_linear_axis_indices(fine_rho, coarse_rho)
+    y = _nearest_periodic_axis_indices(fine_phi, coarse_phi, period=2.0 * np.pi)
+    z = _nearest_periodic_axis_indices(fine_theta, coarse_theta, period=2.0 * np.pi)
+    forward = np.zeros(coarse_rho.shape, dtype=bool)
+    backward = np.zeros(coarse_rho.shape, dtype=bool)
+    radius_value = int(radius)
+    for dx in range(-radius_value, radius_value + 1):
+        xi = np.clip(x + dx, 0, fine_labels.shape[0] - 1)
+        for dy in range(-radius_value, radius_value + 1):
+            yi = (y + dy) % fine_labels.shape[1]
+            for dz in range(-radius_value, radius_value + 1):
+                zi = (z + dz) % fine_labels.shape[2]
+                sampled = fine_labels[xi, yi, zi]
+                forward |= (sampled & 1) > 0
+                backward |= (sampled & 2) > 0
+    labels = _target_label_array(forward & valid_x, backward & valid_x)
+    return np.where(valid_x, labels, np.int8(-1)).astype(np.int8)
 
 
 def _label_transition_shell(labels: np.ndarray, valid: np.ndarray) -> np.ndarray:
@@ -3179,6 +3346,14 @@ def save_essos_imported_endpoint_label_refinement_plot(
     projection_neighborhood_supported = bool(
         diagnostics.get("projection_neighborhood_supported", False)
     )
+    conservative_endpoint = report.get(
+        "minimum_conservative_projection_endpoint_agreement_fraction_actual"
+    )
+    conservative_endpoint_text = (
+        "n/a"
+        if conservative_endpoint is None
+        else f"{float(conservative_endpoint):.3f}"
+    )
     fig.suptitle(
         "Imported-field endpoint-label refinement gate\n"
         f"passed={report['passed']}, min all={min_agreement_text}, "
@@ -3186,7 +3361,8 @@ def save_essos_imported_endpoint_label_refinement_plot(
         f"boundary={boundary_mode}, target-projection suspected={projection_suspected}, "
         f"interior all={interior_agreement_text} over {interior_valid_text}\n"
         f"projection-neighborhood support={projection_support_text}, "
-        f"supported={projection_neighborhood_supported}",
+        f"supported={projection_neighborhood_supported}, "
+        f"conservative endpoint={conservative_endpoint_text}",
         fontsize=12,
     )
     fig.savefig(resolved, dpi=180, bbox_inches="tight")
