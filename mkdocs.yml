@@ -29,6 +29,7 @@ nav:
   - Home: index.md
   - User Guide:
       - Installation: installation.md
+      - Feature Reference: feature_reference.md
       - Inputs And Outputs: input_output_reference.md
       - Native Runtime CLI: native_runtime_cli.md
       - Restartable Diffusion Tutorial: restartable_diffusion_tutorial.md

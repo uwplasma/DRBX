@@ -3,6 +3,8 @@
 This page records what each public example is expected to do from a fresh
 checkout. The goal is to separate self-contained user examples from heavier
 developer validation commands, while keeping the README and docs reproducible.
+For the broader feature-to-source/test/output map, see
+[Feature Reference](feature_reference.md).
 
 !!! note "Plan authority"
     This page is an example-status appendix. The active execution plan is
