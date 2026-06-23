@@ -3,6 +3,9 @@
 The examples are grouped by intent. User-facing examples are ordinary Python
 scripts with parameters near the top of the file. Campaign examples generate
 JSON/NPZ/PNG/GIF artifacts that are also used by tests and documentation.
+For a capability-by-capability map that links every major feature to its
+inputs, outputs, source modules, tests, and documentation page, see
+[Feature Reference](feature_reference.md).
 
 ## Quick Start
 

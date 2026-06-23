@@ -17,6 +17,9 @@ neutral transport, differentiable reduced studies, curated tokamak workflows,
 and reusable 3D geometry diagnostics.
 
 Documentation is available at [jax-drb.readthedocs.io](https://jax-drb.readthedocs.io/).
+For the complete user map from features to examples, inputs, outputs, source
+code, and tests, start with the
+[Feature Reference](https://jax-drb.readthedocs.io/en/latest/feature_reference/).
 
 JAXDRB is built for researchers who want a lightweight codebase that can run
 from a clean clone, produce publication-quality diagnostics, and expose

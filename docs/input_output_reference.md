@@ -1,25 +1,43 @@
 # Input And Output Reference
 
-This page collects the current public input-deck, command-line, Python-driver,
-and output-artifact conventions. It is the practical reference for users who
-want to go beyond the README quick start.
+This page is the practical reference for every public input and output surface.
+Use it after the [Feature Reference](feature_reference.md) when you know which
+workflow you want to run and need the exact files, command-line switches,
+Python entry points, and artifacts.
+
+## Input Families
+
+| Input family | Used by | What to edit |
+| --- | --- | --- |
+| TOML native decks | `jax_drb run`, `jax_drb inspect`, `jax_drb run-case` staging | Time, runtime precision, mesh, solver settings, model components, species, fields, output, restart |
+| Python example constants | scripts under `examples/` | Constants near the top of the file: grid sizes, timestep, output directory, model flags, plotting toggles |
+| Release-backed artifacts | movies, docs galleries, cached user examples, cached parity checks | Restored by `scripts/fetch_example_artifacts.py`; do not edit by hand |
+| Developer reference roots | live parity refresh and heavy external-geometry regeneration | `--reference-root`, `JAX_DRB_REFERENCE_ROOT`, or geometry-specific environment variables |
+| Imported geometry payloads | ESSOS/VMEC/VMEC-extender workflows | Field-line arrays, VMEC-coordinate maps, compact NetCDF edge-field grids, metadata JSON |
+
+Most user examples are self-contained after artifact restoration and do not
+require external plasma-code installations. Developer/live-reference commands
+are documented separately and require explicit local reference inputs.
 
 ## TOML Decks
 
-The native runtime reads TOML decks. The most common top-level sections are:
+The native runtime reads TOML decks. A minimal promoted deck is committed at
+[`examples/inputs/restartable_diffusion.toml`](https://github.com/uwplasma/jax_drb/blob/main/examples/inputs/restartable_diffusion.toml).
 
-| Section | Purpose |
+Common top-level sections:
+
+| Section | Keys and meaning |
 | --- | --- |
-| `[time]` | Output count and timestep. |
-| `[runtime]` | Precision, backend-sensitive runtime options, and solver mode switches. |
-| `[runtime.logging]` | Terminal verbosity and quiet mode. |
-| `[mesh]` | Mesh size, spacing, Jacobian, and metric-like inputs. |
-| `[solver]` | Native solver options such as step limits. |
-| `[model]` | Model component list. |
-| `[species.<name>]` | Species charge, mass, active equations, and transport coefficients. |
-| `[fields.<name>]` | Initial fields and boundary conditions. |
-| `[output]` | Artifact directory and write toggles. |
-| `[restart]` | Optional restart input and resume length. |
+| `[time]` | `nout` output intervals, `timestep` physical or normalized interval length |
+| `[runtime]` | `precision` (`float32` or `float64`) and backend-sensitive runtime options |
+| `[runtime.logging]` | `verbosity`, `verbose`, `quiet`; controls terminal progress and log detail |
+| `[mesh]` | `nx`, `ny`, `nz`, `dx`, `dy`, `dz`, `J`, metric-like factors or expression-valued spacing |
+| `[solver]` | native solver selectors, step limits, and opt-in research backend switches |
+| `[model]` | active component list and model-family selectors |
+| `[species.<name>]` | species type/equations, charge, mass number, transport coefficients, closure toggles |
+| `[fields.<name>]` | initial field formula or reference, boundary conditions, guard behavior |
+| `[output]` | output directory and write toggles for summary, arrays, restart, and run log |
+| `[restart]` | optional restart input and resume length |
 
 Minimal example:
 
@@ -30,6 +48,11 @@ timestep = 5.0
 
 [runtime]
 precision = "float64"
+
+[runtime.logging]
+verbosity = "detailed"
+verbose = true
+quiet = false
 
 [mesh]
 nx = 16
@@ -69,20 +92,17 @@ write_restart = true
 write_log = true
 ```
 
-The committed deck is
-[`examples/inputs/restartable_diffusion.toml`](https://github.com/uwplasma/jax_drb/blob/main/examples/inputs/restartable_diffusion.toml).
+### Expressions And References
 
-## Expressions
-
-Expression-valued inputs use `{ expr = "..." }`. The expression evaluator is
-documented through examples rather than a separate symbolic language manual.
-The current examples use coordinate names such as `x` and `y`, constants such
-as `pi`, and helper functions such as `H(...)` for a Heaviside-style switch.
+Expression-valued inputs use `{ expr = "..." }`. Current examples use
+coordinate names such as `x`, `y`, and `z`, constants such as `pi`, elementary
+functions such as `exp`, and helper functions such as `H(...)` for a
+Heaviside-style switch.
 
 Reference-valued fields use `{ ref = "OtherField:function" }` when one field
 should reuse another field definition.
 
-## Boundary Conditions
+### Boundary Conditions
 
 The public TOML examples use field-level boundary keys such as:
 
@@ -91,47 +111,54 @@ The public TOML examples use field-level boundary keys such as:
 bndry_all = "neumann"
 ```
 
-The higher-fidelity reference-backed and curated campaigns additionally stage
-target/sheath/recycling boundary behavior from their validated setup paths. The
-current capability tier for those cases is shown in the run summary and in the
-validation matrix.
+Higher-fidelity recycling, sheath, neutral, and target behavior is usually
+staged by curated campaigns or Python examples, because those paths need
+species coupling, target masks, guard-cell sequencing, and source accounting.
+Their capability tier is written to the run summary and validation report.
 
 ## CLI Commands
 
-Run a deck:
+The executable is `jax_drb`. Running a TOML path directly is equivalent to
+`jax_drb run`.
+
+| Command | Purpose | Typical inputs | Typical outputs |
+| --- | --- | --- | --- |
+| `jax_drb run input.toml` | Run a native input deck | TOML deck, optional restart | summary JSON, arrays NPZ, restart NPZ, run log |
+| `jax_drb inspect input.toml` | Parse and print the resolved plan without advancing | TOML deck | terminal plan summary |
+| `jax_drb reference-cases` | List curated reference-backed cases | optional reference root | terminal or JSON case list |
+| `jax_drb run-reference-case` | Stage and run a curated external-reference case | reference root, case name, workdir | reference run artifacts and portable summary |
+| `jax_drb run-case` | Run a curated case through native JAXDRB | reference root or fixture deck, case name | portable native summary |
+| `jax_drb validate-reference-baselines` | Re-run cached reference-baseline checks | baseline directory or release-restored files | validation report |
+| `jax_drb compare-summary` | Compare portable summary JSON files | expected and actual JSON | scalar diff report |
+| `jax_drb compare-arrays` | Compare portable NPZ payloads | expected and actual NPZ | array diff report |
+| `jax_drb compare-recycling` | Localize recycling parity differences | compact reference/native artifacts | worst-variable/cell report |
+| `jax_drb analyze-drift-wave` | Analyze a drift-wave array payload | NPZ payload | benchmark scalars |
+| `jax_drb compare-drift-wave` | Compare drift-wave payloads | two payloads | parity metrics |
+| `jax_drb analyze-alfven-wave` | Analyze an Alfven-wave payload | NPZ payload | benchmark scalars |
+| `jax_drb compare-alfven-wave` | Compare Alfven-wave payloads | two payloads | parity metrics |
+| `jax_drb compare-blob2d` | Compare blob benchmark artifacts | JSON/NPZ payloads | peak and center-of-mass metrics |
+| `jax_drb analyze-neutral-mixed` | Analyze neutral-mixed payloads | NPZ payload | transient metrics |
+| `jax_drb compare-neutral-mixed` | Compare neutral-mixed payloads | analysis JSON or NPZ payloads | compact parity metrics |
+| `jax_drb diagnose-neutral-mixed-substeps` | Rank hybrid-state NVh parity drivers | reference/native traces | offender report |
+| `jax_drb trace-neutral-mixed-accepted-steps` | Write native accepted-step trace | neutral-mixed input/case | JSONL trace |
+| `jax_drb trace-neutral-mixed-reference-accepted-steps` | Run patched reference trace | reference root and case | JSONL trace |
+| `jax_drb compare-neutral-mixed-accepted-traces` | Compare accepted-step traces | native/reference JSONL | state-history and term-level diff report |
+
+Common commands:
 
 ```bash
-jax_drb path/to/input.toml
-```
-
-Equivalent explicit form:
-
-```bash
-jax_drb run path/to/input.toml
-```
-
-Inspect without advancing:
-
-```bash
-jax_drb inspect path/to/input.toml
-```
-
-Resume from a restart bundle:
-
-```bash
-jax_drb run path/to/input.toml \
+jax_drb inspect examples/inputs/restartable_diffusion.toml
+jax_drb run examples/inputs/restartable_diffusion.toml --verbose
+jax_drb run examples/inputs/restartable_diffusion.toml \
   --output-dir output/resumed_case \
   --restart-in output/base_case/base_restart.npz \
   --resume-steps 2
 ```
 
-Use detailed runtime progress:
+## Python Entry Points
 
-```bash
-jax_drb run path/to/input.toml --verbose
-```
-
-## Python Driver
+Use the CLI for ordinary runs. Use the Python API when embedding JAXDRB in
+analysis scripts or examples.
 
 ```python
 from jax_drb.native import run_input_case
@@ -147,50 +174,100 @@ print(result.time_points[-1])
 print(sorted(result.variables))
 ```
 
-Curated cases can be launched through:
+Common Python entry points:
 
-```python
-from pathlib import Path
-from jax_drb.native import run_curated_case
-
-result = run_curated_case(
-    "tokamak_isothermal_one_step",
-    reference_root=Path("/path/to/reference-suite"),
-)
-print(result.payload["capability_tier"])
-```
+| API | Source | Purpose |
+| --- | --- | --- |
+| `run_input_case` | [`src/jax_drb/native/runner.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/runner.py) | Run a TOML deck and return structured native output |
+| `run_curated_case` | [`src/jax_drb/native/runner.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/runner.py) | Run curated validation cases through native JAXDRB |
+| `load_run_config` | [`src/jax_drb/runtime/run_config.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/runtime/run_config.py) | Parse runtime configuration |
+| `write_run_outputs` and output helpers | [`src/jax_drb/runtime/output.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/runtime/output.py) | Write summary, arrays, restart, and run-log artifacts |
+| `compute_fci_drb_rhs` | [`src/jax_drb/native/fci_drb_rhs.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci_drb_rhs.py) | Evaluate compact 3D FCI DRB RHS terms |
+| `build_*_campaign` functions | [`src/jax_drb/validation`](https://github.com/uwplasma/jax_drb/tree/main/src/jax_drb/validation) | Generate validation reports, figures, and publication artifacts |
 
 ## Output Artifacts
 
 When `[output]` enables every public artifact, the runtime writes:
 
-| Artifact | Contents |
-| --- | --- |
-| `<case>_summary.json` | Scalar metadata, capability tier, runtime configuration, and variable summaries. |
-| `<case>_arrays.npz` | Field arrays and time histories for downstream plotting. |
-| `<case>_restart.npz` | Restart payload for resumed runs. |
-| `<case>_run_log.json` | Ordered runtime events, progress messages, output paths, and sanitized machine/runtime metadata. |
+| Artifact | Format | Contents | Typical use |
+| --- | --- | --- | --- |
+| `<case>_summary.json` | JSON | scalar metadata, capability tier, runtime configuration, variable summaries, output manifest | quick inspection, docs tables, CI checks |
+| `<case>_arrays.npz` | NPZ | field arrays and time histories | plotting, parity, analysis scripts |
+| `<case>_restart.npz` | NPZ | restart payload with fields and metadata | resume native runs |
+| `<case>_run_log.json` | JSON | ordered runtime events, progress messages, artifact paths, sanitized runtime metadata | long-run monitoring and reproducibility |
+| validation report | JSON | campaign settings, metrics, thresholds, capability tier, literature/reference notes | docs and paper figures |
+| validation arrays | NPZ | campaign arrays used to make plots | regeneration and review |
+| validation figures | PNG/GIF | publication-style plots and movies | docs, README, manuscript |
 
 The run log is designed for long calculations. On live native implicit
 recycling lanes it records interval progress, accepted timestep, simulated
 time, elapsed wall time, and estimated remaining wall time.
 
-## Capability Tiers
+## Where Outputs Go
+
+Most examples write to either `output/<case>/` or `docs/data/<case>_artifacts/`.
+The first location is for user runs. The second location is used by examples
+that regenerate documentation figures. Large files in `docs/data/` are either
+ignored by git or restored from the release artifact manifest.
+
+Use these conventions:
+
+| Situation | Recommended output directory |
+| --- | --- |
+| Trying a tutorial locally | `output/<case_name>/` |
+| Regenerating a documented example figure | the script default under `docs/data/<case>_artifacts/` |
+| Running heavy profiling | `tmp/profiles/<profile_name>/` |
+| Running a live reference campaign | explicit scratch directory outside the repo or under ignored `tmp/` |
+
+## Artifact Restore And No-Bloat Policy
+
+The repository tracks source code, documentation, small fixtures, and small
+machine-readable reports. Large media and baselines are release-hosted.
+
+Restore only user-facing media:
+
+```bash
+python scripts/fetch_example_artifacts.py --skip-baselines
+```
+
+Restore media plus cached baselines:
+
+```bash
+python scripts/fetch_example_artifacts.py
+```
+
+Use a shared cache:
+
+```bash
+export JAX_DRB_ARTIFACT_CACHE_DIR=/path/to/cache
+python scripts/fetch_example_artifacts.py --skip-baselines
+```
+
+For private-repository users, authenticate with `gh auth login --hostname
+github.com` or set `GH_TOKEN`/`GITHUB_TOKEN`.
+
+## Capability Tiers In Outputs
 
 Every promoted or curated result should be interpreted through its tier:
 
 | Tier | Meaning |
 | --- | --- |
 | `native_exact` | Strong enough for the main promoted native benchmark surface. |
-| `native_operational` | Native and useful, but still carrying bounded residuals. |
+| `native_operational` | Native and useful, but still carrying bounded residuals or reduced fidelity. |
 | `scaffolded_reference_backed` | Useful for diagnostics or geometry staging, but not counted as native closure. |
 
 The tier is written to summaries, run logs, and validation artifacts so docs
 figures and paper figures do not overstate the solver claim.
 
-## Artifact Locations In Docs
+## Source Links
 
-Large figures, movies, and NPZ bundles are release-hosted to keep the Git
-repository lightweight. The docs link those assets directly from GitHub
-Releases while keeping the code, JSON reports, and tests in the repository.
-The full gallery is [Validation Gallery](validation_gallery.md).
+For implementation details, use:
+
+| Topic | Source |
+| --- | --- |
+| CLI parsing and command dispatch | [`src/jax_drb/cli.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/cli.py) |
+| Runtime state and output writing | [`src/jax_drb/runtime`](https://github.com/uwplasma/jax_drb/tree/main/src/jax_drb/runtime) |
+| Native run orchestration | [`src/jax_drb/native/runner.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/runner.py) |
+| Fixed-layout recycling residuals | [`src/jax_drb/native/recycling_fixed_residual.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/recycling_fixed_residual.py) |
+| 3D FCI geometry and RHS terms | [`src/jax_drb/native/fci.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`src/jax_drb/native/fci_drb_rhs.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci_drb_rhs.py) |
+| Validation campaigns and plotting | [`src/jax_drb/validation`](https://github.com/uwplasma/jax_drb/tree/main/src/jax_drb/validation) |
