@@ -56,9 +56,9 @@ def build_stellarator_vorticity_campaign(
     geometry = build_synthetic_stellarator_geometry(nx=nx, ny=ny, nz=nz)
     phi_exact = _manufactured_potential(geometry)
     density = 1.0 + 0.25 * geometry.radial + 0.04 * jnp.cos(2.0 * geometry.poloidal_angle - 5.0 * geometry.toroidal_angle)
-    vorticity = apply_fci_vorticity_operator(phi_exact, density, geometry.metric)
-    solve = solve_fci_vorticity_potential_cg(vorticity, density, geometry.metric, iterations=600)
-    phi_centered = _remove_weighted_mean(np.asarray(phi_exact), np.asarray(geometry.metric.J))
+    vorticity = apply_fci_vorticity_operator(phi_exact, density, geometry)
+    solve = solve_fci_vorticity_potential_cg(vorticity, density, geometry, iterations=600)
+    phi_centered = _remove_weighted_mean(np.asarray(phi_exact), np.asarray(geometry.J))
     phi_solved = np.asarray(solve.potential, dtype=np.float64)
     error = phi_solved - phi_centered
     relative_l2_error = float(np.sqrt(np.mean(error * error)) / max(np.sqrt(np.mean(phi_centered * phi_centered)), 1.0e-30))

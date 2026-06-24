@@ -99,7 +99,7 @@ _IMPORTED_FCI_DIAGNOSTIC_SCHEMA = {
     "refinement_diagnostics": [
         "shape",
         "cell_count",
-        "dphi",
+        "dz",
         "radial_points",
         "toroidal_planes",
         "poloidal_points",
@@ -502,7 +502,7 @@ def build_essos_imported_fci_campaign(
         density,
         electron_temperature,
         ion_temperature,
-        geometry.maps,
+        geometry,
         recycling_fraction=0.965,
         electron_sheath_transmission=5.0,
         ion_sheath_transmission=3.5,
@@ -529,8 +529,7 @@ def build_essos_imported_fci_campaign(
         ion_momentum=ion_momentum,
         electron_density=electron_density,
         electron_pressure=electron_pressure,
-        maps=geometry.maps,
-        metric=geometry.metric,
+        geometry=geometry,
     )
 
     endpoint_count = np.asarray(sheath.masks.endpoint_count, dtype=np.float64)
@@ -541,10 +540,10 @@ def build_essos_imported_fci_campaign(
     recombination = np.asarray(neutral.recombination_rate, dtype=np.float64)
     charge_exchange = np.asarray(neutral.charge_exchange_rate, dtype=np.float64)
     neutral_diffusion = np.asarray(neutral.neutral_diffusion_source, dtype=np.float64)
-    jacobian = np.asarray(geometry.metric.J, dtype=np.float64)
+    jacobian = np.asarray(geometry.J, dtype=np.float64)
 
-    forward_boundary_fraction = float(np.mean(np.asarray(geometry.maps.forward_boundary, dtype=bool)))
-    backward_boundary_fraction = float(np.mean(np.asarray(geometry.maps.backward_boundary, dtype=bool)))
+    forward_boundary_fraction = float(np.mean(np.asarray(geometry.forward_boundary, dtype=bool)))
+    backward_boundary_fraction = float(np.mean(np.asarray(geometry.backward_boundary, dtype=bool)))
     target_fraction = float(np.mean(target_mask))
     total_particle_loss = float(np.asarray(sheath.total_ion_particle_loss))
     total_heat_load = float(np.asarray(sheath.total_target_heat_load))
@@ -578,7 +577,7 @@ def build_essos_imported_fci_campaign(
     )
     actual_map_source = str(geometry.metadata.get("map_source", "coil"))
     map_diagnostics = build_essos_imported_fci_map_diagnostics(
-        maps=geometry.maps,
+        geometry=geometry,
         connection_length=connection,
         endpoint_count=endpoint_count,
         map_source=actual_map_source,
@@ -686,7 +685,7 @@ def build_essos_imported_fci_campaign(
 
 def build_essos_imported_fci_map_diagnostics(
     *,
-    maps: Any,
+    geometry: Any,
     connection_length: np.ndarray,
     endpoint_count: np.ndarray,
     map_source: str,
@@ -695,12 +694,12 @@ def build_essos_imported_fci_map_diagnostics(
 
     map_source = _normalize_imported_fci_map_source(map_source)
     connection = np.asarray(connection_length, dtype=np.float64)
-    forward_x = np.asarray(maps.forward_x, dtype=np.float64)
-    forward_z = np.asarray(maps.forward_z, dtype=np.float64)
-    backward_x = np.asarray(maps.backward_x, dtype=np.float64)
-    backward_z = np.asarray(maps.backward_z, dtype=np.float64)
-    forward_boundary = np.asarray(maps.forward_boundary, dtype=bool)
-    backward_boundary = np.asarray(maps.backward_boundary, dtype=bool)
+    forward_x = np.asarray(geometry.forward_x, dtype=np.float64)
+    forward_y = np.asarray(geometry.forward_y, dtype=np.float64)
+    backward_x = np.asarray(geometry.backward_x, dtype=np.float64)
+    backward_y = np.asarray(geometry.backward_y, dtype=np.float64)
+    forward_boundary = np.asarray(geometry.forward_boundary, dtype=bool)
+    backward_boundary = np.asarray(geometry.backward_boundary, dtype=bool)
     endpoint = np.asarray(endpoint_count, dtype=np.float64)
     shape = tuple(int(value) for value in forward_x.shape)
     expected_shape = connection.shape
@@ -735,34 +734,34 @@ def build_essos_imported_fci_map_diagnostics(
     connection_resolution_diagnostics = _connection_length_resolution_diagnostics(connection)
 
     x_index = np.broadcast_to(np.arange(nx, dtype=np.float64)[:, None, None], shape)
-    z_index = np.broadcast_to(np.arange(nz, dtype=np.float64)[None, None, :], shape)
-    forward_finite = np.isfinite(forward_x) & np.isfinite(forward_z)
-    backward_finite = np.isfinite(backward_x) & np.isfinite(backward_z)
+    y_index = np.broadcast_to(np.arange(ny, dtype=np.float64)[None, :, None], shape)
+    forward_finite = np.isfinite(forward_x) & np.isfinite(forward_y)
+    backward_finite = np.isfinite(backward_x) & np.isfinite(backward_y)
     forward_valid = forward_finite & ~forward_boundary
     backward_valid = backward_finite & ~backward_boundary
     forward_dx = forward_x - x_index
     backward_dx = backward_x - x_index
-    forward_dz = _periodic_cell_delta(forward_z - z_index, float(nz))
-    backward_dz = _periodic_cell_delta(backward_z - z_index, float(nz))
+    forward_dy = _periodic_cell_delta(forward_y - y_index, float(ny))
+    backward_dy = _periodic_cell_delta(backward_y - y_index, float(ny))
     bidirectional_abs_dx = np.concatenate(
         [
             np.abs(forward_dx[forward_valid]).reshape(-1),
             np.abs(backward_dx[backward_valid]).reshape(-1),
         ]
     )
-    bidirectional_abs_dz = np.concatenate(
+    bidirectional_abs_dy = np.concatenate(
         [
-            np.abs(forward_dz[forward_valid]).reshape(-1),
-            np.abs(backward_dz[backward_valid]).reshape(-1),
+            np.abs(forward_dy[forward_valid]).reshape(-1),
+            np.abs(backward_dy[backward_valid]).reshape(-1),
         ]
     )
     refinement_diagnostics = {
         "shape": [int(nx), int(ny), int(nz)],
         "cell_count": int(np.prod(shape)),
-        "dphi": float(maps.dphi),
+        "dz": float(np.nanmean(np.asarray(geometry.dz))),
         "radial_points": int(nx),
-        "toroidal_planes": int(ny),
-        "poloidal_points": int(nz),
+        "poloidal_points": int(ny),
+        "toroidal_planes": int(nz),
         "forward_map_coordinate_finite_fraction": float(np.mean(forward_finite)),
         "backward_map_coordinate_finite_fraction": float(np.mean(backward_finite)),
         "forward_nonboundary_fraction": float(np.mean(~forward_boundary)),
@@ -774,11 +773,11 @@ def build_essos_imported_fci_map_diagnostics(
             _optional_float(np.max(bidirectional_abs_dx)) if bidirectional_abs_dx.size else None
         ),
         "mean_bidirectional_abs_poloidal_shift_cells": (
-            _optional_float(np.mean(bidirectional_abs_dz)) if bidirectional_abs_dz.size else None
+            _optional_float(np.mean(bidirectional_abs_dy)) if bidirectional_abs_dy.size else None
         ),
-        "p95_bidirectional_abs_poloidal_shift_cells": _optional_percentile(bidirectional_abs_dz, 95.0),
+        "p95_bidirectional_abs_poloidal_shift_cells": _optional_percentile(bidirectional_abs_dy, 95.0),
         "max_bidirectional_abs_poloidal_shift_cells": (
-            _optional_float(np.max(bidirectional_abs_dz)) if bidirectional_abs_dz.size else None
+            _optional_float(np.max(bidirectional_abs_dy)) if bidirectional_abs_dy.size else None
         ),
     }
 

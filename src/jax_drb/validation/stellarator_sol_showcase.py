@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 from ..geometry import SyntheticStellaratorGeometry, build_synthetic_stellarator_geometry
-from ..native.fci import laplace_parallel_fci, laplace_perp_xz
+from ..native.fci import laplace_parallel_fci, laplace_perp_xy
 
 
 @dataclass(frozen=True)
@@ -89,9 +89,17 @@ def simulate_reduced_stellarator_sol_dynamics(
         + 0.08 * np.cos(7.0 * theta - 10.0 * phi + 1.4)
         + 0.05 * np.sin(11.0 * theta + 3.0 * phi)
     )
+
+    seed_modes = (
+        0.18 * np.cos(2.0 * theta - 0 * phi)
+        #+ 0.13 * np.sin(4.0 * theta - 0 * phi)
+        + 0.08 * np.cos(7.0 * theta - 0 * phi)
+        #+ 0.05 * np.sin(11.0 * theta +0 * phi)
+    )
     state = jnp.asarray(envelope * seed_modes, dtype=jnp.float64)
-    dx = float(1.0 / (geometry.maps.shape[0] - 1))
-    dz = float(2.0 * np.pi / geometry.maps.shape[2])
+    dx = float(1.0 / (geometry.shape[0] - 1))
+    dy = float(2.0 * np.pi / geometry.shape[1])
+    dz = float(2.0 * np.pi / geometry.shape[2])
     curvature_jax = jnp.asarray(curvature, dtype=jnp.float64)
     envelope_jax = jnp.asarray(envelope, dtype=jnp.float64)
     source_pattern = jnp.asarray(
@@ -111,27 +119,27 @@ def simulate_reduced_stellarator_sol_dynamics(
         for substep in range(substeps_per_frame):
             current_time = (frame * substeps_per_frame + substep) * dt
             dz_adv = (jnp.roll(state, -1, axis=2) - jnp.roll(state, 1, axis=2)) / (2.0 * dz)
-            dy_adv = (jnp.roll(state, -1, axis=1) - jnp.roll(state, 1, axis=1)) / (2.0 * geometry.maps.dphi)
+            dy_adv = (jnp.roll(state, -1, axis=1) - jnp.roll(state, 1, axis=1)) / (2.0 * dy)
             radial_gradient = (jnp.roll(state, -1, axis=0) - jnp.roll(state, 1, axis=0)) / (2.0 * dx)
             nonlinear_transfer = -0.42 * state * dz_adv + 0.24 * jnp.roll(state, 2, axis=2) * dy_adv
-            interchange_drive = 0.28 * curvature_jax * envelope_jax * radial_gradient
+            interchange_drive = 0.5 * curvature_jax * envelope_jax * radial_gradient
             source_drive = source_pattern * (1.0 + 0.35 * jnp.sin(7.5 * current_time))
             coherent_drive = 0.18 * curvature_jax * envelope_jax * (state + source_drive)
             saturation = -0.48 * envelope_jax * state * state * state
             damping = -0.035 * (1.0 - 0.25 * envelope_jax) * state
-            diffusion = 0.010 * laplace_parallel_fci(state, geometry.maps) + 1.8e-5 * laplace_perp_xz(
+            diffusion = 0.010 * laplace_parallel_fci(state, geometry) + 1.8e-5 * laplace_perp_xy(
                 state,
                 dx=dx,
-                dz=dz,
+                dy=dy,
             )
             state = state + dt * (
-                diffusion
-                + interchange_drive
-                + coherent_drive
-                + nonlinear_transfer
-                + saturation
-                + damping
-                + source_drive
+                #diffusion
+                #interchange_drive
+                #+coherent_drive
+                nonlinear_transfer
+                #+saturation
+                #+damping
+                #+source_drive
             )
             state = jnp.nan_to_num(state, nan=0.0, posinf=2.0, neginf=-2.0)
             state = jnp.clip(state, -1.5, 1.5)
@@ -151,7 +159,7 @@ def build_stellarator_sol_showcase_report(
     radial_center = float(np.sum(radial * positive) / max(np.sum(positive), 1.0e-12))
     potential_proxy = np.roll(final, 2, axis=2)
     dtheta_phi = -(np.roll(potential_proxy, -1, axis=2) - np.roll(potential_proxy, 1, axis=2)) / (
-        2.0 * 2.0 * np.pi / geometry.maps.shape[2]
+        2.0 * 2.0 * np.pi / geometry.shape[2]
     )
     radial_flux_proxy = float(np.mean(final * dtheta_phi * curvature))
     spectrum = np.abs(np.fft.rfftn(final, axes=(1, 2))) ** 2
@@ -221,6 +229,11 @@ def save_stellarator_sol_snapshot_panel(
     y = np.asarray(geometry.coordinates_y, dtype=np.float64)
     major_radius = np.sqrt(x * x + y * y)
     z = np.asarray(geometry.coordinates_z, dtype=np.float64)
+    major_radius_plot, z_plot, x_ticks, x_ticklabels, y_ticks, y_ticklabels = _normalized_cross_section_coordinates(
+        major_radius, z
+    )
+    major_radius_plot = np.concatenate([major_radius_plot, major_radius_plot[..., :1]], axis=-1)
+    z_plot = np.concatenate([z_plot, z_plot[..., :1]], axis=-1)
     vmax = float(np.percentile(np.abs(history), 99.0))
     norm = colors.TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
     fig, axes = plt.subplots(3, 4, figsize=(16.0, 10.2), constrained_layout=True)
@@ -229,16 +242,20 @@ def save_stellarator_sol_snapshot_panel(
         for col, toroidal_index in enumerate(toroidal_indices):
             axis = axes[row, col]
             image = axis.pcolormesh(
-                major_radius[:, toroidal_index, :],
-                z[:, toroidal_index, :],
-                history[time_index, :, toroidal_index, :],
+                major_radius_plot[:, toroidal_index, :],
+                z_plot[:, toroidal_index, :],
+                np.concatenate([history[time_index, :, toroidal_index, :], history[time_index, :, toroidal_index, :][..., :1]], axis=-1),
                 shading="gouraud",
                 cmap="coolwarm",
                 norm=norm,
             )
-            axis.plot(major_radius[0, toroidal_index, :], z[0, toroidal_index, :], color="white", lw=2.0)
-            axis.plot(major_radius[-1, toroidal_index, :], z[-1, toroidal_index, :], color="0.35", lw=1.4)
-            axis.set_aspect("equal", adjustable="box")
+            axis.plot(major_radius_plot[0, toroidal_index, :], z_plot[0, toroidal_index, :], color="white", lw=2.0)
+            axis.plot(major_radius_plot[-1, toroidal_index, :], z_plot[-1, toroidal_index, :], color="0.35", lw=1.4)
+            axis.set_box_aspect(1.0)
+            axis.set_xlim(0.0, 1.0)
+            axis.set_ylim(0.0, 1.0)
+            axis.set_xticks(x_ticks, x_ticklabels)
+            axis.set_yticks(y_ticks, y_ticklabels)
             phi_value = 2.0 * np.pi * toroidal_index / geometry.shape[1]
             axis.set_title(rf"$t={time[time_index]:.2f}$, $\phi={phi_value:.2f}$")
             axis.set_xlabel("R")
@@ -267,6 +284,11 @@ def save_stellarator_sol_diagnostics_panel(
     y = np.asarray(geometry.coordinates_y, dtype=np.float64)
     major_radius = np.sqrt(x * x + y * y)
     z = np.asarray(geometry.coordinates_z, dtype=np.float64)
+    major_radius_plot, z_plot, x_ticks, x_ticklabels, y_ticks, y_ticklabels = _normalized_cross_section_coordinates(
+        major_radius, z
+    )
+    major_radius_plot = np.concatenate([major_radius_plot, major_radius_plot[..., :1]], axis=-1)
+    z_plot = np.concatenate([z_plot, z_plot[..., :1]], axis=-1)
     final = history[-1]
     rms = np.std(history, axis=0)
     skewness = _cell_moment(history, 3)
@@ -283,47 +305,63 @@ def save_stellarator_sol_diagnostics_panel(
     fig, axes = plt.subplots(2, 3, figsize=(14.2, 8.0), constrained_layout=True)
     density_proxy = 1.0 + 0.35 * final
     image0 = axes[0, 0].pcolormesh(
-        major_radius[:, toroidal_index, :],
-        z[:, toroidal_index, :],
-        density_proxy[:, toroidal_index, :],
+        major_radius_plot[:, toroidal_index, :],
+        z_plot[:, toroidal_index, :],
+        np.concatenate([density_proxy[:, toroidal_index, :], density_proxy[:, toroidal_index, :][..., :1]], axis=-1),
         shading="gouraud",
         cmap="turbo",
     )
     axes[0, 0].set_title("final density proxy")
+    axes[0, 0].set_xlim(0.0, 1.0)
+    axes[0, 0].set_ylim(0.0, 1.0)
+    axes[0, 0].set_xticks(x_ticks, x_ticklabels)
+    axes[0, 0].set_yticks(y_ticks, y_ticklabels)
     fig.colorbar(image0, ax=axes[0, 0], label="n / n0")
 
     image1 = axes[0, 1].pcolormesh(
-        major_radius[:, toroidal_index, :],
-        z[:, toroidal_index, :],
-        rms[:, toroidal_index, :],
+        major_radius_plot[:, toroidal_index, :],
+        z_plot[:, toroidal_index, :],
+        np.concatenate([rms[:, toroidal_index, :], rms[:, toroidal_index, :][..., :1]], axis=-1),
         shading="gouraud",
         cmap="magma",
     )
     axes[0, 1].set_title("fluctuation RMS")
+    axes[0, 1].set_xlim(0.0, 1.0)
+    axes[0, 1].set_ylim(0.0, 1.0)
+    axes[0, 1].set_xticks(x_ticks, x_ticklabels)
+    axes[0, 1].set_yticks(y_ticks, y_ticklabels)
     fig.colorbar(image1, ax=axes[0, 1], label="std(n~)")
 
     skew_vmax = float(np.nanpercentile(np.abs(skewness), 98.0))
     image2 = axes[0, 2].pcolormesh(
-        major_radius[:, toroidal_index, :],
-        z[:, toroidal_index, :],
-        skewness[:, toroidal_index, :],
+        major_radius_plot[:, toroidal_index, :],
+        z_plot[:, toroidal_index, :],
+        np.concatenate([skewness[:, toroidal_index, :], skewness[:, toroidal_index, :][..., :1]], axis=-1),
         shading="gouraud",
         cmap="coolwarm",
         norm=colors.TwoSlopeNorm(vmin=-skew_vmax, vcenter=0.0, vmax=skew_vmax),
     )
     axes[0, 2].set_title("density skewness")
+    axes[0, 2].set_xlim(0.0, 1.0)
+    axes[0, 2].set_ylim(0.0, 1.0)
+    axes[0, 2].set_xticks(x_ticks, x_ticklabels)
+    axes[0, 2].set_yticks(y_ticks, y_ticklabels)
     fig.colorbar(image2, ax=axes[0, 2], label="skew(n~)")
 
     flux_vmax = float(np.nanpercentile(np.abs(flux_proxy), 98.0))
     image3 = axes[1, 0].pcolormesh(
-        major_radius[:, toroidal_index, :],
-        z[:, toroidal_index, :],
-        flux_proxy[:, toroidal_index, :],
+        major_radius_plot[:, toroidal_index, :],
+        z_plot[:, toroidal_index, :],
+        np.concatenate([flux_proxy[:, toroidal_index, :], flux_proxy[:, toroidal_index, :][..., :1]], axis=-1),
         shading="gouraud",
         cmap="coolwarm",
         norm=colors.TwoSlopeNorm(vmin=-flux_vmax, vcenter=0.0, vmax=flux_vmax),
     )
     axes[1, 0].set_title("radial flux proxy")
+    axes[1, 0].set_xlim(0.0, 1.0)
+    axes[1, 0].set_ylim(0.0, 1.0)
+    axes[1, 0].set_xticks(x_ticks, x_ticklabels)
+    axes[1, 0].set_yticks(y_ticks, y_ticklabels)
     fig.colorbar(image3, ax=axes[1, 0], label="<n~ vR~>")
 
     mode_image = axes[1, 1].imshow(
@@ -345,9 +383,13 @@ def save_stellarator_sol_diagnostics_panel(
     axes[1, 2].legend(frameon=False)
     for axis in axes[:, :].flat:
         if axis is not axes[1, 1] and axis is not axes[1, 2]:
-            axis.plot(major_radius[0, toroidal_index, :], z[0, toroidal_index, :], color="white", lw=1.6)
-            axis.plot(major_radius[-1, toroidal_index, :], z[-1, toroidal_index, :], color="0.25", lw=1.0)
-            axis.set_aspect("equal", adjustable="box")
+            axis.plot(major_radius_plot[0, toroidal_index, :], z_plot[0, toroidal_index, :], color="white", lw=1.6)
+            axis.plot(major_radius_plot[-1, toroidal_index, :], z_plot[-1, toroidal_index, :], color="0.25", lw=1.0)
+            axis.set_box_aspect(1.0)
+            axis.set_xlim(0.0, 1.0)
+            axis.set_ylim(0.0, 1.0)
+            axis.set_xticks(x_ticks, x_ticklabels)
+            axis.set_yticks(y_ticks, y_ticklabels)
             axis.set_xlabel("R")
             axis.set_ylabel("Z")
     fig.suptitle("Reduced stellarator SOL diagnostics: fluctuations, flux proxy, and mode content", fontsize=15)
@@ -376,6 +418,27 @@ def save_stellarator_sol_3d_movie(
         for image in images:
             image.close()
     return resolved
+
+
+def _normalized_cross_section_coordinates(
+    major_radius: np.ndarray,
+    z: np.ndarray,
+    *,
+    tick_count: int = 5,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str], np.ndarray, list[str]]:
+    r_min = float(np.nanmin(major_radius))
+    r_max = float(np.nanmax(major_radius))
+    z_min = float(np.nanmin(z))
+    z_max = float(np.nanmax(z))
+    r_span = max(r_max - r_min, 1.0e-12)
+    z_span = max(z_max - z_min, 1.0e-12)
+    major_radius_plot = (major_radius - r_min) / r_span
+    z_plot = (z - z_min) / z_span
+    x_ticks = np.linspace(0.0, 1.0, tick_count)
+    y_ticks = np.linspace(0.0, 1.0, tick_count)
+    x_ticklabels = [f"{value:.1f}" for value in np.linspace(r_min, r_max, tick_count)]
+    y_ticklabels = [f"{value:.1f}" for value in np.linspace(z_min, z_max, tick_count)]
+    return major_radius_plot, z_plot, x_ticks, x_ticklabels, y_ticks, y_ticklabels
 
 
 def save_stellarator_sol_3d_frame(
@@ -579,15 +642,15 @@ def _field_line_points(
     x = np.asarray(geometry.coordinates_x)
     y = np.asarray(geometry.coordinates_y)
     z = np.asarray(geometry.coordinates_z)
-    phi = np.linspace(0.0, 2.0 * np.pi, geometry.shape[1], endpoint=False)
-    iota = np.asarray(geometry.iota[radial_index, :, 0], dtype=np.float64)
-    theta = np.mod(theta_seed + np.cumsum(iota) * geometry.maps.dphi, 2.0 * np.pi)
-    theta_indices = np.mod(np.rint(theta * geometry.shape[2] / (2.0 * np.pi)).astype(int), geometry.shape[2])
+    phi = np.linspace(0.0, 2.0 * np.pi, geometry.shape[2], endpoint=False)
+    iota = np.asarray(geometry.iota[radial_index, 0, :], dtype=np.float64)
+    theta = np.mod(theta_seed + np.cumsum(iota) * float(np.nanmean(np.asarray(geometry.geometry.dz))), 2.0 * np.pi)
+    theta_indices = np.mod(np.rint(theta * geometry.shape[1] / (2.0 * np.pi)).astype(int), geometry.shape[1])
     return np.column_stack(
         [
-            x[radial_index, np.arange(geometry.shape[1]), theta_indices],
-            y[radial_index, np.arange(geometry.shape[1]), theta_indices],
-            z[radial_index, np.arange(geometry.shape[1]), theta_indices],
+            x[radial_index, theta_indices, np.arange(geometry.shape[2])],
+            y[radial_index, theta_indices, np.arange(geometry.shape[2])],
+            z[radial_index, theta_indices, np.arange(geometry.shape[2])],
         ]
     )
 
@@ -607,7 +670,7 @@ def _write_showcase_arrays(
         z=np.asarray(geometry.coordinates_z, dtype=np.float32),
         curvature=np.asarray(geometry.curvature, dtype=np.float32),
         connection_length=np.asarray(geometry.connection_length, dtype=np.float32),
-        Bxy=np.asarray(geometry.metric.Bxy, dtype=np.float32),
+        Bmag=np.asarray(geometry.Bmag, dtype=np.float32),
     )
     return path
 

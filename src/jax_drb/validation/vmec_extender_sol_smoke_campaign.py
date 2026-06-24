@@ -8,10 +8,10 @@ import jax.numpy as jnp
 from matplotlib import pyplot as plt
 import numpy as np
 
-from ..geometry import FciMaps
+from ..geometry import FciGeometry3D, logical_grid_from_axis_vectors
 from ..geometry.vmec_extender_import import (
     VmecExtenderGrid,
-    build_vmec_extender_fci_maps,
+    build_vmec_extender_fci_geometry,
     load_vmec_extender_grid_netcdf,
 )
 from ..native.fci import conservative_parallel_diffusion_fci
@@ -96,8 +96,8 @@ def simulate_vmec_extender_scalar_sol_smoke(
     self-consistent turbulence claim.
     """
 
-    maps = build_vmec_extender_fci_maps(grid)
-    R, phi, Z = _mesh(grid)
+    maps = build_vmec_extender_fci_geometry(grid)
+    R, Z, phi = _mesh(grid)
     Rn = _normalised(R)
     Zn = _normalised_symmetric(Z)
     phase = 2.0 * np.pi * (phi - grid.phi[0]) / float(grid.phi_period)
@@ -110,6 +110,7 @@ def simulate_vmec_extender_scalar_sol_smoke(
     state = 1.0 + 0.045 * jnp.cos(phase) + 0.035 * jnp.sin(np.pi * Rn) * jnp.cos(np.pi * Zn)
     state = jnp.maximum(state, 1.0e-6)
     jacobian = jnp.broadcast_to(R, state.shape)
+    geometry = _build_vmec_extender_geometry(grid, maps, jacobian)
     parallel_coefficient = jnp.ones_like(state) * float(parallel_diffusivity)
     dR = float(np.mean(np.diff(np.asarray(grid.R, dtype=np.float64))))
     dZ = float(np.mean(np.diff(np.asarray(grid.Z, dtype=np.float64))))
@@ -123,8 +124,7 @@ def simulate_vmec_extender_scalar_sol_smoke(
             parallel = conservative_parallel_diffusion_fci(
                 state,
                 parallel_coefficient,
-                maps,
-                jacobian=jacobian,
+                geometry,
             )
             perpendicular = float(perpendicular_diffusivity) * _laplace_open_RZ(state, dR=dR, dZ=dZ)
             rhs = parallel + perpendicular + source - loss_profile * state
@@ -218,11 +218,11 @@ def save_vmec_extender_sol_smoke_plot(
     toroidal_index = 0
 
     figure, axes = plt.subplots(1, 3, figsize=(11.2, 3.65), constrained_layout=True)
-    image = axes[0].pcolormesh(RR, ZZ, final[:, toroidal_index, :], shading="auto", cmap="viridis")
+    image = axes[0].pcolormesh(RR, ZZ, final[:, :, toroidal_index], shading="auto", cmap="viridis")
     axes[0].contour(
         RR,
         ZZ,
-        result.source[:, toroidal_index, :],
+        result.source[:, :, toroidal_index],
         levels=4,
         colors="white",
         linewidths=0.7,
@@ -271,7 +271,7 @@ def save_vmec_extender_sol_smoke_plot(
 
 
 def _mesh(grid: VmecExtenderGrid) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    return jnp.meshgrid(grid.R, grid.phi, grid.Z, indexing="ij")
+    return jnp.meshgrid(grid.R, grid.Z, grid.phi, indexing="ij")
 
 
 def _normalised(values: jnp.ndarray) -> jnp.ndarray:
@@ -287,7 +287,7 @@ def _laplace_open_RZ(values: jnp.ndarray, *, dR: float, dZ: float) -> jnp.ndarra
     return _second_derivative_zero_flux(values, spacing=float(dR), axis=0) + _second_derivative_zero_flux(
         values,
         spacing=float(dZ),
-        axis=2,
+        axis=1,
     )
 
 
@@ -309,17 +309,17 @@ def _axis_index(axis: int, index: int) -> tuple[object, object, object]:
     return tuple(slices)
 
 
-def _fci_map_identity_max_abs_error(maps: FciMaps) -> float:
+def _fci_map_identity_max_abs_error(maps: FciGeometry3D) -> float:
     nx, ny, nz = maps.shape
     x = jnp.broadcast_to(jnp.arange(nx, dtype=jnp.float64)[:, None, None], (nx, ny, nz))
-    z = jnp.broadcast_to(jnp.arange(nz, dtype=jnp.float64)[None, None, :], (nx, ny, nz))
+    y = jnp.broadcast_to(jnp.arange(ny, dtype=jnp.float64)[None, :, None], (nx, ny, nz))
     error = jnp.max(
         jnp.asarray(
             [
                 jnp.max(jnp.abs(maps.forward_x - x)),
                 jnp.max(jnp.abs(maps.backward_x - x)),
-                jnp.max(jnp.abs(maps.forward_z - z)),
-                jnp.max(jnp.abs(maps.backward_z - z)),
+                jnp.max(jnp.abs(maps.forward_y - y)),
+                jnp.max(jnp.abs(maps.backward_y - y)),
             ]
         )
     )
@@ -328,7 +328,7 @@ def _fci_map_identity_max_abs_error(maps: FciMaps) -> float:
 
 def _parallel_mode_decay_relative_error(
     grid: VmecExtenderGrid,
-    maps: FciMaps,
+    maps: FciGeometry3D,
     *,
     diffusivity: float,
     mode: int = 1,
@@ -345,7 +345,7 @@ def _parallel_mode_decay_relative_error(
     dphi_values = np.diff(phi)
     if float(np.max(np.abs(dphi_values - np.mean(dphi_values)))) > 1.0e-12:
         return None
-    _, P, _ = _mesh(grid)
+    _, _, P = _mesh(grid)
     phase = 2.0 * np.pi * int(mode) * (P - grid.phi[0]) / float(grid.phi_period)
     basis = jnp.cos(phase)
     state = basis
@@ -356,10 +356,17 @@ def _parallel_mode_decay_relative_error(
         state = state + float(dt) * conservative_parallel_diffusion_fci(
             state,
             coefficient,
-            maps,
-            jacobian=jacobian,
+            _build_vmec_extender_geometry(grid, maps, jacobian),
         )
     amplitude = jnp.sum(state * basis) / jnp.maximum(jnp.sum(basis * basis), 1.0e-30)
-    eigenvalue = -4.0 * np.sin(np.pi * int(mode) / int(phi.size)) ** 2 / (float(maps.dphi) ** 2)
+    eigenvalue = -4.0 * np.sin(np.pi * int(mode) / int(phi.size)) ** 2 / (float(maps.dz) ** 2)
     expected = (1.0 + float(dt) * float(diffusivity) * eigenvalue) ** int(steps)
     return float(jnp.abs(amplitude - expected) / max(abs(expected), 1.0e-30))
+
+
+def _build_vmec_extender_geometry(
+    grid: VmecExtenderGrid,
+    maps: FciGeometry3D,
+    jacobian: jnp.ndarray,
+) -> FciGeometry3D:
+    return maps

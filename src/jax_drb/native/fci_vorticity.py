@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from ..geometry import MetricTensor3D
-from .fci import conservative_perp_diffusion_xz
+from ..geometry import FciGeometry3D
+from .fci import conservative_perp_diffusion_xy
 
 
 @dataclass(frozen=True)
@@ -20,27 +20,28 @@ class FciVorticitySolveResult:
 def apply_fci_vorticity_operator(
     potential: jnp.ndarray,
     density: jnp.ndarray,
-    metric: MetricTensor3D,
+    geometry: FciGeometry3D,
     *,
     boussinesq: bool = True,
     regularization: float = 1.0e-9,
 ) -> jnp.ndarray:
     """Apply the positive perpendicular vorticity operator to ``phi``."""
 
+    metric = geometry
     phi = _remove_mean(jnp.asarray(potential, dtype=jnp.float64), metric)
     n = jnp.asarray(density, dtype=jnp.float64)
     if boussinesq:
-        coefficient = jnp.ones_like(phi) * jnp.mean(n / jnp.square(metric.Bxy))
+        coefficient = jnp.ones_like(phi) * jnp.mean(n / jnp.square(metric.Bmag))
     else:
-        coefficient = n / jnp.maximum(jnp.square(metric.Bxy), 1.0e-30)
-    operator = -conservative_perp_diffusion_xz(phi, coefficient, metric)
+        coefficient = n / jnp.maximum(jnp.square(metric.Bmag), 1.0e-30)
+    operator = -conservative_perp_diffusion_xy(phi, coefficient, geometry)
     return _remove_mean(operator, metric) + float(regularization) * phi
 
 
 def solve_fci_vorticity_potential_cg(
     vorticity: jnp.ndarray,
     density: jnp.ndarray,
-    metric: MetricTensor3D,
+    geometry: FciGeometry3D,
     *,
     iterations: int = 80,
     boussinesq: bool = True,
@@ -48,6 +49,7 @@ def solve_fci_vorticity_potential_cg(
 ) -> FciVorticitySolveResult:
     """Solve the metric-weighted perpendicular vorticity inversion with CG."""
 
+    metric = geometry
     rhs = _remove_mean(jnp.asarray(vorticity, dtype=jnp.float64), metric)
     x0 = jnp.zeros_like(rhs, dtype=jnp.float64)
 
@@ -55,7 +57,7 @@ def solve_fci_vorticity_potential_cg(
         return apply_fci_vorticity_operator(
             value,
             density,
-            metric,
+            geometry,
             boussinesq=boussinesq,
             regularization=regularization,
         )
@@ -87,11 +89,11 @@ def solve_fci_vorticity_potential_cg(
     )
 
 
-def _inner(left: jnp.ndarray, right: jnp.ndarray, metric: MetricTensor3D) -> jnp.ndarray:
+def _inner(left: jnp.ndarray, right: jnp.ndarray, metric) -> jnp.ndarray:
     return jnp.sum(jnp.asarray(metric.J, dtype=jnp.float64) * left * right)
 
 
-def _remove_mean(value: jnp.ndarray, metric: MetricTensor3D) -> jnp.ndarray:
+def _remove_mean(value: jnp.ndarray, metric) -> jnp.ndarray:
     weights = jnp.asarray(metric.J, dtype=jnp.float64)
     mean = jnp.sum(weights * value) / jnp.maximum(jnp.sum(weights), 1.0e-30)
     return value - mean

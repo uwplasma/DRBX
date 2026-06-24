@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import jax.numpy as jnp
 
-from ..geometry import FciMaps
+from ..geometry import FciGeometry3D
 
 
 @dataclass(frozen=True)
@@ -45,11 +45,11 @@ class FciSheathRecyclingResult:
     current_balance_residual: jnp.ndarray
 
 
-def build_fci_target_masks(maps: FciMaps) -> FciTargetMasks:
+def build_fci_target_masks(geometry: FciGeometry3D) -> FciTargetMasks:
     """Build endpoint masks from forward/backward field-line map exits."""
 
-    forward = jnp.asarray(maps.forward_boundary, dtype=jnp.float64)
-    backward = jnp.asarray(maps.backward_boundary, dtype=jnp.float64)
+    forward = jnp.asarray(geometry.forward_boundary, dtype=jnp.float64)
+    backward = jnp.asarray(geometry.backward_boundary, dtype=jnp.float64)
     endpoint_count = forward + backward
     active = endpoint_count > 0.0
     return FciTargetMasks(
@@ -78,7 +78,7 @@ def compute_fci_sheath_recycling(
     density: jnp.ndarray,
     electron_temperature: jnp.ndarray,
     ion_temperature: jnp.ndarray,
-    maps: FciMaps,
+    geometry: FciGeometry3D,
     *,
     recycling_fraction: float = 0.98,
     electron_sheath_transmission: float = 5.0,
@@ -97,7 +97,7 @@ def compute_fci_sheath_recycling(
     ions, so the current residual is an explicit regression field.
     """
 
-    masks = build_fci_target_masks(maps)
+    masks = build_fci_target_masks(geometry)
     n = jnp.maximum(jnp.asarray(density, dtype=jnp.float64), float(density_floor))
     te = jnp.maximum(jnp.asarray(electron_temperature, dtype=jnp.float64), float(temperature_floor))
     ti = jnp.maximum(jnp.asarray(ion_temperature, dtype=jnp.float64), float(temperature_floor))
@@ -158,7 +158,7 @@ def compute_fci_sheath_recycling(
 
 def fci_sheath_recycling_field_rhs(
     fields: dict[str, jnp.ndarray],
-    maps: FciMaps,
+    geometry: FciGeometry3D,
     *,
     ion_density_name: str = "Ni",
     electron_density_name: str = "Ne",
@@ -186,7 +186,7 @@ def fci_sheath_recycling_field_rhs(
         ion_density,
         electron_temperature,
         ion_temperature,
-        maps,
+        geometry,
         recycling_fraction=recycling_fraction,
         electron_sheath_transmission=electron_sheath_transmission,
         ion_sheath_transmission=ion_sheath_transmission,

@@ -22,7 +22,7 @@ from ..geometry import (
     build_essos_vmec_scaled_qa_coordinates,
     resolve_essos_landreman_qa_wout,
 )
-from ..native.fci import conservative_perp_diffusion_xz, logical_exb_bracket_xz
+from ..native.fci import conservative_perp_diffusion_xy, logical_exb_bracket_xy
 from ..native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
 from ..native.fci_neutral import compute_fci_neutral_reaction_diffusion
 from ..native.fci_sheath_recycling import compute_fci_sheath_recycling
@@ -413,7 +413,7 @@ def _build_essos_imported_movie_scan(
     fine_helical = fine_helical / jnp.maximum(jnp.std(fine_helical), 1.0e-12)
 
     def step_state(state: FciDrbState, scalar_time: jax.Array) -> FciDrbState:
-        result = compute_fci_drb_rhs(state, maps=geometry.maps, metric=geometry.metric, parameters=parameters)
+        result = compute_fci_drb_rhs(state, geometry=geometry, parameters=parameters)
         phi_field = result.potential
         pressure = state.ion_pressure + state.electron_pressure
         grad_pressure = _radial_derivative(pressure, geometry)
@@ -426,21 +426,21 @@ def _build_essos_imported_movie_scan(
         neutral_puff = neutral_puff_envelope * (
             1.0 + 0.16 * jnp.cos(17.0 * scalar_time - helical) + 0.055 * jnp.sin(37.0 * scalar_time + fine_helical)
         )
-        ion_diffusion = conservative_perp_diffusion_xz(state.ion_density, 3.0e-4 * jnp.ones_like(state.ion_density), geometry.metric)
-        electron_diffusion = conservative_perp_diffusion_xz(
+        ion_diffusion = conservative_perp_diffusion_xy(state.ion_density, 3.0e-4 * jnp.ones_like(state.ion_density), geometry)
+        electron_diffusion = conservative_perp_diffusion_xy(
             state.electron_density,
             3.0e-4 * jnp.ones_like(state.electron_density),
-            geometry.metric,
+            geometry,
         )
-        ion_pressure_diffusion = conservative_perp_diffusion_xz(
+        ion_pressure_diffusion = conservative_perp_diffusion_xy(
             state.ion_pressure,
             2.5e-4 * jnp.ones_like(state.ion_pressure),
-            geometry.metric,
+            geometry,
         )
-        electron_pressure_diffusion = conservative_perp_diffusion_xz(
+        electron_pressure_diffusion = conservative_perp_diffusion_xy(
             state.electron_pressure,
             2.5e-4 * jnp.ones_like(state.electron_pressure),
-            geometry.metric,
+            geometry,
         )
         ion_adv = _logical_exb_advection(phi_field, state.ion_density, geometry)
         electron_adv = _logical_exb_advection(phi_field, state.electron_density, geometry)
@@ -505,7 +505,7 @@ def _build_essos_imported_movie_scan(
 
             next_state = jax.lax.fori_loop(0, int(substeps_per_frame), substep, state)
             movie_field = _density_fluctuation(next_state.ion_density)
-            result = compute_fci_drb_rhs(next_state, maps=geometry.maps, metric=geometry.metric, parameters=parameters)
+            result = compute_fci_drb_rhs(next_state, geometry=geometry, parameters=parameters)
             diagnostics = jnp.asarray(
                 [
                     jnp.sqrt(jnp.mean(jnp.square(movie_field))),
@@ -552,7 +552,7 @@ def _build_essos_imported_drb_movie_report(
         mode_power[0, 0] = 0.0
     peak_mode = np.unravel_index(int(np.argmax(mode_power)), mode_power.shape)
     endpoint_fraction = float(
-        np.mean(np.asarray(geometry.maps.forward_boundary, dtype=bool) | np.asarray(geometry.maps.backward_boundary, dtype=bool))
+        np.mean(np.asarray(geometry.forward_boundary, dtype=bool) | np.asarray(geometry.backward_boundary, dtype=bool))
     )
     map_source = str(geometry.metadata.get("map_source", "coil"))
     endpoint_gate = endpoint_fraction < 1.0e-12 if map_source == "vmec" else 0.05 < endpoint_fraction <= 1.0
@@ -646,8 +646,8 @@ def _build_essos_imported_drb_movie_arrays(
         "radial_coordinate": np.mean(np.asarray(geometry.minor_radius, dtype=np.float64), axis=(1, 2)).astype(np.float32),
         "magnetic_field_section": np.asarray(geometry.magnetic_field_magnitude[:, 0, :], dtype=np.float32),
         "endpoint_count_toroidal": (
-            np.asarray(geometry.maps.forward_boundary, dtype=np.float64)
-            + np.asarray(geometry.maps.backward_boundary, dtype=np.float64)
+            np.asarray(geometry.forward_boundary, dtype=np.float64)
+            + np.asarray(geometry.backward_boundary, dtype=np.float64)
         ).sum(axis=0).astype(np.float32),
         "final_ion_density": final_state["ion_density"].astype(np.float32),
         "final_neutral_density": final_state["neutral_density"].astype(np.float32),
@@ -669,7 +669,7 @@ def _final_closure_diagnostics(
         ion_density,
         electron_temperature,
         ion_temperature,
-        geometry.maps,
+        geometry,
         recycling_fraction=0.965,
         recycled_neutral_energy=0.026,
     )
@@ -682,8 +682,7 @@ def _final_closure_diagnostics(
         ion_momentum=state.ion_momentum,
         electron_density=state.electron_density,
         electron_pressure=state.electron_pressure,
-        maps=geometry.maps,
-        metric=geometry.metric,
+        geometry=geometry,
     )
     sheath_report = {
         "total_particle_loss": float(sheath.total_ion_particle_loss),
@@ -1129,14 +1128,14 @@ def _seed_movie_multimode_fluctuations(state: FciDrbState, geometry: EssosImport
 
 
 def _logical_exb_advection(potential: jax.Array, field: jax.Array, geometry: EssosImportedFciGeometry) -> jax.Array:
-    bracket = logical_exb_bracket_xz(potential, field, geometry.metric)
+    bracket = logical_exb_bracket_xy(potential, field, geometry)
     scale = jnp.maximum(jnp.mean(jnp.abs(bracket)), 1.0e-8)
     return bracket / scale
 
 
 def _radial_derivative(field: jax.Array, geometry: EssosImportedFciGeometry) -> jax.Array:
     values = jnp.asarray(field, dtype=jnp.float64)
-    spacing = jnp.asarray(geometry.metric.dx, dtype=jnp.float64)
+    spacing = jnp.asarray(geometry.dx, dtype=jnp.float64)
     centered = (jnp.roll(values, -1, axis=0) - jnp.roll(values, 1, axis=0)) / jnp.maximum(2.0 * spacing, 1.0e-30)
     first = (values[1, :, :] - values[0, :, :]) / jnp.maximum(spacing[0, :, :], 1.0e-30)
     last = (values[-1, :, :] - values[-2, :, :]) / jnp.maximum(spacing[-1, :, :], 1.0e-30)
@@ -1178,7 +1177,7 @@ def _add_scaled_state(state: FciDrbState, rhs: FciDrbState, scale: float) -> Fci
 def _radial_flux_proxy(movie_history: np.ndarray, geometry: EssosImportedFciGeometry) -> np.ndarray:
     final = np.asarray(movie_history[-1], dtype=np.float64)
     potential_proxy = np.roll(final, 2, axis=2)
-    dz = np.asarray(geometry.metric.dz, dtype=np.float64)
+    dz = np.asarray(geometry.dz, dtype=np.float64)
     radial_velocity = -(np.roll(potential_proxy, -1, axis=2) - np.roll(potential_proxy, 1, axis=2)) / np.maximum(2.0 * dz, 1.0e-30)
     return np.mean(final * radial_velocity, axis=(1, 2))
 

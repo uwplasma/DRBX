@@ -83,7 +83,7 @@ def build_stellarator_sheath_recycling_campaign(
         density,
         electron_temperature,
         ion_temperature,
-        geometry.maps,
+        geometry,
         recycling_fraction=0.97,
         electron_sheath_transmission=5.0,
         ion_sheath_transmission=3.5,

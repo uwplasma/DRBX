@@ -122,7 +122,6 @@ def _display_label(name: str) -> str:
         "radial_midplane": "Radial midplane",
         "toroidal_cut": "Toroidal cut",
         "poloidal_cut": "Poloidal cut",
-        "Bxy": "B",
         "Bmag": "|B|",
         "J": "Jacobian",
         "jacobian": "Jacobian",

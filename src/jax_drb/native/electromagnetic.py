@@ -57,7 +57,7 @@ def extract_charged_species_metadata(config: BoutConfig) -> tuple[ChargedSpecies
 
 
 def compute_parallel_current_density(
-    momentum_fields: Mapping[str, np.ndarray],
+    momentum_fields: xr[str, np.ndarray],
     species_metadata: tuple[ChargedSpeciesMetadata, ...],
 ) -> np.ndarray:
     first = next(iter(momentum_fields.values()))

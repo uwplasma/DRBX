@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from ..geometry import FciMaps, MetricTensor3D
-from .fci import conservative_perp_diffusion_xz
+from ..geometry import FciGeometry3D
+from .fci import conservative_perp_diffusion_xy
 from .fci_neutral import compute_fci_neutral_reaction_diffusion
 from .fci_sheath_recycling import fci_sheath_recycling_field_rhs
 from .fci_vorticity import solve_fci_vorticity_potential_cg
@@ -65,8 +65,7 @@ class FciDrbRhsResult:
 def compute_fci_drb_rhs(
     state: FciDrbState,
     *,
-    maps: FciMaps,
-    metric: MetricTensor3D,
+    geometry: FciGeometry3D,
     parameters: FciDrbRhsParameters = FciDrbRhsParameters(),
 ) -> FciDrbRhsResult:
     """Assemble the first transformable non-axisymmetric DRB component RHS."""
@@ -81,7 +80,7 @@ def compute_fci_drb_rhs(
     }
     sheath = fci_sheath_recycling_field_rhs(
         fields,
-        maps,
+        geometry,
         recycling_fraction=parameters.recycling_fraction,
         recycled_neutral_energy=parameters.recycled_neutral_energy,
     )
@@ -94,20 +93,19 @@ def compute_fci_drb_rhs(
         ion_momentum=state.ion_momentum,
         electron_density=state.electron_density,
         electron_pressure=state.electron_pressure,
-        maps=maps,
-        metric=metric,
+        geometry=geometry,
     )
     potential_solve = solve_fci_vorticity_potential_cg(
         state.vorticity,
         state.ion_density,
-        metric,
+        geometry,
         iterations=parameters.potential_iterations,
         regularization=parameters.potential_regularization,
     )
-    vorticity_rhs = conservative_perp_diffusion_xz(
+    vorticity_rhs = conservative_perp_diffusion_xy(
         state.vorticity,
         jnp.ones_like(state.vorticity, dtype=jnp.float64) * parameters.vorticity_diffusivity,
-        metric,
+        geometry,
     )
     rhs = FciDrbState(
         ion_density=sheath.get("Ni", 0.0) + neutral.ion_density_source,

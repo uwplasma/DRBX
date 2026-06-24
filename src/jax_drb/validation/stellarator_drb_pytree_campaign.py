@@ -283,7 +283,7 @@ def _build_jitted_transient(
 ):
     def run(initial_state: FciDrbState) -> tuple[FciDrbState, jax.Array]:
         def step(state: FciDrbState, _unused: None) -> tuple[FciDrbState, jax.Array]:
-            result = compute_fci_drb_rhs(state, maps=geometry.maps, metric=geometry.metric, parameters=parameters)
+            result = compute_fci_drb_rhs(state, geometry=geometry, parameters=parameters)
             next_state = _clip_state(_add_scaled_state(state, result.rhs, dt))
             diagnostics = jnp.asarray(
                 [
