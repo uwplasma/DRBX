@@ -82,7 +82,7 @@ def test_essos_fieldline_import_generates_portable_artifacts(tmp_path: Path) -> 
 
 
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")
-def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: Path) -> None:
+def test_essos_imported_fci_geometry_feeds_native_sheath_and_neutral_gates(tmp_path: Path) -> None:
     geometry = build_essos_imported_fci_geometry(
         nx=3,
         ny=4,
@@ -99,8 +99,8 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     assert geometry.metadata["surface_nonaxisymmetric_major_rms"] > 1.0e-2
     assert np.all(np.isfinite(np.asarray(geometry.magnetic_field_magnitude)))
     assert np.all(np.isfinite(np.asarray(geometry.connection_length)))
-    assert 0.05 < float(np.mean(np.asarray(geometry.maps.forward_boundary, dtype=bool))) < 0.95
-    assert 0.05 < float(np.mean(np.asarray(geometry.maps.backward_boundary, dtype=bool))) < 0.95
+    assert 0.05 < float(np.mean(np.asarray(geometry.forward_boundary, dtype=bool))) < 0.95
+    assert 0.05 < float(np.mean(np.asarray(geometry.backward_boundary, dtype=bool))) < 0.95
 
     artifacts = create_essos_imported_fci_campaign_package(
         output_root=tmp_path / "essos_imported_fci",
@@ -138,10 +138,12 @@ def test_essos_imported_fci_map_sources_expose_coil_vmec_and_hybrid_semantics() 
     for source, geometry in geometries.items():
         assert geometry.shape == (3, 4, 6)
         assert geometry.metadata["map_source"] == source
-        assert np.all(np.isfinite(np.asarray(geometry.maps.forward_x)))
-        assert np.all(np.isfinite(np.asarray(geometry.maps.forward_z)))
-        assert np.all(np.isfinite(np.asarray(geometry.maps.backward_x)))
-        assert np.all(np.isfinite(np.asarray(geometry.maps.backward_z)))
+        assert np.all(np.isfinite(np.asarray(geometry.forward_x)))
+        assert np.all(np.isfinite(np.asarray(geometry.forward_y)))
+        assert np.all(np.isfinite(np.asarray(geometry.forward_length)))
+        assert np.all(np.isfinite(np.asarray(geometry.backward_x)))
+        assert np.all(np.isfinite(np.asarray(geometry.backward_y)))
+        assert np.all(np.isfinite(np.asarray(geometry.backward_length)))
         assert np.all(np.isfinite(np.asarray(geometry.magnetic_field_magnitude)))
         assert np.all(np.isfinite(np.asarray(geometry.connection_length)))
         assert geometry.metadata["surface_nonaxisymmetric_major_rms"] > 1.0e-2
@@ -149,12 +151,12 @@ def test_essos_imported_fci_map_sources_expose_coil_vmec_and_hybrid_semantics() 
     coil = geometries["coil"]
     vmec = geometries["vmec"]
     hybrid = geometries["hybrid"]
-    coil_forward_fraction = float(np.mean(np.asarray(coil.maps.forward_boundary, dtype=bool)))
-    coil_backward_fraction = float(np.mean(np.asarray(coil.maps.backward_boundary, dtype=bool)))
-    vmec_forward_fraction = float(np.mean(np.asarray(vmec.maps.forward_boundary, dtype=bool)))
-    vmec_backward_fraction = float(np.mean(np.asarray(vmec.maps.backward_boundary, dtype=bool)))
-    hybrid_forward_fraction = float(np.mean(np.asarray(hybrid.maps.forward_boundary, dtype=bool)))
-    hybrid_backward_fraction = float(np.mean(np.asarray(hybrid.maps.backward_boundary, dtype=bool)))
+    coil_forward_fraction = float(np.mean(np.asarray(coil.forward_boundary, dtype=bool)))
+    coil_backward_fraction = float(np.mean(np.asarray(coil.backward_boundary, dtype=bool)))
+    vmec_forward_fraction = float(np.mean(np.asarray(vmec.forward_boundary, dtype=bool)))
+    vmec_backward_fraction = float(np.mean(np.asarray(vmec.backward_boundary, dtype=bool)))
+    hybrid_forward_fraction = float(np.mean(np.asarray(hybrid.forward_boundary, dtype=bool)))
+    hybrid_backward_fraction = float(np.mean(np.asarray(hybrid.backward_boundary, dtype=bool)))
 
     assert 0.05 < coil_forward_fraction < 0.95
     assert 0.05 < coil_backward_fraction < 0.95
@@ -162,9 +164,10 @@ def test_essos_imported_fci_map_sources_expose_coil_vmec_and_hybrid_semantics() 
     assert vmec_backward_fraction == 0.0
     assert hybrid_forward_fraction == coil_forward_fraction
     assert hybrid_backward_fraction == coil_backward_fraction
-    assert np.allclose(np.asarray(hybrid.maps.forward_x), np.asarray(vmec.maps.forward_x))
-    assert np.allclose(np.asarray(hybrid.maps.forward_z), np.asarray(vmec.maps.forward_z))
-    assert not np.allclose(np.asarray(coil.maps.forward_z), np.asarray(vmec.maps.forward_z))
+    assert np.allclose(np.asarray(hybrid.forward_x), np.asarray(vmec.forward_x))
+    assert np.allclose(np.asarray(hybrid.forward_y), np.asarray(vmec.forward_y))
+    assert np.allclose(np.asarray(hybrid.forward_length), np.asarray(vmec.forward_length), equal_nan=True)
+    assert not np.allclose(np.asarray(coil.forward_y), np.asarray(vmec.forward_y))
     assert float(np.min(np.asarray(vmec.connection_length))) > 0.0
     assert float(np.max(np.asarray(vmec.magnetic_field_magnitude)) / np.min(np.asarray(vmec.magnetic_field_magnitude))) > 1.01
 

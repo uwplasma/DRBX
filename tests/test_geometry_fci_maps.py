@@ -4,13 +4,18 @@ import jax.numpy as jnp
 import numpy as np
 import jax
 
-from jax_drb.geometry import MetricTensor3D, build_metric_report, build_synthetic_stellarator_geometry, identity_fci_maps
+from jax_drb.geometry import (
+    FciGeometry3D,
+    build_metric_report,
+    build_synthetic_stellarator_geometry,
+    logical_grid_from_axis_vectors,
+)
 from jax_drb.native.fci import (
     conservative_parallel_diffusion_fci,
-    conservative_perp_diffusion_xz,
-    fci_yup,
+    conservative_perp_diffusion_xy,
+    fci_zup,
     grad_parallel_fci,
-    logical_exb_bracket_xz,
+    logical_exb_bracket_xy,
     metric_weighted_scalar_laplacian_3d,
 )
 from jax_drb.native.fci_sheath_recycling import compute_fci_sheath_recycling, fci_sheath_recycling_field_rhs
@@ -29,23 +34,23 @@ from jax_drb.native.recycling_layout import RecyclingPackedStateLayout
 def test_synthetic_stellarator_geometry_metric_and_maps_are_valid() -> None:
     geometry = build_synthetic_stellarator_geometry(nx=10, ny=8, nz=16)
 
-    report = build_metric_report(geometry.metric)
+    report = build_metric_report(geometry)
 
     assert report["passed"] is True
-    assert geometry.maps.shape == (10, 8, 16)
-    assert float(jnp.max(geometry.metric.Bxy)) > float(jnp.min(geometry.metric.Bxy))
+    assert geometry.shape == (10, 8, 16)
+    assert float(jnp.max(geometry.Bmag)) > float(jnp.min(geometry.Bmag))
     assert float(jnp.min(geometry.connection_length)) > 0.0
 
 
-def test_identity_fci_maps_reproduce_neighboring_plane_values() -> None:
-    maps = identity_fci_maps(nx=4, ny=5, nz=6, dphi=0.2)
+def test_identity_fci_geometry_reproduce_neighboring_plane_values() -> None:
+    geometry = _identity_geometry_3d(nx=4, ny=5, nz=6)
     field = jnp.arange(4 * 5 * 6, dtype=jnp.float64).reshape((4, 5, 6))
 
-    actual = fci_yup(field, maps)
-    expected = jnp.roll(field, -1, axis=1)
+    actual = fci_zup(field, geometry)
+    expected = jnp.roll(field, -1, axis=2)
 
     assert jnp.allclose(actual, expected)
-    assert jnp.allclose(grad_parallel_fci(jnp.ones_like(field), maps), 0.0)
+    assert jnp.allclose(grad_parallel_fci(jnp.ones_like(field), geometry), 0.0)
 
 
 def test_fci_sheath_recycling_closes_particle_and_current_balance() -> None:
@@ -58,7 +63,7 @@ def test_fci_sheath_recycling_closes_particle_and_current_balance() -> None:
         density,
         electron_temperature,
         ion_temperature,
-        geometry.maps,
+        geometry,
         recycling_fraction=0.95,
     )
 
@@ -77,12 +82,11 @@ def test_conservative_fci_diffusion_annihilates_constants_and_dissipates() -> No
     parallel_constant = conservative_parallel_diffusion_fci(
         constant,
         coefficient,
-        geometry.maps,
-        jacobian=geometry.metric.J,
+        geometry,
     )
-    perpendicular_constant = conservative_perp_diffusion_xz(constant, coefficient, geometry.metric)
-    parallel_energy_rate = jnp.mean(field * conservative_parallel_diffusion_fci(field, coefficient, geometry.maps, jacobian=geometry.metric.J))
-    perpendicular_energy_rate = jnp.mean(field * conservative_perp_diffusion_xz(field, coefficient, geometry.metric))
+    perpendicular_constant = conservative_perp_diffusion_xy(constant, coefficient, geometry)
+    parallel_energy_rate = jnp.mean(field * conservative_parallel_diffusion_fci(field, coefficient, geometry))
+    perpendicular_energy_rate = jnp.mean(field * conservative_perp_diffusion_xy(field, coefficient, geometry))
 
     assert float(jnp.max(jnp.abs(parallel_constant))) < 1.0e-12
     assert float(jnp.max(jnp.abs(perpendicular_constant))) < 1.0e-12
@@ -94,7 +98,6 @@ def test_metric_weighted_scalar_laplacian_3d_matches_cartesian_mms() -> None:
     errors = []
     resolutions = np.asarray([12, 16, 24], dtype=np.int64)
     for resolution in resolutions:
-        metric = _identity_metric_3d(nx=resolution, ny=resolution, nz=2 * resolution)
         x = jnp.arange(resolution, dtype=jnp.float64) / float(resolution)
         y = 2.0 * jnp.pi * jnp.arange(resolution, dtype=jnp.float64) / float(resolution)
         z = 2.0 * jnp.pi * jnp.arange(2 * resolution, dtype=jnp.float64) / float(2 * resolution)
@@ -102,11 +105,8 @@ def test_metric_weighted_scalar_laplacian_3d_matches_cartesian_mms() -> None:
         field = jnp.sin(2.0 * jnp.pi * X) * jnp.cos(3.0 * Y) * jnp.sin(2.0 * Z)
         exact = -((2.0 * jnp.pi) ** 2 + 3.0**2 + 2.0**2) * field
 
-        actual = metric_weighted_scalar_laplacian_3d(
-            field,
-            metric,
-            periodic_axes=(True, True, True),
-        )
+        geometry = _identity_geometry_3d(nx=resolution, ny=resolution, nz=2 * resolution)
+        actual = metric_weighted_scalar_laplacian_3d(field, geometry, periodic_axes=(True, True, True))
         errors.append(float(jnp.sqrt(jnp.mean(jnp.square(actual - exact)))))
 
     slope, _ = np.polyfit(np.log(1.0 / resolutions.astype(np.float64)), np.log(np.asarray(errors)), 1)
@@ -114,23 +114,23 @@ def test_metric_weighted_scalar_laplacian_3d_matches_cartesian_mms() -> None:
     assert errors[-1] < 0.35 * errors[0]
 
 
-def test_logical_exb_bracket_xz_matches_periodic_cartesian_mms() -> None:
+def test_logical_exb_bracket_xy_matches_periodic_cartesian_mms() -> None:
     errors = []
     resolutions = np.asarray([16, 24, 32], dtype=np.int64)
     for resolution in resolutions:
-        metric = _identity_metric_3d(nx=resolution, ny=4, nz=2 * resolution)
         x = jnp.arange(resolution, dtype=jnp.float64) / float(resolution)
-        y = jnp.arange(4, dtype=jnp.float64)
-        z = 2.0 * jnp.pi * jnp.arange(2 * resolution, dtype=jnp.float64) / float(2 * resolution)
-        X, _, Z = jnp.meshgrid(x, y, z, indexing="ij")
-        phi = jnp.sin(2.0 * jnp.pi * X) * jnp.cos(Z)
-        field = jnp.cos(2.0 * jnp.pi * X) * jnp.sin(2.0 * Z)
+        y = 2.0 * jnp.pi * jnp.arange(2 * resolution, dtype=jnp.float64) / float(2 * resolution)
+        z = jnp.arange(4, dtype=jnp.float64)
+        X, Y, _ = jnp.meshgrid(x, y, z, indexing="ij")
+        phi = jnp.sin(2.0 * jnp.pi * X) * jnp.cos(Y)
+        field = jnp.cos(2.0 * jnp.pi * X) * jnp.sin(2.0 * Y)
         exact = (
-            2.0 * jnp.pi * jnp.square(jnp.sin(2.0 * jnp.pi * X)) * jnp.sin(Z) * jnp.sin(2.0 * Z)
-            - 4.0 * jnp.pi * jnp.square(jnp.cos(2.0 * jnp.pi * X)) * jnp.cos(Z) * jnp.cos(2.0 * Z)
+            2.0 * jnp.pi * jnp.square(jnp.sin(2.0 * jnp.pi * X)) * jnp.sin(Y) * jnp.sin(2.0 * Y)
+            - 4.0 * jnp.pi * jnp.square(jnp.cos(2.0 * jnp.pi * X)) * jnp.cos(Y) * jnp.cos(2.0 * Y)
         )
 
-        actual = logical_exb_bracket_xz(phi, field, metric, periodic_x=True, periodic_z=True)
+        geometry = _identity_geometry_3d(nx=resolution, ny=2 * resolution, nz=4)
+        actual = logical_exb_bracket_xy(phi, field, geometry, periodic_x=True, periodic_y=True)
         errors.append(float(jnp.sqrt(jnp.mean(jnp.square(actual - exact)))))
 
         assert float(jnp.abs(jnp.mean(actual))) < 1.0e-12
@@ -138,13 +138,7 @@ def test_logical_exb_bracket_xz_matches_periodic_cartesian_mms() -> None:
             float(
                 jnp.max(
                     jnp.abs(
-                        logical_exb_bracket_xz(
-                            phi,
-                            jnp.ones_like(field),
-                            metric,
-                            periodic_x=True,
-                            periodic_z=True,
-                        )
+                        logical_exb_bracket_xy(phi, jnp.ones_like(field), geometry, periodic_x=True, periodic_y=True)
                     )
                 )
             )
@@ -180,7 +174,7 @@ def test_fci_sheath_recycling_promotes_to_fixed_layout_rhs() -> None:
     rhs_function = build_fixed_array_rhs(
         lambda active_fields, _feedback: fci_sheath_recycling_field_rhs(
             active_fields,
-            geometry.maps,
+            geometry,
             recycling_fraction=0.95,
         ),
         layout=layout,
@@ -218,7 +212,7 @@ def test_fixed_residual_jvp_action_matches_finite_difference() -> None:
     state = fixed_state_from_fields(fields, feedback_integrals={}, layout=layout)
     packed = pack_fixed_state(state)
     rhs_function = build_fixed_array_rhs(
-        lambda active_fields, _feedback: fci_sheath_recycling_field_rhs(active_fields, geometry.maps),
+        lambda active_fields, _feedback: fci_sheath_recycling_field_rhs(active_fields, geometry),
         layout=layout,
     )
     residual = build_fixed_backward_euler_residual(
@@ -257,12 +251,7 @@ def test_fci_drb_pytree_rhs_is_jvp_transformable() -> None:
     tangent = jax.tree_util.tree_map(lambda value: jnp.ones_like(value) * 1.0e-3, state)
 
     def objective(candidate: FciDrbState) -> jnp.ndarray:
-        result = compute_fci_drb_rhs(
-            candidate,
-            maps=geometry.maps,
-            metric=geometry.metric,
-            parameters=FciDrbRhsParameters(potential_iterations=8),
-        )
+        result = compute_fci_drb_rhs(candidate, geometry=geometry, parameters=FciDrbRhsParameters(potential_iterations=8))
         return jnp.sum(result.rhs.ion_density) + jnp.sum(result.rhs.neutral_density) + result.potential_residual_l2
 
     value, derivative = jax.jvp(objective, (state,), (tangent,))
@@ -271,16 +260,30 @@ def test_fci_drb_pytree_rhs_is_jvp_transformable() -> None:
     assert bool(jnp.isfinite(derivative))
 
 
-def _identity_metric_3d(*, nx: int, ny: int, nz: int) -> MetricTensor3D:
+def _identity_geometry_3d(*, nx: int, ny: int, nz: int) -> FciGeometry3D:
     shape = (nx, ny, nz)
     ones = jnp.ones(shape, dtype=jnp.float64)
     zeros = jnp.zeros(shape, dtype=jnp.float64)
-    return MetricTensor3D(
-        dx=ones * (1.0 / float(nx)),
-        dy=ones * (2.0 * np.pi / float(ny)),
-        dz=ones * (2.0 * np.pi / float(nz)),
+    logical_grid = logical_grid_from_axis_vectors(
+        jnp.arange(nx, dtype=jnp.float64),
+        jnp.arange(ny, dtype=jnp.float64),
+        jnp.arange(nz, dtype=jnp.float64),
+    )
+    return FciGeometry3D(
+        logical_grid=logical_grid,
+        forward_x=jnp.broadcast_to(jnp.arange(nx, dtype=jnp.float64)[:, None, None], shape),
+        forward_y=jnp.broadcast_to(jnp.arange(ny, dtype=jnp.float64)[None, :, None], shape),
+        backward_x=jnp.broadcast_to(jnp.arange(nx, dtype=jnp.float64)[:, None, None], shape),
+        backward_y=jnp.broadcast_to(jnp.arange(ny, dtype=jnp.float64)[None, :, None], shape),
+        forward_length=ones,
+        backward_length=ones,
+        forward_boundary=zeros.astype(bool),
+        backward_boundary=zeros.astype(bool),
+        dx=ones,
+        dy=ones,
+        dz=ones,
         J=ones,
-        Bxy=ones,
+        B_contravariant=jnp.zeros(shape + (3,), dtype=jnp.float64).at[..., 2].set(1.0),
         g11=ones,
         g22=ones,
         g33=ones,
