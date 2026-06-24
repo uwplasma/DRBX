@@ -10,8 +10,7 @@ from typing import Any
 import numpy as np
 import jax.numpy as jnp
 
-from .fci_maps import FciMaps
-from .metric_tensor import MetricTensor3D
+from .fci_geometry import FciGeometry3D, logical_b_contravariant_from_traced_maps, logical_grid_from_axis_vectors
 
 
 ESSOS_LANDREMAN_QA_RELATIVE_JSON = Path("examples/input_files/ESSOS_biot_savart_LandremanPaulQA.json")
@@ -66,8 +65,7 @@ class EssosImportedFciGeometry:
     poloidal_angle: jnp.ndarray
     magnetic_field_magnitude: jnp.ndarray
     connection_length: jnp.ndarray
-    metric: MetricTensor3D
-    maps: FciMaps
+    geometry: FciGeometry3D
     metadata: dict[str, Any]
 
     @property
@@ -358,8 +356,8 @@ def build_essos_imported_fci_geometry(
     coordinates_z = coordinates["z"]
     initial_xyz = np.stack([coordinates_x, coordinates_y, coordinates_z], axis=-1).reshape((-1, 3))
     start_phi = phi.reshape(-1)
-    dphi = float(2.0 * np.pi / float(ny))
-    start_y_index = np.broadcast_to(np.arange(int(ny), dtype=int)[None, :, None], (int(nx), int(ny), int(nz))).reshape(-1)
+    dphi = float(2.0 * np.pi / float(nz))
+    start_z_index = np.broadcast_to(np.arange(int(nz), dtype=int)[None, None, :], (int(nx), int(ny), int(nz))).reshape(-1)
     coil_data: dict[str, Any] | None = None
     if map_source in {"coil", "hybrid"}:
         coil_data = _build_essos_coil_fci_map_data(
@@ -367,8 +365,9 @@ def build_essos_imported_fci_geometry(
             resolved_coil_json=resolved_coil_json,
             field=field,
             initial_xyz=initial_xyz,
+            logical_grid=logical_grid_from_axis_vectors(rho_1d, theta_1d, phi_1d),
             start_phi=start_phi,
-            start_y_index=start_y_index,
+            start_z_index=start_z_index,
             dphi=dphi,
             shape=(int(nx), int(ny), int(nz)),
             coordinates_x=coordinates_x,
@@ -384,6 +383,7 @@ def build_essos_imported_fci_geometry(
             modules=modules,
             resolved_wout=resolved_vmec_wout,
             coordinates=coordinates,
+            logical_grid=logical_grid_from_axis_vectors(rho_1d, theta_1d, phi_1d),
             shape=(int(nx), int(ny), int(nz)),
             dphi=dphi,
         )
@@ -392,6 +392,18 @@ def build_essos_imported_fci_geometry(
         assert coil_data is not None
         maps = coil_data["maps"]
         bmag = coil_data["bmag"]
+        b_contravariant = np.asarray(
+            logical_b_contravariant_from_traced_maps(
+                forward_x=maps.forward_x,
+                forward_y=maps.forward_y,
+                backward_x=maps.backward_x,
+                backward_y=maps.backward_y,
+                forward_length=maps.forward_length,
+                backward_length=maps.backward_length,
+                dz=maps.dz,
+            ),
+            dtype=np.float64,
+        )
         connection_length = coil_data["connection_length"]
         field_model = "essos.fields.BiotSavart"
         tracing_model = "essos.dynamics.Tracing(FieldLineAdaptative)"
@@ -399,37 +411,50 @@ def build_essos_imported_fci_geometry(
         assert vmec_data is not None
         maps = vmec_data["maps"]
         bmag = vmec_data["bmag"]
+        b_contravariant = vmec_data["b_contravariant"]
         connection_length = vmec_data["connection_length"]
         field_model = "essos.fields.Vmec"
         tracing_model = "vmec_coordinate_rk4_map"
     else:
         assert coil_data is not None
         assert vmec_data is not None
-        maps = FciMaps(
+        maps = FciGeometry3D(
+            logical_grid=logical_grid_from_axis_vectors(rho_1d, theta_1d, phi_1d),
             forward_x=vmec_data["maps"].forward_x,
-            forward_z=vmec_data["maps"].forward_z,
+            forward_y=vmec_data["maps"].forward_y,
             backward_x=vmec_data["maps"].backward_x,
-            backward_z=vmec_data["maps"].backward_z,
+            backward_y=vmec_data["maps"].backward_y,
+            forward_length=vmec_data["maps"].forward_length,
+            backward_length=vmec_data["maps"].backward_length,
             forward_boundary=coil_data["maps"].forward_boundary,
             backward_boundary=coil_data["maps"].backward_boundary,
-            dphi=dphi,
+            dx=vmec_data["maps"].dx,
+            dy=vmec_data["maps"].dy,
+            dz=vmec_data["maps"].dz,
+            J=vmec_data["maps"].J,
+            B_contravariant=vmec_data["maps"].B_contravariant,
+            g11=vmec_data["maps"].g11,
+            g22=vmec_data["maps"].g22,
+            g33=vmec_data["maps"].g33,
+            g12=vmec_data["maps"].g12,
+            g13=vmec_data["maps"].g13,
+            g23=vmec_data["maps"].g23,
+            g_11=vmec_data["maps"].g_11,
+            g_22=vmec_data["maps"].g_22,
+            g_33=vmec_data["maps"].g_33,
+            g_12=vmec_data["maps"].g_12,
+            g_13=vmec_data["maps"].g_13,
+            g_23=vmec_data["maps"].g_23,
         )
         bmag = coil_data["bmag"]
+        b_contravariant = vmec_data["b_contravariant"]
         connection_length = coil_data["connection_length"]
         field_model = "hybrid: VMEC map coordinates with Biot-Savart |B| and target masks"
         tracing_model = "vmec_coordinate_rk4_map + essos.dynamics.Tracing(FieldLineAdaptative) masks"
 
-    forward_boundary = np.asarray(maps.forward_boundary, dtype=bool)
-    backward_boundary = np.asarray(maps.backward_boundary, dtype=bool)
-    metric = _metric_from_coordinates(
-        coordinates_x,
-        coordinates_y,
-        coordinates_z,
-        s_1d=rho_1d,
-        phi_1d=phi_1d,
-        theta_1d=theta_1d,
-        Bxy=bmag,
-    )
+    geometry = maps
+    forward_boundary = np.asarray(geometry.forward_boundary, dtype=bool)
+    backward_boundary = np.asarray(geometry.backward_boundary, dtype=bool)
     forward_boundary_fraction = float(np.mean(forward_boundary))
     backward_boundary_fraction = float(np.mean(backward_boundary))
     return EssosImportedFciGeometry(
@@ -441,6 +466,7 @@ def build_essos_imported_fci_geometry(
         poloidal_angle=jnp.asarray(theta, dtype=jnp.float64),
         magnetic_field_magnitude=jnp.asarray(bmag, dtype=jnp.float64),
         connection_length=jnp.asarray(connection_length, dtype=jnp.float64),
+        geometry=geometry,
         metric=metric,
         maps=maps,
         metadata={
@@ -492,8 +518,9 @@ def _build_essos_coil_fci_map_data(
     resolved_coil_json: Path,
     field: Any,
     initial_xyz: np.ndarray,
+    logical_grid: np.ndarray,
     start_phi: np.ndarray,
-    start_y_index: np.ndarray,
+    start_z_index: np.ndarray,
     dphi: float,
     shape: tuple[int, int, int],
     coordinates_x: np.ndarray,
@@ -546,18 +573,18 @@ def _build_essos_coil_fci_map_data(
         backward_trajectories,
         target_phi=start_phi - dphi,
     )
-    forward_x, forward_z, forward_boundary = _cartesian_to_structured_surface_indices(
+    forward_x, forward_y, forward_boundary = _cartesian_to_structured_surface_indices(
         forward_endpoint,
         crossed=forward_crossed,
-        target_y_index=(start_y_index + 1) % int(ny),
+        target_z_index=(start_z_index + 1) % int(nz),
         coordinates_x=coordinates_x,
         coordinates_y=coordinates_y,
         coordinates_z=coordinates_z,
     )
-    backward_x, backward_z, backward_boundary = _cartesian_to_structured_surface_indices(
+    backward_x, backward_y, backward_boundary = _cartesian_to_structured_surface_indices(
         backward_endpoint,
         crossed=backward_crossed,
-        target_y_index=(start_y_index - 1) % int(ny),
+        target_z_index=(start_z_index - 1) % int(nz),
         coordinates_x=coordinates_x,
         coordinates_y=coordinates_y,
         coordinates_z=coordinates_z,
@@ -572,20 +599,47 @@ def _build_essos_coil_fci_map_data(
     ).reshape(shape)
     adjacent_length = 0.5 * (forward_length + backward_length).reshape(shape)
     connection_length = np.where(np.isfinite(exit_length), exit_length, adjacent_length)
-    maps = FciMaps(
+    b_contravariant = np.asarray(
+        logical_b_contravariant_from_traced_maps(
+            forward_x=forward_x.reshape(shape),
+            forward_y=forward_y.reshape(shape),
+            backward_x=backward_x.reshape(shape),
+            backward_y=backward_y.reshape(shape),
+            forward_length=forward_length.reshape(shape),
+            backward_length=backward_length.reshape(shape),
+            dz=jnp.full(shape, float(dphi), dtype=jnp.float64),
+        ),
+        dtype=np.float64,
+    )
+    metric_fields = _metric_fields_from_coordinates(
+        coordinates_x,
+        coordinates_y,
+        coordinates_z,
+        s_1d=coordinates["s_1d"],
+        phi_1d=coordinates["phi"],
+        theta_1d=coordinates["theta"],
+        B_contravariant=b_contravariant,
+    )
+    maps = FciGeometry3D(
+        logical_grid=jnp.asarray(logical_grid, dtype=jnp.float64),
         forward_x=jnp.asarray(forward_x.reshape(shape), dtype=jnp.float64),
-        forward_z=jnp.asarray(forward_z.reshape(shape), dtype=jnp.float64),
+        forward_y=jnp.asarray(forward_y.reshape(shape), dtype=jnp.float64),
         backward_x=jnp.asarray(backward_x.reshape(shape), dtype=jnp.float64),
-        backward_z=jnp.asarray(backward_z.reshape(shape), dtype=jnp.float64),
+        backward_y=jnp.asarray(backward_y.reshape(shape), dtype=jnp.float64),
+        forward_length=jnp.asarray(forward_length.reshape(shape), dtype=jnp.float64),
+        backward_length=jnp.asarray(backward_length.reshape(shape), dtype=jnp.float64),
         forward_boundary=jnp.asarray(forward_boundary.reshape(shape)),
         backward_boundary=jnp.asarray(backward_boundary.reshape(shape)),
-        dphi=dphi,
+        dz=jnp.full(shape, float(dphi), dtype=jnp.float64),
+        **metric_fields,
     )
     return {
         "maps": maps,
         "bmag": bmag,
         "connection_length": connection_length,
         "current_sign": float(forward_current_sign),
+        "forward_length": forward_length.reshape(shape),
+        "backward_length": backward_length.reshape(shape),
     }
 
 
@@ -594,6 +648,7 @@ def _build_essos_vmec_fci_map_data(
     modules: dict[str, Any],
     resolved_wout: Path,
     coordinates: dict[str, Any],
+    logical_grid: np.ndarray,
     shape: tuple[int, int, int],
     dphi: float,
 ) -> dict[str, Any]:
@@ -606,7 +661,7 @@ def _build_essos_vmec_fci_map_data(
     theta = np.asarray(coordinates["theta"], dtype=np.float64).reshape(-1)
     phi = np.asarray(coordinates["phi"], dtype=np.float64).reshape(-1)
     x_index = np.broadcast_to(np.arange(nx, dtype=np.float64)[:, None, None], shape).reshape(-1)
-    step_count = max(12, min(48, int(2 * ny)))
+    step_count = max(12, min(48, int(2 * nz)))
     forward_theta = _integrate_vmec_theta_to_toroidal_offset(
         vmec,
         s=s,
@@ -623,39 +678,55 @@ def _build_essos_vmec_fci_map_data(
         delta_phi=-float(dphi),
         step_count=step_count,
     )
-    forward_z = np.mod(forward_theta, 2.0 * np.pi) / (2.0 * np.pi) * float(nz)
-    backward_z = np.mod(backward_theta, 2.0 * np.pi) / (2.0 * np.pi) * float(nz)
-    finite = np.isfinite(forward_z) & np.isfinite(backward_z) & (s >= 0.0) & (s <= 1.0)
+    forward_y = np.mod(forward_theta, 2.0 * np.pi) / (2.0 * np.pi) * float(ny)
+    backward_y = np.mod(backward_theta, 2.0 * np.pi) / (2.0 * np.pi) * float(ny)
+    finite = np.isfinite(forward_y) & np.isfinite(backward_y) & (s >= 0.0) & (s <= 1.0)
     forward_boundary = ~finite
     backward_boundary = ~finite
     initial_stp = np.stack([s, theta, phi], axis=-1)
     bmag = np.asarray(jax.vmap(vmec.AbsB)(local_jnp.asarray(initial_stp, dtype=local_jnp.float64)), dtype=np.float64).reshape(shape)
+    b_contravariant = np.asarray(
+        jax.vmap(vmec.B_contravariant)(local_jnp.asarray(initial_stp, dtype=local_jnp.float64)),
+        dtype=np.float64,
+    ).reshape(shape + (3,))
     forward_length = _vmec_map_step_length(
         coordinates=coordinates,
         x_index=x_index,
-        y_index=(np.broadcast_to(np.arange(ny, dtype=int)[None, :, None], shape).reshape(-1) + 1) % ny,
-        z_index=forward_z,
+        y_index=forward_y,
+        z_index=(np.broadcast_to(np.arange(nz, dtype=int)[None, None, :], shape).reshape(-1) + 1) % nz,
     )
     backward_length = _vmec_map_step_length(
         coordinates=coordinates,
         x_index=x_index,
-        y_index=(np.broadcast_to(np.arange(ny, dtype=int)[None, :, None], shape).reshape(-1) - 1) % ny,
-        z_index=backward_z,
+        y_index=backward_y,
+        z_index=(np.broadcast_to(np.arange(nz, dtype=int)[None, None, :], shape).reshape(-1) - 1) % nz,
     )
     connection_length = 0.5 * (forward_length + backward_length).reshape(shape)
-    maps = FciMaps(
+    metric_fields = _annular_metric_fields(
+        coordinates=coordinates,
+        B_contravariant=b_contravariant.reshape(shape + (3,)),
+        bmag=bmag.reshape(shape),
+    )
+    maps = FciGeometry3D(
+        logical_grid=jnp.asarray(logical_grid, dtype=jnp.float64),
         forward_x=jnp.asarray(x_index.reshape(shape), dtype=jnp.float64),
-        forward_z=jnp.asarray(forward_z.reshape(shape), dtype=jnp.float64),
+        forward_y=jnp.asarray(forward_y.reshape(shape), dtype=jnp.float64),
         backward_x=jnp.asarray(x_index.reshape(shape), dtype=jnp.float64),
-        backward_z=jnp.asarray(backward_z.reshape(shape), dtype=jnp.float64),
+        backward_y=jnp.asarray(backward_y.reshape(shape), dtype=jnp.float64),
+        forward_length=jnp.asarray(forward_length.reshape(shape), dtype=jnp.float64),
+        backward_length=jnp.asarray(backward_length.reshape(shape), dtype=jnp.float64),
         forward_boundary=jnp.asarray(forward_boundary.reshape(shape)),
         backward_boundary=jnp.asarray(backward_boundary.reshape(shape)),
-        dphi=float(dphi),
+        dz=jnp.full(shape, float(dphi), dtype=jnp.float64),
+        **metric_fields,
     )
     return {
         "maps": maps,
         "bmag": bmag,
+        "b_contravariant": b_contravariant,
         "connection_length": connection_length,
+        "forward_length": forward_length.reshape(shape),
+        "backward_length": backward_length.reshape(shape),
         "theta_step_count": int(step_count),
     }
 
@@ -965,9 +1036,9 @@ def build_essos_vmec_scaled_qa_coordinates(
         raise ValueError("VMEC wout Fourier arrays must have shape (ns, mnmax)")
 
     rho_1d = np.linspace(float(rho_min), float(rho_max), int(nx))
-    phi_1d = np.linspace(0.0, 2.0 * np.pi, int(ny), endpoint=False)
-    theta_1d = np.linspace(0.0, 2.0 * np.pi, int(nz), endpoint=False)
-    rho, phi, theta = np.meshgrid(rho_1d, phi_1d, theta_1d, indexing="ij")
+    theta_1d = np.linspace(0.0, 2.0 * np.pi, int(ny), endpoint=False)
+    phi_1d = np.linspace(0.0, 2.0 * np.pi, int(nz), endpoint=False)
+    rho, theta, phi = np.meshgrid(rho_1d, theta_1d, phi_1d, indexing="ij")
 
     ns = int(rmnc.shape[0])
     s_full = np.linspace(0.0, 1.0, ns)
@@ -997,7 +1068,7 @@ def build_essos_vmec_scaled_qa_coordinates(
 
     edge_major = major[-1]
     edge_vertical = vertical[-1]
-    mean_edge_major_by_phi = np.mean(edge_major, axis=1)
+    mean_edge_major_by_phi = np.mean(edge_major, axis=0)
     nonaxisymmetric_major_rms = float(np.std(mean_edge_major_by_phi) / max(abs(float(np.mean(mean_edge_major_by_phi))), 1.0e-30))
     edge_extent = np.sqrt((edge_major - np.mean(edge_major, axis=1, keepdims=True)) ** 2 + edge_vertical**2)
     poloidal_extent_rms = float(np.sqrt(np.mean(edge_extent * edge_extent)))
@@ -1034,36 +1105,36 @@ def _cartesian_to_structured_surface_indices(
     points_xyz: np.ndarray,
     *,
     crossed: np.ndarray,
-    target_y_index: np.ndarray,
+    target_z_index: np.ndarray,
     coordinates_x: np.ndarray,
     coordinates_y: np.ndarray,
     coordinates_z: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     nx, ny, nz = coordinates_x.shape
     x_index = np.zeros(points_xyz.shape[0], dtype=np.float64)
-    z_index = np.zeros(points_xyz.shape[0], dtype=np.float64)
+    y_index = np.zeros(points_xyz.shape[0], dtype=np.float64)
     boundary = np.ones(points_xyz.shape[0], dtype=bool)
 
     plane_spacing = _structured_plane_spacing(coordinates_x, coordinates_y, coordinates_z)
     for index, point in enumerate(points_xyz):
         if not bool(crossed[index]) or not np.all(np.isfinite(point)):
             continue
-        y_index = int(target_y_index[index]) % ny
+        z_index = int(target_z_index[index]) % nz
         plane = np.column_stack(
             [
-                coordinates_x[:, y_index, :].reshape(-1),
-                coordinates_y[:, y_index, :].reshape(-1),
-                coordinates_z[:, y_index, :].reshape(-1),
+                coordinates_x[:, :, z_index].reshape(-1),
+                coordinates_y[:, :, z_index].reshape(-1),
+                coordinates_z[:, :, z_index].reshape(-1),
             ]
         )
         distance_squared = np.sum((plane - point[None, :]) ** 2, axis=1)
         nearest = int(np.argmin(distance_squared))
         nearest_distance = float(np.sqrt(distance_squared[nearest]))
-        radial_index = nearest // nz
-        poloidal_index = nearest % nz
+        radial_index = nearest // ny
+        poloidal_index = nearest % ny
         x_index[index] = float(radial_index)
-        z_index[index] = float(poloidal_index)
-        max_distance = 2.75 * float(plane_spacing[y_index])
+        y_index[index] = float(poloidal_index)
+        max_distance = 2.75 * float(plane_spacing[z_index])
         boundary[index] = (
             nearest_distance > max_distance
             or radial_index <= 0
@@ -1071,17 +1142,17 @@ def _cartesian_to_structured_surface_indices(
         )
         if boundary[index]:
             x_index[index] = 0.0
-            z_index[index] = 0.0
-    return x_index, z_index, boundary
+            y_index[index] = 0.0
+    return x_index, y_index, boundary
 
 
 def _structured_plane_spacing(coordinates_x: np.ndarray, coordinates_y: np.ndarray, coordinates_z: np.ndarray) -> np.ndarray:
     coords = np.stack([coordinates_x, coordinates_y, coordinates_z], axis=-1)
     radial_spacing = np.linalg.norm(np.diff(coords, axis=0), axis=-1)
-    poloidal_spacing = np.linalg.norm(np.diff(np.concatenate([coords, coords[:, :, :1, :]], axis=2), axis=2), axis=-1)
+    poloidal_spacing = np.linalg.norm(np.diff(np.concatenate([coords, coords[:, :1, :, :]], axis=1), axis=1), axis=-1)
     spacing = []
-    for y_index in range(coords.shape[1]):
-        values = np.concatenate([radial_spacing[:, y_index, :].reshape(-1), poloidal_spacing[:, y_index, :].reshape(-1)])
+    for z_index in range(coords.shape[2]):
+        values = np.concatenate([radial_spacing[:, :, z_index].reshape(-1), poloidal_spacing[:, :, z_index].reshape(-1)])
         finite = values[np.isfinite(values) & (values > 0.0)]
         spacing.append(float(np.median(finite)) if finite.size else 1.0)
     return np.asarray(spacing, dtype=np.float64)
@@ -1167,24 +1238,24 @@ def _metric_from_coordinates(
     z_cart: np.ndarray,
     *,
     s_1d: np.ndarray,
-    phi_1d: np.ndarray,
     theta_1d: np.ndarray,
-    Bxy: np.ndarray,
-) -> MetricTensor3D:
+    phi_1d: np.ndarray,
+    B_contravariant: np.ndarray,
+) -> dict[str, jnp.ndarray]:
     ds = float(s_1d[1] - s_1d[0]) if s_1d.size > 1 else 1.0
-    dphi = float(phi_1d[1] - phi_1d[0]) if phi_1d.size > 1 else 2.0 * np.pi
     dtheta = float(theta_1d[1] - theta_1d[0]) if theta_1d.size > 1 else 2.0 * np.pi
+    dphi = float(phi_1d[1] - phi_1d[0]) if phi_1d.size > 1 else 2.0 * np.pi
     edge_order = 2 if min(x_cart.shape) > 2 else 1
 
     derivs = []
     for coords in (x_cart, y_cart, z_cart):
-        derivs.append(np.gradient(coords, ds, dphi, dtheta, edge_order=edge_order))
+        derivs.append(np.gradient(coords, ds, dtheta, dphi, edge_order=edge_order))
 
     r_s = np.stack([derivs[0][0], derivs[1][0], derivs[2][0]], axis=-1)
-    r_phi = np.stack([derivs[0][1], derivs[1][1], derivs[2][1]], axis=-1)
-    r_theta = np.stack([derivs[0][2], derivs[1][2], derivs[2][2]], axis=-1)
+    r_theta = np.stack([derivs[0][1], derivs[1][1], derivs[2][1]], axis=-1)
+    r_phi = np.stack([derivs[0][2], derivs[1][2], derivs[2][2]], axis=-1)
     cov = np.empty(x_cart.shape + (3, 3), dtype=np.float64)
-    basis = (r_s, r_phi, r_theta)
+    basis = (r_s, r_theta, r_phi)
     for i, left in enumerate(basis):
         for j, right in enumerate(basis):
             cov[..., i, j] = np.sum(left * right, axis=-1)
@@ -1195,59 +1266,59 @@ def _metric_from_coordinates(
         cov[bad] = cov[bad] + np.eye(3) * regularization
     contrav = np.linalg.inv(cov)
     jacobian = np.sqrt(np.maximum(np.linalg.det(cov), regularization))
-    return MetricTensor3D(
-        dx=jnp.asarray(np.full_like(x_cart, ds), dtype=jnp.float64),
-        dy=jnp.asarray(np.full_like(x_cart, dphi), dtype=jnp.float64),
-        dz=jnp.asarray(np.full_like(x_cart, dtheta), dtype=jnp.float64),
-        J=jnp.asarray(jacobian, dtype=jnp.float64),
-        Bxy=jnp.asarray(Bxy, dtype=jnp.float64),
-        g11=jnp.asarray(contrav[..., 0, 0], dtype=jnp.float64),
-        g22=jnp.asarray(contrav[..., 1, 1], dtype=jnp.float64),
-        g33=jnp.asarray(contrav[..., 2, 2], dtype=jnp.float64),
-        g12=jnp.asarray(contrav[..., 0, 1], dtype=jnp.float64),
-        g13=jnp.asarray(contrav[..., 0, 2], dtype=jnp.float64),
-        g23=jnp.asarray(contrav[..., 1, 2], dtype=jnp.float64),
-        g_11=jnp.asarray(cov[..., 0, 0], dtype=jnp.float64),
-        g_22=jnp.asarray(cov[..., 1, 1], dtype=jnp.float64),
-        g_33=jnp.asarray(cov[..., 2, 2], dtype=jnp.float64),
-        g_12=jnp.asarray(cov[..., 0, 1], dtype=jnp.float64),
-        g_13=jnp.asarray(cov[..., 0, 2], dtype=jnp.float64),
-        g_23=jnp.asarray(cov[..., 1, 2], dtype=jnp.float64),
-    )
+    return {
+        "dx": jnp.asarray(np.full_like(x_cart, ds), dtype=jnp.float64),
+        "dy": jnp.asarray(np.full_like(x_cart, dtheta), dtype=jnp.float64),
+        "dz": jnp.asarray(np.full_like(x_cart, dphi), dtype=jnp.float64),
+        "J": jnp.asarray(jacobian, dtype=jnp.float64),
+        "B_contravariant": jnp.asarray(B_contravariant, dtype=jnp.float64),
+        "g11": jnp.asarray(contrav[..., 0, 0], dtype=jnp.float64),
+        "g22": jnp.asarray(contrav[..., 1, 1], dtype=jnp.float64),
+        "g33": jnp.asarray(contrav[..., 2, 2], dtype=jnp.float64),
+        "g12": jnp.asarray(contrav[..., 0, 1], dtype=jnp.float64),
+        "g13": jnp.asarray(contrav[..., 0, 2], dtype=jnp.float64),
+        "g23": jnp.asarray(contrav[..., 1, 2], dtype=jnp.float64),
+        "g_11": jnp.asarray(cov[..., 0, 0], dtype=jnp.float64),
+        "g_22": jnp.asarray(cov[..., 1, 1], dtype=jnp.float64),
+        "g_33": jnp.asarray(cov[..., 2, 2], dtype=jnp.float64),
+        "g_12": jnp.asarray(cov[..., 0, 1], dtype=jnp.float64),
+        "g_13": jnp.asarray(cov[..., 0, 2], dtype=jnp.float64),
+        "g_23": jnp.asarray(cov[..., 1, 2], dtype=jnp.float64),
+    }
 
 
 def _annular_metric_tensor(
     *,
     rho: np.ndarray,
     major: np.ndarray,
-    bmag: np.ndarray,
+    B_contravariant: np.ndarray,
     drho: float,
     dphi: float,
     dtheta: float,
-) -> MetricTensor3D:
+) -> dict[str, jnp.ndarray]:
     zeros = np.zeros_like(rho)
     safe_rho = np.maximum(rho, 1.0e-8)
     safe_major = np.maximum(major, 1.0e-8)
     jacobian = safe_major * safe_rho
-    return MetricTensor3D(
-        dx=jnp.asarray(np.full_like(rho, float(drho)), dtype=jnp.float64),
-        dy=jnp.asarray(np.full_like(rho, float(dphi)), dtype=jnp.float64),
-        dz=jnp.asarray(np.full_like(rho, float(dtheta)), dtype=jnp.float64),
-        J=jnp.asarray(jacobian, dtype=jnp.float64),
-        Bxy=jnp.asarray(bmag, dtype=jnp.float64),
-        g11=jnp.asarray(np.ones_like(rho), dtype=jnp.float64),
-        g22=jnp.asarray(1.0 / (safe_major * safe_major), dtype=jnp.float64),
-        g33=jnp.asarray(1.0 / (safe_rho * safe_rho), dtype=jnp.float64),
-        g12=jnp.asarray(zeros, dtype=jnp.float64),
-        g13=jnp.asarray(zeros, dtype=jnp.float64),
-        g23=jnp.asarray(zeros, dtype=jnp.float64),
-        g_11=jnp.asarray(np.ones_like(rho), dtype=jnp.float64),
-        g_22=jnp.asarray(safe_major * safe_major, dtype=jnp.float64),
-        g_33=jnp.asarray(safe_rho * safe_rho, dtype=jnp.float64),
-        g_12=jnp.asarray(zeros, dtype=jnp.float64),
-        g_13=jnp.asarray(zeros, dtype=jnp.float64),
-        g_23=jnp.asarray(zeros, dtype=jnp.float64),
-    )
+    return {
+        "dx": jnp.asarray(np.full_like(rho, float(drho)), dtype=jnp.float64),
+        "dy": jnp.asarray(np.full_like(rho, float(dtheta)), dtype=jnp.float64),
+        "dz": jnp.asarray(np.full_like(rho, float(dphi)), dtype=jnp.float64),
+        "J": jnp.asarray(jacobian, dtype=jnp.float64),
+        "B_contravariant": jnp.asarray(B_contravariant, dtype=jnp.float64),
+        "g11": jnp.asarray(np.ones_like(rho), dtype=jnp.float64),
+        "g22": jnp.asarray(1.0 / (safe_rho * safe_rho), dtype=jnp.float64),
+        "g33": jnp.asarray(1.0 / (safe_major * safe_major), dtype=jnp.float64),
+        "g12": jnp.asarray(zeros, dtype=jnp.float64),
+        "g13": jnp.asarray(zeros, dtype=jnp.float64),
+        "g23": jnp.asarray(zeros, dtype=jnp.float64),
+        "g_11": jnp.asarray(np.ones_like(rho), dtype=jnp.float64),
+        "g_22": jnp.asarray(safe_rho * safe_rho, dtype=jnp.float64),
+        "g_33": jnp.asarray(safe_major * safe_major, dtype=jnp.float64),
+        "g_12": jnp.asarray(zeros, dtype=jnp.float64),
+        "g_13": jnp.asarray(zeros, dtype=jnp.float64),
+        "g_23": jnp.asarray(zeros, dtype=jnp.float64),
+    }
 
 
 def _flatten_essos_poincare_data(

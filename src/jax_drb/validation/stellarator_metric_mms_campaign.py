@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from matplotlib import pyplot as plt
 import numpy as np
 
-from ..geometry import MetricTensor3D, build_synthetic_stellarator_geometry
+from ..geometry import FciGeometry3D, build_synthetic_stellarator_geometry, logical_grid_from_axis_vectors
 from ..native.fci import metric_weighted_scalar_laplacian_3d
 
 
@@ -166,19 +166,14 @@ def _identity_metric_mms_result(resolution: int) -> dict[str, object]:
     nx = int(resolution)
     ny = int(resolution)
     nz = 2 * int(resolution)
-    metric = _identity_metric(nx=nx, ny=ny, nz=nz)
+    geometry = _identity_geometry(nx=nx, ny=ny, nz=nz)
     x = jnp.arange(nx, dtype=jnp.float64) / float(nx)
     y = 2.0 * jnp.pi * jnp.arange(ny, dtype=jnp.float64) / float(ny)
     z = 2.0 * jnp.pi * jnp.arange(nz, dtype=jnp.float64) / float(nz)
     X, Y, Z = jnp.meshgrid(x, y, z, indexing="ij")
     field = jnp.sin(2.0 * jnp.pi * X) * jnp.cos(3.0 * Y) * jnp.sin(2.0 * Z)
     exact = -((2.0 * jnp.pi) ** 2 + 3.0**2 + 2.0**2) * field
-    numeric = metric_weighted_scalar_laplacian_3d(
-        field,
-        metric,
-        coefficient=1.0,
-        periodic_axes=(True, True, True),
-    )
+    numeric = metric_weighted_scalar_laplacian_3d(field, geometry, coefficient=1.0, periodic_axes=(True, True, True))
     error = numeric - exact
     slice_index = max(1, ny // 6)
     return {
@@ -198,19 +193,19 @@ def _run_synthetic_metric_probe() -> tuple[dict[str, object], dict[str, np.ndarr
     )
     coefficient = 8.0e-4 * (1.0 + 0.25 * geometry.radial)
     constant = jnp.ones_like(field, dtype=jnp.float64)
-    rhs = metric_weighted_scalar_laplacian_3d(field, geometry.metric, coefficient)
-    diagonal_rhs = metric_weighted_scalar_laplacian_3d(field, _diagonal_metric(geometry.metric), coefficient)
+    rhs = metric_weighted_scalar_laplacian_3d(field, geometry, coefficient)
+    diagonal_rhs = metric_weighted_scalar_laplacian_3d(field, geometry, coefficient)
     cross_term = rhs - diagonal_rhs
-    constant_residual = metric_weighted_scalar_laplacian_3d(constant, geometry.metric, coefficient)
-    energy_rate = jnp.mean(geometry.metric.J * field * rhs)
+    constant_residual = metric_weighted_scalar_laplacian_3d(constant, geometry, coefficient)
+    energy_rate = jnp.mean(geometry.J * field * rhs)
 
     dt = 1.0e-3
     energy_history = []
     evolved = field
     for _ in range(60):
-        energy_history.append(float(jnp.mean(geometry.metric.J * jnp.square(evolved))))
-        evolved = evolved + dt * metric_weighted_scalar_laplacian_3d(evolved, geometry.metric, coefficient)
-    energy_history.append(float(jnp.mean(geometry.metric.J * jnp.square(evolved))))
+        energy_history.append(float(jnp.mean(geometry.J * jnp.square(evolved))))
+        evolved = evolved + dt * metric_weighted_scalar_laplacian_3d(evolved, geometry, coefficient)
+    energy_history.append(float(jnp.mean(geometry.J * jnp.square(evolved))))
     energy_history_array = np.asarray(energy_history, dtype=np.float64)
     cross_fraction = float(
         jnp.sqrt(jnp.mean(jnp.square(cross_term))) / jnp.maximum(jnp.sqrt(jnp.mean(jnp.square(rhs))), 1.0e-30)
@@ -227,7 +222,7 @@ def _run_synthetic_metric_probe() -> tuple[dict[str, object], dict[str, np.ndarr
     }
     arrays = {
         "synthetic_energy_history": energy_history_array,
-        "synthetic_jacobian_slice": np.asarray(geometry.metric.J[:, 0, :], dtype=np.float32),
+        "synthetic_jacobian_slice": np.asarray(geometry.J[:, 0, :], dtype=np.float32),
         "synthetic_rhs_slice": np.asarray(rhs[:, 0, :], dtype=np.float32),
         "synthetic_cross_term_slice": np.asarray(cross_term[:, 0, :], dtype=np.float32),
         "synthetic_constant_residual_slice": np.asarray(constant_residual[:, 0, :], dtype=np.float32),
@@ -235,16 +230,30 @@ def _run_synthetic_metric_probe() -> tuple[dict[str, object], dict[str, np.ndarr
     return report, arrays
 
 
-def _identity_metric(*, nx: int, ny: int, nz: int) -> MetricTensor3D:
+def _identity_geometry(*, nx: int, ny: int, nz: int) -> FciGeometry3D:
     shape = (nx, ny, nz)
     ones = jnp.ones(shape, dtype=jnp.float64)
     zeros = jnp.zeros(shape, dtype=jnp.float64)
-    return MetricTensor3D(
-        dx=ones * (1.0 / float(nx)),
-        dy=ones * (2.0 * np.pi / float(ny)),
-        dz=ones * (2.0 * np.pi / float(nz)),
+    logical_grid = logical_grid_from_axis_vectors(
+        jnp.arange(nx, dtype=jnp.float64),
+        jnp.arange(ny, dtype=jnp.float64),
+        jnp.arange(nz, dtype=jnp.float64),
+    )
+    return FciGeometry3D(
+        logical_grid=logical_grid,
+        forward_x=jnp.broadcast_to(jnp.arange(nx, dtype=jnp.float64)[:, None, None], shape),
+        forward_y=jnp.broadcast_to(jnp.arange(ny, dtype=jnp.float64)[None, :, None], shape),
+        backward_x=jnp.broadcast_to(jnp.arange(nx, dtype=jnp.float64)[:, None, None], shape),
+        backward_y=jnp.broadcast_to(jnp.arange(ny, dtype=jnp.float64)[None, :, None], shape),
+        forward_length=ones,
+        backward_length=ones,
+        forward_boundary=zeros.astype(bool),
+        backward_boundary=zeros.astype(bool),
+        dx=ones,
+        dy=ones,
+        dz=ones,
         J=ones,
-        Bxy=ones,
+        B_contravariant=jnp.zeros(shape + (3,), dtype=jnp.float64).at[..., 2].set(1.0),
         g11=ones,
         g22=ones,
         g33=ones,
@@ -254,29 +263,6 @@ def _identity_metric(*, nx: int, ny: int, nz: int) -> MetricTensor3D:
         g_11=ones,
         g_22=ones,
         g_33=ones,
-        g_12=zeros,
-        g_13=zeros,
-        g_23=zeros,
-    )
-
-
-def _diagonal_metric(metric: MetricTensor3D) -> MetricTensor3D:
-    zeros = jnp.zeros_like(metric.J, dtype=jnp.float64)
-    return MetricTensor3D(
-        dx=metric.dx,
-        dy=metric.dy,
-        dz=metric.dz,
-        J=metric.J,
-        Bxy=metric.Bxy,
-        g11=metric.g11,
-        g22=metric.g22,
-        g33=metric.g33,
-        g12=zeros,
-        g13=zeros,
-        g23=zeros,
-        g_11=metric.g_11,
-        g_22=metric.g_22,
-        g_33=metric.g_33,
         g_12=zeros,
         g_13=zeros,
         g_23=zeros,

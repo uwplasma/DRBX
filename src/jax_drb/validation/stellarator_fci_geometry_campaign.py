@@ -47,17 +47,17 @@ def create_stellarator_fci_geometry_campaign_package(
 
 
 def build_stellarator_fci_geometry_report(geometry: SyntheticStellaratorGeometry) -> dict[str, object]:
-    metric_report = build_metric_report(geometry.metric)
-    maps = geometry.maps
+    metric_report = build_metric_report(geometry)
+    maps = geometry
     forward_dx = np.asarray(maps.forward_x) - np.arange(maps.shape[0], dtype=np.float64)[:, None, None]
-    forward_z0 = np.arange(maps.shape[2], dtype=np.float64)[None, None, :]
-    forward_dz = np.mod(
-        np.asarray(maps.forward_z) - forward_z0 + maps.shape[2] / 2.0,
-        maps.shape[2],
-    ) - maps.shape[2] / 2.0
+    forward_y0 = np.arange(maps.shape[1], dtype=np.float64)[None, :, None]
+    forward_dy = np.mod(
+        np.asarray(maps.forward_y) - forward_y0 + maps.shape[1] / 2.0,
+        maps.shape[1],
+    ) - maps.shape[1] / 2.0
     connection = np.asarray(geometry.connection_length, dtype=np.float64)
     curvature = np.asarray(geometry.curvature, dtype=np.float64)
-    bmag = np.asarray(geometry.metric.Bxy, dtype=np.float64)
+    bmag = np.asarray(geometry.Bmag, dtype=np.float64)
     iota = np.asarray(geometry.iota, dtype=np.float64)
     report = {
         "case": "non_axisymmetric_fci_geometry",
@@ -67,8 +67,8 @@ def build_stellarator_fci_geometry_report(geometry: SyntheticStellaratorGeometry
             "forward_boundary_fraction": float(np.mean(np.asarray(maps.forward_boundary))),
             "backward_boundary_fraction": float(np.mean(np.asarray(maps.backward_boundary))),
             "radial_shift_linf_cells": float(np.max(np.abs(forward_dx))),
-            "poloidal_shift_mean_cells": float(np.mean(forward_dz)),
-            "poloidal_shift_std_cells": float(np.std(forward_dz)),
+            "poloidal_shift_mean_cells": float(np.mean(forward_dy)),
+            "poloidal_shift_std_cells": float(np.std(forward_dy)),
         },
         "connection_length": {
             "minimum": float(np.min(connection)),
@@ -113,10 +113,10 @@ def save_stellarator_fci_geometry_plot(
     y = np.asarray(geometry.coordinates_y)
     z = np.asarray(geometry.coordinates_z)
     r_major = np.sqrt(x * x + y * y)
-    bmag = np.asarray(geometry.metric.Bxy)
+    bmag = np.asarray(geometry.Bmag)
     connection = np.asarray(geometry.connection_length)
     curvature = np.asarray(geometry.curvature)
-    maps = geometry.maps
+    maps = geometry
     radial_shift = np.asarray(maps.forward_x) - np.arange(maps.shape[0], dtype=np.float64)[:, None, None]
     theta = np.asarray(geometry.poloidal_angle[:, 0, :])
     radial = np.asarray(geometry.radial[:, 0, :])
@@ -187,14 +187,14 @@ def _write_geometry_arrays(geometry: SyntheticStellaratorGeometry, path: Path) -
         radial=np.asarray(geometry.radial, dtype=np.float32),
         toroidal_angle=np.asarray(geometry.toroidal_angle, dtype=np.float32),
         poloidal_angle=np.asarray(geometry.poloidal_angle, dtype=np.float32),
-        Bxy=np.asarray(geometry.metric.Bxy, dtype=np.float32),
-        J=np.asarray(geometry.metric.J, dtype=np.float32),
-        g_22=np.asarray(geometry.metric.g_22, dtype=np.float32),
+        B_contravariant=np.asarray(geometry.B_contravariant, dtype=np.float32),
+        J=np.asarray(geometry.J, dtype=np.float32),
+        g_22=np.asarray(geometry.g_22, dtype=np.float32),
         curvature=np.asarray(geometry.curvature, dtype=np.float32),
         connection_length=np.asarray(geometry.connection_length, dtype=np.float32),
-        forward_x=np.asarray(geometry.maps.forward_x, dtype=np.float32),
-        forward_z=np.asarray(geometry.maps.forward_z, dtype=np.float32),
-        backward_x=np.asarray(geometry.maps.backward_x, dtype=np.float32),
-        backward_z=np.asarray(geometry.maps.backward_z, dtype=np.float32),
+        forward_x=np.asarray(geometry.forward_x, dtype=np.float32),
+        forward_y=np.asarray(geometry.forward_y, dtype=np.float32),
+        backward_x=np.asarray(geometry.backward_x, dtype=np.float32),
+        backward_y=np.asarray(geometry.backward_y, dtype=np.float32),
     )
     return path

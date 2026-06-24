@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 import jax.numpy as jnp
 
-from ..geometry import FciMaps, MetricTensor3D
-from .fci import conservative_parallel_diffusion_fci, conservative_perp_diffusion_xz
+from ..geometry import FciGeometry3D
+from .fci import conservative_parallel_diffusion_fci, conservative_perp_diffusion_xy
 
 
 @dataclass(frozen=True)
@@ -38,8 +38,7 @@ def compute_fci_neutral_reaction_diffusion(
     ion_momentum: jnp.ndarray,
     electron_density: jnp.ndarray,
     electron_pressure: jnp.ndarray,
-    maps: FciMaps,
-    metric: MetricTensor3D,
+    geometry: FciGeometry3D,
     neutral_parallel_diffusivity: float = 0.03,
     neutral_perp_diffusivity: float = 4.0e-4,
     ionisation_coefficient: float = 0.08,
@@ -72,15 +71,13 @@ def compute_fci_neutral_reaction_diffusion(
     neutral_diffusion_source = conservative_parallel_diffusion_fci(
         nn,
         neutral_diffusion_coefficient,
-        maps,
-        jacobian=metric.J,
-    ) + conservative_perp_diffusion_xz(nn, neutral_perp_coefficient, metric)
+        geometry,
+    ) + conservative_perp_diffusion_xy(nn, neutral_perp_coefficient, geometry)
     neutral_pressure_diffusion_source = conservative_parallel_diffusion_fci(
         pn,
         neutral_diffusion_coefficient,
-        maps,
-        jacobian=metric.J,
-    ) + conservative_perp_diffusion_xz(pn, neutral_perp_coefficient, metric)
+        geometry,
+    ) + conservative_perp_diffusion_xy(pn, neutral_perp_coefficient, geometry)
 
     ionisation_rate = ionisation_coefficient * nn * ne * jnp.sqrt(jnp.maximum(te, 1.0e-12))
     recombination_rate = recombination_coefficient * ni * ne / jnp.sqrt(jnp.maximum(te, 1.0e-12))

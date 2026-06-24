@@ -161,7 +161,6 @@ def _extract_plane(values: np.ndarray, axis: int, index: int) -> np.ndarray:
 
 def _display_label(name: str) -> str:
     labels = {
-        "Bxy": "B",
         "Bmag": "|B|",
         "J": "Jacobian",
         "jacobian": "Jacobian",

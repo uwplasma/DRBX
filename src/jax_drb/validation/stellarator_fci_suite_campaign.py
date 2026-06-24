@@ -74,10 +74,10 @@ def build_stellarator_fci_suite_campaign(
         toroidal_index = max(1, ny // 6)
         cross_r.append(r_major[:, toroidal_index, :].astype(np.float32))
         cross_z.append(z[:, toroidal_index, :].astype(np.float32))
-        bmag_slices.append(np.asarray(geometry.metric.Bxy[:, 0, :], dtype=np.float32))
+        bmag_slices.append(np.asarray(geometry.Bmag[:, 0, :], dtype=np.float32))
         connection_slices.append(np.asarray(geometry.connection_length[:, 0, :], dtype=np.float32))
-        radial_shift = np.asarray(geometry.maps.forward_x) - np.arange(
-            geometry.maps.shape[0],
+        radial_shift = np.asarray(geometry.forward_x) - np.arange(
+            geometry.shape[0],
             dtype=np.float64,
         )[:, None, None]
         curvature_map_slices.append(np.asarray(geometry.curvature[:, 0, :] * radial_shift[:, 0, :], dtype=np.float32))

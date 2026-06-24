@@ -156,7 +156,7 @@ def build_essos_imported_pytree_campaign(
     final_vorticity = np.asarray(final_state.vorticity, dtype=np.float64)
     bmag = np.asarray(geometry.magnetic_field_magnitude, dtype=np.float64)
     endpoint_fraction = float(
-        np.mean(np.asarray(geometry.maps.forward_boundary, dtype=bool) | np.asarray(geometry.maps.backward_boundary, dtype=bool))
+        np.mean(np.asarray(geometry.forward_boundary, dtype=bool) | np.asarray(geometry.backward_boundary, dtype=bool))
     )
     actual_map_source = str(geometry.metadata.get("map_source", "coil"))
     endpoint_gate = endpoint_fraction < 1.0e-12 if actual_map_source == "vmec" else 0.05 < endpoint_fraction <= 1.0
@@ -207,8 +207,8 @@ def build_essos_imported_pytree_campaign(
         "final_neutral_density_section": final_neutral[:, 0, :].astype(np.float32),
         "final_vorticity_section": final_vorticity[:, 0, :].astype(np.float32),
         "endpoint_count_toroidal": (
-            np.asarray(geometry.maps.forward_boundary, dtype=np.float64)
-            + np.asarray(geometry.maps.backward_boundary, dtype=np.float64)
+            np.asarray(geometry.forward_boundary, dtype=np.float64)
+            + np.asarray(geometry.backward_boundary, dtype=np.float64)
         ).sum(axis=0).astype(np.float32),
         "magnetic_field_section": bmag[:, 0, :].astype(np.float32),
         "serial_scales_4": serial_scales.astype(np.float32),
@@ -342,7 +342,7 @@ def _build_imported_transient(
 ):
     def run(initial_state: FciDrbState) -> tuple[FciDrbState, jax.Array]:
         def step(state: FciDrbState, _unused: None) -> tuple[FciDrbState, jax.Array]:
-            result = compute_fci_drb_rhs(state, maps=geometry.maps, metric=geometry.metric, parameters=parameters)
+            result = compute_fci_drb_rhs(state, geometry=geometry, parameters=parameters)
             next_state = _clip_state(_add_scaled_state(state, result.rhs, dt))
             diagnostics = jnp.asarray(
                 [

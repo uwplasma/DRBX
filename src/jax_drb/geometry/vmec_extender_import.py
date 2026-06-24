@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 from netCDF4 import Dataset
 
-from .fci_maps import FciMaps
+from .fci_geometry import FciGeometry3D, logical_grid_from_axis_vectors
 
 
 _REQUIRED_DIMENSIONS = ("nR", "nphi", "nZ")
@@ -233,19 +233,26 @@ def validate_vmec_extender_points_in_bounds(grid: VmecExtenderGrid, R_phi_Z: jax
         )
 
 
-def build_vmec_extender_fci_maps(
+def build_vmec_extender_fci_geometry(
     grid: VmecExtenderGrid,
     *,
     substeps: int = 8,
-) -> FciMaps:
+) -> FciGeometry3D:
     """Build one-plane forward/backward FCI maps from the imported field.
 
-    Map values are returned in logical `(R_index, Z_index)` coordinates and can
-    be passed to the existing compact FCI operator surfaces.
+    The imported magnetic-field grid is stored in physical cylindrical order
+    `(R, phi, Z)`, but native FCI arrays use logical
+    `(x, y, z) = (radial, poloidal, toroidal)`. The returned map arrays
+    therefore have shape `(nR, nZ, nphi)` and contain endpoint coordinates
+    `(R_index, Z_index)` on the neighboring toroidal plane.
+
+    The physical arclength between toroidal crossings is not implemented yet
+    for this importer, so `forward_length` and `backward_length` are filled
+    with `NaN` as a deliberate placeholder.
     """
 
     dphi = float(grid.phi_period / int(grid.phi.size))
-    R0, phi0, Z0 = jnp.meshgrid(grid.R, grid.phi, grid.Z, indexing="ij")
+    R0, Z0, phi0 = jnp.meshgrid(grid.R, grid.Z, grid.phi, indexing="ij")
     points = jnp.stack((R0, phi0, Z0), axis=-1)
     forward = _rk4_fieldline_step(grid, points, dphi=float(dphi), substeps=int(substeps))
     backward = _rk4_fieldline_step(grid, points, dphi=-float(dphi), substeps=int(substeps))
@@ -256,14 +263,36 @@ def build_vmec_extender_fci_maps(
     backward_Z_index = _axis_to_logical_index(grid.Z, backward[..., 2])
     forward_boundary = _outside_RZ(grid, forward)
     backward_boundary = _outside_RZ(grid, backward)
-    return FciMaps(
+    shape = forward_R_index.shape
+    ones = jnp.ones(shape, dtype=jnp.float64)
+    zeros = jnp.zeros(shape, dtype=jnp.float64)
+    return FciGeometry3D(
+        logical_grid=logical_grid_from_axis_vectors(grid.R, grid.Z, grid.phi),
         forward_x=forward_R_index,
-        forward_z=forward_Z_index,
+        forward_y=forward_Z_index,
         backward_x=backward_R_index,
-        backward_z=backward_Z_index,
+        backward_y=backward_Z_index,
+        forward_length=jnp.full_like(forward_R_index, jnp.nan, dtype=jnp.float64),
+        backward_length=jnp.full_like(backward_R_index, jnp.nan, dtype=jnp.float64),
         forward_boundary=forward_boundary,
         backward_boundary=backward_boundary,
-        dphi=float(dphi),
+        dx=jnp.ones(shape, dtype=jnp.float64) * float(np.mean(np.diff(np.asarray(grid.R, dtype=np.float64)))),
+        dy=jnp.ones(shape, dtype=jnp.float64) * float(np.mean(np.diff(np.asarray(grid.Z, dtype=np.float64)))),
+        dz=jnp.ones(shape, dtype=jnp.float64) * float(dphi),
+        J=jnp.broadcast_to(jnp.asarray(grid.R, dtype=jnp.float64)[:, None, None], shape),
+        B_contravariant=jnp.zeros(shape + (3,), dtype=jnp.float64).at[..., 2].set(1.0),
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g12=zeros,
+        g13=zeros,
+        g23=zeros,
+        g_11=ones,
+        g_22=ones,
+        g_33=ones,
+        g_12=zeros,
+        g_13=zeros,
+        g_23=zeros,
     )
 
 

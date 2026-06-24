@@ -82,8 +82,7 @@ def build_stellarator_neutral_physics_campaign(
         ion_momentum=ion_momentum,
         electron_density=electron_density,
         electron_pressure=electron_pressure,
-        maps=geometry.maps,
-        metric=geometry.metric,
+        geometry=geometry,
     )
 
     ionisation = np.asarray(result.ionisation_rate, dtype=np.float64)
@@ -101,7 +100,7 @@ def build_stellarator_neutral_physics_campaign(
     momentum_residual = float(np.asarray(result.total_momentum_residual))
     particle_relative_error = abs(particle_residual) / max(total_ionisation + total_recombination, 1.0e-30)
     momentum_relative_error = abs(momentum_residual) / max(float(np.sum(np.abs(momentum_pair))) + 1.0e-30, 1.0e-30)
-    jacobian = np.asarray(geometry.metric.J, dtype=np.float64)
+    jacobian = np.asarray(geometry.J, dtype=np.float64)
     diffusion_integral = float(np.sum(jacobian * neutral_diffusion))
     diffusion_relative_integral = abs(diffusion_integral) / max(float(np.sum(np.abs(jacobian * neutral_diffusion))), 1.0e-30)
     cx_to_ionisation_ratio = total_charge_exchange / max(total_ionisation, 1.0e-30)

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -12,6 +14,7 @@ from ..reference.paths import repo_root
 
 ARTIFACT_RELEASE_TAG = "validation-artifacts-2026-04-28"
 ARTIFACT_BASE_URL = f"https://github.com/uwplasma/jax_drb/releases/download/{ARTIFACT_RELEASE_TAG}"
+ARTIFACT_REPO = "uwplasma/jax_drb"
 DOCS_MEDIA_ASSET = "jax_drb_docs_media.zip"
 REFERENCE_BASELINES_ASSET = "jax_drb_reference_baselines.zip"
 
@@ -28,6 +31,9 @@ DOCS_MEDIA_SENTINELS = (
         "docs/data/stellarator_fci_validation_artifacts/showcase/movies/"
         "stellarator_sol_showcase.gif"
     ),
+)
+
+OPTIONAL_DOCS_MEDIA_SENTINELS = (
     Path(
         "docs/data/essos_imported_drb_movie_artifacts/movies/"
         "essos_imported_drb_movie_campaign.gif"
@@ -87,12 +93,12 @@ def ensure_docs_media(
     """Restore release-backed documentation figures, movies, and NPZ arrays."""
 
     resolved_root = Path(root) if root is not None else repo_root()
-    missing = [
+    missing_required = [
         relative_path
         for relative_path in DOCS_MEDIA_SENTINELS
         if not (resolved_root / relative_path).exists()
     ]
-    if not force and not missing:
+    if not force and not missing_required:
         return resolved_root / "docs" / "data"
     if os.environ.get("JAX_DRB_OFFLINE_ARTIFACTS", "").lower() in {"1", "true", "yes"}:
         raise FileNotFoundError(
@@ -125,11 +131,25 @@ def ensure_docs_media(
             "Docs media artifact archive did not restore expected files under "
             f"{resolved_root}: {', '.join(remaining)}"
         )
+    optional_missing = [
+        str(relative_path)
+        for relative_path in OPTIONAL_DOCS_MEDIA_SENTINELS
+        if not (resolved_root / relative_path).exists()
+    ]
+    if optional_missing:
+        print(
+            "Warning: docs media artifact archive is missing optional files under "
+            f"{resolved_root}: {', '.join(optional_missing)}"
+        )
     return resolved_root / "docs" / "data"
 
 
 def _download_release_asset(url: str, destination: Path, *, asset_name: str) -> None:
     if _download_with_gh(asset_name, destination):
+        return
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        _download_with_github_api(asset_name, destination, token=token)
         return
     _download_with_urllib(url, destination)
 
@@ -145,7 +165,7 @@ def _download_with_gh(asset_name: str, destination: Path) -> bool:
             "download",
             ARTIFACT_RELEASE_TAG,
             "--repo",
-            "uwplasma/jax_drb",
+            ARTIFACT_REPO,
             "--pattern",
             asset_name,
             "--dir",
@@ -168,9 +188,6 @@ def _download_with_gh(asset_name: str, destination: Path) -> bool:
 def _download_with_urllib(url: str, destination: Path) -> None:
     temporary = destination.with_suffix(destination.suffix + ".tmp")
     request = urllib.request.Request(url)
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if token:
-        request.add_header("Authorization", f"Bearer {token}")
     try:
         with urllib.request.urlopen(request, timeout=120) as response, temporary.open(
             "wb"
@@ -184,3 +201,52 @@ def _download_with_urllib(url: str, destination: Path) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _download_with_github_api(asset_name: str, destination: Path, *, token: str) -> None:
+    asset_url = _resolve_release_asset_api_url(asset_name, token=token)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    request = urllib.request.Request(asset_url)
+    request.add_header("Authorization", f"Bearer {token}")
+    request.add_header("Accept", "application/octet-stream")
+    request.add_header("X-GitHub-Api-Version", "2022-11-28")
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response, temporary.open(
+            "wb"
+        ) as output:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                output.write(chunk)
+        temporary.replace(destination)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _resolve_release_asset_api_url(asset_name: str, *, token: str) -> str:
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{ARTIFACT_REPO}/releases/tags/{ARTIFACT_RELEASE_TAG}"
+    )
+    request.add_header("Authorization", f"Bearer {token}")
+    request.add_header("Accept", "application/vnd.github+json")
+    request.add_header("X-GitHub-Api-Version", "2022-11-28")
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            raise FileNotFoundError(
+                "Release tag or repository not visible to the configured GitHub token."
+            ) from error
+        raise
+    for asset in payload.get("assets", ()):
+        if asset.get("name") == asset_name:
+            asset_url = asset.get("url")
+            if asset_url:
+                return asset_url
+            break
+    raise FileNotFoundError(
+        f"Could not find release asset {asset_name!r} in {ARTIFACT_REPO}@{ARTIFACT_RELEASE_TAG}."
+    )

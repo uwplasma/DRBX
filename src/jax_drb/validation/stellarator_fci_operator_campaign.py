@@ -11,12 +11,12 @@ import numpy as np
 from ..geometry import build_synthetic_stellarator_geometry
 from ..native.fci import (
     conservative_parallel_diffusion_fci,
-    conservative_perp_diffusion_xz,
-    fci_ydown,
-    fci_yup,
+    conservative_perp_diffusion_xy,
+    fci_zdown,
+    fci_zup,
     grad_parallel_fci,
     laplace_parallel_fci,
-    laplace_perp_xz,
+    laplace_perp_xy,
 )
 
 
@@ -62,10 +62,10 @@ def build_stellarator_fci_operator_campaign() -> tuple[dict[str, object], dict[s
         field = _analytic_field_on_grid(geometry)
         expected_up = _analytic_field_at_maps(geometry, direction=1)
         expected_down = _analytic_field_at_maps(geometry, direction=-1)
-        actual_up = np.asarray(fci_yup(jnp.asarray(field), geometry.maps))
-        actual_down = np.asarray(fci_ydown(jnp.asarray(field), geometry.maps))
-        expected_grad = (expected_up - expected_down) / (2.0 * geometry.maps.dphi)
-        actual_grad = np.asarray(grad_parallel_fci(jnp.asarray(field), geometry.maps))
+        actual_up = np.asarray(fci_zup(jnp.asarray(field), geometry))
+        actual_down = np.asarray(fci_zdown(jnp.asarray(field), geometry))
+        expected_grad = (expected_up - expected_down) / (2.0 * float(np.nanmean(np.asarray(geometry.geometry.dz))))
+        actual_grad = np.asarray(grad_parallel_fci(jnp.asarray(field), geometry))
         valid = np.isfinite(expected_up) & np.isfinite(expected_down)
         interp_error = np.concatenate([(actual_up - expected_up)[valid], (actual_down - expected_down)[valid]])
         grad_error = (actual_grad - expected_grad)[valid]
@@ -83,7 +83,7 @@ def build_stellarator_fci_operator_campaign() -> tuple[dict[str, object], dict[s
     final_geometry = build_synthetic_stellarator_geometry(nx=32, ny=32, nz=64)
     final_field = _analytic_field_on_grid(final_geometry)
     final_up_error = np.asarray(
-        fci_yup(jnp.asarray(final_field), final_geometry.maps)
+        fci_zup(jnp.asarray(final_field), final_geometry)
     ) - _analytic_field_at_maps(final_geometry, direction=1)
     report = {
         "case": "non_axisymmetric_fci_operator_validation",
@@ -120,12 +120,12 @@ def build_stellarator_fci_operator_campaign() -> tuple[dict[str, object], dict[s
         "interpolation_rms_error": np.asarray(rms_errors, dtype=np.float64),
         "interpolation_max_error": np.asarray(max_errors, dtype=np.float64),
         "gradient_rms_error": np.asarray(grad_rms_errors, dtype=np.float64),
-        "diffusion_final_slice": diffusion_history[-1, :, 0, :].astype(np.float32),
+        "diffusion_final_slice": diffusion_history[-1, :, :, 0].astype(np.float32),
         "diffusion_energy_history": energy_history,
-        "conservative_diffusion_final_slice": conservative_history[-1, :, 0, :].astype(np.float32),
+        "conservative_diffusion_final_slice": conservative_history[-1, :, :, 0].astype(np.float32),
         "conservative_diffusion_energy_history": conservative_energy_history,
-        "operator_error_slice": final_up_error[:, 0, :].astype(np.float32),
-        "operator_field_slice": final_field[:, 0, :].astype(np.float32),
+        "operator_error_slice": final_up_error[:, :, 0].astype(np.float32),
+        "operator_field_slice": final_field[:, :, 0].astype(np.float32),
     }
     return report, arrays
 
@@ -213,19 +213,19 @@ def _analytic_field_on_grid(geometry: object) -> np.ndarray:
 
 
 def _analytic_field_at_maps(geometry: object, *, direction: int) -> np.ndarray:
-    maps = geometry.maps
+    maps = geometry
     nx, ny, nz = maps.shape
     if direction > 0:
         x_index = np.asarray(maps.forward_x, dtype=np.float64)
-        z_index = np.asarray(maps.forward_z, dtype=np.float64)
-        y_index = (np.arange(ny)[None, :, None] + 1) % ny
+        y_index = np.asarray(maps.forward_y, dtype=np.float64)
+        z_index = (np.arange(nz)[None, None, :] + 1) % nz
     else:
         x_index = np.asarray(maps.backward_x, dtype=np.float64)
-        z_index = np.asarray(maps.backward_z, dtype=np.float64)
-        y_index = (np.arange(ny)[None, :, None] - 1) % ny
+        y_index = np.asarray(maps.backward_y, dtype=np.float64)
+        z_index = (np.arange(nz)[None, None, :] - 1) % nz
     s = 0.08 + np.clip(x_index, 0.0, nx - 1.0) / float(nx - 1) * (1.0 - 0.08)
-    phi = 2.0 * np.pi * y_index / float(ny)
-    theta = 2.0 * np.pi * np.mod(z_index, nz) / float(nz)
+    theta = 2.0 * np.pi * np.mod(y_index, ny) / float(ny)
+    phi = 2.0 * np.pi * z_index / float(nz)
     values = _analytic_field(s=s, phi=phi, theta=theta)
     valid = (x_index >= 0.0) & (x_index <= nx - 1.0)
     return np.where(valid, values, 0.0)
@@ -241,8 +241,8 @@ def _analytic_field(*, s: np.ndarray, phi: np.ndarray, theta: np.ndarray) -> np.
 
 def _run_parallel_diffusion_probe(geometry: object) -> tuple[np.ndarray, np.ndarray]:
     field = jnp.asarray(_analytic_field_on_grid(geometry), dtype=jnp.float64)
-    dx = float(1.0 / (geometry.maps.shape[0] - 1))
-    dz = float(2.0 * np.pi / geometry.maps.shape[2])
+    dx = float(1.0 / (geometry.shape[0] - 1))
+    dy = float(2.0 * np.pi / geometry.shape[1])
     dt = 3.0e-4
     chi_parallel = 0.018
     chi_perp = 4.0e-5
@@ -252,10 +252,10 @@ def _run_parallel_diffusion_probe(geometry: object) -> tuple[np.ndarray, np.ndar
         if step % 4 == 0:
             snapshots.append(np.asarray(field))
             energy.append(float(jnp.mean(jnp.square(field))))
-        rhs = chi_parallel * laplace_parallel_fci(field, geometry.maps) + chi_perp * laplace_perp_xz(
+        rhs = chi_parallel * laplace_parallel_fci(field, geometry) + chi_perp * laplace_perp_xy(
             field,
             dx=dx,
-            dz=dz,
+            dy=dy,
         )
         field = field + dt * rhs
     snapshots.append(np.asarray(field))
@@ -270,13 +270,8 @@ def _run_conservative_diffusion_probe(geometry: object) -> tuple[np.ndarray, np.
     constant = jnp.ones_like(field, dtype=jnp.float64)
     constant_residual = jnp.max(
         jnp.abs(
-            conservative_parallel_diffusion_fci(
-                constant,
-                coefficient,
-                geometry.maps,
-                jacobian=geometry.metric.J,
-            )
-            + conservative_perp_diffusion_xz(constant, 2.5e-4 * coefficient, geometry.metric)
+            conservative_parallel_diffusion_fci(constant, coefficient, geometry)
+            + conservative_perp_diffusion_xy(constant, 2.5e-4 * coefficient, geometry)
         )
     )
     dt = 1.0e-4
@@ -286,12 +281,9 @@ def _run_conservative_diffusion_probe(geometry: object) -> tuple[np.ndarray, np.
         if step % 4 == 0:
             snapshots.append(np.asarray(field))
             energy.append(float(jnp.mean(jnp.square(field))))
-        rhs = conservative_parallel_diffusion_fci(
-            field,
-            coefficient,
-            geometry.maps,
-            jacobian=geometry.metric.J,
-        ) + conservative_perp_diffusion_xz(field, 2.5e-4 * coefficient, geometry.metric)
+        rhs = conservative_parallel_diffusion_fci(field, coefficient, geometry) + conservative_perp_diffusion_xy(
+            field, 2.5e-4 * coefficient, geometry
+        )
         field = field + dt * rhs
     snapshots.append(np.asarray(field))
     energy.append(float(jnp.mean(jnp.square(field))))
