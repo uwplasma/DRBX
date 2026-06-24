@@ -9,7 +9,7 @@ import pytest
 from netCDF4 import Dataset
 
 from jax_drb.geometry.vmec_extender_import import (
-    build_vmec_extender_fci_maps,
+    build_vmec_extender_fci_geometry,
     interpolate_vmec_extender_B_cyl,
     load_vmec_extender_grid_netcdf,
     validate_vmec_extender_points_in_bounds,
@@ -226,7 +226,7 @@ def test_vmec_extender_import_allows_unsafe_missing_convention_when_requested(tm
     assert grid.phi_period == pytest.approx(2.0 * np.pi / 5.0)
 
 
-def test_vmec_extender_fci_maps_reduce_to_identity_for_toroidal_field(tmp_path: Path) -> None:
+def test_vmec_extender_fci_geometry_reduces_to_identity_for_toroidal_field(tmp_path: Path) -> None:
     grid = load_vmec_extender_grid_netcdf(_write_synthetic_vmec_extender_grid(tmp_path / "field.nc", tiny_Bphi=True))
     toroidal_grid = grid.__class__(
         R=grid.R,
@@ -241,12 +241,15 @@ def test_vmec_extender_fci_maps_reduce_to_identity_for_toroidal_field(tmp_path: 
         metadata=grid.metadata,
     )
 
-    maps = build_vmec_extender_fci_maps(toroidal_grid)
+    maps = build_vmec_extender_fci_geometry(toroidal_grid)
     expected_R = np.arange(toroidal_grid.R.size, dtype=np.float64)[:, None, None]
-    expected_Z = np.arange(toroidal_grid.Z.size, dtype=np.float64)[None, None, :]
+    expected_Z = np.arange(toroidal_grid.Z.size, dtype=np.float64)[None, :, None]
+    assert maps.shape == (toroidal_grid.R.size, toroidal_grid.Z.size, toroidal_grid.phi.size)
     np.testing.assert_allclose(np.asarray(maps.forward_x), np.broadcast_to(expected_R, maps.shape))
-    np.testing.assert_allclose(np.asarray(maps.forward_z), np.broadcast_to(expected_Z, maps.shape))
+    np.testing.assert_allclose(np.asarray(maps.forward_y), np.broadcast_to(expected_Z, maps.shape))
+    assert np.all(np.isnan(np.asarray(maps.forward_length)))
+    assert np.all(np.isnan(np.asarray(maps.backward_length)))
     np.testing.assert_allclose(np.asarray(maps.backward_x), np.broadcast_to(expected_R, maps.shape))
-    np.testing.assert_allclose(np.asarray(maps.backward_z), np.broadcast_to(expected_Z, maps.shape))
+    np.testing.assert_allclose(np.asarray(maps.backward_y), np.broadcast_to(expected_Z, maps.shape))
     assert not np.any(np.asarray(maps.forward_boundary))
     assert not np.any(np.asarray(maps.backward_boundary))

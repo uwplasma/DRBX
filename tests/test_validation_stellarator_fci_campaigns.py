@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.geometry import FciMaps, identity_fci_maps
+from jax_drb.geometry import FciGeometry3D, logical_grid_from_axis_vectors
 from jax_drb.validation import (
     create_stellarator_fci_geometry_campaign_package,
     create_stellarator_fci_operator_campaign_package,
@@ -28,6 +28,47 @@ from jax_drb.validation.essos_imported_fci_campaign import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _identity_geometry(*, nx: int, ny: int, nz: int, dz: float) -> FciGeometry3D:
+    shape = (nx, ny, nz)
+    ones = jnp.ones(shape, dtype=jnp.float64)
+    zeros = jnp.zeros(shape, dtype=jnp.float64)
+    logical_grid = logical_grid_from_axis_vectors(
+        jnp.arange(nx, dtype=jnp.float64),
+        jnp.arange(ny, dtype=jnp.float64),
+        jnp.arange(nz, dtype=jnp.float64) * float(dz),
+    )
+    forward_x = jnp.broadcast_to(jnp.arange(nx, dtype=jnp.float64)[:, None, None], shape)
+    forward_y = jnp.broadcast_to(jnp.arange(ny, dtype=jnp.float64)[None, :, None], shape)
+    return FciGeometry3D(
+        logical_grid=logical_grid,
+        forward_x=forward_x,
+        forward_y=forward_y,
+        backward_x=forward_x,
+        backward_y=forward_y,
+        forward_length=ones * float(dz),
+        backward_length=ones * float(dz),
+        forward_boundary=zeros.astype(bool),
+        backward_boundary=zeros.astype(bool),
+        dx=ones,
+        dy=ones,
+        dz=ones * float(dz),
+        J=ones,
+        B_contravariant=jnp.zeros(shape + (3,), dtype=jnp.float64).at[..., 2].set(1.0),
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g12=zeros,
+        g13=zeros,
+        g23=zeros,
+        g_11=ones,
+        g_22=ones,
+        g_33=ones,
+        g_12=zeros,
+        g_13=zeros,
+        g_23=zeros,
+    )
 
 
 def test_imported_fci_example_resolves_source_specific_artifact_defaults(capsys) -> None:
@@ -101,25 +142,16 @@ def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, 
 
 
 def test_imported_fci_map_diagnostics_verify_consumed_endpoint_masks() -> None:
-    base_maps = identity_fci_maps(nx=3, ny=4, nz=8, dphi=0.25)
-    forward_boundary = np.zeros(base_maps.shape, dtype=bool)
-    backward_boundary = np.zeros(base_maps.shape, dtype=bool)
+    geometry = _identity_geometry(nx=3, ny=4, nz=8, dz=0.25)
+    forward_boundary = np.zeros(geometry.shape, dtype=bool)
+    backward_boundary = np.zeros(geometry.shape, dtype=bool)
     forward_boundary[0, :, :] = True
     backward_boundary[-1, :, :] = True
-    maps = FciMaps(
-        forward_x=base_maps.forward_x,
-        forward_z=base_maps.forward_z,
-        backward_x=base_maps.backward_x,
-        backward_z=base_maps.backward_z,
-        forward_boundary=jnp.asarray(forward_boundary),
-        backward_boundary=jnp.asarray(backward_boundary),
-        dphi=base_maps.dphi,
-    )
     endpoint_count = forward_boundary.astype(np.float64) + backward_boundary.astype(np.float64)
-    connection_length = np.linspace(0.0, 1.0, num=int(np.prod(base_maps.shape)), dtype=np.float64).reshape(base_maps.shape)
+    connection_length = np.linspace(0.0, 1.0, num=int(np.prod(geometry.shape)), dtype=np.float64).reshape(geometry.shape)
 
     diagnostics = build_essos_imported_fci_map_diagnostics(
-        maps=maps,
+        geometry=geometry,
         connection_length=connection_length,
         endpoint_count=endpoint_count,
         map_source="hybrid",
@@ -135,36 +167,27 @@ def test_imported_fci_map_diagnostics_verify_consumed_endpoint_masks() -> None:
 
 
 def test_imported_fci_connection_length_resolution_diagnostics_are_advisory() -> None:
-    base_maps = identity_fci_maps(nx=4, ny=5, nz=8, dphi=0.25)
-    forward_boundary = np.zeros(base_maps.shape, dtype=bool)
-    backward_boundary = np.zeros(base_maps.shape, dtype=bool)
+    geometry = _identity_geometry(nx=4, ny=5, nz=8, dz=0.25)
+    forward_boundary = np.zeros(geometry.shape, dtype=bool)
+    backward_boundary = np.zeros(geometry.shape, dtype=bool)
     forward_boundary[0, :, :] = True
     backward_boundary[-1, :, :] = True
-    maps = FciMaps(
-        forward_x=base_maps.forward_x,
-        forward_z=base_maps.forward_z,
-        backward_x=base_maps.backward_x,
-        backward_z=base_maps.backward_z,
-        forward_boundary=jnp.asarray(forward_boundary),
-        backward_boundary=jnp.asarray(backward_boundary),
-        dphi=base_maps.dphi,
-    )
     endpoint_count = forward_boundary.astype(np.float64) + backward_boundary.astype(np.float64)
-    radial = np.linspace(0.0, 1.0, base_maps.shape[0], dtype=np.float64)[:, None, None]
-    toroidal = np.linspace(0.0, 2.0 * np.pi, base_maps.shape[1], endpoint=False, dtype=np.float64)[None, :, None]
-    poloidal = np.linspace(0.0, 2.0 * np.pi, base_maps.shape[2], endpoint=False, dtype=np.float64)[None, None, :]
+    radial = np.linspace(0.0, 1.0, geometry.shape[0], dtype=np.float64)[:, None, None]
+    toroidal = np.linspace(0.0, 2.0 * np.pi, geometry.shape[1], endpoint=False, dtype=np.float64)[None, :, None]
+    poloidal = np.linspace(0.0, 2.0 * np.pi, geometry.shape[2], endpoint=False, dtype=np.float64)[None, None, :]
     smooth_connection = 10.0 + 0.2 * radial + 0.05 * np.cos(toroidal) + 0.03 * np.sin(poloidal)
-    checkerboard = np.indices(base_maps.shape).sum(axis=0) % 2
+    checkerboard = np.indices(geometry.shape).sum(axis=0) % 2
     rough_connection = 1.0 + 9.0 * checkerboard.astype(np.float64)
 
     smooth = build_essos_imported_fci_map_diagnostics(
-        maps=maps,
+        geometry=geometry,
         connection_length=smooth_connection,
         endpoint_count=endpoint_count,
         map_source="hybrid",
     )
     rough = build_essos_imported_fci_map_diagnostics(
-        maps=maps,
+        geometry=geometry,
         connection_length=rough_connection,
         endpoint_count=endpoint_count,
         map_source="hybrid",
