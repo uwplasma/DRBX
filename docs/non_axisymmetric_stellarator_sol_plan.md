@@ -112,7 +112,7 @@ The first native lane now consists of:
   writes the neutral diffusion/reaction conservation artifact.
 - `src/jax_drb/validation/stellarator_vorticity_campaign.py`, which writes
   the vorticity inversion and radial \(E\times B\) proxy artifact.
-- `src/jax_drb/native/fci.py::logical_exb_bracket_xz`, which provides the
+- `src/jax_drb/native/fci.py::logical_exb_bracket_xy`, which provides the
   first tested JAX-native perpendicular \(E\times B\) bracket seam for
   pedagogical nonlinear stellarator examples and imported-geometry movie
   advection.
@@ -254,13 +254,13 @@ where \(I[\cdot]\) is bilinear interpolation on the target plane. The compact
 central traced parallel derivative is
 
 ```text
-grad_parallel_f = (f_up - f_dn) / (2 dphi)
+grad_parallel_f = (f_up - f_dn) / (2 dz)
 ```
 
 and the compact traced parallel diffusion operator used in the first gate is
 
 ```text
-laplace_parallel_f = (f_up - 2 f + f_dn) / dphi^2
+laplace_parallel_f = (f_up - 2 f + f_dn) / dz^2
 ```
 
 The current operator campaign validates three properties:

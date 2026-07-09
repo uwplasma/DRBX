@@ -14,13 +14,13 @@ from jax_drb.validation import (
     simulate_reduced_stellarator_sol_dynamics,
 )
 
-OUTPUT_ROOT = Path("docs/data/stellarator_fci_example_artifacts/nonlinear_turbulence")
+OUTPUT_ROOT = Path("/pscratch/sd/y/yiqunx/tmp/nonlinear_turbulence_demo")
 CASE_LABEL = "stellarator_nonlinear_turbulence_demo"
 
 NX = 28
 NY = 28
 NZ = 56
-FRAMES = 24
+FRAMES = 100
 SUBSTEPS_PER_FRAME = 4
 DT = 0.008
 FIELD_PERIODS = 5

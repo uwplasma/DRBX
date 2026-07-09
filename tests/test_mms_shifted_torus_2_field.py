@@ -1,13 +1,31 @@
 from __future__ import annotations
 
-import time
+import time as time_module
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jax_drb.geometry import FciGeometry3D, build_fci_maps_from_b_contravariant, logical_grid_from_axis_vectors
-from jax_drb.native.fci_2_field_rhs import Fci2FieldState
+from jax_drb.geometry import (
+    BFieldGeometry,
+    CellCenteredGrid3D,
+    FciGeometry3D,
+    FciMaps3D,
+    FaceBFieldGeometry,
+    FaceMetricGeometry,
+    Grid1D,
+    LocalStencilBuilder,
+    MetricGeometry,
+    RegularFaceGeometry3D,
+    Spacing3D,
+    build_curvature_coefficients,
+    build_fci_maps_from_b_contravariant,
+    build_local_stencil_from_field,
+    logical_grid_from_axis_vectors,
+)
+from jax_drb.native import rk4_step, sum_stage_outputs
+from jax_drb.native.fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldState, compute_2field_rhs
+from jax_drb.native.fci_boundaries import BC_DIRICHLET, BoundaryConditionBuilder, BoundaryFaceBC3D, CutWallBC3D, CutWallGeometry3D
 
 
 A = 0.1
@@ -57,66 +75,99 @@ def build_shifted_torus_2field_geometry(
     """
 
     nx, ny, nz = shape
-    target_shape = (nx, ny, nz)
-
-    x_1d = jnp.linspace(float(x_min), float(x_max), nx, dtype=jnp.float64)
-    theta_1d = jnp.linspace(0.0, 2.0 * jnp.pi, ny, endpoint=False, dtype=jnp.float64)
-    zeta_1d = jnp.linspace(0.0, 2.0 * jnp.pi, nz, endpoint=False, dtype=jnp.float64)
-    logical_grid = logical_grid_from_axis_vectors(x_1d, theta_1d, zeta_1d)
-
-    x = jnp.broadcast_to(x_1d[:, None, None], target_shape)
-    theta = jnp.broadcast_to(theta_1d[None, :, None], target_shape)
-    zeta = jnp.broadcast_to(zeta_1d[None, None, :], target_shape)
-
-    x_span = float(x_max) - float(x_min)
-    if x_span <= 0.0:
-        raise ValueError("x_max must be larger than x_min")
-    x_mid = 0.5 * (float(x_min) + float(x_max))
-    theta_shift = theta + float(sigma) * (x - x_mid)
-
-    cos_theta = jnp.cos(theta_shift)
-    sin_theta = jnp.sin(theta_shift)
-    radial_factor = x
-
-    R = float(r0) + float(alpha_value) * radial_factor + radial_factor * cos_theta
-    jacobian = R * radial_factor * (1.0 + float(alpha_value) * cos_theta)
-    jacobian = jnp.where(jnp.abs(jacobian) < 1.0e-14, 1.0e-14, jacobian)
-
-    g11 = 1.0 / (1.0 + float(alpha_value) * cos_theta) ** 2
-    g12 = float(alpha_value) * sin_theta / (radial_factor * (1.0 + float(alpha_value) * cos_theta) ** 2)
-    g13 = jnp.zeros(target_shape, dtype=jnp.float64)
-    g22 = (1.0 + 2.0 * float(alpha_value) * cos_theta + float(alpha_value) ** 2) / (
-        radial_factor**2 * (1.0 + float(alpha_value) * cos_theta) ** 2
+    x_centers = jnp.linspace(float(x_min), float(x_max), nx, dtype=jnp.float64)
+    theta_centers = jnp.linspace(0.0, 2.0 * jnp.pi, ny, endpoint=False, dtype=jnp.float64)
+    zeta_centers = jnp.linspace(0.0, 2.0 * jnp.pi, nz, endpoint=False, dtype=jnp.float64)
+    grid = CellCenteredGrid3D(
+        x=Grid1D.from_centers(x_centers),
+        y=Grid1D.from_centers(theta_centers),
+        z=Grid1D.from_centers(zeta_centers),
     )
-    g23 = jnp.zeros(target_shape, dtype=jnp.float64)
-    g33 = 1.0 / (R**2)
+    target_shape = grid.shape
 
-    g_11 = 1.0 + 2.0 * float(alpha_value) * cos_theta + float(alpha_value) ** 2
-    g_12 = -float(alpha_value) * radial_factor * sin_theta
-    g_13 = jnp.zeros(target_shape, dtype=jnp.float64)
-    g_22 = radial_factor**2
-    g_23 = jnp.zeros(target_shape, dtype=jnp.float64)
-    g_33 = R**2
+    def _logical_grid(x_axis: jnp.ndarray, y_axis: jnp.ndarray, z_axis: jnp.ndarray) -> jnp.ndarray:
+        return logical_grid_from_axis_vectors(x_axis, y_axis, z_axis)
 
-    expected_bmag = jnp.sqrt((float(iota) ** 2) * radial_factor**2 + R**2) * float(c_phi) / jacobian
-
-    if B_contravariant is None:
-        B_contravariant = jnp.stack(
-            (
-                jnp.zeros(target_shape, dtype=jnp.float64),
-                float(iota) * float(c_phi) / jacobian,
-                float(c_phi) / jacobian,
-            ),
-            axis=-1,
+    def _metric(logical_grid: jnp.ndarray) -> MetricGeometry:
+        x = logical_grid[..., 0]
+        theta = logical_grid[..., 1]
+        x_mid = 0.5 * (float(x_min) + float(x_max))
+        theta_shift = theta + float(sigma) * (x - x_mid)
+        cos_theta = jnp.cos(theta_shift)
+        sin_theta = jnp.sin(theta_shift)
+        R = float(r0) + float(alpha_value) * x + x * cos_theta
+        jacobian = R * x * (1.0 + float(alpha_value) * cos_theta)
+        jacobian = jnp.where(jnp.abs(jacobian) < 1.0e-14, 1.0e-14, jacobian)
+        g11 = 1.0 / (1.0 + float(alpha_value) * cos_theta) ** 2
+        g12 = float(alpha_value) * sin_theta / (x * (1.0 + float(alpha_value) * cos_theta) ** 2)
+        g13 = jnp.zeros_like(x)
+        g22 = (1.0 + 2.0 * float(alpha_value) * cos_theta + float(alpha_value) ** 2) / (x**2 * (1.0 + float(alpha_value) * cos_theta) ** 2)
+        g23 = jnp.zeros_like(x)
+        g33 = 1.0 / (R**2)
+        g_11 = 1.0 + 2.0 * float(alpha_value) * cos_theta + float(alpha_value) ** 2
+        g_12 = -float(alpha_value) * x * sin_theta
+        g_13 = jnp.zeros_like(x)
+        g_22 = x**2
+        g_23 = jnp.zeros_like(x)
+        g_33 = R**2
+        return MetricGeometry(
+            J=jacobian,
+            g11=g11,
+            g22=g22,
+            g33=g33,
+            g12=g12,
+            g13=g13,
+            g23=g23,
+            g_11=g_11,
+            g_22=g_22,
+            g_33=g_33,
+            g_12=g_12,
+            g_13=g_13,
+            g_23=g_23,
         )
-    else:
-        B_contravariant = jnp.asarray(B_contravariant, dtype=jnp.float64)
+
+    def _bfield(logical_grid: jnp.ndarray, metric: MetricGeometry) -> BFieldGeometry:
+        x = logical_grid[..., 0]
+        theta = logical_grid[..., 1]
+        x_mid = 0.5 * (float(x_min) + float(x_max))
+        theta_shift = theta + float(sigma) * (x - x_mid)
+        cos_theta = jnp.cos(theta_shift)
+        R = float(r0) + float(alpha_value) * x + x * cos_theta
+        jacobian = metric.J
+        if B_contravariant is None:
+            B_contra = jnp.stack(
+                (
+                    jnp.zeros_like(jacobian),
+                    float(iota) * float(c_phi) / jacobian,
+                    float(c_phi) / jacobian,
+                ),
+                axis=-1,
+            )
+        else:
+            B_contra = jnp.asarray(B_contravariant, dtype=jnp.float64)
+        Bmag = jnp.sqrt((float(iota) ** 2) * x**2 + R**2) * float(c_phi) / jacobian
+        return BFieldGeometry(B_contra=B_contra, Bmag=Bmag)
+
+    cell_logical_grid = _logical_grid(grid.x.centers, grid.y.centers, grid.z.centers)
+    cell_metric = _metric(cell_logical_grid)
+    cell_bfield = _bfield(cell_logical_grid, cell_metric)
+    face_metric = FaceMetricGeometry(
+        x=_metric(_logical_grid(grid.x.faces, grid.y.centers, grid.z.centers)),
+        y=_metric(_logical_grid(grid.x.centers, grid.y.faces, grid.z.centers)),
+        z=_metric(_logical_grid(grid.x.centers, grid.y.centers, grid.z.faces)),
+    )
+    face_bfield = FaceBFieldGeometry(
+        x=_bfield(_logical_grid(grid.x.faces, grid.y.centers, grid.z.centers), face_metric.x),
+        y=_bfield(_logical_grid(grid.x.centers, grid.y.faces, grid.z.centers), face_metric.y),
+        z=_bfield(_logical_grid(grid.x.centers, grid.y.centers, grid.z.faces), face_metric.z),
+    )
 
     if construct_fci_maps:
         map_fields = build_fci_maps_from_b_contravariant(
-            logical_grid=logical_grid,
-            B_contravariant=B_contravariant,
-            Bmag=expected_bmag,
+            grid,
+            cell_bfield.B_contra,
+            cell_bfield.Bmag,
+            periodic_axes=(False, True, True),
         )
     else:
         ones = jnp.ones(target_shape, dtype=jnp.float64)
@@ -126,47 +177,55 @@ def build_shifted_torus_2field_geometry(
             "forward_y": zeros,
             "backward_x": zeros,
             "backward_y": zeros,
+            "forward_endpoint_x": zeros,
+            "forward_endpoint_y": zeros,
+            "forward_endpoint_z": zeros,
+            "backward_endpoint_x": zeros,
+            "backward_endpoint_y": zeros,
+            "backward_endpoint_z": zeros,
             "forward_length": ones,
             "backward_length": ones,
             "forward_boundary": zeros.astype(bool),
             "backward_boundary": zeros.astype(bool),
-            "dz": ones * (2.0 * jnp.pi) / float(max(nz, 1)),
         }
 
-    return FciGeometry3D(
-        logical_grid=logical_grid,
+    maps = FciMaps3D(
         forward_x=map_fields["forward_x"],
         forward_y=map_fields["forward_y"],
         backward_x=map_fields["backward_x"],
         backward_y=map_fields["backward_y"],
+        forward_endpoint_x=map_fields["forward_endpoint_x"],
+        forward_endpoint_y=map_fields["forward_endpoint_y"],
+        forward_endpoint_z=map_fields["forward_endpoint_z"],
+        backward_endpoint_x=map_fields["backward_endpoint_x"],
+        backward_endpoint_y=map_fields["backward_endpoint_y"],
+        backward_endpoint_z=map_fields["backward_endpoint_z"],
         forward_length=map_fields["forward_length"],
         backward_length=map_fields["backward_length"],
         forward_boundary=map_fields["forward_boundary"],
         backward_boundary=map_fields["backward_boundary"],
-        dx=jnp.ones(target_shape, dtype=jnp.float64) * x_span / float(max(nx - 1, 1)),
-        dy=jnp.ones(target_shape, dtype=jnp.float64) * (2.0 * jnp.pi) / float(max(ny, 1)),
-        dz=map_fields["dz"],
-        J=jacobian,
-        B_contravariant=B_contravariant,
-        g11=g11,
-        g22=g22,
-        g33=g33,
-        g12=g12,
-        g13=g13,
-        g23=g23,
-        g_11=g_11,
-        g_22=g_22,
-        g_33=g_33,
-        g_12=g_12,
-        g_13=g_13,
-        g_23=g_23,
+    )
+    spacing = Spacing3D(
+        dx=jnp.broadcast_to(grid.x.widths[:, None, None], target_shape),
+        dy=jnp.broadcast_to(grid.y.widths[None, :, None], target_shape),
+        dz=jnp.broadcast_to(grid.z.widths[None, None, :], target_shape),
+    )
+    return FciGeometry3D(
+        grid=grid,
+        maps=maps,
+        spacing=spacing,
+        cell_metric=cell_metric,
+        face_metric=face_metric,
+        cell_bfield=cell_bfield,
+        face_bfield=face_bfield,
     )
 
 
 def _shifted_torus_coordinates(geometry: FciGeometry3D) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    x = geometry.logical_grid[..., 0]
-    theta = geometry.logical_grid[..., 1]
-    zeta = geometry.logical_grid[..., 2]
+    logical_grid = logical_grid_from_axis_vectors(*geometry.grid.logical_axis_vectors)
+    x = logical_grid[..., 0]
+    theta = logical_grid[..., 1]
+    zeta = logical_grid[..., 2]
     x_mid = 0.5 * (float(x_min) + float(x_max))
     theta_shift = theta + float(sigma) * (x - x_mid)
     return x, theta_shift, theta, zeta
@@ -201,10 +260,56 @@ def _shifted_torus_exact_state(geometry: FciGeometry3D, time: float) -> Fci2Fiel
     )
 
 
+def _shifted_torus_dirichlet_boundary_condition_builder(field_name: str):
+    def build(
+        state: jnp.ndarray,
+        geometry: FciGeometry3D,
+        periodic_axes: tuple[bool | None, bool | None, bool | None] | None,
+        cut_wall_geometry: CutWallGeometry3D | None,
+        cut_wall_bc: CutWallBC3D | None,
+    ) -> tuple[BoundaryFaceBC3D, CutWallBC3D]:
+        del periodic_axes, cut_wall_geometry
+        regular_face_geometry = RegularFaceGeometry3D.unit(geometry)
+        values = jnp.asarray(getattr(state, field_name, state), dtype=jnp.float64)
+        face_bc = BoundaryFaceBC3D(
+            kind_x=jnp.zeros_like(regular_face_geometry.x_area, dtype=jnp.int32).at[0].set(BC_DIRICHLET).at[-1].set(BC_DIRICHLET),
+            kind_y=jnp.zeros_like(regular_face_geometry.y_area, dtype=jnp.int32),
+            kind_z=jnp.zeros_like(regular_face_geometry.z_area, dtype=jnp.int32),
+            value_x=jnp.zeros_like(regular_face_geometry.x_area, dtype=jnp.float64).at[0].set(values[0]).at[-1].set(values[-1]),
+            value_y=jnp.zeros_like(regular_face_geometry.y_area, dtype=jnp.float64),
+            value_z=jnp.zeros_like(regular_face_geometry.z_area, dtype=jnp.float64),
+            mask_x=jnp.zeros_like(regular_face_geometry.x_open_mask, dtype=bool).at[0].set(True).at[-1].set(True),
+            mask_y=jnp.zeros_like(regular_face_geometry.y_open_mask, dtype=bool),
+            mask_z=jnp.zeros_like(regular_face_geometry.z_open_mask, dtype=bool),
+        )
+        return face_bc, cut_wall_bc or CutWallBC3D.empty()
+
+    return build
+
+
+def _apply_dirichlet_face_bcs_to_state(
+    state: Fci2FieldState,
+    density_face_bc: BoundaryFaceBC3D,
+    v_parallel_face_bc: BoundaryFaceBC3D,
+) -> Fci2FieldState:
+    density = jnp.asarray(state.density, dtype=jnp.float64)
+    v_parallel = jnp.asarray(state.v_parallel, dtype=jnp.float64)
+    density = density.at[0, :, :].set(jnp.asarray(density_face_bc.value_x[0], dtype=jnp.float64))
+    density = density.at[-1, :, :].set(jnp.asarray(density_face_bc.value_x[-1], dtype=jnp.float64))
+    v_parallel = v_parallel.at[0, :, :].set(jnp.asarray(v_parallel_face_bc.value_x[0], dtype=jnp.float64))
+    v_parallel = v_parallel.at[-1, :, :].set(jnp.asarray(v_parallel_face_bc.value_x[-1], dtype=jnp.float64))
+    return Fci2FieldState(
+        density=density,
+        v_parallel=v_parallel,
+        density_background=state.density_background,
+    )
+
+
 def _shifted_torus_geometry_quantities(geometry: FciGeometry3D) -> tuple[jnp.ndarray, ...]:
-    x = jnp.asarray(geometry.logical_grid[..., 0], dtype=jnp.float64)
-    theta = jnp.asarray(geometry.logical_grid[..., 1], dtype=jnp.float64)
-    zeta = jnp.asarray(geometry.logical_grid[..., 2], dtype=jnp.float64)
+    logical_grid = logical_grid_from_axis_vectors(*geometry.grid.logical_axis_vectors)
+    x = jnp.asarray(logical_grid[..., 0], dtype=jnp.float64)
+    theta = jnp.asarray(logical_grid[..., 1], dtype=jnp.float64)
+    zeta = jnp.asarray(logical_grid[..., 2], dtype=jnp.float64)
     x_mid = 0.5 * (float(x_min) + float(x_max))
     theta_shift = theta + float(sigma) * (x - x_mid)
     cos_shift = jnp.cos(theta_shift)
@@ -335,26 +440,11 @@ def _shifted_torus_grad_parallel(field_theta: jnp.ndarray, field_zeta: jnp.ndarr
     return (float(iota) * field_theta + field_zeta) / D
 
 
-def _shifted_torus_apply_dirichlet_boundaries(state: Fci2FieldState, geometry: FciGeometry3D, time: float) -> Fci2FieldState:
-    exact = _shifted_torus_exact_state(geometry, time)
-    density = jnp.asarray(state.density, dtype=jnp.float64)
-    v_parallel = jnp.asarray(state.v_parallel, dtype=jnp.float64)
-    density = density.at[0, :, :].set(exact.density[0, :, :])
-    density = density.at[-1, :, :].set(exact.density[-1, :, :])
-    v_parallel = v_parallel.at[0, :, :].set(exact.v_parallel[0, :, :])
-    v_parallel = v_parallel.at[-1, :, :].set(exact.v_parallel[-1, :, :])
-    return Fci2FieldState(
-        density=density,
-        v_parallel=v_parallel,
-        density_background=exact.density_background,
-    )
-
-
 def _shifted_torus_density_source(geometry: FciGeometry3D, time: float, *, parameters: Fci2FieldRhsParameters) -> jnp.ndarray:
     phi, phi_u, phi_theta, phi_zeta, phi_t = _shifted_torus_phi_derivatives(geometry, time)
     density, density_u, density_theta, density_zeta, density_t = _shifted_torus_density_derivatives(geometry, time)
     v_parallel, _, v_parallel_theta, v_parallel_zeta, _ = _shifted_torus_v_parallel_derivatives(geometry, time)
-    bmag = geometry.Bmag
+    bmag = geometry.cell_bfield.Bmag
     poisson = _shifted_torus_poisson_bracket(
         phi_u,
         phi_theta,
@@ -374,7 +464,7 @@ def _shifted_torus_density_source(geometry: FciGeometry3D, time: float, *, param
 def _shifted_torus_v_parallel_source(geometry: FciGeometry3D, time: float, *, parameters: Fci2FieldRhsParameters) -> jnp.ndarray:
     phi, phi_u, phi_theta, phi_zeta, _ = _shifted_torus_phi_derivatives(geometry, time)
     v_parallel, v_parallel_u, v_parallel_theta, v_parallel_zeta, v_parallel_t = _shifted_torus_v_parallel_derivatives(geometry, time)
-    bmag = geometry.Bmag
+    bmag = geometry.cell_bfield.Bmag
     poisson = _shifted_torus_poisson_bracket(
         phi_u,
         phi_theta,
@@ -395,78 +485,93 @@ def shifted_torus_2field_rk4(
     time: float,
     timestep: float,
     parameters: Fci2FieldRhsParameters,
-) -> Fci2FieldState:
+    curvature_coefficients: jnp.ndarray,
+    stencil_builder: LocalStencilBuilder,
+    density_bc_builder: BoundaryConditionBuilder[tuple[BoundaryFaceBC3D, CutWallBC3D]],
+    phi_bc_builder: BoundaryConditionBuilder[tuple[BoundaryFaceBC3D, CutWallBC3D]],
+    v_parallel_bc_builder: BoundaryConditionBuilder[tuple[BoundaryFaceBC3D, CutWallBC3D]],
+) -> tuple[Fci2FieldState, jnp.ndarray]:
     """Advance the shifted-torus two-field MMS state by one RK4 step."""
 
-    stage_0 = _shifted_torus_apply_dirichlet_boundaries(state, geometry, time)
-    k1 = compute_2field_rhs(
-        stage_0,
-        geometry=geometry,
-        parameters=parameters,
-        periodic_axes=(False, True, True),
-        density_source=_shifted_torus_density_source(geometry, time, parameters=parameters),
-        v_parallel_source=_shifted_torus_v_parallel_source(geometry, time, parameters=parameters),
-    ).rhs
-    stage_1 = _shifted_torus_apply_dirichlet_boundaries(
-        Fci2FieldState(
-            density=stage_0.density + 0.5 * timestep * k1.density,
-            v_parallel=stage_0.v_parallel + 0.5 * timestep * k1.v_parallel,
-            density_background=stage_0.density_background,
-        ),
-        geometry,
-        time + 0.5 * timestep,
-    )
-    k2 = compute_2field_rhs(
-        stage_1,
-        geometry=geometry,
-        parameters=parameters,
-        periodic_axes=(False, True, True),
-        density_source=_shifted_torus_density_source(geometry, time + 0.5 * timestep, parameters=parameters),
-        v_parallel_source=_shifted_torus_v_parallel_source(geometry, time + 0.5 * timestep, parameters=parameters),
-    ).rhs
-    stage_2 = _shifted_torus_apply_dirichlet_boundaries(
-        Fci2FieldState(
-            density=stage_0.density + 0.5 * timestep * k2.density,
-            v_parallel=stage_0.v_parallel + 0.5 * timestep * k2.v_parallel,
-            density_background=stage_0.density_background,
-        ),
-        geometry,
-        time + 0.5 * timestep,
-    )
-    k3 = compute_2field_rhs(
-        stage_2,
-        geometry=geometry,
-        parameters=parameters,
-        periodic_axes=(False, True, True),
-        density_source=_shifted_torus_density_source(geometry, time + 0.5 * timestep, parameters=parameters),
-        v_parallel_source=_shifted_torus_v_parallel_source(geometry, time + 0.5 * timestep, parameters=parameters),
-    ).rhs
-    stage_3 = _shifted_torus_apply_dirichlet_boundaries(
-        Fci2FieldState(
-            density=stage_0.density + timestep * k3.density,
-            v_parallel=stage_0.v_parallel + timestep * k3.v_parallel,
-            density_background=stage_0.density_background,
-        ),
-        geometry,
-        time + timestep,
-    )
-    k4 = compute_2field_rhs(
-        stage_3,
-        geometry=geometry,
-        parameters=parameters,
-        periodic_axes=(False, True, True),
-        density_source=_shifted_torus_density_source(geometry, time + timestep, parameters=parameters),
-        v_parallel_source=_shifted_torus_v_parallel_source(geometry, time + timestep, parameters=parameters),
-    ).rhs
-    next_state = Fci2FieldState(
-        density=stage_0.density + (timestep / 6.0) * (k1.density + 2.0 * k2.density + 2.0 * k3.density + k4.density),
-        v_parallel=stage_0.v_parallel + (timestep / 6.0) * (k1.v_parallel + 2.0 * k2.v_parallel + 2.0 * k3.v_parallel + k4.v_parallel),
-        density_background=stage_0.density_background,
-    )
-    return _shifted_torus_apply_dirichlet_boundaries(next_state, geometry, time + timestep)
+    empty_cut_wall_geometry = CutWallGeometry3D.empty()
+    def _rhs_fn(
+        current_state: Fci2FieldState,
+        stage_time: float | jax.Array,
+        carry: None,
+    ) -> tuple[Fci2FieldState, None, jnp.ndarray]:
+        del carry
+        boundary_start = time_module.perf_counter()
+        exact_state = _shifted_torus_exact_state(geometry, float(stage_time))
+        density_face_bc, density_cut_wall_bc = density_bc_builder(
+            exact_state.density,
+            geometry,
+            (False, True, True),
+            empty_cut_wall_geometry,
+            CutWallBC3D.empty(),
+        )
+        phi_face_bc, phi_cut_wall_bc = phi_bc_builder(
+            _shifted_torus_phi(geometry, float(stage_time)),
+            geometry,
+            (False, True, True),
+            empty_cut_wall_geometry,
+            CutWallBC3D.empty(),
+        )
+        v_parallel_face_bc, v_parallel_cut_wall_bc = v_parallel_bc_builder(
+            exact_state.v_parallel,
+            geometry,
+            (False, True, True),
+            empty_cut_wall_geometry,
+            CutWallBC3D.empty(),
+        )
+        stage_state = _apply_dirichlet_face_bcs_to_state(current_state, density_face_bc, v_parallel_face_bc)
+        jax.block_until_ready(stage_state.density)
+        boundary_time = time_module.perf_counter() - boundary_start
+        rhs_result, timings = compute_2field_rhs(
+            stage_state,
+            geometry=geometry,
+            stencil_builder=stencil_builder,
+            parameters=parameters,
+            curvature_coefficients=curvature_coefficients,
+            periodic_axes=(False, True, True),
+            density_face_bc=density_face_bc,
+            phi_face_bc=phi_face_bc,
+            v_parallel_face_bc=v_parallel_face_bc,
+            density_cut_wall_geometry=empty_cut_wall_geometry,
+            density_cut_wall_bc=density_cut_wall_bc,
+            phi_cut_wall_geometry=empty_cut_wall_geometry,
+            phi_cut_wall_bc=phi_cut_wall_bc,
+            v_parallel_cut_wall_geometry=empty_cut_wall_geometry,
+            v_parallel_cut_wall_bc=v_parallel_cut_wall_bc,
+            density_source=_shifted_torus_density_source(geometry, float(stage_time), parameters=parameters),
+            v_parallel_source=_shifted_torus_v_parallel_source(geometry, float(stage_time), parameters=parameters),
+        )
+        stage_timings = jnp.asarray([boundary_time, timings[0], timings[1]], dtype=jnp.float64)
+        return rhs_result.rhs, None, stage_timings
 
-
-shifted_torus_2field_rk4_jit = jax.jit(shifted_torus_2field_rk4)
+    step_result = rk4_step(state, time=time, timestep=timestep, rhs_fn=_rhs_fn, carry=None)
+    next_state = step_result.state
+    final_boundary_start = time_module.perf_counter()
+    exact_final = _shifted_torus_exact_state(geometry, time + timestep)
+    final_density_face_bc, _ = density_bc_builder(
+        exact_final.density,
+        geometry,
+        (False, True, True),
+        empty_cut_wall_geometry,
+        CutWallBC3D.empty(),
+    )
+    final_v_parallel_face_bc, _ = v_parallel_bc_builder(
+        exact_final.v_parallel,
+        geometry,
+        (False, True, True),
+        empty_cut_wall_geometry,
+        CutWallBC3D.empty(),
+    )
+    next_state = _apply_dirichlet_face_bcs_to_state(next_state, final_density_face_bc, final_v_parallel_face_bc)
+    jax.block_until_ready(next_state.density)
+    final_boundary_time = time_module.perf_counter() - final_boundary_start
+    step_timings = sum_stage_outputs(step_result.stage_aux)
+    step_timings = step_timings.at[0].add(final_boundary_time)
+    return next_state, step_timings
 
 
 def simulate_mms_2field_shifted_torus(
@@ -479,29 +584,70 @@ def simulate_mms_2field_shifted_torus(
     """Evolve the shifted-torus MMS system and return the final state plus stacked history."""
 
     parameters = Fci2FieldRhsParameters(rho_star=rho_star_value)
+    stencil_builder = LocalStencilBuilder(build_local_stencil_from_field.build_fn)
+    density_bc_builder = BoundaryConditionBuilder(_shifted_torus_dirichlet_boundary_condition_builder("density"))
+    phi_bc_builder = BoundaryConditionBuilder(_shifted_torus_dirichlet_boundary_condition_builder("phi"))
+    v_parallel_bc_builder = BoundaryConditionBuilder(_shifted_torus_dirichlet_boundary_condition_builder("v_parallel"))
     dt = float(final_time) / float(num_steps) if timestep is None else float(timestep)
     steps = int(round(float(final_time) / dt))
     dt = float(final_time) / float(steps)
-
-    initial_state = _shifted_torus_apply_dirichlet_boundaries(_shifted_torus_exact_state(geometry, 0.0), geometry, 0.0)
+    curvature_start = time_module.perf_counter()
+    curvature_coefficients = build_curvature_coefficients(geometry, periodic_axes=(False, True, True))
+    curvature_build_time = time_module.perf_counter() - curvature_start
+    initial_exact = _shifted_torus_exact_state(geometry, 0.0)
+    initial_density_bc, _ = density_bc_builder(
+        initial_exact.density,
+        geometry,
+        (False, True, True),
+        CutWallGeometry3D.empty(),
+        CutWallBC3D.empty(),
+    )
+    initial_v_parallel_bc, _ = v_parallel_bc_builder(
+        initial_exact.v_parallel,
+        geometry,
+        (False, True, True),
+        CutWallGeometry3D.empty(),
+        CutWallBC3D.empty(),
+    )
+    initial_state = _apply_dirichlet_face_bcs_to_state(initial_exact, initial_density_bc, initial_v_parallel_bc)
     state = initial_state
     time_value = 0.0
     times: list[float] = [0.0]
     density_history: list[jnp.ndarray] = [jnp.asarray(initial_state.density, dtype=jnp.float32)]
     v_parallel_history: list[jnp.ndarray] = [jnp.asarray(initial_state.v_parallel, dtype=jnp.float32)]
+    timing_history: list[jnp.ndarray] = []
 
     for _ in range(steps):
-        state = shifted_torus_2field_rk4_jit(
+        state, step_timings = shifted_torus_2field_rk4(
             state,
             geometry=geometry,
             time=time_value,
             timestep=dt,
             parameters=parameters,
+            curvature_coefficients=curvature_coefficients,
+            stencil_builder=stencil_builder,
+            density_bc_builder=density_bc_builder,
+            phi_bc_builder=phi_bc_builder,
+            v_parallel_bc_builder=v_parallel_bc_builder,
         )
         time_value += dt
         times.append(time_value)
         density_history.append(jnp.asarray(state.density, dtype=jnp.float32))
         v_parallel_history.append(jnp.asarray(state.v_parallel, dtype=jnp.float32))
+        timing_history.append(step_timings)
+
+    if timing_history:
+        timing_array = np.asarray(timing_history, dtype=np.float64)
+        mean_boundary_time = float(np.mean(timing_array[:, 0]))
+        mean_stencil_time = float(np.mean(timing_array[:, 1]))
+        mean_operator_time = float(np.mean(timing_array[:, 2]))
+        print(f"shifted_torus_2field curvature coefficient build time: {curvature_build_time:.6e} s")
+        print(
+            "shifted_torus_2field mean timings per RK step: "
+            f"boundary={mean_boundary_time:.6e} s, "
+            f"stencil={mean_stencil_time:.6e} s, "
+            f"operator={mean_operator_time:.6e} s"
+        )
 
     return (
         state,
@@ -512,7 +658,7 @@ def simulate_mms_2field_shifted_torus(
 
 
 def _shifted_torus_z_cut_indices(geometry: FciGeometry3D, count: int) -> tuple[int, ...]:
-    z_values = np.asarray(geometry.logical_grid[0, 0, :, 2], dtype=np.float64)
+    z_values = np.asarray(geometry.grid.z.centers, dtype=np.float64)
     z_cuts = np.linspace(0.1, 0.9, count)
     return tuple(int(np.argmin(np.abs(z_values - cut))) for cut in z_cuts)
 
@@ -543,9 +689,9 @@ def _plot_final_slices(
 ) -> None:
     import matplotlib.pyplot as plt
 
-    x_values = np.asarray(geometry.logical_grid[:, 0, 0, 0], dtype=np.float64)
-    theta_values = np.asarray(geometry.logical_grid[0, :, 0, 1], dtype=np.float64)
-    z_values = np.asarray(geometry.logical_grid[0, 0, :, 2], dtype=np.float64)
+    x_values = np.asarray(geometry.grid.x.centers, dtype=np.float64)
+    theta_values = np.asarray(geometry.grid.y.centers, dtype=np.float64)
+    z_values = np.asarray(geometry.grid.z.centers, dtype=np.float64)
     z_indices = _shifted_torus_z_cut_indices(geometry, 2)
 
     density = np.asarray(state.density, dtype=np.float64)
@@ -575,28 +721,28 @@ def _plot_final_slices(
         density_im = axes[0, cut_index].pcolormesh(theta_grid, radius_grid, density_slice, shading="auto", cmap="viridis", vmin=-density_vmax, vmax=density_vmax)
         axes[0, cut_index].set_theta_zero_location("E")
         axes[0, cut_index].set_theta_direction(-1)
-        axes[0, cut_index].set_ylim(float(x_values[0]), float(x_values[-1]))
+        axes[0, cut_index].set_ylim(0.0, float(x_values[-1]))
         axes[0, cut_index].set_title(f"sim, zeta={z_values[z_index]:.3f}")
         axes[0, cut_index].set_yticklabels([])
 
         density_im = axes[0, 2 + cut_index].pcolormesh(theta_grid, radius_grid, exact_density_slice, shading="auto", cmap="viridis", vmin=-density_vmax, vmax=density_vmax)
         axes[0, 2 + cut_index].set_theta_zero_location("E")
         axes[0, 2 + cut_index].set_theta_direction(-1)
-        axes[0, 2 + cut_index].set_ylim(float(x_values[0]), float(x_values[-1]))
+        axes[0, 2 + cut_index].set_ylim(0.0, float(x_values[-1]))
         axes[0, 2 + cut_index].set_title(f"exact, zeta={z_values[z_index]:.3f}")
         axes[0, 2 + cut_index].set_yticklabels([])
 
         v_parallel_im = axes[1, cut_index].pcolormesh(theta_grid, radius_grid, v_parallel_slice, shading="auto", cmap="coolwarm", vmin=-v_parallel_vmax, vmax=v_parallel_vmax)
         axes[1, cut_index].set_theta_zero_location("E")
         axes[1, cut_index].set_theta_direction(-1)
-        axes[1, cut_index].set_ylim(float(x_values[0]), float(x_values[-1]))
+        axes[1, cut_index].set_ylim(0.0, float(x_values[-1]))
         axes[1, cut_index].set_title(f"sim, zeta={z_values[z_index]:.3f}")
         axes[1, cut_index].set_yticklabels([])
 
         v_parallel_im = axes[1, 2 + cut_index].pcolormesh(theta_grid, radius_grid, exact_v_parallel_slice, shading="auto", cmap="coolwarm", vmin=-v_parallel_vmax, vmax=v_parallel_vmax)
         axes[1, 2 + cut_index].set_theta_zero_location("E")
         axes[1, 2 + cut_index].set_theta_direction(-1)
-        axes[1, 2 + cut_index].set_ylim(float(x_values[0]), float(x_values[-1]))
+        axes[1, 2 + cut_index].set_ylim(0.0, float(x_values[-1]))
         axes[1, 2 + cut_index].set_title(f"exact, zeta={z_values[z_index]:.3f}")
         axes[1, 2 + cut_index].set_yticklabels([])
 
@@ -622,9 +768,9 @@ def _save_shifted_torus_movie(
     import matplotlib.animation as animation
     import matplotlib.pyplot as plt
 
-    x_values = np.asarray(geometry.logical_grid[:, 0, 0, 0], dtype=np.float64)
-    theta_values = np.asarray(geometry.logical_grid[0, :, 0, 1], dtype=np.float64)
-    z_values = np.asarray(geometry.logical_grid[0, 0, :, 2], dtype=np.float64)
+    x_values = np.asarray(geometry.grid.x.centers, dtype=np.float64)
+    theta_values = np.asarray(geometry.grid.y.centers, dtype=np.float64)
+    z_values = np.asarray(geometry.grid.z.centers, dtype=np.float64)
     z_indices = _shifted_torus_z_cut_indices(geometry, 4)
 
     density_data = np.asarray(density_history, dtype=np.float64)
@@ -643,7 +789,7 @@ def _save_shifted_torus_movie(
             ax = axes[row, col]
             ax.set_theta_zero_location("E")
             ax.set_theta_direction(-1)
-            ax.set_ylim(float(x_values[0]), float(x_values[-1]))
+            ax.set_ylim(0.0, float(x_values[-1]))
             ax.set_yticklabels([])
             if row == 0:
                 ax.set_title(f"density, zeta={z_values[z_indices[col]]:.3f}")
@@ -675,7 +821,7 @@ def _save_shifted_torus_movie(
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    resolutions = np.asarray([25, 50, 100, 200], dtype=np.int64)
+    resolutions = np.asarray([30, 60,120], dtype=np.int64)
     successful_resolutions: list[int] = []
     l2_errors: list[float] = []
     max_errors: list[float] = []
@@ -691,7 +837,7 @@ if __name__ == "__main__":
         steps = _resolution_step_count(int(resolution))
         dt = float(tf) / float(steps)
         print(f"Starting simulation for resolution={int(resolution)}, steps={steps}, dt={dt:.6e}")
-        start = time.perf_counter()
+        start = time_module.perf_counter()
         try:
             final_state, times, density_history, v_parallel_history = simulate_mms_2field_shifted_torus(
                 geometry,
@@ -699,10 +845,10 @@ if __name__ == "__main__":
                 timestep=dt,
                 rho_star_value=rho_star,
             )
-            elapsed = time.perf_counter() - start
+            elapsed = time_module.perf_counter() - start
             mean_error, _, max_error = _combined_error_statistics(final_state, geometry, tf)
         except FloatingPointError as exc:
-            elapsed = time.perf_counter() - start
+            elapsed = time_module.perf_counter() - start
             print(f"WARNING: res={int(resolution)} failed with non-finite values after {elapsed:.6e} s: {exc}")
             continue
 
@@ -729,6 +875,8 @@ if __name__ == "__main__":
         max_log_errors = np.log(np.asarray(max_errors, dtype=np.float64))
         l2_slope, l2_intercept = np.polyfit(log_resolutions, l2_log_errors, 1)
         max_slope, max_intercept = np.polyfit(log_resolutions, max_log_errors, 1)
+        print(f"shifted_torus_2field l2 convergence order: {-l2_slope:.6f}")
+        print(f"shifted_torus_2field max convergence order: {-max_slope:.6f}")
 
         fig, ax = plt.subplots(figsize=(6.8, 4.8))
         ax.loglog(plotted_resolutions, l2_errors, "o-", label=f"l2, order {l2_slope:.2f}")

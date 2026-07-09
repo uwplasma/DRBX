@@ -36,3 +36,6 @@ docs/images/**/*.gif
 docs/movies/**/*.mp4
 docs/movies/**/*.gif
 docs/runtime_precision_benchmark/images/**/*.png
+*.npz
+*.png
+*.gif
