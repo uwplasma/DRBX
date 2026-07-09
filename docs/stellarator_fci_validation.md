@@ -62,18 +62,23 @@ outer torus surface.
 
 The current lane is split into small, directly tested modules:
 
+- `FciGeometry3D` is the unified FCI payload: it stores the full logical grid
+  `logical_grid[..., 3]`, the field-line maps, and the metric tensor together.
+- `logical_axis_vectors_from_grid` extracts the 1D logical axis vectors from
+  that structured grid.
 - `MetricTensor3D` stores \(J\), \(|B|\), all six independent contravariant
   metric components, and all six independent covariant metric components.
 - `build_metric_report` checks finite values, positive \(J\), positive
   \(|B|\), and inverse consistency \(g^{ik}g_{kj}=\delta^i_j\).
-- `FciMaps` stores forward/backward traced plane intersections, boundary masks,
-  and the toroidal plane spacing.
+- `FciMaps` remains the low-level traced-plane map container used inside the
+  unified geometry payload, storing forward/backward plane intersections,
+  boundary masks, and the toroidal plane spacing.
 - `build_synthetic_stellarator_geometry` creates an analytic five-period
   non-axisymmetric geometry with rotating elliptical cross-sections, helical
   mirror modulation, island-like map displacement, curvature proxy, and
   connection-length proxy.
-- `interpolate_fci_plane`, `fci_yup`, `fci_ydown`, `grad_parallel_fci`,
-  `laplace_parallel_fci`, and `laplace_perp_xz` provide the first JAX-native
+- `interpolate_fci_plane`, `fci_zup`, `fci_zdown`, `grad_parallel_fci`,
+  `laplace_parallel_fci`, and `laplace_perp_xy` provide the first JAX-native
   field-line-map operators.
 - `build_fci_target_masks`, `fci_bohm_sound_speed`, and
   `compute_fci_sheath_recycling` provide the first JAX-native target closure
@@ -81,7 +86,7 @@ The current lane is split into small, directly tested modules:
   loss, zero-current electron particle reconstruction, sheath heat loss, and
   exact recycled-neutral source accounting.
 - `conservative_parallel_diffusion_fci` and
-  `conservative_perp_diffusion_xz` provide the first conservative
+  `conservative_perp_diffusion_xy` provide the first conservative
   metric-weighted transport kernels, with constant-state and dissipation gates.
 - `metric_weighted_scalar_laplacian_3d` evaluates the full
   \(J^{-1}\partial_i(JK g^{ij}\partial_j f)\) scalar diffusion operator using
@@ -138,8 +143,8 @@ f_dn(i,j,k) = I[f(:,j-1,:)](x_bwd(i,j,k), z_bwd(i,j,k))
 The first compact native operators are:
 
 ```text
-partial_parallel f ~= (f_up - f_dn) / (2 dphi)
-L_parallel f ~= (f_up - 2 f + f_dn) / dphi^2
+partial_parallel f ~= (f_up - f_dn) / (2 dz)
+L_parallel f ~= (f_up - 2 f + f_dn) / dz^2
 L_perp f ~= partial_xx f + partial_zz f
 ```
 

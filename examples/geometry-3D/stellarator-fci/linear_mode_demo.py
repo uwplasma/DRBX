@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from jax_drb.geometry import build_synthetic_stellarator_geometry
-from jax_drb.native.fci import laplace_parallel_fci, laplace_perp_xz
+from jax_drb.native.fci import laplace_parallel_fci, laplace_perp_xy
 from jax_drb.validation import save_stellarator_sol_diagnostics_panel, save_stellarator_sol_snapshot_panel
 
 OUTPUT_ROOT = Path("docs/data/stellarator_fci_example_artifacts/linear_mode")
@@ -30,7 +30,7 @@ TOROIDAL_MODE = 5
 
 def linear_rhs(state: jnp.ndarray) -> jnp.ndarray:
     parallel_diffusion = CHI_PARALLEL * laplace_parallel_fci(state, geometry.maps)
-    perpendicular_diffusion = CHI_PERP * laplace_perp_xz(state, dx=dx, dz=dz)
+    perpendicular_diffusion = CHI_PERP * laplace_perp_xy(state, dx=dx, dy=dy)
     drive = LINEAR_DRIVE * curvature * envelope * state
     damping = LINEAR_DAMPING * state
     return parallel_diffusion + perpendicular_diffusion + drive - damping
@@ -47,7 +47,7 @@ envelope = jnp.asarray(np.exp(-((radial - RADIAL_MODE_CENTER) / RADIAL_MODE_WIDT
 initial_state = envelope * np.cos(POLOIDAL_MODE * theta - TOROIDAL_MODE * phi)
 state = jnp.asarray(initial_state, dtype=jnp.float64)
 dx = float(1.0 / (geometry.shape[0] - 1))
-dz = float(2.0 * np.pi / geometry.shape[2])
+dy = float(2.0 * np.pi / geometry.shape[1])
 
 history = []
 time = []

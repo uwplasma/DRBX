@@ -41,10 +41,17 @@ REFERENCE_ROOT: Path | None = None
 REFERENCE_BINARY: Path | None = None
 CASE_NAME = "tokamak_turbulence_short_window"
 FIELD_NAME = "phi"
-OUTPUT_ROOT = _default_repo_root() / "docs" / "data" / "diverted_tokamak_turbulence_artifacts"
+OUTPUT_ROOT = Path("/pscratch/sd/y/yiqunx/tmp/diverted_tokamak_movie")
 WORKDIR_IN: Path | None = None
 MESH_PATH: Path | None = None
-RELEASE_ARRAYS_PATH = OUTPUT_ROOT / "data" / "diverted_tokamak_turbulence_arrays.npz"
+RELEASE_ARRAYS_PATH = (
+    _default_repo_root()
+    / "docs"
+    / "data"
+    / "diverted_tokamak_turbulence_artifacts"
+    / "data"
+    / "diverted_tokamak_turbulence_arrays.npz"
+)
 USE_RELEASE_ARRAYS_IF_AVAILABLE = True
 FPS = 10
 FRAMES_PER_INTERVAL = 10

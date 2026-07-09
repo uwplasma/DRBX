@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from jax_drb.geometry import build_synthetic_stellarator_geometry
-from jax_drb.native.fci import logical_exb_bracket_xz
+from jax_drb.native.fci import logical_exb_bracket_xy
 from jax_drb.native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
 from jax_drb.validation import save_stellarator_sol_diagnostics_panel, save_stellarator_sol_snapshot_panel
 
@@ -126,10 +126,10 @@ def bracket_rhs(state: FciDrbState, geometry, parameters: FciDrbRhsParameters, s
         1.0 + 0.12 * jnp.sin(9.0 * scalar_time)
     )
 
-    ion_advection = logical_exb_bracket_xz(potential, state.ion_density, geometry.metric)
-    electron_advection = logical_exb_bracket_xz(potential, state.electron_density, geometry.metric)
-    pressure_advection = logical_exb_bracket_xz(potential, total_pressure, geometry.metric)
-    vorticity_advection = logical_exb_bracket_xz(potential, state.vorticity, geometry.metric)
+    ion_advection = logical_exb_bracket_xy(potential, state.ion_density, geometry.metric)
+    electron_advection = logical_exb_bracket_xy(potential, state.electron_density, geometry.metric)
+    pressure_advection = logical_exb_bracket_xy(potential, total_pressure, geometry.metric)
+    vorticity_advection = logical_exb_bracket_xy(potential, state.vorticity, geometry.metric)
 
     return (
         FciDrbState(

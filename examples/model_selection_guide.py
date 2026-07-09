@@ -25,7 +25,7 @@ from jax_drb.runtime import RunConfiguration
 
 
 # SIMSOPT-style user parameters: edit these first, then run the file.
-OUTPUT_ROOT = Path("output/model_selection_guide")
+OUTPUT_ROOT = Path("/pscratch/sd/y/yiqunx/tmp/model_selection_guide")
 WRITE_STARTER_DECKS = True
 RUN_TINY_DIFFUSION_SMOKE = False
 QUIET = False
@@ -36,7 +36,7 @@ class ModelFamily:
     """One model family in the user-facing decision tree."""
 
     name: str
-    use_when: str
+    use_when: strmplconfig
     equations: tuple[str, ...]
     evolved_quantities: tuple[str, ...]
     dimensions: tuple[str, ...]

@@ -21,8 +21,8 @@ operator, plotting, and artifact APIs used by the regression campaigns.
 | Example | Purpose | Main APIs |
 | --- | --- | --- |
 | [`geometry_plotting_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py) | Build a deterministic non-axisymmetric geometry, export arrays, and plot surfaces, \(|B|\), connection length, and curvature-weighted FCI displacement. | [`build_synthetic_stellarator_geometry`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/geometry/stellarator.py), [`build_stellarator_fci_geometry_report`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_fci_geometry_campaign.py), [`save_stellarator_fci_geometry_plot`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_fci_geometry_campaign.py) |
-| [`linear_mode_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/linear_mode_demo.py) | Evolve a single field-aligned mode with linear drive, damping, parallel FCI diffusion, and perpendicular diffusion. | [`laplace_parallel_fci`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`laplace_perp_xz`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`save_stellarator_sol_snapshot_panel`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py) |
-| [`vorticity_bracket_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py) | Compose the JAX-native DRB RHS with a vorticity/potential solve and a tested logical \(E\times B\) bracket. | [`compute_fci_drb_rhs`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci_drb_rhs.py), [`logical_exb_bracket_xz`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`save_stellarator_sol_diagnostics_panel`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py) |
+| [`linear_mode_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/linear_mode_demo.py) | Evolve a single field-aligned mode with linear drive, damping, parallel FCI diffusion, and perpendicular diffusion. | [`laplace_parallel_fci`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`laplace_perp_xy`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`save_stellarator_sol_snapshot_panel`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py) |
+| [`vorticity_bracket_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py) | Compose the JAX-native DRB RHS with a vorticity/potential solve and a tested logical \(E\times B\) bracket. | [`compute_fci_drb_rhs`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci_drb_rhs.py), [`logical_exb_bracket_xy`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`save_stellarator_sol_diagnostics_panel`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py) |
 | [`nonlinear_turbulence_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py) | Run the compact nonlinear reduced SOL benchmark and write snapshot, diagnostic, 3D poster, and GIF movie artifacts. | [`simulate_reduced_stellarator_sol_dynamics`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py), [`build_stellarator_sol_showcase_report`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py), [`save_stellarator_sol_3d_movie`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py) |
 | [`turbulent_profile_analysis_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py) | Analyze the nonlinear SOL history with radial fluctuation profiles, RMS intensity, transport-proxy profiles, connection-length weighting, and nonlinear energy traces. | [`build_synthetic_stellarator_geometry`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/geometry/stellarator.py), NumPy/Matplotlib postprocessing of the NPZ history written by `nonlinear_turbulence_demo.py` |
 | [`validation_campaign_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/validation_campaign_demo.py) | Regenerate the full promoted stellarator validation package. | Campaign builders in [`jax_drb.validation`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/__init__.py) |
@@ -91,9 +91,11 @@ The original FCI method is described by Hariri and Ottaviani,
 and later X-point applications are discussed in
 [Hariri et al., Physics of Plasmas 21, 082509 (2014)](https://doi.org/10.1063/1.4892405).
 
-In `jax_drb`, the map object is
-[`FciMaps`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/geometry/fci_maps.py). If \(I\) is bilinear
-interpolation in logical \((s,\theta)\), then
+In `jax_drb`, the base FCI geometry object is
+[`FciGeometry3D`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/geometry/fci_geometry.py). It stores the
+structured logical grid together with the traced maps and metric tensor. The
+map subobject is [`FciMaps`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/geometry/fci_maps.py). If \(I\)
+is bilinear interpolation in logical \((s,\theta)\), then
 
 ```text
 f_up(i,j,k) = I[f(:, j+1, :)](x_fwd(i,j,k), z_fwd(i,j,k)),
@@ -153,7 +155,7 @@ full `FciDrbState`, calls
 for sheath/recycling, neutral reaction-diffusion, charge exchange, vorticity
 diffusion, and potential inversion, then advects density, pressure, and
 vorticity with the tested logical bracket
-[`logical_exb_bracket_xz`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py):
+[`logical_exb_bracket_xy`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py):
 
 ```text
 {phi, f}_{s,theta}

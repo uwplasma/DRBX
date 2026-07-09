@@ -10,7 +10,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from ..geometry import build_synthetic_stellarator_geometry
-from ..native.fci_vorticity import apply_fci_vorticity_operator, solve_fci_vorticity_potential_cg
+from ..native.fci_vorticity import apply_fci_vorticity_operator
+from ..native.fci_vorticity_solve import solve_fci_vorticity_potential_cg
 
 
 @dataclass(frozen=True)

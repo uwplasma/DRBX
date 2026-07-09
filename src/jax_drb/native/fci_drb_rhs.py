@@ -6,15 +6,16 @@ import jax
 import jax.numpy as jnp
 
 from ..geometry import FciGeometry3D
+from .fci_model import FciModelState
 from .fci import conservative_perp_diffusion_xy
 from .fci_neutral import compute_fci_neutral_reaction_diffusion
 from .fci_sheath_recycling import fci_sheath_recycling_field_rhs
-from .fci_vorticity import solve_fci_vorticity_potential_cg
+from .fci_vorticity_solve import solve_fci_vorticity_potential_cg
 
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class FciDrbState:
+class FciDrbState(FciModelState):
     ion_density: jax.Array
     electron_density: jax.Array
     neutral_density: jax.Array
@@ -24,26 +25,6 @@ class FciDrbState:
     ion_momentum: jax.Array
     neutral_momentum: jax.Array
     vorticity: jax.Array
-
-    def tree_flatten(self):
-        return (
-            (
-                self.ion_density,
-                self.electron_density,
-                self.neutral_density,
-                self.ion_pressure,
-                self.electron_pressure,
-                self.neutral_pressure,
-                self.ion_momentum,
-                self.neutral_momentum,
-                self.vorticity,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
 
 
 @dataclass(frozen=True)
