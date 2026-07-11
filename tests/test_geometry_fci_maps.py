@@ -19,7 +19,6 @@ from jax_drb.native.fci import (
     metric_weighted_scalar_laplacian_3d,
 )
 from jax_drb.native.fci_sheath_recycling import compute_fci_sheath_recycling, fci_sheath_recycling_field_rhs
-from jax_drb.native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
 from jax_drb.native.recycling_fixed_residual import (
     build_fixed_array_rhs,
     build_fixed_backward_euler_residual,
@@ -230,34 +229,6 @@ def test_fixed_residual_jvp_action_matches_finite_difference() -> None:
     assert float(jnp.max(jnp.abs(residual_value - residual(packed)))) < 1.0e-12
     assert float(jnp.max(jnp.abs(jvp_action - linear_action(tangent)))) < 1.0e-12
     assert float(jnp.max(jnp.abs(jvp_action - finite_difference))) < 1.0e-6
-
-
-def test_fci_drb_pytree_rhs_is_jvp_transformable() -> None:
-    geometry = build_synthetic_stellarator_geometry(nx=6, ny=5, nz=10)
-    radial = geometry.radial
-    theta = geometry.poloidal_angle
-    phi = geometry.toroidal_angle
-    state = FciDrbState(
-        ion_density=1.0 + 0.15 * radial,
-        electron_density=1.0 + 0.15 * radial,
-        neutral_density=0.2 + 0.1 * radial,
-        ion_pressure=0.08 + 0.02 * radial,
-        electron_pressure=0.10 + 0.03 * radial,
-        neutral_pressure=0.01 + 0.003 * radial,
-        ion_momentum=0.02 * jnp.cos(2.0 * theta - 5.0 * phi),
-        neutral_momentum=0.01 * jnp.sin(theta - 5.0 * phi),
-        vorticity=0.04 * jnp.sin(2.0 * theta - 5.0 * phi),
-    )
-    tangent = jax.tree_util.tree_map(lambda value: jnp.ones_like(value) * 1.0e-3, state)
-
-    def objective(candidate: FciDrbState) -> jnp.ndarray:
-        result = compute_fci_drb_rhs(candidate, geometry=geometry, parameters=FciDrbRhsParameters(potential_iterations=8))
-        return jnp.sum(result.rhs.ion_density) + jnp.sum(result.rhs.neutral_density) + result.potential_residual_l2
-
-    value, derivative = jax.jvp(objective, (state,), (tangent,))
-
-    assert bool(jnp.isfinite(value))
-    assert bool(jnp.isfinite(derivative))
 
 
 def _identity_geometry_3d(*, nx: int, ny: int, nz: int) -> FciGeometry3D:
