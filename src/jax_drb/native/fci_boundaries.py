@@ -15,6 +15,11 @@ from ..geometry.fci_geometry import (
     LocalRegularFaceGeometry3D,
     LocalCellVolumeGeometry3D,
 )
+from .fci_model import (
+    FciFieldBundle,
+    FciModelState,
+    assert_matching_field_names,
+)
 from .fci_helpers import (
     _as_bool_face_array,
     _as_coordinate_derivative_weight_array,
@@ -52,10 +57,24 @@ BoundaryPayloadT = TypeVar("BoundaryPayloadT")
 @_pytree_base
 @dataclass(frozen=True)
 class LocalBoundaryData3D(_DataclassPyTreeMixin):
-    """Local boundary payload bundle."""
+    """Model-shaped local boundary payload bundle.
 
-    face_bc: "LocalBoundaryFaceBC3D | None" = None
-    cut_wall_bc: "LocalCutWallBC3D | None" = None
+    ``face_bc`` and ``cut_wall_bc`` are field bundles: each bundle field names
+    the model field whose boundary payload it contains.  This allows a
+    boundary builder to construct coupled BCs from the complete pre-BC state
+    while preserving an unambiguous field-to-BC association.
+    """
+
+    face_bc: FciFieldBundle | None = None
+    cut_wall_bc: FciFieldBundle | None = None
+
+    def __post_init__(self) -> None:
+        if self.face_bc is not None and not isinstance(self.face_bc, FciFieldBundle):
+            raise TypeError("LocalBoundaryData3D.face_bc must be an FciFieldBundle or None")
+        if self.cut_wall_bc is not None and not isinstance(self.cut_wall_bc, FciFieldBundle):
+            raise TypeError(
+                "LocalBoundaryData3D.cut_wall_bc must be an FciFieldBundle or None"
+            )
 
     def tree_flatten(self):
         return ((self.face_bc, self.cut_wall_bc), None)
@@ -69,11 +88,11 @@ class LocalBoundaryData3D(_DataclassPyTreeMixin):
 @_pytree_base
 @dataclass(frozen=True)
 class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
-    """Callable adapter for local-domain boundary payload construction."""
+    """Build all field boundary payloads from a complete pre-BC state."""
 
     build_fn: Callable[
         [
-            Any,
+            FciModelState,
             LocalFciGeometry3D,
             LocalDomain3D,
             LocalCutWallGeometry3D | None,
@@ -83,12 +102,33 @@ class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
 
     def __call__(
         self,
-        state_owned: Any, #no physical ghost cells filled with BC yet
+        state_halo_pre_bc: FciModelState,
         geometry: LocalFciGeometry3D,
         domain: LocalDomain3D,
         cut_wall_geometry: LocalCutWallGeometry3D | None,
     ) -> LocalBoundaryData3D:
-        return self.build_fn(state_owned, geometry, domain, cut_wall_geometry)
+        if not isinstance(state_halo_pre_bc, FciModelState):
+            raise TypeError(
+                "LocalBoundaryConditionBuilder requires an FciModelState "
+                "with physical ghost cells not yet filled"
+            )
+        state_halo_pre_bc.assert_field_shape(domain.layout.cell_halo_shape)
+        result = self.build_fn(
+            state_halo_pre_bc,
+            geometry,
+            domain,
+            cut_wall_geometry,
+        )
+        if not isinstance(result, LocalBoundaryData3D):
+            raise TypeError(
+                "LocalBoundaryConditionBuilder.build_fn must return "
+                "LocalBoundaryData3D"
+            )
+        if result.face_bc is not None:
+            assert_matching_field_names(state_halo_pre_bc, result.face_bc)
+        if result.cut_wall_bc is not None:
+            assert_matching_field_names(state_halo_pre_bc, result.cut_wall_bc)
+        return result
 
     def tree_flatten(self):
         return (), self.build_fn
@@ -1179,6 +1219,42 @@ class LocalStencil3D:
 
 @_pytree_base
 @dataclass(frozen=True)
+class FaceGradientStencil3D:
+    """Face-centered coordinate gradients for a scalar field."""
+
+    x: jnp.ndarray
+    y: jnp.ndarray
+    z: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        x = _as_float64_array(self.x, "FaceGradientStencil3D.x")
+        y = _as_float64_array(self.y, "FaceGradientStencil3D.y")
+        z = _as_float64_array(self.z, "FaceGradientStencil3D.z")
+
+        for name, value in (("x", x), ("y", y), ("z", z)):
+            if value.ndim != 4 or value.shape[-1] != 3:
+                raise ValueError(
+                    f"FaceGradientStencil3D.{name} must have shape (nx, ny, nz, 3), got {value.shape}"
+                )
+
+        object.__setattr__(self, "x", x)
+        object.__setattr__(self, "y", y)
+        object.__setattr__(self, "z", z)
+
+    @property
+    def shape(self) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
+        return tuple(int(v) for v in self.x.shape[:-1]), tuple(int(v) for v in self.y.shape[:-1]), tuple(int(v) for v in self.z.shape[:-1])
+
+    def tree_flatten(self):
+        return ((self.x, self.y, self.z), None)
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        return cls(*children)
+
+
+@_pytree_base
+@dataclass(frozen=True)
 class ConservativeStencil3D:
     """Nested 3D stencil for conservative operators.
 
@@ -1191,6 +1267,7 @@ class ConservativeStencil3D:
     x: LocalStencil1D
     y: LocalStencil1D
     z: LocalStencil1D
+    face_grad: FaceGradientStencil3D
 
     def __post_init__(self) -> None:
         if not isinstance(self.x, LocalStencil1D):
@@ -1199,10 +1276,27 @@ class ConservativeStencil3D:
             raise TypeError("ConservativeStencil3D.y must be a LocalStencil1D")
         if not isinstance(self.z, LocalStencil1D):
             raise TypeError("ConservativeStencil3D.z must be a LocalStencil1D")
+        if not isinstance(self.face_grad, FaceGradientStencil3D):
+            raise TypeError("ConservativeStencil3D.face_grad must be a FaceGradientStencil3D")
         if self.x.shape != self.y.shape or self.x.shape != self.z.shape:
             raise ValueError(
                 "ConservativeStencil3D axis stencils must all have the same shape; "
                 f"got x={self.x.shape}, y={self.y.shape}, z={self.z.shape}"
+            )
+        expected_x = (self.x.shape[0] + 1, self.x.shape[1], self.x.shape[2])
+        expected_y = (self.x.shape[0], self.x.shape[1] + 1, self.x.shape[2])
+        expected_z = (self.x.shape[0], self.x.shape[1], self.x.shape[2] + 1)
+        if self.face_grad.x.shape[:-1] != expected_x:
+            raise ValueError(
+                f"ConservativeStencil3D.face_grad.x must have shape {expected_x + (3,)}, got {self.face_grad.x.shape}"
+            )
+        if self.face_grad.y.shape[:-1] != expected_y:
+            raise ValueError(
+                f"ConservativeStencil3D.face_grad.y must have shape {expected_y + (3,)}, got {self.face_grad.y.shape}"
+            )
+        if self.face_grad.z.shape[:-1] != expected_z:
+            raise ValueError(
+                f"ConservativeStencil3D.face_grad.z must have shape {expected_z + (3,)}, got {self.face_grad.z.shape}"
             )
 
     @property
@@ -1212,7 +1306,7 @@ class ConservativeStencil3D:
     def replace(self, **updates: object) -> "ConservativeStencil3D":
         """Return a new stencil with one or more fields replaced."""
 
-        allowed = {"x", "y", "z"}
+        allowed = {"x", "y", "z", "face_grad"}
         unknown = set(updates) - allowed
         if unknown:
             names = ", ".join(sorted(unknown))
@@ -1220,7 +1314,7 @@ class ConservativeStencil3D:
         return dataclass_replace_conservative(self, **updates)
 
     def tree_flatten(self):
-        return ((self.x, self.y, self.z), None)
+        return ((self.x, self.y, self.z, self.face_grad), None)
 
     @classmethod
     def tree_unflatten(cls, _aux_data, children):
@@ -2328,6 +2422,7 @@ def dataclass_replace_conservative(
         x=updates.get("x", instance.x),
         y=updates.get("y", instance.y),
         z=updates.get("z", instance.z),
+        face_grad=updates.get("face_grad", instance.face_grad),
     )
 
 
@@ -2342,6 +2437,7 @@ __all__ = [
     "CellVolumeGeometry3D",
     "CoordinateFaceValueReconstructor3D",
     "CoordinateNormalDerivativeConstructor3D",
+    "FaceGradientStencil3D",
     "ConservativeStencil3D",
     "CutWallBC3D",
     "CutWallGeometry3D",

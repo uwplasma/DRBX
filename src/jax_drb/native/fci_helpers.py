@@ -321,13 +321,20 @@ def local_physical_side_active(
     domain: LocalDomain3D,
     axis: int,
     side: Literal["lower", "upper"],
-) -> bool:
-    """Return whether a physical side should be active in the local payload."""
+) -> bool | jnp.ndarray:
+    """Return runtime physical-side ownership for a local boundary payload.
+
+    The result is a Python boolean for an undecomposed axis and a traced JAX
+    boolean inside an SPMD context with a configured mesh axis. It is true
+    only on the runtime global side whose side kind is ``SIDE_PHYSICAL``.
+    """
 
     axis = _validate_axis(axis)
     if side not in ("lower", "upper"):
         raise ValueError(f"side must be 'lower' or 'upper', got {side!r}")
-    return not bool(domain.periodic_axes[axis])
+    if side == "lower":
+        return domain.runtime_has_physical_lower(axis)
+    return domain.runtime_has_physical_upper(axis)
 
 
 def _local_side_mask(
@@ -340,4 +347,4 @@ def _local_side_mask(
 
     active = local_physical_side_active(domain, axis, side)
     shape = local_side_plane_shape(layout, axis)
-    return jnp.full(shape, active, dtype=bool)
+    return jnp.broadcast_to(jnp.asarray(active, dtype=bool), shape)

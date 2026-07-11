@@ -5,6 +5,7 @@ from functools import lru_cache
 from typing import Callable
 import jax
 import jax.numpy as jnp
+from jax import lax
 
 
 _pytree_base = jax.tree_util.register_pytree_node_class
@@ -612,13 +613,22 @@ class FciMaps3D(_DataclassPyTreeMixin):
         return tuple(int(v) for v in self.forward_x.shape)
 
 
+# Dependency kinds are shared by local and remote FCI dependency metadata.
+FCI_DEP_INVALID = 0
+FCI_DEP_FIELD_INTERIOR = 1
+FCI_DEP_PHYSICAL_BOUNDARY = 2
+FCI_DEP_CUT_WALL = 3
+
+
 @_pytree_base
 @dataclass(frozen=True)
 class LocalFciLocalDependencyTable(_DataclassPyTreeMixin):
-    """Sparse interpolation rows that can be satisfied from the local halo.
+    """Sparse interpolation rows that can be satisfied locally.
 
-    The rows are padded to a fixed maximum length so the object stays JAX
-    compilation friendly. Only the `active` rows participate in interpolation.
+    Interior rows read from the local field halo. Boundary and cut-wall rows
+    may instead use a prepared value identified by ``value_slot``. The rows
+    are padded to a fixed maximum length so the object stays JAX compilation
+    friendly. Only the ``active`` rows participate in interpolation.
     """
 
     target_flat: jnp.ndarray  # (max_entries,)
@@ -627,6 +637,8 @@ class LocalFciLocalDependencyTable(_DataclassPyTreeMixin):
     source_k: jnp.ndarray  # (max_entries,)
     weight: jnp.ndarray  # (max_entries,)
     active: jnp.ndarray  # (max_entries,)
+    dependency_kind: jnp.ndarray | None = None  # (max_entries,), int32
+    value_slot: jnp.ndarray | None = None  # (max_entries,), int32
 
     def __post_init__(self) -> None:
         target_flat = jnp.asarray(self.target_flat, dtype=jnp.int32)
@@ -642,86 +654,254 @@ class LocalFciLocalDependencyTable(_DataclassPyTreeMixin):
             raise ValueError(f"LocalFciLocalDependencyTable.active must have shape {shape}, got {active.shape}")
         object.__setattr__(self, "active", active)
 
+        if self.dependency_kind is None:
+            dependency_kind = jnp.full(shape, FCI_DEP_FIELD_INTERIOR, dtype=jnp.int32)
+        else:
+            dependency_kind = jnp.asarray(self.dependency_kind, dtype=jnp.int32)
+            if dependency_kind.shape != shape:
+                raise ValueError(
+                    "LocalFciLocalDependencyTable.dependency_kind must have "
+                    f"shape {shape}, got {dependency_kind.shape}"
+                )
+        object.__setattr__(self, "dependency_kind", dependency_kind)
+
+        if self.value_slot is None:
+            value_slot = jnp.zeros(shape, dtype=jnp.int32)
+        else:
+            value_slot = jnp.asarray(self.value_slot, dtype=jnp.int32)
+            if value_slot.shape != shape:
+                raise ValueError(
+                    "LocalFciLocalDependencyTable.value_slot must have "
+                    f"shape {shape}, got {value_slot.shape}"
+                )
+        object.__setattr__(self, "value_slot", value_slot)
+
     @property
     def max_entries(self) -> int:
         return int(self.target_flat.size)
 
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalFciRemoteDependencyTable(_DataclassPyTreeMixin):
-    """Sparse interpolation rows that require a separate remote value exchange."""
+    """Sparse FCI interpolation rows satisfied by remote value exchange.
 
-    target_flat: jnp.ndarray  # (max_entries,)
-    weight: jnp.ndarray  # (max_entries,)
-    receive_slot: jnp.ndarray  # (max_entries,)
-    active: jnp.ndarray  # (max_entries,)
-    request_source_global_i: jnp.ndarray  # (max_receive_values,)
-    request_source_global_j: jnp.ndarray  # (max_receive_values,)
-    request_source_global_k: jnp.ndarray  # (max_receive_values,)
-    request_source_shard_index: jnp.ndarray  # (max_receive_values, 3)
-    request_source_shard_linear: jnp.ndarray  # (max_receive_values,)
-    request_source_owner_local_i: jnp.ndarray  # (max_receive_values,)
-    request_source_owner_local_j: jnp.ndarray  # (max_receive_values,)
-    request_source_owner_local_k: jnp.ndarray  # (max_receive_values,)
-    request_active: jnp.ndarray  # (max_receive_values,)
+    This table has two logical parts:
+
+    1. Interpolation rows, length max_entries
+       These are used by LocalFciStencilBuilder.
+
+           endpoint[target_flat[r]] += weight[r] * remote_values[receive_slot[r]]
+
+    2. Request rows, length max_receive_values
+       These are used by RemoteFciDependencyExchange.
+
+           remote_values[q] = value requested by request row q
+
+    Consolidation convention
+    ------------------------
+
+    The request row index is the receive slot:
+
+        remote_values[q] contains the scalar returned for request row q
+
+    Therefore:
+
+        receive_slot[r] points directly to one request row q.
+
+    This lets multiple interpolation rows reuse the same remote scalar by sharing
+    the same receive_slot.
+
+    Request dependency kinds tell the owner/source shard what kind of scalar to
+    return:
+
+        FCI_DEP_FIELD_INTERIOR:
+            return a field value from the owner shard's local/halo field data.
+
+        FCI_DEP_PHYSICAL_BOUNDARY:
+            return a prepared physical-boundary value from the owner shard.
+
+        FCI_DEP_CUT_WALL:
+            return a prepared cut-wall value from the owner shard.
+
+    The stencil builder does not interpret request_dependency_kind. It only uses
+    target_flat, weight, receive_slot, and active. The exchange object uses the
+    request_* arrays.
+    """
+
+    # -------------------------------------------------------------------------
+    # Interpolation rows on the requesting shard.
+    # Shape: (max_entries,)
+    # Used by LocalFciStencilBuilder.
+    # -------------------------------------------------------------------------
+
+    target_flat: jnp.ndarray
+    weight: jnp.ndarray
+    receive_slot: jnp.ndarray
+    active: jnp.ndarray
+
+    # -------------------------------------------------------------------------
+    # Request rows.
+    # Shape: (max_receive_values,)
+    # Used by RemoteFciDependencyExchange.
+    #
+    # Consolidation convention:
+    #
+    #     remote_values[q] corresponds to request row q
+    #
+    # Therefore active interpolation rows must satisfy:
+    #
+    #     0 <= receive_slot[r] < max_receive_values
+    # -------------------------------------------------------------------------
+
+    request_active: jnp.ndarray
+    request_dependency_kind: jnp.ndarray
+
+    request_source_global_i: jnp.ndarray
+    request_source_global_j: jnp.ndarray
+    request_source_global_k: jnp.ndarray
+
+    request_source_shard_index: jnp.ndarray      # (max_receive_values, 3)
+    request_source_shard_linear: jnp.ndarray
+
+    request_source_owner_local_i: jnp.ndarray
+    request_source_owner_local_j: jnp.ndarray
+    request_source_owner_local_k: jnp.ndarray
+
+    # Used for PHYSICAL_BOUNDARY / CUT_WALL requests.
+    # Dummy zero for FIELD_INTERIOR requests.
+    request_value_slot: jnp.ndarray
 
     def __post_init__(self) -> None:
+        # ---------------------------------------------------------------------
+        # Interpolation-row arrays.
+        # ---------------------------------------------------------------------
         target_flat = jnp.asarray(self.target_flat, dtype=jnp.int32)
-        shape = tuple(int(v) for v in target_flat.shape)
+        row_shape = tuple(int(v) for v in target_flat.shape)
+
         if target_flat.ndim != 1:
-            raise ValueError(f"LocalFciRemoteDependencyTable.target_flat must be 1D, got {target_flat.shape}")
+            raise ValueError(
+                "LocalFciRemoteDependencyTable.target_flat must be 1D, "
+                f"got {target_flat.shape}"
+            )
+
         object.__setattr__(self, "target_flat", target_flat)
-        object.__setattr__(self, "weight", _require_float_shape(self.weight, shape, "LocalFciRemoteDependencyTable.weight"))
-        object.__setattr__(self, "receive_slot", _require_shape(self.receive_slot, shape, "LocalFciRemoteDependencyTable.receive_slot"))
+
+        object.__setattr__(
+            self,
+            "weight",
+            _require_float_shape(
+                self.weight,
+                row_shape,
+                "LocalFciRemoteDependencyTable.weight",
+            ),
+        )
+
+        object.__setattr__(
+            self,
+            "receive_slot",
+            _require_shape(
+                self.receive_slot,
+                row_shape,
+                "LocalFciRemoteDependencyTable.receive_slot",
+            ),
+        )
+
         active = jnp.asarray(self.active, dtype=bool)
-        if active.shape != shape:
-            raise ValueError(f"LocalFciRemoteDependencyTable.active must have shape {shape}, got {active.shape}")
+        if active.shape != row_shape:
+            raise ValueError(
+                "LocalFciRemoteDependencyTable.active must have shape "
+                f"{row_shape}, got {active.shape}"
+            )
         object.__setattr__(self, "active", active)
 
-        request_shape = tuple(int(v) for v in self.request_source_global_i.shape)
-        if self.request_source_global_i.ndim != 1:
+        # ---------------------------------------------------------------------
+        # Request-row arrays.
+        # ---------------------------------------------------------------------
+        request_active = jnp.asarray(self.request_active, dtype=bool)
+        request_shape = tuple(int(v) for v in request_active.shape)
+
+        if request_active.ndim != 1:
             raise ValueError(
-                "LocalFciRemoteDependencyTable.request_source_global_i must be 1D, "
-                f"got {self.request_source_global_i.shape}"
+                "LocalFciRemoteDependencyTable.request_active must be 1D, "
+                f"got {request_active.shape}"
             )
+
+        object.__setattr__(self, "request_active", request_active)
+
+        object.__setattr__(
+            self,
+            "request_dependency_kind",
+            _require_shape(
+                self.request_dependency_kind,
+                request_shape,
+                "LocalFciRemoteDependencyTable.request_dependency_kind",
+            ),
+        )
+
         for name in (
+            "request_source_global_i",
             "request_source_global_j",
             "request_source_global_k",
             "request_source_shard_linear",
             "request_source_owner_local_i",
             "request_source_owner_local_j",
             "request_source_owner_local_k",
+            "request_value_slot",
         ):
-            object.__setattr__(self, name, _require_shape(getattr(self, name), request_shape, f"LocalFciRemoteDependencyTable.{name}"))
-
-        request_source_shard_index = jnp.asarray(self.request_source_shard_index, dtype=jnp.int32)
-        if request_source_shard_index.ndim != 2 or request_source_shard_index.shape[1] != 3:
-            raise ValueError(
-                "LocalFciRemoteDependencyTable.request_source_shard_index must have shape (n, 3), "
-                f"got {request_source_shard_index.shape}"
+            object.__setattr__(
+                self,
+                name,
+                _require_shape(
+                    getattr(self, name),
+                    request_shape,
+                    f"LocalFciRemoteDependencyTable.{name}",
+                ),
             )
+
+        request_source_shard_index = jnp.asarray(
+            self.request_source_shard_index,
+            dtype=jnp.int32,
+        )
+
+        if (
+            request_source_shard_index.ndim != 2
+            or request_source_shard_index.shape[1] != 3
+        ):
+            raise ValueError(
+                "LocalFciRemoteDependencyTable.request_source_shard_index "
+                "must have shape (max_receive_values, 3), got "
+                f"{request_source_shard_index.shape}"
+            )
+
         if int(request_source_shard_index.shape[0]) != request_shape[0]:
             raise ValueError(
-                "LocalFciRemoteDependencyTable.request_source_shard_index must match the request table length; "
-                f"got {request_source_shard_index.shape[0]}, expected {request_shape[0]}"
+                "LocalFciRemoteDependencyTable.request_source_shard_index "
+                "must match request_active length; got "
+                f"{request_source_shard_index.shape[0]}, "
+                f"expected {request_shape[0]}"
             )
-        object.__setattr__(self, "request_source_shard_index", request_source_shard_index)
 
-        request_active = jnp.asarray(self.request_active, dtype=bool)
-        if request_active.shape != request_shape:
-            raise ValueError(
-                f"LocalFciRemoteDependencyTable.request_active must have shape {request_shape}, got {request_active.shape}"
-            )
-        object.__setattr__(self, "request_active", request_active)
+        object.__setattr__(
+            self,
+            "request_source_shard_index",
+            request_source_shard_index,
+        )
 
     @property
     def max_entries(self) -> int:
+        """Maximum number of interpolation rows."""
         return int(self.target_flat.size)
 
     @property
     def max_receive_values(self) -> int:
+        """Maximum number of requested/received scalar values."""
         return int(self.request_active.size)
+
+    @property
+    def has_requests(self) -> bool:
+        """Static-size table may still contain no active requests at runtime."""
+        return self.max_receive_values > 0
+
 
 
 @_pytree_base
@@ -734,6 +914,7 @@ class LocalFciDirectionMap(_DataclassPyTreeMixin):
     remote: LocalFciRemoteDependencyTable | None = None
     target_valid: jnp.ndarray | None = None  # (nx_owned, ny_owned, nz_owned)
     connection_length: jnp.ndarray | None = None  # (nx_owned, ny_owned, nz_owned)
+    endpoint_kind: jnp.ndarray | None = None  # (nx_owned, ny_owned, nz_owned), int32
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -753,6 +934,22 @@ class LocalFciDirectionMap(_DataclassPyTreeMixin):
                 )
         object.__setattr__(self, "target_valid", target_valid)
 
+        if self.endpoint_kind is None:
+            endpoint_kind = jnp.where(
+                target_valid,
+                FCI_DEP_FIELD_INTERIOR,
+                FCI_DEP_INVALID,
+            ).astype(jnp.int32)
+        else:
+            endpoint_kind = jnp.asarray(self.endpoint_kind, dtype=jnp.int32)
+            if endpoint_kind.shape != self.layout.owned_shape:
+                raise ValueError(
+                    "LocalFciDirectionMap.endpoint_kind must match "
+                    f"layout.owned_shape; got {endpoint_kind.shape}, expected "
+                    f"{self.layout.owned_shape}"
+                )
+        object.__setattr__(self, "endpoint_kind", endpoint_kind)
+
         if self.connection_length is not None:
             connection_length = _require_float_shape(
                 self.connection_length,
@@ -768,6 +965,10 @@ class LocalFciDirectionMap(_DataclassPyTreeMixin):
     @property
     def has_remote_dependencies(self) -> bool:
         return self.remote is not None
+
+    @property
+    def has_local_dependencies(self) -> jnp.ndarray:
+        return jnp.any(self.local.active)
 
 
 @_pytree_base
@@ -1099,9 +1300,11 @@ class ShardSpec3D(_DataclassPyTreeMixin):
         )
 
     def touches_lower(self, axis: int) -> bool:
+        """Static host/debug check for a per-shard domain description."""
         return self.owned_start[int(axis)] == 0
 
     def touches_upper(self, axis: int) -> bool:
+        """Static host/debug check for a per-shard domain description."""
         return self.owned_stop[int(axis)] == self.global_shape[int(axis)]
 
     @staticmethod
@@ -1118,10 +1321,12 @@ class ShardSpec3D(_DataclassPyTreeMixin):
         return int(self.side_kind_upper[self._check_axis(axis)])
 
     def has_physical_lower(self, axis: int) -> bool:
+        """Static host/debug helper; not runtime SPMD ownership."""
         axis = int(axis)
         return self.touches_lower(axis) and self.lower_side_kind(axis) == SIDE_PHYSICAL
 
     def has_physical_upper(self, axis: int) -> bool:
+        """Static host/debug helper; not runtime SPMD ownership."""
         axis = int(axis)
         return self.touches_upper(axis) and self.upper_side_kind(axis) == SIDE_PHYSICAL
 
@@ -1234,11 +1439,26 @@ class NeighborMap3D(_DataclassPyTreeMixin):
 @_pytree_base
 @dataclass(frozen=True)
 class LocalDomain3D(_DataclassPyTreeMixin):
-    """Metadata for one local shard/domain."""
+    """Metadata for one local shard/domain.
+
+    ``mesh_axis_names`` describes the execution mesh used by SPMD-facing
+    helpers. It is deliberately kept on ``LocalDomain3D`` rather than
+    ``ShardSpec3D`` because collective axis names are execution metadata, not
+    geometric metadata.
+
+    The existing ``touches_*`` and ``has_*`` methods are host/debug helpers
+    based on the static per-shard metadata in ``ShardSpec3D``. Code executing
+    inside ``pmap``/``shard_map`` should use the ``runtime_*`` methods below.
+    """
 
     shard_spec: ShardSpec3D
     layout: HaloLayout3D
     neighbor_map: NeighborMap3D | None = None
+    mesh_axis_names: tuple[str | None, str | None, str | None] = (
+        None,
+        None,
+        None,
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.shard_spec, ShardSpec3D):
@@ -1257,6 +1477,19 @@ class LocalDomain3D(_DataclassPyTreeMixin):
             )
         if self.neighbor_map is not None and not isinstance(self.neighbor_map, NeighborMap3D):
             raise TypeError("neighbor_map must be a NeighborMap3D instance or None")
+        mesh_axis_names = tuple(self.mesh_axis_names)
+        if len(mesh_axis_names) != 3:
+            raise ValueError(
+                "LocalDomain3D.mesh_axis_names must have length 3, "
+                f"got {mesh_axis_names}"
+            )
+        for axis, name in enumerate(mesh_axis_names):
+            if name is not None and not isinstance(name, str):
+                raise TypeError(
+                    "LocalDomain3D.mesh_axis_names entries must be strings or None; "
+                    f"axis={axis}, value={name!r}"
+                )
+        object.__setattr__(self, "mesh_axis_names", mesh_axis_names)
 
     @property
     def periodic_axes(self) -> tuple[bool, bool, bool]:
@@ -1271,9 +1504,11 @@ class LocalDomain3D(_DataclassPyTreeMixin):
         return self.shard_spec.owned_shape
 
     def has_physical_lower(self, axis: int) -> bool:
+        """Static host/debug helper; use ``runtime_has_physical_lower`` in SPMD."""
         return self.shard_spec.has_physical_lower(axis)
 
     def has_physical_upper(self, axis: int) -> bool:
+        """Static host/debug helper; use ``runtime_has_physical_upper`` in SPMD."""
         return self.shard_spec.has_physical_upper(axis)
 
     def allows_regular_exchange_lower(self, axis: int) -> bool:
@@ -1288,52 +1523,117 @@ class LocalDomain3D(_DataclassPyTreeMixin):
     def has_topology_upper(self, axis: int) -> bool:
         return self.shard_spec.has_topology_upper(axis)
 
+    def runtime_shard_id(self, axis: int) -> int | jnp.ndarray:
+        """Return the current SPMD shard index for a logical axis.
+
+        An axis without a configured mesh name is treated as undecomposed and
+        returns the Python integer ``0``. A configured name must be valid in
+        the surrounding ``pmap``/``shard_map`` context.
+        """
+
+        axis = int(axis)
+        if axis < 0 or axis > 2:
+            raise ValueError(f"axis must be 0, 1, or 2, got {axis}")
+        name = self.mesh_axis_names[axis]
+        if name is None:
+            return 0
+        return lax.axis_index(name)
+
+    def runtime_touches_lower(self, axis: int) -> bool | jnp.ndarray:
+        axis = int(axis)
+        return self.runtime_shard_id(axis) == 0
+
+    def runtime_touches_upper(self, axis: int) -> bool | jnp.ndarray:
+        axis = int(axis)
+        return self.runtime_shard_id(axis) == self.shard_spec.shard_counts[axis] - 1
+
+    def runtime_has_physical_lower(self, axis: int) -> bool | jnp.ndarray:
+        axis = int(axis)
+        return self.runtime_touches_lower(axis) & (
+            self.shard_spec.lower_side_kind(axis) == SIDE_PHYSICAL
+        )
+
+    def runtime_has_physical_upper(self, axis: int) -> bool | jnp.ndarray:
+        axis = int(axis)
+        return self.runtime_touches_upper(axis) & (
+            self.shard_spec.upper_side_kind(axis) == SIDE_PHYSICAL
+        )
+
+    def runtime_has_axis_regular_lower(self, axis: int) -> bool | jnp.ndarray:
+        axis = int(axis)
+        return self.runtime_touches_lower(axis) & (
+            self.shard_spec.lower_side_kind(axis) == SIDE_AXIS_REGULAR
+        )
+
+    def runtime_has_axis_regular_upper(self, axis: int) -> bool | jnp.ndarray:
+        axis = int(axis)
+        return self.runtime_touches_upper(axis) & (
+            self.shard_spec.upper_side_kind(axis) == SIDE_AXIS_REGULAR
+        )
+
+    def runtime_has_side_kind_lower(
+        self,
+        axis: int,
+        side_kind: int,
+    ) -> bool | jnp.ndarray:
+        axis = int(axis)
+        return self.runtime_touches_lower(axis) & (
+            self.shard_spec.lower_side_kind(axis) == int(side_kind)
+        )
+
+    def runtime_has_side_kind_upper(
+        self,
+        axis: int,
+        side_kind: int,
+    ) -> bool | jnp.ndarray:
+        axis = int(axis)
+        return self.runtime_touches_upper(axis) & (
+            self.shard_spec.upper_side_kind(axis) == int(side_kind)
+        )
+
     def tree_flatten(self):
-        return (), (self.shard_spec, self.layout, self.neighbor_map)
+        return (), (
+            self.shard_spec,
+            self.layout,
+            self.neighbor_map,
+            self.mesh_axis_names,
+        )
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         del children
-        shard_spec, layout, neighbor_map = aux_data
-        return cls(shard_spec=shard_spec, layout=layout, neighbor_map=neighbor_map)
+        shard_spec, layout, neighbor_map, mesh_axis_names = aux_data
+        return cls(
+            shard_spec=shard_spec,
+            layout=layout,
+            neighbor_map=neighbor_map,
+            mesh_axis_names=mesh_axis_names,
+        )
 
 
 @_pytree_base
 @dataclass(frozen=True)
-class LocalStencilBuilderContext(_DataclassPyTreeMixin):
+class StencilBuilderContext(_DataclassPyTreeMixin):
     layout: HaloLayout3D
     domain: LocalDomain3D | None = None
     cut_wall_geometry: "LocalCutWallGeometry3D | None" = None
     cut_wall_bc: "LocalCutWallBC3D | None" = None
+    cut_wall_value_reconstructor: "LocalCutWallValueReconstructor3D | None" = None
+    cut_wall_normal_derivative_constructor: (
+        "LocalCutWallNormalDerivativeConstructor3D | None"
+    ) = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
             raise TypeError("layout must be a HaloLayout3D instance")
         if self.domain is not None and self.domain.layout != self.layout:
-            raise ValueError("LocalStencilBuilderContext.domain must share the same layout")
-        if self.cut_wall_geometry is not None and getattr(self.cut_wall_geometry, "layout", None) != self.layout:
-            raise ValueError("LocalStencilBuilderContext.cut_wall_geometry must share the same layout")
-        if self.cut_wall_bc is not None and getattr(self.cut_wall_bc, "layout", None) != self.layout:
-            raise ValueError("LocalStencilBuilderContext.cut_wall_bc must share the same layout")
+            raise ValueError("StencilBuilderContext.domain must share the same layout")
 
 
-@_pytree_base
-@dataclass(frozen=True)
-class ConservativeStencilBuilderContext(_DataclassPyTreeMixin):
-    layout: HaloLayout3D
-    domain: LocalDomain3D | None = None
-    cut_wall_geometry: "LocalCutWallGeometry3D | None" = None
-    cut_wall_bc: "LocalCutWallBC3D | None" = None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.layout, HaloLayout3D):
-            raise TypeError("layout must be a HaloLayout3D instance")
-        if self.domain is not None and self.domain.layout != self.layout:
-            raise ValueError("ConservativeStencilBuilderContext.domain must share the same layout")
-        if self.cut_wall_geometry is not None and getattr(self.cut_wall_geometry, "layout", None) != self.layout:
-            raise ValueError("ConservativeStencilBuilderContext.cut_wall_geometry must share the same layout")
-        if self.cut_wall_bc is not None and getattr(self.cut_wall_bc, "layout", None) != self.layout:
-            raise ValueError("ConservativeStencilBuilderContext.cut_wall_bc must share the same layout")
+# Backward-compatible aliases. Both historical context names now refer to the
+# same canonical PyTree type.
+LocalStencilBuilderContext = StencilBuilderContext
+ConservativeStencilBuilderContext = StencilBuilderContext
 
 
 @_pytree_base
@@ -1444,7 +1744,7 @@ class LocalMetricGeometry(_DataclassPyTreeMixin):
     The `location` metadata determines which local shape convention applies:
     cell-centered or one of the three face families.
     """
-
+    #field_halo shaped arrays
     layout: HaloLayout3D
     J_halo: jnp.ndarray
     g11_halo: jnp.ndarray
@@ -1572,6 +1872,30 @@ class LocalMetricGeometry(_DataclassPyTreeMixin):
     @property
     def g_cov(self) -> jnp.ndarray:
         return _metric_from_components(self.g_11_halo, self.g_22_halo, self.g_33_halo, self.g_12_halo, self.g_13_halo, self.g_23_halo)
+
+    @property
+    def g_contra_owned(self) -> jnp.ndarray:
+        s = self.owned_slices_in_halo
+        return _metric_from_components(
+            self.g11_halo[s],
+            self.g22_halo[s],
+            self.g33_halo[s],
+            self.g12_halo[s],
+            self.g13_halo[s],
+            self.g23_halo[s],
+        )
+
+    @property
+    def g_cov_owned(self) -> jnp.ndarray:
+        s = self.owned_slices_in_halo
+        return _metric_from_components(
+            self.g_11_halo[s],
+            self.g_22_halo[s],
+            self.g_33_halo[s],
+            self.g_12_halo[s],
+            self.g_13_halo[s],
+            self.g_23_halo[s],
+        )
 
     @property
     def J_owned(self) -> jnp.ndarray:
@@ -2155,12 +2479,13 @@ class FciGeometry3D(_DataclassPyTreeMixin):
 @lru_cache(maxsize=1)
 def _stencil_types():
     from ..native.fci_boundaries import (
+        FaceGradientStencil3D,
         ConservativeStencil3D,
         LocalStencil1D,
         LocalStencil3D,
     )
 
-    return ConservativeStencil3D, LocalStencil1D, LocalStencil3D
+    return ConservativeStencil3D, FaceGradientStencil3D, LocalStencil1D, LocalStencil3D
 
 
 def _shift_owned_slices(layout: HaloLayout3D, axis: int, offset: int) -> tuple[slice, slice, slice]:
@@ -2180,7 +2505,7 @@ def _local_axis_stencil_from_halo(
     *,
     axis: int,
 ) -> "LocalStencil1D":
-    ConservativeStencil3D, LocalStencil1D, _ = _stencil_types()
+    ConservativeStencil3D, _, LocalStencil1D, _ = _stencil_types()
     del ConservativeStencil3D
 
     values_halo = jnp.asarray(values_halo, dtype=jnp.float64)
@@ -2222,19 +2547,77 @@ def _local_axis_stencil_from_halo(
     return LocalStencil1D(center=center, minus=minus, plus=plus, dx_min=dx_min, dx_plus=dx_plus)
 
 
+def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) -> jnp.ndarray:
+    """Map a cell-centered field onto the corresponding face grid along one axis."""
+
+    values_3d = jnp.asarray(field, dtype=jnp.float64)
+    axis_n = values_3d.shape[axis]
+    face_shape = list(values_3d.shape)
+    face_shape[axis] += 1
+
+    if axis_n == 1:
+        return jnp.broadcast_to(values_3d, tuple(face_shape))
+
+    first = jnp.take(values_3d, 0, axis=axis)
+    second = jnp.take(values_3d, 1, axis=axis)
+    last = jnp.take(values_3d, -1, axis=axis)
+    penultimate = jnp.take(values_3d, -2, axis=axis)
+
+    if periodic:
+        lower_ghost = last
+        upper_ghost = first
+    else:
+        lower_ghost = 2.0 * first - second
+        upper_ghost = 2.0 * last - penultimate
+
+    ext = jnp.concatenate(
+        (
+            jnp.expand_dims(lower_ghost, axis=axis),
+            values_3d,
+            jnp.expand_dims(upper_ghost, axis=axis),
+        ),
+        axis=axis,
+    )
+    return 0.5 * (
+        jnp.take(ext, jnp.arange(axis_n + 1), axis=axis)
+        + jnp.take(ext, jnp.arange(1, axis_n + 2), axis=axis)
+    )
+
+
 def _global_axis_stencil_from_field(
     field: jnp.ndarray,
     geometry: FciGeometry3D,
     *,
     periodic_axes: tuple[bool, bool, bool] = (False, True, True),
 ) -> "ConservativeStencil3D":
-    ConservativeStencil3D, LocalStencil1D, _ = _stencil_types()
+    ConservativeStencil3D, FaceGradientStencil3D, LocalStencil1D, _ = _stencil_types()
 
     values = jnp.asarray(field, dtype=jnp.float64)
     if values.shape != geometry.shape:
         raise ValueError(f"field must have shape {geometry.shape}, got {values.shape}")
 
     periodic_axes = _normalize_periodic_axes(periodic_axes)
+
+    def _face_spacing(field_spacing: jnp.ndarray, *, face_axis: int) -> jnp.ndarray:
+        return _lift_cell_field_to_faces(field_spacing, axis=face_axis, periodic=periodic_axes[face_axis])
+
+    def _face_gradient_for_axis(face_axis: int) -> jnp.ndarray:
+        face_values = _lift_cell_field_to_faces(values, axis=face_axis, periodic=periodic_axes[face_axis])
+        face_spacings = (
+            _face_spacing(geometry.spacing.dx, face_axis=face_axis),
+            _face_spacing(geometry.spacing.dy, face_axis=face_axis),
+            _face_spacing(geometry.spacing.dz, face_axis=face_axis),
+        )
+        components = tuple(
+            _first_derivative_3d(
+                face_values,
+                face_spacings[component],
+                axis=component,
+                periodic=periodic_axes[component],
+            )
+            for component in range(3)
+        )
+        return jnp.stack(components, axis=-1)
 
     def _axis_stencil(axis: int, grid_axis, periodic: bool) -> LocalStencil1D:
         axis_n = values.shape[axis]
@@ -2292,21 +2675,28 @@ def _global_axis_stencil_from_field(
         x=_axis_stencil(0, geometry.grid.x, periodic_axes[0]),
         y=_axis_stencil(1, geometry.grid.y, periodic_axes[1]),
         z=_axis_stencil(2, geometry.grid.z, periodic_axes[2]),
+        face_grad=FaceGradientStencil3D(
+            x=_face_gradient_for_axis(0),
+            y=_face_gradient_for_axis(1),
+            z=_face_gradient_for_axis(2),
+        ),
     )
 
 
 def _build_conservative_stencil_from_field(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
-    context: ConservativeStencilBuilderContext,
+    context: StencilBuilderContext,
 ) -> "ConservativeStencil3D":
-    ConservativeStencil3D, _, _ = _stencil_types()
+    ConservativeStencil3D, FaceGradientStencil3D, _, _ = _stencil_types()
     if not isinstance(geometry, LocalFciGeometry3D):
         raise TypeError("geometry must be a LocalFciGeometry3D instance")
-    if not isinstance(context, ConservativeStencilBuilderContext):
-        raise TypeError("context must be a ConservativeStencilBuilderContext instance")
+    if not isinstance(context, StencilBuilderContext):
+        raise TypeError("context must be a StencilBuilderContext instance")
     if context.layout != geometry.layout:
         raise ValueError("geometry and context must share the same HaloLayout3D")
+    if context.domain is None:
+        raise ValueError("context.domain is required for the local conservative stencil builder")
     field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
     if field_halo.shape != geometry.halo_shape:
         raise ValueError(
@@ -2317,20 +2707,25 @@ def _build_conservative_stencil_from_field(
         x=_local_axis_stencil_from_halo(field_halo, geometry, axis=0),
         y=_local_axis_stencil_from_halo(field_halo, geometry, axis=1),
         z=_local_axis_stencil_from_halo(field_halo, geometry, axis=2),
+        face_grad=_build_local_face_gradient_from_halo(
+            field_halo,
+            geometry,
+            context.domain,
+        ),
     )
 
 
 def _build_local_stencil_from_field(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
-    context: LocalStencilBuilderContext,
+    context: StencilBuilderContext,
 ) -> "LocalStencil3D":
-    _, _, LocalStencil3D = _stencil_types()
+    _, _, _, LocalStencil3D = _stencil_types()
 
     if not isinstance(geometry, LocalFciGeometry3D):
         raise TypeError("geometry must be a LocalFciGeometry3D instance")
-    if not isinstance(context, LocalStencilBuilderContext):
-        raise TypeError("context must be a LocalStencilBuilderContext instance")
+    if not isinstance(context, StencilBuilderContext):
+        raise TypeError("context must be a StencilBuilderContext instance")
     if context.layout != geometry.layout:
         raise ValueError("geometry and context must share the same HaloLayout3D")
     field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
@@ -2355,7 +2750,7 @@ class ConservativeStencilBuilder(_DataclassPyTreeMixin):
         [
             jnp.ndarray,
             "LocalFciGeometry3D",
-            "ConservativeStencilBuilderContext",
+            "StencilBuilderContext",
         ],
         "ConservativeStencil3D",
     ]
@@ -2364,7 +2759,7 @@ class ConservativeStencilBuilder(_DataclassPyTreeMixin):
         self,
         field_halo: jnp.ndarray,
         geometry: "LocalFciGeometry3D",
-        context: "ConservativeStencilBuilderContext",
+        context: "StencilBuilderContext",
     ) -> "ConservativeStencil3D":
         return self.build_fn(field_halo, geometry, context)
 
@@ -2388,7 +2783,7 @@ class LocalStencilBuilder(_DataclassPyTreeMixin):
         [
             jnp.ndarray,
             "LocalFciGeometry3D",
-            "LocalStencilBuilderContext",
+            "StencilBuilderContext",
         ],
         "LocalStencil3D",
     ]
@@ -2397,7 +2792,7 @@ class LocalStencilBuilder(_DataclassPyTreeMixin):
         self,
         field_halo: jnp.ndarray,
         geometry: "LocalFciGeometry3D",
-        context: "LocalStencilBuilderContext",
+        context: "StencilBuilderContext",
     ) -> "LocalStencil3D":
         return self.build_fn(field_halo, geometry, context)
 
@@ -2410,6 +2805,403 @@ class LocalStencilBuilder(_DataclassPyTreeMixin):
 
 
 build_local_stencil_from_field = LocalStencilBuilder(_build_local_stencil_from_field)
+
+
+def _build_local_face_gradient_from_halo(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+) -> "FaceGradientStencil3D":
+    _, FaceGradientStencil3D, _, _ = _stencil_types()
+
+    field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
+    if field_halo.shape != geometry.halo_shape:
+        raise ValueError(
+            "field_halo must match geometry.halo_shape; "
+            f"got {field_halo.shape}, expected {geometry.halo_shape}"
+        )
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError(
+            "domain must be a LocalDomain3D instance, "
+            f"got {type(domain).__name__}"
+        )
+    if domain.layout != geometry.layout:
+        raise ValueError("geometry and domain must share the same HaloLayout3D")
+
+    face_locations = ("x_face", "y_face", "z_face")
+    expected_face_shapes = tuple(
+        geometry.layout.location_owned_shape(location) for location in face_locations
+    )
+    spacing_fields = (
+        geometry.spacing.dx_halo,
+        geometry.spacing.dy_halo,
+        geometry.spacing.dz_halo,
+    )
+
+    def _build_for_face_axis(face_axis: int) -> jnp.ndarray:
+        face_values = _lift_cell_field_to_faces(
+            field_halo,
+            axis=face_axis,
+            periodic=domain.periodic_axes[face_axis],
+        )
+        face_slices = geometry.layout.location_owned_slices(face_locations[face_axis])
+        components = tuple(
+            _first_derivative_3d(
+                face_values,
+                _lift_cell_field_to_faces(
+                    spacing_fields[component],
+                    axis=face_axis,
+                    periodic=domain.periodic_axes[face_axis],
+                ),
+                axis=component,
+                periodic=domain.periodic_axes[component],
+            )[face_slices]
+            for component in range(3)
+        )
+        return jnp.stack(components, axis=-1)
+
+    face_grad = FaceGradientStencil3D(
+        x=_build_for_face_axis(0),
+        y=_build_for_face_axis(1),
+        z=_build_for_face_axis(2),
+    )
+    if face_grad.x.shape[:-1] != expected_face_shapes[0]:
+        raise ValueError(
+            f"face_grad.x must have shape {expected_face_shapes[0] + (3,)}, got {face_grad.x.shape}"
+        )
+    if face_grad.y.shape[:-1] != expected_face_shapes[1]:
+        raise ValueError(
+            f"face_grad.y must have shape {expected_face_shapes[1] + (3,)}, got {face_grad.y.shape}"
+        )
+    if face_grad.z.shape[:-1] != expected_face_shapes[2]:
+        raise ValueError(
+            f"face_grad.z must have shape {expected_face_shapes[2] + (3,)}, got {face_grad.z.shape}"
+        )
+    return face_grad
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalConservativeStencilBuilder(_DataclassPyTreeMixin):
+    """Callable adapter that delegates local conservative-stencil construction."""
+
+    build_fn: Callable[
+        [
+            jnp.ndarray,
+            "LocalFciGeometry3D",
+            "StencilBuilderContext",
+        ],
+        "ConservativeStencil3D",
+    ]
+
+    def __call__(
+        self,
+        field_halo: jnp.ndarray,
+        geometry: "LocalFciGeometry3D",
+        context: "StencilBuilderContext",
+    ) -> "ConservativeStencil3D":
+        return self.build_fn(field_halo, geometry, context)
+
+    def tree_flatten(self):
+        return (), self.build_fn
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(aux_data)
+
+
+build_local_conservative_stencil_from_field = LocalConservativeStencilBuilder(
+    _build_conservative_stencil_from_field
+)
+
+
+def _local_axis_plane_slice(axis: int, index: int | slice) -> tuple[object, object, object]:
+    """Return a 3D slice tuple with ``index`` applied along one axis."""
+
+    axis = int(axis)
+    if axis == 0:
+        return index, slice(None), slice(None)
+    if axis == 1:
+        return slice(None), index, slice(None)
+    if axis == 2:
+        return slice(None), slice(None), index
+    raise ValueError(f"axis must be 0, 1, or 2, got {axis}")
+
+
+def _local_halo_axis_slice(
+    layout: HaloLayout3D,
+    axis: int,
+    owned_axis_offset: int,
+) -> tuple[object, object, object]:
+    """Slice a local halo field at an owned-axis-relative cell offset."""
+
+    axis = int(axis)
+    if axis < 0 or axis > 2:
+        raise ValueError(f"axis must be 0, 1, or 2, got {axis}")
+
+    h = int(layout.halo_width)
+    slices: list[object] = [
+        slice(h, h + layout.owned_shape[0]),
+        slice(h, h + layout.owned_shape[1]),
+        slice(h, h + layout.owned_shape[2]),
+    ]
+    slices[axis] = h + int(owned_axis_offset)
+    return tuple(slices)
+
+
+def _three_point_first_derivative_weights(
+    target: jnp.ndarray,
+    first: jnp.ndarray,
+    second: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Return first-derivative weights at ``target`` for three coordinates."""
+
+    target = jnp.asarray(target, dtype=jnp.float64)
+    first = jnp.asarray(first, dtype=jnp.float64)
+    second = jnp.asarray(second, dtype=jnp.float64)
+
+    w_target = (2.0 * target - first - second) / (
+        (target - first) * (target - second)
+    )
+    w_first = (target - second) / ((first - target) * (first - second))
+    w_second = (target - first) / ((second - target) * (second - first))
+    return w_target, w_first, w_second
+
+
+def _patch_local_physical_one_sided_axis_stencil(
+    stencil: "LocalStencil1D",
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    axis: int,
+) -> "LocalStencil1D":
+    """Patch physical side planes with nonuniform three-point formulas."""
+
+    ConservativeStencil3D, _, LocalStencil1D, _ = _stencil_types()
+    del ConservativeStencil3D
+
+    axis = int(axis)
+    layout = domain.layout
+    if layout != geometry.layout:
+        raise ValueError("geometry and domain must share the same HaloLayout3D")
+
+    n_axis = int(layout.owned_shape[axis])
+    if n_axis < 3:
+        has_physical_side = (
+            domain.shard_spec.lower_side_kind(axis) == SIDE_PHYSICAL
+            or domain.shard_spec.upper_side_kind(axis) == SIDE_PHYSICAL
+        )
+        if has_physical_side:
+            raise ValueError(
+                "second-order one-sided derivative requires at least 3 owned "
+                f"cells along physical axis {axis}; got {n_axis}"
+            )
+        return stencil
+
+    field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
+    if field_halo.shape != layout.cell_halo_shape:
+        raise ValueError(
+            "field_halo must match domain.layout.cell_halo_shape; "
+            f"got {field_halo.shape}, expected {layout.cell_halo_shape}"
+        )
+
+    minus = jnp.asarray(stencil.minus, dtype=jnp.float64)
+    center = jnp.asarray(stencil.center, dtype=jnp.float64)
+    plus = jnp.asarray(stencil.plus, dtype=jnp.float64)
+    dx_min = jnp.asarray(stencil.dx_min, dtype=jnp.float64)
+    dx_plus = jnp.asarray(stencil.dx_plus, dtype=jnp.float64)
+    c_minus = jnp.asarray(stencil.derivative_minus_weight, dtype=jnp.float64)
+    c_center = jnp.asarray(stencil.derivative_center_weight, dtype=jnp.float64)
+    c_plus = jnp.asarray(stencil.derivative_plus_weight, dtype=jnp.float64)
+
+    grid_axis = (geometry.grid.x, geometry.grid.y, geometry.grid.z)[axis]
+    centers_halo = jnp.asarray(grid_axis.centers_halo, dtype=jnp.float64)
+    h = int(layout.halo_width)
+
+    lower_target = centers_halo[h]
+    lower_first = centers_halo[h + 1]
+    lower_second = centers_halo[h + 2]
+    lower_weights = _three_point_first_derivative_weights(
+        lower_target,
+        lower_first,
+        lower_second,
+    )
+
+    lower_plane = _local_axis_plane_slice(axis, 0)
+    lower_f0 = field_halo[
+        _local_halo_axis_slice(layout, axis, 0)
+    ]
+    lower_f1 = field_halo[
+        _local_halo_axis_slice(layout, axis, 1)
+    ]
+    lower_f2 = field_halo[
+        _local_halo_axis_slice(layout, axis, 2)
+    ]
+    do_lower = domain.runtime_has_physical_lower(axis)
+
+    minus = minus.at[lower_plane].set(
+        jnp.where(do_lower, lower_f2, minus[lower_plane])
+    )
+    center = center.at[lower_plane].set(
+        jnp.where(do_lower, lower_f0, center[lower_plane])
+    )
+    plus = plus.at[lower_plane].set(
+        jnp.where(do_lower, lower_f1, plus[lower_plane])
+    )
+    c_minus = c_minus.at[lower_plane].set(
+        jnp.where(do_lower, lower_weights[2], c_minus[lower_plane])
+    )
+    c_center = c_center.at[lower_plane].set(
+        jnp.where(do_lower, lower_weights[0], c_center[lower_plane])
+    )
+    c_plus = c_plus.at[lower_plane].set(
+        jnp.where(do_lower, lower_weights[1], c_plus[lower_plane])
+    )
+    dx_min = dx_min.at[lower_plane].set(
+        jnp.where(
+            do_lower,
+            jnp.abs(lower_second - lower_target),
+            dx_min[lower_plane],
+        )
+    )
+    dx_plus = dx_plus.at[lower_plane].set(
+        jnp.where(
+            do_lower,
+            jnp.abs(lower_first - lower_target),
+            dx_plus[lower_plane],
+        )
+    )
+
+    upper_target = centers_halo[h + n_axis - 1]
+    upper_first = centers_halo[h + n_axis - 2]
+    upper_second = centers_halo[h + n_axis - 3]
+    upper_weights = _three_point_first_derivative_weights(
+        upper_target,
+        upper_first,
+        upper_second,
+    )
+
+    upper_plane = _local_axis_plane_slice(axis, n_axis - 1)
+    upper_f0 = field_halo[
+        _local_halo_axis_slice(layout, axis, n_axis - 1)
+    ]
+    upper_f1 = field_halo[
+        _local_halo_axis_slice(layout, axis, n_axis - 2)
+    ]
+    upper_f2 = field_halo[
+        _local_halo_axis_slice(layout, axis, n_axis - 3)
+    ]
+    do_upper = domain.runtime_has_physical_upper(axis)
+
+    minus = minus.at[upper_plane].set(
+        jnp.where(do_upper, upper_f1, minus[upper_plane])
+    )
+    center = center.at[upper_plane].set(
+        jnp.where(do_upper, upper_f0, center[upper_plane])
+    )
+    plus = plus.at[upper_plane].set(
+        jnp.where(do_upper, upper_f2, plus[upper_plane])
+    )
+    c_minus = c_minus.at[upper_plane].set(
+        jnp.where(do_upper, upper_weights[1], c_minus[upper_plane])
+    )
+    c_center = c_center.at[upper_plane].set(
+        jnp.where(do_upper, upper_weights[0], c_center[upper_plane])
+    )
+    c_plus = c_plus.at[upper_plane].set(
+        jnp.where(do_upper, upper_weights[2], c_plus[upper_plane])
+    )
+    dx_min = dx_min.at[upper_plane].set(
+        jnp.where(
+            do_upper,
+            jnp.abs(upper_first - upper_target),
+            dx_min[upper_plane],
+        )
+    )
+    dx_plus = dx_plus.at[upper_plane].set(
+        jnp.where(
+            do_upper,
+            jnp.abs(upper_second - upper_target),
+            dx_plus[upper_plane],
+        )
+    )
+
+    return LocalStencil1D(
+        center=center,
+        minus=minus,
+        plus=plus,
+        dx_min=dx_min,
+        dx_plus=dx_plus,
+        derivative_minus_weight=c_minus,
+        derivative_center_weight=c_center,
+        derivative_plus_weight=c_plus,
+    )
+
+
+def build_local_direct_stencil_one_sided_physical_from_halo(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    context: StencilBuilderContext,
+) -> "LocalStencil3D":
+    """Build function for a one-sided physical-boundary local stencil.
+
+    This follows the ``LocalStencilBuilder`` call signature so callers can
+    construct the intermediate builder explicitly. The domain is taken from
+    ``context.domain``.
+
+    Interior, shard-interface, and topology-side cells use the normal local
+    centered stencil. True regular-coordinate physical side planes are
+    replaced by three-point one-sided formulas whose weights are computed from
+    the local coordinate-center positions. This is intended for intermediate
+    fields such as ``q = grad_parallel(f)`` after halo exchange and topology
+    filling, but before physical ghost filling.
+    """
+
+    _, _, _, LocalStencil3D = _stencil_types()
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "build_local_direct_stencil_one_sided_physical_from_halo requires "
+            f"LocalFciGeometry3D, got {type(geometry).__name__}"
+        )
+    if not isinstance(context, StencilBuilderContext):
+        raise TypeError(
+            "build_local_direct_stencil_one_sided_physical_from_halo requires "
+            "StencilBuilderContext, "
+            f"got {type(context).__name__}"
+        )
+    domain = context.domain
+    if domain is None:
+        raise ValueError(
+            "build_local_direct_stencil_one_sided_physical_from_halo requires "
+            "context.domain"
+        )
+    if domain.layout != geometry.layout:
+        raise ValueError("geometry and domain must share the same HaloLayout3D")
+
+    field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
+    if field_halo.shape != geometry.halo_shape:
+        raise ValueError(
+            "field_halo must match geometry.halo_shape; "
+            f"got {field_halo.shape}, expected {geometry.halo_shape}"
+        )
+
+    centered = tuple(
+        _local_axis_stencil_from_halo(field_halo, geometry, axis=axis)
+        for axis in range(3)
+    )
+    patched = tuple(
+        _patch_local_physical_one_sided_axis_stencil(
+            centered[axis],
+            field_halo,
+            geometry,
+            domain,
+            axis=axis,
+        )
+        for axis in range(3)
+    )
+    return LocalStencil3D(x=patched[0], y=patched[1], z=patched[2])
 
 
 def _axis_index_nd(axis: int, index: int, ndim: int) -> tuple[object, ...]:
