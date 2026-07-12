@@ -17,9 +17,7 @@ classifiers = [
 ]
 dependencies = [
     "jax",
-    "diffrax",
     "scipy",
-    "equinox",
     "matplotlib",
     "netCDF4",
     "rich",
@@ -30,6 +28,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
 docs = ["mkdocs"]
+lineax = ["lineax"]
 
 [project.scripts]
 jax-drb = "jax_drb.cli:main"

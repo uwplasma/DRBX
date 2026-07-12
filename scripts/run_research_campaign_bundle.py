@@ -109,15 +109,20 @@ def _campaign_command_map(
                 str(int(fast_timeout_seconds)),
             ),
         ),
-        "closeout-coverage": CampaignCommand(
-            name="closeout-coverage",
-            description="95% closeout coverage gate over the promoted public surface.",
-            command=(python_executable, str(scripts / "run_closeout_coverage.py")),
-        ),
-        "promoted-solver-coverage": CampaignCommand(
-            name="promoted-solver-coverage",
-            description="95% promoted native-solver and public-surface coverage gate.",
-            command=(python_executable, str(scripts / "run_promoted_solver_coverage.py")),
+        "coverage": CampaignCommand(
+            name="coverage",
+            description="Whole-package coverage over src/jax_drb (honest single number).",
+            command=(
+                python_executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-m",
+                "not slow",
+                "--cov=jax_drb",
+                "--cov-branch",
+                "--cov-report=term",
+            ),
         ),
         "local-cpu-scaling": CampaignCommand(
             name="local-cpu-scaling",
@@ -1342,7 +1347,7 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
                 )
             )
         elif name == "all-ci":
-            expanded.extend(("scheduled-fast-research", "closeout-coverage", "promoted-solver-coverage"))
+            expanded.extend(("scheduled-fast-research", "coverage"))
         elif name == "all-gpu":
             expanded.extend(
                 (
@@ -1451,7 +1456,7 @@ def main() -> int:
         default=[],
         help=(
             "Campaign to run. Repeat for multiple campaigns. Supported names include "
-            "scheduled-fast-research, closeout-coverage, promoted-solver-coverage, "
+            "scheduled-fast-research, coverage, "
             "local-cpu-scaling, live-reference, heavy-recycling-profile, "
             "dthe-jax-linearized-gate, dthe-batched-jvp-gate, "
             "dthe-active-array-batched-jvp-gate, "
