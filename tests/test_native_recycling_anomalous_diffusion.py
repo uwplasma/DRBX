@@ -17,18 +17,23 @@ from jax_drb.native.reference_dump import (
 from jax_drb.native.mesh import StructuredMesh
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
+from jax_drb.reference.paths import default_reference_root
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_REFERENCE_ROOT = default_reference_root()
+_REFERENCE_BASE = _REFERENCE_ROOT if _REFERENCE_ROOT is not None else Path("/nonexistent-reference-root")
 
 
 def test_apply_anomalous_diffusion_uses_nonorthogonal_tokamak_metrics_on_evolved_state() -> None:
-    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    config = load_bout_input(_REFERENCE_BASE / "examples/tokamak-2D/recycling-dthe/BOUT.inp")
     config = apply_bout_overrides(
         config,
         (
             "timestep=0.1",
-            "mesh:file=/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/tokamak.nc",
+            f"mesh:file={_REFERENCE_BASE / 'examples/tokamak-2D/recycling-dthe/tokamak.nc'}",
             "he+:diagnose=false",
             "input:error_on_unused_options=false",
         ),
@@ -55,7 +60,7 @@ def test_apply_anomalous_diffusion_uses_nonorthogonal_tokamak_metrics_on_evolved
         field_overrides=evolved.fields,
     )
     netcdf4 = pytest.importorskip("netCDF4")
-    with netcdf4.Dataset("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/tokamak.nc") as mesh_dataset:
+    with netcdf4.Dataset(str(_REFERENCE_BASE / "examples/tokamak-2D/recycling-dthe/tokamak.nc")) as mesh_dataset:
         g23 = np.asarray(mesh_dataset.variables["g23"][:], dtype=np.float64)[..., None]
         g_23 = np.asarray(mesh_dataset.variables["g_23"][:], dtype=np.float64)[..., None]
     nonorthogonal_metrics = StructuredMetrics(
@@ -116,7 +121,9 @@ def test_apply_anomalous_diffusion_uses_nonorthogonal_tokamak_metrics_on_evolved
 
 
 def test_apply_anomalous_diffusion_adds_momentum_source_for_anomalous_nu() -> None:
-    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    config = load_bout_input(_REFERENCE_BASE / "tests/integrated/2D-production/data/BOUT.inp")
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
     mesh = StructuredMesh(

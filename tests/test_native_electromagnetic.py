@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 from jax_drb.config.boutinp import load_bout_input
 from jax_drb.native.electromagnetic import (
@@ -24,6 +27,12 @@ from jax_drb.native.electromagnetic import (
 )
 from jax_drb.native.mesh import StructuredMesh
 from jax_drb.native.metrics import StructuredMetrics
+from jax_drb.reference.paths import default_reference_root
+
+
+_REFERENCE_ROOT = default_reference_root()
+_REFERENCE_BASE = _REFERENCE_ROOT if _REFERENCE_ROOT is not None else Path("/nonexistent-reference-root")
+_ALFVEN_INPUT = _REFERENCE_BASE / "tests/integrated/alfven-wave/data/BOUT.inp"
 
 
 def test_compute_beta_em_matches_reference_formula() -> None:
@@ -32,7 +41,9 @@ def test_compute_beta_em_matches_reference_formula() -> None:
 
 
 def test_extract_charged_species_metadata_reads_alfven_input() -> None:
-    config = load_bout_input("/Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp")
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    config = load_bout_input(_ALFVEN_INPUT)
     metadata = extract_charged_species_metadata(config)
 
     assert tuple(species.section for species in metadata) == ("i", "e")
@@ -43,7 +54,9 @@ def test_extract_charged_species_metadata_reads_alfven_input() -> None:
 
 
 def test_compute_parallel_current_density_matches_species_sum() -> None:
-    config = load_bout_input("/Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp")
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    config = load_bout_input(_ALFVEN_INPUT)
     metadata = extract_charged_species_metadata(config)
     momenta = {
         "NVi": np.full((2, 3), 0.25, dtype=np.float64),
@@ -57,7 +70,9 @@ def test_compute_parallel_current_density_matches_species_sum() -> None:
 
 
 def test_compute_alpha_em_uses_density_floor() -> None:
-    config = load_bout_input("/Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp")
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    config = load_bout_input(_ALFVEN_INPUT)
     metadata = extract_charged_species_metadata(config)
     densities = {
         "Ni": np.zeros((2, 3), dtype=np.float64),

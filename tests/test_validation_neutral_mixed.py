@@ -20,8 +20,9 @@ from jax_drb.validation import (
     write_neutral_mixed_analysis_json,
     write_neutral_mixed_parity_json,
 )
+from jax_drb.reference.paths import default_reference_root
 
-_REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
+_REFERENCE_ROOT = default_reference_root() or Path("/nonexistent-reference-root")
 _REFERENCE_INPUT = _REFERENCE_ROOT / "tests" / "integrated" / "neutral_mixed" / "data" / "BOUT.inp"
 
 

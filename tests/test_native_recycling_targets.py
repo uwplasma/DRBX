@@ -34,9 +34,12 @@ from jax_drb.native.recycling_targets import (
 from jax_drb.native.reference_dump import load_local_reference_snapshot
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
+from jax_drb.reference.paths import default_reference_root
 
 
-_INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+_REFERENCE_ROOT = default_reference_root()
+_REFERENCE_BASE = _REFERENCE_ROOT if _REFERENCE_ROOT is not None else Path("/nonexistent-reference-root")
+_INPUT_1D = _REFERENCE_BASE / "tests/integrated/1D-recycling/data/BOUT.inp"
 _INPUT_1D_FIXTURE = (
     Path(__file__).resolve().parent
     / "fixtures"
@@ -177,11 +180,13 @@ def test_target_recycling_sources_use_prepared_ion_state() -> None:
 
 
 def test_recycling_rhs_passes_configured_sheath_gamma_i_to_target_recycling(monkeypatch: pytest.MonkeyPatch) -> None:
-    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    config = load_bout_input(_REFERENCE_BASE / "tests/integrated/2D-recycling/data/BOUT.inp")
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
     snapshot = load_local_reference_snapshot(
-        Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.dmp.0.nc"),
+        _REFERENCE_BASE / "tests/integrated/2D-recycling/data/BOUT.dmp.0.nc",
         field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
         scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
     )

@@ -12,8 +12,10 @@ from jax_drb.native.metrics import StructuredMetrics
 from jax_drb.native.mesh import StructuredMesh
 from jax_drb.native.reference_dump import LocalReferenceSnapshot
 from jax_drb.reference.cases import ReferenceCase
+from jax_drb.reference.paths import default_reference_root
 
-_REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp")
+_REFERENCE_BASE = default_reference_root() or Path("/nonexistent-reference-root")
+_REFERENCE_INPUT = _REFERENCE_BASE / "tests/integrated/alfven-wave/data/BOUT.inp"
 
 
 @dataclass(frozen=True)
@@ -127,7 +129,7 @@ def test_alfven_wave_rhs_uses_dump_backed_snapshot(monkeypatch: pytest.MonkeyPat
     result = native_runner._run_alfven_wave_rhs_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_BASE,
     )
 
     assert captured["field_names"] == ("Apar", "phi", "Vort", "NVe", "Ne", "Ni")
@@ -186,7 +188,7 @@ def test_alfven_wave_one_step_stacks_initial_and_final_snapshots(monkeypatch: py
     result = native_runner._run_alfven_wave_one_step_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_BASE,
     )
 
     assert captured_time_indices == [0, 1]
@@ -251,7 +253,7 @@ def test_alfven_wave_short_window_uses_all_reference_time_points(monkeypatch: py
     result = native_runner._run_alfven_wave_short_window_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_BASE,
     )
 
     assert captured_time_indices == [0, 1, 2, 3]
@@ -307,7 +309,7 @@ def test_alfven_wave_medium_window_uses_all_reference_time_points(monkeypatch: p
     result = native_runner._run_alfven_wave_medium_window_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_BASE,
     )
 
     assert captured_time_indices == [0, 1, 2]
