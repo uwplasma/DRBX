@@ -218,7 +218,6 @@ scaling figure.
 That guidance is not speculative; it is the measured result of the committed
 Perfetto-backed reduced-kernel audits in:
 
-- [jax_native_profile_audit.md](jax_native_profile_audit.md)
 - [native_3d_runtime_campaign.md](native_3d_runtime_campaign.md)
 
 ## Where More JAX Can Still Help
@@ -2014,7 +2013,7 @@ If you need:
 - the cleanest standalone runtime workflow:
   - start from [restartable_diffusion_tutorial.md](restartable_diffusion_tutorial.md)
 - compact high-quality figures and movies:
-  - use [alfven_wave_meeting_demo.md](alfven_wave_meeting_demo.md) and [blob2d_meeting_demo.md](blob2d_meeting_demo.md)
+  - use [dynamics_gallery.md](dynamics_gallery.md) and [diverted_tokamak_movie_demo.md](diverted_tokamak_movie_demo.md)
 - the best current base for differentiable research code:
   - start from the compact native-exact electrostatic lanes rather than the heavier recycling transient backbone
 

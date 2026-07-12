@@ -29,7 +29,7 @@ PYTHONPATH=src python examples/diverted_tokamak_profile_analysis_demo.py
 | Source | [`src/jax_drb/validation/diverted_tokamak_movie.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/diverted_tokamak_movie.py) |
 | Example | [`examples/diverted_tokamak_movie_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/diverted_tokamak_movie_demo.py) |
 | Status | benchmark-backed visualization from release-restored arrays |
-| Related docs | [Diverted Tokamak Movie](diverted_tokamak_movie_demo.md), [Tokamak Recycling Observable](tokamak_recycling_observable_campaign.md) |
+| Related docs | [Diverted Tokamak Movie](diverted_tokamak_movie_demo.md) |
 
 The visual package is intended for quick physics QA: coherent edge structures,
 wall/divertor context, target-adjacent activity, and profile diagnostics should
@@ -91,7 +91,6 @@ through the tested logical `E x B` bracket and potential/vorticity solve.
 Inspect release-backed evidence and run default self-contained contracts:
 
 ```bash
-PYTHONPATH=src python examples/geometry-3D/essos-field-lines/direct_coil_closed_field_demo.py
 PYTHONPATH=src python examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py
 PYTHONPATH=src python examples/geometry-3D/essos-field-lines/vmec_closed_field_demo.py
 PYTHONPATH=src python examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py

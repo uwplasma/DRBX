@@ -264,9 +264,6 @@ The current promoted example of this policy is:
 - [fluid_1d_mms_convergence.md](fluid_1d_mms_convergence.md), which turns the
   manufactured-solution refinement study into the same JSON/NPZ/plot artifact
   surface used by the other publication-facing campaigns
-- [hermes_live_rerun_campaign.md](hermes_live_rerun_campaign.md), which now
-  ties same-machine native-versus-live-Hermès fidelity to runtime and absolute
-  error on the same guarded compare surface
 
 The supported runtime-profiling workflow for those campaigns is now:
 

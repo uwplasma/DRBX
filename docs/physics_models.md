@@ -454,7 +454,6 @@ Primary source files:
   - [src/jax_drb/native/electromagnetic.py](../src/jax_drb/native/electromagnetic.py)
 - Alfven-wave benchmark utilities:
   - [src/jax_drb/validation/alfven_wave.py](../src/jax_drb/validation/alfven_wave.py)
-  - [src/jax_drb/validation/alfven_wave_meeting.py](../src/jax_drb/validation/alfven_wave_meeting.py)
 
 ## Neutral And Atomic Physics
 
