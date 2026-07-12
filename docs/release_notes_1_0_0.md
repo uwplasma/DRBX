@@ -60,7 +60,6 @@ Broader production workflows remain active engineering work, especially:
 
 Detailed status is tracked in:
 
-- [hermes_capability_audit.md](hermes_capability_audit.md)
 - [implementation_inventory.md](implementation_inventory.md)
 - [parity_harness.md](parity_harness.md)
 - [parity_matrix.md](parity_matrix.md)

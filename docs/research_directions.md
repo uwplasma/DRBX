@@ -33,7 +33,6 @@ Why it matters:
 
 Current code surface:
 
-- [examples/blob2d_meeting_demo.py](../examples/blob2d_meeting_demo.py)
 - [src/jax_drb/native/blob2d.py](../src/jax_drb/native/blob2d.py)
 - [src/jax_drb/validation/blob2d.py](../src/jax_drb/validation/blob2d.py)
 

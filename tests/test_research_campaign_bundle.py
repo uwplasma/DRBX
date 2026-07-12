@@ -672,22 +672,6 @@ def test_research_campaign_workflow_choices_match_supported_campaigns() -> None:
     assert workflow_options[0] == "scheduled-fast-research"
 
 
-def test_research_campaign_live_reference_requires_reference_root() -> None:
-    module = _load_script_module(
-        "scripts/run_research_campaign_bundle.py", "research_campaign_reference"
-    )
-
-    with pytest.raises(ValueError, match="requires --reference-root"):
-        module.build_campaign_commands(
-            campaign_names=("live-reference",),
-            python_executable="python",
-            repo_root=_REPO,
-            reference_root=None,
-            output_root=_REPO / "docs" / "data",
-            fast_timeout_seconds=300,
-        )
-
-
 def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) -> None:
     module = _load_script_module(
         "scripts/run_research_campaign_bundle.py", "research_campaign_heavy"

@@ -499,22 +499,6 @@ PYTHONPATH=src python \
   examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py
 ```
 
-Run the direct-coil closed/near-closed control. The default command is
-self-contained and classifies manufactured non-axisymmetric traces. It now
-writes both a base return-map/Poincare report and a refinement report that
-checks whether closed/near-closed classification, same-section return distance,
-and Poincare sampling remain stable as seed and trace samples increase. It
-also writes a reduced closed-trace transient plot and GIF. Set
-`RUN_LIVE_ESSOS = True` in the script to classify live Landreman-Paul QA
-direct-coil traces from ESSOS, or reuse a restored live trace bundle through
-the validation API. This remains a closed-field diagnostic and does not apply
-target, sheath, recycling, or neutral semantics:
-
-```bash
-PYTHONPATH=src python \
-  examples/geometry-3D/essos-field-lines/direct_coil_closed_field_demo.py
-```
-
 Run the VMEC closed-field control. The default command writes self-contained
 live-run contracts for the periodic FCI/operator gate and the reduced
 closed-field transient. Set `RUN_LIVE_VMEC = True` to regenerate the periodic
@@ -575,7 +559,6 @@ Detailed guides:
 - [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
 - [docs/vmec_extender_edge_fields.md](docs/vmec_extender_edge_fields.md)
 - [docs/essos_imported_fci_validation.md](docs/essos_imported_fci_validation.md)
-- [docs/essos_direct_coil_closed_control.md](docs/essos_direct_coil_closed_control.md)
 - [docs/essos_vmec_closed_field.md](docs/essos_vmec_closed_field.md)
 - [docs/essos_vmec_fieldline_surface.md](docs/essos_vmec_fieldline_surface.md)
 - [docs/non_axisymmetric_stellarator_sol_plan.md](docs/non_axisymmetric_stellarator_sol_plan.md)
@@ -620,7 +603,6 @@ The runtime/performance audit tools include:
 - [docs/native_3d_runtime_campaign.md](docs/native_3d_runtime_campaign.md)
 - [docs/native_3d_convergence_campaign.md](docs/native_3d_convergence_campaign.md)
 - [docs/fluid_1d_mms_convergence.md](docs/fluid_1d_mms_convergence.md)
-- [docs/jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
 - [docs/local_cpu_scaling_campaign.md](docs/local_cpu_scaling_campaign.md)
 - [docs/research_campaigns.md](docs/research_campaigns.md)
 - [docs/repo_size_audit.md](docs/repo_size_audit.md)
@@ -712,7 +694,6 @@ Focused engineering and benchmark packages:
 - [docs/neutral_parallel_diffusion_campaign.md](docs/neutral_parallel_diffusion_campaign.md)
 - [docs/collision_closure_campaign.md](docs/collision_closure_campaign.md)
 - [docs/tokamak_anomalous_diffusion_campaign.md](docs/tokamak_anomalous_diffusion_campaign.md)
-- [docs/tokamak_recycling_observable_campaign.md](docs/tokamak_recycling_observable_campaign.md)
 - [docs/target_recycling_campaign.md](docs/target_recycling_campaign.md)
 - [docs/neutral_mixed_term_balance_campaign.md](docs/neutral_mixed_term_balance_campaign.md)
 - [docs/hermes_neutral_mixed_accepted_step_trace_monitor.md](docs/hermes_neutral_mixed_accepted_step_trace_monitor.md)

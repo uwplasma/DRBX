@@ -16,7 +16,7 @@ research use.
 Current execution status:
 
 - The active priority order is defined in
-  [Research-Grade Execution Plan](research_grade_execution_plan.md#current-authoritative-open-lane-implementation-plan),
+  [Research-Grade Execution Plan](research_grade_execution_plan.md),
   not in this appendix.
 - The analytic non-axisymmetric lane below is the reusable validation baseline
   for metrics, FCI operators, sheath/recycling, neutrals, vorticity, and

@@ -11,7 +11,7 @@ This page records how the `jax_drb` 3D program should stay geometry-agnostic whi
 For the detailed implementation plan for native non-axisymmetric stellarator SOL turbulence, including FCI metrics, equations, validation gates, and README movie targets, see [Non-Axisymmetric Stellarator SOL Implementation Plan](non_axisymmetric_stellarator_sol_plan.md).
 
 The active execution sequence is not defined here. It is defined in
-[research_grade_execution_plan.md](research_grade_execution_plan.md#current-authoritative-open-lane-implementation-plan).
+[research_grade_execution_plan.md](research_grade_execution_plan.md).
 As of the June 22, 2026 plan consolidation, the active 3D sequence is:
 direct ESSOS-coil open-field diagnostics and direct-coil closed controls on
 `main`, VMEC closed-field controls, hybrid VMEC/coil open-SOL promotion, then

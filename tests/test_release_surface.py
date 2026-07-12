@@ -64,24 +64,18 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "release_notes_1_0_0.md",
     REPO_ROOT / "docs" / "native_3d_runtime_campaign.md",
     REPO_ROOT / "docs" / "native_3d_convergence_campaign.md",
-    REPO_ROOT / "docs" / "jax_native_profile_audit.md",
     REPO_ROOT / "docs" / "local_cpu_scaling_campaign.md",
     REPO_ROOT / "docs" / "research_campaigns.md",
-    REPO_ROOT / "docs" / "hermes_comparison_gallery.md",
     REPO_ROOT / "docs" / "dynamics_gallery.md",
-    REPO_ROOT / "docs" / "hermes_capability_audit.md",
     REPO_ROOT / "docs" / "tokamak_tcv_x21_validation_methodology.md",
     REPO_ROOT / "docs" / "fluid_1d_mms_convergence.md",
     REPO_ROOT / "docs" / "open_field_operator_campaign.md",
-    REPO_ROOT / "docs" / "hermes_live_rerun_campaign.md",
     REPO_ROOT / "docs" / "neutral_parallel_diffusion_campaign.md",
     REPO_ROOT / "docs" / "neutral_mixed_boundary_campaign.md",
     REPO_ROOT / "docs" / "neutral_mixed_term_balance_campaign.md",
     REPO_ROOT / "docs" / "collision_closure_campaign.md",
     REPO_ROOT / "docs" / "tokamak_anomalous_diffusion_campaign.md",
     REPO_ROOT / "docs" / "target_recycling_campaign.md",
-    REPO_ROOT / "examples" / "alfven_wave_meeting_demo.py",
-    REPO_ROOT / "examples" / "blob2d_meeting_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "tcv-x21" / "scaffold_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "tcv-x21" / "selected_field_parity_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "tcv-x21" / "toroidal_movie_demo.py",
@@ -108,13 +102,9 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "geometry-3D" / "vmec-extender" / "imported_field_demo.py",
     REPO_ROOT / "examples" / "engineering" / "native_3d_runtime_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "native_3d_convergence_campaign_demo.py",
-    REPO_ROOT / "examples" / "engineering" / "jax_native_profile_audit_demo.py",
     REPO_ROOT / "examples" / "engineering" / "local_cpu_scaling_campaign_demo.py",
-    REPO_ROOT / "examples" / "engineering" / "hermes_comparison_summary_demo.py",
-    REPO_ROOT / "examples" / "engineering" / "hermes_capability_audit_demo.py",
     REPO_ROOT / "examples" / "engineering" / "fluid_1d_mms_convergence_demo.py",
     REPO_ROOT / "examples" / "engineering" / "open_field_operator_campaign_demo.py",
-    REPO_ROOT / "examples" / "engineering" / "hermes_live_rerun_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "neutral_parallel_diffusion_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "neutral_mixed_boundary_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "neutral_mixed_term_balance_campaign_demo.py",
@@ -155,14 +145,10 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "vmec_extender_sol_smoke_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_runtime_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_convergence_campaign.py",
-    REPO_ROOT / "src" / "jax_drb" / "validation" / "jax_native_profile_audit.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "local_cpu_scaling_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "recycling_batched_jvp_profile.py",
-    REPO_ROOT / "src" / "jax_drb" / "validation" / "hermes_comparison_summary.py",
-    REPO_ROOT / "src" / "jax_drb" / "validation" / "hermes_capability_audit.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "fluid_1d_mms_convergence.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "open_field_operator_campaign.py",
-    REPO_ROOT / "src" / "jax_drb" / "validation" / "hermes_live_rerun_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "neutral_parallel_diffusion_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "neutral_mixed_boundary_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "neutral_mixed_term_balance_campaign.py",
@@ -979,27 +965,3 @@ def test_committed_dthe_adaptive_bdf_trace_probe_reports_blocker() -> None:
     assert "/Users/" not in json.dumps(payload, sort_keys=True)
 
 
-def test_jax_native_profile_audit_docs_match_committed_backend() -> None:
-    payload = json.loads(
-        (
-            REPO_ROOT
-            / "docs"
-            / "data"
-            / "jax_native_profile_audit_artifacts"
-            / "data"
-            / "jax_native_profile_audit.json"
-        ).read_text(encoding="utf-8")
-    )
-    audit_doc = (REPO_ROOT / "docs" / "jax_native_profile_audit.md").read_text(encoding="utf-8")
-    profiling_doc = (REPO_ROOT / "docs" / "profiling_runtime.md").read_text(encoding="utf-8")
-
-    assert f"`{payload['backend']}` backend" in audit_doc
-    if payload["backend"] == "cpu":
-        forbidden = (
-            "run on the `office` GPU host",
-            "GPU timings are",
-            "first GPU-native audit on `office`",
-        )
-        for text in (audit_doc, profiling_doc):
-            for needle in forbidden:
-                assert needle not in text

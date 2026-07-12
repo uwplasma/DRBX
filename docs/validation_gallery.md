@@ -28,21 +28,16 @@ JAX-based solver papers.
 | `Drift-Wave Short-Window Parity` | `native-validated` | Drift-wave benchmark history is locked. |
 | `Drift-Wave Short-Window Benchmark` | `native-validated` | Benchmark analysis is locked. |
 | `Blob2d Short-Window Parity` | `native-validated` | Blob benchmark history is locked. |
-| `Blob2d Meeting Movie` | `saved-payload visualization` | Fast one-step Blob2D visualization from a committed `.npz` payload. |
 | `Diverted Tokamak Geometry Movie` | `benchmark-backed visualization` | Full-domain stitched tokamak turbulence movie with LCFS, wall, and divertor overlays. |
 | `TCV-X21 Tokamak Scaffold` | `scaffolded_reference_backed` | First 3D tokamak kickoff package with a manifest-resolved preview path. |
 | `Neutral Mixed Short-Window Benchmark Target` | `reference-backed plus one-step native gate` | Short-window artifact remains a reference target; one-step and substep/hybrid diagnostics now localize native `NVh` parity. |
 | `Alfven-Wave Short-Window Benchmark` | `native-scaffolded target` | Electromagnetic transient benchmark is staged and benchmark-validated on the current scaffold. |
-| `Hermes Live Rerun Matrix` | `live native vs live reference` | Same-machine native/Hermès rerun matrix across representative 1D and 2D lanes. |
-| `Hermes Offender Register` | `triage artifact` | Ranked parity/runtime/memory offender register from the live rerun matrix and reduced geometry summary. |
-| `Implicit Solver Profile Audit` | `numerical-performance audit` | Sparse finite-difference Jacobian plan and Newton phase diagnostics for the shared implicit backend. |
 | `Open-Field Operator Campaign` | `operator-verified` | Parallel-gradient, force-balance, target-recycling, and autodiff checks are locked on a publication artifact. |
 | `Neutral Mixed Term-Balance Campaign` | `operator-localization audit` | Native `NVh` term decomposition localizes the one-step Hermès mismatch. |
 | `Stellarator FCI Validation` | `native non-axisymmetric gate` | Full-metric, field-line-map, conservative-operator, sheath/recycling, neutral, vorticity, and reduced 3D SOL dynamics campaign. |
 | `VMEC-Extender Edge Field Import` | `self-contained synthetic imported-field gate` | Physical-phi field-grid import, FCI map construction, and compact scalar SOL smoke coupling are locked on synthetic NetCDF fixtures. |
 | `ESSOS Field-Line Import` | `external geometry import gate` | ESSOS-owned field evaluation, adaptive field-line tracing, Poincare extraction, and portable trajectory/field-sample artifacts for later FCI use. |
 | `ESSOS Imported QA DRB Movie` | `movie-grade reduced transient` | Imported Landreman-Paul QA coil, VMEC-coordinate, and hybrid FCI maps feeding a fixed-layout DRB transient with sheath/recycling/neutrals where open endpoints are present. |
-| `Tokamak Recycling Observable Campaign` | `profile-observable validation` | Target-index profiles, neutral buildup, and observable errors on the direct tokamak D/T/He recycling lane. |
 | `Autodiff Diffusion Sensitivity` | `differentiable validation` | `jax.grad` sensitivities agree with finite differences on a compact native diffusion objective. |
 | `Autodiff Diffusion Uncertainty` | `differentiable validation` | First-order autodiff covariance propagation is compared with vectorized Monte Carlo. |
 | `Autodiff Diffusion Inverse Design` | `differentiable validation` | Gradient-based parameter recovery closes a compact inverse-design loop. |
@@ -163,19 +158,6 @@ What this locks down:
 - the optimized X-Z ExB transport kernel that made the native long-enough blob run practical without changing the discrete flux formulas;
 - benchmark-level parity on summary blob diagnostics rather than only pointwise field maxima: peak density excess plus radial and binormal center-of-mass trajectories;
 - the current documented native/reference envelope: peak-excess max error about `1.41e-2`, radial COM max error about `6.29e-1` active cells, and binormal COM max error about `7.32e-1` active cells.
-
-## Blob2d Meeting Movie
-
-![Blob2D meeting snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__blob2d_meeting_snapshots.png)
-
-![Blob2D meeting poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__blob2d_meeting_movie_poster.png)
-
-What this locks down:
-
-- a fast saved-result visualization workflow using [examples/blob2d_meeting_demo.py](examples/blob2d_meeting_demo.py);
-- a real 2D movie artifact from [blob2d_one_step.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip), written to [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__movies__blob2d_meeting_2d.mp4](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__movies__blob2d_meeting_2d.mp4);
-- a matching 3D surface movie and poster for presentation use;
-- an explicit `--skip-parity` mode for saved payloads whose output timeline does not match the short-window parity metrics.
 
 ## Diverted Tokamak Geometry Movie
 
@@ -488,37 +470,6 @@ What this documents:
 - per-resolution L2 errors and observed orders on the same native lane used for the compact verification tests;
 - a literature-anchored verification figure that can be reused in docs and future paper surfaces instead of leaving the result trapped in a script output.
 
-## JAX Native Profile Audit
-
-![JAX native profile audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__jax_native_profile_audit_artifacts__images__jax_native_profile_audit.png)
-
-What this documents:
-
-- compile, first-execute, and warm-execute timings on the promoted traced-field-line and stellarator reduced native kernels;
-- the first committed Perfetto-compatible trace bundle for the reduced native JAX surfaces;
-- the concrete engineering conclusion from that profiling pass: batch same-shape selected fields before entering jitted reductions, and warm kernels once before timing summary runs.
-
-This is an engineering-support figure, not a primary validation figure. It is
-useful because differentiable/JAX papers routinely report compile-versus-execute
-cost, but it should stay secondary to the physics and verification surfaces.
-
-## Implicit Solver Profile Audit
-
-![Implicit solver profile audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__implicit_solver_profile_audit_artifacts__images__implicit_solver_profile_audit.png)
-
-What this documents:
-
-- a controlled sparse finite-difference Jacobian assembly audit before the full
-  recycling physics stack is involved;
-- algebraic agreement between the original colored finite-difference path and
-  the precomputed CSC/color extraction-plan path;
-- agreement between serial and batched JAX sparse-JVP Jacobian construction,
-  with the JAX path checked against the finite-difference reference;
-- sparse Newton phase diagnostics for residual evaluation, Jacobian assembly,
-  linear solve, and line search;
-- the numerical-methods support figure needed before making stronger runtime
-  claims on `recycling_dthe_one_step`.
-
 ## Local CPU Scaling Campaign
 
 ![Local CPU scaling campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__local_cpu_scaling_campaign_artifacts__images__local_cpu_scaling_campaign.png)
@@ -536,21 +487,6 @@ What this documents:
 This is the current research-grade local performance figure because it matches
 the actual workload pattern used in UQ, optimization, and repeated parameter
 scans better than a tiny-kernel strong-scaling plot.
-
-## Hermes Comparison Summary
-
-![Hermes comparison summary](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_comparison_summary_artifacts__images__hermes_comparison_summary.png)
-
-What this documents:
-
-- one benchmark-facing summary plot across the committed native-vs-reference reduced comparison bundles;
-- direct comparison of the native tokamak, traced-field-line, and stellarator reduced rungs on the same visual surface;
-- a simpler summary entry point than asking readers to inspect each lane-specific comparison artifact separately.
-
-This is intentionally a supporting summary figure. It should remain in the docs
-as an index into the lane-specific artifacts, but the future paper should rely
-primarily on the lane-specific comparison figures and the benchmark/closure
-campaigns rather than on this rollup alone.
 
 ## Controller Feedback Campaign
 
@@ -631,22 +567,6 @@ What this documents:
 - species-resolved anomalous coefficient summaries together with representative `d+` and `t+` anomalous-energy lineouts on the active direct-tokamak state;
 - a machine-readable JSON/NPZ/plot package so this non-orthogonal transport evidence can feed the docs and future paper directly.
 
-## Tokamak Recycling Observable Campaign
-
-![Tokamak recycling observable campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_recycling_observable_campaign_artifacts__images__tokamak_recycling_observable_campaign.png)
-
-What this documents:
-
-- profile-level observables from the direct-tokamak `D/T/He` recycling one-step
-  surface instead of only scalar parity summaries;
-- charged-species target-density profiles and target momentum-flux proxies in
-  the same target-profile spirit used by TCV-X21, SOLPS-ITER, and Hermes-3
-  validation papers;
-- neutral-density buildup along the parallel coordinate, which is the right
-  bridge from one-step code parity to neutral/recycling interpretation;
-- a machine-readable JSON/NPZ/plot package that can feed the JAXDRB paper and
-  future LMX validation comparisons directly.
-
 ## Target Recycling Campaign
 
 ![Target recycling campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__target_recycling_campaign_artifacts__images__target_recycling_campaign.png)
@@ -657,71 +577,6 @@ What this documents:
 - target recycling density-source lineouts and integrated source totals for the neutral `d`, `t`, and `he` channels;
 - the boundary-conditioned electron energy sink and current-free electron-velocity reconstruction on the same prepared state;
 - a machine-readable JSON/NPZ/plot package so this boundary/recycling evidence can feed the docs and future paper directly.
-
-## Hermes Live Rerun Matrix
-
-![Hermes live rerun campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_live_rerun_campaign_artifacts__images__hermes_live_rerun_campaign.png)
-
-What this documents:
-
-- a same-machine native-versus-live-reference rerun matrix across representative
-  curated 1D and 2D lanes, instead of relying only on committed reference
-  arrays;
-- a code-to-code validation figure that follows the literature pattern of
-  showing fidelity and runtime together rather than publishing an isolated
-  dashboard;
-- four exact-match lanes on the current compare surface:
-  `tokamak_isothermal_one_step`, `tokamak_turbulence_one_step`,
-  `tokamak_diffusion_transport_short_window`, and `annulus_he_emag_one_step`;
-- the current neutral one-step lane is no longer the largest relative parity
-  offender after the term-level source closure pass: `neutral_mixed_one_step`
-  now has worst max-absolute error about `4.47e-6`, relative RMS about
-  `8.90e-4`, relative L2 about `2.14e-3`, native/reference wall-time ratio
-  about `4.19`, and explicit `native_operational` capability tier;
-- heavy 1D recycling lanes that are closer in fidelity but still slower than
-  the reference solver on this machine:
-  `recycling_1d_one_step` and `recycling_dthe_one_step`, with worst normalized
-  RMS errors about `4.62e-3` and `4.92e-3`, and runtime ratios about `3.95`
-  and `7.17`;
-- integrated and direct tokamak recycling one-step lanes that are already close
-  to wall-time parity or faster on this machine, but their current relative
-  mismatch is dominated by near-zero `NVd` on the guarded compare surface; the
-  corresponding worst absolute max-errors stay small at about `7.48e-12` and
-  `3.09e-7`.
-- process-tree peak RSS is now sampled during each native and Hermès run; the
-  largest native peak is about `784 MiB` on the integrated 2D recycling lane,
-  while the largest native/reference peak-RSS ratio is about `0.98` on
-  `alfven_wave_one_step`.
-
-This is the current main live code-to-code validation figure for the docs. It
-also shows the honest remaining gap: full live 3D Hermès reruns are still not
-part of this matrix, so the 3D evidence remains the selected-field
-reference-backed packages.
-
-## Hermes Offender Register
-
-![Hermes offender register](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_offender_register_artifacts__images__hermes_offender_register.png)
-
-What this documents:
-
-- a ranked triage artifact that turns the live rerun matrix into concrete next
-  debugging targets;
-- the current top normalized parity offender:
-  `integrated_2d_recycling_one_step` on near-zero `NVd`, which is explicitly
-  flagged as normalization-sensitive because the absolute error is about
-  `7.47e-12`;
-- the current top actionable parity offender after filtering near-zero
-  normalization-sensitive cases and synthetic-preview geometry adapters:
-  D/T/He recycling `NVd`, followed by 1D hydrogen recycling `NVd` and the
-  neutral-mixed `NVh` target-band offender;
-- the current top runtime offender: `recycling_dthe_one_step`, pointing to
-  sparse Jacobian, residual, pack/unpack, and target-recycling closure
-  profiling;
-- memory is now ranked from measured process-tree peak RSS; the current top
-ratio is `alfven_wave_one_step` at about `0.98`, so the next memory step
-  is phase-resolved profiling rather than broad peak-RSS triage;
-- near-zero normalized `NVd`/`NVt` mismatches are explicitly flagged so
-  absolute error is inspected before changing equations.
 
 ## Neutral Mixed Boundary Audit
 
@@ -844,8 +699,6 @@ What this locks down:
   - measured phase speed about `9.42218662e+05 m/s`;
   - relative phase-speed error about `6.71e-03`;
 - native/reference parity on that same short-window history, published from the exact committed comparison artifact.
-
-The same short-window rung now also drives the meeting-ready visual package in [docs/alfven_wave_meeting_demo.md](docs/alfven_wave_meeting_demo.md), which adds 2D and 3D movies plus a snapshot panel from a live native run.
 
 ## Regeneration
 

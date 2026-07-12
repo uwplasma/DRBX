@@ -213,8 +213,7 @@ source-term and boundary-history regression. The heavy 1D recycling ladders
 remain the main runtime gap, while the integrated and direct tokamak recycling
 one-step lanes are now better interpreted as normalization-sensitive because
 their dominant compare field is near-zero `NVd`. Those results are documented
-in [hermes_live_rerun_campaign.md](hermes_live_rerun_campaign.md) and
-[runtime_gap_remediation.md](runtime_gap_remediation.md).
+in [runtime_gap_remediation.md](runtime_gap_remediation.md).
 
 The local CPU scaling evidence is the heavy fixed-work ensemble in
 [local_cpu_scaling_campaign.md](local_cpu_scaling_campaign.md). It uses

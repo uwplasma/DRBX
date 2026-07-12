@@ -141,18 +141,6 @@ def _campaign_command_map(
                 "3",
             ),
         ),
-        "live-reference": CampaignCommand(
-            name="live-reference",
-            description="Same-machine native-versus-live-reference validation matrix.",
-            command=(
-                python_executable,
-                str(examples / "hermes_live_rerun_campaign_demo.py"),
-                *reference_args,
-                "--output-root",
-                str(output_root / "hermes_live_rerun_campaign_artifacts"),
-            ),
-            requires_reference=True,
-        ),
         "heavy-recycling-profile": CampaignCommand(
             name="heavy-recycling-profile",
             description="Full production D/T/He recycling one-step cProfile/RSS bundle.",
@@ -1343,7 +1331,6 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
                     "fixed-bdf2-linear-update-residual-gate",
                     "adaptive-bdf-jax-lineax-gate",
                     "heavy-recycling-profile",
-                    "live-reference",
                 )
             )
         elif name == "all-ci":
@@ -1457,7 +1444,7 @@ def main() -> int:
         help=(
             "Campaign to run. Repeat for multiple campaigns. Supported names include "
             "scheduled-fast-research, coverage, "
-            "local-cpu-scaling, live-reference, heavy-recycling-profile, "
+            "local-cpu-scaling, heavy-recycling-profile, "
             "dthe-jax-linearized-gate, dthe-batched-jvp-gate, "
             "dthe-active-array-batched-jvp-gate, "
             "dthe-active-array-output-jvp-profile, "

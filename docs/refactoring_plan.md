@@ -694,7 +694,6 @@ Every example should have an explicit status.
 
 These should be kept, validated, and tied to public artifacts:
 
-- `examples/blob2d_meeting_demo.py`
 - `examples/diverted_tokamak_movie_demo.py`
 - `examples/engineering/*campaign*_demo.py`
 - `examples/autodiff_diffusion_*`
@@ -957,8 +956,8 @@ target-recycling support layer now feeds direct boundary tests, docs artifacts,
 and a manuscript-usable prepared-state figure for recycling sources and the
 electron boundary response.
 
-The next code-to-code comparison template is the public
-[hermes_live_rerun_campaign.md](hermes_live_rerun_campaign.md) bundle: one
+The next code-to-code comparison template was the
+`hermes_live_rerun_campaign` bundle (since removed from the package): one
 shared live rerun implementation now feeds direct campaign tests, docs
 artifacts, and a manuscript-usable same-machine native-versus-Hermes matrix
 that exposes both fidelity and runtime competitiveness across representative 1D

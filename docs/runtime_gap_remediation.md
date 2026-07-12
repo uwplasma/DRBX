@@ -10,11 +10,7 @@
 This document records the current worst runtime and native-versus-Hermès
 mismatch cases that feed the consolidated execution plan.
 
-It is based on the refreshed same-machine live rerun matrix in:
-
-- [hermes_live_rerun_campaign.md](hermes_live_rerun_campaign.md)
-
-and on the current profiling workflow in:
+It is based on the current profiling workflow in:
 
 - [profiling_runtime.md](profiling_runtime.md)
 
@@ -572,9 +568,9 @@ BDF residual assembly into a pure-JAX residual.
 3. move the paper-facing story from raw `NVd` relative mismatch to physically
    interpretable observables
 
-The first version of this observable layer is now in-tree as
-[tokamak_recycling_observable_campaign.md](tokamak_recycling_observable_campaign.md).
-It uses the direct-tokamak D/T/He recycling one-step lane to report charged
+The first version of this observable layer was prototyped as the
+`tokamak_recycling_observable_campaign` bundle (since removed from the package).
+It used the direct-tokamak D/T/He recycling one-step lane to report charged
 target-density profiles, `|NV_s+|` target momentum-flux proxies, neutral
 parallel-density buildup, and target electron-temperature proxy errors. The
 next expansion should add source-diagnostic fields from live or cached Hermes

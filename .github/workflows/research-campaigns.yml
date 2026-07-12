@@ -18,7 +18,6 @@ on:
           - coverage
           - local-cpu-scaling
           - atomic-rate-throughput-gate
-          - live-reference
           - heavy-recycling-profile
           - dthe-jax-linearized-gate
           - dthe-promoted-active-sources-profile-gate
@@ -46,7 +45,7 @@ on:
           - gpu-dthe-full-output-jvp-profile
           - gpu-dthe-batched-jvp-gate
       reference-root:
-        description: "Reference checkout path for live-reference/heavy campaigns on a self-hosted runner"
+        description: "Reference checkout path for heavy campaigns on a self-hosted runner"
         required: false
         default: ""
         type: string
