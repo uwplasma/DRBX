@@ -204,22 +204,6 @@ They now also answer the first CPU parallelism question on this MacBook:
   treated as a bounded strong-scaling tool, not as an automatic replacement for
   accelerator execution.
 
-The local heavy-solve scaling package now documents the stronger local result on
-a real promoted production solve rather than on a compact differentiable
-kernel:
-
-- [local_cpu_scaling_campaign.md](local_cpu_scaling_campaign.md)
-
-That package now focuses only on the fixed-work steady-state ensemble result on
-`tokamak_recycling_dthene_one_step`, because the warmed single-solve thread
-curve stayed essentially flat on this MacBook and was not the right local
-scaling figure.
-
-That guidance is not speculative; it is the measured result of the committed
-Perfetto-backed reduced-kernel audits in:
-
-- [native_3d_runtime_campaign.md](native_3d_runtime_campaign.md)
-
 ## Where More JAX Can Still Help
 
 There are still real opportunities for more JAX-native execution, but they are
@@ -560,10 +544,6 @@ sheath formulas are ported. Electron parallel force balance and the
 corresponding ion electric-force source additions have likewise moved into a
 backend-preserving RHS helper with a JVP gate, removing another NumPy-only
 block between accumulated sources and the final ion momentum RHS.
-
-The corresponding paper/docs artifact is:
-
-- [atomic_rate_differentiability_campaign.md](atomic_rate_differentiability_campaign.md)
 
 The latest boundary-kernel steps also isolate the simple ion Bohm-sheath guard
 and energy-source formula, the full electron sheath response after the

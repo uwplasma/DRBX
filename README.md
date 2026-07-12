@@ -85,8 +85,6 @@ work-in-progress) were not incorporated.
 
 ![Diverted tokamak dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
 
-![3D tokamak toroidal dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_toroidal_movie_artifacts__movies__tokamak_tcv_x21_toroidal.gif)
-
 ![3D imported QA stellarator dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
 
 ## Install
@@ -362,13 +360,8 @@ campaigns:
 
 ```bash
 PYTHONPATH=src python examples/engineering/fluid_1d_mms_convergence_demo.py
-PYTHONPATH=src python examples/engineering/open_field_operator_campaign_demo.py
-PYTHONPATH=src python examples/engineering/target_recycling_campaign_demo.py
-PYTHONPATH=src python examples/engineering/neutral_parallel_diffusion_campaign_demo.py
 PYTHONPATH=src python examples/engineering/neutral_mixed_term_balance_campaign_demo.py
 ```
-
-![Open-field operator validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__open_field_operator_campaign_artifacts__images__open_field_operator_campaign.png)
 
 ![Neutral mixed NVh term-balance audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
 
@@ -585,13 +578,6 @@ PYTHONPATH=src python \
 Detailed guides:
 
 - [docs/stellarator_examples.md](docs/stellarator_examples.md)
-- [docs/tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
-- [docs/tokamak_tcv_x21_toroidal_movie_demo.md](docs/tokamak_tcv_x21_toroidal_movie_demo.md)
-- [docs/tokamak_tcv_x21_selected_field_demo.md](docs/tokamak_tcv_x21_selected_field_demo.md)
-- [docs/tokamak_native_selected_field_demo.md](docs/tokamak_native_selected_field_demo.md)
-- [docs/traced_field_line_scaffold_demo.md](docs/traced_field_line_scaffold_demo.md)
-- [docs/traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)
-- [docs/traced_field_line_native_selected_field_demo.md](docs/traced_field_line_native_selected_field_demo.md)
 - [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
 - [docs/vmec_extender_edge_fields.md](docs/vmec_extender_edge_fields.md)
 - [docs/essos_imported_fci_validation.md](docs/essos_imported_fci_validation.md)
@@ -636,10 +622,7 @@ The governing equations, closures, numerical operators, runtime design, and diff
 
 The runtime/performance audit tools include:
 
-- [docs/native_3d_runtime_campaign.md](docs/native_3d_runtime_campaign.md)
-- [docs/native_3d_convergence_campaign.md](docs/native_3d_convergence_campaign.md)
 - [docs/fluid_1d_mms_convergence.md](docs/fluid_1d_mms_convergence.md)
-- [docs/local_cpu_scaling_campaign.md](docs/local_cpu_scaling_campaign.md)
 - [docs/research_campaigns.md](docs/research_campaigns.md)
 - [docs/repo_size_audit.md](docs/repo_size_audit.md)
 - [scripts/profile_curated_case.py](scripts/profile_curated_case.py)
@@ -725,18 +708,8 @@ self-hosted runtime is recorded as unavailable rather than as a speedup claim.
 
 Focused engineering and benchmark packages:
 
-- [docs/reactions_collisions_campaign.md](docs/reactions_collisions_campaign.md)
-- [docs/atomic_rate_differentiability_campaign.md](docs/atomic_rate_differentiability_campaign.md)
-- [docs/neutral_parallel_diffusion_campaign.md](docs/neutral_parallel_diffusion_campaign.md)
-- [docs/collision_closure_campaign.md](docs/collision_closure_campaign.md)
-- [docs/tokamak_anomalous_diffusion_campaign.md](docs/tokamak_anomalous_diffusion_campaign.md)
-- [docs/target_recycling_campaign.md](docs/target_recycling_campaign.md)
 - [docs/neutral_mixed_term_balance_campaign.md](docs/neutral_mixed_term_balance_campaign.md)
 - [docs/hermes_neutral_mixed_accepted_step_trace_monitor.md](docs/hermes_neutral_mixed_accepted_step_trace_monitor.md)
-- [docs/impurity_radiation_campaign.md](docs/impurity_radiation_campaign.md)
-- [docs/controller_feedback_campaign.md](docs/controller_feedback_campaign.md)
-- [docs/temperature_feedback_campaign.md](docs/temperature_feedback_campaign.md)
-- [docs/detachment_controller_campaign.md](docs/detachment_controller_campaign.md)
 - [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
 
 ## Testing

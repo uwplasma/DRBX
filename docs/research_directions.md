@@ -53,8 +53,6 @@ Why it matters:
 Current code surface:
 
 - [src/jax_drb/validation/diverted_tokamak_movie.py](../src/jax_drb/validation/diverted_tokamak_movie.py)
-- [src/jax_drb/validation/tokamak_tcv_x21_scaffold.py](../src/jax_drb/validation/tokamak_tcv_x21_scaffold.py)
-- [src/jax_drb/validation/tokamak_tcv_x21_selected_field.py](../src/jax_drb/validation/tokamak_tcv_x21_selected_field.py)
 - [docs/geometry_roadmap.md](geometry_roadmap.md)
 
 ### Diverted Tokamak Validation

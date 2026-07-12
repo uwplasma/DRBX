@@ -137,10 +137,6 @@ Representative output:
 | --- | --- |
 | [`examples/diverted_tokamak_movie_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/diverted_tokamak_movie_demo.py) | Full-domain diverted tokamak movie from benchmark output. |
 | [`examples/diverted_tokamak_profile_analysis_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/diverted_tokamak_profile_analysis_demo.py) | Radial profiles, target lineouts, time traces, and final diverted-domain field analysis from release-backed arrays. |
-| [`examples/tokamak-3D/tcv-x21/scaffold_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/tokamak-3D/tcv-x21/scaffold_demo.py) | TCV-X21 scaffold package. |
-| [`examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py) | Compact selected-field parity package. |
-| [`examples/tokamak-3D/tcv-x21/toroidal_movie_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/tokamak-3D/tcv-x21/toroidal_movie_demo.py) | Toroidal 3D movie from scaffold arrays. |
-
 Representative output:
 
 ![Diverted tokamak movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
@@ -153,11 +149,7 @@ regenerate publication-grade validation packages:
 
 | Family | Documentation |
 | --- | --- |
-| MMS and open-field operators | [Fluid 1D MMS](fluid_1d_mms_convergence.md), [Open-Field Operator Campaign](open_field_operator_campaign.md) |
-| Reactions, collisions, neutrals, target recycling | [Reactions And Collisions](reactions_collisions_campaign.md), [Collision Closure](collision_closure_campaign.md), [Neutral Parallel Diffusion](neutral_parallel_diffusion_campaign.md), [Target Recycling](target_recycling_campaign.md) |
-| Performance | [Local CPU Scaling](local_cpu_scaling_campaign.md), [Native 3D Runtime](native_3d_runtime_campaign.md) |
-| Control and detachment | [Controller Feedback](controller_feedback_campaign.md), [Temperature Feedback](temperature_feedback_campaign.md), [Detachment Controller](detachment_controller_campaign.md) |
-
+| MMS and open-field operators | [Fluid 1D MMS](fluid_1d_mms_convergence.md) |
 All validation figures are collected in [Validation Gallery](validation_gallery.md).
 
 Reference-comparison and live-rerun commands are intentionally separated from
