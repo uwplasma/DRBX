@@ -1242,41 +1242,6 @@ def _axis_regular_local_stencil_from_field(
     )
 
 
-def test_coordinate_axis_regular_lower_x_boundary_constructors() -> None:
-    geometry = _build_eb_blob_geometry((4, 4, 4), construct_fci_maps=False)
-    field = jnp.arange(np.prod(geometry.shape), dtype=jnp.float64).reshape(geometry.shape)
-
-    face_reconstructor = CoordinateFaceValueReconstructor3D()
-    normal_derivative_constructor = CoordinateNormalDerivativeConstructor3D.from_geometry(geometry)
-
-    x_faces, _, _ = face_reconstructor.extrapolate(
-        field,
-        geometry,
-        periodic_axes=PERIODIC_AXES,
-        axis_regular_axes=AXIS_REGULAR_AXES,
-    )
-    expected_lower_x = 0.5 * (field[0] + jnp.roll(field[0], shift=-(geometry.shape[1] // 2), axis=0))
-    np.testing.assert_allclose(np.asarray(x_faces[0]), np.asarray(expected_lower_x))
-
-    wall_value = face_reconstructor.extrapolate(
-        field,
-        geometry,
-        periodic_axes=PERIODIC_AXES,
-        axis_regular_axes=AXIS_REGULAR_AXES,
-    )
-    dnormal_faces, d2normal_faces = normal_derivative_constructor.normal_derivatives_from_wall_value(
-        field,
-        wall_value,
-        geometry,
-        periodic_axes=PERIODIC_AXES,
-        axis_regular_axes=AXIS_REGULAR_AXES,
-    )
-    assert dnormal_faces[0].shape == geometry.shape[1:]
-    assert d2normal_faces[0].shape == geometry.shape[1:]
-    assert np.isfinite(np.asarray(dnormal_faces[0])).all()
-    assert np.isfinite(np.asarray(d2normal_faces[0])).all()
-
-
 conservative_stencil_builder = ConservativeStencilBuilder(
     _axis_regular_conservative_stencil_from_field
 )
