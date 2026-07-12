@@ -14,6 +14,17 @@ Landed so far (Phase 0):
   `lineax` exposed as an optional extra.
 - The Alfven-wave benchmark input is a committed fixture instead of a
   machine-specific absolute path.
+- Phase 1 slice 1: the mocked-hermes report generators, orphan campaign
+  modules, meeting demos, profiler audits, and one-off diagnose scripts were
+  removed from the package (−10.4k lines).
+- Incorporated the FCI operator/sharding stack from
+  [PR #3](https://github.com/uwplasma/jax_drb/pull/3) by Aiken Xie:
+  cell-centered FCI geometry with shard/halo layouts, consistent
+  finite-volume operators, halo exchange, 2-field/4-field/electromagnetic
+  models, an RK4 integrator, and slab/shifted-torus MMS, operator,
+  domain-decomposition, halo, and multigrid verification suites. See the
+  README section "Incorporated FCI/Sharding Stack (from PR #3)" for the
+  exact scope.
 
 ## Validation
 

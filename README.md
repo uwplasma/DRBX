@@ -47,6 +47,42 @@ still defaults to the validated compatibility BDF path, with JAX-linearized and
 JVP variants kept as opt-in research gates until same-fidelity parity and
 runtime evidence are strong enough to promote them.
 
+## Incorporated FCI/Sharding Stack (from PR #3)
+
+The repository incorporates the flux-coordinate-independent (FCI) operator
+and sharding groundwork contributed by Aiken Xie in
+[pull request #3](https://github.com/uwplasma/jax_drb/pull/3) (branch
+`3D_fci`). Specifically incorporated:
+
+- `src/jax_drb/geometry/fci_geometry.py` — the cell-centered 3D FCI geometry
+  payload (`FciGeometry3D`), halo layouts, shard specs, local domains, and
+  metric/B-field face geometry for domain decomposition;
+- `src/jax_drb/native/fci_operators.py` — consistent finite-volume FCI
+  operators (parallel gradient/divergence, perpendicular Laplacian) written
+  for both single-device and sharded execution;
+- `src/jax_drb/native/fci_halo.py` — halo-exchange machinery for
+  `shard_map`-based domain decomposition;
+- `src/jax_drb/native/fci_boundaries.py`, `fci_helpers.py`, `fci_model.py` —
+  boundary conditions (Dirichlet/Neumann, cut-wall), state containers, and
+  shared helpers for the new stack;
+- `src/jax_drb/native/fci_2_field_rhs.py`, `fci_4_field_rhs.py`,
+  `fci_drb_EB_rhs.py`, `fci_time_integrator.py` — 2-field, 4-field, and
+  electromagnetic drift-reduced models on the new operators with an RK4
+  integrator;
+- the accompanying verification suites: method-of-manufactured-solutions
+  tests on slab and shifted-torus geometry (2-field, 4-field, EM), FCI
+  operator and domain-decomposition tests, halo-exchange tests, a multigrid
+  preconditioner test, and blob/free-decay physics tests;
+- FCI analysis and movie tooling under `dev/fci_analysis/`.
+
+This new stack currently coexists with the original FCI lane (the shipping
+stellarator campaigns still run on the original modules). Migrating the
+imported-geometry examples onto the new operators, and completing the
+sharded strong-scaling path it enables, are Phases 6-7 of
+[plan_jax_drb.md](plan_jax_drb.md). The unfinished parts of PR #3 (the
+partial rewiring of the ESSOS import path, which its author flagged as
+work-in-progress) were not incorporated.
+
 ![Diverted tokamak dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
 
 ![3D tokamak toroidal dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_toroidal_movie_artifacts__movies__tokamak_tcv_x21_toroidal.gif)

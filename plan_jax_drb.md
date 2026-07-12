@@ -44,6 +44,17 @@ What is genuinely strong and must be preserved:
   Jacobi-preconditioned potential solve and measured interpolation order ~1.96.
 - A TOML-deck CLI (`jax_drb run deck.toml`) plus `run_input_case` Python API,
   restart bundles, and structured run logs.
+- Incorporated from PR #3 (Aiken Xie, branch `3D_fci`, merged 2026-07-12): a
+  new cell-centered FCI stack — `geometry/fci_geometry.py` (FciGeometry3D,
+  halo layouts, shard specs), `native/fci_operators.py` (consistent FV
+  operators, single-device + sharded), `fci_halo.py` (halo exchange),
+  `fci_boundaries/helpers/model.py`, 2-field/4-field/EM RHS modules, an RK4
+  integrator, and MMS/operator/domain-decomp/halo/multigrid/blob test suites.
+  It coexists with the original FCI lane; the ESSOS-import rewiring from that
+  PR was left out (its author marked it work-in-progress and it does not run).
+  Phase 6 migrates the imported-geometry examples onto this stack and then
+  deletes the original FCI modules; Phase 7 builds strong scaling on its
+  shard/halo machinery.
 
 What is broken or oversold and drives this plan:
 
