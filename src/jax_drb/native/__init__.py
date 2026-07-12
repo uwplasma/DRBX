@@ -100,6 +100,14 @@ from .fci_4_field_rhs import (
     compute_4field_rhs,
     compute_4field_poisson_diffusion,
 )
+from .fci_sharding import (
+    Sharded2FieldStepInfo,
+    ShardedFciGeometry3D,
+    assemble_local_fci_geometry,
+    build_local_fci_geometries,
+    make_shard_mesh,
+    make_sharded_2field_step,
+)
 
 __all__ = [
     "NativeRunResult",
@@ -217,4 +225,10 @@ __all__ = [
     "run_config_case",
     "run_curated_case",
     "run_input_case",
+    "Sharded2FieldStepInfo",
+    "ShardedFciGeometry3D",
+    "assemble_local_fci_geometry",
+    "build_local_fci_geometries",
+    "make_shard_mesh",
+    "make_sharded_2field_step",
 ]
