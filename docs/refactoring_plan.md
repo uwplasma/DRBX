@@ -933,25 +933,25 @@ verification implementation now feeds the standalone script wrapper, direct
 tests, docs artifacts, and future manuscript-ready convergence figures.
 
 The next closure-facing template is the public
-[neutral_parallel_diffusion_campaign.md](neutral_parallel_diffusion_campaign.md)
+neutral_parallel_diffusion_campaign.md
 bundle: one shared closure implementation now feeds direct operator tests, docs
 artifacts, and a manuscript-usable AFN-versus-multispecies profile figure on a
 prepared multispecies recycling state.
 
 The next collisional template is the public
-[collision_closure_campaign.md](collision_closure_campaign.md) bundle: one
+collision_closure_campaign.md bundle: one
 shared Braginskii-style collision module now feeds direct operator tests, docs
 artifacts, and a manuscript-usable closure-activity figure covering friction,
 ion viscosity, and conduction on the prepared multispecies recycling state.
 
 The next tokamak-geometry template is the public
-[tokamak_anomalous_diffusion_campaign.md](tokamak_anomalous_diffusion_campaign.md)
+tokamak_anomalous_diffusion_campaign.md
 bundle: one shared anomalous-diffusion operator now feeds direct non-orthogonal
 tokamak tests, docs artifacts, and a manuscript-usable geometry-contrast figure
 on the evolved direct-recycling state.
 
 The next boundary-and-recycling template is the public
-[target_recycling_campaign.md](target_recycling_campaign.md) bundle: one shared
+target_recycling_campaign.md bundle: one shared
 target-recycling support layer now feeds direct boundary tests, docs artifacts,
 and a manuscript-usable prepared-state figure for recycling sources and the
 electron boundary response.

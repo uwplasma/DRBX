@@ -35,28 +35,6 @@ The visual package is intended for quick physics QA: coherent edge structures,
 wall/divertor context, target-adjacent activity, and profile diagnostics should
 be inspectable without a live external reference run.
 
-## TCV-X21 Toroidal Tokamak View
-
-![TCV-X21 toroidal movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_toroidal_movie_artifacts__movies__tokamak_tcv_x21_toroidal.gif)
-
-Regenerate:
-
-```bash
-PYTHONPATH=src python examples/tokamak-3D/tcv-x21/toroidal_movie_demo.py
-```
-
-| Item | Details |
-| --- | --- |
-| Outputs | toroidal GIF, poster, arrays, summary JSON |
-| Source | [`src/jax_drb/validation/tokamak_tcv_x21_toroidal_movie.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/tokamak_tcv_x21_toroidal_movie.py) |
-| Example | [`examples/tokamak-3D/tcv-x21/toroidal_movie_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/tokamak-3D/tcv-x21/toroidal_movie_demo.py) |
-| Status | scaffolded geometry/movie package, not a full device-scale turbulence validation |
-| Related docs | [TCV-X21 Toroidal Movie](tokamak_tcv_x21_toroidal_movie_demo.md), [TCV-X21 Validation Methodology](tokamak_tcv_x21_validation_methodology.md) |
-
-The movie exists because a toroidal surface view communicates 3D geometry more
-clearly than a flat slice. It should be read with the selected-field and
-methodology pages, which state exactly which data are benchmark-backed.
-
 ## Synthetic Stellarator FCI Reduced SOL
 
 ![Stellarator SOL 3D movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__movies__stellarator_sol_showcase.gif)
@@ -113,27 +91,6 @@ The imported-geometry lane is split deliberately. Users can inspect restored
 figures and run dry-run or release-backed contracts from a clean clone.
 Developers can opt into live field-line regeneration when refreshing the
 validation evidence.
-
-## Traced Field-Line And VMEC Surface Controls
-
-![Traced-field-line slice movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_scaffold_artifacts__images__traced_field_line_scaffold_slice_movie.gif)
-
-![Stellarator VMEC surface movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_scaffold_artifacts__images__stellarator_vmec_scaffold_surface_movie.gif)
-
-Run the lightweight control examples:
-
-```bash
-PYTHONPATH=src python examples/geometry-3D/traced-field-line/native_selected_field_demo.py
-PYTHONPATH=src python examples/geometry-3D/stellarator-vmec/scaffold_demo.py
-PYTHONPATH=src python examples/geometry-3D/stellarator-vmec/native_selected_field_demo.py
-```
-
-| Item | Details |
-| --- | --- |
-| Outputs | selected-field reports, scaffold figures, surface movies |
-| Source | [`src/jax_drb/validation/traced_field_line_scaffold.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/traced_field_line_scaffold.py), [`src/jax_drb/validation/stellarator_vmec_scaffold.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_vmec_scaffold.py) |
-| Status | geometry/scaffold controls; not full turbulence claims |
-| Related docs | [Traced Field-Line Scaffold](traced_field_line_scaffold_demo.md), [Stellarator VMEC Scaffold](stellarator_vmec_scaffold_demo.md), [Stellarator VMEC Native Selected Field](stellarator_vmec_native_selected_field_demo.md) |
 
 ## Reading The Gallery Scientifically
 

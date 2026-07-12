@@ -27,10 +27,7 @@ The refreshed live matrix identifies four distinct categories.
 - dominant field: `NVh`
 
 This is now a small absolute-error regression surface rather than the clearest
-current fidelity gap. The focused follow-up figure is now in
-[neutral_mixed_boundary_campaign.md](neutral_mixed_boundary_campaign.md), which
-shows the worst-error `Nh`, `Ph`, and `NVh` lineouts plus the
-`max_{x,z} |Δ|(y)` profile on the same live rerun surface. The next diagnostic
+current fidelity gap. The next diagnostic
 layer is now in
 [neutral_mixed_term_balance_campaign.md](neutral_mixed_term_balance_campaign.md):
 it inserts both the native and Hermès-3 final states into the native

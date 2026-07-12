@@ -215,12 +215,6 @@ one-step lanes are now better interpreted as normalization-sensitive because
 their dominant compare field is near-zero `NVd`. Those results are documented
 in [runtime_gap_remediation.md](runtime_gap_remediation.md).
 
-The local CPU scaling evidence is the heavy fixed-work ensemble in
-[local_cpu_scaling_campaign.md](local_cpu_scaling_campaign.md). It uses
-repeated direct tokamak recycling solves rather than a synthetic microkernel,
-and the committed artifact reaches about `4.79x` steady-state speedup from
-`1 -> 8` worker processes on the retained `16`-solve ensemble.
-
 The GPU bundle contains the current `dt=1.0` D/T/He fixed-layout residual gate,
 a separate larger active-array residual trace, fixed-BDF2 output-window,
 active-array output-window, full-field compatibility output-window, and

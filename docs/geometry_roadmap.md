@@ -45,7 +45,6 @@ Benchmark-specific packages should only add:
 Current reusable pieces already in tree:
 
 - [src/jax_drb/validation/diverted_tokamak_movie.py](../src/jax_drb/validation/diverted_tokamak_movie.py)
-- [src/jax_drb/validation/tokamak_tcv_x21_selected_field.py](../src/jax_drb/validation/tokamak_tcv_x21_selected_field.py)
 - [src/jax_drb/runtime/output.py](../src/jax_drb/runtime/output.py)
 - [src/jax_drb/cli.py](../src/jax_drb/cli.py)
 
@@ -61,28 +60,6 @@ The current shared layer now includes:
 The current TCV-X21 scaffold consumes those shared pieces instead of owning a private benchmark-specific implementation.
 
 ### Current Benchmark Adapter
-
-The current 3D benchmark adapter is the TCV-X21 scaffold package:
-
-- [src/jax_drb/validation/tokamak_tcv_x21_scaffold.py](../src/jax_drb/validation/tokamak_tcv_x21_scaffold.py)
-- [docs/tokamak_tcv_x21_scaffold_demo.md](tokamak_tcv_x21_scaffold_demo.md)
-- [docs/tokamak_tcv_x21_selected_field_demo.md](tokamak_tcv_x21_selected_field_demo.md)
-
-That package is useful and should stay, but it is an adapter, not the architecture.
-
-The first second-adapter scaffold is now also in tree:
-
-- [src/jax_drb/validation/traced_field_line_scaffold.py](../src/jax_drb/validation/traced_field_line_scaffold.py)
-- [docs/traced_field_line_scaffold_demo.md](traced_field_line_scaffold_demo.md)
-
-It is intentionally lighter than the TCV package. Its purpose is to pressure-test
-the general geometry and diagnostics layer on a non-diverted geometry family
-before a real external traced-field-line mesh is wired in.
-
-An older Fourier-equilibrium scaffold also remains in tree. It pressure-tests
-the same public 3D artifact model on a stellarator source, so the general layer
-is forced to support sampled flux-surface figures and movies as well as
-profile bundles.
 
 The first native non-axisymmetric field-line-map validation lane is now also
 in tree:

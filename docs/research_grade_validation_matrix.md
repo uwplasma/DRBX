@@ -155,22 +155,6 @@ used in verification, validation, and differentiable-science papers:
 
 - [fluid_1d_mms_convergence](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png)
   for order-of-accuracy evidence
-- [open_field_operator_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__open_field_operator_campaign_artifacts__images__open_field_operator_campaign.png)
-  for open-field parallel-gradient, force-balance, target-recycling, and
-  autodiff evidence
-- [reactions_collisions_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__reactions_collisions_campaign_artifacts__images__reactions_collisions_campaign.png)
-  for rate, source-partition, and closure checks
-- [neutral_parallel_diffusion_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_parallel_diffusion_campaign_artifacts__images__neutral_parallel_diffusion_campaign.png)
-  for AFN-versus-multispecies neutral closure comparison
-- [collision_closure_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__collision_closure_campaign_artifacts__images__collision_closure_campaign.png)
-  for friction, conduction, and viscosity closure activity
-- [tokamak_anomalous_diffusion_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_anomalous_diffusion_campaign_artifacts__images__tokamak_anomalous_diffusion_campaign.png)
-  for geometry-sensitive transport effects on an evolved tokamak state
-- [target_recycling_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__target_recycling_campaign_artifacts__images__target_recycling_campaign.png)
-  for target-localized recycling and sheath-conditioned closure activity
-- [neutral_mixed_boundary_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_boundary_campaign_artifacts__images__neutral_mixed_boundary_campaign.png)
-  for boundary-localized neutral-mixed mismatch analysis on the live rerun
-  surface
 - [neutral_mixed_term_balance_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
   for term-level `NVh` residual localization on the neutral-mixed one-step
   Hermès mismatch
@@ -183,8 +167,6 @@ used in verification, validation, and differentiable-science papers:
   for gradient-versus-finite-difference sensitivity evidence
 - [autodiff_diffusion_inverse_design](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png)
   for a closed differentiable optimization example on the same native lane
-- [local_cpu_scaling_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__local_cpu_scaling_campaign_artifacts__images__local_cpu_scaling_campaign.png)
-  for workstation throughput on repeated heavy production solves
 - [stellarator_fci_validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png)
   for the first native non-axisymmetric metric, field-line-map, operator, and
   reduced 3D SOL dynamics evidence bundle
@@ -233,11 +215,8 @@ These remain useful and should stay in the docs, but they should not be the
 main evidence panels in the future paper unless they are paired with a more
 physics-facing interpretation:
 
-- [native_3d_runtime_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__native_3d_runtime_campaign_artifacts__images__native_3d_runtime_campaign.png)
-  is a runtime/supporting figure rather than a primary scientific result
 - [strong_scaling_diffusion](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__strong_scaling_diffusion_artifacts__images__strong_scaling_diffusion.png)
-  is useful as a differentiable-kernel scaling check, while the heavier local
-  CPU scaling campaign remains the stronger workstation result
+  is useful as a differentiable-kernel scaling check
 
 This distinction matters because verification and validation papers such as
 Roy 2005 emphasize order studies, explicit error measures, and model-versus-data
@@ -294,8 +273,7 @@ Longer transient-solver history tests should be marked `slow` and kept out of th
 
 Reviewer-facing convergence campaigns should live outside the default gate and
 be run explicitly, for example through the optional `convergence_campaign` slice
-or the public `fluid_1d_mms_convergence` and `open_field_operator_campaign`
-artifact packages.
+or the public `fluid_1d_mms_convergence` artifact packages.
 
 ## Current Strategic Focus
 

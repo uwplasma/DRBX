@@ -245,11 +245,6 @@ That module owns:
   surfaces
 - effective neutral ionisation and charge-exchange collision-rate helpers
 
-This is the first recycling submodule whose outputs already map directly onto a
-publication-facing validation package:
-
-- [src/jax_drb/validation/reactions_collisions_campaign.py](../src/jax_drb/validation/reactions_collisions_campaign.py)
-
 The current collision-frequency and viscosity-input extraction is:
 
 - [src/jax_drb/native/recycling_collisions.py](../src/jax_drb/native/recycling_collisions.py)
@@ -263,11 +258,7 @@ That module isolates:
   inputs
 
 This is a scientifically meaningful split because it separates the collisional
-closure backbone from the larger recycling residual assembly. It also maps
-directly to the profile-level collisionality and charge-exchange figures now
-produced by:
-
-- [src/jax_drb/validation/reactions_collisions_campaign.py](../src/jax_drb/validation/reactions_collisions_campaign.py)
+closure backbone from the larger recycling residual assembly.
 
 The current feedback-controller state extraction is:
 
@@ -369,10 +360,7 @@ That module now owns:
 This split matters because anomalous perpendicular transport is both a real
 physics closure and a real geometry boundary. It should be explainable,
 testable, and plottable without hiding the implementation inside the full
-recycling residual file. It also now maps directly onto the public tokamak
-operator package:
-
-- [src/jax_drb/validation/tokamak_anomalous_diffusion_campaign.py](../src/jax_drb/validation/tokamak_anomalous_diffusion_campaign.py)
+recycling residual file.
 
 The current target-recycling support extraction is:
 
@@ -385,10 +373,7 @@ That module now owns:
 - the open-field centered gradient used by the electron force-balance path
 
 This split matters because target recycling and boundary-conditioned electron
-response are physically meaningful closure families, not just bookkeeping. They
-now map directly onto the public prepared-state validation package:
-
-- [src/jax_drb/validation/target_recycling_campaign.py](../src/jax_drb/validation/target_recycling_campaign.py)
+response are physically meaningful closure families, not just bookkeeping.
 
 The current collision/conduction closure extraction is:
 
