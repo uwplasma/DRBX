@@ -33,8 +33,15 @@ def test_core_runtime_dependencies_are_installed_by_default() -> None:
     payload = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     project_dependencies = payload["project"]["dependencies"]
 
-    for requirement in ("jax", "diffrax", "scipy", "equinox", "matplotlib", "netCDF4", "pillow", "rich"):
+    for requirement in ("jax", "scipy", "matplotlib", "netCDF4", "pillow", "rich"):
         assert any(item == requirement or item.startswith(f"{requirement};") for item in project_dependencies)
+
+    # Declared-but-unimported packages were removed in the v2 plan's Phase 0;
+    # they must not silently return.
+    for requirement in ("diffrax", "equinox"):
+        assert not any(
+            item == requirement or item.startswith(f"{requirement};") for item in project_dependencies
+        )
 
 
 def test_import_version_matches_pyproject() -> None:

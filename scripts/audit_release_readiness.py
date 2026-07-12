@@ -150,8 +150,7 @@ def _check_workflows(repo_root: Path, failures: list[str]) -> None:
     _require_contains(publish, "startsWith(github.event.release.tag_name, 'v')", path=".github/workflows/publish-pypi.yml", failures=failures)
     _require_contains(publish, "id-token: write", path=".github/workflows/publish-pypi.yml", failures=failures)
     _require_contains(docs, "mkdocs build --strict --clean", path=".github/workflows/docs.yml", failures=failures)
-    _require_contains(coverage, "run_closeout_coverage.py", path=".github/workflows/coverage.yml", failures=failures)
-    _require_contains(coverage, "run_promoted_solver_coverage.py", path=".github/workflows/coverage.yml", failures=failures)
+    _require_contains(coverage, "--cov=jax_drb", path=".github/workflows/coverage.yml", failures=failures)
     _require_contains(rtd, "configuration: mkdocs.yml", path=".readthedocs.yaml", failures=failures)
     _require_contains(mkdocs, "site_url: https://jax-drb.readthedocs.io/", path="mkdocs.yml", failures=failures)
 

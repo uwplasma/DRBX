@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -61,8 +62,16 @@ def _build_validation_config():
 
 
 def _load_committed_reference_config():
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp")
-    if not input_path.exists():
+    relative = Path("tests/integrated/alfven-wave/data/BOUT.inp")
+    reference_root = os.environ.get("JAX_DRB_REFERENCE_ROOT")
+    candidates = []
+    if reference_root:
+        candidates.append(Path(reference_root) / relative)
+    candidates.append(
+        Path(__file__).resolve().parent / "fixtures" / "reference-root" / relative
+    )
+    input_path = next((path for path in candidates if path.exists()), None)
+    if input_path is None:
         pytest.skip("alfven-wave reference input is unavailable")
     config = load_bout_input(input_path)
     run_config = RunConfiguration.from_config(config)

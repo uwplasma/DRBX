@@ -736,16 +736,10 @@ Run the full suite:
 pytest -q
 ```
 
-Run the bounded closeout coverage gate:
+Measure whole-package coverage (one honest number over `src/jax_drb`):
 
 ```bash
-python scripts/run_closeout_coverage.py
-```
-
-Run the promoted native-solver and public-surface coverage gate:
-
-```bash
-python scripts/run_promoted_solver_coverage.py
+pytest -q -m "not slow" --cov=jax_drb --cov-branch --cov-report=term
 ```
 
 Run the scheduled/manual research campaign wrapper:
@@ -754,13 +748,11 @@ Run the scheduled/manual research campaign wrapper:
 python scripts/run_research_campaign_bundle.py --campaign scheduled-fast-research
 ```
 
-The shipping CI matrix runs on Python 3.10, 3.11, and 3.12.
-
-The GitHub coverage workflow enforces the two release-readiness coverage lanes:
-bounded closeout coverage and promoted solver/public-surface coverage. The
-separate research-campaign workflow runs the hosted `scheduled-fast-research`
-slice weekly and exposes heavier live-reference, local, GPU, adaptive-BDF, and
-profiling bundles as explicit manual lanes.
+The CI test matrix runs the full fast suite (`-m "not slow"`) on Python 3.10,
+3.11, and 3.12, and the coverage workflow reports the whole-package number.
+The separate research-campaign workflow runs the hosted
+`scheduled-fast-research` slice weekly and exposes heavier live-reference,
+local, GPU, adaptive-BDF, and profiling bundles as explicit manual lanes.
 
 Testing policy and refactor coverage goals are documented in:
 
