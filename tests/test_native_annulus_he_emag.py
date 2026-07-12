@@ -12,8 +12,10 @@ from jax_drb.native.metrics import StructuredMetrics
 from jax_drb.native.mesh import StructuredMesh
 from jax_drb.native.reference_dump import LocalReferenceSnapshot
 from jax_drb.reference.cases import ReferenceCase
+from jax_drb.reference.paths import default_reference_root
 
-_REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/examples/other/linear/annulus-isothermal-he-emag/BOUT.inp")
+_REFERENCE_BASE = default_reference_root() or Path("/nonexistent-reference-root")
+_REFERENCE_INPUT = _REFERENCE_BASE / "examples/other/linear/annulus-isothermal-he-emag/BOUT.inp"
 
 
 @dataclass(frozen=True)
@@ -120,7 +122,7 @@ def test_annulus_he_emag_rhs_uses_em_native_overrides(monkeypatch: pytest.Monkey
     result = native_runner._run_annulus_he_emag_rhs_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_BASE,
     )
 
     assert result.time_points == (0.0,)
@@ -192,7 +194,7 @@ def test_annulus_he_emag_one_step_stacks_initial_and_final_snapshots(monkeypatch
     result = native_runner._run_annulus_he_emag_one_step_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_BASE,
     )
 
     assert captured_time_indices == [0, 1]
@@ -261,7 +263,7 @@ def test_annulus_he_emag_short_window_uses_all_reference_time_points(monkeypatch
     result = native_runner._run_annulus_he_emag_short_window_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_BASE,
     )
 
     assert captured_time_indices == [0, 1, 2, 3]

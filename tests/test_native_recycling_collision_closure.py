@@ -28,9 +28,12 @@ from jax_drb.native.recycling_setup import initialize_species
 from jax_drb.native.recycling_1d import _prepare_open_field_states
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
+from jax_drb.reference.paths import default_reference_root
 
 
-_DTHE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
+_REFERENCE_ROOT = default_reference_root()
+_REFERENCE_BASE = _REFERENCE_ROOT if _REFERENCE_ROOT is not None else Path("/nonexistent-reference-root")
+_DTHE_INPUT = _REFERENCE_BASE / "tests/integrated/1D-recycling-dthe/data/BOUT.inp"
 
 
 class _MiniConfig:
@@ -396,6 +399,8 @@ def test_parallel_ion_viscous_stress_matches_braginskii_formula() -> None:
 
 
 def test_ion_thermal_force_pair_is_enabled_for_dt_when_mass_override_is_set() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -430,6 +435,8 @@ def test_ion_thermal_force_pair_is_enabled_for_dt_when_mass_override_is_set() ->
 
 
 def test_conduction_kappa_coefficient_uses_species_defaults_and_override() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -444,6 +451,8 @@ def test_conduction_kappa_coefficient_uses_species_defaults_and_override() -> No
 
 
 def test_collision_closure_accepts_precomputed_collision_and_cx_rates() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -492,6 +501,8 @@ def test_collision_closure_accepts_precomputed_collision_and_cx_rates() -> None:
 
 
 def test_active_collision_friction_heat_exchange_matches_dictionary_active_slice() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -586,6 +597,8 @@ def test_collision_closure_reports_energy_diagnostics_for_parity_audits() -> Non
 
 
 def test_active_collision_friction_heat_exchange_field_rhs_maps_sources() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -640,6 +653,8 @@ def test_active_collision_friction_heat_exchange_field_rhs_maps_sources() -> Non
 
 
 def test_active_collision_friction_heat_exchange_reports_missing_fields() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)

@@ -9,6 +9,12 @@ def repo_root() -> Path:
 
 
 def default_reference_root() -> Path | None:
+    if os.environ.get("JAX_DRB_DISABLE_REFERENCE_ROOT"):
+        # Escape hatch: force the "no external reference checkout" path, so the
+        # reference-backed parity tests skip deterministically. This is what
+        # hosted CI sees (no sibling hermes-3 checkout); setting it locally
+        # reproduces that behaviour for verification.
+        return None
     env_value = os.environ.get("JAX_DRB_REFERENCE_ROOT")
     if env_value:
         return Path(env_value).expanduser().resolve()

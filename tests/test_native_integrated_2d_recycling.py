@@ -34,9 +34,10 @@ from jax_drb.native.recycling_1d import (
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.reference.cases import ReferenceCase, load_reference_cases
+from jax_drb.reference.paths import default_reference_root
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_EXTERNAL_REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
+_EXTERNAL_REFERENCE_ROOT = default_reference_root() or Path("/nonexistent-reference-root")
 _FIXTURE_REFERENCE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "reference-root"
 
 

@@ -31,10 +31,13 @@ from jax_drb.native.recycling_reactions import (
 )
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.runtime.run_config import RunConfiguration
+from jax_drb.reference.paths import default_reference_root
 
 
-_INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-_INPUT_DTHE = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
+_REFERENCE_ROOT = default_reference_root()
+_REFERENCE_BASE = _REFERENCE_ROOT if _REFERENCE_ROOT is not None else Path("/nonexistent-reference-root")
+_INPUT_1D = _REFERENCE_BASE / "tests/integrated/1D-recycling/data/BOUT.inp"
+_INPUT_DTHE = _REFERENCE_BASE / "tests/integrated/1D-recycling-dthe/data/BOUT.inp"
 
 
 def _small_field(value: float) -> np.ndarray:
@@ -313,6 +316,8 @@ type = ne+ + e -> ne
 
 
 def test_reaction_sources_include_cross_isotope_charge_exchange_diagnostics() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_INPUT_DTHE)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -459,6 +464,8 @@ def test_fixed_layout_hydrogen_reaction_sources_support_jit_and_grad() -> None:
 
 
 def test_fixed_layout_dthe_reaction_sources_match_dictionary_path() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_INPUT_DTHE)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -500,6 +507,8 @@ def test_fixed_layout_dthe_reaction_sources_match_dictionary_path() -> None:
 
 
 def test_fixed_layout_dthe_active_reaction_terms_match_dictionary_active_slice() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_INPUT_DTHE)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -540,6 +549,8 @@ def test_fixed_layout_dthe_active_reaction_terms_match_dictionary_active_slice()
 
 
 def test_fixed_layout_dthe_active_reaction_field_rhs_matches_source_mapping() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_INPUT_DTHE)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -586,6 +597,8 @@ def test_fixed_layout_dthe_active_reaction_field_rhs_matches_source_mapping() ->
 
 
 def test_fixed_layout_dthe_active_reaction_terms_report_missing_fields() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_INPUT_DTHE)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -601,6 +614,8 @@ def test_fixed_layout_dthe_active_reaction_terms_report_missing_fields() -> None
 
 
 def test_reaction_sources_without_diagnostics_matches_fixed_dthe_dictionary_path() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_INPUT_DTHE)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -740,6 +755,8 @@ type = x + e -> x+ + 2e
 
 
 def test_charge_exchange_collision_rates_cover_atoms_and_ions() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -765,6 +782,8 @@ def test_charge_exchange_collision_rates_cover_atoms_and_ions() -> None:
 
 
 def test_charge_exchange_collision_rates_cover_cross_isotope_pairs() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_INPUT_DTHE)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -792,6 +811,8 @@ def test_charge_exchange_collision_rates_cover_cross_isotope_pairs() -> None:
 
 
 def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_density() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)

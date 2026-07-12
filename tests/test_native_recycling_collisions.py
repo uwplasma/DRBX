@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from jax_drb.config.boutinp import load_bout_input
 from jax_drb.native.mesh import build_structured_mesh
@@ -19,12 +20,17 @@ from jax_drb.native.recycling_collisions import (
 )
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.runtime.run_config import RunConfiguration
+from jax_drb.reference.paths import default_reference_root
 
 
-_DTHE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
+_REFERENCE_ROOT = default_reference_root()
+_REFERENCE_BASE = _REFERENCE_ROOT if _REFERENCE_ROOT is not None else Path("/nonexistent-reference-root")
+_DTHE_INPUT = _REFERENCE_BASE / "tests/integrated/1D-recycling-dthe/data/BOUT.inp"
 
 
 def test_electron_density_sums_ion_charge_weighted_fields() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -40,6 +46,8 @@ def test_electron_density_sums_ion_charge_weighted_fields() -> None:
 
 
 def test_collision_frequencies_cover_asymmetric_ion_neutral_pairs() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -69,6 +77,8 @@ def test_collision_frequencies_cover_asymmetric_ion_neutral_pairs() -> None:
 
 
 def test_ion_parallel_viscosity_inputs_match_pressure_tau_formula() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)

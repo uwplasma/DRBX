@@ -32,9 +32,11 @@ from jax_drb.native.recycling_setup import build_species_field_overrider, initia
 from jax_drb.native.recycling_state import prepare_species_state
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
+from jax_drb.reference.paths import default_reference_root
 
 
-_INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+_REFERENCE_BASE = default_reference_root() or Path("/nonexistent-reference-root")
+_INPUT_1D = _REFERENCE_BASE / "tests/integrated/1D-recycling/data/BOUT.inp"
 _INPUT_1D_FIXTURE = (
     Path(__file__).resolve().parent
     / "fixtures"

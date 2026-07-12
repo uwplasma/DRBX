@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from jax_drb.reference.cases import load_reference_cases, resolve_reference_cases
+from jax_drb.reference.paths import default_reference_root
+
+
+_REFERENCE_ROOT = default_reference_root()
+_REFERENCE_BASE = _REFERENCE_ROOT if _REFERENCE_ROOT is not None else Path("/nonexistent-reference-root")
 
 
 def test_reference_case_manifest_loads_and_resolves(tmp_path: Path) -> None:
@@ -104,7 +111,9 @@ def test_default_manifest_assigns_research_grade_capability_tiers() -> None:
 
 
 def test_integrated_2d_production_case_includes_anomalous_diffusion_components() -> None:
-    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    resolved = resolve_reference_cases(_REFERENCE_BASE)
     resolved_case = next(case for case in resolved if case.case.name == "integrated_2d_production_rhs")
     assert resolved_case.run_config is not None
     labels = tuple(component.label for component in resolved_case.run_config.components)
@@ -568,7 +577,9 @@ def test_default_manifest_stages_tokamak_linear_transport_one_step_case() -> Non
 
 
 def test_tokamak_diffusion_flow_case_includes_momentum_and_anomalous_diffusion_components() -> None:
-    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    resolved = resolve_reference_cases(_REFERENCE_BASE)
     resolved_case = next(case for case in resolved if case.case.name == "tokamak_diffusion_flow_one_step")
     assert resolved_case.run_config is not None
     labels = tuple(component.label for component in resolved_case.run_config.components)
@@ -579,7 +590,9 @@ def test_tokamak_diffusion_flow_case_includes_momentum_and_anomalous_diffusion_c
 
 
 def test_tokamak_diffusion_case_includes_density_and_anomalous_diffusion_components() -> None:
-    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    resolved = resolve_reference_cases(_REFERENCE_BASE)
     resolved_case = next(case for case in resolved if case.case.name == "tokamak_diffusion_one_step")
     assert resolved_case.run_config is not None
     labels = tuple(component.label for component in resolved_case.run_config.components)
@@ -588,7 +601,9 @@ def test_tokamak_diffusion_case_includes_density_and_anomalous_diffusion_compone
 
 
 def test_tokamak_diffusion_transport_case_includes_coupled_transport_components() -> None:
-    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    resolved = resolve_reference_cases(_REFERENCE_BASE)
     resolved_case = next(case for case in resolved if case.case.name == "tokamak_diffusion_transport_one_step")
     assert resolved_case.run_config is not None
     labels = tuple(component.label for component in resolved_case.run_config.components)
@@ -603,7 +618,9 @@ def test_tokamak_diffusion_transport_case_includes_coupled_transport_components(
 
 
 def test_tokamak_diffusion_transport_short_window_case_includes_coupled_transport_components() -> None:
-    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    resolved = resolve_reference_cases(_REFERENCE_BASE)
     resolved_case = next(case for case in resolved if case.case.name == "tokamak_diffusion_transport_short_window")
     assert resolved_case.run_config is not None
     labels = tuple(component.label for component in resolved_case.run_config.components)
@@ -618,7 +635,9 @@ def test_tokamak_diffusion_transport_short_window_case_includes_coupled_transpor
 
 
 def test_tokamak_heat_transport_case_includes_heat_transport_components() -> None:
-    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    resolved = resolve_reference_cases(_REFERENCE_BASE)
     resolved_case = next(case for case in resolved if case.case.name == "tokamak_heat_transport_one_step")
     assert resolved_case.run_config is not None
     labels = tuple(component.label for component in resolved_case.run_config.components)
@@ -632,7 +651,9 @@ def test_tokamak_heat_transport_case_includes_heat_transport_components() -> Non
 
 
 def test_tokamak_heat_transport_short_window_case_includes_heat_transport_components() -> None:
-    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    resolved = resolve_reference_cases(_REFERENCE_BASE)
     resolved_case = next(case for case in resolved if case.case.name == "tokamak_heat_transport_short_window")
     assert resolved_case.run_config is not None
     labels = tuple(component.label for component in resolved_case.run_config.components)
@@ -646,7 +667,9 @@ def test_tokamak_heat_transport_short_window_case_includes_heat_transport_compon
 
 
 def test_tokamak_diffusion_conduction_case_includes_conduction_components() -> None:
-    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    resolved = resolve_reference_cases(_REFERENCE_BASE)
     resolved_case = next(case for case in resolved if case.case.name == "tokamak_diffusion_conduction_one_step")
     assert resolved_case.run_config is not None
     labels = tuple(component.label for component in resolved_case.run_config.components)
@@ -661,7 +684,9 @@ def test_tokamak_diffusion_conduction_case_includes_conduction_components() -> N
 
 
 def test_tokamak_linear_transport_case_includes_fixed_density_transport_components() -> None:
-    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    resolved = resolve_reference_cases(_REFERENCE_BASE)
     resolved_case = next(case for case in resolved if case.case.name == "tokamak_linear_transport_one_step")
     assert resolved_case.run_config is not None
     labels = tuple(component.label for component in resolved_case.run_config.components)

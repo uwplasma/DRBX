@@ -33,16 +33,17 @@ from jax_drb.parity.arrays import write_portable_array_payload
 from jax_drb.parity.recycling import extract_recycling_controller_snapshot
 from jax_drb.reference.cases import load_reference_cases
 from jax_drb.runtime.run_config import RunConfiguration
+from jax_drb.reference.paths import default_reference_root
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
+_REFERENCE_ROOT = default_reference_root() or Path("/nonexistent-reference-root")
 _BASELINE_DIR = _REPO_ROOT / "references/baselines/reference_arrays"
 _STAGED_REFERENCE_1D = Path("/private/tmp/jax_drb_recycling_1d_one_step_inspect")
 _STAGED_REFERENCE_DTHE = Path("/private/tmp/jax_drb_recycling_dthe_one_step_inspect")
 _STAGED_REFERENCE_DTHE_DIAG = Path("/private/tmp/jax_drb_recycling_dthe_one_step_diag2")
-_INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-_INPUT_DTHE = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
+_INPUT_1D = _REFERENCE_ROOT / "tests/integrated/1D-recycling/data/BOUT.inp"
+_INPUT_DTHE = _REFERENCE_ROOT / "tests/integrated/1D-recycling-dthe/data/BOUT.inp"
 
 
 def _has_staged_reference_files(path: Path) -> bool:

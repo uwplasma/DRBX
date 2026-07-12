@@ -49,11 +49,11 @@ from jax_drb.native.recycling_layout import (
 )
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.runtime.run_config import RunConfiguration
+from jax_drb.reference.paths import default_reference_root
 
 
-_DTHE_INPUT = Path(
-    "/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp"
-)
+_REFERENCE_BASE = default_reference_root() or Path("/nonexistent-reference-root")
+_DTHE_INPUT = _REFERENCE_BASE / "tests/integrated/1D-recycling-dthe/data/BOUT.inp"
 _DTHE_FIXTURE_INPUT = (
     Path(__file__).resolve().parent
     / "fixtures"
@@ -64,9 +64,7 @@ _DTHE_FIXTURE_INPUT = (
     / "data"
     / "BOUT.inp"
 )
-_HYDROGEN_INPUT = Path(
-    "/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp"
-)
+_HYDROGEN_INPUT = _REFERENCE_BASE / "tests/integrated/1D-recycling/data/BOUT.inp"
 
 
 def _build_dthe_context(input_path: Path):

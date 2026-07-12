@@ -16,11 +16,12 @@ from jax_drb.native.reference_dump import save_local_reference_snapshot_cache, s
 from jax_drb.parity.arrays import build_array_payload_from_summary_payload, compare_array_payloads, load_portable_array_payload
 from jax_drb.parity.compare import compare_summary_payloads, load_summary_json
 from jax_drb.reference.cases import ReferenceCase
+from jax_drb.reference.paths import default_reference_root
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-flow-evolveT/BOUT.inp")
-_REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
+_REFERENCE_ROOT = default_reference_root() or Path("/nonexistent-reference-root")
+_REFERENCE_INPUT = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion-flow-evolveT/BOUT.inp"
 _BASELINE_DIR = _REPO_ROOT / "references/baselines/reference"
 _ARRAY_BASELINE_DIR = _REPO_ROOT / "references/baselines/reference_arrays"
 
@@ -124,7 +125,7 @@ def test_tokamak_diffusion_flow_one_step_stacks_initial_and_final_snapshots(monk
     result = native_runner._run_tokamak_diffusion_flow_one_step_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1]
@@ -142,7 +143,7 @@ def test_tokamak_diffusion_flow_one_step_stacks_initial_and_final_snapshots(monk
 
 
 def test_tokamak_diffusion_one_step_stacks_initial_and_final_snapshots(monkeypatch: pytest.MonkeyPatch) -> None:
-    diffusion_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion/BOUT.inp")
+    diffusion_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion/BOUT.inp"
     if not diffusion_input.exists():
         pytest.skip("tokamak diffusion reference input is unavailable")
 
@@ -200,7 +201,7 @@ def test_tokamak_diffusion_one_step_stacks_initial_and_final_snapshots(monkeypat
     result = native_runner._run_tokamak_diffusion_one_step_case(
         case,
         input_path=diffusion_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1]
@@ -214,7 +215,7 @@ def test_tokamak_diffusion_one_step_stacks_initial_and_final_snapshots(monkeypat
 def test_tokamak_diffusion_transport_one_step_stacks_initial_and_final_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    transport_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-transport/BOUT.inp")
+    transport_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion-transport/BOUT.inp"
     if not transport_input.exists():
         pytest.skip("tokamak diffusion-transport reference input is unavailable")
 
@@ -269,7 +270,7 @@ def test_tokamak_diffusion_transport_one_step_stacks_initial_and_final_snapshots
     result = native_runner._run_tokamak_diffusion_transport_one_step_case(
         case,
         input_path=transport_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1]
@@ -290,7 +291,7 @@ def test_tokamak_diffusion_transport_one_step_stacks_initial_and_final_snapshots
 
 
 def test_tokamak_diffusion_transport_one_step_matches_committed_baselines() -> None:
-    transport_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-transport/BOUT.inp")
+    transport_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion-transport/BOUT.inp"
     if not transport_input.exists():
         pytest.skip("tokamak diffusion-transport reference input is unavailable")
 
@@ -306,7 +307,7 @@ def test_tokamak_diffusion_transport_one_step_matches_committed_baselines() -> N
     assert array_comparison.ok, array_comparison.issues
 
 def test_tokamak_diffusion_one_step_matches_committed_baselines() -> None:
-    diffusion_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion/BOUT.inp")
+    diffusion_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion/BOUT.inp"
     if not diffusion_input.exists():
         pytest.skip("tokamak diffusion reference input is unavailable")
     summary_path = _BASELINE_DIR / "tokamak_diffusion_one_step.json"
@@ -329,7 +330,7 @@ def test_tokamak_diffusion_one_step_matches_committed_baselines() -> None:
 def test_tokamak_diffusion_transport_short_window_stacks_full_snapshot_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    transport_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-transport/BOUT.inp")
+    transport_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion-transport/BOUT.inp"
     if not transport_input.exists():
         pytest.skip("tokamak diffusion-transport reference input is unavailable")
 
@@ -394,7 +395,7 @@ def test_tokamak_diffusion_transport_short_window_stacks_full_snapshot_history(
     result = native_runner._run_tokamak_diffusion_transport_short_window_case(
         case,
         input_path=transport_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1, 2, 3, 4, 5]
@@ -411,7 +412,7 @@ def test_tokamak_diffusion_transport_short_window_stacks_full_snapshot_history(
 
 
 def test_tokamak_diffusion_transport_short_window_matches_committed_baselines() -> None:
-    transport_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-transport/BOUT.inp")
+    transport_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion-transport/BOUT.inp"
     if not transport_input.exists():
         pytest.skip("tokamak diffusion-transport reference input is unavailable")
     summary_path = _BASELINE_DIR / "tokamak_diffusion_transport_short_window.json"
@@ -434,7 +435,7 @@ def test_tokamak_diffusion_transport_short_window_matches_committed_baselines() 
 def test_tokamak_heat_transport_one_step_stacks_initial_and_final_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    heat_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/heat-transport/BOUT.inp")
+    heat_input = _REFERENCE_ROOT / "examples/tokamak-2D/heat-transport/BOUT.inp"
     if not heat_input.exists():
         pytest.skip("tokamak heat-transport reference input is unavailable")
 
@@ -493,7 +494,7 @@ def test_tokamak_heat_transport_one_step_stacks_initial_and_final_snapshots(
     result = native_runner._run_tokamak_heat_transport_one_step_case(
         case,
         input_path=heat_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1]
@@ -505,7 +506,7 @@ def test_tokamak_heat_transport_one_step_stacks_initial_and_final_snapshots(
 
 
 def test_tokamak_heat_transport_one_step_matches_committed_baselines() -> None:
-    heat_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/heat-transport/BOUT.inp")
+    heat_input = _REFERENCE_ROOT / "examples/tokamak-2D/heat-transport/BOUT.inp"
     if not heat_input.exists():
         pytest.skip("tokamak heat-transport reference input is unavailable")
     summary_path = _BASELINE_DIR / "tokamak_heat_transport_one_step.json"
@@ -528,7 +529,7 @@ def test_tokamak_heat_transport_one_step_matches_committed_baselines() -> None:
 def test_tokamak_heat_transport_short_window_stacks_full_snapshot_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    heat_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/heat-transport/BOUT.inp")
+    heat_input = _REFERENCE_ROOT / "examples/tokamak-2D/heat-transport/BOUT.inp"
     if not heat_input.exists():
         pytest.skip("tokamak heat-transport reference input is unavailable")
 
@@ -588,7 +589,7 @@ def test_tokamak_heat_transport_short_window_stacks_full_snapshot_history(
     result = native_runner._run_tokamak_heat_transport_short_window_case(
         case,
         input_path=heat_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1, 2]
@@ -600,7 +601,7 @@ def test_tokamak_heat_transport_short_window_stacks_full_snapshot_history(
 
 
 def test_tokamak_heat_transport_short_window_matches_committed_baselines() -> None:
-    heat_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/heat-transport/BOUT.inp")
+    heat_input = _REFERENCE_ROOT / "examples/tokamak-2D/heat-transport/BOUT.inp"
     if not heat_input.exists():
         pytest.skip("tokamak heat-transport reference input is unavailable")
     summary_path = _BASELINE_DIR / "tokamak_heat_transport_short_window.json"
@@ -624,7 +625,7 @@ def test_tokamak_heat_transport_short_window_uses_committed_snapshot_and_history
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    heat_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/heat-transport/BOUT.inp")
+    heat_input = _REFERENCE_ROOT / "examples/tokamak-2D/heat-transport/BOUT.inp"
     if not heat_input.exists():
         pytest.skip("tokamak heat-transport reference input is unavailable")
 
@@ -687,7 +688,7 @@ def test_tokamak_heat_transport_short_window_uses_committed_snapshot_and_history
     result = native_runner._run_tokamak_heat_transport_short_window_case(
         case,
         input_path=heat_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == (0.0, 4000.0, 8000.0)
@@ -700,7 +701,7 @@ def test_tokamak_heat_transport_short_window_uses_committed_snapshot_and_history
 def test_tokamak_diffusion_conduction_one_step_stacks_initial_and_final_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    conduction_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-conduction/BOUT.inp")
+    conduction_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion-conduction/BOUT.inp"
     if not conduction_input.exists():
         pytest.skip("tokamak diffusion-conduction reference input is unavailable")
 
@@ -763,7 +764,7 @@ def test_tokamak_diffusion_conduction_one_step_stacks_initial_and_final_snapshot
     result = native_runner._run_tokamak_diffusion_conduction_one_step_case(
         case,
         input_path=conduction_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1]
@@ -781,7 +782,7 @@ def test_tokamak_diffusion_conduction_one_step_stacks_initial_and_final_snapshot
 
 
 def test_tokamak_diffusion_conduction_one_step_matches_committed_baselines() -> None:
-    conduction_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-conduction/BOUT.inp")
+    conduction_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion-conduction/BOUT.inp"
     if not conduction_input.exists():
         pytest.skip("tokamak diffusion-conduction reference input is unavailable")
     summary_path = _BASELINE_DIR / "tokamak_diffusion_conduction_one_step.json"
@@ -804,7 +805,7 @@ def test_tokamak_diffusion_conduction_one_step_matches_committed_baselines() -> 
 def test_tokamak_linear_transport_one_step_stacks_initial_and_final_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    linear_input = _REFERENCE_ROOT / "examples/tokamak-2D/linear-transport/BOUT.inp"
     if not linear_input.exists():
         pytest.skip("tokamak linear-transport reference input is unavailable")
 
@@ -863,7 +864,7 @@ def test_tokamak_linear_transport_one_step_stacks_initial_and_final_snapshots(
     result = native_runner._run_tokamak_linear_transport_one_step_case(
         case,
         input_path=linear_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1]
@@ -875,7 +876,7 @@ def test_tokamak_linear_transport_one_step_stacks_initial_and_final_snapshots(
 
 
 def test_tokamak_linear_transport_one_step_matches_committed_baselines() -> None:
-    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    linear_input = _REFERENCE_ROOT / "examples/tokamak-2D/linear-transport/BOUT.inp"
     if not linear_input.exists():
         pytest.skip("tokamak linear-transport reference input is unavailable")
     summary_path = _BASELINE_DIR / "tokamak_linear_transport_one_step.json"
@@ -899,7 +900,7 @@ def test_tokamak_linear_transport_one_step_uses_committed_snapshot_and_history_c
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    linear_input = _REFERENCE_ROOT / "examples/tokamak-2D/linear-transport/BOUT.inp"
     if not linear_input.exists():
         pytest.skip("tokamak linear-transport reference input is unavailable")
 
@@ -963,7 +964,7 @@ def test_tokamak_linear_transport_one_step_uses_committed_snapshot_and_history_c
     result = native_runner._run_tokamak_linear_transport_one_step_case(
         case,
         input_path=linear_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == (0.0, 10000.0)
@@ -976,7 +977,7 @@ def test_tokamak_linear_transport_one_step_uses_committed_snapshot_and_history_c
 def test_tokamak_isothermal_one_step_stacks_initial_and_final_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1042,7 +1043,7 @@ def test_tokamak_isothermal_one_step_stacks_initial_and_final_snapshots(
     result = native_runner._run_tokamak_isothermal_one_step_case(
         case,
         input_path=isothermal_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1]
@@ -1061,7 +1062,7 @@ def test_tokamak_isothermal_one_step_stacks_initial_and_final_snapshots(
 
 
 def test_tokamak_isothermal_one_step_matches_committed_baselines() -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1086,7 +1087,7 @@ def test_tokamak_isothermal_one_step_uses_committed_snapshot_and_history_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1149,7 +1150,7 @@ def test_tokamak_isothermal_one_step_uses_committed_snapshot_and_history_cache(
     result = native_runner._run_tokamak_isothermal_one_step_case(
         case,
         input_path=isothermal_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == (0.0, 0.1)
@@ -1160,7 +1161,7 @@ def test_tokamak_isothermal_one_step_uses_committed_snapshot_and_history_cache(
 def test_tokamak_isothermal_short_window_stacks_full_snapshot_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1226,7 +1227,7 @@ def test_tokamak_isothermal_short_window_stacks_full_snapshot_history(
     result = native_runner._run_tokamak_isothermal_short_window_case(
         case,
         input_path=isothermal_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1, 2]
@@ -1245,7 +1246,7 @@ def test_tokamak_isothermal_short_window_stacks_full_snapshot_history(
 
 
 def test_tokamak_isothermal_short_window_matches_committed_baselines() -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1270,7 +1271,7 @@ def test_tokamak_isothermal_short_window_uses_committed_snapshot_and_history_cac
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1333,7 +1334,7 @@ def test_tokamak_isothermal_short_window_uses_committed_snapshot_and_history_cac
     result = native_runner._run_tokamak_isothermal_short_window_case(
         case,
         input_path=isothermal_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == (0.0, 0.1, 0.2)
@@ -1349,7 +1350,7 @@ def test_tokamak_isothermal_short_window_uses_committed_snapshot_and_history_cac
 def test_tokamak_isothermal_medium_window_stacks_full_snapshot_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1415,7 +1416,7 @@ def test_tokamak_isothermal_medium_window_stacks_full_snapshot_history(
     result = native_runner._run_tokamak_isothermal_medium_window_case(
         case,
         input_path=isothermal_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1, 2, 3, 4, 5]
@@ -1434,7 +1435,7 @@ def test_tokamak_isothermal_medium_window_stacks_full_snapshot_history(
 
 
 def test_tokamak_isothermal_medium_window_matches_committed_baselines() -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1459,7 +1460,7 @@ def test_tokamak_isothermal_medium_window_uses_committed_snapshot_and_history_ca
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1522,7 +1523,7 @@ def test_tokamak_isothermal_medium_window_uses_committed_snapshot_and_history_ca
     result = native_runner._run_tokamak_isothermal_medium_window_case(
         case,
         input_path=isothermal_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == pytest.approx((0.0, 0.1, 0.2, 0.3, 0.4, 0.5))
@@ -1538,7 +1539,7 @@ def test_tokamak_isothermal_medium_window_uses_committed_snapshot_and_history_ca
 def test_tokamak_isothermal_rhs_stacks_initial_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1620,7 +1621,7 @@ def test_tokamak_isothermal_rhs_stacks_initial_snapshot(
     result = native_runner._run_tokamak_isothermal_rhs_case(
         case,
         input_path=isothermal_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0]
@@ -1642,7 +1643,7 @@ def test_tokamak_isothermal_rhs_stacks_initial_snapshot(
 
 
 def test_tokamak_isothermal_rhs_matches_committed_baselines() -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1667,7 +1668,7 @@ def test_tokamak_isothermal_rhs_uses_committed_snapshot_and_history_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    isothermal_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/isothermal/BOUT.inp")
+    isothermal_input = _REFERENCE_ROOT / "examples/tokamak-2D/isothermal/BOUT.inp"
     if not isothermal_input.exists():
         pytest.skip("tokamak isothermal reference input is unavailable")
 
@@ -1740,7 +1741,7 @@ def test_tokamak_isothermal_rhs_uses_committed_snapshot_and_history_cache(
     result = native_runner._run_tokamak_isothermal_rhs_case(
         case,
         input_path=isothermal_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == (0.0,)
@@ -1759,7 +1760,7 @@ def test_tokamak_isothermal_rhs_uses_committed_snapshot_and_history_cache(
 def test_tokamak_linear_transport_short_window_stacks_full_snapshot_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    linear_input = _REFERENCE_ROOT / "examples/tokamak-2D/linear-transport/BOUT.inp"
     if not linear_input.exists():
         pytest.skip("tokamak linear-transport reference input is unavailable")
 
@@ -1818,7 +1819,7 @@ def test_tokamak_linear_transport_short_window_stacks_full_snapshot_history(
     result = native_runner._run_tokamak_linear_transport_short_window_case(
         case,
         input_path=linear_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1, 2, 3, 4, 5]
@@ -1829,7 +1830,7 @@ def test_tokamak_linear_transport_short_window_stacks_full_snapshot_history(
 
 
 def test_tokamak_linear_transport_short_window_matches_committed_baselines() -> None:
-    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    linear_input = _REFERENCE_ROOT / "examples/tokamak-2D/linear-transport/BOUT.inp"
     if not linear_input.exists():
         pytest.skip("tokamak linear-transport reference input is unavailable")
 
@@ -1854,7 +1855,7 @@ def test_tokamak_linear_transport_short_window_uses_committed_snapshot_and_histo
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    linear_input = _REFERENCE_ROOT / "examples/tokamak-2D/linear-transport/BOUT.inp"
     if not linear_input.exists():
         pytest.skip("tokamak linear-transport reference input is unavailable")
 
@@ -1912,7 +1913,7 @@ def test_tokamak_linear_transport_short_window_uses_committed_snapshot_and_histo
     result = native_runner._run_tokamak_linear_transport_short_window_case(
         case,
         input_path=linear_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == (0.0, 10000.0, 20000.0, 30000.0, 40000.0, 50000.0)
@@ -1924,7 +1925,7 @@ def test_tokamak_linear_transport_short_window_uses_committed_snapshot_and_histo
 def test_tokamak_diffusion_conduction_short_window_stacks_full_snapshot_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    conduction_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-conduction/BOUT.inp")
+    conduction_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion-conduction/BOUT.inp"
     if not conduction_input.exists():
         pytest.skip("tokamak diffusion-conduction reference input is unavailable")
 
@@ -1987,7 +1988,7 @@ def test_tokamak_diffusion_conduction_short_window_stacks_full_snapshot_history(
     result = native_runner._run_tokamak_diffusion_conduction_short_window_case(
         case,
         input_path=conduction_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1, 2, 3, 4, 5]
@@ -2001,7 +2002,7 @@ def test_tokamak_diffusion_conduction_short_window_stacks_full_snapshot_history(
 
 
 def test_tokamak_diffusion_conduction_short_window_matches_committed_baselines() -> None:
-    conduction_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-conduction/BOUT.inp")
+    conduction_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion-conduction/BOUT.inp"
     if not conduction_input.exists():
         pytest.skip("tokamak diffusion-conduction reference input is unavailable")
 
@@ -2026,7 +2027,7 @@ def test_tokamak_diffusion_conduction_short_window_uses_committed_snapshot_and_h
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    conduction_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-conduction/BOUT.inp")
+    conduction_input = _REFERENCE_ROOT / "examples/tokamak-2D/diffusion-conduction/BOUT.inp"
     if not conduction_input.exists():
         pytest.skip("tokamak diffusion-conduction reference input is unavailable")
 
@@ -2086,7 +2087,7 @@ def test_tokamak_diffusion_conduction_short_window_uses_committed_snapshot_and_h
     result = native_runner._run_tokamak_diffusion_conduction_short_window_case(
         case,
         input_path=conduction_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == (0.0, 50.0, 100.0, 150.0, 200.0, 250.0)
@@ -2099,7 +2100,7 @@ def test_tokamak_diffusion_conduction_short_window_uses_committed_snapshot_and_h
 def test_tokamak_turbulence_rhs_stacks_initial_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    turbulence_input = _REFERENCE_ROOT / "examples/tokamak-2D/turbulence/BOUT.inp"
     if not turbulence_input.exists():
         pytest.skip("tokamak turbulence reference input is unavailable")
 
@@ -2174,7 +2175,7 @@ def test_tokamak_turbulence_rhs_stacks_initial_snapshot(
     result = native_runner._run_tokamak_turbulence_rhs_case(
         case,
         input_path=turbulence_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0]
@@ -2197,7 +2198,7 @@ def test_tokamak_turbulence_rhs_stacks_initial_snapshot(
 
 
 def test_tokamak_turbulence_rhs_matches_committed_baselines() -> None:
-    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    turbulence_input = _REFERENCE_ROOT / "examples/tokamak-2D/turbulence/BOUT.inp"
     if not turbulence_input.exists():
         pytest.skip("tokamak turbulence reference input is unavailable")
 
@@ -2222,7 +2223,7 @@ def test_tokamak_turbulence_rhs_uses_committed_snapshot_and_history_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    turbulence_input = _REFERENCE_ROOT / "examples/tokamak-2D/turbulence/BOUT.inp"
     if not turbulence_input.exists():
         pytest.skip("tokamak turbulence reference input is unavailable")
 
@@ -2295,7 +2296,7 @@ def test_tokamak_turbulence_rhs_uses_committed_snapshot_and_history_cache(
     result = native_runner._run_tokamak_turbulence_rhs_case(
         case,
         input_path=turbulence_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == (0.0,)
@@ -2312,7 +2313,7 @@ def test_tokamak_turbulence_rhs_uses_committed_snapshot_and_history_cache(
 def test_tokamak_turbulence_one_step_stacks_initial_and_final_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    turbulence_input = _REFERENCE_ROOT / "examples/tokamak-2D/turbulence/BOUT.inp"
     if not turbulence_input.exists():
         pytest.skip("tokamak turbulence reference input is unavailable")
 
@@ -2384,7 +2385,7 @@ def test_tokamak_turbulence_one_step_stacks_initial_and_final_snapshots(
     result = native_runner._run_tokamak_turbulence_one_step_case(
         case,
         input_path=turbulence_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1]
@@ -2405,7 +2406,7 @@ def test_tokamak_turbulence_one_step_stacks_initial_and_final_snapshots(
 
 
 def test_tokamak_turbulence_one_step_matches_committed_baselines() -> None:
-    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    turbulence_input = _REFERENCE_ROOT / "examples/tokamak-2D/turbulence/BOUT.inp"
     if not turbulence_input.exists():
         pytest.skip("tokamak turbulence reference input is unavailable")
 
@@ -2430,7 +2431,7 @@ def test_tokamak_turbulence_one_step_uses_committed_snapshot_and_history_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    turbulence_input = _REFERENCE_ROOT / "examples/tokamak-2D/turbulence/BOUT.inp"
     if not turbulence_input.exists():
         pytest.skip("tokamak turbulence reference input is unavailable")
 
@@ -2499,7 +2500,7 @@ def test_tokamak_turbulence_one_step_uses_committed_snapshot_and_history_cache(
     result = native_runner._run_tokamak_turbulence_one_step_case(
         case,
         input_path=turbulence_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == (0.0, 0.1)
@@ -2520,7 +2521,7 @@ def test_tokamak_turbulence_one_step_uses_committed_snapshot_and_history_cache(
 def test_tokamak_turbulence_short_window_stacks_full_snapshot_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    turbulence_input = _REFERENCE_ROOT / "examples/tokamak-2D/turbulence/BOUT.inp"
     if not turbulence_input.exists():
         pytest.skip("tokamak turbulence reference input is unavailable")
 
@@ -2593,7 +2594,7 @@ def test_tokamak_turbulence_short_window_stacks_full_snapshot_history(
     result = native_runner._run_tokamak_turbulence_short_window_case(
         case,
         input_path=turbulence_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured_time_indices == [0, 1, 2]
@@ -2605,7 +2606,7 @@ def test_tokamak_turbulence_short_window_stacks_full_snapshot_history(
 
 
 def test_tokamak_turbulence_short_window_matches_committed_baselines() -> None:
-    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    turbulence_input = _REFERENCE_ROOT / "examples/tokamak-2D/turbulence/BOUT.inp"
     if not turbulence_input.exists():
         pytest.skip("tokamak turbulence reference input is unavailable")
 
@@ -2630,7 +2631,7 @@ def test_tokamak_turbulence_short_window_uses_committed_snapshot_and_history_cac
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    turbulence_input = _REFERENCE_ROOT / "examples/tokamak-2D/turbulence/BOUT.inp"
     if not turbulence_input.exists():
         pytest.skip("tokamak turbulence reference input is unavailable")
 
@@ -2700,7 +2701,7 @@ def test_tokamak_turbulence_short_window_uses_committed_snapshot_and_history_cac
     result = native_runner._run_tokamak_turbulence_short_window_case(
         case,
         input_path=turbulence_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.time_points == (0.0, 0.1, 0.2)

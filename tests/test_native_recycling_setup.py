@@ -17,10 +17,13 @@ from jax_drb.native.recycling_setup import (
 )
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
+from jax_drb.reference.paths import default_reference_root
 
 
-_INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-_TOKAMAK_RECYCLING_INPUT = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling/BOUT.inp")
+_REFERENCE_ROOT = default_reference_root()
+_REFERENCE_BASE = _REFERENCE_ROOT if _REFERENCE_ROOT is not None else Path("/nonexistent-reference-root")
+_INPUT_1D = _REFERENCE_BASE / "tests/integrated/1D-recycling/data/BOUT.inp"
+_TOKAMAK_RECYCLING_INPUT = _REFERENCE_BASE / "examples/tokamak-2D/recycling/BOUT.inp"
 
 
 def _simple_mesh() -> StructuredMesh:
@@ -46,14 +49,18 @@ def _simple_mesh() -> StructuredMesh:
 
 
 def test_try_literal_reference_recognizes_existing_option() -> None:
-    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    config = load_bout_input(_REFERENCE_BASE / "examples/tokamak-2D/recycling-dthe/BOUT.inp")
 
     assert try_literal_reference(config, "`d+:anomalous_D`") == ("d+", "anomalous_D")
     assert try_literal_reference(config, "d+:anomalous_D") is None
 
 
 def test_resolve_species_numeric_option_handles_literal_reference() -> None:
-    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp"))
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
+    config = load_bout_input(_REFERENCE_BASE / "examples/tokamak-2D/recycling-dthe/BOUT.inp")
 
     assert resolve_species_numeric_option(config, "e", "anomalous_D") == pytest.approx(
         resolve_species_numeric_option(config, "d+", "anomalous_D")
@@ -61,6 +68,8 @@ def test_resolve_species_numeric_option_handles_literal_reference() -> None:
 
 
 def test_initialize_species_keeps_neutral_mixed_species_from_string_type() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = load_bout_input(_TOKAMAK_RECYCLING_INPUT)
     mesh = _simple_mesh()
     field_overrides = {
@@ -82,6 +91,8 @@ def test_initialize_species_keeps_neutral_mixed_species_from_string_type() -> No
 
 
 def test_explicit_pressure_source_normalizes_scalar_expression() -> None:
+    if _REFERENCE_ROOT is None:
+        pytest.skip("external hermes-3 reference checkout not available")
     config = apply_bout_overrides(load_bout_input(_INPUT_1D), ("Pd+:source=2.0",))
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
