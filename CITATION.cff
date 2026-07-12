@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use JAXDRB in published work, please cite this software."
 title: "JAXDRB: JAX-first drift-reduced Braginskii edge and scrape-off-layer plasma modeling"
-version: "1.0.3"
+version: "2.0.0.dev0"
 date-released: "2026-06-20"
 type: software
 license: MIT

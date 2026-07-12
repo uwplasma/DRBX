@@ -15,8 +15,7 @@ on:
           - all-ci
           - all-local
           - all-gpu
-          - closeout-coverage
-          - promoted-solver-coverage
+          - coverage
           - local-cpu-scaling
           - atomic-rate-throughput-gate
           - live-reference

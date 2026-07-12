@@ -232,7 +232,7 @@ refreshes so the publish workflow remains skipped.
 
 ## Current Release Boundary
 
-The current package release target is `1.0.3`. The already published `v1.0.2`
+The current package release target is `2.0.0.dev0`. The already published `v1.0.2`
 tag must not be moved; publish the next package release as `v1.0.3` when the
 remaining local and hosted gates are accepted.
 
