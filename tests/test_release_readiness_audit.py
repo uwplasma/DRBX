@@ -23,7 +23,7 @@ def test_release_readiness_audit_passes_current_tree_without_footprint() -> None
     result = audit.run_audit(REPO_ROOT, check_footprint=False)
 
     assert result["passed"], result["failures"]
-    assert result["version"] == "1.0.3"
+    assert result["version"] == "2.0.0.dev0"
 
 
 def test_release_readiness_audit_ignores_python_version_markers_for_pins() -> None:

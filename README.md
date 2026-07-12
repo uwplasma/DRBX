@@ -770,6 +770,7 @@ python -m build
 Release/package documentation:
 
 - [docs/release_packaging.md](docs/release_packaging.md)
+- [docs/release_notes_2_0_0_dev0.md](docs/release_notes_2_0_0_dev0.md)
 - [docs/release_notes_1_0_3.md](docs/release_notes_1_0_3.md)
 - [docs/release_notes_1_0_2.md](docs/release_notes_1_0_2.md)
 - [docs/release_notes_1_0_1.md](docs/release_notes_1_0_1.md)

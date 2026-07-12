@@ -57,6 +57,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "autodiff_diffusion_uncertainty_demo.md",
     REPO_ROOT / "docs" / "closeout_coverage.md",
     REPO_ROOT / "docs" / "release_packaging.md",
+    REPO_ROOT / "docs" / "release_notes_2_0_0_dev0.md",
     REPO_ROOT / "docs" / "release_notes_1_0_3.md",
     REPO_ROOT / "docs" / "release_notes_1_0_2.md",
     REPO_ROOT / "docs" / "release_notes_1_0_1.md",
