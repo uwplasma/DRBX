@@ -2,234 +2,75 @@
 
 [![Tests](https://github.com/uwplasma/jax_drb/actions/workflows/test.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/test.yml)
 [![Docs](https://github.com/uwplasma/jax_drb/actions/workflows/docs.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/docs.yml)
-[![Closeout Coverage](https://github.com/uwplasma/jax_drb/actions/workflows/coverage.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/coverage.yml)
-[![Research Campaigns](https://github.com/uwplasma/jax_drb/actions/workflows/research-campaigns.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/research-campaigns.yml)
-[![PyPI publish](https://github.com/uwplasma/jax_drb/actions/workflows/publish-pypi.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/publish-pypi.yml)
+[![Coverage](https://github.com/uwplasma/jax_drb/actions/workflows/coverage.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/coverage.yml)
 [![PyPI](https://img.shields.io/pypi/v/jax-drb.svg)](https://pypi.org/project/jax-drb/)
 [![Python](https://img.shields.io/pypi/pyversions/jax-drb.svg)](https://pypi.org/project/jax-drb/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![JAX](https://img.shields.io/badge/JAX-enabled-0a9396.svg)](https://jax.readthedocs.io/)
 [![Read the Docs](https://readthedocs.org/projects/jax-drb/badge/?version=latest)](https://jax-drb.readthedocs.io/)
 
-`jax_drb` provides JAXDRB, a JAX-first edge and scrape-off-layer plasma
-toolkit for drift-reduced Braginskii modeling, electrostatic turbulence,
-neutral transport, differentiable reduced studies, curated tokamak workflows,
-and reusable 3D geometry diagnostics.
+**`jax_drb` is a JAX-based, end-to-end differentiable drift-reduced Braginskii
+(DRB) code for edge and scrape-off-layer (SOL) plasma turbulence** — on both
+closed and open field lines, in axisymmetric (tokamak) and non-axisymmetric
+(stellarator) geometry via the flux-coordinate-independent (FCI) approach.
 
-Documentation is available at [jax-drb.readthedocs.io](https://jax-drb.readthedocs.io/).
-For the complete user map from features to examples, inputs, outputs, source
-code, and tests, start with the
-[Feature Reference](https://jax-drb.readthedocs.io/en/latest/feature_reference/).
+Because the whole model is written in JAX, every simulation is `jit`-compiled,
+runs on CPU or GPU unchanged, and is differentiable: you can take gradients of
+any output (a target heat flux, a detachment-front position) with respect to
+any input (an anomalous diffusivity, an impurity fraction) through the solver.
+To our knowledge no other published DRB SOL turbulence code is differentiable,
+and none combines differentiability with FCI stellarator geometry.
 
-JAXDRB is built for researchers who want a lightweight codebase that can run
-from a clean clone, produce publication-quality diagnostics, and expose
-JAX-transformable kernels where differentiability is already validated.
+Documentation: [jax-drb.readthedocs.io](https://jax-drb.readthedocs.io/).
 
-What ships in the current release:
+## What it does
 
-- a standalone CLI and Python API for native simulations and diagnostics,
-- restartable runs with structured progress, timing, and artifact provenance,
-- self-contained tokamak and stellarator examples backed by lightweight
-  release-hosted media,
-- validation campaigns with explicit capability tiers and conservative claim
-  boundaries,
-- reusable 3D geometry, movie, selected-field, connection-length, and FCI map
-  comparison tools,
-- gridded VMEC-extender edge-field import with physical-phi interpolation, FCI
-  map construction, and a compact SOL verification gate,
-- differentiable driver paths for sensitivity analysis, uncertainty
-  propagation, inverse design, and fixed-workload scaling.
-
-The stable release boundary is explicit: compact native solvers, selected
-operator gates, fixed-layout residual seams, and differentiable examples are
-promoted where their tests and artifacts say so; full output-window recycling
-still defaults to the validated compatibility BDF path, with JAX-linearized and
-JVP variants kept as opt-in research gates until same-fidelity parity and
-runtime evidence are strong enough to promote them.
-
-## Incorporated FCI/Sharding Stack (from PR #3)
-
-The repository incorporates the flux-coordinate-independent (FCI) operator
-and sharding groundwork contributed by Aiken Xie in
-[pull request #3](https://github.com/uwplasma/jax_drb/pull/3) (branch
-`3D_fci`). Specifically incorporated:
-
-- `src/jax_drb/geometry/fci_geometry.py` — the cell-centered 3D FCI geometry
-  payload (`FciGeometry3D`), halo layouts, shard specs, local domains, and
-  metric/B-field face geometry for domain decomposition;
-- `src/jax_drb/native/fci_operators.py` — consistent finite-volume FCI
-  operators (parallel gradient/divergence, perpendicular Laplacian) written
-  for both single-device and sharded execution;
-- `src/jax_drb/native/fci_halo.py` — halo-exchange machinery for
-  `shard_map`-based domain decomposition;
-- `src/jax_drb/native/fci_boundaries.py`, `fci_helpers.py`, `fci_model.py` —
-  boundary conditions (Dirichlet/Neumann, cut-wall), state containers, and
-  shared helpers for the new stack;
-- `src/jax_drb/native/fci_2_field_rhs.py`, `fci_4_field_rhs.py`,
-  `fci_drb_EB_rhs.py`, `fci_time_integrator.py` — 2-field, 4-field, and
-  electromagnetic drift-reduced models on the new operators with an RK4
-  integrator;
-- the accompanying verification suites: method-of-manufactured-solutions
-  tests on slab and shifted-torus geometry (2-field, 4-field, EM), FCI
-  operator and domain-decomposition tests, halo-exchange tests, a multigrid
-  preconditioner test, and blob/free-decay physics tests;
-- FCI analysis and movie tooling under `dev/fci_analysis/`.
-
-This new stack currently coexists with the original FCI lane (the shipping
-stellarator campaigns still run on the original modules). Migrating the
-imported-geometry examples onto the new operators, and completing the
-sharded strong-scaling path it enables, are Phases 6-7 of
-[plan_jax_drb.md](plan_jax_drb.md). The unfinished parts of PR #3 (the
-partial rewiring of the ESSOS import path, which its author flagged as
-work-in-progress) were not incorporated.
-
-![Diverted tokamak dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
-
-![3D imported QA stellarator dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
+- Drift-reduced Braginskii models for edge/SOL turbulence: density, parallel
+  momentum, and pressure evolution with Braginskii closures, vorticity/potential,
+  sheath boundary conditions, and selected electromagnetic terms.
+- Neutrals and recycling: an advanced-fluid-neutral model, parallel neutral
+  diffusion, AMJUEL/ADAS ionization/recombination/charge-exchange rates,
+  target recycling, and impurity radiation — enough for 1D detachment studies.
+- Closed and open field lines in tokamak and stellarator geometry through the
+  FCI map, including imported ESSOS coil, VMEC, and hybrid equilibria.
+- Differentiable driver lanes: sensitivity analysis, uncertainty propagation,
+  and inverse design, with autodiff derivatives checked against finite
+  differences.
+- A TOML-deck CLI and a small Python API, restartable runs, and portable
+  JSON/NPZ output artifacts.
 
 ## Install
 
-PyPI:
+```bash
+pip install jax-drb          # from PyPI
+# or, from source:
+git clone https://github.com/uwplasma/jax_drb && cd jax_drb && pip install -e .
+```
+
+Runtime dependencies are `jax`, `scipy`, `matplotlib`, `netCDF4`, `rich`, and
+`pillow`. Python 3.10–3.12.
+
+## Quick start
+
+Run a simulation from a TOML deck, or inspect one without running it:
 
 ```bash
-pip install jax-drb
+jax_drb inspect examples/inputs/restartable_diffusion.toml   # resolve and print the plan
+jax_drb run     examples/inputs/restartable_diffusion.toml   # run and write artifacts
 ```
 
-From source:
-
-```bash
-git clone https://github.com/uwplasma/jax_drb
-cd jax_drb
-pip install -e .
-```
-
-The default installation already pulls in the runtime and analysis dependencies used by the main CLI, geometry tooling, and diagnostics, including `jax`, `diffrax`, `scipy`, `equinox`, `matplotlib`, and `netCDF4`.
-
-## Example Artifacts And Movies
-
-The git checkout is intentionally lightweight. Large generated arrays, figures,
-and GIFs used by the README, docs, tests, tokamak examples, and stellarator
-examples live in a GitHub release instead of git history.
-
-For this private repository, authenticate first and then restore the artifacts:
-
-```bash
-gh auth login --hostname github.com
-python scripts/fetch_example_artifacts.py
-```
-
-If you do not use the GitHub CLI, set `GH_TOKEN` or `GITHUB_TOKEN` to a token
-with access to `uwplasma/jax_drb`, then run the same fetch command. The command
-restores release-backed docs media under `docs/data/` and heavy validation
-baselines under `references/baselines/`.
-
-Set `JAX_DRB_ARTIFACT_CACHE_DIR=/path/to/cache` to share downloaded release
-archives across clean checkouts. The older `JAX_DRB_ARTIFACT_CACHE` name is
-also accepted.
-
-After that, users can run the documented user-facing examples and inspect the
-generated or restored PNG/GIF/NPZ outputs. Users do not need to install or
-download any external plasma code to run those examples or the README/docs
-movies. Live reference-code reruns are developer validation tasks only; the
-user-facing examples use JAXDRB code plus release-backed artifacts.
-
-## Quick Start
-
-Run a TOML deck:
-
-```bash
-jax_drb path/to/input.toml
-```
-
-Inspect a deck without running it:
-
-```bash
-jax_drb inspect path/to/input.toml
-```
-
-Learn which model family, dimension, fluid closure, and boundary family to
-choose before building a deck:
-
-```bash
-PYTHONPATH=src python examples/model_selection_guide.py
-```
-
-The guide is a lightweight dry run by default. It explains diffusion/reduced
-transport, drift-reduced Braginskii open-field models, one-fluid versus
-two-fluid choices, 1D/2D/3D tradeoffs, and diffusion/sheath/recycling/neutral
-boundary families while writing parse-checked starter decks under
-`output/model_selection_guide/`.
-
-Resume from a restart bundle:
-
-```bash
-jax_drb run path/to/input.toml \
-  --output-dir output/restarted_case \
-  --restart-in output/base_case/my_case_restart.npz \
-  --resume-steps 2
-```
-
-Use detailed runtime progress:
-
-```bash
-jax_drb run path/to/input.toml --verbose
-```
-
-## Python API
-
-```python
-from jax_drb.cli import main
-from jax_drb.native import run_input_case
-
-main(["run", "examples/inputs/restartable_diffusion.toml", "--quiet"])
-
-driver_result = run_input_case(
-    "examples/inputs/restartable_diffusion.toml",
-    case_name="diffusion_driver",
-    parity_mode="run",
-    verbose=True,
-)
-print(driver_result.time_points[-1])
-```
-
-## Input Model
-
-`jax_drb` uses structured TOML decks. Common top-level sections are:
-
-- `[time]`
-- `[runtime]`
-- `[runtime.logging]`
-- `[mesh]`
-- `[solver]`
-- `[model]`
-- `[output]`
-- `[restart]`
-- `[species.<name>]`
-- `[fields.<name>]`
-
-Example:
+A deck declares the mesh, the model components, and the initial fields:
 
 ```toml
 [time]
 nout = 2
 timestep = 0.1
 
-[runtime]
-precision = "float64"
-
-[runtime.logging]
-verbosity = "detailed"
-verbose = true
-quiet = false
-
 [mesh]
 nx = 32
 ny = 1
 nz = 1
 dx = 0.03125
-
-[solver]
-type = "native"
 
 [model]
 components = ["h"]
@@ -239,510 +80,110 @@ type = ["evolve_density", "evolve_pressure", "anomalous_diffusion"]
 
 [fields.Nh]
 function = { expr = "1 + 0.2 * exp(-((x-0.5)^2)/0.01)" }
-
-[fields.Ph]
-function = { expr = "0.1" }
-
-[output]
-directory = "output/my_case"
-write_summary = true
-write_arrays = true
-write_restart = true
-write_log = true
 ```
 
-## Output Artifacts
+From Python:
 
-Promoted native runs can write:
+```python
+from jax_drb.native import run_input_case
 
-- summary JSON,
-- arrays NPZ,
-- restart NPZ,
-- structured run-log JSON.
-
-The run log records:
-
-- capability tier,
-- runtime precision and backend,
-- mesh, solver, and time configuration,
-- ordered runtime events,
-- artifact locations,
-- restart provenance,
-- variable summaries.
-
-Detailed terminal mode is designed to keep long runs from looking hung. The CLI reports:
-
-- deck loading,
-- restart loading,
-- run launch and completion,
-- transient interval progress on recycling lanes, including interval count,
-  accepted timestep, simulated time, and estimated remaining wall time on the
-  live native implicit paths,
-- artifact writes.
-
-## Capability Tiers
-
-Curated validation cases are labeled explicitly:
-
-- `native_exact`: fully native on its promoted compare surface and strong enough for the main public benchmark surface,
-- `native_operational`: native and useful, but still carrying bounded residuals,
-- `scaffolded_reference_backed`: useful for diagnostics or geometry staging, but not counted as native closure.
-
-The current promoted matrix includes:
-
-- exact compact 2D blob, drift-wave, and tokamak lanes,
-- exact and operational recycling lanes with external-reference gates,
-- native 3D reduced tokamak, traced-field-line, and stellarator selected-field bundles,
-- non-axisymmetric FCI vorticity gates that compare Boussinesq and
-  non-Boussinesq perpendicular polarization and verify their constant-\(n/B^2\)
-  limit,
-- control, reaction, impurity, neutral, and profiling campaign packages.
-
-The detailed status surface lives in:
-
-- [docs/parity_harness.md](docs/parity_harness.md)
-- [docs/validation_gallery.md](docs/validation_gallery.md)
-
-## Validation Figures
-
-The README shows only a few representative artifacts. The full figure index,
-including operator convergence, reactions/collisions, neutrals, recycling,
-reference parity, CPU scaling, and differentiability plots, lives in
-[docs/validation_gallery.md](docs/validation_gallery.md).
-
-The neutral-mixed validation docs now separate pointwise target-cell drift from
-legacy zone max/rms summaries. The current accepted-step trace matches
-`309/309` max-order-2 reference-grid points, writes the `Dnnh` preparation
-ladder plus `Vh`/`eta_h`, records reference solver order, and uses the
-covariant `Grad(logPnlim)` metric norm with the carried metric terms. The
-latest component-enabled rerun explicitly replays the reference startup order
-sequence and removes the only solver-order mismatch. It still leaves
-`Dnnh_flux_max` as a `5.13e-3` target-cell cap drift driven by `logPnlimh`
-and scalar `grad_logPnlimh` preparation, while optional
-`grad_logPnlim*_x/y/z` fields are treated as diagnostic components rather than
-the scalar cap input. The remaining neutral-mixed blocker is therefore
-CVODE-style accepted-step state/history preparation feeding the neutral
-pressure/log-pressure limiter, not a missing pressure-gradient, viscosity, or
-raw diffusion source formula.
-
-![Fluid 1D MMS convergence](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png)
-
-![Imported QA stellarator SOL poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__poster_compact.png)
-
-![Autodiff diffusion uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
-
-### Release-Closed Example Gallery
-
-These are the main `1.0.3` release-scope artifacts. They are intentionally
-release-hosted instead of tracked in git. Restore the local copies first:
-
-```bash
-python scripts/fetch_example_artifacts.py --skip-baselines --force
+result = run_input_case("examples/inputs/restartable_diffusion.toml", case_name="demo")
+print(result.time_points[-1])
 ```
 
-Regenerate the diverted tokamak movie and profile analysis from the restored
-arrays:
-
-```bash
-PYTHONPATH=src python examples/diverted_tokamak_movie_demo.py
-PYTHONPATH=src python examples/diverted_tokamak_profile_analysis_demo.py
-```
-
-![Diverted tokamak profile analysis](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__images__diverted_tokamak_turbulence_profiles.png)
-
-Run the core self-contained operator, neutral, and recycling validation
-campaigns:
-
-```bash
-PYTHONPATH=src python examples/engineering/fluid_1d_mms_convergence_demo.py
-PYTHONPATH=src python examples/engineering/neutral_mixed_term_balance_campaign_demo.py
-```
-
-![Neutral mixed NVh term-balance audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
-
-Run the compact differentiability examples:
-
-```bash
-PYTHONPATH=src python examples/autodiff_diffusion_sensitivity_demo.py
-PYTHONPATH=src python examples/autodiff_diffusion_uncertainty_demo.py
-PYTHONPATH=src python examples/autodiff_diffusion_inverse_design_demo.py
-```
-
-![Autodiff sensitivity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png)
-
-![Autodiff inverse design](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png)
-
-Run the local CPU scaling example:
-
-```bash
-PYTHONPATH=src python examples/strong_scaling_diffusion_demo.py \
-  --skip-gpu \
-  --cpu-device-counts 1,2,4 \
-  --total-batch 32 \
-  --nx 512 \
-  --ny 64 \
-  --steps 12 \
-  --repeats 2
-```
-
-![Local CPU scaling](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__local_cpu_scaling_campaign_artifacts__images__local_cpu_scaling_campaign.png)
-
-## 3D Geometry And Movies
-
-`jax_drb` includes reusable 3D geometry tooling for:
-
-- tokamak sample-data adapters,
-- traced-field-line metric and selected-plane workflows,
-- analytic stellarator and imported-equilibrium adapters,
-- native reduced selected-field comparisons,
-- toroidal and slice-based movie generation.
-
-The stellarator examples are plain Python driver scripts in the same spirit as
-SIMSOPT examples: edit the constants at the top, run the file, and inspect the
-JSON/NPZ/PNG/GIF artifacts it writes. The README figures can be regenerated or
-closely reproduced from:
-
-- [examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py](examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py)
-- [examples/geometry-3D/stellarator-fci/linear_mode_demo.py](examples/geometry-3D/stellarator-fci/linear_mode_demo.py)
-- [examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py](examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py)
-- [examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py](examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py)
-- [examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py](examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py)
-- [examples/geometry-3D/stellarator-fci/validation_campaign_demo.py](examples/geometry-3D/stellarator-fci/validation_campaign_demo.py)
-- [examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py](examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py)
-- [examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py](examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py)
-- [examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py](examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py)
-- [examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py](examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py)
-- [examples/diverted_tokamak_movie_demo.py](examples/diverted_tokamak_movie_demo.py)
-- [examples/diverted_tokamak_profile_analysis_demo.py](examples/diverted_tokamak_profile_analysis_demo.py)
-- [examples/autodiff_diffusion_uncertainty_demo.py](examples/autodiff_diffusion_uncertainty_demo.py)
-
-For nonlinear stellarator physics, start with
-[examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py](examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py):
-it shows the potential/vorticity solve and tested logical \(E\times B\)
-bracket explicitly before the faster movie-oriented reduced benchmark.
-
-### ESSOS Coil, VMEC, And Hybrid Stellarator Maps
-
-The ESSOS lane separates field generation from plasma evolution. ESSOS owns
-the coil representation, Biot-Savart field evaluation, adaptive tracing, and
-Poincare extraction. JAXDRB imports those arrays, builds fixed-shape FCI maps,
-and runs JAX-native geometry, sheath/recycling, neutral, PyTree/JVP, and
-reduced DRB validation gates on the imported maps.
-
-The imported stellarator scripts support three map semantics:
-
-- `coil`: ESSOS Biot-Savart coil-traced adjacent-plane endpoints with
-  open-field endpoint masks. This is the direct open-field coil-geometry lane.
-- `vmec`: VMEC-coordinate closed-field map from \(d\theta/d\phi =
-  B^\theta/B^\phi\), preserving closed flux surfaces and disabling target
-  endpoint masks. This is the closed-field control.
-- `hybrid`: VMEC-coordinate map positions with coil-derived endpoint masks,
-  connection-length proxy, and \(|B|\) modulation. This is the current
-  open-field SOL bridge used by the strongest release-hosted imported QA
-  movie.
-
-Current vacuum-geometry closeout status:
-
-- Direct `coil` open-field workflows are finalized as diagnostic contracts and
-  live validation ledgers. They expose endpoint/source/profile/target-flux
-  gates and explain why pure-coil media is not promoted when endpoint
-  refinement is rough.
-- Direct `coil` closed/near-closed controls are self-contained now and generate
-  Poincare/return-map diagnostics plus a reduced closed-trace movie with no
-  target, sheath, recycling, or neutral-loss semantics.
-- `vmec` closed-field controls are self-contained contracts by default and the
-  live mode remains the smooth closed-field control path with zero endpoint
-  masks.
-- `hybrid` VMEC/coil open-SOL is the current compact release-backed bridge:
-  VMEC supplies smooth map coordinates while coil traces supply endpoint masks
-  and magnetic-field modulation. The committed release evidence passes the
-  compact validation/media audit, but this is still not a device-scale
-  predictive turbulence claim.
-
-Larger finite-beta VMEC-extender artifacts, full Braginskii physics on every
-geometry, and long-window device-scale turbulence are deferred to later
-research lanes.
-
-Restore the release-hosted ESSOS/VMEC/hybrid figures and movie:
-
-```bash
-python scripts/fetch_example_artifacts.py --skip-baselines --force
-```
-
-Run the self-contained connection-length refinement gate:
-
-```bash
-PYTHONPATH=src python \
-  examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py
-```
-
-Run the direct-coil open-SOL workflow contract. The default command is
-self-contained and writes a dry-run promotion ledger under `artifacts/`; edit
-the live flags at the top of the script to regenerate the ESSOS coil FCI,
-connection-length, endpoint/source, stationarity, and diagnostic media gates
-from local geometry. The live FCI stage now feeds a separate source/profile
-gate JSON and PNG that check target labels, sheath heat load, neutral
-ionisation, target particle-loss flux, radial profiles, and source-balance
-residuals from the same consumed endpoint masks. The endpoint-label refinement
-gate also requires a nonzero endpoint population, so open-field promotion
-cannot pass on mostly interior cells with no target contact. The optional
-`RUN_LIVE_COLLOCATED_ENDPOINT_LABEL_REFINEMENT_GATE` flag runs an odd-ratio
-endpoint-label diagnostic that checks whether the blocker is seed-grid
-collocation rather than target classification. The
-`RUN_LIVE_MEDIA_GATE`
-flag writes GIF/PNG/NPZ media from the direct coil field, but the workflow keeps
-that media out of promotion unless the
-geometry, source-accounting, refinement, and visual-QA gates also pass. The
-summary JSON lists `promotion_rejection_reasons`, `promotion_blocking_stages`,
-`near_term_closeout_status`, `deferred_claims`, and `next_actions`, so a
-default dry run explains that the workflow is finalized as a diagnostic
-contract rather than looking like a silent failure:
-
-```bash
-PYTHONPATH=src python \
-  examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py
-```
-
-Run the hybrid VMEC/coil open-SOL workflow contract. This is the planned
-promotion path when pure direct-coil endpoint maps remain too rough: VMEC
-provides smooth map coordinates, while coil traces provide endpoint masks and
-magnetic-field modulation. The default command is self-contained and writes a
-dry-run promotion ledger; live mode adds FCI/source-profile,
-parallel-step-refinement, stationarity, grid/time-refinement, and optional
-media gates before any hybrid movie can be promoted. The
-`STATIONARITY_PRESET = "quick"` setting is a bounded workflow smoke test and
-is deliberately not promotion evidence; use `"promotion"` plus the documented
-grid/time and visual-QA gates before using a hybrid movie as README or paper
-evidence. The default ledger also audits the committed release-backed hybrid
-evidence and reports `near_term_closeout_status =
-"release_backed_compact_vacuum_bridge_ready"` when those compact evidence
-files are present and green:
-
-```bash
-PYTHONPATH=src python \
-  examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py
-```
-
-Run the VMEC closed-field control. The default command writes self-contained
-live-run contracts for the periodic FCI/operator gate and the reduced
-closed-field transient. Set `RUN_LIVE_VMEC = True` to regenerate the periodic
-VMEC FCI map and set `RUN_LIVE_VMEC_TRANSIENT = True` to generate the
-profile/spectrum plot and GIF. This is the smooth closed-field tutorial path
-and does not apply target, sheath, recycling, or neutral-loss semantics:
-
-```bash
-PYTHONPATH=src python \
-  examples/geometry-3D/essos-field-lines/vmec_closed_field_demo.py
-```
-
-Run the imported FCI campaign. By default this is a safe dry run for `coil`;
-edit the constants at the top of the script to set
-`MAP_SOURCES_TO_RUN = ("coil", "vmec", "hybrid")`, set `DRY_RUN = False`, and
-provide `JAX_DRB_ESSOS_ROOT`, `COIL_JSON_PATH`, or `VMEC_WOUT_PATH` when
-regenerating live imported geometry:
-
-```bash
-JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
-PYTHONPATH=src python \
-  examples/geometry-3D/essos-field-lines/imported_fci_campaign.py
-```
-
-Run the current high-resolution hybrid stationarity gate:
-
-```bash
-PYTHONPATH=src python \
-  examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py
-```
-
-Regenerate a movie package from the external geometry by editing
-`MAP_SOURCE = "coil"`, `"vmec"`, or `"hybrid"` near the top of
-`imported_drb_movie_campaign.py`, then running:
-
-```bash
-JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
-PYTHONPATH=src python \
-  examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py
-```
-
-![ESSOS imported QA-hybrid diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png)
-
-![ESSOS imported QA-hybrid snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__snapshots.png)
-
-![ESSOS imported QA-hybrid movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
-
-Detailed guides:
-
-- [docs/stellarator_examples.md](docs/stellarator_examples.md)
-- [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
-- [docs/vmec_extender_edge_fields.md](docs/vmec_extender_edge_fields.md)
-- [docs/essos_imported_fci_validation.md](docs/essos_imported_fci_validation.md)
-- [docs/non_axisymmetric_stellarator_sol_plan.md](docs/non_axisymmetric_stellarator_sol_plan.md)
-- [docs/validation_gallery.md](docs/validation_gallery.md)
-
-## Differentiable Driver Lanes
-
-The differentiable examples currently include:
-
-- sensitivity analysis,
-- uncertainty propagation,
-- inverse design,
-- fixed-workload scaling.
-
-Entry points:
-
-- [examples/autodiff_diffusion_sensitivity_demo.py](examples/autodiff_diffusion_sensitivity_demo.py)
-- [examples/autodiff_diffusion_uncertainty_demo.py](examples/autodiff_diffusion_uncertainty_demo.py)
-- [examples/autodiff_diffusion_inverse_design_demo.py](examples/autodiff_diffusion_inverse_design_demo.py)
-- [examples/strong_scaling_diffusion_demo.py](examples/strong_scaling_diffusion_demo.py)
-- [docs/autodiff_and_scaling_examples.md](docs/autodiff_and_scaling_examples.md)
-
-## Physics, Algorithms, And Performance
-
-The governing equations, closures, numerical operators, runtime design, and differentiability boundary are documented here:
-
-- [docs/physics_models.md](docs/physics_models.md)
-- [docs/code_structure.md](docs/code_structure.md)
-- [docs/performance_and_differentiability.md](docs/performance_and_differentiability.md)
-- [docs/profiling_runtime.md](docs/profiling_runtime.md)
-- [docs/native_runtime_cli.md](docs/native_runtime_cli.md)
-- [docs/geometry_roadmap.md](docs/geometry_roadmap.md)
-- [docs/research_grade_execution_plan.md](docs/research_grade_execution_plan.md)
-
-The runtime/performance audit tools include:
-
-- [docs/fluid_1d_mms_convergence.md](docs/fluid_1d_mms_convergence.md)
-- [scripts/profile_curated_case.py](scripts/profile_curated_case.py)
-- [scripts/run_research_campaign_bundle.py](scripts/run_research_campaign_bundle.py)
-- [scripts/profile_stellarator_drb_pytree.py](scripts/profile_stellarator_drb_pytree.py)
-- [scripts/profile_recycling_batched_jvp_gate.py](scripts/profile_recycling_batched_jvp_gate.py)
-- [scripts/profile_atomic_rate_throughput_gate.py](scripts/profile_atomic_rate_throughput_gate.py)
-
-The strongest current same-machine native-versus-reference evidence is the
-public live-rerun matrix in the validation docs. It shows exact compact 2D
-lanes on guarded compare surfaces, bounded but normalization-sensitive
-one-step mismatch on the integrated and direct-tokamak recycling ladders, and
-the remaining main runtime/fidelity gaps on the heavy 1D neutral/recycling
-paths.
-
-For local MacBook-class CPU use, the strongest current scaling result is the
-heavy fixed-work ensemble on repeated neon-enabled direct tokamak recycling
-solves rather than extra threads on one warmed single solve. The committed
-local artifact reaches about `4.79x` steady-state speedup from `1 -> 8`
-workers on a `16`-solve heavy ensemble, with intermediate speedups of about
-`1.94x` and `3.32x` at `2` and `4` workers.
-
-For the new non-axisymmetric 3D lane, the current performance gate is the
-fixed-layout PyTree RHS campaign. It verifies JVP derivatives against finite
-differences, checks `vmap` against serial objective evaluation, records
-single-device batched throughput, and can run `pmap` when multiple local
-devices are visible, pass an identity-map runtime sanity check, and then pass
-the real-kernel parity check.
-
-The heavier D/T/He fixed-layout recycling residual also has CPU and GPU
-profile evidence. The current same-fidelity GPU gate reaches the same residual
-norm as the CPU gate, but it is much slower and uses more sampled process-tree
-RSS on the full-field residual. That is useful negative evidence: the full
-production BDF recycling lane remains the active target for active-array
-residuals, smaller JAX residual/JVP kernels, and batched GPU promotion.
-
-The new batched recycling residual/JVP gate verifies the D/T/He fixed-layout
-residual under `jit`, `vmap`, `jvp`, and `grad` on the real recycling state.
-It uses the fixed full-field RHS by default, exposes the active-array RHS as
-the migration seam, and keeps the older host bridge only as an explicit
-diagnostic comparison backend. On the local CPU run, the retained batch sweep
-through `64` states gives about `2.28x` residual throughput speedup and about
-`1.96x` JVP throughput speedup over serial same-kernel calls, while the
-JVP/finite-difference error is about `5.97e-9`. The same artifact now also
-checks a reusable `jax.linearize` action against direct JVPs, with agreement at
-about `3.47e-18`.
-
-The adaptive-BDF recycling solver also has a bounded JAX-linearized promotion
-gate. It is intentionally opt-in rather than the production default: the stable
-full output-window path still uses the validated compatibility backend, while
-the JAX-linearized gate checks fixed-layout residuals, JVP/Jacobian-action
-solves, internal timestep control, and implicit substep convergence. The
-current local single-species gate passes at `timestep=1.0` with zero fallback,
-zero unconverged substeps, max accepted embedded error ratio about `0.93`, and
-variable-step BDF2 history reuse after rejected-step timestep changes. On this
-gate, the in-tree JAX GMRES path used `50` implicit trial solves in about
-`108 s` with zero failed inner linear solves. The optional Lineax GMRES seam
-ran the same controller history in about `91 s`, but it reported failed inner
-linear solves and remains a diagnostic backend rather than a promoted default.
-The exact commands, caveats, and latest numbers are in
-[docs/performance_and_differentiability.md](docs/performance_and_differentiability.md).
-
-The multi-ion D/T/He adaptive-BDF route is also still opt-in. The current
-passing diagnostics-only promotion-style result uses the sparse-JVP
-adaptive-BDF route plus component-wise absolute-tolerance floors; it has no
-fallbacks or unconverged substeps on the bounded local gate, but it is not a
-default solver until longer output-window reference-parity and runtime
-campaigns pass on the same route.
-
-For accelerator evidence, the source-term throughput gate now shows a real
-GPU win on the office machine for batched atomic-rate kernels: at `4,194,304`
-temperature points the GPU is about `2.5x` faster for the rate surface and
-about `2.0x` faster for its autodiff derivative. The same gate checks a
-log-temperature sensitivity objective against finite differences at about
-`1e-10` relative error. Heavy output-window recycling
-GPU speedup is still not claimed until that path exits the host/SciPy barrier.
-The optional `pmap` branch in that profiler is guarded by a device-level
-identity check before any multi-device timing is reported, so a broken
-self-hosted runtime is recorded as unavailable rather than as a speedup claim.
-
-## Validation And Control Packages
-
-Focused engineering and benchmark packages:
-
-- [docs/neutral_mixed_benchmark.md](docs/neutral_mixed_benchmark.md)
-- [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
+See [docs/input_output_reference.md](docs/input_output_reference.md) for the
+full deck schema and outputs, and
+[docs/native_runtime_cli.md](docs/native_runtime_cli.md) for the CLI.
+
+## Validation
+
+`jax_drb` is validated against a ladder of literature-anchored benchmarks.
+Each rung has a test (or a documented gate) and an example that regenerates
+its figure.
+
+| Case | Anchor | What is checked |
+|------|--------|-----------------|
+| Method of manufactured solutions | Riva et al., *Phys. Plasmas* 21, 062301 (2014); Dudson et al. 23, 062303 (2016) | operator/1D convergence order → 2 |
+| Resistive drift-wave dispersion | Dudson et al., *Comput. Phys. Commun.* 180, 1467 (2009) | growth rate and frequency vs analytic dispersion |
+| Shear-Alfvén wave dispersion | Stegmeir et al., *Phys. Plasmas* 26, 052517 (2019) | phase velocity vs analytic (with electron inertia) |
+| Seeded blob / filament | Riva et al., *PPCF* 58, 044005 (2016) | radial velocity and velocity-vs-size scaling |
+| hermes-3 component parity | Dudson et al., *CPC* 296, 108991 (2024) | per-term agreement on a documented case ladder |
+| 1D detachment | Dudson et al., *PPCF* 61, 065008 (2019, SD1D); Body et al., *NME* 41, 101819 (2024) | target-flux rollover and detachment-onset scaling |
+| FCI in non-axisymmetric geometry | Shanahan et al., *PPCF* 61, 025007 (2019, BSTING) | parallel-operator convergence; filament propagation |
+| TCV-X21 diverted L-mode | Oliveira, Body et al., *Nucl. Fusion* 62, 096001 (2022) | agreement metric over the public dataset |
+
+The ladder and its current status are tracked in
+[`plan_jax_drb.md`](plan_jax_drb.md); benchmark reports live under
+[docs/](docs/alfven_wave_benchmark.md) (Alfvén, drift-wave, MMS, neutral-mixed)
+and [docs/validation_gallery.md](docs/validation_gallery.md).
+
+## Examples
+
+Flagship simulations span closed and open field lines in both geometries:
+
+| | Closed field lines | Open field lines |
+|---|---|---|
+| **Tokamak** | flux-tube drift-wave turbulence | 1D SOL with sheath + recycling + reactions (detachment); [blob2d](examples/); diverted transport |
+| **Stellarator** | VMEC closed-field turbulence; rotating-ellipse control | island-divertor open SOL; hybrid VMEC/coil imports |
+
+Differentiable and geometry examples:
+
+- Autodiff: [sensitivity](examples/autodiff_diffusion_sensitivity_demo.py),
+  [uncertainty](examples/autodiff_diffusion_uncertainty_demo.py),
+  [inverse design](examples/autodiff_diffusion_inverse_design_demo.py).
+- Stellarator FCI and imported geometry:
+  [examples/geometry-3D/](examples/geometry-3D/).
+- Start with [examples/model_selection_guide.py](examples/model_selection_guide.py)
+  to choose a model family, dimension, and boundary conditions.
+
+The user-facing examples are self-contained. Users do not need to install or
+download any external plasma code to run those examples or the README/docs
+movies. Live reference-code reruns are developer validation tasks only. Large
+figures and movies are hosted in GitHub releases (the checkout stays small);
+`python scripts/fetch_example_artifacts.py` restores them.
+
+## Geometry and parallelization
+
+The FCI operator and domain-decomposition stack (`FciGeometry3D`,
+`fci_operators`, halo exchange) was contributed by **Aiken Xie** in
+[PR #3](https://github.com/uwplasma/jax_drb/pull/3) and is incorporated here.
+Multi-device `shard_map` execution built on it is completed in
+[PR #5](https://github.com/uwplasma/jax_drb/pull/5), which adds a sharded
+two-field step (bit-exact vs single-device) and a strong-scaling example.
+See [docs/stellarator_examples.md](docs/stellarator_examples.md) and
+[docs/non_axisymmetric_stellarator_sol_plan.md](docs/non_axisymmetric_stellarator_sol_plan.md).
+
+## Documentation
+
+- Physics and numerics: [physics_models.md](docs/physics_models.md),
+  [equation_to_code_map.md](docs/equation_to_code_map.md),
+  [code_structure.md](docs/code_structure.md).
+- Performance and differentiability:
+  [performance_and_differentiability.md](docs/performance_and_differentiability.md),
+  [profiling_runtime.md](docs/profiling_runtime.md).
+- Validation and parity: [validation_gallery.md](docs/validation_gallery.md),
+  [parity_harness.md](docs/parity_harness.md).
+- Testing policy: [testing_strategy.md](docs/testing_strategy.md).
 
 ## Testing
 
-Run the fast bounded research slice:
-
 ```bash
-python scripts/run_fast_research_checks.py
+pytest -q -m "not slow"                                   # full fast suite
+pytest -q -m "not slow" --cov=jax_drb --cov-branch        # with coverage
 ```
 
-Run the full suite:
+CI runs the full fast suite on Python 3.10–3.12. Reference-parity tests that
+need an external hermes-3 checkout skip automatically when it is absent.
 
-```bash
-pytest -q
-```
+## Releases
 
-Measure whole-package coverage (one honest number over `src/jax_drb`):
+Changes are recorded in [CHANGELOG.md](CHANGELOG.md); the current development
+series is [docs/release_notes_2_0_0_dev0.md](docs/release_notes_2_0_0_dev0.md).
 
-```bash
-pytest -q -m "not slow" --cov=jax_drb --cov-branch --cov-report=term
-```
+## Citing
 
-Run the scheduled/manual research campaign wrapper:
+If you use `jax_drb`, please cite it via [CITATION.cff](CITATION.cff).
 
-```bash
-python scripts/run_research_campaign_bundle.py --campaign scheduled-fast-research
-```
+## License
 
-The CI test matrix runs the full fast suite (`-m "not slow"`) on Python 3.10,
-3.11, and 3.12, and the coverage workflow reports the whole-package number.
-The separate research-campaign workflow runs the hosted
-`scheduled-fast-research` slice weekly and exposes heavier live-reference,
-local, GPU, adaptive-BDF, and profiling bundles as explicit manual lanes.
-
-Testing policy and refactor coverage goals are documented in:
-
-- [docs/testing_strategy.md](docs/testing_strategy.md)
-
-## Packaging And Release
-
-Build locally:
-
-```bash
-python scripts/audit_release_readiness.py
-python -m build
-```
-
-Release/package documentation:
-
-- [docs/release_packaging.md](docs/release_packaging.md)
-- [docs/release_notes_2_0_0_dev0.md](docs/release_notes_2_0_0_dev0.md)
-- [CHANGELOG.md](CHANGELOG.md)
+MIT — see [LICENSE](LICENSE).
