@@ -229,6 +229,51 @@ def test_linear_dispersion_example_runs(tmp_path, monkeypatch) -> None:
     assert (tmp_path / "linear_dispersion" / "linear_dispersion.json").exists()
 
 
+def test_general_engine_linearizes_the_hasegawa_wakatani_model() -> None:
+    # The general jacobian_operator engine, applied to the real shipped
+    # Hasegawa-Wakatani right-hand side (linearized about the zero equilibrium,
+    # where its quadratic bracket vanishes), recovers the same growth spectrum as
+    # the per-mode analytic drift-wave operator -- to machine precision. This
+    # demonstrates "linearize any model" on a real nonlinear DRB model, not just
+    # the analytic reduced operators.
+    from jax_drb.native.hasegawa_wakatani import HasegawaWakataniParameters, hw_grid, hw_rhs
+
+    n = 4
+    length = 2.0 * np.pi * 3.0
+    grid = hw_grid(n, length)
+    params = HasegawaWakataniParameters(adiabaticity=1.0, gradient=1.0, hyperviscosity=0.0)
+    size = n * n
+
+    def unflatten(x):
+        zeta = (x[:size] + 1j * x[size:2 * size]).reshape(n, n)
+        density = (x[2 * size:3 * size] + 1j * x[3 * size:]).reshape(n, n)
+        return zeta, density
+
+    def flatten(zeta, density):
+        return jnp.concatenate(
+            [zeta.real.ravel(), zeta.imag.ravel(), density.real.ravel(), density.imag.ravel()]
+        )
+
+    def real_rhs(x):
+        zeta, density = unflatten(x)
+        d_zeta, d_density = hw_rhs(zeta, density, grid, params)
+        return flatten(d_zeta, d_density)
+
+    engine_growth = float(eigenmodes(jacobian_operator(real_rhs, jnp.zeros(4 * size))).dominant_growth_rate)
+
+    modes = np.fft.fftfreq(n, d=length / n) * 2.0 * np.pi
+    analytic_growth = 0.0
+    for k_x in modes:
+        for k_y in modes:
+            kperp2 = k_x * k_x + k_y * k_y
+            if kperp2 == 0.0:
+                continue
+            operator = resistive_drift_wave_operator(k_y, kperp2, 1.0, 1.0)
+            analytic_growth = max(analytic_growth, _mode_growth(operator))
+
+    assert engine_growth == pytest.approx(analytic_growth, rel=1e-8)
+
+
 def test_jacobian_operator_recovers_a_known_linear_system() -> None:
     # A manufactured 3x3 system with prescribed eigenvalues: the Jacobian-based
     # engine must recover the growth rates and frequencies of a linear rhs.
