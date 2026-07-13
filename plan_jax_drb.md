@@ -473,6 +473,17 @@ differences; tokamak-open quadrant fully shipping.
 
 ### Phase 6 — Non-axisymmetric SOL (B7, B8) and the stellarator quadrants
 
+**Started** — the differentiable FCI flagship (`geometry/shifted_torus.py`,
+`examples/stellarator/fci_differentiable_demo.py`) shows the drift-reduced
+FCI 2-field operator stack running on non-orthogonal helical geometry and
+differentiable through a 24-step rollout (grad vs FD at 6e-11). This is the
+core novelty (differentiability + non-axisymmetric FCI). Multi-device
+`shard_map` execution of the same 2-field model is complete on
+[PR #5](https://github.com/uwplasma/jax_drb/pull/5); porting it onto this
+branch hit a halo-shape incompatibility between the two branches' FCI stacks,
+so the sharding + differentiable-FCI unification is deferred to when 3D_fci
+merges (both capabilities exist, on different branches). Remaining Phase 6:
+
 1. Rotating-ellipse analytic field: FCI parallel-operator MMS gate (B7), then
    the seeded-filament example.
 2. Island-divertor open-SOL turbulence flagship on an analytic field (B8):
