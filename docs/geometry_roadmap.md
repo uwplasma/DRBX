@@ -27,14 +27,12 @@ The reusable infrastructure should own:
 - mesh and metric ingestion
 - field-history assembly across ranks and toroidal planes
 - geometry-aware probe, target, and surface extraction
-- compact selected-field parity bundles
 - summary movie and figure generation
 - runtime provenance, restart, and validation artifacts
 
 Benchmark-specific packages should only add:
 
 - benchmark observables
-- benchmark compare surfaces
 - benchmark averaging windows
 - benchmark methods notes and figure layouts
 
@@ -92,10 +90,9 @@ These remain the first summary 3D benchmark family because they connect directly
 
 Requirements:
 
-- reduced selected-field parity
 - observable extraction for benchmark probe and target families
 - detailed profile and movie products
-- explicit methods notes and compare-surface metadata
+- explicit methods notes
 
 ### Traced-Field-Line / Stellarator-Style Mesh Adapters
 
@@ -106,7 +103,7 @@ Requirements:
 - metric and mesh ingestion that does not assume a single tokamak benchmark layout
 - explicit validation of metric fields and coordinate conventions
 - field and diagnostic extraction on traced-field-line meshes
-- reusable plotting and parity bundles on that geometry family
+- reusable plotting on that geometry family
 
 The current scaffold now already supports both:
 
@@ -137,11 +134,10 @@ Every new geometry family should pass the same staged gate sequence:
 
 1. geometry scaffold gate
 2. external-workdir artifact gate
-3. reduced selected-field parity gate
-4. benchmark-observable gate
-5. native execution promotion gate
+3. benchmark-observable gate
+4. native execution promotion gate
 
-No geometry family should skip directly to benchmark figures without first producing structured metadata, compact compare surfaces, and parity artifacts.
+No geometry family should skip directly to benchmark figures without first producing structured metadata and validation artifacts.
 
 ## Implication For The Current 3D Program
 

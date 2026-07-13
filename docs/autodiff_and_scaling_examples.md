@@ -173,4 +173,3 @@ The next higher-value differentiable examples should be:
 - vorticity or drift-wave sensitivity/UQ of a scalar QoI
 - an inverse-design example with boundary/source controls rather than only initial-condition controls
 - memory and compilation-cache measurements alongside the current timing plot
-- the first promoted differentiable recycling/open-field transient lane once the native transient backbone is closed

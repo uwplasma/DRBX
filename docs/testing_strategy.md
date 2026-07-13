@@ -46,17 +46,14 @@ This layer includes:
 
 ### Code-to-code validation
 
-This layer compares `jax_drb` against curated reference outputs, primarily from
-staged reference bundles.
+This layer compares `jax_drb` against curated reference outputs for the kept
+models.
 
 This is the main current bridge for:
 
-- open-field recycling ladders
-- direct tokamak recycling windows
 - same-machine native rerun matrices across representative
   1D and 2D lanes
 - selected-field geometry comparisons
-- controller and detachment history matching
 
 ### Benchmark and experiment-facing validation
 
@@ -64,8 +61,6 @@ This layer compares the promoted workflows against broader literature benchmarks
 and diagnostics, such as:
 
 - TCV-X21
-- TORPEX or X-point blob validation
-- detachment scaling
 - geometry-portability studies
 
 This is the layer that most directly supports publication figures.
@@ -76,7 +71,6 @@ The suite should converge toward explicit logical groups:
 
 - unit/operator tests
 - regression tests
-- parity/reference tests
 - autodiff/JAX transformation tests
 - publication/campaign tests
 - smoke/tutorial tests
@@ -88,17 +82,11 @@ directory migration.
 For `jax_drb`, the high-value test taxonomy is now:
 
 - operator identity tests for each term in the density, pressure, momentum,
-  vorticity, sheath, recycling, neutral, reaction, and collision equations;
-- manufactured-solution convergence for metric-weighted open-field and FCI
+  vorticity, sheath, recycling, neutral, and collision equations;
+- manufactured-solution convergence for metric-weighted FCI
   operators, including nonorthogonal metric cross terms;
-- reference-backed component parity for target/sheath, recycling,
-  neutral-mixed pressure-gradient and viscosity, neutral diffusion, reactions,
-  and Braginskii closures;
-- transient parity ladders for RHS, one-step, short-window, restart, and
+- transient ladders for RHS, one-step, short-window, restart, and
   selected longer diagnostic windows;
-- pointwise target-adjacent accepted-step diagnostics for neutral-mixed
-  closures, including the `Dnnh` ladder, `Vh`/`eta_h` inputs, covariant
-  `Grad(logPnlim)` metric norm, and active-versus-guard source ranking;
 - physics gates for conservation, source balance, target power, core/SOL
   volume integrals, connection length, endpoint masks, radial flux, spectra,
   skewness, and profile lineouts;
@@ -120,8 +108,8 @@ It should not mean:
 - relying on smoke tests to color large files green
 - excluding the hard solver modules from the measurement
 - claiming broad coverage when only compact differentiable examples are tested
-- counting tutorial execution as a substitute for operator, parity, physics,
-  and convergence assertions
+- counting tutorial execution as a substitute for operator, physics, and
+  convergence assertions
 
 The release standard from the consolidated execution plan is:
 
@@ -130,46 +118,32 @@ The release standard from the consolidated execution plan is:
 - no monolithic module left effectively untested except through one large
   integration case
 
-The explicit promoted-solver coverage entry point is now:
+The explicit whole-package coverage entry point is now:
 
 ```bash
-python scripts/run_promoted_solver_coverage.py --audit
+pytest -q -m "not slow" --cov=jax_drb --cov-branch
+coverage report
 ```
 
-That audit covers the native mesh/metric/open-field/recycling/runner surface,
-the fixed-layout recycling residual seam, portable parity helpers, and CLI
-entry points. It exists to prevent the project from confusing the narrower
-release-closeout coverage gate with meaningful solver coverage. During the
-refactor, use audit mode to identify the largest uncovered modules and
-branches. When the extraction work has enough direct unit, operator, parity,
-and artifact-producing tests, the same command should be run without `--audit`
-and must satisfy the default `95%` threshold before the solver surface is
-called research-grade.
+This is the same whole-package coverage job enforced by `coverage.yml` in CI. It
+covers the native mesh/metric/deck-runner surface and CLI entry points, and
+exists to prevent the project from confusing a narrow coverage slice with
+meaningful solver coverage. When the extraction work has enough direct unit,
+operator, and artifact-producing tests, the whole-package number must satisfy
+the `95%` threshold before the solver surface is called research-grade.
 
 The first measured baseline for this slice was `73%` total coverage with all
 selected tests passing. The current promoted solver/public-surface audit now
-passes the `95%` gate at `95.19%` over `554` promoted tests; the fixed-layout
-recycling residual and layout modules are included directly and each has a
-local reference-free `100%` module-coverage gate. The neutral-mixed native
-surface now also has direct option-matrix gates for turning conduction and
-viscosity off, disabling the Lax wave-speed flux, disabling the diffusive flux
-limiter, and applying a diffusion cap. The next coverage work should therefore
+passes the `95%` gate at `95.19%` over `554` promoted tests. The next coverage
+work should therefore
 be treated as architecture hardening, not as percentage chasing. The remaining
 high-value targets are:
 
-- `runner.py`: split setup, execution policy, logging/provenance, restart, and
-  artifact writing into directly tested helpers
-- `recycling_1d.py`: extract residual assembly, continuation control, neutral
-  reconstruction, pressure/source preparation, and target recycling branches
+- `deck_runner.py`: split setup, execution policy, logging/provenance, restart,
+  and artifact writing into directly tested helpers
 - `solver/implicit.py`: keep the finite-difference sparse path, fallback
   diagnostics, and JAX-linearized path covered as the solver backend boundary
   is split further
-- backend-preserving recycling helper families outside the fixed-layout
-  residual module: require JVP/finite-difference gates before each new
-  production term is promoted into a Hermès-backed solve
-- `parity/diff.py`, `parity/compare.py`, and `parity/reference.py`: add direct
-  tests for guard semantics, missing-field behavior, normalization modes, and
-  failure reporting
 - `cli.py`: exercise subcommand branch behavior through focused argument-parser
   and command-dispatch tests rather than only end-to-end CLI runs
 
@@ -199,8 +173,6 @@ artifact-producing campaign, even if the test itself remains assertion-only:
 
 - literature-anchored numerics such as MMS, convergence, or operator studies
 - benchmark-facing physics comparisons
-- controller, detachment, or recycling transient histories that are
-  scientifically interpretable
 - differentiability results that would appear in the paper
 
 The assertion test and the artifact campaign should share the same source logic
@@ -209,26 +181,12 @@ is communicable and publication-ready.
 
 This applies directly to:
 
-- fits and tabulated-rate evaluations
 - reconstruction rules and guarded-boundary formulas
-- reaction and collision closures
-- open-field parallel advection/inertia operators and ion/electron/neutral
-  RHS-term assembly
-- recycling species-state preparation, safe-temperature, and guard-merge rules
-- recycling source accumulation and override semantics, including JAX
-  JVP-versus-finite-difference checks so source composition can be promoted into
-  the fixed-layout residual without changing physics ordering
-- boundary-free open-field electron/ion state preparation, which is the control
-  surface for promoting fixed-layout recycling residuals before full sheath
-  closure porting
+- collision closures
 - electron-force-balance pressure-gradient stencils
 - electron parallel-force source updates, including the use of
   boundary-conditioned ion densities in the electric-force momentum source
-- fixed-layout residual/JVP gates for recycling source, diffusion, collision,
-  target-recycling, and BDF assembly lanes
-- fixed-layout host-bridge parity on full Hermès decks before each heavy
-  recycling term is promoted into the JAX-native residual
-- parity and benchmark validation surfaces
+- benchmark validation surfaces
 
 If a surface is strong enough to be discussed in the paper, it should already
 exist in the docs as a reproducible artifact rather than only as a hidden test
@@ -237,26 +195,16 @@ assertion.
 Priority figure-producing families are:
 
 - MMS convergence
-- open-field parallel-gradient, force-balance, and target-recycling operator
-  identities
-- reactions, collisions, and atomic-data closure campaigns
 - neutral parallel-diffusion closure campaign
-- neutral mixed boundary-mismatch campaign
 - collision/conduction closure campaign
 - tokamak anomalous-diffusion campaign
-- target-recycling and sheath-response campaign
-- live Hermès rerun matrix across representative 1D and 2D lanes
-- direct tokamak recycling transient ladders
+- sheath-response campaign
 - neutral short-window comparisons
 - 3D runtime and convergence campaigns
 - differentiability, uncertainty, inverse design, and local throughput
 
 When a campaign includes cross-code relative errors, it should also expose the
 absolute-error context needed to interpret near-zero reference fields honestly.
-The current live Hermès rerun matrix is the concrete example: integrated and
-direct tokamak recycling still show bounded relative mismatch on `NVd`, but the
-campaign now also exposes the tiny absolute max-errors so the paper and docs do
-not overstate that class of discrepancy.
 
 The current promoted example of this policy is:
 
@@ -280,50 +228,40 @@ The final automated gate should be tiered rather than one monolithic slow job:
   `95%` target
 - artifact gate: schema and metric checks for lightweight committed validation
   artifacts
-- nightly/manual heavy gate: live reference reruns, convergence campaigns,
-  memory profiling, and selected performance campaigns
+- nightly/manual heavy gate: convergence campaigns, memory profiling, and
+  selected performance campaigns
 
-The concrete wrapper for the research-fast, manual live-reference, and heavy
-profiling gates is
-[scripts/run_research_campaign_bundle.py](../scripts/run_research_campaign_bundle.py).
-Hosted CI runs the scheduled public slice; live reference and heavy recycling
-campaigns remain explicit manual/self-hosted campaigns because they need
-external reference data and a larger runtime budget.
+Hosted CI runs the scheduled public slice; heavy profiling campaigns remain
+explicit manual/self-hosted campaigns because they need a larger runtime budget.
 
 The hosted GitHub Actions slice is a shipping-surface guard, not the final
-research-code gate. Manual live-reference, heavy recycling, and CPU/GPU
-profiling campaigns remain required before making new research claims that
-depend on external reference data or large runtime budgets.
+research-code gate. Manual CPU/GPU profiling campaigns remain required before
+making new research claims that depend on large runtime budgets.
 
 ## Immediate Refactor Priorities
 
 During the first structural phase:
 
 1. extract direct unit coverage for pack/unpack and layout logic
-2. extract direct operator tests for recycling and neutral closures
-3. extract direct tests for controller-state logic and compare-window helpers
-   so validation/orchestration behavior is not only inherited through large
-   runner and transient-solver tests
-4. extract direct tests for setup/runtime-model contracts such as field
-   evaluation, source normalization, species-template construction, and
-   controller loading so deck interpretation is not only inherited through the
-   full recycling solver
-5. extract direct tests for state-preconditioning rules such as density floors,
+2. extract direct operator tests for neutral closures
+3. extract direct tests for setup/runtime-model contracts such as field
+   evaluation, source normalization, and species-template construction so deck
+   interpretation is directly tested
+4. extract direct tests for state-preconditioning rules such as density floors,
    guarded neutral reconstruction, and prepared-state assembly so sheath and
    collisional closures are not the only places where those branches are
    exercised
-6. extract direct tests for distinct closure families such as neutral parallel
-   diffusion, collision closure, and controller-source assembly so those
-   physics packages are not only exercised through the full recycling RHS
-7. promote extracted tokamak anomalous-transport operators into a public
+5. extract direct tests for distinct closure families such as neutral parallel
+   diffusion and collision closure so those physics packages are directly tested
+6. promote extracted tokamak anomalous-transport operators into a public
    artifact-producing campaign once the non-orthogonal metric contrast is
    stable enough to support manuscript-facing figures
-8. extract direct tests for field sanitization, restart-policy selection, and
+7. extract direct tests for field sanitization, restart-policy selection, and
    other small execution rules that influence solver robustness and public
    artifact behavior
-9. keep the existing native transient ladders green while files are
+8. keep the existing native transient ladders green while files are
    being split
-10. only then widen benchmark and literature-facing campaigns
+9. only then widen benchmark and literature-facing campaigns
 
 That sequencing preserves scientific trust while the software architecture is
 improved.

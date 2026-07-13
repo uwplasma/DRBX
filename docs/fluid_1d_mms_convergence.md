@@ -17,7 +17,7 @@ The generated package contains:
 - a compact NPZ payload for downstream plotting and regression checks;
 - a publication-grade convergence plot.
 
-This is a verification surface, not a code-to-code parity surface. It belongs
+This is a verification surface, not a code-to-code comparison surface. It belongs
 to the same evidence family emphasized in the verification literature and in
 the convergence sections of major edge/SOL code papers: refinement studies are
 used to establish operator correctness before broader benchmark validation is

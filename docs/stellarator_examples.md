@@ -170,8 +170,8 @@ This is the discrete \(E\times B\) nonlinear coupling used by the compact
 non-axisymmetric demonstration. The coefficients in the example are labeled as
 explicit timestep/model strengths, not fitted physical constants. For
 publication-grade turbulence claims, use this script as a starting point and
-then run grid-refinement, timestep-sensitivity, and reference-comparison
-campaigns before interpreting the resulting transport metrics.
+then run grid-refinement and timestep-sensitivity campaigns before
+interpreting the resulting transport metrics.
 
 ## Nonlinear Reduced Turbulence Example
 

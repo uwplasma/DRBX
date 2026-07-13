@@ -21,7 +21,7 @@ bridges are separate lanes, not interchangeable interpretations of the same
 field-line artifact.
 
 The published import figures and arrays are restored by
-`python scripts/fetch_example_artifacts.py --skip-baselines`. Regenerating the
+`python scripts/fetch_example_artifacts.py`. Regenerating the
 field-line import from the external coil geometry is a developer workflow and
 requires the geometry source checkout:
 

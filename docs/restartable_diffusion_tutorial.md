@@ -1,6 +1,6 @@
 # Restartable Diffusion Tutorial
 
-This example is the first end-to-end runtime tutorial for `jax_drb` as a standalone code path, not just a parity harness utility.
+This example is the first end-to-end runtime tutorial for `jax_drb` as a standalone runtime path, not only an internal utility.
 
 Entry point:
 

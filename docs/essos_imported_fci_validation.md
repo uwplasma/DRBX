@@ -194,7 +194,7 @@ source/profile, neutral-source, target-flux, and movie-QA gates on the same
 consumed endpoint masks.
 
 The published FCI validation figures and arrays are restored by
-`python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
+`python scripts/fetch_example_artifacts.py`. The regeneration
 script follows the same top-level-parameter style as the SIMSOPT examples:
 edit `MAP_SOURCES_TO_RUN`, `DRY_RUN`, `WRITE_DRY_RUN_ARTIFACTS`, grid size, and
 optional external input paths at the top of

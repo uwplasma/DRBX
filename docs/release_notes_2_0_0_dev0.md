@@ -31,17 +31,13 @@ Landed so far (Phase 0):
 The v2 validation program is the benchmark ladder B1-B10 in
 `plan_jax_drb.md`. In this dev series the previously shipping gates remain
 in force (operator kernels vs scalar references, MMS convergence order,
-golden-array parity for the drift-wave/neutral-mixed/recycling/tokamak
-families, Alfven-wave phase-speed check); the ladder rungs land phase by
-phase and are recorded here as they do.
+Alfven-wave phase-speed check); the ladder rungs land phase by phase and are
+recorded here as they do.
 
 ## Current Boundary
 
-The stable full output-window recycling BDF default remains in force for the
-heavy recycling lanes; the JAX-linearized and JVP paths stay opt-in research
-lanes until they match it at the same fidelity and cost (re-evaluated at the
-plan's Phase 5 exit). Differentiability claims apply only to pure-JAX paths
-with derivative tests; host-side SciPy paths are labeled as such.
+Differentiability claims apply only to pure-JAX paths with derivative tests;
+host-side SciPy paths are labeled as such.
 
 The 2.0.0 release ships at the end of the plan's Phase 8 with the full
 native capability matrix, the literature-anchored benchmark ladder, the
