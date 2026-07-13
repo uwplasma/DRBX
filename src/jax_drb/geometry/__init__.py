@@ -17,6 +17,7 @@ from .essos_import import (
 from .fci_maps import FciMaps, identity_fci_maps, load_fci_maps_netcdf
 from .metric_tensor import MetricTensor3D, build_metric_report, metric_inverse_residual
 from .stellarator import SyntheticStellaratorGeometry, build_synthetic_stellarator_geometry
+from .shifted_torus import build_shifted_torus_geometry
 from .vmec_extender_import import (
     VmecExtenderGrid,
     build_vmec_extender_fci_maps,
@@ -39,6 +40,7 @@ __all__ = [
     "SyntheticStellaratorGeometry",
     "VmecExtenderGrid",
     "build_metric_report",
+    "build_shifted_torus_geometry",
     "build_synthetic_stellarator_geometry",
     "build_vmec_extender_fci_maps",
     "identity_fci_maps",
