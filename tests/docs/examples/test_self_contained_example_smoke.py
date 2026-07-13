@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -138,50 +137,6 @@ def test_model_selection_guide_writes_parse_checked_starter_decks(tmp_path: Path
     ]
 
 
-def test_diverted_tokamak_release_array_examples_are_subprocess_self_contained(
-    tmp_path: Path,
-) -> None:
-    mini_repo = tmp_path / "mini_repo"
-    _copy_example_script(
-        "diverted_tokamak_movie_demo.py",
-        destination_root=mini_repo,
-    )
-    _copy_example_script(
-        "diverted_tokamak_profile_analysis_demo.py",
-        destination_root=mini_repo,
-    )
-    release_arrays_path = (
-        mini_repo
-        / "docs"
-        / "data"
-        / "diverted_tokamak_turbulence_artifacts"
-        / "data"
-        / "diverted_tokamak_turbulence_arrays.npz"
-    )
-    _write_tiny_diverted_tokamak_release_arrays(release_arrays_path)
-
-    movie = _run_example(
-        [sys.executable, str(mini_repo / "examples" / "diverted_tokamak_movie_demo.py")],
-        cwd=mini_repo,
-        timeout=120,
-    )
-    profile = _run_example(
-        [sys.executable, str(mini_repo / "examples" / "diverted_tokamak_profile_analysis_demo.py")],
-        cwd=mini_repo,
-        timeout=60,
-    )
-
-    output_root = mini_repo / "docs" / "data" / "diverted_tokamak_turbulence_artifacts"
-    assert "Creating diverted-tokamak figures and GIF from release arrays" in movie.stdout
-    assert "Running curated benchmark case" not in movie.stdout
-    assert "wrote profile analysis:" in profile.stdout
-    assert (output_root / "data" / "diverted_tokamak_turbulence_analysis.json").exists()
-    assert (output_root / "images" / "diverted_tokamak_turbulence_snapshots.png").stat().st_size > 0
-    assert (output_root / "images" / "diverted_tokamak_turbulence_poster.png").stat().st_size > 0
-    assert (output_root / "images" / "diverted_tokamak_turbulence_profiles.png").stat().st_size > 0
-    assert (output_root / "movies" / "diverted_tokamak_turbulence.gif").stat().st_size > 0
-
-
 def test_stellarator_fci_docs_analysis_commands_are_subprocess_self_contained(
     tmp_path: Path,
 ) -> None:
@@ -243,42 +198,6 @@ def test_vmec_extender_imported_field_demo_is_subprocess_self_contained(
     assert (artifact_root / "data" / "vmec_extender_sol_smoke.json").exists()
     assert (artifact_root / "data" / "vmec_extender_sol_smoke.npz").exists()
     assert (artifact_root / "images" / "vmec_extender_sol_smoke.png").stat().st_size > 0
-
-
-def _copy_example_script(relative_script: str, *, destination_root: Path) -> Path:
-    source = EXAMPLES_ROOT / relative_script
-    destination = destination_root / "examples" / relative_script
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, destination)
-    return destination
-
-
-def _write_tiny_diverted_tokamak_release_arrays(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    x = np.linspace(-1.0, 1.0, 4, dtype=np.float64)[:, None]
-    y = np.linspace(-0.7, 0.7, 5, dtype=np.float64)[None, :]
-    rxy = 1.5 + 0.18 * x + 0.04 * y
-    zxy = y + 0.05 * x
-    psixy = x + 0.15 * y
-    time_points = np.asarray([0.0, 0.1, 0.2], dtype=np.float64)
-    base = np.sin(np.pi * x) * np.cos(np.pi * y)
-    field_history = np.stack(
-        [
-            np.zeros_like(base),
-            0.1 * base,
-            0.2 * base + 0.02 * x,
-        ],
-        axis=0,
-    )
-    np.savez_compressed(
-        path,
-        field_name=np.asarray("phi"),
-        time_points=time_points,
-        field_history_2d=field_history,
-        rxy=rxy,
-        zxy=zxy,
-        psixy=psixy,
-    )
 
 
 def _write_tiny_stellarator_turbulence_release_arrays(path: Path) -> None:

@@ -26,7 +26,7 @@ interpreted.
 Run the demo with:
 
 ```bash
-python examples/engineering/fluid_1d_mms_convergence_demo.py
+python scripts/run_fluid_1d_mms_convergence.py
 ```
 
 Committed artifacts:

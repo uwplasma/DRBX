@@ -12,8 +12,7 @@ counts as meaningful evidence for a research-grade release.
 The testing philosophy follows the verification and validation split discussed
 in [Roy 2005](https://www.sciencedirect.com/science/article/pii/S0021999104004747)
 and the practice used in major edge/SOL codes such as
-[Hermes-3](https://www.sciencedirect.com/science/article/pii/S0010465523003363),
-[GBS](https://www.sciencedirect.com/science/article/pii/S0021999122003280), and
+[GBS](https://www.sciencedirect.com/science/article/pii/S0021999122003280) and
 the [TCV-X21 benchmark program](https://arxiv.org/abs/2109.01618).
 
 ## Evidence Layers
@@ -48,13 +47,13 @@ This layer includes:
 ### Code-to-code validation
 
 This layer compares `jax_drb` against curated reference outputs, primarily from
-Hermes-3-backed or staged reference bundles.
+staged reference bundles.
 
 This is the main current bridge for:
 
 - open-field recycling ladders
 - direct tokamak recycling windows
-- same-machine live native-versus-Hermes rerun matrices across representative
+- same-machine native rerun matrices across representative
   1D and 2D lanes
 - selected-field geometry comparisons
 - controller and detachment history matching
@@ -322,7 +321,7 @@ During the first structural phase:
 8. extract direct tests for field sanitization, restart-policy selection, and
    other small execution rules that influence solver robustness and public
    artifact behavior
-9. keep the existing Hermes-backed transient ladders green while files are
+9. keep the existing native transient ladders green while files are
    being split
 10. only then widen benchmark and literature-facing campaigns
 

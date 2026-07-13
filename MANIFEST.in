@@ -2,7 +2,6 @@ include CITATION.cff
 
 prune docs
 prune examples
-prune references
 prune scripts
 prune tests
 

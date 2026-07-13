@@ -2,12 +2,19 @@ from ..runtime import configure_jax_runtime
 
 configure_jax_runtime()
 
-from .runner import NativeRunResult, run_config_case, run_curated_case, run_input_case
+from .deck_runner import (
+    NativeRestartState,
+    NativeRunResult,
+    build_restart_state,
+    run_config_case,
+    run_input_case,
+)
 
 __all__ = [
+    "NativeRestartState",
     "NativeRunResult",
+    "build_restart_state",
     "run_config_case",
-    "run_curated_case",
     "run_input_case",
 ]
 

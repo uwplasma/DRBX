@@ -74,7 +74,7 @@ PYTHONPATH=src python examples/geometry-3D/stellarator-fci/turbulent_profile_ana
 | Install, run the CLI, resume runs, and inspect outputs | [Installation](installation.md), [Native Runtime CLI](native_runtime_cli.md), [Input And Output Reference](input_output_reference.md) |
 | Learn the governing equations and where each term is implemented | [Physics Models](physics_models.md), [Equation To Code Map](equation_to_code_map.md) |
 | Run self-contained tutorials and movie examples | [Examples And Artifacts](examples.md) |
-| Understand validation status and publication-ready figures | [Validation Gallery](validation_gallery.md), [Parity Harness](parity_harness.md) |
+| Understand validation status and publication-ready figures | [Validation Gallery](validation_gallery.md), [Fluid 1D MMS Convergence](fluid_1d_mms_convergence.md) |
 | Work with tokamak, stellarator, VMEC, imported field-line, and FCI geometry | [Stellarator Examples](stellarator_examples.md), [Connection Length](connection_length.md), [VMEC Extender Edge Fields](vmec_extender_edge_fields.md), [ESSOS Field-Line Import](essos_fieldline_import.md) |
 | Understand differentiability, JAX transforms, performance, and profiling | [Performance And Differentiability](performance_and_differentiability.md), [Autodiff And Scaling Examples](autodiff_and_scaling_examples.md), [Profiling Runtime](profiling_runtime.md) |
 | Understand repository size, releases, PyPI, and artifact storage | [Release Packaging](release_packaging.md) |
@@ -126,7 +126,7 @@ Important external references linked throughout the docs include:
 
 | Topic | Representative links |
 | --- | --- |
-| Collisional transport and reduced Braginskii models | [Braginskii 1965](https://link.springer.com/book/10.1007/978-1-4615-2808-1), [GBS code paper](https://www.sciencedirect.com/science/article/pii/S0021999116001923), [Hermes-3 paper](https://www.sciencedirect.com/science/article/pii/S0010465523003363) |
+| Collisional transport and reduced Braginskii models | [Braginskii 1965](https://link.springer.com/book/10.1007/978-1-4615-2808-1), [GBS code paper](https://www.sciencedirect.com/science/article/pii/S0021999116001923) |
 | Flux-coordinate-independent field-line operators | [Hariri and Ottaviani 2013](https://cir.nii.ac.jp/crid/1360299150620318336), [Hariri et al. 2014](https://doi.org/10.1063/1.4892405) |
 | JAX and differentiable scientific computing | [JAX documentation](https://jax.readthedocs.io/), [Diffrax documentation](https://docs.kidger.site/diffrax/), [Equinox documentation](https://docs.kidger.site/equinox/) |
 | Stellarator geometry and optimization scripting style | [SIMSOPT overview](https://simsopt.readthedocs.io/v0.18.0/overview.html), [VMEC documentation](https://princetonuniversity.github.io/STELLOPT/VMEC) |

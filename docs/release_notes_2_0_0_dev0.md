@@ -14,7 +14,7 @@ Landed so far (Phase 0):
   `lineax` exposed as an optional extra.
 - The Alfven-wave benchmark input is a committed fixture instead of a
   machine-specific absolute path.
-- Phase 1 slice 1: the mocked-hermes report generators, orphan campaign
+- Phase 1 slice 1: the mocked reference-report generators, orphan campaign
   modules, meeting demos, profiler audits, and one-off diagnose scripts were
   removed from the package (−10.4k lines).
 - Incorporated the FCI operator/sharding stack from
@@ -44,6 +44,6 @@ plan's Phase 5 exit). Differentiability claims apply only to pure-JAX paths
 with derivative tests; host-side SciPy paths are labeled as such.
 
 The 2.0.0 release ships at the end of the plan's Phase 8 with the full
-hermes-3 capability matrix, the literature-anchored benchmark ladder, the
+native capability matrix, the literature-anchored benchmark ladder, the
 closed/open tokamak/stellarator example matrix, SOLVAX-backed solvers, and
 strong-scaling evidence.

@@ -2,9 +2,7 @@ from .artifacts import (
     ARTIFACT_BASE_URL,
     ARTIFACT_RELEASE_TAG,
     DOCS_MEDIA_ASSET,
-    REFERENCE_BASELINES_ASSET,
     ensure_docs_media,
-    ensure_reference_baselines,
 )
 from .performance import (
     configure_jax_runtime,
@@ -33,9 +31,7 @@ __all__ = [
     "MeshScalarConfig",
     "ParallelTransformConfig",
     "PeakRssMeasurement",
-    "REFERENCE_BASELINES_ASSET",
     "bytes_to_mebibytes",
-    "ensure_reference_baselines",
     "ensure_docs_media",
     "print_run_log",
     "process_tree_rss_bytes",

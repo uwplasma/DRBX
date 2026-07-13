@@ -206,7 +206,6 @@ the stellarator island-divertor turbulence articles linked from
 [docs/stellarator_fci_validation.md](stellarator_fci_validation.md), and the
 broader edge/SOL modeling context in the
 [GBS code paper](https://www.sciencedirect.com/science/article/pii/S0021999116001923),
-[Hermes-3 paper](https://www.sciencedirect.com/science/article/pii/S0010465523003363),
 and [GENE-X edge/SOL paper](https://www.sciencedirect.com/science/article/pii/S0010465521000989).
 
 After the nonlinear script writes the NPZ history, run

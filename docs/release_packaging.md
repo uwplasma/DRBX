@@ -270,9 +270,7 @@ Latest local closeout evidence:
   `6.43 MiB`, largest tracked file below `328 KiB`, wheel about `709 KiB`,
   and sdist about `614 KiB`.
 
-It is not the full closure of every research workflow in the broader validation matrix. The detailed status remains in:
-
-- [parity_harness.md](parity_harness.md)
+It is not the full closure of every research workflow in the broader validation matrix. The detailed status remains in [`plan_jax_drb.md`](https://github.com/uwplasma/jax_drb/blob/main/plan_jax_drb.md).
 
 ## After The First Package Release
 
