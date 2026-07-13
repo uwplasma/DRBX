@@ -35,10 +35,22 @@ energy invariant (no drive/coupling/dissipation), the transport direction, and
 end-to-end differentiability (the final fluctuation energy has a finite,
 finite-difference-verified gradient with respect to the adiabaticity).
 
+## Differentiable inverse design
+
+Because the whole run is JAX, the gradient of any diagnostic with respect to any
+model parameter is available by autodiff -- through the entire nonlinear time
+evolution. `examples/tokamak/drift_wave_inverse_design_demo.py` uses this to
+recover the density-gradient drive that produced a target fluctuation-energy
+level by gradient descent, and reports transport sensitivities
+(`d(energy)/d(kappa)`) that match finite differences exactly. To our knowledge
+no other drift-reduced Braginskii edge code can optimize through turbulence this
+way. The gate is `test_inverse_design_recovers_a_parameter_through_turbulence`.
+
 ## Reproduce
 
 ```bash
 PYTHONPATH=src python examples/tokamak/drift_wave_turbulence_demo.py
+PYTHONPATH=src python examples/tokamak/drift_wave_inverse_design_demo.py
 ```
 
 writes `output/drift_wave_turbulence/drift_wave_turbulence.png` (vorticity
