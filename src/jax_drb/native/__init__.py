@@ -63,6 +63,14 @@ from .fci_model import (
     update_state_halo_owned_slices,
 )
 from .fci_time_integrator import Rk4StepResult, rk4_step, sum_stage_outputs
+from .fci_sharding import (
+    Sharded2FieldStepInfo,
+    ShardedFciGeometry3D,
+    assemble_local_fci_geometry,
+    build_local_fci_geometries,
+    make_shard_mesh,
+    make_sharded_2field_step,
+)
 from .fci_operators import (
     PerpLaplacianMgHierarchy,
     PerpLaplacianMgLevel,
@@ -202,6 +210,12 @@ __all__ += [
     "perp_laplacian_local_op",
     "poisson_bracket_op",
     "rk4_step",
+    "Sharded2FieldStepInfo",
+    "ShardedFciGeometry3D",
+    "assemble_local_fci_geometry",
+    "build_local_fci_geometries",
+    "make_shard_mesh",
+    "make_sharded_2field_step",
     "sum_stage_outputs",
     "update_halo_owned_slice",
     "update_state_halo_owned_slices",

@@ -8,12 +8,20 @@ import jax.numpy as jnp
 
 from ..geometry import (
     FciGeometry3D,
+    LocalFciGeometry3D,
     build_local_stencil_from_field,
     LocalStencilBuilder,
 )
 from .fci_model import FciModelState
 from .fci_boundaries import BoundaryFaceBC3D, CutWallBC3D, CutWallGeometry3D
-from .fci_operators import curvature_op, grad_parallel_op_direct, poisson_bracket_op
+from .fci_operators import (
+    curvature_op,
+    grad_parallel_op_direct,
+    local_curvature_op,
+    local_grad_parallel_op_direct,
+    local_poisson_bracket_op,
+    poisson_bracket_op,
+)
 
 
 @jax.tree_util.register_pytree_node_class
@@ -74,10 +82,24 @@ def compute_2field_rhs(
     density_source: jax.Array | None = None,
     v_parallel_source: jax.Array | None = None,
 ) -> tuple[Fci2FieldRhsResult, jnp.ndarray]:
-    """Assemble the reduced two-field FCI RHS with Neumann stencil reconstruction."""
+    """Assemble the reduced two-field FCI RHS with Neumann stencil reconstruction.
 
+    ``geometry`` may be a global ``FciGeometry3D`` or a shard-local
+    ``LocalFciGeometry3D``; the local path evaluates the owned-cell operator
+    variants and expects an injected ``stencil_builder`` that owns halo
+    preparation, mirroring the geometry-type dispatch used by the shared
+    stencil builders.
+    """
+
+    is_local = isinstance(geometry, LocalFciGeometry3D)
     rho_star = jnp.asarray(parameters.rho_star, dtype=jnp.float64)
-    magnetic_field = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag, dtype=jnp.float64), 1.0e-30)
+    magnetic_field = jnp.maximum(
+        jnp.asarray(
+            geometry.cell_bfield.Bmag_owned if is_local else geometry.cell_bfield.Bmag,
+            dtype=jnp.float64,
+        ),
+        1.0e-30,
+    )
 
     density = jnp.asarray(state.density, dtype=jnp.float64)
     v_parallel = jnp.asarray(state.v_parallel, dtype=jnp.float64)
@@ -115,11 +137,18 @@ def compute_2field_rhs(
     stencil_time = time_module.perf_counter() - stencil_start
 
     operator_start = time_module.perf_counter()
-    poisson_density = poisson_bracket_op(phi_stencil, density_stencil, geometry)
-    curvature_density = curvature_op(density_stencil, geometry, curvature_coefficients=curvature_coefficients)
-    curvature_phi = curvature_op(phi_stencil, geometry, curvature_coefficients=curvature_coefficients)
-    parallel_velocity_gradient = grad_parallel_op_direct(v_parallel_stencil, geometry)
-    poisson_v_parallel = poisson_bracket_op(phi_stencil, v_parallel_stencil, geometry)
+    if is_local:
+        poisson_density = local_poisson_bracket_op(phi_stencil, density_stencil, geometry)
+        curvature_density = local_curvature_op(density_stencil, geometry, curvature_coefficients=curvature_coefficients)
+        curvature_phi = local_curvature_op(phi_stencil, geometry, curvature_coefficients=curvature_coefficients)
+        parallel_velocity_gradient = local_grad_parallel_op_direct(v_parallel_stencil, geometry)
+        poisson_v_parallel = local_poisson_bracket_op(phi_stencil, v_parallel_stencil, geometry)
+    else:
+        poisson_density = poisson_bracket_op(phi_stencil, density_stencil, geometry)
+        curvature_density = curvature_op(density_stencil, geometry, curvature_coefficients=curvature_coefficients)
+        curvature_phi = curvature_op(phi_stencil, geometry, curvature_coefficients=curvature_coefficients)
+        parallel_velocity_gradient = grad_parallel_op_direct(v_parallel_stencil, geometry)
+        poisson_v_parallel = poisson_bracket_op(phi_stencil, v_parallel_stencil, geometry)
 
     density_rhs = (
         -(poisson_density / (rho_star * magnetic_field))
