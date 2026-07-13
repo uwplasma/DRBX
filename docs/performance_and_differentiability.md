@@ -2,13 +2,38 @@
 
 !!! note "Plan authority"
     This page explains current performance and differentiability evidence. The
-    active execution plan is
-    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
-    page conflicts with that plan, follow the execution plan and update this
-    page afterward.
+    active execution plan is [`plan_jax_drb.md`](../plan_jax_drb.md) at the
+    repository root. If this page conflicts with that plan, follow the plan and
+    update this page afterward.
 
 This page records the current fast paths, the current differentiable paths, and
 the reproducible profiling workflow.
+
+## Measured Turbulence Performance
+
+The core closed-field-line drift-wave turbulence model (Hasegawa-Wakatani,
+FFT-spectral RK4) is `jit`-compiled and differentiable end-to-end. Two measured
+numbers quantify the "fast and differentiable" claim:
+
+![Performance and differentiability](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/performance.png)
+
+- **Throughput** is roughly grid-size-independent at about **2 million
+  cell-updates per second** on a single CPU in float64 (each step is a dealiased
+  spectral Poisson bracket); it rises substantially on GPU and in float32.
+- **Differentiating *through* the turbulence is cheap.** One reverse-mode
+  gradient of a diagnostic of the evolved state with respect to the
+  transport-drive parameter — taken through the *entire* multi-step rollout —
+  costs only about **2.7x a single forward evaluation** (here, 200 steps at
+  `n = 64`), the expected small constant factor of reverse-mode autodiff rather
+  than a cost that grows with the number of steps.
+
+Regenerate with
+
+```bash
+PYTHONPATH=src python examples/benchmarks/performance_benchmark.py
+```
+
+Absolute timings depend on the host; the scalings do not.
 
 ## Current Fast Native Lanes
 
