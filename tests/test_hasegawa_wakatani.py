@@ -105,6 +105,39 @@ def test_particle_flux_is_outward_under_positive_gradient() -> None:
     assert float(particle_flux(zeta_f, density_f, grid)) > 0.0
 
 
+def test_inverse_design_recovers_a_parameter_through_turbulence() -> None:
+    # Gradient descent on the density-gradient drive, differentiating through the
+    # whole nonlinear turbulence run, recovers the drive that produced a target
+    # fluctuation energy. This is the differentiable inverse-design capability.
+    grid = hw_grid(24, 2.0 * np.pi * 5.0)
+    rng = np.random.default_rng(3)
+    field = 1.0e-2 * (rng.standard_normal((24, 24)) + 1j * rng.standard_normal((24, 24)))
+    field[0, 0] = 0.0
+    zeta0, density0 = jnp.array(field), jnp.array(field * 0.7)
+
+    def final_energy(kappa):
+        params = HasegawaWakataniParameters(adiabaticity=1.0, gradient=kappa, hyperviscosity=3.0e-2)
+        zeta, density = hw_run(zeta0, density0, grid, params, dt=5.0e-3, steps=150)
+        phi = potential_from_vorticity(zeta, grid)
+        return jnp.sum(grid.k2 * jnp.abs(phi) ** 2 + jnp.abs(density) ** 2)
+
+    target_kappa = 1.3
+    target = float(final_energy(target_kappa))
+
+    def loss(kappa):
+        return (jnp.log(final_energy(kappa)) - jnp.log(target)) ** 2
+
+    value_and_grad = jax.jit(jax.value_and_grad(loss))
+    kappa = 0.6
+    first_loss = float(loss(kappa))
+    for _ in range(40):
+        _, grad = value_and_grad(kappa)
+        kappa = float(np.clip(kappa - 0.15 * grad, 0.05, 3.0))
+    final_loss = float(loss(kappa))
+    assert final_loss < 1e-2 * first_loss  # optimization drives the loss down
+    assert kappa == pytest.approx(target_kappa, abs=0.08)  # and recovers the drive
+
+
 def test_turbulence_example_runs(tmp_path, monkeypatch) -> None:
     # Smoke-run the flagship example at tiny resolution so it stays alive fast.
     import importlib.util
@@ -120,6 +153,25 @@ def test_turbulence_example_runs(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(module, "OUTPUT_DIR", tmp_path / "drift_wave_turbulence")
     module.main()
     assert (tmp_path / "drift_wave_turbulence" / "drift_wave_turbulence.png").exists()
+
+
+def test_inverse_design_example_runs(tmp_path, monkeypatch) -> None:
+    import importlib.util
+    from pathlib import Path
+
+    example = (
+        Path(__file__).resolve().parents[1]
+        / "examples" / "tokamak" / "drift_wave_inverse_design_demo.py"
+    )
+    spec = importlib.util.spec_from_file_location("_drift_wave_inverse_design_demo", example)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "N", 16)
+    monkeypatch.setattr(module, "STEPS", 60)
+    monkeypatch.setattr(module, "ITERATIONS", 5)
+    monkeypatch.setattr(module, "OUTPUT_DIR", tmp_path / "inverse_design")
+    module.main()
+    assert (tmp_path / "inverse_design" / "drift_wave_inverse_design.png").exists()
 
 
 def test_run_is_differentiable_end_to_end() -> None:

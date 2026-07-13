@@ -128,8 +128,10 @@ Flagship simulations span closed and open field lines in both geometries:
 
 Differentiable and geometry examples:
 
-- Autodiff: [sensitivity](examples/autodiff_diffusion_sensitivity_demo.py),
-  [uncertainty](examples/autodiff_diffusion_uncertainty_demo.py),
+- Autodiff: [inverse design through turbulence](examples/tokamak/drift_wave_inverse_design_demo.py)
+  (recover a parameter by gradient descent through a nonlinear drift-wave run),
+  plus [sensitivity](examples/autodiff_diffusion_sensitivity_demo.py),
+  [uncertainty](examples/autodiff_diffusion_uncertainty_demo.py), and reduced
   [inverse design](examples/autodiff_diffusion_inverse_design_demo.py).
 - Stellarator FCI and imported geometry:
   [examples/geometry-3D/](examples/geometry-3D/).
