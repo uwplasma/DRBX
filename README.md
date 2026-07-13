@@ -300,10 +300,7 @@ The current promoted matrix includes:
 
 The detailed status surface lives in:
 
-- [docs/implementation_inventory.md](docs/implementation_inventory.md)
 - [docs/parity_harness.md](docs/parity_harness.md)
-- [docs/parity_matrix.md](docs/parity_matrix.md)
-- [docs/research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md)
 - [docs/validation_gallery.md](docs/validation_gallery.md)
 
 ## Validation Figures
@@ -311,9 +308,7 @@ The detailed status surface lives in:
 The README shows only a few representative artifacts. The full figure index,
 including operator convergence, reactions/collisions, neutrals, recycling,
 reference parity, CPU scaling, and differentiability plots, lives in
-[docs/validation_gallery.md](docs/validation_gallery.md). The validation matrix
-that separates primary scientific evidence from supporting engineering gates is
-[docs/research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md).
+[docs/validation_gallery.md](docs/validation_gallery.md).
 
 The neutral-mixed validation docs now separate pointwise target-cell drift from
 legacy zone max/rms summaries. The current accepted-step trace matches
@@ -581,10 +576,7 @@ Detailed guides:
 - [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
 - [docs/vmec_extender_edge_fields.md](docs/vmec_extender_edge_fields.md)
 - [docs/essos_imported_fci_validation.md](docs/essos_imported_fci_validation.md)
-- [docs/essos_vmec_closed_field.md](docs/essos_vmec_closed_field.md)
-- [docs/essos_vmec_fieldline_surface.md](docs/essos_vmec_fieldline_surface.md)
 - [docs/non_axisymmetric_stellarator_sol_plan.md](docs/non_axisymmetric_stellarator_sol_plan.md)
-- [docs/dynamics_gallery.md](docs/dynamics_gallery.md)
 - [docs/validation_gallery.md](docs/validation_gallery.md)
 
 ## Differentiable Driver Lanes
@@ -603,7 +595,6 @@ Entry points:
 - [examples/autodiff_diffusion_inverse_design_demo.py](examples/autodiff_diffusion_inverse_design_demo.py)
 - [examples/strong_scaling_diffusion_demo.py](examples/strong_scaling_diffusion_demo.py)
 - [docs/autodiff_and_scaling_examples.md](docs/autodiff_and_scaling_examples.md)
-- [docs/autodiff_diffusion_uncertainty_demo.md](docs/autodiff_diffusion_uncertainty_demo.md)
 
 ## Physics, Algorithms, And Performance
 
@@ -613,18 +604,13 @@ The governing equations, closures, numerical operators, runtime design, and diff
 - [docs/code_structure.md](docs/code_structure.md)
 - [docs/performance_and_differentiability.md](docs/performance_and_differentiability.md)
 - [docs/profiling_runtime.md](docs/profiling_runtime.md)
-- [docs/runtime_gap_remediation.md](docs/runtime_gap_remediation.md)
 - [docs/native_runtime_cli.md](docs/native_runtime_cli.md)
 - [docs/geometry_roadmap.md](docs/geometry_roadmap.md)
-- [docs/research_directions.md](docs/research_directions.md)
-- [docs/refactoring_plan.md](docs/refactoring_plan.md)
 - [docs/research_grade_execution_plan.md](docs/research_grade_execution_plan.md)
 
 The runtime/performance audit tools include:
 
 - [docs/fluid_1d_mms_convergence.md](docs/fluid_1d_mms_convergence.md)
-- [docs/research_campaigns.md](docs/research_campaigns.md)
-- [docs/repo_size_audit.md](docs/repo_size_audit.md)
 - [scripts/profile_curated_case.py](scripts/profile_curated_case.py)
 - [scripts/run_research_campaign_bundle.py](scripts/run_research_campaign_bundle.py)
 - [scripts/profile_stellarator_drb_pytree.py](scripts/profile_stellarator_drb_pytree.py)
@@ -683,8 +669,7 @@ gate, the in-tree JAX GMRES path used `50` implicit trial solves in about
 ran the same controller history in about `91 s`, but it reported failed inner
 linear solves and remains a diagnostic backend rather than a promoted default.
 The exact commands, caveats, and latest numbers are in
-[docs/performance_and_differentiability.md](docs/performance_and_differentiability.md)
-and [docs/research_campaigns.md](docs/research_campaigns.md).
+[docs/performance_and_differentiability.md](docs/performance_and_differentiability.md).
 
 The multi-ion D/T/He adaptive-BDF route is also still opt-in. The current
 passing diagnostics-only promotion-style result uses the sparse-JVP
@@ -708,8 +693,7 @@ self-hosted runtime is recorded as unavailable rather than as a speedup claim.
 
 Focused engineering and benchmark packages:
 
-- [docs/neutral_mixed_term_balance_campaign.md](docs/neutral_mixed_term_balance_campaign.md)
-- [docs/hermes_neutral_mixed_accepted_step_trace_monitor.md](docs/hermes_neutral_mixed_accepted_step_trace_monitor.md)
+- [docs/neutral_mixed_benchmark.md](docs/neutral_mixed_benchmark.md)
 - [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
 
 ## Testing
@@ -761,7 +745,4 @@ Release/package documentation:
 
 - [docs/release_packaging.md](docs/release_packaging.md)
 - [docs/release_notes_2_0_0_dev0.md](docs/release_notes_2_0_0_dev0.md)
-- [docs/release_notes_1_0_3.md](docs/release_notes_1_0_3.md)
-- [docs/release_notes_1_0_2.md](docs/release_notes_1_0_2.md)
-- [docs/release_notes_1_0_1.md](docs/release_notes_1_0_1.md)
-- [docs/release_notes_1_0_0.md](docs/release_notes_1_0_0.md)
+- [CHANGELOG.md](CHANGELOG.md)

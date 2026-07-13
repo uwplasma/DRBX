@@ -272,9 +272,7 @@ Latest local closeout evidence:
 
 It is not the full closure of every research workflow in the broader validation matrix. The detailed status remains in:
 
-- [implementation_inventory.md](implementation_inventory.md)
 - [parity_harness.md](parity_harness.md)
-- [parity_matrix.md](parity_matrix.md)
 
 ## After The First Package Release
 

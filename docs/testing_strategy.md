@@ -268,7 +268,6 @@ The current promoted example of this policy is:
 The supported runtime-profiling workflow for those campaigns is now:
 
 - [profiling_runtime.md](profiling_runtime.md)
-- [research_campaigns.md](research_campaigns.md)
 
 ## CI Gate Target
 
