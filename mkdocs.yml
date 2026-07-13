@@ -54,6 +54,7 @@ nav:
       - Parity Harness: parity_harness.md
       - Fluid 1D MMS Convergence: fluid_1d_mms_convergence.md
   - Benchmarks And Movies:
+      - Linear Dispersion Benchmark: linear_dispersion_benchmark.md
       - Drift-Wave Benchmark: drift_wave_benchmark.md
       - Alfven-Wave Benchmark: alfven_wave_benchmark.md
       - Neutral Mixed Benchmark: neutral_mixed_benchmark.md
