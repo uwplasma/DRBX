@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
 import subprocess
 
 import pytest
 
 from jax_drb.runtime import configure_jax_runtime
-from jax_drb.runtime.artifacts import ensure_reference_baselines
-from jax_drb.reference.paths import default_reference_root, repo_root
+from jax_drb.runtime.paths import repo_root
 
 
 # Keep the default test runtime aligned with the documented package default so
@@ -17,13 +15,6 @@ from jax_drb.reference.paths import default_reference_root, repo_root
 configure_jax_runtime(precision="float64")
 
 REPO_ROOT = repo_root()
-REFERENCE_ROOT = default_reference_root()
-REFERENCE_BINARY_ROOT = REFERENCE_ROOT
-BASELINE_REFERENCE_DIR = REPO_ROOT / "references" / "baselines" / "reference"
-BASELINE_ARRAY_DIR = REPO_ROOT / "references" / "baselines" / "reference_arrays"
-
-
-ensure_reference_baselines(root=REPO_ROOT)
 
 
 @pytest.fixture(autouse=True)
@@ -51,11 +42,3 @@ def require_working_ffmpeg() -> None:
     )
     if result.returncode != 0:
         pytest.skip(f"ffmpeg is installed but cannot start: {result.stderr.strip()}")
-
-
-def reference_input(relative_path: str) -> Path:
-    if REFERENCE_ROOT is None:
-        raise FileNotFoundError(
-            "Set JAX_DRB_REFERENCE_ROOT to a checkout containing the external benchmark decks."
-        )
-    return REFERENCE_ROOT / relative_path

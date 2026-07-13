@@ -15,7 +15,7 @@ from matplotlib import animation
 import numpy as np
 
 from jax_drb.cli import main as cli_main
-from jax_drb.parity.arrays import build_portable_array_payload, load_portable_array_payload, write_portable_array_payload
+from jax_drb.native.deck_runner import build_portable_array_payload, load_portable_array_payload, write_portable_array_payload
 from jax_drb.runtime import load_restart_bundle
 
 

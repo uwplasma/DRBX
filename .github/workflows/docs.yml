@@ -26,9 +26,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e '.[docs]' pytest
-      - name: Check public docs and release surface
+      - name: Check packaging metadata
         run: |
-          pytest -q tests/test_release_surface.py
+          pytest -q tests/test_packaging_metadata.py
       - name: Build Read the Docs site
         run: |
           mkdocs build --strict --clean

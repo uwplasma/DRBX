@@ -19,8 +19,8 @@ for compact microbenchmarks.
 
 The script now requires one of:
 
-- `--reference-root /path/to/hermes-3`
-- `JAX_DRB_REFERENCE_ROOT=/path/to/hermes-3`
+- `--reference-root /path/to/reference-suite`
+- `JAX_DRB_REFERENCE_ROOT=/path/to/reference-suite`
 
 ## Recommended CPU Cases
 
@@ -861,7 +861,7 @@ From the repo root:
 
 ```bash
 PYTHONPATH=src python3 scripts/profile_curated_case.py neutral_mixed_one_step \
-  --reference-root /path/to/hermes-3 \
+  --reference-root /path/to/reference-suite \
   --output-dir tmp/profiles/neutral_mixed_one_step \
   --warm-runs 1 \
   --timed-runs 2 \
@@ -890,7 +890,7 @@ Perfetto:
 
 ```bash
 PYTHONPATH=src python3 scripts/profile_curated_case.py recycling_1d_one_step \
-  --reference-root /path/to/hermes-3 \
+  --reference-root /path/to/reference-suite \
   --output-dir tmp/profiles/recycling_1d_one_step \
   --jax-trace
 ```
@@ -906,7 +906,7 @@ On GPU-capable systems, the same script can also snapshot device memory:
 
 ```bash
 PYTHONPATH=src python3 scripts/profile_curated_case.py tokamak_turbulence_one_step \
-  --reference-root /path/to/hermes-3 \
+  --reference-root /path/to/reference-suite \
   --output-dir tmp/profiles/tokamak_turbulence_one_step \
   --jax-trace \
   --device-memory-profile
@@ -928,7 +928,7 @@ Example:
 
 ```bash
 PYTHONPATH=src python3 scripts/profile_curated_case.py tokamak_recycling_one_step \
-  --reference-root /path/to/hermes-3 \
+  --reference-root /path/to/reference-suite \
   --output-dir tmp/profiles/tokamak_recycling_one_step \
   --compilation-cache-dir tmp/jax_cache \
   --xla-dump-dir tmp/xla_dump \

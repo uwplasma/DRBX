@@ -50,10 +50,9 @@ Many reduced SOL closures use \(L_\parallel\) for the effective parallel
 distance between the modeled perpendicular plane and a sheath/target. Depending
 on the model, \(L_\parallel\) may be one-sided, half of a target-to-target
 length, or a prescribed constant. For example, the sheath-connected blob
-example in the reference fluid-model documentation uses
+example in the reduced fluid-model literature uses
 \(\nabla\cdot\mathbf{j}_{sh}=n_e\phi/L_{||}\) with a configurable
-`connection_length`:
-[Hermes-3 blob example](https://hermes3.readthedocs.io/en/latest/examples.html#blob2d).
+`connection_length`.
 In axisymmetric tokamak estimates near a poloidal limiter or divertor,
 \(L_\parallel\) often scales like the distance traveled along a helical field
 line, approximately \(qR\) times an order-one poloidal-angle factor. In shaped,

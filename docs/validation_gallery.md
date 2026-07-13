@@ -14,8 +14,8 @@ checks stay in sync.
 The figure classes are chosen to match the main literature patterns used in
 verification and edge/SOL validation papers: convergence curves and observed
 orders in the style of Roy 2005 and the GBS parallel-gradient work, profile and
-target comparisons in the style of TCV-X21, SOLPS-ITER, and Hermes-3 against
-TCV-X21, and differentiable-science summaries closer to JAX-Fluids and related
+target comparisons in the style of TCV-X21 and SOLPS-ITER, and
+differentiable-science summaries closer to JAX-Fluids and related
 JAX-based solver papers.
 
 ## Figure Status

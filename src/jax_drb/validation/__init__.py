@@ -1,80 +1,3 @@
-from .alfven_wave import (
-    AlfvenWaveAnalysisResult,
-    AlfvenWaveBenchmarkScalars,
-    AlfvenWaveParityResult,
-    analyze_alfven_wave_array_payload,
-    analyze_alfven_wave_npz,
-    compare_alfven_wave_array_payloads,
-    compare_alfven_wave_npz,
-    compute_alfven_wave_benchmark_scalars,
-    save_alfven_wave_diagnostic_plot,
-    save_alfven_wave_parity_plot,
-    write_alfven_wave_analysis_json,
-    write_alfven_wave_parity_json,
-)
-from .blob2d import (
-    Blob2DAnalysisResult,
-    Blob2DParityResult,
-    analyze_blob2d_array_payload,
-    analyze_blob2d_npz,
-    compare_blob2d_analysis_results,
-    compare_blob2d_array_payloads,
-    compare_blob2d_artifacts,
-    compare_blob2d_npz,
-    load_blob2d_analysis_json,
-    save_blob2d_parity_plot,
-    write_blob2d_analysis_json,
-    write_blob2d_parity_json,
-)
-from .drift_wave import (
-    DriftWaveAnalysisResult,
-    DriftWaveBenchmarkScalars,
-    DriftWaveParityResult,
-    DriftWaveParityVariableError,
-    analyze_drift_wave_array_payload,
-    analyze_drift_wave_npz,
-    compare_drift_wave_array_payloads,
-    compare_drift_wave_npz,
-    compute_drift_wave_benchmark_scalars,
-    save_drift_wave_diagnostic_plot,
-    save_drift_wave_parity_plot,
-    write_drift_wave_analysis_json,
-    write_drift_wave_parity_json,
-)
-from .neutral_mixed import (
-    NeutralMixedAnalysisResult,
-    NeutralMixedParityResult,
-    NeutralMixedSeriesError,
-    analyze_neutral_mixed_array_payload,
-    analyze_neutral_mixed_npz,
-    compare_neutral_mixed_analysis_results,
-    compare_neutral_mixed_array_payloads,
-    compare_neutral_mixed_artifacts,
-    compare_neutral_mixed_npz,
-    load_neutral_mixed_analysis_json,
-    save_neutral_mixed_diagnostic_plot,
-    save_neutral_mixed_parity_plot,
-    write_neutral_mixed_analysis_json,
-    write_neutral_mixed_parity_json,
-)
-from .neutral_mixed_term_balance_campaign import (
-    NeutralMixedTermBalanceCampaignArtifacts,
-    build_neutral_mixed_accepted_step_trace_parity_report,
-    build_neutral_mixed_native_accepted_step_trace_report,
-    build_neutral_mixed_reference_input_closure_report,
-    build_neutral_mixed_substep_hybrid_report,
-    build_neutral_mixed_term_balance_campaign_report,
-    create_neutral_mixed_term_balance_campaign_package,
-    run_neutral_mixed_hermes_accepted_step_trace,
-    run_neutral_mixed_hermes_diagnostic_rerun,
-    save_neutral_mixed_term_balance_campaign_plot,
-    write_neutral_mixed_accepted_step_trace_parity_json,
-    write_neutral_mixed_accepted_step_trace_input,
-    write_neutral_mixed_native_accepted_step_trace_json,
-    write_neutral_mixed_diagnostic_input,
-    write_neutral_mixed_reference_input_closure_json,
-    write_neutral_mixed_substep_hybrid_json,
-)
 from .autodiff_diffusion import (
     DiffusionAutodiffSetup,
     StrongScalingPoint,
@@ -288,12 +211,6 @@ from .stellarator_sol_showcase import (
     save_stellarator_sol_snapshot_panel,
     simulate_reduced_stellarator_sol_dynamics,
 )
-from .recycling_batched_jvp_profile import (
-    RecyclingBatchedJvpProblem,
-    build_recycling_batched_jvp_problem,
-    create_recycling_batched_jvp_profile_package,
-    profile_recycling_batched_jvp_problem,
-)
 from .fluid_1d_mms_convergence import (
     Fluid1DMmsConvergenceArtifacts,
     build_fluid_1d_mms_convergence_report,
@@ -356,7 +273,6 @@ __all__ = [
     "build_neutral_mixed_reference_input_closure_report",
     "build_neutral_mixed_term_balance_campaign_report",
     "create_neutral_mixed_term_balance_campaign_package",
-    "run_neutral_mixed_hermes_diagnostic_rerun",
     "save_neutral_mixed_term_balance_campaign_plot",
     "write_neutral_mixed_diagnostic_input",
     "write_neutral_mixed_reference_input_closure_json",
@@ -503,3 +419,6 @@ __all__ = [
     "create_recycling_batched_jvp_profile_package",
     "profile_recycling_batched_jvp_problem",
 ]
+
+# Only export what actually imported (removed-model blocks stripped in the v2 slim).
+__all__ = [name for name in __all__ if name in globals()]

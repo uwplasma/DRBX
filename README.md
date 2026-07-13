@@ -16,10 +16,11 @@ closed and open field lines, in axisymmetric (tokamak) and non-axisymmetric
 
 Because the whole model is written in JAX, every simulation is `jit`-compiled,
 runs on CPU or GPU unchanged, and is differentiable: you can take gradients of
-any output (a target heat flux, a detachment-front position) with respect to
-any input (an anomalous diffusivity, an impurity fraction) through the solver.
-To our knowledge no other published DRB SOL turbulence code is differentiable,
-and none combines differentiability with FCI stellarator geometry.
+any output (a saturated fluctuation energy, a transport level) with respect to
+any input (a density gradient, an adiabaticity, a diffusivity) through the
+solver. To our knowledge no other published DRB SOL turbulence code is
+differentiable, and none combines differentiability with FCI stellarator
+geometry.
 
 Documentation: [jax-drb.readthedocs.io](https://jax-drb.readthedocs.io/).
 
@@ -59,22 +60,20 @@ example scripts below.
 
 ## What it does
 
-- Drift-reduced Braginskii models for edge/SOL turbulence: density, parallel
-  momentum, and pressure evolution with Braginskii closures, vorticity/potential,
-  sheath boundary conditions, and selected electromagnetic terms.
+- Drift-reduced Braginskii turbulence: the closed-field-line Hasegawa-Wakatani
+  drift-wave model and the FCI 2-field/4-field/electromagnetic operator stack,
+  with vorticity/potential and curvature closures.
 - A linear stability solver (`jax_drb.linear`) that linearizes any model about
   an equilibrium and returns eigenmode growth rates and frequencies — verified
   against analytic drift-wave, shear-Alfvén, and interchange dispersion.
-- Neutrals and recycling: an advanced-fluid-neutral model, parallel neutral
-  diffusion, AMJUEL/ADAS ionization/recombination/charge-exchange rates,
-  target recycling, and impurity radiation — enough for 1D detachment studies.
-- Closed and open field lines in tokamak and stellarator geometry through the
-  FCI map, including imported ESSOS coil, VMEC, and hybrid equilibria.
+- Non-axisymmetric (stellarator) geometry through the FCI approach, including a
+  shifted-torus analytic geometry and imported ESSOS coil / VMEC / hybrid
+  equilibria, with multi-device `shard_map` parallelism.
 - Differentiable driver lanes: sensitivity analysis, uncertainty propagation,
-  and inverse design, with autodiff derivatives checked against finite
-  differences.
-- A TOML-deck CLI and a small Python API, restartable runs, and portable
-  JSON/NPZ output artifacts.
+  and inverse design *through turbulence*, with autodiff derivatives checked
+  against finite differences.
+- A TOML-deck CLI and a small Python API for fluid/diffusion/vorticity decks,
+  restartable runs, and portable JSON/NPZ output artifacts.
 
 ## Install
 
@@ -138,30 +137,34 @@ full deck schema and outputs, and
 Each rung has a test (or a documented gate) and an example that regenerates
 its figure.
 
+Verified today (each with a passing test):
+
 | Case | Anchor | What is checked |
 |------|--------|-----------------|
-| Method of manufactured solutions | Riva et al., *Phys. Plasmas* 21, 062301 (2014); Dudson et al. 23, 062303 (2016) | operator/1D convergence order → 2 |
+| Method of manufactured solutions | Riva et al., *Phys. Plasmas* 21, 062301 (2014); Dudson et al. 23, 062303 (2016) | operator / 1D-fluid / FCI convergence order → 2 |
 | Resistive drift-wave dispersion | Dudson et al., *Comput. Phys. Commun.* 180, 1467 (2009) | growth rate and frequency vs analytic dispersion |
 | Shear-Alfvén wave dispersion | Stegmeir et al., *Phys. Plasmas* 26, 052517 (2019) | phase velocity vs analytic (with electron inertia) |
-| Seeded blob / filament | Riva et al., *PPCF* 58, 044005 (2016) | radial velocity and velocity-vs-size scaling |
-| hermes-3 component parity | Dudson et al., *CPC* 296, 108991 (2024) | per-term agreement on a documented case ladder |
-| 1D detachment | Dudson et al., *PPCF* 61, 065008 (2019, SD1D); Body et al., *NME* 41, 101819 (2024) | target-flux rollover and detachment-onset scaling |
-| FCI in non-axisymmetric geometry | Shanahan et al., *PPCF* 61, 025007 (2019, BSTING) | parallel-operator convergence; filament propagation |
-| TCV-X21 diverted L-mode | Oliveira, Body et al., *Nucl. Fusion* 62, 096001 (2022) | agreement metric over the public dataset |
+| Interchange / Rayleigh-Taylor | curvature-driven flute dispersion | growth rate vs `√(gκ)·k_y/k` analytic |
+| FCI on non-axisymmetric geometry | Shanahan et al., *PPCF* 61, 025007 (2019, BSTING) | parallel-operator MMS; differentiable rollout (grad vs FD 6e-11) |
+| Differentiable inverse design | — | gradient descent through turbulence recovers a drive parameter |
 
-The ladder and its current status are tracked in
-[`plan_jax_drb.md`](plan_jax_drb.md); benchmark reports live under
-[docs/](docs/alfven_wave_benchmark.md) (Alfvén, drift-wave, MMS, neutral-mixed)
-and [docs/validation_gallery.md](docs/validation_gallery.md).
+Planned rungs (rotating-ellipse FCI B7, seeded-blob scaling, and others) are
+tracked in [`plan_jax_drb.md`](plan_jax_drb.md); benchmark reports live under
+[docs/](docs/linear_dispersion_benchmark.md) and
+[docs/validation_gallery.md](docs/validation_gallery.md).
 
 ## Examples
 
-Flagship simulations span closed and open field lines in both geometries:
+Flagship simulations, by geometry:
 
-| | Closed field lines | Open field lines |
+| | Turbulence flagship | Geometry |
 |---|---|---|
-| **Tokamak** | [drift-wave turbulence](examples/tokamak/drift_wave_turbulence_demo.py) (Hasegawa-Wakatani; linear phase B2-verified, differentiable) | 1D SOL with sheath + recycling + reactions (detachment); [blob2d](examples/); diverted transport |
-| **Stellarator** | [differentiable FCI drift-reduced model on helical geometry](examples/stellarator/fci_differentiable_demo.py); VMEC closed-field turbulence | island-divertor open SOL; hybrid VMEC/coil imports |
+| **Tokamak** | [drift-wave turbulence](examples/tokamak/drift_wave_turbulence_demo.py) (Hasegawa-Wakatani; linear phase B2-verified, differentiable) + [inverse design](examples/tokamak/drift_wave_inverse_design_demo.py) | periodic flux tube |
+| **Stellarator** | [differentiable FCI drift-reduced model](examples/stellarator/fci_differentiable_demo.py) | shifted-torus helical + imported [ESSOS/VMEC](examples/geometry-3D/) |
+
+Open-field-line SOL (sheath/recycling) is a planned direction (see
+[`plan_jax_drb.md`](plan_jax_drb.md)); the FCI stack carries the sheath
+operators it will build on.
 
 Benchmarks, differentiable, and geometry examples:
 
@@ -179,11 +182,9 @@ Benchmarks, differentiable, and geometry examples:
 - Start with [examples/model_selection_guide.py](examples/model_selection_guide.py)
   to choose a model family, dimension, and boundary conditions.
 
-The user-facing examples are self-contained. Users do not need to install or
-download any external plasma code to run those examples or the README/docs
-movies. Live reference-code reruns are developer validation tasks only. Large
-figures and movies are hosted in GitHub releases (the checkout stays small);
-`python scripts/fetch_example_artifacts.py` restores them.
+The examples are self-contained — no external plasma code is needed to run
+them. Large figures and movies are hosted in GitHub releases so the checkout
+stays small.
 
 ## Geometry and parallelization
 
@@ -204,8 +205,7 @@ See [docs/stellarator_examples.md](docs/stellarator_examples.md) and
 - Performance and differentiability:
   [performance_and_differentiability.md](docs/performance_and_differentiability.md),
   [profiling_runtime.md](docs/profiling_runtime.md).
-- Validation and parity: [validation_gallery.md](docs/validation_gallery.md),
-  [parity_harness.md](docs/parity_harness.md).
+- Validation: [validation_gallery.md](docs/validation_gallery.md).
 - Testing policy: [testing_strategy.md](docs/testing_strategy.md).
 
 ## Testing
@@ -215,8 +215,7 @@ pytest -q -m "not slow"                                   # full fast suite
 pytest -q -m "not slow" --cov=jax_drb --cov-branch        # with coverage
 ```
 
-CI runs the full fast suite on Python 3.10–3.12. Reference-parity tests that
-need an external hermes-3 checkout skip automatically when it is absent.
+CI runs the full fast suite on Python 3.10–3.12.
 
 ## Releases
 

@@ -27,7 +27,7 @@ moment hierarchy and apply the standard edge/SOL drift ordering
 `ω/Ω_i << 1`, `ρ_s/L_⊥ << 1`, and `k_∥ << k_⊥`, so that fast gyromotion is
 removed while the dominant parallel transport, sheath losses, and
 cross-field drift dynamics are retained. In the literature, this is the same
-reduced-fluid family used by Hermes-3, GBS, GDB, GRILLIX, and TOKAM3X.
+reduced-fluid family used by GBS, GDB, GRILLIX, and TOKAM3X.
 
 Useful references for the model class and its scope:
 
@@ -35,7 +35,7 @@ Useful references for the model class and its scope:
   [Braginskii 1965](https://link.springer.com/book/10.1007/978-1-4615-2808-1)
 - reduced-fluid SOL model and GBS comparison class:
   [Ricci et al. 2012](https://iopscience.iop.org/article/10.1088/0741-3335/54/12/124047)
-- Hermes-3 multi-component edge/SOL model:
+- multi-component edge/SOL fluid model:
   [Dudson et al. 2024](https://doi.org/10.1016/j.cpc.2023.108991)
 - global tokamak edge fluid review:
   [Schwander et al. 2024](https://doi.org/10.1016/j.compfluid.2023.106141)

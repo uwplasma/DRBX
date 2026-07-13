@@ -8,7 +8,7 @@ from jax import numpy as jnp
 from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
-from jax_drb.native.runner import run_config_case
+from jax_drb.native import run_config_case
 from jax_drb.native.transport import advance_anomalous_diffusion_history
 from jax_drb.runtime.run_config import RunConfiguration
 

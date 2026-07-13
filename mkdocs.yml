@@ -8,7 +8,6 @@ docs_dir: docs
 site_dir: site
 exclude_docs: |
   data/**
-  release_artifacts_manifest.json
 theme:
   name: readthedocs
 markdown_extensions:
@@ -52,14 +51,10 @@ nav:
       - Non-Axisymmetric SOL Plan: non_axisymmetric_stellarator_sol_plan.md
   - Validation:
       - Validation Gallery: validation_gallery.md
-      - Parity Harness: parity_harness.md
       - Fluid 1D MMS Convergence: fluid_1d_mms_convergence.md
   - Benchmarks And Movies:
       - Linear Dispersion Benchmark: linear_dispersion_benchmark.md
       - Drift-Wave Turbulence: drift_wave_turbulence.md
-      - Drift-Wave Benchmark: drift_wave_benchmark.md
-      - Alfven-Wave Benchmark: alfven_wave_benchmark.md
-      - Neutral Mixed Benchmark: neutral_mixed_benchmark.md
   - Plans And Release:
       - Testing Strategy: testing_strategy.md
       - Research-Grade Execution Plan: research_grade_execution_plan.md

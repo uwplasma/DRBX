@@ -34,14 +34,10 @@ def all_slices() -> tuple[PytestSlice, ...]:
     return (
         PytestSlice(
             name="runtime_surface",
-            description="CLI, runtime logging, restart, and release-surface checks",
+            description="CLI, runtime logging, and restart checks",
             pytest_args=(
-                "tests/test_release_surface.py",
                 "tests/test_cli_run.py",
                 "tests/test_cli_command_surface.py",
-                "tests/test_native_runner_dispatch.py",
-                "tests/test_native_runner_dump.py",
-                "tests/test_native_runner_support.py",
                 "tests/test_restartable_diffusion_tutorial.py",
             ),
         ),
@@ -53,17 +49,6 @@ def all_slices() -> tuple[PytestSlice, ...]:
             ),
         ),
         PytestSlice(
-            name="portable_parity",
-            description="portable payload, diff, compare, and reference-harness helpers",
-            pytest_args=(
-                "tests/test_parity_arrays.py",
-                "tests/test_parity_compare.py",
-                "tests/test_parity_diff.py",
-                "tests/test_parity_portable.py",
-                "tests/test_parity_reference.py",
-            ),
-        ),
-        PytestSlice(
             name="mms_operator",
             description="manufactured-solution history checks",
             pytest_args=(
@@ -72,10 +57,9 @@ def all_slices() -> tuple[PytestSlice, ...]:
         ),
         PytestSlice(
             name="native_operator",
-            description="open-field utilities and implicit-operator checks",
+            description="mesh utilities and implicit-operator checks",
             pytest_args=(
                 "tests/test_native_mesh.py",
-                "tests/test_native_open_field.py",
                 "tests/test_solver_implicit.py",
             ),
         ),
@@ -84,17 +68,6 @@ def all_slices() -> tuple[PytestSlice, ...]:
             description="summary manufactured-solution convergence campaign",
             pytest_args=(
                 "tests/test_mms_convergence.py",
-            ),
-        ),
-        PytestSlice(
-            name="recycling_operator",
-            description="recycling operator, guard-state, and blocker-diagnostic checks",
-            pytest_args=(
-                "-m",
-                "not slow",
-                "tests/test_native_recycling_1d.py",
-                "tests/test_native_recycling_history.py",
-                "tests/test_recycling_diagnostics.py",
             ),
         ),
     )

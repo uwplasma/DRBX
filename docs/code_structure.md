@@ -13,7 +13,6 @@ the validation campaigns in detail.
 
 The comparison standard is the architecture and validation culture seen in
 codes such as [BOUT++](https://arxiv.org/abs/0810.5757),
-[Hermes-3](https://www.sciencedirect.com/science/article/pii/S0010465523003363),
 [GBS](https://www.sciencedirect.com/science/article/pii/S0021999122003280), and
 [TOKAM3X](https://www.sciencedirect.com/science/article/pii/S0021999116301838):
 separate the governing operators from the orchestration layer, separate
@@ -40,7 +39,7 @@ The current top-level layout is:
 - `src/jax_drb/parity`
   portable summary/array payload helpers and comparison tooling
 - `src/jax_drb/config`
-  BOUT/HERMES-style input parsing and numeric option resolution
+  BOUT-style input parsing and numeric option resolution
 - `src/jax_drb/runtime`
   runtime configuration, precision, profiling, and execution helpers
 - `src/jax_drb/reference`

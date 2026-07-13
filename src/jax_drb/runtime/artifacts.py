@@ -8,13 +8,12 @@ import time
 import urllib.request
 import zipfile
 
-from ..reference.paths import repo_root
+from .paths import repo_root
 
 
 ARTIFACT_RELEASE_TAG = "validation-artifacts-2026-04-28"
 ARTIFACT_BASE_URL = f"https://github.com/uwplasma/jax_drb/releases/download/{ARTIFACT_RELEASE_TAG}"
 DOCS_MEDIA_ASSET = "jax_drb_docs_media.zip"
-REFERENCE_BASELINES_ASSET = "jax_drb_reference_baselines.zip"
 
 DOCS_MEDIA_SENTINELS = (
     Path(
@@ -34,47 +33,6 @@ DOCS_MEDIA_SENTINELS = (
         "movie_compact.gif"
     ),
 )
-
-
-def ensure_reference_baselines(
-    *,
-    root: str | Path | None = None,
-    base_url: str | None = None,
-    force: bool = False,
-) -> Path:
-    """Restore heavy validation baselines for research tests when absent."""
-
-    resolved_root = Path(root) if root is not None else repo_root()
-    reference_arrays = resolved_root / "references" / "baselines" / "reference_arrays"
-    reference_snapshots = resolved_root / "references" / "baselines" / "reference_snapshots"
-    sentinel = reference_arrays / "alfven_wave_short_window.npz"
-    snapshot_sentinel = reference_snapshots / "tokamak_turbulence_rhs_field_history.npz"
-    if not force and sentinel.exists() and snapshot_sentinel.exists():
-        return resolved_root / "references" / "baselines"
-    if os.environ.get("JAX_DRB_OFFLINE_ARTIFACTS", "").lower() in {"1", "true", "yes"}:
-        raise FileNotFoundError(
-            "Heavy reference baselines are not present and JAX_DRB_OFFLINE_ARTIFACTS is enabled."
-        )
-
-    cache_dir = _artifact_cache_dir(resolved_root)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = cache_dir / REFERENCE_BASELINES_ASSET
-    if force or not archive_path.exists():
-        resolved_base_url = (
-            base_url or os.environ.get("JAX_DRB_ARTIFACT_BASE_URL") or ARTIFACT_BASE_URL
-        ).rstrip("/")
-        _download_release_asset(
-            f"{resolved_base_url}/{REFERENCE_BASELINES_ASSET}",
-            archive_path,
-            asset_name=REFERENCE_BASELINES_ASSET,
-        )
-    with zipfile.ZipFile(archive_path) as archive:
-        archive.extractall(resolved_root)
-    if not sentinel.exists() or not snapshot_sentinel.exists():
-        raise FileNotFoundError(
-            f"Reference artifact archive did not restore expected baselines under {resolved_root}"
-        )
-    return resolved_root / "references" / "baselines"
 
 
 def ensure_docs_media(

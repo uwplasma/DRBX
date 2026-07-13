@@ -65,64 +65,6 @@ def test_shear_alfven_electron_inertia_lowers_frequency() -> None:
     ) == pytest.approx(inertial, rel=1e-10)
 
 
-def test_shear_alfven_matches_committed_benchmark_scalars() -> None:
-    # Reproduce the analytic omega of the code's own Alfven-wave benchmark deck
-    # from the linear operator, so B3 is anchored to the documented convention.
-    from jax_drb.config.boutinp import parse_bout_input
-    from jax_drb.native.units import resolved_dataset_scalars
-    from jax_drb.runtime.run_config import RunConfiguration
-    from jax_drb.validation import compute_alfven_wave_benchmark_scalars
-
-    deck = """
-nout = 10
-timestep = 10
-
-[mesh]
-nx = 5
-ny = 32
-nz = 27
-Lx = 0.1
-Ly = 10
-Lz = 1
-B = 0.2
-dx = Lx / (nx - 4)
-dy = Ly / ny
-dz = Lz / nz
-g11 = 1
-g22 = 1
-g33 = 1
-J = 1
-
-[mesh:paralleltransform]
-type = identity
-
-[model]
-components = (e, i, electromagnetic, vorticity)
-Nnorm = 1e19
-Tnorm = 100
-Bnorm = 0.2
-
-[e]
-AA = 1/1836
-
-[i]
-AA = 2
-density = 1e19
-"""
-    config = parse_bout_input(deck)
-    scalars = resolved_dataset_scalars(RunConfiguration.from_config(config))
-    benchmark = compute_alfven_wave_benchmark_scalars(config, dataset_scalars=scalars)
-    numeric = _mode_frequency(
-        shear_alfven_operator(
-            benchmark.kpar,
-            benchmark.kperp,
-            benchmark.alfven_speed,
-            benchmark.electron_skin_depth,
-        )
-    )
-    assert numeric == pytest.approx(benchmark.analytic_omega, rel=1e-10)
-
-
 # --- B2: resistive drift wave (Hasegawa-Wakatani) -------------------------------
 
 _KY = 0.5

@@ -9,8 +9,6 @@ import time
 from typing import Any, Mapping
 
 from .config.boutinp import load_bout_input
-from .reference.cases import resolve_reference_cases
-from .reference.paths import default_reference_root as resolve_default_reference_root
 from .runtime import configure_jax_runtime, resolve_runtime_precision
 from .runtime.run_config import RunConfiguration
 
@@ -34,89 +32,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     inspect_parser.add_argument("input_file", type=Path)
     inspect_parser.set_defaults(command=_inspect_command)
-
-    cases_parser = subparsers.add_parser(
-        "reference-cases",
-        help="Inspect the curated reference cases and report their resolved run configuration.",
-    )
-    cases_parser.add_argument(
-        "--reference-root",
-        type=Path,
-        default=_default_reference_root(),
-        help="Path to the external benchmark checkout used for curated-case inspection.",
-    )
-    cases_parser.set_defaults(command=_reference_cases_command)
-
-    compare_parser = subparsers.add_parser(
-        "compare-summary",
-        help="Compare an actual portable run summary JSON against an expected baseline JSON.",
-    )
-    compare_parser.add_argument("expected_json", type=Path)
-    compare_parser.add_argument("actual_json", type=Path)
-    compare_parser.add_argument("--scalar-rtol", type=float, default=1e-10)
-    compare_parser.add_argument("--scalar-atol", type=float, default=1e-12)
-    compare_parser.set_defaults(command=_compare_summary_command)
-
-    compare_arrays_parser = subparsers.add_parser(
-        "compare-arrays",
-        help="Compare an actual portable array NPZ against an expected baseline NPZ.",
-    )
-    compare_arrays_parser.add_argument("expected_npz", type=Path)
-    compare_arrays_parser.add_argument("actual_npz", type=Path)
-    compare_arrays_parser.add_argument("--scalar-rtol", type=float, default=1e-10)
-    compare_arrays_parser.add_argument("--scalar-atol", type=float, default=1e-12)
-    compare_arrays_parser.add_argument("--array-rtol", type=float, default=1e-10)
-    compare_arrays_parser.add_argument("--array-atol", type=float, default=1e-12)
-    compare_arrays_parser.set_defaults(command=_compare_arrays_command)
-
-    compare_recycling_parser = subparsers.add_parser(
-        "compare-recycling",
-        help="Compare compact recycling reference and native artifacts with worst-variable/cell localization.",
-    )
-    compare_recycling_parser.add_argument("expected_artifact", type=Path)
-    compare_recycling_parser.add_argument("actual_artifact", type=Path)
-    compare_recycling_parser.add_argument(
-        "--artifact-kind",
-        choices=("auto", "summary", "arrays"),
-        default="auto",
-        help="Force JSON summary or NPZ array comparison instead of inferring from file suffixes.",
-    )
-    compare_recycling_parser.add_argument("--scalar-rtol", type=float, default=1e-10)
-    compare_recycling_parser.add_argument("--scalar-atol", type=float, default=1e-12)
-    compare_recycling_parser.add_argument("--array-rtol", type=float, default=1e-10)
-    compare_recycling_parser.add_argument("--array-atol", type=float, default=1e-12)
-    compare_recycling_parser.set_defaults(command=_compare_recycling_command)
-
-    run_case_parser = subparsers.add_parser(
-        "run-case",
-        help="Run a curated case through the native JAX implementation and emit a portable summary.",
-    )
-    run_case_parser.add_argument("case_name")
-    run_case_parser.add_argument(
-        "--reference-root",
-        type=Path,
-        default=_default_reference_root(),
-        help="Path to the external benchmark checkout used to locate the curated input file.",
-    )
-    run_case_parser.add_argument(
-        "--json-out",
-        type=Path,
-        default=None,
-        help="Write the portable summary to JSON.",
-    )
-    run_case_parser.add_argument(
-        "--arrays-out",
-        type=Path,
-        default=None,
-        help="Write the full comparison arrays to a compressed NPZ.",
-    )
-    run_case_parser.add_argument(
-        "--override",
-        action="append",
-        default=[],
-        help="Additional native-run overrides such as runtime:neutral_mixed_internal_substeps=8.",
-    )
-    run_case_parser.set_defaults(command=_run_case_command)
 
     run_parser = subparsers.add_parser(
         "run",
@@ -197,11 +112,6 @@ def _normalize_cli_argv(argv: list[str]) -> list[str]:
         return argv
     known_subcommands = {
         "inspect",
-        "reference-cases",
-        "compare-summary",
-        "compare-arrays",
-        "compare-recycling",
-        "run-case",
         "run",
     }
     head = argv[0]
@@ -245,30 +155,6 @@ def _inspect_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def _reference_cases_command(args: argparse.Namespace) -> int:
-    if args.reference_root is None:
-        print(
-            "reference-cases: set --reference-root or JAX_DRB_REFERENCE_ROOT to a local reference checkout."
-        )
-        return 1
-
-    resolved_cases = resolve_reference_cases(args.reference_root)
-    for resolved in resolved_cases:
-        status = "missing" if not resolved.exists else resolved.case.parity_mode
-        print(
-            f"{resolved.case.name}: {status} [{resolved.case.capability_tier}] -> {resolved.input_path}"
-        )
-        if resolved.run_config is None:
-            continue
-        print(
-            "  "
-            f"nout={resolved.run_config.time.nout}, "
-            f"timestep={resolved.run_config.time.timestep:g}, "
-            f"components={','.join(request.label for request in resolved.run_config.components)}"
-        )
-    return 0
-
-
 def _run_command(args: argparse.Namespace) -> int:
     if args.dry_run:
         return _inspect_command(args)
@@ -280,12 +166,13 @@ def _run_command(args: argparse.Namespace) -> int:
     cache_dir = configure_jax_runtime(precision=resolved_precision)
     import jax
     from .native import run_input_case
-    from .native.runner import NativeRestartState, build_restart_state
-    from .parity.arrays import (
+    from .native.deck_runner import (
+        NativeRestartState,
         build_portable_array_payload,
+        build_restart_state,
         write_portable_array_payload,
+        write_portable_summary_payload,
     )
-    from .parity.portable import write_portable_summary_payload
     from .runtime import (
         build_run_log_payload,
         load_restart_bundle,
@@ -635,10 +522,6 @@ def _serialize_restart_info(
     return payload
 
 
-def _default_reference_root() -> Path | None:
-    return resolve_default_reference_root()
-
-
 def _sanitize_logged_path(path: str | Path | None) -> str | None:
     if path is None:
         return None
@@ -697,108 +580,6 @@ def _config_path(config, section: str, key: str) -> Path | None:
     if value in (None, ""):
         return None
     return Path(str(value))
-
-
-def _compare_summary_command(args: argparse.Namespace) -> int:
-    from .parity.compare import compare_summary_payloads, load_summary_json
-
-    expected = load_summary_json(args.expected_json)
-    actual = load_summary_json(args.actual_json)
-    result = compare_summary_payloads(
-        expected,
-        actual,
-        scalar_rtol=args.scalar_rtol,
-        scalar_atol=args.scalar_atol,
-    )
-    if result.ok:
-        print("comparison: ok")
-        return 0
-    print("comparison: mismatch")
-    for issue in result.issues:
-        print(f"  {issue.field}: {issue.message}")
-    return 1
-
-
-def _compare_arrays_command(args: argparse.Namespace) -> int:
-    from .parity.arrays import compare_array_payloads, load_portable_array_payload
-
-    expected = load_portable_array_payload(args.expected_npz)
-    actual = load_portable_array_payload(args.actual_npz)
-    result = compare_array_payloads(
-        expected,
-        actual,
-        scalar_rtol=args.scalar_rtol,
-        scalar_atol=args.scalar_atol,
-        array_rtol=args.array_rtol,
-        array_atol=args.array_atol,
-    )
-    if result.ok:
-        print("comparison: ok")
-        return 0
-    print("comparison: mismatch")
-    for issue in result.issues:
-        print(f"  {issue.field}: {issue.message}")
-    return 1
-
-
-def _compare_recycling_command(args: argparse.Namespace) -> int:
-    from .parity.diff import compare_recycling_artifacts, format_recycling_diff_report
-
-    result = compare_recycling_artifacts(
-        args.expected_artifact,
-        args.actual_artifact,
-        artifact_kind=args.artifact_kind,
-        scalar_rtol=args.scalar_rtol,
-        scalar_atol=args.scalar_atol,
-        array_rtol=args.array_rtol,
-        array_atol=args.array_atol,
-    )
-    print(format_recycling_diff_report(result))
-    return 0 if result.ok else 1
-
-
-def _run_case_command(args: argparse.Namespace) -> int:
-    configure_jax_runtime()
-    from .native import run_curated_case
-    from .parity.arrays import (
-        build_array_payload_from_summary_payload,
-        write_portable_array_payload,
-    )
-    from .parity.portable import write_portable_summary_payload
-
-    if args.reference_root is None:
-        print("run-case: set --reference-root or JAX_DRB_REFERENCE_ROOT.")
-        return 1
-
-    result = run_curated_case(
-        args.case_name,
-        reference_root=args.reference_root,
-        extra_overrides=tuple(getattr(args, "override", ()) or ()),
-    )
-    payload = result.payload
-    print(f"case: {payload['case_name']}")
-    print(f"parity_mode: {payload['parity_mode']}")
-    print(f"producer: {payload['producer']}")
-    print(
-        f"compare_variables: {', '.join(payload['compare_variables']) if payload['compare_variables'] else '(none)'}"
-    )
-    for name, variable in payload["variable_summaries"].items():
-        delta = variable["max_abs_delta_last_first"]
-        delta_text = "n/a" if delta is None else f"{delta:.8e}"
-        print(
-            f"  {name}: shape={tuple(variable['shape'])}, min={variable['minimum']:.8e}, "
-            f"max={variable['maximum']:.8e}, mean={variable['mean']:.8e}, delta={delta_text}"
-        )
-    if args.json_out is not None:
-        path = write_portable_summary_payload(payload, args.json_out)
-        print(f"json_out: {path}")
-    if args.arrays_out is not None:
-        array_payload = build_array_payload_from_summary_payload(
-            payload, result.variables
-        )
-        path = write_portable_array_payload(array_payload, args.arrays_out)
-        print(f"arrays_out: {path}")
-    return 0
 
 
 if __name__ == "__main__":
