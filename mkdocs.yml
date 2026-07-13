@@ -45,6 +45,7 @@ nav:
       - Connection Length: connection_length.md
       - Stellarator Examples: stellarator_examples.md
       - Stellarator FCI Validation: stellarator_fci_validation.md
+      - Differentiable FCI Flux Tube: stellarator_fci_differentiable.md
       - VMEC Extender Edge Fields: vmec_extender_edge_fields.md
       - ESSOS Field-Line Import: essos_fieldline_import.md
       - ESSOS Imported FCI Validation: essos_imported_fci_validation.md
