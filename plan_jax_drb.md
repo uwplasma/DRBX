@@ -152,7 +152,7 @@ reproduction command, a committed figure, and both a physics gate
 
 | | Closed field lines | Open field lines |
 |---|---|---|
-| **Tokamak** | s-alpha/flux-tube drift-wave turbulence: linear phase verified against the dispersion relation via `jax_drb.linear` (B2), then saturated spectra and transport diagnostics. Lands Phase 3. | (i) 1D `1D-threshold`-class SOL with sheath, recycling, AMJUEL reactions, conduction — detachment-capable (B5/B6); (ii) blob2d with velocity-scaling gate (B4); (iii) 2D diverted transport + recycling vs hermes-3 goldens. Land Phases 3–5. |
+| **Tokamak** | **DONE (Phase 3)** — JAX-native Hasegawa-Wakatani drift-wave turbulence (`native/hasegawa_wakatani.py`): single-mode linear growth matches the B2 eigenvalue to ~1e-14, develops outward particle flux, and is differentiable end-to-end (grad of final energy vs FD). Example `examples/tokamak/drift_wave_turbulence_demo.py`. | (i) 1D `1D-threshold`-class SOL with sheath, recycling, AMJUEL reactions, conduction — detachment-capable (B5/B6); (ii) blob2d with velocity-scaling gate (B4); (iii) 2D diverted transport + recycling vs hermes-3 goldens. Land Phases 3–5. |
 | **Stellarator** | VMEC closed-field-line turbulence on an imported QA equilibrium plus a rotating-ellipse closed control: zero endpoint masks, closed-map operator conservation gate, profile/spectrum diagnostics. Lands Phase 6. | Island-divertor open-SOL turbulence on an analytic non-axisymmetric field with endpoint masks, sheath + recycling + neutral sources and closed source accounting (B7/B8); hybrid VMEC/coil open-SOL as the imported-geometry variant. Lands Phase 6. |
 
 Quadrant exit criteria: the script runs from a clean clone (plus documented
@@ -421,7 +421,7 @@ solvax coverage ≥95% including the new modules.
    equation-to-code documentation in one `docs/physics.md`; add 2D curvilinear
    operator MMS (B1 completion).
 4. Tokamak-closed flagship: s-alpha/flux-tube drift-wave turbulence example
-   (linear phase B2-verified, then saturated spectra) — first quadrant of the
+   (linear phase B2-verified, outward transport) — first quadrant of the
    example matrix done end-to-end.
 
 Gate: B1–B3 pass analytically; physics docs complete; tokamak-closed flagship

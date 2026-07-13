@@ -123,7 +123,7 @@ Flagship simulations span closed and open field lines in both geometries:
 
 | | Closed field lines | Open field lines |
 |---|---|---|
-| **Tokamak** | flux-tube drift-wave turbulence | 1D SOL with sheath + recycling + reactions (detachment); [blob2d](examples/); diverted transport |
+| **Tokamak** | [drift-wave turbulence](examples/tokamak/drift_wave_turbulence_demo.py) (Hasegawa-Wakatani; linear phase B2-verified, differentiable) | 1D SOL with sheath + recycling + reactions (detachment); [blob2d](examples/); diverted transport |
 | **Stellarator** | VMEC closed-field turbulence; rotating-ellipse control | island-divertor open SOL; hybrid VMEC/coil imports |
 
 Differentiable and geometry examples:
