@@ -425,6 +425,26 @@ The bounded controller packages validate the saved control trajectories and
 source identities, but the broader production temperature/detachment workflow is
 still explicitly documented as beyond the current strong-subset claim.
 
+## Linear Stability And Dispersion
+
+`jax_drb.linear` is the linear solver of the drift-reduced Braginskii
+equations. It linearizes a model about an equilibrium and returns the growth
+rates and frequencies of its eigenmodes (`delta ~ exp(lambda t)`,
+`gamma = Re lambda`, `Omega = Im lambda`) through:
+
+- `jacobian_operator` + `eigenmodes`: the dense Jacobian of an arbitrary
+  JAX right-hand side about an equilibrium, then its spectrum -- the general
+  engine for any model on a small grid or single-mode reduction;
+- three reduced dispersion operators assembled directly from the model
+  equations, so diagonalizing them reproduces the analytic dispersion:
+  `resistive_drift_wave_operator` (Hasegawa-Wakatani, benchmark B2),
+  `shear_alfven_operator` (electron-inertia shear Alfven, B3), and
+  `interchange_operator` (curvature-driven Rayleigh-Taylor).
+
+Source: [src/jax_drb/linear/](../src/jax_drb/linear/). Verification:
+[Linear Dispersion Benchmark](linear_dispersion_benchmark.md) and
+`tests/test_linear_dispersion.py`.
+
 ## Electrostatic Drift-Wave And Blob Lanes
 
 The benchmark electrostatic lanes cover:
@@ -434,9 +454,19 @@ The benchmark electrostatic lanes cover:
 - ExB transport
 - blob curvature/interchange dynamics
 
+The closed-field-line tokamak turbulence flagship is the JAX-native
+Hasegawa-Wakatani model in
+[src/jax_drb/native/hasegawa_wakatani.py](../src/jax_drb/native/hasegawa_wakatani.py):
+a pseudo-spectral two-field drift-wave solver whose single-mode linear growth
+reproduces the B2 eigenvalue to machine precision, which is differentiable
+end-to-end (enabling gradient-based inverse design through turbulence), and
+which is documented in [Drift-Wave Turbulence](drift_wave_turbulence.md).
+
 Primary source files:
 
-- drift-wave:
+- Hasegawa-Wakatani turbulence:
+  - [src/jax_drb/native/hasegawa_wakatani.py](../src/jax_drb/native/hasegawa_wakatani.py)
+- drift-wave (BOUT++-parity):
   - [src/jax_drb/native/drift_wave.py](../src/jax_drb/native/drift_wave.py)
 - blob:
   - [src/jax_drb/native/blob2d.py](../src/jax_drb/native/blob2d.py)

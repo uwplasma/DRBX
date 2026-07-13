@@ -408,24 +408,32 @@ solvax coverage ≥95% including the new modules.
 
 ### Phase 3 — Physics completeness and the linear DRB solver
 
-1. New `jax_drb.linear`: linearize any registered model about a given
-   equilibrium with `jax.jacfwd`/`jax.linearize`; assemble dense (small grids)
-   or matrix-free operators; eigensolve (dense `eig` small, Arnoldi via
-   SciPy/solvax off-JIT for larger); return γ, ω, eigenvectors. This is both a
-   user feature ("linear solver of the DRB equations") and the engine for B2
-   and B3.
-2. Land B2 (resistive drift-wave dispersion scan) and B3 (SAW dispersion,
-   completing the `electromagnetic` matrix row) as analytic-assert tests +
-   benchmark example scripts; retire the regression-locked drift-wave scalars.
-3. Promote vorticity/potential (Boussinesq and non-Boussinesq) with
-   equation-to-code documentation in one `docs/physics.md`; add 2D curvilinear
-   operator MMS (B1 completion).
-4. Tokamak-closed flagship: s-alpha/flux-tube drift-wave turbulence example
-   (linear phase B2-verified, outward transport) — first quadrant of the
-   example matrix done end-to-end.
+1. **DONE** — `jax_drb.linear`: `jacobian_operator` + `eigenmodes` (dense
+   Jacobian of any JAX RHS about an equilibrium → γ, ω, eigenvectors), plus
+   reduced dispersion operators. The "linear solver of the DRB equations" and
+   the engine for the dispersion benchmarks.
+2. **DONE** — B2 (resistive drift-wave), B3 (shear-Alfvén), and the
+   curvature-driven interchange/Rayleigh-Taylor mode as analytic-assert tests
+   (`tests/test_linear_dispersion.py`, machine-precision) + a benchmark example
+   and docs. The regression-locked drift-wave scalars remain in the nonlinear
+   model's own tests; the literature-anchored dispersion is now B2.
+3. Boussinesq vs non-Boussinesq vorticity documentation; 2D curvilinear
+   operator MMS (the FCI stack already carries shifted-torus MMS — fold in).
+   *Open.*
+4. **DONE** — tokamak-closed flagship: JAX-native Hasegawa-Wakatani drift-wave
+   turbulence (`native/hasegawa_wakatani.py`), linear phase B2-verified to
+   ~1e-14, outward transport, end-to-end differentiable with a gradient-based
+   inverse-design example. First quadrant of the example matrix shipping.
 
-Gate: B1–B3 pass analytically; physics docs complete; tokamak-closed flagship
-shipping.
+Gate: B2/B3/interchange pass analytically (done); tokamak-closed flagship
+shipping (done); Boussinesq docs + curvilinear-MMS fold-in remain.
+
+Deferred from Phase 3: the nonlinear blob velocity-vs-size benchmark (B4).
+Reproducing the inertial `v ~ sqrt(δ)` scaling cleanly needs careful
+terminal-velocity measurement (periodicity-aware CoM, right regime, enough
+run time) — the linear interchange physics is verified above, but the
+quantitative nonlinear scaling is not yet nailed down and will not ship until
+it is reproducible.
 
 ### Phase 4 — Honest hermes-3 parity (4A flagship, 4B full menu)
 
