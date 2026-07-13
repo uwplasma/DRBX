@@ -466,7 +466,7 @@ Primary source files:
 
 - Hasegawa-Wakatani turbulence:
   - [src/jax_drb/native/hasegawa_wakatani.py](../src/jax_drb/native/hasegawa_wakatani.py)
-- drift-wave (BOUT++-parity):
+- drift-wave (external-reference parity):
   - [src/jax_drb/native/drift_wave.py](../src/jax_drb/native/drift_wave.py)
 - blob:
   - [src/jax_drb/native/blob2d.py](../src/jax_drb/native/blob2d.py)
