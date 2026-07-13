@@ -47,6 +47,7 @@ nav:
       - Differentiable FCI Flux Tube: stellarator_fci_differentiable.md
       - Rotating-Ellipse FCI: rotating_ellipse_fci.md
       - Open-Field-Line SOL: open_field_line_sol.md
+      - Neutrals and Recycling: neutrals_recycling.md
       - VMEC Extender Edge Fields: vmec_extender_edge_fields.md
       - ESSOS Field-Line Import: essos_fieldline_import.md
       - ESSOS Imported FCI Validation: essos_imported_fci_validation.md
