@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.experimental.ode import odeint
 
-from ..solver import FourierHelmholtzOperator, build_fourier_helmholtz_operator, solve_fourier_helmholtz
+from solvax import FourierHelmholtzOperator, build_fourier_helmholtz_operator, solve_fourier_helmholtz
 from .limiters import monotonic_centered_edges_jax as _monotonic_centered_edges
 from .mesh import StructuredMesh, apply_zero_dirichlet_x_guards, communicate_y_guards
 from .metrics import StructuredMetrics

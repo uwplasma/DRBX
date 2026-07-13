@@ -12,8 +12,7 @@ listed here for validation artifacts.
 | --- | --- | --- |
 | Parallel gradient, divergence, and structured metric factors | [`native/mesh.py`](../src/jax_drb/native/mesh.py), [`native/metrics.py`](../src/jax_drb/native/metrics.py) | [`tests/test_native_mesh.py`](../tests/test_native_mesh.py), [`tests/test_native_metrics.py`](../tests/test_native_metrics.py) |
 | Density, pressure, and vorticity transport on compact native decks | [`native/fluid_1d.py`](../src/jax_drb/native/fluid_1d.py), [`native/transport.py`](../src/jax_drb/native/transport.py), [`native/vorticity.py`](../src/jax_drb/native/vorticity.py) | [Fluid 1D MMS Convergence](fluid_1d_mms_convergence.md), [`tests/test_native_fluid_1d.py`](../tests/test_native_fluid_1d.py), [`tests/test_native_transport.py`](../tests/test_native_transport.py), [`tests/test_native_vorticity.py`](../tests/test_native_vorticity.py) |
-| Elliptic potential/vorticity solve, including Boussinesq and non-Boussinesq FCI polarization gates | [`solver/elliptic.py`](../src/jax_drb/solver/elliptic.py), [`native/fci_vorticity.py`](../src/jax_drb/native/fci_vorticity.py) | [`tests/test_solver_elliptic.py`](../tests/test_solver_elliptic.py), [Stellarator FCI Validation](stellarator_fci_validation.md) |
-| Implicit residuals, sparse Jacobians, JVP Jacobian actions, and linearized Newton solves | [`solver/implicit.py`](../src/jax_drb/solver/implicit.py) | [`tests/test_solver_implicit.py`](../tests/test_solver_implicit.py) |
+| Elliptic potential/vorticity solve, including the FCI perpendicular polarization inversion | [`solvax.elliptic`](https://github.com/uwplasma/SOLVAX) (Fourier--Helmholtz operator), [`native/vorticity.py`](../src/jax_drb/native/vorticity.py), [`native/fci_vorticity.py`](../src/jax_drb/native/fci_vorticity.py) | [`tests/test_native_vorticity.py`](../tests/test_native_vorticity.py), [Stellarator FCI Validation](stellarator_fci_validation.md) |
 
 ## Non-Axisymmetric And 3D Geometry
 

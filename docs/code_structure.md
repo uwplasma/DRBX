@@ -34,8 +34,6 @@ The current top-level layout is:
 - `src/jax_drb/geometry`
   structured, analytic-stellarator, FCI, imported field-line, and VMEC-extender
   geometry
-- `src/jax_drb/solver`
-  reusable linear, elliptic, and implicit-solver helpers
 - `src/jax_drb/validation`
   benchmark campaigns, geometry diagnostics, plots, and publication-oriented
   artifacts
