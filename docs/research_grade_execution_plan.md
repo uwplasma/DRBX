@@ -14,6 +14,7 @@ git log --follow -- docs/research_grade_execution_plan.md
 git show <commit>:docs/research_grade_execution_plan.md
 ```
 
-Key evidence recorded there (parity offender closures, preconditioner negative
-results, release-gate outputs for 1.0.x) is summarized where still relevant in
-the new plan's "Ground truth" section.
+Key evidence recorded there (preconditioner negative results, release-gate
+outputs for 1.0.x) is summarized where still relevant in the new plan's
+"Ground truth" section; the earlier parity-offender closures survive only in
+that preserved git history.

@@ -8,19 +8,28 @@ the current code, so the docs remain useful even without the manuscript.
 
 ## Model Families
 
-`jax_drb` currently organizes its native physics into a few main families:
+`jax_drb` organizes its native physics into a small set of accuracy-tested
+families:
 
-- open-field recycling and multispecies edge/SOL transport
-- electrostatic drift-wave and vorticity systems
-- blob and interchange-style turbulence benchmarks
-- Alfven-wave and annulus electromagnetic benchmarks
-- direct tokamak geometry transport, recycling, and turbulence ladders
+- the JAX-native **Hasegawa-Wakatani drift-wave turbulence** flagship on a
+  closed-field-line (periodic flux-tube) plane;
+- the **flux-coordinate-independent (FCI) operator stack** for reduced and
+  drift-reduced Braginskii dynamics on tokamak and non-axisymmetric
+  stellarator geometry, including the 2-field and 4-field reduced models, the
+  full electrostatic/electromagnetic drift-reduced Braginskii right-hand side,
+  the 3-D FCI sheath closure, the neutral reaction-diffusion component, and the
+  perpendicular vorticity inversion;
+- the **linear stability / dispersion solver** (`jax_drb.linear`);
+- the compact **1-D fluid, anomalous-diffusion, and electrostatic-vorticity
+  deck models** that back the `jax_drb run` command.
+
+Each family is documented below with its governing form and its kept source
+modules.
 
 ## Drift-Reduced Braginskii Core
 
-The promoted electrostatic, open-field, and direct-tokamak lanes are built
-around drift-reduced Braginskii-style density, momentum, pressure, and
-potential evolution.
+The FCI drift-reduced lanes are built around drift-reduced Braginskii-style
+density, momentum, pressure, and potential evolution.
 
 From first principles, these lanes start from the multispecies collisional
 moment hierarchy and apply the standard edge/SOL drift ordering
@@ -40,18 +49,16 @@ Useful references for the model class and its scope:
 - global tokamak edge fluid review:
   [Schwander et al. 2024](https://doi.org/10.1016/j.compfluid.2023.106141)
 
-At the level exposed in the current native ladders, the code is solving
-discrete forms of the following model families.
+At the level exposed in the current native models, the code is solving discrete
+forms of the following equations.
 
-In the promoted reduced-fluid lanes, the resolved particle flux is represented
-schematically as
+The resolved particle flux is represented schematically as
 
 ```text
-Γ_s = n_s u_E + b n_s V_{∥,s} - D_{⊥,s} ∇_⊥ n_s + Γ_s^model
+Γ_s = n_s u_E + b n_s V_{∥,s} - D_{⊥,s} ∇_⊥ n_s
 ```
 
-where `u_E = b × ∇⊥ φ / B` and `Γ_s^model` collects benchmark-specific
-transport closures such as curvature-driven or reduced-annulus terms.
+where `u_E = b × ∇⊥ φ / B` is the `E×B` drift.
 
 Operationally:
 
@@ -59,8 +66,8 @@ Operationally:
 - parallel momentum is the field-aligned projection of the first moment,
 - pressure/energy is the reduced second-moment balance with collisional
   closure,
-- electrostatic/vorticity closure replaces full perpendicular ion momentum with
-  a drift-ordered polarization/vorticity equation.
+- the electrostatic/vorticity closure replaces full perpendicular ion momentum
+  with a drift-ordered polarization/vorticity equation.
 
 ### Continuity
 
@@ -70,10 +77,9 @@ For an evolved species density `n_s`:
 ∂t n_s + ∇·Γ_s = S_{n,s}
 ```
 
-where `Γ_s` is the resolved advective/diffusive flux and `S_{n,s}` collects
-ionisation, recombination, recycling, pumping, controller action, and any
-case-specific source
-terms.
+where `Γ_s` is the resolved advective/diffusive flux and `S_{n,s}` collects the
+ionisation, recombination, and charge-exchange sources of the active model
+(see the FCI neutral component below).
 
 ### Parallel Momentum
 
@@ -81,40 +87,24 @@ For the evolved parallel momentum density `n_s V_{∥,s}`:
 
 ```text
 ∂t (n_s V_{∥,s}) + ∇·(Γ_s V_{∥,s})
-  = -∇_∥ p_s + F_{coll,s} + F_{thermal,s} + F_{sheath,s}
-    + ∇_∥·Π_{∥,s} + S_{m,s}
+  = -∇_∥ p_s + F_{coll,s} + F_{thermal,s} + F_{sheath,s} + ∇_∥·Π_{∥,s}
 ```
 
-The exact active terms depend on the promoted lane:
-
-- open-field recycling adds sheath, recycling, Braginskii friction, heat
-  exchange, thermal force, and ion-viscosity closures;
-- drift-wave/blob ladders carry the benchmark-consistent reduced momentum
-  structure;
-- direct tokamak ladders reuse the same promoted closures on the staged
-  tokamak metric payload.
+The exact active terms depend on the model: the reduced 2-field and 4-field FCI
+lanes carry the benchmark-consistent parallel-momentum structure, while the
+full drift-reduced Braginskii FCI right-hand side adds the Braginskii friction,
+thermal-force, and sheath target closures.
 
 ### Pressure / Energy
 
-For the evolved scalar pressure `p_s`:
+For an evolved scalar temperature/pressure variable:
 
 ```text
-∂t p_s + ∇·(p_s u_s) + γ p_s ∇·u_s
-  = Q_{cond,s} + Q_{coll,s} + Q_{src,s}
+∂t p_s + ∇·(p_s u_s) + γ p_s ∇·u_s = Q_{cond,s} + Q_{coll,s}
 ```
 
-with the right-hand side carrying the promoted conduction, collisional exchange,
-radiation/source, and controller/recycling terms relevant to the active lane.
-
-In the open-field and tokamak recycling lanes this includes explicit parallel
-heat conduction, sheath energy losses, thermal-force coupling, reaction energy
-exchange, and neutral/plasma exchange terms.
-
-The strongest reference-backed lanes evolve pressure-like variables because that
-matches the reduced-fluid benchmark class used in open-field and detachment
-studies more closely than a purely temperature-based closure.
-
-The dominant parallel conductive closure is the standard reduced form
+with the dominant parallel conductive closure written in the standard reduced
+form
 
 ```text
 q_{∥,s} ≈ -κ_{∥,s} ∇_{∥} T_s
@@ -122,76 +112,51 @@ q_{∥,s} ≈ -κ_{∥,s} ∇_{∥} T_s
 
 ### Potential / Vorticity Closure
 
-The electrostatic ladders solve benchmark-specific elliptic closures between
-`phi`, `Vort`, and the underlying density/current state. On the promoted
-benchmark surfaces this includes:
-
-- Boussinesq closures on the vorticity ladder;
-- drift-wave/quasineutral electron closures on the drift-wave ladder;
-- benchmark-faithful `phi` reconstruction on the blob/interchange lanes.
-
-At the operator level this is the familiar reduced electrostatic structure:
+The reduced lanes close the system with a perpendicular polarization/vorticity
+relation between the potential `φ`, the vorticity `ω`, and the density/current
+state. At the operator level this is the familiar reduced electrostatic
+structure
 
 ```text
 ω = ∇⊥·(C ∇⊥ φ)
 ```
 
-with lane-dependent coefficients `C`, metric terms, and source closures.
-
-On the promoted electrostatic benchmark lanes, the corresponding transport
-equation is represented schematically as
+with model-dependent coefficients `C` and metric terms. The corresponding
+vorticity transport equation is represented schematically as
 
 ```text
 ∂t ω + ∇·(ω u_E) = ∇∥ J∥ + S_ω
 ```
 
-with `S_ω` collecting curvature, sheath, and benchmark-specific source terms.
-
-### Electromagnetic Reduced Surfaces
-
-The promoted electromagnetic benchmark lanes use compact selected-field
-surfaces around:
-
-```text
-Ajpar = Σ_s Z_s n_s V_{∥,s}
-```
-
-plus the staged `Apar`/`NVe`/`Vort` benchmark closures documented in the
-electromagnetic source and validation utilities.
-
-Where electron-parallel dynamics is retained explicitly, the reduced
-parallel-force balance is represented in compact form as
-
-```text
-0 = -e n_e E_∥ - ∇∥ p_e - η_∥ J_∥ + S_{∥,e}
-```
+with `S_ω` collecting curvature and sheath source terms.
 
 ## Reduced-Fluid Operator Structure
 
-Across the drift-reduced lanes, the discrete operators are built from the same
-small set of physical ingredients:
+Across the drift-reduced FCI lanes, the discrete operators are built from the
+same small set of physical ingredients:
 
-- parallel derivatives `Grad_par(f)` and flux divergences `Div_par(F)`;
+- parallel derivatives `Grad_par(f)` and parallel Laplacians on the
+  flux-coordinate-independent (FCI) forward/backward field-line maps;
 - perpendicular transport/divergence operators on the staged metric payload;
-- electrostatic `E×B` transport, typically represented in reduced form through
-  an advection bracket or equivalent face-flux reconstruction;
-- sheath target closures and recycling source terms at open-field boundaries;
-- collisional, viscous, thermal-force, and atomic-rate source operators.
+- electrostatic `E×B` transport, represented through an advection bracket or
+  equivalent face-flux reconstruction;
+- sheath target closures at open-field-line map exits;
+- neutral reaction-diffusion source operators.
 
-The exact promoted equation set differs by benchmark, but the implementation
-reuses these operator families rather than encoding each case as an unrelated
-solver.
+The exact equation set differs by model, but the implementation reuses these
+operator families rather than encoding each case as an unrelated solver. The
+shared FCI parallel/perpendicular gradient and Laplacian stencils live in
+[native/fci_operators.py](../src/jax_drb/native/fci_operators.py), boundary and
+halo handling in
+[native/fci_boundaries.py](../src/jax_drb/native/fci_boundaries.py) and
+[native/fci_halo.py](../src/jax_drb/native/fci_halo.py), and the geometry maps
+in [geometry/fci_geometry.py](../src/jax_drb/geometry/fci_geometry.py).
 
-That reuse is deliberate. In `jax_drb`, the claim boundary is attached to
-operator families and validated compare surfaces, not to one monolithic solver
-path. The same continuity, momentum, pressure, sheath, and recycling operators
-therefore appear across 1D open-field lanes, direct tokamak lanes, and staged
-3D geometry adapters, while the provenance/runtime layer records which compare
-surface each result belongs to.
+### 3-D FCI Sheath Closure
 
-The non-axisymmetric traced-field-line lane now has its first target closure
-gate. `native/fci_sheath_recycling.py` derives endpoint masks from forward and
-backward map exits and evaluates
+The non-axisymmetric traced-field-line lane has a Bohm-sheath target closure.
+[native/fci_sheath_recycling.py](../src/jax_drb/native/fci_sheath_recycling.py)
+derives endpoint masks from the forward and backward map exits and evaluates
 
 ```text
 c_s = sqrt((T_e + T_i) / m_i)
@@ -203,25 +168,32 @@ Gamma_n,recycle = R_recycle Gamma_i,target
 Q_n,recycle = E_recycle Gamma_n,recycle
 ```
 
-The corresponding validation campaign checks exact particle recycling,
-neutral-energy source accounting, and zero-current particle balance on a 3D
-non-axisymmetric map. The next model step is to route these same arrays into
-the full density, pressure, neutral, momentum, and vorticity residual rather
-than keeping them as a standalone diagnostic closure.
+so a fixed fraction `R_recycle` of the ion target flux is returned as a neutral
+source. The associated validation campaign checks exact particle recycling,
+neutral-energy source accounting, and zero-current particle balance on a 3-D
+non-axisymmetric map.
 
-The same lane now also has a compact neutral and vorticity layer. The neutral
-gate evaluates diffusion plus
+### FCI Neutral Reaction-Diffusion
+
+The compact neutral component in
+[native/fci_neutral.py](../src/jax_drb/native/fci_neutral.py) evaluates neutral
+diffusion plus the ionisation, recombination, and charge-exchange sources
 
 ```text
 S_ion = k_ion n_n n_e sqrt(T_e)
 S_rec = k_rec n_i n_e / sqrt(T_e)
-S_cx = k_cx n_n n_i sqrt(T_n + T_i)
+S_cx  = k_cx  n_n n_i sqrt(T_n + T_i)
 ```
 
 and verifies that ionisation/recombination conserve plasma-plus-neutral
 particles while charge exchange conserves particles and exchanges ion/neutral
-momentum. The vorticity gate applies and inverts the perpendicular
-polarization relation
+momentum.
+
+### Perpendicular Vorticity Inversion
+
+The vorticity component in
+[native/fci_vorticity.py](../src/jax_drb/native/fci_vorticity.py) applies and
+inverts the perpendicular polarization relation
 
 ```text
 Omega = - div_perp(K_pol grad_perp phi)
@@ -229,201 +201,59 @@ K_pol = <n / B^2>      (Boussinesq)
 K_pol = n / B^2        (non-Boussinesq)
 ```
 
-with the metric-weighted perpendicular operator. The campaign checks both
-inversions, verifies that the two operators differ on a nonuniform density
-field, and verifies that they become identical to roundoff when \(n/B^2\) is
-constant. These are still component gates, but they are now source-compatible
-with the fixed-layout residual interface and have JAX-native
-Jacobian-vector products through `linearize_fixed_residual_action` and
-`fixed_residual_jvp_action`.
-The compact combined state in `native/fci_drb_rhs.py` is the first PyTree RHS
-surface for this lane; it is intentionally small, but already combines the
-target, neutral, and vorticity components in a form that can be passed through
-`jax.jvp`. That compact RHS now threads the Boussinesq/non-Boussinesq
+with the metric-weighted perpendicular operator, solved by conjugate gradient.
+The Boussinesq and non-Boussinesq operators differ on a nonuniform density
+field and become identical to roundoff when `n/B^2` is constant.
+
+### Combined Differentiable RHS
+
+The compact combined state in
+[native/fci_drb_rhs.py](../src/jax_drb/native/fci_drb_rhs.py) is a PyTree RHS
+that threads the sheath, neutral, and vorticity components into a single
+differentiable right-hand side. It carries the Boussinesq/non-Boussinesq
 polarization switch through the potential solve and exposes an opt-in
-potential-fed \(E\times B\) advection path for charged-fluid density,
-pressure, ion parallel momentum, and vorticity. Neutral gas density, pressure,
-and momentum are deliberately not ExB-advected in this compact closure; they
-remain controlled by neutral diffusion and reaction terms. The PyTree campaign
-checks both the non-Boussinesq objective and the potential-feedback objective
-with JVP-versus-finite-difference gates. The next physics step is to carry the
-same selected-potential advection path through promoted imported-field and
-open-SOL examples with grid, timestep, source-accounting, and movie-QA gates.
+potential-fed `E×B` advection path for the charged-fluid density, pressure, ion
+parallel momentum, and vorticity. Neutral gas density, pressure, and momentum
+are deliberately not `E×B`-advected in this closure; they remain controlled by
+neutral diffusion and reaction terms.
 
 ## Numerical Algorithms
 
-The code paths above are not solved with one monolithic algorithm. The current
+The models above are not solved with one monolithic algorithm. The current
 native runtime uses a few distinct numerical patterns.
 
 ### Structured Finite-Volume / Flux-Form Updates
 
-Most promoted 1D/2D native lanes use explicit flux-form field updates on the
-structured mesh and metric payload. In practice this means:
+The compact 1-D/2-D native deck lanes use explicit flux-form field updates on
+the structured mesh and metric payload: face reconstruction, metric-aware
+transport operators, and explicit source assembly. In the implementation these
+transport kernels live in:
 
-- face reconstruction and metric-aware transport operators;
-- explicit source assembly from the promoted physics components;
-- trimming to the active domain when the curated parity surface excludes guard
-  cells.
+- [native/fluid_1d.py](../src/jax_drb/native/fluid_1d.py) (periodic fluid MMS)
+- [native/vorticity.py](../src/jax_drb/native/vorticity.py) (electrostatic
+  vorticity)
+- [native/transport.py](../src/jax_drb/native/transport.py) (anomalous
+  diffusion)
 
-In the implementation, this is where the bulk of the transport kernels live:
-- `native/fluid_1d.py`
-- `native/drift_wave.py`
-- `native/blob2d.py`
-- `native/recycling_1d.py`
-- `native/neutral_mixed.py`
+### Exact And Explicit Time Integration
 
-Recent performance work removed several per-cell Python loops from this layer
-and replaced them with array kernels, especially on the heavy neutral/recycling
-operators.
+- The anomalous-diffusion lane forms the radial diffusion operator and advances
+  it with a matrix exponential (`jax.scipy.linalg.expm`), i.e. an exact linear
+  propagator over the step.
+- The electrostatic vorticity lane integrates the interior state with an
+  adaptive Dormand-Prince solver (`jax.experimental.ode.odeint`).
+- The FCI models advance with classical fourth-order Runge-Kutta in
+  [native/fci_time_integrator.py](../src/jax_drb/native/fci_time_integrator.py).
+- The Hasegawa-Wakatani flagship is a pseudo-spectral solver in the
+  perpendicular plane.
 
 ### Elliptic Solves
 
 Potential and related closures are handled through the elliptic solver layer in
-[solver/elliptic.py](../src/jax_drb/solver/elliptic.py), with lane-specific
-setup coming from the surrounding physics module.
-
-### Implicit / Stiff Transient Stepping
-
-The heaviest recycling and neutral lanes use bounded implicit stepping rather
-than pure explicit updates. The active release surface currently includes:
-
-- sparse backward-Euler / BDF-style recycling transient ladders;
-- matrix-free implicit neutral stepping on the promoted `neutral_mixed`
-  windows;
-- compact reduced controller lanes on staged CVODE-backed reference examples.
-
-The strongest production path today is the sparse Newton backbone in
-`solver/implicit.py` plus `native/recycling_1d.py`:
-
-- nonlinear residuals are assembled from the staged multispecies open-field or
-  direct-tokamak state;
-- sparse finite-difference quotient Jacobians are built on the packed active
-  state;
-- GMRES is used first, with direct sparse fallback where needed;
-- backward-Euler and BDF2-style history stepping are used on the promoted
-  recycling windows, including variable-step BDF2 history when the adaptive
-  controller changes timestep after a rejected trial.
-
-That path is still the main host/SciPy-heavy backbone and the main remaining
-performance bottleneck. Recent optimization passes made it materially cheaper by
-reusing packed-state metadata, vectorizing hot residual operators, and reducing
-allocation overhead in sparse Jacobian assembly.
-
-In compact mathematical form, the implicit production path solves
-
-```text
-F(U^{n+1}) = U^{n+1} - Σ_k α_k U^{n-k} - Δt β R(U^{n+1}) = 0
-```
-
-with Newton updates
-
-```text
-J(U^{n+1,ℓ}) δU^ℓ = -F(U^{n+1,ℓ}),
-U^{n+1,ℓ+1} = U^{n+1,ℓ} + δU^ℓ
-```
-
-and sparse finite-difference quotient Jacobians on the packed active state.
-
-### Controller Reconstruction / Audit Algorithms
-
-The controller campaign packages reconstruct proportional-integral source terms
-from saved histories using the same signal conventions and trapezoid-style
-integral bookkeeping expected by the promoted reference examples. These are
-review/audit algorithms rather than hot-kernel solvers, but they are part of
-the claimed validation surface.
-
-Primary source files:
-
-- open-field and recycling closure:
-  - [src/jax_drb/native/recycling_1d.py](../src/jax_drb/native/recycling_1d.py)
-  - [src/jax_drb/native/open_field.py](../src/jax_drb/native/open_field.py)
-- mesh and metric handling:
-  - [src/jax_drb/native/mesh.py](../src/jax_drb/native/mesh.py)
-  - [src/jax_drb/native/metrics.py](../src/jax_drb/native/metrics.py)
-- transport helpers:
-  - [src/jax_drb/native/transport.py](../src/jax_drb/native/transport.py)
-- runner/orchestration:
-  - [src/jax_drb/native/runner.py](../src/jax_drb/native/runner.py)
-
-## Sheath And Recycling Closures
-
-The open-field and tokamak recycling lanes use explicit target/sheath boundary conditioning, recycling source assembly, and neutral/ion feedback terms.
-
-At the leading-order reduced level, the target closures are expressed through
-
-```text
-V_{∥,i}|target ~ c_s
-q_{∥,e}|target ~ γ_e n_e T_e c_s
-```
-
-with `c_s` the local sound speed and `γ_e` the electron sheath heat
-transmission factor.
-
-## Implicit Transient Form
-
-The strongest production-path recycling and direct-tokamak ladders use a
-backward-Euler/BDF-style implicit residual of the form
-
-```text
-F(U^{n+1}) = U^{n+1} - Σ_k α_k U^{n-k} - Δt β R(U^{n+1}) = 0
-```
-
-with Newton updates
-
-```text
-J(U^{n+1,ℓ}) δU^ℓ = -F(U^{n+1,ℓ})
-U^{n+1,ℓ+1} = U^{n+1,ℓ} + δU^ℓ
-```
-
-The current implementation builds sparse finite-difference quotient Jacobians
-on the packed active state, solves the linearized system with GMRES first, and
-falls back to direct sparse solves where required.
-
-## Differentiable Analysis Surface
-
-The compact differentiable lanes use the standard JAX gradient map
-
-```text
-g(θ) = ∇_θ J(θ)
-```
-
-and local Gaussian uncertainty propagation through the linearized pushforward
-
-```text
-Σ_Q ≈ G Σ_θ G^T ,  G = ∂Q/∂θ
-```
-
-These are the surfaces used by the published sensitivity, uncertainty, and
-inverse-design examples. The heaviest implicit recycling backbone is still the
-main boundary between the clean JAX-native lane and the host/SciPy-heavy lane.
-
-Key source locations:
-
-- sheath boundary conditioning:
-  - [src/jax_drb/native/recycling_1d.py](../src/jax_drb/native/recycling_1d.py)
-- recycling source diagnostics and transient stepping:
-  - [src/jax_drb/native/recycling_1d.py](../src/jax_drb/native/recycling_1d.py)
-- restart/state packing for the recycling transient:
-  - [src/jax_drb/runtime/output.py](../src/jax_drb/runtime/output.py)
-  - [src/jax_drb/native/recycling_1d.py](../src/jax_drb/native/recycling_1d.py)
-
-Important operator terms currently under active review include:
-
-- parallel ion viscosity `DivPiPar`
-- target-corner guard-cell semantics
-- reaction/source partitioning
-- non-orthogonal transport terms in production-style geometries
-
-The user-visible control-oriented closures currently exposed in the validation
-surface are:
-
-- upstream density feedback
-- reduced temperature feedback
-- reduced detachment controller
-
-The bounded controller packages validate the saved control trajectories and
-source identities, but the broader production temperature/detachment workflow is
-still explicitly documented as beyond the current strong-subset claim.
+[solver/elliptic.py](../src/jax_drb/solver/elliptic.py). The electrostatic
+vorticity lane inverts its potential with the Fourier-Helmholtz operator from
+that layer; the FCI vorticity component inverts the metric-weighted
+perpendicular operator with conjugate gradient.
 
 ## Linear Stability And Dispersion
 
@@ -445,88 +275,135 @@ Source: [src/jax_drb/linear/](../src/jax_drb/linear/). Verification:
 [Linear Dispersion Benchmark](linear_dispersion_benchmark.md) and
 `tests/test_linear_dispersion.py`.
 
-## Electrostatic Drift-Wave And Blob Lanes
+## Hasegawa-Wakatani Drift-Wave Turbulence
 
-The benchmark electrostatic lanes cover:
-
-- coupled density / electron-momentum / vorticity evolution
-- potential inversion
-- ExB transport
-- blob curvature/interchange dynamics
-
-The closed-field-line tokamak turbulence flagship is the JAX-native
+The closed-field-line drift-wave turbulence flagship is the JAX-native
 Hasegawa-Wakatani model in
-[src/jax_drb/native/hasegawa_wakatani.py](../src/jax_drb/native/hasegawa_wakatani.py):
-a pseudo-spectral two-field drift-wave solver whose single-mode linear growth
-reproduces the B2 eigenvalue to machine precision, which is differentiable
-end-to-end (enabling gradient-based inverse design through turbulence), and
-which is documented in [Drift-Wave Turbulence](drift_wave_turbulence.md).
+[native/hasegawa_wakatani.py](../src/jax_drb/native/hasegawa_wakatani.py): a
+pseudo-spectral two-field solver for the potential and density fluctuations in
+the perpendicular plane,
+
+```text
+∂t ζ  = -{φ, ζ} + α (φ - n) - ν ∇⊥^4 ζ
+∂t n  = -{φ, n} + α (φ - n) - κ ∂y φ - ν ∇⊥^4 n
+ζ = ∇⊥^2 φ
+```
+
+Its single-mode linear growth reproduces the B2 eigenvalue of the linear
+dispersion solver to machine precision, and it is differentiable end-to-end,
+enabling gradient-based inverse design through turbulence. It is documented in
+[Drift-Wave Turbulence](drift_wave_turbulence.md).
+
+## FCI Reduced And Drift-Reduced Braginskii Models
+
+The FCI stack provides several reduced models on the same operator and geometry
+payload:
+
+- **2-field** reduced model (density and parallel velocity) in
+  [native/fci_2_field_rhs.py](../src/jax_drb/native/fci_2_field_rhs.py);
+- **4-field** model (density, vorticity, ion and electron parallel velocity),
+  with free-decay and blob variants, in
+  [native/fci_4_field_rhs.py](../src/jax_drb/native/fci_4_field_rhs.py);
+- the full **electrostatic/electromagnetic drift-reduced Braginskii**
+  right-hand side (density, potential, `Te`, `Ti`, ion and electron parallel
+  velocity, vorticity) in
+  [native/fci_drb_EB_rhs.py](../src/jax_drb/native/fci_drb_EB_rhs.py).
+
+These are assembled from the shared FCI operators, boundary/halo handling, and
+geometry maps described above, and are validated on tokamak and non-axisymmetric
+stellarator geometry (see
+[Stellarator FCI Validation](stellarator_fci_validation.md) and
+[Differentiable FCI Flux Tube](stellarator_fci_differentiable.md)).
 
 Primary source files:
 
-- Hasegawa-Wakatani turbulence:
-  - [src/jax_drb/native/hasegawa_wakatani.py](../src/jax_drb/native/hasegawa_wakatani.py)
-- drift-wave (external-reference parity):
-  - [src/jax_drb/native/drift_wave.py](../src/jax_drb/native/drift_wave.py)
-- blob:
-  - [src/jax_drb/native/blob2d.py](../src/jax_drb/native/blob2d.py)
-- vorticity and elliptic operators:
-  - [src/jax_drb/native/vorticity.py](../src/jax_drb/native/vorticity.py)
-  - [src/jax_drb/solver/elliptic.py](../src/jax_drb/solver/elliptic.py)
+- reduced models:
+  [native/fci_2_field_rhs.py](../src/jax_drb/native/fci_2_field_rhs.py),
+  [native/fci_4_field_rhs.py](../src/jax_drb/native/fci_4_field_rhs.py)
+- full drift-reduced Braginskii RHS:
+  [native/fci_drb_EB_rhs.py](../src/jax_drb/native/fci_drb_EB_rhs.py),
+  [native/fci_drb_rhs.py](../src/jax_drb/native/fci_drb_rhs.py)
+- sheath / neutral / vorticity closures:
+  [native/fci_sheath_recycling.py](../src/jax_drb/native/fci_sheath_recycling.py),
+  [native/fci_neutral.py](../src/jax_drb/native/fci_neutral.py),
+  [native/fci_vorticity.py](../src/jax_drb/native/fci_vorticity.py)
+- operators, boundaries, geometry:
+  [native/fci_operators.py](../src/jax_drb/native/fci_operators.py),
+  [native/fci_boundaries.py](../src/jax_drb/native/fci_boundaries.py),
+  [native/fci_halo.py](../src/jax_drb/native/fci_halo.py),
+  [geometry/fci_geometry.py](../src/jax_drb/geometry/fci_geometry.py),
+  [geometry/shifted_torus.py](../src/jax_drb/geometry/shifted_torus.py)
 
-## Electromagnetic Lanes
+## Compact Electrostatic Vorticity And Diffusion Deck Models
 
-The current electromagnetic ladder is benchmark-first. It includes Alfven-wave and annulus-style validation problems with compact promoted surfaces.
+The `jax_drb run` command backs four compact, accuracy-tested deck models:
 
-Primary source files:
+- single-component `evolve_density` (one-rhs);
+- anomalous diffusion,
+  [native/transport.py](../src/jax_drb/native/transport.py);
+- periodic fluid MMS,
+  [native/fluid_1d.py](../src/jax_drb/native/fluid_1d.py);
+- electrostatic vorticity,
+  [native/vorticity.py](../src/jax_drb/native/vorticity.py).
 
-- electromagnetic operators:
-  - [src/jax_drb/native/electromagnetic.py](../src/jax_drb/native/electromagnetic.py)
-- Alfven-wave benchmark utilities:
-  - [src/jax_drb/validation/alfven_wave.py](../src/jax_drb/validation/alfven_wave.py)
+These share the structured mesh and metric handling in
+[native/mesh.py](../src/jax_drb/native/mesh.py) and
+[native/metrics.py](../src/jax_drb/native/metrics.py) and are dispatched by
+[native/deck_runner.py](../src/jax_drb/native/deck_runner.py).
 
-## Neutral And Atomic Physics
+## Electromagnetic Reduced Surfaces
 
-Neutral and recycling-capable lanes depend on packaged rate data and source builders.
+Where electron-parallel dynamics is retained explicitly, the compact
+electromagnetic operators in
+[native/electromagnetic.py](../src/jax_drb/native/electromagnetic.py) evolve the
+parallel current variable
 
-Primary source files:
+```text
+Ajpar = Σ_s Z_s n_s V_{∥,s}
+```
 
-- neutral benchmark analysis:
-  - [src/jax_drb/validation/neutral_mixed.py](../src/jax_drb/validation/neutral_mixed.py)
-- atomic/radiation data packaging:
-  - [src/jax_drb/data/atomic_rates](../src/jax_drb/data/atomic_rates)
-- source assembly and reaction evaluation:
-  - [src/jax_drb/native/recycling_1d.py](../src/jax_drb/native/recycling_1d.py)
+together with the reduced parallel-force balance
 
-## Numerics And Solvers
+```text
+0 = -e n_e E_∥ - ∇∥ p_e - η_∥ J_∥
+```
 
-The numerics are intentionally split between:
+The electron-inertia shear-Alfven branch of this system is verified analytically
+by the `shear_alfven_operator` in the linear dispersion solver, and the full
+electromagnetic drift-reduced Braginskii RHS is provided by
+[native/fci_drb_EB_rhs.py](../src/jax_drb/native/fci_drb_EB_rhs.py).
 
-- native explicit/structured update kernels
-- elliptic solvers for potential closures
-- implicit or stiff transient stepping on selected promoted lanes
+## Differentiable Analysis Surface
 
-Primary source files:
+The compact differentiable lanes use the standard JAX gradient map
 
-- implicit solvers:
-  - [src/jax_drb/solver/implicit.py](../src/jax_drb/solver/implicit.py)
-- elliptic solvers:
-  - [src/jax_drb/solver/elliptic.py](../src/jax_drb/solver/elliptic.py)
-- runtime precision and performance settings:
-  - [src/jax_drb/runtime/__init__.py](../src/jax_drb/runtime/__init__.py)
-  - [src/jax_drb/runtime/performance.py](../src/jax_drb/runtime/performance.py)
+```text
+g(θ) = ∇_θ J(θ)
+```
+
+and local Gaussian uncertainty propagation through the linearized pushforward
+
+```text
+Σ_Q ≈ G Σ_θ G^T ,  G = ∂Q/∂θ
+```
+
+These are the surfaces used by the published sensitivity, uncertainty, and
+inverse-design examples (see
+[Autodiff And Scaling Examples](autodiff_and_scaling_examples.md)). The
+end-to-end differentiable lanes today are the compact native-exact diffusion and
+vorticity kernels, the Hasegawa-Wakatani turbulence flagship, and the
+differentiable FCI drift-reduced RHS.
 
 ## JAX Implementation Boundary
 
-`jax_drb` is not one monolithic “all-JAX” runtime. The code deliberately
-separates:
+`jax_drb` deliberately separates:
 
 - fully JAX-native compact kernels used for differentiable reduced lanes,
-  profiling, and selected-field 3D reductions;
-- mixed host/JAX/SciPy production paths used where the strongest current parity
-  surface still depends on sparse implicit workflows.
+  profiling, and selected-field 3-D reductions;
+- NumPy/SciPy boundary code used for CLI orchestration, file I/O, and output
+  serialization.
 
-In practice, the current promoted JAX-native building blocks are:
+In practice, the current JAX-native building blocks are:
 
 - `jax.numpy` array kernels
 - `@jax.jit`
@@ -535,43 +412,13 @@ In practice, the current promoted JAX-native building blocks are:
 - `jax.lax.linalg.tridiagonal_solve`
 
 The codebase does not currently rely on `diffrax`, `equinox`, or `lineax` to
-power the promoted release results. Those libraries are useful ecosystem
-context and future options, but the release-critical kernels are driven by the
-core JAX primitives above.
+power the release results. Those libraries are useful ecosystem context and
+future options, but the release-critical kernels are driven by the core JAX
+primitives above.
 
-## Differentiability Boundary
+## Output And Restart
 
-`jax_drb` intentionally separates:
-
-- the fully user-facing CLI/runtime surface, which may use NumPy/SciPy
-  boundary code where appropriate;
-- the end-to-end differentiable research lane, which is expected to run through
-  Python drivers on the strongest native JAX kernels.
-
-Today the best differentiable lanes are still the compact native-exact kernels
-such as diffusion, vorticity, drift-wave-style reduced paths, and the reduced
-3D selected-field kernels used in the profiling/runtime campaigns. The heavier
-recycling backbone remains the main differentiability and accelerator blocker.
-
-## Background Context
-
-The public code docs intentionally stay implementation-first. The model family
-context is:
-
-- reduced-fluid edge/SOL transport with explicit parallel losses, sheath
-  closure, recycling, and neutral/atomic source terms;
-- compact electrostatic and reduced-electromagnetic benchmark surfaces on the
-  same operator stack;
-- an end-to-end differentiable subset built from the strongest JAX-native
-  kernels.
-
-The code docs stop there deliberately. Broader literature comparisons and
-paper-style code-family positioning belong in the separate manuscript repo, not
-in the shipping package documentation.
-
-## Output, Restart, And Provenance
-
-Promoted user-facing runs produce:
+User-facing runs produce:
 
 - summary JSON
 - arrays NPZ
@@ -581,26 +428,23 @@ Promoted user-facing runs produce:
 Primary source files:
 
 - CLI and argument model:
-  - [src/jax_drb/cli.py](../src/jax_drb/cli.py)
-- portable payload and restart writing:
-  - [src/jax_drb/runtime/output.py](../src/jax_drb/runtime/output.py)
-- parity/benchmark payload helpers:
-  - [src/jax_drb/parity/portable.py](../src/jax_drb/parity/portable.py)
-  - [src/jax_drb/parity/arrays.py](../src/jax_drb/parity/arrays.py)
-  - [src/jax_drb/parity/compare.py](../src/jax_drb/parity/compare.py)
+  [src/jax_drb/cli.py](../src/jax_drb/cli.py)
+- deck dispatch and portable payload / restart writing:
+  [src/jax_drb/native/deck_runner.py](../src/jax_drb/native/deck_runner.py),
+  [src/jax_drb/runtime/output.py](../src/jax_drb/runtime/output.py)
 
-## Validation And Promotion Rules
+## Validation Rules
 
-Before a capability is promoted to `native_exact`, the working rule is:
+Before a capability is treated as accuracy-tested, the working rule is:
 
-- one-RHS parity on the smallest exercising case
-- one-step parity on the same case
-- short-window parity when transient behavior matters
-- operator or boundary unit tests for every new branch
-- at least one physics-facing diagnostic
-- restart equivalence when the workflow is user-facing
-- artifact and provenance checks for CLI/example surfaces
+- one-RHS agreement on the smallest exercising case;
+- one-step agreement on the same case;
+- short-window agreement when transient behavior matters;
+- operator or boundary unit tests for every new branch;
+- at least one physics-facing diagnostic;
+- restart equivalence when the workflow is user-facing;
+- artifact checks for CLI/example surfaces.
 
-The summary version of that contract is in:
-
-- [validation_gallery.md](validation_gallery.md)
+The summary of that contract, with figures, is in
+[validation_gallery.md](validation_gallery.md), and the layered test taxonomy is
+in [testing_strategy.md](testing_strategy.md).

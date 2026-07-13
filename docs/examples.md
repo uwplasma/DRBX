@@ -11,7 +11,7 @@ inputs, outputs, source modules, tests, and documentation page, see
 
 Large generated example outputs are release-backed so that cloning the private
 repository stays fast. Authenticate with the GitHub CLI or a token, then restore
-the media and baseline bundles before running the movie and validation examples:
+the media bundles before running the movie and validation examples:
 
 ```bash
 gh auth login --hostname github.com
@@ -20,24 +20,21 @@ python scripts/fetch_example_artifacts.py
 
 Without the GitHub CLI, set `GH_TOKEN` or `GITHUB_TOKEN` to a token with access
 to `uwplasma/jax_drb`. The fetch script restores PNG/GIF/NPZ docs media under
-`docs/data/` and heavy reference baselines under `references/baselines/`. Use
-`python scripts/fetch_example_artifacts.py` when you only need
-the README/docs movies, figures, and user-facing self-contained example
-payloads.
+`docs/data/`, giving you the README/docs movies, figures, and user-facing
+self-contained example payloads.
 
 After this step, the user-facing commands listed below are self-contained: they
 use JAXDRB source code plus release-backed arrays/media and do not require users
-to download external plasma codes. Some scripts under `examples/engineering/`
-and selected-field regeneration directories are developer/live-reference
-workflows; those scripts say so in their command-line help and require an
-explicit `--reference-root` or local geometry checkout when they are rerun from
-first principles.
+to download external plasma codes. Some imported-geometry regeneration scripts
+under `examples/geometry-3D/` are developer workflows; those scripts say so in
+their command-line help and require a local geometry checkout when they are
+rerun from first principles.
 
 To exercise the main self-contained tutorial and movie surface from a fresh
 checkout, run:
 
 ```bash
-python scripts/fetch_example_artifacts.py --skip-baselines
+python scripts/fetch_example_artifacts.py
 PYTHONPATH=src python examples/restartable_diffusion_tutorial.py --quiet
 PYTHONPATH=src python examples/autodiff_diffusion_sensitivity_demo.py
 PYTHONPATH=src python examples/autodiff_diffusion_uncertainty_demo.py
@@ -56,7 +53,7 @@ published arrays and movies are release-backed, but rerunning those adapters
 from coils or external field-line traces requires a local geometry checkout and
 is documented separately on the imported-geometry pages. Users who only want to
 run the README/docs stellarator examples should use the `stellarator-fci`
-commands above after `fetch_example_artifacts.py --skip-baselines`.
+commands above after `fetch_example_artifacts.py`.
 
 | Example | What it teaches |
 | --- | --- |
@@ -142,18 +139,18 @@ Representative output:
 
 ## Validation Campaigns
 
-The engineering examples in
-[`examples/engineering/`](https://github.com/uwplasma/jax_drb/tree/main/examples/engineering)
+The benchmark and geometry examples under
+[`examples/benchmarks/`](https://github.com/uwplasma/jax_drb/tree/main/examples/benchmarks)
+and [`examples/geometry-3D/`](https://github.com/uwplasma/jax_drb/tree/main/examples/geometry-3D)
 regenerate publication-grade validation packages:
 
 | Family | Documentation |
 | --- | --- |
-| MMS and open-field operators | [Fluid 1D MMS](fluid_1d_mms_convergence.md) |
+| MMS convergence | [Fluid 1D MMS](fluid_1d_mms_convergence.md) |
 All validation figures are collected in [Validation Gallery](validation_gallery.md).
 
-Reference-comparison and live-rerun commands are intentionally separated from
-the user examples. They are used to refresh baselines, parity reports, and
-publication-grade validation figures, and they can require heavier local
-reference data or a local reference checkout. The release-backed baseline
-bundles let users and CI run cached validation checks without those live
-dependencies.
+Imported-geometry regeneration commands are intentionally separated from the
+user examples. They refresh publication-grade validation figures from coils or
+external field-line traces, and they can require a local geometry checkout. The
+release-backed media bundles let users and CI inspect the published figures
+without those regeneration dependencies.
