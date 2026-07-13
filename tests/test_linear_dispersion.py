@@ -17,6 +17,8 @@ import pytest
 from jax_drb.linear import (
     drift_wave_adiabatic_frequency,
     eigenmodes,
+    interchange_growth_rate,
+    interchange_operator,
     jacobian_operator,
     resistive_drift_wave_operator,
     shear_alfven_frequency,
@@ -172,6 +174,41 @@ def test_drift_wave_eigenvalues_match_characteristic_polynomial() -> None:
     modes = eigenmodes(operator)
     numeric = np.sort_complex(np.asarray(modes.eigenvalues))
     assert np.allclose(numeric, np.sort_complex(roots), rtol=1e-10, atol=1e-12)
+
+
+# --- interchange / Rayleigh-Taylor mode -----------------------------------------
+
+@pytest.mark.parametrize("k_x,k_y,gravity,gradient", [
+    (0.3, 0.5, 1.0, 1.0),
+    (0.5, 1.0, 2.0, 0.8),
+    (0.8, 0.8, 0.5, 1.5),
+])
+def test_interchange_growth_matches_analytic(k_x, k_y, gravity, gradient) -> None:
+    # Bad curvature (g*kappa > 0): the dominant eigenvalue is the analytic
+    # interchange growth rate sqrt(g kappa) |k_y| / |k|.
+    kperp2 = k_x**2 + k_y**2
+    operator = interchange_operator(k_y, kperp2, gravity, gradient)
+    growth = _mode_growth(operator)
+    analytic = float(interchange_growth_rate(k_y, kperp2, gravity, gradient))
+    assert growth == pytest.approx(analytic, rel=1e-10)
+    assert growth > 0.0
+
+
+def test_interchange_is_stable_for_good_curvature() -> None:
+    # Good curvature (g*kappa < 0): a stable oscillation, no growth.
+    operator = interchange_operator(0.5, 0.34, gravity=1.0, gradient=-1.0)
+    assert abs(_mode_growth(operator)) < 1e-10
+    assert _mode_frequency(operator) > 0.0
+
+
+def test_interchange_is_a_flute_mode() -> None:
+    # Growth is largest for k_x -> 0 (field-aligned flute) and falls as k_x grows,
+    # since gamma ~ |k_y| / sqrt(k_x^2 + k_y^2).
+    k_y, gravity, gradient = 1.0, 1.0, 1.0
+    growth_low_kx = _mode_growth(interchange_operator(k_y, 0.01**2 + k_y**2, gravity, gradient))
+    growth_high_kx = _mode_growth(interchange_operator(k_y, 2.0**2 + k_y**2, gravity, gradient))
+    assert growth_low_kx > growth_high_kx
+    assert growth_low_kx == pytest.approx(float(jnp.sqrt(gravity * gradient)), rel=1e-3)
 
 
 # --- general engine -------------------------------------------------------------
