@@ -37,6 +37,8 @@ __all__ = [
     "shear_alfven_frequency",
     "resistive_drift_wave_operator",
     "drift_wave_adiabatic_frequency",
+    "interchange_operator",
+    "interchange_growth_rate",
 ]
 
 
@@ -90,3 +92,47 @@ def drift_wave_adiabatic_frequency(k_y, kperp2, gradient):
     kperp2 = jnp.asarray(kperp2, dtype=jnp.float64)
     kappa = jnp.asarray(gradient, dtype=jnp.float64)
     return kappa * k_y / (1.0 + kperp2)
+
+
+def interchange_operator(k_y, kperp2, gravity, gradient):
+    """Curvature-driven interchange (Rayleigh-Taylor) operator in ``(phi, n)``.
+
+    The ideal two-field interchange model in the drift plane,
+
+        d/dt lap(phi) = -g d/dy n,   d/dt n = -kappa d/dy phi,
+
+    reduces for a single Fourier mode to
+    ``A = [[0, i g k_y / kperp2], [-i kappa k_y, 0]]``, whose eigenvalues are
+    ``lambda = +/- sqrt(g kappa) |k_y| / sqrt(kperp2)``. With bad curvature
+    (``g kappa > 0``) one eigenvalue is real and positive -- the interchange
+    instability; with good curvature it is a stable oscillation. ``g`` is the
+    effective gravity (curvature/grad-B drive) and ``kappa`` the background
+    density gradient. This is the linear physics behind SOL blob propagation.
+    """
+
+    k_y = jnp.asarray(k_y, dtype=jnp.float64)
+    kperp2 = jnp.asarray(kperp2, dtype=jnp.float64)
+    g = jnp.asarray(gravity, dtype=jnp.float64)
+    kappa = jnp.asarray(gradient, dtype=jnp.float64)
+    return jnp.array(
+        [
+            [0.0, 1j * g * k_y / kperp2],
+            [-1j * kappa * k_y, 0.0],
+        ],
+        dtype=jnp.complex128,
+    )
+
+
+def interchange_growth_rate(k_y, kperp2, gravity, gradient):
+    """Analytic interchange growth rate ``sqrt(g kappa) |k_y| / sqrt(kperp2)``.
+
+    Real and positive for bad curvature (``g kappa > 0``); returns 0 for good
+    curvature, where the mode is a stable oscillation instead.
+    """
+
+    k_y = jnp.asarray(k_y, dtype=jnp.float64)
+    kperp2 = jnp.asarray(kperp2, dtype=jnp.float64)
+    g = jnp.asarray(gravity, dtype=jnp.float64)
+    kappa = jnp.asarray(gradient, dtype=jnp.float64)
+    drive = g * kappa
+    return jnp.where(drive > 0, jnp.sqrt(jnp.abs(drive)) * jnp.abs(k_y) / jnp.sqrt(kperp2), 0.0)

@@ -38,6 +38,20 @@ decreases toward the hydrodynamic regime. References: Dudson et al.,
 *Comput. Phys. Commun.* 180, 1467 (2009); Hasegawa & Wakatani,
 *Phys. Rev. Lett.* 50, 682 (1983).
 
+## Interchange / Rayleigh-Taylor mode
+
+The ideal two-field interchange model in `(phi, n)` -- the linear physics behind
+SOL blob propagation -- gives, for a single Fourier mode,
+
+```
+gamma = sqrt(g * kappa) * |k_y| / sqrt(k_x^2 + k_y^2)
+```
+
+with effective gravity (curvature/grad-B drive) `g` and background density
+gradient `kappa`. `jax_drb.linear.interchange_operator` reproduces this to
+machine precision: bad curvature (`g*kappa > 0`) is unstable, good curvature is
+a stable oscillation, and the mode is a flute (growth largest as `k_x -> 0`).
+
 ## Reproduce
 
 ```bash
