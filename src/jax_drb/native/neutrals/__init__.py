@@ -14,6 +14,11 @@ from .atomic_rates import (
     load_amjuel_coefficients,
     rate_coefficient,
 )
+from .reactions import (
+    HydrogenReactionSources,
+    PlasmaNormalization,
+    compute_hydrogen_reaction_sources,
+)
 
 __all__ = [
     "rate_coefficient",
@@ -21,4 +26,7 @@ __all__ = [
     "charge_exchange_rate_coefficient",
     "eval_amjuel_fit",
     "load_amjuel_coefficients",
+    "PlasmaNormalization",
+    "HydrogenReactionSources",
+    "compute_hydrogen_reaction_sources",
 ]
