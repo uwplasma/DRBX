@@ -208,11 +208,15 @@ stays small.
 The FCI operator and domain-decomposition stack (`FciGeometry3D`,
 `fci_operators`, halo exchange) was contributed by **Aiken Xie** in
 [PR #3](https://github.com/uwplasma/jax_drb/pull/3) and is incorporated here.
-Multi-device `shard_map` execution built on it is completed in
-[PR #5](https://github.com/uwplasma/jax_drb/pull/5), which adds a sharded
-two-field step (bit-exact vs single-device) and a strong-scaling example.
-See [docs/stellarator_examples.md](docs/stellarator_examples.md) and
-[docs/non_axisymmetric_stellarator_sol_plan.md](docs/non_axisymmetric_stellarator_sol_plan.md).
+Built on it, the drift-reduced two-field step runs across multiple devices with
+`shard_map`: the domain is decomposed into halo-exchanged shards and the sharded
+RK4 step is **bit-exact** against the single-device step (checked to ~1e-16 for
+single-device and forced-four-device runs in
+[`tests/test_fci_sharded_2field.py`](tests/test_fci_sharded_2field.py)). On a
+36-core Linux host with one core bound per shard, a `256x128x32` step scales
+**1.75x at 2 shards, 3.22x at 4, 4.35x at 8**
+([strong-scaling demo](examples/benchmarks/fci_sharded_strong_scaling_demo.py),
+[docs](docs/performance_and_differentiability.md)).
 
 ## Documentation
 
