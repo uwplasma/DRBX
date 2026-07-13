@@ -518,16 +518,15 @@ GPU claim anywhere.
   potential solve); new sweeps only with a materially different operator
   splitting (bordered-Schur class), recorded win-or-lose.
 - TCV-X21 (B9) is paper-scale work and never blocks releases.
-- Hosted-CI status (2026-07-12): the account's GitHub Actions spending limit
-  is exhausted again ("The job was not started because recent account payments
-  have failed or your spending limit needs to be increased"); long jobs fail at
-  startup. This is a user billing action, not a code issue. Until it is
-  restored, the LOCAL gates are authoritative and every claim of green must be
-  backed by them: `pytest -q -m "not slow"` (full fast suite),
-  `JAX_DRB_DISABLE_REFERENCE_ROOT=1 pytest -q -m "not slow"` (reproduces the
-  no-reference-checkout CI condition), and `mkdocs build --strict --clean`.
-  Note the billing state in PR descriptions so red badges are not mistaken for
-  test failures.
+- Hosted CI is unavailable this month (GitHub Actions spending limit): all
+  gating is LOCAL. Run tests in parallel to keep iteration fast — the full fast
+  suite drops from ~8 min to ~3:49 with `pytest -q -m "not slow" -n 4
+  --dist worksteal` (needs `pytest-xdist`, in the `dev` extra). Per-change,
+  run only the affected test files (seconds); run the full parallel suite
+  before each commit. The authoritative local gates are: that parallel fast
+  suite, `JAX_DRB_DISABLE_REFERENCE_ROOT=1 pytest -q -m "not slow"` (reproduces
+  the no-reference-checkout condition), and `mkdocs build --strict --clean`.
+  Mark genuinely heavy tests `slow` so they stay out of the fast gate.
 - CI memory note: the full fast suite peaks at ~6.9 GB RSS (driven by the
   recycling/neutral tests, not the FCI stack). The coverage job splits the FCI
   stack into a second `--cov-append` process so coverage instrumentation
