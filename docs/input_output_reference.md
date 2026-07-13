@@ -126,23 +126,10 @@ The executable is `jax_drb`. Running a TOML path directly is equivalent to
 | `jax_drb run input.toml` | Run a native input deck | TOML deck, optional restart | summary JSON, arrays NPZ, restart NPZ, run log |
 | `jax_drb inspect input.toml` | Parse and print the resolved plan without advancing | TOML deck | terminal plan summary |
 | `jax_drb reference-cases` | List curated reference-backed cases | optional reference root | terminal or JSON case list |
-| `jax_drb run-reference-case` | Stage and run a curated external-reference case | reference root, case name, workdir | reference run artifacts and portable summary |
 | `jax_drb run-case` | Run a curated case through native JAXDRB | reference root or fixture deck, case name | portable native summary |
-| `jax_drb validate-reference-baselines` | Re-run cached reference-baseline checks | baseline directory or release-restored files | validation report |
 | `jax_drb compare-summary` | Compare portable summary JSON files | expected and actual JSON | scalar diff report |
 | `jax_drb compare-arrays` | Compare portable NPZ payloads | expected and actual NPZ | array diff report |
 | `jax_drb compare-recycling` | Localize recycling parity differences | compact reference/native artifacts | worst-variable/cell report |
-| `jax_drb analyze-drift-wave` | Analyze a drift-wave array payload | NPZ payload | benchmark scalars |
-| `jax_drb compare-drift-wave` | Compare drift-wave payloads | two payloads | parity metrics |
-| `jax_drb analyze-alfven-wave` | Analyze an Alfven-wave payload | NPZ payload | benchmark scalars |
-| `jax_drb compare-alfven-wave` | Compare Alfven-wave payloads | two payloads | parity metrics |
-| `jax_drb compare-blob2d` | Compare blob benchmark artifacts | JSON/NPZ payloads | peak and center-of-mass metrics |
-| `jax_drb analyze-neutral-mixed` | Analyze neutral-mixed payloads | NPZ payload | transient metrics |
-| `jax_drb compare-neutral-mixed` | Compare neutral-mixed payloads | analysis JSON or NPZ payloads | compact parity metrics |
-| `jax_drb diagnose-neutral-mixed-substeps` | Rank hybrid-state NVh parity drivers | reference/native traces | offender report |
-| `jax_drb trace-neutral-mixed-accepted-steps` | Write native accepted-step trace | neutral-mixed input/case | JSONL trace |
-| `jax_drb trace-neutral-mixed-reference-accepted-steps` | Run patched reference trace | reference root and case | JSONL trace |
-| `jax_drb compare-neutral-mixed-accepted-traces` | Compare accepted-step traces | native/reference JSONL | state-history and term-level diff report |
 
 Common commands:
 
