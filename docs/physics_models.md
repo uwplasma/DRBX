@@ -249,11 +249,13 @@ transport kernels live in:
 
 ### Elliptic Solves
 
-Potential and related closures are handled through the elliptic solver layer in
-[solver/elliptic.py](../src/jax_drb/solver/elliptic.py). The electrostatic
-vorticity lane inverts its potential with the Fourier-Helmholtz operator from
-that layer; the FCI vorticity component inverts the metric-weighted
-perpendicular operator with conjugate gradient.
+Potential and related closures are handled through the spectral
+Fourier--Helmholtz elliptic solve in
+[`solvax.elliptic`](https://github.com/uwplasma/SOLVAX), the reusable
+structured-solver library. The electrostatic vorticity lane
+([native/vorticity.py](../src/jax_drb/native/vorticity.py)) inverts its
+potential with that operator; the FCI vorticity component inverts the
+metric-weighted perpendicular operator with conjugate gradient.
 
 ## Linear Stability And Dispersion
 
