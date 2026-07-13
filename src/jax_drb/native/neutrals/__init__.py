@@ -19,6 +19,14 @@ from .reactions import (
     PlasmaNormalization,
     compute_hydrogen_reaction_sources,
 )
+from .recycling_sol_model import (
+    SolRecyclingParameters,
+    SolRecyclingState,
+    linear_target_temperature_profile,
+    sol_recycling_run,
+    sol_recycling_step,
+    target_ion_flux,
+)
 
 __all__ = [
     "rate_coefficient",
@@ -29,4 +37,10 @@ __all__ = [
     "PlasmaNormalization",
     "HydrogenReactionSources",
     "compute_hydrogen_reaction_sources",
+    "SolRecyclingParameters",
+    "SolRecyclingState",
+    "linear_target_temperature_profile",
+    "sol_recycling_run",
+    "sol_recycling_step",
+    "target_ion_flux",
 ]
