@@ -33,5 +33,22 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e . pytest pytest-cov
       - name: Whole-package coverage (honest baseline; 95% enforced after Phase 1)
+        # Two invocations with --cov-append: the heavy FCI stack runs in a
+        # separate process so its multi-GB peak does not stack with the main
+        # suite, while coverage still accumulates into one whole-package number.
         run: |
-          pytest -q -m "not slow" --cov=jax_drb --cov-branch --cov-report=term
+          pytest -q -m "not slow" --cov=jax_drb --cov-branch \
+            --ignore-glob=tests/test_fci_*.py \
+            --ignore-glob=tests/test_mms_shifted_torus_*.py \
+            --ignore-glob=tests/test_mms_slab_*.py \
+            --ignore-glob=tests/test_multigrid_*.py \
+            --ignore-glob=tests/test_shifted_torus_*.py
+          pytest -q -m "not slow" --cov=jax_drb --cov-branch --cov-append \
+            tests/test_fci_halo.py \
+            tests/test_fci_model_state.py \
+            tests/test_fci_operators.py \
+            tests/test_fci_operators_domain_decomp.py \
+            tests/test_mms_shifted_torus_EB.py \
+            tests/test_multigrid_preconditioner.py \
+            tests/test_shifted_torus_EB_blob.py
+          coverage report
