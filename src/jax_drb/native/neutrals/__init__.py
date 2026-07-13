@@ -19,6 +19,13 @@ from .reactions import (
     PlasmaNormalization,
     compute_hydrogen_reaction_sources,
 )
+from .detachment_sol_model import (
+    DetachmentSolParameters,
+    DetachmentSolState,
+    detachment_diagnostics,
+    detachment_sol_run,
+    detachment_sol_step,
+)
 from .recycling_sol_model import (
     SolRecyclingParameters,
     SolRecyclingState,
@@ -43,4 +50,9 @@ __all__ = [
     "sol_recycling_run",
     "sol_recycling_step",
     "target_ion_flux",
+    "DetachmentSolParameters",
+    "DetachmentSolState",
+    "detachment_diagnostics",
+    "detachment_sol_run",
+    "detachment_sol_step",
 ]
