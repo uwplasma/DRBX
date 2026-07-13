@@ -26,6 +26,7 @@ JAX-based solver papers.
 | `Electrostatic Vorticity Short Window` | `native-validated` | Electrostatic benchmark is locked. |
 | `Diverted Tokamak Geometry Movie` | `benchmark-backed visualization` | Full-domain stitched tokamak turbulence movie with LCFS, wall, and divertor overlays. |
 | `Stellarator FCI Validation` | `native non-axisymmetric gate` | Full-metric, field-line-map, conservative-operator, sheath/recycling, neutral, vorticity, and reduced 3D SOL dynamics campaign. |
+| `Rotating-Ellipse FCI` | `genuinely non-axisymmetric gate` | Rotating-ellipse (`l = 2`) metric by autodiff; direct and traced-field-line parallel gradient converge at order 2; shape-differentiable. |
 | `VMEC-Extender Edge Field Import` | `self-contained synthetic imported-field gate` | Physical-phi field-grid import, FCI map construction, and compact scalar SOL smoke coupling are locked on synthetic NetCDF fixtures. |
 | `ESSOS Field-Line Import` | `external geometry import gate` | ESSOS-owned field evaluation, adaptive field-line tracing, Poincare extraction, and portable trajectory/field-sample artifacts for later FCI use. |
 | `ESSOS Imported QA DRB Movie` | `movie-grade reduced transient` | Imported Landreman-Paul QA coil, VMEC-coordinate, and hybrid FCI maps feeding a fixed-layout DRB transient with sheath/recycling/neutrals where open endpoints are present. |
@@ -160,6 +161,27 @@ What this documents:
 - a reduced 3D SOL dynamics benchmark with R-Z panel snapshots at four toroidal angles;
 - RMS, skewness, radial-flux proxy, time-trace, and toroidal-poloidal spectrum diagnostics;
 - a README-ready opened traced-surface movie with radial cuts, field-line overlays, colorbar, and time annotation.
+
+## Rotating-Ellipse FCI
+
+![Rotating-ellipse FCI](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/rotating_ellipse_fci.png)
+
+The classical rotating-ellipse (`l = 2`) stellarator — a torus whose elliptical
+cross-section rotates with the toroidal angle — is the canonical minimal
+non-axisymmetric field, with a metric that depends on all three logical
+coordinates. Its metric is built by automatic differentiation of the analytic
+embedding (exact, and differentiable with respect to the shape), and the FCI
+parallel gradient converges at second order on it for both the direct
+`b^i d_i f` operator and the traced-field-line operator that follows field lines
+between toroidal planes. The gate lives in
+[`tests/test_rotating_ellipse_fci.py`](../tests/test_rotating_ellipse_fci.py);
+the full description is in [Rotating-Ellipse FCI](rotating_ellipse_fci.md).
+
+To regenerate the figure:
+
+```bash
+PYTHONPATH=src python examples/stellarator/rotating_ellipse_fci_demo.py
+```
 
 ## VMEC-Extender Edge Field Import
 
