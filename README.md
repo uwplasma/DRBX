@@ -160,6 +160,7 @@ Verified today (each with a passing test):
 | FCI on non-axisymmetric geometry | Shanahan et al., *PPCF* 61, 025007 (2019, BSTING) | parallel-operator MMS; differentiable rollout (grad vs FD 6e-11) |
 | Rotating-ellipse (`l = 2`) FCI | Stegmeir et al., *Comput. Phys. Commun.* 198, 139 (2016, GRILLIX) | direct & traced-field-line parallel gradient converge at order 2 on a genuinely non-axisymmetric metric; shape-differentiable; a seeded four-field filament generates interchange vorticity on the rotating surfaces |
 | Open-field-line SOL flux tube | two-point / Bohm-sheath SOL theory (Stangeby, *The Plasma Boundary of Magnetic Fusion Devices*, 2000) | parallel flow reaches Mach 1 at the targets; target density = half upstream; exact Bohm particle balance and sheath-recycling accounting |
+| Neutrals and recycling (hermes-3 model) | hermes-3: Dudson et al., *Comput. Phys. Commun.* 296, 108991 (2024); AMJUEL atomic rates | physically-correct ionization/recombination/CX rates; exact plasma↔neutral particle & momentum conservation; a coupled recycling SOL shows the neutral cushion and detachment onset; neutrals conserve on the 3D closed rotating ellipse and recycle on the open slab |
 | Differentiable inverse design | — | gradient descent through turbulence recovers a drive parameter |
 
 Planned rungs (seeded-blob inertial scaling and others) are
@@ -175,7 +176,7 @@ Flagship simulations, by geometry:
 |---|---|---|
 | **Tokamak** | [drift-wave turbulence](examples/tokamak/drift_wave_turbulence_demo.py) (Hasegawa-Wakatani; linear phase B2-verified, differentiable) + [inverse design](examples/tokamak/drift_wave_inverse_design_demo.py) | periodic flux tube |
 | **Stellarator** | [rotating-ellipse FCI](examples/stellarator/rotating_ellipse_fci_demo.py) (parallel-operator convergence) + [seeded filament](examples/stellarator/rotating_ellipse_filament_demo.py) (four-field interchange) + [differentiable FCI drift-reduced model](examples/stellarator/fci_differentiable_demo.py) | rotating ellipse + shifted-torus helical + imported [ESSOS/VMEC](examples/geometry-3D/) |
-| **SOL (open)** | [open SOL flux tube](examples/sol/open_sol_flux_tube_demo.py) (parallel transport to Bohm-sheath targets; two-point steady state) | open slab flux tube |
+| **SOL (open)** | [open SOL flux tube](examples/sol/open_sol_flux_tube_demo.py) (parallel transport to Bohm-sheath targets; two-point steady state) + [recycling SOL](examples/sol/recycling_sol_demo.py) (neutrals, ionization/recombination, detachment onset) | open slab flux tube |
 
 Open-field-line SOL:
 [open slab flux tube](examples/sol/open_sol_flux_tube_demo.py) — parallel
