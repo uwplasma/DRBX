@@ -72,7 +72,7 @@ split cleanly on disk:
 
 ## Refactor Direction
 
-The refactor plan in [refactoring_plan.md](refactoring_plan.md) moves the code
+The refactor plan in `plan_jax_drb.md` (repository root) moves the code
 toward smaller internal namespaces:
 
 - `native/recycling/`

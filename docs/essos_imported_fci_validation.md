@@ -573,10 +573,9 @@ the preferred open-field SOL bridge. All three routes pass and feed the same
 JAX-native closure kernels used by the synthetic non-axisymmetric validation
 suite.
 
-The next imported-map gate is documented in
-[ESSOS imported PyTree/JVP validation](essos_imported_pytree_validation.md).
-It drives the fixed-layout drift-reduced Braginskii PyTree RHS, `jax.jvp`, and
-`jax.vmap` checks from the same external field-line map construction.
+The imported-map PyTree/JVP gate drives the fixed-layout drift-reduced
+Braginskii PyTree RHS, `jax.jvp`, and `jax.vmap` checks from the same external
+field-line map construction.
 
 ## Artifact Files
 

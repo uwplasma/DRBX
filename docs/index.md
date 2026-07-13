@@ -73,11 +73,11 @@ PYTHONPATH=src python examples/geometry-3D/stellarator-fci/turbulent_profile_ana
 | Decide what JAXDRB can run today, with links to examples, source, tests, and outputs | [Feature Reference](feature_reference.md) |
 | Install, run the CLI, resume runs, and inspect outputs | [Installation](installation.md), [Native Runtime CLI](native_runtime_cli.md), [Input And Output Reference](input_output_reference.md) |
 | Learn the governing equations and where each term is implemented | [Physics Models](physics_models.md), [Equation To Code Map](equation_to_code_map.md) |
-| Run self-contained tutorials and movie examples | [Examples And Artifacts](examples.md), [Example Status Matrix](example_status_matrix.md), [Dynamics Gallery](dynamics_gallery.md) |
-| Understand validation status and publication-ready figures | [Validation Gallery](validation_gallery.md), [Research-Grade Validation Matrix](research_grade_validation_matrix.md), [Parity Matrix](parity_matrix.md) |
+| Run self-contained tutorials and movie examples | [Examples And Artifacts](examples.md) |
+| Understand validation status and publication-ready figures | [Validation Gallery](validation_gallery.md), [Parity Harness](parity_harness.md) |
 | Work with tokamak, stellarator, VMEC, imported field-line, and FCI geometry | [Stellarator Examples](stellarator_examples.md), [Connection Length](connection_length.md), [VMEC Extender Edge Fields](vmec_extender_edge_fields.md), [ESSOS Field-Line Import](essos_fieldline_import.md) |
 | Understand differentiability, JAX transforms, performance, and profiling | [Performance And Differentiability](performance_and_differentiability.md), [Autodiff And Scaling Examples](autodiff_and_scaling_examples.md), [Profiling Runtime](profiling_runtime.md) |
-| Understand repository size, releases, PyPI, and artifact storage | [Release Packaging](release_packaging.md), [Repo Size Audit](repo_size_audit.md) |
+| Understand repository size, releases, PyPI, and artifact storage | [Release Packaging](release_packaging.md) |
 
 ## What Ships
 

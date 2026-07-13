@@ -358,7 +358,7 @@ Live runs against `local reference build` established:
 - for `nout=1`, `t_array` contains two time points, the initial state and one output step;
 - `BOUT.dmp.0.nc` includes scalar normalization metadata `Nnorm`, `Tnorm`, `Bnorm`, `Cs0`, `Omega_ci`, and `rho_s0`.
 
-These behaviors are the basis of the low-iteration parity workflow in [implementation_inventory.md](implementation_inventory.md).
+These behaviors are the basis of the low-iteration parity workflow.
 
 ## Committed Reference Baselines
 

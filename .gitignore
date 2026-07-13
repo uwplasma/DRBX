@@ -25,6 +25,7 @@ docs/data/stellarator_fci_validation_artifacts/**/data/*.npz
 .jax_drb_artifact_cache/
 references/baselines/reference_arrays/*.npz
 references/baselines/reference_snapshots/*.npz
+docs/data/
 docs/data/**/*.npz
 docs/data/**/*.png
 docs/data/**/*.gif

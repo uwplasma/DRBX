@@ -573,4 +573,4 @@ Before a capability is promoted to `native_exact`, the working rule is:
 
 The summary version of that contract is in:
 
-- [research_grade_validation_matrix.md](research_grade_validation_matrix.md)
+- [validation_gallery.md](validation_gallery.md)

@@ -215,8 +215,7 @@ The imported PyTree/JVP artifacts live in
 three map sources feed the fixed-layout RHS and differentiability gates.
 The imported QA movie artifacts live in
 `docs/data/essos_imported_drb_movie_artifacts/` and
-`docs/data/essos_imported_drb_movie_hybrid_artifacts/` and are documented in
-`docs/essos_imported_drb_movie.md`; the hybrid movie is now the preferred
+`docs/data/essos_imported_drb_movie_hybrid_artifacts/`; the hybrid movie is now the preferred
 end-to-end visual bridge from imported VMEC-coordinate maps plus coil endpoint
 masks to a JAXDRB fixed-layout DRB transient with sheath, recycling, neutral
 closures, and explicit physics gates.

@@ -148,7 +148,6 @@ while the absolute max-error stays tiny.
 
 The detailed remediation order is now documented in:
 
-- [runtime_gap_remediation.md](runtime_gap_remediation.md)
 - [profiling_runtime.md](profiling_runtime.md)
 
 The implicit solver now exposes phase-resolved diagnostics on every sparse
@@ -1993,7 +1992,7 @@ If you need:
 - the cleanest standalone runtime workflow:
   - start from [restartable_diffusion_tutorial.md](restartable_diffusion_tutorial.md)
 - compact high-quality figures and movies:
-  - use [dynamics_gallery.md](dynamics_gallery.md) and [diverted_tokamak_movie_demo.md](diverted_tokamak_movie_demo.md)
+  - use [validation_gallery.md](validation_gallery.md)
 - the best current base for differentiable research code:
   - start from the compact native-exact electrostatic lanes rather than the heavier recycling transient backbone
 
