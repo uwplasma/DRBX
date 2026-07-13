@@ -349,6 +349,22 @@ def _assemble_4field_diffusion_rhs(
     b_floor: float,
     jacobian_floor: float,
 ) -> Fci4FieldState:
+    # The perpendicular diffusion is a conservative control-volume operator, so it
+    # requires conservative (face-gradient) stencils. Rebuild them from the fields
+    # here rather than reuse the local advection stencils the callers pass in (which
+    # carry no face-gradient data), so every caller gets a correct diffusion term.
+    density_stencil = build_conservative_stencil_from_field(
+        density, geometry, periodic_axes=periodic_axes, face_bc=density_face_bc
+    )
+    omega_stencil = build_conservative_stencil_from_field(
+        omega, geometry, periodic_axes=periodic_axes, face_bc=omega_face_bc
+    )
+    v_ion_parallel_stencil = build_conservative_stencil_from_field(
+        v_ion_parallel, geometry, periodic_axes=periodic_axes, face_bc=v_ion_parallel_face_bc
+    )
+    v_electron_parallel_stencil = build_conservative_stencil_from_field(
+        v_electron_parallel, geometry, periodic_axes=periodic_axes, face_bc=v_electron_parallel_face_bc
+    )
     density_diffusion = jnp.asarray(parameters.density_perp_diffusion, dtype=jnp.float64) * perp_laplacian_conservative_op(
         density_stencil,
         geometry,

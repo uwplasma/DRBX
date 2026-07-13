@@ -70,6 +70,31 @@ The rotating ellipse is a standard FCI convergence test case (see Stegmeir et
 al., *Comput. Phys. Commun.* 198, 139 (2016), the GRILLIX field-line-map
 approach).
 
+## Seeded-filament dynamics
+
+Beyond the linear operator gate, the four-field drift-reduced FCI model (density,
+vorticity, ion/electron parallel velocity) runs a seeded filament on this
+geometry. A localized density blob is initialised with no vorticity; the
+curvature drive then generates vorticity from the pressure blob -- the
+interchange mechanism that moves a filament -- and because the flux surfaces
+rotate with the toroidal angle, the filament evolves differently in each
+toroidal plane.
+
+![Seeded filament on the rotating ellipse](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/rotating_ellipse_filament.png)
+
+The figure shows, in physical `(R, Z)` cross-sections at three toroidal angles
+(each a differently oriented ellipse), the seeded density blob, the evolved
+density, and the evolved vorticity: a clear interchange dipole develops, oriented
+with the local rotated cross-section. The gate
+[`tests/test_rotating_ellipse_filament.py`](../tests/test_rotating_ellipse_filament.py)
+pins that the run stays finite, the density stays positive and bounded, and both
+vorticity and a parallel ion flow are generated from the seed. Regenerate the
+figure with
+
+```bash
+PYTHONPATH=src python examples/stellarator/rotating_ellipse_filament_demo.py
+```
+
 ## Reproduce
 
 ```bash

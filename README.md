@@ -156,7 +156,7 @@ Verified today (each with a passing test):
 | Shear-Alfvén wave dispersion | Stegmeir et al., *Phys. Plasmas* 26, 052517 (2019) | phase velocity vs analytic (with electron inertia) |
 | Interchange / Rayleigh-Taylor | curvature-driven flute dispersion | growth rate vs `√(gκ)·k_y/k` analytic |
 | FCI on non-axisymmetric geometry | Shanahan et al., *PPCF* 61, 025007 (2019, BSTING) | parallel-operator MMS; differentiable rollout (grad vs FD 6e-11) |
-| Rotating-ellipse (`l = 2`) FCI | Stegmeir et al., *Comput. Phys. Commun.* 198, 139 (2016, GRILLIX) | direct & traced-field-line parallel gradient converge at order 2 on a genuinely non-axisymmetric metric; shape-differentiable |
+| Rotating-ellipse (`l = 2`) FCI | Stegmeir et al., *Comput. Phys. Commun.* 198, 139 (2016, GRILLIX) | direct & traced-field-line parallel gradient converge at order 2 on a genuinely non-axisymmetric metric; shape-differentiable; a seeded four-field filament generates interchange vorticity on the rotating surfaces |
 | Differentiable inverse design | — | gradient descent through turbulence recovers a drive parameter |
 
 Planned rungs (seeded-blob inertial scaling and others) are
@@ -171,7 +171,7 @@ Flagship simulations, by geometry:
 | | Turbulence flagship | Geometry |
 |---|---|---|
 | **Tokamak** | [drift-wave turbulence](examples/tokamak/drift_wave_turbulence_demo.py) (Hasegawa-Wakatani; linear phase B2-verified, differentiable) + [inverse design](examples/tokamak/drift_wave_inverse_design_demo.py) | periodic flux tube |
-| **Stellarator** | [rotating-ellipse FCI](examples/stellarator/rotating_ellipse_fci_demo.py) (genuinely non-axisymmetric, parallel-operator convergence) + [differentiable FCI drift-reduced model](examples/stellarator/fci_differentiable_demo.py) | rotating ellipse + shifted-torus helical + imported [ESSOS/VMEC](examples/geometry-3D/) |
+| **Stellarator** | [rotating-ellipse FCI](examples/stellarator/rotating_ellipse_fci_demo.py) (parallel-operator convergence) + [seeded filament](examples/stellarator/rotating_ellipse_filament_demo.py) (four-field interchange) + [differentiable FCI drift-reduced model](examples/stellarator/fci_differentiable_demo.py) | rotating ellipse + shifted-torus helical + imported [ESSOS/VMEC](examples/geometry-3D/) |
 
 Open-field-line SOL (sheath/recycling) is a planned direction (see
 [`plan_jax_drb.md`](plan_jax_drb.md)); the FCI stack carries the sheath
