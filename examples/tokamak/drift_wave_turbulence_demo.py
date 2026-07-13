@@ -52,7 +52,26 @@ DT = 5.0e-3
 STEPS_PER_BLOCK = 400
 BLOCKS = 32
 SEED = 0
+SAVE_MOVIE = True
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "output" / "drift_wave_turbulence"
+
+
+def _write_vorticity_gif(frames, path, *, upscale=4, fps=12):
+    """Encode a list of 2-D vorticity frames as a compact RdBu_r animated GIF."""
+
+    from PIL import Image
+
+    scale = max(abs(float(np.min(frames[-1]))), abs(float(np.max(frames[-1]))), 1e-30)
+    images = []
+    for frame in frames:
+        norm = np.clip((frame / scale + 1.0) / 2.0, 0.0, 1.0)
+        rgba = (plt.get_cmap("RdBu_r")(norm) * 255).astype(np.uint8)
+        image = Image.fromarray(rgba, mode="RGBA").convert("P", palette=Image.ADAPTIVE)
+        image = image.resize((image.width * upscale, image.height * upscale), Image.NEAREST)
+        images.append(image)
+    images[0].save(
+        path, save_all=True, append_images=images[1:], duration=int(1000 / fps), loop=0
+    )
 
 
 def main() -> None:
@@ -66,7 +85,7 @@ def main() -> None:
     zeta = jnp.array(seed.copy())
     density = jnp.array(seed.copy())
 
-    times, energies, fluxes = [], [], []
+    times, energies, fluxes, frames = [], [], [], []
     for block in range(BLOCKS):
         zeta, density = hw_run(zeta, density, grid, params, dt=DT, steps=STEPS_PER_BLOCK)
         phi = potential_from_vorticity(zeta, grid)
@@ -75,14 +94,18 @@ def main() -> None:
         times.append(DT * STEPS_PER_BLOCK * (block + 1))
         energies.append(energy)
         fluxes.append(flux)
+        frames.append(np.real(np.asarray(jnp.fft.ifft2(zeta))))
         print(f"t={times[-1]:7.1f}  energy={energy:.4e}  particle_flux={flux:+.4e}")
 
-    vorticity = np.real(np.asarray(jnp.fft.ifft2(zeta)))
+    vorticity = frames[-1]
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "drift_wave_turbulence.json").write_text(
         json.dumps({"time": times, "energy": energies, "particle_flux": fluxes}, indent=2)
     )
+    if SAVE_MOVIE:
+        _write_vorticity_gif(frames, OUTPUT_DIR / "drift_wave_turbulence.gif")
+        print(f"wrote {OUTPUT_DIR / 'drift_wave_turbulence.gif'}")
 
     fig, (ax_field, ax_energy, ax_flux) = plt.subplots(1, 3, figsize=(15.0, 4.4))
     im = ax_field.imshow(vorticity, cmap="RdBu_r", origin="lower")
