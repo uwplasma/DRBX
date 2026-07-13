@@ -433,7 +433,15 @@ Reproducing the inertial `v ~ sqrt(δ)` scaling cleanly needs careful
 terminal-velocity measurement (periodicity-aware CoM, right regime, enough
 run time) — the linear interchange physics is verified above, but the
 quantitative nonlinear scaling is not yet nailed down and will not ship until
-it is reproducible.
+it is reproducible. **Re-attempted 2026-07-13** with the now-working four-field
+interchange model on the shifted torus (seeded blobs, radial-CoM velocity vs
+width): the run is finite and generates interchange vorticity, but the measured
+`v_max ~ sigma_x^-0.7` has the **wrong sign** for the inertial branch (`+0.5`) —
+the peak radial CoM velocity is transient-dominated and the four-field FCI torus
+is not the clean 2-D constant-curvature blob setup the scaling is derived for.
+B4 needs a dedicated 2-D interchange (blob2d) model in the inertial regime with
+terminal- (not peak-) velocity tracking; it stays honestly deferred rather than
+shipping a wrong-sign scaling.
 
 ### Phase 4 — Honest hermes-3 parity (4A flagship, 4B full menu)
 

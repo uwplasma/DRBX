@@ -45,7 +45,9 @@ through the linear instability into nonlinear E×B transport — every frame is 
   turbulence run with respect to any model parameter, by autodiff through the
   whole time evolution — used above to *recover a transport-drive parameter by
   gradient descent* (right panel). No other DRB SOL code can optimize through
-  turbulence.
+  turbulence. And it is cheap: one reverse-mode gradient through a full
+  multi-step rollout costs only ~2.7x a forward pass
+  ([benchmark](examples/benchmarks/performance_benchmark.py)).
 - **FCI non-axisymmetric geometry** and **multi-device parallelism**
   (`shard_map`) for stellarator scrape-off-layer simulation. The
   drift-reduced FCI operator stack runs on non-orthogonal helical geometry and
