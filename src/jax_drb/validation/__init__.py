@@ -1,488 +1,691 @@
-from .alfven_wave import (
-    AlfvenWaveAnalysisResult,
-    AlfvenWaveBenchmarkScalars,
-    AlfvenWaveParityResult,
-    analyze_alfven_wave_array_payload,
-    analyze_alfven_wave_npz,
-    compare_alfven_wave_array_payloads,
-    compare_alfven_wave_npz,
-    compute_alfven_wave_benchmark_scalars,
-    save_alfven_wave_diagnostic_plot,
-    save_alfven_wave_parity_plot,
-    write_alfven_wave_analysis_json,
-    write_alfven_wave_parity_json,
-)
-from .alfven_wave_meeting import (
-    AlfvenWaveMeetingArtifacts,
-    create_alfven_wave_meeting_package,
-    save_alfven_wave_heatmap_movie,
-    save_alfven_wave_poster_frame,
-    save_alfven_wave_snapshot_panel,
-    save_alfven_wave_surface_movie,
-)
-from .blob2d import (
-    Blob2DAnalysisResult,
-    Blob2DParityResult,
-    analyze_blob2d_array_payload,
-    analyze_blob2d_npz,
-    compare_blob2d_analysis_results,
-    compare_blob2d_array_payloads,
-    compare_blob2d_artifacts,
-    compare_blob2d_npz,
-    load_blob2d_analysis_json,
-    save_blob2d_parity_plot,
-    write_blob2d_analysis_json,
-    write_blob2d_parity_json,
-)
-from .blob2d_meeting import (
-    Blob2DMeetingArtifacts,
-    create_blob2d_meeting_package,
-    save_blob2d_heatmap_movie,
-    save_blob2d_poster_frame,
-    save_blob2d_snapshot_panel,
-    save_blob2d_surface_movie,
-)
-from .drift_wave import (
-    DriftWaveAnalysisResult,
-    DriftWaveBenchmarkScalars,
-    DriftWaveParityResult,
-    DriftWaveParityVariableError,
-    analyze_drift_wave_array_payload,
-    analyze_drift_wave_npz,
-    compare_drift_wave_array_payloads,
-    compare_drift_wave_npz,
-    compute_drift_wave_benchmark_scalars,
-    save_drift_wave_diagnostic_plot,
-    save_drift_wave_parity_plot,
-    write_drift_wave_analysis_json,
-    write_drift_wave_parity_json,
-)
-from .neutral_mixed import (
-    NeutralMixedAnalysisResult,
-    NeutralMixedParityResult,
-    NeutralMixedSeriesError,
-    analyze_neutral_mixed_array_payload,
-    analyze_neutral_mixed_npz,
-    compare_neutral_mixed_analysis_results,
-    compare_neutral_mixed_array_payloads,
-    compare_neutral_mixed_artifacts,
-    compare_neutral_mixed_npz,
-    load_neutral_mixed_analysis_json,
-    save_neutral_mixed_diagnostic_plot,
-    save_neutral_mixed_parity_plot,
-    write_neutral_mixed_analysis_json,
-    write_neutral_mixed_parity_json,
-)
-from .neutral_mixed_boundary_campaign import (
-    NeutralMixedBoundaryCampaignArtifacts,
-    build_neutral_mixed_boundary_campaign_report,
-    create_neutral_mixed_boundary_campaign_package,
-    save_neutral_mixed_boundary_campaign_plot,
-)
-from .neutral_mixed_term_balance_campaign import (
-    NeutralMixedTermBalanceCampaignArtifacts,
-    build_neutral_mixed_accepted_step_trace_parity_report,
-    build_neutral_mixed_native_accepted_step_trace_report,
-    build_neutral_mixed_reference_input_closure_report,
-    build_neutral_mixed_substep_hybrid_report,
-    build_neutral_mixed_term_balance_campaign_report,
-    create_neutral_mixed_term_balance_campaign_package,
-    run_neutral_mixed_hermes_accepted_step_trace,
-    run_neutral_mixed_hermes_diagnostic_rerun,
-    save_neutral_mixed_term_balance_campaign_plot,
-    write_neutral_mixed_accepted_step_trace_parity_json,
-    write_neutral_mixed_accepted_step_trace_input,
-    write_neutral_mixed_native_accepted_step_trace_json,
-    write_neutral_mixed_diagnostic_input,
-    write_neutral_mixed_reference_input_closure_json,
-    write_neutral_mixed_substep_hybrid_json,
-)
-from .autodiff_diffusion import (
-    DiffusionAutodiffSetup,
-    StrongScalingPoint,
-    build_diffusion_autodiff_setup,
-    compute_strong_scaling_points,
-    design_field,
-    design_field_from_physical,
-    finite_difference_gradient,
-    objective_for_parameter_vector,
-    objective_for_physical_parameters,
-    optimize_inverse_design,
-    physical_to_theta,
-    simulate_density_history,
-    simulate_density_history_from_physical,
-    theta_to_physical,
-)
-from .autodiff_diffusion_uncertainty import (
-    AutodiffDiffusionUncertaintyArtifacts,
-    build_autodiff_diffusion_uncertainty_report,
-    create_autodiff_diffusion_uncertainty_package,
-    save_autodiff_diffusion_uncertainty_plot,
-)
-from .diverted_tokamak_movie import (
-    DivertedTokamakFieldHistory,
-    DivertedTokamakGeometry,
-    DivertedTokamakMovieArtifacts,
-    assemble_tokamak_rank_history,
-    build_diverted_tokamak_analysis,
-    create_diverted_tokamak_movie_package,
-    create_diverted_tokamak_movie_package_from_arrays,
-    load_diverted_tokamak_arrays_npz,
-    load_diverted_tokamak_geometry,
-    save_diverted_tokamak_gif,
-    save_diverted_tokamak_poster_frame,
-    save_diverted_tokamak_snapshot_panel,
-    toroidal_mean_fluctuation,
-    write_diverted_tokamak_analysis_json,
-    write_diverted_tokamak_arrays_npz,
-)
-from .essos_fieldline_import_campaign import (
-    EssosFieldLineImportArtifacts,
-    build_essos_fieldline_import_report,
-    create_essos_fieldline_import_package,
-    save_essos_fieldline_import_plot,
-)
-from .essos_vmec_fieldline_surface_campaign import (
-    EssosVmecFieldlineSurfaceArtifacts,
-    build_essos_vmec_fieldline_surface_campaign,
-    create_essos_vmec_fieldline_surface_package,
-    save_essos_vmec_fieldline_surface_plot,
-)
-from .vmec_extender_edge_field_campaign import (
-    VmecExtenderEdgeFieldCampaignArtifacts,
-    build_vmec_extender_edge_field_campaign_report,
-    create_vmec_extender_edge_field_campaign_package,
-    save_vmec_extender_edge_field_campaign_plot,
-)
-from .vmec_extender_sol_smoke_campaign import (
-    VmecExtenderSolSmokeArtifacts,
-    VmecExtenderSolSmokeResult,
-    build_vmec_extender_sol_smoke_report,
-    create_vmec_extender_sol_smoke_package,
-    save_vmec_extender_sol_smoke_plot,
-    simulate_vmec_extender_scalar_sol_smoke,
-)
-from .essos_imported_fci_campaign import (
-    EssosImportedFciCampaignArtifacts,
-    EssosImportedConnectionLengthRefinementArtifacts,
-    build_essos_imported_connection_length_refinement_diagnostics,
-    build_essos_imported_connection_length_refinement_campaign,
-    build_essos_imported_fci_campaign,
-    create_essos_imported_connection_length_refinement_package,
-    create_essos_imported_fci_campaign_package,
-    save_essos_imported_connection_length_refinement_plot,
-    save_essos_imported_fci_campaign_plot,
-)
-from .essos_imported_pytree_campaign import (
-    EssosImportedPytreeCampaignArtifacts,
-    build_essos_imported_pytree_campaign,
-    create_essos_imported_pytree_campaign_package,
-    initial_essos_imported_drb_state,
-    save_essos_imported_pytree_campaign_plot,
-)
-from .essos_imported_drb_movie_campaign import (
-    EssosImportedDrbMovieArtifacts,
-    build_essos_imported_drb_movie_campaign,
-    create_essos_imported_drb_movie_package,
-    save_essos_imported_drb_3d_frame,
-    save_essos_imported_drb_3d_movie,
-    save_essos_imported_drb_diagnostics_panel,
-    save_essos_imported_drb_snapshot_panel,
-)
-from .geometry_profiles import (
-    build_diagnostic_profile_report,
-    save_diagnostic_profile_summary_plot,
-    write_diagnostic_profile_arrays_npz,
-)
-from .geometry_observables import (
-    build_geometry_observable_report,
-    line_group_from_report,
-    profile_group_from_report,
-    slice_group_from_report,
-    write_geometry_observable_report,
-)
-from .geometry_selected_field import (
-    GeometrySelectedFieldParityResult,
-    GeometrySelectedFieldVariableError,
-    compare_geometry_selected_fields,
-    save_geometry_selected_field_parity_plot,
-    write_geometry_selected_field_parity_arrays,
-    write_geometry_selected_field_parity_json,
-)
-from .geometry_lineouts import (
-    LineoutSpec,
-    build_lineout_report,
-    save_lineout_summary_plot,
-    write_lineout_arrays_npz,
-)
-from .geometry_slices import (
-    SliceSpec,
-    build_slice_report,
-    save_slice_gif,
-    save_slice_summary_plot,
-    write_slice_arrays_npz,
-    write_slice_report_json,
-)
-from .geometry_adapter import (
-    build_geometry_adapter_contract,
-    build_geometry_adapter_manifest,
-)
-from .tokamak_tcv_x21_scaffold import (
-    DEFAULT_TCV_X21_CASE_NAME,
-    TcvX21ScaffoldArtifacts,
-    TcvX21ReferenceStatus,
-    create_tcv_x21_scaffold_package,
-    resolve_tcv_x21_reference_case,
-)
-from .tokamak_tcv_x21_selected_field import (
-    TcvX21SelectedFieldParityArtifacts,
-    TcvX21SelectedFieldParityResult,
-    TcvX21SelectedFieldVariableError,
-    compare_tcv_x21_selected_field_workdirs,
-    create_tcv_x21_selected_field_parity_package,
-    save_tcv_x21_selected_field_parity_plot,
-    write_tcv_x21_selected_field_parity_arrays,
-    write_tcv_x21_selected_field_parity_json,
-)
-from .tokamak_native_selected_field import (
-    NativeTokamakSelectedFieldArtifacts,
-    NativeTokamakSelectedFieldParityResult,
-    NativeTokamakSelectedFieldVariableError,
-    create_native_tokamak_selected_field_package,
-)
-from .tokamak_tcv_x21_toroidal_movie import (
-    TcvX21ToroidalMovieArtifacts,
-    create_tcv_x21_toroidal_movie_package,
-)
-from .traced_field_line_scaffold import (
-    TracedFieldLineScaffoldArtifacts,
-    create_traced_field_line_scaffold_package,
-)
-from .traced_field_line_selected_field import (
-    TracedFieldLineSelectedFieldParityArtifacts,
-    compare_traced_field_line_selected_fields,
-    create_traced_field_line_selected_field_parity_package,
-)
-from .traced_field_line_native_selected_field import (
-    NativeTracedFieldLineSelectedFieldArtifacts,
-    NativeTracedFieldLineSelectedFieldParityResult,
-    NativeTracedFieldLineSelectedFieldVariableError,
-    compare_native_traced_field_line_selected_fields,
-    create_native_traced_field_line_selected_field_package,
-)
-from .stellarator_vmec_scaffold import (
-    StellaratorVmecScaffoldArtifacts,
-    create_stellarator_vmec_scaffold_package,
-)
-from .stellarator_vmec_selected_field import (
-    StellaratorVmecSelectedFieldParityArtifacts,
-    compare_stellarator_vmec_selected_fields,
-    create_stellarator_vmec_selected_field_parity_package,
-)
-from .stellarator_vmec_native_selected_field import (
-    NativeStellaratorVmecSelectedFieldArtifacts,
-    NativeStellaratorVmecSelectedFieldParityResult,
-    NativeStellaratorVmecSelectedFieldVariableError,
-    compare_native_stellarator_vmec_selected_fields,
-    create_native_stellarator_vmec_selected_field_package,
-)
-from .stellarator_fci_geometry_campaign import (
-    StellaratorFciGeometryCampaignArtifacts,
-    build_stellarator_fci_geometry_report,
-    create_stellarator_fci_geometry_campaign_package,
-    save_stellarator_fci_geometry_plot,
-)
-from .stellarator_fci_operator_campaign import (
-    StellaratorFciOperatorCampaignArtifacts,
-    build_stellarator_fci_operator_campaign,
-    create_stellarator_fci_operator_campaign_package,
-    save_stellarator_fci_operator_plot,
-)
-from .stellarator_metric_mms_campaign import (
-    StellaratorMetricMmsCampaignArtifacts,
-    build_stellarator_metric_mms_campaign,
-    create_stellarator_metric_mms_campaign_package,
-    save_stellarator_metric_mms_plot,
-)
-from .stellarator_fci_suite_campaign import (
-    StellaratorFciSuiteCampaignArtifacts,
-    build_stellarator_fci_suite_campaign,
-    create_stellarator_fci_suite_campaign_package,
-    save_stellarator_fci_suite_plot,
-)
-from .stellarator_sheath_recycling_campaign import (
-    StellaratorSheathRecyclingCampaignArtifacts,
-    build_stellarator_sheath_recycling_campaign,
-    create_stellarator_sheath_recycling_campaign_package,
-    save_stellarator_sheath_recycling_plot,
-)
-from .stellarator_neutral_physics_campaign import (
-    StellaratorNeutralPhysicsCampaignArtifacts,
-    build_stellarator_neutral_physics_campaign,
-    create_stellarator_neutral_physics_campaign_package,
-    save_stellarator_neutral_physics_plot,
-)
-from .stellarator_vorticity_campaign import (
-    StellaratorVorticityCampaignArtifacts,
-    build_stellarator_vorticity_campaign,
-    create_stellarator_vorticity_campaign_package,
-    save_stellarator_vorticity_plot,
-)
-from .stellarator_drb_pytree_campaign import (
-    StellaratorDrbPytreeCampaignArtifacts,
-    build_stellarator_drb_pytree_campaign,
-    create_stellarator_drb_pytree_campaign_package,
-    initial_fci_drb_state,
-    save_stellarator_drb_pytree_plot,
-)
-from .stellarator_sol_showcase import (
-    StellaratorSolShowcaseArtifacts,
-    build_stellarator_sol_showcase_report,
-    create_stellarator_sol_showcase_package,
-    save_stellarator_sol_3d_frame,
-    save_stellarator_sol_3d_movie,
-    save_stellarator_sol_diagnostics_panel,
-    save_stellarator_sol_snapshot_panel,
-    simulate_reduced_stellarator_sol_dynamics,
-)
-from .native_3d_runtime_campaign import (
-    Native3DRuntimeCampaignArtifacts,
-    build_native_3d_runtime_campaign_report,
-    create_native_3d_runtime_campaign_package,
-    save_native_3d_runtime_campaign_plot,
-)
-from .jax_native_profile_audit import (
-    JaxNativeProfileAuditArtifacts,
-    build_jax_native_profile_audit_report,
-    create_jax_native_profile_audit_package,
-    save_jax_native_profile_audit_plot,
-)
-from .implicit_solver_profile_audit import (
-    ImplicitSolverProfileAuditArtifacts,
-    build_implicit_solver_profile_audit_report,
-    create_implicit_solver_profile_audit_package,
-    save_implicit_solver_profile_audit_plot,
-)
-from .local_cpu_scaling_campaign import (
-    LocalCpuScalingCampaignArtifacts,
-    build_local_cpu_scaling_campaign_report,
-    create_local_cpu_scaling_campaign_package,
-    save_local_cpu_scaling_campaign_plot,
-)
-from .recycling_batched_jvp_profile import (
-    RecyclingBatchedJvpProblem,
-    build_recycling_batched_jvp_problem,
-    create_recycling_batched_jvp_profile_package,
-    profile_recycling_batched_jvp_problem,
-)
-from .fluid_1d_mms_convergence import (
-    Fluid1DMmsConvergenceArtifacts,
-    build_fluid_1d_mms_convergence_report,
-    create_fluid_1d_mms_convergence_package,
-    save_fluid_1d_mms_convergence_plot,
-)
-from .open_field_operator_campaign import (
-    OpenFieldOperatorCampaignArtifacts,
-    build_open_field_operator_campaign_report,
-    create_open_field_operator_campaign_package,
-    save_open_field_operator_campaign_plot,
-)
-from .native_3d_convergence_campaign import (
-    Native3DConvergenceCampaignArtifacts,
-    build_native_3d_convergence_campaign_report,
-    create_native_3d_convergence_campaign_package,
-    save_native_3d_convergence_campaign_plot,
-)
-from .hermes_capability_audit import (
-    build_hermes_capability_audit,
-    write_hermes_capability_audit,
-)
-from .hermes_comparison_summary import (
-    HermesComparisonSummaryArtifacts,
-    build_hermes_comparison_summary_report,
-    create_hermes_comparison_summary_package,
-    save_hermes_comparison_summary_plot,
-)
-from .hermes_live_rerun_campaign import (
-    DEFAULT_HERMES_LIVE_RERUN_CASE_SPECS,
-    HermesLiveRerunCampaignArtifacts,
-    HermesLiveRerunCaseSpec,
-    build_hermes_live_rerun_campaign_report,
-    create_hermes_live_rerun_campaign_package,
-    save_hermes_live_rerun_campaign_plot,
-)
-from .hermes_offender_register import (
-    HermesOffenderRegisterArtifacts,
-    build_hermes_offender_register_report,
-    create_hermes_offender_register_package,
-    save_hermes_offender_register_plot,
-)
-from .controller_feedback_campaign import (
-    ControllerFeedbackCampaignArtifacts,
-    ControllerFeedbackMetric,
-    build_controller_feedback_campaign,
-    create_controller_feedback_campaign_package,
-)
-from .temperature_feedback_campaign import (
-    TemperatureFeedbackCampaignArtifacts,
-    TemperatureFeedbackCampaignMetric,
-    build_temperature_feedback_campaign,
-    create_temperature_feedback_campaign_package,
-)
-from .detachment_controller_campaign import (
-    DetachmentControllerCampaignArtifacts,
-    DetachmentControllerCampaignMetric,
-    build_detachment_controller_campaign,
-    create_detachment_controller_campaign_package,
-)
-from .reactions_collisions_campaign import (
-    ReactionsCollisionsCampaignArtifacts,
-    ReactionsCollisionsCampaignMetric,
-    build_reactions_collisions_campaign,
-    create_reactions_collisions_campaign_package,
-)
-from .atomic_rate_differentiability_campaign import (
-    AtomicRateDifferentiabilityCampaignArtifacts,
-    build_atomic_rate_differentiability_campaign_report,
-    create_atomic_rate_differentiability_campaign_package,
-    save_atomic_rate_differentiability_campaign_plot,
-)
-from .neutral_parallel_diffusion_campaign import (
-    NeutralParallelDiffusionCampaignArtifacts,
-    NeutralParallelDiffusionCampaignMetric,
-    build_neutral_parallel_diffusion_campaign,
-    create_neutral_parallel_diffusion_campaign_package,
-)
-from .collision_closure_campaign import (
-    CollisionClosureCampaignArtifacts,
-    CollisionClosureCampaignMetric,
-    build_collision_closure_campaign,
-    create_collision_closure_campaign_package,
-)
-from .tokamak_anomalous_diffusion_campaign import (
-    TokamakAnomalousDiffusionCampaignArtifacts,
-    TokamakAnomalousDiffusionCampaignMetric,
-    build_tokamak_anomalous_diffusion_campaign,
-    create_tokamak_anomalous_diffusion_campaign_package,
-)
-from .tokamak_recycling_observable_campaign import (
-    TokamakRecyclingObservableCampaignArtifacts,
-    build_tokamak_recycling_observable_campaign_report,
-    create_tokamak_recycling_observable_campaign_package,
-    save_tokamak_recycling_observable_campaign_plot,
-)
-from .target_recycling_campaign import (
-    TargetRecyclingCampaignArtifacts,
-    TargetRecyclingCampaignMetric,
-    build_target_recycling_campaign,
-    create_target_recycling_campaign_package,
-)
-from .impurity_radiation_campaign import (
-    ImpurityRadiationCampaignArtifacts,
-    ImpurityRadiationCampaignMetric,
-    build_impurity_radiation_campaign,
-    create_impurity_radiation_campaign_package,
-)
+"""Validation analysis and campaign entry points.
+
+Imports are resilient to the incomplete old-lane migration on the
+3D_fci base branch (see the __all__ filter at the end of this file).
+"""
+try:
+    from .alfven_wave import (
+        AlfvenWaveAnalysisResult,
+        AlfvenWaveBenchmarkScalars,
+        AlfvenWaveParityResult,
+        analyze_alfven_wave_array_payload,
+        analyze_alfven_wave_npz,
+        compare_alfven_wave_array_payloads,
+        compare_alfven_wave_npz,
+        compute_alfven_wave_benchmark_scalars,
+        save_alfven_wave_diagnostic_plot,
+        save_alfven_wave_parity_plot,
+        write_alfven_wave_analysis_json,
+        write_alfven_wave_parity_json,
+    )
+except ImportError:
+    pass
+try:
+    from .alfven_wave_meeting import (
+        AlfvenWaveMeetingArtifacts,
+        create_alfven_wave_meeting_package,
+        save_alfven_wave_heatmap_movie,
+        save_alfven_wave_poster_frame,
+        save_alfven_wave_snapshot_panel,
+        save_alfven_wave_surface_movie,
+    )
+except ImportError:
+    pass
+try:
+    from .blob2d import (
+        Blob2DAnalysisResult,
+        Blob2DParityResult,
+        analyze_blob2d_array_payload,
+        analyze_blob2d_npz,
+        compare_blob2d_analysis_results,
+        compare_blob2d_array_payloads,
+        compare_blob2d_artifacts,
+        compare_blob2d_npz,
+        load_blob2d_analysis_json,
+        save_blob2d_parity_plot,
+        write_blob2d_analysis_json,
+        write_blob2d_parity_json,
+    )
+except ImportError:
+    pass
+try:
+    from .blob2d_meeting import (
+        Blob2DMeetingArtifacts,
+        create_blob2d_meeting_package,
+        save_blob2d_heatmap_movie,
+        save_blob2d_poster_frame,
+        save_blob2d_snapshot_panel,
+        save_blob2d_surface_movie,
+    )
+except ImportError:
+    pass
+try:
+    from .drift_wave import (
+        DriftWaveAnalysisResult,
+        DriftWaveBenchmarkScalars,
+        DriftWaveParityResult,
+        DriftWaveParityVariableError,
+        analyze_drift_wave_array_payload,
+        analyze_drift_wave_npz,
+        compare_drift_wave_array_payloads,
+        compare_drift_wave_npz,
+        compute_drift_wave_benchmark_scalars,
+        save_drift_wave_diagnostic_plot,
+        save_drift_wave_parity_plot,
+        write_drift_wave_analysis_json,
+        write_drift_wave_parity_json,
+    )
+except ImportError:
+    pass
+try:
+    from .neutral_mixed import (
+        NeutralMixedAnalysisResult,
+        NeutralMixedParityResult,
+        NeutralMixedSeriesError,
+        analyze_neutral_mixed_array_payload,
+        analyze_neutral_mixed_npz,
+        compare_neutral_mixed_analysis_results,
+        compare_neutral_mixed_array_payloads,
+        compare_neutral_mixed_artifacts,
+        compare_neutral_mixed_npz,
+        load_neutral_mixed_analysis_json,
+        save_neutral_mixed_diagnostic_plot,
+        save_neutral_mixed_parity_plot,
+        write_neutral_mixed_analysis_json,
+        write_neutral_mixed_parity_json,
+    )
+except ImportError:
+    pass
+try:
+    from .neutral_mixed_boundary_campaign import (
+        NeutralMixedBoundaryCampaignArtifacts,
+        build_neutral_mixed_boundary_campaign_report,
+        create_neutral_mixed_boundary_campaign_package,
+        save_neutral_mixed_boundary_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .neutral_mixed_term_balance_campaign import (
+        NeutralMixedTermBalanceCampaignArtifacts,
+        build_neutral_mixed_accepted_step_trace_parity_report,
+        build_neutral_mixed_native_accepted_step_trace_report,
+        build_neutral_mixed_reference_input_closure_report,
+        build_neutral_mixed_substep_hybrid_report,
+        build_neutral_mixed_term_balance_campaign_report,
+        create_neutral_mixed_term_balance_campaign_package,
+        run_neutral_mixed_hermes_accepted_step_trace,
+        run_neutral_mixed_hermes_diagnostic_rerun,
+        save_neutral_mixed_term_balance_campaign_plot,
+        write_neutral_mixed_accepted_step_trace_parity_json,
+        write_neutral_mixed_accepted_step_trace_input,
+        write_neutral_mixed_native_accepted_step_trace_json,
+        write_neutral_mixed_diagnostic_input,
+        write_neutral_mixed_reference_input_closure_json,
+        write_neutral_mixed_substep_hybrid_json,
+    )
+except ImportError:
+    pass
+try:
+    from .autodiff_diffusion import (
+        DiffusionAutodiffSetup,
+        StrongScalingPoint,
+        build_diffusion_autodiff_setup,
+        compute_strong_scaling_points,
+        design_field,
+        design_field_from_physical,
+        finite_difference_gradient,
+        objective_for_parameter_vector,
+        objective_for_physical_parameters,
+        optimize_inverse_design,
+        physical_to_theta,
+        simulate_density_history,
+        simulate_density_history_from_physical,
+        theta_to_physical,
+    )
+except ImportError:
+    pass
+try:
+    from .autodiff_diffusion_uncertainty import (
+        AutodiffDiffusionUncertaintyArtifacts,
+        build_autodiff_diffusion_uncertainty_report,
+        create_autodiff_diffusion_uncertainty_package,
+        save_autodiff_diffusion_uncertainty_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .diverted_tokamak_movie import (
+        DivertedTokamakFieldHistory,
+        DivertedTokamakGeometry,
+        DivertedTokamakMovieArtifacts,
+        assemble_tokamak_rank_history,
+        build_diverted_tokamak_analysis,
+        create_diverted_tokamak_movie_package,
+        create_diverted_tokamak_movie_package_from_arrays,
+        load_diverted_tokamak_arrays_npz,
+        load_diverted_tokamak_geometry,
+        save_diverted_tokamak_gif,
+        save_diverted_tokamak_poster_frame,
+        save_diverted_tokamak_snapshot_panel,
+        toroidal_mean_fluctuation,
+        write_diverted_tokamak_analysis_json,
+        write_diverted_tokamak_arrays_npz,
+    )
+except ImportError:
+    pass
+try:
+    from .essos_fieldline_import_campaign import (
+        EssosFieldLineImportArtifacts,
+        build_essos_fieldline_import_report,
+        create_essos_fieldline_import_package,
+        save_essos_fieldline_import_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .essos_vmec_fieldline_surface_campaign import (
+        EssosVmecFieldlineSurfaceArtifacts,
+        build_essos_vmec_fieldline_surface_campaign,
+        create_essos_vmec_fieldline_surface_package,
+        save_essos_vmec_fieldline_surface_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .vmec_extender_edge_field_campaign import (
+        VmecExtenderEdgeFieldCampaignArtifacts,
+        build_vmec_extender_edge_field_campaign_report,
+        create_vmec_extender_edge_field_campaign_package,
+        save_vmec_extender_edge_field_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .vmec_extender_sol_smoke_campaign import (
+        VmecExtenderSolSmokeArtifacts,
+        VmecExtenderSolSmokeResult,
+        build_vmec_extender_sol_smoke_report,
+        create_vmec_extender_sol_smoke_package,
+        save_vmec_extender_sol_smoke_plot,
+        simulate_vmec_extender_scalar_sol_smoke,
+    )
+except ImportError:
+    pass
+try:
+    from .essos_imported_fci_campaign import (
+        EssosImportedFciCampaignArtifacts,
+        EssosImportedConnectionLengthRefinementArtifacts,
+        build_essos_imported_connection_length_refinement_diagnostics,
+        build_essos_imported_connection_length_refinement_campaign,
+        build_essos_imported_fci_campaign,
+        create_essos_imported_connection_length_refinement_package,
+        create_essos_imported_fci_campaign_package,
+        save_essos_imported_connection_length_refinement_plot,
+        save_essos_imported_fci_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .essos_imported_pytree_campaign import (
+        EssosImportedPytreeCampaignArtifacts,
+        build_essos_imported_pytree_campaign,
+        create_essos_imported_pytree_campaign_package,
+        initial_essos_imported_drb_state,
+        save_essos_imported_pytree_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .essos_imported_drb_movie_campaign import (
+        EssosImportedDrbMovieArtifacts,
+        build_essos_imported_drb_movie_campaign,
+        create_essos_imported_drb_movie_package,
+        save_essos_imported_drb_3d_frame,
+        save_essos_imported_drb_3d_movie,
+        save_essos_imported_drb_diagnostics_panel,
+        save_essos_imported_drb_snapshot_panel,
+    )
+except ImportError:
+    pass
+try:
+    from .geometry_profiles import (
+        build_diagnostic_profile_report,
+        save_diagnostic_profile_summary_plot,
+        write_diagnostic_profile_arrays_npz,
+    )
+except ImportError:
+    pass
+try:
+    from .geometry_observables import (
+        build_geometry_observable_report,
+        line_group_from_report,
+        profile_group_from_report,
+        slice_group_from_report,
+        write_geometry_observable_report,
+    )
+except ImportError:
+    pass
+try:
+    from .geometry_selected_field import (
+        GeometrySelectedFieldParityResult,
+        GeometrySelectedFieldVariableError,
+        compare_geometry_selected_fields,
+        save_geometry_selected_field_parity_plot,
+        write_geometry_selected_field_parity_arrays,
+        write_geometry_selected_field_parity_json,
+    )
+except ImportError:
+    pass
+try:
+    from .geometry_lineouts import (
+        LineoutSpec,
+        build_lineout_report,
+        save_lineout_summary_plot,
+        write_lineout_arrays_npz,
+    )
+except ImportError:
+    pass
+try:
+    from .geometry_slices import (
+        SliceSpec,
+        build_slice_report,
+        save_slice_gif,
+        save_slice_summary_plot,
+        write_slice_arrays_npz,
+        write_slice_report_json,
+    )
+except ImportError:
+    pass
+try:
+    from .geometry_adapter import (
+        build_geometry_adapter_contract,
+        build_geometry_adapter_manifest,
+    )
+except ImportError:
+    pass
+try:
+    from .tokamak_tcv_x21_scaffold import (
+        DEFAULT_TCV_X21_CASE_NAME,
+        TcvX21ScaffoldArtifacts,
+        TcvX21ReferenceStatus,
+        create_tcv_x21_scaffold_package,
+        resolve_tcv_x21_reference_case,
+    )
+except ImportError:
+    pass
+try:
+    from .tokamak_tcv_x21_selected_field import (
+        TcvX21SelectedFieldParityArtifacts,
+        TcvX21SelectedFieldParityResult,
+        TcvX21SelectedFieldVariableError,
+        compare_tcv_x21_selected_field_workdirs,
+        create_tcv_x21_selected_field_parity_package,
+        save_tcv_x21_selected_field_parity_plot,
+        write_tcv_x21_selected_field_parity_arrays,
+        write_tcv_x21_selected_field_parity_json,
+    )
+except ImportError:
+    pass
+try:
+    from .tokamak_native_selected_field import (
+        NativeTokamakSelectedFieldArtifacts,
+        NativeTokamakSelectedFieldParityResult,
+        NativeTokamakSelectedFieldVariableError,
+        create_native_tokamak_selected_field_package,
+    )
+except ImportError:
+    pass
+try:
+    from .tokamak_tcv_x21_toroidal_movie import (
+        TcvX21ToroidalMovieArtifacts,
+        create_tcv_x21_toroidal_movie_package,
+    )
+except ImportError:
+    pass
+try:
+    from .traced_field_line_scaffold import (
+        TracedFieldLineScaffoldArtifacts,
+        create_traced_field_line_scaffold_package,
+    )
+except ImportError:
+    pass
+try:
+    from .traced_field_line_selected_field import (
+        TracedFieldLineSelectedFieldParityArtifacts,
+        compare_traced_field_line_selected_fields,
+        create_traced_field_line_selected_field_parity_package,
+    )
+except ImportError:
+    pass
+try:
+    from .traced_field_line_native_selected_field import (
+        NativeTracedFieldLineSelectedFieldArtifacts,
+        NativeTracedFieldLineSelectedFieldParityResult,
+        NativeTracedFieldLineSelectedFieldVariableError,
+        compare_native_traced_field_line_selected_fields,
+        create_native_traced_field_line_selected_field_package,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_vmec_scaffold import (
+        StellaratorVmecScaffoldArtifacts,
+        create_stellarator_vmec_scaffold_package,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_vmec_selected_field import (
+        StellaratorVmecSelectedFieldParityArtifacts,
+        compare_stellarator_vmec_selected_fields,
+        create_stellarator_vmec_selected_field_parity_package,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_vmec_native_selected_field import (
+        NativeStellaratorVmecSelectedFieldArtifacts,
+        NativeStellaratorVmecSelectedFieldParityResult,
+        NativeStellaratorVmecSelectedFieldVariableError,
+        compare_native_stellarator_vmec_selected_fields,
+        create_native_stellarator_vmec_selected_field_package,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_fci_geometry_campaign import (
+        StellaratorFciGeometryCampaignArtifacts,
+        build_stellarator_fci_geometry_report,
+        create_stellarator_fci_geometry_campaign_package,
+        save_stellarator_fci_geometry_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_fci_operator_campaign import (
+        StellaratorFciOperatorCampaignArtifacts,
+        build_stellarator_fci_operator_campaign,
+        create_stellarator_fci_operator_campaign_package,
+        save_stellarator_fci_operator_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_metric_mms_campaign import (
+        StellaratorMetricMmsCampaignArtifacts,
+        build_stellarator_metric_mms_campaign,
+        create_stellarator_metric_mms_campaign_package,
+        save_stellarator_metric_mms_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_fci_suite_campaign import (
+        StellaratorFciSuiteCampaignArtifacts,
+        build_stellarator_fci_suite_campaign,
+        create_stellarator_fci_suite_campaign_package,
+        save_stellarator_fci_suite_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_sheath_recycling_campaign import (
+        StellaratorSheathRecyclingCampaignArtifacts,
+        build_stellarator_sheath_recycling_campaign,
+        create_stellarator_sheath_recycling_campaign_package,
+        save_stellarator_sheath_recycling_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_neutral_physics_campaign import (
+        StellaratorNeutralPhysicsCampaignArtifacts,
+        build_stellarator_neutral_physics_campaign,
+        create_stellarator_neutral_physics_campaign_package,
+        save_stellarator_neutral_physics_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_vorticity_campaign import (
+        StellaratorVorticityCampaignArtifacts,
+        build_stellarator_vorticity_campaign,
+        create_stellarator_vorticity_campaign_package,
+        save_stellarator_vorticity_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_drb_pytree_campaign import (
+        StellaratorDrbPytreeCampaignArtifacts,
+        build_stellarator_drb_pytree_campaign,
+        create_stellarator_drb_pytree_campaign_package,
+        initial_fci_drb_state,
+        save_stellarator_drb_pytree_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .stellarator_sol_showcase import (
+        StellaratorSolShowcaseArtifacts,
+        build_stellarator_sol_showcase_report,
+        create_stellarator_sol_showcase_package,
+        save_stellarator_sol_3d_frame,
+        save_stellarator_sol_3d_movie,
+        save_stellarator_sol_diagnostics_panel,
+        save_stellarator_sol_snapshot_panel,
+        simulate_reduced_stellarator_sol_dynamics,
+    )
+except ImportError:
+    pass
+try:
+    from .native_3d_runtime_campaign import (
+        Native3DRuntimeCampaignArtifacts,
+        build_native_3d_runtime_campaign_report,
+        create_native_3d_runtime_campaign_package,
+        save_native_3d_runtime_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .jax_native_profile_audit import (
+        JaxNativeProfileAuditArtifacts,
+        build_jax_native_profile_audit_report,
+        create_jax_native_profile_audit_package,
+        save_jax_native_profile_audit_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .implicit_solver_profile_audit import (
+        ImplicitSolverProfileAuditArtifacts,
+        build_implicit_solver_profile_audit_report,
+        create_implicit_solver_profile_audit_package,
+        save_implicit_solver_profile_audit_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .local_cpu_scaling_campaign import (
+        LocalCpuScalingCampaignArtifacts,
+        build_local_cpu_scaling_campaign_report,
+        create_local_cpu_scaling_campaign_package,
+        save_local_cpu_scaling_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .recycling_batched_jvp_profile import (
+        RecyclingBatchedJvpProblem,
+        build_recycling_batched_jvp_problem,
+        create_recycling_batched_jvp_profile_package,
+        profile_recycling_batched_jvp_problem,
+    )
+except ImportError:
+    pass
+try:
+    from .fluid_1d_mms_convergence import (
+        Fluid1DMmsConvergenceArtifacts,
+        build_fluid_1d_mms_convergence_report,
+        create_fluid_1d_mms_convergence_package,
+        save_fluid_1d_mms_convergence_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .open_field_operator_campaign import (
+        OpenFieldOperatorCampaignArtifacts,
+        build_open_field_operator_campaign_report,
+        create_open_field_operator_campaign_package,
+        save_open_field_operator_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .native_3d_convergence_campaign import (
+        Native3DConvergenceCampaignArtifacts,
+        build_native_3d_convergence_campaign_report,
+        create_native_3d_convergence_campaign_package,
+        save_native_3d_convergence_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .hermes_capability_audit import (
+        build_hermes_capability_audit,
+        write_hermes_capability_audit,
+    )
+except ImportError:
+    pass
+try:
+    from .hermes_comparison_summary import (
+        HermesComparisonSummaryArtifacts,
+        build_hermes_comparison_summary_report,
+        create_hermes_comparison_summary_package,
+        save_hermes_comparison_summary_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .hermes_live_rerun_campaign import (
+        DEFAULT_HERMES_LIVE_RERUN_CASE_SPECS,
+        HermesLiveRerunCampaignArtifacts,
+        HermesLiveRerunCaseSpec,
+        build_hermes_live_rerun_campaign_report,
+        create_hermes_live_rerun_campaign_package,
+        save_hermes_live_rerun_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .hermes_offender_register import (
+        HermesOffenderRegisterArtifacts,
+        build_hermes_offender_register_report,
+        create_hermes_offender_register_package,
+        save_hermes_offender_register_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .controller_feedback_campaign import (
+        ControllerFeedbackCampaignArtifacts,
+        ControllerFeedbackMetric,
+        build_controller_feedback_campaign,
+        create_controller_feedback_campaign_package,
+    )
+except ImportError:
+    pass
+try:
+    from .temperature_feedback_campaign import (
+        TemperatureFeedbackCampaignArtifacts,
+        TemperatureFeedbackCampaignMetric,
+        build_temperature_feedback_campaign,
+        create_temperature_feedback_campaign_package,
+    )
+except ImportError:
+    pass
+try:
+    from .detachment_controller_campaign import (
+        DetachmentControllerCampaignArtifacts,
+        DetachmentControllerCampaignMetric,
+        build_detachment_controller_campaign,
+        create_detachment_controller_campaign_package,
+    )
+except ImportError:
+    pass
+try:
+    from .reactions_collisions_campaign import (
+        ReactionsCollisionsCampaignArtifacts,
+        ReactionsCollisionsCampaignMetric,
+        build_reactions_collisions_campaign,
+        create_reactions_collisions_campaign_package,
+    )
+except ImportError:
+    pass
+try:
+    from .atomic_rate_differentiability_campaign import (
+        AtomicRateDifferentiabilityCampaignArtifacts,
+        build_atomic_rate_differentiability_campaign_report,
+        create_atomic_rate_differentiability_campaign_package,
+        save_atomic_rate_differentiability_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .neutral_parallel_diffusion_campaign import (
+        NeutralParallelDiffusionCampaignArtifacts,
+        NeutralParallelDiffusionCampaignMetric,
+        build_neutral_parallel_diffusion_campaign,
+        create_neutral_parallel_diffusion_campaign_package,
+    )
+except ImportError:
+    pass
+try:
+    from .collision_closure_campaign import (
+        CollisionClosureCampaignArtifacts,
+        CollisionClosureCampaignMetric,
+        build_collision_closure_campaign,
+        create_collision_closure_campaign_package,
+    )
+except ImportError:
+    pass
+try:
+    from .tokamak_anomalous_diffusion_campaign import (
+        TokamakAnomalousDiffusionCampaignArtifacts,
+        TokamakAnomalousDiffusionCampaignMetric,
+        build_tokamak_anomalous_diffusion_campaign,
+        create_tokamak_anomalous_diffusion_campaign_package,
+    )
+except ImportError:
+    pass
+try:
+    from .tokamak_recycling_observable_campaign import (
+        TokamakRecyclingObservableCampaignArtifacts,
+        build_tokamak_recycling_observable_campaign_report,
+        create_tokamak_recycling_observable_campaign_package,
+        save_tokamak_recycling_observable_campaign_plot,
+    )
+except ImportError:
+    pass
+try:
+    from .target_recycling_campaign import (
+        TargetRecyclingCampaignArtifacts,
+        TargetRecyclingCampaignMetric,
+        build_target_recycling_campaign,
+        create_target_recycling_campaign_package,
+    )
+except ImportError:
+    pass
+try:
+    from .impurity_radiation_campaign import (
+        ImpurityRadiationCampaignArtifacts,
+        ImpurityRadiationCampaignMetric,
+        build_impurity_radiation_campaign,
+        create_impurity_radiation_campaign_package,
+    )
+except ImportError:
+    pass
 
 __all__ = [
     "AlfvenWaveAnalysisResult",
@@ -794,3 +997,9 @@ __all__ = [
     "build_impurity_radiation_campaign",
     "create_impurity_radiation_campaign_package",
 ]
+
+# The 3D_fci base branch is mid-migration: several old FCI/stellarator
+# campaign modules reference native APIs that PR #3 removed. Import them
+# resiliently so the package (and the new FCI/sharding stack) still loads;
+# only re-export the symbols that actually imported.
+__all__ = [name for name in __all__ if name in globals()]

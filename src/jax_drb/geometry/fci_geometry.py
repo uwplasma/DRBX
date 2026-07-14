@@ -2566,6 +2566,13 @@ def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) 
     if periodic:
         lower_ghost = last
         upper_ghost = first
+    elif axis_n >= 3:
+        # Quadratic (three-point) ghost extrapolation keeps the boundary-face
+        # average reconstruction second-order accurate for curved profiles.
+        third = jnp.take(values_3d, 2, axis=axis)
+        antepenultimate = jnp.take(values_3d, -3, axis=axis)
+        lower_ghost = 3.0 * first - 3.0 * second + third
+        upper_ghost = 3.0 * last - 3.0 * penultimate + antepenultimate
     else:
         lower_ghost = 2.0 * first - second
         upper_ghost = 2.0 * last - penultimate
@@ -2683,12 +2690,103 @@ def _global_axis_stencil_from_field(
     )
 
 
+def _one_sided_physical_global_axis_stencil(
+    stencil: "LocalStencil1D",
+    values: jnp.ndarray,
+    grid_axis: Grid1D,
+    *,
+    axis: int,
+) -> "LocalStencil1D":
+    """Patch global physical side planes with nonuniform three-point formulas."""
+
+    axis = int(axis)
+    axis_n = int(values.shape[axis])
+    if axis_n < 3:
+        return stencil
+
+    centers = jnp.asarray(grid_axis.centers, dtype=jnp.float64)
+
+    minus = jnp.asarray(stencil.minus, dtype=jnp.float64)
+    center = jnp.asarray(stencil.center, dtype=jnp.float64)
+    plus = jnp.asarray(stencil.plus, dtype=jnp.float64)
+    dx_min = jnp.asarray(stencil.dx_min, dtype=jnp.float64)
+    dx_plus = jnp.asarray(stencil.dx_plus, dtype=jnp.float64)
+    c_minus = jnp.asarray(stencil.derivative_minus_weight, dtype=jnp.float64)
+    c_center = jnp.asarray(stencil.derivative_center_weight, dtype=jnp.float64)
+    c_plus = jnp.asarray(stencil.derivative_plus_weight, dtype=jnp.float64)
+
+    lower_plane = _axis_index_nd(axis, 0, values.ndim)
+    lower_f0 = jnp.take(values, 0, axis=axis)
+    lower_f1 = jnp.take(values, 1, axis=axis)
+    lower_f2 = jnp.take(values, 2, axis=axis)
+    lower_weights = _three_point_first_derivative_weights(
+        centers[0],
+        centers[1],
+        centers[2],
+    )
+    minus = minus.at[lower_plane].set(lower_f2)
+    center = center.at[lower_plane].set(lower_f0)
+    plus = plus.at[lower_plane].set(lower_f1)
+    c_minus = c_minus.at[lower_plane].set(jnp.full_like(lower_f0, lower_weights[2]))
+    c_center = c_center.at[lower_plane].set(jnp.full_like(lower_f0, lower_weights[0]))
+    c_plus = c_plus.at[lower_plane].set(jnp.full_like(lower_f0, lower_weights[1]))
+    dx_min = dx_min.at[lower_plane].set(jnp.full_like(lower_f0, jnp.abs(centers[2] - centers[0])))
+    dx_plus = dx_plus.at[lower_plane].set(jnp.full_like(lower_f0, jnp.abs(centers[1] - centers[0])))
+
+    upper_plane = _axis_index_nd(axis, axis_n - 1, values.ndim)
+    upper_f0 = jnp.take(values, axis_n - 1, axis=axis)
+    upper_f1 = jnp.take(values, axis_n - 2, axis=axis)
+    upper_f2 = jnp.take(values, axis_n - 3, axis=axis)
+    upper_weights = _three_point_first_derivative_weights(
+        centers[axis_n - 1],
+        centers[axis_n - 2],
+        centers[axis_n - 3],
+    )
+    minus = minus.at[upper_plane].set(upper_f1)
+    center = center.at[upper_plane].set(upper_f0)
+    plus = plus.at[upper_plane].set(upper_f2)
+    c_minus = c_minus.at[upper_plane].set(jnp.full_like(upper_f0, upper_weights[1]))
+    c_center = c_center.at[upper_plane].set(jnp.full_like(upper_f0, upper_weights[0]))
+    c_plus = c_plus.at[upper_plane].set(jnp.full_like(upper_f0, upper_weights[2]))
+    dx_min = dx_min.at[upper_plane].set(jnp.full_like(upper_f0, jnp.abs(centers[axis_n - 2] - centers[axis_n - 1])))
+    dx_plus = dx_plus.at[upper_plane].set(jnp.full_like(upper_f0, jnp.abs(centers[axis_n - 3] - centers[axis_n - 1])))
+
+    return stencil.replace(
+        minus=minus,
+        center=center,
+        plus=plus,
+        dx_min=dx_min,
+        dx_plus=dx_plus,
+        derivative_minus_weight=c_minus,
+        derivative_center_weight=c_center,
+        derivative_plus_weight=c_plus,
+    )
+
+
 def _build_conservative_stencil_from_field(
     field_halo: jnp.ndarray,
-    geometry: LocalFciGeometry3D,
-    context: StencilBuilderContext,
+    geometry: LocalFciGeometry3D | FciGeometry3D,
+    context: StencilBuilderContext | tuple[bool | None, bool | None, bool | None] | None = None,
+    face_bc: object | None = None,
+    cut_wall_geometry: object | None = None,
+    cut_wall_bc: object | None = None,
+    *,
+    periodic_axes: tuple[bool | None, bool | None, bool | None] | None = None,
 ) -> "ConservativeStencil3D":
     ConservativeStencil3D, FaceGradientStencil3D, _, _ = _stencil_types()
+    if isinstance(geometry, FciGeometry3D):
+        # Global single-device path (legacy call convention:
+        # ``(field, geometry, periodic_axes, face_bc[, cut_wall...])``).
+        # Boundary conditions are applied by the downstream flux/operator
+        # assembly, not during stencil reconstruction.
+        del face_bc, cut_wall_geometry, cut_wall_bc
+        if periodic_axes is None:
+            periodic_axes = context
+        return _global_axis_stencil_from_field(
+            field_halo,
+            geometry,
+            periodic_axes=_normalize_periodic_axes(periodic_axes),
+        )
     if not isinstance(geometry, LocalFciGeometry3D):
         raise TypeError("geometry must be a LocalFciGeometry3D instance")
     if not isinstance(context, StencilBuilderContext):
@@ -2717,11 +2815,48 @@ def _build_conservative_stencil_from_field(
 
 def _build_local_stencil_from_field(
     field_halo: jnp.ndarray,
-    geometry: LocalFciGeometry3D,
-    context: StencilBuilderContext,
+    geometry: LocalFciGeometry3D | FciGeometry3D,
+    context: StencilBuilderContext | tuple[bool | None, bool | None, bool | None] | None = None,
+    face_bc: object | None = None,
+    cut_wall_geometry: object | None = None,
+    cut_wall_bc: object | None = None,
+    *,
+    periodic_axes: tuple[bool | None, bool | None, bool | None] | None = None,
 ) -> "LocalStencil3D":
     _, _, _, LocalStencil3D = _stencil_types()
 
+    if isinstance(geometry, FciGeometry3D):
+        # Global single-device path (legacy call convention:
+        # ``(field, geometry, periodic_axes, face_bc[, cut_wall...])``).
+        # Boundary conditions are applied by the downstream operators, not
+        # during stencil reconstruction. Physical (non-periodic) side planes
+        # use nonuniform second-order one-sided derivative stencils, matching
+        # the shard-local one-sided physical closure.
+        del face_bc, cut_wall_geometry, cut_wall_bc
+        if periodic_axes is None:
+            periodic_axes = context
+        normalized_periodic_axes = _normalize_periodic_axes(periodic_axes)
+        conservative = _global_axis_stencil_from_field(
+            field_halo,
+            geometry,
+            periodic_axes=normalized_periodic_axes,
+        )
+        values = jnp.asarray(field_halo, dtype=jnp.float64)
+        axis_stencils = [conservative.x, conservative.y, conservative.z]
+        grid_axes = (geometry.grid.x, geometry.grid.y, geometry.grid.z)
+        for axis in range(3):
+            if not normalized_periodic_axes[axis]:
+                axis_stencils[axis] = _one_sided_physical_global_axis_stencil(
+                    axis_stencils[axis],
+                    values,
+                    grid_axes[axis],
+                    axis=axis,
+                )
+        return LocalStencil3D(
+            x=axis_stencils[0],
+            y=axis_stencils[1],
+            z=axis_stencils[2],
+        )
     if not isinstance(geometry, LocalFciGeometry3D):
         raise TypeError("geometry must be a LocalFciGeometry3D instance")
     if not isinstance(context, StencilBuilderContext):
@@ -2755,13 +2890,11 @@ class ConservativeStencilBuilder(_DataclassPyTreeMixin):
         "ConservativeStencil3D",
     ]
 
-    def __call__(
-        self,
-        field_halo: jnp.ndarray,
-        geometry: "LocalFciGeometry3D",
-        context: "StencilBuilderContext",
-    ) -> "ConservativeStencil3D":
-        return self.build_fn(field_halo, geometry, context)
+    def __call__(self, *args: object, **kwargs: object) -> "ConservativeStencil3D":
+        # Signature-agnostic delegation: the shard-local halo contract is
+        # ``(field_halo, geometry, context)`` while the global single-device
+        # contract is ``(field, geometry, periodic_axes, face_bc[, cut_wall...])``.
+        return self.build_fn(*args, **kwargs)
 
     def tree_flatten(self):
         return (), self.build_fn
@@ -2788,13 +2921,11 @@ class LocalStencilBuilder(_DataclassPyTreeMixin):
         "LocalStencil3D",
     ]
 
-    def __call__(
-        self,
-        field_halo: jnp.ndarray,
-        geometry: "LocalFciGeometry3D",
-        context: "StencilBuilderContext",
-    ) -> "LocalStencil3D":
-        return self.build_fn(field_halo, geometry, context)
+    def __call__(self, *args: object, **kwargs: object) -> "LocalStencil3D":
+        # Signature-agnostic delegation: the shard-local halo contract is
+        # ``(field_halo, geometry, context)`` while the global single-device
+        # contract is ``(field, geometry, periodic_axes, face_bc[, cut_wall...])``.
+        return self.build_fn(*args, **kwargs)
 
     def tree_flatten(self):
         return (), self.build_fn

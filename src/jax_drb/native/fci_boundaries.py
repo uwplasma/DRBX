@@ -14,6 +14,8 @@ from ..geometry.fci_geometry import (
     HaloLayout3D,
     LocalRegularFaceGeometry3D,
     LocalCellVolumeGeometry3D,
+    RegularFaceGeometry3D,
+    CellVolumeGeometry3D,
 )
 from .fci_model import (
     FciFieldBundle,
@@ -1227,9 +1229,9 @@ class FaceGradientStencil3D:
     z: jnp.ndarray
 
     def __post_init__(self) -> None:
-        x = _as_float64_array(self.x, "FaceGradientStencil3D.x")
-        y = _as_float64_array(self.y, "FaceGradientStencil3D.y")
-        z = _as_float64_array(self.z, "FaceGradientStencil3D.z")
+        x = jnp.asarray(self.x, dtype=jnp.float64)
+        y = jnp.asarray(self.y, dtype=jnp.float64)
+        z = jnp.asarray(self.z, dtype=jnp.float64)
 
         for name, value in (("x", x), ("y", y), ("z", z)):
             if value.ndim != 4 or value.shape[-1] != 3:
@@ -2293,31 +2295,38 @@ class LocalControlVolumeFluxStencil3D:
     """Local control-volume flux payload consumed by conservative divergence."""
 
     regular_flux: FaceFluxStencil3D
-    regular_face_geometry: LocalRegularFaceGeometry3D
-    cell_volume: LocalCellVolumeGeometry3D
-    cut_wall_geometry: "LocalCutWallGeometry3D | None" = None
+    regular_face_geometry: "LocalRegularFaceGeometry3D | RegularFaceGeometry3D"
+    cell_volume: "LocalCellVolumeGeometry3D | CellVolumeGeometry3D"
+    cut_wall_geometry: "LocalCutWallGeometry3D | CutWallGeometry3D | None" = None
     cut_wall_flux: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.regular_flux, FaceFluxStencil3D):
             raise TypeError("LocalControlVolumeFluxStencil3D.regular_flux must be a FaceFluxStencil3D")
-        if not isinstance(self.regular_face_geometry, LocalRegularFaceGeometry3D):
+        if not isinstance(self.regular_face_geometry, (LocalRegularFaceGeometry3D, RegularFaceGeometry3D)):
             raise TypeError(
-                "LocalControlVolumeFluxStencil3D.regular_face_geometry must be a LocalRegularFaceGeometry3D"
+                "LocalControlVolumeFluxStencil3D.regular_face_geometry must be a "
+                "LocalRegularFaceGeometry3D or RegularFaceGeometry3D"
             )
-        if not isinstance(self.cell_volume, LocalCellVolumeGeometry3D):
+        if not isinstance(self.cell_volume, (LocalCellVolumeGeometry3D, CellVolumeGeometry3D)):
             raise TypeError(
-                "LocalControlVolumeFluxStencil3D.cell_volume must be a LocalCellVolumeGeometry3D"
+                "LocalControlVolumeFluxStencil3D.cell_volume must be a "
+                "LocalCellVolumeGeometry3D or CellVolumeGeometry3D"
             )
         cell_shape = self.cell_volume.shape
         if self.regular_flux.shape != cell_shape:
             raise ValueError(
                 f"regular_flux.shape must match cell_volume.shape, got {self.regular_flux.shape} and {cell_shape}"
             )
-        if self.regular_face_geometry.local_owned_shape != cell_shape:
+        face_geometry_cell_shape = (
+            self.regular_face_geometry.local_owned_shape
+            if isinstance(self.regular_face_geometry, LocalRegularFaceGeometry3D)
+            else self.regular_face_geometry.shape
+        )
+        if face_geometry_cell_shape != cell_shape:
             raise ValueError(
                 "regular_face_geometry.local_owned_shape must match cell_volume.shape, "
-                f"got {self.regular_face_geometry.local_owned_shape} and {cell_shape}"
+                f"got {face_geometry_cell_shape} and {cell_shape}"
             )
         if (
             self.regular_face_geometry.x_area.shape != self.regular_flux.x.shape
@@ -2334,12 +2343,13 @@ class LocalControlVolumeFluxStencil3D:
             object.__setattr__(self, "cut_wall_flux", None)
             return
 
-        if not isinstance(self.cut_wall_geometry, LocalCutWallGeometry3D):
+        if not isinstance(self.cut_wall_geometry, (LocalCutWallGeometry3D, CutWallGeometry3D)):
             raise TypeError(
-                "LocalControlVolumeFluxStencil3D.cut_wall_geometry must be a LocalCutWallGeometry3D"
+                "LocalControlVolumeFluxStencil3D.cut_wall_geometry must be a "
+                "LocalCutWallGeometry3D or CutWallGeometry3D"
             )
         if self.cut_wall_flux is None:
-            Wmax = self.cut_wall_geometry.max_wall_faces
+            Wmax = getattr(self.cut_wall_geometry, "max_wall_faces", self.cut_wall_geometry.n_wall_faces)
             cut_wall_flux = jnp.zeros((Wmax,), dtype=jnp.float64)
         else:
             cut_wall_flux = jnp.asarray(self.cut_wall_flux, dtype=jnp.float64)

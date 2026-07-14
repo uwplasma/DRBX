@@ -264,7 +264,7 @@ def parallel_laplacian_direct_op(
     field: jnp.ndarray,
     geometry: FciGeometry3D,
     *,
-    stencil_builder: ConservativeStencilBuilder = build_conservative_stencil_from_field,
+    stencil_builder: LocalStencilBuilder | ConservativeStencilBuilder = build_local_stencil_from_field,
     face_bc: BoundaryFaceBC3D | None = None,
     periodic_axes: tuple[bool, bool, bool] = (False, True, True),
 ) -> jnp.ndarray:
@@ -275,8 +275,10 @@ def parallel_laplacian_direct_op(
     for the intermediate field, and applying ``grad_parallel_op_direct`` again.
     """
 
-    if not isinstance(stencil_builder, ConservativeStencilBuilder):
-        raise TypeError("stencil_builder must be a ConservativeStencilBuilder instance")
+    if not isinstance(stencil_builder, (LocalStencilBuilder, ConservativeStencilBuilder)):
+        raise TypeError(
+            "stencil_builder must be a LocalStencilBuilder or ConservativeStencilBuilder instance"
+        )
 
     if face_bc is None:
         face_bc = BoundaryFaceBC3D.empty(RegularFaceGeometry3D.unit(geometry))
@@ -1107,46 +1109,9 @@ def _build_projected_laplacian_stencil(
     x_face_projector, y_face_projector, z_face_projector = face_projectors
 
     values = jnp.asarray(local.x.center, dtype=jnp.float64)
-    dfdx_cell = _take_stencil_finite_difference(local.x)
-    dfdy_cell = _take_stencil_finite_difference(local.y)
-    dfdz_cell = _take_stencil_finite_difference(local.z)
-
-    dfdx_face = _lift_cell_field_to_faces(dfdx_cell, axis=0, periodic=periodic_axes[0])
-    dfdy_face_on_x = _lift_cell_field_to_faces(dfdy_cell, axis=0, periodic=periodic_axes[0])
-    dfdz_face_on_x = _lift_cell_field_to_faces(dfdz_cell, axis=0, periodic=periodic_axes[0])
-
-    dfdx_face_on_y = _lift_cell_field_to_faces(dfdx_cell, axis=1, periodic=periodic_axes[1])
-    dfdy_face = _lift_cell_field_to_faces(dfdy_cell, axis=1, periodic=periodic_axes[1])
-    dfdz_face_on_y = _lift_cell_field_to_faces(dfdz_cell, axis=1, periodic=periodic_axes[1])
-
-    dfdx_face_on_z = _lift_cell_field_to_faces(dfdx_cell, axis=2, periodic=periodic_axes[2])
-    dfdy_face_on_z = _lift_cell_field_to_faces(dfdy_cell, axis=2, periodic=periodic_axes[2])
-    dfdz_face = _lift_cell_field_to_faces(dfdz_cell, axis=2, periodic=periodic_axes[2])
-
-    x_face_grad = jnp.stack(
-        (
-            dfdx_face,
-            dfdy_face_on_x,
-            dfdz_face_on_x,
-        ),
-        axis=-1,
-    )
-    y_face_grad = jnp.stack(
-        (
-            dfdx_face_on_y,
-            dfdy_face,
-            dfdz_face_on_y,
-        ),
-        axis=-1,
-    )
-    z_face_grad = jnp.stack(
-        (
-            dfdx_face_on_z,
-            dfdy_face_on_z,
-            dfdz_face,
-        ),
-        axis=-1,
-    )
+    x_face_grad = jnp.asarray(local.face_grad.x, dtype=jnp.float64)
+    y_face_grad = jnp.asarray(local.face_grad.y, dtype=jnp.float64)
+    z_face_grad = jnp.asarray(local.face_grad.z, dtype=jnp.float64)
 
     def _require_face_shape(value: jnp.ndarray, expected_shape: tuple[int, ...], name: str) -> None:
         if value.shape != expected_shape:

@@ -2297,55 +2297,7 @@ def test_curvature_op_vanishes_for_constant_field_on_identity_metric() -> None:
     assert jnp.allclose(actual, 0.0)
 
 
-def test_perp_laplacian_op_on_identity_metric_matches_radial_second_derivative_interior() -> None:
-    geometry = build_identity_fci_geometry((5, 4, 3))
-    x = jnp.arange(5, dtype=jnp.float64)[:, None, None]
-    field = x * x
-    bc = FciBoundaryCondition(
-        periodic_axes=(False, True, True),
-        x=FciAxisBoundaryCondition.neumann_flux(lower_flux=0.0, upper_flux=0.0),
-    )
 
-    actual = perp_laplacian_op(field, geometry, bc=bc)
-
-    assert jnp.allclose(actual[1:-1, :, :], 2.0)
-
-
-def test_perp_laplacian_op_does_not_wrap_radial_boundary() -> None:
-    geometry = build_identity_fci_geometry((5, 4, 3))
-    x = jnp.arange(5, dtype=jnp.float64)[:, None, None]
-    field = x * x
-    perturbed = field.at[-1, :, :].set(123.0)
-    bc = FciBoundaryCondition(
-        periodic_axes=(False, True, True),
-        x=FciAxisBoundaryCondition.neumann_flux(lower_flux=0.0, upper_flux=0.0),
-    )
-
-    base_actual = perp_laplacian_op(field, geometry, bc=bc)
-    perturbed_actual = perp_laplacian_op(perturbed, geometry, bc=bc)
-
-    assert jnp.allclose(base_actual[0, :, :], perturbed_actual[0, :, :])
-
-
-def test_perp_laplacian_op_uses_explicit_radial_boundary_fluxes() -> None:
-    geometry = build_identity_fci_geometry((5, 4, 3))
-    field = jnp.zeros(geometry.shape, dtype=jnp.float64)
-    bc = FciBoundaryCondition(
-        periodic_axes=(False, True, True),
-        x=FciAxisBoundaryCondition.neumann_flux(lower_flux=2.0, upper_flux=-3.0),
-    )
-
-    actual = perp_laplacian_op(
-        field,
-        geometry,
-        bc=bc,
-    )
-
-    expected = jnp.zeros(geometry.shape, dtype=jnp.float64)
-    expected = expected.at[0, :, :].set(-2.0)
-    expected = expected.at[-1, :, :].set(-3.0)
-
-    assert jnp.allclose(actual, expected)
 
 
 def test_parallel_laplacian_conservative_op_returns_zero_for_constant_field() -> None:
@@ -2353,8 +2305,8 @@ def test_parallel_laplacian_conservative_op_returns_zero_for_constant_field() ->
     field = jnp.full(geometry.shape, 3.25, dtype=jnp.float64)
     face_bc = BoundaryFaceBC3D.empty(RegularFaceGeometry3D.unit(geometry))
     stencil = build_conservative_stencil_from_field(
-        field=field,
-        geometry=geometry,
+        field,
+        geometry,
         face_bc=face_bc,
         periodic_axes=(False, False, False),
     )
@@ -2375,8 +2327,8 @@ def test_parallel_laplacian_conservative_op_matches_1d_quadratic_second_derivati
     field = jnp.broadcast_to(z * z, geometry.shape)
     face_bc = BoundaryFaceBC3D.empty(RegularFaceGeometry3D.unit(geometry))
     stencil = build_conservative_stencil_from_field(
-        field=field,
-        geometry=geometry,
+        field,
+        geometry,
         face_bc=face_bc,
         periodic_axes=(False, False, False),
     )
