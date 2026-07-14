@@ -9,8 +9,12 @@ import pytest
 from jax_drb.geometry import (
     FCI_DEP_CUT_WALL,
     FCI_DEP_FIELD_INTERIOR,
+    FCI_DEP_INVALID,
     FCI_DEP_PHYSICAL_BOUNDARY,
     HaloLayout3D,
+    LocalCoordinateStencilDependencyMap3D,
+    LocalCoordinateStencilLocalDependencyTable,
+    LocalCoordinateStencilRemoteDependencyTable,
     LocalDomain3D,
     LocalFciDirectionMap,
     LocalFciLocalDependencyTable,
@@ -20,12 +24,15 @@ from jax_drb.geometry import (
     SIDE_SIMPLE_PERIODIC,
     ShardSpec3D,
     StencilBuilderContext,
+    build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry,
 )
 from jax_drb.native.fci_boundaries import BC_DIRICHLET, BC_NEUMANN
 from jax_drb.native.fci_boundaries import (
     LocalBoundaryConditionBuilder,
     LocalBoundaryData3D,
     LocalBoundaryFaceBC3D,
+    LocalBoundaryPreparation3D,
+    LocalBoundaryRemoteDependencyTable,
     LocalCutWallBC3D,
     LocalCutWallGeometry3D,
     LocalCutWallValueReconstructor3D,
@@ -34,13 +41,14 @@ from jax_drb.native.fci_helpers import _local_side_mask, local_physical_side_act
 from jax_drb.native.fci_halo import (
     GhostFillWeights1D,
     HaloExchange3D,
-    LocalFciCutWallValueEvaluator,
     LocalPeriodicTopologyRule3D,
     LocalStateAndBoundaryPreparer3D,
     PhysicalGhostCellFiller3D,
     PolarAxisRegularScalarRule3D,
     PreparedLocalState3D,
+    RemoteBoundaryDependencyExchange,
     RemoteFciDependencyExchange,
+    RemoteLocalStencilDependencyExchange,
     TopologyHaloFiller3D,
 )
 from jax_drb.native.fci_2_field_rhs import Fci2FieldState
@@ -53,6 +61,14 @@ class _TwoFieldFaceBCBundle(FciFieldBundle):
     density: LocalBoundaryFaceBC3D
     v_parallel: LocalBoundaryFaceBC3D
     density_background: LocalBoundaryFaceBC3D
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class _TwoFieldBoundaryDependencyBundle(FciFieldBundle):
+    density: object
+    v_parallel: object
+    density_background: object
 
 
 def _domain(
@@ -79,6 +95,27 @@ def _domain(
         layout=layout,
         shard_spec=spec,
         mesh_axis_names=mesh_axis_names,
+    )
+
+
+def _boundary_remote_table(
+    *,
+    dependency_kind: int = FCI_DEP_FIELD_INTERIOR,
+    active: bool = True,
+    source: tuple[int, int, int] = (1, 1, 1),
+) -> LocalBoundaryRemoteDependencyTable:
+    return LocalBoundaryRemoteDependencyTable(
+        request_active=jnp.array([active], dtype=bool),
+        request_dependency_kind=jnp.array([dependency_kind], dtype=jnp.int32),
+        request_source_global_i=jnp.zeros((1,), dtype=jnp.int32),
+        request_source_global_j=jnp.zeros((1,), dtype=jnp.int32),
+        request_source_global_k=jnp.zeros((1,), dtype=jnp.int32),
+        request_source_shard_index=jnp.zeros((1, 3), dtype=jnp.int32),
+        request_source_shard_linear=jnp.zeros((1,), dtype=jnp.int32),
+        request_source_owner_local_i=jnp.array([source[0]], dtype=jnp.int32),
+        request_source_owner_local_j=jnp.array([source[1]], dtype=jnp.int32),
+        request_source_owner_local_k=jnp.array([source[2]], dtype=jnp.int32),
+        request_value_slot=jnp.zeros((1,), dtype=jnp.int32),
     )
 
 
@@ -224,9 +261,10 @@ def test_local_state_and_boundary_preparer_wires_field_bundles() -> None:
         neumann_upper=weight_axes,
     )
     builder = LocalBoundaryConditionBuilder(
-        lambda state, geometry, domain, cut_wall_geometry: LocalBoundaryData3D(
-            face_bc=face_bc
-        )
+        prepare_fn=lambda state, geometry, domain, cut_wall_geometry: LocalBoundaryPreparation3D(
+            local_data=LocalBoundaryData3D(face_bc=face_bc)
+        ),
+        finalize_fn=lambda preparation, remote_values, state, geometry, domain, cut_wall_geometry: preparation.local_data,
     )
     preparer = LocalStateAndBoundaryPreparer3D(
         boundary_builder=builder,
@@ -243,6 +281,185 @@ def test_local_state_and_boundary_preparer_wires_field_bundles() -> None:
             getattr(prepared.state_halo, name)[layout.owned_slices_cell],
             getattr(state_owned, name),
         )
+
+
+def test_remote_boundary_dependency_exchange_single_shard_field_values() -> None:
+    domain = _domain(
+        owned_shape=(2, 2, 2),
+        shard_counts=(1, 1, 1),
+        periodic_axes=(False, False, False),
+    )
+    layout = domain.layout
+    field = jnp.arange(
+        jnp.prod(jnp.asarray(layout.cell_halo_shape)),
+        dtype=jnp.float64,
+    ).reshape(layout.cell_halo_shape)
+    state_halo = Fci2FieldState(
+        density=field,
+        v_parallel=2.0 * field,
+        density_background=3.0 * field,
+    )
+    dependencies = _TwoFieldBoundaryDependencyBundle(
+        density=_boundary_remote_table(source=(2, 1, 1)),
+        v_parallel=LocalBoundaryRemoteDependencyTable.empty(),
+        density_background=_boundary_remote_table(
+            dependency_kind=FCI_DEP_INVALID,
+            active=False,
+        ),
+    )
+
+    values = RemoteBoundaryDependencyExchange()(
+        state_halo_pre_bc=state_halo,
+        dependencies=dependencies,
+        domain=domain,
+    )
+
+    assert jnp.allclose(values.density, jnp.array([field[2, 1, 1]]))
+    assert values.v_parallel.shape == (0,)
+    assert jnp.allclose(values.density_background, jnp.array([0.0]))
+
+
+def test_remote_boundary_dependency_exchange_rejects_pre_ghost_cut_wall_requests() -> None:
+    domain = _domain(
+        owned_shape=(1, 1, 1),
+        shard_counts=(1, 1, 1),
+        periodic_axes=(False, False, False),
+    )
+    layout = domain.layout
+    state_halo = Fci2FieldState(
+        density=jnp.zeros(layout.cell_halo_shape),
+        v_parallel=jnp.zeros(layout.cell_halo_shape),
+        density_background=jnp.zeros(layout.cell_halo_shape),
+    )
+    dependencies = _TwoFieldBoundaryDependencyBundle(
+        density=_boundary_remote_table(dependency_kind=FCI_DEP_CUT_WALL),
+        v_parallel=LocalBoundaryRemoteDependencyTable.empty(),
+        density_background=LocalBoundaryRemoteDependencyTable.empty(),
+    )
+
+    with pytest.raises(ValueError, match="FCI_DEP_FIELD_INTERIOR"):
+        RemoteBoundaryDependencyExchange()(
+            state_halo_pre_bc=state_halo,
+            dependencies=dependencies,
+            domain=domain,
+        )
+
+
+def test_local_state_and_boundary_preparer_requires_exchange_for_remote_boundary_requests() -> None:
+    domain = _domain(
+        owned_shape=(1, 1, 1),
+        shard_counts=(1, 1, 1),
+        periodic_axes=(False, False, False),
+    )
+    layout = domain.layout
+    state_owned = Fci2FieldState(
+        density=jnp.ones(layout.owned_shape),
+        v_parallel=jnp.ones(layout.owned_shape),
+        density_background=jnp.ones(layout.owned_shape),
+    )
+
+    def weights() -> GhostFillWeights1D:
+        return GhostFillWeights1D(
+            owned_weights=jnp.array([[1.0]]),
+            bc_weights=jnp.array([0.0]),
+        )
+
+    weight_axes = (weights(), weights(), weights())
+    preparer = LocalStateAndBoundaryPreparer3D(
+        boundary_builder=LocalBoundaryConditionBuilder(
+            prepare_fn=lambda state, geometry, domain, cut_wall_geometry: LocalBoundaryPreparation3D(
+                remote_dependencies=_TwoFieldBoundaryDependencyBundle(
+                    density=_boundary_remote_table(),
+                    v_parallel=LocalBoundaryRemoteDependencyTable.empty(),
+                    density_background=LocalBoundaryRemoteDependencyTable.empty(),
+                )
+            ),
+            finalize_fn=lambda preparation, remote_values, state, geometry, domain, cut_wall_geometry: LocalBoundaryData3D(),
+        ),
+        physical_ghost_filler=PhysicalGhostCellFiller3D(
+            dirichlet=weight_axes,
+            neumann_lower=weight_axes,
+            neumann_upper=weight_axes,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="boundary_dependency_exchange"):
+        preparer(state_owned, geometry=None, domain=domain)
+
+
+def test_local_state_and_boundary_preparer_finalizes_remote_boundary_values_before_ghost_fill() -> None:
+    domain = _domain(
+        owned_shape=(2, 1, 1),
+        shard_counts=(1, 1, 1),
+        periodic_axes=(False, False, False),
+    )
+    layout = domain.layout
+    state_owned = Fci2FieldState(
+        density=jnp.array([[[9.0]], [[11.0]]], dtype=jnp.float64),
+        v_parallel=jnp.ones(layout.owned_shape),
+        density_background=jnp.ones(layout.owned_shape),
+    )
+
+    def weights(*, bc_weight: float) -> GhostFillWeights1D:
+        return GhostFillWeights1D(
+            owned_weights=jnp.array([[0.0]]),
+            bc_weights=jnp.array([bc_weight]),
+        )
+
+    def finalize(
+        preparation,
+        remote_values,
+        state,
+        geometry,
+        domain,
+        cut_wall_geometry,
+    ) -> LocalBoundaryData3D:
+        del preparation, state, geometry, cut_wall_geometry
+        density_face = LocalBoundaryFaceBC3D.empty(domain.layout)
+        kind_x = density_face.kind_x.at[0, :, :].set(BC_DIRICHLET)
+        value_x = density_face.value_x.at[0, :, :].set(remote_values.density[0])
+        mask_x = density_face.mask_x.at[0, :, :].set(True)
+        density_face = replace(
+            density_face,
+            kind_x=kind_x,
+            value_x=value_x,
+            mask_x=mask_x,
+        )
+        return LocalBoundaryData3D(
+            face_bc=_TwoFieldFaceBCBundle(
+                density=density_face,
+                v_parallel=LocalBoundaryFaceBC3D.empty(domain.layout),
+                density_background=LocalBoundaryFaceBC3D.empty(domain.layout),
+            )
+        )
+
+    weight_axes = (
+        weights(bc_weight=1.0),
+        weights(bc_weight=1.0),
+        weights(bc_weight=1.0),
+    )
+    preparer = LocalStateAndBoundaryPreparer3D(
+        boundary_builder=LocalBoundaryConditionBuilder(
+            prepare_fn=lambda state, geometry, domain, cut_wall_geometry: LocalBoundaryPreparation3D(
+                remote_dependencies=_TwoFieldBoundaryDependencyBundle(
+                    density=_boundary_remote_table(source=(1, 1, 1)),
+                    v_parallel=LocalBoundaryRemoteDependencyTable.empty(),
+                    density_background=LocalBoundaryRemoteDependencyTable.empty(),
+                )
+            ),
+            finalize_fn=finalize,
+        ),
+        physical_ghost_filler=PhysicalGhostCellFiller3D(
+            dirichlet=weight_axes,
+            neumann_lower=weight_axes,
+            neumann_upper=weight_axes,
+        ),
+        boundary_dependency_exchange=RemoteBoundaryDependencyExchange(),
+    )
+
+    prepared = preparer(state_owned, geometry=None, domain=domain)
+
+    assert jnp.allclose(prepared.state_halo.density[0, 1, 1], 9.0)
 
 
 def test_local_periodic_topology_rule_fills_only_undecomposed_periodic_faces() -> None:
@@ -416,10 +633,20 @@ def _local_cut_wall_geometry(
     owner_k: jnp.ndarray,
     distance: jnp.ndarray,
     active: jnp.ndarray,
+    stencil_axis: jnp.ndarray | None = None,
+    stencil_side: jnp.ndarray | None = None,
+    stencil_distance: jnp.ndarray | None = None,
 ) -> LocalCutWallGeometry3D:
     max_wall_faces = int(owner_i.size)
     zeros3 = (max_wall_faces, 3)
     zeros33 = (max_wall_faces, 3, 3)
+    kwargs = {}
+    if stencil_axis is not None:
+        kwargs["stencil_axis"] = stencil_axis
+    if stencil_side is not None:
+        kwargs["stencil_side"] = stencil_side
+    if stencil_distance is not None:
+        kwargs["stencil_distance"] = stencil_distance
     return LocalCutWallGeometry3D(
         owner_i=owner_i,
         owner_j=owner_j,
@@ -436,6 +663,7 @@ def _local_cut_wall_geometry(
         sign=jnp.ones((max_wall_faces,), dtype=jnp.float64),
         active=active,
         max_wall_faces=max_wall_faces,
+        **kwargs,
     )
 
 
@@ -471,8 +699,90 @@ def test_stencil_builder_context_accepts_local_cut_wall_objects() -> None:
     assert context.cut_wall_bc.n_wall_faces == 0
 
 
-def test_local_fci_cut_wall_value_evaluator_uses_slot_values() -> None:
+def test_local_cut_wall_geometry_stencil_metadata_defaults_and_roundtrips() -> None:
+    geom = _local_cut_wall_geometry(
+        owner_i=jnp.array([0, 1], dtype=jnp.int32),
+        owner_j=jnp.array([0, 0], dtype=jnp.int32),
+        owner_k=jnp.array([0, 1], dtype=jnp.int32),
+        distance=jnp.array([0.5, 0.75], dtype=jnp.float64),
+        active=jnp.array([True, False]),
+    )
+
+    assert jnp.array_equal(geom.stencil_axis, jnp.array([-1, -1], dtype=jnp.int32))
+    assert jnp.array_equal(geom.stencil_side, jnp.zeros((2,), dtype=jnp.int32))
+    assert jnp.array_equal(geom.stencil_distance, jnp.zeros((2,), dtype=jnp.float64))
+
+    leaves, treedef = jax.tree_util.tree_flatten(geom)
+    restored = jax.tree_util.tree_unflatten(treedef, leaves)
+    assert jnp.array_equal(restored.stencil_axis, geom.stencil_axis)
+    assert jnp.array_equal(restored.stencil_side, geom.stencil_side)
+    assert jnp.array_equal(restored.stencil_distance, geom.stencil_distance)
+
+
+def test_local_cut_wall_geometry_stencil_metadata_explicit_and_shape_checks() -> None:
+    geom = _local_cut_wall_geometry(
+        owner_i=jnp.array([0], dtype=jnp.int32),
+        owner_j=jnp.array([0], dtype=jnp.int32),
+        owner_k=jnp.array([0], dtype=jnp.int32),
+        distance=jnp.array([0.5], dtype=jnp.float64),
+        active=jnp.array([True]),
+        stencil_axis=jnp.array([0], dtype=jnp.int32),
+        stencil_side=jnp.array([1], dtype=jnp.int32),
+        stencil_distance=jnp.array([0.25], dtype=jnp.float64),
+    )
+
+    assert int(geom.stencil_axis[0]) == 0
+    assert int(geom.stencil_side[0]) == 1
+    assert float(geom.stencil_distance[0]) == pytest.approx(0.25)
+
+    with pytest.raises(ValueError, match="stencil_axis"):
+        _local_cut_wall_geometry(
+            owner_i=jnp.array([0], dtype=jnp.int32),
+            owner_j=jnp.array([0], dtype=jnp.int32),
+            owner_k=jnp.array([0], dtype=jnp.int32),
+            distance=jnp.array([0.5], dtype=jnp.float64),
+            active=jnp.array([True]),
+            stencil_axis=jnp.array([0, 1], dtype=jnp.int32),
+        )
+
+
+def test_build_local_coordinate_stencil_dependencies_from_cut_wall_geometry() -> None:
     layout = HaloLayout3D((2, 2, 2), 1)
+    geom = _local_cut_wall_geometry(
+        owner_i=jnp.array([0, 1], dtype=jnp.int32),
+        owner_j=jnp.array([1, 0], dtype=jnp.int32),
+        owner_k=jnp.array([1, 0], dtype=jnp.int32),
+        distance=jnp.array([0.5, 0.75], dtype=jnp.float64),
+        active=jnp.array([True, True]),
+        stencil_axis=jnp.array([0, -1], dtype=jnp.int32),
+        stencil_side=jnp.array([1, 0], dtype=jnp.int32),
+        stencil_distance=jnp.array([0.25, 0.0], dtype=jnp.float64),
+    )
+
+    dependencies = build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry(
+        layout,
+        geom,
+    )
+
+    assert dependencies.remote is None
+    assert jnp.array_equal(
+        dependencies.local.target_flat,
+        jnp.array([3, 4], dtype=jnp.int32),
+    )
+    assert jnp.array_equal(dependencies.local.value_slot, jnp.array([0, 1]))
+    assert jnp.array_equal(dependencies.local.axis, jnp.array([0, -1]))
+    assert jnp.array_equal(dependencies.local.side, jnp.array([1, 0]))
+    assert jnp.allclose(dependencies.local.distance, jnp.array([0.25, 0.0]))
+    assert jnp.array_equal(dependencies.local.active, jnp.array([True, False]))
+
+
+def test_remote_fci_dependency_exchange_populates_cut_wall_values_from_bc() -> None:
+    domain = _domain(
+        owned_shape=(2, 2, 2),
+        shard_counts=(1, 1, 1),
+        periodic_axes=(False, False, False),
+    )
+    layout = domain.layout
     field_halo = jnp.zeros(layout.cell_halo_shape, dtype=jnp.float64)
     field_halo = field_halo.at[1, 1, 1].set(5.0)
     field_halo = field_halo.at[2, 1, 2].set(11.0)
@@ -497,16 +807,48 @@ def test_local_fci_cut_wall_value_evaluator_uses_slot_values() -> None:
         active=jnp.array([True, True]),
     )
 
-    values = LocalFciCutWallValueEvaluator()(
+    local = LocalFciLocalDependencyTable(
+        target_flat=jnp.zeros((1,), dtype=jnp.int32),
+        source_i=jnp.zeros((1,), dtype=jnp.int32),
+        source_j=jnp.zeros((1,), dtype=jnp.int32),
+        source_k=jnp.zeros((1,), dtype=jnp.int32),
+        weight=jnp.zeros((1,), dtype=jnp.float64),
+        active=jnp.zeros((1,), dtype=bool),
+    )
+    remote = LocalFciRemoteDependencyTable(
+        target_flat=jnp.arange(3, dtype=jnp.int32),
+        weight=jnp.ones((3,), dtype=jnp.float64),
+        receive_slot=jnp.arange(3, dtype=jnp.int32),
+        active=jnp.ones((3,), dtype=bool),
+        request_active=jnp.array([True, True, False]),
+        request_dependency_kind=jnp.full((3,), FCI_DEP_CUT_WALL, dtype=jnp.int32),
+        request_source_global_i=jnp.zeros((3,), dtype=jnp.int32),
+        request_source_global_j=jnp.zeros((3,), dtype=jnp.int32),
+        request_source_global_k=jnp.zeros((3,), dtype=jnp.int32),
+        request_source_shard_index=jnp.zeros((3, 3), dtype=jnp.int32),
+        request_source_shard_linear=jnp.zeros((3,), dtype=jnp.int32),
+        request_source_owner_local_i=jnp.zeros((3,), dtype=jnp.int32),
+        request_source_owner_local_j=jnp.zeros((3,), dtype=jnp.int32),
+        request_source_owner_local_k=jnp.zeros((3,), dtype=jnp.int32),
+        request_value_slot=jnp.array([0, 1, 0], dtype=jnp.int32),
+    )
+    direction = LocalFciDirectionMap(
+        layout=layout,
+        local=local,
+        remote=remote,
+        connection_length=jnp.ones(layout.owned_shape, dtype=jnp.float64),
+    )
+
+    values = RemoteFciDependencyExchange()(
         field_halo=field_halo,
-        cut_wall_geometry=cut_wall_geometry,
-        cut_wall_bc=cut_wall_bc,
+        direction=direction,
         context=StencilBuilderContext(
             layout=layout,
+            domain=domain,
+            cut_wall_geometry=cut_wall_geometry,
             cut_wall_value_reconstructor=value_reconstructor,
         ),
-        value_slot=jnp.array([0, 1, 0], dtype=jnp.int32),
-        active=jnp.array([True, True, False]),
+        cut_wall_bc=cut_wall_bc,
     )
 
     assert jnp.allclose(values, jnp.array([7.0, 11.0, 0.0]))
@@ -595,15 +937,87 @@ def test_remote_fci_dependency_exchange_single_shard_values() -> None:
             layout=layout,
             domain=domain,
             cut_wall_geometry=cut_wall_geometry,
-            cut_wall_bc=cut_wall_bc,
             cut_wall_value_reconstructor=value_reconstructor,
         ),
+        cut_wall_bc=cut_wall_bc,
     )
 
     assert jnp.allclose(
         remote_values,
         jnp.array([field_halo[1, 1, 1], field_halo[0, 1, 1], 42.0]),
     )
+
+
+def test_remote_local_stencil_dependency_exchange_single_shard_cut_wall_value() -> None:
+    domain = _domain(
+        owned_shape=(2, 2, 2),
+        shard_counts=(1, 1, 1),
+        periodic_axes=(False, False, False),
+    )
+    layout = domain.layout
+    field_halo = jnp.zeros(layout.cell_halo_shape, dtype=jnp.float64)
+    field_halo = field_halo.at[1, 1, 1].set(5.0)
+    cut_wall_geometry = _local_cut_wall_geometry(
+        owner_i=jnp.array([0], dtype=jnp.int32),
+        owner_j=jnp.array([0], dtype=jnp.int32),
+        owner_k=jnp.array([0], dtype=jnp.int32),
+        distance=jnp.array([0.5], dtype=jnp.float64),
+        active=jnp.array([True]),
+        stencil_axis=jnp.array([0], dtype=jnp.int32),
+        stencil_side=jnp.array([1], dtype=jnp.int32),
+        stencil_distance=jnp.array([0.25], dtype=jnp.float64),
+    )
+    cut_wall_bc = LocalCutWallBC3D(
+        kind=jnp.array([BC_DIRICHLET], dtype=jnp.int32),
+        value=jnp.array([42.0], dtype=jnp.float64),
+        active=jnp.array([True]),
+        max_wall_faces=1,
+    )
+    value_reconstructor = _local_cut_wall_value_reconstructor(
+        cut_wall_geometry,
+        neighbor_i=jnp.array([1], dtype=jnp.int32),
+        neighbor_j=jnp.array([1], dtype=jnp.int32),
+        neighbor_k=jnp.array([1], dtype=jnp.int32),
+        active=jnp.array([True]),
+    )
+    remote = LocalCoordinateStencilRemoteDependencyTable(
+        target_flat=jnp.array([0], dtype=jnp.int32),
+        axis=jnp.array([0], dtype=jnp.int32),
+        side=jnp.array([1], dtype=jnp.int32),
+        receive_slot=jnp.array([0], dtype=jnp.int32),
+        distance=jnp.array([0.25], dtype=jnp.float64),
+        active=jnp.array([True]),
+        request_active=jnp.array([True]),
+        request_dependency_kind=jnp.array([FCI_DEP_CUT_WALL], dtype=jnp.int32),
+        request_source_global_i=jnp.zeros((1,), dtype=jnp.int32),
+        request_source_global_j=jnp.zeros((1,), dtype=jnp.int32),
+        request_source_global_k=jnp.zeros((1,), dtype=jnp.int32),
+        request_source_shard_index=jnp.zeros((1, 3), dtype=jnp.int32),
+        request_source_shard_linear=jnp.zeros((1,), dtype=jnp.int32),
+        request_source_owner_local_i=jnp.zeros((1,), dtype=jnp.int32),
+        request_source_owner_local_j=jnp.zeros((1,), dtype=jnp.int32),
+        request_source_owner_local_k=jnp.zeros((1,), dtype=jnp.int32),
+        request_value_slot=jnp.zeros((1,), dtype=jnp.int32),
+    )
+    dependencies = LocalCoordinateStencilDependencyMap3D(
+        layout=layout,
+        local=LocalCoordinateStencilLocalDependencyTable.empty(),
+        remote=remote,
+    )
+
+    values = RemoteLocalStencilDependencyExchange()(
+        field_halo=field_halo,
+        dependencies=dependencies,
+        context=StencilBuilderContext(
+            layout=layout,
+            domain=domain,
+            cut_wall_geometry=cut_wall_geometry,
+            cut_wall_value_reconstructor=value_reconstructor,
+        ),
+        cut_wall_bc=cut_wall_bc,
+    )
+
+    assert jnp.allclose(values, jnp.array([42.0]))
 
 
 @pytest.mark.skipif(

@@ -12,10 +12,10 @@ from ..geometry.fci_geometry import (
     LocalDomain3D,
     LocalFciGeometry3D,
     HaloLayout3D,
-    LocalRegularFaceGeometry3D,
-    LocalCellVolumeGeometry3D,
     RegularFaceGeometry3D,
+    LocalRegularFaceGeometry3D,
     CellVolumeGeometry3D,
+    LocalCellVolumeGeometry3D,
 )
 from .fci_model import (
     FciFieldBundle,
@@ -89,11 +89,144 @@ class LocalBoundaryData3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
-    """Build all field boundary payloads from a complete pre-BC state."""
+class LocalBoundaryPreparation3D(_DataclassPyTreeMixin):
+    """Local boundary data plus optional remote dependency requests."""
 
-    build_fn: Callable[
+    local_data: LocalBoundaryData3D | None = None
+    remote_dependencies: FciFieldBundle | None = None
+
+    def __post_init__(self) -> None:
+        if self.local_data is not None and not isinstance(
+            self.local_data,
+            LocalBoundaryData3D,
+        ):
+            raise TypeError(
+                "LocalBoundaryPreparation3D.local_data must be a "
+                "LocalBoundaryData3D or None"
+            )
+        if self.remote_dependencies is not None and not isinstance(
+            self.remote_dependencies,
+            FciFieldBundle,
+        ):
+            raise TypeError(
+                "LocalBoundaryPreparation3D.remote_dependencies must be an "
+                "FciFieldBundle or None"
+            )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalBoundaryRemoteDependencyTable(_DataclassPyTreeMixin):
+    """Remote scalar requests used while finalizing local boundary payloads."""
+
+    request_active: jnp.ndarray
+    request_dependency_kind: jnp.ndarray
+    request_source_global_i: jnp.ndarray
+    request_source_global_j: jnp.ndarray
+    request_source_global_k: jnp.ndarray
+    request_source_shard_index: jnp.ndarray
+    request_source_shard_linear: jnp.ndarray
+    request_source_owner_local_i: jnp.ndarray
+    request_source_owner_local_j: jnp.ndarray
+    request_source_owner_local_k: jnp.ndarray
+    request_value_slot: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        request_active = jnp.asarray(self.request_active, dtype=bool)
+        request_shape = tuple(int(v) for v in request_active.shape)
+        if request_active.ndim != 1:
+            raise ValueError(
+                "LocalBoundaryRemoteDependencyTable.request_active must be 1D, "
+                f"got {request_active.shape}"
+            )
+        object.__setattr__(self, "request_active", request_active)
+        for name in (
+            "request_dependency_kind",
+            "request_source_global_i",
+            "request_source_global_j",
+            "request_source_global_k",
+            "request_source_shard_linear",
+            "request_source_owner_local_i",
+            "request_source_owner_local_j",
+            "request_source_owner_local_k",
+            "request_value_slot",
+        ):
+            value = jnp.asarray(getattr(self, name), dtype=jnp.int32)
+            if value.shape != request_shape:
+                raise ValueError(
+                    f"LocalBoundaryRemoteDependencyTable.{name} must have "
+                    f"shape {request_shape}, got {value.shape}"
+                )
+            object.__setattr__(self, name, value)
+
+        request_source_shard_index = jnp.asarray(
+            self.request_source_shard_index,
+            dtype=jnp.int32,
+        )
+        if (
+            request_source_shard_index.ndim != 2
+            or request_source_shard_index.shape[1] != 3
+        ):
+            raise ValueError(
+                "LocalBoundaryRemoteDependencyTable.request_source_shard_index "
+                "must have shape (max_receive_values, 3), got "
+                f"{request_source_shard_index.shape}"
+            )
+        if int(request_source_shard_index.shape[0]) != request_shape[0]:
+            raise ValueError(
+                "LocalBoundaryRemoteDependencyTable.request_source_shard_index "
+                "must match request_active length; got "
+                f"{request_source_shard_index.shape[0]}, expected {request_shape[0]}"
+            )
+        object.__setattr__(
+            self,
+            "request_source_shard_index",
+            request_source_shard_index,
+        )
+
+    @property
+    def max_receive_values(self) -> int:
+        return int(self.request_active.size)
+
+    @property
+    def has_requests(self) -> bool:
+        return self.max_receive_values > 0
+
+    @classmethod
+    def empty(cls) -> "LocalBoundaryRemoteDependencyTable":
+        return cls(
+            request_active=jnp.zeros((0,), dtype=bool),
+            request_dependency_kind=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_global_i=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_global_j=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_global_k=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_shard_index=jnp.zeros((0, 3), dtype=jnp.int32),
+            request_source_shard_linear=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_owner_local_i=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_owner_local_j=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_owner_local_k=jnp.zeros((0,), dtype=jnp.int32),
+            request_value_slot=jnp.zeros((0,), dtype=jnp.int32),
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
+    """Prepare and finalize local boundary payloads around remote exchange."""
+
+    prepare_fn: Callable[
         [
+            FciModelState,
+            LocalFciGeometry3D,
+            LocalDomain3D,
+            LocalCutWallGeometry3D | None,
+        ],
+        LocalBoundaryPreparation3D,
+    ]
+    finalize_fn: Callable[
+        [
+            LocalBoundaryPreparation3D,
+            FciFieldBundle | None,
             FciModelState,
             LocalFciGeometry3D,
             LocalDomain3D,
@@ -102,20 +235,58 @@ class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
         LocalBoundaryData3D,
     ]
 
-    def __call__(
+    def prepare(
         self,
         state_halo_pre_bc: FciModelState,
         geometry: LocalFciGeometry3D,
         domain: LocalDomain3D,
         cut_wall_geometry: LocalCutWallGeometry3D | None,
-    ) -> LocalBoundaryData3D:
+    ) -> LocalBoundaryPreparation3D:
         if not isinstance(state_halo_pre_bc, FciModelState):
             raise TypeError(
-                "LocalBoundaryConditionBuilder requires an FciModelState "
-                "with physical ghost cells not yet filled"
+                "LocalBoundaryConditionBuilder.prepare requires an "
+                "FciModelState with physical ghost cells not yet filled"
             )
         state_halo_pre_bc.assert_field_shape(domain.layout.cell_halo_shape)
-        result = self.build_fn(
+        result = self.prepare_fn(
+            state_halo_pre_bc,
+            geometry,
+            domain,
+            cut_wall_geometry,
+        )
+        if not isinstance(result, LocalBoundaryPreparation3D):
+            raise TypeError(
+                "LocalBoundaryConditionBuilder.prepare_fn must return "
+                "LocalBoundaryPreparation3D"
+            )
+        if result.local_data is not None:
+            self._validate_boundary_data_field_names(
+                state_halo_pre_bc,
+                result.local_data,
+            )
+        if result.remote_dependencies is not None:
+            assert_matching_field_names(state_halo_pre_bc, result.remote_dependencies)
+        return result
+
+    def finalize(
+        self,
+        preparation: LocalBoundaryPreparation3D,
+        remote_values: FciFieldBundle | None,
+        state_halo_pre_bc: FciModelState,
+        geometry: LocalFciGeometry3D,
+        domain: LocalDomain3D,
+        cut_wall_geometry: LocalCutWallGeometry3D | None,
+    ) -> LocalBoundaryData3D:
+        if not isinstance(preparation, LocalBoundaryPreparation3D):
+            raise TypeError("preparation must be a LocalBoundaryPreparation3D")
+        if not isinstance(state_halo_pre_bc, FciModelState):
+            raise TypeError("state_halo_pre_bc must be an FciModelState")
+        state_halo_pre_bc.assert_field_shape(domain.layout.cell_halo_shape)
+        if remote_values is not None:
+            assert_matching_field_names(state_halo_pre_bc, remote_values)
+        result = self.finalize_fn(
+            preparation,
+            remote_values,
             state_halo_pre_bc,
             geometry,
             domain,
@@ -123,21 +294,30 @@ class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
         )
         if not isinstance(result, LocalBoundaryData3D):
             raise TypeError(
-                "LocalBoundaryConditionBuilder.build_fn must return "
+                "LocalBoundaryConditionBuilder.finalize_fn must return "
                 "LocalBoundaryData3D"
             )
-        if result.face_bc is not None:
-            assert_matching_field_names(state_halo_pre_bc, result.face_bc)
-        if result.cut_wall_bc is not None:
-            assert_matching_field_names(state_halo_pre_bc, result.cut_wall_bc)
+        self._validate_boundary_data_field_names(state_halo_pre_bc, result)
         return result
 
+    @staticmethod
+    def _validate_boundary_data_field_names(
+        state_halo_pre_bc: FciModelState,
+        data: LocalBoundaryData3D,
+    ) -> None:
+        if data.face_bc is not None:
+            assert_matching_field_names(state_halo_pre_bc, data.face_bc)
+        if data.cut_wall_bc is not None:
+            assert_matching_field_names(state_halo_pre_bc, data.cut_wall_bc)
+
     def tree_flatten(self):
-        return (), self.build_fn
+        return (), (self.prepare_fn, self.finalize_fn)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return cls(aux_data)
+        del children
+        prepare_fn, finalize_fn = aux_data
+        return cls(prepare_fn=prepare_fn, finalize_fn=finalize_fn)
 
 
 
@@ -1825,6 +2005,9 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
     sign: jnp.ndarray
     active: jnp.ndarray
     max_wall_faces: int
+    stencil_axis: jnp.ndarray | None = None
+    stencil_side: jnp.ndarray | None = None
+    stencil_distance: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         max_wall_faces = int(self.max_wall_faces)
@@ -1845,6 +2028,48 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
         Bmag = _as_local_wall_array(self.Bmag, max_wall_faces, (), "LocalCutWallGeometry3D.Bmag")
         sign = _as_local_wall_array(self.sign, max_wall_faces, (), "LocalCutWallGeometry3D.sign")
         active = _as_local_wall_bool_array(self.active, max_wall_faces, "LocalCutWallGeometry3D.active")
+        if self.stencil_axis is None:
+            stencil_axis = -jnp.ones((max_wall_faces,), dtype=jnp.int32)
+        else:
+            stencil_axis = _as_local_wall_int_array(
+                self.stencil_axis,
+                max_wall_faces,
+                "LocalCutWallGeometry3D.stencil_axis",
+            )
+        if self.stencil_side is None:
+            stencil_side = jnp.zeros((max_wall_faces,), dtype=jnp.int32)
+        else:
+            stencil_side = _as_local_wall_int_array(
+                self.stencil_side,
+                max_wall_faces,
+                "LocalCutWallGeometry3D.stencil_side",
+            )
+        if self.stencil_distance is None:
+            stencil_distance = jnp.zeros((max_wall_faces,), dtype=jnp.float64)
+        else:
+            stencil_distance = _as_local_wall_array(
+                self.stencil_distance,
+                max_wall_faces,
+                (),
+                "LocalCutWallGeometry3D.stencil_distance",
+            )
+
+        axis_enabled = stencil_axis >= 0
+        valid_axis = (stencil_axis == -1) | ((stencil_axis >= 0) & (stencil_axis <= 2))
+        valid_side = (~axis_enabled) | ((stencil_side >= 0) & (stencil_side <= 1))
+        valid_distance = (~axis_enabled) | (stencil_distance > 0.0)
+        if not bool(jnp.all(valid_axis)):
+            raise ValueError("LocalCutWallGeometry3D.stencil_axis must contain -1, 0, 1, or 2")
+        if not bool(jnp.all(valid_side)):
+            raise ValueError(
+                "LocalCutWallGeometry3D.stencil_side must contain 0 or 1 for enabled stencil rows"
+            )
+        if not bool(jnp.all(valid_distance)):
+            raise ValueError(
+                "LocalCutWallGeometry3D.stencil_distance must be positive for enabled stencil rows"
+            )
+        stencil_side = jnp.where(axis_enabled, stencil_side, 0)
+        stencil_distance = jnp.where(axis_enabled, stencil_distance, 0.0)
 
         object.__setattr__(self, "owner_i", owner_i)
         object.__setattr__(self, "owner_j", owner_j)
@@ -1861,6 +2086,9 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
         object.__setattr__(self, "sign", sign)
         object.__setattr__(self, "active", active)
         object.__setattr__(self, "max_wall_faces", max_wall_faces)
+        object.__setattr__(self, "stencil_axis", stencil_axis)
+        object.__setattr__(self, "stencil_side", stencil_side)
+        object.__setattr__(self, "stencil_distance", stencil_distance)
 
     @property
     def n_wall_faces(self) -> int:
@@ -1869,25 +2097,38 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
     @classmethod
     def empty(cls, max_wall_faces: int) -> "LocalCutWallGeometry3D":
         max_wall_faces = int(max_wall_faces)
+        if max_wall_faces < 0:
+            raise ValueError(f"max_wall_faces must be non-negative, got {max_wall_faces}")
         zeros3 = (max_wall_faces, 3)
         zeros33 = (max_wall_faces, 3, 3)
-        return cls(
-            owner_i=jnp.zeros((max_wall_faces,), dtype=jnp.int32),
-            owner_j=jnp.zeros((max_wall_faces,), dtype=jnp.int32),
-            owner_k=jnp.zeros((max_wall_faces,), dtype=jnp.int32),
-            center=jnp.zeros(zeros3, dtype=jnp.float64),
-            normal_contra=jnp.zeros(zeros3, dtype=jnp.float64),
-            area_covector=jnp.zeros(zeros3, dtype=jnp.float64),
-            distance=jnp.zeros((max_wall_faces,), dtype=jnp.float64),
-            J=jnp.zeros((max_wall_faces,), dtype=jnp.float64),
-            g_contra=jnp.zeros(zeros33, dtype=jnp.float64),
-            g_cov=jnp.zeros(zeros33, dtype=jnp.float64),
-            B_contra=jnp.zeros(zeros3, dtype=jnp.float64),
-            Bmag=jnp.zeros((max_wall_faces,), dtype=jnp.float64),
-            sign=jnp.zeros((max_wall_faces,), dtype=jnp.float64),
-            active=jnp.zeros((max_wall_faces,), dtype=bool),
-            max_wall_faces=max_wall_faces,
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "owner_i", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
+        object.__setattr__(obj, "owner_j", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
+        object.__setattr__(obj, "owner_k", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
+        object.__setattr__(obj, "center", jnp.zeros(zeros3, dtype=jnp.float64))
+        object.__setattr__(obj, "normal_contra", jnp.zeros(zeros3, dtype=jnp.float64))
+        object.__setattr__(obj, "area_covector", jnp.zeros(zeros3, dtype=jnp.float64))
+        object.__setattr__(obj, "distance", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
+        object.__setattr__(obj, "J", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
+        object.__setattr__(obj, "g_contra", jnp.zeros(zeros33, dtype=jnp.float64))
+        object.__setattr__(obj, "g_cov", jnp.zeros(zeros33, dtype=jnp.float64))
+        object.__setattr__(obj, "B_contra", jnp.zeros(zeros3, dtype=jnp.float64))
+        object.__setattr__(obj, "Bmag", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
+        object.__setattr__(obj, "sign", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
+        object.__setattr__(obj, "active", jnp.zeros((max_wall_faces,), dtype=bool))
+        object.__setattr__(obj, "max_wall_faces", max_wall_faces)
+        object.__setattr__(
+            obj,
+            "stencil_axis",
+            -jnp.ones((max_wall_faces,), dtype=jnp.int32),
         )
+        object.__setattr__(obj, "stencil_side", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
+        object.__setattr__(
+            obj,
+            "stencil_distance",
+            jnp.zeros((max_wall_faces,), dtype=jnp.float64),
+        )
+        return obj
 
     def tree_flatten(self):
         return (
@@ -1906,6 +2147,9 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
                 self.Bmag,
                 self.sign,
                 self.active,
+                self.stencil_axis,
+                self.stencil_side,
+                self.stencil_distance,
             ),
             self.max_wall_faces,
         )
@@ -1927,24 +2171,30 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
             Bmag,
             sign,
             active,
+            stencil_axis,
+            stencil_side,
+            stencil_distance,
         ) = children
-        return cls(
-            owner_i=owner_i,
-            owner_j=owner_j,
-            owner_k=owner_k,
-            center=center,
-            normal_contra=normal_contra,
-            area_covector=area_covector,
-            distance=distance,
-            J=J,
-            g_contra=g_contra,
-            g_cov=g_cov,
-            B_contra=B_contra,
-            Bmag=Bmag,
-            sign=sign,
-            active=active,
-            max_wall_faces=max_wall_faces,
-        )
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "owner_i", owner_i)
+        object.__setattr__(obj, "owner_j", owner_j)
+        object.__setattr__(obj, "owner_k", owner_k)
+        object.__setattr__(obj, "center", center)
+        object.__setattr__(obj, "normal_contra", normal_contra)
+        object.__setattr__(obj, "area_covector", area_covector)
+        object.__setattr__(obj, "distance", distance)
+        object.__setattr__(obj, "J", J)
+        object.__setattr__(obj, "g_contra", g_contra)
+        object.__setattr__(obj, "g_cov", g_cov)
+        object.__setattr__(obj, "B_contra", B_contra)
+        object.__setattr__(obj, "Bmag", Bmag)
+        object.__setattr__(obj, "sign", sign)
+        object.__setattr__(obj, "active", active)
+        object.__setattr__(obj, "max_wall_faces", int(max_wall_faces))
+        object.__setattr__(obj, "stencil_axis", stencil_axis)
+        object.__setattr__(obj, "stencil_side", stencil_side)
+        object.__setattr__(obj, "stencil_distance", stencil_distance)
+        return obj
 
 
 @_pytree_base
@@ -2295,38 +2545,44 @@ class LocalControlVolumeFluxStencil3D:
     """Local control-volume flux payload consumed by conservative divergence."""
 
     regular_flux: FaceFluxStencil3D
-    regular_face_geometry: "LocalRegularFaceGeometry3D | RegularFaceGeometry3D"
-    cell_volume: "LocalCellVolumeGeometry3D | CellVolumeGeometry3D"
-    cut_wall_geometry: "LocalCutWallGeometry3D | CutWallGeometry3D | None" = None
+    regular_face_geometry: RegularFaceGeometry3D | LocalRegularFaceGeometry3D
+    cell_volume: CellVolumeGeometry3D | LocalCellVolumeGeometry3D
+    cut_wall_geometry: "CutWallGeometry3D | LocalCutWallGeometry3D | None" = None
     cut_wall_flux: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.regular_flux, FaceFluxStencil3D):
             raise TypeError("LocalControlVolumeFluxStencil3D.regular_flux must be a FaceFluxStencil3D")
-        if not isinstance(self.regular_face_geometry, (LocalRegularFaceGeometry3D, RegularFaceGeometry3D)):
+        if not isinstance(
+            self.regular_face_geometry,
+            (RegularFaceGeometry3D, LocalRegularFaceGeometry3D),
+        ):
             raise TypeError(
                 "LocalControlVolumeFluxStencil3D.regular_face_geometry must be a "
-                "LocalRegularFaceGeometry3D or RegularFaceGeometry3D"
+                "RegularFaceGeometry3D or LocalRegularFaceGeometry3D"
             )
-        if not isinstance(self.cell_volume, (LocalCellVolumeGeometry3D, CellVolumeGeometry3D)):
+        if not isinstance(
+            self.cell_volume,
+            (CellVolumeGeometry3D, LocalCellVolumeGeometry3D),
+        ):
             raise TypeError(
                 "LocalControlVolumeFluxStencil3D.cell_volume must be a "
-                "LocalCellVolumeGeometry3D or CellVolumeGeometry3D"
+                "CellVolumeGeometry3D or LocalCellVolumeGeometry3D"
             )
         cell_shape = self.cell_volume.shape
         if self.regular_flux.shape != cell_shape:
             raise ValueError(
                 f"regular_flux.shape must match cell_volume.shape, got {self.regular_flux.shape} and {cell_shape}"
             )
-        face_geometry_cell_shape = (
+        regular_cell_shape = (
             self.regular_face_geometry.local_owned_shape
             if isinstance(self.regular_face_geometry, LocalRegularFaceGeometry3D)
             else self.regular_face_geometry.shape
         )
-        if face_geometry_cell_shape != cell_shape:
+        if regular_cell_shape != cell_shape:
             raise ValueError(
-                "regular_face_geometry.local_owned_shape must match cell_volume.shape, "
-                f"got {face_geometry_cell_shape} and {cell_shape}"
+                "regular_face_geometry cell shape must match cell_volume.shape, "
+                f"got {regular_cell_shape} and {cell_shape}"
             )
         if (
             self.regular_face_geometry.x_area.shape != self.regular_flux.x.shape
@@ -2343,14 +2599,16 @@ class LocalControlVolumeFluxStencil3D:
             object.__setattr__(self, "cut_wall_flux", None)
             return
 
-        if not isinstance(self.cut_wall_geometry, (LocalCutWallGeometry3D, CutWallGeometry3D)):
+        if not isinstance(
+            self.cut_wall_geometry,
+            (CutWallGeometry3D, LocalCutWallGeometry3D),
+        ):
             raise TypeError(
                 "LocalControlVolumeFluxStencil3D.cut_wall_geometry must be a "
-                "LocalCutWallGeometry3D or CutWallGeometry3D"
+                "CutWallGeometry3D or LocalCutWallGeometry3D"
             )
         if self.cut_wall_flux is None:
-            Wmax = getattr(self.cut_wall_geometry, "max_wall_faces", self.cut_wall_geometry.n_wall_faces)
-            cut_wall_flux = jnp.zeros((Wmax,), dtype=jnp.float64)
+            cut_wall_flux = jnp.zeros((self.cut_wall_geometry.n_wall_faces,), dtype=jnp.float64)
         else:
             cut_wall_flux = jnp.asarray(self.cut_wall_flux, dtype=jnp.float64)
             expected = (self.cut_wall_geometry.n_wall_faces,)
@@ -2457,6 +2715,8 @@ __all__ = [
     "LocalBoundaryConditionBuilder",
     "LocalBoundaryData3D",
     "LocalBoundaryFaceBC3D",
+    "LocalBoundaryPreparation3D",
+    "LocalBoundaryRemoteDependencyTable",
     "LocalCoordinateFaceValueReconstructor3D",
     "LocalCoordinateNormalDerivativeConstructor3D",
     "LocalCoordinateSideValues1D",

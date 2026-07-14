@@ -4,6 +4,7 @@ import os
 import platform
 import shlex
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -62,8 +63,7 @@ def configure_jax_runtime(
     if os.environ.get("JAX_DRB_DISABLE_COMPILATION_CACHE", "").strip().lower() in {"1", "true", "yes", "on"}:
         cache_dir = None
     else:
-        cache_dir = _compilation_cache_dir()
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_dir = _writable_compilation_cache_dir()
 
     import jax
     jax.config.update("jax_enable_x64", resolved_precision == "float64")
@@ -126,6 +126,29 @@ def _compilation_cache_dir() -> Path:
     if override:
         return Path(override).expanduser()
     return _default_user_cache_root() / "jax_drb" / "jax_compilation_cache"
+
+
+def _writable_compilation_cache_dir() -> Path | None:
+    cache_dir = _compilation_cache_dir()
+    if _can_write_directory(cache_dir):
+        return cache_dir
+    if os.environ.get("JAX_DRB_CACHE_DIR"):
+        return None
+    fallback_dir = Path(tempfile.gettempdir()) / "jax_drb" / "jax_compilation_cache"
+    if _can_write_directory(fallback_dir):
+        return fallback_dir
+    return None
+
+
+def _can_write_directory(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe_path = path / ".jax_drb_write_probe"
+        probe_path.write_text("", encoding="utf-8")
+        probe_path.unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
 
 
 def _default_user_cache_root() -> Path:

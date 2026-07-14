@@ -47,6 +47,52 @@ def _require_float_shape(value, expected_shape: tuple[int, ...], name: str):
     return arr
 
 
+def _validate_coordinate_stencil_dependency_rows(
+    *,
+    target_flat: jnp.ndarray,
+    axis: jnp.ndarray,
+    side: jnp.ndarray,
+    distance: jnp.ndarray,
+    active: jnp.ndarray,
+    label: str,
+) -> None:
+    valid_axis = (~active) | ((axis >= 0) & (axis <= 2))
+    valid_side = (~active) | ((side >= 0) & (side <= 1))
+    valid_distance = (~active) | (distance > 0.0)
+    if not bool(jnp.all(valid_axis)):
+        raise ValueError(f"{label}.axis must be 0, 1, or 2 for active rows")
+    if not bool(jnp.all(valid_side)):
+        raise ValueError(f"{label}.side must be 0 or 1 for active rows")
+    if not bool(jnp.all(valid_distance)):
+        raise ValueError(f"{label}.distance must be positive for active rows")
+
+    seen: set[tuple[int, int, int]] = set()
+    for row in range(int(target_flat.size)):
+        if not bool(active[row]):
+            continue
+        key = (int(target_flat[row]), int(axis[row]), int(side[row]))
+        if key in seen:
+            raise ValueError(
+                f"{label} must contain at most one active row per "
+                "(target_flat, axis, side)"
+            )
+        seen.add(key)
+
+
+def _coordinate_stencil_dependency_keys(
+    *,
+    target_flat: jnp.ndarray,
+    axis: jnp.ndarray,
+    side: jnp.ndarray,
+    active: jnp.ndarray,
+) -> set[tuple[int, int, int]]:
+    keys: set[tuple[int, int, int]] = set()
+    for row in range(int(target_flat.size)):
+        if bool(active[row]):
+            keys.add((int(target_flat[row]), int(axis[row]), int(side[row])))
+    return keys
+
+
 def _normalize_periodic_axes(
     periodic_axes: tuple[bool | None, bool | None, bool | None] | None,
     *,
@@ -906,6 +952,393 @@ class LocalFciRemoteDependencyTable(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
+class LocalCoordinateStencilLocalDependencyTable(_DataclassPyTreeMixin):
+    """Local cut-wall replacements for coordinate stencil legs.
+
+    Each active row patches exactly one owned target cell, coordinate axis, and
+    stencil side. ``value_slot`` indexes an owner-local cut-wall value vector.
+    """
+
+    target_flat: jnp.ndarray
+    axis: jnp.ndarray
+    side: jnp.ndarray
+    value_slot: jnp.ndarray
+    distance: jnp.ndarray
+    active: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        target_flat = jnp.asarray(self.target_flat, dtype=jnp.int32)
+        shape = tuple(int(v) for v in target_flat.shape)
+        if target_flat.ndim != 1:
+            raise ValueError(
+                "LocalCoordinateStencilLocalDependencyTable.target_flat "
+                f"must be 1D, got {target_flat.shape}"
+            )
+        object.__setattr__(self, "target_flat", target_flat)
+        for name in ("axis", "side", "value_slot"):
+            object.__setattr__(
+                self,
+                name,
+                _require_shape(
+                    getattr(self, name),
+                    shape,
+                    f"LocalCoordinateStencilLocalDependencyTable.{name}",
+                ).astype(jnp.int32),
+            )
+        object.__setattr__(
+            self,
+            "distance",
+            _require_float_shape(
+                self.distance,
+                shape,
+                "LocalCoordinateStencilLocalDependencyTable.distance",
+            ),
+        )
+        active = jnp.asarray(self.active, dtype=bool)
+        if active.shape != shape:
+            raise ValueError(
+                "LocalCoordinateStencilLocalDependencyTable.active must have "
+                f"shape {shape}, got {active.shape}"
+            )
+        object.__setattr__(self, "active", active)
+        _validate_coordinate_stencil_dependency_rows(
+            target_flat=target_flat,
+            axis=self.axis,
+            side=self.side,
+            distance=self.distance,
+            active=active,
+            label="LocalCoordinateStencilLocalDependencyTable",
+        )
+
+    @property
+    def max_entries(self) -> int:
+        return int(self.target_flat.size)
+
+    @classmethod
+    def empty(cls) -> "LocalCoordinateStencilLocalDependencyTable":
+        return cls(
+            target_flat=jnp.zeros((0,), dtype=jnp.int32),
+            axis=jnp.zeros((0,), dtype=jnp.int32),
+            side=jnp.zeros((0,), dtype=jnp.int32),
+            value_slot=jnp.zeros((0,), dtype=jnp.int32),
+            distance=jnp.zeros((0,), dtype=jnp.float64),
+            active=jnp.zeros((0,), dtype=bool),
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalCoordinateStencilRemoteDependencyTable(_DataclassPyTreeMixin):
+    """Remote cut-wall replacements for coordinate stencil legs."""
+
+    target_flat: jnp.ndarray
+    axis: jnp.ndarray
+    side: jnp.ndarray
+    receive_slot: jnp.ndarray
+    distance: jnp.ndarray
+    active: jnp.ndarray
+
+    request_active: jnp.ndarray
+    request_dependency_kind: jnp.ndarray
+    request_source_global_i: jnp.ndarray
+    request_source_global_j: jnp.ndarray
+    request_source_global_k: jnp.ndarray
+    request_source_shard_index: jnp.ndarray
+    request_source_shard_linear: jnp.ndarray
+    request_source_owner_local_i: jnp.ndarray
+    request_source_owner_local_j: jnp.ndarray
+    request_source_owner_local_k: jnp.ndarray
+    request_value_slot: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        target_flat = jnp.asarray(self.target_flat, dtype=jnp.int32)
+        row_shape = tuple(int(v) for v in target_flat.shape)
+        if target_flat.ndim != 1:
+            raise ValueError(
+                "LocalCoordinateStencilRemoteDependencyTable.target_flat "
+                f"must be 1D, got {target_flat.shape}"
+            )
+        object.__setattr__(self, "target_flat", target_flat)
+        for name in ("axis", "side", "receive_slot"):
+            object.__setattr__(
+                self,
+                name,
+                _require_shape(
+                    getattr(self, name),
+                    row_shape,
+                    f"LocalCoordinateStencilRemoteDependencyTable.{name}",
+                ).astype(jnp.int32),
+            )
+        object.__setattr__(
+            self,
+            "distance",
+            _require_float_shape(
+                self.distance,
+                row_shape,
+                "LocalCoordinateStencilRemoteDependencyTable.distance",
+            ),
+        )
+        active = jnp.asarray(self.active, dtype=bool)
+        if active.shape != row_shape:
+            raise ValueError(
+                "LocalCoordinateStencilRemoteDependencyTable.active must have "
+                f"shape {row_shape}, got {active.shape}"
+            )
+        object.__setattr__(self, "active", active)
+        _validate_coordinate_stencil_dependency_rows(
+            target_flat=target_flat,
+            axis=self.axis,
+            side=self.side,
+            distance=self.distance,
+            active=active,
+            label="LocalCoordinateStencilRemoteDependencyTable",
+        )
+
+        request_active = jnp.asarray(self.request_active, dtype=bool)
+        request_shape = tuple(int(v) for v in request_active.shape)
+        if request_active.ndim != 1:
+            raise ValueError(
+                "LocalCoordinateStencilRemoteDependencyTable.request_active "
+                f"must be 1D, got {request_active.shape}"
+            )
+        object.__setattr__(self, "request_active", request_active)
+        object.__setattr__(
+            self,
+            "request_dependency_kind",
+            _require_shape(
+                self.request_dependency_kind,
+                request_shape,
+                "LocalCoordinateStencilRemoteDependencyTable.request_dependency_kind",
+            ).astype(jnp.int32),
+        )
+        for name in (
+            "request_source_global_i",
+            "request_source_global_j",
+            "request_source_global_k",
+            "request_source_shard_linear",
+            "request_source_owner_local_i",
+            "request_source_owner_local_j",
+            "request_source_owner_local_k",
+            "request_value_slot",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                _require_shape(
+                    getattr(self, name),
+                    request_shape,
+                    f"LocalCoordinateStencilRemoteDependencyTable.{name}",
+                ).astype(jnp.int32),
+            )
+
+        request_source_shard_index = jnp.asarray(
+            self.request_source_shard_index,
+            dtype=jnp.int32,
+        )
+        if (
+            request_source_shard_index.ndim != 2
+            or request_source_shard_index.shape[1] != 3
+        ):
+            raise ValueError(
+                "LocalCoordinateStencilRemoteDependencyTable."
+                "request_source_shard_index must have shape "
+                f"(max_receive_values, 3), got {request_source_shard_index.shape}"
+            )
+        if int(request_source_shard_index.shape[0]) != request_shape[0]:
+            raise ValueError(
+                "LocalCoordinateStencilRemoteDependencyTable."
+                "request_source_shard_index must match request_active length; "
+                f"got {request_source_shard_index.shape[0]}, expected {request_shape[0]}"
+            )
+        object.__setattr__(
+            self,
+            "request_source_shard_index",
+            request_source_shard_index,
+        )
+
+    @property
+    def max_entries(self) -> int:
+        return int(self.target_flat.size)
+
+    @property
+    def max_receive_values(self) -> int:
+        return int(self.request_active.size)
+
+    @property
+    def has_requests(self) -> bool:
+        return self.max_receive_values > 0
+
+    @classmethod
+    def empty(cls) -> "LocalCoordinateStencilRemoteDependencyTable":
+        return cls(
+            target_flat=jnp.zeros((0,), dtype=jnp.int32),
+            axis=jnp.zeros((0,), dtype=jnp.int32),
+            side=jnp.zeros((0,), dtype=jnp.int32),
+            receive_slot=jnp.zeros((0,), dtype=jnp.int32),
+            distance=jnp.zeros((0,), dtype=jnp.float64),
+            active=jnp.zeros((0,), dtype=bool),
+            request_active=jnp.zeros((0,), dtype=bool),
+            request_dependency_kind=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_global_i=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_global_j=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_global_k=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_shard_index=jnp.zeros((0, 3), dtype=jnp.int32),
+            request_source_shard_linear=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_owner_local_i=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_owner_local_j=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_owner_local_k=jnp.zeros((0,), dtype=jnp.int32),
+            request_value_slot=jnp.zeros((0,), dtype=jnp.int32),
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalCoordinateStencilDependencyMap3D(_DataclassPyTreeMixin):
+    """Coordinate-stencil cut-wall dependency metadata for one local shard."""
+
+    layout: HaloLayout3D
+    local: LocalCoordinateStencilLocalDependencyTable
+    remote: LocalCoordinateStencilRemoteDependencyTable | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("layout must be a HaloLayout3D instance")
+        if not isinstance(self.local, LocalCoordinateStencilLocalDependencyTable):
+            raise TypeError(
+                "local must be a LocalCoordinateStencilLocalDependencyTable instance"
+            )
+        if self.remote is not None and not isinstance(
+            self.remote,
+            LocalCoordinateStencilRemoteDependencyTable,
+        ):
+            raise TypeError(
+                "remote must be a LocalCoordinateStencilRemoteDependencyTable or None"
+            )
+        if self.remote is not None:
+            local_keys = _coordinate_stencil_dependency_keys(
+                target_flat=self.local.target_flat,
+                axis=self.local.axis,
+                side=self.local.side,
+                active=self.local.active,
+            )
+            remote_keys = _coordinate_stencil_dependency_keys(
+                target_flat=self.remote.target_flat,
+                axis=self.remote.axis,
+                side=self.remote.side,
+                active=self.remote.active,
+            )
+            if local_keys & remote_keys:
+                raise ValueError(
+                    "local and remote coordinate stencil dependencies must contain "
+                    "at most one active row per (target_flat, axis, side)"
+                )
+
+    @classmethod
+    def empty(cls, layout: HaloLayout3D) -> "LocalCoordinateStencilDependencyMap3D":
+        return cls(
+            layout=layout,
+            local=LocalCoordinateStencilLocalDependencyTable.empty(),
+            remote=None,
+        )
+
+
+def build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry(
+    layout: HaloLayout3D,
+    cut_wall_geometry,
+) -> LocalCoordinateStencilDependencyMap3D:
+    """Build local coordinate-stencil dependencies from cut-wall leg metadata.
+
+    This constructor treats each cut-wall entry as the value owned by the cell
+    ``owner_i/j/k`` and uses the entry index as the local cut-wall value slot.
+    Remote request rows require global owner/request shard information and are
+    therefore left to the domain-decomposition dependency builder.
+    """
+
+    if not isinstance(layout, HaloLayout3D):
+        raise TypeError("layout must be a HaloLayout3D instance")
+    if cut_wall_geometry is None:
+        return LocalCoordinateStencilDependencyMap3D.empty(layout)
+
+    required_attrs = (
+        "owner_i",
+        "owner_j",
+        "owner_k",
+        "active",
+        "max_wall_faces",
+        "stencil_axis",
+        "stencil_side",
+        "stencil_distance",
+    )
+    for name in required_attrs:
+        if not hasattr(cut_wall_geometry, name):
+            raise TypeError(
+                "cut_wall_geometry must provide LocalCutWallGeometry3D-style "
+                f"{name!r} metadata"
+            )
+
+    max_wall_faces = int(cut_wall_geometry.max_wall_faces)
+    if max_wall_faces == 0:
+        return LocalCoordinateStencilDependencyMap3D.empty(layout)
+
+    owner_i = jnp.asarray(cut_wall_geometry.owner_i, dtype=jnp.int32)
+    owner_j = jnp.asarray(cut_wall_geometry.owner_j, dtype=jnp.int32)
+    owner_k = jnp.asarray(cut_wall_geometry.owner_k, dtype=jnp.int32)
+    stencil_axis = jnp.asarray(cut_wall_geometry.stencil_axis, dtype=jnp.int32)
+    stencil_side = jnp.asarray(cut_wall_geometry.stencil_side, dtype=jnp.int32)
+    stencil_distance = jnp.asarray(cut_wall_geometry.stencil_distance, dtype=jnp.float64)
+    active = (
+        jnp.asarray(cut_wall_geometry.active, dtype=bool)
+        & (stencil_axis >= 0)
+    )
+
+    shape = (max_wall_faces,)
+    for name, value in (
+        ("owner_i", owner_i),
+        ("owner_j", owner_j),
+        ("owner_k", owner_k),
+        ("stencil_axis", stencil_axis),
+        ("stencil_side", stencil_side),
+        ("stencil_distance", stencil_distance),
+        ("active", active),
+    ):
+        if value.shape != shape:
+            raise ValueError(
+                f"cut_wall_geometry.{name} must have shape {shape}, got {value.shape}"
+            )
+
+    nx, ny, nz = layout.owned_shape
+    target_in_bounds = (
+        (owner_i >= 0)
+        & (owner_i < nx)
+        & (owner_j >= 0)
+        & (owner_j < ny)
+        & (owner_k >= 0)
+        & (owner_k < nz)
+    )
+    if not bool(jnp.all((~active) | target_in_bounds)):
+        raise ValueError(
+            "active coordinate-stencil cut-wall rows must use owned-local "
+            "owner_i/j/k coordinates"
+        )
+
+    target_flat = (owner_i * ny + owner_j) * nz + owner_k
+    local = LocalCoordinateStencilLocalDependencyTable(
+        target_flat=target_flat,
+        axis=stencil_axis,
+        side=stencil_side,
+        value_slot=jnp.arange(max_wall_faces, dtype=jnp.int32),
+        distance=stencil_distance,
+        active=active,
+    )
+    return LocalCoordinateStencilDependencyMap3D(
+        layout=layout,
+        local=local,
+        remote=None,
+    )
+
+
+@_pytree_base
+@dataclass(frozen=True)
 class LocalFciDirectionMap(_DataclassPyTreeMixin):
     """One directional FCI dependency map for owned target cells."""
 
@@ -1622,12 +2055,25 @@ class StencilBuilderContext(_DataclassPyTreeMixin):
     cut_wall_normal_derivative_constructor: (
         "LocalCutWallNormalDerivativeConstructor3D | None"
     ) = None
+    cut_wall_stencil_dependencies: (
+        "LocalCoordinateStencilDependencyMap3D | None"
+    ) = None
+    cut_wall_values: jnp.ndarray | None = None
+    cut_wall_stencil_remote_values: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
             raise TypeError("layout must be a HaloLayout3D instance")
         if self.domain is not None and self.domain.layout != self.layout:
             raise ValueError("StencilBuilderContext.domain must share the same layout")
+        if (
+            self.cut_wall_stencil_dependencies is not None
+            and self.cut_wall_stencil_dependencies.layout != self.layout
+        ):
+            raise ValueError(
+                "StencilBuilderContext.cut_wall_stencil_dependencies must share "
+                "the same layout"
+            )
 
 
 # Backward-compatible aliases. Both historical context names now refer to the
@@ -2869,11 +3315,223 @@ def _build_local_stencil_from_field(
             "field_halo must match geometry.halo_shape; "
             f"got {field_halo.shape}, expected {geometry.halo_shape}"
         )
-    return LocalStencil3D(
+    stencil = LocalStencil3D(
         x=_local_axis_stencil_from_halo(field_halo, geometry, axis=0),
         y=_local_axis_stencil_from_halo(field_halo, geometry, axis=1),
         z=_local_axis_stencil_from_halo(field_halo, geometry, axis=2),
     )
+    return _patch_local_coordinate_cut_wall_stencil(
+        stencil,
+        context=context,
+        dtype=field_halo.dtype,
+    )
+
+
+def _normalize_coordinate_stencil_values(
+    values: jnp.ndarray | None,
+    *,
+    required: bool,
+    dtype: jnp.dtype,
+    name: str,
+) -> jnp.ndarray:
+    if values is None:
+        if required:
+            raise ValueError(f"context.{name} is required for cut-wall stencil rows")
+        return jnp.zeros((0,), dtype=dtype)
+    values = jnp.asarray(values, dtype=dtype)
+    if values.ndim != 1:
+        raise ValueError(f"context.{name} must be 1D, got {values.shape}")
+    return values
+
+
+def _sample_coordinate_stencil_values(
+    values: jnp.ndarray,
+    slot: jnp.ndarray,
+) -> jnp.ndarray:
+    if int(values.size) == 0:
+        return jnp.zeros(slot.shape, dtype=values.dtype)
+    safe_slot = jnp.clip(slot, 0, int(values.size) - 1)
+    return values[safe_slot]
+
+
+def _validate_coordinate_stencil_value_slots(
+    *,
+    values: jnp.ndarray,
+    slot: jnp.ndarray,
+    active: jnp.ndarray,
+    name: str,
+) -> None:
+    if int(slot.size) == 0:
+        return
+    if int(values.size) == 0:
+        if bool(jnp.any(active)):
+            raise ValueError(f"context.{name} is empty but active stencil rows exist")
+        return
+    valid_slot = (~active) | ((slot >= 0) & (slot < int(values.size)))
+    if not bool(jnp.all(valid_slot)):
+        raise ValueError(
+            f"context.{name} does not contain every active cut-wall stencil slot"
+        )
+
+
+def _patch_flat_coordinate_stencil_side(
+    current: jnp.ndarray,
+    *,
+    target_flat: jnp.ndarray,
+    row_axis: jnp.ndarray,
+    row_side: jnp.ndarray,
+    row_active: jnp.ndarray,
+    row_values: jnp.ndarray,
+    patch_axis: int,
+    patch_side: int,
+) -> jnp.ndarray:
+    flat = current.reshape((-1,))
+    n = int(flat.size)
+    if n == 0 or int(target_flat.size) == 0:
+        return current
+    safe_target = jnp.clip(target_flat, 0, n - 1)
+    row_mask = row_active & (row_axis == patch_axis) & (row_side == patch_side)
+    delta = jnp.where(row_mask, row_values - flat[safe_target], 0.0)
+    return flat.at[safe_target].add(delta).reshape(current.shape)
+
+
+def _patch_coordinate_stencil_rows(
+    stencil: "LocalStencil3D",
+    *,
+    target_flat: jnp.ndarray,
+    axis: jnp.ndarray,
+    side: jnp.ndarray,
+    values: jnp.ndarray,
+    distance: jnp.ndarray,
+    active: jnp.ndarray,
+) -> "LocalStencil3D":
+    _, _, _, LocalStencil3D = _stencil_types()
+
+    stencils = [stencil.x, stencil.y, stencil.z]
+    distance = jnp.maximum(jnp.asarray(distance, dtype=values.dtype), 1.0e-30)
+    for patch_axis in range(3):
+        axis_stencil = stencils[patch_axis]
+        minus = _patch_flat_coordinate_stencil_side(
+            axis_stencil.minus,
+            target_flat=target_flat,
+            row_axis=axis,
+            row_side=side,
+            row_active=active,
+            row_values=values,
+            patch_axis=patch_axis,
+            patch_side=0,
+        )
+        plus = _patch_flat_coordinate_stencil_side(
+            axis_stencil.plus,
+            target_flat=target_flat,
+            row_axis=axis,
+            row_side=side,
+            row_active=active,
+            row_values=values,
+            patch_axis=patch_axis,
+            patch_side=1,
+        )
+        dx_min = _patch_flat_coordinate_stencil_side(
+            axis_stencil.dx_min,
+            target_flat=target_flat,
+            row_axis=axis,
+            row_side=side,
+            row_active=active,
+            row_values=distance,
+            patch_axis=patch_axis,
+            patch_side=0,
+        )
+        dx_plus = _patch_flat_coordinate_stencil_side(
+            axis_stencil.dx_plus,
+            target_flat=target_flat,
+            row_axis=axis,
+            row_side=side,
+            row_active=active,
+            row_values=distance,
+            patch_axis=patch_axis,
+            patch_side=1,
+        )
+        stencils[patch_axis] = axis_stencil.replace(
+            minus=minus,
+            plus=plus,
+            dx_min=dx_min,
+            dx_plus=dx_plus,
+        )
+    return LocalStencil3D(x=stencils[0], y=stencils[1], z=stencils[2])
+
+
+def _patch_local_coordinate_cut_wall_stencil(
+    stencil: "LocalStencil3D",
+    *,
+    context: StencilBuilderContext,
+    dtype: jnp.dtype,
+) -> "LocalStencil3D":
+    dependencies = context.cut_wall_stencil_dependencies
+    if dependencies is None:
+        return stencil
+
+    local = dependencies.local
+    cut_wall_values = _normalize_coordinate_stencil_values(
+        context.cut_wall_values,
+        required=local.max_entries > 0,
+        dtype=dtype,
+        name="cut_wall_values",
+    )
+    if local.max_entries:
+        _validate_coordinate_stencil_value_slots(
+            values=cut_wall_values,
+            slot=local.value_slot,
+            active=local.active,
+            name="cut_wall_values",
+        )
+        local_values = _sample_coordinate_stencil_values(
+            cut_wall_values,
+            local.value_slot,
+        )
+        stencil = _patch_coordinate_stencil_rows(
+            stencil,
+            target_flat=local.target_flat,
+            axis=local.axis,
+            side=local.side,
+            values=local_values,
+            distance=local.distance,
+            active=local.active,
+        )
+
+    remote = dependencies.remote
+    if remote is not None and remote.max_entries:
+        remote_values = _normalize_coordinate_stencil_values(
+            context.cut_wall_stencil_remote_values,
+            required=True,
+            dtype=dtype,
+            name="cut_wall_stencil_remote_values",
+        )
+        expected = (remote.max_receive_values,)
+        if remote_values.shape != expected:
+            raise ValueError(
+                "context.cut_wall_stencil_remote_values must have shape "
+                f"{expected}, got {remote_values.shape}"
+            )
+        _validate_coordinate_stencil_value_slots(
+            values=remote_values,
+            slot=remote.receive_slot,
+            active=remote.active,
+            name="cut_wall_stencil_remote_values",
+        )
+        remote_row_values = _sample_coordinate_stencil_values(
+            remote_values,
+            remote.receive_slot,
+        )
+        stencil = _patch_coordinate_stencil_rows(
+            stencil,
+            target_flat=remote.target_flat,
+            axis=remote.axis,
+            side=remote.side,
+            values=remote_row_values,
+            distance=remote.distance,
+            active=remote.active,
+        )
+    return stencil
 
 
 @_pytree_base
@@ -2938,6 +3596,249 @@ class LocalStencilBuilder(_DataclassPyTreeMixin):
 build_local_stencil_from_field = LocalStencilBuilder(_build_local_stencil_from_field)
 
 
+def _normalize_remote_receive_values(
+    remote: LocalFciRemoteDependencyTable | None,
+    values: jnp.ndarray | None,
+    *,
+    dtype: jnp.dtype,
+    name: str,
+) -> jnp.ndarray | None:
+    if remote is None:
+        if values is not None:
+            values = jnp.asarray(values, dtype=dtype)
+            if values.ndim != 1:
+                raise ValueError(f"{name} must be 1D when supplied, got {values.shape}")
+        return None
+
+    expected = (remote.max_receive_values,)
+    if values is None:
+        if remote.max_receive_values == 0:
+            return jnp.zeros(expected, dtype=dtype)
+        raise ValueError(f"{name} is required when the direction has remote dependencies")
+    values = jnp.asarray(values, dtype=dtype)
+    if values.shape != expected:
+        raise ValueError(f"{name} must have shape {expected}, got {values.shape}")
+    return values
+
+
+def _normalize_local_cut_wall_values(
+    cut_wall_values: jnp.ndarray | None,
+    *,
+    dtype: jnp.dtype,
+) -> jnp.ndarray:
+    if cut_wall_values is None:
+        return jnp.zeros((0,), dtype=dtype)
+    values = jnp.asarray(cut_wall_values, dtype=dtype)
+    if values.ndim != 1:
+        raise ValueError(f"cut_wall_values must be 1D, got {values.shape}")
+    return values
+
+
+def _sample_local_fci_cut_wall_values(
+    cut_wall_values: jnp.ndarray,
+    value_slot: jnp.ndarray,
+) -> jnp.ndarray:
+    if int(cut_wall_values.size) == 0:
+        return jnp.zeros(value_slot.shape, dtype=cut_wall_values.dtype)
+    safe_slot = jnp.clip(value_slot, 0, int(cut_wall_values.size) - 1)
+    return cut_wall_values[safe_slot]
+
+
+def _sample_local_fci_table_rows(
+    field_halo: jnp.ndarray,
+    table: LocalFciLocalDependencyTable,
+    cut_wall_values: jnp.ndarray,
+) -> jnp.ndarray:
+    nx, ny, nz = field_halo.shape
+    safe_i = jnp.clip(table.source_i, 0, nx - 1)
+    safe_j = jnp.clip(table.source_j, 0, ny - 1)
+    safe_k = jnp.clip(table.source_k, 0, nz - 1)
+    field_samples = field_halo[safe_i, safe_j, safe_k]
+    wall_samples = _sample_local_fci_cut_wall_values(
+        cut_wall_values,
+        table.value_slot,
+    )
+    return jnp.where(
+        table.dependency_kind == FCI_DEP_CUT_WALL,
+        wall_samples,
+        field_samples,
+    )
+
+
+def _evaluate_local_fci_direction_endpoint(
+    *,
+    field_halo: jnp.ndarray,
+    direction: LocalFciDirectionMap,
+    remote_values: jnp.ndarray | None,
+    cut_wall_values: jnp.ndarray,
+    n_owned: int,
+) -> jnp.ndarray:
+    table = direction.local
+    safe_target = jnp.clip(table.target_flat, 0, n_owned - 1)
+    samples = _sample_local_fci_table_rows(
+        field_halo,
+        table,
+        cut_wall_values,
+    )
+    active = table.active & (table.dependency_kind != FCI_DEP_INVALID)
+    values = jnp.zeros((n_owned,), dtype=field_halo.dtype)
+    values = values.at[safe_target].add(
+        jnp.where(active, table.weight * samples, 0.0)
+    )
+
+    remote = direction.remote
+    if remote is not None and remote.max_entries:
+        if remote_values is None:
+            raise ValueError("remote_values are required for a remote FCI table")
+        if remote.max_receive_values == 0:
+            remote_samples = jnp.zeros(remote.receive_slot.shape, dtype=field_halo.dtype)
+        else:
+            safe_slot = jnp.clip(
+                remote.receive_slot,
+                0,
+                remote.max_receive_values - 1,
+            )
+            remote_samples = remote_values[safe_slot]
+        safe_remote_target = jnp.clip(remote.target_flat, 0, n_owned - 1)
+        values = values.at[safe_remote_target].add(
+            jnp.where(remote.active, remote.weight * remote_samples, 0.0)
+        )
+
+    return jnp.where(
+        direction.target_valid.reshape((n_owned,)),
+        values,
+        field_halo[direction.layout.owned_slices_cell].reshape((n_owned,)),
+    ).reshape(direction.layout.owned_shape)
+
+
+def _build_local_fci_stencil_from_field(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    context: StencilBuilderContext,
+    *,
+    forward_remote_values: jnp.ndarray | None = None,
+    backward_remote_values: jnp.ndarray | None = None,
+    cut_wall_values: jnp.ndarray | None = None,
+) -> "LocalStencil1D":
+    _, _, LocalStencil1D, _ = _stencil_types()
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError("geometry must be a LocalFciGeometry3D instance")
+    if not isinstance(context, StencilBuilderContext):
+        raise TypeError("context must be a StencilBuilderContext instance")
+    if context.layout != geometry.layout:
+        raise ValueError("geometry and context must share the same HaloLayout3D")
+
+    field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
+    if field_halo.shape != geometry.halo_shape:
+        raise ValueError(
+            "field_halo must match geometry.halo_shape; "
+            f"got {field_halo.shape}, expected {geometry.halo_shape}"
+        )
+
+    maps = geometry.maps
+    if maps.forward.connection_length is None:
+        raise ValueError("geometry.maps.forward.connection_length is required")
+    if maps.backward.connection_length is None:
+        raise ValueError("geometry.maps.backward.connection_length is required")
+
+    forward_remote_values = _normalize_remote_receive_values(
+        maps.forward.remote,
+        forward_remote_values,
+        dtype=field_halo.dtype,
+        name="forward_remote_values",
+    )
+    backward_remote_values = _normalize_remote_receive_values(
+        maps.backward.remote,
+        backward_remote_values,
+        dtype=field_halo.dtype,
+        name="backward_remote_values",
+    )
+    cut_wall_values = _normalize_local_cut_wall_values(
+        cut_wall_values,
+        dtype=field_halo.dtype,
+    )
+
+    n_owned = int(geometry.owned_shape[0] * geometry.owned_shape[1] * geometry.owned_shape[2])
+    center = field_halo[geometry.layout.owned_slices_cell]
+    forward = _evaluate_local_fci_direction_endpoint(
+        field_halo=field_halo,
+        direction=maps.forward,
+        remote_values=forward_remote_values,
+        cut_wall_values=cut_wall_values,
+        n_owned=n_owned,
+    )
+    backward = _evaluate_local_fci_direction_endpoint(
+        field_halo=field_halo,
+        direction=maps.backward,
+        remote_values=backward_remote_values,
+        cut_wall_values=cut_wall_values,
+        n_owned=n_owned,
+    )
+    dx_plus = jnp.maximum(
+        jnp.asarray(maps.forward.connection_length, dtype=field_halo.dtype),
+        1.0e-30,
+    )
+    dx_min = jnp.maximum(
+        jnp.asarray(maps.backward.connection_length, dtype=field_halo.dtype),
+        1.0e-30,
+    )
+    valid = maps.forward.target_valid & maps.backward.target_valid
+    return LocalStencil1D(
+        center=center,
+        minus=jnp.where(valid, backward, center),
+        plus=jnp.where(valid, forward, center),
+        dx_min=jnp.where(valid, dx_min, 1.0),
+        dx_plus=jnp.where(valid, dx_plus, 1.0),
+    )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalFciStencilBuilder(_DataclassPyTreeMixin):
+    """Callable adapter that builds a second-order local FCI stencil."""
+
+    build_fn: Callable[
+        [
+            jnp.ndarray,
+            "LocalFciGeometry3D",
+            "StencilBuilderContext",
+        ],
+        "LocalStencil1D",
+    ]
+
+    def __call__(
+        self,
+        field_halo: jnp.ndarray,
+        geometry: "LocalFciGeometry3D",
+        context: "StencilBuilderContext",
+        *,
+        forward_remote_values: jnp.ndarray | None = None,
+        backward_remote_values: jnp.ndarray | None = None,
+        cut_wall_values: jnp.ndarray | None = None,
+    ) -> "LocalStencil1D":
+        return self.build_fn(
+            field_halo,
+            geometry,
+            context,
+            forward_remote_values=forward_remote_values,
+            backward_remote_values=backward_remote_values,
+            cut_wall_values=cut_wall_values,
+        )
+
+    def tree_flatten(self):
+        return (), self.build_fn
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(aux_data)
+
+
+build_local_fci_stencil_from_field = LocalFciStencilBuilder(
+    _build_local_fci_stencil_from_field
+)
+
+
 def _build_local_face_gradient_from_halo(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
@@ -2976,7 +3877,7 @@ def _build_local_face_gradient_from_halo(
             periodic=domain.periodic_axes[face_axis],
         )
         face_slices = geometry.layout.location_owned_slices(face_locations[face_axis])
-        components = tuple(
+        components = [
             _first_derivative_3d(
                 face_values,
                 _lift_cell_field_to_faces(
@@ -2988,7 +3889,31 @@ def _build_local_face_gradient_from_halo(
                 periodic=domain.periodic_axes[component],
             )[face_slices]
             for component in range(3)
+        ]
+
+        axis_slice = face_slices[face_axis]
+        if axis_slice.start is None or axis_slice.stop is None:
+            raise ValueError("owned face slices must have finite bounds")
+        lower_cell_slices = list(face_slices)
+        upper_cell_slices = list(face_slices)
+        lower_cell_slices[face_axis] = slice(axis_slice.start - 1, axis_slice.stop - 1)
+        upper_cell_slices[face_axis] = slice(axis_slice.start, axis_slice.stop)
+        grid_axis = (geometry.grid.x, geometry.grid.y, geometry.grid.z)[face_axis]
+        centers_halo = jnp.asarray(grid_axis.centers_halo, dtype=jnp.float64)
+        center_distance = (
+            centers_halo[axis_slice.start:axis_slice.stop]
+            - centers_halo[axis_slice.start - 1:axis_slice.stop - 1]
         )
+        if face_axis == 0:
+            center_distance = center_distance[:, None, None]
+        elif face_axis == 1:
+            center_distance = center_distance[None, :, None]
+        else:
+            center_distance = center_distance[None, None, :]
+        components[face_axis] = (
+            field_halo[tuple(upper_cell_slices)]
+            - field_halo[tuple(lower_cell_slices)]
+        ) / jnp.maximum(center_distance, 1.0e-30)
         return jnp.stack(components, axis=-1)
 
     face_grad = FaceGradientStencil3D(
@@ -3798,7 +4723,251 @@ def build_curvature_coefficients(
 
     return curvature_coefficients
 
-   
+
+def build_local_curvature_coefficients(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    b_floor: float = 1.0e-30,
+    jacobian_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Build owned-cell curvature coefficients from local halo geometry."""
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "build_local_curvature_coefficients requires LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError(
+            "build_local_curvature_coefficients requires LocalDomain3D, "
+            f"got {type(domain).__name__}"
+        )
+    if geometry.layout != domain.layout:
+        raise ValueError("geometry and domain must share the same HaloLayout3D")
+
+    periodic_axes = tuple(bool(value) for value in periodic_axes)
+    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
+    if len(periodic_axes) != 3:
+        raise ValueError(f"periodic_axes must have length 3, got {periodic_axes}")
+    if len(axis_regular_axes) != 3:
+        raise ValueError(f"axis_regular_axes must have length 3, got {axis_regular_axes}")
+    if any(axis_regular_axes):
+        raise NotImplementedError(
+            "build_local_curvature_coefficients does not yet support "
+            f"axis_regular_axes={axis_regular_axes}"
+        )
+    if any(periodic and axis_regular for periodic, axis_regular in zip(periodic_axes, axis_regular_axes)):
+        raise ValueError(
+            "periodic_axes and axis_regular_axes cannot both be True on the same axis; "
+            f"got periodic_axes={periodic_axes}, axis_regular_axes={axis_regular_axes}"
+        )
+
+    h = int(geometry.layout.halo_width)
+    if h < 1:
+        raise ValueError("local curvature coefficients require at least one geometry halo cell")
+
+    def _covariant_field(
+        metric: LocalMetricGeometry,
+        bfield: LocalBFieldGeometry,
+    ) -> jnp.ndarray:
+        b = jnp.asarray(bfield.B_contra_halo, dtype=jnp.float64)
+        bmag = jnp.maximum(jnp.asarray(bfield.Bmag_halo, dtype=jnp.float64), float(b_floor))
+        b_unit = b / bmag[..., None]
+        return jnp.einsum("...ij,...j->...i", metric.g_cov, b_unit) / bmag[..., None]
+
+    def _local_centered_derivative(
+        values: jnp.ndarray,
+        spacing: jnp.ndarray,
+        *,
+        axis: int,
+    ) -> jnp.ndarray:
+        plus = jnp.take(values, jnp.arange(2, values.shape[axis]), axis=axis)
+        minus = jnp.take(values, jnp.arange(0, values.shape[axis] - 2), axis=axis)
+        spacing_center = jnp.take(spacing, jnp.arange(1, spacing.shape[axis] - 1), axis=axis)
+        return (plus - minus) / jnp.maximum(2.0 * spacing_center, 1.0e-30)
+
+    def _fd(
+        minus: jnp.ndarray,
+        center: jnp.ndarray,
+        plus: jnp.ndarray,
+        dx_min: jnp.ndarray,
+        dx_plus: jnp.ndarray,
+    ) -> jnp.ndarray:
+        denom = jnp.maximum(dx_min * dx_plus * (dx_min + dx_plus), 1.0e-30)
+        c_minus = -dx_plus * dx_plus / denom
+        c_center = (dx_plus * dx_plus - dx_min * dx_min) / denom
+        c_plus = dx_min * dx_min / denom
+        return c_minus * minus + c_center * center + c_plus * plus
+
+    def _patch_physical_faces(
+        deriv_halo_interior: jnp.ndarray,
+        values_halo: jnp.ndarray,
+        *,
+        axis: int,
+        lower_face_value: jnp.ndarray,
+        upper_face_value: jnp.ndarray,
+        grid_axis: LocalGrid1D,
+    ) -> jnp.ndarray:
+        n_axis = int(geometry.layout.owned_shape[axis])
+        if n_axis < 1:
+            raise ValueError(f"owned axis {axis} must contain at least one cell")
+
+        def _halo_plane(index: int) -> tuple[object, ...]:
+            slices: list[object] = [
+                slice(h, h + n)
+                for n in geometry.layout.owned_shape
+            ]
+            slices[axis] = int(index)
+            return tuple(slices)
+
+        lower_center = values_halo[_halo_plane(h)]
+        lower_ghost = 2.0 * lower_face_value - lower_center
+        lower_deriv = _fd(
+            lower_ghost,
+            lower_center,
+            values_halo[_halo_plane(h + 1)],
+            jnp.asarray(2.0 * (grid_axis.centers_halo[h] - grid_axis.faces_halo[h]), dtype=jnp.float64),
+            jnp.asarray(grid_axis.centers_halo[h + 1] - grid_axis.centers_halo[h], dtype=jnp.float64),
+        )
+
+        upper_center_index = h + n_axis - 1
+        upper_face_index = h + n_axis
+        upper_center = values_halo[_halo_plane(upper_center_index)]
+        upper_ghost = 2.0 * upper_face_value - upper_center
+        upper_deriv = _fd(
+            values_halo[_halo_plane(upper_center_index - 1)],
+            upper_center,
+            upper_ghost,
+            jnp.asarray(grid_axis.centers_halo[upper_center_index] - grid_axis.centers_halo[upper_center_index - 1], dtype=jnp.float64),
+            jnp.asarray(2.0 * (grid_axis.faces_halo[upper_face_index] - grid_axis.centers_halo[upper_center_index]), dtype=jnp.float64),
+        )
+
+        lower_plane = _axis_index_nd(axis, 0, deriv_halo_interior.ndim)
+        upper_plane = _axis_index_nd(axis, -1, deriv_halo_interior.ndim)
+        do_lower = domain.runtime_has_physical_lower(axis)
+        do_upper = domain.runtime_has_physical_upper(axis)
+
+        deriv_halo_interior = deriv_halo_interior.at[lower_plane].set(
+            jnp.where(do_lower, lower_deriv, deriv_halo_interior[lower_plane])
+        )
+        deriv_halo_interior = deriv_halo_interior.at[upper_plane].set(
+            jnp.where(do_upper, upper_deriv, deriv_halo_interior[upper_plane])
+        )
+        return deriv_halo_interior
+
+    def _owned_derivative(
+        values_halo: jnp.ndarray,
+        spacing_halo: jnp.ndarray,
+        *,
+        axis: int,
+        lower_face_value: jnp.ndarray,
+        upper_face_value: jnp.ndarray,
+    ) -> jnp.ndarray:
+        if values_halo.shape[axis] < geometry.layout.owned_shape[axis] + 2:
+            raise ValueError("local curvature coefficient construction requires halo values")
+
+        deriv_halo_interior = _local_centered_derivative(
+            values_halo,
+            spacing_halo,
+            axis=axis,
+        )
+        crop = [slice(h, h + n) for n in geometry.layout.owned_shape]
+        crop[axis] = slice(
+            h - 1,
+            h - 1 + geometry.layout.owned_shape[axis],
+        )
+        owned = deriv_halo_interior[tuple(crop)]
+        grid_axis = (geometry.grid.x, geometry.grid.y, geometry.grid.z)[axis]
+        return _patch_physical_faces(
+            owned,
+            values_halo,
+            axis=axis,
+            lower_face_value=lower_face_value,
+            upper_face_value=upper_face_value,
+            grid_axis=grid_axis,
+        )
+
+    metric = geometry.cell_metric
+    cell_bfield = geometry.cell_bfield
+    bmag_owned = jnp.maximum(jnp.asarray(cell_bfield.Bmag_owned, dtype=jnp.float64), float(b_floor))
+    covariant_field = _covariant_field(metric, cell_bfield)
+
+    face_covariant_x = _covariant_field(geometry.face_metric.x, geometry.face_bfield.x)
+    face_covariant_y = _covariant_field(geometry.face_metric.y, geometry.face_bfield.y)
+    face_covariant_z = _covariant_field(geometry.face_metric.z, geometry.face_bfield.z)
+
+    dx = jnp.stack(
+        [
+            _owned_derivative(
+                covariant_field[..., component],
+                geometry.spacing.dx_halo,
+                axis=0,
+                lower_face_value=face_covariant_x[h, h:-h, h:-h, component],
+                upper_face_value=face_covariant_x[
+                    h + geometry.layout.owned_shape[0],
+                    h:-h,
+                    h:-h,
+                    component,
+                ],
+            )
+            for component in range(3)
+        ],
+        axis=-1,
+    )
+    dy = jnp.stack(
+        [
+            _owned_derivative(
+                covariant_field[..., component],
+                geometry.spacing.dy_halo,
+                axis=1,
+                lower_face_value=face_covariant_y[h:-h, h, h:-h, component],
+                upper_face_value=face_covariant_y[
+                    h:-h,
+                    h + geometry.layout.owned_shape[1],
+                    h:-h,
+                    component,
+                ],
+            )
+            for component in range(3)
+        ],
+        axis=-1,
+    )
+    dz = jnp.stack(
+        [
+            _owned_derivative(
+                covariant_field[..., component],
+                geometry.spacing.dz_halo,
+                axis=2,
+                lower_face_value=face_covariant_z[h:-h, h:-h, h, component],
+                upper_face_value=face_covariant_z[
+                    h:-h,
+                    h:-h,
+                    h + geometry.layout.owned_shape[2],
+                    component,
+                ],
+            )
+            for component in range(3)
+        ],
+        axis=-1,
+    )
+
+    curl = jnp.stack(
+        (
+            dy[..., 2] - dz[..., 1],
+            dz[..., 0] - dx[..., 2],
+            dx[..., 1] - dy[..., 0],
+        ),
+        axis=-1,
+    )
+    coefficient = bmag_owned / (
+        2.0 * jnp.maximum(jnp.asarray(metric.J_owned, dtype=jnp.float64), float(jacobian_floor))
+    )
+    return coefficient[..., None] * curl
+
+
 def _physical_domain_valid_mask(
     grid: CellCenteredGrid3D,
     x: jnp.ndarray,

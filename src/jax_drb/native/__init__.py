@@ -3,19 +3,19 @@ from ..runtime import configure_jax_runtime
 configure_jax_runtime()
 
 from .runner import NativeRunResult, run_config_case, run_curated_case, run_input_case
-from ..geometry import FCI_DEP_CUT_WALL, FCI_DEP_FIELD_INTERIOR, FCI_DEP_INVALID, FCI_DEP_PHYSICAL_BOUNDARY, HaloLayout3D, LocalBFieldGeometry, LocalCellCenteredGrid3D, LocalCellVolumeGeometry3D, LocalConservativeStencilBuilder, LocalDomain3D, LocalFciDirectionMap, LocalFciGeometry3D, LocalFciLocalDependencyTable, LocalFciMaps3D, LocalFciRemoteDependencyTable, LocalFaceBFieldGeometry, LocalFaceMetricGeometry, LocalMetricGeometry, LocalRegularFaceGeometry3D, LocalSpacing3D, NeighborMap3D, ShardSpec3D
+from ..geometry import FCI_DEP_CUT_WALL, FCI_DEP_FIELD_INTERIOR, FCI_DEP_INVALID, FCI_DEP_PHYSICAL_BOUNDARY, HaloLayout3D, LocalBFieldGeometry, LocalCellCenteredGrid3D, LocalCellVolumeGeometry3D, LocalConservativeStencilBuilder, LocalCoordinateStencilDependencyMap3D, LocalCoordinateStencilLocalDependencyTable, LocalCoordinateStencilRemoteDependencyTable, LocalDomain3D, LocalFciDirectionMap, LocalFciGeometry3D, LocalFciLocalDependencyTable, LocalFciMaps3D, LocalFciRemoteDependencyTable, LocalFciStencilBuilder, LocalFaceBFieldGeometry, LocalFaceMetricGeometry, LocalMetricGeometry, LocalRegularFaceGeometry3D, LocalSpacing3D, NeighborMap3D, ShardSpec3D, build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry, build_local_fci_stencil_from_field
 from .fci_halo import (
-    FciCutWallValueEvaluator,
     GhostFillWeights1D,
     HaloExchange3D,
-    LocalFciCutWallValueEvaluator,
     LocalPeriodicTopologyRule3D,
     LocalStateAndBoundaryPreparer3D,
     PhysicalGhostCellFiller3D,
     PolarAxisRegularScalarRule3D,
     PolarAxisRegularVectorRule3D,
     PreparedLocalState3D,
+    RemoteBoundaryDependencyExchange,
     RemoteFciDependencyExchange,
+    RemoteLocalStencilDependencyExchange,
     TopologyHaloFiller3D,
     make_default_topology_halo_filler_3d,
 )
@@ -24,6 +24,8 @@ from .fci_boundaries import (
     FaceGradientStencil3D,
     LocalBoundaryConditionBuilder,
     LocalBoundaryData3D,
+    LocalBoundaryPreparation3D,
+    LocalBoundaryRemoteDependencyTable,
     LocalCoordinateNormalDerivativeConstructor3D,
     LocalCoordinateSideValues1D,
     LocalCoordinateSideValues3D,
@@ -47,7 +49,7 @@ from .fci_model import (
     update_halo_owned_slice,
     update_state_halo_owned_slices,
 )
-from .fci_time_integrator import Rk4StepResult, rk4_step, sum_stage_outputs
+from .fci_time_integrator import Rk4StepResult, Rk4Stepper, sum_stage_outputs
 from .fci_operators import (
     PerpLaplacianMgHierarchy,
     PerpLaplacianMgLevel,
@@ -58,6 +60,7 @@ from .fci_operators import (
     build_local_projected_laplacian_flux_stencil,
     build_perp_laplacian_stencil,
     build_perp_laplacian_face_projectors,
+    build_local_parallel_laplacian_face_projectors,
     build_local_perp_laplacian_face_projectors,
     divergence_conservative_op,
     local_divergence_conservative_op,
@@ -66,6 +69,8 @@ from .fci_operators import (
     local_grad_parallel_op_fci,
     local_grad_perp_op_direct,
     local_parallel_laplacian_direct_op,
+    local_parallel_laplacian_conservative_op,
+    LocalPerpLaplacianInverseSolver,
     local_perp_laplacian_local_op,
     local_perp_laplacian_conservative_op,
     grad_parallel_op_fci,
@@ -78,6 +83,11 @@ from .fci_operators import (
     local_poisson_bracket_op,
     local_curvature_op,
     poisson_bracket_op,
+)
+from .fci_gmres import (
+    SpmdGmresConfig,
+    SpmdGmresInfo,
+    spmd_gmres_solve,
 )
 from .fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldRhsResult, Fci2FieldState, compute_2field_rhs
 from .fci_drb_EB_rhs import (
@@ -126,8 +136,12 @@ __all__ = [
     "LocalCellCenteredGrid3D",
     "LocalCellVolumeGeometry3D",
     "LocalDomain3D",
+    "LocalCoordinateStencilDependencyMap3D",
+    "LocalCoordinateStencilLocalDependencyTable",
+    "LocalCoordinateStencilRemoteDependencyTable",
     "LocalFciGeometry3D",
     "LocalConservativeStencilBuilder",
+    "LocalFciStencilBuilder",
     "LocalFciDirectionMap",
     "LocalFciLocalDependencyTable",
     "LocalFciMaps3D",
@@ -143,12 +157,14 @@ __all__ = [
     "LocalSpacing3D",
     "NeighborMap3D",
     "ShardSpec3D",
-    "FciCutWallValueEvaluator",
+    "build_local_fci_stencil_from_field",
+    "build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry",
     "HaloExchange3D",
     "GhostFillWeights1D",
-    "LocalFciCutWallValueEvaluator",
     "PhysicalGhostCellFiller3D",
+    "RemoteBoundaryDependencyExchange",
     "RemoteFciDependencyExchange",
+    "RemoteLocalStencilDependencyExchange",
     "TopologyHaloFiller3D",
     "LocalPeriodicTopologyRule3D",
     "LocalStateAndBoundaryPreparer3D",
@@ -157,7 +173,7 @@ __all__ = [
     "PolarAxisRegularVectorRule3D",
     "make_default_topology_halo_filler_3d",
     "Rk4StepResult",
-    "rk4_step",
+    "Rk4Stepper",
     "sum_stage_outputs",
     "Fci2FieldRhsParameters",
     "Fci2FieldRhsResult",
@@ -185,6 +201,8 @@ __all__ = [
     "FaceGradientStencil3D",
     "LocalBoundaryConditionBuilder",
     "LocalBoundaryData3D",
+    "LocalBoundaryPreparation3D",
+    "LocalBoundaryRemoteDependencyTable",
     "LocalCoordinateNormalDerivativeConstructor3D",
     "LocalCoordinateSideValues1D",
     "LocalCoordinateSideValues3D",
@@ -202,6 +220,7 @@ __all__ = [
     "build_perp_laplacian_mg_hierarchy",
     "build_perp_laplacian_face_projectors",
     "build_perp_laplacian_stencil",
+    "build_local_parallel_laplacian_face_projectors",
     "build_local_perp_laplacian_face_projectors",
     "divergence_conservative_op",
     "local_divergence_conservative_op",
@@ -210,6 +229,8 @@ __all__ = [
     "local_grad_parallel_op_fci",
     "local_grad_perp_op_direct",
     "local_parallel_laplacian_direct_op",
+    "local_parallel_laplacian_conservative_op",
+    "LocalPerpLaplacianInverseSolver",
     "local_perp_laplacian_local_op",
     "local_perp_laplacian_conservative_op",
     "grad_perp_op",
@@ -222,6 +243,9 @@ __all__ = [
     "local_poisson_bracket_op",
     "local_curvature_op",
     "poisson_bracket_op",
+    "SpmdGmresConfig",
+    "SpmdGmresInfo",
+    "spmd_gmres_solve",
     "run_config_case",
     "run_curated_case",
     "run_input_case",

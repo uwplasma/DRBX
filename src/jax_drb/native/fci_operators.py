@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from functools import partial
 from typing import Literal
 
@@ -52,9 +52,16 @@ from ..geometry import (
 )
 from ..geometry.fci_geometry import (
     StencilBuilderContext,
+    _global_axis_stencil_from_field,
 )
 from .fci import _first_derivative_3d
-from .fci_halo import HaloExchange3D, TopologyHaloFiller3D
+from .fci_halo import HaloExchange3D, PhysicalGhostCellFiller3D, TopologyHaloFiller3D
+from .fci_gmres import (
+    SpmdGmresConfig,
+    SpmdGmresInfo,
+    _spmd_remove_weighted_mean,
+    spmd_gmres_solve,
+)
 from .fci_model import (
     inject_owned_field_to_halo,
     inject_owned_vector_field_to_halo,
@@ -260,6 +267,34 @@ def local_grad_parallel_op_direct(
     return jnp.einsum("...i,...i->...", b_contra, df)
 
 
+def _build_global_conservative_stencil_compat(
+    stencil_builder: ConservativeStencilBuilder,
+    field: jnp.ndarray,
+    geometry: FciGeometry3D,
+    *,
+    periodic_axes: tuple[bool, bool, bool],
+    face_bc: BoundaryFaceBC3D,
+) -> ConservativeStencil3D:
+    """Call either the legacy global builder or the current geometry builder."""
+
+    try:
+        return stencil_builder(
+            field,
+            geometry,
+            periodic_axes=periodic_axes,
+            face_bc=face_bc,
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument" not in str(exc):
+            raise
+        del face_bc
+        return _global_axis_stencil_from_field(
+            field,
+            geometry,
+            periodic_axes=periodic_axes,
+        )
+
+
 def parallel_laplacian_direct_op(
     field: jnp.ndarray,
     geometry: FciGeometry3D,
@@ -283,7 +318,8 @@ def parallel_laplacian_direct_op(
     if face_bc is None:
         face_bc = BoundaryFaceBC3D.empty(RegularFaceGeometry3D.unit(geometry))
 
-    first_stencil = stencil_builder(
+    first_stencil = _build_global_conservative_stencil_compat(
+        stencil_builder,
         field,
         geometry,
         periodic_axes=periodic_axes,
@@ -291,7 +327,8 @@ def parallel_laplacian_direct_op(
     )
     first_grad = grad_parallel_op_direct(first_stencil, geometry)
 
-    second_stencil = stencil_builder(
+    second_stencil = _build_global_conservative_stencil_compat(
+        stencil_builder,
         first_grad,
         geometry,
         periodic_axes=periodic_axes,
@@ -1067,6 +1104,24 @@ def build_local_perp_laplacian_face_projectors(
     )
 
 
+def build_local_parallel_laplacian_face_projectors(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    b_floor: float = 1.0e-30,
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Build owned-face projectors for the local parallel Laplacian."""
+
+    return _build_local_laplacian_face_projectors(
+        geometry,
+        domain,
+        b_floor=b_floor,
+        parallel=True,
+        axis_regular_axes=axis_regular_axes,
+    )
+
+
 def _build_projected_laplacian_stencil(
     local: ConservativeStencil3D,
     geometry: FciGeometry3D,
@@ -1604,6 +1659,8 @@ def _patch_local_axis_face_gradients(
         upper_distance = jnp.asarray(geometry.grid.x.upper_center_to_face, dtype=jnp.float64)
         lower_center = values_owned[0]
         upper_center = values_owned[-1]
+        lower_next_center = values_owned[1] if geometry.owned_shape[0] > 1 else lower_center
+        upper_prev_center = values_owned[-2] if geometry.owned_shape[0] > 1 else upper_center
     elif axis == 1:
         lower_value = value[:, 0, :]
         upper_value = value[:, -1, :]
@@ -1615,6 +1672,8 @@ def _patch_local_axis_face_gradients(
         upper_distance = jnp.asarray(geometry.grid.y.upper_center_to_face, dtype=jnp.float64)
         lower_center = values_owned[:, 0, :]
         upper_center = values_owned[:, -1, :]
+        lower_next_center = values_owned[:, 1, :] if geometry.owned_shape[1] > 1 else lower_center
+        upper_prev_center = values_owned[:, -2, :] if geometry.owned_shape[1] > 1 else upper_center
     else:
         lower_value = value[:, :, 0]
         upper_value = value[:, :, -1]
@@ -1626,11 +1685,66 @@ def _patch_local_axis_face_gradients(
         upper_distance = jnp.asarray(geometry.grid.z.upper_center_to_face, dtype=jnp.float64)
         lower_center = values_owned[:, :, 0]
         upper_center = values_owned[:, :, -1]
+        lower_next_center = values_owned[:, :, 1] if geometry.owned_shape[2] > 1 else lower_center
+        upper_prev_center = values_owned[:, :, -2] if geometry.owned_shape[2] > 1 else upper_center
+
+    def _boundary_spacing(component: int, side: str) -> jnp.ndarray:
+        spacing = (
+            geometry.spacing.dx_owned,
+            geometry.spacing.dy_owned,
+            geometry.spacing.dz_owned,
+        )[component]
+        index = 0 if side == "lower" else -1
+        if axis == 0:
+            return spacing[index, :, :]
+        if axis == 1:
+            return spacing[:, index, :]
+        return spacing[:, :, index]
+
+    def _patch_tangential_components(
+        plane: jnp.ndarray,
+        *,
+        face_value: jnp.ndarray,
+        patch_mask: jnp.ndarray,
+        side: str,
+    ) -> jnp.ndarray:
+        for component in range(3):
+            if component == axis:
+                continue
+            plane_axis = component if component < axis else component - 1
+            tangent = _first_derivative_3d(
+                face_value,
+                _boundary_spacing(component, side),
+                axis=plane_axis,
+                periodic=domain.periodic_axes[component],
+            )
+            plane = plane.at[..., component].set(
+                jnp.where(patch_mask, tangent, plane[..., component])
+            )
+        return plane
 
     lower_plane = face_grad[_axis_index_nd(axis, 0, face_grad.ndim)]
     lower_normal = lower_plane[..., axis]
-    lower_coord = (lower_center - lower_value) / jnp.maximum(lower_distance, 1.0e-30)
+    lower_coord = (
+        -3.0 * lower_value
+        + 4.0 * lower_center
+        - lower_next_center
+    ) / jnp.maximum(4.0 * lower_distance, 1.0e-30)
     if lower_patch_allowed:
+        lower_tangent_mask = lower_mask & (
+            (lower_kind == BC_DIRICHLET) | (lower_kind == BC_NEUMANN)
+        )
+        lower_face_value = jnp.where(
+            lower_kind == BC_DIRICHLET,
+            lower_value,
+            lower_center + lower_value * lower_distance,
+        )
+        lower_plane = _patch_tangential_components(
+            lower_plane,
+            face_value=lower_face_value,
+            patch_mask=lower_tangent_mask,
+            side="lower",
+        )
         lower_plane = lower_plane.at[..., axis].set(
             jnp.where(lower_mask & (lower_kind == BC_DIRICHLET), lower_coord, lower_normal)
         )
@@ -1641,7 +1755,25 @@ def _patch_local_axis_face_gradients(
 
     upper_plane = face_grad[_axis_index_nd(axis, -1, face_grad.ndim)]
     upper_normal = upper_plane[..., axis]
-    upper_coord = (upper_value - upper_center) / jnp.maximum(upper_distance, 1.0e-30)
+    upper_coord = (
+        3.0 * upper_value
+        - 4.0 * upper_center
+        + upper_prev_center
+    ) / jnp.maximum(4.0 * upper_distance, 1.0e-30)
+    upper_tangent_mask = upper_mask & (
+        (upper_kind == BC_DIRICHLET) | (upper_kind == BC_NEUMANN)
+    )
+    upper_face_value = jnp.where(
+        upper_kind == BC_DIRICHLET,
+        upper_value,
+        upper_center + upper_value * upper_distance,
+    )
+    upper_plane = _patch_tangential_components(
+        upper_plane,
+        face_value=upper_face_value,
+        patch_mask=upper_tangent_mask,
+        side="upper",
+    )
     upper_plane = upper_plane.at[..., axis].set(
         jnp.where(upper_mask & (upper_kind == BC_DIRICHLET), upper_coord, upper_normal)
     )
@@ -2113,6 +2245,46 @@ def local_perp_laplacian_conservative_op(
     """Return the domain-decomposed conservative perpendicular Laplacian."""
 
     cv_flux = build_local_perp_laplacian_stencil(
+        local,
+        geometry,
+        domain,
+        face_projectors=face_projectors,
+        face_bc=face_bc,
+        regular_face_geometry=regular_face_geometry,
+        cell_volume=cell_volume,
+        cut_wall_geometry=cut_wall_geometry,
+        cut_wall_bc=cut_wall_bc,
+        axis_regular_axes=axis_regular_axes,
+        b_floor=b_floor,
+    )
+    return local_divergence_conservative_op(cv_flux, geometry, jacobian_floor=jacobian_floor)
+
+
+def local_parallel_laplacian_conservative_op(
+    local: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None = None,
+    face_bc: LocalBoundaryFaceBC3D | None = None,
+    regular_face_geometry: LocalRegularFaceGeometry3D | None = None,
+    cell_volume: LocalCellVolumeGeometry3D | None = None,
+    cut_wall_geometry: LocalCutWallGeometry3D | None = None,
+    cut_wall_bc: LocalCutWallBC3D | None = None,
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    b_floor: float = 1.0e-30,
+    jacobian_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Return the domain-decomposed conservative parallel Laplacian."""
+
+    if face_projectors is None:
+        face_projectors = build_local_parallel_laplacian_face_projectors(
+            geometry,
+            domain,
+            b_floor=b_floor,
+            axis_regular_axes=axis_regular_axes,
+        )
+    cv_flux = build_local_projected_laplacian_flux_stencil(
         local,
         geometry,
         domain,
@@ -2990,7 +3162,8 @@ def _mg_apply_negative_perp_laplacian(field: jnp.ndarray, level: PerpLaplacianMg
         raise ValueError(f"field must have shape {level.shape}, got {values.shape}")
     if level.has_nullspace:
         values = _remove_weighted_mean(values, level.geometry)
-    local = level.stencil_builder(
+    local = _build_global_conservative_stencil_compat(
+        level.stencil_builder,
         values,
         level.geometry,
         periodic_axes=level.periodic_axes,
@@ -3480,7 +3653,8 @@ class PerpLaplacianInverseSolver:
         values = jnp.asarray(phi, dtype=jnp.float64)
         if project_mean_zero:
             values = _remove_weighted_mean(values, self.geometry)
-        local = self.stencil_builder(
+        local = _build_global_conservative_stencil_compat(
+            self.stencil_builder,
             values,
             self.geometry,
             periodic_axes=self.periodic_axes,
@@ -3976,6 +4150,294 @@ class PerpLaplacianInverseSolver:
                 "phi_finite": bool(phi_is_finite),
             }
         return phi
+
+
+def _homogeneous_local_face_bc(face_bc: LocalBoundaryFaceBC3D) -> LocalBoundaryFaceBC3D:
+    return dataclass_replace(
+        face_bc,
+        value_x=jnp.zeros_like(face_bc.value_x, dtype=jnp.float64),
+        value_y=jnp.zeros_like(face_bc.value_y, dtype=jnp.float64),
+        value_z=jnp.zeros_like(face_bc.value_z, dtype=jnp.float64),
+    )
+
+
+def _homogeneous_local_cut_wall_bc(cut_wall_bc: LocalCutWallBC3D) -> LocalCutWallBC3D:
+    return LocalCutWallBC3D(
+        kind=cut_wall_bc.kind,
+        value=jnp.zeros_like(cut_wall_bc.value, dtype=jnp.float64),
+        active=cut_wall_bc.active,
+        max_wall_faces=cut_wall_bc.max_wall_faces,
+    )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalPerpLaplacianInverseSolver:
+    """SPMD GMRES adapter for local conservative perpendicular-Laplacian inversion."""
+
+    geometry: LocalFciGeometry3D
+    domain: LocalDomain3D
+    stencil_builder: LocalConservativeStencilBuilder = (
+        build_local_conservative_stencil_from_field
+    )
+    halo_exchange: HaloExchange3D | None = None
+    topology_filler: TopologyHaloFiller3D | None = None
+    physical_ghost_filler: PhysicalGhostCellFiller3D | None = None
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None = None
+    regular_face_geometry: LocalRegularFaceGeometry3D | None = None
+    cut_wall_geometry: LocalCutWallGeometry3D | None = None
+    cut_wall_bc: LocalCutWallBC3D | None = None
+    face_bc: LocalBoundaryFaceBC3D | None = None
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False)
+    b_floor: float = 1.0e-30
+    jacobian_floor: float = 1.0e-30
+    config: SpmdGmresConfig = SpmdGmresConfig()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.geometry, LocalFciGeometry3D):
+            raise TypeError("geometry must be a LocalFciGeometry3D instance")
+        if not isinstance(self.domain, LocalDomain3D):
+            raise TypeError("domain must be a LocalDomain3D instance")
+        if self.geometry.layout != self.domain.layout:
+            raise ValueError("geometry and domain must share the same HaloLayout3D")
+        if not isinstance(self.stencil_builder, LocalConservativeStencilBuilder):
+            raise TypeError("stencil_builder must be a LocalConservativeStencilBuilder")
+        if self.halo_exchange is not None and not isinstance(self.halo_exchange, HaloExchange3D):
+            raise TypeError("halo_exchange must be a HaloExchange3D or None")
+        if self.topology_filler is not None and not isinstance(
+            self.topology_filler,
+            TopologyHaloFiller3D,
+        ):
+            raise TypeError("topology_filler must be a TopologyHaloFiller3D or None")
+        if self.physical_ghost_filler is not None and not isinstance(
+            self.physical_ghost_filler,
+            PhysicalGhostCellFiller3D,
+        ):
+            raise TypeError(
+                "physical_ghost_filler must be a PhysicalGhostCellFiller3D or None"
+            )
+        if self.regular_face_geometry is not None and not isinstance(
+            self.regular_face_geometry,
+            LocalRegularFaceGeometry3D,
+        ):
+            raise TypeError(
+                "regular_face_geometry must be a LocalRegularFaceGeometry3D or None"
+            )
+        if self.cut_wall_geometry is not None and not isinstance(
+            self.cut_wall_geometry,
+            LocalCutWallGeometry3D,
+        ):
+            raise TypeError("cut_wall_geometry must be a LocalCutWallGeometry3D or None")
+        if self.cut_wall_bc is not None and not isinstance(self.cut_wall_bc, LocalCutWallBC3D):
+            raise TypeError("cut_wall_bc must be a LocalCutWallBC3D or None")
+        if self.face_bc is not None and not isinstance(self.face_bc, LocalBoundaryFaceBC3D):
+            raise TypeError("face_bc must be a LocalBoundaryFaceBC3D or None")
+        axis_regular_axes = tuple(bool(value) for value in self.axis_regular_axes)
+        if len(axis_regular_axes) != 3:
+            raise ValueError("axis_regular_axes must have length 3")
+        object.__setattr__(self, "axis_regular_axes", axis_regular_axes)
+        if not isinstance(self.config, SpmdGmresConfig):
+            raise TypeError("config must be a SpmdGmresConfig instance")
+        object.__setattr__(self, "b_floor", float(self.b_floor))
+        object.__setattr__(self, "jacobian_floor", float(self.jacobian_floor))
+
+    def _default_face_bc(self) -> LocalBoundaryFaceBC3D:
+        return self.face_bc or LocalBoundaryFaceBC3D.empty(self.domain.layout)
+
+    def _default_cut_wall_geometry(self) -> LocalCutWallGeometry3D:
+        if self.cut_wall_geometry is not None:
+            return self.cut_wall_geometry
+        if self.cut_wall_bc is not None:
+            return LocalCutWallGeometry3D.empty(self.cut_wall_bc.max_wall_faces)
+        return LocalCutWallGeometry3D.empty(0)
+
+    def _default_cut_wall_bc(self) -> LocalCutWallBC3D:
+        if self.cut_wall_bc is not None:
+            return self.cut_wall_bc
+        return LocalCutWallBC3D.empty(self._default_cut_wall_geometry().max_wall_faces)
+
+    def _apply_A(
+        self,
+        field_owned: jnp.ndarray,
+        *,
+        face_bc: LocalBoundaryFaceBC3D,
+        cut_wall_bc: LocalCutWallBC3D,
+        project_mean_zero: bool,
+    ) -> jnp.ndarray:
+        values = jnp.asarray(field_owned, dtype=jnp.float64)
+        if project_mean_zero:
+            values = _spmd_remove_weighted_mean(values, self.geometry, self.domain)
+
+        field_halo = inject_owned_field_to_halo(values, self.domain.layout)
+        if self.halo_exchange is not None:
+            field_halo = self.halo_exchange(field_halo, self.domain)
+        if self.topology_filler is not None:
+            field_halo = self.topology_filler(field_halo, self.domain)
+        if self.physical_ghost_filler is not None:
+            field_halo = self.physical_ghost_filler(
+                field_halo,
+                self.domain,
+                face_bc,
+            )
+
+        cut_wall_geometry = self._default_cut_wall_geometry()
+        context = StencilBuilderContext(
+            layout=self.domain.layout,
+            domain=self.domain,
+            cut_wall_geometry=cut_wall_geometry,
+            cut_wall_bc=cut_wall_bc,
+        )
+        local = self.stencil_builder(field_halo, self.geometry, context)
+        face_projectors = self.face_projectors
+        if face_projectors is None:
+            face_projectors = build_local_perp_laplacian_face_projectors(
+                self.geometry,
+                self.domain,
+                b_floor=self.b_floor,
+                axis_regular_axes=self.axis_regular_axes,
+            )
+        result = -local_perp_laplacian_conservative_op(
+            local,
+            self.geometry,
+            self.domain,
+            face_projectors=face_projectors,
+            face_bc=face_bc,
+            regular_face_geometry=self.regular_face_geometry,
+            cut_wall_geometry=cut_wall_geometry,
+            cut_wall_bc=cut_wall_bc,
+            axis_regular_axes=self.axis_regular_axes,
+            b_floor=self.b_floor,
+            jacobian_floor=self.jacobian_floor,
+        )
+        if self.config.regularization_epsilon != 0.0:
+            result = result + self.config.regularization_epsilon * values
+        if project_mean_zero:
+            result = _spmd_remove_weighted_mean(result, self.geometry, self.domain)
+        return result
+
+    def __call__(
+        self,
+        rhs_owned: jnp.ndarray,
+        *,
+        guess_owned: jnp.ndarray | None = None,
+        phi_guess_owned: jnp.ndarray | None = None,
+        return_diagnostics: bool = False,
+    ) -> jnp.ndarray | tuple[jnp.ndarray, SpmdGmresInfo]:
+        rhs = jnp.asarray(rhs_owned, dtype=jnp.float64)
+        if rhs.shape != self.geometry.owned_shape:
+            raise ValueError(
+                f"rhs_owned must have shape {self.geometry.owned_shape}, got {rhs.shape}"
+            )
+        if guess_owned is not None and phi_guess_owned is not None:
+            raise ValueError("use only one of guess_owned or phi_guess_owned")
+        if guess_owned is None:
+            guess_owned = phi_guess_owned
+        if guess_owned is None:
+            guess = jnp.zeros_like(rhs)
+        else:
+            guess = jnp.asarray(guess_owned, dtype=jnp.float64)
+            if guess.shape != self.geometry.owned_shape:
+                raise ValueError(
+                    "guess_owned must have shape "
+                    f"{self.geometry.owned_shape}, got {guess.shape}"
+                )
+
+        face_bc = self._default_face_bc()
+        cut_wall_bc = self._default_cut_wall_bc()
+        homogeneous_face_bc = _homogeneous_local_face_bc(face_bc)
+        homogeneous_cut_wall_bc = _homogeneous_local_cut_wall_bc(cut_wall_bc)
+        project_mean_zero = bool(self.config.project_mean_zero)
+
+        boundary_source = self._apply_A(
+            jnp.zeros_like(rhs),
+            face_bc=face_bc,
+            cut_wall_bc=cut_wall_bc,
+            project_mean_zero=project_mean_zero,
+        )
+        linear_rhs = rhs - boundary_source
+        if project_mean_zero:
+            linear_rhs = _spmd_remove_weighted_mean(
+                linear_rhs,
+                self.geometry,
+                self.domain,
+            )
+
+        def apply_A(field_owned: jnp.ndarray) -> jnp.ndarray:
+            return self._apply_A(
+                field_owned,
+                face_bc=homogeneous_face_bc,
+                cut_wall_bc=homogeneous_cut_wall_bc,
+                project_mean_zero=project_mean_zero,
+            )
+
+        solution, info = spmd_gmres_solve(
+            apply_A,
+            linear_rhs,
+            guess,
+            self.geometry,
+            self.domain,
+            self.config,
+        )
+        if return_diagnostics:
+            return solution, info
+        return solution
+
+    def tree_flatten(self):
+        children = (
+            self.geometry,
+            self.domain,
+            self.stencil_builder,
+            self.halo_exchange,
+            self.topology_filler,
+            self.physical_ghost_filler,
+            self.face_projectors,
+            self.regular_face_geometry,
+            self.cut_wall_geometry,
+            self.cut_wall_bc,
+            self.face_bc,
+            self.config,
+        )
+        aux_data = (
+            self.axis_regular_axes,
+            self.b_floor,
+            self.jacobian_floor,
+        )
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        (
+            geometry,
+            domain,
+            stencil_builder,
+            halo_exchange,
+            topology_filler,
+            physical_ghost_filler,
+            face_projectors,
+            regular_face_geometry,
+            cut_wall_geometry,
+            cut_wall_bc,
+            face_bc,
+            config,
+        ) = children
+        axis_regular_axes, b_floor, jacobian_floor = aux_data
+        return cls(
+            geometry=geometry,
+            domain=domain,
+            stencil_builder=stencil_builder,
+            halo_exchange=halo_exchange,
+            topology_filler=topology_filler,
+            physical_ghost_filler=physical_ghost_filler,
+            face_projectors=face_projectors,
+            regular_face_geometry=regular_face_geometry,
+            cut_wall_geometry=cut_wall_geometry,
+            cut_wall_bc=cut_wall_bc,
+            face_bc=face_bc,
+            axis_regular_axes=axis_regular_axes,
+            b_floor=b_floor,
+            jacobian_floor=jacobian_floor,
+            config=config,
+        )
 
 
 

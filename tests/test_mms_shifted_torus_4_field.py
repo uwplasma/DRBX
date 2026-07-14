@@ -34,7 +34,7 @@ from jax_drb.native import (
     compute_4field_rhs,
     poisson_bracket_op,
     perp_laplacian_conservative_op,
-    rk4_step,
+    Rk4Stepper,
     sum_stage_outputs,
 )
 from jax_drb.native.fci_operators import PerpLaplacianInverseSolver, grad_parallel_op_direct
@@ -1488,7 +1488,12 @@ def shifted_torus_4field_rk4(
         rhs = rhs_result.rhs.axpy(source, scale=1.0)
         return rhs, stage_phi, timings
 
-    step_result = rk4_step(state, time=time, timestep=timestep, rhs_fn=_rhs_fn, carry=initial_phi_guess)
+    step_result = Rk4Stepper(_rhs_fn)(
+        state,
+        time=time,
+        timestep=timestep,
+        carry=initial_phi_guess,
+    )
     next_state = step_result.state
     phi4_start = time_module.perf_counter()
     phi_4, _diagnostics_4 = _reconstruct_phi_from_state(

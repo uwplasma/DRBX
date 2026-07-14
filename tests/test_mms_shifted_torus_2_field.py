@@ -23,7 +23,7 @@ from jax_drb.geometry import (
     build_local_stencil_from_field,
     logical_grid_from_axis_vectors,
 )
-from jax_drb.native import rk4_step, sum_stage_outputs
+from jax_drb.native import Rk4Stepper, sum_stage_outputs
 from jax_drb.native.fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldState, compute_2field_rhs
 from jax_drb.native.fci_boundaries import BC_DIRICHLET, BoundaryConditionBuilder, BoundaryFaceBC3D, CutWallBC3D, CutWallGeometry3D
 
@@ -548,7 +548,12 @@ def shifted_torus_2field_rk4(
         stage_timings = jnp.asarray([boundary_time, timings[0], timings[1]], dtype=jnp.float64)
         return rhs_result.rhs, None, stage_timings
 
-    step_result = rk4_step(state, time=time, timestep=timestep, rhs_fn=_rhs_fn, carry=None)
+    step_result = Rk4Stepper(_rhs_fn)(
+        state,
+        time=time,
+        timestep=timestep,
+        carry=None,
+    )
     next_state = step_result.state
     final_boundary_start = time_module.perf_counter()
     exact_final = _shifted_torus_exact_state(geometry, time + timestep)

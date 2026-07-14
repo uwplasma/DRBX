@@ -40,9 +40,9 @@ from jax_drb.native import (
     FciDrbEBBoundaryConditions,
     FciDrbEBRhsParameters,
     FciDrbEBState,
+    Rk4Stepper,
     compute_fci_drb_eb_rhs,
     perp_laplacian_conservative_op,
-    rk4_step,
 )
 from jax_drb.native.fci_boundaries import (
     BC_DIRICHLET,
@@ -963,7 +963,12 @@ def _rk4_step(
         rhs = _mms_rhs_with_sources(current_state, context, time=float(stage_time))
         return rhs, None, None
 
-    step_result = rk4_step(state, time=time, timestep=timestep, rhs_fn=_rhs_fn, carry=None)
+    step_result = Rk4Stepper(_rhs_fn)(
+        state,
+        time=time,
+        timestep=timestep,
+        carry=None,
+    )
     return step_result.state
 
 

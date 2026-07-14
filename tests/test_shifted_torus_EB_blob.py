@@ -44,7 +44,7 @@ from jax_drb.native.fci_drb_EB_rhs import FciDrbEBBoundaryConditions, FciDrbEBRh
 from jax_drb.native.fci_drb_EB_rhs import FciDrbEBRhsParameters
 from jax_drb.native.fci_drb_EB_rhs import _multiply_local_stencils
 from jax_drb.native.fci_drb_EB_rhs import compute_fci_drb_eb_rhs
-from jax_drb.native import rk4_step
+from jax_drb.native import Rk4Stepper
 from jax_drb.native.fci_operators import (
     PerpLaplacianInverseSolver,
     _take_stencil_finite_difference,
@@ -2325,7 +2325,12 @@ def shifted_torus_eb_blob_rk4(
         }
         return rhs_result.rhs, phi, stage_stats
 
-    step_result = rk4_step(state, time=time, timestep=timestep, rhs_fn=_rhs_fn, carry=current_phi_guess)
+    step_result = Rk4Stepper(_rhs_fn)(
+        state,
+        time=time,
+        timestep=timestep,
+        carry=current_phi_guess,
+    )
     next_state = step_result.state
     phi4_start = time_module.perf_counter()
     phi_4, diagnostics_4 = _reconstruct_phi_from_state(
