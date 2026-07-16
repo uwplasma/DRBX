@@ -11,9 +11,8 @@ import pytest
 
 from jax_drb.cli import main
 import jax_drb.native as native_module
-from jax_drb.native import run_input_case
-from jax_drb.native.runner import NativeRestartState
-from jax_drb.parity.arrays import load_portable_array_payload
+from jax_drb.native import NativeRestartState, run_input_case
+from jax_drb.native.deck_runner import load_portable_array_payload
 from jax_drb.runtime import load_restart_bundle
 
 

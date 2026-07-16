@@ -7,7 +7,7 @@ trajectories, field samples, coil curves, and sanitized metadata as portable
 arrays for downstream geometry, FCI, and SOL-operator workflows.
 
 The active completion sequence is defined in
-[Research-Grade Execution Plan](research_grade_execution_plan.md#current-authoritative-open-lane-implementation-plan).
+[Research-Grade Execution Plan](research_grade_execution_plan.md).
 For `main`, the next direct-coil open-field target is the
 `direct_coil_open_sol_demo.py` workflow: first validate pure-coil FCI maps,
 endpoint masks, connection-length refinement, sheath/recycling/neutral source
@@ -21,7 +21,7 @@ bridges are separate lanes, not interchangeable interpretations of the same
 field-line artifact.
 
 The published import figures and arrays are restored by
-`python scripts/fetch_example_artifacts.py --skip-baselines`. Regenerating the
+`python scripts/fetch_example_artifacts.py`. Regenerating the
 field-line import from the external coil geometry is a developer workflow and
 requires the geometry source checkout:
 
@@ -89,9 +89,8 @@ imports the resulting field-line bundle into `jax_drb`. This replaces the
 previous internal annular coil-field proxy: no `jax_drb` source file now
 evaluates the coil magnetic field or traces the field lines.
 
-The companion
-[field-line/VMEC surface registration gate](essos_vmec_fieldline_surface.md)
-overlays independently traced coil-field Poincare points on the scaled
+The companion field-line/VMEC surface registration gate overlays
+independently traced coil-field Poincare points on the scaled
 Landreman-Paul QA VMEC surfaces used by the imported FCI and movie campaigns.
 That diagnostic is intentionally stricter than this import smoke gate: it
 records the current order-unity long-trace departure from the seeded VMEC

@@ -1,0 +1,235 @@
+"""Linear dispersion benchmarks B2 (resistive drift wave) and B3 (shear Alfven).
+
+These verify that the linear operators in :mod:`jax_drb.linear`, assembled
+directly from the reduced model equations, reproduce the analytic dispersion
+relations from the literature when diagonalized -- and that the general
+Jacobian-based engine recovers a known operator.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import jax.numpy as jnp
+import numpy as np
+import pytest
+
+from jax_drb.linear import (
+    drift_wave_adiabatic_frequency,
+    eigenmodes,
+    interchange_growth_rate,
+    interchange_operator,
+    jacobian_operator,
+    resistive_drift_wave_operator,
+    shear_alfven_frequency,
+    shear_alfven_operator,
+)
+
+
+def _mode_frequency(operator) -> float:
+    """Physical angular frequency |Im(lambda)| of the fastest eigenmode."""
+
+    modes = eigenmodes(operator)
+    return float(jnp.max(jnp.abs(modes.frequencies)))
+
+
+def _mode_growth(operator) -> float:
+    modes = eigenmodes(operator)
+    return float(modes.dominant_growth_rate)
+
+
+# --- B3: shear-Alfven wave with electron inertia --------------------------------
+
+_ALFVEN_SPEED = 3.2e6      # m/s
+_SKIN_DEPTH = 1.1e-3       # m
+
+
+@pytest.mark.parametrize("k_par", [10.0, 50.0, 200.0])
+@pytest.mark.parametrize("k_perp", [0.0, 100.0, 800.0])
+def test_shear_alfven_operator_matches_analytic_dispersion(k_par, k_perp) -> None:
+    operator = shear_alfven_operator(k_par, k_perp, _ALFVEN_SPEED, _SKIN_DEPTH)
+    numeric = _mode_frequency(operator)
+    analytic = float(shear_alfven_frequency(k_par, k_perp, _ALFVEN_SPEED, _SKIN_DEPTH))
+    assert numeric == pytest.approx(analytic, rel=1e-10)
+    # The ideal shear-Alfven wave is undamped: growth rate is zero.
+    assert abs(_mode_growth(operator)) < 1e-6 * analytic
+
+
+def test_shear_alfven_electron_inertia_lowers_frequency() -> None:
+    # Finite k_perp * d_e reduces the phase velocity below v_A * k_par.
+    ideal = float(shear_alfven_frequency(120.0, 0.0, _ALFVEN_SPEED, _SKIN_DEPTH))
+    inertial = float(shear_alfven_frequency(120.0, 900.0, _ALFVEN_SPEED, _SKIN_DEPTH))
+    assert inertial < ideal
+    assert _mode_frequency(
+        shear_alfven_operator(120.0, 900.0, _ALFVEN_SPEED, _SKIN_DEPTH)
+    ) == pytest.approx(inertial, rel=1e-10)
+
+
+# --- B2: resistive drift wave (Hasegawa-Wakatani) -------------------------------
+
+_KY = 0.5
+_KPERP2 = 0.5**2 + 0.3**2
+_KAPPA = 1.0
+
+
+def test_drift_wave_adiabatic_limit_recovers_drift_frequency() -> None:
+    # As alpha -> infinity the mode becomes adiabatic (phi ~ n) and oscillates
+    # at the diamagnetic drift frequency omega_star = kappa k_y / (1 + kperp^2).
+    operator = resistive_drift_wave_operator(_KY, _KPERP2, 1.0e6, _KAPPA)
+    omega_star = float(drift_wave_adiabatic_frequency(_KY, _KPERP2, _KAPPA))
+    assert _mode_frequency(operator) == pytest.approx(omega_star, rel=1e-3)
+    assert abs(_mode_growth(operator)) < 1e-3 * omega_star
+
+
+def test_drift_wave_is_unstable_at_finite_adiabaticity() -> None:
+    # Finite parallel resistivity (finite alpha) destabilizes the drift wave:
+    # the dominant eigenmode has a positive growth rate.
+    for alpha in (0.5, 1.0, 2.0):
+        growth = _mode_growth(resistive_drift_wave_operator(_KY, _KPERP2, alpha, _KAPPA))
+        assert growth > 0.0
+
+
+def test_drift_wave_growth_increases_toward_hydrodynamic_regime() -> None:
+    # Growth rate rises as alpha decreases from the adiabatic toward the
+    # hydrodynamic regime, a signature of the resistive drift instability.
+    growths = [
+        _mode_growth(resistive_drift_wave_operator(_KY, _KPERP2, alpha, _KAPPA))
+        for alpha in (10.0, 2.0, 0.5)
+    ]
+    assert growths[0] < growths[1] < growths[2]
+
+
+def test_drift_wave_needs_a_density_gradient() -> None:
+    # With zero gradient drive there is no instability and no real frequency.
+    operator = resistive_drift_wave_operator(_KY, _KPERP2, 1.0, 0.0)
+    assert _mode_growth(operator) <= 1e-12
+    assert _mode_frequency(operator) < 1e-12
+
+
+def test_drift_wave_eigenvalues_match_characteristic_polynomial() -> None:
+    # Independent check of the eigensolver: the eigenvalues must be the roots of
+    # lambda^2 - tr(A) lambda + det(A) = 0 for the 2x2 operator.
+    operator = np.asarray(resistive_drift_wave_operator(_KY, _KPERP2, 1.5, _KAPPA))
+    trace = operator[0, 0] + operator[1, 1]
+    determinant = operator[0, 0] * operator[1, 1] - operator[0, 1] * operator[1, 0]
+    roots = np.roots([1.0, -trace, determinant])
+    modes = eigenmodes(operator)
+    numeric = np.sort_complex(np.asarray(modes.eigenvalues))
+    assert np.allclose(numeric, np.sort_complex(roots), rtol=1e-10, atol=1e-12)
+
+
+# --- interchange / Rayleigh-Taylor mode -----------------------------------------
+
+@pytest.mark.parametrize("k_x,k_y,gravity,gradient", [
+    (0.3, 0.5, 1.0, 1.0),
+    (0.5, 1.0, 2.0, 0.8),
+    (0.8, 0.8, 0.5, 1.5),
+])
+def test_interchange_growth_matches_analytic(k_x, k_y, gravity, gradient) -> None:
+    # Bad curvature (g*kappa > 0): the dominant eigenvalue is the analytic
+    # interchange growth rate sqrt(g kappa) |k_y| / |k|.
+    kperp2 = k_x**2 + k_y**2
+    operator = interchange_operator(k_y, kperp2, gravity, gradient)
+    growth = _mode_growth(operator)
+    analytic = float(interchange_growth_rate(k_y, kperp2, gravity, gradient))
+    assert growth == pytest.approx(analytic, rel=1e-10)
+    assert growth > 0.0
+
+
+def test_interchange_is_stable_for_good_curvature() -> None:
+    # Good curvature (g*kappa < 0): a stable oscillation, no growth.
+    operator = interchange_operator(0.5, 0.34, gravity=1.0, gradient=-1.0)
+    assert abs(_mode_growth(operator)) < 1e-10
+    assert _mode_frequency(operator) > 0.0
+
+
+def test_interchange_is_a_flute_mode() -> None:
+    # Growth is largest for k_x -> 0 (field-aligned flute) and falls as k_x grows,
+    # since gamma ~ |k_y| / sqrt(k_x^2 + k_y^2).
+    k_y, gravity, gradient = 1.0, 1.0, 1.0
+    growth_low_kx = _mode_growth(interchange_operator(k_y, 0.01**2 + k_y**2, gravity, gradient))
+    growth_high_kx = _mode_growth(interchange_operator(k_y, 2.0**2 + k_y**2, gravity, gradient))
+    assert growth_low_kx > growth_high_kx
+    assert growth_low_kx == pytest.approx(float(jnp.sqrt(gravity * gradient)), rel=1e-3)
+
+
+# --- general engine -------------------------------------------------------------
+
+def test_linear_dispersion_example_runs(tmp_path, monkeypatch) -> None:
+    # Smoke-run the benchmark example at reduced resolution so CI keeps it alive.
+    import importlib.util
+
+    example = Path(__file__).resolve().parents[1] / "examples" / "benchmarks" / "linear_dispersion_demo.py"
+    spec = importlib.util.spec_from_file_location("_linear_dispersion_demo", example)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "OUTPUT_DIR", tmp_path / "linear_dispersion")
+    monkeypatch.setattr(module, "K_PERP_SCAN", np.linspace(0.0, 1500.0, 5))
+    monkeypatch.setattr(module, "ADIABATICITY_SCAN", np.geomspace(0.1, 100.0, 5))
+    module.main()
+    assert (tmp_path / "linear_dispersion" / "linear_dispersion.png").exists()
+    assert (tmp_path / "linear_dispersion" / "linear_dispersion.json").exists()
+
+
+def test_general_engine_linearizes_the_hasegawa_wakatani_model() -> None:
+    # The general jacobian_operator engine, applied to the real shipped
+    # Hasegawa-Wakatani right-hand side (linearized about the zero equilibrium,
+    # where its quadratic bracket vanishes), recovers the same growth spectrum as
+    # the per-mode analytic drift-wave operator -- to machine precision. This
+    # demonstrates "linearize any model" on a real nonlinear DRB model, not just
+    # the analytic reduced operators.
+    from jax_drb.native.hasegawa_wakatani import HasegawaWakataniParameters, hw_grid, hw_rhs
+
+    n = 4
+    length = 2.0 * np.pi * 3.0
+    grid = hw_grid(n, length)
+    params = HasegawaWakataniParameters(adiabaticity=1.0, gradient=1.0, hyperviscosity=0.0)
+    size = n * n
+
+    def unflatten(x):
+        zeta = (x[:size] + 1j * x[size:2 * size]).reshape(n, n)
+        density = (x[2 * size:3 * size] + 1j * x[3 * size:]).reshape(n, n)
+        return zeta, density
+
+    def flatten(zeta, density):
+        return jnp.concatenate(
+            [zeta.real.ravel(), zeta.imag.ravel(), density.real.ravel(), density.imag.ravel()]
+        )
+
+    def real_rhs(x):
+        zeta, density = unflatten(x)
+        d_zeta, d_density = hw_rhs(zeta, density, grid, params)
+        return flatten(d_zeta, d_density)
+
+    engine_growth = float(eigenmodes(jacobian_operator(real_rhs, jnp.zeros(4 * size))).dominant_growth_rate)
+
+    modes = np.fft.fftfreq(n, d=length / n) * 2.0 * np.pi
+    analytic_growth = 0.0
+    for k_x in modes:
+        for k_y in modes:
+            kperp2 = k_x * k_x + k_y * k_y
+            if kperp2 == 0.0:
+                continue
+            operator = resistive_drift_wave_operator(k_y, kperp2, 1.0, 1.0)
+            analytic_growth = max(analytic_growth, _mode_growth(operator))
+
+    assert engine_growth == pytest.approx(analytic_growth, rel=1e-8)
+
+
+def test_jacobian_operator_recovers_a_known_linear_system() -> None:
+    # A manufactured 3x3 system with prescribed eigenvalues: the Jacobian-based
+    # engine must recover the growth rates and frequencies of a linear rhs.
+    matrix = jnp.array(
+        [[-0.2, 3.0, 0.0], [-3.0, -0.2, 0.0], [0.0, 0.0, 0.5]],
+        dtype=jnp.float64,
+    )
+
+    def rhs(state):
+        return matrix @ state
+
+    modes = eigenmodes(jacobian_operator(rhs, jnp.zeros(3)))
+    growths = np.sort(np.asarray(modes.growth_rates))
+    freqs = np.sort(np.abs(np.asarray(modes.frequencies)))
+    # eigenvalues are 0.5 and -0.2 +/- 3i
+    assert np.allclose(growths, [-0.2, -0.2, 0.5], atol=1e-10)
+    assert np.allclose(freqs, [0.0, 3.0, 3.0], atol=1e-10)

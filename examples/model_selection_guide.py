@@ -117,8 +117,8 @@ MODEL_FAMILIES = (
         dimensions=("2D slab", "2D tokamak cross-section", "selected 3D field surfaces"),
         boundary_choices=("periodic", "zero-gradient", "zero-Dirichlet potential/vorticity guards"),
         starting_points=(
-            "examples/blob2d_meeting_demo.py",
-            "examples/alfven_wave_meeting_demo.py",
+            "src/jax_drb/validation/blob2d.py",
+            "src/jax_drb/validation/alfven_wave.py",
             "src/jax_drb/validation/drift_wave.py",
         ),
         caution="These are reduced benchmark lanes, not a substitute for full open-field recycling closure.",

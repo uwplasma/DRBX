@@ -14,7 +14,7 @@ VMEC-shaped metric for the imported logical grid, and then evaluates JAX-native
 sheath/recycling and neutral reaction-diffusion closures on those maps.
 
 The current authoritative promotion sequence is in
-[Research-Grade Execution Plan](research_grade_execution_plan.md#current-authoritative-open-lane-implementation-plan).
+[Research-Grade Execution Plan](research_grade_execution_plan.md).
 In that sequence, `coil`, `vmec`, and `hybrid` have different meanings:
 direct-coil open-field maps must pass their own endpoint and connection-length
 gates before a movie can be promoted; VMEC maps are closed-field controls; and
@@ -194,7 +194,7 @@ source/profile, neutral-source, target-flux, and movie-QA gates on the same
 consumed endpoint masks.
 
 The published FCI validation figures and arrays are restored by
-`python scripts/fetch_example_artifacts.py --skip-baselines`. The regeneration
+`python scripts/fetch_example_artifacts.py`. The regeneration
 script follows the same top-level-parameter style as the SIMSOPT examples:
 edit `MAP_SOURCES_TO_RUN`, `DRY_RUN`, `WRITE_DRY_RUN_ARTIFACTS`, grid size, and
 optional external input paths at the top of
@@ -573,10 +573,9 @@ the preferred open-field SOL bridge. All three routes pass and feed the same
 JAX-native closure kernels used by the synthetic non-axisymmetric validation
 suite.
 
-The next imported-map gate is documented in
-[ESSOS imported PyTree/JVP validation](essos_imported_pytree_validation.md).
-It drives the fixed-layout drift-reduced Braginskii PyTree RHS, `jax.jvp`, and
-`jax.vmap` checks from the same external field-line map construction.
+The imported-map PyTree/JVP gate drives the fixed-layout drift-reduced
+Braginskii PyTree RHS, `jax.jvp`, and `jax.vmap` checks from the same external
+field-line map construction.
 
 ## Artifact Files
 

@@ -170,8 +170,8 @@ This is the discrete \(E\times B\) nonlinear coupling used by the compact
 non-axisymmetric demonstration. The coefficients in the example are labeled as
 explicit timestep/model strengths, not fitted physical constants. For
 publication-grade turbulence claims, use this script as a starting point and
-then run grid-refinement, timestep-sensitivity, and reference-comparison
-campaigns before interpreting the resulting transport metrics.
+then run grid-refinement and timestep-sensitivity campaigns before
+interpreting the resulting transport metrics.
 
 ## Nonlinear Reduced Turbulence Example
 
@@ -206,7 +206,6 @@ the stellarator island-divertor turbulence articles linked from
 [docs/stellarator_fci_validation.md](stellarator_fci_validation.md), and the
 broader edge/SOL modeling context in the
 [GBS code paper](https://www.sciencedirect.com/science/article/pii/S0021999116001923),
-[Hermes-3 paper](https://www.sciencedirect.com/science/article/pii/S0010465523003363),
 and [GENE-X edge/SOL paper](https://www.sciencedirect.com/science/article/pii/S0010465521000989).
 
 After the nonlinear script writes the NPZ history, run

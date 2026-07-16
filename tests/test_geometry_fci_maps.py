@@ -13,17 +13,8 @@ from jax_drb.native.fci import (
     logical_exb_bracket_xz,
     metric_weighted_scalar_laplacian_3d,
 )
-from jax_drb.native.fci_sheath_recycling import compute_fci_sheath_recycling, fci_sheath_recycling_field_rhs
+from jax_drb.native.fci_sheath_recycling import compute_fci_sheath_recycling
 from jax_drb.native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
-from jax_drb.native.recycling_fixed_residual import (
-    build_fixed_array_rhs,
-    build_fixed_backward_euler_residual,
-    fixed_residual_jvp_action,
-    fixed_state_from_fields,
-    linearize_fixed_residual_action,
-    pack_fixed_state,
-)
-from jax_drb.native.recycling_layout import RecyclingPackedStateLayout
 
 
 def test_synthetic_stellarator_geometry_metric_and_maps_are_valid() -> None:
@@ -154,88 +145,6 @@ def test_logical_exb_bracket_xz_matches_periodic_cartesian_mms() -> None:
     slope, _ = np.polyfit(np.log(1.0 / resolutions.astype(np.float64)), np.log(np.asarray(errors)), 1)
     assert float(slope) > 1.6
     assert errors[-1] < 0.45 * errors[0]
-
-
-def test_fci_sheath_recycling_promotes_to_fixed_layout_rhs() -> None:
-    geometry = build_synthetic_stellarator_geometry(nx=8, ny=6, nz=12)
-    shape = geometry.shape
-    fields = {
-        "Ni": np.asarray(1.0 + 0.1 * geometry.radial, dtype=np.float64),
-        "Ne": np.asarray(1.0 + 0.1 * geometry.radial, dtype=np.float64),
-        "Nn": np.asarray(0.2 + 0.05 * geometry.radial, dtype=np.float64),
-        "Pi": np.asarray(0.08 + 0.02 * geometry.radial, dtype=np.float64),
-        "Pe": np.asarray(0.10 + 0.03 * geometry.radial, dtype=np.float64),
-        "Pn": np.asarray(0.01 + 0.002 * geometry.radial, dtype=np.float64),
-    }
-    field_names = tuple(fields)
-    layout = RecyclingPackedStateLayout(
-        field_names=field_names,
-        feedback_names=(),
-        active_slices=(slice(None), slice(None), slice(None)),
-        active_shape=shape,
-        field_size=int(np.prod(shape)) * len(field_names),
-        field_templates=tuple(fields[name] for name in field_names),
-    )
-    state = fixed_state_from_fields(fields, feedback_integrals={}, layout=layout)
-    rhs_function = build_fixed_array_rhs(
-        lambda active_fields, _feedback: fci_sheath_recycling_field_rhs(
-            active_fields,
-            geometry.maps,
-            recycling_fraction=0.95,
-        ),
-        layout=layout,
-    )
-
-    rhs_state = rhs_function(state)
-    rhs_fields = {name: value for name, value in zip(field_names, rhs_state.field_values, strict=True)}
-
-    assert float(jnp.sum(rhs_fields["Ni"])) < 0.0
-    assert float(jnp.sum(rhs_fields["Nn"])) > 0.0
-    assert float(jnp.abs(jnp.sum(rhs_fields["Ne"] - rhs_fields["Ni"]))) < 1.0e-12
-    assert float(jnp.abs(jnp.sum(rhs_fields["Nn"]) + 0.95 * jnp.sum(rhs_fields["Ni"]))) < 1.0e-12
-
-
-def test_fixed_residual_jvp_action_matches_finite_difference() -> None:
-    geometry = build_synthetic_stellarator_geometry(nx=6, ny=5, nz=10)
-    shape = geometry.shape
-    fields = {
-        "Ni": np.asarray(1.0 + 0.1 * geometry.radial, dtype=np.float64),
-        "Ne": np.asarray(1.0 + 0.1 * geometry.radial, dtype=np.float64),
-        "Nn": np.asarray(0.2 + 0.05 * geometry.radial, dtype=np.float64),
-        "Pi": np.asarray(0.08 + 0.02 * geometry.radial, dtype=np.float64),
-        "Pe": np.asarray(0.10 + 0.03 * geometry.radial, dtype=np.float64),
-        "Pn": np.asarray(0.01 + 0.002 * geometry.radial, dtype=np.float64),
-    }
-    field_names = tuple(fields)
-    layout = RecyclingPackedStateLayout(
-        field_names=field_names,
-        feedback_names=(),
-        active_slices=(slice(None), slice(None), slice(None)),
-        active_shape=shape,
-        field_size=int(np.prod(shape)) * len(field_names),
-        field_templates=tuple(fields[name] for name in field_names),
-    )
-    state = fixed_state_from_fields(fields, feedback_integrals={}, layout=layout)
-    packed = pack_fixed_state(state)
-    rhs_function = build_fixed_array_rhs(
-        lambda active_fields, _feedback: fci_sheath_recycling_field_rhs(active_fields, geometry.maps),
-        layout=layout,
-    )
-    residual = build_fixed_backward_euler_residual(
-        rhs_function,
-        layout=layout,
-        previous_packed_state=packed,
-        timestep=1.0e-3,
-    )
-    tangent = jnp.linspace(-0.2, 0.3, packed.size, dtype=jnp.float64)
-
-    jvp_action = fixed_residual_jvp_action(residual, packed, tangent)
-    residual_value, linear_action = linearize_fixed_residual_action(residual, packed)
-    finite_difference = (residual(packed + 1.0e-5 * tangent) - residual(packed - 1.0e-5 * tangent)) / 2.0e-5
-
-    assert float(jnp.max(jnp.abs(residual_value - residual(packed)))) < 1.0e-12
-    assert float(jnp.max(jnp.abs(jvp_action - linear_action(tangent)))) < 1.0e-12
-    assert float(jnp.max(jnp.abs(jvp_action - finite_difference))) < 1.0e-6
 
 
 def test_fci_drb_pytree_rhs_is_jvp_transformable() -> None:

@@ -53,9 +53,9 @@ Build the lightweight docs locally:
 python -m mkdocs build --clean --site-dir /tmp/jax_drb_docs
 ```
 
-## Optional Reference Campaigns
+## Optional External Geometry Campaigns
 
-Some validation campaigns compare against external reference outputs. Those
-workflows use environment variables such as `JAX_DRB_REFERENCE_ROOT` or
-`JAX_DRB_ESSOS_ROOT` and are documented on their campaign pages. They are not
-required for installation or for the basic native examples.
+Some validation campaigns import externally traced field-line data. Those
+workflows use environment variables such as `JAX_DRB_ESSOS_ROOT` and are
+documented on their campaign pages. They are not required for installation or
+for the basic native examples.

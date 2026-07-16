@@ -10,10 +10,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from jax_drb.runtime.artifacts import (  # noqa: E402
-    ensure_docs_media,
-    ensure_reference_baselines,
-)
+from jax_drb.runtime.artifacts import ensure_docs_media  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
@@ -35,11 +32,6 @@ def _parse_args() -> argparse.Namespace:
         help="Do not restore docs figures, movies, and NPZ arrays.",
     )
     parser.add_argument(
-        "--skip-baselines",
-        action="store_true",
-        help="Do not restore reference baseline NPZ files.",
-    )
-    parser.add_argument(
         "--force",
         action="store_true",
         help="Re-download and re-extract artifacts even if sentinels exist.",
@@ -58,18 +50,12 @@ def _auth_hint() -> str:
 def main() -> None:
     args = _parse_args()
     root = args.root.expanduser().resolve()
-    if args.skip_media and args.skip_baselines:
-        raise SystemExit(
-            "Nothing to fetch: both --skip-media and --skip-baselines were set."
-        )
+    if args.skip_media:
+        raise SystemExit("Nothing to fetch: --skip-media was set.")
 
     try:
-        if not args.skip_media:
-            docs_data = ensure_docs_media(root=root, force=args.force)
-            print(f"Restored docs media under {docs_data}")
-        if not args.skip_baselines:
-            baselines = ensure_reference_baselines(root=root, force=args.force)
-            print(f"Restored reference baselines under {baselines}")
+        docs_data = ensure_docs_media(root=root, force=args.force)
+        print(f"Restored docs media under {docs_data}")
     except Exception as error:
         print(_auth_hint(), file=sys.stderr)
         print(f"{type(error).__name__}: {error}", file=sys.stderr)

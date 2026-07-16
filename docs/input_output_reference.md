@@ -9,15 +9,15 @@ Python entry points, and artifacts.
 
 | Input family | Used by | What to edit |
 | --- | --- | --- |
-| TOML native decks | `jax_drb run`, `jax_drb inspect`, `jax_drb run-case` staging | Time, runtime precision, mesh, solver settings, model components, species, fields, output, restart |
+| TOML native decks | `jax_drb run`, `jax_drb inspect` | Time, runtime precision, mesh, solver settings, model components, species, fields, output, restart |
 | Python example constants | scripts under `examples/` | Constants near the top of the file: grid sizes, timestep, output directory, model flags, plotting toggles |
-| Release-backed artifacts | movies, docs galleries, cached user examples, cached parity checks | Restored by `scripts/fetch_example_artifacts.py`; do not edit by hand |
-| Developer reference roots | live parity refresh and heavy external-geometry regeneration | `--reference-root`, `JAX_DRB_REFERENCE_ROOT`, or geometry-specific environment variables |
+| Release-backed artifacts | movies, docs galleries, cached user examples | Restored by `scripts/fetch_example_artifacts.py`; do not edit by hand |
+| Developer geometry roots | heavy external-geometry regeneration | Geometry-specific environment variables |
 | Imported geometry payloads | ESSOS/VMEC/VMEC-extender workflows | Field-line arrays, VMEC-coordinate maps, compact NetCDF edge-field grids, metadata JSON |
 
 Most user examples are self-contained after artifact restoration and do not
-require external plasma-code installations. Developer/live-reference commands
-are documented separately and require explicit local reference inputs.
+require external plasma-code installations. Developer geometry-regeneration
+commands are documented separately and require explicit local inputs.
 
 ## TOML Decks
 
@@ -125,24 +125,6 @@ The executable is `jax_drb`. Running a TOML path directly is equivalent to
 | --- | --- | --- | --- |
 | `jax_drb run input.toml` | Run a native input deck | TOML deck, optional restart | summary JSON, arrays NPZ, restart NPZ, run log |
 | `jax_drb inspect input.toml` | Parse and print the resolved plan without advancing | TOML deck | terminal plan summary |
-| `jax_drb reference-cases` | List curated reference-backed cases | optional reference root | terminal or JSON case list |
-| `jax_drb run-reference-case` | Stage and run a curated external-reference case | reference root, case name, workdir | reference run artifacts and portable summary |
-| `jax_drb run-case` | Run a curated case through native JAXDRB | reference root or fixture deck, case name | portable native summary |
-| `jax_drb validate-reference-baselines` | Re-run cached reference-baseline checks | baseline directory or release-restored files | validation report |
-| `jax_drb compare-summary` | Compare portable summary JSON files | expected and actual JSON | scalar diff report |
-| `jax_drb compare-arrays` | Compare portable NPZ payloads | expected and actual NPZ | array diff report |
-| `jax_drb compare-recycling` | Localize recycling parity differences | compact reference/native artifacts | worst-variable/cell report |
-| `jax_drb analyze-drift-wave` | Analyze a drift-wave array payload | NPZ payload | benchmark scalars |
-| `jax_drb compare-drift-wave` | Compare drift-wave payloads | two payloads | parity metrics |
-| `jax_drb analyze-alfven-wave` | Analyze an Alfven-wave payload | NPZ payload | benchmark scalars |
-| `jax_drb compare-alfven-wave` | Compare Alfven-wave payloads | two payloads | parity metrics |
-| `jax_drb compare-blob2d` | Compare blob benchmark artifacts | JSON/NPZ payloads | peak and center-of-mass metrics |
-| `jax_drb analyze-neutral-mixed` | Analyze neutral-mixed payloads | NPZ payload | transient metrics |
-| `jax_drb compare-neutral-mixed` | Compare neutral-mixed payloads | analysis JSON or NPZ payloads | compact parity metrics |
-| `jax_drb diagnose-neutral-mixed-substeps` | Rank hybrid-state NVh parity drivers | reference/native traces | offender report |
-| `jax_drb trace-neutral-mixed-accepted-steps` | Write native accepted-step trace | neutral-mixed input/case | JSONL trace |
-| `jax_drb trace-neutral-mixed-reference-accepted-steps` | Run patched reference trace | reference root and case | JSONL trace |
-| `jax_drb compare-neutral-mixed-accepted-traces` | Compare accepted-step traces | native/reference JSONL | state-history and term-level diff report |
 
 Common commands:
 
@@ -178,8 +160,7 @@ Common Python entry points:
 
 | API | Source | Purpose |
 | --- | --- | --- |
-| `run_input_case` | [`src/jax_drb/native/runner.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/runner.py) | Run a TOML deck and return structured native output |
-| `run_curated_case` | [`src/jax_drb/native/runner.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/runner.py) | Run curated validation cases through native JAXDRB |
+| `run_input_case` | [`src/jax_drb/native/deck_runner.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/deck_runner.py) | Run a TOML deck and return structured native output |
 | `load_run_config` | [`src/jax_drb/runtime/run_config.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/runtime/run_config.py) | Parse runtime configuration |
 | `write_run_outputs` and output helpers | [`src/jax_drb/runtime/output.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/runtime/output.py) | Write summary, arrays, restart, and run-log artifacts |
 | `compute_fci_drb_rhs` | [`src/jax_drb/native/fci_drb_rhs.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci_drb_rhs.py) | Evaluate compact 3D FCI DRB RHS terms |
@@ -192,16 +173,15 @@ When `[output]` enables every public artifact, the runtime writes:
 | Artifact | Format | Contents | Typical use |
 | --- | --- | --- | --- |
 | `<case>_summary.json` | JSON | scalar metadata, capability tier, runtime configuration, variable summaries, output manifest | quick inspection, docs tables, CI checks |
-| `<case>_arrays.npz` | NPZ | field arrays and time histories | plotting, parity, analysis scripts |
+| `<case>_arrays.npz` | NPZ | field arrays and time histories | plotting and analysis scripts |
 | `<case>_restart.npz` | NPZ | restart payload with fields and metadata | resume native runs |
 | `<case>_run_log.json` | JSON | ordered runtime events, progress messages, artifact paths, sanitized runtime metadata | long-run monitoring and reproducibility |
 | validation report | JSON | campaign settings, metrics, thresholds, capability tier, literature/reference notes | docs and paper figures |
 | validation arrays | NPZ | campaign arrays used to make plots | regeneration and review |
 | validation figures | PNG/GIF | publication-style plots and movies | docs, README, manuscript |
 
-The run log is designed for long calculations. On live native implicit
-recycling lanes it records interval progress, accepted timestep, simulated
-time, elapsed wall time, and estimated remaining wall time.
+The run log is designed for long calculations. It records the ordered event
+stream, artifact paths, and sanitized runtime metadata for each run.
 
 ## Where Outputs Go
 
@@ -217,20 +197,14 @@ Use these conventions:
 | Trying a tutorial locally | `output/<case_name>/` |
 | Regenerating a documented example figure | the script default under `docs/data/<case>_artifacts/` |
 | Running heavy profiling | `tmp/profiles/<profile_name>/` |
-| Running a live reference campaign | explicit scratch directory outside the repo or under ignored `tmp/` |
+| Running a heavy geometry-regeneration campaign | explicit scratch directory outside the repo or under ignored `tmp/` |
 
 ## Artifact Restore And No-Bloat Policy
 
 The repository tracks source code, documentation, small fixtures, and small
-machine-readable reports. Large media and baselines are release-hosted.
+machine-readable reports. Large media are release-hosted.
 
-Restore only user-facing media:
-
-```bash
-python scripts/fetch_example_artifacts.py --skip-baselines
-```
-
-Restore media plus cached baselines:
+Restore user-facing media:
 
 ```bash
 python scripts/fetch_example_artifacts.py
@@ -240,7 +214,7 @@ Use a shared cache:
 
 ```bash
 export JAX_DRB_ARTIFACT_CACHE_DIR=/path/to/cache
-python scripts/fetch_example_artifacts.py --skip-baselines
+python scripts/fetch_example_artifacts.py
 ```
 
 For private-repository users, authenticate with `gh auth login --hostname
@@ -252,9 +226,8 @@ Every promoted or curated result should be interpreted through its tier:
 
 | Tier | Meaning |
 | --- | --- |
-| `native_exact` | Strong enough for the main promoted native benchmark surface. |
+| `native_exact` | Strong enough for the main native benchmark surface. |
 | `native_operational` | Native and useful, but still carrying bounded residuals or reduced fidelity. |
-| `scaffolded_reference_backed` | Useful for diagnostics or geometry staging, but not counted as native closure. |
 
 The tier is written to summaries, run logs, and validation artifacts so docs
 figures and paper figures do not overstate the solver claim.
@@ -267,7 +240,6 @@ For implementation details, use:
 | --- | --- |
 | CLI parsing and command dispatch | [`src/jax_drb/cli.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/cli.py) |
 | Runtime state and output writing | [`src/jax_drb/runtime`](https://github.com/uwplasma/jax_drb/tree/main/src/jax_drb/runtime) |
-| Native run orchestration | [`src/jax_drb/native/runner.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/runner.py) |
-| Fixed-layout recycling residuals | [`src/jax_drb/native/recycling_fixed_residual.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/recycling_fixed_residual.py) |
+| Native run orchestration | [`src/jax_drb/native/deck_runner.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/deck_runner.py) |
 | 3D FCI geometry and RHS terms | [`src/jax_drb/native/fci.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`src/jax_drb/native/fci_drb_rhs.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci_drb_rhs.py) |
 | Validation campaigns and plotting | [`src/jax_drb/validation`](https://github.com/uwplasma/jax_drb/tree/main/src/jax_drb/validation) |

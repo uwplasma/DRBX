@@ -16,7 +16,7 @@ research use.
 Current execution status:
 
 - The active priority order is defined in
-  [Research-Grade Execution Plan](research_grade_execution_plan.md#current-authoritative-open-lane-implementation-plan),
+  [Research-Grade Execution Plan](research_grade_execution_plan.md),
   not in this appendix.
 - The analytic non-axisymmetric lane below is the reusable validation baseline
   for metrics, FCI operators, sheath/recycling, neutrals, vorticity, and
@@ -109,9 +109,6 @@ The first native lane now consists of:
   transformable PyTree RHS combining sheath/recycling, neutral
   diffusion/reactions, vorticity diffusion, and the Boussinesq/non-Boussinesq
   potential-inversion seam.
-- `src/jax_drb/native/recycling_fixed_residual.py`, which now exposes
-  `linearize_fixed_residual_action` and `fixed_residual_jvp_action` for
-  JAX-native Jacobian-vector products on fixed-layout residuals.
 - `src/jax_drb/geometry/essos_import.py`, which imports ESSOS-produced
   trajectories, Poincare sections, field samples, and coil curves into
   portable arrays without maintaining a duplicate coil-field or field-line
@@ -215,8 +212,7 @@ The imported PyTree/JVP artifacts live in
 three map sources feed the fixed-layout RHS and differentiability gates.
 The imported QA movie artifacts live in
 `docs/data/essos_imported_drb_movie_artifacts/` and
-`docs/data/essos_imported_drb_movie_hybrid_artifacts/` and are documented in
-`docs/essos_imported_drb_movie.md`; the hybrid movie is now the preferred
+`docs/data/essos_imported_drb_movie_hybrid_artifacts/`; the hybrid movie is now the preferred
 end-to-end visual bridge from imported VMEC-coordinate maps plus coil endpoint
 masks to a JAXDRB fixed-layout DRB transient with sheath, recycling, neutral
 closures, and explicit physics gates.
@@ -401,8 +397,7 @@ ESSOS-imported QA movie now adds the next bridge: a fixed-layout DRB state,
 target loss where map endpoints are present, recycling, neutral reactions, and
 a compact potential solve on imported Landreman-Paul QA FCI maps. The
 remaining promotion step is not visualization, but longer nonlinear runs with
-convergence, external code comparison, and device-geometry wall/target
-information.
+convergence and device-geometry wall/target information.
 
 The current media now follow the more useful review pattern: R-Z panels at
 several toroidal angles, RMS/skewness/flux/spectrum diagnostics, and opened
@@ -411,9 +406,9 @@ the visualization pipeline, not a replacement for the physics gates below.
 
 ## Full Drift-Reduced Braginskii Model To Promote
 
-The production non-axisymmetric lane should promote the same physical state as
-the existing open-field and recycling code paths, but with traced parallel
-operators and metric-weighted perpendicular operators. In normalized form, the
+The production non-axisymmetric lane should promote a full electrostatic
+single-ion drift-reduced Braginskii state, with traced parallel operators and
+metric-weighted perpendicular operators. In normalized form, the
 minimum electrostatic single-ion model is:
 
 ```text
@@ -466,8 +461,7 @@ by the solver tier. The production documentation must state which terms are
 active in each model tier and which are deliberately disabled in compact
 validation cases.
 
-Neutral transport should be promoted in two tiers. The first tier is a
-diffusive neutral model,
+Neutral transport should be promoted as a diffusive neutral model,
 
 ```text
 partial_t n_n
@@ -479,17 +473,6 @@ partial_t p_n
   + E_recycle S_recycle
   - E_ion S_ion
   + Q_cx + Q_wall
-```
-
-followed by the mixed neutral momentum tier already present in the
-axisymmetric/open-field source tree:
-
-```text
-partial_t(n_n u_n)
-  + div(n_n u_n u_n)
-  = -grad p_n
-  + div(mu_n grad u_n)
-  + R_cx + R_ion + R_wall
 ```
 
 The target/sheath closure now has a native non-axisymmetric gate. For every
@@ -509,9 +492,8 @@ where \(N_endpoint\) is the number of forward/backward FCI exits from a cell.
 The campaign verifies particle recycling, neutral-energy accounting, and
 zero-current balance to roundoff. The next production step is to distribute the
 source with a finite target interaction length, include wall geometry and
-target normals, and replace the compact target scalar source with the same
-field-specific density, momentum, and pressure source slots used by the
-recycling residual.
+target normals, and replace the compact target scalar source with
+field-specific density, momentum, and pressure source slots.
 
 ## Validation Gates To Add Next
 
@@ -565,10 +547,9 @@ remaining production closures should be implemented as separate gates:
    integration.
 3. Expand the current `fci_sheath_recycling.py` fixed-layout RHS bridge from
    density and pressure source arrays to the full momentum and target-normal
-   boundary-condition slots used by the production recycling residual.
-4. Expand the current neutral density/pressure/reaction gate to mixed neutral
-   momentum, finite wall interaction length, recycling source deposition, and
-   imported target masks.
+   boundary-condition slots.
+4. Expand the current neutral density/pressure/reaction gate to finite wall
+   interaction length, recycling source deposition, and imported target masks.
 5. Route the now-tested Boussinesq and non-Boussinesq vorticity/potential and
    potential-fed plasma \(E\times B\) advection operators from the compact FCI
    RHS into the promoted imported-field and open-SOL examples, then add
@@ -576,9 +557,7 @@ remaining production closures should be implemented as separate gates:
 6. Expand the compact `fci_drb_rhs.py` PyTree RHS into the production
    fixed-layout residual with target-normal boundary terms, full parallel
    momentum advection, pressure advection/compression, curvature drive, and
-   optional implicit/IMEX staging; use the new JAX-native residual
-   linearization helpers for Jacobian actions rather than sparse
-   finite-difference assembly.
+   optional implicit/IMEX staging.
 7. Add seeded-filament and flux-driven turbulence gates that compute true
    \(E\times B\) radial particle/heat flux, target heat-load maps, skewness,
    spectra, correlation lengths, and mode-number diagnostics.
@@ -635,5 +614,5 @@ This lane is ready for a release claim only when:
 4. generated artifacts stay small enough for a fast clone;
 5. the next-step validation gaps are explicit and tracked in this plan;
 6. every user-facing example can be run from a clean `jax_drb` clone plus
-   release-hosted artifacts, without requiring users to install the geometry or
-   reference-code repositories.
+   release-hosted artifacts, without requiring users to install the geometry
+   repositories.
