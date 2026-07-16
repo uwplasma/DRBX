@@ -193,6 +193,8 @@ Benchmarks, differentiable, and geometry examples:
   linear solver.
 - Autodiff: [inverse design through turbulence](examples/tokamak/drift_wave_inverse_design_demo.py)
   (recover a parameter by gradient descent through a nonlinear drift-wave run),
+  [choosing the most efficient differentiation method](examples/autodiff/differentiation_methods_demo.py)
+  (forward vs reverse vs checkpointed reverse — same gradient, different cost),
   plus [sensitivity](examples/autodiff_diffusion_sensitivity_demo.py),
   [uncertainty](examples/autodiff_diffusion_uncertainty_demo.py), and reduced
   [inverse design](examples/autodiff_diffusion_inverse_design_demo.py).

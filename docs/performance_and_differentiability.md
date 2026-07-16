@@ -35,6 +35,32 @@ PYTHONPATH=src python examples/benchmarks/performance_benchmark.py
 
 Absolute timings depend on the host; the scalings do not.
 
+## Choosing a Differentiation Method
+
+The same gradient can be computed several ways, and the choice changes cost,
+never the answer (gated to machine agreement in
+`tests/test_autodiff_methods.py`). Measured on 200 turbulence steps at `n = 64`
+(one scalar parameter, CPU f64):
+
+![Differentiation methods](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/differentiation_methods.png)
+
+- **Forward mode** (`jax.jacfwd`) is the most efficient for a *few* parameters:
+  one tangent rides along the rollout — no reverse sweep, no stored trajectory —
+  costing about **2x a forward evaluation** (vs ~3.1x for reverse mode here).
+- **Reverse mode** (`jax.grad`) wins when differentiating with respect to
+  *many* parameters at once (fields, geometry): one backward sweep covers them
+  all, at the cost of storing the trajectory.
+- **Checkpointed reverse** (`jax.grad` + `jax.checkpoint` on the step) trades a
+  modest recompute for bounded memory — the fix when a long reverse rollout is
+  memory-bound.
+
+Rule of thumb: `jacfwd` for O(1-10) scalars, `grad` for parameter fields,
+add `jax.checkpoint` when reverse mode runs out of memory. Reproduce with
+
+```bash
+PYTHONPATH=src python examples/autodiff/differentiation_methods_demo.py
+```
+
 ## Multi-Device Strong Scaling
 
 The FCI drift-reduced two-field step runs across multiple devices with

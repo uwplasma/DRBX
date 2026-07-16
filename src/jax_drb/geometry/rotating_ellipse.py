@@ -101,6 +101,7 @@ def build_rotating_ellipse_geometry(
     c_phi: float = 3.0,
     construct_fci_maps: bool = False,
     map_substeps: int = 8,
+    limiter_radius: float | None = None,
 ) -> FciGeometry3D:
     """Build a rotating-ellipse non-axisymmetric FCI geometry.
 
@@ -121,6 +122,12 @@ def build_rotating_ellipse_geometry(
             contravariant field; otherwise install identity/placeholder maps.
         map_substeps: field-line-tracer substeps per toroidal cell when
             ``construct_fci_maps`` is ``True``.
+        limiter_radius: if set, a toroidal limiter at the ``zeta = 0`` plane
+            opens every field line with ``x > limiter_radius``: those cells'
+            forward maps exit on the last toroidal plane and their backward maps
+            on the first, so the endpoint masks mark a scrape-off layer while
+            ``x <= limiter_radius`` remains a closed core. ``None`` (default)
+            keeps every field line closed.
 
     Returns:
         A fully populated :class:`FciGeometry3D` of the requested ``shape``.
@@ -230,6 +237,16 @@ def build_rotating_ellipse_geometry(
             "forward_boundary": zeros.astype(bool),
             "backward_boundary": zeros.astype(bool),
         }
+
+    if limiter_radius is not None:
+        # Toroidal limiter at the zeta = 0 plane: scrape-off-layer field lines
+        # (x > limiter_radius) strike it — forward traces exit on the last
+        # toroidal plane, backward traces on the first. The core stays closed.
+        sol_mask = grid.x.centers > float(limiter_radius)
+        forward_boundary = jnp.asarray(map_fields["forward_boundary"], dtype=bool)
+        backward_boundary = jnp.asarray(map_fields["backward_boundary"], dtype=bool)
+        map_fields["forward_boundary"] = forward_boundary.at[:, :, -1].set(forward_boundary[:, :, -1] | sol_mask[:, None])
+        map_fields["backward_boundary"] = backward_boundary.at[:, :, 0].set(backward_boundary[:, :, 0] | sol_mask[:, None])
 
     maps = FciMaps3D(
         forward_x=map_fields["forward_x"],
