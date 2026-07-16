@@ -250,9 +250,23 @@ def test_imported_artifact_schema_audit_flags_stale_fci_report(
     ]
 
 
+_SCHEMA_AUDIT_PROBE = (
+    REPO_ROOT / "docs/data/essos_imported_fci_artifacts/data/essos_imported_fci_campaign.json"
+)
+
+
+def _require_local_artifacts(*paths: Path) -> None:
+    """Skip when regenerable docs/data artifacts are absent (docs/data is gitignored)."""
+
+    missing = [path.name for path in paths if not path.exists()]
+    if missing:
+        pytest.skip(f"local artifacts not present (docs/data is gitignored): {missing}")
+
+
 def test_imported_artifact_schema_audit_example_reports_committed_current_artifacts(
     capsys,
 ) -> None:
+    _require_local_artifacts(_SCHEMA_AUDIT_PROBE)
     module = _load_imported_artifact_schema_audit_example()
     settings = module.build_audit_settings(require_all_current=False)
 
@@ -268,6 +282,7 @@ def test_imported_artifact_schema_audit_example_reports_committed_current_artifa
 
 
 def test_imported_artifact_schema_audit_example_requires_current_artifacts() -> None:
+    _require_local_artifacts(_SCHEMA_AUDIT_PROBE)
     module = _load_imported_artifact_schema_audit_example()
     settings = module.build_audit_settings(require_all_current=True)
 
@@ -278,6 +293,12 @@ def test_imported_artifact_schema_audit_example_requires_current_artifacts() -> 
 
 
 def test_hybrid_open_sol_promotion_evidence_audit_accepts_committed_bundle() -> None:
+    _require_local_artifacts(
+        REPO_ROOT / "docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.json",
+        REPO_ROOT / "docs/data/essos_imported_drb_movie_stationarity_jacobi_artifacts/data/essos_imported_drb_movie_stationarity_jacobi.json",
+        REPO_ROOT / "docs/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_artifacts/data/essos_imported_drb_movie_refinement_poloidal_96_jacobi_summary.json",
+        REPO_ROOT / "docs/data/essos_imported_drb_movie_stationarity_jacobi_media_manifest.json",
+    )
     audit = audit_hybrid_open_sol_promotion_evidence(
         fci_report_json_path=REPO_ROOT
         / "docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.json",
