@@ -505,10 +505,10 @@ these two gates turn the non-axisymmetric lane from a geometry/movie scaffold
 into a sequence of tested solver components.
 
 The PyTree/JVP figure is the first end-to-end transformability result on this
-lane. It does not yet replace the production implicit recycling solve, but it
-does prove that the fixed-layout component RHS can be compiled, batched,
-differentiated by forward-mode AD, and dispatched across multiple local devices
-without changing the numerical objective.
+lane. It is a component-level transformability result rather than a full
+implicit transient solve, but it does prove that the fixed-layout component RHS
+can be compiled, batched, differentiated by forward-mode AD, and dispatched
+across multiple local devices without changing the numerical objective.
 
 The dynamics plot and movie are a compact 3D showcase. The positive skewness,
 finite kurtosis, and radial localization metrics show that the field is not a
@@ -532,9 +532,9 @@ physical:
    window;
 2. replace synthetic endpoint masks with wall-resolved target geometry and
    connection-length metrics on imported maps;
-3. route the same non-axisymmetric closure arrays through the full production
-   PyTree residual and implicit solve used by recycling transients;
-4. refine imported-map parity for coil, VMEC-coordinate, and hybrid maps
+3. route the same non-axisymmetric closure arrays through a full production
+   PyTree residual and implicit transient solve;
+4. refine imported-map agreement for coil, VMEC-coordinate, and hybrid maps
    against independent field-line diagnostics;
 5. extend autodiff, UQ, and inverse-design examples from compact geometry
    parameters to transport/source controls on the full 3D lane.

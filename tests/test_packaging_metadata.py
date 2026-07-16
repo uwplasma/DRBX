@@ -16,6 +16,19 @@ def _has_version_specifier(requirement: str) -> bool:
     return any(token in package_requirement for token in ("<", ">", "=", "~", "!"))
 
 
+def _package_name(requirement: str) -> str:
+    package_requirement = requirement.split(";", 1)[0]
+    for token in ("<", ">", "=", "~", "!"):
+        package_requirement = package_requirement.split(token, 1)[0]
+    return package_requirement.strip()
+
+
+# solvax carries the extracted structured-solver machinery; the Fourier--Helmholtz
+# elliptic solve the vorticity model uses landed in solvax 0.8.1, so it is the one
+# runtime dependency allowed a lower-bound version floor.
+_VERSION_FLOOR_EXCEPTIONS = {"solvax"}
+
+
 def test_pyproject_dependencies_are_unpinned() -> None:
     payload = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
@@ -24,7 +37,11 @@ def test_pyproject_dependencies_are_unpinned() -> None:
     optional_dependencies = payload["project"].get("optional-dependencies", {})
 
     assert all(not _has_version_specifier(item) for item in build_requires)
-    assert all(not _has_version_specifier(item) for item in project_dependencies)
+    assert all(
+        not _has_version_specifier(item)
+        for item in project_dependencies
+        if _package_name(item) not in _VERSION_FLOOR_EXCEPTIONS
+    )
     for items in optional_dependencies.values():
         assert all(not _has_version_specifier(item) for item in items)
 
@@ -33,8 +50,15 @@ def test_core_runtime_dependencies_are_installed_by_default() -> None:
     payload = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     project_dependencies = payload["project"]["dependencies"]
 
-    for requirement in ("jax", "diffrax", "scipy", "equinox", "matplotlib", "netCDF4", "pillow", "rich"):
-        assert any(item == requirement or item.startswith(f"{requirement};") for item in project_dependencies)
+    for requirement in ("jax", "scipy", "matplotlib", "netCDF4", "pillow", "rich", "solvax"):
+        assert any(_package_name(item) == requirement for item in project_dependencies)
+
+    # Declared-but-unimported packages were removed in the v2 plan's Phase 0;
+    # they must not silently return.
+    for requirement in ("diffrax", "equinox"):
+        assert not any(
+            item == requirement or item.startswith(f"{requirement};") for item in project_dependencies
+        )
 
 
 def test_import_version_matches_pyproject() -> None:
@@ -57,5 +81,5 @@ def test_publish_pypi_workflow_uses_trusted_publishing() -> None:
 def test_source_distribution_manifest_prunes_research_artifacts() -> None:
     manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
 
-    for path in ("docs", "examples", "references", "scripts", "tests"):
+    for path in ("docs", "examples", "scripts", "tests"):
         assert f"prune {path}" in manifest

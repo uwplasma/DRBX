@@ -11,7 +11,7 @@ inputs, outputs, source modules, tests, and documentation page, see
 
 Large generated example outputs are release-backed so that cloning the private
 repository stays fast. Authenticate with the GitHub CLI or a token, then restore
-the media and baseline bundles before running the movie and validation examples:
+the media bundles before running the movie and validation examples:
 
 ```bash
 gh auth login --hostname github.com
@@ -20,25 +20,21 @@ python scripts/fetch_example_artifacts.py
 
 Without the GitHub CLI, set `GH_TOKEN` or `GITHUB_TOKEN` to a token with access
 to `uwplasma/jax_drb`. The fetch script restores PNG/GIF/NPZ docs media under
-`docs/data/` and heavy reference baselines under `references/baselines/`. Use
-`python scripts/fetch_example_artifacts.py --skip-baselines` when you only need
-the README/docs movies, figures, and user-facing self-contained example
-payloads. The expected release URLs are tracked in
-`docs/release_artifacts_manifest.json`.
+`docs/data/`, giving you the README/docs movies, figures, and user-facing
+self-contained example payloads.
 
 After this step, the user-facing commands listed below are self-contained: they
 use JAXDRB source code plus release-backed arrays/media and do not require users
-to download external plasma codes. Some scripts under `examples/engineering/`
-and selected-field regeneration directories are developer/live-reference
-workflows; those scripts say so in their command-line help and require an
-explicit `--reference-root` or local geometry checkout when they are rerun from
-first principles.
+to download external plasma codes. Some imported-geometry regeneration scripts
+under `examples/geometry-3D/` are developer workflows; those scripts say so in
+their command-line help and require a local geometry checkout when they are
+rerun from first principles.
 
 To exercise the main self-contained tutorial and movie surface from a fresh
 checkout, run:
 
 ```bash
-python scripts/fetch_example_artifacts.py --skip-baselines
+python scripts/fetch_example_artifacts.py
 PYTHONPATH=src python examples/restartable_diffusion_tutorial.py --quiet
 PYTHONPATH=src python examples/autodiff_diffusion_sensitivity_demo.py
 PYTHONPATH=src python examples/autodiff_diffusion_uncertainty_demo.py
@@ -57,7 +53,7 @@ published arrays and movies are release-backed, but rerunning those adapters
 from coils or external field-line traces requires a local geometry checkout and
 is documented separately on the imported-geometry pages. Users who only want to
 run the README/docs stellarator examples should use the `stellarator-fci`
-commands above after `fetch_example_artifacts.py --skip-baselines`.
+commands above after `fetch_example_artifacts.py`.
 
 | Example | What it teaches |
 | --- | --- |
@@ -117,7 +113,6 @@ adapters requires the geometry source checkout named by the page.
 | [`examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | External QA field-line import into portable arrays. |
 | [`examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py) | Direct-coil open-SOL promotion workflow: dry-run contract by default, with opt-in live FCI, standalone source/profile plot, connection-length, endpoint-label, stationarity, and diagnostic media gates. |
 | [`examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py) | Hybrid VMEC/coil open-SOL promotion workflow: dry-run contract by default, release-evidence audit, and opt-in live FCI/source-profile plot, parallel-step refinement, stationarity, grid/time refinement, and media gates. |
-| [`examples/geometry-3D/essos-field-lines/direct_coil_closed_field_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/direct_coil_closed_field_demo.py) | Direct-coil closed/near-closed return-map control plus refinement and reduced closed-trace transient/movie gates: self-contained by default, with opt-in live ESSOS tracing and no target/sheath semantics. |
 | [`examples/geometry-3D/essos-field-lines/vmec_closed_field_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/vmec_closed_field_demo.py) | VMEC closed-field control: dry-run contracts by default, with opt-in live periodic FCI/operator gates plus reduced transient, profile, spectrum, and GIF artifacts. |
 | [`examples/geometry-3D/essos-field-lines/imported_fci_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_fci_campaign.py) | Imported FCI maps with sheath/recycling and neutral validation. |
 | [`examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py) | Self-contained nested connection-length refinement gate for imported-field promotion. |
@@ -138,33 +133,24 @@ Representative output:
 | --- | --- |
 | [`examples/diverted_tokamak_movie_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/diverted_tokamak_movie_demo.py) | Full-domain diverted tokamak movie from benchmark output. |
 | [`examples/diverted_tokamak_profile_analysis_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/diverted_tokamak_profile_analysis_demo.py) | Radial profiles, target lineouts, time traces, and final diverted-domain field analysis from release-backed arrays. |
-| [`examples/tokamak-3D/tcv-x21/scaffold_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/tokamak-3D/tcv-x21/scaffold_demo.py) | TCV-X21 scaffold package. |
-| [`examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py) | Compact selected-field parity package. |
-| [`examples/tokamak-3D/tcv-x21/toroidal_movie_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/tokamak-3D/tcv-x21/toroidal_movie_demo.py) | Toroidal 3D movie from scaffold arrays. |
-
 Representative output:
 
 ![Diverted tokamak movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
 
 ## Validation Campaigns
 
-The engineering examples in
-[`examples/engineering/`](https://github.com/uwplasma/jax_drb/tree/main/examples/engineering)
+The benchmark and geometry examples under
+[`examples/benchmarks/`](https://github.com/uwplasma/jax_drb/tree/main/examples/benchmarks)
+and [`examples/geometry-3D/`](https://github.com/uwplasma/jax_drb/tree/main/examples/geometry-3D)
 regenerate publication-grade validation packages:
 
 | Family | Documentation |
 | --- | --- |
-| MMS and open-field operators | [Fluid 1D MMS](fluid_1d_mms_convergence.md), [Open-Field Operator Campaign](open_field_operator_campaign.md) |
-| Reactions, collisions, neutrals, target recycling | [Reactions And Collisions](reactions_collisions_campaign.md), [Collision Closure](collision_closure_campaign.md), [Neutral Parallel Diffusion](neutral_parallel_diffusion_campaign.md), [Target Recycling](target_recycling_campaign.md) |
-| Reference comparison | [Hermes Comparison Gallery](hermes_comparison_gallery.md), with live reruns reserved for developer validation. |
-| Performance | [Local CPU Scaling](local_cpu_scaling_campaign.md), [Native 3D Runtime](native_3d_runtime_campaign.md), [JAX Native Profile Audit](jax_native_profile_audit.md) |
-| Control and detachment | [Controller Feedback](controller_feedback_campaign.md), [Temperature Feedback](temperature_feedback_campaign.md), [Detachment Controller](detachment_controller_campaign.md) |
-
+| MMS convergence | [Fluid 1D MMS](fluid_1d_mms_convergence.md) |
 All validation figures are collected in [Validation Gallery](validation_gallery.md).
 
-Reference-comparison and live-rerun commands are intentionally separated from
-the user examples. They are used to refresh baselines, parity reports, and
-publication-grade validation figures, and they can require heavier local
-reference data or a local reference checkout. The release-backed baseline
-bundles let users and CI run cached validation checks without those live
-dependencies.
+Imported-geometry regeneration commands are intentionally separated from the
+user examples. They refresh publication-grade validation figures from coils or
+external field-line traces, and they can require a local geometry checkout. The
+release-backed media bundles let users and CI inspect the published figures
+without those regeneration dependencies.

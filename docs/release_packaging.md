@@ -31,25 +31,22 @@ The default package install already includes the runtime, solver, plotting, and 
 
 The repository keeps large generated `.npz`, `.png`, and `.gif` files out of
 git. They are stored in the private release
-`validation-artifacts-2026-04-28` as two bundles:
+`validation-artifacts-2026-04-28` as one bundle:
 
 - `jax_drb_docs_media.zip` restores README/docs figures, movie GIFs, and
-  example arrays under `docs/data/`;
-- `jax_drb_reference_baselines.zip` restores heavy validation baselines under
-  `references/baselines/`.
+  example arrays under `docs/data/`.
 
-The release-hosted media map is recorded in
-`docs/release_artifacts_manifest.json`. MkDocs excludes that manifest from the
-published page tree, but it is kept in the docs directory so release reviewers
-can verify which PNG, GIF, MP4, NPZ, and baseline bundle URLs are expected for
-a given artifact tag.
+The release-hosted media map is defined by the artifact-restore helper
+`scripts/fetch_example_artifacts.py`, backed by
+`src/jax_drb/runtime/artifacts.py`, so release reviewers can verify which PNG,
+GIF, MP4, and NPZ URLs are expected for a given artifact tag.
 
-The current docs-media bundle has been refreshed against that manifest and
+The current docs-media bundle
 contains `174` media files, including the diverted-tokamak movie arrays, the
 3D tokamak GIF, the compact stellarator FCI showcase, and the imported-field
 QA-hybrid stationarity/Jacobi movie used in the README.
 
-Users with repository access can restore both bundles from a fresh clone with:
+Users with repository access can restore the docs-media bundle from a fresh clone with:
 
 ```bash
 gh auth login --hostname github.com
@@ -64,15 +61,12 @@ across checkouts; the older `JAX_DRB_ARTIFACT_CACHE` name is also accepted.
 Set `JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT` and
 `JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS` to tune the HTTPS fallback used when the
 GitHub CLI is unavailable. Set `JAX_DRB_OFFLINE_ARTIFACTS=1` to require that
-artifacts already exist locally. Use
-`python scripts/fetch_example_artifacts.py --skip-baselines` when the task only
-needs README/docs media and self-contained example arrays, not the heavier
-reference baselines.
+artifacts already exist locally.
 
 This artifact path is the supported self-contained user workflow. Users do not
 need to download any external plasma code to run the examples, view or
 regenerate the README/docs movies, or execute the cached validation checks.
-Fresh live-reference reruns are developer-maintenance tasks for refreshing the
+Fresh local reruns are developer-maintenance tasks for refreshing the
 release bundles.
 
 ## Repository Footprint Audit
@@ -126,10 +120,8 @@ The repository includes:
 - [`test.yml`](../.github/workflows/test.yml) for the Python 3.10, 3.11, and 3.12 test matrix
 - [`docs.yml`](../.github/workflows/docs.yml) for `tests/test_release_surface.py`
   and `mkdocs build --strict --clean`
-- [`coverage.yml`](../.github/workflows/coverage.yml) for bounded closeout
-  coverage and promoted solver/public-surface coverage
-- [`research-campaigns.yml`](../.github/workflows/research-campaigns.yml) for
-  scheduled hosted research checks plus explicit manual heavy/local/GPU lanes
+- [`coverage.yml`](../.github/workflows/coverage.yml) for public-surface
+  coverage
 
 The PyPI publish workflow:
 
@@ -152,54 +144,33 @@ The release-readiness lanes are intentionally split:
 - `test.yml` runs the targeted shipping regression slice on Python 3.10, 3.11,
   and 3.12.
 - `docs.yml` checks the public release surface and builds the docs strictly.
-- `coverage.yml` enforces `python scripts/run_closeout_coverage.py` and
-  `python scripts/run_promoted_solver_coverage.py`; both are `95%` gates, but
-  they cover different release risks.
-- `research-campaigns.yml` runs `scheduled-fast-research` weekly on hosted CI
-  and exposes manual bundles such as `all-ci`, `all-local`, `all-gpu`,
-  `live-reference`, `heavy-recycling-profile`, `dthe-batched-jvp-gate`, and
-  `adaptive-bdf-jax-lineax-gate`.
-
-The adaptive-BDF lanes in that workflow are promotion and health gates only.
-The default production recycling route remains the validated BDF compatibility
-path until the opt-in adaptive-BDF routes pass longer output-window,
-reference-parity, and runtime campaigns.
+- `coverage.yml` enforces the public-surface coverage gate.
 
 ## Release Checklist
 
 Before publishing a version:
 
-1. run the fast release-readiness audit:
+1. run the whole-package coverage gate (the same job enforced by
+   `coverage.yml`):
 
 ```bash
-python scripts/audit_release_readiness.py
+pytest -q -m "not slow" --cov=jax_drb --cov-branch
+coverage report
 ```
 
-This verifies version consistency across `pyproject.toml`, `jax_drb.__version__`,
-release notes, MkDocs navigation, README links, `CITATION.cff`, artifact
-manifest counts, PyPI/ReadTheDocs workflow wiring, unpinned runtime
-dependencies, absent version-tag reuse, and footprint-audit invariants.
-
-2. run the bounded closeout and promoted solver coverage gates:
-
-```bash
-python scripts/run_closeout_coverage.py
-python scripts/run_promoted_solver_coverage.py
-```
-
-3. run the fast bounded validation slice:
+2. run the fast bounded validation slice:
 
 ```bash
 python scripts/run_fast_research_checks.py
 ```
 
-4. check the repository footprint before creating release artifacts:
+3. check the repository footprint before creating release artifacts:
 
 ```bash
 python scripts/audit_repository_footprint.py --top 20 --min-size-mib 1
 ```
 
-5. build the distributions locally:
+4. build the distributions locally:
 
 ```bash
 python -m build
@@ -216,7 +187,7 @@ pytest -q tests/test_release_surface.py
    assets have changed:
 
 ```bash
-python scripts/fetch_example_artifacts.py --skip-baselines
+python scripts/fetch_example_artifacts.py
 pytest -q tests/test_runtime_artifacts.py
 ```
 
@@ -232,7 +203,7 @@ refreshes so the publish workflow remains skipped.
 
 ## Current Release Boundary
 
-The current package release target is `1.0.3`. The already published `v1.0.2`
+The current package release target is `2.0.0.dev0`. The already published `v1.0.2`
 tag must not be moved; publish the next package release as `v1.0.3` when the
 remaining local and hosted gates are accepted.
 
@@ -241,27 +212,18 @@ The current package release is intended to support:
 - standalone CLI and Python-driver workflows,
 - promoted native-exact and native-operational validation lanes,
 - reduced but real 3D tokamak, traced-field-line, and stellarator workflows,
-- artifact-driven parity, runtime, convergence, and profiling reports,
+- artifact-driven runtime, convergence, and profiling reports,
 - software citation through the root `CITATION.cff` file.
-
-The release does not promote the full output-window recycling JAX/JVP solver
-as the default path yet. The stable default remains the validated compatibility
-BDF route; JAX-linearized, sparse-JVP, fixed-BDF2, active-array, and
-matrix-free seams are release-supported as opt-in research gates only where the
-matching parity, residual-health, and runtime reports exist.
 
 Latest local closeout evidence:
 
-- bounded closeout coverage: `96.0%`, `90` tests passed;
-- promoted solver/public-surface coverage: `95.16%`, `804` passed, `14`
+- whole-package coverage: `95.16%`, `804` passed, `14`
   skipped, `10` deselected, and `1` expected xfail;
-- release-readiness audit: `scripts/audit_release_readiness.py` passed for
-  target version `1.0.3` with footprint checking enabled;
 - fast bounded research checks: all default slices passed locally;
 - docs build: `mkdocs build --strict --clean` passed locally;
-- docs-media artifact restore: `174/174` manifest media files restored from
+- docs-media artifact restore: `174/174` media files restored from
   the private release bundle using `scripts/fetch_example_artifacts.py
-  --skip-baselines --force` with an isolated root and cache;
+  --force` with an isolated root and cache;
 - self-contained example slice: `11` docs/example subprocess tests passed;
 - representative user examples: diverted tokamak movie/profile, model
   selection guide, stellarator geometry, VMEC-extender import, and compact
@@ -270,17 +232,11 @@ Latest local closeout evidence:
   `6.43 MiB`, largest tracked file below `328 KiB`, wheel about `709 KiB`,
   and sdist about `614 KiB`.
 
-It is not the full closure of every research workflow in the broader validation matrix. The detailed status remains in:
-
-- [hermes_capability_audit.md](hermes_capability_audit.md)
-- [implementation_inventory.md](implementation_inventory.md)
-- [parity_harness.md](parity_harness.md)
-- [parity_matrix.md](parity_matrix.md)
+It is not the full closure of every research workflow in the broader validation matrix. The detailed status remains in [`plan_jax_drb.md`](https://github.com/uwplasma/jax_drb/blob/main/plan_jax_drb.md).
 
 ## After The First Package Release
 
 The main post-release technical targets are:
 
-- broader production temperature and detachment workflows,
-- longer-window direct tokamak recycling closure,
+- broader production temperature workflows,
 - broader production 3D workflows beyond the reduced native matrix.

@@ -1,102 +1,3 @@
-from .alfven_wave import (
-    AlfvenWaveAnalysisResult,
-    AlfvenWaveBenchmarkScalars,
-    AlfvenWaveParityResult,
-    analyze_alfven_wave_array_payload,
-    analyze_alfven_wave_npz,
-    compare_alfven_wave_array_payloads,
-    compare_alfven_wave_npz,
-    compute_alfven_wave_benchmark_scalars,
-    save_alfven_wave_diagnostic_plot,
-    save_alfven_wave_parity_plot,
-    write_alfven_wave_analysis_json,
-    write_alfven_wave_parity_json,
-)
-from .alfven_wave_meeting import (
-    AlfvenWaveMeetingArtifacts,
-    create_alfven_wave_meeting_package,
-    save_alfven_wave_heatmap_movie,
-    save_alfven_wave_poster_frame,
-    save_alfven_wave_snapshot_panel,
-    save_alfven_wave_surface_movie,
-)
-from .blob2d import (
-    Blob2DAnalysisResult,
-    Blob2DParityResult,
-    analyze_blob2d_array_payload,
-    analyze_blob2d_npz,
-    compare_blob2d_analysis_results,
-    compare_blob2d_array_payloads,
-    compare_blob2d_artifacts,
-    compare_blob2d_npz,
-    load_blob2d_analysis_json,
-    save_blob2d_parity_plot,
-    write_blob2d_analysis_json,
-    write_blob2d_parity_json,
-)
-from .blob2d_meeting import (
-    Blob2DMeetingArtifacts,
-    create_blob2d_meeting_package,
-    save_blob2d_heatmap_movie,
-    save_blob2d_poster_frame,
-    save_blob2d_snapshot_panel,
-    save_blob2d_surface_movie,
-)
-from .drift_wave import (
-    DriftWaveAnalysisResult,
-    DriftWaveBenchmarkScalars,
-    DriftWaveParityResult,
-    DriftWaveParityVariableError,
-    analyze_drift_wave_array_payload,
-    analyze_drift_wave_npz,
-    compare_drift_wave_array_payloads,
-    compare_drift_wave_npz,
-    compute_drift_wave_benchmark_scalars,
-    save_drift_wave_diagnostic_plot,
-    save_drift_wave_parity_plot,
-    write_drift_wave_analysis_json,
-    write_drift_wave_parity_json,
-)
-from .neutral_mixed import (
-    NeutralMixedAnalysisResult,
-    NeutralMixedParityResult,
-    NeutralMixedSeriesError,
-    analyze_neutral_mixed_array_payload,
-    analyze_neutral_mixed_npz,
-    compare_neutral_mixed_analysis_results,
-    compare_neutral_mixed_array_payloads,
-    compare_neutral_mixed_artifacts,
-    compare_neutral_mixed_npz,
-    load_neutral_mixed_analysis_json,
-    save_neutral_mixed_diagnostic_plot,
-    save_neutral_mixed_parity_plot,
-    write_neutral_mixed_analysis_json,
-    write_neutral_mixed_parity_json,
-)
-from .neutral_mixed_boundary_campaign import (
-    NeutralMixedBoundaryCampaignArtifacts,
-    build_neutral_mixed_boundary_campaign_report,
-    create_neutral_mixed_boundary_campaign_package,
-    save_neutral_mixed_boundary_campaign_plot,
-)
-from .neutral_mixed_term_balance_campaign import (
-    NeutralMixedTermBalanceCampaignArtifacts,
-    build_neutral_mixed_accepted_step_trace_parity_report,
-    build_neutral_mixed_native_accepted_step_trace_report,
-    build_neutral_mixed_reference_input_closure_report,
-    build_neutral_mixed_substep_hybrid_report,
-    build_neutral_mixed_term_balance_campaign_report,
-    create_neutral_mixed_term_balance_campaign_package,
-    run_neutral_mixed_hermes_accepted_step_trace,
-    run_neutral_mixed_hermes_diagnostic_rerun,
-    save_neutral_mixed_term_balance_campaign_plot,
-    write_neutral_mixed_accepted_step_trace_parity_json,
-    write_neutral_mixed_accepted_step_trace_input,
-    write_neutral_mixed_native_accepted_step_trace_json,
-    write_neutral_mixed_diagnostic_input,
-    write_neutral_mixed_reference_input_closure_json,
-    write_neutral_mixed_substep_hybrid_json,
-)
 from .autodiff_diffusion import (
     DiffusionAutodiffSetup,
     StrongScalingPoint,
@@ -147,23 +48,6 @@ from .essos_vmec_fieldline_surface_campaign import (
     build_essos_vmec_fieldline_surface_campaign,
     create_essos_vmec_fieldline_surface_package,
     save_essos_vmec_fieldline_surface_plot,
-)
-from .essos_direct_coil_closed_control_campaign import (
-    EssosDirectCoilClosedControlArtifacts,
-    EssosDirectCoilClosedControlRefinementArtifacts,
-    EssosDirectCoilClosedControlResult,
-    EssosDirectCoilClosedControlTransientArtifacts,
-    build_essos_direct_coil_closed_control_campaign,
-    build_essos_direct_coil_closed_control_refinement_campaign,
-    build_essos_direct_coil_closed_control_refinement_diagnostics,
-    build_essos_direct_coil_closed_control_transient_campaign,
-    create_essos_direct_coil_closed_control_package,
-    create_essos_direct_coil_closed_control_refinement_package,
-    create_essos_direct_coil_closed_control_transient_package,
-    save_essos_direct_coil_closed_control_plot,
-    save_essos_direct_coil_closed_control_refinement_plot,
-    save_essos_direct_coil_closed_control_transient_movie,
-    save_essos_direct_coil_closed_control_transient_plot,
 )
 from .essos_vmec_closed_field_campaign import (
     EssosVmecClosedFieldArtifacts,
@@ -254,26 +138,6 @@ from .essos_imported_drb_movie_campaign import (
     save_essos_imported_drb_diagnostics_panel,
     save_essos_imported_drb_snapshot_panel,
 )
-from .geometry_profiles import (
-    build_diagnostic_profile_report,
-    save_diagnostic_profile_summary_plot,
-    write_diagnostic_profile_arrays_npz,
-)
-from .geometry_observables import (
-    build_geometry_observable_report,
-    line_group_from_report,
-    profile_group_from_report,
-    slice_group_from_report,
-    write_geometry_observable_report,
-)
-from .geometry_selected_field import (
-    GeometrySelectedFieldParityResult,
-    GeometrySelectedFieldVariableError,
-    compare_geometry_selected_fields,
-    save_geometry_selected_field_parity_plot,
-    write_geometry_selected_field_parity_arrays,
-    write_geometry_selected_field_parity_json,
-)
 from .geometry_lineouts import (
     LineoutSpec,
     build_lineout_report,
@@ -287,69 +151,6 @@ from .geometry_slices import (
     save_slice_summary_plot,
     write_slice_arrays_npz,
     write_slice_report_json,
-)
-from .geometry_adapter import (
-    build_geometry_adapter_contract,
-    build_geometry_adapter_manifest,
-)
-from .tokamak_tcv_x21_scaffold import (
-    DEFAULT_TCV_X21_CASE_NAME,
-    TcvX21ScaffoldArtifacts,
-    TcvX21ReferenceStatus,
-    create_tcv_x21_scaffold_package,
-    resolve_tcv_x21_reference_case,
-)
-from .tokamak_tcv_x21_selected_field import (
-    TcvX21SelectedFieldParityArtifacts,
-    TcvX21SelectedFieldParityResult,
-    TcvX21SelectedFieldVariableError,
-    compare_tcv_x21_selected_field_workdirs,
-    create_tcv_x21_selected_field_parity_package,
-    save_tcv_x21_selected_field_parity_plot,
-    write_tcv_x21_selected_field_parity_arrays,
-    write_tcv_x21_selected_field_parity_json,
-)
-from .tokamak_native_selected_field import (
-    NativeTokamakSelectedFieldArtifacts,
-    NativeTokamakSelectedFieldParityResult,
-    NativeTokamakSelectedFieldVariableError,
-    create_native_tokamak_selected_field_package,
-)
-from .tokamak_tcv_x21_toroidal_movie import (
-    TcvX21ToroidalMovieArtifacts,
-    create_tcv_x21_toroidal_movie_package,
-)
-from .traced_field_line_scaffold import (
-    TracedFieldLineScaffoldArtifacts,
-    create_traced_field_line_scaffold_package,
-)
-from .traced_field_line_selected_field import (
-    TracedFieldLineSelectedFieldParityArtifacts,
-    compare_traced_field_line_selected_fields,
-    create_traced_field_line_selected_field_parity_package,
-)
-from .traced_field_line_native_selected_field import (
-    NativeTracedFieldLineSelectedFieldArtifacts,
-    NativeTracedFieldLineSelectedFieldParityResult,
-    NativeTracedFieldLineSelectedFieldVariableError,
-    compare_native_traced_field_line_selected_fields,
-    create_native_traced_field_line_selected_field_package,
-)
-from .stellarator_vmec_scaffold import (
-    StellaratorVmecScaffoldArtifacts,
-    create_stellarator_vmec_scaffold_package,
-)
-from .stellarator_vmec_selected_field import (
-    StellaratorVmecSelectedFieldParityArtifacts,
-    compare_stellarator_vmec_selected_fields,
-    create_stellarator_vmec_selected_field_parity_package,
-)
-from .stellarator_vmec_native_selected_field import (
-    NativeStellaratorVmecSelectedFieldArtifacts,
-    NativeStellaratorVmecSelectedFieldParityResult,
-    NativeStellaratorVmecSelectedFieldVariableError,
-    compare_native_stellarator_vmec_selected_fields,
-    create_native_stellarator_vmec_selected_field_package,
 )
 from .stellarator_fci_geometry_campaign import (
     StellaratorFciGeometryCampaignArtifacts,
@@ -410,145 +211,12 @@ from .stellarator_sol_showcase import (
     save_stellarator_sol_snapshot_panel,
     simulate_reduced_stellarator_sol_dynamics,
 )
-from .native_3d_runtime_campaign import (
-    Native3DRuntimeCampaignArtifacts,
-    build_native_3d_runtime_campaign_report,
-    create_native_3d_runtime_campaign_package,
-    save_native_3d_runtime_campaign_plot,
-)
-from .jax_native_profile_audit import (
-    JaxNativeProfileAuditArtifacts,
-    build_jax_native_profile_audit_report,
-    create_jax_native_profile_audit_package,
-    save_jax_native_profile_audit_plot,
-)
-from .implicit_solver_profile_audit import (
-    ImplicitSolverProfileAuditArtifacts,
-    build_implicit_solver_profile_audit_report,
-    create_implicit_solver_profile_audit_package,
-    save_implicit_solver_profile_audit_plot,
-)
-from .local_cpu_scaling_campaign import (
-    LocalCpuScalingCampaignArtifacts,
-    build_local_cpu_scaling_campaign_report,
-    create_local_cpu_scaling_campaign_package,
-    save_local_cpu_scaling_campaign_plot,
-)
-from .recycling_batched_jvp_profile import (
-    RecyclingBatchedJvpProblem,
-    build_recycling_batched_jvp_problem,
-    create_recycling_batched_jvp_profile_package,
-    profile_recycling_batched_jvp_problem,
-)
 from .fluid_1d_mms_convergence import (
     Fluid1DMmsConvergenceArtifacts,
     build_fluid_1d_mms_convergence_report,
     create_fluid_1d_mms_convergence_package,
     save_fluid_1d_mms_convergence_plot,
 )
-from .open_field_operator_campaign import (
-    OpenFieldOperatorCampaignArtifacts,
-    build_open_field_operator_campaign_report,
-    create_open_field_operator_campaign_package,
-    save_open_field_operator_campaign_plot,
-)
-from .native_3d_convergence_campaign import (
-    Native3DConvergenceCampaignArtifacts,
-    build_native_3d_convergence_campaign_report,
-    create_native_3d_convergence_campaign_package,
-    save_native_3d_convergence_campaign_plot,
-)
-from .hermes_capability_audit import (
-    build_hermes_capability_audit,
-    write_hermes_capability_audit,
-)
-from .hermes_comparison_summary import (
-    HermesComparisonSummaryArtifacts,
-    build_hermes_comparison_summary_report,
-    create_hermes_comparison_summary_package,
-    save_hermes_comparison_summary_plot,
-)
-from .hermes_live_rerun_campaign import (
-    DEFAULT_HERMES_LIVE_RERUN_CASE_SPECS,
-    HermesLiveRerunCampaignArtifacts,
-    HermesLiveRerunCaseSpec,
-    build_hermes_live_rerun_campaign_report,
-    create_hermes_live_rerun_campaign_package,
-    save_hermes_live_rerun_campaign_plot,
-)
-from .hermes_offender_register import (
-    HermesOffenderRegisterArtifacts,
-    build_hermes_offender_register_report,
-    create_hermes_offender_register_package,
-    save_hermes_offender_register_plot,
-)
-from .controller_feedback_campaign import (
-    ControllerFeedbackCampaignArtifacts,
-    ControllerFeedbackMetric,
-    build_controller_feedback_campaign,
-    create_controller_feedback_campaign_package,
-)
-from .temperature_feedback_campaign import (
-    TemperatureFeedbackCampaignArtifacts,
-    TemperatureFeedbackCampaignMetric,
-    build_temperature_feedback_campaign,
-    create_temperature_feedback_campaign_package,
-)
-from .detachment_controller_campaign import (
-    DetachmentControllerCampaignArtifacts,
-    DetachmentControllerCampaignMetric,
-    build_detachment_controller_campaign,
-    create_detachment_controller_campaign_package,
-)
-from .reactions_collisions_campaign import (
-    ReactionsCollisionsCampaignArtifacts,
-    ReactionsCollisionsCampaignMetric,
-    build_reactions_collisions_campaign,
-    create_reactions_collisions_campaign_package,
-)
-from .atomic_rate_differentiability_campaign import (
-    AtomicRateDifferentiabilityCampaignArtifacts,
-    build_atomic_rate_differentiability_campaign_report,
-    create_atomic_rate_differentiability_campaign_package,
-    save_atomic_rate_differentiability_campaign_plot,
-)
-from .neutral_parallel_diffusion_campaign import (
-    NeutralParallelDiffusionCampaignArtifacts,
-    NeutralParallelDiffusionCampaignMetric,
-    build_neutral_parallel_diffusion_campaign,
-    create_neutral_parallel_diffusion_campaign_package,
-)
-from .collision_closure_campaign import (
-    CollisionClosureCampaignArtifacts,
-    CollisionClosureCampaignMetric,
-    build_collision_closure_campaign,
-    create_collision_closure_campaign_package,
-)
-from .tokamak_anomalous_diffusion_campaign import (
-    TokamakAnomalousDiffusionCampaignArtifacts,
-    TokamakAnomalousDiffusionCampaignMetric,
-    build_tokamak_anomalous_diffusion_campaign,
-    create_tokamak_anomalous_diffusion_campaign_package,
-)
-from .tokamak_recycling_observable_campaign import (
-    TokamakRecyclingObservableCampaignArtifacts,
-    build_tokamak_recycling_observable_campaign_report,
-    create_tokamak_recycling_observable_campaign_package,
-    save_tokamak_recycling_observable_campaign_plot,
-)
-from .target_recycling_campaign import (
-    TargetRecyclingCampaignArtifacts,
-    TargetRecyclingCampaignMetric,
-    build_target_recycling_campaign,
-    create_target_recycling_campaign_package,
-)
-from .impurity_radiation_campaign import (
-    ImpurityRadiationCampaignArtifacts,
-    ImpurityRadiationCampaignMetric,
-    build_impurity_radiation_campaign,
-    create_impurity_radiation_campaign_package,
-)
-
 __all__ = [
     "AlfvenWaveAnalysisResult",
     "AlfvenWaveBenchmarkScalars",
@@ -562,12 +230,6 @@ __all__ = [
     "save_alfven_wave_parity_plot",
     "write_alfven_wave_analysis_json",
     "write_alfven_wave_parity_json",
-    "AlfvenWaveMeetingArtifacts",
-    "create_alfven_wave_meeting_package",
-    "save_alfven_wave_heatmap_movie",
-    "save_alfven_wave_poster_frame",
-    "save_alfven_wave_snapshot_panel",
-    "save_alfven_wave_surface_movie",
     "Blob2DAnalysisResult",
     "Blob2DParityResult",
     "analyze_blob2d_array_payload",
@@ -580,12 +242,6 @@ __all__ = [
     "save_blob2d_parity_plot",
     "write_blob2d_analysis_json",
     "write_blob2d_parity_json",
-    "Blob2DMeetingArtifacts",
-    "create_blob2d_meeting_package",
-    "save_blob2d_heatmap_movie",
-    "save_blob2d_poster_frame",
-    "save_blob2d_snapshot_panel",
-    "save_blob2d_surface_movie",
     "DriftWaveAnalysisResult",
     "DriftWaveBenchmarkScalars",
     "DriftWaveParityResult",
@@ -617,7 +273,6 @@ __all__ = [
     "build_neutral_mixed_reference_input_closure_report",
     "build_neutral_mixed_term_balance_campaign_report",
     "create_neutral_mixed_term_balance_campaign_package",
-    "run_neutral_mixed_hermes_diagnostic_rerun",
     "save_neutral_mixed_term_balance_campaign_plot",
     "write_neutral_mixed_diagnostic_input",
     "write_neutral_mixed_reference_input_closure_json",
@@ -662,21 +317,6 @@ __all__ = [
     "build_essos_vmec_fieldline_surface_campaign",
     "create_essos_vmec_fieldline_surface_package",
     "save_essos_vmec_fieldline_surface_plot",
-    "EssosDirectCoilClosedControlArtifacts",
-    "EssosDirectCoilClosedControlRefinementArtifacts",
-    "EssosDirectCoilClosedControlResult",
-    "EssosDirectCoilClosedControlTransientArtifacts",
-    "build_essos_direct_coil_closed_control_campaign",
-    "build_essos_direct_coil_closed_control_refinement_campaign",
-    "build_essos_direct_coil_closed_control_refinement_diagnostics",
-    "build_essos_direct_coil_closed_control_transient_campaign",
-    "create_essos_direct_coil_closed_control_package",
-    "create_essos_direct_coil_closed_control_refinement_package",
-    "create_essos_direct_coil_closed_control_transient_package",
-    "save_essos_direct_coil_closed_control_plot",
-    "save_essos_direct_coil_closed_control_refinement_plot",
-    "save_essos_direct_coil_closed_control_transient_movie",
-    "save_essos_direct_coil_closed_control_transient_plot",
     "EssosVmecClosedFieldArtifacts",
     "EssosVmecClosedFieldDryRunArtifacts",
     "build_essos_vmec_closed_field_report",
@@ -723,71 +363,16 @@ __all__ = [
     "create_vmec_extender_sol_smoke_package",
     "save_vmec_extender_sol_smoke_plot",
     "simulate_vmec_extender_scalar_sol_smoke",
-    "build_diagnostic_profile_report",
-    "build_geometry_observable_report",
     "LineoutSpec",
     "SliceSpec",
     "build_lineout_report",
-    "line_group_from_report",
-    "profile_group_from_report",
-    "slice_group_from_report",
     "build_slice_report",
-    "build_geometry_adapter_contract",
-    "build_geometry_adapter_manifest",
     "save_slice_gif",
     "save_slice_summary_plot",
     "save_lineout_summary_plot",
-    "save_diagnostic_profile_summary_plot",
-    "write_geometry_observable_report",
-    "GeometrySelectedFieldParityResult",
-    "GeometrySelectedFieldVariableError",
-    "compare_geometry_selected_fields",
-    "save_geometry_selected_field_parity_plot",
-    "write_geometry_selected_field_parity_arrays",
-    "write_geometry_selected_field_parity_json",
     "write_lineout_arrays_npz",
     "write_slice_arrays_npz",
     "write_slice_report_json",
-    "write_diagnostic_profile_arrays_npz",
-    "DEFAULT_TCV_X21_CASE_NAME",
-    "TcvX21ScaffoldArtifacts",
-    "TcvX21ReferenceStatus",
-    "create_tcv_x21_scaffold_package",
-    "resolve_tcv_x21_reference_case",
-    "TcvX21SelectedFieldParityArtifacts",
-    "TcvX21SelectedFieldParityResult",
-    "TcvX21SelectedFieldVariableError",
-    "compare_tcv_x21_selected_field_workdirs",
-    "create_tcv_x21_selected_field_parity_package",
-    "save_tcv_x21_selected_field_parity_plot",
-    "write_tcv_x21_selected_field_parity_arrays",
-    "write_tcv_x21_selected_field_parity_json",
-    "NativeTokamakSelectedFieldArtifacts",
-    "NativeTokamakSelectedFieldParityResult",
-    "NativeTokamakSelectedFieldVariableError",
-    "create_native_tokamak_selected_field_package",
-    "TcvX21ToroidalMovieArtifacts",
-    "create_tcv_x21_toroidal_movie_package",
-    "TracedFieldLineScaffoldArtifacts",
-    "create_traced_field_line_scaffold_package",
-    "TracedFieldLineSelectedFieldParityArtifacts",
-    "compare_traced_field_line_selected_fields",
-    "create_traced_field_line_selected_field_parity_package",
-    "NativeTracedFieldLineSelectedFieldArtifacts",
-    "NativeTracedFieldLineSelectedFieldParityResult",
-    "NativeTracedFieldLineSelectedFieldVariableError",
-    "compare_native_traced_field_line_selected_fields",
-    "create_native_traced_field_line_selected_field_package",
-    "StellaratorVmecScaffoldArtifacts",
-    "create_stellarator_vmec_scaffold_package",
-    "StellaratorVmecSelectedFieldParityArtifacts",
-    "compare_stellarator_vmec_selected_fields",
-    "create_stellarator_vmec_selected_field_parity_package",
-    "NativeStellaratorVmecSelectedFieldArtifacts",
-    "NativeStellaratorVmecSelectedFieldParityResult",
-    "NativeStellaratorVmecSelectedFieldVariableError",
-    "compare_native_stellarator_vmec_selected_fields",
-    "create_native_stellarator_vmec_selected_field_package",
     "StellaratorFciGeometryCampaignArtifacts",
     "build_stellarator_fci_geometry_report",
     "create_stellarator_fci_geometry_campaign_package",
@@ -829,84 +414,11 @@ __all__ = [
     "save_stellarator_sol_diagnostics_panel",
     "save_stellarator_sol_snapshot_panel",
     "simulate_reduced_stellarator_sol_dynamics",
-    "Native3DRuntimeCampaignArtifacts",
-    "build_native_3d_runtime_campaign_report",
-    "create_native_3d_runtime_campaign_package",
-    "save_native_3d_runtime_campaign_plot",
-    "OpenFieldOperatorCampaignArtifacts",
-    "build_open_field_operator_campaign_report",
-    "create_open_field_operator_campaign_package",
-    "save_open_field_operator_campaign_plot",
-    "build_hermes_capability_audit",
-    "write_hermes_capability_audit",
-    "HermesComparisonSummaryArtifacts",
-    "build_hermes_comparison_summary_report",
-    "create_hermes_comparison_summary_package",
-    "save_hermes_comparison_summary_plot",
-    "DEFAULT_HERMES_LIVE_RERUN_CASE_SPECS",
-    "HermesLiveRerunCampaignArtifacts",
-    "HermesLiveRerunCaseSpec",
-    "build_hermes_live_rerun_campaign_report",
-    "create_hermes_live_rerun_campaign_package",
-    "save_hermes_live_rerun_campaign_plot",
-    "HermesOffenderRegisterArtifacts",
-    "build_hermes_offender_register_report",
-    "create_hermes_offender_register_package",
-    "save_hermes_offender_register_plot",
-    "ControllerFeedbackCampaignArtifacts",
-    "ControllerFeedbackMetric",
-    "build_controller_feedback_campaign",
-    "create_controller_feedback_campaign_package",
-    "TemperatureFeedbackCampaignArtifacts",
-    "TemperatureFeedbackCampaignMetric",
-    "build_temperature_feedback_campaign",
-    "create_temperature_feedback_campaign_package",
-    "DetachmentControllerCampaignArtifacts",
-    "DetachmentControllerCampaignMetric",
-    "build_detachment_controller_campaign",
-    "create_detachment_controller_campaign_package",
-    "JaxNativeProfileAuditArtifacts",
-    "build_jax_native_profile_audit_report",
-    "create_jax_native_profile_audit_package",
-    "save_jax_native_profile_audit_plot",
     "RecyclingBatchedJvpProblem",
     "build_recycling_batched_jvp_problem",
     "create_recycling_batched_jvp_profile_package",
     "profile_recycling_batched_jvp_problem",
-    "ImplicitSolverProfileAuditArtifacts",
-    "build_implicit_solver_profile_audit_report",
-    "create_implicit_solver_profile_audit_package",
-    "save_implicit_solver_profile_audit_plot",
-    "ReactionsCollisionsCampaignArtifacts",
-    "ReactionsCollisionsCampaignMetric",
-    "build_reactions_collisions_campaign",
-    "create_reactions_collisions_campaign_package",
-    "AtomicRateDifferentiabilityCampaignArtifacts",
-    "build_atomic_rate_differentiability_campaign_report",
-    "create_atomic_rate_differentiability_campaign_package",
-    "save_atomic_rate_differentiability_campaign_plot",
-    "NeutralParallelDiffusionCampaignArtifacts",
-    "NeutralParallelDiffusionCampaignMetric",
-    "build_neutral_parallel_diffusion_campaign",
-    "create_neutral_parallel_diffusion_campaign_package",
-    "CollisionClosureCampaignArtifacts",
-    "CollisionClosureCampaignMetric",
-    "build_collision_closure_campaign",
-    "create_collision_closure_campaign_package",
-    "TokamakAnomalousDiffusionCampaignArtifacts",
-    "TokamakAnomalousDiffusionCampaignMetric",
-    "build_tokamak_anomalous_diffusion_campaign",
-    "create_tokamak_anomalous_diffusion_campaign_package",
-    "TokamakRecyclingObservableCampaignArtifacts",
-    "build_tokamak_recycling_observable_campaign_report",
-    "create_tokamak_recycling_observable_campaign_package",
-    "save_tokamak_recycling_observable_campaign_plot",
-    "TargetRecyclingCampaignArtifacts",
-    "TargetRecyclingCampaignMetric",
-    "build_target_recycling_campaign",
-    "create_target_recycling_campaign_package",
-    "ImpurityRadiationCampaignArtifacts",
-    "ImpurityRadiationCampaignMetric",
-    "build_impurity_radiation_campaign",
-    "create_impurity_radiation_campaign_package",
 ]
+
+# Only export what actually imported (removed-model blocks stripped in the v2 slim).
+__all__ = [name for name in __all__ if name in globals()]

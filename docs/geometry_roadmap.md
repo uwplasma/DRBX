@@ -11,7 +11,7 @@ This page records how the `jax_drb` 3D program should stay geometry-agnostic whi
 For the detailed implementation plan for native non-axisymmetric stellarator SOL turbulence, including FCI metrics, equations, validation gates, and README movie targets, see [Non-Axisymmetric Stellarator SOL Implementation Plan](non_axisymmetric_stellarator_sol_plan.md).
 
 The active execution sequence is not defined here. It is defined in
-[research_grade_execution_plan.md](research_grade_execution_plan.md#current-authoritative-open-lane-implementation-plan).
+[research_grade_execution_plan.md](research_grade_execution_plan.md).
 As of the June 22, 2026 plan consolidation, the active 3D sequence is:
 direct ESSOS-coil open-field diagnostics and direct-coil closed controls on
 `main`, VMEC closed-field controls, hybrid VMEC/coil open-SOL promotion, then
@@ -27,14 +27,12 @@ The reusable infrastructure should own:
 - mesh and metric ingestion
 - field-history assembly across ranks and toroidal planes
 - geometry-aware probe, target, and surface extraction
-- compact selected-field parity bundles
 - summary movie and figure generation
 - runtime provenance, restart, and validation artifacts
 
 Benchmark-specific packages should only add:
 
 - benchmark observables
-- benchmark compare surfaces
 - benchmark averaging windows
 - benchmark methods notes and figure layouts
 
@@ -45,7 +43,6 @@ Benchmark-specific packages should only add:
 Current reusable pieces already in tree:
 
 - [src/jax_drb/validation/diverted_tokamak_movie.py](../src/jax_drb/validation/diverted_tokamak_movie.py)
-- [src/jax_drb/validation/tokamak_tcv_x21_selected_field.py](../src/jax_drb/validation/tokamak_tcv_x21_selected_field.py)
 - [src/jax_drb/runtime/output.py](../src/jax_drb/runtime/output.py)
 - [src/jax_drb/cli.py](../src/jax_drb/cli.py)
 
@@ -61,28 +58,6 @@ The current shared layer now includes:
 The current TCV-X21 scaffold consumes those shared pieces instead of owning a private benchmark-specific implementation.
 
 ### Current Benchmark Adapter
-
-The current 3D benchmark adapter is the TCV-X21 scaffold package:
-
-- [src/jax_drb/validation/tokamak_tcv_x21_scaffold.py](../src/jax_drb/validation/tokamak_tcv_x21_scaffold.py)
-- [docs/tokamak_tcv_x21_scaffold_demo.md](tokamak_tcv_x21_scaffold_demo.md)
-- [docs/tokamak_tcv_x21_selected_field_demo.md](tokamak_tcv_x21_selected_field_demo.md)
-
-That package is useful and should stay, but it is an adapter, not the architecture.
-
-The first second-adapter scaffold is now also in tree:
-
-- [src/jax_drb/validation/traced_field_line_scaffold.py](../src/jax_drb/validation/traced_field_line_scaffold.py)
-- [docs/traced_field_line_scaffold_demo.md](traced_field_line_scaffold_demo.md)
-
-It is intentionally lighter than the TCV package. Its purpose is to pressure-test
-the general geometry and diagnostics layer on a non-diverted geometry family
-before a real external traced-field-line mesh is wired in.
-
-An older Fourier-equilibrium scaffold also remains in tree. It pressure-tests
-the same public 3D artifact model on a stellarator source, so the general layer
-is forced to support sampled flux-surface figures and movies as well as
-profile bundles.
 
 The first native non-axisymmetric field-line-map validation lane is now also
 in tree:
@@ -115,10 +90,9 @@ These remain the first summary 3D benchmark family because they connect directly
 
 Requirements:
 
-- reduced selected-field parity
 - observable extraction for benchmark probe and target families
 - detailed profile and movie products
-- explicit methods notes and compare-surface metadata
+- explicit methods notes
 
 ### Traced-Field-Line / Stellarator-Style Mesh Adapters
 
@@ -129,7 +103,7 @@ Requirements:
 - metric and mesh ingestion that does not assume a single tokamak benchmark layout
 - explicit validation of metric fields and coordinate conventions
 - field and diagnostic extraction on traced-field-line meshes
-- reusable plotting and parity bundles on that geometry family
+- reusable plotting on that geometry family
 
 The current scaffold now already supports both:
 
@@ -160,11 +134,10 @@ Every new geometry family should pass the same staged gate sequence:
 
 1. geometry scaffold gate
 2. external-workdir artifact gate
-3. reduced selected-field parity gate
-4. benchmark-observable gate
-5. native execution promotion gate
+3. benchmark-observable gate
+4. native execution promotion gate
 
-No geometry family should skip directly to benchmark figures without first producing structured metadata, compact compare surfaces, and parity artifacts.
+No geometry family should skip directly to benchmark figures without first producing structured metadata and validation artifacts.
 
 ## Implication For The Current 3D Program
 

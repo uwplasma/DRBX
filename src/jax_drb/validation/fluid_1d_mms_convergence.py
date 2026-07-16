@@ -191,7 +191,7 @@ def build_fluid_1d_mms_convergence_report(
         "family": "manufactured_solution_convergence",
         "case": "fluid_1d_mms_convergence",
         "operator_family": "fluid_1d_density_pressure_momentum",
-        "literature_anchor": "Hermes-3 and broader verification literature use refinement studies and observed-order plots to separate operator correctness from benchmark validation.",
+        "literature_anchor": "Standard code-verification literature uses refinement studies and observed-order plots to separate operator correctness from benchmark validation.",
         "resolutions": [int(ny) for ny in resolutions],
         "timestep": float(timestep),
         "steps": int(steps),

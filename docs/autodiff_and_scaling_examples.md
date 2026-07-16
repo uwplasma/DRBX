@@ -150,10 +150,6 @@ Current committed result:
   - about `1.08x` from `1 -> 4`
 - the current committed artifact was regenerated locally with `--skip-gpu`, so the figure emphasizes the two CPU modes on this MacBook rather than repeating the earlier remote GPU line
 
-For the future paper, this stronger local-throughput role is now played by
-[local_cpu_scaling_campaign](local_cpu_scaling_campaign.md), which uses a real
-heavy recycling solve instead of the smaller differentiable diffusion kernel.
-
 Interpretation:
 
 - several CPU cores can be used on this machine in both execution modes
@@ -177,4 +173,3 @@ The next higher-value differentiable examples should be:
 - vorticity or drift-wave sensitivity/UQ of a scalar QoI
 - an inverse-design example with boundary/source controls rather than only initial-condition controls
 - memory and compilation-cache measurements alongside the current timing plot
-- the first promoted differentiable recycling/open-field transient lane once the native transient backbone is closed
