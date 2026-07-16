@@ -35,6 +35,8 @@ class SpmdGmresConfig:
     maxiter: int = 50
     restart: int = 50
     stagnation_iters: int = 20
+    acceptance_tol: float | None = None
+    acceptance_atol: float | None = None
     project_mean_zero: bool = False
     regularization_epsilon: float = 0.0
     check_finite: bool = True
@@ -48,6 +50,10 @@ class SpmdGmresConfig:
             raise ValueError("SpmdGmresConfig.stagnation_iters must be non-negative")
         if float(self.tol) < 0.0 or float(self.atol) < 0.0:
             raise ValueError("SpmdGmresConfig tolerances must be non-negative")
+        acceptance_tol = self.tol if self.acceptance_tol is None else self.acceptance_tol
+        acceptance_atol = self.atol if self.acceptance_atol is None else self.acceptance_atol
+        if float(acceptance_tol) < 0.0 or float(acceptance_atol) < 0.0:
+            raise ValueError("SpmdGmresConfig acceptance tolerances must be non-negative")
         if float(self.regularization_epsilon) < 0.0:
             raise ValueError("SpmdGmresConfig.regularization_epsilon must be non-negative")
         object.__setattr__(self, "tol", float(self.tol))
@@ -55,6 +61,8 @@ class SpmdGmresConfig:
         object.__setattr__(self, "maxiter", int(self.maxiter))
         object.__setattr__(self, "restart", int(self.restart))
         object.__setattr__(self, "stagnation_iters", int(self.stagnation_iters))
+        object.__setattr__(self, "acceptance_tol", float(acceptance_tol))
+        object.__setattr__(self, "acceptance_atol", float(acceptance_atol))
         object.__setattr__(self, "project_mean_zero", _as_bool(self.project_mean_zero))
         object.__setattr__(
             self,
@@ -70,6 +78,8 @@ class SpmdGmresConfig:
             self.maxiter,
             self.restart,
             self.stagnation_iters,
+            self.acceptance_tol,
+            self.acceptance_atol,
             self.project_mean_zero,
             self.regularization_epsilon,
             self.check_finite,
@@ -84,6 +94,8 @@ class SpmdGmresConfig:
             maxiter,
             restart,
             stagnation_iters,
+            acceptance_tol,
+            acceptance_atol,
             project_mean_zero,
             regularization_epsilon,
             check_finite,
@@ -94,6 +106,8 @@ class SpmdGmresConfig:
             maxiter=maxiter,
             restart=restart,
             stagnation_iters=stagnation_iters,
+            acceptance_tol=acceptance_tol,
+            acceptance_atol=acceptance_atol,
             project_mean_zero=project_mean_zero,
             regularization_epsilon=regularization_epsilon,
             check_finite=check_finite,
@@ -310,6 +324,10 @@ def spmd_gmres_solve(
         jnp.asarray(config.atol, dtype=dtype),
         jnp.asarray(config.tol, dtype=dtype) * rhs_l2,
     )
+    acceptance_threshold = jnp.maximum(
+        jnp.asarray(config.acceptance_atol, dtype=dtype),
+        jnp.asarray(config.acceptance_tol, dtype=dtype) * rhs_l2,
+    )
 
     x0 = guess
     r0 = rhs - apply_A(x0)
@@ -421,7 +439,7 @@ def spmd_gmres_solve(
             stagnated = (
                 (stagnation_iters > 0)
                 & (stale_next >= stagnation_iters)
-                & (residual_next > threshold)
+                & (residual_next > acceptance_threshold)
             )
             finite_ok = jnp.isfinite(residual_next) & jnp.all(jnp.isfinite(candidate))
             finite_failed = failed_current | (~finite_ok)
@@ -502,11 +520,12 @@ def spmd_gmres_solve(
         phi = _spmd_remove_weighted_mean(phi, geometry, domain)
         final_residual = _spmd_norm(rhs - apply_A(phi), geometry, domain)
     phi_is_finite = _spmd_all_finite(phi, domain)
-    failed = failed | (~converged)
+    accepted = converged | (final_residual <= acceptance_threshold)
+    failed = failed | (~accepted)
     failed = failed | jnp.where(config.check_finite, ~phi_is_finite, False)
     info = SpmdGmresInfo(
         num_steps=num_steps,
-        converged=converged,
+        converged=accepted,
         failed=failed,
         initial_residual_l2=initial_residual,
         final_residual_l2=final_residual,

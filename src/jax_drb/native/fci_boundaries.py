@@ -1988,7 +1988,16 @@ class CutWallBC3D:
 @_pytree_base
 @dataclass(frozen=True)
 class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
-    """Padded cut-wall geometry owned by one local shard."""
+    """Padded cut-wall geometry owned by one local shard.
+
+    ``normal_contra`` is the outward unit normal in contravariant logical
+    components, normalized with ``g_cov`` so that ``n^i g_ij n^j = 1``.
+    ``distance`` is the physical distance from the owner cell center to the
+    wall along that unit normal; coordinate-stencil distances belong in
+    ``stencil_distance`` instead.  Conservative wall fluxes use
+    ``J * area_covector`` as the signed logical wall-area covector, with
+    ``sign`` selecting the owner-cell outward orientation.
+    """
 
     owner_i: jnp.ndarray
     owner_j: jnp.ndarray
@@ -2650,24 +2659,40 @@ class LocalControlVolumeFluxStencil3D:
 def dataclass_replace_1d(instance: LocalStencil1D, **updates: object) -> LocalStencil1D:
     """Small ``dataclasses.replace`` helper that keeps this module self-contained."""
 
+    weight_names = (
+        "derivative_minus_weight",
+        "derivative_center_weight",
+        "derivative_plus_weight",
+    )
+    distance_changed = "dx_min" in updates or "dx_plus" in updates
+    any_weight_updated = any(name in updates for name in weight_names)
+    if distance_changed and not any_weight_updated:
+        derivative_minus_weight = None
+        derivative_center_weight = None
+        derivative_plus_weight = None
+    else:
+        derivative_minus_weight = updates.get(
+            "derivative_minus_weight",
+            instance.derivative_minus_weight,
+        )
+        derivative_center_weight = updates.get(
+            "derivative_center_weight",
+            instance.derivative_center_weight,
+        )
+        derivative_plus_weight = updates.get(
+            "derivative_plus_weight",
+            instance.derivative_plus_weight,
+        )
+
     return LocalStencil1D(
         center=updates.get("center", instance.center),
         minus=updates.get("minus", instance.minus),
         plus=updates.get("plus", instance.plus),
         dx_min=updates.get("dx_min", instance.dx_min),
         dx_plus=updates.get("dx_plus", instance.dx_plus),
-        derivative_minus_weight=updates.get(
-            "derivative_minus_weight",
-            instance.derivative_minus_weight,
-        ),
-        derivative_center_weight=updates.get(
-            "derivative_center_weight",
-            instance.derivative_center_weight,
-        ),
-        derivative_plus_weight=updates.get(
-            "derivative_plus_weight",
-            instance.derivative_plus_weight,
-        ),
+        derivative_minus_weight=derivative_minus_weight,
+        derivative_center_weight=derivative_center_weight,
+        derivative_plus_weight=derivative_plus_weight,
     )
 
 

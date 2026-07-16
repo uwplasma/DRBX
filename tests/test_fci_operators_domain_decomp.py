@@ -68,10 +68,18 @@ from jax_drb.geometry import (
 from jax_drb.native.fci_boundaries import (
     BC_DIRICHLET,
     BC_NEUMANN,
+    BC_NONE,
+    BC_NOFLUX,
+    BC_NORMALFLUX,
+    ConservativeStencil3D,
+    FaceGradientStencil3D,
     LocalBoundaryConditionBuilder,
     LocalBoundaryData3D,
     LocalBoundaryFaceBC3D,
     LocalBoundaryPreparation3D,
+    LocalCutWallBC3D,
+    LocalCutWallGeometry3D,
+    LocalStencil1D,
 )
 from jax_drb.native.fci_halo import (
     GhostFillWeights1D,
@@ -82,12 +90,16 @@ from jax_drb.native.fci_halo import (
     RemoteFciDependencyExchange,
     TopologyHaloFiller3D,
 )
+from jax_drb.native.fci_gmres import SpmdGmresConfig
 from jax_drb.native.fci_model import FciFieldBundle, FciModelState
 from jax_drb.native.fci_operators import (
+    LocalPerpLaplacianInverseSolver,
     local_curvature_op,
+    local_conservative_parallel_flux_div_op,
     local_grad_parallel_op_direct,
     local_grad_parallel_op_fci,
     local_grad_perp_op_direct,
+    local_parallel_flux_div_op,
     local_parallel_laplacian_conservative_op,
     local_parallel_laplacian_direct_op,
     local_perp_laplacian_conservative_op,
@@ -1345,6 +1357,33 @@ def _mms_parallel_laplacian_expected(
     return expected_direct, expected_conservative
 
 
+def _mms_parallel_flux_div_expected(
+    rho: jnp.ndarray,
+    theta: jnp.ndarray,
+    phi: jnp.ndarray,
+) -> jnp.ndarray:
+    amplitude = 1.0 + jnp.cos(jnp.pi * rho / A)
+    field = amplitude * jnp.cos(M * theta) * jnp.sin(N * phi)
+    f_theta = -amplitude * M * jnp.sin(M * theta) * jnp.sin(N * phi)
+    f_phi = amplitude * N * jnp.cos(M * theta) * jnp.cos(N * phi)
+
+    cos_theta = jnp.cos(theta)
+    sin_theta = jnp.sin(theta)
+    r_major = R0 + ALPHA * rho + rho * cos_theta
+    q = 1.0 + ALPHA * cos_theta
+    jacobian = r_major * rho * q
+    d = jnp.sqrt(IOTA**2 * rho**2 + r_major**2)
+
+    r_theta = -rho * sin_theta
+    q_theta = -ALPHA * sin_theta
+    jacobian_theta = rho * (r_theta * q + r_major * q_theta)
+    d_theta = r_major * r_theta / d
+    k = jacobian / d
+    k_theta = jacobian_theta / d - jacobian * d_theta / d**2
+
+    return (IOTA * (k_theta * field + k * f_theta) + k * f_phi) / jacobian
+
+
 def _mms_grad_perp_expected(
     rho: jnp.ndarray,
     theta: jnp.ndarray,
@@ -1919,6 +1958,198 @@ def run_shard_map_parallel_laplacian_conservative_case(
     return _error_norm_summary(error)
 
 
+def run_shard_map_parallel_flux_div_case(
+    *,
+    shape: tuple[int, int, int],
+    shard_counts: tuple[int, int, int] = (1, 1, 1),
+    halo_width: int = 2,
+) -> dict[str, float]:
+    """Run the shifted-torus regular-face parallel-flux-divergence MMS case."""
+
+    shard_counts = tuple(int(value) for value in shard_counts)
+    assert_shape_divisible_by_shards(shape, shard_counts)
+    owned_shape = tuple(
+        int(size) // int(count)
+        for size, count in zip(shape, shard_counts)
+    )
+
+    domain = _build_domain(shape, halo_width, shard_counts)
+    ghost_filler = _build_ghost_filler(halo_width)
+
+    nx, ny, nz = shape
+    rho_faces = jnp.linspace(RHO_MIN, 1.0, nx + 1, dtype=jnp.float64)
+    theta_faces = jnp.linspace(0.0, 2.0 * jnp.pi, ny + 1, dtype=jnp.float64)
+    phi_faces = jnp.linspace(0.0, 2.0 * jnp.pi, nz + 1, dtype=jnp.float64)
+    rho = (0.5 * (rho_faces[:-1] + rho_faces[1:]))[:, None, None]
+    theta = (0.5 * (theta_faces[:-1] + theta_faces[1:]))[None, :, None]
+    phi = (0.5 * (phi_faces[:-1] + phi_faces[1:]))[None, None, :]
+    field = _mms_parallel_field(rho, theta, phi)
+    expected = _mms_parallel_flux_div_expected(rho, theta, phi)
+
+    with make_mesh_for_shard_counts(shard_counts) as mesh:
+        field_sharded = put_scalar_field_on_mesh(field, mesh)
+
+        def kernel(field_owned):
+            shard_index = tuple(lax.axis_index(name) for name in ("x", "y", "z"))
+            geometry = _build_local_geometry(
+                owned_shape,
+                halo_width,
+                global_shape=shape,
+                shard_index=shard_index,
+            )
+            face_bc = _build_physical_bc(geometry, domain)
+            field_halo, _boundary_data = _prepare_scalar_field_halo(
+                field_owned,
+                geometry,
+                domain,
+                ghost_filler=ghost_filler,
+                face_bc=face_bc,
+            )
+            context = StencilBuilderContext(
+                layout=domain.layout,
+                domain=domain,
+            )
+            stencil = build_local_conservative_stencil_from_field(
+                field_halo,
+                geometry,
+                context,
+            )
+            return local_parallel_flux_div_op(
+                stencil,
+                geometry,
+                domain,
+                face_bc=face_bc,
+            )
+
+        kernel = shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(P("x", "y", "z"),),
+            out_specs=P("x", "y", "z"),
+            check_rep=False,
+        )
+        actual = kernel(field_sharded)
+
+    error = jnp.asarray(actual) - expected
+    return _error_norm_summary(error)
+
+
+def run_shard_map_parallel_flux_div_fci_case(
+    *,
+    shape: tuple[int, int, int],
+    shard_counts: tuple[int, int, int] = (1, 1, 1),
+    halo_width: int = 2,
+) -> dict[str, float]:
+    """Run the shifted-torus FCI conservative parallel-flux-divergence MMS case."""
+
+    shard_counts = tuple(int(value) for value in shard_counts)
+    assert_shape_divisible_by_shards(shape, shard_counts)
+    owned_shape = tuple(
+        int(size) // int(count)
+        for size, count in zip(shape, shard_counts)
+    )
+
+    domain = _build_domain(shape, halo_width, shard_counts)
+    ghost_filler = _build_ghost_filler(halo_width)
+
+    nx, ny, nz = shape
+    rho_faces = jnp.linspace(RHO_MIN, 1.0, nx + 1, dtype=jnp.float64)
+    theta_faces = jnp.linspace(0.0, 2.0 * jnp.pi, ny + 1, dtype=jnp.float64)
+    phi_faces = jnp.linspace(0.0, 2.0 * jnp.pi, nz + 1, dtype=jnp.float64)
+    rho = (0.5 * (rho_faces[:-1] + rho_faces[1:]))[:, None, None]
+    theta = (0.5 * (theta_faces[:-1] + theta_faces[1:]))[None, :, None]
+    phi = (0.5 * (phi_faces[:-1] + phi_faces[1:]))[None, None, :]
+    field = _mms_parallel_field(rho, theta, phi)
+    expected = _mms_parallel_flux_div_expected(rho, theta, phi)
+
+    traced_map_fields = _build_global_shifted_torus_fci_maps(shape)
+    map_names = (
+        "forward_x",
+        "forward_y",
+        "forward_endpoint_z",
+        "forward_length",
+        "forward_boundary",
+        "backward_x",
+        "backward_y",
+        "backward_endpoint_z",
+        "backward_length",
+        "backward_boundary",
+    )
+
+    with make_mesh_for_shard_counts(shard_counts) as mesh:
+        field_sharded = put_scalar_field_on_mesh(field, mesh)
+        map_sharding = NamedSharding(mesh, P("x", "y", "z"))
+        maps_sharded = tuple(
+            jax.device_put(traced_map_fields[name], map_sharding)
+            for name in map_names
+        )
+
+        def kernel(field_owned, *map_owned):
+            local_map_fields = dict(zip(map_names, map_owned))
+            shard_index = tuple(lax.axis_index(name) for name in ("x", "y", "z"))
+            local_maps = _build_local_fci_maps_from_traced_fields(
+                domain.layout,
+                local_map_fields,
+                global_shape=shape,
+                shard_counts=shard_counts,
+                shard_index=shard_index,
+            )
+            geometry = _build_local_geometry(
+                owned_shape,
+                halo_width,
+                global_shape=shape,
+                shard_index=shard_index,
+                construct_fci_maps=True,
+                traced_maps=local_maps,
+            )
+            field_halo, _boundary_data = _prepare_scalar_field_halo(
+                field_owned,
+                geometry,
+                domain,
+                ghost_filler=ghost_filler,
+            )
+            context = StencilBuilderContext(
+                layout=domain.layout,
+                domain=domain,
+            )
+            Bmag_halo = jnp.maximum(
+                jnp.asarray(geometry.cell_bfield.Bmag_halo, dtype=jnp.float64),
+                1.0e-30,
+            )
+            q_halo = field_halo / Bmag_halo
+            forward_remote_q_values = RemoteFciDependencyExchange()(
+                field_halo=q_halo,
+                direction=geometry.maps.forward,
+                context=context,
+                cut_wall_bc=None,
+            )
+            backward_remote_q_values = RemoteFciDependencyExchange()(
+                field_halo=q_halo,
+                direction=geometry.maps.backward,
+                context=context,
+                cut_wall_bc=None,
+            )
+            return local_conservative_parallel_flux_div_op(
+                field_halo,
+                geometry,
+                context=context,
+                forward_remote_q_values=forward_remote_q_values,
+                backward_remote_q_values=backward_remote_q_values,
+            )
+
+        kernel = shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(P("x", "y", "z"),) * (1 + len(map_names)),
+            out_specs=P("x", "y", "z"),
+            check_rep=False,
+        )
+        actual = kernel(field_sharded, *maps_sharded)
+
+    error = jnp.asarray(actual) - expected
+    return _error_norm_summary(error)
+
+
 def run_shard_map_grad_perp_case(
     *,
     shape: tuple[int, int, int],
@@ -2320,6 +2551,93 @@ def run_shard_map_perp_laplacian_conservative_case(
     return _error_norm_summary(error)
 
 
+def run_shard_map_phi_reconstruction_case(
+    *,
+    shape: tuple[int, int, int],
+    shard_counts: tuple[int, int, int] = (1, 1, 1),
+    halo_width: int = 2,
+) -> dict[str, float]:
+    """Reconstruct phi from an analytic perpendicular-Laplacian source."""
+
+    shard_counts = tuple(int(value) for value in shard_counts)
+    assert_shape_divisible_by_shards(shape, shard_counts)
+    owned_shape = tuple(
+        int(size) // int(count)
+        for size, count in zip(shape, shard_counts)
+    )
+
+    domain = _build_domain(shape, halo_width, shard_counts)
+    ghost_filler = _build_ghost_filler(halo_width)
+    topology_filler = TopologyHaloFiller3D(
+        rules=(LocalPeriodicTopologyRule3D(),),
+    )
+    gmres_config = SpmdGmresConfig(
+        tol=1.0e-10,
+        atol=1.0e-10,
+        maxiter=100,
+        restart=100,
+        acceptance_tol=1.0e-4,
+        acceptance_atol=1.0e-4,
+    )
+
+    nx, ny, nz = shape
+    rho_faces = jnp.linspace(RHO_MIN, 1.0, nx + 1, dtype=jnp.float64)
+    theta_faces = jnp.linspace(0.0, 2.0 * jnp.pi, ny + 1, dtype=jnp.float64)
+    phi_faces = jnp.linspace(0.0, 2.0 * jnp.pi, nz + 1, dtype=jnp.float64)
+    rho = (0.5 * (rho_faces[:-1] + rho_faces[1:]))[:, None, None]
+    theta = (0.5 * (theta_faces[:-1] + theta_faces[1:]))[None, :, None]
+    phi = (0.5 * (phi_faces[:-1] + phi_faces[1:]))[None, None, :]
+    phi_exact = _mms_parallel_field(rho, theta, phi)
+    laplacian_exact = _mms_perp_laplacian_local_expected(rho, theta, phi)
+    rhs = -laplacian_exact
+
+    with make_mesh_for_shard_counts(shard_counts) as mesh:
+        phi_exact_sharded = put_scalar_field_on_mesh(phi_exact, mesh)
+        rhs_sharded = put_scalar_field_on_mesh(rhs, mesh)
+
+        def kernel(rhs_owned, phi_guess_owned):
+            shard_index = tuple(lax.axis_index(name) for name in ("x", "y", "z"))
+            geometry = _build_local_geometry(
+                owned_shape,
+                halo_width,
+                global_shape=shape,
+                shard_index=shard_index,
+            )
+            face_bc = _build_radial_dirichlet_bc(
+                geometry,
+                domain,
+                _mms_parallel_field,
+            )
+            solver = LocalPerpLaplacianInverseSolver(
+                geometry=geometry,
+                domain=domain,
+                stencil_builder=build_local_conservative_stencil_from_field,
+                halo_exchange=HaloExchange3D(),
+                topology_filler=topology_filler,
+                physical_ghost_filler=ghost_filler,
+                face_bc=face_bc,
+                regular_face_geometry=geometry.regular_face_geometry,
+                config=gmres_config,
+            )
+            return solver(
+                rhs_owned,
+                guess_owned=phi_guess_owned,
+            )
+
+        mapped_kernel = shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(P("x", "y", "z"), P("x", "y", "z")),
+            out_specs=P("x", "y", "z"),
+            check_rep=False,
+        )
+        reconstruct_phi = jax.jit(mapped_kernel)
+        actual = reconstruct_phi(rhs_sharded, phi_exact_sharded)
+
+    error = jnp.asarray(actual) - phi_exact
+    return _error_norm_summary(error)
+
+
 def _single_fci_local_row(
     *,
     source: tuple[int, int, int],
@@ -2598,6 +2916,123 @@ def test_single_shard_shifted_torus_grad_perp() -> None:
     )
     assert result["error_l2"] < 2.0e-1
     assert result["error_linf"] < 1.5
+
+
+def test_single_shard_shifted_torus_parallel_flux_div() -> None:
+    result = run_shard_map_parallel_flux_div_case(
+        shape=(32, 32, 32),
+        shard_counts=(1, 1, 1),
+        halo_width=2,
+    )
+    assert result["error_l2"] < 1.5e-1
+    assert result["error_linf"] < 1.5e-1
+
+
+def test_single_shard_shifted_torus_parallel_flux_div_fci() -> None:
+    result = run_shard_map_parallel_flux_div_fci_case(
+        shape=(32, 32, 32),
+        shard_counts=(1, 1, 1),
+        halo_width=2,
+    )
+    assert result["error_l2"] < 1.5e-1
+    assert result["error_linf"] < 1.5e-1
+
+
+def test_local_parallel_flux_div_cut_wall_bc_modes() -> None:
+    shape = (1, 1, 1)
+    halo_width = 1
+    domain = _build_domain(shape, halo_width)
+    geometry = _build_local_geometry(
+        shape,
+        halo_width,
+        global_shape=shape,
+    )
+    layout = geometry.layout
+
+    center = jnp.asarray([[[2.0]]], dtype=jnp.float64)
+    stencil_1d = LocalStencil1D(
+        center=center,
+        minus=center,
+        plus=center,
+        dx_min=jnp.ones(shape, dtype=jnp.float64),
+        dx_plus=jnp.ones(shape, dtype=jnp.float64),
+    )
+    stencil = ConservativeStencil3D(
+        x=stencil_1d,
+        y=stencil_1d,
+        z=stencil_1d,
+        face_grad=FaceGradientStencil3D(
+            x=jnp.zeros((2, 1, 1, 3), dtype=jnp.float64),
+            y=jnp.zeros((1, 2, 1, 3), dtype=jnp.float64),
+            z=jnp.zeros((1, 1, 2, 3), dtype=jnp.float64),
+        ),
+    )
+
+    regular = LocalRegularFaceGeometry3D(
+        layout=layout,
+        x_area=jnp.ones((2, 1, 1), dtype=jnp.float64),
+        y_area=jnp.ones((1, 2, 1), dtype=jnp.float64),
+        z_area=jnp.ones((1, 1, 2), dtype=jnp.float64),
+        x_area_fraction=jnp.ones((2, 1, 1), dtype=jnp.float64),
+        y_area_fraction=jnp.ones((1, 2, 1), dtype=jnp.float64),
+        z_area_fraction=jnp.ones((1, 1, 2), dtype=jnp.float64),
+        x_open_mask=jnp.zeros((2, 1, 1), dtype=bool),
+        y_open_mask=jnp.zeros((1, 2, 1), dtype=bool),
+        z_open_mask=jnp.zeros((1, 1, 2), dtype=bool),
+    )
+    cell_volume = LocalCellVolumeGeometry3D(
+        layout=layout,
+        volume=10.0 * jnp.ones(shape, dtype=jnp.float64),
+        volume_fraction=jnp.ones(shape, dtype=jnp.float64),
+    )
+    cut_wall_geometry = LocalCutWallGeometry3D(
+        owner_i=jnp.asarray([0], dtype=jnp.int32),
+        owner_j=jnp.asarray([0], dtype=jnp.int32),
+        owner_k=jnp.asarray([0], dtype=jnp.int32),
+        center=jnp.zeros((1, 3), dtype=jnp.float64),
+        normal_contra=jnp.asarray([[0.0, 1.0, 0.0]], dtype=jnp.float64),
+        area_covector=jnp.asarray([[0.0, 2.0, 0.0]], dtype=jnp.float64),
+        distance=jnp.asarray([0.5], dtype=jnp.float64),
+        J=jnp.asarray([2.0], dtype=jnp.float64),
+        g_contra=jnp.eye(3, dtype=jnp.float64)[None, :, :],
+        g_cov=jnp.eye(3, dtype=jnp.float64)[None, :, :],
+        B_contra=jnp.asarray([[0.0, 3.0, 4.0]], dtype=jnp.float64),
+        Bmag=jnp.asarray([5.0], dtype=jnp.float64),
+        sign=jnp.asarray([-1.0], dtype=jnp.float64),
+        active=jnp.asarray([True]),
+        max_wall_faces=1,
+    )
+
+    flux_scale = -1.0 * 2.0 * (2.0 * 3.0 / 5.0) / 10.0
+    cases = (
+        (BC_NONE, 0.0, flux_scale * 2.0),
+        (BC_DIRICHLET, 7.0, flux_scale * 7.0),
+        (BC_NEUMANN, 3.0, flux_scale * (2.0 + 3.0 * 0.5)),
+        (BC_NORMALFLUX, 11.0, -11.0 / 10.0),
+        (BC_NOFLUX, 0.0, 0.0),
+    )
+    for kind, value, expected in cases:
+        cut_wall_bc = LocalCutWallBC3D(
+            kind=jnp.asarray([kind], dtype=jnp.int32),
+            value=jnp.asarray([value], dtype=jnp.float64),
+            active=jnp.asarray([True]),
+            max_wall_faces=1,
+        )
+        actual = local_parallel_flux_div_op(
+            stencil,
+            geometry,
+            domain,
+            regular_face_geometry=regular,
+            cell_volume=cell_volume,
+            cut_wall_geometry=cut_wall_geometry,
+            cut_wall_bc=cut_wall_bc,
+        )
+        np.testing.assert_allclose(
+            np.asarray(actual),
+            np.asarray([[[expected]]], dtype=np.float64),
+            rtol=1.0e-12,
+            atol=1.0e-12,
+        )
 
 
 def print_jax_runtime_info() -> None:
@@ -2925,6 +3360,198 @@ def run_parallel_laplacian_conservative_convergence(
         plt.xlabel("Resolution N")
         plt.ylabel("Error")
         plt.title("Shifted-torus shard_map parallel_laplacian_conservative convergence")
+        plt.grid(True, which="both")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=200)
+        plt.close()
+        print()
+        print(f"Saved plot to: {plot_path}")
+
+    return {
+        "resolutions": resolutions,
+        "l2_errors": l2_errors,
+        "l2_interior_errors": l2_interior_errors,
+        "linf_errors": linf_errors,
+        "case_times": case_times,
+        "l2_orders": l2_orders,
+        "l2_interior_orders": l2_interior_orders,
+        "linf_orders": linf_orders,
+    }
+
+
+def run_parallel_flux_div_convergence(
+    *,
+    resolutions: tuple[int, ...] = (20, 40, 80),
+    shard_counts: tuple[int, int, int] = (1, 1, 1),
+    halo_width: int = 2,
+    make_plot: bool = True,
+    plot_path: str = "domain_decomp_parallel_flux_div_convergence.png",
+) -> dict[str, object]:
+    """Run shifted-torus MMS convergence for conservative parallel flux divergence."""
+
+    if len(resolutions) == 0:
+        raise ValueError("resolutions must contain at least one value")
+    if any(int(n) < 3 for n in resolutions):
+        raise ValueError("each resolution must be at least 3")
+
+    l2_errors: list[float] = []
+    l2_interior_errors: list[float] = []
+    linf_errors: list[float] = []
+    case_times: list[float] = []
+
+    print()
+    print("=" * 80)
+    print("Shifted-torus shard_map parallel_flux_div convergence")
+    print("=" * 80)
+    print(f"shard_counts = {shard_counts}")
+    print(f"halo_width   = {halo_width}")
+    print()
+
+    for n in resolutions:
+        start = time.perf_counter()
+        result = run_shard_map_parallel_flux_div_case(
+            shape=(n, n, n),
+            shard_counts=shard_counts,
+            halo_width=halo_width,
+        )
+        elapsed = time.perf_counter() - start
+        l2 = result["error_l2"]
+        l2_interior = result["error_l2_interior"]
+        linf = result["error_linf"]
+        l2_errors.append(l2)
+        l2_interior_errors.append(l2_interior)
+        linf_errors.append(linf)
+        case_times.append(elapsed)
+        _print_resolution_result(
+            n=n,
+            l2=l2,
+            l2_interior=l2_interior,
+            linf=linf,
+            elapsed=elapsed,
+        )
+
+    l2_orders = estimate_orders(l2_errors, list(resolutions))
+    l2_interior_orders = estimate_orders(l2_interior_errors, list(resolutions))
+    linf_orders = estimate_orders(linf_errors, list(resolutions))
+
+    print()
+    print("Estimated orders")
+    print("-" * 80)
+    for i in range(len(l2_orders)):
+        print(
+            f"N={resolutions[i]} -> {resolutions[i + 1]}: "
+            f"L2_full order={l2_orders[i]:.3f}, "
+            f"L2_int order={l2_interior_orders[i]:.3f}, "
+            f"Linf order={linf_orders[i]:.3f}"
+        )
+
+    if make_plot:
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        plt.loglog(resolutions, l2_errors, "o-", label="L2 full error")
+        plt.loglog(resolutions, l2_interior_errors, "^-", label="L2 radial-interior error")
+        plt.loglog(resolutions, linf_errors, "s-", label="Linf error")
+        plt.xlabel("Resolution N")
+        plt.ylabel("Error")
+        plt.title("Shifted-torus shard_map parallel_flux_div convergence")
+        plt.grid(True, which="both")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=200)
+        plt.close()
+        print()
+        print(f"Saved plot to: {plot_path}")
+
+    return {
+        "resolutions": resolutions,
+        "l2_errors": l2_errors,
+        "l2_interior_errors": l2_interior_errors,
+        "linf_errors": linf_errors,
+        "case_times": case_times,
+        "l2_orders": l2_orders,
+        "l2_interior_orders": l2_interior_orders,
+        "linf_orders": linf_orders,
+    }
+
+
+def run_parallel_flux_div_fci_convergence(
+    *,
+    resolutions: tuple[int, ...] = (20, 40, 80),
+    shard_counts: tuple[int, int, int] = (1, 1, 1),
+    halo_width: int = 2,
+    make_plot: bool = True,
+    plot_path: str = "domain_decomp_parallel_flux_div_fci_convergence.png",
+) -> dict[str, object]:
+    """Run shifted-torus MMS convergence for FCI conservative parallel flux divergence."""
+
+    if len(resolutions) == 0:
+        raise ValueError("resolutions must contain at least one value")
+    if any(int(n) < 3 for n in resolutions):
+        raise ValueError("each resolution must be at least 3")
+
+    l2_errors: list[float] = []
+    l2_interior_errors: list[float] = []
+    linf_errors: list[float] = []
+    case_times: list[float] = []
+
+    print()
+    print("=" * 80)
+    print("Shifted-torus shard_map parallel_flux_div_fci convergence")
+    print("=" * 80)
+    print(f"shard_counts = {shard_counts}")
+    print(f"halo_width   = {halo_width}")
+    print()
+
+    for n in resolutions:
+        start = time.perf_counter()
+        result = run_shard_map_parallel_flux_div_fci_case(
+            shape=(n, n, n),
+            shard_counts=shard_counts,
+            halo_width=halo_width,
+        )
+        elapsed = time.perf_counter() - start
+        l2 = result["error_l2"]
+        l2_interior = result["error_l2_interior"]
+        linf = result["error_linf"]
+        l2_errors.append(l2)
+        l2_interior_errors.append(l2_interior)
+        linf_errors.append(linf)
+        case_times.append(elapsed)
+        _print_resolution_result(
+            n=n,
+            l2=l2,
+            l2_interior=l2_interior,
+            linf=linf,
+            elapsed=elapsed,
+        )
+
+    l2_orders = estimate_orders(l2_errors, list(resolutions))
+    l2_interior_orders = estimate_orders(l2_interior_errors, list(resolutions))
+    linf_orders = estimate_orders(linf_errors, list(resolutions))
+
+    print()
+    print("Estimated orders")
+    print("-" * 80)
+    for i in range(len(l2_orders)):
+        print(
+            f"N={resolutions[i]} -> {resolutions[i + 1]}: "
+            f"L2_full order={l2_orders[i]:.3f}, "
+            f"L2_int order={l2_interior_orders[i]:.3f}, "
+            f"Linf order={linf_orders[i]:.3f}"
+        )
+
+    if make_plot:
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        plt.loglog(resolutions, l2_errors, "o-", label="L2 full error")
+        plt.loglog(resolutions, l2_interior_errors, "^-", label="L2 radial-interior error")
+        plt.loglog(resolutions, linf_errors, "s-", label="Linf error")
+        plt.xlabel("Resolution N")
+        plt.ylabel("Error")
+        plt.title("Shifted-torus shard_map parallel_flux_div_fci convergence")
         plt.grid(True, which="both")
         plt.legend()
         plt.tight_layout()
@@ -3425,6 +4052,102 @@ def run_perp_laplacian_conservative_convergence(
     }
 
 
+def run_phi_reconstruction_convergence(
+    *,
+    resolutions: tuple[int, ...] = (20, 40, 80),
+    shard_counts: tuple[int, int, int] = (1, 1, 1),
+    halo_width: int = 2,
+    make_plot: bool = True,
+    plot_path: str = "domain_decomp_phi_reconstruction_convergence.png",
+) -> dict[str, object]:
+    """Run shifted-torus MMS convergence for reconstructed phi."""
+
+    if len(resolutions) == 0:
+        raise ValueError("resolutions must contain at least one value")
+    if any(int(n) < 3 for n in resolutions):
+        raise ValueError("each resolution must be at least 3")
+
+    l2_errors: list[float] = []
+    l2_interior_errors: list[float] = []
+    linf_errors: list[float] = []
+    case_times: list[float] = []
+
+    print()
+    print("=" * 80)
+    print("Shifted-torus shard_map phi_reconstruction convergence")
+    print("=" * 80)
+    print(f"shard_counts = {shard_counts}")
+    print(f"halo_width   = {halo_width}")
+    print()
+
+    for n in resolutions:
+        start = time.perf_counter()
+        result = run_shard_map_phi_reconstruction_case(
+            shape=(n, n, n),
+            shard_counts=shard_counts,
+            halo_width=halo_width,
+        )
+        elapsed = time.perf_counter() - start
+        l2 = result["error_l2"]
+        l2_interior = result["error_l2_interior"]
+        linf = result["error_linf"]
+        l2_errors.append(l2)
+        l2_interior_errors.append(l2_interior)
+        linf_errors.append(linf)
+        case_times.append(elapsed)
+        _print_resolution_result(
+            n=n,
+            l2=l2,
+            l2_interior=l2_interior,
+            linf=linf,
+            elapsed=elapsed,
+        )
+
+    l2_orders = estimate_orders(l2_errors, list(resolutions))
+    l2_interior_orders = estimate_orders(l2_interior_errors, list(resolutions))
+    linf_orders = estimate_orders(linf_errors, list(resolutions))
+
+    print()
+    print("Estimated orders")
+    print("-" * 80)
+    for i in range(len(l2_orders)):
+        print(
+            f"N={resolutions[i]} -> {resolutions[i + 1]}: "
+            f"L2_full order={l2_orders[i]:.3f}, "
+            f"L2_int order={l2_interior_orders[i]:.3f}, "
+            f"Linf order={linf_orders[i]:.3f}"
+        )
+
+    if make_plot:
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        plt.loglog(resolutions, l2_errors, "o-", label="L2 full error")
+        plt.loglog(resolutions, l2_interior_errors, "^-", label="L2 radial-interior error")
+        plt.loglog(resolutions, linf_errors, "s-", label="Linf error")
+        plt.xlabel("Resolution N")
+        plt.ylabel("Error")
+        plt.title("Shifted-torus shard_map phi_reconstruction convergence")
+        plt.grid(True, which="both")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=200)
+        plt.close()
+        print()
+        print(f"Saved plot to: {plot_path}")
+
+    return {
+        "resolutions": resolutions,
+        "l2_errors": l2_errors,
+        "l2_interior_errors": l2_interior_errors,
+        "linf_errors": linf_errors,
+        "case_times": case_times,
+        "l2_orders": l2_orders,
+        "l2_interior_orders": l2_interior_orders,
+        "linf_orders": linf_orders,
+    }
+
+
 def run_grad_parallel_fci_convergence(
     *,
     resolutions: tuple[int, ...] = (20, 40, 80),
@@ -3536,10 +4259,13 @@ def main() -> None:
             "grad_parallel_fci",
             "curvature",
             "grad_perp",
+            "parallel_flux_div",
+            "parallel_flux_div_fci",
             "parallel_laplacian_conservative",
             "parallel_laplacian_direct",
             "perp_laplacian_conservative",
             "perp_laplacian_local",
+            "phi_reconstruction",
             "poisson_bracket",
         ],
     )
@@ -3602,6 +4328,22 @@ def main() -> None:
             make_plot=args.plot,
             plot_path=args.plot_path,
         )
+    elif args.operator == "parallel_flux_div":
+        run_parallel_flux_div_convergence(
+            resolutions=tuple(args.resolutions),
+            shard_counts=tuple(args.shard_counts),
+            halo_width=args.halo_width,
+            make_plot=args.plot,
+            plot_path=args.plot_path,
+        )
+    elif args.operator == "parallel_flux_div_fci":
+        run_parallel_flux_div_fci_convergence(
+            resolutions=tuple(args.resolutions),
+            shard_counts=tuple(args.shard_counts),
+            halo_width=args.halo_width,
+            make_plot=args.plot,
+            plot_path=args.plot_path,
+        )
     elif args.operator == "perp_laplacian_local":
         run_perp_laplacian_local_convergence(
             resolutions=tuple(args.resolutions),
@@ -3612,6 +4354,14 @@ def main() -> None:
         )
     elif args.operator == "perp_laplacian_conservative":
         run_perp_laplacian_conservative_convergence(
+            resolutions=tuple(args.resolutions),
+            shard_counts=tuple(args.shard_counts),
+            halo_width=args.halo_width,
+            make_plot=args.plot,
+            plot_path=args.plot_path,
+        )
+    elif args.operator == "phi_reconstruction":
+        run_phi_reconstruction_convergence(
             resolutions=tuple(args.resolutions),
             shard_counts=tuple(args.shard_counts),
             halo_width=args.halo_width,

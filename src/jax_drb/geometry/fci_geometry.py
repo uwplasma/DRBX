@@ -3364,11 +3364,19 @@ def _validate_coordinate_stencil_value_slots(
     if int(slot.size) == 0:
         return
     if int(values.size) == 0:
-        if bool(jnp.any(active)):
+        try:
+            has_active = bool(jnp.any(active))
+        except jax.errors.TracerBoolConversionError:
+            return
+        if has_active:
             raise ValueError(f"context.{name} is empty but active stencil rows exist")
         return
     valid_slot = (~active) | ((slot >= 0) & (slot < int(values.size)))
-    if not bool(jnp.all(valid_slot)):
+    try:
+        all_valid = bool(jnp.all(valid_slot))
+    except jax.errors.TracerBoolConversionError:
+        return
+    if not all_valid:
         raise ValueError(
             f"context.{name} does not contain every active cut-wall stencil slot"
         )

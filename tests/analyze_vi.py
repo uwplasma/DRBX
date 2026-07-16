@@ -73,7 +73,7 @@ def _vi_rhs_term_fields(
     Vi = jnp.asarray(state.Vi, dtype=jnp.float64)
     rho_star = jnp.asarray(parameters.rho_star, dtype=jnp.float64)
     Vi_D_perp = jnp.asarray(parameters.Vi_D_perp, dtype=jnp.float64)
-    Vi_D_parallel = jnp.asarray(parameters.Vi_D_parallel, dtype=jnp.float64)
+    Vi_parallel_viscosity = jnp.asarray(parameters.Vi_parallel_viscosity, dtype=jnp.float64)
     tau = jnp.asarray(parameters.tau, dtype=jnp.float64)
     bmag = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag, dtype=jnp.float64), 1.0e-30)
     density_safe = jnp.maximum(density, 1.0e-30)
@@ -129,8 +129,8 @@ def _vi_rhs_term_fields(
     parallel_pressure = -grad_parallel_op_direct(pressure_stencil, geometry) / density_safe
 
     parallel_diffusion = jnp.zeros_like(Vi)
-    if float(Vi_D_parallel) != 0.0:
-        parallel_diffusion = Vi_D_parallel * parallel_laplacian_direct_op(
+    if float(Vi_parallel_viscosity) != 0.0:
+        parallel_diffusion = Vi_parallel_viscosity * parallel_laplacian_direct_op(
             Vi,
             geometry,
             face_bc=boundary_conditions.Vi_face_bc,

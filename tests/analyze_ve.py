@@ -100,7 +100,7 @@ def _ve_rhs_term_fields(
     mi_over_me = jnp.asarray(parameters.mi_over_me, dtype=jnp.float64)
     Ve_nu = jnp.asarray(parameters.Ve_nu, dtype=jnp.float64)
     Ve_D_perp = jnp.asarray(parameters.Ve_D_perp, dtype=jnp.float64)
-    Ve_D_parallel = jnp.asarray(parameters.Ve_D_parallel, dtype=jnp.float64)
+    Ve_parallel_viscosity = jnp.asarray(parameters.Ve_parallel_viscosity, dtype=jnp.float64)
     bmag = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag, dtype=jnp.float64), 1.0e-30)
     density_safe = jnp.maximum(density, 1.0e-30)
 
@@ -176,8 +176,8 @@ def _ve_rhs_term_fields(
     parallel_te = mi_over_me * (-0.71 * grad_parallel_op_direct(Te_stencil, geometry))
 
     parallel_diffusion = jnp.zeros_like(Ve)
-    if float(Ve_D_parallel) != 0.0:
-        parallel_diffusion = Ve_D_parallel * parallel_laplacian_direct_op(
+    if float(Ve_parallel_viscosity) != 0.0:
+        parallel_diffusion = Ve_parallel_viscosity * parallel_laplacian_direct_op(
             Ve,
             geometry,
             face_bc=boundary_conditions.Ve_face_bc,

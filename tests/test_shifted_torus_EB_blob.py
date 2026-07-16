@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import time as time_module
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 import sys
@@ -10,6 +11,9 @@ from typing import Sequence
 
 import jax
 import jax.numpy as jnp
+from jax import lax
+from jax.experimental.shard_map import shard_map
+from jax.sharding import NamedSharding, PartitionSpec as P
 import numpy as np
 
 from jax_drb.geometry import (
@@ -18,23 +22,30 @@ from jax_drb.geometry import (
     FaceBFieldGeometry,
     FciGeometry3D,
     FciMaps3D,
+    HaloLayout3D,
+    LocalBFieldGeometry,
+    LocalDomain3D,
+    LocalFaceBFieldGeometry,
+    LocalFciGeometry3D,
     LocalStencilBuilder,
     RegularFaceGeometry3D,
+    ShardSpec3D,
     Spacing3D,
     build_conservative_stencil_from_field,
     build_curvature_coefficients,
     build_fci_maps_from_b_contravariant,
 )
+from jax_drb.geometry.fci_geometry import SIDE_AXIS_REGULAR, SIDE_PHYSICAL, SIDE_SIMPLE_PERIODIC
 from jax_drb.native.fci_boundaries import (
     BC_DIRICHLET,
     BC_NEUMANN,
-    BoundaryConditionBuilder,
     BoundaryFaceBC3D,
     ConservativeStencil3D,
     CoordinateFaceValueReconstructor3D,
     CoordinateNormalDerivativeConstructor3D,
     CutWallBC3D,
     CutWallGeometry3D,
+    LocalBoundaryFaceBC3D,
     CutWallNormalDerivativeConstructor3D,
     CutWallValueReconstructor3D,
     LocalStencil1D,
@@ -42,14 +53,19 @@ from jax_drb.native.fci_boundaries import (
 )
 from jax_drb.native.fci_drb_EB_rhs import FciDrbEBBoundaryConditions, FciDrbEBRhsResult, FciDrbEBState
 from jax_drb.native.fci_drb_EB_rhs import FciDrbEBRhsParameters
+from jax_drb.native.fci_drb_EB_rhs import LocalFciDrbEBFaceBCBundle, LocalFciDrbEBRhs
 from jax_drb.native.fci_drb_EB_rhs import _multiply_local_stencils
 from jax_drb.native.fci_drb_EB_rhs import compute_fci_drb_eb_rhs
-from jax_drb.native import Rk4Stepper
+from jax_drb.native import SpmdGmresConfig
+from jax_drb.native.fci_halo import (
+    GhostFillWeights1D,
+    HaloExchange3D,
+    PhysicalGhostCellFiller3D,
+    make_default_topology_halo_filler_3d,
+)
 from jax_drb.native.fci_operators import (
-    PerpLaplacianInverseSolver,
     _take_stencil_finite_difference,
-    build_perp_laplacian_face_projectors,
-    build_perp_laplacian_solver_mg_hierarchy,
+    build_local_perp_laplacian_face_projectors,
     grad_parallel_op_direct,
     perp_laplacian_conservative_op,
 )
@@ -63,13 +79,22 @@ if str(_THIS_DIR) not in sys.path:
 
 from test_shifted_torus_4_field_blob import build_shifted_torus_4field_geometry
 from test_shifted_torus_4_field_free_decay import _format_progress_bar
+from test_mms_shifted_torus_4_field import alpha_value, c_phi, iota, r0, sigma
+from mms_domain_decomp_helpers import (
+    MESH_AXIS_NAMES,
+    assert_shape_divisible_by_shards,
+    build_shifted_torus_local_geometry,
+    expand_local_shard_pytree,
+    extract_local_shard_pytree,
+    local_shard_pytree_partition_spec,
+    make_mesh_for_shard_counts,
+)
 
 
 DEFAULT_RESOLUTION = 64
 radial_b_fraction = 1.0e-2
 tf = 0.1
 DEFAULT_NUM_STEPS = 150
-DEFAULT_INITIAL_TRANSIENT_TIME = 0.02
 DEFAULT_INITIAL_VELOCITY_ALPHA = 1.0
 DEFAULT_INITIAL_VELOCITY_ELL_FRACTION = 0.2
 DEFAULT_PERP_DIFFUSION = 1.0e-5
@@ -409,11 +434,392 @@ def _build_eb_blob_parameters(perp_diffusion: float) -> FciDrbEBRhsParameters:
         ion_temperature_D_perp=perp_diffusion,
         Ve_nu=1.0e-3,
         Ve_D_perp=perp_diffusion,
-        Ve_D_parallel=0.0,
+        Ve_parallel_viscosity=0.0,
         Vi_D_perp=perp_diffusion,
-        Vi_D_parallel=0.0,
+        Vi_parallel_viscosity=0.0,
         vorticity_D_perp=perp_diffusion,
         vorticity_D_parallel=0.0,
+    )
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class _EbBlobLocalInvariants:
+    face_projector_x: jnp.ndarray
+    face_projector_y: jnp.ndarray
+    face_projector_z: jnp.ndarray
+
+    def tree_flatten(self):
+        return ((self.face_projector_x, self.face_projector_y, self.face_projector_z), None)
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        return cls(*children)
+
+
+def _state_partition_spec() -> FciDrbEBState:
+    spec = P(*MESH_AXIS_NAMES)
+    return FciDrbEBState(
+        density=spec,
+        phi=spec,
+        Te=spec,
+        Ti=spec,
+        Vi=spec,
+        Ve=spec,
+        vorticity=spec,
+    )
+
+
+def _gather_state_from_mesh(state: FciDrbEBState) -> FciDrbEBState:
+    return FciDrbEBState(
+        density=np.asarray(jax.device_get(state.density), dtype=np.float64),
+        phi=np.asarray(jax.device_get(state.phi), dtype=np.float64),
+        Te=np.asarray(jax.device_get(state.Te), dtype=np.float64),
+        Ti=np.asarray(jax.device_get(state.Ti), dtype=np.float64),
+        Vi=np.asarray(jax.device_get(state.Vi), dtype=np.float64),
+        Ve=np.asarray(jax.device_get(state.Ve), dtype=np.float64),
+        vorticity=np.asarray(jax.device_get(state.vorticity), dtype=np.float64),
+    )
+
+
+def _build_eb_blob_local_domain(
+    global_shape: tuple[int, int, int],
+    halo_width: int,
+    shard_counts: tuple[int, int, int],
+) -> LocalDomain3D:
+    assert_shape_divisible_by_shards(global_shape, shard_counts)
+    owned_shape = tuple(int(size) // int(count) for size, count in zip(global_shape, shard_counts))
+    layout = HaloLayout3D(owned_shape, int(halo_width))
+    spec = ShardSpec3D(
+        global_shape=tuple(int(value) for value in global_shape),
+        owned_start=(0, 0, 0),
+        owned_stop=owned_shape,
+        shard_index=(0, 0, 0),
+        shard_counts=tuple(int(value) for value in shard_counts),
+        periodic_axes=PERIODIC_AXES,
+        axis_regular_axes=AXIS_REGULAR_AXES,
+        halo_width=int(halo_width),
+        side_kind_lower=(SIDE_AXIS_REGULAR, SIDE_SIMPLE_PERIODIC, SIDE_SIMPLE_PERIODIC),
+        side_kind_upper=(SIDE_PHYSICAL, SIDE_SIMPLE_PERIODIC, SIDE_SIMPLE_PERIODIC),
+    )
+    return LocalDomain3D(
+        shard_spec=spec,
+        layout=layout,
+        mesh_axis_names=MESH_AXIS_NAMES,
+    )
+
+
+def _build_local_ghost_filler(halo_width: int) -> PhysicalGhostCellFiller3D:
+    weights = GhostFillWeights1D(
+        owned_weights=jnp.full((int(halo_width), 1), -1.0, dtype=jnp.float64),
+        bc_weights=jnp.full((int(halo_width),), 2.0, dtype=jnp.float64),
+    )
+    neutral = GhostFillWeights1D(
+        owned_weights=jnp.ones((int(halo_width), 1), dtype=jnp.float64),
+        bc_weights=jnp.zeros((int(halo_width),), dtype=jnp.float64),
+    )
+    return PhysicalGhostCellFiller3D(
+        dirichlet=(weights, neutral, neutral),
+        neumann_lower=(neutral, neutral, neutral),
+        neumann_upper=(neutral, neutral, neutral),
+    )
+
+
+def _local_bmag_from_contravariant_components(B_contra: jnp.ndarray, g_cov: jnp.ndarray) -> jnp.ndarray:
+    bmag_sq = jnp.einsum("...i,...ij,...j->...", B_contra, g_cov, B_contra)
+    return jnp.sqrt(jnp.maximum(bmag_sq, 0.0))
+
+
+def _replace_local_bfield_radial_component(
+    bfield: LocalBFieldGeometry,
+    metric_g_cov: jnp.ndarray,
+    theta: jnp.ndarray,
+    *,
+    radial_fraction: float,
+) -> LocalBFieldGeometry:
+    base = jnp.asarray(bfield.B_contra_halo, dtype=jnp.float64)
+    radial_scale = jnp.asarray(float(radial_fraction), dtype=jnp.float64) * base[..., 2]
+    B_contra = jnp.stack((radial_scale * jnp.cos(theta), base[..., 1], base[..., 2]), axis=-1)
+    return LocalBFieldGeometry(
+        layout=bfield.layout,
+        B_contra_halo=B_contra,
+        Bmag_halo=_local_bmag_from_contravariant_components(B_contra, metric_g_cov),
+        location=bfield.location,
+    )
+
+
+def _apply_eb_blob_radial_bfield(
+    geometry: LocalFciGeometry3D,
+    *,
+    radial_fraction: float,
+) -> LocalFciGeometry3D:
+    theta_center = geometry.grid.y.centers_halo[None, :, None]
+    theta_face_y = geometry.grid.y.faces_halo[None, :, None]
+    cell_bfield = _replace_local_bfield_radial_component(
+        geometry.cell_bfield,
+        geometry.cell_metric.g_cov,
+        jnp.broadcast_to(theta_center, geometry.cell_bfield.Bmag_halo.shape),
+        radial_fraction=radial_fraction,
+    )
+    face_bfield = LocalFaceBFieldGeometry(
+        layout=geometry.layout,
+        x=_replace_local_bfield_radial_component(
+            geometry.face_bfield.x,
+            geometry.face_metric.x.g_cov,
+            jnp.broadcast_to(theta_center, geometry.face_bfield.x.Bmag_halo.shape),
+            radial_fraction=radial_fraction,
+        ),
+        y=_replace_local_bfield_radial_component(
+            geometry.face_bfield.y,
+            geometry.face_metric.y.g_cov,
+            jnp.broadcast_to(theta_face_y, geometry.face_bfield.y.Bmag_halo.shape),
+            radial_fraction=radial_fraction,
+        ),
+        z=_replace_local_bfield_radial_component(
+            geometry.face_bfield.z,
+            geometry.face_metric.z.g_cov,
+            jnp.broadcast_to(theta_center, geometry.face_bfield.z.Bmag_halo.shape),
+            radial_fraction=radial_fraction,
+        ),
+    )
+    return replace(geometry, cell_bfield=cell_bfield, face_bfield=face_bfield)
+
+
+def _build_local_eb_blob_geometry(
+    owned_shape: tuple[int, int, int],
+    halo_width: int,
+    *,
+    global_shape: tuple[int, int, int],
+    shard_index: tuple[object, object, object],
+    radial_fraction: float,
+) -> LocalFciGeometry3D:
+    rho_min = 0.5 / float(global_shape[0])
+    rho_max = 1.0 - rho_min
+    geometry = build_shifted_torus_local_geometry(
+        owned_shape,
+        int(halo_width),
+        global_shape=global_shape,
+        shard_index=shard_index,
+        x_min=rho_min,
+        x_max=rho_max,
+        r0=r0,
+        alpha_value=alpha_value,
+        iota=iota,
+        c_phi=c_phi,
+        sigma=sigma,
+    )
+    return _apply_eb_blob_radial_bfield(geometry, radial_fraction=radial_fraction)
+
+
+def _build_local_eb_blob_invariants(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+) -> _EbBlobLocalInvariants:
+    face_projectors = build_local_perp_laplacian_face_projectors(
+        geometry,
+        domain,
+        axis_regular_axes=AXIS_REGULAR_AXES,
+    )
+    return _EbBlobLocalInvariants(
+        face_projector_x=jnp.asarray(face_projectors[0], dtype=jnp.float64),
+        face_projector_y=jnp.asarray(face_projectors[1], dtype=jnp.float64),
+        face_projector_z=jnp.asarray(face_projectors[2], dtype=jnp.float64),
+    )
+
+
+def _local_eb_blob_initial_state(
+    geometry: LocalFciGeometry3D,
+    *,
+    velocity_initialization: str,
+) -> FciDrbEBState:
+    owned = geometry.layout.owned_slices_cell
+    rho = jnp.broadcast_to(
+        jnp.asarray(geometry.grid.x.centers_halo[owned[0]], dtype=jnp.float64)[:, None, None],
+        geometry.owned_shape,
+    )
+    theta = jnp.broadcast_to(
+        jnp.asarray(geometry.grid.y.centers_halo[owned[1]], dtype=jnp.float64)[None, :, None],
+        geometry.owned_shape,
+    )
+    drho = jnp.asarray(geometry.grid.x.widths[owned[0]][0], dtype=jnp.float64)
+    dtheta = jnp.asarray(geometry.grid.y.widths[owned[1]][0], dtype=jnp.float64)
+    l_rho = float(Lrho_cells) * drho
+    l_y = float(Ly_cells) * dtheta
+    blob = jnp.exp(-((rho - float(rho0)) ** 2) / (l_rho**2)) * jnp.exp(
+        -(_periodic_angle_distance(theta, y0) ** 2) / (l_y**2)
+    )
+    density = jnp.asarray(1.0 + float(A_N) * blob, dtype=jnp.float64)
+    zeros = jnp.zeros_like(density)
+    ones = jnp.ones_like(density)
+    if velocity_initialization == "zero":
+        vi = zeros
+        ve = zeros
+    elif velocity_initialization == "sheath_taper":
+        x_faces = geometry.grid.x.faces_halo
+        x_min_local = x_faces[geometry.layout.halo_width]
+        x_max_local = x_faces[geometry.layout.halo_width + geometry.layout.owned_shape[0]]
+        lx = jnp.maximum(x_max_local - x_min_local, 1.0e-30)
+        ell_v = jnp.maximum(float(DEFAULT_INITIAL_VELOCITY_ELL_FRACTION) * lx, 1.0e-30)
+        wall_weight = jnp.exp(-(((x_max_local - rho) / ell_v) ** 2))
+        _, sheath_sign, _zero_mask, _keep_mask = _local_outer_x_wall_sheath_sign_data(geometry)
+        outer_sign = sheath_sign
+        vi = float(DEFAULT_INITIAL_VELOCITY_ALPHA) * wall_weight * (jnp.sqrt(2.0) * outer_sign[None, :, :])
+        ve = float(DEFAULT_INITIAL_VELOCITY_ALPHA) * wall_weight * outer_sign[None, :, :]
+    else:
+        raise ValueError(f"unknown velocity_initialization={velocity_initialization!r}")
+    return FciDrbEBState(
+        density=density,
+        phi=zeros,
+        Te=ones,
+        Ti=ones,
+        Vi=vi,
+        Ve=ve,
+        vorticity=zeros,
+    )
+
+
+def _local_eb_blob_source_state(
+    geometry: LocalFciGeometry3D,
+    *,
+    amplitude: float,
+    x0: float,
+    delta_x: float,
+) -> FciDrbEBState:
+    owned = geometry.layout.owned_slices_cell
+    x = jnp.broadcast_to(
+        jnp.asarray(geometry.grid.x.centers_halo[owned[0]], dtype=jnp.float64)[:, None, None],
+        geometry.owned_shape,
+    )
+    source = jnp.asarray(float(amplitude), dtype=jnp.float64) * jnp.exp(-((x - float(x0)) ** 2) / (float(delta_x) ** 2))
+    zeros = jnp.zeros_like(source)
+    return FciDrbEBState(
+        density=source,
+        phi=zeros,
+        Te=source,
+        Ti=zeros,
+        Vi=zeros,
+        Ve=zeros,
+        vorticity=zeros,
+    )
+
+
+def _local_outer_x_wall_sheath_sign_data(
+    geometry: LocalFciGeometry3D,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    x_face_bx = jnp.asarray(geometry.face_bfield.x.B_contra_owned[..., 0], dtype=jnp.float64)
+    outer_hard_sign = jnp.sign(x_face_bx[-1])
+    outer_hard_sign = jnp.where(jnp.isclose(x_face_bx[-1], 0.0), 0.0, outer_hard_sign)
+    outer_zero_sign_mask = outer_hard_sign == 0.0
+    outer_sheath_sign = outer_hard_sign
+    outer_derivative_keep_mask = jnp.ones_like(outer_hard_sign, dtype=bool)
+    if WALL_SIGN_SMOOTHING_ENABLED:
+        outer_sheath_sign = _smoothed_outer_wall_sign(
+            outer_hard_sign,
+            geometry.grid.y.centers_owned,
+            WALL_SIGN_SMOOTHING_WIDTH_CELLS,
+        )
+        outer_sheath_sign = jnp.where(outer_zero_sign_mask, 0.0, outer_sheath_sign)
+        outer_derivative_keep_mask = _outer_wall_derivative_keep_mask(
+            outer_hard_sign,
+            WALL_SIGN_SMOOTHING_WIDTH_CELLS,
+        )
+        outer_derivative_keep_mask = jnp.logical_and(outer_derivative_keep_mask, ~outer_zero_sign_mask)
+    return outer_hard_sign, outer_sheath_sign, outer_zero_sign_mask, outer_derivative_keep_mask
+
+
+def _wall_derivatives_from_upper_value(
+    field_owned: jnp.ndarray,
+    wall_value: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    x = jnp.asarray(geometry.grid.x.centers_owned, dtype=jnp.float64)
+    xw = jnp.asarray(geometry.grid.x.faces_halo[geometry.layout.halo_width + geometry.layout.owned_shape[0]], dtype=jnp.float64)
+    x0 = x[-1]
+    x1 = x[-2]
+    f0 = field_owned[-1]
+    f1 = field_owned[-2]
+    w_wall = (2.0 * xw - x0 - x1) / ((xw - x0) * (xw - x1))
+    w0 = (xw - x1) / ((x0 - xw) * (x0 - x1))
+    w1 = (xw - x0) / ((x1 - xw) * (x1 - x0))
+    d_wall = w_wall * wall_value + w0 * f0 + w1 * f1
+    d2_wall = (
+        2.0 * wall_value / ((xw - x0) * (xw - x1))
+        + 2.0 * f0 / ((x0 - xw) * (x0 - x1))
+        + 2.0 * f1 / ((x1 - xw) * (x1 - x0))
+    )
+    return d_wall, d2_wall
+
+
+def _x_upper_face_bc(
+    layout: HaloLayout3D,
+    *,
+    domain: LocalDomain3D,
+    kind_upper: jnp.ndarray,
+    value_upper: jnp.ndarray,
+) -> LocalBoundaryFaceBC3D:
+    bc = LocalBoundaryFaceBC3D.empty(layout)
+    upper_active = domain.runtime_has_physical_upper(0)
+    kind_x = bc.kind_x.at[-1].set(jnp.where(upper_active, kind_upper, bc.kind_x[-1]))
+    value_x = bc.value_x.at[-1].set(jnp.where(upper_active, value_upper, bc.value_x[-1]))
+    mask_x = bc.mask_x.at[-1].set(jnp.where(upper_active, True, bc.mask_x[-1]))
+    return replace(bc, kind_x=kind_x, value_x=value_x, mask_x=mask_x)
+
+
+def _build_local_eb_blob_face_bcs(
+    state_owned: FciDrbEBState,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    parameters: FciDrbEBRhsParameters,
+) -> LocalFciDrbEBFaceBCBundle:
+    density = jnp.asarray(state_owned.density, dtype=jnp.float64)
+    Te = jnp.asarray(state_owned.Te, dtype=jnp.float64)
+    Ti = jnp.asarray(state_owned.Ti, dtype=jnp.float64)
+    Vi = jnp.asarray(state_owned.Vi, dtype=jnp.float64)
+
+    _, x_sheath_sign, outer_zero_sign_mask, outer_wall_derivative_keep_mask = _local_outer_x_wall_sheath_sign_data(geometry)
+    tau = jnp.asarray(parameters.tau, dtype=jnp.float64)
+    lambda_sheath = jnp.log(jnp.sqrt(jnp.asarray(parameters.mi_over_me, dtype=jnp.float64)) / (2.0 * jnp.pi))
+    te_face = jnp.maximum(Te[-1], 1.0e-30)
+    ti_face = Ti[-1]
+    ft_face = jnp.sqrt(jnp.maximum(1.0 + tau * ti_face / te_face, 0.0))
+    vi_wall = x_sheath_sign * jnp.sqrt(te_face) * ft_face
+    phi_wall = lambda_sheath * te_face
+    ve_wall = x_sheath_sign * jnp.sqrt(te_face) * jnp.exp(lambda_sheath - phi_wall / te_face)
+    vi_wall = jnp.where(outer_zero_sign_mask, 0.0, vi_wall)
+    ve_wall = jnp.where(outer_zero_sign_mask, 0.0, ve_wall)
+
+    vi_dnormal, vi_d2normal = _wall_derivatives_from_upper_value(Vi, vi_wall, geometry)
+    vi_dnormal = jnp.where(outer_wall_derivative_keep_mask, vi_dnormal, 0.0)
+    vi_d2normal = jnp.where(outer_wall_derivative_keep_mask, vi_d2normal, 0.0)
+    density_neumann = jnp.where(
+        outer_zero_sign_mask,
+        0.0,
+        -x_sheath_sign
+        * (jnp.maximum(density[-1], 1.0e-30) / (te_face * jnp.maximum(ft_face, 1.0e-30)))
+        * vi_dnormal,
+    )
+    vorticity_wall = jnp.where(
+        outer_zero_sign_mask,
+        0.0,
+        -(
+            (vi_dnormal**2) / jnp.maximum(ft_face**2, 1.0e-30)
+            + x_sheath_sign * jnp.sqrt(te_face) / jnp.maximum(ft_face, 1.0e-30) * vi_d2normal
+        ),
+    )
+    shape = geometry.layout.location_owned_shape("x_face")
+    zeros = jnp.zeros(shape[1:], dtype=jnp.float64)
+    neumann_kind = jnp.full(shape[1:], BC_NEUMANN, dtype=jnp.int32)
+    dirichlet_kind = jnp.full(shape[1:], BC_DIRICHLET, dtype=jnp.int32)
+    vorticity_kind = jnp.where(outer_zero_sign_mask, neumann_kind, dirichlet_kind)
+    velocity_kind = jnp.where(outer_zero_sign_mask, neumann_kind, dirichlet_kind)
+    return LocalFciDrbEBFaceBCBundle(
+        density=_x_upper_face_bc(domain.layout, domain=domain, kind_upper=neumann_kind, value_upper=density_neumann),
+        phi=_x_upper_face_bc(domain.layout, domain=domain, kind_upper=dirichlet_kind, value_upper=phi_wall),
+        Te=_x_upper_face_bc(domain.layout, domain=domain, kind_upper=neumann_kind, value_upper=zeros),
+        Ti=_x_upper_face_bc(domain.layout, domain=domain, kind_upper=neumann_kind, value_upper=zeros),
+        Vi=_x_upper_face_bc(domain.layout, domain=domain, kind_upper=velocity_kind, value_upper=jnp.where(outer_zero_sign_mask, 0.0, vi_wall)),
+        Ve=_x_upper_face_bc(domain.layout, domain=domain, kind_upper=velocity_kind, value_upper=jnp.where(outer_zero_sign_mask, 0.0, ve_wall)),
+        vorticity=_x_upper_face_bc(domain.layout, domain=domain, kind_upper=vorticity_kind, value_upper=vorticity_wall),
     )
 
 
@@ -436,45 +842,10 @@ def _build_eb_blob_timesteps(
     final_time: float,
     num_steps: int = DEFAULT_NUM_STEPS,
     timestep: float | None = None,
-    initial_transient_time: float = DEFAULT_INITIAL_TRANSIENT_TIME,
-    initial_num_steps: int | None = None,
-    remaining_num_steps: int | None = None,
 ) -> tuple[float, ...]:
     final_time_value = float(final_time)
     if final_time_value <= 0.0:
         raise ValueError(f"final_time must be positive, got {final_time_value}")
-
-    split_requested = initial_num_steps is not None or remaining_num_steps is not None
-    if split_requested:
-        if timestep is not None:
-            raise ValueError("timestep cannot be supplied with split initial/remaining step counts")
-        if initial_num_steps is None or remaining_num_steps is None:
-            raise ValueError("initial_num_steps and remaining_num_steps must be supplied together")
-
-        initial_steps = int(initial_num_steps)
-        remaining_steps = int(remaining_num_steps)
-        if initial_steps <= 0:
-            raise ValueError(f"initial_num_steps must be positive, got {initial_steps}")
-        if remaining_steps < 0:
-            raise ValueError(f"remaining_num_steps must be non-negative, got {remaining_steps}")
-
-        split_time = min(max(float(initial_transient_time), 0.0), final_time_value)
-        if split_time <= 0.0:
-            if remaining_steps <= 0:
-                raise ValueError("remaining_num_steps must be positive when initial_transient_time is zero")
-            return tuple(float(final_time_value / float(remaining_steps)) for _ in range(remaining_steps))
-        if np.isclose(split_time, final_time_value):
-            if remaining_steps != 0:
-                raise ValueError("remaining_num_steps must be zero when initial_transient_time reaches final_time")
-            return tuple(float(final_time_value / float(initial_steps)) for _ in range(initial_steps))
-        if remaining_steps <= 0:
-            raise ValueError("remaining_num_steps must be positive when initial_transient_time is before final_time")
-
-        initial_dt = split_time / float(initial_steps)
-        remaining_dt = (final_time_value - split_time) / float(remaining_steps)
-        return tuple(float(initial_dt) for _ in range(initial_steps)) + tuple(
-            float(remaining_dt) for _ in range(remaining_steps)
-        )
 
     if timestep is not None:
         dt = float(timestep)
@@ -494,8 +865,6 @@ def _build_eb_blob_timesteps(
 def _print_eb_blob_timestep_schedule(
     step_sizes: Sequence[float],
     *,
-    initial_num_steps: int | None,
-    initial_transient_time: float | None,
     final_time: float,
 ) -> None:
     step_sizes_np = np.asarray(step_sizes, dtype=np.float64)
@@ -504,16 +873,9 @@ def _print_eb_blob_timestep_schedule(
         return
 
     preview_indices = {0, 1, 2, int(step_sizes_np.size) - 3, int(step_sizes_np.size) - 2, int(step_sizes_np.size) - 1}
-    if initial_num_steps is not None:
-        preview_indices.update(
-            {
-                max(0, int(initial_num_steps) - 1),
-                min(int(initial_num_steps), int(step_sizes_np.size) - 1),
-            }
-        )
     preview_indices = [index for index in sorted(preview_indices) if 0 <= index < int(step_sizes_np.size)]
 
-    print("EB blob timestep schedule preview:", flush=True)
+    print(f"EB blob timestep schedule preview: tf={float(final_time):.6e}", flush=True)
     for index in preview_indices:
         start_time = float(np.sum(step_sizes_np[:index]))
         end_time = start_time + float(step_sizes_np[index])
@@ -523,14 +885,50 @@ def _print_eb_blob_timestep_schedule(
             flush=True,
         )
 
-    if initial_num_steps is not None and initial_transient_time is not None:
-        split_index = int(initial_num_steps)
-        split_index = min(max(split_index, 0), int(step_sizes_np.size))
+
+def _print_eb_blob_runtime_info(
+    *,
+    global_shape: tuple[int, int, int],
+    shard_counts: tuple[int, int, int],
+    halo_width: int,
+) -> None:
+    """Print the JAX runtime and sharding setup before expensive compilation."""
+
+    global_shape = tuple(int(value) for value in global_shape)
+    shard_counts = tuple(int(value) for value in shard_counts)
+    requested_devices = int(np.prod(np.asarray(shard_counts, dtype=np.int64)))
+    local_shape = tuple(
+        int(size) // int(count)
+        for size, count in zip(global_shape, shard_counts)
+    )
+    devices = list(jax.devices())
+
+    print("=" * 80)
+    print("JAX runtime")
+    print("=" * 80)
+    print("default backend:", jax.default_backend())
+    print("local_device_count:", jax.local_device_count())
+    print("device_count:", jax.device_count())
+    print("process_index:", jax.process_index())
+    print("process_count:", jax.process_count())
+    print("devices:")
+    for i, device in enumerate(devices):
+        print(f"  [{i}] {device}")
+    print("=" * 80)
+    print("EB blob domain-decomp sharding")
+    print("=" * 80)
+    print(f"mesh axis names: {MESH_AXIS_NAMES}")
+    print(f"global_shape: {global_shape}")
+    print(f"shard_counts: {shard_counts}")
+    print(f"requested mesh devices: {requested_devices}")
+    print(f"owned local shape per shard: {local_shape}")
+    print(f"halo_width: {int(halo_width)}")
+    if requested_devices > len(devices):
         print(
-            f"  phase boundary after step {split_index} at t={float(initial_transient_time):.6e} "
-            f"of tf={float(final_time):.6e}",
-            flush=True,
+            "WARNING: requested mesh devices exceed visible jax.devices(); "
+            "mesh construction will fail unless more devices are exposed."
         )
+    print("=" * 80)
 
 
 def _history_matches_eb_blob_settings(
@@ -538,10 +936,8 @@ def _history_matches_eb_blob_settings(
     *,
     resolution: int,
     num_steps: int,
+    final_time: float,
     initial_velocity_state: str,
-    initial_transient_time: float | None,
-    initial_num_steps: int | None,
-    remaining_num_steps: int | None,
     a_n: float,
     l_rho_cells: float,
     l_y_cells: float,
@@ -555,6 +951,7 @@ def _history_matches_eb_blob_settings(
 ) -> bool:
     saved_resolution = int(metadata["resolution"]) if "resolution" in metadata else None
     saved_num_steps = int(metadata["num_steps"]) if "num_steps" in metadata else None
+    saved_final_time = float(metadata["tf"]) if "tf" in metadata else None
     saved_initial_velocity_state = (
         str(metadata["initial_velocity_state"]) if "initial_velocity_state" in metadata else None
     )
@@ -578,11 +975,6 @@ def _history_matches_eb_blob_settings(
     saved_wall_sign_smoothing_width_cells = (
         float(metadata["wall_sign_smoothing_width_cells"]) if "wall_sign_smoothing_width_cells" in metadata else None
     )
-    saved_initial_transient_time = (
-        float(metadata["initial_transient_time"]) if "initial_transient_time" in metadata else None
-    )
-    saved_initial_num_steps = int(metadata["initial_num_steps"]) if "initial_num_steps" in metadata else None
-    saved_remaining_num_steps = int(metadata["remaining_num_steps"]) if "remaining_num_steps" in metadata else None
     saved_a_n = float(metadata["A_N"]) if "A_N" in metadata else None
     saved_lrho = float(metadata["Lrho_cells"]) if "Lrho_cells" in metadata else None
     saved_ly = float(metadata["Ly_cells"]) if "Ly_cells" in metadata else None
@@ -615,22 +1007,6 @@ def _history_matches_eb_blob_settings(
             "vorticity_D_perp",
         )
     )
-    if initial_num_steps is None and remaining_num_steps is None:
-        schedule_matches = (
-            saved_initial_num_steps in (None, 0)
-            and saved_remaining_num_steps in (None, int(num_steps))
-        )
-    else:
-        if initial_num_steps is None or remaining_num_steps is None:
-            schedule_matches = False
-        else:
-            schedule_matches = (
-                saved_initial_num_steps == int(initial_num_steps)
-                and saved_remaining_num_steps == int(remaining_num_steps)
-                and saved_initial_transient_time is not None
-                and initial_transient_time is not None
-                and np.isclose(saved_initial_transient_time, float(initial_transient_time))
-            )
     if initial_velocity_state == "zero":
         velocity_matches = saved_initial_velocity_state in (None, "zero")
     else:
@@ -644,7 +1020,8 @@ def _history_matches_eb_blob_settings(
     return (
         saved_resolution == int(resolution)
         and saved_num_steps == int(num_steps)
-        and schedule_matches
+        and saved_final_time is not None
+        and np.isclose(saved_final_time, float(final_time))
         and velocity_matches
         and saved_initial_velocity_formula == INITIAL_VELOCITY_FORMULA
         and saved_wall_sign_smoothing_formula == WALL_SIGN_SMOOTHING_FORMULA
@@ -694,6 +1071,7 @@ def _matching_eb_blob_metadata() -> dict[str, object]:
     return {
         "resolution": 8,
         "num_steps": 5,
+        "tf": tf,
         "initial_velocity_state": "sheath_taper",
         "initial_velocity_alpha": DEFAULT_INITIAL_VELOCITY_ALPHA,
         "initial_velocity_ell_fraction": DEFAULT_INITIAL_VELOCITY_ELL_FRACTION,
@@ -701,8 +1079,6 @@ def _matching_eb_blob_metadata() -> dict[str, object]:
         "wall_sign_smoothing_formula": WALL_SIGN_SMOOTHING_FORMULA,
         "wall_sign_smoothing_enabled": WALL_SIGN_SMOOTHING_ENABLED,
         "wall_sign_smoothing_width_cells": WALL_SIGN_SMOOTHING_WIDTH_CELLS,
-        "initial_num_steps": 0,
-        "remaining_num_steps": 5,
         "A_N": A_N,
         "Lrho_cells": Lrho_cells,
         "Ly_cells": Ly_cells,
@@ -727,20 +1103,6 @@ def test_eb_blob_timesteps_default_uniform_grid() -> None:
     step_sizes = _build_eb_blob_timesteps(final_time=0.1, num_steps=5)
 
     np.testing.assert_allclose(step_sizes, np.full(5, 0.02, dtype=np.float64))
-    np.testing.assert_allclose(np.sum(step_sizes), 0.1)
-
-
-def test_eb_blob_timesteps_split_initial_transient() -> None:
-    step_sizes = _build_eb_blob_timesteps(
-        final_time=0.1,
-        initial_transient_time=0.02,
-        initial_num_steps=4,
-        remaining_num_steps=8,
-    )
-
-    assert len(step_sizes) == 12
-    np.testing.assert_allclose(step_sizes[:4], np.full(4, 0.005, dtype=np.float64))
-    np.testing.assert_allclose(step_sizes[4:], np.full(8, 0.01, dtype=np.float64))
     np.testing.assert_allclose(np.sum(step_sizes), 0.1)
 
 
@@ -789,10 +1151,8 @@ def test_eb_blob_history_match_requires_startup_formula_metadata() -> None:
         metadata,
         resolution=8,
         num_steps=5,
+        final_time=tf,
         initial_velocity_state="sheath_taper",
-        initial_transient_time=None,
-        initial_num_steps=None,
-        remaining_num_steps=None,
         a_n=A_N,
         l_rho_cells=Lrho_cells,
         l_y_cells=Ly_cells,
@@ -811,10 +1171,8 @@ def test_eb_blob_history_match_requires_startup_formula_metadata() -> None:
         missing_formula,
         resolution=8,
         num_steps=5,
+        final_time=tf,
         initial_velocity_state="sheath_taper",
-        initial_transient_time=None,
-        initial_num_steps=None,
-        remaining_num_steps=None,
         a_n=A_N,
         l_rho_cells=Lrho_cells,
         l_y_cells=Ly_cells,
@@ -833,10 +1191,8 @@ def test_eb_blob_history_match_requires_startup_formula_metadata() -> None:
         stale_smoothing,
         resolution=8,
         num_steps=5,
+        final_time=tf,
         initial_velocity_state="sheath_taper",
-        initial_transient_time=None,
-        initial_num_steps=None,
-        remaining_num_steps=None,
         a_n=A_N,
         l_rho_cells=Lrho_cells,
         l_y_cells=Ly_cells,
@@ -2156,263 +2512,24 @@ def test_eb_rhs_diffusion_only_density_perp_matches_direct_laplacian() -> None:
         np.testing.assert_allclose(np.asarray(field), 0.0, atol=0.0)
 
 
-def _add_state(state: FciDrbEBState, delta: FciDrbEBState, *, scale: float) -> FciDrbEBState:
-    return state.axpy(delta, scale=scale)
-
-
-def _check_nonnegative_density_temperature(state: FciDrbEBState, *, label: str) -> None:
-    density_min = float(jnp.min(jnp.asarray(state.density, dtype=jnp.float64)))
-    te_min = float(jnp.min(jnp.asarray(state.Te, dtype=jnp.float64)))
-    ti_min = float(jnp.min(jnp.asarray(state.Ti, dtype=jnp.float64)))
-    if density_min < 0.0 or te_min < 0.0 or ti_min < 0.0:
-        raise ValueError(
-            f"{label} produced a negative state: "
-            f"density_min={density_min:.6e}, Te_min={te_min:.6e}, Ti_min={ti_min:.6e}"
-        )
-
-
-def _outer_x_dirichlet_phi_lift(geometry: FciGeometry3D, face_bc: BoundaryFaceBC3D) -> jnp.ndarray:
-    wall_value = jnp.asarray(face_bc.value_x[-1], dtype=jnp.float64)
-    return jnp.broadcast_to(wall_value[None, :, :], geometry.shape)
-
-
-def _reconstruct_phi_from_state(
-    state: FciDrbEBState,
-    *,
+def simulate_shifted_torus_eb_blob_domain_decomp(
     geometry: FciGeometry3D,
-    parameters,
-    boundary_condition_builder: BoundaryConditionBuilder[FciDrbEBBoundaryConditions],
-    stencil_builder: LocalStencilBuilder,
-    conservative_stencil_builder: ConservativeStencilBuilder,
-    phi_inverse_solver: PerpLaplacianInverseSolver,
-    periodic_axes: tuple[bool, bool, bool],
-    cut_wall_geometry: CutWallGeometry3D,
-    cut_wall_bc: CutWallBC3D,
-    phi_guess: jnp.ndarray | None = None,
-    return_diagnostics: bool = False,
-) -> jnp.ndarray | tuple[jnp.ndarray, dict[str, object]]:
-    boundary_conditions = boundary_condition_builder(
-        state,
-        geometry,
-        periodic_axes,
-        cut_wall_geometry,
-        cut_wall_bc,
-    )
-    ti_conservative_stencil = conservative_stencil_builder(
-        state.Ti,
-        geometry,
-        periodic_axes,
-        boundary_conditions.Ti_face_bc,
-    )
-    ti_laplacian = perp_laplacian_conservative_op(
-        ti_conservative_stencil,
-        geometry,
-        face_bc=boundary_conditions.Ti_face_bc,
-        cut_wall_geometry=cut_wall_geometry,
-        cut_wall_bc=boundary_conditions.Ti_cut_wall_bc,
-        periodic_axes=periodic_axes,
-    )
-    phi_rhs = -jnp.asarray(state.vorticity, dtype=jnp.float64) + jnp.asarray(parameters.tau, dtype=jnp.float64) * ti_laplacian
-    phi, diagnostics = phi_inverse_solver(
-        phi_rhs,
-        phi_guess=phi_guess,
-        face_bc=boundary_conditions.potential_face_bc,
-        cut_wall_bc=boundary_conditions.potential_cut_wall_bc,
-        phi_lift=_outer_x_dirichlet_phi_lift(geometry, boundary_conditions.potential_face_bc),
-        return_diagnostics=True,
-        throw=False,
-    )
-    jax.block_until_ready(phi)
-    if return_diagnostics:
-        return phi, diagnostics
-    return phi
-
-
-def shifted_torus_eb_blob_rk4(
-    state: FciDrbEBState,
     *,
-    geometry: FciGeometry3D,
-    timestep: float,
-    parameters,
-    curvature_coefficients: jnp.ndarray,
-    stencil_builder: LocalStencilBuilder,
-    conservative_stencil_builder: ConservativeStencilBuilder,
-    boundary_condition_builder: BoundaryConditionBuilder[FciDrbEBBoundaryConditions],
-    periodic_axes: tuple[bool, bool, bool],
-    cut_wall_geometry: CutWallGeometry3D,
-    cut_wall_bc: CutWallBC3D,
-    phi_inverse_solver: PerpLaplacianInverseSolver,
-    phi_guess: jnp.ndarray | None = None,
-    density_source: jax.Array | None = None,
-    electron_temperature_source: jax.Array | None = None,
-    diffusion_only: bool = False,
-) -> tuple[FciDrbEBState, jnp.ndarray, jnp.ndarray]:
-    current_phi_guess = jnp.asarray(state.phi if phi_guess is None else phi_guess, dtype=jnp.float64)
-    step_start = time_module.perf_counter()
-
-    def _rhs_fn(
-        current_state: FciDrbEBState,
-        stage_time: float | jax.Array,
-        carry: jnp.ndarray,
-    ) -> tuple[FciDrbEBState, jnp.ndarray, dict[str, object]]:
-        stage_time_value = float(stage_time)
-        phi_start = time_module.perf_counter()
-        phi, diagnostics = _reconstruct_phi_from_state(
-            current_state,
-            geometry=geometry,
-            parameters=parameters,
-            boundary_condition_builder=boundary_condition_builder,
-            stencil_builder=stencil_builder,
-            conservative_stencil_builder=conservative_stencil_builder,
-            phi_inverse_solver=phi_inverse_solver,
-            periodic_axes=periodic_axes,
-            cut_wall_geometry=cut_wall_geometry,
-            cut_wall_bc=cut_wall_bc,
-            phi_guess=carry,
-            return_diagnostics=True,
-        )
-        phi_time = time_module.perf_counter() - phi_start
-        stage_state = replace(current_state, phi=phi)
-        _check_nonnegative_density_temperature(stage_state, label=f"RK4 stage at t={stage_time_value:.6e}")
-
-        rhs_start = time_module.perf_counter()
-        boundary_conditions = boundary_condition_builder(
-            stage_state,
-            geometry,
-            periodic_axes,
-            cut_wall_geometry,
-            cut_wall_bc,
-        )
-        rhs_result = compute_fci_drb_eb_rhs(
-            stage_state,
-            geometry=geometry,
-            stencil_builder=stencil_builder,
-            conservative_stencil_builder=conservative_stencil_builder,
-            parameters=parameters,
-            curvature_coefficients=curvature_coefficients,
-            density_face_bc=boundary_conditions.density_face_bc,
-            potential_face_bc=boundary_conditions.potential_face_bc,
-            vorticity_face_bc=boundary_conditions.vorticity_face_bc,
-            electron_temperature_face_bc=boundary_conditions.Te_face_bc,
-            ion_temperature_face_bc=boundary_conditions.Ti_face_bc,
-            electron_velocity_parallel_face_bc=boundary_conditions.Ve_face_bc,
-            ion_velocity_parallel_face_bc=boundary_conditions.Vi_face_bc,
-            density_cut_wall_geometry=cut_wall_geometry,
-            density_cut_wall_bc=boundary_conditions.density_cut_wall_bc,
-            potential_cut_wall_geometry=cut_wall_geometry,
-            potential_cut_wall_bc=boundary_conditions.potential_cut_wall_bc,
-            vorticity_cut_wall_geometry=cut_wall_geometry,
-            vorticity_cut_wall_bc=boundary_conditions.vorticity_cut_wall_bc,
-            electron_temperature_cut_wall_geometry=cut_wall_geometry,
-            electron_temperature_cut_wall_bc=boundary_conditions.Te_cut_wall_bc,
-            ion_temperature_cut_wall_geometry=cut_wall_geometry,
-            ion_temperature_cut_wall_bc=boundary_conditions.Ti_cut_wall_bc,
-            electron_velocity_parallel_cut_wall_geometry=cut_wall_geometry,
-            electron_velocity_parallel_cut_wall_bc=boundary_conditions.Ve_cut_wall_bc,
-            ion_velocity_parallel_cut_wall_geometry=cut_wall_geometry,
-            ion_velocity_parallel_cut_wall_bc=boundary_conditions.Vi_cut_wall_bc,
-            periodic_axes=periodic_axes,
-            diffusion_only=diffusion_only,
-            density_source=density_source,
-            electron_temperature_source=electron_temperature_source,
-        )
-        jax.block_until_ready(rhs_result.rhs.density)
-        rhs_time = time_module.perf_counter() - rhs_start
-        stage_stats = {
-            "phi_time": phi_time,
-            "rhs_time": rhs_time,
-            "diagnostics": diagnostics,
-        }
-        return rhs_result.rhs, phi, stage_stats
-
-    step_result = Rk4Stepper(_rhs_fn)(
-        state,
-        time=time,
-        timestep=timestep,
-        carry=current_phi_guess,
-    )
-    next_state = step_result.state
-    phi4_start = time_module.perf_counter()
-    phi_4, diagnostics_4 = _reconstruct_phi_from_state(
-        next_state,
-        geometry=geometry,
-        parameters=parameters,
-        boundary_condition_builder=boundary_condition_builder,
-        stencil_builder=stencil_builder,
-        conservative_stencil_builder=conservative_stencil_builder,
-        phi_inverse_solver=phi_inverse_solver,
-        periodic_axes=periodic_axes,
-        cut_wall_geometry=cut_wall_geometry,
-        cut_wall_bc=cut_wall_bc,
-        phi_guess=step_result.carry,
-        return_diagnostics=True,
-    )
-    final_phi_time = time_module.perf_counter() - phi4_start
-    next_state = replace(next_state, phi=phi_4)
-    _check_nonnegative_density_temperature(next_state, label="RK4 stage 4")
-    jax.block_until_ready(next_state.density)
-
-    stage_stats = step_result.stage_aux
-    phi_time_total = sum(float(stage["phi_time"]) for stage in stage_stats)
-    phi_time_total += float(final_phi_time)
-    rhs_time_total = sum(float(stage["rhs_time"]) for stage in stage_stats)
-    step_gmres_steps = sum(_diagnostic_float(stage["diagnostics"], "num_steps") for stage in stage_stats) + _diagnostic_float(
-        diagnostics_4,
-        "num_steps",
-    )
-    step_gmres_rel_res = max(
-        *(_diagnostic_float(stage["diagnostics"], "final_residual_rel_l2") for stage in stage_stats),
-        _diagnostic_float(diagnostics_4, "final_residual_rel_l2"),
-    )
-    step_phi_correction_residual_l2 = max(
-        *(_diagnostic_float(stage["diagnostics"], "correction_residual_l2", "final_residual_l2") for stage in stage_stats),
-        _diagnostic_float(diagnostics_4, "correction_residual_l2", "final_residual_l2"),
-    )
-    step_phi_correction_residual_linf = max(
-        *(_diagnostic_float(stage["diagnostics"], "correction_residual_linf", "final_residual_linf") for stage in stage_stats),
-        _diagnostic_float(diagnostics_4, "correction_residual_linf", "final_residual_linf"),
-    )
-    step_phi_physical_residual_l2 = max(
-        *(_diagnostic_float(stage["diagnostics"], "physical_residual_l2", "final_residual_l2") for stage in stage_stats),
-        _diagnostic_float(diagnostics_4, "physical_residual_l2", "final_residual_l2"),
-    )
-    step_phi_physical_residual_linf = max(
-        *(_diagnostic_float(stage["diagnostics"], "physical_residual_linf", "final_residual_linf") for stage in stage_stats),
-        _diagnostic_float(diagnostics_4, "physical_residual_linf", "final_residual_linf"),
-    )
-    rk4_total_time = time_module.perf_counter() - step_start
-    return next_state, jnp.asarray(
-        [
-            phi_time_total,
-            rhs_time_total,
-            rk4_total_time,
-            step_gmres_steps,
-            step_gmres_rel_res,
-            step_phi_correction_residual_l2,
-            step_phi_correction_residual_linf,
-            step_phi_physical_residual_l2,
-            step_phi_physical_residual_linf,
-        ],
-        dtype=jnp.float64,
-    ), phi_4
-
-
-def simulate_shifted_torus_eb_blob(
-    geometry: FciGeometry3D,
-    initial_state: FciDrbEBState,
-    boundary_condition_builder: BoundaryConditionBuilder[FciDrbEBBoundaryConditions],
-    *,
-    parameters,
+    parameters: FciDrbEBRhsParameters,
+    shard_counts: tuple[int, int, int] = (1, 1, 1),
+    halo_width: int = 2,
     num_steps: int = DEFAULT_NUM_STEPS,
     timestep: float | None = None,
     timesteps: Sequence[float] | None = None,
     final_time: float = tf,
     show_progress: bool = False,
-    phi_inverse_solver: PerpLaplacianInverseSolver | None = None,
     step_output_dir: Path | None = None,
     diffusion_only: bool = False,
-    density_source: jax.Array | None = None,
-    electron_temperature_source: jax.Array | None = None,
+    velocity_initialization: str = "zero",
+    radial_b_fraction_value: float = radial_b_fraction,
+    source_amplitude: float = DENSITY_SOURCE_AMPLITUDE,
+    source_x0: float = SOURCE_X0,
+    source_delta_x: float = SOURCE_DELTA_X,
 ) -> tuple[
     FciDrbEBState,
     jnp.ndarray,
@@ -2424,33 +2541,27 @@ def simulate_shifted_torus_eb_blob(
     jnp.ndarray,
     jnp.ndarray,
 ]:
-    cut_wall_geometry = CutWallGeometry3D.empty()
-    cut_wall_bc = CutWallBC3D.empty()
-    if phi_inverse_solver is None:
-        face_projectors = build_perp_laplacian_face_projectors(
-            geometry,
-            axis_regular_axes=AXIS_REGULAR_AXES,
-        )
-        phi_inverse_solver = PerpLaplacianInverseSolver(
-            geometry,
-            conservative_stencil_builder,
-            tol=5.0e-5,
-            maxiter=100,
-            restart=200,
-            face_projectors=face_projectors,
-            regular_face_geometry=RegularFaceGeometry3D.unit(geometry),
-            cut_wall_geometry=cut_wall_geometry,
-            cut_wall_bc=cut_wall_bc,
-            periodic_axes=PERIODIC_AXES,
-            axis_regular_axes=AXIS_REGULAR_AXES,
-            pin_point=None,
-            pin_value=0.0,
-            project_mean_zero=False,
-            target_mean_phi=None,
-            regularization_epsilon=0.0,
-            mg_hierarchy=None,
-            gmres_debug=False,
-        )
+    shard_counts = tuple(int(value) for value in shard_counts)
+    assert_shape_divisible_by_shards(geometry.shape, shard_counts)
+    owned_shape = tuple(int(size) // int(count) for size, count in zip(geometry.shape, shard_counts))
+    domain = _build_eb_blob_local_domain(geometry.shape, int(halo_width), shard_counts)
+    ghost_filler = _build_local_ghost_filler(int(halo_width))
+    topology_filler = make_default_topology_halo_filler_3d(
+        angle_axis_name=MESH_AXIS_NAMES[1] if shard_counts[1] > 1 else None,
+        radial_axis_lower_regular=True,
+        radial_axis_upper_regular=False,
+        fill_periodic_axes=(False, True, True),
+    )
+    gmres_config = SpmdGmresConfig(
+        tol=5.0e-5,
+        atol=5.0e-5,
+        maxiter=int(parameters.phi_inversion_iterations),
+        restart=min(100, int(parameters.phi_inversion_iterations)),
+        acceptance_tol=5.0e-5,
+        acceptance_atol=5.0e-5,
+        regularization_epsilon=float(parameters.phi_inversion_regularization),
+        project_mean_zero=False,
+    )
     if timesteps is None:
         step_sizes = _build_eb_blob_timesteps(
             final_time=float(final_time),
@@ -2474,123 +2585,226 @@ def simulate_shifted_torus_eb_blob(
         axis_regular_axes=AXIS_REGULAR_AXES,
     )
 
-    state = initial_state
-    if show_progress:
-        print("EB blob entering initial phi reconstruction", flush=True)
-    state = replace(
-        state,
-        phi=_reconstruct_phi_from_state(
-            state,
-            geometry=geometry,
-            parameters=parameters,
-            boundary_condition_builder=boundary_condition_builder,
-            stencil_builder=local_stencil_builder,
-            conservative_stencil_builder=conservative_stencil_builder,
-            phi_inverse_solver=phi_inverse_solver,
-            periodic_axes=PERIODIC_AXES,
-            cut_wall_geometry=cut_wall_geometry,
-            cut_wall_bc=cut_wall_bc,
-        ),
-    )
-    if show_progress:
-        print("EB blob initial phi reconstruction complete", flush=True)
-    if step_output_dir is not None:
-        _save_eb_blob_step_snapshot(step_output_dir, 0, 0.0, state)
-    time_value = 0.0
-    times: list[float] = [0.0]
-    density_history: list[jnp.ndarray] = [jnp.asarray(state.density, dtype=jnp.float64)]
-    phi_history: list[jnp.ndarray] = [jnp.asarray(state.phi, dtype=jnp.float64)]
-    te_history: list[jnp.ndarray] = [jnp.asarray(state.Te, dtype=jnp.float64)]
-    ti_history: list[jnp.ndarray] = [jnp.asarray(state.Ti, dtype=jnp.float64)]
-    vi_history: list[jnp.ndarray] = [jnp.asarray(state.Vi, dtype=jnp.float64)]
-    ve_history: list[jnp.ndarray] = [jnp.asarray(state.Ve, dtype=jnp.float64)]
-    vorticity_history: list[jnp.ndarray] = [jnp.asarray(state.vorticity, dtype=jnp.float64)]
-    timing_history: list[jnp.ndarray] = []
-    current_phi_guess = jnp.asarray(state.phi, dtype=jnp.float64)
-    progress_start = time_module.perf_counter()
-    if show_progress:
-        print(
-            "EB blob progress: "
-            f"{_format_progress_bar(0, steps, start_time=progress_start, time_value=time_value)}",
-            end="",
-            flush=True,
+    with make_mesh_for_shard_counts(shard_counts) as mesh:
+        state_spec = _state_partition_spec()
+        curvature_spec = P(*MESH_AXIS_NAMES, None)
+        curvature_owned = jax.device_put(
+            jnp.asarray(curvature_coefficients, dtype=jnp.float64),
+            NamedSharding(mesh, curvature_spec),
         )
+        host_domain = replace(domain, mesh_axis_names=(None, None, None))
+        sample_geometry = _build_local_eb_blob_geometry(
+            owned_shape,
+            int(halo_width),
+            global_shape=geometry.shape,
+            shard_index=(0, 0, 0),
+            radial_fraction=radial_b_fraction_value,
+        )
+        sample_invariants = expand_local_shard_pytree(_build_local_eb_blob_invariants(sample_geometry, host_domain))
+        invariant_spec = local_shard_pytree_partition_spec(sample_invariants)
 
-    for step_index, dt in enumerate(step_sizes):
-        if show_progress and step_index == 0:
-            print("EB blob RK4 step 1 starting", flush=True)
-        state, step_gmres_stats, current_phi_guess = shifted_torus_eb_blob_rk4(
-            state,
-            geometry=geometry,
-            timestep=float(dt),
-            parameters=parameters,
-            curvature_coefficients=curvature_coefficients,
-            stencil_builder=local_stencil_builder,
-            conservative_stencil_builder=conservative_stencil_builder,
-            boundary_condition_builder=boundary_condition_builder,
-            periodic_axes=PERIODIC_AXES,
-            cut_wall_geometry=cut_wall_geometry,
-            cut_wall_bc=cut_wall_bc,
-            phi_inverse_solver=phi_inverse_solver,
-            phi_guess=current_phi_guess,
-            density_source=density_source,
-            electron_temperature_source=electron_temperature_source,
-            diffusion_only=diffusion_only,
+        def _local_geometry_from_axis_index() -> LocalFciGeometry3D:
+            shard_index = tuple(lax.axis_index(name) for name in MESH_AXIS_NAMES)
+            return _build_local_eb_blob_geometry(
+                owned_shape,
+                int(halo_width),
+                global_shape=geometry.shape,
+                shard_index=shard_index,
+                radial_fraction=radial_b_fraction_value,
+            )
+
+        def invariant_kernel() -> _EbBlobLocalInvariants:
+            return expand_local_shard_pytree(_build_local_eb_blob_invariants(_local_geometry_from_axis_index(), domain))
+
+        def source_kernel() -> FciDrbEBState:
+            return _local_eb_blob_source_state(
+                _local_geometry_from_axis_index(),
+                amplitude=source_amplitude,
+                x0=source_x0,
+                delta_x=source_delta_x,
+            )
+
+        def _rhs_for_kernel(
+            local_invariants: _EbBlobLocalInvariants,
+            curvature_owned_local: jnp.ndarray,
+        ) -> LocalFciDrbEBRhs:
+            local_invariants = extract_local_shard_pytree(local_invariants)
+            return LocalFciDrbEBRhs(
+                geometry=_local_geometry_from_axis_index(),
+                domain=domain,
+                halo_exchange=HaloExchange3D(),
+                topology_filler=topology_filler,
+                physical_ghost_filler=ghost_filler,
+                parameters=parameters,
+                curvature_coefficients_owned=jnp.asarray(curvature_owned_local, dtype=jnp.float64),
+                face_projectors=(
+                    local_invariants.face_projector_x,
+                    local_invariants.face_projector_y,
+                    local_invariants.face_projector_z,
+                ),
+                gmres_config=gmres_config,
+                face_bc_builder=_build_local_eb_blob_face_bcs,
+                diffusion_only=bool(diffusion_only),
+                axis_regular_axes=AXIS_REGULAR_AXES,
+            )
+
+        def initial_state_kernel(
+            local_invariants: _EbBlobLocalInvariants,
+            curvature_owned_local: jnp.ndarray,
+        ) -> FciDrbEBState:
+            local_geometry = _local_geometry_from_axis_index()
+            initial = _local_eb_blob_initial_state(
+                local_geometry,
+                velocity_initialization=velocity_initialization,
+            )
+            rhs = _rhs_for_kernel(local_invariants, curvature_owned_local)
+            return initial.replace(phi=rhs.reconstruct_phi(initial))
+
+        def step_kernel(
+            state_owned: FciDrbEBState,
+            source_owned: FciDrbEBState,
+            local_invariants: _EbBlobLocalInvariants,
+            curvature_owned_local: jnp.ndarray,
+            step_timestep: jax.Array,
+        ) -> FciDrbEBState:
+            rhs = _rhs_for_kernel(local_invariants, curvature_owned_local)
+            k1 = rhs.evaluate_stage(state_owned, source_owned)
+            stage_1 = state_owned.axpy(k1, scale=0.5 * step_timestep)
+            k2 = rhs.evaluate_stage(stage_1, source_owned)
+            stage_2 = state_owned.axpy(k2, scale=0.5 * step_timestep)
+            k3 = rhs.evaluate_stage(stage_2, source_owned)
+            stage_3 = state_owned.axpy(k3, scale=step_timestep)
+            k4 = rhs.evaluate_stage(stage_3, source_owned)
+            increment = k1.axpy(k2, scale=2.0).axpy(k3, scale=2.0).axpy(k4, scale=1.0)
+            next_state = state_owned.axpy(increment, scale=step_timestep / 6.0)
+            return next_state.replace(phi=rhs.reconstruct_phi(next_state))
+
+        invariant_jit = jax.jit(
+            shard_map(
+                invariant_kernel,
+                mesh=mesh,
+                in_specs=(),
+                out_specs=invariant_spec,
+                check_rep=False,
+            )
         )
-        if show_progress and step_index == 0:
-            print("EB blob RK4 step 1 complete", flush=True)
-        time_value += float(dt)
-        times.append(time_value)
-        density_history.append(jnp.asarray(state.density, dtype=jnp.float64))
-        phi_history.append(jnp.asarray(state.phi, dtype=jnp.float64))
-        te_history.append(jnp.asarray(state.Te, dtype=jnp.float64))
-        ti_history.append(jnp.asarray(state.Ti, dtype=jnp.float64))
-        vi_history.append(jnp.asarray(state.Vi, dtype=jnp.float64))
-        ve_history.append(jnp.asarray(state.Ve, dtype=jnp.float64))
-        vorticity_history.append(jnp.asarray(state.vorticity, dtype=jnp.float64))
-        timing_history.append(step_gmres_stats)
+        source_jit = jax.jit(
+            shard_map(
+                source_kernel,
+                mesh=mesh,
+                in_specs=(),
+                out_specs=state_spec,
+                check_rep=False,
+            )
+        )
+        initial_state_jit = jax.jit(
+            shard_map(
+                initial_state_kernel,
+                mesh=mesh,
+                in_specs=(invariant_spec, curvature_spec),
+                out_specs=state_spec,
+                check_rep=False,
+            )
+        )
+        mapped_step_kernel = shard_map(
+            step_kernel,
+            mesh=mesh,
+            in_specs=(state_spec, state_spec, invariant_spec, curvature_spec, P()),
+            out_specs=state_spec,
+            check_rep=False,
+        )
+        step_jit = jax.jit(mapped_step_kernel)
+
+        invariants = invariant_jit()
+        source_state = source_jit()
+        if show_progress:
+            print("EB blob entering initial domain-decomposed phi reconstruction", flush=True)
+        state = initial_state_jit(invariants, curvature_owned)
+        jax.block_until_ready(state.density)
+        if show_progress:
+            print("EB blob initial domain-decomposed phi reconstruction complete", flush=True)
+        step_jit = step_jit.lower(
+            state,
+            source_state,
+            invariants,
+            curvature_owned,
+            jnp.asarray(float(step_sizes[0]), dtype=jnp.float64),
+        ).compile()
+
+        time_value = 0.0
+        gathered = _gather_state_from_mesh(state)
+        if step_output_dir is not None:
+            _save_eb_blob_step_snapshot(step_output_dir, 0, time_value, gathered)
+        times: list[float] = [0.0]
+        density_history: list[np.ndarray] = [np.asarray(gathered.density, dtype=np.float64)]
+        phi_history: list[np.ndarray] = [np.asarray(gathered.phi, dtype=np.float64)]
+        te_history: list[np.ndarray] = [np.asarray(gathered.Te, dtype=np.float64)]
+        ti_history: list[np.ndarray] = [np.asarray(gathered.Ti, dtype=np.float64)]
+        vi_history: list[np.ndarray] = [np.asarray(gathered.Vi, dtype=np.float64)]
+        ve_history: list[np.ndarray] = [np.asarray(gathered.Ve, dtype=np.float64)]
+        vorticity_history: list[np.ndarray] = [np.asarray(gathered.vorticity, dtype=np.float64)]
+        timing_history: list[float] = []
+        progress_start = time_module.perf_counter()
         if show_progress:
             print(
-                "\r\033[K"
                 "EB blob progress: "
-                f"{_format_progress_bar(step_index + 1, steps, start_time=progress_start, time_value=time_value, gmres_steps_per_solve=float(step_gmres_stats[3]) / 5.0, gmres_rel_res=float(step_gmres_stats[4]))}"
-                f" rk4={float(step_gmres_stats[2]):.2e}s"
-                f" phi={float(step_gmres_stats[0]):.2e}s"
-                f" rhs={float(step_gmres_stats[1]):.2e}s",
+                f"{_format_progress_bar(0, steps, start_time=progress_start, time_value=time_value)}",
                 end="",
                 flush=True,
             )
-        if step_output_dir is not None:
-            _save_eb_blob_step_snapshot(
-                step_output_dir,
-                step_index + 1,
-                time_value,
+        for step_index, dt in enumerate(step_sizes):
+            step_start = time_module.perf_counter()
+            state = step_jit(
                 state,
-                step_gmres_stats=step_gmres_stats,
+                source_state,
+                invariants,
+                curvature_owned,
+                jnp.asarray(float(dt), dtype=jnp.float64),
             )
-    if show_progress:
-        print()
-    if timing_history:
-        timing_array = np.asarray(timing_history, dtype=np.float64)
-        print(
-            "EB blob mean timings per RK step: "
-            f"phi_inverse={float(np.mean(timing_array[:, 0])):.6e} s, "
-            f"rhs_compute={float(np.mean(timing_array[:, 1])):.6e} s, "
-            f"rk4_total={float(np.mean(timing_array[:, 2])):.6e} s, "
-            f"phi_gmres_steps_per_rk={float(np.mean(timing_array[:, 3])):.2f}, "
-            f"phi_gmres_steps_per_solve={float(np.mean(timing_array[:, 3]) / 5.0):.2f}, "
-            f"phi_gmres_rel_res={float(np.mean(timing_array[:, 4])):.2e}"
-        )
+            jax.block_until_ready(state.density)
+            step_wall = time_module.perf_counter() - step_start
+            timing_history.append(step_wall)
+            time_value += float(dt)
+            times.append(time_value)
+            gathered = _gather_state_from_mesh(state)
+            density_history.append(np.asarray(gathered.density, dtype=np.float64))
+            phi_history.append(np.asarray(gathered.phi, dtype=np.float64))
+            te_history.append(np.asarray(gathered.Te, dtype=np.float64))
+            ti_history.append(np.asarray(gathered.Ti, dtype=np.float64))
+            vi_history.append(np.asarray(gathered.Vi, dtype=np.float64))
+            ve_history.append(np.asarray(gathered.Ve, dtype=np.float64))
+            vorticity_history.append(np.asarray(gathered.vorticity, dtype=np.float64))
+            if step_output_dir is not None:
+                _save_eb_blob_step_snapshot(step_output_dir, step_index + 1, time_value, gathered)
+            if show_progress:
+                print(
+                    "\r\033[K"
+                    "EB blob progress: "
+                    f"{_format_progress_bar(step_index + 1, steps, start_time=progress_start, time_value=time_value)}"
+                    f" rk4={step_wall:.2e}s",
+                    end="",
+                    flush=True,
+                )
+        if show_progress:
+            print()
+        if timing_history:
+            timing_array = np.asarray(timing_history, dtype=np.float64)
+            print(
+                "EB blob mean timings per RK step: "
+                f"domain_decomp_step={float(np.mean(timing_array)):.6e} s"
+            )
+        final_state = _gather_state_from_mesh(state)
+
     return (
-        state,
-        jnp.asarray(times, dtype=jnp.float64),
-        jnp.stack(density_history, axis=0),
-        jnp.stack(phi_history, axis=0),
-        jnp.stack(te_history, axis=0),
-        jnp.stack(ti_history, axis=0),
-        jnp.stack(vi_history, axis=0),
-        jnp.stack(ve_history, axis=0),
-        jnp.stack(vorticity_history, axis=0),
+        final_state,
+        np.asarray(times, dtype=np.float64),
+        np.stack(density_history, axis=0),
+        np.stack(phi_history, axis=0),
+        np.stack(te_history, axis=0),
+        np.stack(ti_history, axis=0),
+        np.stack(vi_history, axis=0),
+        np.stack(ve_history, axis=0),
+        np.stack(vorticity_history, axis=0),
     )
 
 
@@ -2623,25 +2837,27 @@ def main() -> None:
         "--num-steps",
         type=int,
         default=DEFAULT_NUM_STEPS,
-        help="Number of uniform RK4 timesteps to take over the fixed final time when split-step options are absent.",
+        help="Number of uniform RK4 timesteps to take over --tf.",
     )
     parser.add_argument(
-        "--initial-transient-time",
+        "--tf",
         type=float,
-        default=DEFAULT_INITIAL_TRANSIENT_TIME,
-        help="End time for the initial small-step window when using split-step options.",
+        default=tf,
+        help="Final simulation time.",
     )
     parser.add_argument(
-        "--initial-num-steps",
+        "--shard-counts",
         type=int,
-        default=None,
-        help="Number of RK4 timesteps to use from t=0 to --initial-transient-time.",
+        nargs=3,
+        default=(1, 1, 1),
+        metavar=("SX", "SY", "SZ"),
+        help="Domain-decomposition shard counts along rho, theta, and zeta.",
     )
     parser.add_argument(
-        "--remaining-num-steps",
+        "--halo-width",
         type=int,
-        default=None,
-        help="Number of RK4 timesteps to use from --initial-transient-time to tf.",
+        default=2,
+        help="Halo width used by the domain-decomposed local operators.",
     )
     parser.add_argument(
         "--initial-velocity-state",
@@ -2684,19 +2900,13 @@ def main() -> None:
     perp_diffusion = float(args.perp_diffusion)
     radial_b_fraction_value = float(args.radial_b_fraction)
     requested_num_steps = int(args.num_steps)
-    initial_transient_time_value = float(args.initial_transient_time)
-    initial_num_steps = None if args.initial_num_steps is None else int(args.initial_num_steps)
-    remaining_num_steps = None if args.remaining_num_steps is None else int(args.remaining_num_steps)
+    final_time_value = float(args.tf)
+    shard_counts = tuple(int(value) for value in args.shard_counts)
+    halo_width = int(args.halo_width)
     initial_velocity_state = str(args.initial_velocity_state)
-    split_timesteps = initial_num_steps is not None or remaining_num_steps is not None
-    if split_timesteps and (initial_num_steps is None or remaining_num_steps is None):
-        parser.error("--initial-num-steps and --remaining-num-steps must be supplied together")
     timestep_schedule = _build_eb_blob_timesteps(
-        final_time=tf,
+        final_time=final_time_value,
         num_steps=requested_num_steps,
-        initial_transient_time=initial_transient_time_value,
-        initial_num_steps=initial_num_steps,
-        remaining_num_steps=remaining_num_steps,
     )
     num_steps = int(len(timestep_schedule))
     source_x0_value = float(args.source_x0)
@@ -2705,53 +2915,29 @@ def main() -> None:
     diffusion_only = bool(args.diffusion_only)
     print(f"EB blob settings: resolution={resolution}, perp_diffusion={perp_diffusion:.6e}")
     print(f"EB blob settings: radial_b_fraction={radial_b_fraction_value:.6e}")
+    print(f"EB blob settings: tf={final_time_value:.6e}")
     print(f"EB blob settings: num_steps={num_steps}")
+    print(f"EB blob settings: shard_counts={shard_counts}, halo_width={halo_width}")
     print(f"EB blob settings: initial_velocity_state={initial_velocity_state}")
-    if split_timesteps:
-        print(
-            "EB blob settings: split timesteps="
-            f"{initial_num_steps} over [0, {initial_transient_time_value:.6e}] and "
-            f"{remaining_num_steps} over [{initial_transient_time_value:.6e}, {tf:.6e}]"
-        )
-    else:
-        print(f"EB blob settings: uniform dt={float(timestep_schedule[0]):.6e}")
+    print(f"EB blob settings: uniform dt={float(timestep_schedule[0]):.6e}")
     print(f"EB blob settings: diffusion_only={diffusion_only}")
     print(
         "EB blob settings: source_profile="
         f"{SOURCE_PROFILE}, x0={source_x0_value:.6e}, delta_x={source_delta_x_value:.6e}, "
         f"source_A={source_amplitude_value:.6e}"
     )
+    _print_eb_blob_runtime_info(
+        global_shape=(resolution, resolution, resolution),
+        shard_counts=shard_counts,
+        halo_width=halo_width,
+    )
     _print_eb_blob_timestep_schedule(
         timestep_schedule,
-        initial_num_steps=initial_num_steps,
-        initial_transient_time=initial_transient_time_value if split_timesteps else None,
-        final_time=tf,
+        final_time=final_time_value,
     )
 
     geometry = _build_eb_blob_geometry((resolution, resolution, resolution), radial_fraction=radial_b_fraction_value)
-    density_source, electron_temperature_source = _build_eb_blob_source_terms(
-        geometry,
-        amplitude=source_amplitude_value,
-        x0=source_x0_value,
-        delta_x=source_delta_x_value,
-    )
-    coordinate_face_reconstructor = CoordinateFaceValueReconstructor3D()
-    coordinate_normal_derivative_constructor = CoordinateNormalDerivativeConstructor3D.from_geometry(geometry)
     parameters = _build_eb_blob_parameters(perp_diffusion)
-    eb_bc_builder = BoundaryConditionBuilder(
-        partial(
-            _build_eb_boundary_conditions,
-            face_reconstructor=coordinate_face_reconstructor,
-            normal_derivative_constructor=coordinate_normal_derivative_constructor,
-        )
-    )
-    face_projectors = build_perp_laplacian_face_projectors(
-        geometry,
-        axis_regular_axes=AXIS_REGULAR_AXES,
-    )
-    cut_wall_geometry = CutWallGeometry3D.empty()
-    cut_wall_bc = CutWallBC3D.empty()
-    regular_face_geometry = RegularFaceGeometry3D.unit(geometry)
     artifact_stem = _eb_blob_artifact_stem(args.run_name)
     output_dir = args.output_path if args.output_path is not None else Path(f"{artifact_stem}_outputs")
     output_dir = Path(output_dir)
@@ -2759,36 +2945,6 @@ def main() -> None:
     history_path = _resolve_eb_blob_history_path(args.run_name, output_dir)
     step_output_dir = output_dir / "step_dumps"
     initial_state = _build_eb_blob_initial_state(geometry, velocity_initialization=initial_velocity_state)
-
-    boundary_conditions = eb_bc_builder(
-        initial_state,
-        geometry,
-        PERIODIC_AXES,
-        cut_wall_geometry,
-        cut_wall_bc,
-    )
-
-    phi_inverse_solver = PerpLaplacianInverseSolver(
-        geometry,
-        conservative_stencil_builder,
-        tol=5.0e-5,
-        maxiter=500,
-        restart=500,
-        face_projectors=face_projectors,
-        regular_face_geometry=regular_face_geometry,
-        cut_wall_geometry=cut_wall_geometry,
-        cut_wall_bc=cut_wall_bc,
-        periodic_axes=PERIODIC_AXES,
-        axis_regular_axes=AXIS_REGULAR_AXES,
-        pin_point=None,
-        pin_value=0.0,
-        project_mean_zero=False,
-        target_mean_phi=None,
-        regularization_epsilon=0.0,
-        mg_hierarchy=None,
-        gmres_debug=False,
-        check_residual=True,
-    )
 
     run_simulation = True
     if history_path.exists():
@@ -2807,10 +2963,8 @@ def main() -> None:
             metadata,
             resolution=resolution,
             num_steps=num_steps,
+            final_time=final_time_value,
             initial_velocity_state=initial_velocity_state,
-            initial_transient_time=initial_transient_time_value if split_timesteps else None,
-            initial_num_steps=initial_num_steps,
-            remaining_num_steps=remaining_num_steps,
             a_n=A_N,
             l_rho_cells=Lrho_cells,
             l_y_cells=Ly_cells,
@@ -2828,21 +2982,23 @@ def main() -> None:
 
     if run_simulation:
         _clear_eb_blob_step_dumps(step_output_dir)
-        print("EB blob initial phi solve complete; starting RK4 loop")
-        state, times, density_history, phi_history, te_history, ti_history, vi_history, ve_history, vorticity_history = simulate_shifted_torus_eb_blob(
+        print("EB blob starting domain-decomposed RK4 loop")
+        state, times, density_history, phi_history, te_history, ti_history, vi_history, ve_history, vorticity_history = simulate_shifted_torus_eb_blob_domain_decomp(
             geometry,
-            initial_state,
-            eb_bc_builder,
-            final_time=tf,
+            final_time=final_time_value,
             num_steps=num_steps,
             timesteps=timestep_schedule,
             show_progress=True,
             parameters=parameters,
-            phi_inverse_solver=phi_inverse_solver,
+            shard_counts=shard_counts,
+            halo_width=halo_width,
             step_output_dir=step_output_dir,
-            density_source=density_source,
-            electron_temperature_source=electron_temperature_source,
             diffusion_only=diffusion_only,
+            velocity_initialization=initial_velocity_state,
+            radial_b_fraction_value=radial_b_fraction_value,
+            source_amplitude=source_amplitude_value,
+            source_x0=source_x0_value,
+            source_delta_x=source_delta_x_value,
         )
         jax.block_until_ready(state.density)
         np.savez(
@@ -2857,6 +3013,9 @@ def main() -> None:
             vorticity=np.asarray(vorticity_history, dtype=np.float64),
             resolution=np.asarray(resolution, dtype=np.int64),
             num_steps=np.asarray(num_steps, dtype=np.int64),
+            tf=np.asarray(final_time_value, dtype=np.float64),
+            shard_counts=np.asarray(shard_counts, dtype=np.int64),
+            halo_width=np.asarray(halo_width, dtype=np.int64),
             initial_velocity_state=np.asarray(initial_velocity_state),
             initial_velocity_alpha=np.asarray(DEFAULT_INITIAL_VELOCITY_ALPHA, dtype=np.float64),
             initial_velocity_ell_fraction=np.asarray(DEFAULT_INITIAL_VELOCITY_ELL_FRACTION, dtype=np.float64),
@@ -2864,9 +3023,6 @@ def main() -> None:
             wall_sign_smoothing_formula=np.asarray(WALL_SIGN_SMOOTHING_FORMULA),
             wall_sign_smoothing_enabled=np.asarray(WALL_SIGN_SMOOTHING_ENABLED, dtype=bool),
             wall_sign_smoothing_width_cells=np.asarray(WALL_SIGN_SMOOTHING_WIDTH_CELLS, dtype=np.float64),
-            initial_transient_time=np.asarray(initial_transient_time_value if split_timesteps else 0.0, dtype=np.float64),
-            initial_num_steps=np.asarray(initial_num_steps if split_timesteps else 0, dtype=np.int64),
-            remaining_num_steps=np.asarray(remaining_num_steps if split_timesteps else num_steps, dtype=np.int64),
             A_N=np.asarray(A_N, dtype=np.float64),
             rho0=np.asarray(rho0, dtype=np.float64),
             y0=np.asarray(y0, dtype=np.float64),
@@ -2890,9 +3046,9 @@ def main() -> None:
             ion_temperature_D_perp=np.asarray(parameters.ion_temperature_D_perp, dtype=np.float64),
             Ve_nu=np.asarray(parameters.Ve_nu, dtype=np.float64),
             Ve_D_perp=np.asarray(parameters.Ve_D_perp, dtype=np.float64),
-            Ve_D_parallel=np.asarray(parameters.Ve_D_parallel, dtype=np.float64),
+            Ve_parallel_viscosity=np.asarray(parameters.Ve_parallel_viscosity, dtype=np.float64),
             Vi_D_perp=np.asarray(parameters.Vi_D_perp, dtype=np.float64),
-            Vi_D_parallel=np.asarray(parameters.Vi_D_parallel, dtype=np.float64),
+            Vi_parallel_viscosity=np.asarray(parameters.Vi_parallel_viscosity, dtype=np.float64),
             vorticity_D_perp=np.asarray(parameters.vorticity_D_perp, dtype=np.float64),
             vorticity_D_parallel=np.asarray(parameters.vorticity_D_parallel, dtype=np.float64),
             perp_diffusion=np.asarray(perp_diffusion, dtype=np.float64),
@@ -2948,19 +3104,10 @@ def main() -> None:
     print(f"EB blob step dump dir: {step_output_dir}")
     print(f"EB blob time traces path: {time_traces_path}")
     print(f"EB blob movie path: {movie_path}")
-    print(f"EB blob local stencil builder: {local_stencil_builder}")
-    print(f"EB blob conservative stencil builder: {conservative_stencil_builder}")
-    print(f"EB blob BC builder: {eb_bc_builder}")
+    print(f"EB blob domain-decomp shard counts: {shard_counts}")
+    print(f"EB blob domain-decomp halo width: {halo_width}")
+    print("EB blob execution path: jax.jit(shard_map(...)) local EB RK4")
     print(f"EB blob parameters: {parameters}")
-    print(f"EB blob density face bc x-kind shape: {boundary_conditions.density_face_bc.kind_x.shape}")
-    print(f"EB blob potential face bc x-kind shape: {boundary_conditions.potential_face_bc.kind_x.shape}")
-    print(f"EB blob cut wall bc size: {boundary_conditions.density_cut_wall_bc.kind.size}")
-    print(f"EB blob coordinate face reconstructor: {coordinate_face_reconstructor}")
-    print(f"EB blob coordinate normal derivative dnormal weights: {coordinate_normal_derivative_constructor.dnormal_weights.shape}")
-    print(f"EB blob face projector count: {len(face_projectors)}")
-    print(f"EB blob cut wall face count: {cut_wall_geometry.n_wall_faces}")
-    print(f"EB blob cut wall bc size: {cut_wall_bc.kind.size}")
-    print(f"EB blob regular face geometry x-area shape: {regular_face_geometry.x_area.shape}")
 
 
 if __name__ == "__main__":

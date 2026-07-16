@@ -95,6 +95,9 @@ from .fci_drb_EB_rhs import (
     FciDrbEBRhsParameters,
     FciDrbEBRhsResult,
     FciDrbEBState,
+    LocalFciDrbEBFaceBCBundle,
+    LocalFciDrbEBRhs,
+    prepare_local_fci_drb_eb_state,
     compute_fci_drb_eb_rhs,
 )
 from .fci_4_field_rhs import (
@@ -183,6 +186,9 @@ __all__ = [
     "FciDrbEBRhsResult",
     "FciDrbEBState",
     "FciDrbEBBoundaryConditions",
+    "LocalFciDrbEBFaceBCBundle",
+    "LocalFciDrbEBRhs",
+    "prepare_local_fci_drb_eb_state",
     "compute_fci_drb_eb_rhs",
     "Fci4FieldRhsParameters",
     "Fci4FieldRhsResult",
