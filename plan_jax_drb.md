@@ -481,31 +481,26 @@ differences; tokamak-open quadrant fully shipping.
 
 ### Phase 6 — Non-axisymmetric SOL (B7, B8) and the stellarator quadrants
 
-**Started** — the differentiable FCI flagship (`geometry/shifted_torus.py`,
-`examples/stellarator/fci_differentiable_demo.py`) shows the drift-reduced
-FCI 2-field operator stack running on non-orthogonal helical geometry and
-differentiable through a 24-step rollout (grad vs FD at 6e-11). This is the
-core novelty (differentiability + non-axisymmetric FCI). Multi-device
-`shard_map` execution of the same 2-field model is complete on
-[PR #5](https://github.com/uwplasma/jax_drb/pull/5); porting it onto this
-branch hit a halo-shape incompatibility between the two branches' FCI stacks,
-so the sharding + differentiable-FCI unification is deferred to when 3D_fci
-merges (both capabilities exist, on different branches). Remaining Phase 6:
+**Largely done.** Landed: the differentiable FCI flagship (shifted torus, grad
+vs FD 6e-11); the rotating-ellipse B7 gate (autodiff metric, order-2 direct +
+traced parallel gradient, shape-differentiable) and seeded filament; multi-device
+`shard_map` folded onto this branch (bit-exact sharded 2-field step + strong
+scaling); and **stellarator turbulence on closed and open field lines** — a
+`limiter_radius` option on the rotating ellipse opens the outer flux surfaces
+into a Bohm-sheath-drained scrape-off layer while the core stays closed, and the
+multi-mode-seeded four-field model runs turbulence-type interchange dynamics on
+both, gated (`tests/test_stellarator_turbulence.py`) and shown as movies
+(`examples/stellarator/stellarator_turbulence_demo.py`). Neutrals couple on the
+3D FCI geometries, closed and open (`tests/test_fci_neutrals_3d.py`).
 
-1. Rotating-ellipse analytic field: FCI parallel-operator MMS gate (B7), then
-   the seeded-filament example.
-2. Island-divertor open-SOL turbulence flagship on an analytic field (B8):
-   endpoint masks, sheath + recycling + neutral sources with closed
-   accounting, profile/spectrum/skewness diagnostics, grid/timestep
-   refinement check — the stellarator-open quadrant.
-3. Stellarator-closed quadrant: VMEC closed-field turbulence on imported QA +
-   rotating-ellipse closed control, with conservation gates and zero endpoint
-   masks.
-4. `binormal_stpm` stellarator 1D transport row; ESSOS/hybrid import examples
-   kept as the imported-geometry variants, stripped of ledger machinery.
+Remaining Phase 6 (optional depth):
 
-Gate: all numerics + physics gates in the non-axisymmetric section pass; both
-stellarator quadrants fully shipping; example matrix complete.
+1. Island-divertor open-SOL turbulence on an analytic island field (B8) with
+   spectrum/skewness diagnostics — the limiter SOL is the simpler open-field
+   configuration that already ships.
+2. VMEC/ESSOS imported-geometry closed-field turbulence control runs.
+3. Statistically saturated stellarator turbulence (longer implicit-stepped
+   runs) — current runs are short, bounded, seeded demonstrations.
 
 ### Phase 7 — Performance and strong scaling
 
