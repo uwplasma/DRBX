@@ -151,6 +151,7 @@ def shifted_torus_4field_blob_rk4(
         phi_inverse_solver=phi_inverse_solver,
         gmres_debug=gmres_debug,
         return_phi=True,
+        with_diagnostics=True,
     )
 
     rhs_1, timings_1, phi_1 = compute_4field_blob_rhs(state, phi_guess=phi_guess, **common_kwargs)

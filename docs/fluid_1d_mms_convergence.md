@@ -29,8 +29,14 @@ Run the demo with:
 python scripts/run_fluid_1d_mms_convergence.py
 ```
 
-Committed artifacts:
+![Fluid 1D MMS convergence](media/fluid_1d_mms_convergence.png)
 
-- `docs/data/fluid_1d_mms_convergence_artifacts/data/fluid_1d_mms_convergence.json`
-- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__data__fluid_1d_mms_convergence.npz`
-- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png`
+Artifacts:
+
+- summary JSON (written locally):
+  `docs/data/fluid_1d_mms_convergence_artifacts/data/fluid_1d_mms_convergence.json`
+- full-resolution NPZ and PNG: release-hosted on
+  `validation-artifacts-2026-04-28`
+  (`docs__data__fluid_1d_mms_convergence_artifacts__data__fluid_1d_mms_convergence.npz`,
+  `...__images__fluid_1d_mms_convergence.png`; requires repository access) —
+  the figure above is the committed compressed copy.

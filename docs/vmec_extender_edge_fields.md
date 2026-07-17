@@ -94,7 +94,7 @@ only `jax_drb` on `PYTHONPATH`:
 tmp=$(mktemp -d)
 cd "$tmp"
 PYTHONPATH=/path/to/jax_drb/src MPLBACKEND=Agg \
-  python /path/to/jax_drb/examples/geometry-3D/vmec-extender/imported_field_demo.py
+  python /path/to/jax_drb/examples/geometry-3D/vmec-extender/imported_field.py
 ```
 
 `create_vmec_extender_sol_smoke_package` adds the first downstream SOL coupling

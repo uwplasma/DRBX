@@ -4,7 +4,7 @@ This example is the first end-to-end runtime tutorial for `jax_drb` as a standal
 
 Entry point:
 
-- [examples/restartable_diffusion_tutorial.py](examples/restartable_diffusion_tutorial.py)
+- [examples/restartable_diffusion_tutorial.py](../examples/restartable_diffusion_tutorial.py)
 
 What it demonstrates:
 
@@ -19,51 +19,22 @@ What it demonstrates:
 ## Run It
 
 ```bash
-PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py
+PYTHONPATH=src python examples/restartable_diffusion_tutorial.py
 ```
 
-Quiet mode:
+There are no command-line flags: like every `jax_drb` example, the script is a
+flat pedagogical file configured by the PARAMETERS constants near the top.
+Edit and rerun:
 
-```bash
-PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py --quiet
-```
-
-Choose a different output location:
-
-```bash
-PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py \
-  --output-root /tmp/jax_drb_restart_demo
-```
-
-Skip the GIF and only write static figures:
-
-```bash
-PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py \
-  --output-root /tmp/jax_drb_restart_demo \
-  --skip-movie
-```
-
-Run the same tutorial in `float32`:
-
-```bash
-PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py \
-  --precision float32
-```
-
-Keep `float64` in the input deck but force the CLI/runtime override path explicitly:
-
-```bash
-PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py \
-  --cli-precision-override float32
-```
-
-Keep `float64` in the input deck but force a driver-side CLI override:
-
-```bash
-PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py \
-  --precision float64 \
-  --cli-precision-override float32
-```
+- `OUTPUT_ROOT` — artifact root; a **cwd-relative** path (default
+  `docs/data/restartable_diffusion_demo_artifacts`), so run from the
+  repository root or point it somewhere absolute;
+- `MAKE_MOVIE` — set `False` to skip the GIF (fastest QA loop);
+- `PRECISION` — `"float64"` (default) or `"float32"`, written into the
+  `[runtime]` section of the generated deck;
+- `CLI_PRECISION_OVERRIDE` — e.g. `"float32"` to exercise the CLI
+  `--precision` override path while the deck says `float64`;
+- `QUIET_RUNS` — set `True` to silence the per-run CLI progress output.
 
 ## Generated Artifacts
 
@@ -86,18 +57,18 @@ The script writes:
 - `images/<case>_density_surface.png`
 - `movies/<case>_density.gif`
 
-A QA-checked example output package from a local run is currently staged under:
+A representative density-surface figure from a QA-checked run:
 
-- [docs/data/restartable_diffusion_demo_artifacts](docs/data/restartable_diffusion_demo_artifacts)
-- [docs/data/restartable_diffusion_demo_artifacts/input/input.toml](docs/data/restartable_diffusion_demo_artifacts/input/input.toml)
-- [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__images__restartable_diffusion_density_surface.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__images__restartable_diffusion_density_surface.png)
-- [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__movies__restartable_diffusion_density.gif](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__movies__restartable_diffusion_density.gif)
+![Restartable diffusion density surface](media/restartable_diffusion_density_surface.png)
 
-The companion precision benchmark is:
+The full artifact package (snapshots, restart-consistency plot, GIF movie) is
+regenerated locally by the script; a release-hosted copy lives on the
+`validation-artifacts-2026-04-28` release (repository access required).
 
-- [examples/diffusion_precision_benchmark.py](examples/diffusion_precision_benchmark.py)
-- [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
-- [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png)
+The companion precision benchmark is
+[`examples/diffusion_precision_benchmark.py`](../examples/diffusion_precision_benchmark.py);
+its elapsed-time figure is release-hosted
+(`docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png`).
 
 ## What To Edit First
 

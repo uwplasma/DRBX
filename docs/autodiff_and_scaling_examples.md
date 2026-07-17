@@ -15,10 +15,10 @@ That is the surface used here too. It is the same general pattern used by projec
 
 ## Scripts
 
-- [examples/autodiff_diffusion_sensitivity_demo.py](../examples/autodiff_diffusion_sensitivity_demo.py)
-- [examples/autodiff_diffusion_uncertainty_demo.py](../examples/autodiff_diffusion_uncertainty_demo.py)
-- [examples/autodiff_diffusion_inverse_design_demo.py](../examples/autodiff_diffusion_inverse_design_demo.py)
-- [examples/strong_scaling_diffusion_demo.py](../examples/strong_scaling_diffusion_demo.py)
+- [examples/autodiff_diffusion_sensitivity.py](../examples/autodiff_diffusion_sensitivity.py)
+- [examples/autodiff_diffusion_uncertainty.py](../examples/autodiff_diffusion_uncertainty.py)
+- [examples/autodiff_diffusion_inverse_design.py](../examples/autodiff_diffusion_inverse_design.py)
+- [examples/strong_scaling_diffusion.py](../examples/strong_scaling_diffusion.py)
 - shared helper module: [src/jax_drb/validation/autodiff_diffusion.py](../src/jax_drb/validation/autodiff_diffusion.py)
 - uncertainty helper module: [src/jax_drb/validation/autodiff_diffusion_uncertainty.py](../src/jax_drb/validation/autodiff_diffusion_uncertainty.py)
 
@@ -27,15 +27,15 @@ That is the surface used here too. It is the same general pattern used by projec
 Run:
 
 ```bash
-PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_sensitivity_demo.py
+PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_sensitivity.py
 ```
 
 Outputs:
 
-- analysis JSON: [docs/data/autodiff_diffusion_sensitivity_artifacts/data/autodiff_diffusion_sensitivity_analysis.json](data/autodiff_diffusion_sensitivity_artifacts/data/autodiff_diffusion_sensitivity_analysis.json)
-- figure: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png)
+- analysis JSON: `docs/data/autodiff_diffusion_sensitivity_artifacts/data/autodiff_diffusion_sensitivity_analysis.json` (written when you run the script)
+- figure: [media/autodiff_sensitivity.png](media/autodiff_sensitivity.png)
 
-![Autodiff sensitivity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png)
+![Autodiff sensitivity](media/autodiff_sensitivity.png)
 
 Current committed result:
 
@@ -48,16 +48,16 @@ Current committed result:
 Run:
 
 ```bash
-PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_uncertainty_demo.py
+PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_uncertainty.py
 ```
 
 Outputs:
 
-- analysis JSON: [docs/data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_analysis.json](data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_analysis.json)
-- arrays NPZ: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__data__autodiff_diffusion_uncertainty_arrays.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__data__autodiff_diffusion_uncertainty_arrays.npz)
-- figure: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
+- analysis JSON: `docs/data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_analysis.json` (written when you run the script)
+- arrays NPZ: release-hosted (`docs__data__autodiff_diffusion_uncertainty_artifacts__data__autodiff_diffusion_uncertainty_arrays.npz` on the `validation-artifacts-2026-04-28` release; requires repository access)
+- figure: [media/autodiff_uncertainty.png](media/autodiff_uncertainty.png)
 
-![Autodiff uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
+![Autodiff uncertainty](media/autodiff_uncertainty.png)
 
 Current committed result:
 
@@ -71,15 +71,15 @@ Current committed result:
 Run:
 
 ```bash
-PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_inverse_design_demo.py
+PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_inverse_design.py
 ```
 
 Outputs:
 
-- analysis JSON: [docs/data/autodiff_diffusion_inverse_design_artifacts/data/autodiff_diffusion_inverse_design_analysis.json](data/autodiff_diffusion_inverse_design_artifacts/data/autodiff_diffusion_inverse_design_analysis.json)
-- figure: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png)
+- analysis JSON: `docs/data/autodiff_diffusion_inverse_design_artifacts/data/autodiff_diffusion_inverse_design_analysis.json` (written when you run the script)
+- figure: [media/autodiff_inverse_design.png](media/autodiff_inverse_design.png)
 
-![Autodiff inverse design](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png)
+![Autodiff inverse design](media/autodiff_inverse_design.png)
 
 Current committed result:
 
@@ -92,17 +92,21 @@ Current committed result:
 Run locally on CPU only:
 
 ```bash
-PYTHONPATH=src .venv/bin/python examples/strong_scaling_diffusion_demo.py \
-  --skip-gpu \
-  --cpu-device-counts 1,2,4 \
-  --total-batch 32 \
-  --nx 512 \
-  --ny 64 \
-  --steps 12 \
-  --repeats 2
+PYTHONPATH=src python examples/strong_scaling_diffusion.py
 ```
 
-The CPU artifact now measures two distinct local modes:
+Like every example, the script has no command-line flags — the sweep is
+configured by the PARAMETERS constants near the top:
+
+- `CPU_DEVICE_COUNTS = (1, 2, 4)` — laptop-sized sweep; office-scale runs use
+  `(1, 2, 4, 8)`;
+- `TOTAL_BATCH = 16` — fixed global workload (must divide by every device
+  count), which is what makes this a strong-scaling plot;
+- `NX`, `NY`, `STEPS`, `REPEATS` — per-sample workload and timing repeats;
+- `RUN_REMOTE_GPU = False` — set `True` to add remote-GPU points over SSH,
+  with `GPU_DEVICE_COUNTS = (1, 2)` and `REMOTE_HOST` naming the machine.
+
+The CPU artifact measures two distinct local modes:
 
 - `process_group`: one Python worker per CPU partition
 - `host_pmap`: one process with `JAX_DRB_HOST_DEVICE_COUNT=N` and device-parallel `pmap`
@@ -110,33 +114,19 @@ The CPU artifact now measures two distinct local modes:
 To inspect the runtime mode directly in a fresh process:
 
 ```bash
-JAX_DRB_HOST_DEVICE_COUNT=4 PYTHONPATH=src .venv/bin/python - <<'PY'
+JAX_DRB_HOST_DEVICE_COUNT=4 PYTHONPATH=src python - <<'PY'
 from jax_drb.runtime import runtime_parallel_summary
 import json
 print(json.dumps(runtime_parallel_summary(), indent=2, sort_keys=True))
 PY
 ```
 
-Run the optional remote GPU benchmark:
-
-```bash
-PYTHONPATH=src .venv/bin/python examples/strong_scaling_diffusion_demo.py \
-  --cpu-device-counts 1,2,4 \
-  --gpu-device-counts 1,2 \
-  --total-batch 32 \
-  --nx 512 \
-  --ny 64 \
-  --steps 12 \
-  --repeats 2 \
-  --remote-host office
-```
-
 Outputs:
 
-- analysis JSON: [docs/data/strong_scaling_diffusion_artifacts/data/strong_scaling_diffusion_analysis.json](data/strong_scaling_diffusion_artifacts/data/strong_scaling_diffusion_analysis.json)
-- figure: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__strong_scaling_diffusion_artifacts__images__strong_scaling_diffusion.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__strong_scaling_diffusion_artifacts__images__strong_scaling_diffusion.png)
+- analysis JSON: `docs/data/strong_scaling_diffusion_artifacts/data/strong_scaling_diffusion_analysis.json` (written when you run the script)
+- figure: [media/strong_scaling_diffusion.png](media/strong_scaling_diffusion.png)
 
-![Strong scaling](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__strong_scaling_diffusion_artifacts__images__strong_scaling_diffusion.png)
+![Strong scaling](media/strong_scaling_diffusion.png)
 
 Current committed result:
 
@@ -148,7 +138,7 @@ Current committed result:
   - about `3.65 s -> 3.41 s -> 3.39 s`
   - about `1.07x` from `1 -> 2`
   - about `1.08x` from `1 -> 4`
-- the current committed artifact was regenerated locally with `--skip-gpu`, so the figure emphasizes the two CPU modes on this MacBook rather than repeating the earlier remote GPU line
+- the current committed artifact was regenerated locally with `RUN_REMOTE_GPU = False`, so the figure emphasizes the two CPU modes on this MacBook rather than repeating the earlier remote GPU line
 
 Interpretation:
 

@@ -1001,7 +1001,7 @@ def _load_connection_length_refinement_example():
         / "examples"
         / "geometry-3D"
         / "essos-field-lines"
-        / "imported_connection_length_refinement_demo.py"
+        / "imported_connection_length_refinement.py"
     )
     source = module_path.read_text(encoding="utf-8").replace(
         "RUN_EXAMPLE = True",

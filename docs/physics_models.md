@@ -254,8 +254,12 @@ Fourier--Helmholtz elliptic solve in
 [`solvax.elliptic`](https://github.com/uwplasma/SOLVAX), the reusable
 structured-solver library. The electrostatic vorticity lane
 ([native/vorticity.py](../src/jax_drb/native/vorticity.py)) inverts its
-potential with that operator; the FCI vorticity component inverts the
-metric-weighted perpendicular operator with conjugate gradient.
+potential with that operator; the compact FCI vorticity component inverts the
+metric-weighted perpendicular operator with conjugate gradient; and the
+4-field/DRB lanes invert the conservative perpendicular Laplacian with the
+lineax GMRES `PerpLaplacianInverseSolver` (optionally multigrid-preconditioned
+with a prefactored LU coarse solve) — see
+[Solvers and Design Decisions](solvers_and_design.md).
 
 ## Linear Stability And Dispersion
 
@@ -286,10 +290,16 @@ pseudo-spectral two-field solver for the potential and density fluctuations in
 the perpendicular plane,
 
 ```text
-∂t ζ  = -{φ, ζ} + α (φ - n) - ν ∇⊥^4 ζ
-∂t n  = -{φ, n} + α (φ - n) - κ ∂y φ - ν ∇⊥^4 n
+∂t ζ  = -{φ, ζ} + α (φ - n) - ν ∇⊥^4 ζ - μ ζ
+∂t n  = -{φ, n} + α (φ - n) - κ ∂y φ - ν ∇⊥^4 n - μ n
 ζ = ∇⊥^2 φ
 ```
+
+with an optional scale-independent friction μ
+(`HasegawaWakataniParameters.friction`, default 0) that absorbs the 2-D inverse
+cascade so fixed-step runs saturate. Besides `hw_run`, the module ships
+`hw_run_flux_history` (a jitted rollout that also returns the sampled
+particle-flux history, differentiable end to end).
 
 Its single-mode linear growth reproduces the B2 eigenvalue of the linear
 dispersion solver to machine precision, and it is differentiable end-to-end,
@@ -411,12 +421,14 @@ In practice, the current JAX-native building blocks are:
 - `@jax.jit`
 - `jax.vmap`
 - `jax.grad` / `jax.value_and_grad`
-- `jax.lax.linalg.tridiagonal_solve`
+- `jax.lax.linalg.tridiagonal_solve` (via `solvax`)
+- `lineax` (`lx.GMRES` over matrix-free operators, for the FCI
+  perpendicular-Laplacian inversion; optional extra `jax-drb[lineax]`)
 
-The codebase does not currently rely on `diffrax`, `equinox`, or `lineax` to
-power the release results. Those libraries are useful ecosystem context and
-future options, but the release-critical kernels are driven by the core JAX
-primitives above.
+`equinox` and `diffrax` are not used by any promoted kernel; they remain
+ecosystem options rather than dependencies. The full solver inventory, with
+parameters and design rationale, is on
+[Solvers and Design Decisions](solvers_and_design.md).
 
 ## Output And Restart
 

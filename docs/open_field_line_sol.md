@@ -7,7 +7,7 @@ and `z = L_parallel`, where a Bohm sheath drains the plasma at the sound speed.
 This is the open-field-line counterpart to the closed flux tubes (rotating
 ellipse, shifted torus, Hasegawa-Wakatani flux tube).
 
-![Open-field-line SOL flux tube](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/open_sol_flux_tube.png)
+![Open-field-line SOL flux tube](media/open_sol_flux_tube.png)
 
 ## Geometry — open field lines
 
@@ -59,6 +59,15 @@ panel shows the Bohm-sheath target diagnostics.
 ## Reproduce
 
 ```bash
-PYTHONPATH=src python examples/sol/open_sol_flux_tube_demo.py
+PYTHONPATH=src python examples/sol/open_sol_flux_tube.py
 pytest -q tests/test_open_field_line_sol.py
 ```
+
+The example is a flat script with every physics/numerics choice in the
+PARAMETERS block at the top (connection length, grid, source strength and
+width, CFL, recycling fraction). It prints stage-by-stage progress: a setup
+block (grid, timestep, integrated source), per-chunk relaxation lines with
+the target Mach numbers, the target/upstream density ratio, and the
+steady-state residual `max|dn/dt|`, and finally the sheath/recycling target
+accounting. A line-by-line walkthrough is in
+[Tutorial: Building an Open SOL](tutorial_open_sol.md).

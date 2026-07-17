@@ -578,8 +578,15 @@ def compute_4field_rhs(
     jacobian_floor: float = 1.0e-30,
     gmres_debug: bool = False,
     return_phi: bool = False,
-) -> tuple[Fci4FieldRhsResult, jnp.ndarray] | tuple[Fci4FieldRhsResult, jnp.ndarray, jnp.ndarray]:
-    """Assemble the normalized four-field RHS using the new stencil pipeline."""
+    with_diagnostics: bool = False,
+) -> tuple[Fci4FieldRhsResult, jnp.ndarray | None] | tuple[Fci4FieldRhsResult, jnp.ndarray | None, jnp.ndarray]:
+    """Assemble the normalized four-field RHS using the new stencil pipeline.
+
+    By default the assembly is sync-free (``timings`` is ``None``) so the whole
+    RHS can run inside ``jit``; ``with_diagnostics=True`` restores the
+    host-synced stage timings and phi-solver diagnostics payload used by the
+    validation harnesses.
+    """
 
     density = jnp.asarray(state.density, dtype=jnp.float64)
     omega = jnp.asarray(state.omega, dtype=jnp.float64)
@@ -591,27 +598,35 @@ def compute_4field_rhs(
     bmag = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag, dtype=jnp.float64), float(b_floor))
     density_safe = jnp.maximum(density, 1.0e-30)
 
-    phi_start = time_module.perf_counter()
     if phi_inverse_solver is None:
         raise ValueError("compute_4field_rhs requires a PerpLaplacianInverseSolver instance")
-    phi, phi_diagnostics = phi_inverse_solver(
-        -omega,
-        phi_guess=phi_guess,
-        face_bc=phi_face_bc,
-        cut_wall_bc=phi_cut_wall_bc,
-        return_diagnostics=True,
-    )
-    jax.block_until_ready(phi)
-    phi_time = time_module.perf_counter() - phi_start
-    phi_num_steps = float(phi_diagnostics["num_steps"])
-    rhs_mean_j = float(phi_diagnostics["rhs_mean_J"])
-    rhs_l2_j = float(phi_diagnostics["rhs_l2_J"])
-    rhs_compatibility_ratio = float(phi_diagnostics["rhs_compatibility_ratio"])
-    projected_rhs_mean_j = float(phi_diagnostics["projected_rhs_mean_J"])
-    projected_rhs_l2_j = float(phi_diagnostics["projected_rhs_l2_J"])
-    projected_rhs_compatibility_ratio = float(phi_diagnostics["projected_rhs_compatibility_ratio"])
+    if with_diagnostics:
+        phi_start = time_module.perf_counter()
+        phi, phi_diagnostics = phi_inverse_solver(
+            -omega,
+            phi_guess=phi_guess,
+            face_bc=phi_face_bc,
+            cut_wall_bc=phi_cut_wall_bc,
+            return_diagnostics=True,
+        )
+        jax.block_until_ready(phi)
+        phi_time = time_module.perf_counter() - phi_start
+        phi_num_steps = float(phi_diagnostics["num_steps"])
+        rhs_mean_j = float(phi_diagnostics["rhs_mean_J"])
+        rhs_l2_j = float(phi_diagnostics["rhs_l2_J"])
+        rhs_compatibility_ratio = float(phi_diagnostics["rhs_compatibility_ratio"])
+        projected_rhs_mean_j = float(phi_diagnostics["projected_rhs_mean_J"])
+        projected_rhs_l2_j = float(phi_diagnostics["projected_rhs_l2_J"])
+        projected_rhs_compatibility_ratio = float(phi_diagnostics["projected_rhs_compatibility_ratio"])
+    else:
+        phi = phi_inverse_solver(
+            -omega,
+            phi_guess=phi_guess,
+            face_bc=phi_face_bc,
+            cut_wall_bc=phi_cut_wall_bc,
+        )
 
-    stencil_start = time_module.perf_counter()
+    stencil_start = time_module.perf_counter() if with_diagnostics else 0.0
     density_stencil = stencil_builder(
         density,
         geometry,
@@ -652,14 +667,15 @@ def compute_4field_rhs(
         cut_wall_geometry=v_electron_parallel_cut_wall_geometry,
         cut_wall_bc=v_electron_parallel_cut_wall_bc,
     )
-    jax.block_until_ready(density_stencil.x.center)
-    jax.block_until_ready(omega_stencil.x.center)
-    jax.block_until_ready(phi_stencil.x.center)
-    jax.block_until_ready(v_ion_parallel_stencil.x.center)
-    jax.block_until_ready(v_electron_parallel_stencil.x.center)
-    local_stencil_time = time_module.perf_counter() - stencil_start
+    if with_diagnostics:
+        jax.block_until_ready(density_stencil.x.center)
+        jax.block_until_ready(omega_stencil.x.center)
+        jax.block_until_ready(phi_stencil.x.center)
+        jax.block_until_ready(v_ion_parallel_stencil.x.center)
+        jax.block_until_ready(v_electron_parallel_stencil.x.center)
+    local_stencil_time = (time_module.perf_counter() - stencil_start) if with_diagnostics else 0.0
 
-    operator_start = time_module.perf_counter()
+    operator_start = time_module.perf_counter() if with_diagnostics else 0.0
     poisson_rhs, curvature_rhs, parallel_rhs = _assemble_4field_non_diffusive_rhs(
         density=density,
         omega=omega,
@@ -695,34 +711,36 @@ def compute_4field_rhs(
         poisson_rhs.v_electron_parallel + curvature_rhs.v_electron_parallel + parallel_rhs.v_electron_parallel,
         dtype=jnp.float64,
     )
-    jax.block_until_ready(rhs_density)
-    jax.block_until_ready(rhs_omega)
-    jax.block_until_ready(rhs_v_ion_parallel)
-    jax.block_until_ready(rhs_v_electron_parallel)
-    operator_time = time_module.perf_counter() - operator_start
-
     rhs = Fci4FieldState(
         density=rhs_density,
         omega=rhs_omega,
         v_ion_parallel=rhs_v_ion_parallel,
         v_electron_parallel=rhs_v_electron_parallel,
     )
-    timings = jnp.asarray(
-        [
-            phi_time,
-            local_stencil_time,
-            operator_time,
-            phi_num_steps,
-            rhs_mean_j,
-            rhs_l2_j,
-            rhs_compatibility_ratio,
-            projected_rhs_mean_j,
-            projected_rhs_l2_j,
-            projected_rhs_compatibility_ratio,
-            float(phi_diagnostics["final_residual_rel_l2"]),
-        ],
-        dtype=jnp.float64,
-    )
+    if with_diagnostics:
+        jax.block_until_ready(rhs_density)
+        jax.block_until_ready(rhs_omega)
+        jax.block_until_ready(rhs_v_ion_parallel)
+        jax.block_until_ready(rhs_v_electron_parallel)
+        operator_time = time_module.perf_counter() - operator_start
+        timings = jnp.asarray(
+            [
+                phi_time,
+                local_stencil_time,
+                operator_time,
+                phi_num_steps,
+                rhs_mean_j,
+                rhs_l2_j,
+                rhs_compatibility_ratio,
+                projected_rhs_mean_j,
+                projected_rhs_l2_j,
+                projected_rhs_compatibility_ratio,
+                float(phi_diagnostics["final_residual_rel_l2"]),
+            ],
+            dtype=jnp.float64,
+        )
+    else:
+        timings = None
     if return_phi:
         return Fci4FieldRhsResult(rhs=rhs), timings, phi
     return Fci4FieldRhsResult(rhs=rhs), timings
@@ -760,6 +778,7 @@ def compute_4field_free_decay_rhs(
     jacobian_floor: float = 1.0e-30,
     gmres_debug: bool = False,
     return_phi: bool = False,
+    with_diagnostics: bool = False,
 ) -> tuple[Fci4FieldRhsResult, jnp.ndarray] | tuple[Fci4FieldRhsResult, jnp.ndarray, jnp.ndarray]:
     if return_phi:
         base_result, timings, phi = compute_4field_rhs(
@@ -793,6 +812,7 @@ def compute_4field_free_decay_rhs(
             jacobian_floor=jacobian_floor,
             gmres_debug=gmres_debug,
             return_phi=True,
+            with_diagnostics=with_diagnostics,
         )
     else:
         base_result, timings = compute_4field_rhs(
@@ -826,6 +846,7 @@ def compute_4field_free_decay_rhs(
             jacobian_floor=jacobian_floor,
             gmres_debug=gmres_debug,
             return_phi=False,
+            with_diagnostics=with_diagnostics,
         )
 
     density_stencil = conservative_stencil_builder(
@@ -956,6 +977,7 @@ def compute_4field_blob_rhs(
     jacobian_floor: float = 1.0e-30,
     gmres_debug: bool = False,
     return_phi: bool = False,
+    with_diagnostics: bool = False,
 ) -> tuple[Fci4FieldRhsResult, jnp.ndarray] | tuple[Fci4FieldRhsResult, jnp.ndarray, jnp.ndarray]:
     density = jnp.asarray(state.density, dtype=jnp.float64)
     omega = jnp.asarray(state.omega, dtype=jnp.float64)
@@ -967,20 +989,28 @@ def compute_4field_blob_rhs(
     bmag = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag, dtype=jnp.float64), float(b_floor))
     density_safe = jnp.maximum(density, 1.0e-30)
 
-    phi_start = time_module.perf_counter()
     if phi_inverse_solver is None:
         raise ValueError("compute_4field_blob_rhs requires a PerpLaplacianInverseSolver instance")
-    phi, phi_diagnostics = phi_inverse_solver(
-        -omega,
-        phi_guess=phi_guess,
-        face_bc=phi_face_bc,
-        cut_wall_bc=phi_cut_wall_bc,
-        return_diagnostics=True,
-    )
-    jax.block_until_ready(phi)
-    phi_time = time_module.perf_counter() - phi_start
+    if with_diagnostics:
+        phi_start = time_module.perf_counter()
+        phi, phi_diagnostics = phi_inverse_solver(
+            -omega,
+            phi_guess=phi_guess,
+            face_bc=phi_face_bc,
+            cut_wall_bc=phi_cut_wall_bc,
+            return_diagnostics=True,
+        )
+        jax.block_until_ready(phi)
+        phi_time = time_module.perf_counter() - phi_start
+    else:
+        phi = phi_inverse_solver(
+            -omega,
+            phi_guess=phi_guess,
+            face_bc=phi_face_bc,
+            cut_wall_bc=phi_cut_wall_bc,
+        )
 
-    stencil_start = time_module.perf_counter()
+    stencil_start = time_module.perf_counter() if with_diagnostics else 0.0
     density_stencil = stencil_builder(
         density,
         geometry,
@@ -1021,14 +1051,15 @@ def compute_4field_blob_rhs(
         cut_wall_geometry=v_electron_parallel_cut_wall_geometry,
         cut_wall_bc=v_electron_parallel_cut_wall_bc,
     )
-    jax.block_until_ready(density_stencil.x.center)
-    jax.block_until_ready(omega_stencil.x.center)
-    jax.block_until_ready(phi_stencil.x.center)
-    jax.block_until_ready(v_ion_parallel_stencil.x.center)
-    jax.block_until_ready(v_electron_parallel_stencil.x.center)
-    local_stencil_time = time_module.perf_counter() - stencil_start
+    if with_diagnostics:
+        jax.block_until_ready(density_stencil.x.center)
+        jax.block_until_ready(omega_stencil.x.center)
+        jax.block_until_ready(phi_stencil.x.center)
+        jax.block_until_ready(v_ion_parallel_stencil.x.center)
+        jax.block_until_ready(v_electron_parallel_stencil.x.center)
+    local_stencil_time = (time_module.perf_counter() - stencil_start) if with_diagnostics else 0.0
 
-    operator_start = time_module.perf_counter()
+    operator_start = time_module.perf_counter() if with_diagnostics else 0.0
     poisson_rhs, curvature_rhs, _parallel_rhs = _assemble_4field_non_diffusive_rhs(
         density=density,
         omega=omega,
@@ -1094,12 +1125,6 @@ def compute_4field_blob_rhs(
         + diffusion_rhs.v_electron_parallel,
         dtype=jnp.float64,
     )
-    jax.block_until_ready(rhs_density)
-    jax.block_until_ready(rhs_omega)
-    jax.block_until_ready(rhs_v_ion_parallel)
-    jax.block_until_ready(rhs_v_electron_parallel)
-    operator_time = time_module.perf_counter() - operator_start
-
     result = Fci4FieldRhsResult(
         rhs=Fci4FieldState(
             density=rhs_density,
@@ -1108,22 +1133,30 @@ def compute_4field_blob_rhs(
             v_electron_parallel=rhs_v_electron_parallel,
         )
     )
-    timings = jnp.asarray(
-        [
-            phi_time,
-            local_stencil_time,
-            operator_time,
-            float(phi_diagnostics["num_steps"]),
-            float(phi_diagnostics["rhs_mean_J"]),
-            float(phi_diagnostics["rhs_l2_J"]),
-            float(phi_diagnostics["rhs_compatibility_ratio"]),
-            float(phi_diagnostics["projected_rhs_mean_J"]),
-            float(phi_diagnostics["projected_rhs_l2_J"]),
-            float(phi_diagnostics["projected_rhs_compatibility_ratio"]),
-            float(phi_diagnostics["final_residual_rel_l2"]),
-        ],
-        dtype=jnp.float64,
-    )
+    if with_diagnostics:
+        jax.block_until_ready(rhs_density)
+        jax.block_until_ready(rhs_omega)
+        jax.block_until_ready(rhs_v_ion_parallel)
+        jax.block_until_ready(rhs_v_electron_parallel)
+        operator_time = time_module.perf_counter() - operator_start
+        timings = jnp.asarray(
+            [
+                phi_time,
+                local_stencil_time,
+                operator_time,
+                float(phi_diagnostics["num_steps"]),
+                float(phi_diagnostics["rhs_mean_J"]),
+                float(phi_diagnostics["rhs_l2_J"]),
+                float(phi_diagnostics["rhs_compatibility_ratio"]),
+                float(phi_diagnostics["projected_rhs_mean_J"]),
+                float(phi_diagnostics["projected_rhs_l2_J"]),
+                float(phi_diagnostics["projected_rhs_compatibility_ratio"]),
+                float(phi_diagnostics["final_residual_rel_l2"]),
+            ],
+            dtype=jnp.float64,
+        )
+    else:
+        timings = None
     if return_phi:
         return result, timings, phi
     return result, timings
@@ -1161,6 +1194,7 @@ def compute_4field_diffusion(
     jacobian_floor: float = 1.0e-30,
     gmres_debug: bool = False,
     return_phi: bool = False,
+    with_diagnostics: bool = False,
 ) -> tuple[Fci4FieldRhsResult, jnp.ndarray] | tuple[Fci4FieldRhsResult, jnp.ndarray, jnp.ndarray]:
     base_result, timings, phi = compute_4field_free_decay_rhs(
         state,
@@ -1193,6 +1227,7 @@ def compute_4field_diffusion(
         jacobian_floor=jacobian_floor,
         gmres_debug=gmres_debug,
         return_phi=True,
+        with_diagnostics=with_diagnostics,
     )
     poisson_rhs, curvature_rhs, parallel_rhs, diffusion_rhs = _compute_4field_term_components(
         state,
@@ -1267,6 +1302,7 @@ def compute_4field_poisson_diffusion(
     jacobian_floor: float = 1.0e-30,
     gmres_debug: bool = False,
     return_phi: bool = False,
+    with_diagnostics: bool = False,
 ) -> tuple[Fci4FieldRhsResult, jnp.ndarray] | tuple[Fci4FieldRhsResult, jnp.ndarray, jnp.ndarray]:
     base_result, timings, phi = compute_4field_free_decay_rhs(
         state,
@@ -1299,6 +1335,7 @@ def compute_4field_poisson_diffusion(
         jacobian_floor=jacobian_floor,
         gmres_debug=gmres_debug,
         return_phi=True,
+        with_diagnostics=with_diagnostics,
     )
     poisson_rhs, curvature_rhs, parallel_rhs, diffusion_rhs = _compute_4field_term_components(
         state,
@@ -1375,6 +1412,7 @@ def compute_4field_curvature(
     jacobian_floor: float = 1.0e-30,
     gmres_debug: bool = False,
     return_phi: bool = False,
+    with_diagnostics: bool = False,
 ) -> tuple[Fci4FieldRhsResult, jnp.ndarray] | tuple[Fci4FieldRhsResult, jnp.ndarray, jnp.ndarray]:
     base_result, timings, phi = compute_4field_free_decay_rhs(
         state,
@@ -1407,6 +1445,7 @@ def compute_4field_curvature(
         jacobian_floor=jacobian_floor,
         gmres_debug=gmres_debug,
         return_phi=True,
+        with_diagnostics=with_diagnostics,
     )
     poisson_rhs, curvature_rhs, parallel_rhs, diffusion_rhs = _compute_4field_term_components(
         state,

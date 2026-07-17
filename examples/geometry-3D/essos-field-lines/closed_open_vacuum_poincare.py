@@ -19,12 +19,20 @@ Requires an ESSOS checkout (`pip` deps only; no compiled code):
     JAX_DRB_ESSOS_ROOT=~/local/ESSOS_test \
         PYTHONPATH=src python examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py
 
-writes ``output/essos_closed_open/closed_open_vacuum_poincare.png``.
+prints per-line classifications and writes
+``output/essos_closed_open/closed_open_vacuum_poincare.png`` (relative to the
+current working directory). If ESSOS is not importable the script explains how
+to point ``JAX_DRB_ESSOS_ROOT`` at a checkout and exits.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 import numpy as np
 
@@ -34,12 +42,13 @@ from jax_drb.geometry import (
     trace_essos_coil_initial_conditions,
 )
 
+# --- PARAMETERS -----------------------------------------------------------------
 N_CLOSED = 6            # seeds inside the confinement region
 N_OPEN = 6              # seeds outside it
 MAXTIME = 1500.0        # integration time per line (ESSOS units)
 TIMES_TO_TRACE = 6000   # trajectory samples per line
 RHO_WALL = 0.45         # escape radius around the axis [m]: beyond this = open
-OUTPUT_DIR = Path("output/essos_closed_open")
+OUTPUT_DIR = Path("output/essos_closed_open")   # artifact directory (cwd-relative)
 
 
 def seed_points(axis_r: float, axis_z: float) -> tuple[np.ndarray, np.ndarray]:
@@ -83,67 +92,61 @@ def poincare_points(trajectory_xyz: np.ndarray) -> np.ndarray:
     return np.stack([r_cross, z_cross], axis=1)
 
 
-def main() -> None:
-    if not essos_runtime_available():
-        raise SystemExit(
-            "ESSOS is not importable. Point JAX_DRB_ESSOS_ROOT at a checkout, e.g.\n"
-            "    JAX_DRB_ESSOS_ROOT=~/local/ESSOS_test python ..."
-        )
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    print("loading the Landreman-Paul coil set and locating the magnetic axis...")
-    axis_r, axis_z = load_essos_coil_field_axis()
-    print(f"  magnetic axis: R = {axis_r:.4f} m, Z = {axis_z:.4f} m")
-
-    closed_seeds, open_seeds = seed_points(axis_r, axis_z)
-    print(f"seeding {N_CLOSED} lines inside the core (R - R_axis = "
-          f"{closed_seeds[0, 0] - axis_r:.2f}..{closed_seeds[-1, 0] - axis_r:.2f} m) and "
-          f"{N_OPEN} outside ({open_seeds[0, 0] - axis_r:.2f}..{open_seeds[-1, 0] - axis_r:.2f} m)")
-
-    print(f"tracing {N_CLOSED + N_OPEN} field lines (maxtime={MAXTIME:g}, "
-          f"{TIMES_TO_TRACE} samples each) through the Biot-Savart coil field...")
-    trajectories = trace_essos_coil_initial_conditions(
-        np.vstack([closed_seeds, open_seeds]), maxtime=MAXTIME, times_to_trace=TIMES_TO_TRACE
+# --- trace, classify, and plot ----------------------------------------------------
+if not essos_runtime_available():
+    raise SystemExit(
+        "ESSOS is not importable. Point JAX_DRB_ESSOS_ROOT at a checkout, e.g.\n"
+        "    JAX_DRB_ESSOS_ROOT=~/local/ESSOS_test python ..."
     )
-    print(f"  traced array: {trajectories.shape}")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print(f"classifying each line (open = escapes rho > {RHO_WALL} m from the axis):")
-    sections, labels = [], []
-    for index, trajectory in enumerate(trajectories):
-        is_open, max_rho = classify_line(trajectory, axis_r, axis_z)
-        crossings = poincare_points(trajectory)
-        sections.append(crossings)
-        labels.append(is_open)
-        kind = "OPEN  " if is_open else "closed"
-        print(f"  line {index:2d}: {kind}  max rho = {max_rho:6.3f} m, "
-              f"{len(crossings):4d} Poincare crossings")
+print("loading the Landreman-Paul coil set and locating the magnetic axis...")
+axis_r, axis_z = load_essos_coil_field_axis()
+print(f"  magnetic axis: R = {axis_r:.4f} m, Z = {axis_z:.4f} m")
 
-    n_open = sum(labels)
-    print(f"result: {len(labels) - n_open} closed lines, {n_open} open lines")
-    assert not any(labels[:N_CLOSED]), "a core-seeded line escaped: move RHO_WALL or seeds"
-    assert any(labels[N_CLOSED:]), "no edge-seeded line escaped: extend MAXTIME"
+closed_seeds, open_seeds = seed_points(axis_r, axis_z)
+print(f"seeding {N_CLOSED} lines inside the core (R - R_axis = "
+      f"{closed_seeds[0, 0] - axis_r:.2f}..{closed_seeds[-1, 0] - axis_r:.2f} m) and "
+      f"{N_OPEN} outside ({open_seeds[0, 0] - axis_r:.2f}..{open_seeds[-1, 0] - axis_r:.2f} m)")
 
-    import matplotlib.pyplot as plt
+print(f"tracing {N_CLOSED + N_OPEN} field lines (maxtime={MAXTIME:g}, "
+      f"{TIMES_TO_TRACE} samples each) through the Biot-Savart coil field...")
+trajectories = trace_essos_coil_initial_conditions(
+    np.vstack([closed_seeds, open_seeds]), maxtime=MAXTIME, times_to_trace=TIMES_TO_TRACE
+)
+print(f"  traced array: {trajectories.shape}")
 
-    fig, ax = plt.subplots(figsize=(7.0, 6.0))
-    for crossings, is_open in zip(sections, labels):
-        if len(crossings) == 0:
-            continue
-        color, size = ("#d62728", 3.0) if is_open else ("#1f77b4", 1.2)
-        ax.scatter(crossings[:, 0], crossings[:, 1], s=size, color=color, linewidths=0)
-    ax.scatter([axis_r], [axis_z], marker="+", s=80, color="k", label="magnetic axis")
-    ax.scatter([], [], s=8, color="#1f77b4", label="closed field lines")
-    ax.scatter([], [], s=8, color="#d62728", label="open field lines")
-    ax.set_xlabel("R [m]"), ax.set_ylabel("Z [m]")
-    ax.set_aspect("equal")
-    ax.legend(loc="upper right", fontsize=9)
-    ax.set_title("Landreman-Paul coils in vacuum: Poincare section at phi = 0\n"
-                 "nested closed surfaces (blue), open edge field lines (red)")
-    fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "closed_open_vacuum_poincare.png", dpi=170)
-    plt.close(fig)
-    print(f"wrote {OUTPUT_DIR / 'closed_open_vacuum_poincare.png'}")
+print(f"classifying each line (open = escapes rho > {RHO_WALL} m from the axis):")
+sections, labels = [], []
+for index, trajectory in enumerate(trajectories):
+    is_open, max_rho = classify_line(trajectory, axis_r, axis_z)
+    crossings = poincare_points(trajectory)
+    sections.append(crossings)
+    labels.append(is_open)
+    kind = "OPEN  " if is_open else "closed"
+    print(f"  line {index:2d}: {kind}  max rho = {max_rho:6.3f} m, "
+          f"{len(crossings):4d} Poincare crossings")
 
+n_open = sum(labels)
+print(f"result: {len(labels) - n_open} closed lines, {n_open} open lines")
+assert not any(labels[:N_CLOSED]), "a core-seeded line escaped: move RHO_WALL or seeds"
+assert any(labels[N_CLOSED:]), "no edge-seeded line escaped: extend MAXTIME"
 
-if __name__ == "__main__":
-    main()
+fig, ax = plt.subplots(figsize=(7.0, 6.0))
+for crossings, is_open in zip(sections, labels):
+    if len(crossings) == 0:
+        continue
+    color, size = ("#d62728", 3.0) if is_open else ("#1f77b4", 1.2)
+    ax.scatter(crossings[:, 0], crossings[:, 1], s=size, color=color, linewidths=0)
+ax.scatter([axis_r], [axis_z], marker="+", s=80, color="k", label="magnetic axis")
+ax.scatter([], [], s=8, color="#1f77b4", label="closed field lines")
+ax.scatter([], [], s=8, color="#d62728", label="open field lines")
+ax.set_xlabel("R [m]"), ax.set_ylabel("Z [m]")
+ax.set_aspect("equal")
+ax.legend(loc="upper right", fontsize=9)
+ax.set_title("Landreman-Paul coils in vacuum: Poincare section at phi = 0\n"
+             "nested closed surfaces (blue), open edge field lines (red)")
+fig.tight_layout()
+fig.savefig(OUTPUT_DIR / "closed_open_vacuum_poincare.png", dpi=170)
+plt.close(fig)
+print(f"wrote {OUTPUT_DIR / 'closed_open_vacuum_poincare.png'}")

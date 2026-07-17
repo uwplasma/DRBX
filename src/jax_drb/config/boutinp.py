@@ -162,6 +162,22 @@ def load_bout_input(path: str | Path) -> BoutConfig:
     return parse_bout_input(text)
 
 
+def rewrite_input_precision(template_text: str, precision: str) -> str:
+    """Return ``template_text`` with its ``[runtime]`` precision entry replaced.
+
+    Only the existing ``precision = ...`` line is rewritten; every other line of
+    the deck is preserved verbatim. Raises ``ValueError`` when the template has
+    no precision entry to rewrite.
+    """
+
+    lines = template_text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().startswith("precision ="):
+            lines[index] = f'precision = "{precision}"'
+            return "\n".join(lines) + "\n"
+    raise ValueError("Template TOML is missing a [runtime] precision entry")
+
+
 def parse_toml_input(text: str) -> BoutConfig:
     parsed = tomllib.loads(text)
     raw_sections: "OrderedDict[str, OrderedDict[str, OptionEntry]]" = OrderedDict()

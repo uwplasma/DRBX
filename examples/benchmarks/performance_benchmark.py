@@ -16,9 +16,10 @@ Run:
 
     PYTHONPATH=src python examples/benchmarks/performance_benchmark.py
 
-writes ``output/performance/`` with a two-panel PNG and a JSON summary. All
-timings are single-CPU, float64; absolute numbers depend on the host, the
-scalings do not.
+prints per-size throughput and the gradient/forward ratio, then writes
+``output/performance/`` (relative to the current working directory) with a
+two-panel ``performance.png`` and a ``summary.json``. All timings are
+single-CPU, float64; absolute numbers depend on the host, the scalings do not.
 """
 
 from __future__ import annotations
@@ -31,6 +32,11 @@ import jax
 
 jax.config.update("jax_enable_x64", True)
 
+import matplotlib  # noqa: E402
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 
@@ -40,12 +46,19 @@ from jax_drb.native.hasegawa_wakatani import (  # noqa: E402
     hw_step,
 )
 
-LENGTH = 2.0 * np.pi * 8.0
-DT = 5.0e-3
-ALPHA = 1.0
-KAPPA0 = 1.0
-NU = 1.0e-3
-OUTPUT_DIR = Path("output/performance")
+# --- PARAMETERS -----------------------------------------------------------------
+LENGTH = 2.0 * np.pi * 8.0      # periodic box length
+DT = 5.0e-3                     # RK4 time step
+ALPHA = 1.0                     # Hasegawa-Wakatani adiabaticity
+KAPPA0 = 1.0                    # background density-gradient drive
+NU = 1.0e-3                     # hyperviscosity
+THROUGHPUT_SIZES = (32, 48, 64, 96, 128, 192)  # grid sizes n for the n x n throughput sweep
+THROUGHPUT_STEPS = 100          # RK4 steps per timed run
+THROUGHPUT_REPEATS = 5          # timed repetitions per size (mean is reported)
+OVERHEAD_N = 64                 # grid size of the differentiation-overhead case
+OVERHEAD_STEPS = 200            # rollout steps the gradient differentiates through
+OVERHEAD_REPEATS = 5            # timed repetitions of forward and gradient
+OUTPUT_DIR = Path("output/performance")   # artifact directory (cwd-relative)
 
 
 def _seed_state(n, seed=0):
@@ -65,7 +78,7 @@ def _timed(fn, *args, repeats):
     return (time.perf_counter() - t0) / repeats, out
 
 
-def throughput_sweep(sizes, steps=100, repeats=5):
+def throughput_sweep(sizes, steps=THROUGHPUT_STEPS, repeats=THROUGHPUT_REPEATS):
     params = HasegawaWakataniParameters(adiabaticity=ALPHA, gradient=KAPPA0, hyperviscosity=NU)
     rows = []
     for n in sizes:
@@ -89,7 +102,7 @@ def throughput_sweep(sizes, steps=100, repeats=5):
     return rows
 
 
-def differentiation_overhead(n=64, steps=200, repeats=5):
+def differentiation_overhead(n=OVERHEAD_N, steps=OVERHEAD_STEPS, repeats=OVERHEAD_REPEATS):
     grid = hw_grid(n, LENGTH)
     z0, m0 = _seed_state(n, seed=1)
 
@@ -120,8 +133,6 @@ def differentiation_overhead(n=64, steps=200, repeats=5):
 
 
 def plot(sweep, overhead, output_path):
-    import matplotlib.pyplot as plt
-
     fig, axes = plt.subplots(1, 2, figsize=(12.0, 4.8))
     ns = np.array([r["n"] for r in sweep])
     mcups = np.array([r["mcups"] for r in sweep])
@@ -144,15 +155,14 @@ def plot(sweep, overhead, output_path):
     plt.close(fig)
 
 
-def main():
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    sweep = throughput_sweep([32, 48, 64, 96, 128, 192])
-    overhead = differentiation_overhead()
-    summary = {"throughput": sweep, "differentiation": overhead}
-    (OUTPUT_DIR / "summary.json").write_text(json.dumps(summary, indent=2))
-    plot(sweep, overhead, OUTPUT_DIR / "performance.png")
-    print(f"wrote {OUTPUT_DIR / 'performance.png'} and summary.json")
-
-
-if __name__ == "__main__":
-    main()
+# --- run the two measurements and save the artifacts ------------------------------
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+print(f"throughput sweep over grid sizes {THROUGHPUT_SIZES} "
+      f"({THROUGHPUT_STEPS} steps per run, {THROUGHPUT_REPEATS} repeats)...")
+sweep = throughput_sweep(THROUGHPUT_SIZES)
+print(f"differentiation overhead at n={OVERHEAD_N} through {OVERHEAD_STEPS} steps...")
+overhead = differentiation_overhead()
+summary = {"throughput": sweep, "differentiation": overhead}
+(OUTPUT_DIR / "summary.json").write_text(json.dumps(summary, indent=2))
+plot(sweep, overhead, OUTPUT_DIR / "performance.png")
+print(f"wrote {OUTPUT_DIR / 'performance.png'} and summary.json")
