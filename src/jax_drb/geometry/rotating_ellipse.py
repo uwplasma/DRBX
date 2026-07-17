@@ -38,6 +38,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
+from .embedding import metric_from_position_fn
 from .fci_geometry import (
     BFieldGeometry,
     CellCenteredGrid3D,
@@ -150,36 +151,8 @@ def build_rotating_ellipse_geometry(
             r0=r0, elongation=elongation, n_field_periods=n_field_periods,
         )
 
-    _jacobian_of_position = jax.jacfwd(_position)
-
     def _metric(logical_grid: jax.Array) -> MetricGeometry:
-        # g_ij = d_i X . d_j X from the embedding Jacobian (autodiff). The
-        # covariant metric is J_cart^T J_cart; the contravariant metric is its
-        # inverse and the metric Jacobian is sqrt(det g_cov).
-        points = logical_grid.reshape(-1, 3)
-        cartesian_jacobian = jax.vmap(_jacobian_of_position)(points)
-        g_cov = jnp.einsum("pki,pkj->pij", cartesian_jacobian, cartesian_jacobian)
-        g_contra = jnp.linalg.inv(g_cov)
-        det_g_cov = jnp.linalg.det(g_cov)
-        location_shape = logical_grid.shape[:-1]
-        g_cov = g_cov.reshape(location_shape + (3, 3))
-        g_contra = g_contra.reshape(location_shape + (3, 3))
-        jacobian = jnp.sqrt(jnp.abs(det_g_cov)).reshape(location_shape)
-        return MetricGeometry(
-            J=jacobian,
-            g11=g_contra[..., 0, 0],
-            g22=g_contra[..., 1, 1],
-            g33=g_contra[..., 2, 2],
-            g12=g_contra[..., 0, 1],
-            g13=g_contra[..., 0, 2],
-            g23=g_contra[..., 1, 2],
-            g_11=g_cov[..., 0, 0],
-            g_22=g_cov[..., 1, 1],
-            g_33=g_cov[..., 2, 2],
-            g_12=g_cov[..., 0, 1],
-            g_13=g_cov[..., 0, 2],
-            g_23=g_cov[..., 1, 2],
-        )
+        return metric_from_position_fn(_position, logical_grid)
 
     def _bfield(metric: MetricGeometry) -> BFieldGeometry:
         jacobian = metric.J
