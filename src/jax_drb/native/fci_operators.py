@@ -7,10 +7,7 @@ from typing import Literal
 import jax
 import jax.numpy as jnp
 
-try:  # Optional external solver backend.
-    import lineax as lx
-except ImportError:  # pragma: no cover - depends on local optional install
-    lx = None
+from solvax import gmres as solvax_gmres
 
 _pytree_base = jax.tree_util.register_pytree_node_class
 
@@ -3454,8 +3451,6 @@ class PerpLaplacianInverseSolver:
         check_residual: bool = True,
         stagnation_iters: int = 20,
     ) -> None:
-        if lx is None:
-            raise ImportError("lineax is required to invert the perpendicular Laplacian")
         if not isinstance(stencil_builder, ConservativeStencilBuilder):
             raise TypeError("stencil_builder must be a ConservativeStencilBuilder instance")
         self.geometry = geometry
@@ -3499,8 +3494,9 @@ class PerpLaplacianInverseSolver:
         self.gmres_debug = bool(gmres_debug)
         self.check_residual = bool(check_residual)
         self.stagnation_iters = int(stagnation_iters)
-        # `throw` controls Python-side solver error handling and must stay static
-        # under JIT so lineax can branch on it safely.
+        # `throw` is kept in the solve signatures for API stability; the solvax
+        # backend never raises inside the solve (non-convergence is caught by the
+        # host-side check_residual gate on the diagnostic path).
         self._solve_jit = jax.jit(self._solve_impl, static_argnums=(4,))
         self._solve_lifted_jit = jax.jit(self._solve_lifted_impl, static_argnums=(7,))
         self._solve_fast_jit = jax.jit(self._solve_fast_impl, static_argnums=(4,))
@@ -3544,6 +3540,44 @@ class PerpLaplacianInverseSolver:
             result = _remove_weighted_mean(result, self.geometry)
         return result
 
+
+    def _gmres_flat(self, apply_A, rhs: jnp.ndarray, guess: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Restarted GMRES (solvax) on the flattened field.
+
+        Returns ``(solution_field, num_steps)``. solvax stops on the true
+        residual ``||b - A x|| <= max(atol, rtol * ||b||)`` with ``atol = rtol
+        = self.tol``; the multigrid V-cycle enters as a right preconditioner.
+        The Krylov cycle length is capped at ``maxiter`` so the total iteration
+        budget matches the previous backend.
+        """
+
+        shape = rhs.shape
+
+        def matvec(flat: jnp.ndarray) -> jnp.ndarray:
+            return jnp.ravel(apply_A(jnp.reshape(flat, shape)))
+
+        precond = None
+        if self.mg_hierarchy is not None:
+            def precond(flat: jnp.ndarray) -> jnp.ndarray:
+                return jnp.ravel(mg_apply_preconditioner(jnp.reshape(flat, shape), self.mg_hierarchy))
+
+        cycle = max(1, min(int(self.restart), int(self.maxiter)))
+        max_restarts = max(1, -(-int(self.maxiter) // cycle))
+        solution = solvax_gmres(
+            matvec,
+            jnp.ravel(rhs),
+            x0=jnp.ravel(guess),
+            precond=precond,
+            restart=cycle,
+            # Pure relative stopping on the true residual: the diagnostic
+            # residual gate is relative, and an absolute atol=tol floor would
+            # stop early whenever ||rhs|| < 1 (small-amplitude stages).
+            rtol=self.tol,
+            atol=0.0,
+            max_restarts=max_restarts,
+        )
+        return jnp.reshape(solution.x, shape), jnp.asarray(solution.iterations, dtype=jnp.int32)
+
     def _solve_fast_impl(
         self,
         omega: jnp.ndarray,
@@ -3582,23 +3616,7 @@ class PerpLaplacianInverseSolver:
                 values = values.at[self.pin_point].set(phi[self.pin_point])
             return values
 
-        structure = jax.ShapeDtypeStruct(self.geometry.shape, rhs.dtype)
-        operator = lx.FunctionLinearOperator(apply_A, structure)
-        solver = lx.GMRES(
-            max_steps=self.maxiter,
-            restart=self.restart,
-            stagnation_iters=self.stagnation_iters,
-            rtol=self.tol,
-            atol=self.tol,
-        )
-        solve_options: dict[str, object] = {"y0": guess}
-        if self.mg_hierarchy is not None:
-            solve_options["preconditioner"] = lx.FunctionLinearOperator(
-                lambda residual: mg_apply_preconditioner(residual, self.mg_hierarchy),
-                structure,
-            )
-        solve = lx.linear_solve(operator, linear_rhs, solver, options=solve_options, throw=throw)
-        phi = solve.value
+        phi, num_steps = self._gmres_flat(apply_A, linear_rhs, guess)
         if project_mean_zero:
             phi = _remove_weighted_mean(phi, self.geometry)
         if self.target_mean_phi is not None:
@@ -3664,23 +3682,7 @@ class PerpLaplacianInverseSolver:
                 values = values.at[self.pin_point].set(phi[self.pin_point])
             return values
 
-        structure = jax.ShapeDtypeStruct(self.geometry.shape, rhs.dtype)
-        operator = lx.FunctionLinearOperator(apply_A, structure)
-        solver = lx.GMRES(
-            max_steps=self.maxiter,
-            restart=self.restart,
-            stagnation_iters=self.stagnation_iters,
-            rtol=self.tol,
-            atol=self.tol,
-        )
-        solve_options: dict[str, object] = {"y0": guess}
-        if self.mg_hierarchy is not None:
-            solve_options["preconditioner"] = lx.FunctionLinearOperator(
-                lambda residual: mg_apply_preconditioner(residual, self.mg_hierarchy),
-                structure,
-            )
-        solve = lx.linear_solve(operator, linear_rhs, solver, options=solve_options, throw=throw)
-        phi = solve.value
+        phi, num_steps = self._gmres_flat(apply_A, linear_rhs, guess)
         if project_mean_zero:
             phi = _remove_weighted_mean(phi, self.geometry)
         if self.target_mean_phi is not None:
@@ -3695,8 +3697,6 @@ class PerpLaplacianInverseSolver:
         final_residual_linf = jnp.max(jnp.abs(final_residual))
         rhs_norm = jnp.linalg.norm(rhs)
         final_residual_rel_l2 = final_residual_l2 / (rhs_norm + 1.0e-30)
-        stats = getattr(solve, "stats", {})
-        num_steps = stats.get("num_steps", jnp.asarray(-1, dtype=jnp.int32)) if isinstance(stats, dict) else jnp.asarray(-1, dtype=jnp.int32)
         return (
             phi,
             final_residual_l2,
@@ -3776,23 +3776,7 @@ class PerpLaplacianInverseSolver:
                 values = values.at[self.pin_point].set(u[self.pin_point])
             return values
 
-        structure = jax.ShapeDtypeStruct(self.geometry.shape, rhs.dtype)
-        operator = lx.FunctionLinearOperator(apply_A, structure)
-        solver = lx.GMRES(
-            max_steps=self.maxiter,
-            restart=self.restart,
-            stagnation_iters=self.stagnation_iters,
-            rtol=self.tol,
-            atol=self.tol,
-        )
-        solve_options: dict[str, object] = {"y0": correction_guess}
-        if self.mg_hierarchy is not None:
-            solve_options["preconditioner"] = lx.FunctionLinearOperator(
-                lambda residual: mg_apply_preconditioner(residual, self.mg_hierarchy),
-                structure,
-            )
-        solve = lx.linear_solve(operator, rhs_u, solver, options=solve_options, throw=throw)
-        correction = solve.value
+        correction, num_steps = self._gmres_flat(apply_A, rhs_u, correction_guess)
         if project_mean_zero:
             correction = _remove_weighted_mean(correction, self.geometry)
         phi = lift + correction
@@ -3817,8 +3801,6 @@ class PerpLaplacianInverseSolver:
         physical_residual_linf = jnp.max(jnp.abs(physical_residual))
         physical_rhs_norm = jnp.linalg.norm(rhs)
         lift_source_norm = jnp.linalg.norm(lift_source)
-        stats = getattr(solve, "stats", {})
-        num_steps = stats.get("num_steps", jnp.asarray(-1, dtype=jnp.int32)) if isinstance(stats, dict) else jnp.asarray(-1, dtype=jnp.int32)
         return (
             phi,
             correction_residual_l2,

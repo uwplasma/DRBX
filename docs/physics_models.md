@@ -257,7 +257,7 @@ structured-solver library. The electrostatic vorticity lane
 potential with that operator; the compact FCI vorticity component inverts the
 metric-weighted perpendicular operator with conjugate gradient; and the
 4-field/DRB lanes invert the conservative perpendicular Laplacian with the
-lineax GMRES `PerpLaplacianInverseSolver` (optionally multigrid-preconditioned
+solvax GMRES `PerpLaplacianInverseSolver` (optionally multigrid-preconditioned
 with a prefactored LU coarse solve) — see
 [Solvers and Design Decisions](solvers_and_design.md).
 
@@ -421,9 +421,9 @@ In practice, the current JAX-native building blocks are:
 - `@jax.jit`
 - `jax.vmap`
 - `jax.grad` / `jax.value_and_grad`
-- `jax.lax.linalg.tridiagonal_solve` (via `solvax`)
-- `lineax` (`lx.GMRES` over matrix-free operators, for the FCI
-  perpendicular-Laplacian inversion; optional extra `jax-drb[lineax]`)
+- `solvax` (restarted flexible GMRES over matrix-free operators for the FCI
+  perpendicular-Laplacian inversion, plus tridiagonal and Fourier–Helmholtz
+  solves)
 
 `equinox` and `diffrax` are not used by any promoted kernel; they remain
 ecosystem options rather than dependencies. The full solver inventory, with

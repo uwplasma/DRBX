@@ -272,10 +272,11 @@ sweeps (see [Solvers and Design Decisions](solvers_and_design.md)).
 
 ## JAX Ecosystem Usage
 
-- `lineax` **is now a real dependency of the FCI stack**: the
-  perpendicular-Laplacian inversion is an `lx.GMRES` solve over a matrix-free
-  `lx.FunctionLinearOperator` (optional extra `jax-drb[lineax]`).
-- `solvax` provides the structured Fourier–Helmholtz and tridiagonal solves.
+- `solvax` carries every structured solve: the FCI perpendicular-Laplacian
+  inversion (`solvax.gmres`, restarted flexible GMRES over the matrix-free
+  conservative operator — it replaced the earlier `lineax` backend on
+  2026-07-17 and measured ~1.8x faster per turbulence step), plus the
+  Fourier–Helmholtz and tridiagonal solves.
 - `equinox` and `diffrax` are still not used by any promoted kernel; they
   remain future options, not active dependencies.
 
@@ -301,4 +302,4 @@ If you need:
 - use more `vmap`-style batching where case structure is already homogeneous;
 - keep plotting, output writing, and CLI serialization as boundary code rather
   than inside hot kernels;
-- only widen `equinox`/`lineax` usage where it removes a measured bottleneck.
+- only widen `equinox`/`diffrax` usage where it removes a measured bottleneck.

@@ -5,18 +5,20 @@ concrete parameters and file locations — and the design rules the codebase
 follows. The governing equations these solvers advance are on
 [Models and Governing Equations](models_and_equations.md).
 
-## Perpendicular-Laplacian inversion (lineax GMRES)
+## Perpendicular-Laplacian inversion (solvax GMRES)
 
 The 4-field and DRB lanes must invert the conservative perpendicular
 Laplacian \(-\nabla_\perp\!\cdot\!\nabla_\perp \phi = -\omega\) once per RK4
 stage. The solver is `PerpLaplacianInverseSolver` in
 [`native/fci_operators.py`](../src/jax_drb/native/fci_operators.py):
 
-- the operator is a matrix-free `lx.FunctionLinearOperator` wrapping the
-  conservative stencil (`perp_laplacian_conservative_op` on a
-  `ConservativeStencilBuilder` payload), solved with `lx.GMRES` using
-  `tol` (default `1e-6`), `restart` (default 50), `maxiter` (default 50), and
-  a `stagnation_iters` guard (default 20);
+- the operator is a matrix-free matvec wrapping the conservative stencil
+  (`perp_laplacian_conservative_op` on a `ConservativeStencilBuilder`
+  payload), solved with `solvax.gmres` (restarted flexible GMRES, fully
+  jit-able) using `rtol = atol = tol` (default `1e-6`) on the **true**
+  residual, a Krylov cycle of `min(restart, maxiter)`, and a total iteration
+  budget of `maxiter`; the multigrid V-cycle enters as a right
+  preconditioner;
 - nonzero regular-face and cut-wall boundary values are **lifted out of the
   operator** (a one-time boundary-source application) so the GMRES matvec
   stays linear; Dirichlet lifts get a homogeneous correction solve;

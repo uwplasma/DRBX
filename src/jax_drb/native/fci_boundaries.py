@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Generic, TypeVar
 
 import jax
@@ -1805,6 +1805,27 @@ class CutWallBC3D:
         return cls(*children)
 
 
+@dataclass(frozen=True)
+class FourFieldBoundaryConditions:
+    """Per-field face BCs (plus optional cut-wall data) for the four-field model."""
+
+    phi_face_bc: BoundaryFaceBC3D
+    density_face_bc: BoundaryFaceBC3D
+    omega_face_bc: BoundaryFaceBC3D
+    v_ion_parallel_face_bc: BoundaryFaceBC3D
+    v_electron_parallel_face_bc: BoundaryFaceBC3D
+    phi_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
+    phi_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
+    density_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
+    density_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
+    omega_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
+    omega_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
+    v_ion_parallel_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
+    v_ion_parallel_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
+    v_electron_parallel_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
+    v_electron_parallel_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
+
+
 @_pytree_base
 @dataclass(frozen=True)
 class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
@@ -2454,6 +2475,7 @@ __all__ = [
     "CutWallNormalDerivativeConstructor3D",
     "CutWallValueReconstructor3D",
     "FaceFluxStencil3D",
+    "FourFieldBoundaryConditions",
     "LocalBoundaryConditionBuilder",
     "LocalBoundaryData3D",
     "LocalBoundaryFaceBC3D",

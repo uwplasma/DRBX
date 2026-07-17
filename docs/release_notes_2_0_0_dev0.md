@@ -11,7 +11,8 @@ Landed so far (Phase 0):
   `src/jax_drb` (baseline 86%); the curated closeout/promoted coverage
   gates were removed.
 - Dependency metadata corrected: unused `diffrax` and `equinox` removed,
-  `lineax` exposed as an optional extra.
+  the perpendicular-Laplacian GMRES now runs on `solvax` (the earlier
+  `lineax` backend and its optional extra were removed).
 - The Alfven-wave benchmark input is a committed fixture instead of a
   machine-specific absolute path.
 - Phase 1 slice 1: the mocked reference-report generators, orphan campaign

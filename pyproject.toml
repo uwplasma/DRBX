@@ -22,14 +22,13 @@ dependencies = [
     "netCDF4",
     "rich",
     "pillow",
-    "solvax>=0.8.1",
+    "solvax>=0.8.6",
     "tomli; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov", "pytest-xdist"]
 docs = ["mkdocs", "pymdown-extensions"]
-lineax = ["lineax"]
 
 [project.scripts]
 jax-drb = "jax_drb.cli:main"

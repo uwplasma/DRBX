@@ -126,7 +126,7 @@ $$
 -\nabla_\perp \cdot \left( \nabla_\perp \phi \right) = -\,\omega ,
 $$
 
-solved with the lineax GMRES `PerpLaplacianInverseSolver` (tolerance,
+solved with the solvax GMRES `PerpLaplacianInverseSolver` (tolerance,
 iteration, and restart limits are model parameters:
 `phi_inversion_tol/maxiter/restart` in `Fci4FieldRhsParameters`). The
 free-decay and blob variants (`Fci4FieldFreeDecayParameters`,

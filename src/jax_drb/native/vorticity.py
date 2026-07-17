@@ -45,9 +45,6 @@ def build_vorticity_operator(
     rhs_scale = jnp.asarray(metrics.Bxy[x_slice, y_index, 0], dtype=jnp.float64)
     rhs_scale = (rhs_scale * rhs_scale) / jnp.asarray(average_atomic_mass, dtype=jnp.float64)
 
-    zlength = float(dz[0]) * float(mesh.nz)
-    x_coef = g11 / (dx * dx)
-
     return VorticityOperator(
         **build_fourier_helmholtz_operator(
             dx=dx,
@@ -97,83 +94,67 @@ def compute_vorticity_rhs(
     potential = solve_potential(guarded, mesh=mesh, operator=operator)
     result = jnp.zeros_like(guarded, dtype=jnp.float64)
 
+    xs, xe = mesh.xstart, mesh.xend
+    interior = slice(xs, xe + 1)
+
+    def roll_km(array: jnp.ndarray) -> jnp.ndarray:
+        return jnp.roll(array, 1, axis=-1)
+
+    def roll_kp(array: jnp.ndarray) -> jnp.ndarray:
+        return jnp.roll(array, -1, axis=-1)
+
+    def shift_from_left(array: jnp.ndarray) -> jnp.ndarray:
+        return jnp.concatenate([jnp.zeros_like(array[:1]), array[:-1]], axis=0)
+
+    def shift_from_right(array: jnp.ndarray) -> jnp.ndarray:
+        return jnp.concatenate([array[1:], jnp.zeros_like(array[:1])], axis=0)
+
     for j in range(mesh.ystart, mesh.yend + 1):
-        for i in range(mesh.xstart, mesh.xend + 1):
-            dx_i = jnp.asarray(metrics.dx[i, j, 0], dtype=jnp.float64)
-            J_i = jnp.asarray(metrics.J[i, j, 0], dtype=jnp.float64)
-            for k in range(mesh.nz):
-                kp = (k + 1) % mesh.nz
-                kpp = (kp + 1) % mesh.nz
-                km = (k - 1 + mesh.nz) % mesh.nz
-                kmm = (km - 1 + mesh.nz) % mesh.nz
+        phi = potential[:, j, :]
+        phi_c = phi[interior]
+        phi_m = phi[xs - 1 : xe]
+        phi_p = phi[xs + 1 : xe + 2]
 
-                fmm = 0.25 * (
-                    potential[i, j, k]
-                    + potential[i - 1, j, k]
-                    + potential[i, j, km]
-                    + potential[i - 1, j, km]
-                )
-                fmp = 0.25 * (
-                    potential[i, j, k]
-                    + potential[i, j, kp]
-                    + potential[i - 1, j, k]
-                    + potential[i - 1, j, kp]
-                )
-                fpp = 0.25 * (
-                    potential[i, j, k]
-                    + potential[i, j, kp]
-                    + potential[i + 1, j, k]
-                    + potential[i + 1, j, kp]
-                )
-                fpm = 0.25 * (
-                    potential[i, j, k]
-                    + potential[i + 1, j, k]
-                    + potential[i, j, km]
-                    + potential[i + 1, j, km]
-                )
+        # Corner-averaged potential at the four cell corners (i∓1/2, k∓1/2).
+        fmm = 0.25 * (phi_c + phi_m + roll_km(phi_c) + roll_km(phi_m))
+        fmp = 0.25 * (phi_c + roll_kp(phi_c) + phi_m + roll_kp(phi_m))
+        fpp = 0.25 * (phi_c + roll_kp(phi_c) + phi_p + roll_kp(phi_p))
+        fpm = 0.25 * (phi_c + phi_p + roll_km(phi_c) + roll_km(phi_p))
 
-                v_up = J_i * (fmp - fpp) / dx_i
-                v_down = J_i * (fmm - fpm) / dx_i
+        dx_c = jnp.asarray(metrics.dx[interior, j, 0], dtype=jnp.float64)[:, None]
+        dz_c = jnp.asarray(metrics.dz[interior, j, 0], dtype=jnp.float64)[:, None]
+        J_c = jnp.asarray(metrics.J[interior, j, 0], dtype=jnp.float64)[:, None]
+        J_m = jnp.asarray(metrics.J[xs - 1 : xe, j, 0], dtype=jnp.float64)[:, None]
+        J_p = jnp.asarray(metrics.J[xs + 1 : xe + 2, j, 0], dtype=jnp.float64)[:, None]
 
-                J_right = 0.5 * (
-                    jnp.asarray(metrics.J[i, j, 0], dtype=jnp.float64)
-                    + jnp.asarray(metrics.J[i + 1, j, 0], dtype=jnp.float64)
-                )
-                J_left = 0.5 * (
-                    jnp.asarray(metrics.J[i, j, 0], dtype=jnp.float64)
-                    + jnp.asarray(metrics.J[i - 1, j, 0], dtype=jnp.float64)
-                )
-                dz_i = jnp.asarray(metrics.dz[i, j, 0], dtype=jnp.float64)
-                v_right = J_right * (fpp - fpm) / dz_i
-                v_left = J_left * (fmp - fmm) / dz_i
+        v_up = J_c * (fmp - fpp) / dx_c
+        v_down = J_c * (fmm - fpm) / dx_c
+        v_right = (0.5 * (J_c + J_p)) * (fpp - fpm) / dz_c
+        v_left = (0.5 * (J_c + J_m)) * (fmp - fmm) / dz_c
 
-                center = guarded[i, j, k]
-                left = guarded[i - 1, j, k]
-                right = guarded[i + 1, j, k]
-                x_left_face, x_right_face = _mc_cell_edges(center, left, right)
+        w_c = guarded[interior, j, :]
+        x_left_face, x_right_face = _mc_cell_edges(w_c, guarded[xs - 1 : xe, j, :], guarded[xs + 1 : xe + 2, j, :])
+        z_left_face, z_right_face = _mc_cell_edges(w_c, roll_km(w_c), roll_kp(w_c))
 
-                if i != mesh.xend:
-                    dx_right = jnp.asarray(metrics.dx[i + 1, j, 0], dtype=jnp.float64)
-                    J_right_cell = jnp.asarray(metrics.J[i + 1, j, 0], dtype=jnp.float64)
-                    flux_right = jnp.where(v_right > 0.0, v_right * x_right_face, 0.0)
-                    result = result.at[i, j, k].add(flux_right / (dx_i * J_i))
-                    result = result.at[i + 1, j, k].add(-flux_right / (dx_right * J_right_cell))
+        # Upwinded face fluxes; x-fluxes vanish at the outer faces (bndry_flux = false).
+        flux_right = jnp.where(v_right > 0.0, v_right * x_right_face, 0.0).at[-1].set(0.0)
+        flux_left = jnp.where(v_left < 0.0, v_left * x_left_face, 0.0).at[0].set(0.0)
+        flux_up = jnp.where(v_up > 0.0, v_up * z_right_face / (J_c * dz_c), 0.0)
+        flux_down = jnp.where(v_down < 0.0, v_down * z_left_face / (J_c * dz_c), 0.0)
 
-                if i != mesh.xstart:
-                    dx_left = jnp.asarray(metrics.dx[i - 1, j, 0], dtype=jnp.float64)
-                    J_left_cell = jnp.asarray(metrics.J[i - 1, j, 0], dtype=jnp.float64)
-                    flux_left = jnp.where(v_left < 0.0, v_left * x_left_face, 0.0)
-                    result = result.at[i, j, k].add(-flux_left / (dx_i * J_i))
-                    result = result.at[i - 1, j, k].add(flux_left / (dx_left * J_left_cell))
-
-                z_left_face, z_right_face = _mc_cell_edges(center, guarded[i, j, km], guarded[i, j, kp])
-                flux_up = jnp.where(v_up > 0.0, v_up * z_right_face / (J_i * dz_i), 0.0)
-                result = result.at[i, j, k].add(flux_up)
-                result = result.at[i, j, kp].add(-flux_up)
-
-                flux_down = jnp.where(v_down < 0.0, v_down * z_left_face / (J_i * dz_i), 0.0)
-                result = result.at[i, j, k].add(-flux_down)
-                result = result.at[i, j, km].add(flux_down)
+        # Flux-conservative scatter pairs written as differences of shifted arrays.
+        dxJ = dx_c * J_c
+        total = (
+            -shift_from_left(flux_right) / dxJ
+            - roll_km(flux_up)
+            + flux_right / dxJ
+            - flux_left / dxJ
+            + flux_up
+            - flux_down
+            + roll_kp(flux_down)
+            + shift_from_right(flux_left) / dxJ
+        )
+        result = result.at[interior, j, :].set(total)
 
     return VorticityRhsResult(
         vorticity=-result,
@@ -233,11 +214,11 @@ def _apply_potential_boundaries(field: jnp.ndarray, mesh: StructuredMesh) -> jnp
         raise NotImplementedError("Native electrostatic potential boundaries currently require MXG = 2.")
 
     result = jnp.asarray(field, dtype=jnp.float64)
-    for j in range(mesh.ystart, mesh.yend + 1):
-        result = result.at[mesh.xstart - 1, j, :].set(-result[mesh.xstart, j, :])
-        result = result.at[mesh.xend + 1, j, :].set(-result[mesh.xend, j, :])
-        result = result.at[mesh.xstart - 2, j, :].set(result[mesh.xstart - 1, j, :])
-        result = result.at[mesh.xend + 2, j, :].set(result[mesh.xend + 1, j, :])
+    rows = slice(mesh.ystart, mesh.yend + 1)
+    result = result.at[mesh.xstart - 1, rows, :].set(-result[mesh.xstart, rows, :])
+    result = result.at[mesh.xend + 1, rows, :].set(-result[mesh.xend, rows, :])
+    result = result.at[mesh.xstart - 2, rows, :].set(result[mesh.xstart - 1, rows, :])
+    result = result.at[mesh.xend + 2, rows, :].set(result[mesh.xend + 1, rows, :])
     return result
 
 

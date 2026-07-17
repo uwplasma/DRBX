@@ -27,7 +27,6 @@ Used by ``tests/test_stellarator_turbulence.py`` and
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import NamedTuple
 
 import jax
@@ -54,6 +53,7 @@ from .fci_boundaries import (
     BoundaryFaceBC3D,
     CutWallBC3D,
     CutWallGeometry3D,
+    FourFieldBoundaryConditions,
 )
 from .fci_operators import PerpLaplacianInverseSolver, build_perp_laplacian_face_projectors
 from .fci_sheath_recycling import compute_fci_sheath_recycling
@@ -75,27 +75,6 @@ __all__ = [
     "radial_neumann_face_bc",
     "run_stellarator_turbulence",
 ]
-
-
-@dataclass(frozen=True)
-class FourFieldBoundaryConditions:
-    """Per-field face BCs (plus optional cut-wall data) for the four-field model."""
-
-    phi_face_bc: BoundaryFaceBC3D
-    density_face_bc: BoundaryFaceBC3D
-    omega_face_bc: BoundaryFaceBC3D
-    v_ion_parallel_face_bc: BoundaryFaceBC3D
-    v_electron_parallel_face_bc: BoundaryFaceBC3D
-    phi_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
-    phi_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
-    density_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
-    density_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
-    omega_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
-    omega_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
-    v_ion_parallel_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
-    v_ion_parallel_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
-    v_electron_parallel_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
-    v_electron_parallel_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
 
 
 def radial_dirichlet_face_bc(geometry: FciGeometry3D) -> BoundaryFaceBC3D:
@@ -206,21 +185,7 @@ def four_field_rk4_step(
         conservative_stencil_builder=conservative_stencil_builder,
         parameters=parameters,
         curvature_coefficients=curvature_coefficients,
-        phi_face_bc=boundary_conditions.phi_face_bc,
-        density_face_bc=boundary_conditions.density_face_bc,
-        omega_face_bc=boundary_conditions.omega_face_bc,
-        v_ion_parallel_face_bc=boundary_conditions.v_ion_parallel_face_bc,
-        v_electron_parallel_face_bc=boundary_conditions.v_electron_parallel_face_bc,
-        phi_cut_wall_geometry=boundary_conditions.phi_cut_wall_geometry,
-        phi_cut_wall_bc=boundary_conditions.phi_cut_wall_bc,
-        density_cut_wall_geometry=boundary_conditions.density_cut_wall_geometry,
-        density_cut_wall_bc=boundary_conditions.density_cut_wall_bc,
-        omega_cut_wall_geometry=boundary_conditions.omega_cut_wall_geometry,
-        omega_cut_wall_bc=boundary_conditions.omega_cut_wall_bc,
-        v_ion_parallel_cut_wall_geometry=boundary_conditions.v_ion_parallel_cut_wall_geometry,
-        v_ion_parallel_cut_wall_bc=boundary_conditions.v_ion_parallel_cut_wall_bc,
-        v_electron_parallel_cut_wall_geometry=boundary_conditions.v_electron_parallel_cut_wall_geometry,
-        v_electron_parallel_cut_wall_bc=boundary_conditions.v_electron_parallel_cut_wall_bc,
+        boundary_conditions=boundary_conditions,
         phi_face_projectors=phi_face_projectors,
         phi_inverse_solver=phi_inverse_solver,
         gmres_debug=False,
