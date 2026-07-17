@@ -28,10 +28,10 @@ from pathlib import Path
 import jax.numpy as jnp
 import numpy as np
 
-from dkx.geometry import build_synthetic_stellarator_geometry
-from dkx.native.fci import logical_exb_bracket_xz
-from dkx.native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
-from dkx.validation import save_stellarator_sol_diagnostics_panel, save_stellarator_sol_snapshot_panel
+from drbx.geometry import build_synthetic_stellarator_geometry
+from drbx.native.fci import logical_exb_bracket_xz
+from drbx.native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
+from drbx.validation import save_stellarator_sol_diagnostics_panel, save_stellarator_sol_snapshot_panel
 
 # --- PARAMETERS ------------------------------------------------------------------
 OUTPUT_ROOT = Path("docs/data/stellarator_fci_example_artifacts/vorticity_bracket")  # artifact root (cwd-relative)

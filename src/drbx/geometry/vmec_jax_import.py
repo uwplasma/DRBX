@@ -3,9 +3,9 @@
 `vmec_jax <https://github.com/rogeriojorge/vmec_jax>`_ owns the VMEC wout
 schema (:func:`vmec_jax.core.wout.read_wout`) and the Fourier-synthesis
 conventions of VMEC2000. This adapter imports it from an external checkout
-(``DKX_VMEC_JAX_ROOT``, defaulting to ``~/local/vmec_jax``) the same way
-:mod:`dkx.geometry.essos_import` imports ESSOS, and adds the small pieces
-`dkx` examples need on top of a loaded wout:
+(``DRBX_VMEC_JAX_ROOT``, defaulting to ``~/local/vmec_jax``) the same way
+:mod:`drbx.geometry.essos_import` imports ESSOS, and adds the small pieces
+`drbx` examples need on top of a loaded wout:
 
 - equilibrium summaries (``nfp``, aspect ratio, iota profile, ``B0``);
 - contravariant magnetic-field synthesis ``B^theta``/``B^phi`` and ``|B|`` on
@@ -17,7 +17,7 @@ conventions of VMEC2000. This adapter imports it from an external checkout
 - cylindrical ``(R, Z)`` mapping of traced lines and of the LCFS boundary
   through the ``rmnc``/``zmns`` (and asymmetric partner) tables.
 
-The adapter keeps `dkx` importable without vmec_jax: everything raises
+The adapter keeps `drbx` importable without vmec_jax: everything raises
 ``ImportError``/``FileNotFoundError`` lazily and
 :func:`vmec_jax_runtime_available` reports availability without raising.
 """
@@ -40,7 +40,7 @@ _PRIVATE_DEFAULT_VMEC_JAX_ROOT = Path.home() / "local" / "vmec_jax"
 def _resolve_vmec_jax_root(vmec_jax_root: str | Path | None = None) -> Path:
     if vmec_jax_root is not None:
         return Path(vmec_jax_root).expanduser()
-    return Path(os.environ.get("DKX_VMEC_JAX_ROOT", _PRIVATE_DEFAULT_VMEC_JAX_ROOT)).expanduser()
+    return Path(os.environ.get("DRBX_VMEC_JAX_ROOT", _PRIVATE_DEFAULT_VMEC_JAX_ROOT)).expanduser()
 
 
 def _import_vmec_jax_modules(*, vmec_jax_root: str | Path | None = None) -> dict[str, Any]:

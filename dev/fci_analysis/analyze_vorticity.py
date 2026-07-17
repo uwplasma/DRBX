@@ -22,7 +22,7 @@ from analyze_rhs_common import (  # noqa: E402
     load_eb_blob_step_history,
     run_field_analyzer,
 )
-from dkx.native.fci_operators import (  # noqa: E402
+from drbx.native.fci_operators import (  # noqa: E402
     curvature_op,
     grad_parallel_op_direct,
     parallel_laplacian_direct_op,

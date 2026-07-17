@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from netCDF4 import Dataset
 
-from dkx.geometry.vmec_extender_import import (
+from drbx.geometry.vmec_extender_import import (
     build_vmec_extender_fci_maps,
     interpolate_vmec_extender_B_cyl,
     load_vmec_extender_grid_netcdf,

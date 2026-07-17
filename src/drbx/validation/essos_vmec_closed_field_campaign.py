@@ -166,7 +166,7 @@ def build_essos_vmec_closed_field_report(geometry: Any) -> tuple[dict[str, Any],
     backward_shift = _periodic_cell_delta(backward_z - np.arange(shape[2], dtype=np.float64)[None, None, :], shape[2])
     report: dict[str, Any] = {
         "case": "essos_vmec_closed_field_campaign",
-        "source": "ESSOS VMEC-coordinate closed-field maps with DKX FCI operator checks",
+        "source": "ESSOS VMEC-coordinate closed-field maps with DRBX FCI operator checks",
         "map_source": "vmec",
         "geometry": dict(geometry.metadata),
         "shape": [int(value) for value in shape],

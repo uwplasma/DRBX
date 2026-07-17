@@ -6,7 +6,7 @@ as it is followed around toroidally, so the metric depends on **all three**
 logical coordinates. It is the reference geometry for checking that the
 flux-coordinate-independent (FCI) parallel operators are correct on a genuinely
 three-dimensional field, and it is the flagship non-axisymmetric benchmark in
-`dkx`.
+`drbx`.
 
 ![Rotating-ellipse FCI](media/rotating_ellipse_fci.png)
 
@@ -44,7 +44,7 @@ The magnetic field is helical on the flux surfaces, `B^x = 0`,
 rotational transform `iota` and never leave a surface.
 
 The constructor is
-[`dkx.geometry.build_rotating_ellipse_geometry`](../src/dkx/geometry/rotating_ellipse.py);
+[`drbx.geometry.build_rotating_ellipse_geometry`](../src/drbx/geometry/rotating_ellipse.py);
 the embedding is exposed separately as `rotating_ellipse_position`.
 
 ## What is checked

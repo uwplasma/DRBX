@@ -6,7 +6,7 @@
     If this page conflicts with that plan, follow the execution plan and update
     this page afterward.
 
-DKX can import a gridded VMEC-extender magnetic field for scrape-off-layer
+DRBX can import a gridded VMEC-extender magnetic field for scrape-off-layer
 geometry work without depending on VMEC, virtual-casing, or field-line tracing
 packages at runtime. The import path consumes a NetCDF artifact on an
 `(R, phi, Z)` grid, where `phi` is the physical toroidal angle in radians, and
@@ -17,14 +17,14 @@ equilibrium. The first supported artifact is expected to describe the exterior
 field region outside the VMEC last closed flux surface. In upstream
 virtual-casing workflows the plasma-current contribution should use the
 internal branch, because the plasma currents are inside the LCFS and the
-DKX import layer only receives the exported field values.
+DRBX import layer only receives the exported field values.
 
 The finite-beta SOL promotion path is controlled by the
 [Research-Grade Execution Plan](research_grade_execution_plan.md).
 VMEC-extender supplies exterior-field artifacts and coordinate conventions; it
 does not by itself validate wall hits, target labels, sheath/recycling
 closures, neutral transport, or turbulent SOL dynamics. Those gates must be run
-in DKX after a real exterior-field artifact passes the strict import and
+in DRBX after a real exterior-field artifact passes the strict import and
 field-line diagnostics below.
 
 ## Import Contract
@@ -45,7 +45,7 @@ can override that when the artifact is exported over `2*pi`.
 After loading, the following operations are JAX-transformable:
 
 ```python
-from dkx.geometry import (
+from drbx.geometry import (
     load_vmec_extender_grid_netcdf,
     interpolate_vmec_extender_B_cyl,
     validate_vmec_extender_points_in_bounds,
@@ -88,13 +88,13 @@ and the field-line RHS definition. The default tests build a synthetic NetCDF
 fixture and do not require external VMEC, virtual-casing, or tracing checkouts.
 
 The public example is therefore runnable from a clean temporary directory with
-only `dkx` on `PYTHONPATH`:
+only `drbx` on `PYTHONPATH`:
 
 ```bash
 tmp=$(mktemp -d)
 cd "$tmp"
-PYTHONPATH=/path/to/dkx/src MPLBACKEND=Agg \
-  python /path/to/dkx/examples/geometry-3D/vmec-extender/imported_field.py
+PYTHONPATH=/path/to/drbx/src MPLBACKEND=Agg \
+  python /path/to/drbx/examples/geometry-3D/vmec-extender/imported_field.py
 ```
 
 `create_vmec_extender_sol_smoke_package` adds the first downstream SOL coupling
@@ -110,4 +110,4 @@ Hard Poincare, wall-hit, and connection-length diagnostics remain downstream
 non-smooth validation outputs rather than differentiable objectives. Once the
 upstream VMEC-extender exporters are merged and their artifact contract is
 stable, this layer can be used with real exterior-field grids while retaining
-the same DKX import and validation path.
+the same DRBX import and validation path.

@@ -35,7 +35,7 @@ import jax
 
 import jax.numpy as jnp
 
-from dkx.geometry import (
+from drbx.geometry import (
     BFieldGeometry,
     CellCenteredGrid3D,
     ConservativeStencilBuilder,
@@ -50,8 +50,8 @@ from dkx.geometry import (
     build_fci_maps_from_b_contravariant,
     logical_grid_from_axis_vectors,
 )
-from dkx.geometry.fci_geometry import _bmag_from_contravariant_components
-from dkx.native.fci_operators import (
+from drbx.geometry.fci_geometry import _bmag_from_contravariant_components
+from drbx.native.fci_operators import (
     _homogeneous_bc,
     _prolong_field,
     _restrict_field_simple,
@@ -72,7 +72,7 @@ from dkx.native.fci_operators import (
     PerpLaplacianInverseSolver,
     poisson_bracket_op,
 )
-from dkx.native.fci_boundaries import (
+from drbx.native.fci_boundaries import (
     BC_DIRICHLET,
     BC_NEUMANN,
     BoundaryFaceBC3D,
@@ -81,7 +81,7 @@ from dkx.native.fci_boundaries import (
     LocalStencil1D,
     LocalStencil3D,
 )
-from dkx.geometry import RegularFaceGeometry3D
+from drbx.geometry import RegularFaceGeometry3D
 
 
 A = 0.2

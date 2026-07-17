@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="dkx",
+        prog="drbx",
         description="Inspect or run JAX-DRB inputs using the native model configuration structure.",
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=False)
@@ -102,7 +102,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def _default_command(args: argparse.Namespace) -> int:
     if getattr(args, "subcommand", None) is None:
         raise SystemExit(
-            "Use `dkx inspect <input>` or `dkx <input> --dry-run`."
+            "Use `drbx inspect <input>` or `drbx <input> --dry-run`."
         )
     return args.command(args)
 
@@ -341,7 +341,7 @@ def _run_command(args: argparse.Namespace) -> int:
             overrides=tuple(result.payload.get("overrides", [])),
             configured_nout=result.payload.get("configured_nout"),
             configured_timestep=result.payload.get("configured_timestep"),
-            producer=str(result.payload.get("producer", "dkx")),
+            producer=str(result.payload.get("producer", "drbx")),
         )
         path = write_portable_array_payload(array_payload, args.arrays_out)
         output_paths["arrays_npz"] = _sanitize_logged_path(path) or str(path)

@@ -1832,7 +1832,7 @@ def save_essos_imported_drb_3d_movie(
     time_values = np.asarray(arrays["time"], dtype=np.float64)
     frame_indices = np.linspace(0, history.shape[0] - 1, min(24, history.shape[0]), dtype=int)
     vmax = float(arrays["movie_vmax"][0])
-    with tempfile.TemporaryDirectory(prefix="dkx_essos_drb_movie_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="drbx_essos_drb_movie_") as temp_dir:
         frame_paths = []
         for local_index, frame_index in enumerate(frame_indices):
             frame_path = Path(temp_dir) / f"frame_{local_index:03d}.png"
@@ -2049,13 +2049,13 @@ def _build_essos_imported_drb_movie_report(
     b_modulation_gate = 1.01 if map_source == "vmec" else 1.05
     if map_source == "coil":
         case = "essos_imported_qa_coil_drb_transient_movie"
-        source = "ESSOS-imported Landreman-Paul QA coil FCI maps with DKX fixed-layout DRB transient"
+        source = "ESSOS-imported Landreman-Paul QA coil FCI maps with DRBX fixed-layout DRB transient"
     elif map_source == "vmec":
         case = "essos_imported_qa_vmec_drb_transient_movie"
-        source = "ESSOS-imported Landreman-Paul QA VMEC-coordinate FCI maps with DKX fixed-layout DRB transient"
+        source = "ESSOS-imported Landreman-Paul QA VMEC-coordinate FCI maps with DRBX fixed-layout DRB transient"
     else:
         case = "essos_imported_qa_hybrid_drb_transient_movie"
-        source = "ESSOS-imported Landreman-Paul QA hybrid FCI maps with DKX fixed-layout DRB transient"
+        source = "ESSOS-imported Landreman-Paul QA hybrid FCI maps with DRBX fixed-layout DRB transient"
     bmag = np.asarray(geometry.magnetic_field_magnitude, dtype=np.float64)
     finite = all(np.all(np.isfinite(value)) for value in [movie_history, diagnostics, *final_state.values()])
     min_density = float(min(np.min(final_state["ion_density"]), np.min(final_state["neutral_density"])))
@@ -2475,7 +2475,7 @@ def _build_movie_render_coordinates_impl(
     metadata = dict(geometry.metadata)
     if metadata.get("coordinate_model") == "scaled_vmec_fourier_flux_surfaces":
         try:
-            wout_path = resolve_essos_landreman_qa_wout(essos_root=os.environ.get("DKX_ESSOS_ROOT"))
+            wout_path = resolve_essos_landreman_qa_wout(essos_root=os.environ.get("DRBX_ESSOS_ROOT"))
             if raw_vmec_scale:
                 axis_major_radius = float(metadata.get("vmec_raw_axis_major_radius", metadata["axis_major_radius"]))
                 axis_vertical = float(metadata.get("vmec_raw_axis_vertical", metadata["axis_vertical"]))

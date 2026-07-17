@@ -2,7 +2,7 @@
 
 Each function assembles the linear operator ``A`` of a single Fourier mode
 (``delta ~ exp(i k.x)``) directly from the model equations, so that the
-eigenfrequencies returned by :func:`dkx.linear.eigenmodes` reproduce the
+eigenfrequencies returned by :func:`drbx.linear.eigenmodes` reproduce the
 analytic dispersion relation without that relation being wired in by hand.
 
 Shear-Alfven wave (electromagnetic, electron inertia), reduced two-field model

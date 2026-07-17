@@ -14,8 +14,8 @@
     `python scripts/fetch_example_artifacts.py`.
 
 This page documents the first downstream use of externally traced
-Landreman-Paul QA field lines inside `dkx` FCI operators. ESSOS supplies
-the coil-field evaluation and adaptive trajectories. `dkx` converts those
+Landreman-Paul QA field lines inside `drbx` FCI operators. ESSOS supplies
+the coil-field evaluation and adaptive trajectories. `drbx` converts those
 trajectories into fixed-shape plane-to-plane maps, builds a lightweight
 VMEC-shaped metric for the imported logical grid, and then evaluates JAX-native
 sheath/recycling and neutral reaction-diffusion closures on those maps.
@@ -182,7 +182,7 @@ the geometry repair before any pure-coil movie is promoted.
 
 The current live signed-shell rerun used the boundary-resolved
 `(7, 15, 27) -> (11, 25, 45)` direct-coil grids and wrote the report to
-`/tmp/dkx_direct_coil_signed_shell_gate_current/data/direct_coil_signed_shell_gate_current.json`.
+`/tmp/drbx_direct_coil_signed_shell_gate_current/data/direct_coil_signed_shell_gate_current.json`.
 It keeps pure-coil media diagnostic because
 the full endpoint-label agreement is `0.762`, below the `0.80` threshold. It
 also resolves the endpoint-projection question: the signed mode is
@@ -562,11 +562,11 @@ maps it must be nonzero and exactly consumed by the sheath/recycling masks.
 
 ## Current Artifacts
 
-- ESSOS imported FCI coil validation — release-hosted figure: [`docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
+- ESSOS imported FCI coil validation — release-hosted figure: [`docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png`](https://github.com/uwplasma/drbx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
 
-- ESSOS imported FCI VMEC-coordinate validation — release-hosted figure: [`docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png)
+- ESSOS imported FCI VMEC-coordinate validation — release-hosted figure: [`docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png`](https://github.com/uwplasma/drbx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png)
 
-- ESSOS imported FCI hybrid validation — release-hosted figure: [`docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png)
+- ESSOS imported FCI hybrid validation — release-hosted figure: [`docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png`](https://github.com/uwplasma/drbx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png)
 
 The first figure shows the default `coil` artifact: imported VMEC-shaped QA
 cross-section, endpoint map structure, connection-length proxy, sheath

@@ -132,6 +132,6 @@ Profiler output should not be read in isolation.
 - memory profiles tell us whether runtime problems are actually memory-pressure
   problems.
 
-For `dkx`, those have to be read together, and any speedup should be checked
+For `drbx`, those have to be read together, and any speedup should be checked
 against the validation diagnostics so that a faster case is still solving the
 right problem.

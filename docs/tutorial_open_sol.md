@@ -21,11 +21,11 @@ The equations for each stage are on
 ![Open SOL flux tube](media/open_sol_flux_tube.png)
 
 An "open" geometry is one whose field lines terminate on material targets.
-In `dkx` that is a property of the FCI maps, not a special coordinate
+In `drbx` that is a property of the FCI maps, not a special coordinate
 system:
 
 ```python
-from dkx.geometry import build_open_slab_geometry
+from drbx.geometry import build_open_slab_geometry
 
 geometry = build_open_slab_geometry(SHAPE, parallel_length=PARALLEL_LENGTH)
 ```
@@ -88,7 +88,7 @@ PYTHONPATH=src python examples/sol/open_sol_flux_tube.py
 Real targets are not perfect absorbers: most of the ion flux returns as
 neutral gas, which diffuses upstream, ionizes where the plasma is hot, and
 drags the flow by charge exchange. The coupled model is
-`dkx.native.neutrals.recycling_sol_model`, and the example drives it
+`drbx.native.neutrals.recycling_sol_model`, and the example drives it
 half-domain (stagnation midplane at `z = 0`, one target at `z = L`):
 
 ```python

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dkx.runtime import configure_jax_runtime
-from dkx.validation import create_essos_vmec_fieldline_surface_package
+from drbx.runtime import configure_jax_runtime
+from drbx.validation import create_essos_vmec_fieldline_surface_package
 
 COIL_JSON_PATH: Path | None = None
 VMEC_WOUT_PATH: Path | None = None

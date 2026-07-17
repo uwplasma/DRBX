@@ -21,9 +21,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dkx.geometry import build_open_slab_geometry, build_rotating_ellipse_geometry
-from dkx.native.fci_sheath_recycling import compute_fci_sheath_recycling
-from dkx.native.neutrals import (
+from drbx.geometry import build_open_slab_geometry, build_rotating_ellipse_geometry
+from drbx.native.fci_sheath_recycling import compute_fci_sheath_recycling
+from drbx.native.neutrals import (
     PlasmaNormalization,
     compute_hydrogen_reaction_sources,
 )

@@ -14,7 +14,7 @@ cascade at the grid scale and friction ``mu`` (sheath/neutral drag) absorbs the
 2-D inverse cascade at the box scale, so a fixed-step run reaches a
 statistically steady turbulent state. This script starts from small random
 noise and follows the full life cycle: linear growth (verified against
-``dkx.linear``, benchmark B2, in ``tests/test_hasegawa_wakatani.py``),
+``drbx.linear``, benchmark B2, in ``tests/test_hasegawa_wakatani.py``),
 nonlinear saturation, and steady outward E x B particle transport.
 
 It prints (step, time, fluctuation energy, particle flux) every block and
@@ -43,7 +43,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from dkx.native.hasegawa_wakatani import (  # noqa: E402
+from drbx.native.hasegawa_wakatani import (  # noqa: E402
     HasegawaWakataniParameters,
     hw_grid,
     hw_run,

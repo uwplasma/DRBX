@@ -15,16 +15,16 @@ if str(_REPO_ROOT) not in sys.path:
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
-from dkx.geometry import build_curvature_coefficients  # noqa: E402
-from dkx.native.fci_boundaries import (  # noqa: E402
+from drbx.geometry import build_curvature_coefficients  # noqa: E402
+from drbx.native.fci_boundaries import (  # noqa: E402
     BoundaryConditionBuilder,
     CoordinateFaceValueReconstructor3D,
     CoordinateNormalDerivativeConstructor3D,
     CutWallBC3D,
     CutWallGeometry3D,
 )
-from dkx.native.fci_drb_EB_rhs import FciDrbEBState, _multiply_local_stencils  # noqa: E402
-from dkx.native.fci_operators import (  # noqa: E402
+from drbx.native.fci_drb_EB_rhs import FciDrbEBState, _multiply_local_stencils  # noqa: E402
+from drbx.native.fci_operators import (  # noqa: E402
     curvature_op,
     grad_parallel_op_direct,
     parallel_laplacian_direct_op,

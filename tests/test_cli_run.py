@@ -9,11 +9,11 @@ import sys
 import numpy as np
 import pytest
 
-from dkx.cli import main
-import dkx.native as native_module
-from dkx.native import NativeRestartState, run_input_case
-from dkx.native.deck_runner import load_portable_array_payload
-from dkx.runtime import load_restart_bundle
+from drbx.cli import main
+import drbx.native as native_module
+from drbx.native import NativeRestartState, run_input_case
+from drbx.native.deck_runner import load_portable_array_payload
+from drbx.runtime import load_restart_bundle
 
 
 _DIFFUSION_INPUT = """
@@ -253,7 +253,7 @@ def test_run_command_supports_bare_toml_invocation_and_configured_float32(tmp_pa
         [
             sys.executable,
             "-m",
-            "dkx",
+            "drbx",
             str(input_path),
             "--output-dir",
             str(output_dir),

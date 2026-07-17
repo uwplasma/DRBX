@@ -12,7 +12,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dkx.native.neutrals import (
+from drbx.native.neutrals import (
     PlasmaNormalization,
     compute_hydrogen_reaction_sources,
 )

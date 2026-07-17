@@ -1,7 +1,7 @@
 # Open-Field-Line SOL Flux Tube
 
 The scrape-off layer (SOL) is the open-field-line region where field lines strike
-material target plates. `dkx` models it with an open slab flux tube: a
+material target plates. `drbx` models it with an open slab flux tube: a
 straight field along the parallel coordinate `z`, bounded by targets at `z = 0`
 and `z = L_parallel`, where a Bohm sheath drains the plasma at the sound speed.
 This is the open-field-line counterpart to the closed flux tubes (rotating
@@ -11,13 +11,13 @@ ellipse, shifted torus, Hasegawa-Wakatani flux tube).
 
 ## Geometry — open field lines
 
-[`dkx.geometry.build_open_slab_geometry`](../src/dkx/geometry/open_slab.py)
+[`drbx.geometry.build_open_slab_geometry`](../src/drbx/geometry/open_slab.py)
 builds a Cartesian flux tube whose field lines are **open**: the forward
 field-line map exits the domain on the `z = L` target plane and the backward map
 on the `z = 0` target plane, so the FCI endpoint masks
 (`build_fci_target_masks`) mark exactly the two target plates. These are the same
 masks the kept sheath / recycling closure
-[`compute_fci_sheath_recycling`](../src/dkx/native/fci_sheath_recycling.py)
+[`compute_fci_sheath_recycling`](../src/drbx/native/fci_sheath_recycling.py)
 consumes: it applies a normalized Bohm flux `n c_s` on every target cell, the
 sheath heat transmission, and a recycled-neutral source, and it closes exact
 particle-recycling, zero-current, and neutral-energy accounting identities to
@@ -25,7 +25,7 @@ machine precision.
 
 ## Model — reduced isothermal SOL transport
 
-[`dkx.native.sol_flux_tube`](../src/dkx/native/sol_flux_tube.py) evolves
+[`drbx.native.sol_flux_tube`](../src/drbx/native/sol_flux_tube.py) evolves
 the parallel density `n` and momentum `m = n v` as an isothermal Euler system
 along the field,
 

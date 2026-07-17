@@ -18,15 +18,15 @@ if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
 from analyze_EB_density import _load_eb_blob_step_history, _resolve_step_dump_dir  # noqa: E402
-from dkx.geometry import build_curvature_coefficients  # noqa: E402
-from dkx.native.fci_boundaries import (  # noqa: E402
+from drbx.geometry import build_curvature_coefficients  # noqa: E402
+from drbx.native.fci_boundaries import (  # noqa: E402
     BoundaryConditionBuilder,
     CoordinateFaceValueReconstructor3D,
     CoordinateNormalDerivativeConstructor3D,
     CutWallBC3D,
     CutWallGeometry3D,
 )
-from dkx.native.fci_drb_EB_rhs import FciDrbEBState  # noqa: E402
+from drbx.native.fci_drb_EB_rhs import FciDrbEBState  # noqa: E402
 from test_shifted_torus_EB_blob import (  # noqa: E402
     AXIS_REGULAR_AXES,
     DEFAULT_PERP_DIFFUSION,

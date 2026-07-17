@@ -12,8 +12,8 @@ from .paths import repo_root
 
 
 ARTIFACT_RELEASE_TAG = "validation-artifacts-2026-04-28"
-ARTIFACT_BASE_URL = f"https://github.com/uwplasma/dkx/releases/download/{ARTIFACT_RELEASE_TAG}"
-DOCS_MEDIA_ASSET = "dkx_docs_media.zip"
+ARTIFACT_BASE_URL = f"https://github.com/uwplasma/drbx/releases/download/{ARTIFACT_RELEASE_TAG}"
+DOCS_MEDIA_ASSET = "drbx_docs_media.zip"
 
 DOCS_MEDIA_SENTINELS = (
     Path(
@@ -51,9 +51,9 @@ def ensure_docs_media(
     ]
     if not force and not missing:
         return resolved_root / "docs" / "data"
-    if os.environ.get("DKX_OFFLINE_ARTIFACTS", "").lower() in {"1", "true", "yes"}:
+    if os.environ.get("DRBX_OFFLINE_ARTIFACTS", "").lower() in {"1", "true", "yes"}:
         raise FileNotFoundError(
-            "Docs media are not present and DKX_OFFLINE_ARTIFACTS is enabled."
+            "Docs media are not present and DRBX_OFFLINE_ARTIFACTS is enabled."
         )
 
     cache_dir = _artifact_cache_dir(resolved_root)
@@ -61,7 +61,7 @@ def ensure_docs_media(
     archive_path = cache_dir / DOCS_MEDIA_ASSET
     if force or not archive_path.exists():
         resolved_base_url = (
-            base_url or os.environ.get("DKX_ARTIFACT_BASE_URL") or ARTIFACT_BASE_URL
+            base_url or os.environ.get("DRBX_ARTIFACT_BASE_URL") or ARTIFACT_BASE_URL
         ).rstrip("/")
         _download_release_asset(
             f"{resolved_base_url}/{DOCS_MEDIA_ASSET}",
@@ -91,12 +91,12 @@ def _download_release_asset(url: str, destination: Path, *, asset_name: str) -> 
 
 def _artifact_cache_dir(root: Path) -> Path:
     configured = (
-        os.environ.get("DKX_ARTIFACT_CACHE_DIR")
-        or os.environ.get("DKX_ARTIFACT_CACHE")
+        os.environ.get("DRBX_ARTIFACT_CACHE_DIR")
+        or os.environ.get("DRBX_ARTIFACT_CACHE")
     )
     if configured:
         return Path(configured).expanduser()
-    return root / ".dkx_artifact_cache"
+    return root / ".drbx_artifact_cache"
 
 
 def _download_with_gh(asset_name: str, destination: Path) -> bool:
@@ -110,7 +110,7 @@ def _download_with_gh(asset_name: str, destination: Path) -> bool:
             "download",
             ARTIFACT_RELEASE_TAG,
             "--repo",
-            "uwplasma/dkx",
+            "uwplasma/drbx",
             "--pattern",
             asset_name,
             "--dir",
@@ -136,8 +136,8 @@ def _download_with_urllib(url: str, destination: Path) -> None:
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if token:
         request.add_header("Authorization", f"Bearer {token}")
-    timeout = float(os.environ.get("DKX_ARTIFACT_DOWNLOAD_TIMEOUT", "120"))
-    attempts = max(1, int(os.environ.get("DKX_ARTIFACT_DOWNLOAD_ATTEMPTS", "3")))
+    timeout = float(os.environ.get("DRBX_ARTIFACT_DOWNLOAD_TIMEOUT", "120"))
+    attempts = max(1, int(os.environ.get("DRBX_ARTIFACT_DOWNLOAD_ATTEMPTS", "3")))
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:

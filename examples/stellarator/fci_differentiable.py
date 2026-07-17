@@ -36,7 +36,7 @@ contravariant field. So the differentiability shown here is of the FCI operator
 stack on non-orthogonal helical geometry, not of a field-line interpolation map.
 
 The reusable machinery (context builder, seeded state, RHS, differentiable
-rollout, gradient reports) lives in ``dkx.native.fci_differentiable_case``
+rollout, gradient reports) lives in ``drbx.native.fci_differentiable_case``
 and is gated by ``tests/test_fci_differentiable.py``.
 
 Run:
@@ -64,7 +64,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from dkx.native.fci_differentiable_case import (  # noqa: E402
+from drbx.native.fci_differentiable_case import (  # noqa: E402
     build_context,
     differentiability_report,
     evolved_density_variance,

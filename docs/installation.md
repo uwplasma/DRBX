@@ -1,12 +1,12 @@
 # Installation
 
-`dkx` is packaged as `dkx` on PyPI and can also be installed from a
+`drbx` is packaged as `drbx` on PyPI and can also be installed from a
 local checkout.
 
 ## PyPI
 
 ```bash
-pip install dkx
+pip install drbx
 ```
 
 This installs the runtime dependencies used by the public solver, geometry,
@@ -17,8 +17,8 @@ and plotting paths: `jax`, `diffrax`, `scipy`, `equinox`, `matplotlib`,
 ## Editable Checkout
 
 ```bash
-git clone https://github.com/uwplasma/dkx
-cd dkx
+git clone https://github.com/uwplasma/drbx
+cd drbx
 pip install -e .
 ```
 
@@ -31,31 +31,31 @@ python -m mkdocs build --clean
 
 Read the Docs builds the same `mkdocs.yml` configuration through the root
 `.readthedocs.yaml` file. The public site is
-[dkx.readthedocs.io](https://dkx.readthedocs.io/).
+[drbx.readthedocs.io](https://drbx.readthedocs.io/).
 
 ## Verify The Install
 
 Run a small deck:
 
 ```bash
-dkx examples/inputs/restartable_diffusion.toml
+drbx examples/inputs/restartable_diffusion.toml
 ```
 
 Inspect the same deck without advancing the simulation:
 
 ```bash
-dkx inspect examples/inputs/restartable_diffusion.toml
+drbx inspect examples/inputs/restartable_diffusion.toml
 ```
 
 Build the lightweight docs locally:
 
 ```bash
-python -m mkdocs build --clean --site-dir /tmp/dkx_docs
+python -m mkdocs build --clean --site-dir /tmp/drbx_docs
 ```
 
 ## Optional External Geometry Campaigns
 
 Some validation campaigns import externally traced field-line data. Those
-workflows use environment variables such as `DKX_ESSOS_ROOT` and are
+workflows use environment variables such as `DRBX_ESSOS_ROOT` and are
 documented on their campaign pages. They are not required for installation or
 for the basic native examples.

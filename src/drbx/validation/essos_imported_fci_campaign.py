@@ -2835,7 +2835,7 @@ def build_essos_imported_fci_campaign(
 
     report: dict[str, Any] = {
         "case": "essos_imported_vmec_qa_fci_sheath_neutral_gate",
-        "source": "ESSOS-imported field-line maps with dkx FCI closures",
+        "source": "ESSOS-imported field-line maps with drbx FCI closures",
         "map_source": actual_map_source,
         "geometry": geometry.metadata,
         "forward_boundary_fraction": forward_boundary_fraction,
@@ -4166,7 +4166,7 @@ def save_essos_imported_fci_campaign_plot(
         bbox={"facecolor": "white", "alpha": 0.84, "edgecolor": "0.8"},
     )
     fig.suptitle(
-        f"Imported non-axisymmetric FCI gate ({map_label}): DKX sheath and neutral closures",
+        f"Imported non-axisymmetric FCI gate ({map_label}): DRBX sheath and neutral closures",
         fontsize=14,
     )
     fig.savefig(resolved, dpi=190)

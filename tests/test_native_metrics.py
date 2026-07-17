@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from dkx.config.boutinp import parse_bout_input
-from dkx.native.metrics import build_structured_metrics
-from dkx.native.mesh import build_structured_mesh
-from dkx.runtime.run_config import RunConfiguration
+from drbx.config.boutinp import parse_bout_input
+from drbx.native.metrics import build_structured_metrics
+from drbx.native.mesh import build_structured_mesh
+from drbx.runtime.run_config import RunConfiguration
 
 
 def test_structured_metrics_match_normalized_diffusion_scalars() -> None:

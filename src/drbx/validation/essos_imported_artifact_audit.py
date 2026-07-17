@@ -86,7 +86,7 @@ def audit_essos_imported_artifact_report(
 
     The audit is intentionally lightweight: it reads a committed JSON report and
     checks whether the report still contains the fields produced by the current
-    validation code. It does not rerun ESSOS, VMEC, or DKX simulations.
+    validation code. It does not rerun ESSOS, VMEC, or DRBX simulations.
     """
 
     path = Path(report_json_path)
@@ -167,7 +167,7 @@ def audit_hybrid_open_sol_promotion_evidence(
     reports agree: imported FCI/source accounting, long-window stationarity,
     grid/time refinement, and visual-QA/media provenance. This audit is a
     lightweight manifest-level gate; it intentionally does not rerun ESSOS,
-    VMEC, DKX transients, or media rendering.
+    VMEC, DRBX transients, or media rendering.
     """
 
     paths = {
@@ -417,7 +417,7 @@ def _audit_hybrid_media_stage(loaded: Mapping[str, Any]) -> dict[str, Any]:
                 reasons.append("media_release_assets_empty")
             if any(
                 not url.startswith(
-                    "https://github.com/uwplasma/dkx/releases/download/"
+                    "https://github.com/uwplasma/drbx/releases/download/"
                 )
                 for url in urls
             ):

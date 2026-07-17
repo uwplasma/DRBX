@@ -164,7 +164,7 @@ def build_essos_imported_pytree_campaign(
     min_density = float(min(np.min(final_ion), np.min(final_neutral)))
     report: dict[str, Any] = {
         "case": "essos_imported_fci_drb_pytree_transient",
-        "source": "ESSOS-imported field-line maps with DKX fixed-layout PyTree RHS",
+        "source": "ESSOS-imported field-line maps with DRBX fixed-layout PyTree RHS",
         "map_source": actual_map_source,
         "geometry": geometry.metadata,
         "steps": int(steps),
@@ -325,7 +325,7 @@ def save_essos_imported_pytree_campaign_plot(
         axis.set_xlabel("poloidal index")
         axis.set_ylabel("radial index")
     fig.suptitle(
-        "Imported field-line PyTree/JVP gate: external FCI maps with DKX transformable RHS",
+        "Imported field-line PyTree/JVP gate: external FCI maps with DRBX transformable RHS",
         fontsize=14,
     )
     fig.savefig(resolved, dpi=190)

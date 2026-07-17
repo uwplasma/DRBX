@@ -4,7 +4,7 @@ Self-contained JAX implementations of the hydrogenic atomic reaction rates
 (AMJUEL ionization / recombination fits, the Janev/AMJUEL charge-exchange
 polynomial) used to couple a plasma fluid to a neutral fluid in the
 scrape-off layer. All coefficients ship with the package
-(``dkx.data.atomic_rates``); there is no external-database dependency.
+(``drbx.data.atomic_rates``); there is no external-database dependency.
 """
 
 from .atomic_rates import (

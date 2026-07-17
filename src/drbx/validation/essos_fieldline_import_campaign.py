@@ -34,7 +34,7 @@ def create_essos_fieldline_import_package(
     times_to_trace: int = 6000,
     trace_tolerance: float = 1.0e-8,
 ) -> EssosFieldLineImportArtifacts:
-    """Export ESSOS-produced fields and field lines into a `dkx` artifact."""
+    """Export ESSOS-produced fields and field lines into a `drbx` artifact."""
 
     root = Path(output_root)
     data_dir = root / "data"
@@ -162,10 +162,10 @@ def save_essos_fieldline_import_plot(bundle: EssosFieldLineBundle, path: str | P
     axp.set_ylabel("Z")
     axp.set_aspect("equal", adjustable="box")
     axp.grid(alpha=0.28)
-    axp.set_title("ESSOS Poincare sections imported into dkx")
+    axp.set_title("ESSOS Poincare sections imported into drbx")
     axp.legend(frameon=False, loc="upper right")
 
-    fig.suptitle("External ESSOS field-line import for DKX geometry/FCI workflows", fontsize=13)
+    fig.suptitle("External ESSOS field-line import for DRBX geometry/FCI workflows", fontsize=13)
     fig.savefig(resolved, dpi=190)
     plt.close(fig)
     return resolved

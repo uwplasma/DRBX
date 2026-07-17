@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dkx.geometry import (
+from drbx.geometry import (
     evaluate_vmec_jax_surface_field,
     load_vmec_jax_wout,
     trace_vmec_jax_field_lines,
@@ -22,8 +22,8 @@ from dkx.geometry import (
 def _find_local_wout() -> Path | None:
     """A Landreman-Paul QA wout from the external checkouts, when present."""
 
-    essos_root = Path(os.environ.get("DKX_ESSOS_ROOT", Path.home() / "local" / "ESSOS_test")).expanduser()
-    vmec_jax_root = Path(os.environ.get("DKX_VMEC_JAX_ROOT", Path.home() / "local" / "vmec_jax")).expanduser()
+    essos_root = Path(os.environ.get("DRBX_ESSOS_ROOT", Path.home() / "local" / "ESSOS_test")).expanduser()
+    vmec_jax_root = Path(os.environ.get("DRBX_VMEC_JAX_ROOT", Path.home() / "local" / "vmec_jax")).expanduser()
     candidates = (
         essos_root / "examples" / "input_files" / "wout_LandremanPaul2021_QA_reactorScale_lowres.nc",
         vmec_jax_root / "examples" / "data" / "wout_LandremanPaul2021_QA_lowres.nc",

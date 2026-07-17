@@ -8,7 +8,7 @@ the current code, so the docs remain useful even without the manuscript.
 
 ## Model Families
 
-`dkx` organizes its native physics into a small set of accuracy-tested
+`drbx` organizes its native physics into a small set of accuracy-tested
 families:
 
 - the JAX-native **Hasegawa-Wakatani drift-wave turbulence** flagship on a
@@ -19,9 +19,9 @@ families:
   full electrostatic/electromagnetic drift-reduced Braginskii right-hand side,
   the 3-D FCI sheath closure, the neutral reaction-diffusion component, and the
   perpendicular vorticity inversion;
-- the **linear stability / dispersion solver** (`dkx.linear`);
+- the **linear stability / dispersion solver** (`drbx.linear`);
 - the compact **1-D fluid, anomalous-diffusion, and electrostatic-vorticity
-  deck models** that back the `dkx run` command.
+  deck models** that back the `drbx run` command.
 
 Each family is documented below with its governing form and its kept source
 modules.
@@ -146,16 +146,16 @@ same small set of physical ingredients:
 The exact equation set differs by model, but the implementation reuses these
 operator families rather than encoding each case as an unrelated solver. The
 shared FCI parallel/perpendicular gradient and Laplacian stencils live in
-[native/fci_operators.py](../src/dkx/native/fci_operators.py), boundary and
+[native/fci_operators.py](../src/drbx/native/fci_operators.py), boundary and
 halo handling in
-[native/fci_boundaries.py](../src/dkx/native/fci_boundaries.py) and
-[native/fci_halo.py](../src/dkx/native/fci_halo.py), and the geometry maps
-in [geometry/fci_geometry.py](../src/dkx/geometry/fci_geometry.py).
+[native/fci_boundaries.py](../src/drbx/native/fci_boundaries.py) and
+[native/fci_halo.py](../src/drbx/native/fci_halo.py), and the geometry maps
+in [geometry/fci_geometry.py](../src/drbx/geometry/fci_geometry.py).
 
 ### 3-D FCI Sheath Closure
 
 The non-axisymmetric traced-field-line lane has a Bohm-sheath target closure.
-[native/fci_sheath_recycling.py](../src/dkx/native/fci_sheath_recycling.py)
+[native/fci_sheath_recycling.py](../src/drbx/native/fci_sheath_recycling.py)
 derives endpoint masks from the forward and backward map exits and evaluates
 
 ```text
@@ -176,7 +176,7 @@ non-axisymmetric map.
 ### FCI Neutral Reaction-Diffusion
 
 The compact neutral component in
-[native/fci_neutral.py](../src/dkx/native/fci_neutral.py) evaluates neutral
+[native/fci_neutral.py](../src/drbx/native/fci_neutral.py) evaluates neutral
 diffusion plus the ionisation, recombination, and charge-exchange sources
 
 ```text
@@ -192,7 +192,7 @@ momentum.
 ### Perpendicular Vorticity Inversion
 
 The vorticity component in
-[native/fci_vorticity.py](../src/dkx/native/fci_vorticity.py) applies and
+[native/fci_vorticity.py](../src/drbx/native/fci_vorticity.py) applies and
 inverts the perpendicular polarization relation
 
 ```text
@@ -208,7 +208,7 @@ field and become identical to roundoff when `n/B^2` is constant.
 ### Combined Differentiable RHS
 
 The compact combined state in
-[native/fci_drb_rhs.py](../src/dkx/native/fci_drb_rhs.py) is a PyTree RHS
+[native/fci_drb_rhs.py](../src/drbx/native/fci_drb_rhs.py) is a PyTree RHS
 that threads the sheath, neutral, and vorticity components into a single
 differentiable right-hand side. It carries the Boussinesq/non-Boussinesq
 polarization switch through the potential solve and exposes an opt-in
@@ -229,10 +229,10 @@ the structured mesh and metric payload: face reconstruction, metric-aware
 transport operators, and explicit source assembly. In the implementation these
 transport kernels live in:
 
-- [native/fluid_1d.py](../src/dkx/native/fluid_1d.py) (periodic fluid MMS)
-- [native/vorticity.py](../src/dkx/native/vorticity.py) (electrostatic
+- [native/fluid_1d.py](../src/drbx/native/fluid_1d.py) (periodic fluid MMS)
+- [native/vorticity.py](../src/drbx/native/vorticity.py) (electrostatic
   vorticity)
-- [native/transport.py](../src/dkx/native/transport.py) (anomalous
+- [native/transport.py](../src/drbx/native/transport.py) (anomalous
   diffusion)
 
 ### Exact And Explicit Time Integration
@@ -243,7 +243,7 @@ transport kernels live in:
 - The electrostatic vorticity lane integrates the interior state with an
   adaptive Dormand-Prince solver (`jax.experimental.ode.odeint`).
 - The FCI models advance with classical fourth-order Runge-Kutta in
-  [native/fci_time_integrator.py](../src/dkx/native/fci_time_integrator.py).
+  [native/fci_time_integrator.py](../src/drbx/native/fci_time_integrator.py).
 - The Hasegawa-Wakatani flagship is a pseudo-spectral solver in the
   perpendicular plane.
 
@@ -253,7 +253,7 @@ Potential and related closures are handled through the spectral
 Fourier--Helmholtz elliptic solve in
 [`solvax.elliptic`](https://github.com/uwplasma/SOLVAX), the reusable
 structured-solver library. The electrostatic vorticity lane
-([native/vorticity.py](../src/dkx/native/vorticity.py)) inverts its
+([native/vorticity.py](../src/drbx/native/vorticity.py)) inverts its
 potential with that operator; the compact FCI vorticity component inverts the
 metric-weighted perpendicular operator with conjugate gradient; and the
 4-field/DRB lanes invert the conservative perpendicular Laplacian with the
@@ -263,7 +263,7 @@ with a prefactored LU coarse solve) — see
 
 ## Linear Stability And Dispersion
 
-`dkx.linear` is the linear solver of the drift-reduced Braginskii
+`drbx.linear` is the linear solver of the drift-reduced Braginskii
 equations. It linearizes a model about an equilibrium and returns the growth
 rates and frequencies of its eigenmodes (`delta ~ exp(lambda t)`,
 `gamma = Re lambda`, `Omega = Im lambda`) through:
@@ -277,7 +277,7 @@ rates and frequencies of its eigenmodes (`delta ~ exp(lambda t)`,
   `shear_alfven_operator` (electron-inertia shear Alfven, B3), and
   `interchange_operator` (curvature-driven Rayleigh-Taylor).
 
-Source: [src/dkx/linear/](../src/dkx/linear/). Verification:
+Source: [src/drbx/linear/](../src/drbx/linear/). Verification:
 [Linear Dispersion Benchmark](linear_dispersion_benchmark.md) and
 `tests/test_linear_dispersion.py`.
 
@@ -285,7 +285,7 @@ Source: [src/dkx/linear/](../src/dkx/linear/). Verification:
 
 The closed-field-line drift-wave turbulence flagship is the JAX-native
 Hasegawa-Wakatani model in
-[native/hasegawa_wakatani.py](../src/dkx/native/hasegawa_wakatani.py): a
+[native/hasegawa_wakatani.py](../src/drbx/native/hasegawa_wakatani.py): a
 pseudo-spectral two-field solver for the potential and density fluctuations in
 the perpendicular plane,
 
@@ -312,14 +312,14 @@ The FCI stack provides several reduced models on the same operator and geometry
 payload:
 
 - **2-field** reduced model (density and parallel velocity) in
-  [native/fci_2_field_rhs.py](../src/dkx/native/fci_2_field_rhs.py);
+  [native/fci_2_field_rhs.py](../src/drbx/native/fci_2_field_rhs.py);
 - **4-field** model (density, vorticity, ion and electron parallel velocity),
   with free-decay and blob variants, in
-  [native/fci_4_field_rhs.py](../src/dkx/native/fci_4_field_rhs.py);
+  [native/fci_4_field_rhs.py](../src/drbx/native/fci_4_field_rhs.py);
 - the full **electrostatic/electromagnetic drift-reduced Braginskii**
   right-hand side (density, potential, `Te`, `Ti`, ion and electron parallel
   velocity, vorticity) in
-  [native/fci_drb_EB_rhs.py](../src/dkx/native/fci_drb_EB_rhs.py).
+  [native/fci_drb_EB_rhs.py](../src/drbx/native/fci_drb_EB_rhs.py).
 
 These are assembled from the shared FCI operators, boundary/halo handling, and
 geometry maps described above, and are validated on tokamak and non-axisymmetric
@@ -330,44 +330,44 @@ stellarator geometry (see
 Primary source files:
 
 - reduced models:
-  [native/fci_2_field_rhs.py](../src/dkx/native/fci_2_field_rhs.py),
-  [native/fci_4_field_rhs.py](../src/dkx/native/fci_4_field_rhs.py)
+  [native/fci_2_field_rhs.py](../src/drbx/native/fci_2_field_rhs.py),
+  [native/fci_4_field_rhs.py](../src/drbx/native/fci_4_field_rhs.py)
 - full drift-reduced Braginskii RHS:
-  [native/fci_drb_EB_rhs.py](../src/dkx/native/fci_drb_EB_rhs.py),
-  [native/fci_drb_rhs.py](../src/dkx/native/fci_drb_rhs.py)
+  [native/fci_drb_EB_rhs.py](../src/drbx/native/fci_drb_EB_rhs.py),
+  [native/fci_drb_rhs.py](../src/drbx/native/fci_drb_rhs.py)
 - sheath / neutral / vorticity closures:
-  [native/fci_sheath_recycling.py](../src/dkx/native/fci_sheath_recycling.py),
-  [native/fci_neutral.py](../src/dkx/native/fci_neutral.py),
-  [native/fci_vorticity.py](../src/dkx/native/fci_vorticity.py)
+  [native/fci_sheath_recycling.py](../src/drbx/native/fci_sheath_recycling.py),
+  [native/fci_neutral.py](../src/drbx/native/fci_neutral.py),
+  [native/fci_vorticity.py](../src/drbx/native/fci_vorticity.py)
 - operators, boundaries, geometry:
-  [native/fci_operators.py](../src/dkx/native/fci_operators.py),
-  [native/fci_boundaries.py](../src/dkx/native/fci_boundaries.py),
-  [native/fci_halo.py](../src/dkx/native/fci_halo.py),
-  [geometry/fci_geometry.py](../src/dkx/geometry/fci_geometry.py),
-  [geometry/shifted_torus.py](../src/dkx/geometry/shifted_torus.py)
+  [native/fci_operators.py](../src/drbx/native/fci_operators.py),
+  [native/fci_boundaries.py](../src/drbx/native/fci_boundaries.py),
+  [native/fci_halo.py](../src/drbx/native/fci_halo.py),
+  [geometry/fci_geometry.py](../src/drbx/geometry/fci_geometry.py),
+  [geometry/shifted_torus.py](../src/drbx/geometry/shifted_torus.py)
 
 ## Compact Electrostatic Vorticity And Diffusion Deck Models
 
-The `dkx run` command backs four compact, accuracy-tested deck models:
+The `drbx run` command backs four compact, accuracy-tested deck models:
 
 - single-component `evolve_density` (one-rhs);
 - anomalous diffusion,
-  [native/transport.py](../src/dkx/native/transport.py);
+  [native/transport.py](../src/drbx/native/transport.py);
 - periodic fluid MMS,
-  [native/fluid_1d.py](../src/dkx/native/fluid_1d.py);
+  [native/fluid_1d.py](../src/drbx/native/fluid_1d.py);
 - electrostatic vorticity,
-  [native/vorticity.py](../src/dkx/native/vorticity.py).
+  [native/vorticity.py](../src/drbx/native/vorticity.py).
 
 These share the structured mesh and metric handling in
-[native/mesh.py](../src/dkx/native/mesh.py) and
-[native/metrics.py](../src/dkx/native/metrics.py) and are dispatched by
-[native/deck_runner.py](../src/dkx/native/deck_runner.py).
+[native/mesh.py](../src/drbx/native/mesh.py) and
+[native/metrics.py](../src/drbx/native/metrics.py) and are dispatched by
+[native/deck_runner.py](../src/drbx/native/deck_runner.py).
 
 ## Electromagnetic Reduced Surfaces
 
 Where electron-parallel dynamics is retained explicitly, the compact
 electromagnetic operators in
-[native/electromagnetic.py](../src/dkx/native/electromagnetic.py) evolve the
+[native/electromagnetic.py](../src/drbx/native/electromagnetic.py) evolve the
 parallel current variable
 
 ```text
@@ -383,7 +383,7 @@ together with the reduced parallel-force balance
 The electron-inertia shear-Alfven branch of this system is verified analytically
 by the `shear_alfven_operator` in the linear dispersion solver, and the full
 electromagnetic drift-reduced Braginskii RHS is provided by
-[native/fci_drb_EB_rhs.py](../src/dkx/native/fci_drb_EB_rhs.py).
+[native/fci_drb_EB_rhs.py](../src/drbx/native/fci_drb_EB_rhs.py).
 
 ## Differentiable Analysis Surface
 
@@ -408,7 +408,7 @@ differentiable FCI drift-reduced RHS.
 
 ## JAX Implementation Boundary
 
-`dkx` deliberately separates:
+`drbx` deliberately separates:
 
 - fully JAX-native compact kernels used for differentiable reduced lanes,
   profiling, and selected-field 3-D reductions;
@@ -442,10 +442,10 @@ User-facing runs produce:
 Primary source files:
 
 - CLI and argument model:
-  [src/dkx/cli.py](../src/dkx/cli.py)
+  [src/drbx/cli.py](../src/drbx/cli.py)
 - deck dispatch and portable payload / restart writing:
-  [src/dkx/native/deck_runner.py](../src/dkx/native/deck_runner.py),
-  [src/dkx/runtime/output.py](../src/dkx/runtime/output.py)
+  [src/drbx/native/deck_runner.py](../src/drbx/native/deck_runner.py),
+  [src/drbx/runtime/output.py](../src/drbx/runtime/output.py)
 
 ## Validation Rules
 

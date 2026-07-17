@@ -38,7 +38,7 @@ import jax.numpy as jnp  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from dkx.native.neutrals import (  # noqa: E402
+from drbx.native.neutrals import (  # noqa: E402
     DetachmentSolParameters,
     DetachmentSolState,
     PlasmaNormalization,

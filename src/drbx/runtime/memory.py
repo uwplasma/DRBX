@@ -46,7 +46,7 @@ def measure_peak_rss(
         while not stop_event.wait(sampling_interval_seconds):
             append_sample()
 
-    sampler = threading.Thread(target=sample_loop, name="dkx-rss-sampler", daemon=True)
+    sampler = threading.Thread(target=sample_loop, name="drbx-rss-sampler", daemon=True)
     sampler.start()
     try:
         result = function()

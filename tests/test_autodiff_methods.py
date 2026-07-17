@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from dkx.native.hasegawa_wakatani import HasegawaWakataniParameters, hw_grid, hw_step
+from drbx.native.hasegawa_wakatani import HasegawaWakataniParameters, hw_grid, hw_step
 
 jax.config.update("jax_enable_x64", True)
 

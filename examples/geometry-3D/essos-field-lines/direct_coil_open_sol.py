@@ -32,8 +32,8 @@ from typing import Any
 
 import numpy as np
 
-from dkx.runtime import configure_jax_runtime
-from dkx.validation import (
+from drbx.runtime import configure_jax_runtime
+from drbx.validation import (
     build_essos_imported_fci_source_profile_gate,
     create_essos_imported_drb_movie_package,
     create_essos_imported_drb_movie_stationarity_package,
@@ -42,7 +42,7 @@ from dkx.validation import (
     create_live_essos_imported_endpoint_label_refinement_package,
     save_essos_imported_fci_source_profile_gate_plot,
 )
-from dkx.validation.essos_imported_fci_campaign import (
+from drbx.validation.essos_imported_fci_campaign import (
     create_essos_imported_fci_dry_run_artifact_package,
 )
 

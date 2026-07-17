@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dkx.geometry import (
+from drbx.geometry import (
     FciGeometry3D,
     LocalStencilBuilder,
     RegularFaceGeometry3D,
@@ -15,9 +15,9 @@ from dkx.geometry import (
     build_shifted_torus_geometry,
     logical_grid_from_axis_vectors,
 )
-from dkx.native import rk4_step, sum_stage_outputs
-from dkx.native.fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldState, compute_2field_rhs
-from dkx.native.fci_boundaries import BC_DIRICHLET, BoundaryConditionBuilder, BoundaryFaceBC3D, CutWallBC3D, CutWallGeometry3D
+from drbx.native import rk4_step, sum_stage_outputs
+from drbx.native.fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldState, compute_2field_rhs
+from drbx.native.fci_boundaries import BC_DIRICHLET, BoundaryConditionBuilder, BoundaryFaceBC3D, CutWallBC3D, CutWallGeometry3D
 
 
 A = 0.1
@@ -46,7 +46,7 @@ def _resolution_step_count(resolution: int, *, base_resolution: int = 20, base_s
 
 
 # The verified shifted-torus geometry constructor now lives in the package
-# (``dkx.geometry.build_shifted_torus_geometry``). Keep the historical name
+# (``drbx.geometry.build_shifted_torus_geometry``). Keep the historical name
 # as a thin alias so the MMS harness below is unchanged; the package defaults
 # match the module-level constants above.
 build_shifted_torus_2field_geometry = build_shifted_torus_geometry

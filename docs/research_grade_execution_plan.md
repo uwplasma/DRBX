@@ -1,7 +1,7 @@
 # Research-Grade Execution Plan (archived)
 
 This document was superseded on 2026-07-12. The single authoritative plan is
-now [`plan_dkx.md`](https://github.com/uwplasma/dkx/blob/main/plan_dkx.md)
+now [`plan_drbx.md`](https://github.com/uwplasma/drbx/blob/main/plan_drbx.md)
 in the repository root.
 
 The previous 5,935-line version of this file — including its execution log

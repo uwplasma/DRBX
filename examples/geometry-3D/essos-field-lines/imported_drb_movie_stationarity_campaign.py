@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from dkx.runtime import configure_jax_runtime
-from dkx.validation import create_essos_imported_drb_movie_stationarity_package
+from drbx.runtime import configure_jax_runtime
+from drbx.validation import create_essos_imported_drb_movie_stationarity_package
 
 
 # SIMSOPT-style user parameters: edit these values, then run this file.

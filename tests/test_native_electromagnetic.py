@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dkx.native.electromagnetic import (
+from drbx.native.electromagnetic import (
     ALFVEN_WAVE_DDT_NVE_DDY_COEF,
     ALFVEN_WAVE_DDT_NVE_DDZ_COEF,
     ALFVEN_WAVE_DDT_VORT_X1_DDY_COEF,
@@ -18,8 +18,8 @@ from dkx.native.electromagnetic import (
     invert_slab_neumann_apar_to_current_density,
     solve_slab_neumann_apar,
 )
-from dkx.native.mesh import StructuredMesh
-from dkx.native.metrics import StructuredMetrics
+from drbx.native.mesh import StructuredMesh
+from drbx.native.metrics import StructuredMetrics
 
 
 def test_compute_beta_em_matches_analytic_formula() -> None:
