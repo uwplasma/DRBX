@@ -109,8 +109,9 @@ field-line machinery runs on imported fields: the vacuum Biot-Savart field of
 the Landreman-Paul quasi-axisymmetric coil set (via ESSOS) shows nested closed
 surfaces inside a chaotic open edge, and a VMEC equilibrium (via vmec_jax)
 provides closed surfaces whose traced rotational transform matches the
-equilibrium's `iotaf` profile to ~1e-6 — with the open scrape-off-layer lines
-traced to their exit from the confined region:
+equilibrium's `iotaf` profile to ~1e-6 — with the open field lines confined to
+the thin island/stochastic layer just beyond the last closed vacuum surface,
+in the island-divertor sense:
 
 | Coil field (closed core, open edge) | VMEC equilibrium + coil-field SOL |
 |---|---|
