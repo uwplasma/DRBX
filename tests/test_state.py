@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dkx.runtime.state import SimulationState
+from drbx.runtime.state import SimulationState
 
 
 def test_simulation_state_updates_immutably() -> None:

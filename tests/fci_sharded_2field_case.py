@@ -20,8 +20,8 @@ for _path in (str(_REPO_ROOT / "src"), str(_REPO_ROOT)):
 
 import jax.numpy as jnp
 
-from dkx.geometry import build_curvature_coefficients
-from dkx.native import (
+from drbx.geometry import build_curvature_coefficients
+from drbx.native import (
     Fci2FieldRhsParameters,
     Fci2FieldState,
     compute_2field_rhs,

@@ -365,7 +365,7 @@ def save_stellarator_sol_3d_movie(
     resolved = Path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     frame_indices = np.linspace(0, history.shape[0] - 1, min(24, history.shape[0]), dtype=int)
-    with tempfile.TemporaryDirectory(prefix="dkx_stellarator_movie_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="drbx_stellarator_movie_") as temp_dir:
         frame_paths = []
         for local_index, frame_index in enumerate(frame_indices):
             frame_path = Path(temp_dir) / f"frame_{local_index:03d}.png"

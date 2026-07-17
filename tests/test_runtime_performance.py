@@ -9,27 +9,27 @@ import textwrap
 
 import pytest
 
-from dkx.runtime import resolve_host_device_count
+from drbx.runtime import resolve_host_device_count
 
 
 def test_resolve_host_device_count_defaults_to_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DKX_HOST_DEVICE_COUNT", raising=False)
+    monkeypatch.delenv("DRBX_HOST_DEVICE_COUNT", raising=False)
 
     assert resolve_host_device_count() is None
 
 
 def test_resolve_host_device_count_validates_positive_integer(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DKX_HOST_DEVICE_COUNT", "4")
+    monkeypatch.setenv("DRBX_HOST_DEVICE_COUNT", "4")
     assert resolve_host_device_count() == 4
 
-    monkeypatch.setenv("DKX_HOST_DEVICE_COUNT", "0")
+    monkeypatch.setenv("DRBX_HOST_DEVICE_COUNT", "0")
     assert resolve_host_device_count() is None
 
-    monkeypatch.setenv("DKX_HOST_DEVICE_COUNT", "-2")
+    monkeypatch.setenv("DRBX_HOST_DEVICE_COUNT", "-2")
     with pytest.raises(ValueError):
         resolve_host_device_count()
 
-    monkeypatch.setenv("DKX_HOST_DEVICE_COUNT", "abc")
+    monkeypatch.setenv("DRBX_HOST_DEVICE_COUNT", "abc")
     with pytest.raises(ValueError):
         resolve_host_device_count()
 
@@ -39,13 +39,13 @@ def test_runtime_parallel_summary_respects_host_device_count_in_fresh_process() 
     script = textwrap.dedent(
         """
         import json
-        from dkx.runtime import runtime_parallel_summary
+        from drbx.runtime import runtime_parallel_summary
         print(json.dumps(runtime_parallel_summary(), sort_keys=True))
         """
     )
     env = dict(os.environ)
     env["PYTHONPATH"] = str(repo_root / "src")
-    env["DKX_HOST_DEVICE_COUNT"] = "3"
+    env["DRBX_HOST_DEVICE_COUNT"] = "3"
     completed = subprocess.run(
         [sys.executable, "-c", script],
         cwd=repo_root,

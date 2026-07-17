@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dkx.config import rewrite_input_precision
+from drbx.config import rewrite_input_precision
 
 
 def test_rewrite_input_precision_rewrites_runtime_precision_only() -> None:

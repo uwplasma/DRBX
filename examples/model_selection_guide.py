@@ -1,7 +1,7 @@
-"""Pedagogical model-selection guide for DKX users.
+"""Pedagogical model-selection guide for DRBX users.
 
 This example is intentionally lightweight. It teaches how to choose between
-DKX model families, dimensions, fluid closures, and boundary-condition
+DRBX model families, dimensions, fluid closures, and boundary-condition
 families without launching a heavy validation campaign by default.
 
 The script imports real public APIs, writes small starter TOML decks (plus a
@@ -25,9 +25,9 @@ from pathlib import Path
 from textwrap import dedent, indent
 from typing import Any
 
-from dkx.config.boutinp import load_bout_input
-from dkx.native import run_input_case
-from dkx.runtime import RunConfiguration
+from drbx.config.boutinp import load_bout_input
+from drbx.native import run_input_case
+from drbx.runtime import RunConfiguration
 
 
 # --- PARAMETERS ------------------------------------------------------------------
@@ -53,7 +53,7 @@ class ModelFamily:
 
 @dataclass(frozen=True)
 class DeckSummary:
-    """Metadata extracted by DKX from a generated starter deck."""
+    """Metadata extracted by DRBX from a generated starter deck."""
 
     path: str
     nout: int
@@ -123,9 +123,9 @@ MODEL_FAMILIES = (
         dimensions=("2D slab", "2D tokamak cross-section", "selected 3D field surfaces"),
         boundary_choices=("periodic", "zero-gradient", "zero-Dirichlet potential/vorticity guards"),
         starting_points=(
-            "src/dkx/validation/blob2d.py",
-            "src/dkx/validation/alfven_wave.py",
-            "src/dkx/validation/drift_wave.py",
+            "src/drbx/validation/blob2d.py",
+            "src/drbx/validation/alfven_wave.py",
+            "src/drbx/validation/drift_wave.py",
         ),
         caution="These are reduced benchmark lanes, not a substitute for full open-field recycling closure.",
     ),
@@ -298,7 +298,7 @@ def open_field_concept_deck() -> str:
 
 
 def validate_deck(path: Path) -> DeckSummary:
-    """Load a deck with DKX and extract runtime metadata."""
+    """Load a deck with DRBX and extract runtime metadata."""
 
     config = load_bout_input(path)
     run_config = RunConfiguration.from_config(config)
@@ -351,7 +351,7 @@ def render_markdown(deck_summaries: tuple[DeckSummary, ...]) -> str:
     """Render the educational guide as portable Markdown."""
 
     lines = [
-        "# DKX Model Selection Guide",
+        "# DRBX Model Selection Guide",
         "",
         "## Decision Tree",
         "",
@@ -404,7 +404,7 @@ def print_mapping(title: str, mapping: dict[str, str]) -> None:
 
 
 def print_model_guide() -> None:
-    print("\nDKX Model Selection")
+    print("\nDRBX Model Selection")
     print("======================")
     for family in MODEL_FAMILIES:
         print(f"\n{family.name}")
@@ -423,12 +423,12 @@ def print_model_guide() -> None:
 
 def print_api_discovery(output_root: Path, deck_summaries: tuple[DeckSummary, ...]) -> None:
     examples = {
-        "inspect a deck": f"dkx inspect {output_root / 'diffusion_start.toml'}",
-        "run a deck": f"dkx run {output_root / 'diffusion_start.toml'} --verbose",
+        "inspect a deck": f"drbx inspect {output_root / 'diffusion_start.toml'}",
+        "run a deck": f"drbx run {output_root / 'diffusion_start.toml'} --verbose",
         "load deck in Python": "config = load_bout_input(path)",
         "inspect runtime metadata": "run_config = RunConfiguration.from_config(config)",
         "run from Python": "result = run_input_case(path, case_name='my_case', parity_mode='run')",
-        "discover public native API": "python -c \"import dkx.native as n; print(n.__all__)\"",
+        "discover public native API": "python -c \"import drbx.native as n; print(n.__all__)\"",
     }
     print_mapping("API discovery and use", examples)
 

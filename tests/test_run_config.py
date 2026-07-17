@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 
-from dkx.config.boutinp import parse_bout_input
-from dkx.runtime.run_config import RunConfiguration
+from drbx.config.boutinp import parse_bout_input
+from drbx.runtime.run_config import RunConfiguration
 
 
 def test_run_configuration_resolves_time_mesh_solver_and_scalars() -> None:

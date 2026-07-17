@@ -41,9 +41,9 @@ import jax.numpy as jnp  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from dkx.geometry import build_open_slab_geometry  # noqa: E402
-from dkx.native.fci_sheath_recycling import compute_fci_sheath_recycling  # noqa: E402
-from dkx.native.sol_flux_tube import (  # noqa: E402
+from drbx.geometry import build_open_slab_geometry  # noqa: E402
+from drbx.native.fci_sheath_recycling import compute_fci_sheath_recycling  # noqa: E402
+from drbx.native.sol_flux_tube import (  # noqa: E402
     SolFluxTubeParameters,
     sol_flux_tube_run,
     sol_flux_tube_source,

@@ -40,7 +40,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib import colors  # noqa: E402
 
-from dkx.geometry import (  # noqa: E402
+from drbx.geometry import (  # noqa: E402
     ConservativeStencilBuilder,
     IslandDivertorField,
     LocalStencilBuilder,
@@ -51,10 +51,10 @@ from dkx.geometry import (  # noqa: E402
     island_divertor_connection_length,
     island_divertor_field_line_rhs,
 )
-from dkx.native import build_perp_laplacian_face_projectors  # noqa: E402
-from dkx.native.fci_4_field_rhs import Fci4FieldBlobParameters, Fci4FieldState  # noqa: E402
-from dkx.native.fci_sheath_recycling import compute_fci_sheath_recycling  # noqa: E402
-from dkx.native.stellarator_turbulence import (  # noqa: E402
+from drbx.native import build_perp_laplacian_face_projectors  # noqa: E402
+from drbx.native.fci_4_field_rhs import Fci4FieldBlobParameters, Fci4FieldState  # noqa: E402
+from drbx.native.fci_sheath_recycling import compute_fci_sheath_recycling  # noqa: E402
+from drbx.native.stellarator_turbulence import (  # noqa: E402
     TEMPERATURE,
     build_four_field_phi_solver,
     build_free_decay_boundary_conditions,

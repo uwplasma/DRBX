@@ -27,7 +27,7 @@ guarantee they genuinely escape; no field is extrapolated from the wout.
 
 Requires ESSOS and vmec_jax checkouts:
 
-    DKX_ESSOS_ROOT=~/local/ESSOS_test \
+    DRBX_ESSOS_ROOT=~/local/ESSOS_test \
         PYTHONPATH=src python examples/geometry-3D/vmec-jax/closed_open_field_lines.py
 
 writes ``output/vmec_jax_closed_open/closed_open_field_lines.png``.
@@ -41,7 +41,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.path import Path as PolygonPath
 
-from dkx.geometry import (
+from drbx.geometry import (
     essos_runtime_available,
     load_vmec_jax_wout,
     trace_essos_coil_initial_conditions,
@@ -55,7 +55,7 @@ from dkx.geometry import (
 # Landreman-Paul 2021 precise QA (reactor scale) wout from the local
 # ESSOS_test checkout; wout files are external inputs, never committed here.
 # The ESSOS coil JSON used for tracing is resolved by the ESSOS adapter from
-# the same checkout (DKX_ESSOS_ROOT).
+# the same checkout (DRBX_ESSOS_ROOT).
 WOUT_PATH = Path.home() / "local" / "ESSOS_test" / "examples" / "input_files" / "wout_LandremanPaul2021_QA_reactorScale_lowres.nc"
 AXIS_PROBE_R = 1.21        # midplane seed radius [m] used to locate the vacuum axis
 AXIS_PROBE_MAXTIME = 800.0  # integration time for the axis probe line
@@ -69,14 +69,14 @@ OUTPUT_DIR = Path("output/vmec_jax_closed_open")
 # setup --------------------------------------------------------------------
 if not vmec_jax_runtime_available():
     raise SystemExit(
-        "vmec_jax is not importable. Point DKX_VMEC_JAX_ROOT at a checkout, e.g.\n"
-        "    DKX_VMEC_JAX_ROOT=~/local/vmec_jax DKX_ESSOS_ROOT=~/local/ESSOS_test "
+        "vmec_jax is not importable. Point DRBX_VMEC_JAX_ROOT at a checkout, e.g.\n"
+        "    DRBX_VMEC_JAX_ROOT=~/local/vmec_jax DRBX_ESSOS_ROOT=~/local/ESSOS_test "
         "PYTHONPATH=src python examples/geometry-3D/vmec-jax/closed_open_field_lines.py"
     )
 if not essos_runtime_available():
     raise SystemExit(
-        "ESSOS is not importable. Point DKX_ESSOS_ROOT at a checkout, e.g.\n"
-        "    DKX_ESSOS_ROOT=~/local/ESSOS_test PYTHONPATH=src python "
+        "ESSOS is not importable. Point DRBX_ESSOS_ROOT at a checkout, e.g.\n"
+        "    DRBX_ESSOS_ROOT=~/local/ESSOS_test PYTHONPATH=src python "
         "examples/geometry-3D/vmec-jax/closed_open_field_lines.py"
     )
 if not WOUT_PATH.exists():

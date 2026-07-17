@@ -6,7 +6,7 @@
     roadmap conflicts with that plan, follow the execution plan and update this
     appendix afterward.
 
-This page records how the `dkx` 3D program should stay geometry-agnostic while still shipping benchmark-specific validation packages.
+This page records how the `drbx` 3D program should stay geometry-agnostic while still shipping benchmark-specific validation packages.
 
 For the detailed implementation plan for native non-axisymmetric stellarator SOL turbulence, including FCI metrics, equations, validation gates, and README movie targets, see [Non-Axisymmetric Stellarator SOL Implementation Plan](non_axisymmetric_stellarator_sol_plan.md).
 
@@ -42,9 +42,9 @@ Benchmark-specific packages should only add:
 
 Current reusable pieces already in tree:
 
-- [src/dkx/validation/diverted_tokamak_movie.py](../src/dkx/validation/diverted_tokamak_movie.py)
-- [src/dkx/runtime/output.py](../src/dkx/runtime/output.py)
-- [src/dkx/cli.py](../src/dkx/cli.py)
+- [src/drbx/validation/diverted_tokamak_movie.py](../src/drbx/validation/diverted_tokamak_movie.py)
+- [src/drbx/runtime/output.py](../src/drbx/runtime/output.py)
+- [src/drbx/cli.py](../src/drbx/cli.py)
 
 These pieces should be treated as the seed of a general 3D diagnostics layer, even if some names still reflect the first benchmark package built on top of them.
 
@@ -62,18 +62,18 @@ The current TCV-X21 scaffold consumes those shared pieces instead of owning a pr
 The first native non-axisymmetric field-line-map validation lane is now also
 in tree:
 
-- [src/dkx/geometry/stellarator.py](../src/dkx/geometry/stellarator.py)
-- [src/dkx/native/fci.py](../src/dkx/native/fci.py)
-- [src/dkx/native/fci_sheath_recycling.py](../src/dkx/native/fci_sheath_recycling.py)
-- [src/dkx/native/fci_neutral.py](../src/dkx/native/fci_neutral.py)
-- [src/dkx/native/fci_vorticity.py](../src/dkx/native/fci_vorticity.py)
-- [src/dkx/native/fci_drb_rhs.py](../src/dkx/native/fci_drb_rhs.py)
-- [src/dkx/validation/stellarator_fci_geometry_campaign.py](../src/dkx/validation/stellarator_fci_geometry_campaign.py)
-- [src/dkx/validation/stellarator_fci_operator_campaign.py](../src/dkx/validation/stellarator_fci_operator_campaign.py)
-- [src/dkx/validation/stellarator_sheath_recycling_campaign.py](../src/dkx/validation/stellarator_sheath_recycling_campaign.py)
-- [src/dkx/validation/stellarator_neutral_physics_campaign.py](../src/dkx/validation/stellarator_neutral_physics_campaign.py)
-- [src/dkx/validation/stellarator_vorticity_campaign.py](../src/dkx/validation/stellarator_vorticity_campaign.py)
-- [src/dkx/validation/stellarator_sol_showcase.py](../src/dkx/validation/stellarator_sol_showcase.py)
+- [src/drbx/geometry/stellarator.py](../src/drbx/geometry/stellarator.py)
+- [src/drbx/native/fci.py](../src/drbx/native/fci.py)
+- [src/drbx/native/fci_sheath_recycling.py](../src/drbx/native/fci_sheath_recycling.py)
+- [src/drbx/native/fci_neutral.py](../src/drbx/native/fci_neutral.py)
+- [src/drbx/native/fci_vorticity.py](../src/drbx/native/fci_vorticity.py)
+- [src/drbx/native/fci_drb_rhs.py](../src/drbx/native/fci_drb_rhs.py)
+- [src/drbx/validation/stellarator_fci_geometry_campaign.py](../src/drbx/validation/stellarator_fci_geometry_campaign.py)
+- [src/drbx/validation/stellarator_fci_operator_campaign.py](../src/drbx/validation/stellarator_fci_operator_campaign.py)
+- [src/drbx/validation/stellarator_sheath_recycling_campaign.py](../src/drbx/validation/stellarator_sheath_recycling_campaign.py)
+- [src/drbx/validation/stellarator_neutral_physics_campaign.py](../src/drbx/validation/stellarator_neutral_physics_campaign.py)
+- [src/drbx/validation/stellarator_vorticity_campaign.py](../src/drbx/validation/stellarator_vorticity_campaign.py)
+- [src/drbx/validation/stellarator_sol_showcase.py](../src/drbx/validation/stellarator_sol_showcase.py)
 - [docs/stellarator_fci_validation.md](stellarator_fci_validation.md)
 
 That lane is the first actual native non-axisymmetric execution path in this

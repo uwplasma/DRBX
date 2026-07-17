@@ -1,6 +1,6 @@
 # Native Runtime CLI
 
-`dkx` now has a standalone native runtime surface for supported inputs. After an editable install,
+`drbx` now has a standalone native runtime surface for supported inputs. After an editable install,
 
 ```bash
 pip install -e .
@@ -9,14 +9,14 @@ pip install -e .
 both of these console commands are available:
 
 ```bash
-dkx path/to/input.toml
-dkx path/to/input.toml
+drbx path/to/input.toml
+drbx path/to/input.toml
 ```
 
 The bare input-file form is equivalent to:
 
 ```bash
-dkx run path/to/input.toml
+drbx run path/to/input.toml
 ```
 
 ## Input Layout
@@ -78,13 +78,13 @@ write_log = true
 or overridden at the terminal:
 
 ```bash
-dkx input.toml --precision float32
+drbx input.toml --precision float32
 ```
 
 The terminal logging mode can also be controlled directly:
 
 ```bash
-dkx input.toml --verbose
+drbx input.toml --verbose
 ```
 
 The logging rules are:
@@ -110,7 +110,7 @@ PYTHONPATH=src .venv/bin/python examples/diffusion_precision_benchmark.py
 The committed example benchmark artifacts are in:
 
 - [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
-- [https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png)
+- [https://github.com/uwplasma/drbx/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png](https://github.com/uwplasma/drbx/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png)
 
 On the current machine, the warm second-run `float32` diffusion path is about `1.23x` faster than `float64` (`2.096s` vs `2.584s`) on the same input.
 
@@ -133,11 +133,11 @@ For direct deck-driven native runs, the current default is `native_exact`.
 Example:
 
 ```bash
-dkx examples/inputs/restartable_diffusion.toml \
+drbx examples/inputs/restartable_diffusion.toml \
   --precision float32
 ```
 
-If the deck includes an `[output]` section, the bare `dkx input.toml` form is enough. CLI flags still override the deck when you need an ad hoc run location. A typical deck-controlled output block is:
+If the deck includes an `[output]` section, the bare `drbx input.toml` form is enough. CLI flags still override the deck when you need an ad hoc run location. A typical deck-controlled output block is:
 
 ```toml
 [output]
@@ -163,7 +163,7 @@ The terminal output is rich-formatted when `rich` is available and falls back to
 For Python driver scripts, the same native entry point now exposes a matching verbose switch:
 
 ```python
-from dkx.native import run_input_case
+from drbx.native import run_input_case
 
 result = run_input_case(
     "examples/inputs/restartable_diffusion.toml",
@@ -208,9 +208,9 @@ In practice, the detailed runtime stream now covers:
 To resume from a saved restart bundle from the CLI:
 
 ```bash
-dkx input.toml \
-  --output-dir /tmp/dkx_run_resume \
-  --restart-in /tmp/dkx_run/<case>_restart.npz \
+drbx input.toml \
+  --output-dir /tmp/drbx_run_resume \
+  --restart-in /tmp/drbx_run/<case>_restart.npz \
   --resume-steps 2
 ```
 

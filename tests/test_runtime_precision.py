@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dkx.config.boutinp import parse_toml_input
-from dkx.runtime import resolve_runtime_precision, runtime_jax_dtype
+from drbx.config.boutinp import parse_toml_input
+from drbx.runtime import resolve_runtime_precision, runtime_jax_dtype
 
 
 def test_resolve_runtime_precision_reads_runtime_section() -> None:

@@ -1,7 +1,7 @@
 """Reduced isothermal scrape-off-layer (SOL) flux-tube parallel transport.
 
 An open-field-line model: on the open slab geometry
-(:func:`dkx.geometry.build_open_slab_geometry`), plasma is transported along
+(:func:`drbx.geometry.build_open_slab_geometry`), plasma is transported along
 the field to the two target plates, where a Bohm sheath drains it at the sound
 speed. The model evolves the parallel density ``n`` and parallel momentum
 ``m = n v`` as an isothermal Euler system in the field-parallel coordinate ``z``,

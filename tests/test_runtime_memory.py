@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from dkx.runtime.memory import (
+from drbx.runtime.memory import (
     bytes_to_mebibytes,
     measure_peak_rss,
     process_tree_pids,

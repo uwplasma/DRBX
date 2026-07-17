@@ -23,7 +23,7 @@ def resolve_runtime_precision(
         parsed = config.parsed("runtime", "precision")
         candidate = str(parsed)
     if candidate is None:
-        candidate = os.environ.get("DKX_PRECISION", "float64")
+        candidate = os.environ.get("DRBX_PRECISION", "float64")
     normalized = str(candidate).strip().lower()
     if normalized not in _VALID_PRECISIONS:
         raise ValueError(f"Unsupported precision {candidate!r}; expected one of {sorted(_VALID_PRECISIONS)}")
@@ -33,7 +33,7 @@ def resolve_runtime_precision(
 def resolve_host_device_count(*, requested: int | str | None = None) -> int | None:
     candidate = requested
     if candidate is None:
-        candidate = os.environ.get("DKX_HOST_DEVICE_COUNT")
+        candidate = os.environ.get("DRBX_HOST_DEVICE_COUNT")
     if candidate is None:
         return None
     normalized = str(candidate).strip()
@@ -54,12 +54,12 @@ def configure_jax_runtime(
     host_device_count: int | str | None = None,
 ) -> Path | None:
     resolved_precision = resolve_runtime_precision(requested=precision)
-    os.environ["DKX_PRECISION"] = resolved_precision
+    os.environ["DRBX_PRECISION"] = resolved_precision
     resolved_host_device_count = resolve_host_device_count(requested=host_device_count)
     if resolved_host_device_count is not None:
-        os.environ["DKX_HOST_DEVICE_COUNT"] = str(resolved_host_device_count)
+        os.environ["DRBX_HOST_DEVICE_COUNT"] = str(resolved_host_device_count)
         _configure_host_device_count_xla_flags(resolved_host_device_count)
-    if os.environ.get("DKX_DISABLE_COMPILATION_CACHE", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if os.environ.get("DRBX_DISABLE_COMPILATION_CACHE", "").strip().lower() in {"1", "true", "yes", "on"}:
         cache_dir = None
     else:
         cache_dir = _compilation_cache_dir()
@@ -72,12 +72,12 @@ def configure_jax_runtime(
 
         jax.config.update("jax_enable_compilation_cache", True)
         jax.config.update("jax_compilation_cache_dir", str(cache_dir))
-        if "DKX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS" in os.environ:
-            min_compile_time = float(os.environ["DKX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS"])
+        if "DRBX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS" in os.environ:
+            min_compile_time = float(os.environ["DRBX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS"])
         else:
             min_compile_time = 0.0
-        if "DKX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES" in os.environ:
-            min_entry_size = int(os.environ["DKX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES"])
+        if "DRBX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES" in os.environ:
+            min_entry_size = int(os.environ["DRBX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES"])
         else:
             min_entry_size = 0
         jax.config.update("jax_persistent_cache_min_compile_time_secs", min_compile_time)
@@ -122,10 +122,10 @@ def runtime_parallel_summary() -> dict[str, Any]:
 
 
 def _compilation_cache_dir() -> Path:
-    override = os.environ.get("DKX_CACHE_DIR")
+    override = os.environ.get("DRBX_CACHE_DIR")
     if override:
         return Path(override).expanduser()
-    return _default_user_cache_root() / "dkx" / "jax_compilation_cache"
+    return _default_user_cache_root() / "drbx" / "jax_compilation_cache"
 
 
 def _default_user_cache_root() -> Path:
@@ -144,7 +144,7 @@ def _configure_host_device_count_xla_flags(host_device_count: int) -> None:
         return
     if "jax" in sys.modules:
         raise RuntimeError(
-            "DKX_HOST_DEVICE_COUNT must be set before importing jax/dkx so CPU devices can be configured."
+            "DRBX_HOST_DEVICE_COUNT must be set before importing jax/drbx so CPU devices can be configured."
         )
     tokens = [token for token in shlex.split(existing_flags) if not token.startswith(_HOST_DEVICE_FLAG_PREFIX)]
     tokens.append(f"{_HOST_DEVICE_FLAG_PREFIX}{host_device_count}")

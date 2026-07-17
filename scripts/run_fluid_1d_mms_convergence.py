@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from dkx.validation.fluid_1d_mms_convergence import (
+from drbx.validation.fluid_1d_mms_convergence import (
     build_fluid_1d_mms_convergence_report,
 )
 

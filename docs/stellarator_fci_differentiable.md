@@ -3,7 +3,7 @@
 The stellarator-side Phase 6 flagship shows the paper's two core claims -- the
 flux-coordinate-independent (FCI) discretization *and* end-to-end
 differentiability -- on a non-axisymmetric flux-tube geometry, using the reduced
-drift-reduced two-field FCI model (`dkx.native.fci_2_field_rhs`):
+drift-reduced two-field FCI model (`drbx.native.fci_2_field_rhs`):
 
 ```
 d/dt n = -{phi, n}/(rho* B) + (2/B) K(n) - (2 n/B) K(phi) - n grad_par(v_par)
@@ -19,7 +19,7 @@ a rollout is `jit`-compiled and differentiable.
 
 The geometry is the shifted-torus metric promoted from the verified two-field MMS
 scaffold into the package as
-[`dkx.geometry.build_shifted_torus_geometry`](../src/dkx/geometry/shifted_torus.py).
+[`drbx.geometry.build_shifted_torus_geometry`](../src/drbx/geometry/shifted_torus.py).
 Logical coordinates are `(x, theta, zeta)`; the poloidal angle is sheared,
 `Theta = theta + sigma (x - x_mid)`, so the metric carries genuine off-diagonal
 cross terms (`g12` / `g_12`) and the coordinate frame is non-orthogonal. The
@@ -54,7 +54,7 @@ fallback for the case where a free rollout is ill-posed (it is not here).
 The gate is `tests/test_fci_differentiable.py`
 (`test_rollout_grad_matches_finite_difference`), kept fast with a small grid and
 two RK4 steps. The reusable case API lives in
-`dkx.native.fci_differentiable_case`, which the tests import directly; the
+`drbx.native.fci_differentiable_case`, which the tests import directly; the
 example script is a flat driver over that API (no `main()` function).
 
 ## Reproduce

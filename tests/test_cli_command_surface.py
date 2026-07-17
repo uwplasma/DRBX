@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from dkx.cli import (
+from drbx.cli import (
     _default_command,
     _inspect_command,
     _normalize_cli_argv,

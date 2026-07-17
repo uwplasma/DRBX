@@ -15,7 +15,7 @@ Three parallel modes are measured:
 
 Because the XLA host device count must be fixed before JAX initializes, each
 measurement re-invokes this script as a subprocess; the single internal
-handshake environment variable ``DKX_STRONG_SCALING_WORKER`` carries the
+handshake environment variable ``DRBX_STRONG_SCALING_WORKER`` carries the
 worker request (backend, device count, batch share) as JSON. All tunables are
 the plain constants below.
 
@@ -50,7 +50,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from dkx.validation.autodiff_diffusion import (
+from drbx.validation.autodiff_diffusion import (
     StrongScalingPoint,
     build_diffusion_autodiff_setup,
     compute_strong_scaling_points,
@@ -73,7 +73,7 @@ REMOTE_HOST = "office"          # SSH host with CUDA GPUs and a python3 + jax in
 # Internal worker handshake (single env var, JSON payload). Not a user setting:
 # the XLA host device count must be configured before JAX starts, so each
 # measurement re-invokes this script with this variable set.
-WORKER_ENV_VAR = "DKX_STRONG_SCALING_WORKER"
+WORKER_ENV_VAR = "DRBX_STRONG_SCALING_WORKER"
 
 
 # --- worker branch: one timed measurement inside a prepared environment -----------
@@ -219,7 +219,7 @@ def run_local_cpu_host_pmap_worker(device_count: int) -> dict[str, Any]:
     env = worker_env(
         {"backend": "cpu", "device_count": device_count, "total_batch": TOTAL_BATCH},
         {
-            "DKX_HOST_DEVICE_COUNT": str(device_count),
+            "DRBX_HOST_DEVICE_COUNT": str(device_count),
             "XLA_FLAGS": (
                 f"--xla_force_host_platform_device_count={device_count} "
                 "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
@@ -339,7 +339,7 @@ cpu_host_pmap_points = compute_strong_scaling_points(
 # --- optional remote GPU sweep ----------------------------------------------------
 gpu_results: list[dict[str, Any]] = []
 if RUN_REMOTE_GPU and GPU_DEVICE_COUNTS:
-    remote_root = f"/tmp/dkx_strong_scaling_{int(time.time())}"
+    remote_root = f"/tmp/drbx_strong_scaling_{int(time.time())}"
     print(f"staging source tree to {REMOTE_HOST}:{remote_root} for the GPU sweep...")
     try:
         stage_remote_tree(REMOTE_HOST, remote_root)

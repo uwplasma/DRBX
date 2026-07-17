@@ -10,13 +10,13 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from dkx.runtime.artifacts import ensure_docs_media  # noqa: E402
+from drbx.runtime.artifacts import ensure_docs_media  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Restore release-backed example artifacts for a lightweight dkx checkout. "
+            "Restore release-backed example artifacts for a lightweight drbx checkout. "
             "Use GitHub CLI authentication or GH_TOKEN/GITHUB_TOKEN for private releases."
         )
     )
@@ -24,7 +24,7 @@ def _parse_args() -> argparse.Namespace:
         "--root",
         type=Path,
         default=REPO_ROOT,
-        help="dkx checkout root.",
+        help="drbx checkout root.",
     )
     parser.add_argument(
         "--skip-media",
@@ -43,7 +43,7 @@ def _auth_hint() -> str:
     return (
         "Artifact download failed. For this private repository, authenticate with "
         "`gh auth login --hostname github.com` or set `GH_TOKEN`/`GITHUB_TOKEN` "
-        "to a token with access to `uwplasma/dkx`."
+        "to a token with access to `uwplasma/drbx`."
     )
 
 

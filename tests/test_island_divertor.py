@@ -13,12 +13,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dkx.geometry import (
+from drbx.geometry import (
     IslandDivertorField,
     build_island_divertor_geometry,
     island_divertor_connection_length,
 )
-from dkx.native.stellarator_turbulence import run_stellarator_turbulence
+from drbx.native.stellarator_turbulence import run_stellarator_turbulence
 
 jax.config.update("jax_enable_x64", True)
 

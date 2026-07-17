@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 
-from dkx.config.boutinp import parse_bout_input
-from dkx.config.normalization import ELEMENTARY_CHARGE, PROTON_MASS, ModelNormalization
+from drbx.config.boutinp import parse_bout_input
+from drbx.config.normalization import ELEMENTARY_CHARGE, PROTON_MASS, ModelNormalization
 
 
 def test_model_normalization_matches_reference_formulas() -> None:

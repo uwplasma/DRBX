@@ -6,7 +6,7 @@ This module provides :func:`build_open_slab_geometry`, a Cartesian scrape-off-la
 plate at ``z = 0`` and ``z = L_parallel``. The endpoint masks
 (``forward_boundary`` at the ``z = L`` target, ``backward_boundary`` at the
 ``z = 0`` target) are exactly the open-field-line target masks the sheath /
-recycling closure (:mod:`dkx.native.fci_sheath_recycling`) consumes.
+recycling closure (:mod:`drbx.native.fci_sheath_recycling`) consumes.
 
 The logical coordinates are ``(x, y, z)`` with ``x`` the radial SOL coordinate,
 ``y`` the periodic binormal, and ``z`` the parallel (connection-length)
@@ -84,7 +84,7 @@ def build_open_slab_geometry(
     Returns:
         A :class:`FciGeometry3D` whose field lines are open: ``forward_boundary``
         is set on the ``z = L`` target plane and ``backward_boundary`` on the
-        ``z = 0`` target plane, so :func:`dkx.native.fci_sheath_recycling`.
+        ``z = 0`` target plane, so :func:`drbx.native.fci_sheath_recycling`.
         `build_fci_target_masks` marks exactly the two target planes.
     """
 

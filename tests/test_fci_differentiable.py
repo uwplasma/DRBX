@@ -10,7 +10,7 @@ Covers three things quickly (small grid, two RK4 steps):
    rollout and for a single RHS evaluation.
 
 The reusable rollout machinery lives in
-``dkx.native.fci_differentiable_case``; the pedagogical script
+``drbx.native.fci_differentiable_case``; the pedagogical script
 ``examples/stellarator/fci_differentiable.py`` drives the same API.
 """
 
@@ -19,8 +19,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dkx.geometry import FciGeometry3D, build_shifted_torus_geometry
-from dkx.native.fci_differentiable_case import (
+from drbx.geometry import FciGeometry3D, build_shifted_torus_geometry
+from drbx.native.fci_differentiable_case import (
     build_context,
     differentiability_report,
     seeded_initial_state,

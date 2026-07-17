@@ -12,7 +12,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dkx.geometry import (
+from drbx.geometry import (
     BFieldGeometry,
     ConservativeStencilBuilder,
     FaceBFieldGeometry,
@@ -25,7 +25,7 @@ from dkx.geometry import (
     build_curvature_coefficients,
     build_fci_maps_from_b_contravariant,
 )
-from dkx.native.fci_boundaries import (
+from drbx.native.fci_boundaries import (
     BC_DIRICHLET,
     BC_NEUMANN,
     BoundaryConditionBuilder,
@@ -40,12 +40,12 @@ from dkx.native.fci_boundaries import (
     LocalStencil1D,
     LocalStencil3D,
 )
-from dkx.native.fci_drb_EB_rhs import FciDrbEBBoundaryConditions, FciDrbEBRhsResult, FciDrbEBState
-from dkx.native.fci_drb_EB_rhs import FciDrbEBRhsParameters
-from dkx.native.fci_drb_EB_rhs import _multiply_local_stencils
-from dkx.native.fci_drb_EB_rhs import compute_fci_drb_eb_rhs
-from dkx.native import rk4_step
-from dkx.native.fci_operators import (
+from drbx.native.fci_drb_EB_rhs import FciDrbEBBoundaryConditions, FciDrbEBRhsResult, FciDrbEBState
+from drbx.native.fci_drb_EB_rhs import FciDrbEBRhsParameters
+from drbx.native.fci_drb_EB_rhs import _multiply_local_stencils
+from drbx.native.fci_drb_EB_rhs import compute_fci_drb_eb_rhs
+from drbx.native import rk4_step
+from drbx.native.fci_operators import (
     PerpLaplacianInverseSolver,
     _take_stencil_finite_difference,
     build_perp_laplacian_face_projectors,

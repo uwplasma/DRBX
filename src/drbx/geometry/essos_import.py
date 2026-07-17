@@ -24,7 +24,7 @@ class EssosFieldLineBundle:
     """Field and field-line arrays exported from an ESSOS tracing run.
 
     The bundle deliberately stores arrays, not ESSOS objects. This keeps
-    `dkx` independent of ESSOS at runtime after the import/export step.
+    `drbx` independent of ESSOS at runtime after the import/export step.
     """
 
     trajectories_xyz: np.ndarray
@@ -85,12 +85,12 @@ def resolve_essos_landreman_qa_json(path: str | Path | None = None, *, essos_roo
     if path is not None:
         resolved = Path(path)
     else:
-        root = Path(essos_root) if essos_root is not None else Path(os.environ.get("DKX_ESSOS_ROOT", _PRIVATE_DEFAULT_ESSOS_ROOT))
+        root = Path(essos_root) if essos_root is not None else Path(os.environ.get("DRBX_ESSOS_ROOT", _PRIVATE_DEFAULT_ESSOS_ROOT))
         resolved = root / ESSOS_LANDREMAN_QA_RELATIVE_JSON
     if not resolved.exists():
         raise FileNotFoundError(
             "ESSOS Landreman-Paul QA coil JSON was not found. Pass coil_json_path "
-            "or set DKX_ESSOS_ROOT to an ESSOS checkout containing "
+            "or set DRBX_ESSOS_ROOT to an ESSOS checkout containing "
             f"{ESSOS_LANDREMAN_QA_RELATIVE_JSON}."
         )
     return resolved
@@ -102,12 +102,12 @@ def resolve_essos_landreman_qa_wout(path: str | Path | None = None, *, essos_roo
     if path is not None:
         resolved = Path(path)
     else:
-        root = Path(essos_root) if essos_root is not None else Path(os.environ.get("DKX_ESSOS_ROOT", _PRIVATE_DEFAULT_ESSOS_ROOT))
+        root = Path(essos_root) if essos_root is not None else Path(os.environ.get("DRBX_ESSOS_ROOT", _PRIVATE_DEFAULT_ESSOS_ROOT))
         resolved = root / ESSOS_LANDREMAN_QA_RELATIVE_WOUT
     if not resolved.exists():
         raise FileNotFoundError(
             "ESSOS Landreman-Paul QA VMEC wout file was not found. Pass vmec_wout_path "
-            "or set DKX_ESSOS_ROOT to an ESSOS checkout containing "
+            "or set DRBX_ESSOS_ROOT to an ESSOS checkout containing "
             f"{ESSOS_LANDREMAN_QA_RELATIVE_WOUT}."
         )
     return resolved
@@ -139,7 +139,7 @@ def trace_essos_coil_field_lines(
     """Trace coil-produced field lines with ESSOS and export arrays.
 
     ESSOS owns the magnetic-field object, adaptive field-line integration, and
-    Poincare root extraction. `dkx` only normalizes the resulting arrays
+    Poincare root extraction. `drbx` only normalizes the resulting arrays
     into a stable import bundle.
     """
 
@@ -324,7 +324,7 @@ def build_essos_imported_fci_geometry(
     - ``"hybrid"`` uses VMEC-coordinate map coordinates with coil-derived
       boundary masks, connection lengths, and magnetic-field modulation.
 
-    The external field implementation owns the field evaluation. `dkx`
+    The external field implementation owns the field evaluation. `drbx`
     provides only the logical-grid conversion needed by the native FCI,
     sheath/recycling, neutral, and PyTree RHS kernels.
     """
@@ -817,7 +817,7 @@ def save_essos_field_line_bundle_npz(bundle: EssosFieldLineBundle, path: str | P
 
 
 def load_essos_field_line_bundle_npz(path: str | Path, *, metadata: dict[str, Any] | None = None) -> EssosFieldLineBundle:
-    """Load an ESSOS field-line import bundle produced by `dkx`."""
+    """Load an ESSOS field-line import bundle produced by `drbx`."""
 
     with np.load(Path(path)) as data:
         return EssosFieldLineBundle(
@@ -844,7 +844,7 @@ def _import_essos_modules(*, essos_root: str | Path | None = None) -> dict[str, 
     if essos_root is not None:
         root = Path(essos_root)
     else:
-        root = Path(os.environ.get("DKX_ESSOS_ROOT", _PRIVATE_DEFAULT_ESSOS_ROOT))
+        root = Path(os.environ.get("DRBX_ESSOS_ROOT", _PRIVATE_DEFAULT_ESSOS_ROOT))
     if root.exists():
         root_text = str(root)
         if root_text not in sys.path:
@@ -852,7 +852,7 @@ def _import_essos_modules(*, essos_root: str | Path | None = None) -> dict[str, 
     coils_module = importlib.import_module("essos.coils")
     fields_module = importlib.import_module("essos.fields")
     dynamics_module = importlib.import_module("essos.dynamics")
-    if os.environ.get("DKX_ESSOS_PROGRESS") != "1" and hasattr(dynamics_module, "NoProgressMeter"):
+    if os.environ.get("DRBX_ESSOS_PROGRESS") != "1" and hasattr(dynamics_module, "NoProgressMeter"):
         dynamics_module.TqdmProgressMeter = dynamics_module.NoProgressMeter
     return {
         # Newer ESSOS branches replace the module-level loader with a

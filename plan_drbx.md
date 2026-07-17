@@ -1,6 +1,6 @@
-# DKX Execution Plan
+# DRBX Execution Plan
 
-This file is the single authoritative plan for `dkx`. It replaces
+This file is the single authoritative plan for `drbx`. It replaces
 `docs/research_grade_execution_plan.md` (5,935 lines, now an archival stub; full
 text in git history). Written 2026-07-12 after a full audit of the source tree,
 test suite, docs, hermes-3, SOLVAX, and the 2024–2026 literature; revised the
@@ -10,7 +10,7 @@ example matrix.
 
 ## Product definition
 
-`dkx` is a JAX-based, end-to-end differentiable drift-reduced Braginskii
+`drbx` is a JAX-based, end-to-end differentiable drift-reduced Braginskii
 (DRB) code for edge and scrape-off-layer plasma turbulence, on both closed and
 open field lines, in axisymmetric (tokamak) and non-axisymmetric (stellarator)
 geometry via the flux-coordinate-independent (FCI) approach. It must be
@@ -42,7 +42,7 @@ What is genuinely strong and must be preserved:
   `NVh` term-level offenders closed to 1e-9–1e-12 on their gates.
 - FCI machinery for imported geometry (ESSOS coils, VMEC, hybrid), with a
   Jacobi-preconditioned potential solve and measured interpolation order ~1.96.
-- A TOML-deck CLI (`dkx run deck.toml`) plus `run_input_case` Python API,
+- A TOML-deck CLI (`drbx run deck.toml`) plus `run_input_case` Python API,
   restart bundles, and structured run logs.
 - Incorporated from PR #3 (Aiken Xie, branch `3D_fci`, merged 2026-07-12): a
   new cell-centered FCI stack — `geometry/fci_geometry.py` (FciGeometry3D,
@@ -58,7 +58,7 @@ What is genuinely strong and must be preserved:
 
 What is broken or oversold and drives this plan:
 
-- Weight: 80,044 LOC in `src/dkx` of which 42,065 (53%) is
+- Weight: 80,044 LOC in `src/drbx` of which 42,065 (53%) is
   `validation/` campaign/figure harness code never referenced by the CLI;
   `native/recycling_1d.py` alone is 7,883 lines. Tests are ~60k LOC across 147
   files, dominated by harness/artifact-existence/mock tests. Docs are 491
@@ -90,14 +90,14 @@ What is broken or oversold and drives this plan:
    ledger" / "claim boundary" / "capability tier" vocabulary anywhere in
    README, docs, or code. A figure without a reproduction command does not
    ship.
-3. Coverage means whole-package: `pytest --cov=dkx` over `src/dkx`,
+3. Coverage means whole-package: `pytest --cov=drbx` over `src/drbx`,
    one number, enforced in CI at 95% after Phase 1. No curated file lists.
 4. Heavy artifacts (NetCDF, npz baselines, movies, profiler bundles) live in
    GitHub releases with a manifest, never in git history.
 5. Every commit is authored as rogeriojorge with no Co-Authored-By or
    Generated-with trailers.
 6. No version-suffixed module names (`_v2`, `_new`). Canonical names only.
-7. Generic numerics belong in SOLVAX; dkx keeps physics. Host-side SciPy
+7. Generic numerics belong in SOLVAX; drbx keeps physics. Host-side SciPy
    paths are labeled as such and never marketed as differentiable.
 8. Prefer deleting to relocating: anything not needed for the product
    definition, the benchmark ladder, or a shipped example is removed (git
@@ -106,7 +106,7 @@ What is broken or oversold and drives this plan:
 ## Target architecture and budgets
 
 ```text
-src/dkx/                      ≤ 38,000 LOC (full hermes-3 menu included;
+src/drbx/                      ≤ 38,000 LOC (full hermes-3 menu included;
   config/       TOML decks, normalization             still <50% of today)
   geometry/     mesh, metrics, FCI maps, ESSOS/VMEC/VMEC-extender import
   physics/      DRB models: RHS terms, closures, drifts, sheath,
@@ -131,7 +131,7 @@ docs/           ≤ 30 markdown pages + small images; campaign reports deleted
 
 Deletion targets (from the audit; git history preserves everything):
 
-- `src/dkx/validation/`: 36 `*_campaign.py` files (~28.3k LOC) plus
+- `src/drbx/validation/`: 36 `*_campaign.py` files (~28.3k LOC) plus
   movie/scaffold/audit/profile harnesses (~12.7k LOC). Keep only the analysis
   functions used by benchmark tests (drift_wave, blob2d, alfven_wave,
   neutral_mixed, fluid_1d_mms), consolidated into `diagnostics/`.
@@ -162,13 +162,13 @@ the exact command that made it.
 
 ## hermes-3 capability parity matrix
 
-Goal: every hermes-3 component has a dkx equivalent with a test, or an
+Goal: every hermes-3 component has a drbx equivalent with a test, or an
 explicit stretch/deferred label in this table. "Have/partial" statuses below
 are from the 2026-07 audit; Phase 4B step 1 verifies each one against a
 hermes-3 golden case and locks the matrix in `docs/parity.md`. Component names
 are hermes-3's (CPC 296, 108991; local checkout `/Users/rogerio/local/hermes-3`).
 
-| Group | hermes-3 component | dkx status | Target |
+| Group | hermes-3 component | drbx status | Target |
 |---|---|---|---|
 | Density | `evolve_density` | have | 4A |
 | | `fixed_density`, `set_temperature`-style prescribed fields | partial (deck expressions) | 4B |
@@ -240,8 +240,8 @@ V3 = validation (experiment/public dataset).
 | # | Tier | Case | Anchor | Pass criterion |
 |---|------|------|--------|----------------|
 | B1 | V1 | MMS convergence, 1D fluid + 2D operators on curvilinear metric | Riva et al., PoP 21, 062301 (2014); Dudson et al., PoP 23, 062303 (2016), arXiv:1602.06747 | observed order → 2 (assert ≥ 1.9 on operators, ≥ 1.5 on integrated 1D) |
-| B2 | V1 | Resistive drift-wave dispersion (adiabaticity scan) | BOUT++: Dudson et al., CPC 180, 1467 (2009), arXiv:0810.5757 | **DONE** — `dkx.linear` Hasegawa-Wakatani operator: adiabatic limit → ω\* = κk_y/(1+k⊥²); finite-α resistive instability with growth rising toward the hydrodynamic regime (tests/test_linear_dispersion.py) |
-| B3 | V1 | Shear-Alfvén wave dispersion incl. electron inertia (k⊥ scan) | Stegmeir et al., PoP 26, 052517 (2019), arXiv:1904.09230 | **DONE** — `dkx.linear` shear-Alfvén operator reproduces ω = k∥ v_A/(1+k⊥²d_e²)^½ to machine precision, matching the code's Alfvén-benchmark deck |
+| B2 | V1 | Resistive drift-wave dispersion (adiabaticity scan) | BOUT++: Dudson et al., CPC 180, 1467 (2009), arXiv:0810.5757 | **DONE** — `drbx.linear` Hasegawa-Wakatani operator: adiabatic limit → ω\* = κk_y/(1+k⊥²); finite-α resistive instability with growth rising toward the hydrodynamic regime (tests/test_linear_dispersion.py) |
+| B3 | V1 | Shear-Alfvén wave dispersion incl. electron inertia (k⊥ scan) | Stegmeir et al., PoP 26, 052517 (2019), arXiv:1904.09230 | **DONE** — `drbx.linear` shear-Alfvén operator reproduces ω = k∥ v_A/(1+k⊥²d_e²)^½ to machine precision, matching the code's Alfvén-benchmark deck |
 | B4 | V2 | Seeded blob / 2D filament: velocity-vs-size scaling (inertial + sheath-limited branches) | Riva et al., PPCF 58, 044005 (2016); Easy et al., PoP 21, 122515 (2014), arXiv:1410.2137 | reproduce v_r(t) and the two-branch velocity scaling; cross-check vs hermes-3 `blob2d` |
 | B5 | V2 | hermes-3 parity ladder (see next section) | Hermes-3: Dudson et al., CPC 296, 108991 (2024), arXiv:2303.12131 | per-case tolerances from regenerated goldens with provenance |
 | B6 | V2 | 1D detachment: target-flux rollover under upstream-density scan; recombination dominant below T_t ≈ 1 eV; Lengyel-scaling comparison | SD1D: Dudson et al., PPCF 61, 065008 (2019), arXiv:1812.09402; Body et al., NME 41, 101819 (2024), arXiv:2406.16375 | rollover reproduced; detachment-onset scaling matches Lengyel within ~2x — **DONE**: `native/neutrals/detachment_sol_model.py` (evolved T, implicit Spitzer conduction, self-limiting radiation) reproduces the target-flux rollover + cooling below 1 eV under an upstream-density scan (`tests/test_native_detachment_sol.py`, `examples/benchmarks/b6_detachment_rollover.py`); Lengyel/impurity-radiation quantitative match still open |
@@ -327,12 +327,12 @@ arXiv:2603.28221), GENE-X stellarator extension (SSRN/CPC preprint, 2025).
 
 ## SOLVAX extraction (uwplasma/SOLVAX, PyPI `solvax`)
 
-dkx's `solver/implicit.py` (2,867 LOC) is physics-agnostic and moves to
-SOLVAX as new modules; dkx keeps residual builders, stencil/coloring
+drbx's `solver/implicit.py` (2,867 LOC) is physics-agnostic and moves to
+SOLVAX as new modules; drbx keeps residual builders, stencil/coloring
 choices, and the physics-named preconditioner alias table. Commit/push to
 SOLVAX is authorized.
 
-| New/extended solvax module | Content (from dkx) |
+| New/extended solvax module | Content (from drbx) |
 |---|---|
 | `solvax.integrators` | `backward_euler_residual`, variable-step `bdf2_residual` |
 | `solvax.sparsity` | stencil-radius CSR patterns, modulo graph coloring, JVP direction plans/workspaces |
@@ -343,9 +343,9 @@ SOLVAX is authorized.
 | `solvax.pcg` (extend) | optional inner-product/projection hooks (absorbs the FCI vorticity CG) |
 | `solvax.elliptic` (new) | Fourier–Helmholtz spectral+tridiagonal solve |
 
-Result: `solver/implicit.py` → ~400–600 LOC of adapters; dkx sheds
+Result: `solver/implicit.py` → ~400–600 LOC of adapters; drbx sheds
 ~2,400 LOC; solvax gains the features with its own ≥95% coverage gate and a
-minor-version release. dkx then depends on `solvax` (and drops unused
+minor-version release. drbx then depends on `solvax` (and drops unused
 `diffrax`/`equinox`; `lineax` becomes an optional extra or arrives via solvax).
 
 ## Phases
@@ -358,7 +358,7 @@ this file.
 
 1. Land this plan; stub the old plan doc; update mkdocs nav.
 2. Fix `pyproject.toml` dependencies (rule 7 list above).
-3. Replace coverage machinery with one whole-package `pytest --cov=dkx`
+3. Replace coverage machinery with one whole-package `pytest --cov=drbx`
    lane; delete the two curated-gate scripts and `test_closeout_coverage.py`;
    record the honest baseline number in CI output (badge later, once real).
 4. CI runs the full fast suite (`-m "not slow"`) on 3.10–3.12; heavy/live
@@ -399,16 +399,16 @@ coverage ≥ 95% now enforced in CI; README/docs contain no dead links.
 
 ### Phase 2 — SOLVAX extraction
 
-Execute the extraction table; release solvax; adapt dkx; delete the
+Execute the extraction table; release solvax; adapt drbx; delete the
 duplicated linearized-update in `recycling_fixed_residual.py` and the
 hand-rolled CG in `fci_vorticity.py`. Golden parity tests unchanged.
 
-Gate: dkx imports solvax for all generic numerics; parity suite green;
+Gate: drbx imports solvax for all generic numerics; parity suite green;
 solvax coverage ≥95% including the new modules.
 
 ### Phase 3 — Physics completeness and the linear DRB solver
 
-1. **DONE** — `dkx.linear`: `jacobian_operator` + `eigenmodes` (dense
+1. **DONE** — `drbx.linear`: `jacobian_operator` + `eigenmodes` (dense
    Jacobian of any JAX RHS about an equilibrium → γ, ω, eigenvectors), plus
    reduced dispersion operators. The "linear solver of the DRB equations" and
    the engine for the dispersion benchmarks.
@@ -546,7 +546,7 @@ GPU claim anywhere.
   --dist worksteal` (needs `pytest-xdist`, in the `dev` extra). Per-change,
   run only the affected test files (seconds); run the full parallel suite
   before each commit. The authoritative local gates are: that parallel fast
-  suite, `DKX_DISABLE_REFERENCE_ROOT=1 pytest -q -m "not slow"` (reproduces
+  suite, `DRBX_DISABLE_REFERENCE_ROOT=1 pytest -q -m "not slow"` (reproduces
   the no-reference-checkout condition), and `mkdocs build --strict --clean`.
   Mark genuinely heavy tests `slow` so they stay out of the fast gate.
 - CI memory note: the full fast suite peaks at ~6.9 GB RSS (driven by the

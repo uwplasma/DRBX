@@ -2,8 +2,8 @@
 
 Starting from the restartable-diffusion TOML template, the script writes one
 precision-specific input deck per precision (rewriting only the ``[runtime]``
-precision entry with the public ``dkx.config.rewrite_input_precision``
-helper), runs ``python -m dkx`` on each deck in a fresh subprocess
+precision entry with the public ``drbx.config.rewrite_input_precision``
+helper), runs ``python -m drbx`` on each deck in a fresh subprocess
 (``REPEATS`` times per precision, each precision with its own compilation
 cache directory so the first repeat shows compile cost), and records wall-clock
 times plus any float64-truncation warnings emitted by the float32 path.
@@ -36,7 +36,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-from dkx.config import rewrite_input_precision
+from drbx.config import rewrite_input_precision
 
 # --- PARAMETERS ------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -48,14 +48,14 @@ REPEATS = 2                          # runs per precision; repeat 1 includes com
 
 
 def run_precision_case(precision: str, repeat_index: int, input_path: Path, cache_dir: Path) -> dict[str, Any]:
-    """Run one dkx subprocess and collect timing plus warning counts."""
+    """Run one drbx subprocess and collect timing plus warning counts."""
 
     run_dir = OUTPUT_ROOT / f"{precision}_run_{repeat_index + 1}"
     run_dir.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable,
         "-m",
-        "dkx",
+        "drbx",
         str(input_path),
         "--case-name",
         f"{CASE_NAME}_{precision}",
@@ -65,7 +65,7 @@ def run_precision_case(precision: str, repeat_index: int, input_path: Path, cach
     ]
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO_ROOT / "src")
-    env["DKX_CACHE_DIR"] = str(cache_dir)
+    env["DRBX_CACHE_DIR"] = str(cache_dir)
 
     started = time.perf_counter()
     completed = subprocess.run(command, env=env, text=True, capture_output=True, check=False)
@@ -107,7 +107,7 @@ for precision in PRECISIONS:
     input_path.write_text(rewrite_input_precision(template_text, precision), encoding="utf-8")
     print(f"\nBenchmarking {precision}")
     print(f"  input_file: {input_path}")
-    with tempfile.TemporaryDirectory(prefix=f"dkx_precision_{precision}_") as cache_dir_raw:
+    with tempfile.TemporaryDirectory(prefix=f"drbx_precision_{precision}_") as cache_dir_raw:
         cache_dir = Path(cache_dir_raw)
         for repeat_index in range(REPEATS):
             result = run_precision_case(precision, repeat_index, input_path, cache_dir)

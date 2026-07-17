@@ -12,7 +12,7 @@ import time
 
 
 DEFAULT_TIMEOUT_SECONDS = 300
-DEFAULT_COVERAGE_TARGET = "src/dkx"
+DEFAULT_COVERAGE_TARGET = "src/drbx"
 
 
 @dataclass(frozen=True)
@@ -128,7 +128,7 @@ def run_checked_command(
         pythonpath_entries.append(existing_pythonpath)
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
-    env["DKX_PRECISION"] = "float64"
+    env["DRBX_PRECISION"] = "float64"
     env["JAX_ENABLE_X64"] = "true"
     try:
         completed = subprocess.run(

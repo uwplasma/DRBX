@@ -1,6 +1,6 @@
 # Restartable Diffusion Tutorial
 
-This example is the first end-to-end runtime tutorial for `dkx` as a standalone runtime path, not only an internal utility.
+This example is the first end-to-end runtime tutorial for `drbx` as a standalone runtime path, not only an internal utility.
 
 Entry point:
 
@@ -11,7 +11,7 @@ What it demonstrates:
 - how to define a small TOML input deck directly in Python;
 - how to choose mesh resolution, timestep, `nout`, diffusion coefficient, and initial conditions explicitly;
 - how to choose runtime precision explicitly (`float64` or `float32`);
-- how to call the bare `dkx input.toml` CLI programmatically;
+- how to call the bare `drbx input.toml` CLI programmatically;
 - how to write summary JSON, full-result `.npz`, restart `.npz`, and verbose run-log JSON artifacts;
 - how to resume from a saved restart bundle;
 - how to read the saved `.npz` files back in and make Matplotlib 2D, 3D, and movie outputs.
@@ -22,7 +22,7 @@ What it demonstrates:
 PYTHONPATH=src python examples/restartable_diffusion_tutorial.py
 ```
 
-There are no command-line flags: like every `dkx` example, the script is a
+There are no command-line flags: like every `drbx` example, the script is a
 flat pedagogical file configured by the PARAMETERS constants near the top.
 Edit and rerun:
 

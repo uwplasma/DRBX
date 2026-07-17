@@ -2,7 +2,7 @@
 
 !!! note "Plan authority"
     This page explains current performance and differentiability evidence. The
-    active execution plan is [`plan_dkx.md`](../plan_dkx.md) at the
+    active execution plan is [`plan_drbx.md`](../plan_drbx.md) at the
     repository root. If this page conflicts with that plan, follow the plan and
     update this page afterward.
 
@@ -187,7 +187,7 @@ They also answer the first CPU-parallelism question:
 - the default JAX CPU runtime appears as one CPU device and relies on XLA's
   internal CPU threading;
 - explicit host-device CPU parallelism is possible by setting
-  `DKX_HOST_DEVICE_COUNT=N` before importing `dkx` or `jax`;
+  `DRBX_HOST_DEVICE_COUNT=N` before importing `drbx` or `jax`;
 - on the committed differentiable diffusion scaling surface the local
   process-group mode is slightly stronger than the host-device `pmap` mode on
   this MacBook, but both are modest;
@@ -201,7 +201,7 @@ There are three distinct execution modes worth separating:
 
 - default CPU execution: one JAX CPU device with XLA-managed internal threading;
 - explicit host-device CPU execution: multiple CPU devices exposed with
-  `DKX_HOST_DEVICE_COUNT=N`, then mapped with `pmap` or equivalent
+  `DRBX_HOST_DEVICE_COUNT=N`, then mapped with `pmap` or equivalent
   device-parallel transforms;
 - process-group CPU execution: multiple Python workers with one JAX CPU device
   each.
@@ -253,7 +253,7 @@ operator/turbulence/MMS/blob/sharded gates passing:
   the default for validation harnesses.
 - **whole-step JIT**: the entire RK4 step — all four RHS evaluations,
   including their GMRES phi inversions — now compiles as **one jit program**
-  in `dkx.native.stellarator_turbulence.run_stellarator_turbulence`
+  in `drbx.native.stellarator_turbulence.run_stellarator_turbulence`
   (a one-time compile of about 9 s, then no per-stage Python dispatch).
   Supporting this, `compute_2field_rhs` / `compute_4field_*` now return
   `timings=None` by default (sync-free, jittable); passing

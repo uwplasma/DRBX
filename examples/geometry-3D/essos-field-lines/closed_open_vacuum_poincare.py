@@ -16,13 +16,13 @@ traces both, directly through the ESSOS coil field:
 
 Requires an ESSOS checkout (`pip` deps only; no compiled code):
 
-    DKX_ESSOS_ROOT=~/local/ESSOS_test \
+    DRBX_ESSOS_ROOT=~/local/ESSOS_test \
         PYTHONPATH=src python examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py
 
 prints per-line classifications and writes
 ``output/essos_closed_open/closed_open_vacuum_poincare.png`` (relative to the
 current working directory). If ESSOS is not importable the script explains how
-to point ``DKX_ESSOS_ROOT`` at a checkout and exits.
+to point ``DRBX_ESSOS_ROOT`` at a checkout and exits.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
-from dkx.geometry import (
+from drbx.geometry import (
     essos_runtime_available,
     load_essos_coil_field_axis,
     trace_essos_coil_initial_conditions,
@@ -95,8 +95,8 @@ def poincare_points(trajectory_xyz: np.ndarray) -> np.ndarray:
 # --- trace, classify, and plot ----------------------------------------------------
 if not essos_runtime_available():
     raise SystemExit(
-        "ESSOS is not importable. Point DKX_ESSOS_ROOT at a checkout, e.g.\n"
-        "    DKX_ESSOS_ROOT=~/local/ESSOS_test python ..."
+        "ESSOS is not importable. Point DRBX_ESSOS_ROOT at a checkout, e.g.\n"
+        "    DRBX_ESSOS_ROOT=~/local/ESSOS_test python ..."
     )
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

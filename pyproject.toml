@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dkx"
+name = "drbx"
 version = "2.0.0.dev0"
 description = "JAX-first edge and scrape-off-layer plasma code with differentiable, hardware-agnostic solver infrastructure."
 readme = "README.md"
@@ -31,7 +31,7 @@ dev = ["pytest", "pytest-cov", "pytest-xdist"]
 docs = ["mkdocs", "pymdown-extensions"]
 
 [project.scripts]
-dkx = "dkx.cli:main"
+drbx = "drbx.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -40,7 +40,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-"dkx.data.atomic_rates" = ["*.json"]
+"drbx.data.atomic_rates" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -50,7 +50,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["src/dkx"]
+source = ["src/drbx"]
 
 [tool.coverage.report]
 show_missing = true

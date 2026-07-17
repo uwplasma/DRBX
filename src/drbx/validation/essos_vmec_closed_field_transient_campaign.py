@@ -292,7 +292,7 @@ def build_essos_vmec_closed_field_transient_campaign(
     bmag = np.asarray(geometry.magnetic_field_magnitude, dtype=np.float64)
     report: dict[str, Any] = {
         "case": "essos_vmec_closed_field_transient",
-        "source": "DKX reduced closed-field transient on ESSOS/VMEC periodic FCI maps",
+        "source": "DRBX reduced closed-field transient on ESSOS/VMEC periodic FCI maps",
         "map_source": "vmec",
         "geometry": dict(getattr(geometry, "metadata", {})),
         "shape": [int(value) for value in shape],
@@ -467,7 +467,7 @@ def save_essos_vmec_closed_field_transient_movie(
     vmax = float(np.asarray(arrays["movie_vmax"], dtype=np.float64)[0])
     norm = colors.TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
     frame_indices = np.linspace(0, history.shape[0] - 1, min(18, history.shape[0]), dtype=int)
-    with tempfile.TemporaryDirectory(prefix="dkx_vmec_closed_movie_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="drbx_vmec_closed_movie_") as temp_dir:
         frame_paths: list[Path] = []
         for local_index, frame_index in enumerate(frame_indices):
             frame_path = Path(temp_dir) / f"frame_{local_index:03d}.png"

@@ -4,8 +4,8 @@ import jax.numpy as jnp
 import numpy as np
 import jax
 
-from dkx.geometry import MetricTensor3D, build_metric_report, build_synthetic_stellarator_geometry, identity_fci_maps
-from dkx.native.fci import (
+from drbx.geometry import MetricTensor3D, build_metric_report, build_synthetic_stellarator_geometry, identity_fci_maps
+from drbx.native.fci import (
     conservative_parallel_diffusion_fci,
     conservative_perp_diffusion_xz,
     fci_yup,
@@ -13,8 +13,8 @@ from dkx.native.fci import (
     logical_exb_bracket_xz,
     metric_weighted_scalar_laplacian_3d,
 )
-from dkx.native.fci_sheath_recycling import compute_fci_sheath_recycling
-from dkx.native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
+from drbx.native.fci_sheath_recycling import compute_fci_sheath_recycling
+from drbx.native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
 
 
 def test_synthetic_stellarator_geometry_metric_and_maps_are_valid() -> None:

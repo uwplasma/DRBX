@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dkx.validation import create_autodiff_diffusion_uncertainty_package
+from drbx.validation import create_autodiff_diffusion_uncertainty_package
 
 # --- PARAMETERS ------------------------------------------------------------------
 OUTPUT_ROOT = Path("docs/data/autodiff_diffusion_uncertainty_artifacts")  # artifact root (cwd-relative)

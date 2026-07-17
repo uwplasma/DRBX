@@ -22,7 +22,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
-      DKX_USE_FIXTURE_REFERENCE_ROOT: "1"
+      DRBX_USE_FIXTURE_REFERENCE_ROOT: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -37,13 +37,13 @@ jobs:
         # separate process so its multi-GB peak does not stack with the main
         # suite, while coverage still accumulates into one whole-package number.
         run: |
-          pytest -q -m "not slow" --cov=dkx --cov-branch \
+          pytest -q -m "not slow" --cov=drbx --cov-branch \
             --ignore-glob=tests/test_fci_*.py \
             --ignore-glob=tests/test_mms_shifted_torus_*.py \
             --ignore-glob=tests/test_mms_slab_*.py \
             --ignore-glob=tests/test_multigrid_*.py \
             --ignore-glob=tests/test_shifted_torus_*.py
-          pytest -q -m "not slow" --cov=dkx --cov-branch --cov-append \
+          pytest -q -m "not slow" --cov=drbx --cov-branch --cov-append \
             tests/test_fci_halo.py \
             tests/test_fci_model_state.py \
             tests/test_fci_operators.py \

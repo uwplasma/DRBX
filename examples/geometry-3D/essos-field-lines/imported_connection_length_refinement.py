@@ -30,7 +30,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
-from dkx.validation import (
+from drbx.validation import (
     create_essos_imported_connection_length_refinement_package,
     create_live_essos_imported_connection_length_refinement_package,
 )

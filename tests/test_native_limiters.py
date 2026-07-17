@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from dkx.native.limiters import (
+from drbx.native.limiters import (
     minmod3_jax,
     minmod3_numpy,
     minmod3_scalar,

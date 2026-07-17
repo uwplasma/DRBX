@@ -2,12 +2,12 @@
 
 This module supersedes the historical ``native.runner`` recycling/reference
 lane.  It keeps only the accuracy-tested execution branches that back the
-``dkx run`` command:
+``drbx run`` command:
 
 * single-component ``evolve_density`` (one-rhs),
-* anomalous diffusion (:mod:`dkx.native.transport`),
-* periodic fluid MMS (:mod:`dkx.native.fluid_1d`),
-* electrostatic vorticity (:mod:`dkx.native.vorticity`).
+* anomalous diffusion (:mod:`drbx.native.transport`),
+* periodic fluid MMS (:mod:`drbx.native.fluid_1d`),
+* electrostatic vorticity (:mod:`drbx.native.vorticity`).
 
 It imports only kept modules and carries slim, dependency-free copies of the
 portable-summary / portable-array helpers so the CLI can write run artifacts
@@ -161,7 +161,7 @@ def build_portable_summary_payload(
     overrides: tuple[str, ...] = (),
     configured_nout: int | None = None,
     configured_timestep: float | None = None,
-    producer: str = "dkx",
+    producer: str = "drbx",
 ) -> dict[str, Any]:
     summary_dimensions = tuple(dimensions)
     summaries = {
@@ -212,7 +212,7 @@ def build_portable_array_payload(
     overrides: tuple[str, ...] = (),
     configured_nout: int | None = None,
     configured_timestep: float | None = None,
-    producer: str = "dkx",
+    producer: str = "drbx",
 ) -> dict[str, Any]:
     summary_dimensions = tuple(dimensions)
     payload_variables: dict[str, np.ndarray] = {}
@@ -428,7 +428,7 @@ def run_config_case(
         overrides=_default_overrides(parity_mode),
         configured_nout=run_config.time.nout,
         configured_timestep=run_config.time.timestep,
-        producer="dkx",
+        producer="drbx",
     )
     emit(
         "summary",

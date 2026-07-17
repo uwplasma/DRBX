@@ -1,6 +1,6 @@
 # Testing Strategy
 
-This page explains how `dkx` should be tested during the refactor and what
+This page explains how `drbx` should be tested during the refactor and what
 counts as meaningful evidence for a research-grade release.
 
 !!! note "Plan authority"
@@ -17,7 +17,7 @@ the [TCV-X21 benchmark program](https://arxiv.org/abs/2109.01618).
 
 ## Evidence Layers
 
-`dkx` should be tested in layers. No single layer is sufficient by itself.
+`drbx` should be tested in layers. No single layer is sufficient by itself.
 
 ### Verification
 
@@ -46,7 +46,7 @@ This layer includes:
 
 ### Code-to-code validation
 
-This layer compares `dkx` against curated reference outputs for the kept
+This layer compares `drbx` against curated reference outputs for the kept
 models.
 
 This is the main current bridge for:
@@ -79,7 +79,7 @@ The current on-disk tree is still mostly flat, but the refactor should make the
 distinction explicit in filenames, markers, and CI slices before or during any
 directory migration.
 
-For `dkx`, the high-value test taxonomy is now:
+For `drbx`, the high-value test taxonomy is now:
 
 - operator identity tests for each term in the density, pressure, momentum,
   vorticity, sheath, recycling, neutral, and collision equations;
@@ -121,7 +121,7 @@ The release standard from the consolidated execution plan is:
 The explicit whole-package coverage entry point is now:
 
 ```bash
-pytest -q -m "not slow" --cov=dkx --cov-branch
+pytest -q -m "not slow" --cov=drbx --cov-branch
 coverage report
 ```
 

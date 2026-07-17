@@ -72,7 +72,7 @@ def test_build_pytest_command_adds_coverage_flags_only_when_requested() -> None:
     )
 
     assert without_cov == ("python", "-m", "pytest", "-q", "--maxfail=1", "tests/test_demo.py", "-k", "demo")
-    assert "--cov=src/dkx" in with_cov
+    assert "--cov=src/drbx" in with_cov
     assert "--cov-append" in with_cov
 
 
@@ -81,7 +81,7 @@ def test_run_checked_command_reports_timeout(monkeypatch: pytest.MonkeyPatch, tm
 
     def fake_run(*args, **kwargs):
         assert str(tmp_path / "src") in kwargs["env"]["PYTHONPATH"]
-        assert kwargs["env"]["DKX_PRECISION"] == "float64"
+        assert kwargs["env"]["DRBX_PRECISION"] == "float64"
         raise subprocess.TimeoutExpired(cmd=kwargs.get("args", args[0]), timeout=5)
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)

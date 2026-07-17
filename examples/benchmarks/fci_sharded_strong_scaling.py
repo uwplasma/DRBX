@@ -3,7 +3,7 @@
 The script re-invokes itself once per device count because the XLA host device
 count must be fixed with ``--xla_force_host_platform_device_count=<n>`` before
 JAX is imported; the single internal handshake environment variable
-``DKX_SHARDING_DEMO_WORKER`` carries the requested device count, and the
+``DRBX_SHARDING_DEMO_WORKER`` carries the requested device count, and the
 worker branch is the small guarded block right below the constants. Each worker
 advances the same shifted-torus two-field state and prints one JSON line; the
 parent verifies that all final-state checksums agree, then writes
@@ -57,7 +57,7 @@ CHECKSUM_RTOL = 1.0e-10    # relative tolerance for the cross-device checksum ga
 
 # Internal worker handshake (do not set by hand): the parent re-invokes this
 # script with this env var holding the device count after preparing XLA_FLAGS.
-WORKER_ENV_VAR = "DKX_SHARDING_DEMO_WORKER"
+WORKER_ENV_VAR = "DRBX_SHARDING_DEMO_WORKER"
 
 
 def run_worker(device_count: int) -> None:
@@ -66,7 +66,7 @@ def run_worker(device_count: int) -> None:
     import jax
     import jax.numpy as jnp  # noqa: F401  (kept for parity with the sharded API imports)
 
-    from dkx.native import Fci2FieldRhsParameters, make_sharded_2field_step
+    from drbx.native import Fci2FieldRhsParameters, make_sharded_2field_step
     from tests.fci_sharded_2field_case import build_case_geometry, build_initial_state
 
     shard_counts = SHARD_LAYOUTS[device_count]
@@ -162,7 +162,7 @@ def _launch_worker(device_count: int) -> dict[str, object]:
         # Real accelerator devices: no forced host platform, no affinity.
         env["JAX_PLATFORMS"] = PLATFORM
     env[WORKER_ENV_VAR] = str(device_count)
-    env.pop("DKX_HOST_DEVICE_COUNT", None)
+    env.pop("DRBX_HOST_DEVICE_COUNT", None)
 
     completed = subprocess.run(
         command,

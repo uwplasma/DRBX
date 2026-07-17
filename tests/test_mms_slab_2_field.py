@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dkx.geometry import (
+from drbx.geometry import (
     BFieldGeometry,
     CellCenteredGrid3D,
     FciGeometry3D,
@@ -22,8 +22,8 @@ from dkx.geometry import (
     build_local_stencil_from_field,
     logical_grid_from_axis_vectors,
 )
-from dkx.native.fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldState, compute_2field_rhs
-from dkx.native.fci_boundaries import BC_DIRICHLET, BoundaryConditionBuilder, BoundaryFaceBC3D, CutWallBC3D, CutWallGeometry3D
+from drbx.native.fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldState, compute_2field_rhs
+from drbx.native.fci_boundaries import BC_DIRICHLET, BoundaryConditionBuilder, BoundaryFaceBC3D, CutWallBC3D, CutWallGeometry3D
 
 A = 0.1
 B = 0.1

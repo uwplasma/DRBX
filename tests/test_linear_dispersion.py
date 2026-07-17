@@ -1,6 +1,6 @@
 """Linear dispersion benchmarks B2 (resistive drift wave) and B3 (shear Alfven).
 
-These verify that the linear operators in :mod:`dkx.linear`, assembled
+These verify that the linear operators in :mod:`drbx.linear`, assembled
 directly from the reduced model equations, reproduce the analytic dispersion
 relations from the literature when diagonalized -- and that the general
 Jacobian-based engine recovers a known operator.
@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from dkx.linear import (
+from drbx.linear import (
     drift_wave_adiabatic_frequency,
     eigenmodes,
     interchange_growth_rate,
@@ -189,7 +189,7 @@ def test_general_engine_linearizes_the_hasegawa_wakatani_model() -> None:
     # the per-mode analytic drift-wave operator -- to machine precision. This
     # demonstrates "linearize any model" on a real nonlinear DRB model, not just
     # the analytic reduced operators.
-    from dkx.native.hasegawa_wakatani import HasegawaWakataniParameters, hw_grid, hw_rhs
+    from drbx.native.hasegawa_wakatani import HasegawaWakataniParameters, hw_grid, hw_rhs
 
     n = 4
     length = 2.0 * np.pi * 3.0

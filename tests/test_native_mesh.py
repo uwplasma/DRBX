@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dkx.config.boutinp import parse_bout_input
-from dkx.native.mesh import (
+from drbx.config.boutinp import parse_bout_input
+from drbx.native.mesh import (
     apply_field_boundaries,
     apply_neumann_x_guards,
     apply_x_boundary,
@@ -14,7 +14,7 @@ from dkx.native.mesh import (
     communicate_y_guards,
     project_nonnegative_x_boundaries,
 )
-from dkx.runtime.run_config import RunConfiguration
+from drbx.runtime.run_config import RunConfiguration
 
 
 def test_structured_mesh_matches_expected_coordinate_convention() -> None:

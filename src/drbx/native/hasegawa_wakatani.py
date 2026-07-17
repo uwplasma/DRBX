@@ -18,7 +18,7 @@ pseudo-spectrally with 2/3-rule dealiasing.
 
 The whole right-hand side is written in JAX, so a run is ``jit``-compiled and
 differentiable. Its single-mode linear growth rate reproduces the eigenvalue of
-:func:`dkx.linear.resistive_drift_wave_operator` (benchmark B2); at finite
+:func:`drbx.linear.resistive_drift_wave_operator` (benchmark B2); at finite
 amplitude it develops nonlinear E x B transport with an outward particle flux
 that saturates statistically when ``mu > 0`` absorbs the inverse cascade.
 

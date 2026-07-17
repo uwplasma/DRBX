@@ -77,7 +77,7 @@ class _NullContext:
 
 
 def _run_campaign(nx: int, ny: int, nz: int, steps: int) -> dict[str, Any]:
-    from dkx.validation.stellarator_drb_pytree_campaign import build_stellarator_drb_pytree_campaign
+    from drbx.validation.stellarator_drb_pytree_campaign import build_stellarator_drb_pytree_campaign
 
     report, _arrays = build_stellarator_drb_pytree_campaign(nx=nx, ny=ny, nz=nz, steps=steps)
     return report
@@ -132,7 +132,7 @@ def main() -> int:
         jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
         jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
 
-    from dkx.runtime.memory import bytes_to_mebibytes, measure_peak_rss
+    from drbx.runtime.memory import bytes_to_mebibytes, measure_peak_rss
 
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

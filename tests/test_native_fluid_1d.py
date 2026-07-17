@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from dkx.config.boutinp import parse_bout_input
-from dkx.native.fluid_1d import advance_mms_history, compute_mms_rhs, initialize_mms_state
-from dkx.native.mesh import build_structured_mesh
-from dkx.native.metrics import build_structured_metrics
-from dkx.runtime.run_config import RunConfiguration
+from drbx.config.boutinp import parse_bout_input
+from drbx.native.fluid_1d import advance_mms_history, compute_mms_rhs, initialize_mms_state
+from drbx.native.mesh import build_structured_mesh
+from drbx.native.metrics import build_structured_metrics
+from drbx.runtime.run_config import RunConfiguration
 
 _FLUID_1D_MMS_INPUT = """
 nout = 50

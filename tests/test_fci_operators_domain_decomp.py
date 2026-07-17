@@ -20,7 +20,7 @@ from jax import lax
 from jax.experimental.shard_map import shard_map
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
-from dkx.geometry import (
+from drbx.geometry import (
     CellCenteredGrid3D,
     HaloLayout3D,
     Grid1D,
@@ -44,24 +44,24 @@ from dkx.geometry import (
     ShardSpec3D,
     build_fci_maps_from_b_contravariant,
 )
-from dkx.native.fci_boundaries import (
+from drbx.native.fci_boundaries import (
     BC_DIRICHLET,
     LocalBoundaryFaceBC3D,
     LocalStencil1D,
 )
-from dkx.native.fci_halo import (
+from drbx.native.fci_halo import (
     GhostFillWeights1D,
     HaloExchange3D,
     LocalPeriodicTopologyRule3D,
     PhysicalGhostCellFiller3D,
     TopologyHaloFiller3D,
 )
-from dkx.native.fci_model import inject_owned_field_to_halo
-from dkx.native.fci_operators import (
+from drbx.native.fci_model import inject_owned_field_to_halo
+from drbx.native.fci_operators import (
     local_grad_parallel_op_direct,
     local_grad_parallel_op_fci,
 )
-from dkx.geometry import build_local_stencil_from_field
+from drbx.geometry import build_local_stencil_from_field
 
 
 IOTA = 1.1
