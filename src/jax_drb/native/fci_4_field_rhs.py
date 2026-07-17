@@ -329,10 +329,7 @@ def _assemble_4field_diffusion_rhs(
     geometry: FciGeometry3D,
     parameters: Fci4FieldFreeDecayParameters,
     phi_face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None,
-    density_stencil: object,
-    omega_stencil: object,
-    v_ion_parallel_stencil: object,
-    v_electron_parallel_stencil: object,
+    conservative_stencil_builder: ConservativeStencilBuilder = build_conservative_stencil_from_field,
     density_face_bc: BoundaryFaceBC3D,
     omega_face_bc: BoundaryFaceBC3D,
     v_ion_parallel_face_bc: BoundaryFaceBC3D,
@@ -353,16 +350,16 @@ def _assemble_4field_diffusion_rhs(
     # requires conservative (face-gradient) stencils. Rebuild them from the fields
     # here rather than reuse the local advection stencils the callers pass in (which
     # carry no face-gradient data), so every caller gets a correct diffusion term.
-    density_stencil = build_conservative_stencil_from_field(
+    density_stencil = conservative_stencil_builder(
         density, geometry, periodic_axes=periodic_axes, face_bc=density_face_bc
     )
-    omega_stencil = build_conservative_stencil_from_field(
+    omega_stencil = conservative_stencil_builder(
         omega, geometry, periodic_axes=periodic_axes, face_bc=omega_face_bc
     )
-    v_ion_parallel_stencil = build_conservative_stencil_from_field(
+    v_ion_parallel_stencil = conservative_stencil_builder(
         v_ion_parallel, geometry, periodic_axes=periodic_axes, face_bc=v_ion_parallel_face_bc
     )
-    v_electron_parallel_stencil = build_conservative_stencil_from_field(
+    v_electron_parallel_stencil = conservative_stencil_builder(
         v_electron_parallel, geometry, periodic_axes=periodic_axes, face_bc=v_electron_parallel_face_bc
     )
     density_diffusion = jnp.asarray(parameters.density_perp_diffusion, dtype=jnp.float64) * perp_laplacian_conservative_op(
@@ -523,10 +520,7 @@ def _compute_4field_term_components(
         geometry=geometry,
         parameters=parameters,
         phi_face_projectors=phi_face_projectors,
-        density_stencil=density_stencil,
-        omega_stencil=omega_stencil,
-        v_ion_parallel_stencil=v_ion_parallel_stencil,
-        v_electron_parallel_stencil=v_electron_parallel_stencil,
+        conservative_stencil_builder=conservative_stencil_builder,
         density_face_bc=density_face_bc,
         omega_face_bc=omega_face_bc,
         v_ion_parallel_face_bc=v_ion_parallel_face_bc,
@@ -849,83 +843,27 @@ def compute_4field_free_decay_rhs(
             with_diagnostics=with_diagnostics,
         )
 
-    density_stencil = conservative_stencil_builder(
-        state.density,
-        geometry,
-        periodic_axes=periodic_axes,
-        face_bc=density_face_bc,
-    )
-    omega_stencil = conservative_stencil_builder(
-        state.omega,
-        geometry,
-        periodic_axes=periodic_axes,
-        face_bc=omega_face_bc,
-    )
-    v_ion_parallel_stencil = conservative_stencil_builder(
-        state.v_ion_parallel,
-        geometry,
-        periodic_axes=periodic_axes,
-        face_bc=v_ion_parallel_face_bc,
-    )
-    v_electron_parallel_stencil = conservative_stencil_builder(
-        state.v_electron_parallel,
-        geometry,
-        periodic_axes=periodic_axes,
-        face_bc=v_electron_parallel_face_bc,
-    )
-
-    density_diffusion = jnp.asarray(
-        parameters.density_perp_diffusion,
-        dtype=jnp.float64,
-    ) * perp_laplacian_conservative_op(
-        density_stencil,
-        geometry,
-        face_projectors=phi_face_projectors,
-        face_bc=density_face_bc,
-        cut_wall_geometry=density_cut_wall_geometry,
-        cut_wall_bc=density_cut_wall_bc,
-        periodic_axes=periodic_axes,
-        b_floor=b_floor,
-        jacobian_floor=jacobian_floor,
-    )
-    omega_diffusion = jnp.asarray(
-        parameters.omega_perp_diffusion,
-        dtype=jnp.float64,
-    ) * perp_laplacian_conservative_op(
-        omega_stencil,
-        geometry,
-        face_projectors=phi_face_projectors,
-        face_bc=omega_face_bc,
-        cut_wall_geometry=omega_cut_wall_geometry,
-        cut_wall_bc=omega_cut_wall_bc,
-        periodic_axes=periodic_axes,
-        b_floor=b_floor,
-        jacobian_floor=jacobian_floor,
-    )
-    v_ion_parallel_diffusion = jnp.asarray(
-        parameters.v_ion_parallel_perp_diffusion,
-        dtype=jnp.float64,
-    ) * perp_laplacian_conservative_op(
-        v_ion_parallel_stencil,
-        geometry,
-        face_projectors=phi_face_projectors,
-        face_bc=v_ion_parallel_face_bc,
-        cut_wall_geometry=v_ion_parallel_cut_wall_geometry,
-        cut_wall_bc=v_ion_parallel_cut_wall_bc,
-        periodic_axes=periodic_axes,
-        b_floor=b_floor,
-        jacobian_floor=jacobian_floor,
-    )
-    v_electron_parallel_diffusion = jnp.asarray(
-        parameters.v_electron_parallel_perp_diffusion,
-        dtype=jnp.float64,
-    ) * perp_laplacian_conservative_op(
-        v_electron_parallel_stencil,
-        geometry,
-        face_projectors=phi_face_projectors,
-        face_bc=v_electron_parallel_face_bc,
-        cut_wall_geometry=v_electron_parallel_cut_wall_geometry,
-        cut_wall_bc=v_electron_parallel_cut_wall_bc,
+    diffusion_rhs = _assemble_4field_diffusion_rhs(
+        density=state.density,
+        omega=state.omega,
+        v_ion_parallel=state.v_ion_parallel,
+        v_electron_parallel=state.v_electron_parallel,
+        geometry=geometry,
+        parameters=parameters,
+        phi_face_projectors=phi_face_projectors,
+        conservative_stencil_builder=conservative_stencil_builder,
+        density_face_bc=density_face_bc,
+        omega_face_bc=omega_face_bc,
+        v_ion_parallel_face_bc=v_ion_parallel_face_bc,
+        v_electron_parallel_face_bc=v_electron_parallel_face_bc,
+        density_cut_wall_geometry=density_cut_wall_geometry,
+        density_cut_wall_bc=density_cut_wall_bc,
+        omega_cut_wall_geometry=omega_cut_wall_geometry,
+        omega_cut_wall_bc=omega_cut_wall_bc,
+        v_ion_parallel_cut_wall_geometry=v_ion_parallel_cut_wall_geometry,
+        v_ion_parallel_cut_wall_bc=v_ion_parallel_cut_wall_bc,
+        v_electron_parallel_cut_wall_geometry=v_electron_parallel_cut_wall_geometry,
+        v_electron_parallel_cut_wall_bc=v_electron_parallel_cut_wall_bc,
         periodic_axes=periodic_axes,
         b_floor=b_floor,
         jacobian_floor=jacobian_floor,
@@ -934,10 +872,10 @@ def compute_4field_free_decay_rhs(
     rhs = base_result.rhs
     result = Fci4FieldRhsResult(
         rhs=Fci4FieldState(
-            density=rhs.density + density_diffusion,
-            omega=rhs.omega + omega_diffusion,
-            v_ion_parallel=rhs.v_ion_parallel + v_ion_parallel_diffusion,
-            v_electron_parallel=rhs.v_electron_parallel + v_electron_parallel_diffusion,
+            density=rhs.density + diffusion_rhs.density,
+            omega=rhs.omega + diffusion_rhs.omega,
+            v_ion_parallel=rhs.v_ion_parallel + diffusion_rhs.v_ion_parallel,
+            v_electron_parallel=rhs.v_electron_parallel + diffusion_rhs.v_electron_parallel,
         )
     )
     if return_phi:
@@ -979,121 +917,29 @@ def compute_4field_blob_rhs(
     return_phi: bool = False,
     with_diagnostics: bool = False,
 ) -> tuple[Fci4FieldRhsResult, jnp.ndarray] | tuple[Fci4FieldRhsResult, jnp.ndarray, jnp.ndarray]:
-    density = jnp.asarray(state.density, dtype=jnp.float64)
-    omega = jnp.asarray(state.omega, dtype=jnp.float64)
-    v_ion_parallel = jnp.asarray(state.v_ion_parallel, dtype=jnp.float64)
-    v_electron_parallel = jnp.asarray(state.v_electron_parallel, dtype=jnp.float64)
-    rho_star = jnp.asarray(parameters.rho_star, dtype=jnp.float64)
-    te = jnp.asarray(parameters.Te, dtype=jnp.float64)
-    mi_over_me = jnp.asarray(parameters.mi_over_me, dtype=jnp.float64)
-    bmag = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag, dtype=jnp.float64), float(b_floor))
-    density_safe = jnp.maximum(density, 1.0e-30)
+    """Assemble the four-field blob RHS.
 
-    if phi_inverse_solver is None:
-        raise ValueError("compute_4field_blob_rhs requires a PerpLaplacianInverseSolver instance")
-    if with_diagnostics:
-        phi_start = time_module.perf_counter()
-        phi, phi_diagnostics = phi_inverse_solver(
-            -omega,
-            phi_guess=phi_guess,
-            face_bc=phi_face_bc,
-            cut_wall_bc=phi_cut_wall_bc,
-            return_diagnostics=True,
-        )
-        jax.block_until_ready(phi)
-        phi_time = time_module.perf_counter() - phi_start
-    else:
-        phi = phi_inverse_solver(
-            -omega,
-            phi_guess=phi_guess,
-            face_bc=phi_face_bc,
-            cut_wall_bc=phi_cut_wall_bc,
-        )
+    The blob model shares its full right-hand side with the free-decay
+    wrapper (non-diffusive terms plus conservative perpendicular
+    diffusion), so this simply delegates -- the two were verified to
+    produce bitwise-identical RHS fields and phi.
+    """
 
-    stencil_start = time_module.perf_counter() if with_diagnostics else 0.0
-    density_stencil = stencil_builder(
-        density,
-        geometry,
-        periodic_axes=periodic_axes,
-        face_bc=density_face_bc,
-        cut_wall_geometry=density_cut_wall_geometry,
-        cut_wall_bc=density_cut_wall_bc,
-    )
-    omega_stencil = stencil_builder(
-        omega,
-        geometry,
-        periodic_axes=periodic_axes,
-        face_bc=omega_face_bc,
-        cut_wall_geometry=omega_cut_wall_geometry,
-        cut_wall_bc=omega_cut_wall_bc,
-    )
-    phi_stencil = stencil_builder(
-        phi,
-        geometry,
-        periodic_axes=periodic_axes,
-        face_bc=phi_face_bc,
-        cut_wall_geometry=phi_cut_wall_geometry,
-        cut_wall_bc=phi_cut_wall_bc,
-    )
-    v_ion_parallel_stencil = stencil_builder(
-        v_ion_parallel,
-        geometry,
-        periodic_axes=periodic_axes,
-        face_bc=v_ion_parallel_face_bc,
-        cut_wall_geometry=v_ion_parallel_cut_wall_geometry,
-        cut_wall_bc=v_ion_parallel_cut_wall_bc,
-    )
-    v_electron_parallel_stencil = stencil_builder(
-        v_electron_parallel,
-        geometry,
-        periodic_axes=periodic_axes,
-        face_bc=v_electron_parallel_face_bc,
-        cut_wall_geometry=v_electron_parallel_cut_wall_geometry,
-        cut_wall_bc=v_electron_parallel_cut_wall_bc,
-    )
-    if with_diagnostics:
-        jax.block_until_ready(density_stencil.x.center)
-        jax.block_until_ready(omega_stencil.x.center)
-        jax.block_until_ready(phi_stencil.x.center)
-        jax.block_until_ready(v_ion_parallel_stencil.x.center)
-        jax.block_until_ready(v_electron_parallel_stencil.x.center)
-    local_stencil_time = (time_module.perf_counter() - stencil_start) if with_diagnostics else 0.0
-
-    operator_start = time_module.perf_counter() if with_diagnostics else 0.0
-    poisson_rhs, curvature_rhs, _parallel_rhs = _assemble_4field_non_diffusive_rhs(
-        density=density,
-        omega=omega,
-        v_ion_parallel=v_ion_parallel,
-        v_electron_parallel=v_electron_parallel,
-        rho_star=rho_star,
-        te=te,
-        mi_over_me=mi_over_me,
-        bmag=bmag,
-        density_safe=density_safe,
+    return compute_4field_free_decay_rhs(
+        state,
         geometry=geometry,
-        curvature_coefficients=curvature_coefficients,
-        density_stencil=density_stencil,
-        omega_stencil=omega_stencil,
-        phi_stencil=phi_stencil,
-        v_ion_parallel_stencil=v_ion_parallel_stencil,
-        v_electron_parallel_stencil=v_electron_parallel_stencil,
-    )
-    diffusion_rhs = _assemble_4field_diffusion_rhs(
-        density=density,
-        omega=omega,
-        v_ion_parallel=v_ion_parallel,
-        v_electron_parallel=v_electron_parallel,
-        geometry=geometry,
+        stencil_builder=stencil_builder,
+        conservative_stencil_builder=conservative_stencil_builder,
         parameters=parameters,
-        phi_face_projectors=phi_face_projectors,
-        density_stencil=density_stencil,
-        omega_stencil=omega_stencil,
-        v_ion_parallel_stencil=v_ion_parallel_stencil,
-        v_electron_parallel_stencil=v_electron_parallel_stencil,
+        curvature_coefficients=curvature_coefficients,
+        phi_guess=phi_guess,
+        phi_face_bc=phi_face_bc,
         density_face_bc=density_face_bc,
         omega_face_bc=omega_face_bc,
         v_ion_parallel_face_bc=v_ion_parallel_face_bc,
         v_electron_parallel_face_bc=v_electron_parallel_face_bc,
+        phi_cut_wall_geometry=phi_cut_wall_geometry,
+        phi_cut_wall_bc=phi_cut_wall_bc,
         density_cut_wall_geometry=density_cut_wall_geometry,
         density_cut_wall_bc=density_cut_wall_bc,
         omega_cut_wall_geometry=omega_cut_wall_geometry,
@@ -1102,64 +948,16 @@ def compute_4field_blob_rhs(
         v_ion_parallel_cut_wall_bc=v_ion_parallel_cut_wall_bc,
         v_electron_parallel_cut_wall_geometry=v_electron_parallel_cut_wall_geometry,
         v_electron_parallel_cut_wall_bc=v_electron_parallel_cut_wall_bc,
+        phi_face_projectors=phi_face_projectors,
+        phi_mg_hierarchy=phi_mg_hierarchy,
+        phi_inverse_solver=phi_inverse_solver,
         periodic_axes=periodic_axes,
         b_floor=b_floor,
         jacobian_floor=jacobian_floor,
+        gmres_debug=gmres_debug,
+        return_phi=return_phi,
+        with_diagnostics=with_diagnostics,
     )
-    rhs_density = jnp.asarray(
-        poisson_rhs.density + curvature_rhs.density + _parallel_rhs.density + diffusion_rhs.density,
-        dtype=jnp.float64,
-    )
-    rhs_omega = jnp.asarray(
-        poisson_rhs.omega + curvature_rhs.omega + _parallel_rhs.omega + diffusion_rhs.omega,
-        dtype=jnp.float64,
-    )
-    rhs_v_ion_parallel = jnp.asarray(
-        poisson_rhs.v_ion_parallel + curvature_rhs.v_ion_parallel + _parallel_rhs.v_ion_parallel + diffusion_rhs.v_ion_parallel,
-        dtype=jnp.float64,
-    )
-    rhs_v_electron_parallel = jnp.asarray(
-        poisson_rhs.v_electron_parallel
-        + curvature_rhs.v_electron_parallel
-        + _parallel_rhs.v_electron_parallel
-        + diffusion_rhs.v_electron_parallel,
-        dtype=jnp.float64,
-    )
-    result = Fci4FieldRhsResult(
-        rhs=Fci4FieldState(
-            density=rhs_density,
-            omega=rhs_omega,
-            v_ion_parallel=rhs_v_ion_parallel,
-            v_electron_parallel=rhs_v_electron_parallel,
-        )
-    )
-    if with_diagnostics:
-        jax.block_until_ready(rhs_density)
-        jax.block_until_ready(rhs_omega)
-        jax.block_until_ready(rhs_v_ion_parallel)
-        jax.block_until_ready(rhs_v_electron_parallel)
-        operator_time = time_module.perf_counter() - operator_start
-        timings = jnp.asarray(
-            [
-                phi_time,
-                local_stencil_time,
-                operator_time,
-                float(phi_diagnostics["num_steps"]),
-                float(phi_diagnostics["rhs_mean_J"]),
-                float(phi_diagnostics["rhs_l2_J"]),
-                float(phi_diagnostics["rhs_compatibility_ratio"]),
-                float(phi_diagnostics["projected_rhs_mean_J"]),
-                float(phi_diagnostics["projected_rhs_l2_J"]),
-                float(phi_diagnostics["projected_rhs_compatibility_ratio"]),
-                float(phi_diagnostics["final_residual_rel_l2"]),
-            ],
-            dtype=jnp.float64,
-        )
-    else:
-        timings = None
-    if return_phi:
-        return result, timings, phi
-    return result, timings
 
 
 def compute_4field_diffusion(
