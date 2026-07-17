@@ -84,6 +84,24 @@ rollover, and differentiability; the example
 draws the figure. The whole solve is differentiable, so the detachment front
 responds to `jax.grad` -- the basis for gradient-based detachment control.
 
+## Gradient-based detachment control
+
+Because the detaching solve is differentiable, the exhaust-control problem
+becomes a gradient computation: find the upstream density that places the
+target exactly at the 1 eV detachment threshold. The sensitivity
+`dTe_target/dn_up` comes from forward-mode autodiff through the entire
+20,000-step stiff solve, and a trust-region Newton iteration (contracting when
+the residual changes sign, since the detachment cliff is steeper than any local
+derivative) converges onto the threshold in ~11 solves:
+
+![Detachment control](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/detachment_control.png)
+
+The gate [`tests/test_detachment_control.py`](../tests/test_detachment_control.py)
+verifies the autodiff sensitivity against a central finite difference (to 1e-4)
+in the attached regime and the sign of the physics (raising the upstream
+density cools the target). Reproduce with
+`examples/autodiff/detachment_control_demo.py`.
+
 ## Reproduce
 
 ```bash

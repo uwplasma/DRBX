@@ -105,7 +105,7 @@ def render_turbulence_movie(run, geometry, path):
 
     cap_z_indices = (int(np.argmin(np.abs(zeta_c - WEDGE))), 0)
 
-    fig = plt.figure(figsize=(6.4, 5.2))
+    fig = plt.figure(figsize=(6.0, 3.6))
     ax = fig.add_subplot(111, projection="3d")
 
     def draw(frame):
@@ -118,11 +118,11 @@ def render_turbulence_movie(run, geometry, path):
             ax.plot_surface(cx, cy, cz, facecolors=cap_colors(frame, z_index), shade=False,
                             rstride=1, cstride=1, linewidth=0, antialiased=False)
         ax.set_box_aspect((1, 1, 0.34))
-        ax.set_xlim(-4.15, 4.15), ax.set_ylim(-4.15, 4.15), ax.set_zlim(-1.45, 1.45)
-        fig.subplots_adjust(left=0, right=1, bottom=-0.05, top=1.02)
+        ax.set_xlim(-3.85, 3.85), ax.set_ylim(-3.85, 3.85), ax.set_zlim(-1.35, 1.35)
+        fig.subplots_adjust(left=-0.22, right=1.22, bottom=-0.32, top=1.28)
         ax.view_init(elev=24, azim=-55 + 1.2 * frame)
         ax.set_title(f"Stellarator turbulence (rotating ellipse)   t = {run.times[frame]:.3f}",
-                     fontsize=10)
+                     fontsize=9, y=0.96)
 
     movie = animation.FuncAnimation(fig, draw, frames=len(run.times), interval=110, blit=False)
     movie.save(path, writer=animation.PillowWriter(fps=9), dpi=100)
