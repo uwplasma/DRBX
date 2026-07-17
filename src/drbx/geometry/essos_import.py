@@ -12,6 +12,18 @@ import jax.numpy as jnp
 
 from .fci_maps import FciMaps
 from .metric_tensor import MetricTensor3D
+from .fci_geometry import (
+    BFieldGeometry,
+    CellCenteredGrid3D,
+    FaceBFieldGeometry,
+    FaceMetricGeometry,
+    FciGeometry3D,
+    FciMaps3D,
+    Grid1D,
+    MetricGeometry,
+    Spacing3D,
+    _lift_cell_field_to_faces,
+)
 
 
 ESSOS_LANDREMAN_QA_RELATIVE_JSON = Path("examples/input_files/ESSOS_biot_savart_LandremanPaulQA.json")
@@ -488,6 +500,259 @@ def build_essos_imported_fci_geometry(
             "forward_boundary_fraction": forward_boundary_fraction,
             "backward_boundary_fraction": backward_boundary_fraction,
         },
+    )
+
+
+def essos_imported_geometry_to_fci(
+    imported: EssosImportedFciGeometry,
+    *,
+    limiter_rho: float | None = None,
+) -> FciGeometry3D:
+    """Convert an ESSOS-imported payload into a native :class:`FciGeometry3D`.
+
+    The imported payload stores arrays on a ``(rho, phi, theta)`` grid whose
+    field-line maps march in the toroidal angle ``phi``. The native FCI
+    convention is ``(x, y, z) = (radial, poloidal, toroidal)``, so every array
+    is transposed ``(0, 2, 1)`` and the metric-tensor indices 2 and 3 are
+    swapped.
+
+    Intended for ``map_source="vmec"`` imported geometries: those carry clean,
+    surface-preserving VMEC-coordinate field-line maps (closed everywhere), so
+    the metric, ``|B|``, and parallel maps all reflect the real equilibrium
+    flux geometry. The contravariant field is reconstructed as a
+    flux-surface-tangent field ``B ~ Bmag * (0, iota(x), 1) / |(0, iota(x),
+    1)|_g`` whose per-shell rotational transform ``iota(x)`` is read from the
+    traced poloidal displacement of the maps (for VMEC maps this recovers the
+    equilibrium ``iota`` profile to a few percent).
+
+    ``limiter_rho`` sets the open scrape-off layer. When given, every cell with
+    ``rho > limiter_rho`` is opened at the toroidal target planes exactly as the
+    rotating-ellipse limiter does (forward exits on the last ``z`` plane,
+    backward on the first), so ``compute_fci_sheath_recycling`` /
+    ``apply_sheath_sink`` drain the SOL while ``rho <= limiter_rho`` stays a
+    closed core. This is the honest island-divertor/limiter open region -- the
+    thin layer outside the last closed flux surface -- and is used in place of
+    the raw coil-field exit masks, which single-transit tracing on the
+    VMEC-scaled grid cannot classify reliably.
+
+    Any open-endpoint masks already present on ``imported.maps`` (e.g. from a
+    ``map_source="coil"`` payload) are preserved and unioned with the limiter
+    cut.
+    """
+
+    nx, ny_phi, nz_theta = imported.shape
+    if nx < 3 or ny_phi < 3 or nz_theta < 3:
+        raise ValueError(
+            "essos_imported_geometry_to_fci requires at least 3 cells per axis; "
+            f"got imported shape {(nx, ny_phi, nz_theta)}"
+        )
+
+    def _to_native(values) -> np.ndarray:
+        return np.transpose(np.asarray(values, dtype=np.float64), (0, 2, 1))
+
+    # --- logical axes: x = rho, y = theta (poloidal), z = phi (toroidal) ---
+    rho_1d = np.asarray(imported.minor_radius, dtype=np.float64)[:, 0, 0]
+    phi_1d = np.asarray(imported.toroidal_angle, dtype=np.float64)[0, :, 0]
+    theta_1d = np.asarray(imported.poloidal_angle, dtype=np.float64)[0, 0, :]
+    grid = CellCenteredGrid3D(
+        x=Grid1D.from_centers(jnp.asarray(rho_1d)),
+        y=Grid1D.from_centers(jnp.asarray(theta_1d)),
+        z=Grid1D.from_centers(jnp.asarray(phi_1d)),
+    )
+    native_shape = grid.shape
+    dphi = float(2.0 * np.pi / float(ny_phi))
+    dtheta_per_index = float(2.0 * np.pi / float(nz_theta))
+
+    # --- cell metric: permute (rho, phi, theta) -> (rho, theta, phi) ---
+    metric = imported.metric
+    cell_metric = MetricGeometry(
+        J=_to_native(metric.J),
+        g11=_to_native(metric.g11),
+        g22=_to_native(metric.g33),
+        g33=_to_native(metric.g22),
+        g12=_to_native(metric.g13),
+        g13=_to_native(metric.g12),
+        g23=_to_native(metric.g23),
+        g_11=_to_native(metric.g_11),
+        g_22=_to_native(metric.g_33),
+        g_33=_to_native(metric.g_22),
+        g_12=_to_native(metric.g_13),
+        g_13=_to_native(metric.g_12),
+        g_23=_to_native(metric.g_23),
+    )
+
+    # --- per-shell iota from the traced poloidal map displacement ---
+    forward_boundary = np.asarray(imported.maps.forward_boundary, dtype=bool)
+    backward_boundary = np.asarray(imported.maps.backward_boundary, dtype=bool)
+    theta_index = np.broadcast_to(
+        np.arange(nz_theta, dtype=np.float64)[None, None, :], (nx, ny_phi, nz_theta)
+    )
+
+    def _wrapped_step(map_z: np.ndarray) -> np.ndarray:
+        raw = np.asarray(map_z, dtype=np.float64) - theta_index
+        return np.mod(raw + 0.5 * nz_theta, float(nz_theta)) - 0.5 * nz_theta
+
+    forward_step = _wrapped_step(imported.maps.forward_z)
+    backward_step = -_wrapped_step(imported.maps.backward_z)
+    iota_shell = np.zeros(nx, dtype=np.float64)
+    all_samples: list[np.ndarray] = []
+    for shell in range(nx):
+        samples = np.concatenate(
+            [
+                forward_step[shell][~forward_boundary[shell] & np.isfinite(forward_step[shell])],
+                backward_step[shell][~backward_boundary[shell] & np.isfinite(backward_step[shell])],
+            ]
+        )
+        if samples.size:
+            iota_shell[shell] = float(np.median(samples)) * dtheta_per_index / dphi
+            all_samples.append(samples)
+        else:
+            iota_shell[shell] = np.nan
+    if all_samples:
+        global_iota = float(np.median(np.concatenate(all_samples))) * dtheta_per_index / dphi
+    else:
+        global_iota = 0.0
+    iota_shell = np.where(np.isfinite(iota_shell), iota_shell, global_iota)
+    iota = np.broadcast_to(iota_shell[:, None, None], native_shape)
+
+    # --- surface-tangent contravariant field consistent with |B| and metric ---
+    bmag = np.maximum(_to_native(imported.magnetic_field_magnitude), 1.0e-30)
+    g_22 = np.asarray(cell_metric.g_22, dtype=np.float64)
+    g_23 = np.asarray(cell_metric.g_23, dtype=np.float64)
+    g_33 = np.asarray(cell_metric.g_33, dtype=np.float64)
+    tangent_norm = np.sqrt(
+        np.maximum(iota * iota * g_22 + 2.0 * iota * g_23 + g_33, 1.0e-30)
+    )
+    b_contra = np.stack(
+        (
+            np.zeros(native_shape, dtype=np.float64),
+            bmag * iota / tangent_norm,
+            bmag / tangent_norm,
+        ),
+        axis=-1,
+    )
+    cell_bfield = BFieldGeometry(B_contra=jnp.asarray(b_contra), Bmag=jnp.asarray(bmag))
+
+    # --- lift cell-centered metric and field data onto the three face families ---
+    periodic_axes = (False, True, True)
+
+    def _face_metric(axis: int) -> MetricGeometry:
+        def lift(values: np.ndarray) -> jnp.ndarray:
+            return _lift_cell_field_to_faces(
+                jnp.asarray(values), axis=axis, periodic=periodic_axes[axis]
+            )
+
+        return MetricGeometry(
+            J=jnp.maximum(lift(np.asarray(cell_metric.J)), 1.0e-12),
+            g11=lift(np.asarray(cell_metric.g11)),
+            g22=lift(np.asarray(cell_metric.g22)),
+            g33=lift(np.asarray(cell_metric.g33)),
+            g12=lift(np.asarray(cell_metric.g12)),
+            g13=lift(np.asarray(cell_metric.g13)),
+            g23=lift(np.asarray(cell_metric.g23)),
+            g_11=lift(np.asarray(cell_metric.g_11)),
+            g_22=lift(np.asarray(cell_metric.g_22)),
+            g_33=lift(np.asarray(cell_metric.g_33)),
+            g_12=lift(np.asarray(cell_metric.g_12)),
+            g_13=lift(np.asarray(cell_metric.g_13)),
+            g_23=lift(np.asarray(cell_metric.g_23)),
+        )
+
+    def _face_bfield(axis: int) -> BFieldGeometry:
+        def lift(values: np.ndarray) -> jnp.ndarray:
+            return _lift_cell_field_to_faces(
+                jnp.asarray(values), axis=axis, periodic=periodic_axes[axis]
+            )
+
+        face_components = jnp.stack(
+            tuple(lift(b_contra[..., component]) for component in range(3)), axis=-1
+        )
+        return BFieldGeometry(
+            B_contra=face_components,
+            Bmag=jnp.maximum(lift(bmag), 1.0e-30),
+        )
+
+    face_metric = FaceMetricGeometry(x=_face_metric(0), y=_face_metric(1), z=_face_metric(2))
+    face_bfield = FaceBFieldGeometry(x=_face_bfield(0), y=_face_bfield(1), z=_face_bfield(2))
+
+    # --- FCI maps: fractional (x, y) indices marching in z, plus open masks ---
+    x_index = np.broadcast_to(
+        np.arange(nx, dtype=np.float64)[:, None, None], native_shape
+    )
+    y_index = np.broadcast_to(
+        np.arange(nz_theta, dtype=np.float64)[None, :, None], native_shape
+    )
+    forward_open = _to_native(forward_boundary).astype(bool)
+    backward_open = _to_native(backward_boundary).astype(bool)
+
+    if limiter_rho is not None:
+        # Toroidal limiter: cells with rho > limiter_rho form the open SOL.
+        # Forward field lines exit on the last toroidal (z) plane, backward on
+        # the first, mirroring the rotating-ellipse limiter; the core stays
+        # closed. rho is the native x axis (shape nx along axis 0).
+        sol_mask = rho_1d > float(limiter_rho)
+        sol_2d = np.broadcast_to(sol_mask[:, None], native_shape[:2])
+        forward_open = forward_open.copy()
+        backward_open = backward_open.copy()
+        forward_open[:, :, -1] |= sol_2d
+        backward_open[:, :, 0] |= sol_2d
+
+    def _direction_maps(map_x, map_z, open_mask: np.ndarray, z_offset: float):
+        fx = _to_native(map_x)
+        fy = np.mod(_to_native(map_z), float(nz_theta))
+        # Masked traces exit the domain; point them at their own cell so any
+        # accidental interpolation through them is benign.
+        fx = np.where(open_mask, x_index, fx)
+        fy = np.where(open_mask, y_index, fy)
+        endpoint_x = np.interp(fx, np.arange(nx, dtype=np.float64), rho_1d)
+        endpoint_y = theta_1d[0] + fy * dtheta_per_index
+        phi_center = np.broadcast_to(phi_1d[None, None, :], native_shape)
+        endpoint_z = np.where(open_mask, phi_center, phi_center + z_offset)
+        return fx, fy, endpoint_x, endpoint_y, endpoint_z
+
+    forward_x, forward_y, forward_ex, forward_ey, forward_ez = _direction_maps(
+        imported.maps.forward_x, imported.maps.forward_z, forward_open, dphi
+    )
+    backward_x, backward_y, backward_ex, backward_ey, backward_ez = _direction_maps(
+        imported.maps.backward_x, imported.maps.backward_z, backward_open, -dphi
+    )
+    if imported.adjacent_step_length is not None:
+        step_length = _to_native(imported.adjacent_step_length)
+    else:
+        step_length = _to_native(imported.connection_length)
+    positive = np.isfinite(step_length) & (step_length > 0.0)
+    fallback_length = float(np.median(step_length[positive])) if np.any(positive) else 1.0
+    step_length = np.where(positive, step_length, fallback_length)
+    maps = FciMaps3D(
+        forward_x=forward_x,
+        forward_y=forward_y,
+        backward_x=backward_x,
+        backward_y=backward_y,
+        forward_endpoint_x=forward_ex,
+        forward_endpoint_y=forward_ey,
+        forward_endpoint_z=forward_ez,
+        backward_endpoint_x=backward_ex,
+        backward_endpoint_y=backward_ey,
+        backward_endpoint_z=backward_ez,
+        forward_length=step_length,
+        backward_length=step_length,
+        forward_boundary=forward_open,
+        backward_boundary=backward_open,
+    )
+
+    spacing = Spacing3D(
+        dx=jnp.broadcast_to(grid.x.widths[:, None, None], native_shape),
+        dy=jnp.broadcast_to(grid.y.widths[None, :, None], native_shape),
+        dz=jnp.broadcast_to(grid.z.widths[None, None, :], native_shape),
+    )
+    return FciGeometry3D(
+        grid=grid,
+        maps=maps,
+        spacing=spacing,
+        cell_metric=cell_metric,
+        face_metric=face_metric,
+        cell_bfield=cell_bfield,
+        face_bfield=face_bfield,
     )
 
 

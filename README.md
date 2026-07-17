@@ -119,6 +119,16 @@ in the island-divertor sense:
 
 *Reproduce with [`examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py`](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) (left) and [`examples/geometry-3D/vmec-jax/closed_open_field_lines.py`](examples/geometry-3D/vmec-jax/closed_open_field_lines.py) (right).*
 
+And the turbulence runs on that same imported field: a four-field interchange
+simulation on the Landreman-Paul VMEC equilibrium (real metric, `|B|`, and
+surface-preserving parallel maps; recovered iota ~ 0.42) with a limiter opening
+a scrape-off layer outside the last closed surface — the closed core is
+retained while the open SOL drains through the Bohm sheath:
+
+![Landreman-Paul turbulence, closed core and open SOL](docs/media/landreman_paul_turbulence.png)
+
+*Reproduce with [`examples/stellarator/landreman_paul_turbulence.py`](examples/stellarator/landreman_paul_turbulence.py).*
+
 **Neutrals and detachment.** The open SOL flux tube reaches the two-point Bohm
 steady state; the hermes-3 neutral model (packaged AMJUEL atomic rates, target
 recycling) builds the neutral cushion; and with an evolved temperature the SOL
@@ -266,7 +276,7 @@ Flagship simulations, by geometry:
 | | Turbulence flagship | Geometry |
 |---|---|---|
 | **Tokamak** | [drift-wave turbulence](examples/tokamak/drift_wave_turbulence.py) (Hasegawa-Wakatani; linear phase B2-verified, differentiable) + [inverse design](examples/tokamak/drift_wave_inverse_design.py) | periodic flux tube |
-| **Stellarator** | [turbulence on closed + open field lines](examples/stellarator/stellarator_turbulence.py) (four-field, limiter SOL, movies) + [3D renders](examples/stellarator/stellarator_3d_render.py) (cutaway turbulence movie, field-line topology) + [island divertor](examples/stellarator/island_divertor.py) (B8: Poincare, connection lengths, emergent open SOL) + [rotating-ellipse FCI](examples/stellarator/rotating_ellipse_fci.py) (parallel-operator convergence) + [seeded filament](examples/stellarator/rotating_ellipse_filament.py) + [differentiable FCI drift-reduced model](examples/stellarator/fci_differentiable.py) | rotating ellipse (closed core + limiter SOL) + shifted-torus helical + imported [ESSOS/VMEC](examples/geometry-3D/) |
+| **Stellarator** | [turbulence on closed + open field lines](examples/stellarator/stellarator_turbulence.py) (four-field, limiter SOL, movies) + [Landreman-Paul turbulence](examples/stellarator/landreman_paul_turbulence.py) (four-field on the imported LP VMEC equilibrium, closed core + sheath-drained SOL) + [3D renders](examples/stellarator/stellarator_3d_render.py) (cutaway turbulence movie, field-line topology) + [island divertor](examples/stellarator/island_divertor.py) (B8: Poincare, connection lengths, emergent open SOL) + [rotating-ellipse FCI](examples/stellarator/rotating_ellipse_fci.py) (parallel-operator convergence) + [seeded filament](examples/stellarator/rotating_ellipse_filament.py) + [differentiable FCI drift-reduced model](examples/stellarator/fci_differentiable.py) | rotating ellipse (closed core + limiter SOL) + shifted-torus helical + imported [ESSOS/VMEC](examples/geometry-3D/) |
 | **Coils (vacuum)** | [Landreman-Paul closed + open field lines](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) (ESSOS Biot-Savart, Poincare classification) | imported coil field |
 | **VMEC equilibria** | [closed field lines from a wout file](examples/geometry-3D/vmec-jax/closed_field_lines.py) (vmec_jax import; traced rotational transform matches the equilibrium `iotaf` profile to ~1e-6) + [closed + open field lines](examples/geometry-3D/vmec-jax/closed_open_field_lines.py) (coil field with the VMEC last closed flux surface overlaid) | imported VMEC equilibrium (Landreman-Paul precise QA) |
 | **SOL (open)** | [open SOL flux tube](examples/sol/open_sol_flux_tube.py) (parallel transport to Bohm-sheath targets; two-point steady state) + [recycling SOL](examples/sol/recycling_sol.py) (neutrals, ionization/recombination, detachment onset) | open slab flux tube |
