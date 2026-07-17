@@ -37,6 +37,7 @@ from .fci_halo import (
 from .fci_boundaries import (
     ConservativeStencil3D,
     FaceGradientStencil3D,
+    FourFieldBoundaryConditions,
     LocalBoundaryConditionBuilder,
     LocalBoundaryData3D,
     LocalCoordinateNormalDerivativeConstructor3D,
@@ -141,6 +142,7 @@ __all__ += [
     "FciDrbEBState",
     "FciFieldBundle",
     "FciModelState",
+    "FourFieldBoundaryConditions",
     "GhostFillWeights1D",
     "HaloExchange3D",
     "LocalBoundaryConditionBuilder",
