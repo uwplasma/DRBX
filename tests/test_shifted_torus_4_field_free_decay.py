@@ -387,6 +387,7 @@ def shifted_torus_4field_free_decay_rk4(
     )
     rhs_1, timings_1, phi_1 = rhs_function(
         state,
+        with_diagnostics=True,
         geometry=geometry,
         stencil_builder=stencil_builder,
         conservative_stencil_builder=conservative_stencil_builder,
@@ -421,6 +422,7 @@ def shifted_torus_4field_free_decay_rk4(
     jax.block_until_ready(stage_1.density)
     rhs_2, timings_2, phi_2 = rhs_function(
         stage_1,
+        with_diagnostics=True,
         geometry=geometry,
         stencil_builder=stencil_builder,
         conservative_stencil_builder=conservative_stencil_builder,
@@ -455,6 +457,7 @@ def shifted_torus_4field_free_decay_rk4(
     jax.block_until_ready(stage_2.density)
     rhs_3, timings_3, phi_3 = rhs_function(
         stage_2,
+        with_diagnostics=True,
         geometry=geometry,
         stencil_builder=stencil_builder,
         conservative_stencil_builder=conservative_stencil_builder,
@@ -489,6 +492,7 @@ def shifted_torus_4field_free_decay_rk4(
     jax.block_until_ready(stage_3.density)
     rhs_4, timings_4, phi_4 = rhs_function(
         stage_3,
+        with_diagnostics=True,
         geometry=geometry,
         stencil_builder=stencil_builder,
         conservative_stencil_builder=conservative_stencil_builder,

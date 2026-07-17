@@ -15,7 +15,7 @@ The core closed-field-line drift-wave turbulence model (Hasegawa-Wakatani,
 FFT-spectral RK4) is `jit`-compiled and differentiable end-to-end. Two measured
 numbers quantify the "fast and differentiable" claim:
 
-![Performance and differentiability](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/performance.png)
+![Performance and differentiability](media/performance.png)
 
 - **Throughput** is roughly grid-size-independent at about **2 million
   cell-updates per second** on a single CPU in float64 (each step is a dealiased
@@ -42,7 +42,7 @@ never the answer (gated to machine agreement in
 `tests/test_autodiff_methods.py`). Measured on 200 turbulence steps at `n = 64`
 (one scalar parameter, CPU f64):
 
-![Differentiation methods](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/differentiation_methods.png)
+![Differentiation methods](media/differentiation_methods.png)
 
 - **Forward mode** (`jax.jacfwd`) is the most efficient for a *few* parameters:
   one tangent rides along the rollout — no reverse sweep, no stored trajectory —
@@ -58,7 +58,7 @@ Rule of thumb: `jacfwd` for O(1-10) scalars, `grad` for parameter fields,
 add `jax.checkpoint` when reverse mode runs out of memory. Reproduce with
 
 ```bash
-PYTHONPATH=src python examples/autodiff/differentiation_methods_demo.py
+PYTHONPATH=src python examples/autodiff/differentiation_methods.py
 ```
 
 ## Multi-Device Strong Scaling
@@ -72,18 +72,32 @@ checks a single-device sharded run and a forced four-device run
 step to ~1e-16 — so sharding changes only *where* the work runs, not the result.
 
 The strong-scaling driver is
-[`examples/benchmarks/fci_sharded_strong_scaling_demo.py`](../examples/benchmarks/fci_sharded_strong_scaling_demo.py).
+[`examples/benchmarks/fci_sharded_strong_scaling.py`](../examples/benchmarks/fci_sharded_strong_scaling.py).
 It sweeps device counts by re-invoking itself once per count (the XLA host device
 count must be set before JAX imports) and, on Linux, binds one physical core per
 shard with `taskset` — the crucial detail: without core-binding a single-device
 CPU program already spreads across all cores via XLA intra-op threading, so the
 domain decomposition looks like it does nothing. On a 36-core Linux host with
-core-binding, a `256 x 128 x 32` two-field step scales as **1.75x at 2 shards,
-3.22x at 4 (about 81% efficiency), and 4.35x at 8**.
+core-binding, a 1.05M-cell (`256 x 128 x 32`) two-field step scales as
+**1.75x at 2 shards, 3.22x at 4 (about 81% efficiency), 4.35x at 8, and 7.4x
+at 16**.
+
+![Strong scaling](media/strong_scaling.png)
+
+The same 1.05M-cell step on one NVIDIA RTX A4000 GPU runs about **96x faster
+than a single CPU shard** — the whole-step comparison, not a kernel
+microbenchmark. Running across the *two* A4000s on the office host currently
+trips a cross-device gather bug in the sharded step's halo path; the 2-GPU
+configuration is under investigation and is not a supported claim yet
+(status as of 2026-07).
 
 ```bash
-PYTHONPATH=src python examples/benchmarks/fci_sharded_strong_scaling_demo.py
+PYTHONPATH=src python examples/benchmarks/fci_sharded_strong_scaling.py
 ```
+
+The demo writes its artifacts as `scaling_<platform>.json` and
+`scaling_<platform>.png` (one pair per host/platform), so CPU and GPU sweeps
+from different machines can coexist in the same output directory.
 
 !!! note "Host requirement"
     Meaningful strong-scaling numbers need a Linux host with `taskset` and at
@@ -123,9 +137,9 @@ starting points today because they stay fully inside JAX.
 
 The diffusion lane has committed focused differentiable examples:
 
-- sensitivity analysis: [examples/autodiff_diffusion_sensitivity_demo.py](../examples/autodiff_diffusion_sensitivity_demo.py)
-- inverse design: [examples/autodiff_diffusion_inverse_design_demo.py](../examples/autodiff_diffusion_inverse_design_demo.py)
-- fixed-workload CPU/GPU scaling: [examples/strong_scaling_diffusion_demo.py](../examples/strong_scaling_diffusion_demo.py)
+- sensitivity analysis: [examples/autodiff_diffusion_sensitivity.py](../examples/autodiff_diffusion_sensitivity.py)
+- inverse design: [examples/autodiff_diffusion_inverse_design.py](../examples/autodiff_diffusion_inverse_design.py)
+- fixed-workload CPU/GPU scaling: [examples/strong_scaling_diffusion.py](../examples/strong_scaling_diffusion.py)
 
 The current artifact bundle is documented in
 [autodiff_and_scaling_examples.md](autodiff_and_scaling_examples.md).
@@ -198,19 +212,17 @@ the modest results quoted above.
 ## Current GPU Status
 
 The reachable `office` machine exposes two CUDA-visible JAX devices
-(`RTX A4000`, `cuda:0` and `cuda:1`) with `jax[cuda12]`. The first meaningful
-GPU measurements on the compact reduced lanes are:
+(`RTX A4000`, `cuda:0` and `cuda:1`) with `jax[cuda12]`. Status as of 2026-07:
 
-- traced-field-line reduced lane:
-  compile `4.41e-2 s`, first execute `1.23e-3 s`, warm execute `3.30e-4 s`;
-- stellarator VMEC reduced lane:
-  compile `7.36e-3 s`, first execute `3.98e-4 s`, warm execute `1.14e-4 s`.
-
-Those are the right GPU benchmark surfaces for the current codebase. These
-kernels are small, so the honest next GPU step is not to claim whole-code
-acceleration from them, but to keep more physics on the same array-native
-contract and rerun the profiling script with JAX traces, device-memory
-snapshots, and a persistent compilation cache on the GPU host.
+- **single GPU**: the 1.05M-cell sharded two-field step runs about **96x
+  faster on one A4000 than on a single core-bound CPU shard** (the
+  whole-RK4-step measurement from
+  `examples/benchmarks/fci_sharded_strong_scaling.py`);
+- **two GPUs**: the 2-device sharded run currently fails in a cross-device
+  gather inside the halo-exchange path; this bug is under investigation, so
+  no 2-GPU scaling number is claimed;
+- earlier small-kernel measurements (compact reduced lanes, ~1e-4 s warm
+  executes) remain valid but are microbenchmarks, not whole-code claims.
 
 ## Reproducible Profiling Workflow
 
@@ -221,24 +233,51 @@ device-memory profiles, persistent compilation-cache runs, and XLA dump trees.
 The workflow and recommended cases are documented in
 [profiling_runtime.md](profiling_runtime.md).
 
-## Where Extra JAX Ecosystem Pieces Might Help
+## 4-Field Step: Fast Path, Whole-Step JIT, Coarse LU (2026-07-17)
 
-The current code already benefits most from plain `jax`, structured JIT
-boundaries, and explicit kernel batching. Additional ecosystem tools are most
-likely to help in specific places:
+Profiling the 4-field interchange RK4 step on the rotating ellipse at
+`(24, 32, 8)`, single CPU, found the old eager default costing **1.200 s per
+step**, of which roughly half was host-synced convergence checking in the
+perpendicular-Laplacian phi solver: the diagnostic path recomputes the true
+residual after each GMRES solve and converts residual norms and iteration
+counts to Python floats — about **490 device transfers per 4 steps** (one
+batch per RK4 stage). Three changes landed in response, bringing the same
+step to **0.623 s per step (1.9x)**, with all 26
+operator/turbulence/MMS/blob/sharded gates passing:
 
-- `equinox`: useful if larger native kernels are restructured into clearer
-  pure-function model objects or if filtered transforms simplify mixed static
-  metadata and array state;
-- `lineax`: potentially useful if future native linear solves move toward
-  JAX-native linear-operator interfaces;
-- `diffrax`: useful for clean differentiable time integration on compact native
-  lanes.
+- **phi-solver fast path**: constructing `PerpLaplacianInverseSolver` with
+  `check_residual=False` and calling it without `return_diagnostics`
+  dispatches a jitted phi-only solve — no diagnostic matvecs, no residual
+  floats, no host syncs — making the solver safe to call from inside
+  `jit`-compiled stepping code. The diagnostic path is unchanged and remains
+  the default for validation harnesses.
+- **whole-step JIT**: the entire RK4 step — all four RHS evaluations,
+  including their GMRES phi inversions — now compiles as **one jit program**
+  in `jax_drb.native.stellarator_turbulence.run_stellarator_turbulence`
+  (a one-time compile of about 9 s, then no per-stage Python dispatch).
+  Supporting this, `compute_2field_rhs` / `compute_4field_*` now return
+  `timings=None` by default (sync-free, jittable); passing
+  `with_diagnostics=True` restores the host-synced stage-timings and
+  phi-diagnostics payload the validation harnesses use.
+- **honored GMRES tolerance**: the phi solve now honors the requested
+  `phi_inversion_tol` — it was previously hardcoded to `rtol=atol=1e-6`,
+  silently over-solving every stage for models that asked for a looser
+  tolerance. Solvers constructed with the default `tol=1e-6` are unchanged.
 
-For the current release the promoted native kernels do not depend on `equinox`,
-`lineax`, or `diffrax`; those libraries remain packaged as optional
-future-tooling hooks rather than active explanations for the current
-reduced-kernel speedups.
+Additionally, `build_perp_laplacian_mg_hierarchy` now LU-factorizes the
+coarsest-level dense operator once at build time
+(`jax.scipy.linalg.lu_factor`, coarse systems up to 512 cells), so each
+V-cycle does a triangular solve instead of relying on coarse smoothing
+sweeps (see [Solvers and Design Decisions](solvers_and_design.md)).
+
+## JAX Ecosystem Usage
+
+- `lineax` **is now a real dependency of the FCI stack**: the
+  perpendicular-Laplacian inversion is an `lx.GMRES` solve over a matrix-free
+  `lx.FunctionLinearOperator` (optional extra `jax-drb[lineax]`).
+- `solvax` provides the structured Fourier–Helmholtz and tridiagonal solves.
+- `equinox` and `diffrax` are still not used by any promoted kernel; they
+  remain future options, not active dependencies.
 
 ## Guidance For Users
 

@@ -11,15 +11,16 @@ def test_restartable_diffusion_tutorial_writes_restart_and_plots(tmp_path: Path)
     repo_root = Path(__file__).resolve().parents[1]
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(repo_root / "src")
+    environment.setdefault("MPLBACKEND", "Agg")
 
+    # The tutorial is a flat script whose OUTPUT_ROOT is cwd-relative, so
+    # running it from tmp_path keeps every artifact inside the test sandbox.
     subprocess.run(
         [
             sys.executable,
             str(repo_root / "examples" / "restartable_diffusion_tutorial.py"),
-            "--output-root",
-            str(tmp_path / "demo"),
-            "--quiet",
         ],
+        cwd=tmp_path,
         check=True,
         env=environment,
         stdout=subprocess.PIPE,
@@ -27,7 +28,7 @@ def test_restartable_diffusion_tutorial_writes_restart_and_plots(tmp_path: Path)
         text=True,
     )
 
-    output_root = tmp_path / "demo"
+    output_root = tmp_path / "docs" / "data" / "restartable_diffusion_demo_artifacts"
     assert (output_root / "input" / "input.toml").exists()
     assert (output_root / "run_first" / "restartable_diffusion_summary.json").exists()
     assert (output_root / "run_first" / "restartable_diffusion_arrays.npz").exists()
@@ -38,8 +39,6 @@ def test_restartable_diffusion_tutorial_writes_restart_and_plots(tmp_path: Path)
     assert (output_root / "data" / "restartable_diffusion_combined_history.npz").exists()
     assert (output_root / "images" / "restartable_diffusion_density_snapshots.png").stat().st_size > 0
     assert (output_root / "images" / "restartable_diffusion_restart_consistency.png").stat().st_size > 0
-    assert (output_root / "images" / "restartable_diffusion_density_surface.png").stat().st_size > 0
-    assert (output_root / "movies" / "restartable_diffusion_density.gif").stat().st_size > 0
     assert (output_root / "images" / "restartable_diffusion_density_surface.png").stat().st_size > 0
     assert (output_root / "movies" / "restartable_diffusion_density.gif").stat().st_size > 0
 

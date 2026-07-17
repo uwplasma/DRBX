@@ -4,19 +4,30 @@ This is the closed-field-line (periodic flux-tube) drift-wave turbulence
 flagship: a pseudo-spectral solver for the two-field Hasegawa-Wakatani system
 in the perpendicular plane,
 
-    d/dt zeta = -{phi, zeta} + alpha (phi - n) - nu * lap^2 zeta
-    d/dt n    = -{phi, n} - kappa d/dy phi + alpha (phi - n) - nu * lap^2 n
+    d/dt zeta = -{phi, zeta} + alpha (phi - n) - nu * lap^2 zeta - mu * zeta
+    d/dt n    = -{phi, n} - kappa d/dy phi + alpha (phi - n) - nu * lap^2 n - mu * n
 
 with vorticity ``zeta = lap phi`` (so ``phi_k = -zeta_k / k^2``), adiabaticity
-``alpha``, background density gradient ``kappa``, and hyperviscosity ``nu``.
+``alpha``, background density gradient ``kappa``, hyperviscosity ``nu``, and an
+optional scale-independent friction ``mu`` (default 0). The friction models
+large-scale drag (e.g. sheath or neutral damping in the tokamak edge) and, by
+absorbing the 2-D inverse cascade at the box scale, lets a fixed-step run reach
+a statistically steady saturated state.
 ``{a, b} = da/dx db/dy - da/dy db/dx`` is the E x B Poisson bracket, evaluated
 pseudo-spectrally with 2/3-rule dealiasing.
 
 The whole right-hand side is written in JAX, so a run is ``jit``-compiled and
 differentiable. Its single-mode linear growth rate reproduces the eigenvalue of
 :func:`jax_drb.linear.resistive_drift_wave_operator` (benchmark B2); at finite
-amplitude it develops nonlinear E x B transport with an outward particle
-flux (full saturation needs CFL-adaptive stepping). References: Hasegawa & Wakatani, Phys. Rev. Lett. 50, 682 (1983); Numata
+amplitude it develops nonlinear E x B transport with an outward particle flux
+that saturates statistically when ``mu > 0`` absorbs the inverse cascade.
+
+Initial spectra must be Hermitian (e.g. the FFT of a real field). The solver
+evolves the complex spectral state as given; a non-Hermitian state corresponds
+to complex-valued fields, i.e. an unphysical complexified system that does not
+obey the real system's energy balance and can blow up nonlinearly.
+
+References: Hasegawa & Wakatani, Phys. Rev. Lett. 50, 682 (1983); Numata
 et al., Phys. Plasmas 14, 102312 (2007).
 """
 
@@ -35,6 +46,7 @@ __all__ = [
     "hw_rhs",
     "hw_step",
     "hw_run",
+    "hw_run_flux_history",
     "particle_flux",
 ]
 
@@ -46,6 +58,7 @@ class HasegawaWakataniParameters:
     adiabaticity: float = 1.0        # alpha: parallel coupling
     gradient: float = 1.0            # kappa: background density gradient drive
     hyperviscosity: float = 1.0e-3   # nu: lap^2 damping of the grid scale
+    friction: float = 0.0            # mu: linear drag absorbing the inverse cascade
 
 
 @dataclass(frozen=True)
@@ -100,8 +113,8 @@ def hw_rhs(zeta_hat, n_hat, grid: HasegawaWakataniGrid, params: HasegawaWakatani
 
     phi_hat = potential_from_vorticity(zeta_hat, grid)
     coupling = params.adiabaticity * (phi_hat - n_hat)
-    damping_zeta = params.hyperviscosity * grid.k2**2 * zeta_hat
-    damping_n = params.hyperviscosity * grid.k2**2 * n_hat
+    damping_zeta = params.hyperviscosity * grid.k2**2 * zeta_hat + params.friction * zeta_hat
+    damping_n = params.hyperviscosity * grid.k2**2 * n_hat + params.friction * n_hat
     d_zeta = -_bracket_hat(phi_hat, zeta_hat, grid) + coupling - damping_zeta
     d_n = (
         -_bracket_hat(phi_hat, n_hat, grid)
@@ -142,6 +155,34 @@ def hw_run(zeta_hat, n_hat, grid, params, *, dt, steps):
 
         (zeta_final, n_final), _ = jax.lax.scan(body, (zeta0, n0), None, length=steps)
         return zeta_final, n_final
+
+    return _run(zeta_hat, n_hat)
+
+
+def hw_run_flux_history(zeta_hat, n_hat, grid, params, *, dt, steps, sample_every=1):
+    """Advance ``steps`` RK4 steps; return final spectra and the sampled flux history.
+
+    Like :func:`hw_run`, but the jitted ``lax.scan`` also records the
+    domain-averaged radial particle flux every ``sample_every`` steps (an array
+    of length ``steps // sample_every``). Because the whole scan is JAX, any
+    reduction of the history (e.g. its time average over a saturated window) is
+    differentiable with respect to the physical parameters.
+    """
+
+    outer = steps // sample_every
+
+    @jax.jit
+    def _run(zeta0, n0):
+        def inner(carry, _):
+            z, m = carry
+            return hw_step(z, m, grid, params, dt), None
+
+        def body(carry, _):
+            carry, _ = jax.lax.scan(inner, carry, None, length=sample_every)
+            return carry, particle_flux(carry[0], carry[1], grid)
+
+        (zeta_final, n_final), fluxes = jax.lax.scan(body, (zeta0, n0), None, length=outer)
+        return zeta_final, n_final, fluxes
 
     return _run(zeta_hat, n_hat)
 

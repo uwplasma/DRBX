@@ -9,7 +9,7 @@ arrays for downstream geometry, FCI, and SOL-operator workflows.
 The active completion sequence is defined in
 [Research-Grade Execution Plan](research_grade_execution_plan.md).
 For `main`, the next direct-coil open-field target is the
-`direct_coil_open_sol_demo.py` workflow: first validate pure-coil FCI maps,
+`direct_coil_open_sol.py` workflow: first validate pure-coil FCI maps,
 endpoint masks, connection-length refinement, sheath/recycling/neutral source
 accounting, the explicit source/profile gate, stationarity reports, and the
 optional diagnostic media stage; only then promote a direct-coil turbulence
@@ -82,7 +82,7 @@ stored.
 
 ## Current Artifact
 
-![ESSOS Landreman-Paul QA field-line import](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_fieldline_import_artifacts__images__essos_landreman_paul_qa_fieldline_import.png)
+![ESSOS Landreman-Paul QA field-line import](media/essos_landreman_paul_qa_fieldline_import.png)
 
 The current artifact uses the Landreman-Paul QA coil file through ESSOS and
 imports the resulting field-line bundle into `jax_drb`. This replaces the

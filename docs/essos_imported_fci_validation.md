@@ -6,6 +6,13 @@
     If this page conflicts with that plan, follow the execution plan and update
     this page afterward.
 
+!!! note "Figures are release-hosted"
+    The campaign figures referenced below live on the
+    `validation-artifacts-2026-04-28` GitHub release. Because this repository
+    is private, release assets cannot render inline for docs readers; the
+    links require repository access, or restore them locally with
+    `python scripts/fetch_example_artifacts.py`.
+
 This page documents the first downstream use of externally traced
 Landreman-Paul QA field lines inside `jax_drb` FCI operators. ESSOS supplies
 the coil-field evaluation and adaptive trajectories. `jax_drb` converts those
@@ -20,7 +27,7 @@ direct-coil open-field maps must pass their own endpoint and connection-length
 gates before a movie can be promoted; VMEC maps are closed-field controls; and
 hybrid maps are the current bridge that combines smooth VMEC map coordinates
 with coil-derived endpoint masks. The convenience workflow
-`examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py` records
+`examples/geometry-3D/essos-field-lines/direct_coil_open_sol.py` records
 that gate order in one script. The live FCI stage now also feeds
 `direct_coil_source_profile_gate`, a machine-readable JSON check on the exact
 target-label, heat-load, neutral-source, radial-profile, and source-balance
@@ -111,7 +118,7 @@ not merely perfect agreement on a tiny interior subset.
 A larger live endpoint-label comparison using `(7, 15, 27) -> (11, 25, 45)`
 grids is now exposed as the optional
 `RUN_LIVE_BOUNDARY_RESOLVED_ENDPOINT_LABEL_REFINEMENT_GATE` stage in
-`direct_coil_open_sol_demo.py`. It gives enough interior support for this
+`direct_coil_open_sol.py`. It gives enough interior support for this
 criterion, with boundary-excluded valid fraction `0.248` and
 boundary-excluded all-label and endpoint-label agreement `1.0`. The full
 endpoint-label gate still fails, with endpoint agreement `0.763`, because the
@@ -218,7 +225,7 @@ example that does not require the external geometry checkout:
 
 ```bash
 PYTHONPATH=src .venv/bin/python \
-  examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py
+  examples/geometry-3D/essos-field-lines/imported_connection_length_refinement.py
 ```
 
 That script runs a manufactured non-axisymmetric nested-grid gate and writes a
@@ -262,7 +269,7 @@ The hybrid open-SOL promotion path has a single workflow ledger:
 
 ```bash
 PYTHONPATH=src .venv/bin/python \
-  examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py
+  examples/geometry-3D/essos-field-lines/hybrid_open_sol.py
 ```
 
 The default run is self-contained and writes a dry-run contract under
@@ -367,7 +374,7 @@ endpoint-cell adjacent lengths. This keeps the hybrid VMEC-map/coil-mask lane
 as the current open-field bridge while pure-coil map refinement remains active
 work.
 
-![Manufactured nested-grid connection-length refinement](data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png)
+- Manufactured nested-grid connection-length refinement — figure written locally to `docs/data/essos_imported_connection_length_refinement_artifacts/images/essos_imported_connection_length_refinement.png` when the refinement example runs.
 
 Set `WRITE_DRY_RUN_ARTIFACTS = True` to write a self-contained JSON contract
 under the resolved artifact root; that contract records the live artifact
@@ -544,7 +551,7 @@ quantities are `raw_connection_length`, `adjacent_step_length`,
 `target_exit_length`, and `parallel_step_per_toroidal_radian`; only the
 adjacent-step quantities are appropriate for FCI-map convergence. The
 self-contained
-`imported_connection_length_refinement_demo.py` campaign exercises that exact
+`imported_connection_length_refinement.py` campaign exercises that exact
 report and plotting path with manufactured nested grids, so CI can protect the
 refinement logic even without the external field-line runtime. Imported-field
 turbulence movies should not be used as publication evidence until the same
@@ -555,11 +562,11 @@ maps it must be nonzero and exactly consumed by the sheath/recycling masks.
 
 ## Current Artifacts
 
-![ESSOS imported FCI coil validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
+- ESSOS imported FCI coil validation — release-hosted figure: [`docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
 
-![ESSOS imported FCI VMEC-coordinate validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png)
+- ESSOS imported FCI VMEC-coordinate validation — release-hosted figure: [`docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png)
 
-![ESSOS imported FCI hybrid validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png)
+- ESSOS imported FCI hybrid validation — release-hosted figure: [`docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png)
 
 The first figure shows the default `coil` artifact: imported VMEC-shaped QA
 cross-section, endpoint map structure, connection-length proxy, sheath

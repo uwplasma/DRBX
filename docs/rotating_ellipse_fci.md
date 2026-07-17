@@ -8,7 +8,7 @@ flux-coordinate-independent (FCI) parallel operators are correct on a genuinely
 three-dimensional field, and it is the flagship non-axisymmetric benchmark in
 `jax_drb`.
 
-![Rotating-ellipse FCI](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/rotating_ellipse_fci.png)
+![Rotating-ellipse FCI](media/rotating_ellipse_fci.png)
 
 ## Geometry
 
@@ -80,7 +80,7 @@ interchange mechanism that moves a filament -- and because the flux surfaces
 rotate with the toroidal angle, the filament evolves differently in each
 toroidal plane.
 
-![Seeded filament on the rotating ellipse](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/rotating_ellipse_filament.png)
+![Seeded filament on the rotating ellipse](media/rotating_ellipse_filament.png)
 
 The figure shows, in physical `(R, Z)` cross-sections at three toroidal angles
 (each a differently oriented ellipse), the seeded density blob, the evolved
@@ -92,13 +92,13 @@ vorticity and a parallel ion flow are generated from the seed. Regenerate the
 figure with
 
 ```bash
-PYTHONPATH=src python examples/stellarator/rotating_ellipse_filament_demo.py
+PYTHONPATH=src python examples/stellarator/rotating_ellipse_filament.py
 ```
 
 ## Reproduce
 
 ```bash
-PYTHONPATH=src python examples/stellarator/rotating_ellipse_fci_demo.py
+PYTHONPATH=src python examples/stellarator/rotating_ellipse_fci.py
 ```
 
 writes `output/rotating_ellipse_fci/` with the two-panel figure (rotating flux

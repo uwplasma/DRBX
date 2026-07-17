@@ -152,7 +152,7 @@ reproduction command, a committed figure, and both a physics gate
 
 | | Closed field lines | Open field lines |
 |---|---|---|
-| **Tokamak** | **DONE (Phase 3)** — JAX-native Hasegawa-Wakatani drift-wave turbulence (`native/hasegawa_wakatani.py`): single-mode linear growth matches the B2 eigenvalue to ~1e-14, develops outward particle flux, and is differentiable end-to-end (grad of final energy vs FD). Example `examples/tokamak/drift_wave_turbulence_demo.py`. | (i) 1D `1D-threshold`-class SOL with sheath, recycling, AMJUEL reactions, conduction — detachment-capable (B5/B6); (ii) blob2d with velocity-scaling gate (B4); (iii) 2D diverted transport + recycling vs hermes-3 goldens. Land Phases 3–5. |
+| **Tokamak** | **DONE (Phase 3)** — JAX-native Hasegawa-Wakatani drift-wave turbulence (`native/hasegawa_wakatani.py`): single-mode linear growth matches the B2 eigenvalue to ~1e-14, develops outward particle flux, and is differentiable end-to-end (grad of final energy vs FD). Example `examples/tokamak/drift_wave_turbulence.py`. | (i) 1D `1D-threshold`-class SOL with sheath, recycling, AMJUEL reactions, conduction — detachment-capable (B5/B6); (ii) blob2d with velocity-scaling gate (B4); (iii) 2D diverted transport + recycling vs hermes-3 goldens. Land Phases 3–5. |
 | **Stellarator** | VMEC closed-field-line turbulence on an imported QA equilibrium plus a rotating-ellipse closed control: zero endpoint masks, closed-map operator conservation gate, profile/spectrum diagnostics. Lands Phase 6. | Island-divertor open-SOL turbulence on an analytic non-axisymmetric field with endpoint masks, sheath + recycling + neutral sources and closed source accounting (B7/B8); hybrid VMEC/coil open-SOL as the imported-geometry variant. Lands Phase 6. |
 
 Quadrant exit criteria: the script runs from a clean clone (plus documented
@@ -490,7 +490,7 @@ scaling); and **stellarator turbulence on closed and open field lines** — a
 into a Bohm-sheath-drained scrape-off layer while the core stays closed, and the
 multi-mode-seeded four-field model runs turbulence-type interchange dynamics on
 both, gated (`tests/test_stellarator_turbulence.py`) and shown as movies
-(`examples/stellarator/stellarator_turbulence_demo.py`). Neutrals couple on the
+(`examples/stellarator/stellarator_turbulence.py`). Neutrals couple on the
 3D FCI geometries, closed and open (`tests/test_fci_neutrals_3d.py`).
 
 Remaining Phase 6 (optional depth):

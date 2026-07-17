@@ -1,65 +1,61 @@
 """Fast gate for the differentiable non-axisymmetric FCI flagship (Phase 6).
 
-Covers three things quickly (small grid, one/two RK4 steps):
+Covers three things quickly (small grid, two RK4 steps):
 
 1. ``build_shifted_torus_geometry`` produces a valid ``FciGeometry3D`` of the
    requested shape with a finite, non-degenerate, non-orthogonal metric.
 2. The drift-reduced two-field FCI RHS is finite on the ported geometry.
 3. The differentiability gate: ``jax.grad`` of the evolved density variance
    matches a central finite difference to tight tolerance, both for the full RK4
-   rollout and for a single RHS evaluation. Also smoke-tests the demo ``main()``.
+   rollout and for a single RHS evaluation.
+
+The reusable rollout machinery lives in
+``jax_drb.native.fci_differentiable_case``; the pedagogical script
+``examples/stellarator/fci_differentiable.py`` drives the same API.
 """
 
 from __future__ import annotations
-
-import importlib.util
-from pathlib import Path
-import sys
 
 import numpy as np
 import pytest
 
 from jax_drb.geometry import FciGeometry3D, build_shifted_torus_geometry
-
-
-def _load_demo():
-    repo_root = Path(__file__).resolve().parents[1]
-    module_path = repo_root / "examples" / "stellarator" / "fci_differentiable_demo.py"
-    spec = importlib.util.spec_from_file_location("fci_differentiable_demo", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-demo = _load_demo()
+from jax_drb.native.fci_differentiable_case import (
+    build_context,
+    differentiability_report,
+    seeded_initial_state,
+    single_rhs,
+    single_rhs_grad_and_fd,
+)
 
 SMALL_SHAPE = (10, 10, 6)
 SMALL_STEPS = 2
+SIGMA = 0.6
+AMP0 = 0.1
+DT = 1.0e-3
+FD_STEP = 1.0e-5
 GRAD_FD_TOLERANCE = 1.0e-3
 
 
 @pytest.fixture(scope="module")
-def demo_run(tmp_path_factory):
-    """Run the demo once at tiny size; every gate below asserts on its summary."""
+def small_context():
+    """The shifted-torus context at tiny size, shared by every gate below."""
 
-    output_dir = tmp_path_factory.mktemp("fci_differentiable")
-    summary = demo.main(
-        output_dir=output_dir,
-        shape=SMALL_SHAPE,
-        sigma=0.6,
-        n_steps=SMALL_STEPS,
-        dt=1.0e-3,
-        make_figure=True,
+    return build_context(SMALL_SHAPE, sigma=SIGMA)
+
+
+@pytest.fixture(scope="module")
+def rollout_report(small_context):
+    """Run the differentiable rollout once; the gradient gates assert on it."""
+
+    return differentiability_report(
+        small_context, amp0=AMP0, n_steps=SMALL_STEPS, dt=DT, fd_step=FD_STEP
     )
-    return output_dir, summary
 
 
 def test_build_shifted_torus_geometry_shape_and_metric() -> None:
     shape = (14, 12, 8)
-    geometry = build_shifted_torus_geometry(shape, sigma=0.6)
+    geometry = build_shifted_torus_geometry(shape, sigma=SIGMA)
 
     assert isinstance(geometry, FciGeometry3D)
     assert tuple(int(s) for s in geometry.shape) == shape
@@ -82,32 +78,21 @@ def test_build_shifted_torus_geometry_shape_and_metric() -> None:
     assert float(np.min(bmag)) > 0.0
 
 
-def test_fci_2field_rhs_finite_on_shifted_torus() -> None:
-    ctx = demo.build_context(SMALL_SHAPE, sigma=0.6)
-    rhs = demo.single_rhs(ctx, demo.seeded_initial_state(ctx, 0.1))
+def test_fci_2field_rhs_finite_on_shifted_torus(small_context) -> None:
+    rhs = single_rhs(small_context, seeded_initial_state(small_context, AMP0))
     assert np.all(np.isfinite(np.asarray(rhs.density)))
     assert np.all(np.isfinite(np.asarray(rhs.v_parallel)))
 
 
-def test_rollout_grad_matches_finite_difference(demo_run) -> None:
-    _output_dir, summary = demo_run
-    assert summary["rollout_finite"] is True
-    assert summary["differentiation_path"] == "multi_step_rollout"
+def test_rollout_grad_matches_finite_difference(rollout_report) -> None:
+    assert rollout_report["finite"] is True
+    assert rollout_report["n_steps"] == SMALL_STEPS
     # The differentiability gate: autodiff grad agrees with central FD.
-    assert summary["rollout_rel_error"] < GRAD_FD_TOLERANCE
-    assert abs(summary["rollout_grad"]) > 0.0
+    assert rollout_report["rel_error"] < GRAD_FD_TOLERANCE
+    assert abs(rollout_report["grad"]) > 0.0
 
 
-def test_single_rhs_grad_matches_finite_difference(demo_run) -> None:
-    _output_dir, summary = demo_run
-    assert summary["single_rhs_finite"] is True
-    assert summary["single_rhs_rel_error"] < GRAD_FD_TOLERANCE
-    assert abs(summary["single_rhs_grad"]) > 0.0
-
-
-def test_demo_main_smoke_writes_outputs(demo_run) -> None:
-    output_dir, summary = demo_run
-    assert (output_dir / "fci_differentiable_summary.json").exists()
-    assert (output_dir / "fci_differentiable.png").exists()
-    assert summary["geometry_shape"] == [int(s) for s in SMALL_SHAPE]
-    assert summary["n_steps"] == SMALL_STEPS
+def test_single_rhs_grad_matches_finite_difference(small_context) -> None:
+    single = single_rhs_grad_and_fd(small_context, amp0=AMP0, fd_step=FD_STEP)
+    assert single["rel_error"] < GRAD_FD_TOLERANCE
+    assert abs(single["grad"]) > 0.0

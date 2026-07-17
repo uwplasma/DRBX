@@ -53,52 +53,37 @@ def _run_example(
     [
         "restartable_diffusion_tutorial.py",
         "diffusion_precision_benchmark.py",
-        "autodiff_diffusion_sensitivity_demo.py",
-        "autodiff_diffusion_inverse_design_demo.py",
-        "strong_scaling_diffusion_demo.py",
+        "autodiff_diffusion_sensitivity.py",
+        "autodiff_diffusion_inverse_design.py",
+        "autodiff_diffusion_uncertainty.py",
+        "strong_scaling_diffusion.py",
         "model_selection_guide.py",
     ],
 )
-def test_docs_argparse_examples_expose_subprocess_help(relative_script: str) -> None:
-    script_path = EXAMPLES_ROOT / relative_script
+def test_docs_examples_are_flat_parameter_scripts(relative_script: str) -> None:
+    # The documented examples are flat pedagogical scripts: a module docstring
+    # with the run command, module-level PARAMETERS constants, and no CLI or
+    # main() indirection.
+    source = (EXAMPLES_ROOT / relative_script).read_text(encoding="utf-8")
 
-    completed = _run_example(
-        [sys.executable, str(script_path), "--help"],
-        cwd=REPO_ROOT,
-        timeout=30,
-    )
+    assert source.lstrip().startswith('"""'), "example must open with a module docstring"
+    assert "PYTHONPATH=src" in source, "docstring must show the exact run command"
+    assert "PARAMETERS" in source, "example must expose a PARAMETERS constants block"
+    assert "import argparse" not in source
+    assert "__main__" not in source
+    assert "def main(" not in source
 
-    assert "usage:" in completed.stdout.lower()
 
-
-def test_restartable_diffusion_tutorial_lightweight_subprocess_smoke(tmp_path: Path) -> None:
-    output_root = tmp_path / "restartable"
-
+def test_restartable_diffusion_tutorial_default_subprocess_smoke(tmp_path: Path) -> None:
+    # The tutorial's OUTPUT_ROOT is cwd-relative, so running it from tmp_path
+    # keeps all artifacts inside the test sandbox.
     _run_example(
-        [
-            sys.executable,
-            str(EXAMPLES_ROOT / "restartable_diffusion_tutorial.py"),
-            "--output-root",
-            str(output_root),
-            "--nx",
-            "6",
-            "--ny",
-            "8",
-            "--first-nout",
-            "1",
-            "--resume-nout",
-            "1",
-            "--timestep",
-            "1.0",
-            "--precision",
-            "float32",
-            "--skip-movie",
-            "--quiet",
-        ],
-        cwd=REPO_ROOT,
-        timeout=120,
+        [sys.executable, str(EXAMPLES_ROOT / "restartable_diffusion_tutorial.py")],
+        cwd=tmp_path,
+        timeout=90,
     )
 
+    output_root = tmp_path / "docs" / "data" / "restartable_diffusion_demo_artifacts"
     assert (output_root / "input" / "input.toml").exists()
     assert (output_root / "run_first" / "restartable_diffusion_arrays.npz").exists()
     assert (output_root / "run_resumed" / "restartable_diffusion_resumed_arrays.npz").exists()
@@ -109,20 +94,13 @@ def test_restartable_diffusion_tutorial_lightweight_subprocess_smoke(tmp_path: P
 
 
 def test_model_selection_guide_writes_parse_checked_starter_decks(tmp_path: Path) -> None:
-    output_root = tmp_path / "model_selection"
-
     _run_example(
-        [
-            sys.executable,
-            str(EXAMPLES_ROOT / "model_selection_guide.py"),
-            "--output-root",
-            str(output_root),
-            "--quiet",
-        ],
-        cwd=REPO_ROOT,
+        [sys.executable, str(EXAMPLES_ROOT / "model_selection_guide.py")],
+        cwd=tmp_path,
         timeout=30,
     )
 
+    output_root = tmp_path / "output" / "model_selection_guide"
     summary_path = output_root / "model_selection_summary.json"
     payload = json.loads(summary_path.read_text(encoding="utf-8"))
 
@@ -143,15 +121,15 @@ def test_stellarator_fci_docs_analysis_commands_are_subprocess_self_contained(
     _run_example(
         [
             sys.executable,
-            str(EXAMPLES_ROOT / "geometry-3D" / "stellarator-fci" / "geometry_plotting_demo.py"),
+            str(EXAMPLES_ROOT / "geometry-3D" / "stellarator-fci" / "geometry_plotting.py"),
         ],
         cwd=tmp_path,
         timeout=60,
     )
 
     geometry_root = tmp_path / "docs" / "data" / "stellarator_fci_example_artifacts" / "geometry"
-    assert (geometry_root / "stellarator_geometry_plotting_demo.npz").exists()
-    assert (geometry_root / "stellarator_geometry_plotting_demo.png").stat().st_size > 0
+    assert (geometry_root / "stellarator_geometry_plotting.npz").exists()
+    assert (geometry_root / "stellarator_geometry_plotting.png").stat().st_size > 0
 
     nonlinear_root = (
         tmp_path
@@ -161,29 +139,48 @@ def test_stellarator_fci_docs_analysis_commands_are_subprocess_self_contained(
         / "nonlinear_turbulence"
     )
     _write_tiny_stellarator_turbulence_release_arrays(
-        nonlinear_root / "stellarator_nonlinear_turbulence_demo.npz"
+        nonlinear_root / "stellarator_nonlinear_turbulence.npz"
     )
 
     completed = _run_example(
         [
             sys.executable,
-            str(EXAMPLES_ROOT / "geometry-3D" / "stellarator-fci" / "turbulent_profile_analysis_demo.py"),
+            str(EXAMPLES_ROOT / "geometry-3D" / "stellarator-fci" / "turbulent_profile_analysis.py"),
         ],
         cwd=tmp_path,
         timeout=60,
     )
 
     assert "wrote profile analysis:" in completed.stdout
-    assert (nonlinear_root / "stellarator_nonlinear_turbulence_demo_profiles.png").stat().st_size > 0
+    assert (nonlinear_root / "stellarator_nonlinear_turbulence_profiles.png").stat().st_size > 0
 
 
-def test_vmec_extender_imported_field_demo_is_subprocess_self_contained(
+def test_turbulent_profile_analysis_explains_missing_artifact(tmp_path: Path) -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLES_ROOT / "geometry-3D" / "stellarator-fci" / "turbulent_profile_analysis.py"),
+        ],
+        cwd=tmp_path,
+        env=_example_env(),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert "Missing required artifact" in completed.stdout
+    assert "nonlinear_turbulence.py" in completed.stdout
+
+
+def test_vmec_extender_imported_field_is_subprocess_self_contained(
     tmp_path: Path,
 ) -> None:
     completed = _run_example(
         [
             sys.executable,
-            str(EXAMPLES_ROOT / "geometry-3D" / "vmec-extender" / "imported_field_demo.py"),
+            str(EXAMPLES_ROOT / "geometry-3D" / "vmec-extender" / "imported_field.py"),
         ],
         cwd=tmp_path,
         timeout=90,

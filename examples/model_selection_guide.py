@@ -1,18 +1,24 @@
-#!/usr/bin/env python3
 """Pedagogical model-selection guide for JAXDRB users.
 
 This example is intentionally lightweight. It teaches how to choose between
 JAXDRB model families, dimensions, fluid closures, and boundary-condition
 families without launching a heavy validation campaign by default.
 
-The script imports real public APIs, writes small starter TOML decks, parses
-those decks with the runtime configuration layer, and prints the API calls a
-user would make when they are ready to inspect or run a case.
+The script imports real public APIs, writes small starter TOML decks (plus a
+Markdown guide and a machine-readable JSON summary under ``OUTPUT_ROOT``,
+relative to the current working directory), parses those decks with the runtime
+configuration layer, prints the full decision guide, and prints the API calls a
+user would make when they are ready to inspect or run a case. Edit the
+PARAMETERS constants below to change the output location or to actually run the
+generated tiny diffusion deck.
+
+Run from the repository root:
+
+    PYTHONPATH=src python examples/model_selection_guide.py
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -24,11 +30,11 @@ from jax_drb.native import run_input_case
 from jax_drb.runtime import RunConfiguration
 
 
-# SIMSOPT-style user parameters: edit these first, then run the file.
-OUTPUT_ROOT = Path("output/model_selection_guide")
-WRITE_STARTER_DECKS = True
-RUN_TINY_DIFFUSION_SMOKE = False
-QUIET = False
+# --- PARAMETERS ------------------------------------------------------------------
+OUTPUT_ROOT = Path("output/model_selection_guide")  # artifact root (cwd-relative)
+WRITE_STARTER_DECKS = True         # write starter decks + JSON/Markdown summaries
+RUN_TINY_DIFFUSION_SMOKE = False   # set True to actually run the tiny diffusion deck
+QUIET = False                      # set True to write artifacts without printing the guide
 
 
 @dataclass(frozen=True)
@@ -137,8 +143,8 @@ MODEL_FAMILIES = (
         dimensions=("3D tokamak", "3D stellarator", "traced field-line coordinates"),
         boundary_choices=("open field-line endpoints", "periodic toroidal/field-line maps", "geometry-driven target masks"),
         starting_points=(
-            "examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py",
-            "examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py",
+            "examples/geometry-3D/stellarator-fci/geometry_plotting.py",
+            "examples/geometry-3D/stellarator-fci/nonlinear_turbulence.py",
             "examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py",
         ),
         caution="Expect higher setup cost; start with release-backed examples before regenerating external geometry.",
@@ -171,25 +177,6 @@ BOUNDARY_GUIDE = {
     "recycling": "Use with sheath targets when target ion flux should return as neutral source.",
     "neutral mixed/diffusion": "Use when neutral density/energy transport and ionization/recombination are active.",
 }
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Write and parse lightweight JAXDRB starter decks while explaining "
-            "which model family, dimension, fluid closure, and boundary family to choose."
-        )
-    )
-    parser.add_argument("--output-root", type=Path, default=OUTPUT_ROOT)
-    parser.add_argument("--no-write", action="store_true", help="Print the guide without writing starter artifacts.")
-    parser.add_argument(
-        "--run-tiny-diffusion",
-        action="store_true",
-        default=RUN_TINY_DIFFUSION_SMOKE,
-        help="Actually run the generated tiny diffusion deck with jax_drb.native.run_input_case.",
-    )
-    parser.add_argument("--quiet", action="store_true", default=QUIET)
-    return parser.parse_args()
 
 
 def diffusion_starter_deck() -> str:
@@ -463,17 +450,17 @@ def maybe_run_tiny_diffusion(deck_path: Path) -> dict[str, Any]:
     }
 
 
-if __name__ == "__main__":
-    ARGS = parse_args()
-    DECK_SUMMARIES: tuple[DeckSummary, ...] = ()
-    if WRITE_STARTER_DECKS and not ARGS.no_write:
-        DECK_SUMMARIES = write_starter_artifacts(ARGS.output_root)
-    if not ARGS.quiet:
-        print_model_guide()
-        print_api_discovery(ARGS.output_root, DECK_SUMMARIES)
-    if ARGS.run_tiny_diffusion:
-        RESULT = maybe_run_tiny_diffusion(ARGS.output_root / "diffusion_start.toml")
-        print_mapping(
-            "Tiny diffusion smoke result",
-            {key: str(value) for key, value in RESULT.items()},
-        )
+# --- write starter decks, print the guide, optionally run the tiny deck -----------
+DECK_SUMMARIES: tuple[DeckSummary, ...] = ()
+if WRITE_STARTER_DECKS:
+    DECK_SUMMARIES = write_starter_artifacts(OUTPUT_ROOT)
+    print(f"wrote starter decks and summaries under {OUTPUT_ROOT}")
+if not QUIET:
+    print_model_guide()
+    print_api_discovery(OUTPUT_ROOT, DECK_SUMMARIES)
+if RUN_TINY_DIFFUSION_SMOKE:
+    RESULT = maybe_run_tiny_diffusion(OUTPUT_ROOT / "diffusion_start.toml")
+    print_mapping(
+        "Tiny diffusion smoke result",
+        {key: str(value) for key, value in RESULT.items()},
+    )

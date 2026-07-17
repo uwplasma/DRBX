@@ -155,20 +155,31 @@ def test_interchange_is_a_flute_mode() -> None:
 
 # --- general engine -------------------------------------------------------------
 
-def test_linear_dispersion_example_runs(tmp_path, monkeypatch) -> None:
-    # Smoke-run the benchmark example at reduced resolution so CI keeps it alive.
-    import importlib.util
+def test_linear_dispersion_example_runs(tmp_path) -> None:
+    # Smoke-run the flat benchmark example in a subprocess; its cwd-relative
+    # OUTPUT_DIR keeps every artifact inside tmp_path.
+    import os
+    import subprocess
+    import sys
 
-    example = Path(__file__).resolve().parents[1] / "examples" / "benchmarks" / "linear_dispersion_demo.py"
-    spec = importlib.util.spec_from_file_location("_linear_dispersion_demo", example)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    monkeypatch.setattr(module, "OUTPUT_DIR", tmp_path / "linear_dispersion")
-    monkeypatch.setattr(module, "K_PERP_SCAN", np.linspace(0.0, 1500.0, 5))
-    monkeypatch.setattr(module, "ADIABATICITY_SCAN", np.geomspace(0.1, 100.0, 5))
-    module.main()
-    assert (tmp_path / "linear_dispersion" / "linear_dispersion.png").exists()
-    assert (tmp_path / "linear_dispersion" / "linear_dispersion.json").exists()
+    repo_root = Path(__file__).resolve().parents[1]
+    example = repo_root / "examples" / "benchmarks" / "linear_dispersion.py"
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repo_root / "src")
+    environment.setdefault("MPLBACKEND", "Agg")
+    completed = subprocess.run(
+        [sys.executable, str(example)],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "max relative frequency error" in completed.stdout
+    assert (tmp_path / "output" / "linear_dispersion" / "linear_dispersion.png").exists()
+    assert (tmp_path / "output" / "linear_dispersion" / "linear_dispersion.json").exists()
 
 
 def test_general_engine_linearizes_the_hasegawa_wakatani_model() -> None:

@@ -16,6 +16,11 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 validation:
   nav:
     omitted_files: info
@@ -33,7 +38,13 @@ nav:
       - Native Runtime CLI: native_runtime_cli.md
       - Restartable Diffusion Tutorial: restartable_diffusion_tutorial.md
       - Examples And Artifacts: examples.md
+  - Tutorials:
+      - Turbulence From Zero: tutorial_hasegawa_wakatani.md
+      - Open SOL, Neutrals, Detachment: tutorial_open_sol.md
+      - Stellarator FCI Turbulence: tutorial_stellarator_fci.md
   - Physics And Numerics:
+      - Models And Equations: models_and_equations.md
+      - Solvers And Design: solvers_and_design.md
       - Physics Models: physics_models.md
       - Equation To Code Map: equation_to_code_map.md
       - Code Structure: code_structure.md

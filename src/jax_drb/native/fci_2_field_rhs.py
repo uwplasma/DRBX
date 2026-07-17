@@ -81,7 +81,8 @@ def compute_2field_rhs(
     v_parallel_cut_wall_bc: CutWallBC3D | None = None,
     density_source: jax.Array | None = None,
     v_parallel_source: jax.Array | None = None,
-) -> tuple[Fci2FieldRhsResult, jnp.ndarray]:
+    with_diagnostics: bool = False,
+) -> tuple[Fci2FieldRhsResult, jnp.ndarray | None]:
     """Assemble the reduced two-field FCI RHS with Neumann stencil reconstruction.
 
     ``geometry`` may be a global ``FciGeometry3D`` or a shard-local
@@ -106,7 +107,7 @@ def compute_2field_rhs(
     density_background = jnp.asarray(state.density_background, dtype=jnp.float64)
     phi = jnp.log(jnp.maximum(density, 1.0e-30) / jnp.maximum(density_background, 1.0e-30))
 
-    stencil_start = time_module.perf_counter()
+    stencil_start = time_module.perf_counter() if with_diagnostics else 0.0
     density_stencil = stencil_builder(
         density,
         geometry,
@@ -131,12 +132,15 @@ def compute_2field_rhs(
         cut_wall_geometry=v_parallel_cut_wall_geometry,
         cut_wall_bc=v_parallel_cut_wall_bc,
     )
-    jax.block_until_ready(density_stencil.x.center)
-    jax.block_until_ready(phi_stencil.x.center)
-    jax.block_until_ready(v_parallel_stencil.x.center)
-    stencil_time = time_module.perf_counter() - stencil_start
+    if with_diagnostics:
+        # Host-synced stage timings for the validation harnesses; the default
+        # path stays sync-free so the whole RHS can run inside jit.
+        jax.block_until_ready(density_stencil.x.center)
+        jax.block_until_ready(phi_stencil.x.center)
+        jax.block_until_ready(v_parallel_stencil.x.center)
+    stencil_time = (time_module.perf_counter() - stencil_start) if with_diagnostics else 0.0
 
-    operator_start = time_module.perf_counter()
+    operator_start = time_module.perf_counter() if with_diagnostics else 0.0
     if is_local:
         poisson_density = local_poisson_bracket_op(phi_stencil, density_stencil, geometry)
         curvature_density = local_curvature_op(density_stencil, geometry, curvature_coefficients=curvature_coefficients)
@@ -164,13 +168,15 @@ def compute_2field_rhs(
         v_parallel_rhs = v_parallel_rhs + jnp.asarray(v_parallel_source, dtype=jnp.float64)
     rhs_density = jnp.asarray(density_rhs, dtype=jnp.float64)
     rhs_v_parallel = jnp.asarray(v_parallel_rhs, dtype=jnp.float64)
-    jax.block_until_ready(rhs_density)
-    jax.block_until_ready(rhs_v_parallel)
-    operator_time = time_module.perf_counter() - operator_start
 
     rhs = Fci2FieldState(
         density=rhs_density,
         v_parallel=rhs_v_parallel,
         density_background=jnp.zeros_like(density_background),
     )
+    if not with_diagnostics:
+        return Fci2FieldRhsResult(rhs=rhs), None
+    jax.block_until_ready(rhs_density)
+    jax.block_until_ready(rhs_v_parallel)
+    operator_time = time_module.perf_counter() - operator_start
     return Fci2FieldRhsResult(rhs=rhs), jnp.asarray([stencil_time, operator_time], dtype=jnp.float64)

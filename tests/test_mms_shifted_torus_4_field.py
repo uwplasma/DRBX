@@ -1452,6 +1452,7 @@ def shifted_torus_4field_rk4(
         )
         rhs_result, timings, stage_phi = compute_4field_rhs(
             current_state,
+            with_diagnostics=True,
             geometry=geometry,
             stencil_builder=stencil_builder,
             conservative_stencil_builder=conservative_stencil_builder,

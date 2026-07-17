@@ -2507,9 +2507,13 @@ class PerpLaplacianMgHierarchy:
     chebyshev_order: int = 2
     spectral_radius_estimate: float | None = None
     direct_coarse_size: int = 512
+    # LU factorization of the coarsest-level dense operator, computed once at
+    # build time so each V-cycle does a triangular solve instead of assembling
+    # and factorizing the coarse matrix from scratch.
+    coarse_lu_and_piv: tuple[jnp.ndarray, jnp.ndarray] | None = None
 
     def tree_flatten(self):
-        return self.levels, (
+        return (self.levels, self.coarse_lu_and_piv), (
             self.pre_smooth,
             self.post_smooth,
             self.coarse_smooth,
@@ -2532,8 +2536,10 @@ class PerpLaplacianMgHierarchy:
             spectral_radius_estimate,
             direct_coarse_size,
         ) = aux_data
+        levels, coarse_lu_and_piv = children
         return cls(
-            levels=tuple(children),
+            levels=tuple(levels),
+            coarse_lu_and_piv=coarse_lu_and_piv,
             pre_smooth=pre_smooth,
             post_smooth=post_smooth,
             coarse_smooth=coarse_smooth,
@@ -3091,10 +3097,11 @@ def _smooth(
     raise ValueError(f"unknown multigrid smoother {hierarchy.smoother!r}")
 
 
-def _direct_coarse_solve(rhs: jnp.ndarray, level: PerpLaplacianMgLevel) -> jnp.ndarray:
-    rhs_values = _project_homogeneous_correction(rhs, level=level)
-    flat_rhs = jnp.ravel(rhs_values)
-    n_values = flat_rhs.shape[0]
+def _assemble_coarse_matrix(level: PerpLaplacianMgLevel) -> jnp.ndarray:
+    """Dense coarse-level operator (with inactive rows/cols set to identity and
+    the nullspace rank-one shift applied when present)."""
+
+    n_values = int(level.shape[0] * level.shape[1] * level.shape[2])
     identity = jnp.eye(n_values, dtype=jnp.float64)
 
     def apply_basis(column: jnp.ndarray) -> jnp.ndarray:
@@ -3103,19 +3110,40 @@ def _direct_coarse_solve(rhs: jnp.ndarray, level: PerpLaplacianMgLevel) -> jnp.n
         return jnp.ravel(_project_homogeneous_correction(_mg_apply_negative_perp_laplacian(basis, level), level=level))
 
     matrix = jax.vmap(apply_basis, in_axes=1, out_axes=1)(identity)
-    active_mask = jnp.ravel(jnp.abs(_project_homogeneous_correction(jnp.ones(level.shape, dtype=jnp.float64), level=level)) > 0.0)
+    active_mask = _coarse_active_mask(level)
     active_matrix_mask = active_mask[:, None] & active_mask[None, :]
     matrix = jnp.where(active_matrix_mask, matrix, identity)
-    flat_rhs = jnp.where(active_mask, flat_rhs, 0.0)
-
     if level.has_nullspace:
-        weights = jnp.ravel(_cell_volume_weights(level.geometry))
-        weights = weights / jnp.maximum(jnp.sum(weights), 1.0e-30)
-        constant = jnp.ones_like(weights)
-        matrix = matrix + jnp.outer(constant, weights)
+        weights = _coarse_nullspace_weights(level)
+        matrix = matrix + jnp.outer(jnp.ones_like(weights), weights)
+    return matrix
+
+
+def _coarse_active_mask(level: PerpLaplacianMgLevel) -> jnp.ndarray:
+    return jnp.ravel(jnp.abs(_project_homogeneous_correction(jnp.ones(level.shape, dtype=jnp.float64), level=level)) > 0.0)
+
+
+def _coarse_nullspace_weights(level: PerpLaplacianMgLevel) -> jnp.ndarray:
+    weights = jnp.ravel(_cell_volume_weights(level.geometry))
+    return weights / jnp.maximum(jnp.sum(weights), 1.0e-30)
+
+
+def _direct_coarse_solve(
+    rhs: jnp.ndarray,
+    level: PerpLaplacianMgLevel,
+    lu_and_piv: tuple[jnp.ndarray, jnp.ndarray] | None = None,
+) -> jnp.ndarray:
+    rhs_values = _project_homogeneous_correction(rhs, level=level)
+    flat_rhs = jnp.ravel(rhs_values)
+    flat_rhs = jnp.where(_coarse_active_mask(level), flat_rhs, 0.0)
+    if level.has_nullspace:
+        weights = _coarse_nullspace_weights(level)
         flat_rhs = flat_rhs - jnp.sum(weights * flat_rhs)
 
-    solution = jnp.linalg.solve(matrix, flat_rhs)
+    if lu_and_piv is not None:
+        solution = jax.scipy.linalg.lu_solve(lu_and_piv, flat_rhs)
+    else:
+        solution = jnp.linalg.solve(_assemble_coarse_matrix(level), flat_rhs)
     solution = jnp.reshape(solution, level.shape)
     return _project_homogeneous_correction(solution, level=level)
 
@@ -3132,7 +3160,7 @@ def _mg_vcycle(
 
     if level_index == len(hierarchy.levels) - 1:
         if int(level.shape[0] * level.shape[1] * level.shape[2]) <= int(hierarchy.direct_coarse_size):
-            return _direct_coarse_solve(rhs, level)
+            return _direct_coarse_solve(rhs, level, hierarchy.coarse_lu_and_piv)
         return _smooth(x, rhs, level=level, nsweeps=hierarchy.coarse_smooth, hierarchy=hierarchy)
 
     x = _smooth(x, rhs, level=level, nsweeps=hierarchy.pre_smooth, hierarchy=hierarchy)
@@ -3256,6 +3284,11 @@ def build_perp_laplacian_mg_hierarchy(
         current_cut_wall_geometry = CutWallGeometry3D.empty()
         current_cut_wall_bc = CutWallBC3D.empty()
 
+    coarse_lu_and_piv = None
+    coarsest = levels[-1]
+    if int(coarsest.shape[0] * coarsest.shape[1] * coarsest.shape[2]) <= int(direct_coarse_size):
+        lu, piv = jax.scipy.linalg.lu_factor(_assemble_coarse_matrix(coarsest))
+        coarse_lu_and_piv = (lu, piv)
     return PerpLaplacianMgHierarchy(
         levels=tuple(levels),
         pre_smooth=int(pre_smooth),
@@ -3266,6 +3299,7 @@ def build_perp_laplacian_mg_hierarchy(
         chebyshev_order=int(chebyshev_order),
         spectral_radius_estimate=spectral_radius_estimate,
         direct_coarse_size=int(direct_coarse_size),
+        coarse_lu_and_piv=coarse_lu_and_piv,
     )
 
 
@@ -3469,6 +3503,11 @@ class PerpLaplacianInverseSolver:
         # under JIT so lineax can branch on it safely.
         self._solve_jit = jax.jit(self._solve_impl, static_argnums=(4,))
         self._solve_lifted_jit = jax.jit(self._solve_lifted_impl, static_argnums=(7,))
+        self._solve_fast_jit = jax.jit(self._solve_fast_impl, static_argnums=(4,))
+        # BC payloads are built once and reused every step, so validate each
+        # (face_bc, cut_wall_bc) object pair against the MG hierarchy only the
+        # first time it is seen: the check costs several host syncs.
+        self._mg_validated_bc_ids: set[tuple[int, int]] = set()
 
     def _apply_A(
         self,
@@ -3504,6 +3543,69 @@ class PerpLaplacianInverseSolver:
         if project_mean_zero:
             result = _remove_weighted_mean(result, self.geometry)
         return result
+
+    def _solve_fast_impl(
+        self,
+        omega: jnp.ndarray,
+        phi_guess: jnp.ndarray,
+        face_bc: BoundaryFaceBC3D,
+        cut_wall_bc: CutWallBC3D,
+        throw: bool,
+    ) -> jnp.ndarray:
+        """Solve for phi only: no diagnostic matvecs, no residual norms.
+
+        This is the hot-loop path (one boundary-source application plus the
+        GMRES solve); `_solve_impl` adds the compatibility and final-residual
+        diagnostics and is kept for validation and debugging.
+        """
+
+        rhs = jnp.asarray(omega, dtype=jnp.float64)
+        guess = jnp.asarray(phi_guess, dtype=jnp.float64)
+        project_mean_zero = bool(self.project_mean_zero)
+        if project_mean_zero:
+            rhs = _remove_weighted_mean(rhs, self.geometry)
+            guess = _remove_weighted_mean(guess, self.geometry)
+        if self.pin_point is not None:
+            guess = guess.at[self.pin_point].set(self.pin_value)
+
+        homogeneous_face_bc, homogeneous_cut_wall_bc = _homogeneous_boundary_payload(face_bc, cut_wall_bc)
+        boundary_source = self._apply_A(jnp.zeros_like(rhs), face_bc, cut_wall_bc, project_mean_zero)
+        linear_rhs = rhs - boundary_source
+        if project_mean_zero:
+            linear_rhs = _remove_weighted_mean(linear_rhs, self.geometry)
+        if self.pin_point is not None:
+            linear_rhs = linear_rhs.at[self.pin_point].set(self.pin_value)
+
+        def apply_A(phi: jnp.ndarray) -> jnp.ndarray:
+            values = self._apply_A(phi, homogeneous_face_bc, homogeneous_cut_wall_bc, project_mean_zero)
+            if self.pin_point is not None:
+                values = values.at[self.pin_point].set(phi[self.pin_point])
+            return values
+
+        structure = jax.ShapeDtypeStruct(self.geometry.shape, rhs.dtype)
+        operator = lx.FunctionLinearOperator(apply_A, structure)
+        solver = lx.GMRES(
+            max_steps=self.maxiter,
+            restart=self.restart,
+            stagnation_iters=self.stagnation_iters,
+            rtol=self.tol,
+            atol=self.tol,
+        )
+        solve_options: dict[str, object] = {"y0": guess}
+        if self.mg_hierarchy is not None:
+            solve_options["preconditioner"] = lx.FunctionLinearOperator(
+                lambda residual: mg_apply_preconditioner(residual, self.mg_hierarchy),
+                structure,
+            )
+        solve = lx.linear_solve(operator, linear_rhs, solver, options=solve_options, throw=throw)
+        phi = solve.value
+        if project_mean_zero:
+            phi = _remove_weighted_mean(phi, self.geometry)
+        if self.target_mean_phi is not None:
+            phi = _set_weighted_mean(phi, self.geometry, self.target_mean_phi)
+        if self.pin_point is not None:
+            phi = phi.at[self.pin_point].set(self.pin_value)
+        return phi
 
     def _solve_impl(
         self,
@@ -3568,8 +3670,8 @@ class PerpLaplacianInverseSolver:
             max_steps=self.maxiter,
             restart=self.restart,
             stagnation_iters=self.stagnation_iters,
-            rtol=1.0e-6,
-            atol=1.0e-6,
+            rtol=self.tol,
+            atol=self.tol,
         )
         solve_options: dict[str, object] = {"y0": guess}
         if self.mg_hierarchy is not None:
@@ -3680,8 +3782,8 @@ class PerpLaplacianInverseSolver:
             max_steps=self.maxiter,
             restart=self.restart,
             stagnation_iters=self.stagnation_iters,
-            rtol=1.0e-6,
-            atol=1.0e-6,
+            rtol=self.tol,
+            atol=self.tol,
         )
         solve_options: dict[str, object] = {"y0": correction_guess}
         if self.mg_hierarchy is not None:
@@ -3785,13 +3887,16 @@ class PerpLaplacianInverseSolver:
             elif not isinstance(correction_cut_wall_bc, CutWallBC3D):
                 raise TypeError("correction_cut_wall_bc must be a CutWallBC3D instance")
             if self.mg_hierarchy is not None:
-                _validate_mg_hierarchy_for_linear_operator(
-                    self.mg_hierarchy,
-                    geometry=self.geometry,
-                    periodic_axes=self.periodic_axes,
-                    face_bc=correction_face_bc,
-                    cut_wall_bc=correction_cut_wall_bc,
-                )
+                bc_key = (id(face_bc), id(cut_wall_bc))
+                if bc_key not in self._mg_validated_bc_ids:
+                    _validate_mg_hierarchy_for_linear_operator(
+                        self.mg_hierarchy,
+                        geometry=self.geometry,
+                        periodic_axes=self.periodic_axes,
+                        face_bc=correction_face_bc,
+                        cut_wall_bc=correction_cut_wall_bc,
+                    )
+                    self._mg_validated_bc_ids.add(bc_key)
             (
                 phi,
                 residual_l2,
@@ -3891,14 +3996,21 @@ class PerpLaplacianInverseSolver:
                 }
             return phi
         if self.mg_hierarchy is not None:
-            homogeneous_face_bc, homogeneous_cut_wall_bc = _homogeneous_boundary_payload(face_bc, cut_wall_bc)
-            _validate_mg_hierarchy_for_linear_operator(
-                self.mg_hierarchy,
-                geometry=self.geometry,
-                periodic_axes=self.periodic_axes,
-                face_bc=homogeneous_face_bc,
-                cut_wall_bc=homogeneous_cut_wall_bc,
-            )
+            bc_key = (id(face_bc), id(cut_wall_bc))
+            if bc_key not in self._mg_validated_bc_ids:
+                homogeneous_face_bc, homogeneous_cut_wall_bc = _homogeneous_boundary_payload(face_bc, cut_wall_bc)
+                _validate_mg_hierarchy_for_linear_operator(
+                    self.mg_hierarchy,
+                    geometry=self.geometry,
+                    periodic_axes=self.periodic_axes,
+                    face_bc=homogeneous_face_bc,
+                    cut_wall_bc=homogeneous_cut_wall_bc,
+                )
+                self._mg_validated_bc_ids.add(bc_key)
+        if not return_diagnostics and not self.check_residual and not self.gmres_debug:
+            # Hot-loop path: phi only, no diagnostic matvecs, no host syncs.
+            # Safe to call from inside jit-compiled code.
+            return self._solve_fast_jit(rhs, phi_guess, face_bc, cut_wall_bc, throw)
         (
             phi,
             residual_l2,

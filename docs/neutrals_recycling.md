@@ -6,7 +6,7 @@ self-contained). The physics is exercised on a 1D scrape-off-layer flux tube and
 as source terms, on the 3D flux-coordinate-independent (FCI) geometries -- closed
 and open field lines.
 
-![Coupled recycling SOL](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/recycling_sol.png)
+![Coupled recycling SOL](media/recycling_sol.png)
 
 ## Atomic reactions ([`jax_drb.native.neutrals`](../src/jax_drb/native/neutrals/atomic_rates.py))
 
@@ -70,13 +70,14 @@ loss** (applied semi-implicitly, `P <- P / (1 + dt * loss_rate)`, so the loss
 cannot drive the pressure negative and switches off as the plasma cools), on top
 of the Bohm sheath heat sink and the recycling neutral coupling.
 
-![B6 detachment rollover](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/b6_detachment.png)
+![B6 detachment rollover](media/b6_detachment.png)
 
 Scanning the upstream density at fixed upstream power reproduces the classic
 SD1D detachment picture (Dudson et al., *PPCF* 61, 065008 (2019)): the target
 cools from an attached hot target through a sharp thermal collapse into the
 recombining regime **below 1 eV**, and the target ion flux rises then **rolls
-over**. The gate
+over** — on the shipped scan the rollover sits at upstream density
+`n_up = 8` with a **23% flux reduction** in the deepest detached point. The gate
 [`tests/test_native_detachment_sol.py`](../tests/test_native_detachment_sol.py)
 pins the monotonic cooling, the attached/detached temperatures, the flux
 rollover, and differentiability; the example
@@ -94,18 +95,25 @@ target exactly at the 1 eV detachment threshold. The sensitivity
 the residual changes sign, since the detachment cliff is steeper than any local
 derivative) converges onto the threshold in ~11 solves:
 
-![Detachment control](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/detachment_control.png)
+![Detachment control](media/detachment_control.png)
 
 The gate [`tests/test_detachment_control.py`](../tests/test_detachment_control.py)
 verifies the autodiff sensitivity against a central finite difference (to 1e-4)
 in the attached regime and the sign of the physics (raising the upstream
 density cools the target). Reproduce with
-`examples/autodiff/detachment_control_demo.py`.
+`examples/autodiff/detachment_control.py`.
 
 ## Reproduce
 
+Both examples are flat scripts: the physically meaningful knobs —
+`PlasmaNormalization(Tnorm=...)`, the connection length, the conduction and
+sheath-transmission coefficients, recycling fraction, and the density scans —
+are top-of-file constants. They print stage-by-stage progress (setup block,
+per-chunk relaxation lines with target Mach/flux/temperature, per-density
+convergence lines, and the final rollover summary).
+
 ```bash
-PYTHONPATH=src python examples/sol/recycling_sol_demo.py
+PYTHONPATH=src python examples/sol/recycling_sol.py
 PYTHONPATH=src python examples/benchmarks/b6_detachment_rollover.py
 pytest -q tests/test_native_atomic_rates.py tests/test_native_reactions.py \
           tests/test_native_recycling_sol.py tests/test_fci_neutrals_3d.py \

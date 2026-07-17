@@ -1,156 +1,127 @@
 # Examples And Artifact Map
 
-The examples are grouped by intent. User-facing examples are ordinary Python
-scripts with parameters near the top of the file. Campaign examples generate
-JSON/NPZ/PNG/GIF artifacts that are also used by tests and documentation.
+Every example is a **flat pedagogical script** with the same anatomy: imports,
+a PARAMETERS block near the top (every physics and numerics choice in one
+place, commented), explicit setup, a run loop with progress prints, then
+plotting and a JSON/NPZ summary. Edit the constants, run the file, inspect the
+output directory — the SIMSOPT-style workflow. The narrative walkthroughs in
+the [Tutorials](tutorial_hasegawa_wakatani.md) section explain the flagship
+scripts line by line.
+
+Run any example from the repository root with:
+
+```bash
+PYTHONPATH=src python examples/<group>/<name>.py
+```
+
 For a capability-by-capability map that links every major feature to its
 inputs, outputs, source modules, tests, and documentation page, see
 [Feature Reference](feature_reference.md).
 
-## Quick Start
+## Tokamak (closed field lines)
 
-Large generated example outputs are release-backed so that cloning the private
-repository stays fast. Authenticate with the GitHub CLI or a token, then restore
-the media bundles before running the movie and validation examples:
+| Example | What it teaches |
+| --- | --- |
+| [`examples/tokamak/drift_wave_turbulence.py`](../examples/tokamak/drift_wave_turbulence.py) | Hasegawa-Wakatani turbulence from noise: instability growth, outward particle flux, vorticity movie. [Tutorial](tutorial_hasegawa_wakatani.md). |
+| [`examples/tokamak/drift_wave_inverse_design.py`](../examples/tokamak/drift_wave_inverse_design.py) | Autodiff *through* the turbulence: transport sensitivities vs finite differences, gradient-descent recovery of the drive. |
+
+![Drift-wave turbulence](media/drift_wave_turbulence.gif)
+
+## Open-field-line SOL and neutrals
+
+| Example | What it teaches |
+| --- | --- |
+| [`examples/sol/open_sol_flux_tube.py`](../examples/sol/open_sol_flux_tube.py) | Open slab flux tube with Bohm sheath targets; relaxation to the two-point steady state; sheath/recycling accounting. [Tutorial](tutorial_open_sol.md). |
+| [`examples/sol/recycling_sol.py`](../examples/sol/recycling_sol.py) | Coupled plasma + recycled neutral with AMJUEL rates; neutral cushion; detachment-onset density scan. |
+
+![Open SOL flux tube](media/open_sol_flux_tube.png)
+
+## Stellarator (3D FCI, closed and open)
+
+| Example | What it teaches |
+| --- | --- |
+| [`examples/stellarator/rotating_ellipse_fci.py`](../examples/stellarator/rotating_ellipse_fci.py) | Rotating-ellipse geometry with autodiff metric; second-order FCI parallel-operator convergence. [Tutorial](tutorial_stellarator_fci.md). |
+| [`examples/stellarator/stellarator_turbulence.py`](../examples/stellarator/stellarator_turbulence.py) | 4-field interchange turbulence, closed vs limiter-open, with cross-section movies and sheath drainage. |
+| [`examples/stellarator/island_divertor.py`](../examples/stellarator/island_divertor.py) | Resonant island chain and an emergent stochastic SOL. |
+| [`examples/stellarator/rotating_ellipse_filament.py`](../examples/stellarator/rotating_ellipse_filament.py) | Blob/filament dynamics on the rotating ellipse. |
+| [`examples/stellarator/stellarator_3d_render.py`](../examples/stellarator/stellarator_3d_render.py) | 3D rendering of turbulence on traced flux surfaces. |
+| [`examples/stellarator/fci_differentiable.py`](../examples/stellarator/fci_differentiable.py) | Gradients through the FCI geometry and reduced dynamics ([details](stellarator_fci_differentiable.md)). |
+
+![Stellarator turbulence summary](media/stellarator_turbulence_summary.png)
+
+## Benchmarks
+
+| Example | What it teaches |
+| --- | --- |
+| [`examples/benchmarks/linear_dispersion.py`](../examples/benchmarks/linear_dispersion.py) | Drift-wave, shear-Alfven, and interchange dispersion vs analytic relations ([page](linear_dispersion_benchmark.md)). |
+| [`examples/benchmarks/linear_drb_survey.py`](../examples/benchmarks/linear_drb_survey.py) | Parameter survey of the linearized-DRB regimes (hydrodynamic/adiabatic drift waves, Alfven, interchange). |
+| [`examples/benchmarks/b6_detachment_rollover.py`](../examples/benchmarks/b6_detachment_rollover.py) | SD1D detachment benchmark: target-flux rollover and sub-1-eV target cooling. [Tutorial](tutorial_open_sol.md). |
+| [`examples/benchmarks/performance_benchmark.py`](../examples/benchmarks/performance_benchmark.py) | Turbulence throughput and gradient-cost measurements ([page](performance_and_differentiability.md)). |
+| [`examples/benchmarks/fci_sharded_strong_scaling.py`](../examples/benchmarks/fci_sharded_strong_scaling.py) | Multi-device `shard_map` strong scaling with per-shard core binding. |
+
+![Detachment rollover](media/b6_detachment.png)
+
+## Autodiff
+
+| Example | What it teaches |
+| --- | --- |
+| [`examples/autodiff/differentiation_methods.py`](../examples/autodiff/differentiation_methods.py) | Forward vs reverse vs checkpointed gradients on the same turbulence rollout, with measured costs. |
+| [`examples/autodiff/detachment_control.py`](../examples/autodiff/detachment_control.py) | Newton control of the detachment front using forward-mode sensitivities through the stiff SOL solve. |
+| [`examples/autodiff_diffusion_sensitivity.py`](../examples/autodiff_diffusion_sensitivity.py) | `jax.grad` sensitivity against finite differences on the compact diffusion lane. |
+| [`examples/autodiff_diffusion_uncertainty.py`](../examples/autodiff_diffusion_uncertainty.py) | Covariance pushforward vs vectorized Monte Carlo. |
+| [`examples/autodiff_diffusion_inverse_design.py`](../examples/autodiff_diffusion_inverse_design.py) | Gradient-based inverse-design loop. |
+| [`examples/strong_scaling_diffusion.py`](../examples/strong_scaling_diffusion.py) | Fixed-work CPU/GPU process-group scaling on a differentiable objective. |
+
+![Detachment control](media/detachment_control.png)
+
+## Native runtime (TOML decks)
+
+| Example | What it teaches |
+| --- | --- |
+| [`examples/inputs/restartable_diffusion.toml`](../examples/inputs/restartable_diffusion.toml) | Small native TOML deck with restartable output. |
+| [`examples/restartable_diffusion_tutorial.py`](../examples/restartable_diffusion_tutorial.py) | End-to-end run, restart, NPZ reading, and plotting workflow ([tutorial](restartable_diffusion_tutorial.md)). |
+| [`examples/diffusion_precision_benchmark.py`](../examples/diffusion_precision_benchmark.py) | Float32/float64 runtime comparison on the compact diffusion lane. |
+| [`examples/model_selection_guide.py`](../examples/model_selection_guide.py) | Which model/lane to choose for a given question. |
+
+![Restartable diffusion density surface](media/restartable_diffusion_density_surface.png)
+
+## Imported 3D geometry (`examples/geometry-3D/`)
+
+The synthetic stellarator-FCI scripts are self-contained; the imported-field
+scripts need the named external checkout (ESSOS, vmec_jax) or run in dry-run
+mode against release-backed arrays.
+
+| Example | What it teaches |
+| --- | --- |
+| [`stellarator-fci/geometry_plotting.py`](../examples/geometry-3D/stellarator-fci/geometry_plotting.py) | Synthetic non-axisymmetric geometry, metric, connection-length, and curvature maps ([guide](stellarator_examples.md)). |
+| [`stellarator-fci/linear_mode.py`](../examples/geometry-3D/stellarator-fci/linear_mode.py) | Linear FCI mode history and snapshots. |
+| [`stellarator-fci/vorticity_bracket.py`](../examples/geometry-3D/stellarator-fci/vorticity_bracket.py) | Nonlinear coupling through the vorticity/potential solve and the logical E x B bracket. |
+| [`stellarator-fci/nonlinear_turbulence.py`](../examples/geometry-3D/stellarator-fci/nonlinear_turbulence.py) | Compact nonlinear reduced SOL history, diagnostics, 3D poster, GIF movie. |
+| [`stellarator-fci/turbulent_profile_analysis.py`](../examples/geometry-3D/stellarator-fci/turbulent_profile_analysis.py) | Radial fluctuation, RMS, transport-proxy, and energy-trace analysis. |
+| [`stellarator-fci/validation_campaign.py`](../examples/geometry-3D/stellarator-fci/validation_campaign.py) | Full promoted synthetic stellarator FCI validation bundle. |
+| [`essos-field-lines/closed_open_vacuum_poincare.py`](../examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) | Closed vs open vacuum field lines from ESSOS coils: Poincare sections and connection lengths. |
+| [`essos-field-lines/landreman_paul_qa_import.py`](../examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | External QA field-line import into portable arrays ([page](essos_fieldline_import.md)). |
+| [`essos-field-lines/direct_coil_open_sol.py`](../examples/geometry-3D/essos-field-lines/direct_coil_open_sol.py) | Direct-coil open-SOL promotion workflow (dry-run contract by default). |
+| [`essos-field-lines/hybrid_open_sol.py`](../examples/geometry-3D/essos-field-lines/hybrid_open_sol.py) | Hybrid VMEC/coil open-SOL promotion workflow. |
+| [`essos-field-lines/vmec_closed_field.py`](../examples/geometry-3D/essos-field-lines/vmec_closed_field.py) | VMEC closed-field control with opt-in live periodic FCI gates. |
+| [`vmec-jax/closed_field_lines.py`](../examples/geometry-3D/vmec-jax/closed_field_lines.py) | vmec_jax equilibrium import: surface fields, JAX field-line tracing, traced iota matching the wout `iotaf` profile to ~1e-6. |
+| [`vmec-jax/closed_open_field_lines.py`](../examples/geometry-3D/vmec-jax/closed_open_field_lines.py) | ESSOS coil field with the vmec_jax LCFS overlay: closed core vs open SOL in one picture. |
+| [`vmec-extender/imported_field.py`](../examples/geometry-3D/vmec-extender/imported_field.py) | VMEC-extender field-grid import and compact SOL verification gate ([page](vmec_extender_edge_fields.md)). |
+
+![Closed vs open vacuum Poincare](media/closed_open_vacuum_poincare.png)
+
+The remaining `essos-field-lines/imported_*` campaign scripts regenerate the
+legacy imported-geometry validation artifacts documented in
+[ESSOS Imported FCI Validation](essos_imported_fci_validation.md); they are
+developer workflows that expect a local geometry checkout.
+
+## Release-backed artifacts
+
+Full-resolution legacy campaign media and NPZ payloads are release-hosted so
+the repository stays small. All images embedded in the docs are committed
+compressed copies under `docs/media/`. To restore the release bundles locally:
 
 ```bash
-gh auth login --hostname github.com
+gh auth login --hostname github.com   # or set GH_TOKEN / GITHUB_TOKEN
 python scripts/fetch_example_artifacts.py
 ```
-
-Without the GitHub CLI, set `GH_TOKEN` or `GITHUB_TOKEN` to a token with access
-to `uwplasma/jax_drb`. The fetch script restores PNG/GIF/NPZ docs media under
-`docs/data/`, giving you the README/docs movies, figures, and user-facing
-self-contained example payloads.
-
-After this step, the user-facing commands listed below are self-contained: they
-use JAXDRB source code plus release-backed arrays/media and do not require users
-to download external plasma codes. Some imported-geometry regeneration scripts
-under `examples/geometry-3D/` are developer workflows; those scripts say so in
-their command-line help and require a local geometry checkout when they are
-rerun from first principles.
-
-To exercise the main self-contained tutorial and movie surface from a fresh
-checkout, run:
-
-```bash
-python scripts/fetch_example_artifacts.py
-PYTHONPATH=src python examples/restartable_diffusion_tutorial.py --quiet
-PYTHONPATH=src python examples/autodiff_diffusion_sensitivity_demo.py
-PYTHONPATH=src python examples/autodiff_diffusion_uncertainty_demo.py
-PYTHONPATH=src python examples/autodiff_diffusion_inverse_design_demo.py
-PYTHONPATH=src python examples/diverted_tokamak_movie_demo.py
-PYTHONPATH=src python examples/diverted_tokamak_profile_analysis_demo.py
-PYTHONPATH=src python examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py
-PYTHONPATH=src python examples/geometry-3D/stellarator-fci/linear_mode_demo.py
-PYTHONPATH=src python examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py
-PYTHONPATH=src python examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py
-PYTHONPATH=src python examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py
-```
-
-Imported external-geometry regeneration scripts are developer workflows. Their
-published arrays and movies are release-backed, but rerunning those adapters
-from coils or external field-line traces requires a local geometry checkout and
-is documented separately on the imported-geometry pages. Users who only want to
-run the README/docs stellarator examples should use the `stellarator-fci`
-commands above after `fetch_example_artifacts.py`.
-
-| Example | What it teaches |
-| --- | --- |
-| [`examples/inputs/restartable_diffusion.toml`](https://github.com/uwplasma/jax_drb/blob/main/examples/inputs/restartable_diffusion.toml) | Small native TOML deck with restartable output. |
-| [`examples/restartable_diffusion_tutorial.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/restartable_diffusion_tutorial.py) | End-to-end run, restart, NPZ reading, and plotting workflow. |
-| [`examples/diffusion_precision_benchmark.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/diffusion_precision_benchmark.py) | Float32/float64 runtime comparison on the compact diffusion lane. |
-
-Representative output:
-
-![Restartable diffusion density surface](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__images__restartable_diffusion_density_surface.png)
-
-## Differentiability
-
-| Example | What it teaches |
-| --- | --- |
-| [`examples/autodiff_diffusion_sensitivity_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/autodiff_diffusion_sensitivity_demo.py) | `jax.grad` sensitivity against finite differences. |
-| [`examples/autodiff_diffusion_uncertainty_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/autodiff_diffusion_uncertainty_demo.py) | Covariance pushforward and vectorized Monte Carlo. |
-| [`examples/autodiff_diffusion_inverse_design_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/autodiff_diffusion_inverse_design_demo.py) | Gradient-based inverse-design loop. |
-| [`examples/strong_scaling_diffusion_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/strong_scaling_diffusion_demo.py) | Fixed-work CPU/GPU process-group scaling demo. |
-
-Representative output:
-
-![Autodiff diffusion uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
-
-## 3D Stellarator Geometry
-
-These scripts follow the SIMSOPT-style pattern: edit constants near the top,
-run the file, inspect the output directory.
-
-| Example | What it writes |
-| --- | --- |
-| [`geometry_plotting_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py) | Non-axisymmetric geometry, metric, connection-length, and curvature-map figure. |
-| [`linear_mode_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/linear_mode_demo.py) | Linear FCI mode history plus diagnostics and snapshots. |
-| [`vorticity_bracket_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/vorticity_bracket_demo.py) | Physics-backed nonlinear coupling through the vorticity/potential solve and logical \(E\times B\) bracket. |
-| [`nonlinear_turbulence_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py) | Compact nonlinear reduced SOL history, diagnostics, snapshots, 3D poster, and GIF movie. |
-| [`turbulent_profile_analysis_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py) | Radial fluctuation, RMS, transport-proxy, connection-length, and energy-trace analysis from the nonlinear SOL history. |
-| [`validation_campaign_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/validation_campaign_demo.py) | Full promoted synthetic stellarator FCI validation bundle. |
-
-Representative output:
-
-![Stellarator SOL diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
-
-The detailed guide is [Stellarator Examples](stellarator_examples.md).
-
-## Imported 3D Geometry
-
-The VMEC-extender entry is a self-contained synthetic validation example that
-writes its own compact NetCDF field grids before running the import and SOL
-verification gates. The ESSOS imported-geometry entries document developer
-regeneration of external-geometry artifacts; users can inspect the published
-figures and movies after `fetch_example_artifacts.py`, while rerunning those
-adapters requires the geometry source checkout named by the page.
-
-| Example | What it teaches |
-| --- | --- |
-| [`examples/geometry-3D/vmec-extender/imported_field_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/vmec-extender/imported_field_demo.py) | VMEC-extender field-grid import and compact SOL verification gate. |
-| [`examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | External QA field-line import into portable arrays. |
-| [`examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/direct_coil_open_sol_demo.py) | Direct-coil open-SOL promotion workflow: dry-run contract by default, with opt-in live FCI, standalone source/profile plot, connection-length, endpoint-label, stationarity, and diagnostic media gates. |
-| [`examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/hybrid_open_sol_demo.py) | Hybrid VMEC/coil open-SOL promotion workflow: dry-run contract by default, release-evidence audit, and opt-in live FCI/source-profile plot, parallel-step refinement, stationarity, grid/time refinement, and media gates. |
-| [`examples/geometry-3D/essos-field-lines/vmec_closed_field_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/vmec_closed_field_demo.py) | VMEC closed-field control: dry-run contracts by default, with opt-in live periodic FCI/operator gates plus reduced transient, profile, spectrum, and GIF artifacts. |
-| [`examples/geometry-3D/essos-field-lines/imported_fci_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_fci_campaign.py) | Imported FCI maps with sheath/recycling and neutral validation. |
-| [`examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_connection_length_refinement_demo.py) | Self-contained nested connection-length refinement gate for imported-field promotion. |
-| [`examples/geometry-3D/essos-field-lines/imported_pytree_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_pytree_campaign.py) | Imported fixed-layout PyTree/JVP RHS gate. |
-| [`examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py) | Reduced imported QA DRB movie with open endpoints where present. |
-| [`examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_campaign.py) | Report-only grid/time transient sweep for imported DRB movie promotion, without writing GIF/NPZ media. |
-| [`examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_summary.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_drb_movie_refinement_summary.py) | Report-only grid/time refinement summary for imported DRB movie promotion. |
-| [`examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/imported_drb_movie_stationarity_campaign.py) | JSON-only long-window stationarity gate for the high-resolution Jacobi imported-field movie settings. |
-| [`examples/geometry-3D/essos-field-lines/vmec_fieldline_surface_campaign.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/essos-field-lines/vmec_fieldline_surface_campaign.py) | Field-line/surface registration and Poincare diagnostics. |
-
-Representative output:
-
-![ESSOS imported QA-hybrid DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
-
-## Tokamak Geometry And Movies
-
-| Example | What it teaches |
-| --- | --- |
-| [`examples/diverted_tokamak_movie_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/diverted_tokamak_movie_demo.py) | Full-domain diverted tokamak movie from benchmark output. |
-| [`examples/diverted_tokamak_profile_analysis_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/diverted_tokamak_profile_analysis_demo.py) | Radial profiles, target lineouts, time traces, and final diverted-domain field analysis from release-backed arrays. |
-Representative output:
-
-![Diverted tokamak movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
-
-## Validation Campaigns
-
-The benchmark and geometry examples under
-[`examples/benchmarks/`](https://github.com/uwplasma/jax_drb/tree/main/examples/benchmarks)
-and [`examples/geometry-3D/`](https://github.com/uwplasma/jax_drb/tree/main/examples/geometry-3D)
-regenerate publication-grade validation packages:
-
-| Family | Documentation |
-| --- | --- |
-| MMS convergence | [Fluid 1D MMS](fluid_1d_mms_convergence.md) |
-All validation figures are collected in [Validation Gallery](validation_gallery.md).
-
-Imported-geometry regeneration commands are intentionally separated from the
-user examples. They refresh publication-grade validation figures from coils or
-external field-line traces, and they can require a local geometry checkout. The
-release-backed media bundles let users and CI inspect the published figures
-without those regeneration dependencies.

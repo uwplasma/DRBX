@@ -359,6 +359,7 @@ def shifted_torus_2field_rk4(
         boundary_time = time_module.perf_counter() - boundary_start
         rhs_result, timings = compute_2field_rhs(
             stage_state,
+            with_diagnostics=True,
             geometry=geometry,
             stencil_builder=stencil_builder,
             parameters=parameters,

@@ -11,6 +11,25 @@ Development series for the v2 research-grade program defined in
 [docs/release_notes_2_0_0_dev0.md](docs/release_notes_2_0_0_dev0.md) for the
 running, phase-by-phase detail of what has landed in this series.
 
+Recent highlights (2026-07-17):
+
+- `PerpLaplacianInverseSolver` fast path (`check_residual=False`, no
+  diagnostics → phi-only jitted solve, no host syncs), honored
+  `phi_inversion_tol`, and a prefactored LU coarse solve in the multigrid
+  hierarchy; the 4-field RK4 step now compiles as one jit program
+  (1.200 s → 0.623 s per step at `(24, 32, 8)` on one CPU).
+- New `jax_drb.native.stellarator_turbulence` (whole-step turbulence driver,
+  moved out of `tests/`) and `jax_drb.native.fci_differentiable_case`
+  (reusable differentiable-FCI case API, moved out of the example).
+- `jax_drb.config.boutinp.rewrite_input_precision()` (moved from the
+  precision-benchmark example).
+- vmec_jax geometry adapter (`jax_drb.geometry.vmec_jax_import`) with
+  closed/open field-line examples under `examples/geometry-3D/vmec-jax/`.
+- Examples rewritten as flat PARAMETERS-block pedagogical scripts (no CLI
+  flags); docs gained math rendering (`pymdownx.arithmatex`), a Tutorials
+  section, and the Models/Solvers reference pages; docs media is now
+  committed compressed under `docs/media/`.
+
 ## 1.0.3
 
 - Aligned the README, examples, packaging docs, and execution plan on one

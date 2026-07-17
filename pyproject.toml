@@ -28,7 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov", "pytest-xdist"]
-docs = ["mkdocs"]
+docs = ["mkdocs", "pymdown-extensions"]
 lineax = ["lineax"]
 
 [project.scripts]

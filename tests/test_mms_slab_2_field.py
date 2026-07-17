@@ -324,6 +324,7 @@ def fci_2field_rk4(
     boundary_time += time_module.perf_counter() - boundary_start
     k1, timings_1 = compute_2field_rhs(
         stage_0,
+        with_diagnostics=True,
         geometry=geometry,
         stencil_builder=stencil_builder,
         parameters=parameters,
@@ -374,6 +375,7 @@ def fci_2field_rk4(
     boundary_time += time_module.perf_counter() - boundary_start
     k2, timings_2 = compute_2field_rhs(
         stage_1,
+        with_diagnostics=True,
         geometry=geometry,
         stencil_builder=stencil_builder,
         parameters=parameters,
@@ -424,6 +426,7 @@ def fci_2field_rk4(
     boundary_time += time_module.perf_counter() - boundary_start
     k3, timings_3 = compute_2field_rhs(
         stage_2,
+        with_diagnostics=True,
         geometry=geometry,
         stencil_builder=stencil_builder,
         parameters=parameters,
@@ -474,6 +477,7 @@ def fci_2field_rk4(
     boundary_time += time_module.perf_counter() - boundary_start
     k4, timings_4 = compute_2field_rhs(
         stage_3,
+        with_diagnostics=True,
         geometry=geometry,
         stencil_builder=stencil_builder,
         parameters=parameters,

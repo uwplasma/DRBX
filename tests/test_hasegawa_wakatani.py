@@ -10,6 +10,7 @@ invariant, the transport direction, and end-to-end differentiability.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -138,40 +139,196 @@ def test_inverse_design_recovers_a_parameter_through_turbulence() -> None:
     assert kappa == pytest.approx(target_kappa, abs=0.08)  # and recovers the drive
 
 
-def test_turbulence_example_runs(tmp_path, monkeypatch) -> None:
-    # Smoke-run the flagship example at tiny resolution so it stays alive fast.
-    import importlib.util
-    from pathlib import Path
+# ---------------------------------------------------------------------------
+# Example smoke coverage. The tokamak examples are flat pedagogical scripts
+# (no main()), so importing one executes a multi-minute turbulence run --
+# far over the smoke budget. Instead each example is (a) statically checked
+# (it must parse and only use the public API exercised below) and (b) its
+# exact src-level code path is exercised at tiny size, so a break in the API
+# the scripts rely on fails these tests immediately.
+# ---------------------------------------------------------------------------
 
-    example = Path(__file__).resolve().parents[1] / "examples" / "tokamak" / "drift_wave_turbulence_demo.py"
-    spec = importlib.util.spec_from_file_location("_drift_wave_turbulence_demo", example)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    monkeypatch.setattr(module, "N", 16)
-    monkeypatch.setattr(module, "STEPS_PER_BLOCK", 20)
-    monkeypatch.setattr(module, "BLOCKS", 3)
-    monkeypatch.setattr(module, "OUTPUT_DIR", tmp_path / "drift_wave_turbulence")
-    module.main()
-    assert (tmp_path / "drift_wave_turbulence" / "drift_wave_turbulence.png").exists()
+_EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples" / "tokamak"
+_EXAMPLE_FILES = [
+    "drift_wave_turbulence.py",
+    "drift_wave_inverse_design.py",
+    "hasegawa_wakatani_optimization.py",
+]
 
 
-def test_inverse_design_example_runs(tmp_path, monkeypatch) -> None:
-    import importlib.util
-    from pathlib import Path
+@pytest.mark.parametrize("filename", _EXAMPLE_FILES)
+def test_example_scripts_parse_and_stay_flat(filename) -> None:
+    # The examples are flat top-to-bottom scripts: they must parse, import only
+    # public names from the HW module, and contain no main()/argparse plumbing.
+    import ast
 
-    example = (
-        Path(__file__).resolve().parents[1]
-        / "examples" / "tokamak" / "drift_wave_inverse_design_demo.py"
+    source = (_EXAMPLES_DIR / filename).read_text()
+    tree = ast.parse(source)
+    assert "argparse" not in source and "__main__" not in source
+    imported = [
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "jax_drb.native.hasegawa_wakatani"
+        for alias in node.names
+    ]
+    assert imported, f"{filename} must use the public Hasegawa-Wakatani API"
+    import jax_drb.native.hasegawa_wakatani as hw
+
+    assert all(name in hw.__all__ for name in imported)
+
+
+def _hermitian_noise(grid, n, seed, amplitude):
+    # The examples' initial condition: FFT of a real field (Hermitian spectrum,
+    # so the evolved fields stay real), mean removed, low-k weighted.
+    rng = np.random.default_rng(seed)
+    noise_hat = np.fft.fft2(rng.standard_normal((n, n)))
+    noise_hat[0, 0] = 0.0
+    noise_hat *= np.exp(-np.asarray(grid.k2)) * np.asarray(grid.dealias)
+    noise_hat *= amplitude / np.sqrt(np.mean(np.real(np.fft.ifft2(noise_hat)) ** 2))
+    return jnp.array(noise_hat)
+
+
+def test_turbulence_example_api_path() -> None:
+    # Tiny-size version of examples/tokamak/drift_wave_turbulence.py: seeded
+    # noise, friction-regularized run, energy and flux diagnostics stay finite
+    # and the density field stays real (Hermitian spectrum preserved).
+    from jax_drb.native.hasegawa_wakatani import hw_run
+
+    n = 16
+    grid = hw_grid(n, 2.0 * np.pi * 4.0)
+    params = HasegawaWakataniParameters(
+        adiabaticity=1.0, gradient=1.0, hyperviscosity=1.0e-2, friction=3.0e-2
     )
-    spec = importlib.util.spec_from_file_location("_drift_wave_inverse_design_demo", example)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    monkeypatch.setattr(module, "N", 16)
-    monkeypatch.setattr(module, "STEPS", 60)
-    monkeypatch.setattr(module, "ITERATIONS", 5)
-    monkeypatch.setattr(module, "OUTPUT_DIR", tmp_path / "inverse_design")
-    module.main()
-    assert (tmp_path / "inverse_design" / "drift_wave_inverse_design.png").exists()
+    zeta = _hermitian_noise(grid, n, seed=0, amplitude=5.0e-2)
+    density = zeta
+    for _ in range(3):
+        zeta, density = hw_run(zeta, density, grid, params, dt=5.0e-3, steps=20)
+        phi = potential_from_vorticity(zeta, grid)
+        energy = float(jnp.sum(grid.k2 * jnp.abs(phi) ** 2 + jnp.abs(density) ** 2))
+        assert np.isfinite(energy)
+        assert np.isfinite(float(particle_flux(zeta, density, grid)))
+    density_real = np.asarray(jnp.fft.ifft2(density))
+    assert np.max(np.abs(density_real.imag)) < 1e-10 * max(np.max(np.abs(density_real)), 1e-30)
+
+
+def test_inverse_design_example_api_path() -> None:
+    # Tiny-size version of examples/tokamak/drift_wave_inverse_design.py:
+    # a few gradient-descent steps on kappa reduce the energy-matching loss.
+    from jax_drb.native.hasegawa_wakatani import hw_run
+
+    n = 16
+    grid = hw_grid(n, 2.0 * np.pi * 5.0)
+    zeta0 = _hermitian_noise(grid, n, seed=3, amplitude=1.0e-2)
+    density0 = zeta0 * 0.7
+
+    def final_energy(kappa):
+        params = HasegawaWakataniParameters(
+            adiabaticity=1.0, gradient=kappa, hyperviscosity=3.0e-2
+        )
+        zeta, density = hw_run(zeta0, density0, grid, params, dt=5.0e-3, steps=60)
+        phi = potential_from_vorticity(zeta, grid)
+        return jnp.sum(grid.k2 * jnp.abs(phi) ** 2 + jnp.abs(density) ** 2)
+
+    target = float(final_energy(1.3))
+
+    def loss(kappa):
+        return (jnp.log(final_energy(kappa)) - jnp.log(target)) ** 2
+
+    value_and_grad = jax.jit(jax.value_and_grad(loss))
+    kappa = 0.6
+    first_loss = float(loss(kappa))
+    for _ in range(5):
+        _, grad = value_and_grad(kappa)
+        kappa = float(np.clip(kappa - 0.15 * float(grad), 0.05, 3.0))
+    assert float(loss(kappa)) < first_loss
+
+
+def test_optimization_example_api_path() -> None:
+    # Tiny-size version of examples/tokamak/hasegawa_wakatani_optimization.py:
+    # windowed mean-flux objective via hw_run_flux_history, forward-mode
+    # derivative with respect to ln(alpha) via jax.jvp, and one safeguarded
+    # damped-Newton step that stays finite and inside the trust region.
+    from jax_drb.native.hasegawa_wakatani import hw_run, hw_run_flux_history
+
+    n = 16
+    grid = hw_grid(n, 2.0 * np.pi * 4.0)
+    zeta_seed = _hermitian_noise(grid, n, seed=7, amplitude=0.5)
+    density_seed = zeta_seed * 0.9
+
+    def make_params(alpha):
+        return HasegawaWakataniParameters(
+            adiabaticity=alpha, gradient=1.0, hyperviscosity=1.0e-2, friction=3.0e-2
+        )
+
+    zeta_base, density_base = hw_run(
+        zeta_seed, density_seed, grid, make_params(0.3), dt=5.0e-3, steps=40
+    )
+
+    def windowed_ln_flux(ln_alpha):
+        _, _, fluxes = hw_run_flux_history(
+            zeta_base, density_base, grid, make_params(jnp.exp(ln_alpha)),
+            dt=5.0e-3, steps=40, sample_every=5,
+        )
+        return jnp.log(jnp.mean(jnp.abs(fluxes[-4:]) + 1e-30))
+
+    ln_alpha = float(np.log(0.3))
+    value, slope = jax.jvp(windowed_ln_flux, (ln_alpha,), (1.0,))
+    assert np.isfinite(float(value)) and np.isfinite(float(slope))
+    residual = float(value) - np.log(1e-3)
+    safe_slope = min(float(slope), -0.3)
+    step = float(np.clip(-residual / safe_slope, -0.5, 0.5))
+    assert np.isfinite(step) and abs(step) <= 0.5
+
+
+def test_flux_history_matches_plain_run() -> None:
+    # hw_run_flux_history is the reusable helper behind the optimization
+    # example: same integrator, so its final state must equal hw_run's, and
+    # its last flux sample must equal the flux of that final state.
+    from jax_drb.native.hasegawa_wakatani import hw_run, hw_run_flux_history
+
+    n = 16
+    grid = hw_grid(n, 2.0 * np.pi * 4.0)
+    zeta0 = _hermitian_noise(grid, n, seed=5, amplitude=0.1)
+    density0 = zeta0 * 0.8
+    params = HasegawaWakataniParameters(
+        adiabaticity=0.7, gradient=1.0, hyperviscosity=1.0e-2, friction=2.0e-2
+    )
+    zeta_a, density_a = hw_run(zeta0, density0, grid, params, dt=5.0e-3, steps=40)
+    zeta_b, density_b, fluxes = hw_run_flux_history(
+        zeta0, density0, grid, params, dt=5.0e-3, steps=40, sample_every=10
+    )
+    # XLA may fuse the nested (sampled) scan differently from the flat one, so
+    # agreement is to roundoff, not bitwise.
+    np.testing.assert_allclose(
+        np.asarray(zeta_a), np.asarray(zeta_b), rtol=1e-8, atol=1e-14
+    )
+    np.testing.assert_allclose(
+        np.asarray(density_a), np.asarray(density_b), rtol=1e-8, atol=1e-14
+    )
+    assert fluxes.shape == (4,)
+    assert float(fluxes[-1]) == pytest.approx(
+        float(particle_flux(zeta_b, density_b, grid)), rel=1e-12
+    )
+
+
+def test_friction_damps_a_single_mode_at_the_exact_rate() -> None:
+    # The optional friction parameter is a scale-independent linear drag: with
+    # all other physics off, a single mode must decay at exactly exp(-mu t).
+    from jax_drb.native.hasegawa_wakatani import hw_run
+
+    grid = hw_grid(_N, _LENGTH)
+    mu = 0.35
+    params = HasegawaWakataniParameters(
+        adiabaticity=0.0, gradient=0.0, hyperviscosity=0.0, friction=mu
+    )
+    zeta = jnp.zeros((_N, _N), dtype=complex).at[2, 3].set(1.0)
+    density = jnp.zeros((_N, _N), dtype=complex).at[2, 3].set(0.5)
+    dt, steps = 1.0e-2, 200
+    zeta_f, density_f = hw_run(zeta, density, grid, params, dt=dt, steps=steps)
+    expected = np.exp(-mu * dt * steps)
+    assert abs(complex(np.asarray(zeta_f)[2, 3])) == pytest.approx(expected, rel=1e-8)
+    assert abs(complex(np.asarray(density_f)[2, 3])) == pytest.approx(0.5 * expected, rel=1e-8)
 
 
 def test_run_is_differentiable_end_to_end() -> None:

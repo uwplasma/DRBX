@@ -9,22 +9,16 @@ drains through the *emergent* open-endpoint masks (no hand-placed limiter).
 
 from __future__ import annotations
 
-import os
-import sys
-
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from jax_drb.geometry import (  # noqa: E402
+from jax_drb.geometry import (
     IslandDivertorField,
     build_island_divertor_geometry,
     island_divertor_connection_length,
 )
-
-from stellarator_turbulence_case import run_stellarator_turbulence  # noqa: E402
+from jax_drb.native.stellarator_turbulence import run_stellarator_turbulence
 
 jax.config.update("jax_enable_x64", True)
 

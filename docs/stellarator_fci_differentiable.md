@@ -35,7 +35,7 @@ claim of saturated stellarator turbulence.
 
 ## End-to-end differentiability
 
-`examples/stellarator/fci_differentiable_demo.py` seeds a smooth perturbation
+`examples/stellarator/fci_differentiable.py` seeds a smooth perturbation
 (amplitude `amp`), holds simple fixed zero-Dirichlet fluctuation walls in the
 radial direction (periodic in `theta`, `zeta`), and advances a short bounded RK4
 rollout that stays finite. It then takes `jax.grad` of a scalar diagnostic of the
@@ -53,12 +53,14 @@ fallback for the case where a free rollout is ill-posed (it is not here).
 
 The gate is `tests/test_fci_differentiable.py`
 (`test_rollout_grad_matches_finite_difference`), kept fast with a small grid and
-two RK4 steps; it also smoke-tests the demo `main()`.
+two RK4 steps. The reusable case API lives in
+`jax_drb.native.fci_differentiable_case`, which the tests import directly; the
+example script is a flat driver over that API (no `main()` function).
 
 ## Reproduce
 
 ```bash
-PYTHONPATH=src python examples/stellarator/fci_differentiable_demo.py
+PYTHONPATH=src python examples/stellarator/fci_differentiable.py
 ```
 
 writes `output/fci_differentiable/fci_differentiable.png` (evolved density

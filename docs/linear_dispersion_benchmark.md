@@ -36,7 +36,7 @@ Two entry points, one engine:
 
 ## Regimes and literature anchors
 
-![Linear DRB survey](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/linear_drb_survey.png)
+![Linear DRB survey](media/linear_drb_survey.png)
 
 | Regime | Physics | Analytic limit reproduced | Reference |
 |---|---|---|---|
@@ -52,7 +52,7 @@ Every row is reproduced to machine precision (1e-12 to 1e-16) in
 tests), and surveyed with printed explanations in
 [`examples/benchmarks/linear_drb_survey.py`](../examples/benchmarks/linear_drb_survey.py);
 the compact two-panel version is
-[`examples/benchmarks/linear_dispersion_demo.py`](../examples/benchmarks/linear_dispersion_demo.py).
+[`examples/benchmarks/linear_dispersion.py`](../examples/benchmarks/linear_dispersion.py).
 
 ## Geometries
 
@@ -90,6 +90,6 @@ print(modes.growth_rates[0], modes.frequencies[0])     # the fastest mode
 
 ```bash
 PYTHONPATH=src python examples/benchmarks/linear_drb_survey.py       # full survey
-PYTHONPATH=src python examples/benchmarks/linear_dispersion_demo.py  # compact B2/B3
+PYTHONPATH=src python examples/benchmarks/linear_dispersion.py  # compact B2/B3
 pytest -q tests/test_linear_dispersion.py
 ```
