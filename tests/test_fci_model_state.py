@@ -6,12 +6,12 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from jax_drb.geometry import HaloLayout3D
-from jax_drb.native.fci_boundaries import LocalBoundaryFaceBC3D
-from jax_drb.native.fci_2_field_rhs import Fci2FieldState
-from jax_drb.native.fci_4_field_rhs import Fci4FieldState
-from jax_drb.native.fci_drb_EB_rhs import FciDrbEBState
-from jax_drb.native.fci_model import (
+from dkx.geometry import HaloLayout3D
+from dkx.native.fci_boundaries import LocalBoundaryFaceBC3D
+from dkx.native.fci_2_field_rhs import Fci2FieldState
+from dkx.native.fci_4_field_rhs import Fci4FieldState
+from dkx.native.fci_drb_EB_rhs import FciDrbEBState
+from dkx.native.fci_model import (
     FciFieldBundle,
     assert_matching_field_names,
     extract_owned_field_from_halo,

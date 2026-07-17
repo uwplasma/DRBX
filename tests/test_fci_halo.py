@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from jax_drb.geometry import (
+from dkx.geometry import (
     FCI_DEP_CUT_WALL,
     FCI_DEP_FIELD_INTERIOR,
     FCI_DEP_PHYSICAL_BOUNDARY,
@@ -21,8 +21,8 @@ from jax_drb.geometry import (
     ShardSpec3D,
     StencilBuilderContext,
 )
-from jax_drb.native.fci_boundaries import BC_DIRICHLET, BC_NEUMANN
-from jax_drb.native.fci_boundaries import (
+from dkx.native.fci_boundaries import BC_DIRICHLET, BC_NEUMANN
+from dkx.native.fci_boundaries import (
     LocalBoundaryConditionBuilder,
     LocalBoundaryData3D,
     LocalBoundaryFaceBC3D,
@@ -30,8 +30,8 @@ from jax_drb.native.fci_boundaries import (
     LocalCutWallGeometry3D,
     LocalCutWallValueReconstructor3D,
 )
-from jax_drb.native.fci_helpers import _local_side_mask, local_physical_side_active
-from jax_drb.native.fci_halo import (
+from dkx.native.fci_helpers import _local_side_mask, local_physical_side_active
+from dkx.native.fci_halo import (
     GhostFillWeights1D,
     HaloExchange3D,
     LocalFciCutWallValueEvaluator,
@@ -43,8 +43,8 @@ from jax_drb.native.fci_halo import (
     RemoteFciDependencyExchange,
     TopologyHaloFiller3D,
 )
-from jax_drb.native.fci_2_field_rhs import Fci2FieldState
-from jax_drb.native.fci_model import FciFieldBundle
+from dkx.native.fci_2_field_rhs import Fci2FieldState
+from dkx.native.fci_model import FciFieldBundle
 
 
 @jax.tree_util.register_pytree_node_class

@@ -1,6 +1,6 @@
 # Neutrals and Recycling
 
-`jax_drb` couples a hydrogenic plasma to a recycled neutral gas through the
+`dkx` couples a hydrogenic plasma to a recycled neutral gas through the
 hermes-3 atomic reaction model, implemented natively in JAX (differentiable,
 self-contained). The physics is exercised on a 1D scrape-off-layer flux tube and,
 as source terms, on the 3D flux-coordinate-independent (FCI) geometries -- closed
@@ -8,18 +8,18 @@ and open field lines.
 
 ![Coupled recycling SOL](media/recycling_sol.png)
 
-## Atomic reactions ([`jax_drb.native.neutrals`](../src/jax_drb/native/neutrals/atomic_rates.py))
+## Atomic reactions ([`dkx.native.neutrals`](../src/dkx/native/neutrals/atomic_rates.py))
 
 Ionization and recombination rate coefficients `<sigma v>(Te, ne)` come from the
 packaged AMJUEL double-polynomial fits; charge exchange uses the AMJUEL H.2 3.1.8
 polynomial `<sigma v>(Teff)`. The coefficient tables ship with the package
-(`jax_drb.data.atomic_rates`), so there is no external-database dependency. The
+(`dkx.data.atomic_rates`), so there is no external-database dependency. The
 rates are physically correct -- ionization rises steeply through 3-30 eV,
 **recombination rises as the plasma cools** (the detachment driver), and charge
 exchange grows with the collision energy -- and every routine is
 `jit`/`grad`/`vmap` transparent.
 
-[`compute_hydrogen_reaction_sources`](../src/jax_drb/native/neutrals/reactions.py)
+[`compute_hydrogen_reaction_sources`](../src/dkx/native/neutrals/reactions.py)
 assembles the plasma <-> neutral source channels following the hermes-3 closure:
 Galilean-invariant particle and momentum transfer (each transfer carries the
 source species' `m V` and `1.5 T`), a charge-exchange frictional heating
@@ -27,7 +27,7 @@ source species' `m V` and `1.5 T`), a charge-exchange frictional heating
 from the AMJUEL energy-loss fits. The ion and neutral particle and momentum
 sources cancel exactly.
 
-## 1D recycling SOL ([`recycling_sol_model`](../src/jax_drb/native/neutrals/recycling_sol_model.py))
+## 1D recycling SOL ([`recycling_sol_model`](../src/dkx/native/neutrals/recycling_sol_model.py))
 
 The coupled 1D model transports the plasma to the target on a prescribed
 hot-upstream / cold-target temperature profile (the imposed-temperature closure,
@@ -60,7 +60,7 @@ accounting (residuals ~1e-16), landing only on the two open target planes.
 
 ## Self-consistent detachment (B6)
 
-[`detachment_sol_model`](../src/jax_drb/native/neutrals/detachment_sol_model.py)
+[`detachment_sol_model`](../src/dkx/native/neutrals/detachment_sol_model.py)
 evolves the plasma pressure as well, so the target temperature responds
 self-consistently to the plasma conditions -- the ingredient a detachment study
 needs. It adds **Spitzer parallel conduction** `kappa ~ T^{5/2}` solved

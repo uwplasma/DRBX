@@ -167,7 +167,7 @@ Earlier campaign bundles remain on the `validation-artifacts-2026-04-28`
 release for maintainers: the diffusion/vorticity short-window parity figures,
 the restartable-diffusion demo panels, the diverted-tokamak and TCV-X21
 movie packages (their regeneration example scripts have since been removed;
-the builder module `src/jax_drb/validation/diverted_tokamak_movie.py` is
+the builder module `src/dkx/validation/diverted_tokamak_movie.py` is
 still tested), the per-campaign stellarator FCI figure set, and the ESSOS
 imported DRB movie QA bundles. Restore locally with:
 

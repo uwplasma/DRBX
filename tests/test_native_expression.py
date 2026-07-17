@@ -4,10 +4,10 @@ import math
 
 import numpy as np
 
-from jax_drb.config.boutinp import parse_bout_input
-from jax_drb.native.expression import ArrayExpressionEvaluator
-from jax_drb.native.mesh import broadcast_to_field_shape, build_structured_mesh
-from jax_drb.runtime.run_config import RunConfiguration
+from dkx.config.boutinp import parse_bout_input
+from dkx.native.expression import ArrayExpressionEvaluator
+from dkx.native.mesh import broadcast_to_field_shape, build_structured_mesh
+from dkx.runtime.run_config import RunConfiguration
 
 
 def test_array_expression_evaluator_resolves_mesh_references_on_structured_grid() -> None:

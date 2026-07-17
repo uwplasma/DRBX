@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import jax.numpy as jnp
 
-from jax_drb.validation.autodiff_diffusion import (
+from dkx.validation.autodiff_diffusion import (
     active_density_slice,
     build_diffusion_autodiff_setup,
     optimize_inverse_design,
@@ -43,7 +43,7 @@ from jax_drb.validation.autodiff_diffusion import (
     simulate_density_history_from_physical,
     theta_to_physical,
 )
-from jax_drb.validation.publication_plotting import annotate_bars, save_publication_figure, style_axis
+from dkx.validation.publication_plotting import annotate_bars, save_publication_figure, style_axis
 
 # --- PARAMETERS ------------------------------------------------------------------
 OUTPUT_ROOT = Path("docs/data/autodiff_diffusion_inverse_design_artifacts")  # artifact root (cwd-relative)

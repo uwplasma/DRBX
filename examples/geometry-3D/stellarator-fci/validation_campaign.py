@@ -1,7 +1,7 @@
 """Regenerate the full synthetic stellarator FCI validation bundle.
 
 The script runs every promoted synthetic-stellarator validation campaign
-package through the public ``jax_drb.validation`` creators: geometry, FCI
+package through the public ``dkx.validation`` creators: geometry, FCI
 suite, operators, metric MMS, sheath/recycling, neutral physics, vorticity,
 DRB pytree, and the SOL showcase. Each package writes its own JSON/NPZ/PNG
 artifacts and prints progress; everything lands under
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jax_drb.validation import (
+from dkx.validation import (
     create_stellarator_fci_geometry_campaign_package,
     create_stellarator_fci_operator_campaign_package,
     create_stellarator_fci_suite_campaign_package,

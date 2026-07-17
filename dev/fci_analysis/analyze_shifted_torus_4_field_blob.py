@@ -20,10 +20,10 @@ from test_shifted_torus_4_field_free_decay import (
     _build_free_decay_boundary_conditions,
     _save_shifted_torus_free_decay_time_traces,
 )
-from jax_drb.geometry import ConservativeStencilBuilder, RegularFaceGeometry3D, build_conservative_stencil_from_field
-from jax_drb.native import Fci4FieldBlobParameters, build_perp_laplacian_face_projectors
-from jax_drb.native.fci_boundaries import CutWallBC3D, CutWallGeometry3D
-from jax_drb.native.fci_operators import PerpLaplacianInverseSolver
+from dkx.geometry import ConservativeStencilBuilder, RegularFaceGeometry3D, build_conservative_stencil_from_field
+from dkx.native import Fci4FieldBlobParameters, build_perp_laplacian_face_projectors
+from dkx.native.fci_boundaries import CutWallBC3D, CutWallGeometry3D
+from dkx.native.fci_operators import PerpLaplacianInverseSolver
 
 
 rho_star = 1.0

@@ -33,14 +33,14 @@ import numpy as np
 from jax import value_and_grad
 import jax.numpy as jnp
 
-from jax_drb.validation.autodiff_diffusion import (
+from dkx.validation.autodiff_diffusion import (
     active_density_slice,
     build_diffusion_autodiff_setup,
     finite_difference_gradient,
     objective_for_physical_parameters,
     simulate_density_history_from_physical,
 )
-from jax_drb.validation.publication_plotting import annotate_bars, save_publication_figure, style_axis
+from dkx.validation.publication_plotting import annotate_bars, save_publication_figure, style_axis
 
 # --- PARAMETERS ------------------------------------------------------------------
 OUTPUT_ROOT = Path("docs/data/autodiff_diffusion_sensitivity_artifacts")  # artifact root (cwd-relative)

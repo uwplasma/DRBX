@@ -25,19 +25,19 @@ if str(_SRC_PATH) not in sys.path:
 import jax
 import jax.numpy as jnp
 
-from jax_drb.geometry import (
+from dkx.geometry import (
     RegularFaceGeometry3D,
     build_conservative_stencil_from_field,
     logical_grid_from_axis_vectors,
 )
-from jax_drb.native.fci_boundaries import (
+from dkx.native.fci_boundaries import (
     BC_DIRICHLET,
     BC_NEUMANN,
     BoundaryFaceBC3D,
     CutWallBC3D,
     CutWallGeometry3D,
 )
-from jax_drb.native.fci_operators import (
+from dkx.native.fci_operators import (
     _mg_apply_negative_perp_laplacian,
     _prolong_field,
     _restrict_field_simple,

@@ -7,7 +7,7 @@
     page conflicts with that plan, follow the execution plan and update this
     page afterward.
 
-This page is the developer-facing map of the `jax_drb` source tree. The goal is
+This page is the developer-facing map of the `dkx` source tree. The goal is
 to make the package understandable before reading the solver files or the
 validation campaigns in detail.
 
@@ -16,7 +16,7 @@ operators from the orchestration layer, separate verification from benchmark
 validation, and keep geometry, numerics, and plotting reusable.
 
 The validation package carries a shared publication-plot helper in
-[src/jax_drb/validation/publication_plotting.py](../src/jax_drb/validation/publication_plotting.py).
+[src/dkx/validation/publication_plotting.py](../src/dkx/validation/publication_plotting.py).
 That helper is part of the research-grade validation surface: the figure
 standard lives next to the tested campaigns, not only in downstream paper
 scripts.
@@ -25,25 +25,25 @@ scripts.
 
 The current top-level layout is:
 
-- `src/jax_drb/native`
+- `src/dkx/native`
   native solvers and problem-family implementations (Hasegawa-Wakatani,
   the FCI operator stack, 1-D fluid/diffusion/vorticity/electromagnetic, and the
   deck runner)
-- `src/jax_drb/linear`
+- `src/dkx/linear`
   the linear stability / dispersion solver
-- `src/jax_drb/geometry`
+- `src/dkx/geometry`
   structured, analytic-stellarator, FCI, imported field-line, and VMEC-extender
   geometry
-- `src/jax_drb/validation`
+- `src/dkx/validation`
   benchmark campaigns, geometry diagnostics, plots, and publication-oriented
   artifacts
-- `src/jax_drb/config`
+- `src/dkx/config`
   structured input-deck parsing and numeric option resolution
-- `src/jax_drb/runtime`
+- `src/dkx/runtime`
   runtime configuration, precision, profiling, artifacts, and execution helpers
 
-The command-line entry points are `src/jax_drb/cli.py` and
-`src/jax_drb/__main__.py`.
+The command-line entry points are `src/dkx/cli.py` and
+`src/dkx/__main__.py`.
 
 ## Current Responsibilities
 
@@ -68,7 +68,7 @@ The native solver families are:
   families
 - `deck_runner.py`
   deck resolution, native run execution, restart orchestration, and portable
-  summary/array artifact writing for the `jax_drb run` command
+  summary/array artifact writing for the `dkx run` command
 
 The `linear/` package holds the general Jacobian/eigenmode engine (`eigen.py`)
 and the three reduced dispersion operators (`dispersion.py`).
@@ -85,7 +85,7 @@ split cleanly on disk:
 
 ## Structure And Direction
 
-The active plan (`plan_jax_drb.md`, repository root) keeps the code focused on
+The active plan (`plan_dkx.md`, repository root) keeps the code focused on
 the accuracy-tested core: the compact native deck models, the Hasegawa-Wakatani
 flagship, the FCI operator stack on tokamak and non-axisymmetric geometry, the
 linear dispersion solver, and the imported-geometry adapters. New physics is

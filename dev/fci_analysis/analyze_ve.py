@@ -31,16 +31,16 @@ from analyze_rhs_common import (  # noqa: E402
     resolve_step_dump_dir,
     save_rhs_terms_plot,
 )
-from jax_drb.geometry import build_curvature_coefficients  # noqa: E402
-from jax_drb.native.fci_boundaries import (  # noqa: E402
+from dkx.geometry import build_curvature_coefficients  # noqa: E402
+from dkx.native.fci_boundaries import (  # noqa: E402
     BoundaryConditionBuilder,
     CoordinateFaceValueReconstructor3D,
     CoordinateNormalDerivativeConstructor3D,
     CutWallBC3D,
     CutWallGeometry3D,
 )
-from jax_drb.native.fci_drb_EB_rhs import FciDrbEBState, _Ve_rhs  # noqa: E402
-from jax_drb.native.fci_operators import (  # noqa: E402
+from dkx.native.fci_drb_EB_rhs import FciDrbEBState, _Ve_rhs  # noqa: E402
+from dkx.native.fci_operators import (  # noqa: E402
     grad_parallel_op_direct,
     parallel_laplacian_direct_op,
     poisson_bracket_op,

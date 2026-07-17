@@ -5,8 +5,8 @@ import subprocess
 
 import pytest
 
-from jax_drb.runtime import configure_jax_runtime
-from jax_drb.runtime.paths import repo_root
+from dkx.runtime import configure_jax_runtime
+from dkx.runtime.paths import repo_root
 
 
 # Keep the default test runtime aligned with the documented package default so

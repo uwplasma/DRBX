@@ -9,16 +9,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.geometry import (
+from dkx.geometry import (
     FciMaps,
     build_synthetic_stellarator_geometry,
     identity_fci_maps,
 )
-from jax_drb.native.fci_vorticity import (
+from dkx.native.fci_vorticity import (
     apply_fci_vorticity_operator,
     solve_fci_vorticity_potential_cg,
 )
-from jax_drb.validation import (
+from dkx.validation import (
     audit_essos_imported_artifact_report,
     audit_essos_imported_artifact_reports,
     audit_hybrid_open_sol_promotion_evidence,
@@ -32,7 +32,7 @@ from jax_drb.validation import (
     create_stellarator_sol_showcase_package,
     create_stellarator_vorticity_campaign_package,
 )
-from jax_drb.validation.essos_imported_fci_campaign import (
+from dkx.validation.essos_imported_fci_campaign import (
     _IMPORTED_FCI_DIAGNOSTIC_SCHEMA,
     _IMPORTED_FCI_REQUIRED_REPORT_FIELDS,
     build_essos_imported_connection_length_refinement_diagnostics,

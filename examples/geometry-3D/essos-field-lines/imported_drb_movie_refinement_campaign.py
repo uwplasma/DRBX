@@ -4,8 +4,8 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
-from jax_drb.runtime import configure_jax_runtime
-from jax_drb.validation import create_essos_imported_drb_movie_refinement_campaign_package
+from dkx.runtime import configure_jax_runtime
+from dkx.validation import create_essos_imported_drb_movie_refinement_campaign_package
 
 
 # SIMSOPT-style user parameters: edit these first, then run this file.

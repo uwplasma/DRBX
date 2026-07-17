@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from jax_drb.runtime import configure_jax_runtime
-from jax_drb.validation.essos_imported_fci_campaign import (
+from dkx.runtime import configure_jax_runtime
+from dkx.validation.essos_imported_fci_campaign import (
     create_essos_imported_fci_campaign_package,
     create_essos_imported_fci_dry_run_artifact_package,
 )

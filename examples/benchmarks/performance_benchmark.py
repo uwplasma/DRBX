@@ -40,7 +40,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 
-from jax_drb.native.hasegawa_wakatani import (  # noqa: E402
+from dkx.native.hasegawa_wakatani import (  # noqa: E402
     HasegawaWakataniParameters,
     hw_grid,
     hw_step,
@@ -149,7 +149,7 @@ def plot(sweep, overhead, output_path):
                       f"(n={overhead['n']}): {overhead['grad_over_forward']:.2f}x forward")
     axes[1].grid(True, axis="y", ls=":", alpha=0.5)
 
-    fig.suptitle("jax_drb performance: fast turbulence, cheap gradients through the rollout")
+    fig.suptitle("dkx performance: fast turbulence, cheap gradients through the rollout")
     fig.tight_layout()
     fig.savefig(output_path, dpi=180)
     plt.close(fig)

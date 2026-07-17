@@ -63,7 +63,7 @@ def test_core_runtime_dependencies_are_installed_by_default() -> None:
 
 def test_import_version_matches_pyproject() -> None:
     payload = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    init_text = (REPO_ROOT / "src" / "jax_drb" / "__init__.py").read_text(encoding="utf-8")
+    init_text = (REPO_ROOT / "src" / "dkx" / "__init__.py").read_text(encoding="utf-8")
 
     assert f'__version__ = "{payload["project"]["version"]}"' in init_text
 

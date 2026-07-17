@@ -1,7 +1,7 @@
 # Research-Grade Execution Plan (archived)
 
 This document was superseded on 2026-07-12. The single authoritative plan is
-now [`plan_jax_drb.md`](https://github.com/uwplasma/jax_drb/blob/main/plan_jax_drb.md)
+now [`plan_dkx.md`](https://github.com/uwplasma/dkx/blob/main/plan_dkx.md)
 in the repository root.
 
 The previous 5,935-line version of this file — including its execution log

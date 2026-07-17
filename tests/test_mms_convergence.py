@@ -66,7 +66,7 @@ def test_fluid_1d_mms_convergence_script_writes_json_report(tmp_path: Path) -> N
             **{
                 "PYTHONPATH": str(_REPO / "src"),
                 "JAX_ENABLE_X64": "true",
-                "JAX_DRB_PRECISION": "float64",
+                "DKX_PRECISION": "float64",
             },
         },
         check=False,

@@ -8,7 +8,7 @@
     appendix afterward.
 
 This document records the staged path for native non-axisymmetric
-scrape-off-layer calculations in `jax_drb`. The goal is not only to produce a
+scrape-off-layer calculations in `dkx`. The goal is not only to produce a
 visually plausible 3D movie, but to make the geometry, operators, validation
 metrics, differentiability boundary, and documentation strong enough for
 research use.
@@ -77,16 +77,16 @@ Useful public references for the scientific pattern are:
 
 The first native lane now consists of:
 
-- `src/jax_drb/geometry/metric_tensor.py`, which stores covariant and
+- `src/dkx/geometry/metric_tensor.py`, which stores covariant and
   contravariant metric components and checks finite values, positive Jacobian,
   positive magnetic field, and inverse consistency.
-- `src/jax_drb/geometry/fci_maps.py`, which stores forward and backward traced
+- `src/dkx/geometry/fci_maps.py`, which stores forward and backward traced
   plane-intersection maps plus boundary masks and plane spacing.
-- `src/jax_drb/geometry/stellarator.py`, which builds an analytic
+- `src/dkx/geometry/stellarator.py`, which builds an analytic
   non-axisymmetric stellarator geometry with five field periods, helical
   mirror modulation, rotating elliptical cross-sections, island-like radial map
   shifts, full 3D metric tensors, curvature proxy, and connection-length proxy.
-- `src/jax_drb/native/fci.py`, which implements JAX-native bilinear
+- `src/dkx/native/fci.py`, which implements JAX-native bilinear
   interpolation, forward/backward map application, central traced
   parallel-gradient, traced parallel diffusion, compact perpendicular
   diffusion, conservative metric-weighted parallel diffusion, and conservative
@@ -94,71 +94,71 @@ The first native lane now consists of:
   \(J^{-1}\partial_i(JK g^{ij}\partial_j f)\) scalar operator with all
   contravariant cross terms for the non-axisymmetric manufactured-solution
   gate.
-- `src/jax_drb/native/fci_sheath_recycling.py`, which implements the first
+- `src/dkx/native/fci_sheath_recycling.py`, which implements the first
   non-axisymmetric target closure gate: traced endpoint masks, Bohm ion loss,
   zero-current electron particle reconstruction, sheath heat transmission, and
   exact recycled-neutral source accounting.
-- `src/jax_drb/native/fci_neutral.py`, which implements the first
+- `src/dkx/native/fci_neutral.py`, which implements the first
   non-axisymmetric neutral diffusion, ionisation, recombination, and
   charge-exchange reaction gate.
-- `src/jax_drb/native/fci_vorticity.py`, which implements the first
+- `src/dkx/native/fci_vorticity.py`, which implements the first
   metric-weighted perpendicular vorticity operator and mean-free conjugate
   gradient potential inversion, with Boussinesq and non-Boussinesq
   polarization coefficients.
-- `src/jax_drb/native/fci_drb_rhs.py`, which assembles the first
+- `src/dkx/native/fci_drb_rhs.py`, which assembles the first
   transformable PyTree RHS combining sheath/recycling, neutral
   diffusion/reactions, vorticity diffusion, and the Boussinesq/non-Boussinesq
   potential-inversion seam.
-- `src/jax_drb/geometry/essos_import.py`, which imports ESSOS-produced
+- `src/dkx/geometry/essos_import.py`, which imports ESSOS-produced
   trajectories, Poincare sections, field samples, and coil curves into
   portable arrays without maintaining a duplicate coil-field or field-line
-  tracer in `jax_drb`.
-- `src/jax_drb/validation/stellarator_fci_geometry_campaign.py`, which writes
+  tracer in `dkx`.
+- `src/dkx/validation/stellarator_fci_geometry_campaign.py`, which writes
   a metric/map/connection-length validation bundle.
-- `src/jax_drb/validation/stellarator_fci_suite_campaign.py`, which runs the
+- `src/dkx/validation/stellarator_fci_suite_campaign.py`, which runs the
   same metric/map gate on baseline island, stronger island-map, and high
   mirror/shear analytic configurations.
-- `src/jax_drb/validation/stellarator_fci_operator_campaign.py`, which writes
+- `src/dkx/validation/stellarator_fci_operator_campaign.py`, which writes
   interpolation convergence, parallel-gradient convergence, and diffusion
   dissipation diagnostics.
-- `src/jax_drb/validation/stellarator_metric_mms_campaign.py`, which writes
+- `src/dkx/validation/stellarator_metric_mms_campaign.py`, which writes
   the full 3D metric scalar-operator manufactured-solution convergence gate
   plus synthetic-stellarator constant-state, dissipation, and cross-term
   activity diagnostics.
-- `src/jax_drb/validation/stellarator_sheath_recycling_campaign.py`, which
+- `src/dkx/validation/stellarator_sheath_recycling_campaign.py`, which
   writes the first target/sheath/recycling source-balance artifact on the same
   non-axisymmetric field-line maps.
-- `src/jax_drb/validation/stellarator_neutral_physics_campaign.py`, which
+- `src/dkx/validation/stellarator_neutral_physics_campaign.py`, which
   writes the neutral diffusion/reaction conservation artifact.
-- `src/jax_drb/validation/stellarator_vorticity_campaign.py`, which writes
+- `src/dkx/validation/stellarator_vorticity_campaign.py`, which writes
   the Boussinesq/non-Boussinesq vorticity inversion, constant-coefficient
   limit, and radial \(E\times B\) proxy artifact.
-- `src/jax_drb/native/fci.py::logical_exb_bracket_xz`, which provides the
+- `src/dkx/native/fci.py::logical_exb_bracket_xz`, which provides the
   first tested JAX-native perpendicular \(E\times B\) bracket seam for
   pedagogical nonlinear stellarator examples and imported-geometry movie
   advection.
-- `src/jax_drb/validation/stellarator_drb_pytree_campaign.py`, which writes
+- `src/dkx/validation/stellarator_drb_pytree_campaign.py`, which writes
   the fixed-layout PyTree RHS, JVP, batched-objective, and multi-device
   profiling artifact.
-- `src/jax_drb/validation/stellarator_sol_showcase.py`, which writes a reduced
+- `src/dkx/validation/stellarator_sol_showcase.py`, which writes a reduced
   3D SOL dynamics package with snapshots, an opened toroidal 3D poster, and a
   README-ready GIF.
-- `src/jax_drb/validation/essos_fieldline_import_campaign.py`, which writes
+- `src/dkx/validation/essos_fieldline_import_campaign.py`, which writes
   the first external Landreman-Paul QA field-line import gate: ESSOS-owned
   field evaluation, adaptive field-line tracing, Poincare extraction, and
   portable JSON/NPZ/PNG artifacts for subsequent FCI/operator workflows.
-- `src/jax_drb/validation/essos_imported_fci_campaign.py`, which converts a
+- `src/dkx/validation/essos_imported_fci_campaign.py`, which converts a
   scaled VMEC Landreman-Paul QA shell into fixed-shape FCI maps through
-  `coil`, `vmec`, or `hybrid` map sources, then runs JAXDRB sheath/recycling
+  `coil`, `vmec`, or `hybrid` map sources, then runs DKX sheath/recycling
   and neutral closure gates on the selected maps. Its report now includes
   advisory single-grid connection-length resolution diagnostics that flag
   grid-scale roughness before a live imported run is promoted, plus a
   multi-grid connection-length refinement helper that compares nested grids
   under conservative restriction.
-- `src/jax_drb/validation/essos_imported_pytree_campaign.py`, which drives
-  the fixed-layout JAXDRB PyTree RHS, `jax.jvp`, and `jax.vmap` diagnostics
+- `src/dkx/validation/essos_imported_pytree_campaign.py`, which drives
+  the fixed-layout DKX PyTree RHS, `jax.jvp`, and `jax.vmap` diagnostics
   from the same ESSOS-imported field-line maps.
-- `src/jax_drb/validation/essos_imported_drb_movie_campaign.py`, which
+- `src/dkx/validation/essos_imported_drb_movie_campaign.py`, which
   advances the imported Landreman-Paul QA FCI maps through a movie-grade
   fixed-layout DRB transient with sheath/recycling/neutrals, nonlinear
   reduced forcing, potential-residual gating, and opened 3D rendering.
@@ -169,7 +169,7 @@ The current generated artifact bundle lives in
 The first external field-line import artifact lives in
 `docs/data/essos_fieldline_import_artifacts/` and is documented in
 `docs/essos_fieldline_import.md`. It uses the Landreman-Paul QA coil JSON
-through ESSOS, then stores only sanitized arrays and metadata in `jax_drb`.
+through ESSOS, then stores only sanitized arrays and metadata in `dkx`.
 The first imported-FCI downstream artifact lives in
 `docs/data/essos_imported_fci_artifacts/` and is documented in
 `docs/essos_imported_fci_validation.md`. It is still a validation bridge
@@ -214,7 +214,7 @@ The imported QA movie artifacts live in
 `docs/data/essos_imported_drb_movie_artifacts/` and
 `docs/data/essos_imported_drb_movie_hybrid_artifacts/`; the hybrid movie is now the preferred
 end-to-end visual bridge from imported VMEC-coordinate maps plus coil endpoint
-masks to a JAXDRB fixed-layout DRB transient with sheath, recycling, neutral
+masks to a DKX fixed-layout DRB transient with sheath, recycling, neutral
 closures, and explicit physics gates.
 
 The current suite gives three passing 3D analytic configurations rather than a
@@ -343,7 +343,7 @@ The external field-line import gate uses the same downstream map abstraction,
 but delegates magnetic-field evaluation and trajectory integration to ESSOS.
 The imported trajectories are the source for later plane-to-plane maps,
 Poincare sections, and connection-length diagnostics rather than recomputing
-the magnetic field inside `jax_drb`. With cylindrical projections
+the magnetic field inside `dkx`. With cylindrical projections
 \((B_R,B_\phi,B_Z)\), the corresponding field-line map obeys
 
 ```text
@@ -510,7 +510,7 @@ gates should be added in this order:
    metadata, physical-\(\phi\) periodicity, \(|B|\), field-line RHS, endpoint
    masks, and selected-field interpolation before any dynamics are run.
 4. Field-line/Poincare/connection-length promotion:
-   compare the `jax_drb`-consumed map against the source geometry artifact for
+   compare the `dkx`-consumed map against the source geometry artifact for
    closed, open, and hybrid regions; plot Poincare sections, connection-length
    histograms, endpoint masks, target-exit length maps, and target labels.
 5. Reduced seeded-filament propagation in the rotating-ellipse and imported QA
@@ -613,6 +613,6 @@ This lane is ready for a release claim only when:
    gates are complete;
 4. generated artifacts stay small enough for a fast clone;
 5. the next-step validation gaps are explicit and tracked in this plan;
-6. every user-facing example can be run from a clean `jax_drb` clone plus
+6. every user-facing example can be run from a clean `dkx` clone plus
    release-hosted artifacts, without requiring users to install the geometry
    repositories.

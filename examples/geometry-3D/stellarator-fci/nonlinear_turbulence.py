@@ -25,8 +25,8 @@ from pathlib import Path
 
 import numpy as np
 
-from jax_drb.geometry import build_synthetic_stellarator_geometry
-from jax_drb.validation import (
+from dkx.geometry import build_synthetic_stellarator_geometry
+from dkx.validation import (
     build_stellarator_sol_showcase_report,
     save_stellarator_sol_3d_frame,
     save_stellarator_sol_3d_movie,

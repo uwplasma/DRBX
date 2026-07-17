@@ -16,10 +16,10 @@ solver), and [Models and Governing Equations](models_and_equations.md) (the
 The classical rotating-ellipse (`l = 2`) stellarator is a torus whose
 elliptical cross-section rotates as you follow it toroidally — the canonical
 *minimal* non-axisymmetric field: its metric depends on all three logical
-coordinates. In `jax_drb` you never derive that metric by hand:
+coordinates. In `dkx` you never derive that metric by hand:
 
 ```python
-from jax_drb.geometry import build_rotating_ellipse_geometry
+from dkx.geometry import build_rotating_ellipse_geometry
 
 geometry = build_rotating_ellipse_geometry(
     SHAPE,                  # (radial, poloidal, toroidal) cells
@@ -32,7 +32,7 @@ geometry = build_rotating_ellipse_geometry(
 
 The builder supplies only the analytic embedding
 \((x, \theta, \zeta) \mapsto (X, Y, Z)\);
-`metric_from_position_fn` ([`geometry/embedding.py`](../src/jax_drb/geometry/embedding.py))
+`metric_from_position_fn` ([`geometry/embedding.py`](../src/dkx/geometry/embedding.py))
 computes \(g_{ij} = \partial_i \mathbf X \cdot \partial_j \mathbf X\), the
 Jacobian, and the inverse metric exactly with `jax.jacfwd`. Because the
 metric is built by autodiff, the geometry is itself differentiable with

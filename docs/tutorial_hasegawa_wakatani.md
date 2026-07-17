@@ -24,7 +24,7 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from jax_drb.native.hasegawa_wakatani import (
+from dkx.native.hasegawa_wakatani import (
     HasegawaWakataniParameters,
     hw_grid,
     hw_run,
@@ -34,7 +34,7 @@ from jax_drb.native.hasegawa_wakatani import (
 ```
 
 `jax_enable_x64` must be set **before** any array is created: JAX defaults to
-float32, and the turbulence benchmarks (like all `jax_drb` validation gates)
+float32, and the turbulence benchmarks (like all `dkx` validation gates)
 are run in float64. Everything the model needs is five names from one module —
 there is no solver object or input file to configure.
 
@@ -73,7 +73,7 @@ SEED = 0
   reaching deep saturation needs CFL-adaptive stepping.
 - **Blocks**: `hw_run` advances `STEPS_PER_BLOCK` jitted RK4 steps at a time;
   between blocks we come back to Python to record diagnostics and a movie
-  frame. This is the standard `jax_drb` pattern — hot loop on device,
+  frame. This is the standard `dkx` pattern — hot loop on device,
   diagnostics at the block boundary.
 
 ## 3. Grid, parameters, and the noise seed

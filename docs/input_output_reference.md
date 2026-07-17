@@ -9,7 +9,7 @@ Python entry points, and artifacts.
 
 | Input family | Used by | What to edit |
 | --- | --- | --- |
-| TOML native decks | `jax_drb run`, `jax_drb inspect` | Time, runtime precision, mesh, solver settings, model components, species, fields, output, restart |
+| TOML native decks | `dkx run`, `dkx inspect` | Time, runtime precision, mesh, solver settings, model components, species, fields, output, restart |
 | Python example constants | scripts under `examples/` | Constants near the top of the file: grid sizes, timestep, output directory, model flags, plotting toggles |
 | Release-backed artifacts | movies, docs galleries, cached user examples | Restored by `scripts/fetch_example_artifacts.py`; do not edit by hand |
 | Developer geometry roots | heavy external-geometry regeneration | Geometry-specific environment variables |
@@ -22,7 +22,7 @@ commands are documented separately and require explicit local inputs.
 ## TOML Decks
 
 The native runtime reads TOML decks. A minimal promoted deck is committed at
-[`examples/inputs/restartable_diffusion.toml`](https://github.com/uwplasma/jax_drb/blob/main/examples/inputs/restartable_diffusion.toml).
+[`examples/inputs/restartable_diffusion.toml`](https://github.com/uwplasma/dkx/blob/main/examples/inputs/restartable_diffusion.toml).
 
 Common top-level sections:
 
@@ -118,20 +118,20 @@ Their capability tier is written to the run summary and validation report.
 
 ## CLI Commands
 
-The executable is `jax_drb`. Running a TOML path directly is equivalent to
-`jax_drb run`.
+The executable is `dkx`. Running a TOML path directly is equivalent to
+`dkx run`.
 
 | Command | Purpose | Typical inputs | Typical outputs |
 | --- | --- | --- | --- |
-| `jax_drb run input.toml` | Run a native input deck | TOML deck, optional restart | summary JSON, arrays NPZ, restart NPZ, run log |
-| `jax_drb inspect input.toml` | Parse and print the resolved plan without advancing | TOML deck | terminal plan summary |
+| `dkx run input.toml` | Run a native input deck | TOML deck, optional restart | summary JSON, arrays NPZ, restart NPZ, run log |
+| `dkx inspect input.toml` | Parse and print the resolved plan without advancing | TOML deck | terminal plan summary |
 
 Common commands:
 
 ```bash
-jax_drb inspect examples/inputs/restartable_diffusion.toml
-jax_drb run examples/inputs/restartable_diffusion.toml --verbose
-jax_drb run examples/inputs/restartable_diffusion.toml \
+dkx inspect examples/inputs/restartable_diffusion.toml
+dkx run examples/inputs/restartable_diffusion.toml --verbose
+dkx run examples/inputs/restartable_diffusion.toml \
   --output-dir output/resumed_case \
   --restart-in output/base_case/base_restart.npz \
   --resume-steps 2
@@ -139,11 +139,11 @@ jax_drb run examples/inputs/restartable_diffusion.toml \
 
 ## Python Entry Points
 
-Use the CLI for ordinary runs. Use the Python API when embedding JAXDRB in
+Use the CLI for ordinary runs. Use the Python API when embedding DKX in
 analysis scripts or examples.
 
 ```python
-from jax_drb.native import run_input_case
+from dkx.native import run_input_case
 
 result = run_input_case(
     "examples/inputs/restartable_diffusion.toml",
@@ -160,11 +160,11 @@ Common Python entry points:
 
 | API | Source | Purpose |
 | --- | --- | --- |
-| `run_input_case` | [`src/jax_drb/native/deck_runner.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/deck_runner.py) | Run a TOML deck and return structured native output |
-| `load_run_config` | [`src/jax_drb/runtime/run_config.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/runtime/run_config.py) | Parse runtime configuration |
-| `write_run_outputs` and output helpers | [`src/jax_drb/runtime/output.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/runtime/output.py) | Write summary, arrays, restart, and run-log artifacts |
-| `compute_fci_drb_rhs` | [`src/jax_drb/native/fci_drb_rhs.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci_drb_rhs.py) | Evaluate compact 3D FCI DRB RHS terms |
-| `build_*_campaign` functions | [`src/jax_drb/validation`](https://github.com/uwplasma/jax_drb/tree/main/src/jax_drb/validation) | Generate validation reports, figures, and publication artifacts |
+| `run_input_case` | [`src/dkx/native/deck_runner.py`](https://github.com/uwplasma/dkx/blob/main/src/dkx/native/deck_runner.py) | Run a TOML deck and return structured native output |
+| `load_run_config` | [`src/dkx/runtime/run_config.py`](https://github.com/uwplasma/dkx/blob/main/src/dkx/runtime/run_config.py) | Parse runtime configuration |
+| `write_run_outputs` and output helpers | [`src/dkx/runtime/output.py`](https://github.com/uwplasma/dkx/blob/main/src/dkx/runtime/output.py) | Write summary, arrays, restart, and run-log artifacts |
+| `compute_fci_drb_rhs` | [`src/dkx/native/fci_drb_rhs.py`](https://github.com/uwplasma/dkx/blob/main/src/dkx/native/fci_drb_rhs.py) | Evaluate compact 3D FCI DRB RHS terms |
+| `build_*_campaign` functions | [`src/dkx/validation`](https://github.com/uwplasma/dkx/tree/main/src/dkx/validation) | Generate validation reports, figures, and publication artifacts |
 
 ## Output Artifacts
 
@@ -213,7 +213,7 @@ python scripts/fetch_example_artifacts.py
 Use a shared cache:
 
 ```bash
-export JAX_DRB_ARTIFACT_CACHE_DIR=/path/to/cache
+export DKX_ARTIFACT_CACHE_DIR=/path/to/cache
 python scripts/fetch_example_artifacts.py
 ```
 
@@ -238,8 +238,8 @@ For implementation details, use:
 
 | Topic | Source |
 | --- | --- |
-| CLI parsing and command dispatch | [`src/jax_drb/cli.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/cli.py) |
-| Runtime state and output writing | [`src/jax_drb/runtime`](https://github.com/uwplasma/jax_drb/tree/main/src/jax_drb/runtime) |
-| Native run orchestration | [`src/jax_drb/native/deck_runner.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/deck_runner.py) |
-| 3D FCI geometry and RHS terms | [`src/jax_drb/native/fci.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`src/jax_drb/native/fci_drb_rhs.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci_drb_rhs.py) |
-| Validation campaigns and plotting | [`src/jax_drb/validation`](https://github.com/uwplasma/jax_drb/tree/main/src/jax_drb/validation) |
+| CLI parsing and command dispatch | [`src/dkx/cli.py`](https://github.com/uwplasma/dkx/blob/main/src/dkx/cli.py) |
+| Runtime state and output writing | [`src/dkx/runtime`](https://github.com/uwplasma/dkx/tree/main/src/dkx/runtime) |
+| Native run orchestration | [`src/dkx/native/deck_runner.py`](https://github.com/uwplasma/dkx/blob/main/src/dkx/native/deck_runner.py) |
+| 3D FCI geometry and RHS terms | [`src/dkx/native/fci.py`](https://github.com/uwplasma/dkx/blob/main/src/dkx/native/fci.py), [`src/dkx/native/fci_drb_rhs.py`](https://github.com/uwplasma/dkx/blob/main/src/dkx/native/fci_drb_rhs.py) |
+| Validation campaigns and plotting | [`src/dkx/validation`](https://github.com/uwplasma/dkx/tree/main/src/dkx/validation) |

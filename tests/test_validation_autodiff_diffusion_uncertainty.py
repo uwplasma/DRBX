@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from jax_drb.validation import create_autodiff_diffusion_uncertainty_package
+from dkx.validation import create_autodiff_diffusion_uncertainty_package
 
 
 def test_create_autodiff_diffusion_uncertainty_package_writes_artifacts(tmp_path: Path) -> None:

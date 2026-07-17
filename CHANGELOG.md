@@ -1,13 +1,13 @@
 # Changelog
 
-All notable changes to `jax_drb` are recorded here. The current development
+All notable changes to `dkx` are recorded here. The current development
 series is summarized at the top; the historical `1.x` release notes are
 condensed into this file (their original pages remain in git history).
 
 ## 2.0.0.dev0 (unreleased)
 
 Development series for the v2 research-grade program defined in
-`plan_jax_drb.md`. See
+`plan_dkx.md`. See
 [docs/release_notes_2_0_0_dev0.md](docs/release_notes_2_0_0_dev0.md) for the
 running, phase-by-phase detail of what has landed in this series.
 
@@ -18,12 +18,12 @@ Recent highlights (2026-07-17):
   `phi_inversion_tol`, and a prefactored LU coarse solve in the multigrid
   hierarchy; the 4-field RK4 step now compiles as one jit program
   (1.200 s → 0.623 s per step at `(24, 32, 8)` on one CPU).
-- New `jax_drb.native.stellarator_turbulence` (whole-step turbulence driver,
-  moved out of `tests/`) and `jax_drb.native.fci_differentiable_case`
+- New `dkx.native.stellarator_turbulence` (whole-step turbulence driver,
+  moved out of `tests/`) and `dkx.native.fci_differentiable_case`
   (reusable differentiable-FCI case API, moved out of the example).
-- `jax_drb.config.boutinp.rewrite_input_precision()` (moved from the
+- `dkx.config.boutinp.rewrite_input_precision()` (moved from the
   precision-benchmark example).
-- vmec_jax geometry adapter (`jax_drb.geometry.vmec_jax_import`) with
+- vmec_jax geometry adapter (`dkx.geometry.vmec_jax_import`) with
   closed/open field-line examples under `examples/geometry-3D/vmec-jax/`.
 - Examples rewritten as flat PARAMETERS-block pedagogical scripts (no CLI
   flags); docs gained math rendering (`pymdownx.arithmatex`), a Tutorials
@@ -67,7 +67,7 @@ Recent highlights (2026-07-17):
 - Routed the backward-Euler, BDF2, and legacy BDF recycling paths through the
   fixed-layout recycling state bridge.
 - Exposed opt-in `sparse_jvp` and `jax_linearized` recycling solver modes with
-  `JAX_DRB_RECYCLING_JACOBIAN_MODE` and `JAX_DRB_RECYCLING_JVP_BATCH_SIZE`
+  `DKX_RECYCLING_JACOBIAN_MODE` and `DKX_RECYCLING_JVP_BATCH_SIZE`
   controls.
 - Ingested a patched Hermes `SNVh_pressure_gradient` diagnostic for the
   neutral-mixed `NVh` campaign and refreshed the CPU scaling and native

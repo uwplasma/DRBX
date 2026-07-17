@@ -19,8 +19,8 @@ That is the surface used here too. It is the same general pattern used by projec
 - [examples/autodiff_diffusion_uncertainty.py](../examples/autodiff_diffusion_uncertainty.py)
 - [examples/autodiff_diffusion_inverse_design.py](../examples/autodiff_diffusion_inverse_design.py)
 - [examples/strong_scaling_diffusion.py](../examples/strong_scaling_diffusion.py)
-- shared helper module: [src/jax_drb/validation/autodiff_diffusion.py](../src/jax_drb/validation/autodiff_diffusion.py)
-- uncertainty helper module: [src/jax_drb/validation/autodiff_diffusion_uncertainty.py](../src/jax_drb/validation/autodiff_diffusion_uncertainty.py)
+- shared helper module: [src/dkx/validation/autodiff_diffusion.py](../src/dkx/validation/autodiff_diffusion.py)
+- uncertainty helper module: [src/dkx/validation/autodiff_diffusion_uncertainty.py](../src/dkx/validation/autodiff_diffusion_uncertainty.py)
 
 ## Sensitivity Analysis
 
@@ -109,13 +109,13 @@ configured by the PARAMETERS constants near the top:
 The CPU artifact measures two distinct local modes:
 
 - `process_group`: one Python worker per CPU partition
-- `host_pmap`: one process with `JAX_DRB_HOST_DEVICE_COUNT=N` and device-parallel `pmap`
+- `host_pmap`: one process with `DKX_HOST_DEVICE_COUNT=N` and device-parallel `pmap`
 
 To inspect the runtime mode directly in a fresh process:
 
 ```bash
-JAX_DRB_HOST_DEVICE_COUNT=4 PYTHONPATH=src python - <<'PY'
-from jax_drb.runtime import runtime_parallel_summary
+DKX_HOST_DEVICE_COUNT=4 PYTHONPATH=src python - <<'PY'
+from dkx.runtime import runtime_parallel_summary
 import json
 print(json.dumps(runtime_parallel_summary(), indent=2, sort_keys=True))
 PY
@@ -152,7 +152,7 @@ Interpretation:
 
 - the objective is evaluated on the compact native diffusion lane because it is already JAX-native and differentiable end to end
 - the CPU benchmark uses one JAX worker process per local worker to avoid oversubscribing host threads
-- the explicit host-device CPU benchmark uses `JAX_DRB_HOST_DEVICE_COUNT=N` to expose multiple CPU devices before import, then maps the objective with `pmap`
+- the explicit host-device CPU benchmark uses `DKX_HOST_DEVICE_COUNT=N` to expose multiple CPU devices before import, then maps the objective with `pmap`
 - the optional GPU benchmark uses `pmap` on the remote two-GPU machine
 - the total workload is held fixed, so the figure is a strong-scaling plot rather than a throughput plot
 

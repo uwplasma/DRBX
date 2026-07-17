@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.native.neutrals import (
+from dkx.native.neutrals import (
     DetachmentSolParameters,
     DetachmentSolState,
     detachment_diagnostics,

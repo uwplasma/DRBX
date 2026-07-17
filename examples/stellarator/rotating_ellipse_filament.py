@@ -37,7 +37,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from jax_drb.geometry import (  # noqa: E402
+from dkx.geometry import (  # noqa: E402
     ConservativeStencilBuilder,
     LocalStencilBuilder,
     build_conservative_stencil_from_field,
@@ -46,9 +46,9 @@ from jax_drb.geometry import (  # noqa: E402
     build_rotating_ellipse_geometry,
     rotating_ellipse_position,
 )
-from jax_drb.native import build_perp_laplacian_face_projectors  # noqa: E402
-from jax_drb.native.fci_4_field_rhs import Fci4FieldBlobParameters, Fci4FieldState  # noqa: E402
-from jax_drb.native.stellarator_turbulence import (  # noqa: E402
+from dkx.native import build_perp_laplacian_face_projectors  # noqa: E402
+from dkx.native.fci_4_field_rhs import Fci4FieldBlobParameters, Fci4FieldState  # noqa: E402
+from dkx.native.stellarator_turbulence import (  # noqa: E402
     build_four_field_phi_solver,
     build_free_decay_boundary_conditions,
     four_field_rk4_step,

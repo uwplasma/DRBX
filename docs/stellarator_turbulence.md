@@ -47,17 +47,17 @@ pins, at reduced resolution:
   isolated by construction.
 
 The shared driver lives in
-[`src/jax_drb/native/stellarator_turbulence.py`](../src/jax_drb/native/stellarator_turbulence.py)
+[`src/dkx/native/stellarator_turbulence.py`](../src/dkx/native/stellarator_turbulence.py)
 (the whole-step jitted `run_stellarator_turbulence`, the phi-solver builder,
 and the free-decay boundary conditions); the physics is entirely the validated
-four-field stack in `jax_drb.native`. The movie scripts cache completed runs
+four-field stack in `dkx.native`. The movie scripts cache completed runs
 in `closed_frames.npz` / `open_frames.npz` and reuse them when present, so
 re-rendering the movies does not re-run the physics.
 
 ## Island divertor (B8)
 
 Beyond the hand-placed limiter, the analytic **island-divertor** field
-([`jax_drb.geometry.island_divertor`](../src/jax_drb/geometry/island_divertor.py))
+([`dkx.geometry.island_divertor`](../src/dkx/geometry/island_divertor.py))
 carries a sheared rotational transform crossing the 2/3, 3/4, and 4/5 rational
 surfaces, each opened by a resonant radial perturbation. The overlapping chains
 make the edge stochastic, and the open scrape-off layer **emerges from the

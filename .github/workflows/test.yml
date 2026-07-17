@@ -33,6 +33,6 @@ jobs:
           python -m pip install -e . pytest pytest-cov
       - name: Run full fast test suite
         env:
-          JAX_DRB_USE_FIXTURE_REFERENCE_ROOT: "1"
+          DKX_USE_FIXTURE_REFERENCE_ROOT: "1"
         run: |
           pytest -q -m "not slow"

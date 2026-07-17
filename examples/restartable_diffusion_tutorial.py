@@ -1,7 +1,7 @@
 """Tutorial: run, restart, and QA a native diffusion case end to end.
 
 The script writes a TOML input deck from the constants below, then drives the
-public ``jax_drb`` CLI entry point three times:
+public ``dkx`` CLI entry point three times:
 
 1. a fresh run of ``FIRST_NOUT`` output steps (summary/arrays/restart/log files);
 2. a resumed run that continues ``RESUME_NOUT`` more steps from the saved
@@ -39,9 +39,9 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 import numpy as np
 
-from jax_drb.cli import main as cli_main
-from jax_drb.native.deck_runner import build_portable_array_payload, load_portable_array_payload, write_portable_array_payload
-from jax_drb.runtime import load_restart_bundle
+from dkx.cli import main as cli_main
+from dkx.native.deck_runner import build_portable_array_payload, load_portable_array_payload, write_portable_array_payload
+from dkx.runtime import load_restart_bundle
 
 # --- PARAMETERS ------------------------------------------------------------------
 CASE_NAME = "restartable_diffusion"  # prefix of every generated artifact
@@ -120,7 +120,7 @@ def run_segment(
     resume_steps: int | None = None,
     quiet: bool | None = None,
 ) -> None:
-    """Invoke the public jax_drb CLI entry point for one run segment."""
+    """Invoke the public dkx CLI entry point for one run segment."""
 
     argv = [str(input_path), "--case-name", case_name, "--output-dir", str(output_dir)]
     if CLI_PRECISION_OVERRIDE is not None:
@@ -131,10 +131,10 @@ def run_segment(
         argv.extend(["--resume-steps", str(resume_steps)])
     if quiet if quiet is not None else QUIET_RUNS:
         argv.append("--quiet")
-    print(f"  cli_argv: jax_drb {' '.join(argv)}")
+    print(f"  cli_argv: dkx {' '.join(argv)}")
     exit_code = cli_main(argv)
     if exit_code != 0:
-        raise RuntimeError(f"jax_drb run failed for {case_name} with exit code {exit_code}")
+        raise RuntimeError(f"dkx run failed for {case_name} with exit code {exit_code}")
 
 
 def output_paths(case_name: str, output_dir: Path) -> dict[str, Path]:
@@ -244,7 +244,7 @@ array_payload = build_portable_array_payload(
     overrides=tuple(stitched_payload.get("overrides", [])),
     configured_nout=stitched_payload.get("configured_nout"),
     configured_timestep=stitched_payload.get("configured_timestep"),
-    producer=str(stitched_payload.get("producer", "jax-drb")),
+    producer=str(stitched_payload.get("producer", "dkx")),
 )
 write_portable_array_payload(array_payload, combined_history_path)
 

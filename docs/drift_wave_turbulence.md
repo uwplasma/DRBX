@@ -2,7 +2,7 @@
 
 The closed-field-line tokamak flagship is a JAX-native two-field
 Hasegawa-Wakatani drift-wave turbulence model
-(`jax_drb.native.hasegawa_wakatani`), a pseudo-spectral solver for the
+(`dkx.native.hasegawa_wakatani`), a pseudo-spectral solver for the
 perpendicular plane of a periodic flux tube:
 
 ```
@@ -28,7 +28,7 @@ independently of the timestep.
 
 A single Fourier mode carries zero self-bracket, so it evolves purely linearly.
 Its growth rate reproduces the eigenvalue of
-`jax_drb.linear.resistive_drift_wave_operator` to machine precision -- the same
+`dkx.linear.resistive_drift_wave_operator` to machine precision -- the same
 operator used for the B2 dispersion benchmark. This ties the nonlinear flagship
 directly to the [linear dispersion benchmarks](linear_dispersion_benchmark.md).
 

@@ -22,7 +22,7 @@
     `python scripts/fetch_example_artifacts.py`.
 
 This page documents the first native non-axisymmetric 3D scrape-off-layer lane
-in `jax_drb`. The lane is deliberately staged: it validates geometry and
+in `dkx`. The lane is deliberately staged: it validates geometry and
 field-line-map operators first, then runs a compact reduced dynamics benchmark
 on the same geometry. It is not yet a real-device prediction.
 
@@ -304,14 +304,14 @@ The geometry campaign currently passes:
 - backward boundary fraction: about `2.69e-2`;
 - magnetic-field range: about `0.791` to `1.241`.
 
-- Stellarator FCI geometry validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__geometry__images__stellarator_fci_geometry_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__geometry__images__stellarator_fci_geometry_campaign.png)
+- Stellarator FCI geometry validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__geometry__images__stellarator_fci_geometry_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__geometry__images__stellarator_fci_geometry_campaign.png)
 
 The multi-configuration geometry suite currently passes all three metric/map
 gates. The three cases span mirror ratios from about `0.45` to `0.61`, mean
 connection-length proxies from about `23.8` to `24.7`, and maximum radial map
 shifts from about `0.17` to `0.36` cells:
 
-- Stellarator FCI multi-configuration suite — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__suite__images__stellarator_fci_suite_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__suite__images__stellarator_fci_suite_campaign.png)
+- Stellarator FCI multi-configuration suite — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__suite__images__stellarator_fci_suite_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__suite__images__stellarator_fci_suite_campaign.png)
 
 The operator campaign currently passes:
 
@@ -322,7 +322,7 @@ The operator campaign currently passes:
 - conservative metric-weighted diffusion energy drop: about `4.99e-3`;
 - conservative constant-state residual: about `9.35e-17`.
 
-- Stellarator FCI operator validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png)
+- Stellarator FCI operator validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png)
 
 The full metric manufactured-solution campaign currently passes:
 
@@ -334,7 +334,7 @@ The full metric manufactured-solution campaign currently passes:
 - synthetic metric energy drop fraction: about `4.86e-3`;
 - cross-term contribution fraction relative to the full operator: about `0.17`.
 
-- Stellarator full metric MMS validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__metric_mms__images__stellarator_metric_mms_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__metric_mms__images__stellarator_metric_mms_campaign.png)
+- Stellarator full metric MMS validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__metric_mms__images__stellarator_metric_mms_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__metric_mms__images__stellarator_metric_mms_campaign.png)
 
 The sheath/recycling campaign currently passes:
 
@@ -346,7 +346,7 @@ The sheath/recycling campaign currently passes:
 - neutral-energy recycling relative error: about `8.6e-16`;
 - zero-current balance relative error: below display precision.
 
-- Stellarator sheath/recycling validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png)
+- Stellarator sheath/recycling validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png)
 
 The neutral physics campaign currently passes:
 
@@ -357,7 +357,7 @@ The neutral physics campaign currently passes:
 - particle reaction relative error: about `1.2e-18`;
 - momentum reaction relative error: below display precision.
 
-- Stellarator neutral physics validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png)
+- Stellarator neutral physics validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png)
 
 The vorticity/potential campaign currently passes:
 
@@ -372,7 +372,7 @@ The vorticity/potential campaign currently passes:
 - density-over-\(B^2\) contrast in the manufactured probe: about `3.11`;
 - radial \(E\times B\) proxy RMS: about `1.04`.
 
-- Stellarator vorticity validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__vorticity__images__stellarator_vorticity_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__vorticity__images__stellarator_vorticity_campaign.png)
+- Stellarator vorticity validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__vorticity__images__stellarator_vorticity_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__vorticity__images__stellarator_vorticity_campaign.png)
 
 The PyTree DRB campaign currently passes:
 
@@ -397,7 +397,7 @@ The PyTree DRB campaign currently passes:
 - remote two-device GPU smoke profile: passing, with `pmap` execution around
   `7.0e-2` seconds on the same compact grid.
 
-- Stellarator PyTree/JVP/scaling validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png)
+- Stellarator PyTree/JVP/scaling validation — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png)
 
 The imported FCI campaign currently passes:
 
@@ -409,7 +409,7 @@ The imported FCI campaign currently passes:
 - scaled-surface non-axisymmetric major-radius RMS: about `0.116`;
 - neutral particle and momentum balance errors: below display precision.
 
-- ESSOS imported FCI validation — release-hosted figure: [`docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
+- ESSOS imported FCI validation — release-hosted figure: [`docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
 
 The VMEC-coordinate imported FCI control closes the field-line map on VMEC
 surfaces, disables target endpoint masks, and preserves neutral source
@@ -418,9 +418,9 @@ VMEC-coordinate interpolation locations with coil-derived endpoint masks,
 connection-length proxy, and \(|B|\), so it is the current open-field SOL
 bridge for non-axisymmetric sheath/recycling work.
 
-- ESSOS imported FCI VMEC-coordinate validation — release-hosted figure: [`docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png)
+- ESSOS imported FCI VMEC-coordinate validation — release-hosted figure: [`docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png)
 
-- ESSOS imported FCI hybrid validation — release-hosted figure: [`docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png)
+- ESSOS imported FCI hybrid validation — release-hosted figure: [`docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png)
 
 The imported PyTree/JVP campaign currently passes:
 
@@ -430,11 +430,11 @@ The imported PyTree/JVP campaign currently passes:
 - JVP-versus-finite-difference relative error below `1e-11`;
 - `vmap` serial mismatch below `1e-12`.
 
-- ESSOS imported PyTree/JVP validation — release-hosted figure: [`docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
+- ESSOS imported PyTree/JVP validation — release-hosted figure: [`docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
 
-- ESSOS imported PyTree/JVP VMEC-coordinate validation — release-hosted figure: [`docs__data__essos_imported_pytree_vmec_artifacts__images__essos_imported_pytree_vmec_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_vmec_artifacts__images__essos_imported_pytree_vmec_campaign.png)
+- ESSOS imported PyTree/JVP VMEC-coordinate validation — release-hosted figure: [`docs__data__essos_imported_pytree_vmec_artifacts__images__essos_imported_pytree_vmec_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_vmec_artifacts__images__essos_imported_pytree_vmec_campaign.png)
 
-- ESSOS imported PyTree/JVP hybrid validation — release-hosted figure: [`docs__data__essos_imported_pytree_hybrid_artifacts__images__essos_imported_pytree_hybrid_campaign.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_hybrid_artifacts__images__essos_imported_pytree_hybrid_campaign.png)
+- ESSOS imported PyTree/JVP hybrid validation — release-hosted figure: [`docs__data__essos_imported_pytree_hybrid_artifacts__images__essos_imported_pytree_hybrid_campaign.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_hybrid_artifacts__images__essos_imported_pytree_hybrid_campaign.png)
 
 The ESSOS-imported QA-coil DRB movie campaign currently passes movie-QA checks,
 but its report keeps `publication_ready=false` while coil connection-length,
@@ -449,9 +449,9 @@ grid-refinement, and time-refinement gates remain open:
   residuals at roundoff;
 - low-mode spectral-power fraction: about `0.24`.
 
-- ESSOS imported QA-coil DRB diagnostics — release-hosted figure: [`docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png)
+- ESSOS imported QA-coil DRB diagnostics — release-hosted figure: [`docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png)
 
-- ESSOS imported QA-coil DRB movie — release-hosted figure: [`docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif)
+- ESSOS imported QA-coil DRB movie — release-hosted figure: [`docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif)
 
 The high-resolution Jacobi stationarity media is the preferred current
 imported-map showcase. It uses the hybrid VMEC/coil map source, the
@@ -463,9 +463,9 @@ settings. The media still represents a reduced transient demonstration rather
 than a final long-time turbulence validation, but it is no longer a
 renderer-only or coarse-grid movie.
 
-- ESSOS imported QA-hybrid high-resolution diagnostics — release-hosted figure: [`docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png)
+- ESSOS imported QA-hybrid high-resolution diagnostics — release-hosted figure: [`docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__images__diagnostics.png)
 
-- ESSOS imported QA-hybrid high-resolution movie — release-hosted figure: [`docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
+- ESSOS imported QA-hybrid high-resolution movie — release-hosted figure: [`docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_stationarity_jacobi_media__movies__movie_compact.gif)
 
 The reduced dynamics campaign currently passes:
 
@@ -480,13 +480,13 @@ The reduced dynamics campaign currently passes:
 - connection-length-weighted RMS: about `8.53e-2`;
 - radial-flux proxy: about `-1.20e-4`.
 
-- Stellarator SOL snapshots — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_snapshots.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_snapshots.png)
+- Stellarator SOL snapshots — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_snapshots.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_snapshots.png)
 
-- Stellarator SOL diagnostics — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
+- Stellarator SOL diagnostics — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
 
-- Stellarator SOL 3D poster — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_poster.png`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_poster.png)
+- Stellarator SOL 3D poster — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_poster.png`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_poster.png)
 
-- Stellarator SOL 3D movie — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__showcase__movies__stellarator_sol_showcase.gif`](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__movies__stellarator_sol_showcase.gif)
+- Stellarator SOL 3D movie — release-hosted figure: [`docs__data__stellarator_fci_validation_artifacts__showcase__movies__stellarator_sol_showcase.gif`](https://github.com/uwplasma/dkx/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__movies__stellarator_sol_showcase.gif)
 
 ## Interpretation
 

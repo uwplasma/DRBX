@@ -44,7 +44,7 @@ import jax.numpy as jnp  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from jax_drb.native.hasegawa_wakatani import (  # noqa: E402
+from dkx.native.hasegawa_wakatani import (  # noqa: E402
     HasegawaWakataniParameters,
     hw_grid,
     hw_step,

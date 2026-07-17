@@ -20,9 +20,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jax_drb.geometry import build_open_slab_geometry
-from jax_drb.native.fci_sheath_recycling import build_fci_target_masks, compute_fci_sheath_recycling
-from jax_drb.native.sol_flux_tube import (
+from dkx.geometry import build_open_slab_geometry
+from dkx.native.fci_sheath_recycling import build_fci_target_masks, compute_fci_sheath_recycling
+from dkx.native.sol_flux_tube import (
     SolFluxTubeParameters,
     sol_flux_tube_run,
     sol_flux_tube_source,

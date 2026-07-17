@@ -5,12 +5,12 @@ import math
 from jax import grad, jit
 from jax import numpy as jnp
 
-from jax_drb.config.boutinp import parse_bout_input
-from jax_drb.native.mesh import build_structured_mesh
-from jax_drb.native.metrics import build_structured_metrics
-from jax_drb.native import run_config_case
-from jax_drb.native.transport import advance_anomalous_diffusion_history
-from jax_drb.runtime.run_config import RunConfiguration
+from dkx.config.boutinp import parse_bout_input
+from dkx.native.mesh import build_structured_mesh
+from dkx.native.metrics import build_structured_metrics
+from dkx.native import run_config_case
+from dkx.native.transport import advance_anomalous_diffusion_history
+from dkx.runtime.run_config import RunConfiguration
 
 
 _DIFFUSION_INPUT = """

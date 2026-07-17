@@ -1,6 +1,6 @@
 cff-version: 1.2.0
-message: "If you use JAXDRB in published work, please cite this software."
-title: "JAXDRB: JAX-first drift-reduced Braginskii edge and scrape-off-layer plasma modeling"
+message: "If you use DKX in published work, please cite this software."
+title: "DKX: JAX-first drift-reduced Braginskii edge and scrape-off-layer plasma modeling"
 version: "2.0.0.dev0"
 date-released: "2026-06-20"
 type: software
@@ -9,8 +9,8 @@ authors:
   - family-names: Jorge
     given-names: Rogerio
     affiliation: "Department of Physics, University of Wisconsin-Madison"
-repository-code: "https://github.com/uwplasma/jax_drb"
-url: "https://jax-drb.readthedocs.io/"
+repository-code: "https://github.com/uwplasma/dkx"
+url: "https://dkx.readthedocs.io/"
 keywords:
   - scrape-off layer
   - drift-reduced Braginskii

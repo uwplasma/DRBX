@@ -1,6 +1,6 @@
-# JAXDRB Documentation
+# DKX Documentation
 
-JAXDRB is a JAX-first edge and scrape-off-layer plasma toolkit for
+DKX is a JAX-first edge and scrape-off-layer plasma toolkit for
 drift-reduced Braginskii modeling, Hasegawa-Wakatani drift-wave turbulence,
 linear stability analysis, differentiable reduced studies, open-field-line SOL
 and neutral/detachment physics, and reusable 3D stellarator geometry.
@@ -22,22 +22,22 @@ boundaries.
 Install from PyPI:
 
 ```bash
-pip install jax-drb
+pip install dkx
 ```
 
 Or install from a clone:
 
 ```bash
-git clone https://github.com/uwplasma/jax_drb
-cd jax_drb
+git clone https://github.com/uwplasma/dkx
+cd dkx
 pip install -e .
 ```
 
 Run the smallest native deck:
 
 ```bash
-jax_drb inspect examples/inputs/restartable_diffusion.toml
-jax_drb run examples/inputs/restartable_diffusion.toml --verbose
+dkx inspect examples/inputs/restartable_diffusion.toml
+dkx run examples/inputs/restartable_diffusion.toml --verbose
 ```
 
 Run the flagship examples (each is a flat, self-documenting script:
@@ -60,7 +60,7 @@ Or start with the narrative walkthroughs in the **Tutorials** section:
 
 | Need | Read |
 | --- | --- |
-| Decide what JAXDRB can run today, with links to examples, source, tests, and outputs | [Feature Reference](feature_reference.md) |
+| Decide what DKX can run today, with links to examples, source, tests, and outputs | [Feature Reference](feature_reference.md) |
 | Learn by doing, with every parameter explained | [Tutorials](tutorial_hasegawa_wakatani.md) |
 | Install, run the CLI, resume runs, and inspect outputs | [Installation](installation.md), [Native Runtime CLI](native_runtime_cli.md), [Input And Output Reference](input_output_reference.md) |
 | The governing equations of every shipped model | [Models And Equations](models_and_equations.md) |

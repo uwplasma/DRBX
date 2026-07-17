@@ -1,15 +1,15 @@
-# jax_drb
+# DKX
 
-[![Tests](https://github.com/uwplasma/jax_drb/actions/workflows/test.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/test.yml)
-[![Docs](https://github.com/uwplasma/jax_drb/actions/workflows/docs.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/docs.yml)
-[![Coverage](https://github.com/uwplasma/jax_drb/actions/workflows/coverage.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/coverage.yml)
-[![PyPI](https://img.shields.io/pypi/v/jax-drb.svg)](https://pypi.org/project/jax-drb/)
-[![Python](https://img.shields.io/pypi/pyversions/jax-drb.svg)](https://pypi.org/project/jax-drb/)
+[![Tests](https://github.com/uwplasma/dkx/actions/workflows/test.yml/badge.svg)](https://github.com/uwplasma/dkx/actions/workflows/test.yml)
+[![Docs](https://github.com/uwplasma/dkx/actions/workflows/docs.yml/badge.svg)](https://github.com/uwplasma/dkx/actions/workflows/docs.yml)
+[![Coverage](https://github.com/uwplasma/dkx/actions/workflows/coverage.yml/badge.svg)](https://github.com/uwplasma/dkx/actions/workflows/coverage.yml)
+[![PyPI](https://img.shields.io/pypi/v/dkx.svg)](https://pypi.org/project/dkx/)
+[![Python](https://img.shields.io/pypi/pyversions/dkx.svg)](https://pypi.org/project/dkx/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![JAX](https://img.shields.io/badge/JAX-enabled-0a9396.svg)](https://jax.readthedocs.io/)
-[![Read the Docs](https://readthedocs.org/projects/jax-drb/badge/?version=latest)](https://jax-drb.readthedocs.io/)
+[![Read the Docs](https://readthedocs.org/projects/dkx/badge/?version=latest)](https://dkx.readthedocs.io/)
 
-**`jax_drb` is a JAX-based, end-to-end differentiable drift-reduced Braginskii
+**DKX is a JAX-based, end-to-end differentiable drift-reduced Braginskii
 (DRB) code for edge and scrape-off-layer (SOL) plasma turbulence** — on both
 closed and open field lines, in axisymmetric (tokamak) and non-axisymmetric
 (stellarator) geometry via the flux-coordinate-independent (FCI) approach.
@@ -22,7 +22,7 @@ solver. To our knowledge no other published DRB SOL turbulence code is
 differentiable, and none combines differentiability with FCI stellarator
 geometry.
 
-Documentation: [jax-drb.readthedocs.io](https://jax-drb.readthedocs.io/).
+Documentation: [dkx.readthedocs.io](https://dkx.readthedocs.io/).
 
 ## Stellarator turbulence in three dimensions
 
@@ -43,9 +43,9 @@ plasma:
 ## Install
 
 ```bash
-pip install jax-drb          # from PyPI
+pip install dkx          # from PyPI
 # or, from source:
-git clone https://github.com/uwplasma/jax_drb && cd jax_drb && pip install -e .
+git clone https://github.com/uwplasma/dkx && cd dkx && pip install -e .
 ```
 
 Runtime dependencies are `jax`, `scipy`, `matplotlib`, `netCDF4`, `rich`,
@@ -56,8 +56,8 @@ Runtime dependencies are `jax`, `scipy`, `matplotlib`, `netCDF4`, `rich`,
 Run a simulation from a TOML deck, or inspect one without running it:
 
 ```bash
-jax_drb inspect examples/inputs/restartable_diffusion.toml   # resolve and print the plan
-jax_drb run     examples/inputs/restartable_diffusion.toml   # run and write artifacts
+dkx inspect examples/inputs/restartable_diffusion.toml   # resolve and print the plan
+dkx run     examples/inputs/restartable_diffusion.toml   # run and write artifacts
 ```
 
 From Python, a differentiable turbulence run is a few lines:
@@ -65,7 +65,7 @@ From Python, a differentiable turbulence run is a few lines:
 ```python
 import jax.numpy as jnp
 import numpy as np
-from jax_drb.native.hasegawa_wakatani import HasegawaWakataniParameters, hw_grid, hw_run
+from dkx.native.hasegawa_wakatani import HasegawaWakataniParameters, hw_grid, hw_run
 
 grid = hw_grid(64, 2 * jnp.pi * 8)
 params = HasegawaWakataniParameters(adiabaticity=1.0, gradient=1.0)
@@ -179,7 +179,7 @@ through the linear instability (growth rate verified against the analytic
 dispersion relation to ~1e-14) into nonlinear E×B transport. Detailed
 verification figures — dispersion scans, MMS convergence orders, and
 gradient-vs-finite-difference checks — are in the
-[documentation](https://jax-drb.readthedocs.io/):
+[documentation](https://dkx.readthedocs.io/):
 
 ![Drift-wave turbulence](docs/media/drift_wave_turbulence.gif)
 
@@ -218,15 +218,15 @@ full-quality versions under `output/`.
 | **Geometry** | Rotating-ellipse stellarator (closed core + optional limiter SOL), island-divertor field (emergent stochastic SOL), shifted-torus helical flux tube, open slab SOL, imported ESSOS coil / VMEC / hybrid equilibria — metrics by autodiff of analytic embeddings |
 | **Field-line topology** | Closed and open field lines; FCI traced field-line maps; multi-transit connection-length tracing; Bohm sheath + target recycling closure on open endpoints |
 | **Neutrals (hermes-3 model)** | Packaged AMJUEL ionization/recombination + charge-exchange rates (no external database); Galilean-invariant plasma-neutral coupling; recycling SOL and a self-consistent detaching SOL (implicit Spitzer conduction, self-limiting radiation, SD1D rollover) |
-| **Linear solver** | `jax_drb.linear` linearizes any model about an equilibrium; drift-wave, shear-Alfven, and interchange dispersion reproduced to machine precision |
+| **Linear solver** | `dkx.linear` linearizes any model about an equilibrium; drift-wave, shear-Alfven, and interchange dispersion reproduced to machine precision |
 | **Differentiability** | `jit`/`grad`/`vmap` through every model — sensitivity, uncertainty propagation, inverse design, detachment control; forward/reverse/checkpointed methods measured and gated to agree |
 | **Parallelism** | Multi-device `shard_map` FCI stepping (bit-exact vs single device) with halo exchange; CPU strong scaling demonstrated, GPU-ready |
 | **Solvers** | Structured solves via [`solvax`](https://github.com/uwplasma/SOLVAX) (spectral Fourier-Helmholtz elliptic, tridiagonal, Krylov, preconditioners) |
-| **Runtime** | TOML-deck CLI (`jax_drb inspect` / `run`) and a small Python API; restartable runs; portable JSON/NPZ artifacts |
+| **Runtime** | TOML-deck CLI (`dkx inspect` / `run`) and a small Python API; restartable runs; portable JSON/NPZ artifacts |
 
 ## Validation
 
-`jax_drb` is validated against a ladder of literature-anchored benchmarks.
+`dkx` is validated against a ladder of literature-anchored benchmarks.
 Each rung has a test (or a documented gate) and an example that regenerates
 its figure.
 
@@ -247,7 +247,7 @@ Verified today (each with a passing test):
 | Differentiable inverse design | — | gradient descent through turbulence recovers a drive parameter |
 
 Planned rungs (seeded-blob inertial scaling and others) are
-tracked in [`plan_jax_drb.md`](plan_jax_drb.md); benchmark reports live under
+tracked in [`plan_dkx.md`](plan_dkx.md); benchmark reports live under
 [docs/](docs/linear_dispersion_benchmark.md) and
 [docs/validation_gallery.md](docs/validation_gallery.md).
 
@@ -297,7 +297,7 @@ stays small.
 
 The FCI operator and domain-decomposition stack (`FciGeometry3D`,
 `fci_operators`, halo exchange) was contributed by **Aiken Xie** in
-[PR #3](https://github.com/uwplasma/jax_drb/pull/3) and is incorporated here.
+[PR #3](https://github.com/uwplasma/dkx/pull/3) and is incorporated here.
 Built on it, the drift-reduced two-field step runs across multiple devices with
 `shard_map`: the domain is decomposed into halo-exchanged shards and the sharded
 RK4 step is **bit-exact** against the single-device step (checked to ~1e-16 for
@@ -324,7 +324,7 @@ single-device and forced-four-device runs in
 
 ```bash
 pytest -q -m "not slow"                                   # full fast suite
-pytest -q -m "not slow" --cov=jax_drb --cov-branch        # with coverage
+pytest -q -m "not slow" --cov=dkx --cov-branch        # with coverage
 ```
 
 CI runs the full fast suite on Python 3.10–3.12.
@@ -336,7 +336,7 @@ series is [docs/release_notes_2_0_0_dev0.md](docs/release_notes_2_0_0_dev0.md).
 
 ## Citing
 
-If you use `jax_drb`, please cite it via [CITATION.cff](CITATION.cff).
+If you use `dkx`, please cite it via [CITATION.cff](CITATION.cff).
 
 ## License
 

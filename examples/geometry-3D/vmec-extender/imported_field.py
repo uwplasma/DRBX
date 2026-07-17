@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 from netCDF4 import Dataset
 
-from jax_drb.validation import (
+from dkx.validation import (
     create_vmec_extender_edge_field_campaign_package,
     create_vmec_extender_sol_smoke_package,
 )

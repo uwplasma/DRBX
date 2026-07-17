@@ -14,9 +14,9 @@ if str(_REPO_ROOT) not in sys.path:
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
-from jax_drb.geometry import RegularFaceGeometry3D  # noqa: E402
-from jax_drb.native.fci_boundaries import BoundaryFaceBC3D, CutWallBC3D, CutWallGeometry3D  # noqa: E402
-from jax_drb.native.fci_operators import grad_parallel_op_direct, grad_perp_op  # noqa: E402
+from dkx.geometry import RegularFaceGeometry3D  # noqa: E402
+from dkx.native.fci_boundaries import BoundaryFaceBC3D, CutWallBC3D, CutWallGeometry3D  # noqa: E402
+from dkx.native.fci_operators import grad_parallel_op_direct, grad_perp_op  # noqa: E402
 from test_shifted_torus_EB_blob import (  # noqa: E402
     DEFAULT_RESOLUTION,
     PERIODIC_AXES,

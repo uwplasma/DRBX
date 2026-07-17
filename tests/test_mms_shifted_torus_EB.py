@@ -22,7 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jax_drb.geometry import (
+from dkx.geometry import (
     BFieldGeometry,
     ConservativeStencilBuilder,
     FaceBFieldGeometry,
@@ -36,7 +36,7 @@ from jax_drb.geometry import (
     build_local_stencil_from_field,
     logical_grid_from_axis_vectors,
 )
-from jax_drb.native import (
+from dkx.native import (
     FciDrbEBBoundaryConditions,
     FciDrbEBRhsParameters,
     FciDrbEBState,
@@ -44,14 +44,14 @@ from jax_drb.native import (
     perp_laplacian_conservative_op,
     rk4_step,
 )
-from jax_drb.native.fci_boundaries import (
+from dkx.native.fci_boundaries import (
     BC_DIRICHLET,
     BC_NEUMANN,
     BoundaryFaceBC3D,
     CutWallBC3D,
     CutWallGeometry3D,
 )
-from jax_drb.native.fci_operators import build_perp_laplacian_face_projectors
+from dkx.native.fci_operators import build_perp_laplacian_face_projectors
 
 _THIS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _THIS_DIR.parent

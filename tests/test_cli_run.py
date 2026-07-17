@@ -9,11 +9,11 @@ import sys
 import numpy as np
 import pytest
 
-from jax_drb.cli import main
-import jax_drb.native as native_module
-from jax_drb.native import NativeRestartState, run_input_case
-from jax_drb.native.deck_runner import load_portable_array_payload
-from jax_drb.runtime import load_restart_bundle
+from dkx.cli import main
+import dkx.native as native_module
+from dkx.native import NativeRestartState, run_input_case
+from dkx.native.deck_runner import load_portable_array_payload
+from dkx.runtime import load_restart_bundle
 
 
 _DIFFUSION_INPUT = """
@@ -253,7 +253,7 @@ def test_run_command_supports_bare_toml_invocation_and_configured_float32(tmp_pa
         [
             sys.executable,
             "-m",
-            "jax_drb",
+            "dkx",
             str(input_path),
             "--output-dir",
             str(output_dir),

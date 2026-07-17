@@ -42,14 +42,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from jax_drb.geometry import (  # noqa: E402
+from dkx.geometry import (  # noqa: E402
     FciGeometry3D,
     build_rotating_ellipse_geometry,
     logical_grid_from_axis_vectors,
     rotating_ellipse_position,
 )
-from jax_drb.native import LocalStencil1D, LocalStencil3D  # noqa: E402
-from jax_drb.native.fci_operators import grad_parallel_op_direct, grad_parallel_op_fci  # noqa: E402
+from dkx.native import LocalStencil1D, LocalStencil3D  # noqa: E402
+from dkx.native.fci_operators import grad_parallel_op_direct, grad_parallel_op_fci  # noqa: E402
 
 # ----------------------------- PARAMETERS -----------------------------------
 # Rotating-ellipse geometry (arguments of build_rotating_ellipse_geometry):

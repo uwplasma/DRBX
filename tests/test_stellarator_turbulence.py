@@ -13,8 +13,8 @@ from __future__ import annotations
 import jax
 import numpy as np
 
-from jax_drb.geometry import build_rotating_ellipse_geometry
-from jax_drb.native.stellarator_turbulence import run_stellarator_turbulence
+from dkx.geometry import build_rotating_ellipse_geometry
+from dkx.native.stellarator_turbulence import run_stellarator_turbulence
 
 jax.config.update("jax_enable_x64", True)
 

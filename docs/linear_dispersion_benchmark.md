@@ -1,6 +1,6 @@
 # The Linearized Drift-Reduced Braginskii Solver
 
-`jax_drb.linear` answers the first question asked of any plasma model: *given
+`dkx.linear` answers the first question asked of any plasma model: *given
 an equilibrium, which perturbations grow, and how fast?*
 
 ## What is solved
@@ -23,14 +23,14 @@ Two entry points, one engine:
   model, `A` is a small complex matrix written down from the linearized
   equations (`resistive_drift_wave_operator`, `shear_alfven_operator`,
   `interchange_operator` in
-  [`linear/dispersion.py`](../src/jax_drb/linear/dispersion.py)). Because the
+  [`linear/dispersion.py`](../src/dkx/linear/dispersion.py)). Because the
   operators are assembled from the model equations, diagonalizing them
   *reproduces* the analytic dispersion relations rather than having those
   relations wired in.
 - **The general engine** — `jacobian_operator(rhs, equilibrium)` builds `A`
   from *any* right-hand side with `jax.jacfwd` (no hand derivation), and
   `eigenmodes(A)` returns growth rates, frequencies, and eigenvectors sorted
-  by growth ([`linear/eigen.py`](../src/jax_drb/linear/eigen.py)). States must
+  by growth ([`linear/eigen.py`](../src/dkx/linear/eigen.py)). States must
   be real; complex spectral states are realified first (the pattern used in
   the Hasegawa-Wakatani gate below).
 
@@ -79,7 +79,7 @@ curved and non-axisymmetric geometry elsewhere in the suite:
 ## Using it
 
 ```python
-from jax_drb.linear import jacobian_operator, eigenmodes
+from dkx.linear import jacobian_operator, eigenmodes
 
 operator = jacobian_operator(my_rhs, my_equilibrium)   # A = d rhs / d u
 modes = eigenmodes(operator)                           # sorted by growth rate
