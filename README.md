@@ -24,112 +24,21 @@ geometry.
 
 Documentation: [jax-drb.readthedocs.io](https://jax-drb.readthedocs.io/).
 
-## The stellarator, in 3D
+## Stellarator turbulence in three dimensions
 
-Turbulence evolving on a **rotating-ellipse stellarator** — a torus whose
-elliptical cross-section rotates as you follow it around, so the magnetic
-geometry is genuinely three-dimensional. The cutaway shows the turbulent
-density fluctuations on a flux surface and through the interior, every frame a
-`jit`-compiled, differentiable JAX step:
+Four-field drift-reduced turbulence on a rotating-ellipse stellarator — a torus
+whose elliptical cross-section rotates with the toroidal angle. The cutaway
+shows the density fluctuations on a flux surface and through the interior;
+every frame is a `jit`-compiled, differentiable JAX step:
 
 ![Stellarator turbulence in 3D](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/stellarator_3d_turbulence.gif)
 
-The same geometry carries **closed and open field lines at once**: core field
-lines wind around the torus forever, while beyond a toroidal limiter the
-scrape-off-layer field lines are open — they end on the limiter, where a Bohm
-sheath drains the plasma:
+The same geometry supports closed and open field lines: core field lines (blue)
+stay on flux surfaces, while beyond a toroidal limiter the scrape-off-layer
+field lines (red) end on the limiter plate, where a Bohm sheath drains the
+plasma:
 
 ![Closed and open field lines in 3D](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/stellarator_3d_field_lines.png)
-
-Watching the turbulence in the rotating cross-sections makes the difference
-concrete — with the same multi-mode seed, the closed configuration conserves
-its particles while the open one drains 45x more through the limiter sheath:
-
-| Closed field lines | Open field lines (limiter SOL) |
-|---|---|
-| ![Stellarator turbulence, closed](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/stellarator_turbulence_closed.gif) | ![Stellarator SOL turbulence, open](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/stellarator_turbulence_open.gif) |
-
-The non-axisymmetric machinery underneath is verified, not just rendered: the
-metric comes from *automatic differentiation* of the analytic embedding, the
-FCI parallel gradient converges at second order on it (direct **and**
-traced-field-line operators), and a seeded filament develops the interchange
-vorticity dipole in the rotating cross-sections:
-
-| Rotating-ellipse FCI verification | Seeded filament (four-field interchange) |
-|---|---|
-| ![Rotating-ellipse FCI](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/rotating_ellipse_fci.png) | ![Rotating-ellipse filament](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/rotating_ellipse_filament.png) |
-
-## The scrape-off layer: sheaths, neutrals, detachment
-
-Open field lines end on material targets. The open SOL flux tube relaxes to the
-textbook two-point steady state — the flow accelerates from stagnation to
-**Mach 1 at the sheath**, the target density is half the upstream density, and
-the Bohm particle balance closes exactly. Coupling the **hermes-3 neutral
-model** (packaged AMJUEL ionization/recombination/charge-exchange rates,
-target recycling) builds the neutral cushion at the target:
-
-| Open SOL flux tube (two-point) | Recycling SOL (neutrals) |
-|---|---|
-| ![Open SOL flux tube](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/open_sol_flux_tube.png) | ![Recycling SOL](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/recycling_sol.png) |
-
-With an *evolved* temperature (implicit Spitzer conduction, self-limiting
-radiation) the SOL **detaches**: scanning the upstream density, the target
-cools through 1 eV into the recombining regime and the target ion flux rolls
-over — the SD1D benchmark, in a differentiable solve:
-
-![B6 detachment rollover](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/b6_detachment.png)
-
-## Fast, parallel, and differentiable end-to-end
-
-Turbulence throughput is grid-size-independent per cell; one reverse-mode
-gradient through a full 200-step rollout costs ~2.7x a forward run, and for a
-handful of parameters forward-mode is even cheaper (~2.0x) — same gradient to
-machine precision, pick the efficient method
-([guide](docs/performance_and_differentiability.md)):
-
-| Turbulence performance | Choosing a differentiation method |
-|---|---|
-| ![Performance](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/performance.png) | ![Differentiation methods](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/differentiation_methods.png) |
-
-The FCI stack also runs across devices with `shard_map` — the sharded step is
-bit-exact against single-device (~1e-16) and scales 1.75x/3.22x/4.35x at
-2/4/8 core-bound shards on a 36-core host
-([demo](examples/benchmarks/fci_sharded_strong_scaling_demo.py)). The
-differentiable FCI rollout on helical geometry matches finite differences to
-6e-11:
-
-![Differentiable FCI on helical geometry](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/fci_differentiable.png)
-
-## The classic benchmark, to close
-
-Where it all starts: Hasegawa-Wakatani drift-wave turbulence on a periodic flux
-tube, grown from noise through the linear instability (verified against the
-analytic dispersion relation to ~1e-14) into nonlinear E×B transport — and
-optimized *through*: gradient descent through the turbulent rollout recovers
-the transport-drive parameter:
-
-![Drift-wave turbulence](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/drift_wave_turbulence.gif)
-
-| Linear dispersion benchmarks (B2, B3) | Inverse design *through* turbulence |
-|---|---|
-| ![Dispersion](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/linear_dispersion.png) | ![Inverse design](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/drift_wave_inverse_design.png) |
-
-All figures and movies are release-hosted (not in git, so the checkout stays
-small) and regenerated by the example scripts below.
-
-## What it does
-
-| Capability | What ships |
-|---|---|
-| **Turbulence models** | Hasegawa-Wakatani drift-wave (pseudo-spectral, differentiable); FCI 2-field, 4-field interchange (density/vorticity/parallel flows), and electromagnetic drift-reduced stacks with curvature and vorticity/potential closures |
-| **Geometry** | Rotating-ellipse stellarator (closed core + optional limiter SOL), shifted-torus helical flux tube, open slab SOL, imported ESSOS coil / VMEC / hybrid equilibria — metrics by autodiff of analytic embeddings where analytic |
-| **Field-line topology** | Closed and open field lines; FCI traced field-line maps with endpoint masks; Bohm sheath + target recycling closure on open endpoints |
-| **Neutrals (hermes-3 model)** | Packaged AMJUEL ionization/recombination + charge-exchange rates (no external database); Galilean-invariant plasma↔neutral coupling; recycling SOL and a self-consistent detaching SOL (implicit Spitzer conduction, self-limiting radiation, SD1D rollover) |
-| **Linear solver** | `jax_drb.linear` linearizes any model about an equilibrium → eigenmode growth rates/frequencies; drift-wave, shear-Alfvén, and interchange dispersion to machine precision |
-| **Differentiability** | `jit`/`grad`/`vmap` through every model — sensitivity, uncertainty propagation, inverse design *through turbulence*; forward/reverse/checkpointed methods measured and gated to agree |
-| **Parallelism** | Multi-device `shard_map` FCI stepping (bit-exact vs single device) with halo exchange; CPU strong scaling demonstrated, GPU-ready |
-| **Solvers** | Structured solves via [`solvax`](https://github.com/uwplasma/SOLVAX) (spectral Fourier-Helmholtz elliptic, tridiagonal, Krylov, preconditioners) |
-| **Runtime** | TOML-deck CLI (`jax_drb inspect` / `run`) and a small Python API; restartable runs; portable JSON/NPZ artifacts |
 
 ## Install
 
@@ -139,8 +48,8 @@ pip install jax-drb          # from PyPI
 git clone https://github.com/uwplasma/jax_drb && cd jax_drb && pip install -e .
 ```
 
-Runtime dependencies are `jax`, `scipy`, `matplotlib`, `netCDF4`, `rich`, and
-`pillow`. Python 3.10–3.12.
+Runtime dependencies are `jax`, `scipy`, `matplotlib`, `netCDF4`, `rich`,
+`pillow`, and [`solvax`](https://github.com/uwplasma/SOLVAX). Python 3.10-3.12.
 
 ## Quick start
 
@@ -151,41 +60,114 @@ jax_drb inspect examples/inputs/restartable_diffusion.toml   # resolve and print
 jax_drb run     examples/inputs/restartable_diffusion.toml   # run and write artifacts
 ```
 
-A deck declares the mesh, the model components, and the initial fields:
-
-```toml
-[time]
-nout = 2
-timestep = 0.1
-
-[mesh]
-nx = 32
-ny = 1
-nz = 1
-dx = 0.03125
-
-[model]
-components = ["h"]
-
-[species.h]
-type = ["evolve_density", "evolve_pressure", "anomalous_diffusion"]
-
-[fields.Nh]
-function = { expr = "1 + 0.2 * exp(-((x-0.5)^2)/0.01)" }
-```
-
-From Python:
+From Python, a differentiable turbulence run is a few lines:
 
 ```python
-from jax_drb.native import run_input_case
+import jax.numpy as jnp
+import numpy as np
+from jax_drb.native.hasegawa_wakatani import HasegawaWakataniParameters, hw_grid, hw_run
 
-result = run_input_case("examples/inputs/restartable_diffusion.toml", case_name="demo")
-print(result.time_points[-1])
+grid = hw_grid(64, 2 * jnp.pi * 8)
+params = HasegawaWakataniParameters(adiabaticity=1.0, gradient=1.0)
+rng = np.random.default_rng(0)
+zeta0 = jnp.fft.fft2(jnp.asarray(1e-2 * rng.standard_normal((64, 64))))
+n0 = jnp.fft.fft2(jnp.asarray(1e-2 * rng.standard_normal((64, 64))))
+zeta, n = hw_run(zeta0, n0, grid, params, dt=5e-3, steps=500)  # jit-compiled, differentiable
 ```
 
-See [docs/input_output_reference.md](docs/input_output_reference.md) for the
-full deck schema and outputs, and
-[docs/native_runtime_cli.md](docs/native_runtime_cli.md) for the CLI.
+Every example below is a flat script: parameters at the top, run, plot.
+
+## Highlights
+
+**Turbulence on closed and open field lines.** The same multi-mode seed on the
+rotating-ellipse stellarator, with all field lines closed (top) and with a
+limiter opening the outer flux surfaces into a sheath-drained scrape-off layer
+(bottom). Four toroidal cross-sections; the mode pattern differs plane by plane
+because the flux surfaces rotate:
+
+![Stellarator turbulence, closed](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/stellarator_turbulence_closed.gif)
+
+![Stellarator SOL turbulence, open](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/stellarator_turbulence_open.gif)
+
+**Island divertor.** A sheared rotational transform with resonant perturbations
+forms island chains and a stochastic edge. The open scrape-off layer emerges
+from the field itself: multi-transit field-line tracing marks the finite
+connection-length region, and the turbulence drains through it:
+
+![Island divertor](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/island_divertor.png)
+
+**Neutrals and detachment.** The open SOL flux tube reaches the two-point Bohm
+steady state; the hermes-3 neutral model (packaged AMJUEL atomic rates, target
+recycling) builds the neutral cushion; and with an evolved temperature the SOL
+detaches — the target cools through 1 eV and the target ion flux rolls over
+(the SD1D benchmark):
+
+| Open SOL flux tube | Recycling SOL with neutrals |
+|---|---|
+| ![Open SOL flux tube](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/open_sol_flux_tube.png) | ![Recycling SOL](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/recycling_sol.png) |
+
+![Detachment rollover](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/b6_detachment.png)
+
+## Gradient-based optimization through the physics
+
+Because the solver is differentiable end to end, control and design problems
+become gradient computations. Example: **detachment control** — find the
+upstream density that places the divertor target exactly at the 1 eV
+detachment threshold (Dudson et al., PPCF 61, 065008; Body et al., NME 41,
+101819). The sensitivity `dTe_target/dn_up` is computed by forward-mode
+autodiff **through the entire 20,000-step stiff SOL solve**, and a trust-region
+Newton iteration walks down the detachment cliff to the threshold:
+
+![Detachment control](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/detachment_control.png)
+
+The same machinery recovers a transport-drive parameter by gradient descent
+through nonlinear drift-wave turbulence
+([inverse design](examples/tokamak/drift_wave_inverse_design_demo.py)), and the
+[differentiation-methods example](examples/autodiff/differentiation_methods_demo.py)
+measures which method is cheapest (forward mode for a few parameters, ~2x a
+forward run; reverse mode for parameter fields; checkpointing when memory-bound).
+
+## Performance and parallel execution
+
+Single-CPU turbulence throughput is about 2 million cell-updates per second in
+float64, and one gradient through a 200-step rollout costs 2-3x a forward run:
+
+| Turbulence performance | Cost of each differentiation method |
+|---|---|
+| ![Performance](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/performance.png) | ![Differentiation methods](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/differentiation_methods.png) |
+
+The FCI stack runs across devices with `shard_map`: the sharded step is
+bit-exact against single-device execution and scales 1.75x / 3.22x / 4.35x at
+2 / 4 / 8 core-bound shards on a 36-core host
+([demo](examples/benchmarks/fci_sharded_strong_scaling_demo.py)).
+
+## Hasegawa-Wakatani benchmark
+
+The standard two-field drift-wave turbulence benchmark: grown from noise
+through the linear instability (growth rate verified against the analytic
+dispersion relation to ~1e-14) into nonlinear E×B transport. Detailed
+verification figures — dispersion scans, MMS convergence orders, and
+gradient-vs-finite-difference checks — are in the
+[documentation](https://jax-drb.readthedocs.io/):
+
+![Drift-wave turbulence](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/drift_wave_turbulence.gif)
+
+All figures and movies are release-hosted (not in git) and regenerated by the
+example scripts.
+
+## What it does
+
+| Capability | What ships |
+|---|---|
+| **Turbulence models** | Hasegawa-Wakatani drift-wave (pseudo-spectral, differentiable); FCI 2-field, 4-field interchange (density/vorticity/parallel flows), and electromagnetic drift-reduced stacks with curvature and vorticity/potential closures |
+| **Geometry** | Rotating-ellipse stellarator (closed core + optional limiter SOL), island-divertor field (emergent stochastic SOL), shifted-torus helical flux tube, open slab SOL, imported ESSOS coil / VMEC / hybrid equilibria — metrics by autodiff of analytic embeddings |
+| **Field-line topology** | Closed and open field lines; FCI traced field-line maps; multi-transit connection-length tracing; Bohm sheath + target recycling closure on open endpoints |
+| **Neutrals (hermes-3 model)** | Packaged AMJUEL ionization/recombination + charge-exchange rates (no external database); Galilean-invariant plasma-neutral coupling; recycling SOL and a self-consistent detaching SOL (implicit Spitzer conduction, self-limiting radiation, SD1D rollover) |
+| **Linear solver** | `jax_drb.linear` linearizes any model about an equilibrium; drift-wave, shear-Alfven, and interchange dispersion reproduced to machine precision |
+| **Differentiability** | `jit`/`grad`/`vmap` through every model — sensitivity, uncertainty propagation, inverse design, detachment control; forward/reverse/checkpointed methods measured and gated to agree |
+| **Parallelism** | Multi-device `shard_map` FCI stepping (bit-exact vs single device) with halo exchange; CPU strong scaling demonstrated, GPU-ready |
+| **Solvers** | Structured solves via [`solvax`](https://github.com/uwplasma/SOLVAX) (spectral Fourier-Helmholtz elliptic, tridiagonal, Krylov, preconditioners) |
+| **Runtime** | TOML-deck CLI (`jax_drb inspect` / `run`) and a small Python API; restartable runs; portable JSON/NPZ artifacts |
 
 ## Validation
 
@@ -236,7 +218,9 @@ Benchmarks, differentiable, and geometry examples:
   [examples/benchmarks/linear_dispersion_demo.py](examples/benchmarks/linear_dispersion_demo.py)
   reproduces the drift-wave and shear-Alfvén dispersion relations from the
   linear solver.
-- Autodiff: [inverse design through turbulence](examples/tokamak/drift_wave_inverse_design_demo.py)
+- Autodiff: [gradient-based detachment control](examples/autodiff/detachment_control_demo.py)
+  (forward-mode sensitivity through the stiff SOL solve, trust-region Newton onto
+  the 1 eV threshold), [inverse design through turbulence](examples/tokamak/drift_wave_inverse_design_demo.py)
   (recover a parameter by gradient descent through a nonlinear drift-wave run),
   [choosing the most efficient differentiation method](examples/autodiff/differentiation_methods_demo.py)
   (forward vs reverse vs checkpointed reverse — same gradient, different cost),

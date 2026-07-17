@@ -42,46 +42,69 @@ R0, ELONGATION, NFP = 3.0, 0.35, 1
 OUTPUT_DIR = Path("output/stellarator_turbulence")
 
 
-def _physical_plane(geometry, z_index):
-    x = np.asarray(geometry.grid.x.centers)
-    theta = np.asarray(geometry.grid.y.centers)
-    zeta = float(geometry.grid.z.centers[z_index])
-    xx, tt = np.meshgrid(x, theta, indexing="ij")
+UPSAMPLE = 4  # smooth (non-pixelated) rendering: interpolate the coarse grid
+
+
+def _fine_axes(geometry):
+    x_coarse = np.asarray(geometry.grid.x.centers)
+    theta_coarse = np.asarray(geometry.grid.y.centers)
+    x_fine = np.linspace(x_coarse[0], x_coarse[-1], len(x_coarse) * UPSAMPLE)
+    theta_fine = np.linspace(0.0, 2.0 * np.pi, len(theta_coarse) * UPSAMPLE + 1)
+    return x_coarse, theta_coarse, x_fine, theta_fine
+
+
+def _upsample_plane(field_xt, x_coarse, theta_coarse, x_fine, theta_fine):
+    """Periodic interpolation in theta, linear in x, onto the fine grid."""
+
+    fine_theta = np.apply_along_axis(
+        lambda row: np.interp(theta_fine, theta_coarse, row, period=2.0 * np.pi), 1, field_xt)
+    return np.apply_along_axis(lambda col: np.interp(x_fine, x_coarse, col), 0, fine_theta)
+
+
+def _physical_plane_fine(geometry, zeta, x_fine, theta_fine):
+    xx, tt = np.meshgrid(x_fine, theta_fine, indexing="ij")
     position = np.asarray(rotating_ellipse_position(
         jax.numpy.asarray(xx), jax.numpy.asarray(tt), jax.numpy.asarray(zeta),
         r0=R0, elongation=ELONGATION, n_field_periods=NFP))
-    return np.hypot(position[..., 0], position[..., 1]), position[..., 2], zeta
+    return np.hypot(position[..., 0], position[..., 1]), position[..., 2]
 
 
 def save_movie(run, geometry, title, path):
+    """One row of four toroidal cross-sections, smoothly interpolated."""
+
     import matplotlib.animation as animation
     import matplotlib.pyplot as plt
 
-    z_indices = (SHAPE[2] // 4, (3 * SHAPE[2]) // 4)
+    nz = geometry.shape[2]
+    z_indices = [0, nz // 4, nz // 2, (3 * nz) // 4]
+    zeta_values = [float(geometry.grid.z.centers[k]) for k in z_indices]
     fluctuation = run.density_frames - 1.0
     vmax = float(np.abs(fluctuation).max()) or 1.0
+    x_coarse, theta_coarse, x_fine, theta_fine = _fine_axes(geometry)
 
-    fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.6))
+    fig, axes = plt.subplots(1, 4, figsize=(12.6, 3.5), constrained_layout=True)
     meshes = []
-    for ax, z_index in zip(axes, z_indices):
-        R, Z, zeta = _physical_plane(geometry, z_index)
-        mesh = ax.pcolormesh(R, Z, fluctuation[0][:, :, z_index], cmap="RdBu_r",
-                             vmin=-vmax, vmax=vmax, shading="auto")
+    for ax, z_index, zeta in zip(axes, z_indices, zeta_values):
+        R, Z = _physical_plane_fine(geometry, zeta, x_fine, theta_fine)
+        field = _upsample_plane(fluctuation[0][:, :, z_index], x_coarse, theta_coarse, x_fine, theta_fine)
+        mesh = ax.pcolormesh(R, Z, field, cmap="RdBu_r", vmin=-vmax, vmax=vmax, shading="gouraud")
         ax.set_aspect("equal")
         ax.set_title(f"zeta = {zeta:.2f}", fontsize=9)
         ax.set_xticks([]), ax.set_yticks([])
         meshes.append((mesh, z_index))
-    suptitle = fig.suptitle(f"{title}  t = 0.000")
-    fig.tight_layout()
+    fig.colorbar(meshes[-1][0], ax=axes, shrink=0.85, label="density fluctuation")
+    suptitle = fig.suptitle(f"{title}   t = 0.000")
 
     def update(frame_index):
         for mesh, z_index in meshes:
-            mesh.set_array(fluctuation[frame_index][:, :, z_index].ravel())
-        suptitle.set_text(f"{title}  t = {run.times[frame_index]:.3f}")
+            field = _upsample_plane(fluctuation[frame_index][:, :, z_index],
+                                    x_coarse, theta_coarse, x_fine, theta_fine)
+            mesh.set_array(field.ravel())
+        suptitle.set_text(f"{title}   t = {run.times[frame_index]:.3f}")
         return [m for m, _ in meshes]
 
     movie = animation.FuncAnimation(fig, update, frames=len(run.times), interval=100, blit=False)
-    movie.save(path, writer=animation.PillowWriter(fps=10), dpi=90)
+    movie.save(path, writer=animation.PillowWriter(fps=10), dpi=88)
     plt.close(fig)
     print(f"wrote {path} ({Path(path).stat().st_size / 1e6:.1f} MB)")
 
@@ -93,12 +116,24 @@ def main() -> None:
     open_geometry = build_rotating_ellipse_geometry(SHAPE, r0=R0, elongation=ELONGATION,
                                                     n_field_periods=NFP, limiter_radius=LIMITER_RADIUS)
 
-    closed = run_stellarator_turbulence(closed_geometry, steps=STEPS, dt=DT, seed=1,
-                                        frame_stride=FRAME_STRIDE)
-    print("closed run done")
-    open_run = run_stellarator_turbulence(open_geometry, steps=STEPS, dt=DT, seed=1,
-                                          sheath_sink=True, frame_stride=FRAME_STRIDE)
-    print("open run done")
+    from stellarator_turbulence_case import TurbulenceRun
+
+    def cached_run(name, geometry, **kwargs):
+        cache = OUTPUT_DIR / f"{name}_frames.npz"
+        if cache.exists():
+            data = np.load(cache)
+            print(f"loaded cached {name} frames")
+            return TurbulenceRun(data["density"], data["omega"], data["times"],
+                                 data["content"], data["flux"])
+        run = run_stellarator_turbulence(geometry, steps=STEPS, dt=DT, seed=1,
+                                         frame_stride=FRAME_STRIDE, **kwargs)
+        np.savez_compressed(cache, density=run.density_frames, omega=run.omega_frames,
+                            times=run.times, content=run.particle_content, flux=run.target_flux)
+        print(f"{name} run done")
+        return run
+
+    closed = cached_run("closed", closed_geometry)
+    open_run = cached_run("open", open_geometry, sheath_sink=True)
 
     save_movie(closed, closed_geometry, "Stellarator turbulence (closed field lines)",
                OUTPUT_DIR / "stellarator_turbulence_closed.gif")
