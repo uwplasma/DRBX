@@ -8,6 +8,14 @@ vorticity or flow) is amplified by the curvature drive into interchange
 dynamics that differ plane-by-plane because the flux surfaces rotate with the
 toroidal angle.
 
+In three dimensions — the cutaway torus colored by the evolving density
+fluctuation, and the field-line topology (closed core in blue, open
+scrape-off-layer lines ending on the limiter in red):
+
+![Stellarator turbulence in 3D](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/stellarator_3d_turbulence.gif)
+
+![Closed and open field lines in 3D](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/stellarator_3d_field_lines.png)
+
 | Closed field lines | Open field lines (limiter SOL) |
 |---|---|
 | ![Stellarator turbulence, closed](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/stellarator_turbulence_closed.gif) | ![Stellarator SOL turbulence, open](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/stellarator_turbulence_open.gif) |
@@ -52,5 +60,6 @@ saturated stellarator turbulence, which needs longer implicit-stepped runs.
 
 ```bash
 PYTHONPATH=src python examples/stellarator/stellarator_turbulence_demo.py
+PYTHONPATH=src python examples/stellarator/stellarator_3d_render_demo.py   # 3D movie + field lines
 pytest -q tests/test_stellarator_turbulence.py
 ```
