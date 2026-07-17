@@ -17,6 +17,8 @@ import json
 import os
 import shutil
 import subprocess
+
+import numpy
 import sys
 import time
 from pathlib import Path
@@ -109,7 +111,12 @@ def run_worker(device_count: int) -> None:
     jax.block_until_ready(state.density)
     elapsed = time.perf_counter() - start
 
-    checksum = float(jnp.sum(jnp.abs(state.density)) + jnp.sum(jnp.abs(state.v_parallel)))
+    # Gather to host before summing: on real multi-device runs a jnp.sum over
+    # the sharded output can reduce a single shard, so assemble the global
+    # arrays first.
+    density = numpy.asarray(jax.device_get(state.density))
+    v_parallel = numpy.asarray(jax.device_get(state.v_parallel))
+    checksum = float(numpy.abs(density).sum() + numpy.abs(v_parallel).sum())
     print(
         json.dumps(
             {
@@ -138,8 +145,15 @@ def _launch_worker(device_count: int) -> dict[str, object]:
         env["XLA_FLAGS"] = (
             f"{existing_flags} --xla_force_host_platform_device_count={device_count}"
         ).strip()
+        # Pin the platform explicitly: on a host with accelerators the worker
+        # would otherwise silently run on them.
+        env["JAX_PLATFORMS"] = "cpu"
         if shutil.which("taskset"):
             command = ["taskset", "-c", f"0-{device_count - 1}", *command]
+    elif PLATFORM == "auto":
+        # Let JAX choose (accelerators win when present); pinning the platform
+        # explicitly can change how XLA stages jit constants on some builds.
+        env.pop("JAX_PLATFORMS", None)
     else:
         # Real accelerator devices: no forced host platform, no affinity.
         env["JAX_PLATFORMS"] = PLATFORM

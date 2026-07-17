@@ -4106,24 +4106,6 @@ def _trace_fieldline_to_plane_cell_centered(
     return state, length, ~alive
 
 
-def interpolate_B_contravariant(
-    geometry: FciGeometry3D,
-    points: jnp.ndarray,
-    *,
-    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-    boundary_value: float = jnp.nan,
-) -> jnp.ndarray:
-    """Trilinearly interpolate the cell-centered magnetic field at logical-space points."""
-
-    return _interpolate_B_contravariant_cell_centered(
-        geometry.grid,
-        geometry.cell_bfield.B_contra,
-        points,
-        periodic_axes=periodic_axes,
-        boundary_value=boundary_value,
-    )
-
-
 def build_fci_maps_from_b_contravariant(
     grid: CellCenteredGrid3D,
     B_contra_cell: jnp.ndarray,
@@ -4638,76 +4620,3 @@ def _logical_coordinate_to_index(
     upper_coord = axis[upper]
     weight = (values - lower_coord) / (upper_coord - lower_coord)
     return jnp.asarray(lower, dtype=jnp.float64) + jnp.clip(weight, 0.0, 1.0)
-
-
-def logical_b_contravariant_from_geometry(geometry: FciGeometry3D) -> jnp.ndarray:
-    """Return the stored cell-centered contravariant magnetic field."""
-
-    return geometry.cell_bfield.B_contra
-
-
-def logical_b_contravariant_from_traced_maps(
-    forward_x: jnp.ndarray,
-    forward_y: jnp.ndarray,
-    backward_x: jnp.ndarray,
-    backward_y: jnp.ndarray,
-    forward_length: jnp.ndarray,
-    backward_length: jnp.ndarray,
-    *,
-    dz: jnp.ndarray,
-) -> jnp.ndarray:
-    """Reconstruct a contravariant field direction from traced field-line maps."""
-
-    forward_x = jnp.asarray(forward_x, dtype=jnp.float64)
-    forward_y = jnp.asarray(forward_y, dtype=jnp.float64)
-    backward_x = jnp.asarray(backward_x, dtype=jnp.float64)
-    backward_y = jnp.asarray(backward_y, dtype=jnp.float64)
-    forward_length = jnp.asarray(forward_length, dtype=jnp.float64)
-    backward_length = jnp.asarray(backward_length, dtype=jnp.float64)
-    dz = jnp.asarray(dz, dtype=jnp.float64)
-
-    shape = forward_x.shape
-    if not (
-        forward_y.shape == shape
-        and backward_x.shape == shape
-        and backward_y.shape == shape
-        and forward_length.shape == shape
-        and backward_length.shape == shape
-        and dz.shape == shape
-    ):
-        raise ValueError("All traced-map arrays must have the same shape")
-    if len(shape) != 3:
-        raise ValueError(f"traced maps must have shape (nx, ny, nz), got {shape}")
-
-    def _centered_delta(upper: jnp.ndarray, lower: jnp.ndarray, extent: int) -> jnp.ndarray:
-        delta = upper - lower
-        half_extent = 0.5 * float(extent)
-        delta = jnp.where(delta > half_extent, delta - float(extent), delta)
-        delta = jnp.where(delta < -half_extent, delta + float(extent), delta)
-        return delta
-
-    # Centered logical-space displacement between the forward and backward
-    # plane intersections. The overall scale is arbitrary because only the
-    # direction is used downstream.
-    dx = 0.5 * _centered_delta(forward_x, backward_x, shape[0])
-    dy = 0.5 * _centered_delta(forward_y, backward_y, shape[1])
-    dz_safe = jnp.where(jnp.abs(dz) < 1.0e-30, 1.0, dz)
-
-    return jnp.stack(
-        (
-            dx / dz_safe,
-            dy / dz_safe,
-            jnp.ones_like(dx),
-        ),
-        axis=-1,
-    )
-
-
-
-
-def metric_inverse_residual(geometry: FciGeometry3D) -> jnp.ndarray:
-    """Return `max(abs(g^ik g_kj - delta^i_j))` over the grid."""
-
-    product = jnp.einsum("...ik,...kj->...ij", geometry.cell_metric.g_contra, geometry.cell_metric.g_cov)
-    identity = jnp.eye(3, dtype=product.dtype)
-    return jnp.max(jnp.abs(product - identity))
