@@ -137,9 +137,12 @@ float64, and one gradient through a 200-step rollout costs 2-3x a forward run:
 | ![Performance](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/performance.png) | ![Differentiation methods](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/differentiation_methods.png) |
 
 The FCI stack runs across devices with `shard_map`: the sharded step is
-bit-exact against single-device execution and scales 1.75x / 3.22x / 4.35x at
-2 / 4 / 8 core-bound shards on a 36-core host
-([demo](examples/benchmarks/fci_sharded_strong_scaling_demo.py)).
+bit-exact against single-device execution, and on a 36-core host with one core
+per shard a 1.05M-cell step reaches a 7.4x speedup at 16 shards; the same step
+on one NVIDIA A4000 GPU runs ~96x faster than a single CPU shard
+([demo](examples/benchmarks/fci_sharded_strong_scaling_demo.py)):
+
+![Strong scaling](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/strong_scaling.png)
 
 ## Hasegawa-Wakatani benchmark
 
@@ -204,6 +207,7 @@ Flagship simulations, by geometry:
 |---|---|---|
 | **Tokamak** | [drift-wave turbulence](examples/tokamak/drift_wave_turbulence_demo.py) (Hasegawa-Wakatani; linear phase B2-verified, differentiable) + [inverse design](examples/tokamak/drift_wave_inverse_design_demo.py) | periodic flux tube |
 | **Stellarator** | [turbulence on closed + open field lines](examples/stellarator/stellarator_turbulence_demo.py) (four-field, limiter SOL, movies) + [3D renders](examples/stellarator/stellarator_3d_render_demo.py) (cutaway turbulence movie, field-line topology) + [island divertor](examples/stellarator/island_divertor_demo.py) (B8: Poincare, connection lengths, emergent open SOL) + [rotating-ellipse FCI](examples/stellarator/rotating_ellipse_fci_demo.py) (parallel-operator convergence) + [seeded filament](examples/stellarator/rotating_ellipse_filament_demo.py) + [differentiable FCI drift-reduced model](examples/stellarator/fci_differentiable_demo.py) | rotating ellipse (closed core + limiter SOL) + shifted-torus helical + imported [ESSOS/VMEC](examples/geometry-3D/) |
+| **Coils (vacuum)** | [Landreman-Paul closed + open field lines](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) (ESSOS Biot-Savart, Poincare classification) | imported coil field |
 | **SOL (open)** | [open SOL flux tube](examples/sol/open_sol_flux_tube_demo.py) (parallel transport to Bohm-sheath targets; two-point steady state) + [recycling SOL](examples/sol/recycling_sol_demo.py) (neutrals, ionization/recombination, detachment onset) | open slab flux tube |
 
 Open-field-line SOL:

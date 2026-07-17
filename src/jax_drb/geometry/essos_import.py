@@ -118,7 +118,7 @@ def essos_runtime_available(*, essos_root: str | Path | None = None) -> bool:
 
     try:
         _import_essos_modules(essos_root=essos_root)
-    except (ImportError, ModuleNotFoundError):
+    except (ImportError, ModuleNotFoundError, AttributeError):
         return False
     return True
 
@@ -855,7 +855,10 @@ def _import_essos_modules(*, essos_root: str | Path | None = None) -> dict[str, 
     if os.environ.get("JAX_DRB_ESSOS_PROGRESS") != "1" and hasattr(dynamics_module, "NoProgressMeter"):
         dynamics_module.TqdmProgressMeter = dynamics_module.NoProgressMeter
     return {
-        "Coils_from_json": coils_module.Coils_from_json,
+        # Newer ESSOS branches replace the module-level loader with a
+        # classmethod; accept either.
+        "Coils_from_json": getattr(coils_module, "Coils_from_json", None)
+        or coils_module.Coils.from_json,
         "BiotSavart": fields_module.BiotSavart,
         "Vmec": fields_module.Vmec,
         "Tracing": dynamics_module.Tracing,

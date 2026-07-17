@@ -130,11 +130,7 @@ from .fci_geometry import (
     build_local_conservative_stencil_from_field,
     build_local_direct_stencil_one_sided_physical_from_halo,
     build_local_stencil_from_field,
-    interpolate_B_contravariant,
-    logical_b_contravariant_from_geometry,
-    logical_b_contravariant_from_traced_maps,
     logical_grid_from_axis_vectors,
-    metric_inverse_residual,
 )
 __all__ += [
     "BFieldGeometry",
@@ -187,9 +183,5 @@ __all__ += [
     "build_local_conservative_stencil_from_field",
     "build_local_direct_stencil_one_sided_physical_from_halo",
     "build_local_stencil_from_field",
-    "interpolate_B_contravariant",
-    "logical_b_contravariant_from_geometry",
-    "logical_b_contravariant_from_traced_maps",
     "logical_grid_from_axis_vectors",
-    "metric_inverse_residual",
 ]
