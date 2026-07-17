@@ -1,12 +1,5 @@
 # Release And Packaging
 
-!!! note "Plan authority"
-    This page is a subordinate release and packaging appendix. The active
-    execution plan is
-    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
-    page conflicts with that plan, follow the execution plan and update this
-    appendix afterward.
-
 `drbx` is packaged as a standard Python project and published through GitHub Actions using PyPI Trusted Publishing.
 
 ## Install Paths
@@ -213,7 +206,8 @@ The current package release is intended to support:
 - promoted native-exact and native-operational validation lanes,
 - reduced but real 3D tokamak, traced-field-line, and stellarator workflows,
 - artifact-driven runtime, convergence, and profiling reports,
-- software citation through the root `CITATION.cff` file.
+- software citation by citing the repository directly (version metadata
+  lives in `pyproject.toml`).
 
 Latest local closeout evidence:
 
@@ -232,7 +226,7 @@ Latest local closeout evidence:
   `6.43 MiB`, largest tracked file below `328 KiB`, wheel about `709 KiB`,
   and sdist about `614 KiB`.
 
-It is not the full closure of every research workflow in the broader validation matrix. The detailed status remains in [`plan_drbx.md`](https://github.com/uwplasma/drbx/blob/main/plan_drbx.md).
+It is not the full closure of every research workflow in the broader validation matrix. The detailed status is tracked in the project planning notes.
 
 ## After The First Package Release
 

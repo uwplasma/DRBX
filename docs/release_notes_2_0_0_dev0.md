@@ -1,7 +1,7 @@
 # Release Notes: 2.0.0.dev0
 
-Development series for the v2 research-grade program defined in
-[`plan_drbx.md`](https://github.com/uwplasma/drbx/blob/main/plan_drbx.md).
+Development series for the v2 research-grade program tracked in the project
+planning notes.
 
 Landed so far (Phase 0):
 
@@ -29,8 +29,8 @@ Landed so far (Phase 0):
 
 ## Validation
 
-The v2 validation program is the benchmark ladder B1-B10 in
-`plan_drbx.md`. In this dev series the previously shipping gates remain
+The v2 validation program is the benchmark ladder B1-B10 tracked in the
+project planning notes. In this dev series the previously shipping gates remain
 in force (operator kernels vs scalar references, MMS convergence order,
 Alfven-wave phase-speed check); the ladder rungs land phase by phase and are
 recorded here as they do.

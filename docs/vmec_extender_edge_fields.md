@@ -1,11 +1,5 @@
 # VMEC-Extender Edge Field Import
 
-!!! note "Plan authority"
-    This page is a VMEC-extender import-contract appendix. The active execution
-    plan is [Research-Grade Execution Plan](research_grade_execution_plan.md).
-    If this page conflicts with that plan, follow the execution plan and update
-    this page afterward.
-
 DRBX can import a gridded VMEC-extender magnetic field for scrape-off-layer
 geometry work without depending on VMEC, virtual-casing, or field-line tracing
 packages at runtime. The import path consumes a NetCDF artifact on an
@@ -19,8 +13,7 @@ virtual-casing workflows the plasma-current contribution should use the
 internal branch, because the plasma currents are inside the LCFS and the
 DRBX import layer only receives the exported field values.
 
-The finite-beta SOL promotion path is controlled by the
-[Research-Grade Execution Plan](research_grade_execution_plan.md).
+The finite-beta SOL promotion path is tracked in the project planning notes.
 VMEC-extender supplies exterior-field artifacts and coordinate conventions; it
 does not by itself validate wall hits, target labels, sheath/recycling
 closures, neutral transport, or turbulent SOL dynamics. Those gates must be run

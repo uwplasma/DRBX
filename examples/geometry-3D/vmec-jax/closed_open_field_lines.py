@@ -22,8 +22,11 @@ matching (reactor-scale) VMEC wout.  This example combines them:
    are the scrape-off-layer field lines that leave the device.
 
 A vacuum field keeps closed surfaces slightly outside the design LCFS before
-they break up, so the open seeds are placed beyond that transition region to
-guarantee they genuinely escape; no field is extrapolated from the wout.
+they break up, so the edge seeds span that whole transition: the innermost of
+them land on closed vacuum surfaces just beyond the LCFS (drawn in gray), the
+outer ones are genuinely open scrape-off-layer lines that escape to the wall
+(red, drawn up to the moment they leave). No field is extrapolated from the
+wout.
 
 Requires ESSOS and vmec_jax checkouts:
 
@@ -60,10 +63,13 @@ WOUT_PATH = Path.home() / "local" / "ESSOS_test" / "examples" / "input_files" / 
 AXIS_PROBE_R = 1.21        # midplane seed radius [m] used to locate the vacuum axis
 AXIS_PROBE_MAXTIME = 800.0  # integration time for the axis probe line
 CLOSED_FRACTIONS = (0.15, 0.35, 0.55, 0.75, 0.90)  # seed positions as fractions of the LCFS outboard minor radius
-OPEN_OFFSETS = (0.19, 0.22, 0.25)  # seed distances beyond the LCFS outboard edge [m]
+# Edge seeds span the vacuum transition beyond the LCFS: the inner ones sit on
+# residual closed vacuum surfaces, the outer ones are open SOL lines.
+EDGE_OFFSETS = (0.02, 0.05, 0.08, 0.11, 0.14, 0.17, 0.20, 0.23)  # distances beyond the LCFS outboard edge [m]
 MAXTIME = 1500.0           # integration time per field line (ESSOS units)
 TIMES_TO_TRACE = 6000      # trajectory samples per line
 RHO_WALL = 0.8             # escape distance from the vacuum axis circle [m]: beyond this = open
+TRAIL_RHO = 0.45           # plotted escape trails stop here (classification still uses RHO_WALL)
 OUTPUT_DIR = Path("output/vmec_jax_closed_open")
 
 # setup --------------------------------------------------------------------
@@ -127,14 +133,14 @@ print(f"  length ratio coil-set/wout = {scale:.4f}; scaled LCFS spans "
 
 # stage 4: seed, trace and classify field lines ----------------------------
 closed_seeds_r = axis_r + minor_outboard * np.asarray(CLOSED_FRACTIONS)
-open_seeds_r = lcfs_outboard + np.asarray(OPEN_OFFSETS)
-seeds_r = np.concatenate([closed_seeds_r, open_seeds_r])
+edge_seeds_r = lcfs_outboard + np.asarray(EDGE_OFFSETS)
+seeds_r = np.concatenate([closed_seeds_r, edge_seeds_r])
 seeds = np.stack([seeds_r, np.zeros_like(seeds_r), np.zeros_like(seeds_r)], axis=1)
 n_closed_seeded = len(closed_seeds_r)
 print(f"seeding {n_closed_seeded} lines inside the LCFS "
       f"(R = {closed_seeds_r.min():.3f}..{closed_seeds_r.max():.3f} m) and "
-      f"{len(open_seeds_r)} beyond it (R = {open_seeds_r.min():.3f}.."
-      f"{open_seeds_r.max():.3f} m)")
+      f"{len(edge_seeds_r)} across the edge transition (R = {edge_seeds_r.min():.3f}.."
+      f"{edge_seeds_r.max():.3f} m)")
 print(f"tracing {len(seeds_r)} field lines through the ESSOS Biot-Savart coil field "
       f"(maxtime = {MAXTIME:g}, {TIMES_TO_TRACE} samples each)...")
 trajectories = trace_essos_coil_initial_conditions(
@@ -143,7 +149,7 @@ trajectories = trace_essos_coil_initial_conditions(
 print(f"  traced array: {trajectories.shape}")
 
 print(f"classifying each line (open = escapes {RHO_WALL} m from the axis circle):")
-sections, line_is_open, inside_fractions = [], [], []
+sections, line_is_open, inside_fractions, escape_paths = [], [], [], []
 for index, trajectory in enumerate(trajectories):
     finite = np.all(np.isfinite(trajectory), axis=1)
     points = trajectory[finite]
@@ -151,6 +157,11 @@ for index, trajectory in enumerate(trajectories):
     rho = np.hypot(major_radius - axis_r, points[:, 2] - axis_z)
     max_rho = float(rho.max()) if len(rho) else np.inf
     is_open = (not finite.all()) or (max_rho > RHO_WALL)
+    if is_open and len(rho) and (rho > TRAIL_RHO).any():
+        # Keep only the trajectory up to the escape onset: an open line leaves
+        # within about one toroidal transit here, so its story is the escaping
+        # path itself (plotted below as an R-Z trail), not Poincare crossings.
+        points = points[: int(np.argmax(rho > TRAIL_RHO)) + 1]
     # Poincare crossings of the phi = 0 half-plane (y sign change, x > 0).
     x, y, z = points[:, 0], points[:, 1], points[:, 2]
     crossing = (y[:-1] * y[1:] < 0) & (x[1:] > 0)
@@ -163,36 +174,52 @@ for index, trajectory in enumerate(trajectories):
     sections.append(crossings)
     line_is_open.append(is_open)
     inside_fractions.append(inside_fraction)
+    escape_paths.append(np.stack([np.hypot(points[:, 0], points[:, 1]), points[:, 2]], axis=1) if is_open else None)
     kind = "OPEN  " if is_open else "closed"
     print(f"  line {index:2d} (seed R = {seeds_r[index]:.3f} m): {kind} "
           f"max rho = {max_rho:6.3f} m, {len(crossings):3d} crossings, "
           f"{100.0 * inside_fraction:5.1f}% inside the LCFS")
 
 n_open = sum(line_is_open)
-print(f"result: {len(line_is_open) - n_open} closed lines, {n_open} open lines")
+n_edge_closed = sum(not flag for flag in line_is_open[n_closed_seeded:])
+print(f"result: {n_closed_seeded} closed inside the LCFS, {n_edge_closed} closed "
+      f"vacuum surfaces beyond it, {n_open} open SOL lines")
 assert not any(line_is_open[:n_closed_seeded]), "an LCFS-interior seed escaped: check the scaling"
-assert all(line_is_open[n_closed_seeded:]), "an exterior seed stayed confined: push OPEN_OFFSETS outward"
+assert n_open >= 2, "no edge seed escaped: extend EDGE_OFFSETS or MAXTIME"
 assert all(fraction > 0.98 for fraction in inside_fractions[:n_closed_seeded]), \
     "closed-line crossings leak outside the LCFS: the configurations do not match"
 assert all(fraction < 0.02 for fraction in inside_fractions[n_closed_seeded:]), \
-    "open-line crossings entered the LCFS"
-print("verified: the VMEC LCFS encloses every closed line; every open line stays outside")
+    "edge-line crossings entered the LCFS"
+print("verified: the VMEC LCFS encloses every interior line; every edge line stays outside it")
 
 # stage 5: plot ------------------------------------------------------------
 print("drawing the phi = 0 Poincare section with the VMEC LCFS overlay...")
 fig, axis = plt.subplots(figsize=(7.2, 6.2))
-for crossings, is_open in zip(sections, line_is_open):
+for index, (crossings, is_open) in enumerate(zip(sections, line_is_open)):
+    if is_open:
+        # Open SOL line: draw the R-Z projection of the field line up to its
+        # escape -- a red trail leaving the confined region.
+        path_rz = escape_paths[index]
+        axis.plot(path_rz[:, 0], path_rz[:, 1], color="#d62728", linewidth=0.6, alpha=0.55)
+        axis.scatter([path_rz[-1, 0]], [path_rz[-1, 1]], marker="x", s=34, color="#d62728", linewidths=1.4)
+        continue
     if len(crossings) == 0:
         continue
-    color, size = ("#d62728", 4.0) if is_open else ("#1f77b4", 1.5)
-    axis.scatter(crossings[:, 0], crossings[:, 1], s=size, color=color, linewidths=0)
+    color = "#1f77b4" if index < n_closed_seeded else "#8fa8bf"
+    axis.scatter(crossings[:, 0], crossings[:, 1], s=1.5, color=color, linewidths=0)
 axis.plot(lcfs_r, lcfs_z, "k--", linewidth=1.6, label="VMEC LCFS (vmec_jax wout)")
 axis.scatter([axis_r], [axis_z], marker="+", s=90, color="k", label="vacuum magnetic axis")
 axis.scatter([], [], s=10, color="#1f77b4", label="closed lines (VMEC-confined region)")
-axis.scatter([], [], s=10, color="#d62728", label="open lines (SOL, escape to the wall)")
+axis.scatter([], [], s=10, color="#8fa8bf", label="closed vacuum surfaces beyond the LCFS")
+axis.plot([], [], color="#d62728", linewidth=1.2, label="open SOL lines (traced to escape, x = exit)")
 axis.set_xlabel("R [m]")
 axis.set_ylabel("Z [m]")
 axis.set_aspect("equal")
+# Frame the LCFS with room on the outboard side for the escape trails to
+# visibly leave the picture.
+axis.set_xlim(float(lcfs_r.min()) - 0.12, float(lcfs_outboard) + 0.45)
+z_span = float(lcfs_z.max()) + 0.30
+axis.set_ylim(-z_span, z_span)
 axis.legend(loc="upper right", fontsize=8)
 axis.set_title("Landreman-Paul precise QA: coil-field Poincare section at phi = 0\n"
                "closed field lines inside the VMEC LCFS, open SOL lines outside")

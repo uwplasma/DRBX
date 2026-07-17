@@ -1,11 +1,5 @@
 # ESSOS Imported FCI Validation
 
-!!! note "Plan authority"
-    This page is an imported-geometry validation report. The active execution
-    plan is [Research-Grade Execution Plan](research_grade_execution_plan.md).
-    If this page conflicts with that plan, follow the execution plan and update
-    this page afterward.
-
 !!! note "Figures are release-hosted"
     The campaign figures referenced below live on the
     `validation-artifacts-2026-04-28` GitHub release. Because this repository
@@ -20,9 +14,8 @@ trajectories into fixed-shape plane-to-plane maps, builds a lightweight
 VMEC-shaped metric for the imported logical grid, and then evaluates JAX-native
 sheath/recycling and neutral reaction-diffusion closures on those maps.
 
-The current authoritative promotion sequence is in
-[Research-Grade Execution Plan](research_grade_execution_plan.md).
-In that sequence, `coil`, `vmec`, and `hybrid` have different meanings:
+The current authoritative promotion sequence is tracked in the project
+planning notes. In that sequence, `coil`, `vmec`, and `hybrid` have different meanings:
 direct-coil open-field maps must pass their own endpoint and connection-length
 gates before a movie can be promoted; VMEC maps are closed-field controls; and
 hybrid maps are the current bridge that combines smooth VMEC map coordinates

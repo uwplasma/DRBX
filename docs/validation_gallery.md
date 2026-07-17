@@ -1,11 +1,5 @@
 # Validation Gallery
 
-!!! note "Plan authority"
-    This page is a validation-gallery/status appendix. The active execution
-    plan is [Research-Grade Execution Plan](research_grade_execution_plan.md).
-    If this page conflicts with that plan, follow the execution plan and update
-    this page afterward.
-
 This page collects the current validation figures from the active validation
 ladder. Figures embedded inline are committed compressed copies under
 `docs/media/`. Full-resolution legacy campaign figures live on the

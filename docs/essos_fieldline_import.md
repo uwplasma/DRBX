@@ -6,8 +6,7 @@ section extraction are performed by ESSOS. `drbx` stores the resulting
 trajectories, field samples, coil curves, and sanitized metadata as portable
 arrays for downstream geometry, FCI, and SOL-operator workflows.
 
-The active completion sequence is defined in
-[Research-Grade Execution Plan](research_grade_execution_plan.md).
+The active completion sequence is tracked in the project planning notes.
 For `main`, the next direct-coil open-field target is the
 `direct_coil_open_sol.py` workflow: first validate pure-coil FCI maps,
 endpoint masks, connection-length refinement, sheath/recycling/neutral source
