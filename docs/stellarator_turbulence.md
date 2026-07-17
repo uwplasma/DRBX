@@ -50,6 +50,31 @@ The shared driver lives in
 [`tests/stellarator_turbulence_case.py`](../tests/stellarator_turbulence_case.py);
 the physics is entirely the validated four-field stack in `jax_drb.native`.
 
+## Island divertor (B8)
+
+Beyond the hand-placed limiter, the analytic **island-divertor** field
+([`jax_drb.geometry.island_divertor`](../src/jax_drb/geometry/island_divertor.py))
+carries a sheared rotational transform crossing the 2/3, 3/4, and 4/5 rational
+surfaces, each opened by a resonant radial perturbation. The overlapping chains
+make the edge stochastic, and the open scrape-off layer **emerges from the
+field itself**: multi-transit field-line tracing
+(`island_divertor_connection_length`, pure JAX) marks a cell open when its line
+reaches the wall within a finite connection length — closed core, island
+chains, stochastic SOL.
+
+![Island divertor](https://github.com/uwplasma/jax_drb/releases/download/media-v2.0.0-dev/island_divertor.png)
+
+The gate [`tests/test_island_divertor.py`](../tests/test_island_divertor.py)
+pins the topology (core surfaces closed over 40 transits, stochastic-edge lines
+open with finite, ordered connection lengths), the emergent masks (closed core,
+>90% open at the wall), and that the four-field turbulence drains through the
+emergent divertor faster than the closed reference with the same seed.
+
+```bash
+PYTHONPATH=src python examples/stellarator/island_divertor_demo.py
+pytest -q tests/test_island_divertor.py
+```
+
 ## Honest scope
 
 These are short, bounded, seeded runs showing turbulence-type interchange

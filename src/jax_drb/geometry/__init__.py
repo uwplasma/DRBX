@@ -17,6 +17,12 @@ from .essos_import import (
 from .fci_maps import FciMaps, identity_fci_maps, load_fci_maps_netcdf
 from .metric_tensor import MetricTensor3D, build_metric_report, metric_inverse_residual
 from .stellarator import SyntheticStellaratorGeometry, build_synthetic_stellarator_geometry
+from .island_divertor import (
+    IslandDivertorField,
+    build_island_divertor_geometry,
+    island_divertor_connection_length,
+    island_divertor_field_line_rhs,
+)
 from .open_slab import build_open_slab_geometry
 from .rotating_ellipse import build_rotating_ellipse_geometry, rotating_ellipse_position
 from .shifted_torus import build_shifted_torus_geometry
@@ -42,6 +48,10 @@ __all__ = [
     "SyntheticStellaratorGeometry",
     "VmecExtenderGrid",
     "build_metric_report",
+    "IslandDivertorField",
+    "build_island_divertor_geometry",
+    "island_divertor_connection_length",
+    "island_divertor_field_line_rhs",
     "build_open_slab_geometry",
     "build_rotating_ellipse_geometry",
     "rotating_ellipse_position",
