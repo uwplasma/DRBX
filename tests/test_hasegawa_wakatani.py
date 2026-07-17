@@ -79,7 +79,9 @@ def test_ideal_system_conserves_energy() -> None:
     grid = hw_grid(_N, _LENGTH)
     params = HasegawaWakataniParameters(adiabaticity=0.0, gradient=0.0, hyperviscosity=0.0)
     rng = np.random.default_rng(1)
-    field = 1.0e-2 * (rng.standard_normal((_N, _N)) + 1j * rng.standard_normal((_N, _N)))
+    # Hermitian seed (FFT of a real field): a non-Hermitian spectrum evolves the
+    # unphysical complexified system, which does not conserve the energy.
+    field = np.fft.fft2(rng.standard_normal((_N, _N))) * (1.0e-2 / _N)
     field[0, 0] = 0.0
     zeta = jnp.array(field)
     density = jnp.array(field * 0.5)
@@ -112,7 +114,8 @@ def test_inverse_design_recovers_a_parameter_through_turbulence() -> None:
     # fluctuation energy. This is the differentiable inverse-design capability.
     grid = hw_grid(24, 2.0 * np.pi * 5.0)
     rng = np.random.default_rng(3)
-    field = 1.0e-2 * (rng.standard_normal((24, 24)) + 1j * rng.standard_normal((24, 24)))
+    # Hermitian seed (FFT of a real field) so the run is the physical system.
+    field = np.fft.fft2(rng.standard_normal((24, 24))) * (1.0e-2 / 24.0)
     field[0, 0] = 0.0
     zeta0, density0 = jnp.array(field), jnp.array(field * 0.7)
 
@@ -337,7 +340,8 @@ def test_run_is_differentiable_end_to_end() -> None:
     # differences. This is the differentiable-turbulence capability.
     grid = hw_grid(_N, _LENGTH)
     rng = np.random.default_rng(2)
-    field = 1.0e-3 * (rng.standard_normal((_N, _N)) + 1j * rng.standard_normal((_N, _N)))
+    # Hermitian seed (FFT of a real field) so the run is the physical system.
+    field = np.fft.fft2(rng.standard_normal((_N, _N))) * (1.0e-3 / _N)
     field[0, 0] = 0.0
     zeta0 = jnp.array(field)
     density0 = jnp.array(field * 0.7)
