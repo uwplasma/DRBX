@@ -14,8 +14,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jax_drb.native.neutrals.atomic_rates import rate_coefficient
-from jax_drb.native.neutrals.recycling_sol_model import (
+from dkx.native.neutrals.atomic_rates import rate_coefficient
+from dkx.native.neutrals.recycling_sol_model import (
     SolRecyclingParameters,
     SolRecyclingState,
     linear_target_temperature_profile,

@@ -1,7 +1,7 @@
 # Models and Governing Equations
 
 This page states the governing equations of every model that ships in
-`jax_drb`, exactly as they are discretized in the source code: the evolved
+`dkx`, exactly as they are discretized in the source code: the evolved
 unknowns, the normalization, the boundary conditions, the module that
 implements each equation set, and the tests that gate it. The equations below
 are transcribed from the module docstrings and RHS assembly code, not from a
@@ -14,7 +14,7 @@ tridiagonal solves, spectral inversion, RK4, sharding), see
 
 ## Hasegawa-Wakatani drift-wave turbulence
 
-**Module:** [`native/hasegawa_wakatani.py`](../src/jax_drb/native/hasegawa_wakatani.py) —
+**Module:** [`native/hasegawa_wakatani.py`](../src/dkx/native/hasegawa_wakatani.py) —
 the closed-field-line (periodic flux-tube) turbulence flagship.
 
 Two fields in the perpendicular plane, the vorticity \(\zeta\) and the density
@@ -57,7 +57,7 @@ scale it lets a fixed-step run reach a statistically steady saturated state.
 
 ## FCI 2-field reduced model
 
-**Module:** [`native/fci_2_field_rhs.py`](../src/jax_drb/native/fci_2_field_rhs.py) —
+**Module:** [`native/fci_2_field_rhs.py`](../src/dkx/native/fci_2_field_rhs.py) —
 the smallest 3-D model on the flux-coordinate-independent (FCI) operator
 stack; also the model used by the multi-device `shard_map` lane.
 
@@ -96,7 +96,7 @@ field-aligned gradient \(b^i \partial_i\) (`grad_parallel_op_direct`).
 
 ## FCI 4-field interchange model
 
-**Module:** [`native/fci_4_field_rhs.py`](../src/jax_drb/native/fci_4_field_rhs.py) —
+**Module:** [`native/fci_4_field_rhs.py`](../src/dkx/native/fci_4_field_rhs.py) —
 density, vorticity, and both parallel velocities, with the potential obtained
 by inverting the perpendicular Laplacian every RK4 stage.
 
@@ -152,10 +152,10 @@ free-decay and blob variants (`Fci4FieldFreeDecayParameters`,
 ## Electrostatic/electromagnetic drift-reduced Braginskii RHS
 
 **Modules:**
-[`native/fci_drb_EB_rhs.py`](../src/jax_drb/native/fci_drb_EB_rhs.py)
+[`native/fci_drb_EB_rhs.py`](../src/dkx/native/fci_drb_EB_rhs.py)
 (electrostatic Boussinesq scaffold with state
 \(n, \phi, T_e, T_i, V_i, V_e, \omega\)) and
-[`native/fci_drb_rhs.py`](../src/jax_drb/native/fci_drb_rhs.py)
+[`native/fci_drb_rhs.py`](../src/dkx/native/fci_drb_rhs.py)
 (the compact combined differentiable RHS threading the sheath, neutral, and
 vorticity closures into one PyTree). The general drift-reduced Braginskii
 moment structure (continuity, parallel momentum, pressure with
@@ -167,9 +167,9 @@ polarization/vorticity closure) is documented with literature anchors in
 
 ## SOL flux tube with Bohm sheath boundaries
 
-**Module:** [`native/sol_flux_tube.py`](../src/jax_drb/native/sol_flux_tube.py)
+**Module:** [`native/sol_flux_tube.py`](../src/dkx/native/sol_flux_tube.py)
 on the open slab geometry
-([`geometry/open_slab.py`](../src/jax_drb/geometry/open_slab.py)).
+([`geometry/open_slab.py`](../src/dkx/geometry/open_slab.py)).
 
 The open-field-line counterpart to the closed flux tubes: an isothermal Euler
 system for the density \(n\) and parallel momentum \(m = n v\) along the
@@ -190,7 +190,7 @@ stagnation at the midplane, Mach 1 at each target, target density half the
 upstream density.
 
 The sheath/recycling closure
-[`native/fci_sheath_recycling.py`](../src/jax_drb/native/fci_sheath_recycling.py)
+[`native/fci_sheath_recycling.py`](../src/dkx/native/fci_sheath_recycling.py)
 evaluates, on the FCI endpoint masks (the cells whose forward/backward maps
 exit the domain),
 
@@ -220,19 +220,19 @@ identities.
 
 ## hermes-3 neutral system: recycling and detachment
 
-**Package:** [`native/neutrals/`](../src/jax_drb/native/neutrals) — a
+**Package:** [`native/neutrals/`](../src/dkx/native/neutrals) — a
 self-contained, pure-JAX implementation of the hermes-3 hydrogenic
 plasma–neutral closure.
 
 ### Atomic rates and reaction sources
 
-[`atomic_rates.py`](../src/jax_drb/native/neutrals/atomic_rates.py) packages
+[`atomic_rates.py`](../src/dkx/native/neutrals/atomic_rates.py) packages
 the AMJUEL double-polynomial fits for ionization and recombination
 \(\langle\sigma v\rangle(T_e, n_e)\) and the AMJUEL H.2 3.1.8 polynomial for
 charge exchange \(\langle\sigma v\rangle(T_{\mathrm{eff}})\) (clamped to the
 fitted range \(T \in [0.1, 10^4]\,\mathrm{eV}\),
 \(n \in [10^{14}, 10^{22}]\,\mathrm{m^{-3}}\); tables ship with the package).
-[`reactions.py`](../src/jax_drb/native/neutrals/reactions.py) assembles the
+[`reactions.py`](../src/dkx/native/neutrals/reactions.py) assembles the
 source channels
 
 $$
@@ -250,7 +250,7 @@ momentum sources cancel exactly.
 
 ### 1D recycling SOL
 
-[`recycling_sol_model.py`](../src/jax_drb/native/neutrals/recycling_sol_model.py)
+[`recycling_sol_model.py`](../src/dkx/native/neutrals/recycling_sol_model.py)
 couples the plasma (ion density, parallel momentum on a *prescribed*
 hot-upstream/cold-target temperature profile) to a recycled neutral density:
 
@@ -263,7 +263,7 @@ hot-upstream/cold-target temperature profile) to a recycled neutral density:
 
 ### Self-consistent detachment
 
-[`detachment_sol_model.py`](../src/jax_drb/native/neutrals/detachment_sol_model.py)
+[`detachment_sol_model.py`](../src/dkx/native/neutrals/detachment_sol_model.py)
 also evolves the plasma pressure \(P\), adding
 
 $$
@@ -298,7 +298,7 @@ regime and the target ion flux **rolls over**.
   the stiff solve). Page: [Neutrals and Recycling](neutrals_recycling.md).
 
 The compact 3-D neutral reaction-diffusion component used by the combined FCI
-RHS lives in [`native/fci_neutral.py`](../src/jax_drb/native/fci_neutral.py)
+RHS lives in [`native/fci_neutral.py`](../src/dkx/native/fci_neutral.py)
 (sources \(S_{\mathrm{iz}} = k_{\mathrm{iz}} n_n n_e \sqrt{T_e}\),
 \(S_{\mathrm{rec}} = k_{\mathrm{rec}} n_i n_e / \sqrt{T_e}\),
 \(S_{\mathrm{cx}} = k_{\mathrm{cx}} n_n n_i \sqrt{T_n + T_i}\) plus neutral
@@ -306,7 +306,7 @@ diffusion), with conservation gated in `tests/test_fci_neutrals_3d.py`.
 
 ## The linearized-DRB engine
 
-**Package:** [`src/jax_drb/linear/`](../src/jax_drb/linear) — growth rates
+**Package:** [`src/dkx/linear/`](../src/dkx/linear) — growth rates
 and frequencies of the drift-reduced Braginskii family.
 
 Linearizing any model about an equilibrium \(u_0\),
@@ -322,9 +322,9 @@ Two entry points, one engine:
 
 - `jacobian_operator(rhs, equilibrium)` builds \(A\) from **any** JAX RHS with
   `jax.jacfwd` (no hand derivation) and `eigenmodes(A)` returns the sorted
-  spectrum ([`linear/eigen.py`](../src/jax_drb/linear/eigen.py));
+  spectrum ([`linear/eigen.py`](../src/dkx/linear/eigen.py));
 - three analytic single-mode operators assembled directly from the model
-  equations ([`linear/dispersion.py`](../src/jax_drb/linear/dispersion.py)):
+  equations ([`linear/dispersion.py`](../src/dkx/linear/dispersion.py)):
   `resistive_drift_wave_operator` (Hasegawa-Wakatani, benchmark B2),
   `shear_alfven_operator` (electron-inertia shear Alfvén wave,
   \(\omega = k_\parallel v_A / \sqrt{1 + k_\perp^2 d_e^2}\), benchmark B3),
@@ -339,12 +339,12 @@ with the parameter survey in `examples/benchmarks/linear_drb_survey.py`.
 
 ## Compact deck models (CLI lanes)
 
-The `jax_drb run` TOML lanes solve smaller accuracy-tested systems documented
+The `dkx run` TOML lanes solve smaller accuracy-tested systems documented
 in [Physics Models](physics_models.md): anomalous radial diffusion (matrix
-exponential propagator, [`native/transport.py`](../src/jax_drb/native/transport.py)),
-the periodic 1-D fluid MMS system ([`native/fluid_1d.py`](../src/jax_drb/native/fluid_1d.py)),
+exponential propagator, [`native/transport.py`](../src/dkx/native/transport.py)),
+the periodic 1-D fluid MMS system ([`native/fluid_1d.py`](../src/dkx/native/fluid_1d.py)),
 and the electrostatic vorticity model
-([`native/vorticity.py`](../src/jax_drb/native/vorticity.py)) whose potential
+([`native/vorticity.py`](../src/dkx/native/vorticity.py)) whose potential
 solve is the solvax spectral Fourier–Helmholtz inversion. Gates:
 `tests/test_native_transport.py`, `tests/test_native_fluid_1d.py`,
 `tests/test_mms_convergence.py`, `tests/test_native_vorticity.py`.

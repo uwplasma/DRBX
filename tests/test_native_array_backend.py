@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jax_drb.native.array_backend import is_jax_array, use_jax_backend
+from dkx.native.array_backend import is_jax_array, use_jax_backend
 
 
 def test_backend_selector_short_circuits_numpy_and_scalars() -> None:

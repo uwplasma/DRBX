@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jax_drb.runtime import configure_jax_runtime
-from jax_drb.validation import create_essos_imported_pytree_campaign_package
+from dkx.runtime import configure_jax_runtime
+from dkx.validation import create_essos_imported_pytree_campaign_package
 
 COIL_JSON_PATH: Path | None = None
 VMEC_WOUT_PATH: Path | None = None

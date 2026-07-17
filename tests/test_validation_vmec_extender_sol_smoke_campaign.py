@@ -6,8 +6,8 @@ from pathlib import Path
 import numpy as np
 from netCDF4 import Dataset
 
-from jax_drb.geometry.vmec_extender_import import load_vmec_extender_grid_netcdf
-from jax_drb.validation.vmec_extender_sol_smoke_campaign import (
+from dkx.geometry.vmec_extender_import import load_vmec_extender_grid_netcdf
+from dkx.validation.vmec_extender_sol_smoke_campaign import (
     build_vmec_extender_sol_smoke_report,
     create_vmec_extender_sol_smoke_package,
     simulate_vmec_extender_scalar_sol_smoke,

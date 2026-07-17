@@ -1,8 +1,8 @@
-site_name: JAXDRB
+site_name: DKX
 site_description: JAX-native drift-reduced Braginskii edge and scrape-off-layer plasma solver
-site_url: https://jax-drb.readthedocs.io/
-repo_url: https://github.com/uwplasma/jax_drb
-repo_name: uwplasma/jax_drb
+site_url: https://dkx.readthedocs.io/
+repo_url: https://github.com/uwplasma/dkx
+repo_name: uwplasma/dkx
 edit_uri: blob/main/docs/
 docs_dir: docs
 site_dir: site

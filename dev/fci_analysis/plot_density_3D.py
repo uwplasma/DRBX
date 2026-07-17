@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Sequence
 import sys
 
-_CACHE_ROOT = Path("/tmp") / f"jax_drb_plot_density_3d_{os.getuid()}_{os.getpid()}"
+_CACHE_ROOT = Path("/tmp") / f"dkx_plot_density_3d_{os.getuid()}_{os.getpid()}"
 _MPLCONFIGDIR = _CACHE_ROOT / "mplconfig"
 _XDG_CACHE_HOME = _CACHE_ROOT / "xdg_cache"
 _MPLCONFIGDIR.mkdir(parents=True, exist_ok=True)

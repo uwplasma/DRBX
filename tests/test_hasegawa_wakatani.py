@@ -3,7 +3,7 @@
 The nonlinear pseudo-spectral model is cross-checked against the linear
 dispersion solver (B2): a single Fourier mode has zero self-bracket, so it
 evolves purely linearly and its growth rate must equal the eigenvalue of
-``jax_drb.linear.resistive_drift_wave_operator``. Further tests cover the ideal
+``dkx.linear.resistive_drift_wave_operator``. Further tests cover the ideal
 invariant, the transport direction, and end-to-end differentiability.
 """
 
@@ -17,8 +17,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.linear import eigenmodes, resistive_drift_wave_operator
-from jax_drb.native.hasegawa_wakatani import (
+from dkx.linear import eigenmodes, resistive_drift_wave_operator
+from dkx.native.hasegawa_wakatani import (
     HasegawaWakataniParameters,
     hw_grid,
     hw_run,
@@ -64,7 +64,7 @@ def test_linear_growth_matches_drift_wave_eigenvalue(mx, my) -> None:
 def test_single_mode_has_zero_self_bracket() -> None:
     # The Poisson bracket of a single Fourier mode with itself vanishes, which is
     # why the linear cross-check above is exact rather than approximate.
-    from jax_drb.native.hasegawa_wakatani import _bracket_hat
+    from dkx.native.hasegawa_wakatani import _bracket_hat
 
     grid = hw_grid(_N, _LENGTH)
     field = jnp.zeros((_N, _N), dtype=complex).at[2, 3].set(1.0 + 0.5j)
@@ -172,11 +172,11 @@ def test_example_scripts_parse_and_stay_flat(filename) -> None:
         alias.name
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom)
-        and node.module == "jax_drb.native.hasegawa_wakatani"
+        and node.module == "dkx.native.hasegawa_wakatani"
         for alias in node.names
     ]
     assert imported, f"{filename} must use the public Hasegawa-Wakatani API"
-    import jax_drb.native.hasegawa_wakatani as hw
+    import dkx.native.hasegawa_wakatani as hw
 
     assert all(name in hw.__all__ for name in imported)
 
@@ -196,7 +196,7 @@ def test_turbulence_example_api_path() -> None:
     # Tiny-size version of examples/tokamak/drift_wave_turbulence.py: seeded
     # noise, friction-regularized run, energy and flux diagnostics stay finite
     # and the density field stays real (Hermitian spectrum preserved).
-    from jax_drb.native.hasegawa_wakatani import hw_run
+    from dkx.native.hasegawa_wakatani import hw_run
 
     n = 16
     grid = hw_grid(n, 2.0 * np.pi * 4.0)
@@ -218,7 +218,7 @@ def test_turbulence_example_api_path() -> None:
 def test_inverse_design_example_api_path() -> None:
     # Tiny-size version of examples/tokamak/drift_wave_inverse_design.py:
     # a few gradient-descent steps on kappa reduce the energy-matching loss.
-    from jax_drb.native.hasegawa_wakatani import hw_run
+    from dkx.native.hasegawa_wakatani import hw_run
 
     n = 16
     grid = hw_grid(n, 2.0 * np.pi * 5.0)
@@ -252,7 +252,7 @@ def test_optimization_example_api_path() -> None:
     # windowed mean-flux objective via hw_run_flux_history, forward-mode
     # derivative with respect to ln(alpha) via jax.jvp, and one safeguarded
     # damped-Newton step that stays finite and inside the trust region.
-    from jax_drb.native.hasegawa_wakatani import hw_run, hw_run_flux_history
+    from dkx.native.hasegawa_wakatani import hw_run, hw_run_flux_history
 
     n = 16
     grid = hw_grid(n, 2.0 * np.pi * 4.0)
@@ -288,7 +288,7 @@ def test_flux_history_matches_plain_run() -> None:
     # hw_run_flux_history is the reusable helper behind the optimization
     # example: same integrator, so its final state must equal hw_run's, and
     # its last flux sample must equal the flux of that final state.
-    from jax_drb.native.hasegawa_wakatani import hw_run, hw_run_flux_history
+    from dkx.native.hasegawa_wakatani import hw_run, hw_run_flux_history
 
     n = 16
     grid = hw_grid(n, 2.0 * np.pi * 4.0)
@@ -318,7 +318,7 @@ def test_flux_history_matches_plain_run() -> None:
 def test_friction_damps_a_single_mode_at_the_exact_rate() -> None:
     # The optional friction parameter is a scale-independent linear drag: with
     # all other physics off, a single mode must decay at exactly exp(-mu t).
-    from jax_drb.native.hasegawa_wakatani import hw_run
+    from dkx.native.hasegawa_wakatani import hw_run
 
     grid = hw_grid(_N, _LENGTH)
     mu = 0.35

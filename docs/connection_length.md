@@ -109,15 +109,15 @@ field-line reconstruction viewpoint for stellarator SOL/divertor modeling:
 [FLARE field-line analysis](https://arxiv.org/html/2402.05225v1),
 [magnetic mesh generation for stellarators](https://arxiv.org/html/2410.01139v1).
 
-## Calculation In JAXDRB
+## Calculation In DKX
 
-JAXDRB keeps the connection-length calculation separate from the drift-reduced
+DKX keeps the connection-length calculation separate from the drift-reduced
 Braginskii RHS. The RHS consumes an array called `connection_length`; geometry
 adapters decide how that array was produced and document whether it is a true
 wall-hit length, an adjacent-plane arc length, or a proxy.
 
 The synthetic self-contained stellarator lane uses a controlled proxy in
-[`src/jax_drb/geometry/stellarator.py`](../src/jax_drb/geometry/stellarator.py).
+[`src/dkx/geometry/stellarator.py`](../src/dkx/geometry/stellarator.py).
 `_estimate_connection_length(...)` repeatedly applies the forward FCI map,
 counts how many toroidal-plane steps remain inside the radial domain, and
 multiplies the bounded step count by an average metric step length. This is not
@@ -126,24 +126,24 @@ clean-clone examples, metric/operator tests, and qualitative turbulence
 weighting.
 
 The imported-field lane in
-[`src/jax_drb/geometry/essos_import.py`](../src/jax_drb/geometry/essos_import.py)
+[`src/dkx/geometry/essos_import.py`](../src/dkx/geometry/essos_import.py)
 has three map-source semantics:
 
-- `coil`: field lines are traced with the external coil-field runtime. JAXDRB
+- `coil`: field lines are traced with the external coil-field runtime. DKX
   interpolates forward/backward endpoints at adjacent toroidal planes and uses
   the traced exit length to the boundary when that exit length is finite.
   Otherwise it falls back to the bidirectional adjacent-plane arc length.
-- `vmec`: JAXDRB integrates a VMEC-coordinate map using
+- `vmec`: DKX integrates a VMEC-coordinate map using
   \(d\theta/d\phi=B^\theta/B^\phi\). Because this map stays on closed VMEC
   surfaces, it stores a bidirectional adjacent-plane arc length and has no
   sheath endpoint masks.
-- `hybrid`: JAXDRB uses the smooth VMEC map coordinates but keeps the
+- `hybrid`: DKX uses the smooth VMEC map coordinates but keeps the
   coil-derived endpoint masks, \(|B|\), and connection-length array. This is
   the current bridge for open-field SOL closure tests on a smooth
   non-axisymmetric interpolation map.
 
 The imported validation campaign in
-[`src/jax_drb/validation/essos_imported_fci_campaign.py`](../src/jax_drb/validation/essos_imported_fci_campaign.py)
+[`src/dkx/validation/essos_imported_fci_campaign.py`](../src/dkx/validation/essos_imported_fci_campaign.py)
 checks the connection-length arrays before they are used for physics claims.
 `build_essos_imported_fci_map_diagnostics(...)` verifies finite and
 nonnegative values, records radial means, and computes single-grid neighbor

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jax_drb.runtime import configure_jax_runtime
-from jax_drb.validation import create_essos_fieldline_import_package
+from dkx.runtime import configure_jax_runtime
+from dkx.validation import create_essos_fieldline_import_package
 
 COIL_JSON_PATH: Path | None = None
 OUTPUT_ROOT = Path("docs/data/essos_fieldline_import_artifacts")

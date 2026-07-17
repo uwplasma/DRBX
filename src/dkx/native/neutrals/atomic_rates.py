@@ -6,7 +6,7 @@ the packaged AMJUEL double-polynomial fits; the charge-exchange coefficient
 (inlined here, as hermes-3 does, since it carries no tabulated file). Every
 routine is pure ``jax.numpy`` and therefore ``jit``/``grad``/``vmap``
 transparent; the coefficient tables ship with the package under
-``jax_drb.data.atomic_rates`` (real published AMJUEL fits, verified against the
+``dkx.data.atomic_rates`` (real published AMJUEL fits, verified against the
 hermes-3 database provenance), so there is no runtime external dependency.
 
 Temperatures are in eV and densities in m^-3; rate coefficients are returned in
@@ -69,7 +69,7 @@ def load_amjuel_coefficients(species: str, reaction: str) -> tuple[np.ndarray, n
 
     filename = _AMJUEL_FILENAMES[(species, reaction)]
     payload = json.loads(
-        resources.files("jax_drb.data.atomic_rates").joinpath(filename).read_text(encoding="utf-8")
+        resources.files("dkx.data.atomic_rates").joinpath(filename).read_text(encoding="utf-8")
     )
     return (
         np.asarray(payload["sigma_v_coeffs"], dtype=np.float64),

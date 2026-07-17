@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from jax_drb.validation import audit_essos_imported_artifact_reports
+from dkx.validation import audit_essos_imported_artifact_reports
 
 
 # SIMSOPT-style user parameters: edit these first, then run this file.

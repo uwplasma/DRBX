@@ -1,6 +1,6 @@
 """Survey of the linearized drift-reduced Braginskii solver.
 
-``jax_drb.linear`` answers one question: *given any model and an equilibrium,
+``dkx.linear`` answers one question: *given any model and an equilibrium,
 which perturbations grow, and how fast?* It has two entry points, both used
 below:
 
@@ -49,7 +49,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 
-from jax_drb.linear import (  # noqa: E402
+from dkx.linear import (  # noqa: E402
     drift_wave_adiabatic_frequency,
     eigenmodes,
     interchange_growth_rate,

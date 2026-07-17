@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jax_drb.geometry import (
+from dkx.geometry import (
     ConservativeStencilBuilder,
     FciGeometry3D,
     LocalStencilBuilder,
@@ -17,14 +17,14 @@ from jax_drb.geometry import (
     build_curvature_coefficients,
     build_local_stencil_from_field,
 )
-from jax_drb.native import (
+from dkx.native import (
     Fci4FieldBlobParameters,
     Fci4FieldState,
     build_perp_laplacian_face_projectors,
     compute_4field_blob_rhs,
 )
-from jax_drb.native.fci_boundaries import CutWallBC3D, CutWallGeometry3D
-from jax_drb.native.fci_operators import PerpLaplacianInverseSolver
+from dkx.native.fci_boundaries import CutWallBC3D, CutWallGeometry3D
+from dkx.native.fci_operators import PerpLaplacianInverseSolver
 
 _THIS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _THIS_DIR.parent

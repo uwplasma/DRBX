@@ -25,9 +25,9 @@ from pathlib import Path
 import jax.numpy as jnp
 import numpy as np
 
-from jax_drb.geometry import build_synthetic_stellarator_geometry
-from jax_drb.native.fci import laplace_parallel_fci, laplace_perp_xz
-from jax_drb.validation import save_stellarator_sol_diagnostics_panel, save_stellarator_sol_snapshot_panel
+from dkx.geometry import build_synthetic_stellarator_geometry
+from dkx.native.fci import laplace_parallel_fci, laplace_perp_xz
+from dkx.validation import save_stellarator_sol_diagnostics_panel, save_stellarator_sol_snapshot_panel
 
 # --- PARAMETERS ------------------------------------------------------------------
 OUTPUT_ROOT = Path("docs/data/stellarator_fci_example_artifacts/linear_mode")  # artifact root (cwd-relative)

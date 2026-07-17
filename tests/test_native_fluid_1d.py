@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from jax_drb.config.boutinp import parse_bout_input
-from jax_drb.native.fluid_1d import advance_mms_history, compute_mms_rhs, initialize_mms_state
-from jax_drb.native.mesh import build_structured_mesh
-from jax_drb.native.metrics import build_structured_metrics
-from jax_drb.runtime.run_config import RunConfiguration
+from dkx.config.boutinp import parse_bout_input
+from dkx.native.fluid_1d import advance_mms_history, compute_mms_rhs, initialize_mms_state
+from dkx.native.mesh import build_structured_mesh
+from dkx.native.metrics import build_structured_metrics
+from dkx.runtime.run_config import RunConfiguration
 
 _FLUID_1D_MMS_INPUT = """
 nout = 50

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from jax_drb.runtime.state import SimulationState
+from dkx.runtime.state import SimulationState
 
 
 def test_simulation_state_updates_immutably() -> None:

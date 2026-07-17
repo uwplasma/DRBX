@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jax_drb.geometry import (
+from dkx.geometry import (
     BFieldGeometry,
     CellCenteredGrid3D,
     ConservativeStencilBuilder,
@@ -25,7 +25,7 @@ from jax_drb.geometry import (
     build_local_stencil_from_field,
     logical_grid_from_axis_vectors,
 )
-from jax_drb.native import (
+from dkx.native import (
     Fci4FieldRhsParameters,
     Fci4FieldState,
     curvature_op,
@@ -37,8 +37,8 @@ from jax_drb.native import (
     rk4_step,
     sum_stage_outputs,
 )
-from jax_drb.native.fci_operators import PerpLaplacianInverseSolver, grad_parallel_op_direct
-from jax_drb.native.fci_boundaries import (
+from dkx.native.fci_operators import PerpLaplacianInverseSolver, grad_parallel_op_direct
+from dkx.native.fci_boundaries import (
     BC_DIRICHLET,
     BoundaryConditionBuilder,
     BoundaryFaceBC3D,

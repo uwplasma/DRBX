@@ -7,21 +7,21 @@
     page conflicts with that plan, follow the execution plan and update this
     appendix afterward.
 
-`jax_drb` is packaged as a standard Python project and published through GitHub Actions using PyPI Trusted Publishing.
+`dkx` is packaged as a standard Python project and published through GitHub Actions using PyPI Trusted Publishing.
 
 ## Install Paths
 
 From PyPI:
 
 ```bash
-pip install jax-drb
+pip install dkx
 ```
 
 From a checkout:
 
 ```bash
-git clone https://github.com/uwplasma/jax_drb
-cd jax_drb
+git clone https://github.com/uwplasma/dkx
+cd dkx
 pip install -e .
 ```
 
@@ -33,12 +33,12 @@ The repository keeps large generated `.npz`, `.png`, and `.gif` files out of
 git. They are stored in the private release
 `validation-artifacts-2026-04-28` as one bundle:
 
-- `jax_drb_docs_media.zip` restores README/docs figures, movie GIFs, and
+- `dkx_docs_media.zip` restores README/docs figures, movie GIFs, and
   example arrays under `docs/data/`.
 
 The release-hosted media map is defined by the artifact-restore helper
 `scripts/fetch_example_artifacts.py`, backed by
-`src/jax_drb/runtime/artifacts.py`, so release reviewers can verify which PNG,
+`src/dkx/runtime/artifacts.py`, so release reviewers can verify which PNG,
 GIF, MP4, and NPZ URLs are expected for a given artifact tag.
 
 The current docs-media bundle
@@ -54,13 +54,13 @@ python scripts/fetch_example_artifacts.py
 ```
 
 For non-CLI automation, set `GH_TOKEN` or `GITHUB_TOKEN` to a token with access
-to `uwplasma/jax_drb`. The downloader uses the GitHub CLI first because private
+to `uwplasma/dkx`. The downloader uses the GitHub CLI first because private
 release assets need authentication, then falls back to token-authenticated HTTPS.
-Set `JAX_DRB_ARTIFACT_CACHE_DIR=/path/to/cache` to reuse downloaded archives
-across checkouts; the older `JAX_DRB_ARTIFACT_CACHE` name is also accepted.
-Set `JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT` and
-`JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS` to tune the HTTPS fallback used when the
-GitHub CLI is unavailable. Set `JAX_DRB_OFFLINE_ARTIFACTS=1` to require that
+Set `DKX_ARTIFACT_CACHE_DIR=/path/to/cache` to reuse downloaded archives
+across checkouts; the older `DKX_ARTIFACT_CACHE` name is also accepted.
+Set `DKX_ARTIFACT_DOWNLOAD_TIMEOUT` and
+`DKX_ARTIFACT_DOWNLOAD_ATTEMPTS` to tune the HTTPS fallback used when the
+GitHub CLI is unavailable. Set `DKX_OFFLINE_ARTIFACTS=1` to require that
 artifacts already exist locally.
 
 This artifact path is the supported self-contained user workflow. Users do not
@@ -88,7 +88,7 @@ the checkout:
 
 ```bash
 python scripts/audit_repository_footprint.py --format json --top 20 \
-  --min-size-mib 1 > /tmp/jax_drb_repository_footprint.json
+  --min-size-mib 1 > /tmp/dkx_repository_footprint.json
 ```
 
 ## Build The Package
@@ -102,8 +102,8 @@ python -m build
 
 Expected outputs:
 
-- `dist/jax_drb-<version>.tar.gz`
-- `dist/jax_drb-<version>-py3-none-any.whl`
+- `dist/dkx-<version>.tar.gz`
+- `dist/dkx-<version>-py3-none-any.whl`
 
 Validate the built metadata:
 
@@ -154,7 +154,7 @@ Before publishing a version:
    `coverage.yml`):
 
 ```bash
-pytest -q -m "not slow" --cov=jax_drb --cov-branch
+pytest -q -m "not slow" --cov=dkx --cov-branch
 coverage report
 ```
 
@@ -232,7 +232,7 @@ Latest local closeout evidence:
   `6.43 MiB`, largest tracked file below `328 KiB`, wheel about `709 KiB`,
   and sdist about `614 KiB`.
 
-It is not the full closure of every research workflow in the broader validation matrix. The detailed status remains in [`plan_jax_drb.md`](https://github.com/uwplasma/jax_drb/blob/main/plan_jax_drb.md).
+It is not the full closure of every research workflow in the broader validation matrix. The detailed status remains in [`plan_dkx.md`](https://github.com/uwplasma/dkx/blob/main/plan_dkx.md).
 
 ## After The First Package Release
 

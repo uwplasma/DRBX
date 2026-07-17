@@ -1,6 +1,6 @@
 # Solvers and Design Decisions
 
-This page documents the numerical solvers `jax_drb` actually uses — with the
+This page documents the numerical solvers `dkx` actually uses — with the
 concrete parameters and file locations — and the design rules the codebase
 follows. The governing equations these solvers advance are on
 [Models and Governing Equations](models_and_equations.md).
@@ -10,7 +10,7 @@ follows. The governing equations these solvers advance are on
 The 4-field and DRB lanes must invert the conservative perpendicular
 Laplacian \(-\nabla_\perp\!\cdot\!\nabla_\perp \phi = -\omega\) once per RK4
 stage. The solver is `PerpLaplacianInverseSolver` in
-[`native/fci_operators.py`](../src/jax_drb/native/fci_operators.py):
+[`native/fci_operators.py`](../src/dkx/native/fci_operators.py):
 
 - the operator is a matrix-free matvec wrapping the conservative stencil
   (`perp_laplacian_conservative_op` on a `ConservativeStencilBuilder`
@@ -54,7 +54,7 @@ The solver has two call paths (new 2026-07-17):
 
 On the fast path the **entire 4-field RK4 step** — four RHS evaluations
 including their GMRES phi inversions — compiles as one jit program in
-`jax_drb.native.stellarator_turbulence.run_stellarator_turbulence` (a
+`dkx.native.stellarator_turbulence.run_stellarator_turbulence` (a
 one-time ~9 s compile). On the `(24, 32, 8)` rotating-ellipse case this took
 the single-CPU step from 1.200 s (eager, host-synced diagnostics) to
 0.623 s (1.9x); the measurement and its context are on
@@ -83,20 +83,20 @@ exclude pinned rows and Tikhonov regularization by construction. Gate:
 ## solvax structured solves
 
 [`solvax`](https://github.com/uwplasma/SOLVAX) is the reusable structured
-solver library extracted from this code family. `jax_drb` uses two pieces:
+solver library extracted from this code family. `dkx` uses two pieces:
 
 - **Spectral Fourier–Helmholtz elliptic solve** — the electrostatic vorticity
-  deck lane ([`native/vorticity.py`](../src/jax_drb/native/vorticity.py))
+  deck lane ([`native/vorticity.py`](../src/dkx/native/vorticity.py))
   builds a `FourierHelmholtzOperator` from the metric payload
   (`build_fourier_helmholtz_operator`) and inverts its potential with
   `solve_fourier_helmholtz`: FFT in the periodic direction, a tridiagonal
   solve per Fourier mode in the bounded direction.
 - **Tridiagonal (Thomas) solves** — the implicit pieces of the 1-D neutral
   models: neutral parallel diffusion in
-  [`neutrals/recycling_sol_model.py`](../src/jax_drb/native/neutrals/recycling_sol_model.py)
+  [`neutrals/recycling_sol_model.py`](../src/dkx/native/neutrals/recycling_sol_model.py)
   and both the neutral diffusion and the implicit Spitzer conduction
   \(\kappa \sim T^{5/2}\) in
-  [`neutrals/detachment_sol_model.py`](../src/jax_drb/native/neutrals/detachment_sol_model.py)
+  [`neutrals/detachment_sol_model.py`](../src/dkx/native/neutrals/detachment_sol_model.py)
   call `solvax.tridiagonal_solve` (which lowers to
   `jax.lax.linalg.tridiagonal_solve`), making the stiff parabolic terms
   unconditionally stable while staying differentiable.
@@ -107,7 +107,7 @@ The HW flagship needs no iterative solver at all: on the doubly periodic
 grid the vorticity relation \(\zeta = \nabla_\perp^2\phi\) inverts
 algebraically in Fourier space, \(\hat\phi_k = -\hat\zeta_k/k^2\)
 (`potential_from_vorticity` in
-[`native/hasegawa_wakatani.py`](../src/jax_drb/native/hasegawa_wakatani.py)),
+[`native/hasegawa_wakatani.py`](../src/dkx/native/hasegawa_wakatani.py)),
 and the Poisson bracket is evaluated pseudo-spectrally with 2/3-rule
 dealiasing. This is why the closed-field-line turbulence lane is the fastest
 model in the package.
@@ -115,7 +115,7 @@ model in the package.
 ## Time integration
 
 - The FCI models advance with classical **RK4**
-  ([`native/fci_time_integrator.py`](../src/jax_drb/native/fci_time_integrator.py)).
+  ([`native/fci_time_integrator.py`](../src/dkx/native/fci_time_integrator.py)).
   `rk4_step` is model-agnostic over any `FciModelState` pytree and threads a
   `carry` (e.g. the warm-start \(\phi\)) plus an opaque per-stage `aux`
   payload (solver diagnostics, stage timings) through the four stage calls
@@ -131,7 +131,7 @@ model in the package.
 
 ## Multi-device parallelization (`shard_map` halo exchange)
 
-[`native/fci_sharding.py`](../src/jax_drb/native/fci_sharding.py) promotes the
+[`native/fci_sharding.py`](../src/dkx/native/fci_sharding.py) promotes the
 FCI stack to multi-device execution:
 
 - `make_shard_mesh` builds a three-axis `jax.sharding.Mesh`;
@@ -152,7 +152,7 @@ scaling and the current GPU status live on
 
 Every analytic geometry (rotating ellipse, island divertor, …) supplies only
 its embedding map \(u = (x,\theta,\zeta) \mapsto (X,Y,Z)\);
-[`geometry/embedding.py`](../src/jax_drb/geometry/embedding.py) computes the
+[`geometry/embedding.py`](../src/dkx/geometry/embedding.py) computes the
 covariant metric exactly as the Gram matrix of the embedding Jacobian with
 `jax.jacfwd` — \(g_{ij} = \partial_i \mathbf{X} \cdot \partial_j \mathbf{X}\),
 \(J = \sqrt{\det g}\), \(g^{ij} = (g_{ij})^{-1}\) — instead of hand-derived
@@ -161,17 +161,17 @@ metric formulas. Because the metric is built by autodiff, it is itself
 gate is `tests/test_rotating_ellipse_fci.py`). Imported geometries (ESSOS
 coils/VMEC, VMEC-extender field grids, vmec_jax equilibria) enter through the
 adapters in
-[`geometry/essos_import.py`](../src/jax_drb/geometry/essos_import.py),
-[`geometry/vmec_extender_import.py`](../src/jax_drb/geometry/vmec_extender_import.py),
-and [`geometry/vmec_jax_import.py`](../src/jax_drb/geometry/vmec_jax_import.py).
+[`geometry/essos_import.py`](../src/dkx/geometry/essos_import.py),
+[`geometry/vmec_extender_import.py`](../src/dkx/geometry/vmec_extender_import.py),
+and [`geometry/vmec_jax_import.py`](../src/dkx/geometry/vmec_jax_import.py).
 
 ### The vmec_jax adapter
 
-[`geometry/vmec_jax_import.py`](../src/jax_drb/geometry/vmec_jax_import.py)
+[`geometry/vmec_jax_import.py`](../src/dkx/geometry/vmec_jax_import.py)
 (new in July 2026) imports [vmec_jax](https://github.com/rogeriojorge/vmec_jax)
-from an external checkout (`JAX_DRB_VMEC_JAX_ROOT`, default
+from an external checkout (`DKX_VMEC_JAX_ROOT`, default
 `~/local/vmec_jax`) the same way the ESSOS adapter does, and adds the pieces
-`jax_drb` examples need on top of a loaded `wout_*.nc` equilibrium:
+`dkx` examples need on top of a loaded `wout_*.nc` equilibrium:
 `vmec_jax_runtime_available`, `load_vmec_jax_wout`, `vmec_jax_wout_summary`
 (nfp, aspect ratio, iota profile, \(B_0\)),
 `evaluate_vmec_jax_surface_field` (\(B^\theta\), \(B^\phi\), \(|B|\) on
@@ -184,7 +184,7 @@ its surface and obeys \(d\theta/d\phi = B^\theta/B^\phi\)),
 wout `iotaf` profile to ~1e-6) and
 `examples/geometry-3D/vmec-jax/closed_open_field_lines.py` (ESSOS coil field
 with the VMEC last-closed-flux-surface overlay). The adapter is lazy and
-optional: `jax_drb` imports cleanly without vmec_jax installed.
+optional: `dkx` imports cleanly without vmec_jax installed.
 
 ## Why FCI
 
@@ -224,9 +224,9 @@ The codebase follows a small set of deliberate rules:
   curvature coefficients, the GMRES solve closures, and the MG hierarchy
   (with its prefactored coarse LU) are constructed once per geometry and
   reused every stage; only fields and dynamic BC values change per call.
-- **TOML decks at the user boundary.** The CLI (`jax_drb inspect/run`,
-  [`cli.py`](../src/jax_drb/cli.py) →
-  [`native/deck_runner.py`](../src/jax_drb/native/deck_runner.py)) parses TOML
+- **TOML decks at the user boundary.** The CLI (`dkx inspect/run`,
+  [`cli.py`](../src/dkx/cli.py) →
+  [`native/deck_runner.py`](../src/dkx/native/deck_runner.py)) parses TOML
   decks, dispatches to the native models, and serializes JSON/NPZ artifacts —
   NumPy/SciPy and file I/O live here, outside the differentiable core.
 - **Examples are flat pedagogical scripts**: imports → a PARAMETERS block →

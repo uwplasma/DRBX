@@ -22,7 +22,7 @@ tmp/
 *.pstats
 device_memory_profile.prof
 docs/data/stellarator_fci_validation_artifacts/**/data/*.npz
-.jax_drb_artifact_cache/
+.dkx_artifact_cache/
 references/baselines/reference_arrays/*.npz
 references/baselines/reference_snapshots/*.npz
 docs/data/

@@ -16,8 +16,8 @@ if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
 from analyze_EB_density import _load_eb_blob_step_history, _resolve_step_dump_dir  # noqa: E402
-from jax_drb.native.fci_drb_EB_rhs import FciDrbEBState, _multiply_local_stencils  # noqa: E402
-from jax_drb.native.fci_operators import grad_parallel_op_direct  # noqa: E402
+from dkx.native.fci_drb_EB_rhs import FciDrbEBState, _multiply_local_stencils  # noqa: E402
+from dkx.native.fci_operators import grad_parallel_op_direct  # noqa: E402
 from test_shifted_torus_EB_blob import (  # noqa: E402
     PERIODIC_AXES,
     _eb_blob_artifact_stem,

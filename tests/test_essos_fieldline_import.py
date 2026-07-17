@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.geometry import (
+from dkx.geometry import (
     FciMaps,
     MetricTensor3D,
     build_essos_imported_fci_geometry,
@@ -21,7 +21,7 @@ from jax_drb.geometry import (
     resolve_essos_landreman_qa_json,
     resolve_essos_landreman_qa_wout,
 )
-from jax_drb.validation import (
+from dkx.validation import (
     build_essos_imported_connection_length_refinement_diagnostics,
     build_essos_imported_drb_movie_refinement_diagnostics,
     build_essos_imported_drb_movie_refinement_next_campaign,
@@ -44,15 +44,15 @@ from jax_drb.validation import (
     create_essos_vmec_fieldline_surface_package,
     save_essos_imported_fci_source_profile_gate_plot,
 )
-from jax_drb.validation.essos_vmec_closed_field_campaign import (
+from dkx.validation.essos_vmec_closed_field_campaign import (
     build_essos_vmec_closed_field_report,
 )
-from jax_drb.validation.essos_vmec_closed_field_transient_campaign import (
+from dkx.validation.essos_vmec_closed_field_transient_campaign import (
     build_essos_vmec_closed_field_transient_campaign,
 )
-import jax_drb.validation.essos_imported_fci_campaign as imported_fci_campaign
-import jax_drb.validation.essos_imported_drb_movie_campaign as imported_movie_campaign
-import jax_drb.geometry.essos_import as essos_import
+import dkx.validation.essos_imported_fci_campaign as imported_fci_campaign
+import dkx.validation.essos_imported_drb_movie_campaign as imported_movie_campaign
+import dkx.geometry.essos_import as essos_import
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -144,7 +144,7 @@ def _vmec_closed_transient_test_geometry(
 
 
 def _has_essos_landreman_runtime() -> bool:
-    if os.environ.get("JAX_DRB_RUN_ESSOS_TESTS") != "1":
+    if os.environ.get("DKX_RUN_ESSOS_TESTS") != "1":
         return False
     try:
         resolve_essos_landreman_qa_json()
@@ -587,7 +587,7 @@ def test_essos_imported_drb_movie_refinement_summary_package_reads_reports(tmp_p
     first_path.write_text(json.dumps(first), encoding="utf-8")
     second_path.write_text(json.dumps(second), encoding="utf-8")
 
-    from jax_drb.validation import create_essos_imported_drb_movie_refinement_summary_package
+    from dkx.validation import create_essos_imported_drb_movie_refinement_summary_package
 
     artifacts = create_essos_imported_drb_movie_refinement_summary_package(
         output_root=tmp_path / "summary",
@@ -1987,7 +1987,7 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     )
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     assert report["passed"] is True
-    assert report["source"] == "ESSOS-imported field-line maps with jax_drb FCI closures"
+    assert report["source"] == "ESSOS-imported field-line maps with dkx FCI closures"
     assert report["endpoint_length_diagnostics"]["passed"] is True
     assert report["target_label_diagnostics"]["passed"] is True
     assert report["target_label_diagnostics"]["endpoint_count_matches_target_labels"] is True
@@ -2305,7 +2305,7 @@ def test_essos_imported_maps_feed_pytree_jvp_rhs_gate(tmp_path: Path) -> None:
 
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     assert report["passed"] is True
-    assert report["source"] == "ESSOS-imported field-line maps with JAXDRB fixed-layout PyTree RHS"
+    assert report["source"] == "ESSOS-imported field-line maps with DKX fixed-layout PyTree RHS"
     assert report["jvp_relative_error"] < 1.0e-2
     assert report["vmap_serial_linf"] < 1.0e-6
     assert artifacts.arrays_npz_path.exists()
@@ -2330,7 +2330,7 @@ def test_essos_imported_maps_generate_drb_movie_gate(tmp_path: Path) -> None:
 
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     assert report["passed"] is True
-    assert report["source"] == "ESSOS-imported Landreman-Paul QA coil FCI maps with JAXDRB fixed-layout DRB transient"
+    assert report["source"] == "ESSOS-imported Landreman-Paul QA coil FCI maps with DKX fixed-layout DRB transient"
     assert report["publication_ready"] is False
     assert report["movie_evidence_role"] == "movie_showcase_pending_connection_grid_time_refinement"
     assert "coil_connection_length_refinement_not_promotion_ready" in report[

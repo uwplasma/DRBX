@@ -24,7 +24,7 @@ quasi-axisymmetric stellarator (reactor scale):
    the closed surface it lives on -- with the LCFS and axis overlaid, next to
    the traced-vs-wout iota profile.
 
-Requires a vmec_jax checkout (env var JAX_DRB_VMEC_JAX_ROOT, default
+Requires a vmec_jax checkout (env var DKX_VMEC_JAX_ROOT, default
 ``~/local/vmec_jax``) and a wout file (not committed to this repo):
 
     PYTHONPATH=src python examples/geometry-3D/vmec-jax/closed_field_lines.py
@@ -39,7 +39,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from jax_drb.geometry import (
+from dkx.geometry import (
     load_vmec_jax_wout,
     trace_vmec_jax_field_lines,
     traced_rotational_transform,
@@ -64,8 +64,8 @@ OUTPUT_DIR = Path("output/vmec_jax_closed")
 # setup --------------------------------------------------------------------
 if not vmec_jax_runtime_available():
     raise SystemExit(
-        "vmec_jax is not importable. Point JAX_DRB_VMEC_JAX_ROOT at a checkout, e.g.\n"
-        "    JAX_DRB_VMEC_JAX_ROOT=~/local/vmec_jax PYTHONPATH=src python "
+        "vmec_jax is not importable. Point DKX_VMEC_JAX_ROOT at a checkout, e.g.\n"
+        "    DKX_VMEC_JAX_ROOT=~/local/vmec_jax PYTHONPATH=src python "
         "examples/geometry-3D/vmec-jax/closed_field_lines.py"
     )
 if not WOUT_PATH.exists():

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from netCDF4 import Dataset
 
-from jax_drb.validation.vmec_extender_edge_field_campaign import (
+from dkx.validation.vmec_extender_edge_field_campaign import (
     build_vmec_extender_edge_field_campaign_report,
     create_vmec_extender_edge_field_campaign_package,
 )

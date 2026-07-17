@@ -22,8 +22,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jax_drb.geometry import build_rotating_ellipse_geometry
-from jax_drb.native.fci_4_field_rhs import Fci4FieldBlobParameters
+from dkx.geometry import build_rotating_ellipse_geometry
+from dkx.native.fci_4_field_rhs import Fci4FieldBlobParameters
 
 # The four-field blob driver lives in sibling harness modules; make sure the test
 # directory is importable regardless of collection order.

@@ -1,7 +1,7 @@
 """Linear dispersion benchmarks B2 and B3 for the DRB models.
 
 Diagonalize the reduced drift-wave and shear-Alfven operators from
-``jax_drb.linear`` and compare the eigenfrequencies (and, for the drift wave,
+``dkx.linear`` and compare the eigenfrequencies (and, for the drift wave,
 the growth rate) against the analytic dispersion relations. Edit the constants
 below and run:
 
@@ -31,7 +31,7 @@ import matplotlib  # noqa: E402
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from jax_drb.linear import (  # noqa: E402
+from dkx.linear import (  # noqa: E402
     drift_wave_adiabatic_frequency,
     eigenmodes,
     resistive_drift_wave_operator,

@@ -4,7 +4,7 @@ import numpy as np
 from jax import grad
 import jax.numpy as jnp
 
-from jax_drb.validation.autodiff_diffusion import (
+from dkx.validation.autodiff_diffusion import (
     build_diffusion_autodiff_setup,
     compute_strong_scaling_points,
     finite_difference_gradient,

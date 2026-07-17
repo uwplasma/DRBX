@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from jax_drb.config.boutinp import parse_bout_input
-from jax_drb.native.mesh import (
+from dkx.config.boutinp import parse_bout_input
+from dkx.native.mesh import (
     apply_field_boundaries,
     apply_neumann_x_guards,
     apply_x_boundary,
@@ -14,7 +14,7 @@ from jax_drb.native.mesh import (
     communicate_y_guards,
     project_nonnegative_x_boundaries,
 )
-from jax_drb.runtime.run_config import RunConfiguration
+from dkx.runtime.run_config import RunConfiguration
 
 
 def test_structured_mesh_matches_expected_coordinate_convention() -> None:

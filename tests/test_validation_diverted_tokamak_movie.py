@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from netCDF4 import Dataset
 
-from jax_drb.validation.diverted_tokamak_movie import (
+from dkx.validation.diverted_tokamak_movie import (
     assemble_tokamak_rank_history,
     create_diverted_tokamak_movie_package_from_arrays,
     load_diverted_tokamak_arrays_npz,
@@ -126,15 +126,15 @@ def test_diverted_tokamak_package_can_be_regenerated_from_saved_arrays(
         return target
 
     monkeypatch.setattr(
-        "jax_drb.validation.diverted_tokamak_movie.save_diverted_tokamak_snapshot_panel",
+        "dkx.validation.diverted_tokamak_movie.save_diverted_tokamak_snapshot_panel",
         fake_writer,
     )
     monkeypatch.setattr(
-        "jax_drb.validation.diverted_tokamak_movie.save_diverted_tokamak_poster_frame",
+        "dkx.validation.diverted_tokamak_movie.save_diverted_tokamak_poster_frame",
         fake_writer,
     )
     monkeypatch.setattr(
-        "jax_drb.validation.diverted_tokamak_movie.save_diverted_tokamak_gif",
+        "dkx.validation.diverted_tokamak_movie.save_diverted_tokamak_gif",
         fake_writer,
     )
 

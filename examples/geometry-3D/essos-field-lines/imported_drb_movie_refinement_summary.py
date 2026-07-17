@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
-from jax_drb.validation import create_essos_imported_drb_movie_refinement_summary_package
+from dkx.validation import create_essos_imported_drb_movie_refinement_summary_package
 
 
 # SIMSOPT-style user parameters: edit these first, then run this file.

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from jax_drb.config.boutinp import parse_bout_input
-from jax_drb.runtime.scheduler import Scheduler, expand_component_requests
+from dkx.config.boutinp import parse_bout_input
+from dkx.runtime.scheduler import Scheduler, expand_component_requests
 
 
 def test_expand_component_requests_splits_typed_species() -> None:

@@ -23,8 +23,8 @@ from pathlib import Path
 
 import numpy as np
 
-from jax_drb.geometry import build_synthetic_stellarator_geometry
-from jax_drb.validation import build_stellarator_fci_geometry_report, save_stellarator_fci_geometry_plot
+from dkx.geometry import build_synthetic_stellarator_geometry
+from dkx.validation import build_stellarator_fci_geometry_report, save_stellarator_fci_geometry_plot
 
 # --- PARAMETERS ------------------------------------------------------------------
 OUTPUT_ROOT = Path("docs/data/stellarator_fci_example_artifacts/geometry")  # artifact root (cwd-relative)

@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jax_drb.runtime import configure_jax_runtime
-from jax_drb.validation import (
+from dkx.runtime import configure_jax_runtime
+from dkx.validation import (
     create_essos_vmec_closed_field_dry_run_package,
     create_essos_vmec_closed_field_package,
     create_essos_vmec_closed_field_transient_dry_run_package,

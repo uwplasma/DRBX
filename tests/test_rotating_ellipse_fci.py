@@ -21,16 +21,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.geometry import (
+from dkx.geometry import (
     FciGeometry3D,
     FciMaps3D,
     build_rotating_ellipse_geometry,
     logical_grid_from_axis_vectors,
     rotating_ellipse_position,
 )
-from jax_drb.geometry.fci_geometry import build_fci_maps_from_b_contravariant
-from jax_drb.native import LocalStencil1D, LocalStencil3D
-from jax_drb.native.fci_operators import grad_parallel_op_direct, grad_parallel_op_fci
+from dkx.geometry.fci_geometry import build_fci_maps_from_b_contravariant
+from dkx.native import LocalStencil1D, LocalStencil3D
+from dkx.native.fci_operators import grad_parallel_op_direct, grad_parallel_op_fci
 
 jax.config.update("jax_enable_x64", True)
 

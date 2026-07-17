@@ -6,7 +6,7 @@ import zipfile
 
 import pytest
 
-from jax_drb.runtime import artifacts
+from dkx.runtime import artifacts
 
 
 def _write_zip(path: Path, members: dict[str, bytes]) -> None:
@@ -35,7 +35,7 @@ def test_ensure_docs_media_restores_release_bundle(
         calls.append((url, destination, asset_name))
         shutil.copyfile(source_archive, destination)
 
-    monkeypatch.delenv("JAX_DRB_OFFLINE_ARTIFACTS", raising=False)
+    monkeypatch.delenv("DKX_OFFLINE_ARTIFACTS", raising=False)
     monkeypatch.setattr(artifacts, "_download_release_asset", fake_download)
 
     restored = artifacts.ensure_docs_media(root=root)
@@ -44,7 +44,7 @@ def test_ensure_docs_media_restores_release_bundle(
     assert calls == [
         (
             f"{artifacts.ARTIFACT_BASE_URL}/{artifacts.DOCS_MEDIA_ASSET}",
-            root / ".jax_drb_artifact_cache" / artifacts.DOCS_MEDIA_ASSET,
+            root / ".dkx_artifact_cache" / artifacts.DOCS_MEDIA_ASSET,
             artifacts.DOCS_MEDIA_ASSET,
         )
     ]
@@ -72,9 +72,9 @@ def test_ensure_docs_media_uses_configured_cache_dir(
         calls.append(destination)
         shutil.copyfile(source_archive, destination)
 
-    monkeypatch.setenv("JAX_DRB_ARTIFACT_CACHE_DIR", str(cache_dir))
-    monkeypatch.delenv("JAX_DRB_ARTIFACT_CACHE", raising=False)
-    monkeypatch.delenv("JAX_DRB_OFFLINE_ARTIFACTS", raising=False)
+    monkeypatch.setenv("DKX_ARTIFACT_CACHE_DIR", str(cache_dir))
+    monkeypatch.delenv("DKX_ARTIFACT_CACHE", raising=False)
+    monkeypatch.delenv("DKX_OFFLINE_ARTIFACTS", raising=False)
     monkeypatch.setattr(artifacts, "_download_release_asset", fake_download)
 
     restored = artifacts.ensure_docs_media(root=root)
@@ -104,7 +104,7 @@ def test_ensure_docs_media_is_noop_when_sentinels_exist(
 def test_ensure_docs_media_honors_offline_mode(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("JAX_DRB_OFFLINE_ARTIFACTS", "1")
+    monkeypatch.setenv("DKX_OFFLINE_ARTIFACTS", "1")
 
     with pytest.raises(FileNotFoundError, match="Docs media are not present"):
         artifacts.ensure_docs_media(root=tmp_path / "repo")
@@ -140,8 +140,8 @@ def test_urllib_download_retries_with_configured_timeout(
             raise TimeoutError("transient release-asset timeout")
         return FakeResponse(b"downloaded")
 
-    monkeypatch.setenv("JAX_DRB_ARTIFACT_DOWNLOAD_TIMEOUT", "0.5")
-    monkeypatch.setenv("JAX_DRB_ARTIFACT_DOWNLOAD_ATTEMPTS", "2")
+    monkeypatch.setenv("DKX_ARTIFACT_DOWNLOAD_TIMEOUT", "0.5")
+    monkeypatch.setenv("DKX_ARTIFACT_DOWNLOAD_ATTEMPTS", "2")
     monkeypatch.setattr(artifacts.urllib.request, "urlopen", flaky_urlopen)
     monkeypatch.setattr(artifacts.time, "sleep", lambda seconds: None)
 

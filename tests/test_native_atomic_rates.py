@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.native.neutrals.atomic_rates import (
+from dkx.native.neutrals.atomic_rates import (
     charge_exchange_rate_coefficient,
     energy_loss_coefficient,
     rate_coefficient,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from jax_drb.config.boutinp import ROOT_SECTION, NumericResolver, apply_bout_overrides, load_bout_input, parse_bout_input, parse_toml_input
+from dkx.config.boutinp import ROOT_SECTION, NumericResolver, apply_bout_overrides, load_bout_input, parse_bout_input, parse_toml_input
 
 
 def test_parser_preserves_section_and_key_order() -> None:

@@ -1,6 +1,6 @@
 """Differentiable inverse design through drift-wave turbulence.
 
-Physics. The Hasegawa-Wakatani model in ``jax_drb.native.hasegawa_wakatani``
+Physics. The Hasegawa-Wakatani model in ``dkx.native.hasegawa_wakatani``
 is written entirely in JAX, so the gradient of any diagnostic of a turbulence
 run with respect to any model parameter is available by automatic
 differentiation -- through the whole nonlinear time evolution. This example
@@ -37,7 +37,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from jax_drb.native.hasegawa_wakatani import (  # noqa: E402
+from dkx.native.hasegawa_wakatani import (  # noqa: E402
     HasegawaWakataniParameters,
     hw_grid,
     hw_run,

@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jax-drb"
+name = "dkx"
 version = "2.0.0.dev0"
 description = "JAX-first edge and scrape-off-layer plasma code with differentiable, hardware-agnostic solver infrastructure."
 readme = "README.md"
@@ -31,8 +31,7 @@ dev = ["pytest", "pytest-cov", "pytest-xdist"]
 docs = ["mkdocs", "pymdown-extensions"]
 
 [project.scripts]
-jax-drb = "jax_drb.cli:main"
-jax_drb = "jax_drb.cli:main"
+dkx = "dkx.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -41,7 +40,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-"jax_drb.data.atomic_rates" = ["*.json"]
+"dkx.data.atomic_rates" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -51,7 +50,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["src/jax_drb"]
+source = ["src/dkx"]
 
 [tool.coverage.report]
 show_missing = true

@@ -27,7 +27,7 @@ from pathlib import Path
 import numpy as np
 from matplotlib import pyplot as plt
 
-from jax_drb.geometry import build_synthetic_stellarator_geometry
+from dkx.geometry import build_synthetic_stellarator_geometry
 
 # --- PARAMETERS ------------------------------------------------------------------
 OUTPUT_ROOT = Path("docs/data/stellarator_fci_example_artifacts/nonlinear_turbulence")  # artifact root (cwd-relative)

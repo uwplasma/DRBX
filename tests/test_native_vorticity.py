@@ -3,17 +3,17 @@ from __future__ import annotations
 import numpy as np
 from jax import grad, jit
 
-from jax_drb.config.boutinp import parse_bout_input
-from jax_drb.native.expression import ArrayExpressionEvaluator
-from jax_drb.native.mesh import broadcast_to_field_shape, build_structured_mesh
-from jax_drb.native.metrics import build_structured_metrics
-from jax_drb.native.vorticity import (
+from dkx.config.boutinp import parse_bout_input
+from dkx.native.expression import ArrayExpressionEvaluator
+from dkx.native.mesh import broadcast_to_field_shape, build_structured_mesh
+from dkx.native.metrics import build_structured_metrics
+from dkx.native.vorticity import (
     apply_vorticity_boundaries,
     build_vorticity_operator,
     compute_vorticity_rhs,
     solve_potential,
 )
-from jax_drb.runtime.run_config import RunConfiguration
+from dkx.runtime.run_config import RunConfiguration
 
 
 _VORTICITY_INPUT = """
