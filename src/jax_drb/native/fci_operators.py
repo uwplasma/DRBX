@@ -3561,8 +3561,16 @@ class PerpLaplacianInverseSolver:
             def precond(flat: jnp.ndarray) -> jnp.ndarray:
                 return jnp.ravel(mg_apply_preconditioner(jnp.reshape(flat, shape), self.mg_hierarchy))
 
-        cycle = max(1, min(int(self.restart), int(self.maxiter)))
-        max_restarts = max(1, -(-int(self.maxiter) // cycle))
+        # ``maxiter`` counts restart cycles (the semantics of the previous
+        # backend, whose ``max_steps`` was outer cycles of length ``restart``),
+        # so the total inner-iteration budget is ``maxiter * restart``. The
+        # Krylov cycle is additionally capped at 64: solvax's fixed-shape
+        # Arnoldi pays O(cycle) orthogonalization work per iteration whether or
+        # not the slots are used, so very long requested cycles cost real time;
+        # the cap preserves the total budget by adding restarts.
+        budget = max(1, int(self.maxiter)) * max(1, int(self.restart))
+        cycle = max(1, min(int(self.restart), 64))
+        max_restarts = max(1, -(-budget // cycle))
         solution = solvax_gmres(
             matvec,
             jnp.ravel(rhs),
