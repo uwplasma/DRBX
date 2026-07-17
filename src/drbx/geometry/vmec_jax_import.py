@@ -65,7 +65,10 @@ def vmec_jax_runtime_available(*, vmec_jax_root: str | Path | None = None) -> bo
 
     try:
         _import_vmec_jax_modules(vmec_jax_root=vmec_jax_root)
-    except (ImportError, ModuleNotFoundError, AttributeError):
+    except Exception:
+        # A broken-but-present checkout (e.g. a vmec_jax pinned to a different
+        # jax version whose pytree registration now raises) must read as
+        # unavailable, not crash the optional adapter's callers.
         return False
     return True
 
