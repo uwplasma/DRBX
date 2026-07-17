@@ -22,7 +22,7 @@ solver. To our knowledge no other published DRB SOL turbulence code is
 differentiable, and none combines differentiability with FCI stellarator
 geometry.
 
-Documentation: [drbx.readthedocs.io](https://drbx.readthedocs.io/).
+Documentation: [drbx.readthedocs.io](https://drbx.readthedocs.io/en/latest/).
 
 ## Stellarator turbulence in three dimensions
 
@@ -33,12 +33,16 @@ every frame is a `jit`-compiled, differentiable JAX step:
 
 ![Stellarator turbulence in 3D](docs/media/stellarator_3d_turbulence.gif)
 
+*Reproduce with [`examples/stellarator/stellarator_3d_render.py`](examples/stellarator/stellarator_3d_render.py).*
+
 The same geometry supports closed and open field lines: core field lines (blue)
 stay on flux surfaces, while beyond a toroidal limiter the scrape-off-layer
 field lines (red) end on the limiter plate, where a Bohm sheath drains the
 plasma:
 
 ![Closed and open field lines in 3D](docs/media/stellarator_3d_field_lines.png)
+
+*Reproduce with [`examples/stellarator/stellarator_3d_render.py`](examples/stellarator/stellarator_3d_render.py).*
 
 ## Install
 
@@ -89,6 +93,8 @@ because the flux surfaces rotate:
 
 ![Stellarator SOL turbulence, open](docs/media/stellarator_turbulence_open.gif)
 
+*Reproduce with [`examples/stellarator/stellarator_turbulence.py`](examples/stellarator/stellarator_turbulence.py).*
+
 **Island divertor.** A sheared rotational transform with resonant perturbations
 forms island chains and a stochastic edge. The open scrape-off layer emerges
 from the field itself: multi-transit field-line tracing marks the finite
@@ -96,16 +102,21 @@ connection-length region, and the turbulence drains through it:
 
 ![Island divertor](docs/media/island_divertor.png)
 
+*Reproduce with [`examples/stellarator/island_divertor.py`](examples/stellarator/island_divertor.py).*
+
 **Imported fields: real coils and VMEC equilibria.** The same closed/open
 field-line machinery runs on imported fields: the vacuum Biot-Savart field of
 the Landreman-Paul quasi-axisymmetric coil set (via ESSOS) shows nested closed
 surfaces inside a chaotic open edge, and a VMEC equilibrium (via vmec_jax)
 provides closed surfaces whose traced rotational transform matches the
-equilibrium's `iotaf` profile to ~1e-6:
+equilibrium's `iotaf` profile to ~1e-6 — with the open scrape-off-layer lines
+traced to their exit from the confined region:
 
 | Coil field (closed core, open edge) | VMEC equilibrium + coil-field SOL |
 |---|---|
 | ![Landreman-Paul coils Poincare](docs/media/closed_open_vacuum_poincare.png) | ![VMEC closed and open field lines](docs/media/vmec_jax_closed_open_field_lines.png) |
+
+*Reproduce with [`examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py`](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) (left) and [`examples/geometry-3D/vmec-jax/closed_open_field_lines.py`](examples/geometry-3D/vmec-jax/closed_open_field_lines.py) (right).*
 
 **Neutrals and detachment.** The open SOL flux tube reaches the two-point Bohm
 steady state; the hermes-3 neutral model (packaged AMJUEL atomic rates, target
@@ -117,7 +128,11 @@ detaches — the target cools through 1 eV and the target ion flux rolls over
 |---|---|
 | ![Open SOL flux tube](docs/media/open_sol_flux_tube.png) | ![Recycling SOL](docs/media/recycling_sol.png) |
 
+*Reproduce with [`examples/sol/open_sol_flux_tube.py`](examples/sol/open_sol_flux_tube.py) (left) and [`examples/sol/recycling_sol.py`](examples/sol/recycling_sol.py) (right).*
+
 ![Detachment rollover](docs/media/b6_detachment.png)
+
+*Reproduce with [`examples/benchmarks/b6_detachment_rollover.py`](examples/benchmarks/b6_detachment_rollover.py).*
 
 ## Gradient-based optimization through the physics
 
@@ -131,6 +146,8 @@ Newton iteration walks down the detachment cliff to the threshold:
 
 ![Detachment control](docs/media/detachment_control.png)
 
+*Reproduce with [`examples/autodiff/detachment_control.py`](examples/autodiff/detachment_control.py).*
+
 A second example: **turbulence optimization** — find the adiabaticity (the
 parallel electron conductivity) at which saturated drift-wave transport drops
 to a quarter of its hydrodynamic-regime level, the classic
@@ -142,6 +159,8 @@ reduction against the 4x target. Left column: the initial hydrodynamic state;
 right column: the optimized adiabatic state:
 
 ![Hasegawa-Wakatani optimization](docs/media/hasegawa_wakatani_optimization.png)
+
+*Reproduce with [`examples/tokamak/hasegawa_wakatani_optimization.py`](examples/tokamak/hasegawa_wakatani_optimization.py).*
 
 The same machinery recovers a transport-drive parameter by gradient descent
 through nonlinear drift-wave turbulence
@@ -164,6 +183,8 @@ step time on one CPU
 |---|---|
 | ![Performance](docs/media/performance.png) | ![Differentiation methods](docs/media/differentiation_methods.png) |
 
+*Reproduce with [`examples/benchmarks/performance_benchmark.py`](examples/benchmarks/performance_benchmark.py) (left) and [`examples/autodiff/differentiation_methods.py`](examples/autodiff/differentiation_methods.py) (right).*
+
 The FCI stack runs across devices with `shard_map`: the sharded step is
 bit-exact against single-device execution, and on a 36-core host with one core
 per shard a 1.05M-cell step reaches a 7.4x speedup at 16 shards; the same step
@@ -172,6 +193,8 @@ on one NVIDIA A4000 GPU runs ~96x faster than a single CPU shard
 
 ![Strong scaling](docs/media/strong_scaling.png)
 
+*Reproduce with [`examples/benchmarks/fci_sharded_strong_scaling.py`](examples/benchmarks/fci_sharded_strong_scaling.py).*
+
 ## Hasegawa-Wakatani benchmark
 
 The standard two-field drift-wave turbulence benchmark: grown from noise
@@ -179,35 +202,19 @@ through the linear instability (growth rate verified against the analytic
 dispersion relation to ~1e-14) into nonlinear E×B transport. Detailed
 verification figures — dispersion scans, MMS convergence orders, and
 gradient-vs-finite-difference checks — are in the
-[documentation](https://drbx.readthedocs.io/):
+[documentation](https://drbx.readthedocs.io/en/latest/):
 
 ![Drift-wave turbulence](docs/media/drift_wave_turbulence.gif)
 
+*Reproduce with [`examples/tokamak/drift_wave_turbulence.py`](examples/tokamak/drift_wave_turbulence.py).*
+
 ## Reproducing the figures and movies
 
-Every figure and movie above is generated by one script in
-[`examples/`](examples/), each a flat pedagogical file: all parameters at the
-top with comments, explicit model/geometry/boundary-condition setup through the
-public API, progress printed while it runs, plot written at the end.
-
-| Figure / movie | Script |
-|---|---|
-| 3D turbulence cutaway movie + field-line topology | [`examples/stellarator/stellarator_3d_render.py`](examples/stellarator/stellarator_3d_render.py) |
-| Closed / open turbulence cross-section movies | [`examples/stellarator/stellarator_turbulence.py`](examples/stellarator/stellarator_turbulence.py) |
-| Island divertor (Poincare, connection lengths, drain) | [`examples/stellarator/island_divertor.py`](examples/stellarator/island_divertor.py) |
-| Landreman-Paul coil-field Poincare | [`examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py`](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) |
-| VMEC closed + open field lines | [`examples/geometry-3D/vmec-jax/closed_open_field_lines.py`](examples/geometry-3D/vmec-jax/closed_open_field_lines.py) |
-| Open SOL flux tube | [`examples/sol/open_sol_flux_tube.py`](examples/sol/open_sol_flux_tube.py) |
-| Recycling SOL with neutrals | [`examples/sol/recycling_sol.py`](examples/sol/recycling_sol.py) |
-| Detachment rollover (SD1D benchmark) | [`examples/benchmarks/b6_detachment_rollover.py`](examples/benchmarks/b6_detachment_rollover.py) |
-| Detachment control by autodiff | [`examples/autodiff/detachment_control.py`](examples/autodiff/detachment_control.py) |
-| Turbulence optimization (two-column) | [`examples/tokamak/hasegawa_wakatani_optimization.py`](examples/tokamak/hasegawa_wakatani_optimization.py) |
-| Turbulence performance panels | [`examples/benchmarks/performance_benchmark.py`](examples/benchmarks/performance_benchmark.py) |
-| Differentiation-method costs | [`examples/autodiff/differentiation_methods.py`](examples/autodiff/differentiation_methods.py) |
-| Strong scaling (CPU shards + GPU) | [`examples/benchmarks/fci_sharded_strong_scaling.py`](examples/benchmarks/fci_sharded_strong_scaling.py) |
-| Drift-wave turbulence movie | [`examples/tokamak/drift_wave_turbulence.py`](examples/tokamak/drift_wave_turbulence.py) |
-
-The embedded copies live compressed in `docs/media/`; the scripts regenerate
+Every figure and movie above states the script that generates it. Each is a
+flat pedagogical file in [`examples/`](examples/): all parameters at the top
+with comments, explicit model/geometry/boundary-condition setup through the
+public API, progress printed while it runs, plot written at the end. The
+embedded copies live compressed in `docs/media/`; the scripts regenerate
 full-quality versions under `output/`.
 
 ## What it does
@@ -247,7 +254,7 @@ Verified today (each with a passing test):
 | Differentiable inverse design | — | gradient descent through turbulence recovers a drive parameter |
 
 Planned rungs (seeded-blob inertial scaling and others) are
-tracked in [`plan_drbx.md`](plan_drbx.md); benchmark reports live under
+tracked in the project planning notes; benchmark reports live under
 [docs/](docs/linear_dispersion_benchmark.md) and
 [docs/validation_gallery.md](docs/validation_gallery.md).
 
@@ -331,12 +338,13 @@ CI runs the full fast suite on Python 3.10–3.12.
 
 ## Releases
 
-Changes are recorded in [CHANGELOG.md](CHANGELOG.md); the current development
-series is [docs/release_notes_2_0_0_dev0.md](docs/release_notes_2_0_0_dev0.md).
+The current development series is described in
+[docs/release_notes_2_0_0_dev0.md](docs/release_notes_2_0_0_dev0.md).
 
 ## Citing
 
-If you use `drbx`, please cite it via [CITATION.cff](CITATION.cff).
+If you use DRBX in published work, please cite this repository
+(https://github.com/uwplasma/DRBX).
 
 ## License
 

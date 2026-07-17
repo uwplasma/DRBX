@@ -63,7 +63,6 @@ nav:
       - VMEC Extender Edge Fields: vmec_extender_edge_fields.md
       - ESSOS Field-Line Import: essos_fieldline_import.md
       - ESSOS Imported FCI Validation: essos_imported_fci_validation.md
-      - Non-Axisymmetric SOL Plan: non_axisymmetric_stellarator_sol_plan.md
   - Validation:
       - Validation Gallery: validation_gallery.md
       - Fluid 1D MMS Convergence: fluid_1d_mms_convergence.md
@@ -72,7 +71,6 @@ nav:
       - Drift-Wave Turbulence: drift_wave_turbulence.md
   - Plans And Release:
       - Testing Strategy: testing_strategy.md
-      - Research-Grade Execution Plan: research_grade_execution_plan.md
       - Geometry Roadmap: geometry_roadmap.md
       - Release Packaging: release_packaging.md
       - Release Notes 2.0.0.dev0: release_notes_2_0_0_dev0.md

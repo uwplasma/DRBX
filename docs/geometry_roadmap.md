@@ -1,17 +1,9 @@
 # Geometry Roadmap
 
-!!! note "Plan authority"
-    This page is a subordinate technical appendix. The active execution plan is
-    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
-    roadmap conflicts with that plan, follow the execution plan and update this
-    appendix afterward.
-
 This page records how the `drbx` 3D program should stay geometry-agnostic while still shipping benchmark-specific validation packages.
 
-For the detailed implementation plan for native non-axisymmetric stellarator SOL turbulence, including FCI metrics, equations, validation gates, and README movie targets, see [Non-Axisymmetric Stellarator SOL Implementation Plan](non_axisymmetric_stellarator_sol_plan.md).
-
-The active execution sequence is not defined here. It is defined in
-[research_grade_execution_plan.md](research_grade_execution_plan.md).
+The active execution sequence is not defined here; it is tracked in the
+project planning notes.
 As of the June 22, 2026 plan consolidation, the active 3D sequence is:
 direct ESSOS-coil open-field diagnostics and direct-coil closed controls on
 `main`, VMEC closed-field controls, hybrid VMEC/coil open-SOL promotion, then

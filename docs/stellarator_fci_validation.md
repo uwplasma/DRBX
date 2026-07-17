@@ -1,12 +1,5 @@
 # Stellarator FCI Validation And Reduced SOL Dynamics
 
-!!! note "Plan authority"
-    This page documents a validation campaign and reduced dynamics lane. The
-    active execution plan is
-    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
-    page conflicts with that plan, follow the execution plan and update this
-    page afterward.
-
 !!! note "Figures are release-hosted"
     The campaign figures referenced below live on the
     `validation-artifacts-2026-04-28` GitHub release. Because this repository

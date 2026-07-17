@@ -1,11 +1,5 @@
 # Performance And Differentiability
 
-!!! note "Plan authority"
-    This page explains current performance and differentiability evidence. The
-    active execution plan is [`plan_drbx.md`](../plan_drbx.md) at the
-    repository root. If this page conflicts with that plan, follow the plan and
-    update this page afterward.
-
 This page records the current fast paths, the current differentiable paths, and
 the reproducible profiling workflow.
 

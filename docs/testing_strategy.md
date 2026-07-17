@@ -3,12 +3,6 @@
 This page explains how `drbx` should be tested during the refactor and what
 counts as meaningful evidence for a research-grade release.
 
-!!! note "Plan authority"
-    This page is a testing-policy appendix. The active execution plan is
-    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
-    page conflicts with that plan, follow the execution plan and update this
-    page afterward.
-
 The testing philosophy follows the verification and validation split discussed
 in [Roy 2005](https://www.sciencedirect.com/science/article/pii/S0021999104004747)
 and the practice used in major edge/SOL codes such as

@@ -1,12 +1,5 @@
 # Code Structure
 
-!!! note "Plan authority"
-    This page is a developer map and structural context appendix. The active
-    execution plan is
-    [Research-Grade Execution Plan](research_grade_execution_plan.md). If this
-    page conflicts with that plan, follow the execution plan and update this
-    page afterward.
-
 This page is the developer-facing map of the `drbx` source tree. The goal is
 to make the package understandable before reading the solver files or the
 validation campaigns in detail.
@@ -85,7 +78,7 @@ split cleanly on disk:
 
 ## Structure And Direction
 
-The active plan (`plan_drbx.md`, repository root) keeps the code focused on
+The project planning notes keep the code focused on
 the accuracy-tested core: the compact native deck models, the Hasegawa-Wakatani
 flagship, the FCI operator stack on tokamak and non-axisymmetric geometry, the
 linear dispersion solver, and the imported-geometry adapters. New physics is
