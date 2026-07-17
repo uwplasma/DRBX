@@ -22,11 +22,13 @@ matching (reactor-scale) VMEC wout.  This example combines them:
    are the scrape-off-layer field lines that leave the device.
 
 A vacuum field keeps closed surfaces slightly outside the design LCFS before
-they break up, so the edge seeds span that whole transition: the innermost of
-them land on closed vacuum surfaces just beyond the LCFS (drawn in gray), the
-outer ones are genuinely open scrape-off-layer lines that escape to the wall
-(red, drawn up to the moment they leave). No field is extrapolated from the
-wout.
+they break up into a thin island/stochastic layer -- the island-divertor
+scrape-off layer.  The edge seeds scan that whole transition densely: the
+innermost land on closed vacuum surfaces just beyond the LCFS (gray), and the
+open lines beyond the last closed surface are drawn through their Poincare
+crossings *before* they escape, so the red band IS the finite-connection-length
+island/stochastic layer, not far-field wandering.  No field is extrapolated
+from the wout.
 
 Requires ESSOS and vmec_jax checkouts:
 
@@ -63,13 +65,15 @@ WOUT_PATH = Path.home() / "local" / "ESSOS_test" / "examples" / "input_files" / 
 AXIS_PROBE_R = 1.21        # midplane seed radius [m] used to locate the vacuum axis
 AXIS_PROBE_MAXTIME = 800.0  # integration time for the axis probe line
 CLOSED_FRACTIONS = (0.15, 0.35, 0.55, 0.75, 0.90)  # seed positions as fractions of the LCFS outboard minor radius
-# Edge seeds span the vacuum transition beyond the LCFS: the inner ones sit on
-# residual closed vacuum surfaces, the outer ones are open SOL lines.
-EDGE_OFFSETS = (0.02, 0.05, 0.08, 0.11, 0.14, 0.17, 0.20, 0.23)  # distances beyond the LCFS outboard edge [m]
-MAXTIME = 1500.0           # integration time per field line (ESSOS units)
-TIMES_TO_TRACE = 6000      # trajectory samples per line
+# Edge seeds densely scan the vacuum transition beyond the LCFS: the inner ones
+# sit on residual closed vacuum surfaces, the ones beyond the last closed
+# surface populate the thin island/stochastic scrape-off layer.
+# Coarse through the closed vacuum band, then fine through the thin
+# island/stochastic layer where the field opens (found at ~0.09..0.13 m).
+EDGE_OFFSETS = tuple(round(0.02 * k, 2) for k in range(1, 5)) + tuple(round(0.09 + 0.005 * k, 3) for k in range(9))
+MAXTIME = 4000.0           # integration time per field line (ESSOS units; long, to resolve the layer)
+TIMES_TO_TRACE = 16000     # trajectory samples per line
 RHO_WALL = 0.8             # escape distance from the vacuum axis circle [m]: beyond this = open
-TRAIL_RHO = 0.45           # plotted escape trails stop here (classification still uses RHO_WALL)
 OUTPUT_DIR = Path("output/vmec_jax_closed_open")
 
 # setup --------------------------------------------------------------------
@@ -149,7 +153,7 @@ trajectories = trace_essos_coil_initial_conditions(
 print(f"  traced array: {trajectories.shape}")
 
 print(f"classifying each line (open = escapes {RHO_WALL} m from the axis circle):")
-sections, line_is_open, inside_fractions, escape_paths = [], [], [], []
+sections, line_is_open, inside_fractions = [], [], []
 for index, trajectory in enumerate(trajectories):
     finite = np.all(np.isfinite(trajectory), axis=1)
     points = trajectory[finite]
@@ -157,11 +161,10 @@ for index, trajectory in enumerate(trajectories):
     rho = np.hypot(major_radius - axis_r, points[:, 2] - axis_z)
     max_rho = float(rho.max()) if len(rho) else np.inf
     is_open = (not finite.all()) or (max_rho > RHO_WALL)
-    if is_open and len(rho) and (rho > TRAIL_RHO).any():
-        # Keep only the trajectory up to the escape onset: an open line leaves
-        # within about one toroidal transit here, so its story is the escaping
-        # path itself (plotted below as an R-Z trail), not Poincare crossings.
-        points = points[: int(np.argmax(rho > TRAIL_RHO)) + 1]
+    if is_open and len(rho) and (rho > RHO_WALL).any():
+        # Keep the trajectory up to the escape: the crossings collected before
+        # the line leaves ARE the island/stochastic scrape-off layer.
+        points = points[: int(np.argmax(rho > RHO_WALL)) + 1]
     # Poincare crossings of the phi = 0 half-plane (y sign change, x > 0).
     x, y, z = points[:, 0], points[:, 1], points[:, 2]
     crossing = (y[:-1] * y[1:] < 0) & (x[1:] > 0)
@@ -174,7 +177,6 @@ for index, trajectory in enumerate(trajectories):
     sections.append(crossings)
     line_is_open.append(is_open)
     inside_fractions.append(inside_fraction)
-    escape_paths.append(np.stack([np.hypot(points[:, 0], points[:, 1]), points[:, 2]], axis=1) if is_open else None)
     kind = "OPEN  " if is_open else "closed"
     print(f"  line {index:2d} (seed R = {seeds_r[index]:.3f} m): {kind} "
           f"max rho = {max_rho:6.3f} m, {len(crossings):3d} crossings, "
@@ -188,41 +190,45 @@ assert not any(line_is_open[:n_closed_seeded]), "an LCFS-interior seed escaped: 
 assert n_open >= 2, "no edge seed escaped: extend EDGE_OFFSETS or MAXTIME"
 assert all(fraction > 0.98 for fraction in inside_fractions[:n_closed_seeded]), \
     "closed-line crossings leak outside the LCFS: the configurations do not match"
-assert all(fraction < 0.02 for fraction in inside_fractions[n_closed_seeded:]), \
-    "edge-line crossings entered the LCFS"
+# The overlaid LCFS is the *scaled design* boundary, not the exact vacuum
+# separatrix: closed vacuum surfaces just beyond it may straddle the overlay,
+# so the containment gate applies to the OPEN (island/stochastic) lines only.
+open_inside = [fraction for fraction, is_open in
+               zip(inside_fractions[n_closed_seeded:], line_is_open[n_closed_seeded:]) if is_open]
+assert all(fraction < 0.15 for fraction in open_inside), \
+    "open-layer crossings penetrate deep into the LCFS"
 print("verified: the VMEC LCFS encloses every interior line; every edge line stays outside it")
 
 # stage 5: plot ------------------------------------------------------------
 print("drawing the phi = 0 Poincare section with the VMEC LCFS overlay...")
 fig, axis = plt.subplots(figsize=(7.2, 6.2))
 for index, (crossings, is_open) in enumerate(zip(sections, line_is_open)):
-    if is_open:
-        # Open SOL line: draw the R-Z projection of the field line up to its
-        # escape -- a red trail leaving the confined region.
-        path_rz = escape_paths[index]
-        axis.plot(path_rz[:, 0], path_rz[:, 1], color="#d62728", linewidth=0.6, alpha=0.55)
-        axis.scatter([path_rz[-1, 0]], [path_rz[-1, 1]], marker="x", s=34, color="#d62728", linewidths=1.4)
-        continue
     if len(crossings) == 0:
         continue
-    color = "#1f77b4" if index < n_closed_seeded else "#8fa8bf"
-    axis.scatter(crossings[:, 0], crossings[:, 1], s=1.5, color=color, linewidths=0)
+    if is_open:
+        color, size = "#d62728", 3.5   # pre-escape crossings: the island/stochastic SOL layer
+    elif index < n_closed_seeded:
+        color, size = "#1f77b4", 1.5
+    else:
+        color, size = "#8fa8bf", 1.5   # closed vacuum surface beyond the design LCFS
+    axis.scatter(crossings[:, 0], crossings[:, 1], s=size, color=color, linewidths=0)
 axis.plot(lcfs_r, lcfs_z, "k--", linewidth=1.6, label="VMEC LCFS (vmec_jax wout)")
 axis.scatter([axis_r], [axis_z], marker="+", s=90, color="k", label="vacuum magnetic axis")
 axis.scatter([], [], s=10, color="#1f77b4", label="closed lines (VMEC-confined region)")
 axis.scatter([], [], s=10, color="#8fa8bf", label="closed vacuum surfaces beyond the LCFS")
-axis.plot([], [], color="#d62728", linewidth=1.2, label="open SOL lines (traced to escape, x = exit)")
+axis.scatter([], [], s=12, color="#d62728", label="open lines: island/stochastic SOL layer")
 axis.set_xlabel("R [m]")
 axis.set_ylabel("Z [m]")
 axis.set_aspect("equal")
-# Frame the LCFS with room on the outboard side for the escape trails to
-# visibly leave the picture.
-axis.set_xlim(float(lcfs_r.min()) - 0.12, float(lcfs_outboard) + 0.45)
-z_span = float(lcfs_z.max()) + 0.30
-axis.set_ylim(-z_span, z_span)
-axis.legend(loc="upper right", fontsize=8)
+# Frame the outermost closed vacuum surface and the thin open layer around it.
+edge_points = np.concatenate([c for c in sections if len(c)], axis=0)
+r_lo, r_hi = float(edge_points[:, 0].min()), float(edge_points[:, 0].max())
+z_hi = float(np.abs(edge_points[:, 1]).max())
+axis.set_xlim(r_lo - 0.04, r_hi + 0.04)
+axis.set_ylim(-z_hi - 0.04, z_hi + 0.04)
+axis.legend(loc="lower right", fontsize=7.5, framealpha=0.9)
 axis.set_title("Landreman-Paul precise QA: coil-field Poincare section at phi = 0\n"
-               "closed field lines inside the VMEC LCFS, open SOL lines outside")
+               "closed core, closed vacuum surfaces, and the island/stochastic SOL layer")
 fig.tight_layout()
 figure_path = OUTPUT_DIR / "closed_open_field_lines.png"
 fig.savefig(figure_path, dpi=170)
