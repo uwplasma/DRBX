@@ -190,8 +190,8 @@ PYTHONPATH=src python examples/stellarator/stellarator_turbulence.py
   and [Differentiable FCI Flux Tube](stellarator_fci_differentiable.md) take
   gradients through the FCI geometry itself.
 - **Imported equilibria**: swap the analytic ellipse for ESSOS coil fields or
-  vmec_jax equilibria (`examples/geometry-3D/essos-field-lines/`,
-  `examples/geometry-3D/vmec-jax/`); see
+  VMEX equilibria (`examples/geometry-3D/essos-field-lines/`,
+  `examples/geometry-3D/vmex/`); see
   [ESSOS Field-Line Import](essos_fieldline_import.md).
 
 Gates for this tutorial: `tests/test_rotating_ellipse_fci.py`,

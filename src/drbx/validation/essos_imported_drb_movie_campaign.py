@@ -2073,7 +2073,7 @@ def _build_essos_imported_drb_movie_report(
         **classify_essos_imported_drb_movie_evidence(map_source),
         "geometry": geometry.metadata,
         "movie_physics_grid": [int(value) for value in geometry.shape],
-        "movie_render_coordinate_model": "raw_vmec_fourier_surface_registered_to_vmec_jax_plot",
+        "movie_render_coordinate_model": "raw_vmec_fourier_surface_registered_to_vmex_plot",
         "frames": int(frames),
         "substeps_per_frame": int(substeps_per_frame),
         "dt": float(dt),

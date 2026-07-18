@@ -1,11 +1,11 @@
-"""Optional ``vmec_jax`` adapter: wout equilibria, surface fields, field lines.
+"""Optional ``vmex`` (VMEX) adapter: wout equilibria, surface fields, field lines.
 
-`vmec_jax <https://github.com/rogeriojorge/vmec_jax>`_ owns the VMEC wout
-schema (:func:`vmec_jax.core.wout.read_wout`) and the Fourier-synthesis
-conventions of VMEC2000. This adapter imports it from an external checkout
-(``DRBX_VMEC_JAX_ROOT``, defaulting to ``~/local/vmec_jax``) the same way
-:mod:`drbx.geometry.essos_import` imports ESSOS, and adds the small pieces
-`drbx` examples need on top of a loaded wout:
+`VMEX <https://github.com/uwplasma/VMEX>`_ (the JAX VMEC solver formerly named
+``vmec_jax``) owns the VMEC wout schema (:func:`vmex.core.wout.read_wout`) and
+the Fourier-synthesis conventions of VMEC2000. This adapter imports it from an
+external checkout (``DRBX_VMEX_ROOT``; if unset, a few common checkout
+locations are tried) the same way :mod:`drbx.geometry.essos_import` imports
+ESSOS, and adds the small pieces `drbx` examples need on top of a loaded wout:
 
 - equilibrium summaries (``nfp``, aspect ratio, iota profile, ``B0``);
 - contravariant magnetic-field synthesis ``B^theta``/``B^phi`` and ``|B|`` on
@@ -17,9 +17,9 @@ conventions of VMEC2000. This adapter imports it from an external checkout
 - cylindrical ``(R, Z)`` mapping of traced lines and of the LCFS boundary
   through the ``rmnc``/``zmns`` (and asymmetric partner) tables.
 
-The adapter keeps `drbx` importable without vmec_jax: everything raises
+The adapter keeps `drbx` importable without VMEX: everything raises
 ``ImportError``/``FileNotFoundError`` lazily and
-:func:`vmec_jax_runtime_available` reports availability without raising.
+:func:`vmex_runtime_available` reports availability without raising.
 """
 
 from __future__ import annotations
@@ -34,24 +34,36 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-_PRIVATE_DEFAULT_VMEC_JAX_ROOT = Path.home() / "local" / "vmec_jax"
+# Common local checkout locations for VMEX (the package is ``vmex``; the
+# checkout directory is sometimes still the legacy ``vmec_jax``).
+_DEFAULT_VMEX_ROOTS = (
+    Path.home() / "local" / "VMEX",
+    Path.home() / "local" / "vmex",
+    Path.home() / "local" / "vmec_jax",
+)
 
 
-def _resolve_vmec_jax_root(vmec_jax_root: str | Path | None = None) -> Path:
-    if vmec_jax_root is not None:
-        return Path(vmec_jax_root).expanduser()
-    return Path(os.environ.get("DRBX_VMEC_JAX_ROOT", _PRIVATE_DEFAULT_VMEC_JAX_ROOT)).expanduser()
+def _resolve_vmex_root(vmex_root: str | Path | None = None) -> Path | None:
+    if vmex_root is not None:
+        return Path(vmex_root).expanduser()
+    env_root = os.environ.get("DRBX_VMEX_ROOT")
+    if env_root:
+        return Path(env_root).expanduser()
+    for candidate in _DEFAULT_VMEX_ROOTS:
+        if candidate.exists():
+            return candidate
+    return None
 
 
-def _import_vmec_jax_modules(*, vmec_jax_root: str | Path | None = None) -> dict[str, Any]:
+def _import_vmex_modules(*, vmex_root: str | Path | None = None) -> dict[str, Any]:
     jax.config.update("jax_enable_x64", True)
-    root = _resolve_vmec_jax_root(vmec_jax_root)
-    if root.exists():
+    root = _resolve_vmex_root(vmex_root)
+    if root is not None and root.exists():
         root_text = str(root)
         if root_text not in sys.path:
             sys.path.insert(0, root_text)
-    wout_module = importlib.import_module("vmec_jax.core.wout")
-    plotting_module = importlib.import_module("vmec_jax.core.plotting")
+    wout_module = importlib.import_module("vmex.core.wout")
+    plotting_module = importlib.import_module("vmex.core.plotting")
     return {
         "read_wout": wout_module.read_wout,
         "surface_rz": plotting_module.surface_rz,
@@ -60,23 +72,23 @@ def _import_vmec_jax_modules(*, vmec_jax_root: str | Path | None = None) -> dict
     }
 
 
-def vmec_jax_runtime_available(*, vmec_jax_root: str | Path | None = None) -> bool:
-    """Return whether vmec_jax can be imported by the optional adapter."""
+def vmex_runtime_available(*, vmex_root: str | Path | None = None) -> bool:
+    """Return whether VMEX can be imported by the optional adapter."""
 
     try:
-        _import_vmec_jax_modules(vmec_jax_root=vmec_jax_root)
+        _import_vmex_modules(vmex_root=vmex_root)
     except Exception:
-        # A broken-but-present checkout (e.g. a vmec_jax pinned to a different
+        # A broken-but-present checkout (e.g. a VMEX checkout pinned to a different
         # jax version whose pytree registration now raises) must read as
         # unavailable, not crash the optional adapter's callers.
         return False
     return True
 
 
-def load_vmec_jax_wout(path: str | Path, *, vmec_jax_root: str | Path | None = None) -> Any:
-    """Read a VMEC ``wout_*.nc`` file with vmec_jax's :func:`read_wout`.
+def load_vmex_wout(path: str | Path, *, vmex_root: str | Path | None = None) -> Any:
+    """Read a VMEC ``wout_*.nc`` file with VMEX's :func:`read_wout`.
 
-    Returns the :class:`vmec_jax.core.wout.WoutData` dataclass, in file
+    Returns the :class:`vmex.core.wout.WoutData` dataclass, in file
     conventions (no unit conversions).
     """
 
@@ -84,14 +96,14 @@ def load_vmec_jax_wout(path: str | Path, *, vmec_jax_root: str | Path | None = N
     if not resolved.exists():
         raise FileNotFoundError(
             f"VMEC wout file not found: {resolved}. The pedagogical examples point "
-            "at an external checkout (ESSOS_test or vmec_jax examples/data); adjust "
+            "at an external checkout (ESSOS_test or a VMEX checkout examples/data); adjust "
             "the WOUT_PATH parameter to a wout NetCDF file that exists locally."
         )
-    modules = _import_vmec_jax_modules(vmec_jax_root=vmec_jax_root)
+    modules = _import_vmex_modules(vmex_root=vmex_root)
     return modules["read_wout"](resolved)
 
 
-def vmec_jax_wout_summary(wout: Any) -> dict[str, Any]:
+def vmex_wout_summary(wout: Any) -> dict[str, Any]:
     """Compact scalar summary of a loaded wout equilibrium."""
 
     iotaf = np.asarray(wout.iotaf, dtype=np.float64)
@@ -112,7 +124,7 @@ def vmec_jax_wout_summary(wout: Any) -> dict[str, Any]:
     }
 
 
-def vmec_jax_half_mesh_s(wout: Any) -> np.ndarray:
+def vmex_half_mesh_s(wout: Any) -> np.ndarray:
     """Normalized toroidal flux ``s`` of the half-mesh rows ``1..ns-1``.
 
     Row ``j`` of the half-mesh tables (``bsupumnc`` et al.) lives at
@@ -152,7 +164,7 @@ def _synthesize(cos_coeff: np.ndarray, sin_coeff: np.ndarray, xm: np.ndarray, xn
     return np.sum(cos_coeff * np.cos(angle) + sin_coeff * np.sin(angle), axis=-1)
 
 
-def evaluate_vmec_jax_surface_field(
+def evaluate_vmex_surface_field(
     wout: Any,
     *,
     s_index: int,
@@ -173,14 +185,14 @@ def evaluate_vmec_jax_surface_field(
     bsupv_c, bsupv_s = _half_mesh_nyquist_pair(wout, "bsupvmnc", "bsupvmns", s_index)
     bmod_c, bmod_s = _half_mesh_nyquist_pair(wout, "bmnc", "bmns", s_index)
     return {
-        "s": float(vmec_jax_half_mesh_s(wout)[int(s_index) - 1]),
+        "s": float(vmex_half_mesh_s(wout)[int(s_index) - 1]),
         "b_sup_theta": _synthesize(bsupu_c, bsupu_s, xm_nyq, xn_nyq, theta, phi),
         "b_sup_phi": _synthesize(bsupv_c, bsupv_s, xm_nyq, xn_nyq, theta, phi),
         "mod_b": _synthesize(bmod_c, bmod_s, xm_nyq, xn_nyq, theta, phi),
     }
 
 
-def trace_vmec_jax_field_lines(
+def trace_vmex_field_lines(
     wout: Any,
     *,
     s_index: int,
@@ -272,7 +284,7 @@ def _full_mesh_coeffs_at_s(wout: Any, cos_name: str, sin_name: str, s: float) ->
     return cos_coeff, sin_coeff
 
 
-def vmec_jax_surface_rz(
+def vmex_surface_rz(
     wout: Any,
     *,
     s: float,
@@ -297,7 +309,7 @@ def vmec_jax_surface_rz(
     return major_radius, vertical
 
 
-def vmec_jax_boundary_rz(
+def vmex_boundary_rz(
     wout: Any,
     *,
     phi: float = 0.0,
@@ -306,4 +318,4 @@ def vmec_jax_boundary_rz(
     """Closed ``(R, Z)`` curve of the LCFS (outermost surface) at fixed ``phi``."""
 
     theta = np.linspace(0.0, 2.0 * np.pi, int(n_theta) + 1)
-    return vmec_jax_surface_rz(wout, s=1.0, theta=theta, phi=np.full_like(theta, float(phi)))
+    return vmex_surface_rz(wout, s=1.0, theta=theta, phi=np.full_like(theta, float(phi)))

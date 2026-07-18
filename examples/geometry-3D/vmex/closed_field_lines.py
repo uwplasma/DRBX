@@ -1,4 +1,4 @@
-"""Closed field lines of a VMEC equilibrium traced through vmec_jax.
+"""Closed field lines of a VMEC equilibrium traced through VMEX.
 
 A converged VMEC equilibrium is, by construction, a set of nested closed flux
 surfaces: the magnetic field has no component across a surface (B . grad s =
@@ -13,7 +13,7 @@ many transits is the rotational transform iota(s) stored in the wout file.
 This example makes that concrete for the Landreman-Paul 2021 precise
 quasi-axisymmetric stellarator (reactor scale):
 
-1. load the wout NetCDF with vmec_jax's `read_wout` and print the
+1. load the wout NetCDF with VMEX's `read_wout` and print the
    equilibrium summary (nfp, aspect ratio, iota range, B0);
 2. trace one field line per selected flux surface with a JAX RK4 integrator
    in (s, theta, phi), using the contravariant field from the wout Nyquist
@@ -24,12 +24,12 @@ quasi-axisymmetric stellarator (reactor scale):
    the closed surface it lives on -- with the LCFS and axis overlaid, next to
    the traced-vs-wout iota profile.
 
-Requires a vmec_jax checkout (env var DRBX_VMEC_JAX_ROOT, default
-``~/local/vmec_jax``) and a wout file (not committed to this repo):
+Requires a VMEX checkout (env var DRBX_VMEX_ROOT, default
+a local checkout) and a wout file (not committed to this repo):
 
-    PYTHONPATH=src python examples/geometry-3D/vmec-jax/closed_field_lines.py
+    PYTHONPATH=src python examples/geometry-3D/vmex/closed_field_lines.py
 
-writes ``output/vmec_jax_closed/closed_field_lines.png``.
+writes ``output/vmex_closed/closed_field_lines.png``.
 """
 
 from __future__ import annotations
@@ -40,14 +40,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from drbx.geometry import (
-    load_vmec_jax_wout,
-    trace_vmec_jax_field_lines,
+    load_vmex_wout,
+    trace_vmex_field_lines,
     traced_rotational_transform,
-    vmec_jax_boundary_rz,
-    vmec_jax_half_mesh_s,
-    vmec_jax_runtime_available,
-    vmec_jax_surface_rz,
-    vmec_jax_wout_summary,
+    vmex_boundary_rz,
+    vmex_half_mesh_s,
+    vmex_runtime_available,
+    vmex_surface_rz,
+    vmex_wout_summary,
 )
 
 # PARAMETERS ---------------------------------------------------------------
@@ -59,27 +59,27 @@ THETA_START = 0.0            # poloidal seed angle of every line [rad]
 N_TRANSITS = 300             # toroidal transits per line (= Poincare points)
 STEPS_PER_TRANSIT = 96       # fixed RK4 steps per toroidal transit
 IOTA_RTOL = 1.0e-2           # required traced-vs-wout iota relative agreement
-OUTPUT_DIR = Path("output/vmec_jax_closed")
+OUTPUT_DIR = Path("output/vmex_closed")
 
 # setup --------------------------------------------------------------------
-if not vmec_jax_runtime_available():
+if not vmex_runtime_available():
     raise SystemExit(
-        "vmec_jax is not importable. Point DRBX_VMEC_JAX_ROOT at a checkout, e.g.\n"
-        "    DRBX_VMEC_JAX_ROOT=~/local/vmec_jax PYTHONPATH=src python "
-        "examples/geometry-3D/vmec-jax/closed_field_lines.py"
+        "VMEX is not importable. Point DRBX_VMEX_ROOT at a checkout, e.g.\n"
+        "    DRBX_VMEX_ROOT=~/local/VMEX PYTHONPATH=src python "
+        "examples/geometry-3D/vmex/closed_field_lines.py"
     )
 if not WOUT_PATH.exists():
     raise SystemExit(
         f"VMEC wout file not found: {WOUT_PATH}\n"
         "Edit the WOUT_PATH parameter to point at a local stellarator wout NetCDF "
-        "(e.g. from an ESSOS or vmec_jax checkout); wout files are not committed here."
+        "(e.g. from an ESSOS or VMEX checkout); wout files are not committed here."
     )
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # stage 1: load the equilibrium --------------------------------------------
-print(f"loading VMEC equilibrium via vmec_jax: {WOUT_PATH.name}")
-wout = load_vmec_jax_wout(WOUT_PATH)
-summary = vmec_jax_wout_summary(wout)
+print(f"loading VMEC equilibrium via VMEX: {WOUT_PATH.name}")
+wout = load_vmex_wout(WOUT_PATH)
+summary = vmex_wout_summary(wout)
 print(f"  nfp = {summary['nfp']}, ns = {summary['ns']} surfaces, "
       f"aspect ratio = {summary['aspect']:.3f}")
 print(f"  R_major = {summary['major_radius']:.3f} m, "
@@ -87,7 +87,7 @@ print(f"  R_major = {summary['major_radius']:.3f} m, "
 print(f"  iota profile: {summary['iota_axis']:.4f} (axis) -> "
       f"{summary['iota_edge']:.4f} (edge)")
 
-s_half = vmec_jax_half_mesh_s(wout)
+s_half = vmex_half_mesh_s(wout)
 s_full = np.linspace(0.0, 1.0, summary["ns"])
 iotaf = np.asarray(wout.iotaf, dtype=np.float64)
 
@@ -97,7 +97,7 @@ print(f"tracing 1 field line on each of {len(SURFACE_INDICES)} flux surfaces "
 poincare_r, poincare_z, traced_iotas, wout_iotas, surface_s = [], [], [], [], []
 for surface_index in SURFACE_INDICES:
     s_value = float(s_half[surface_index - 1])
-    phi_nodes, theta_lines = trace_vmec_jax_field_lines(
+    phi_nodes, theta_lines = trace_vmex_field_lines(
         wout,
         s_index=surface_index,
         theta0=np.array([THETA_START]),
@@ -117,7 +117,7 @@ for surface_index in SURFACE_INDICES:
     # completes a full toroidal transit, mapped to the lab frame through the
     # surface's R/Z Fourier tables.
     theta_at_phi0 = theta_lines[0, ::STEPS_PER_TRANSIT]
-    r_cross, z_cross = vmec_jax_surface_rz(
+    r_cross, z_cross = vmex_surface_rz(
         wout, s=s_value, theta=theta_at_phi0, phi=np.zeros_like(theta_at_phi0)
     )
     poincare_r.append(r_cross)
@@ -130,8 +130,8 @@ print(f"iota verified on all {len(SURFACE_INDICES)} surfaces "
 
 # stage 4: plot ------------------------------------------------------------
 print("drawing the phi = 0 Poincare section and the iota comparison...")
-boundary_r, boundary_z = vmec_jax_boundary_rz(wout, phi=0.0, n_theta=256)
-axis_r, axis_z = vmec_jax_surface_rz(wout, s=0.0, theta=np.array(0.0), phi=np.array(0.0))
+boundary_r, boundary_z = vmex_boundary_rz(wout, phi=0.0, n_theta=256)
+axis_r, axis_z = vmex_surface_rz(wout, s=0.0, theta=np.array(0.0), phi=np.array(0.0))
 
 fig, (axis_poincare, axis_iota) = plt.subplots(1, 2, figsize=(11.5, 5.4))
 colors = plt.cm.viridis(np.linspace(0.05, 0.9, len(SURFACE_INDICES)))
@@ -156,7 +156,7 @@ axis_iota.set_ylabel("rotational transform iota")
 axis_iota.legend(loc="best", fontsize=9)
 axis_iota.set_title("traced d(theta)/d(phi) reproduces\nthe equilibrium iota profile")
 
-fig.suptitle("Landreman-Paul precise QA (vmec_jax): every field line is closed", y=0.99)
+fig.suptitle("Landreman-Paul precise QA (VMEX): every field line is closed", y=0.99)
 fig.tight_layout()
 figure_path = OUTPUT_DIR / "closed_field_lines.png"
 fig.savefig(figure_path, dpi=170)

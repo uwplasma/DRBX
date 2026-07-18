@@ -83,7 +83,7 @@ The current release includes:
 | Linear stability | drift-wave, shear-Alfven, and interchange dispersion solver plus the general Jacobian engine |
 | Open-field-line SOL | open slab flux tube with Bohm sheath targets, two-point steady state, sheath/recycling closure |
 | Neutrals and detachment | hermes-3 AMJUEL atomic rates (packaged), recycling SOL, self-consistent detaching SOL with the SD1D rollover, gradient-based detachment control |
-| 3D stellarator workflows | rotating-ellipse and island-divertor geometry, FCI 2-field/4-field/DRB models, closed vs limiter-open turbulence, imported ESSOS coil / VMEC / vmec_jax geometry |
+| 3D stellarator workflows | rotating-ellipse and island-divertor geometry, FCI 2-field/4-field/DRB models, closed vs limiter-open turbulence, imported ESSOS coil / VMEC / VMEX geometry |
 | Differentiability | `jax.grad` through every model — sensitivity, uncertainty, inverse design, detachment control |
 | Parallelism | multi-device `shard_map` FCI stepping with halo exchange, bit-exact vs single device |
 | Validation | manufactured-solution convergence, geometry and operator campaigns, and publication-ready plots |
@@ -98,7 +98,7 @@ their maturity.
 | `native_exact` | Native JAX model with exact or roundoff-level agreement on the stated validation target. |
 | `native_operational` | Native and useful, with bounded documented residuals or reduced fidelity. |
 | `self-contained` | Runnable from a clean clone after installation. |
-| `developer/geometry-input` | Regenerates source data from heavier local geometry inputs (e.g. an ESSOS or vmec_jax checkout). |
+| `developer/geometry-input` | Regenerates source data from heavier local geometry inputs (e.g. an ESSOS or VMEX checkout). |
 | `opt-in research gate` | Tested enough for development and evidence collection, but not a stable default claim. |
 
 ## Literature Anchors

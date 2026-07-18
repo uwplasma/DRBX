@@ -27,7 +27,7 @@ related JAX solver papers).
 | `Stellarator Turbulence (closed/open)` | `native_operational` | 4-field interchange with limiter SOL drainage on the rotating ellipse. |
 | `Stellarator FCI Validation` | `native non-axisymmetric gate` | Full-metric, field-line-map, operator, sheath/recycling, neutral, vorticity campaigns. |
 | `VMEC-Extender Edge Field Import` | `self-contained synthetic imported-field gate` | Field-grid import, FCI maps, compact SOL smoke coupling on synthetic NetCDF fixtures. |
-| `ESSOS / vmec_jax Imports` | `external geometry import gate` | Coil-field tracing, Poincare extraction, VMEC surface registration, traced-iota verification. |
+| `ESSOS / VMEX Imports` | `external geometry import gate` | Coil-field tracing, Poincare extraction, VMEC surface registration, traced-iota verification. |
 | `Autodiff Diffusion Sensitivity / UQ / Inverse Design` | `differentiable validation` | Gradients vs finite differences, covariance pushforward vs Monte Carlo, gradient-based recovery. |
 | `Strong Scaling` | `supporting performance audit` | Sharded FCI CPU scaling, single-GPU comparison, fixed-work diffusion scaling. |
 
@@ -108,7 +108,7 @@ closed to roundoff, metric-weighted vorticity inversion to ~1.3e-3). The
 campaign numbers and per-campaign figures are documented in
 [Stellarator FCI Validation](stellarator_fci_validation.md).
 
-## Imported Geometry (ESSOS, VMEC, vmec_jax)
+## Imported Geometry (ESSOS, VMEC, VMEX)
 
 ![ESSOS Landreman-Paul QA field-line import](media/essos_landreman_paul_qa_fieldline_import.png)
 
@@ -118,7 +118,7 @@ campaign numbers and per-campaign figures are documented in
 
 ESSOS-owned field evaluation, adaptive field-line tracing, and Poincare
 extraction exported into portable artifacts; VMEC surface registration; the
-vmec_jax adapter with traced rotational transform matching the wout `iotaf`
+VMEX adapter with traced rotational transform matching the wout `iotaf`
 profile to ~1e-6. Pages: [ESSOS Field-Line Import](essos_fieldline_import.md),
 [ESSOS Imported FCI Validation](essos_imported_fci_validation.md),
 [VMEC Extender Edge Fields](vmec_extender_edge_fields.md).
@@ -179,5 +179,5 @@ The current inline gallery is regenerated entirely by committed example
 scripts (`examples/tokamak/`, `examples/sol/`, `examples/stellarator/`,
 `examples/benchmarks/`, `examples/autodiff/`) plus
 `scripts/run_fluid_1d_mms_convergence.py` — no external inputs required.
-The imported-geometry figures additionally need the ESSOS or vmec_jax
+The imported-geometry figures additionally need the ESSOS or VMEX
 checkout named on their pages.

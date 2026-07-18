@@ -1,4 +1,4 @@
-"""Closed and open field lines: VMEC LCFS from vmec_jax over the coil field.
+"""Closed and open field lines: VMEC LCFS from VMEX over the coil field.
 
 A VMEC wout file only describes the plasma inside the last closed flux
 surface (LCFS): outside it the equilibrium field simply does not exist, so an
@@ -7,7 +7,7 @@ Landreman-Paul 2021 precise QA configuration gives us both ingredients: the
 ESSOS checkout carries a Biot-Savart coil set optimized for it, and the
 matching (reactor-scale) VMEC wout.  This example combines them:
 
-1. load the wout with vmec_jax and print the equilibrium summary;
+1. load the wout with VMEX and print the equilibrium summary;
 2. locate the vacuum magnetic axis of the coil field at phi = 0 by tracing a
    probe line and taking the center of its Poincare crossings;
 3. rescale the reactor-scale wout LCFS to the coil-set size by matching the
@@ -30,12 +30,12 @@ crossings *before* they escape, so the red band IS the finite-connection-length
 island/stochastic layer, not far-field wandering.  No field is extrapolated
 from the wout.
 
-Requires ESSOS and vmec_jax checkouts:
+Requires ESSOS and VMEX checkouts:
 
     DRBX_ESSOS_ROOT=~/local/ESSOS_test \
-        PYTHONPATH=src python examples/geometry-3D/vmec-jax/closed_open_field_lines.py
+        PYTHONPATH=src python examples/geometry-3D/vmex/closed_open_field_lines.py
 
-writes ``output/vmec_jax_closed_open/closed_open_field_lines.png``.
+writes ``output/vmex_closed_open/closed_open_field_lines.png``.
 """
 
 from __future__ import annotations
@@ -48,12 +48,12 @@ from matplotlib.path import Path as PolygonPath
 
 from drbx.geometry import (
     essos_runtime_available,
-    load_vmec_jax_wout,
+    load_vmex_wout,
     trace_essos_coil_initial_conditions,
-    vmec_jax_boundary_rz,
-    vmec_jax_runtime_available,
-    vmec_jax_surface_rz,
-    vmec_jax_wout_summary,
+    vmex_boundary_rz,
+    vmex_runtime_available,
+    vmex_surface_rz,
+    vmex_wout_summary,
 )
 
 # PARAMETERS ---------------------------------------------------------------
@@ -74,20 +74,20 @@ EDGE_OFFSETS = tuple(round(0.02 * k, 2) for k in range(1, 5)) + tuple(round(0.09
 MAXTIME = 4000.0           # integration time per field line (ESSOS units; long, to resolve the layer)
 TIMES_TO_TRACE = 16000     # trajectory samples per line
 RHO_WALL = 0.8             # escape distance from the vacuum axis circle [m]: beyond this = open
-OUTPUT_DIR = Path("output/vmec_jax_closed_open")
+OUTPUT_DIR = Path("output/vmex_closed_open")
 
 # setup --------------------------------------------------------------------
-if not vmec_jax_runtime_available():
+if not vmex_runtime_available():
     raise SystemExit(
-        "vmec_jax is not importable. Point DRBX_VMEC_JAX_ROOT at a checkout, e.g.\n"
-        "    DRBX_VMEC_JAX_ROOT=~/local/vmec_jax DRBX_ESSOS_ROOT=~/local/ESSOS_test "
-        "PYTHONPATH=src python examples/geometry-3D/vmec-jax/closed_open_field_lines.py"
+        "VMEX is not importable. Point DRBX_VMEX_ROOT at a checkout, e.g.\n"
+        "    DRBX_VMEX_ROOT=~/local/VMEX DRBX_ESSOS_ROOT=~/local/ESSOS_test "
+        "PYTHONPATH=src python examples/geometry-3D/vmex/closed_open_field_lines.py"
     )
 if not essos_runtime_available():
     raise SystemExit(
         "ESSOS is not importable. Point DRBX_ESSOS_ROOT at a checkout, e.g.\n"
         "    DRBX_ESSOS_ROOT=~/local/ESSOS_test PYTHONPATH=src python "
-        "examples/geometry-3D/vmec-jax/closed_open_field_lines.py"
+        "examples/geometry-3D/vmex/closed_open_field_lines.py"
     )
 if not WOUT_PATH.exists():
     raise SystemExit(
@@ -97,15 +97,15 @@ if not WOUT_PATH.exists():
     )
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# stage 1: the VMEC side (vmec_jax) ----------------------------------------
-print(f"loading VMEC equilibrium via vmec_jax: {WOUT_PATH.name}")
-wout = load_vmec_jax_wout(WOUT_PATH)
-summary = vmec_jax_wout_summary(wout)
+# stage 1: the VMEC side (VMEX) ----------------------------------------
+print(f"loading VMEC equilibrium via VMEX: {WOUT_PATH.name}")
+wout = load_vmex_wout(WOUT_PATH)
+summary = vmex_wout_summary(wout)
 print(f"  nfp = {summary['nfp']}, aspect ratio = {summary['aspect']:.3f}, "
       f"B0 = {summary['b0']:.3f} T, iota = {summary['iota_axis']:.4f} -> "
       f"{summary['iota_edge']:.4f}")
-wout_axis_r0 = float(vmec_jax_surface_rz(wout, s=0.0, theta=np.array(0.0), phi=np.array(0.0))[0])
-lcfs_r_raw, lcfs_z_raw = vmec_jax_boundary_rz(wout, phi=0.0, n_theta=256)
+wout_axis_r0 = float(vmex_surface_rz(wout, s=0.0, theta=np.array(0.0), phi=np.array(0.0))[0])
+lcfs_r_raw, lcfs_z_raw = vmex_boundary_rz(wout, phi=0.0, n_theta=256)
 print(f"  wout phi = 0 magnetic axis R = {wout_axis_r0:.3f} m, LCFS spans "
       f"R = {lcfs_r_raw.min():.3f}..{lcfs_r_raw.max():.3f} m (reactor scale)")
 
@@ -212,7 +212,7 @@ for index, (crossings, is_open) in enumerate(zip(sections, line_is_open)):
     else:
         color, size = "#8fa8bf", 1.5   # closed vacuum surface beyond the design LCFS
     axis.scatter(crossings[:, 0], crossings[:, 1], s=size, color=color, linewidths=0)
-axis.plot(lcfs_r, lcfs_z, "k--", linewidth=1.6, label="VMEC LCFS (vmec_jax wout)")
+axis.plot(lcfs_r, lcfs_z, "k--", linewidth=1.6, label="VMEC LCFS (VMEX wout)")
 axis.scatter([axis_r], [axis_z], marker="+", s=90, color="k", label="vacuum magnetic axis")
 axis.scatter([], [], s=10, color="#1f77b4", label="closed lines (VMEC-confined region)")
 axis.scatter([], [], s=10, color="#8fa8bf", label="closed vacuum surfaces beyond the LCFS")

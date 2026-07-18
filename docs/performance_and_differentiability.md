@@ -73,17 +73,27 @@ shard with `taskset` — the crucial detail: without core-binding a single-devic
 CPU program already spreads across all cores via XLA intra-op threading, so the
 domain decomposition looks like it does nothing. On a 36-core Linux host with
 core-binding, a 1.05M-cell (`256 x 128 x 32`) two-field step scales as
-**1.75x at 2 shards, 3.22x at 4 (about 81% efficiency), 4.35x at 8, and 7.4x
-at 16**.
+**1.8x at 2 shards, 3.1x at 4, 3.7x at 8, and 4.5x at 16** (1.18 s → 0.27 s per
+step), with the cross-device checksums bit-identical at every count
+(re-measured 2026-07-18).
 
 ![Strong scaling](media/strong_scaling.png)
 
-The same 1.05M-cell step on one NVIDIA RTX A4000 GPU runs about **96x faster
-than a single CPU shard** — the whole-step comparison, not a kernel
-microbenchmark. Running across the *two* A4000s on the office host currently
-trips a cross-device gather bug in the sharded step's halo path; the 2-GPU
-configuration is under investigation and is not a supported claim yet
-(status as of 2026-07).
+These ratios are lower than the earlier `lineax`-era curve (which reached
+7.4x at 16) for a good reason: the single-device baseline is now much faster.
+The `solvax` GMRES potential solve and the sync-free RHS cut the per-step cost
+sharply, so the fixed halo-exchange cost is a larger fraction of a smaller
+total — there is less work left to parallelize. The absolute step time still
+improves monotonically with shard count.
+
+On one NVIDIA RTX A4000 GPU the same step runs about **21x faster than a single
+core-bound CPU shard** at grids that fit the GPU's constant-allocation limit
+(`128 x 64 x 16`: 6.6 ms vs 156 ms; `128 x 64 x 32`: 13 ms vs 276 ms; checksums
+identical). The full 1.05M-cell grid overflows the single-GPU constant
+allocation, and running across the *two* A4000s trips a cross-device gather bug
+in the sharded halo path; both are documented limits, not supported claims
+(status as of 2026-07-18). The earlier "~96x" figure predates the CPU-baseline
+speedup and no longer holds against the faster baseline.
 
 ```bash
 PYTHONPATH=src python examples/benchmarks/fci_sharded_strong_scaling.py
@@ -206,12 +216,13 @@ the modest results quoted above.
 ## Current GPU Status
 
 The reachable `office` machine exposes two CUDA-visible JAX devices
-(`RTX A4000`, `cuda:0` and `cuda:1`) with `jax[cuda12]`. Status as of 2026-07:
+(`RTX A4000`, `cuda:0` and `cuda:1`) with `jax[cuda12]`. Status as of 2026-07-18:
 
-- **single GPU**: the 1.05M-cell sharded two-field step runs about **96x
-  faster on one A4000 than on a single core-bound CPU shard** (the
-  whole-RK4-step measurement from
-  `examples/benchmarks/fci_sharded_strong_scaling.py`);
+- **single GPU**: the sharded two-field step runs about **21x faster on one
+  A4000 than on a single core-bound CPU shard** at grids that fit the GPU's
+  constant allocation (`128 x 64 x 16`: 6.6 ms vs 156 ms; `128 x 64 x 32`:
+  13 ms vs 276 ms; checksums identical). The full 1.05M-cell grid overflows the
+  single-GPU constant allocation (`Failed to allocate ... for new constant`);
 - **two GPUs**: the 2-device sharded run currently fails in a cross-device
   gather inside the halo-exchange path; this bug is under investigation, so
   no 2-GPU scaling number is claimed;
