@@ -107,7 +107,7 @@ connection-length region, and the turbulence drains through it:
 **Imported fields: real coils and VMEC equilibria.** The same closed/open
 field-line machinery runs on imported fields: the vacuum Biot-Savart field of
 the Landreman-Paul quasi-axisymmetric coil set (via ESSOS) shows nested closed
-surfaces inside a chaotic open edge, and a VMEC equilibrium (via vmec_jax)
+surfaces inside a chaotic open edge, and a VMEC equilibrium (via VMEX)
 provides closed surfaces whose traced rotational transform matches the
 equilibrium's `iotaf` profile to ~1e-6 — with the open field lines confined to
 the thin island/stochastic layer just beyond the last closed vacuum surface,
@@ -115,9 +115,9 @@ in the island-divertor sense:
 
 | Coil field (closed core, open edge) | VMEC equilibrium + coil-field SOL |
 |---|---|
-| ![Landreman-Paul coils Poincare](docs/media/closed_open_vacuum_poincare.png) | ![VMEC closed and open field lines](docs/media/vmec_jax_closed_open_field_lines.png) |
+| ![Landreman-Paul coils Poincare](docs/media/closed_open_vacuum_poincare.png) | ![VMEC closed and open field lines](docs/media/vmex_closed_open_field_lines.png) |
 
-*Reproduce with [`examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py`](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) (left) and [`examples/geometry-3D/vmec-jax/closed_open_field_lines.py`](examples/geometry-3D/vmec-jax/closed_open_field_lines.py) (right).*
+*Reproduce with [`examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py`](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) (left) and [`examples/geometry-3D/vmex/closed_open_field_lines.py`](examples/geometry-3D/vmex/closed_open_field_lines.py) (right).*
 
 And the turbulence runs on that same imported field: a four-field interchange
 simulation on the Landreman-Paul VMEC equilibrium (real metric, `|B|`, and
@@ -197,9 +197,13 @@ step time on one CPU
 *Reproduce with [`examples/benchmarks/performance_benchmark.py`](examples/benchmarks/performance_benchmark.py) (left) and [`examples/autodiff/differentiation_methods.py`](examples/autodiff/differentiation_methods.py) (right).*
 
 The FCI stack runs across devices with `shard_map`: the sharded step is
-bit-exact against single-device execution, and on a 36-core host with one core
-per shard a 1.05M-cell step reaches a 7.4x speedup at 16 shards; the same step
-on one NVIDIA A4000 GPU runs ~96x faster than a single CPU shard
+bit-exact against single-device execution (checksums identical at every device
+count), and on a 36-core host with one core per shard a 1.05M-cell step reaches
+a 4.5x speedup at 16 shards, while one NVIDIA A4000 GPU runs the same step ~21x
+faster than a single CPU shard. Both ratios are modest precisely because the
+single-device kernel is now fast — the solvax GMRES potential solve and the
+sync-free RHS cut the per-step baseline sharply, so there is simply less work
+left to parallelize
 ([demo](examples/benchmarks/fci_sharded_strong_scaling.py)):
 
 ![Strong scaling](docs/media/strong_scaling.png)
@@ -278,7 +282,7 @@ Flagship simulations, by geometry:
 | **Tokamak** | [drift-wave turbulence](examples/tokamak/drift_wave_turbulence.py) (Hasegawa-Wakatani; linear phase B2-verified, differentiable) + [inverse design](examples/tokamak/drift_wave_inverse_design.py) | periodic flux tube |
 | **Stellarator** | [turbulence on closed + open field lines](examples/stellarator/stellarator_turbulence.py) (four-field, limiter SOL, movies) + [Landreman-Paul turbulence](examples/stellarator/landreman_paul_turbulence.py) (four-field on the imported LP VMEC equilibrium, closed core + sheath-drained SOL) + [3D renders](examples/stellarator/stellarator_3d_render.py) (cutaway turbulence movie, field-line topology) + [island divertor](examples/stellarator/island_divertor.py) (B8: Poincare, connection lengths, emergent open SOL) + [rotating-ellipse FCI](examples/stellarator/rotating_ellipse_fci.py) (parallel-operator convergence) + [seeded filament](examples/stellarator/rotating_ellipse_filament.py) + [differentiable FCI drift-reduced model](examples/stellarator/fci_differentiable.py) | rotating ellipse (closed core + limiter SOL) + shifted-torus helical + imported [ESSOS/VMEC](examples/geometry-3D/) |
 | **Coils (vacuum)** | [Landreman-Paul closed + open field lines](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) (ESSOS Biot-Savart, Poincare classification) | imported coil field |
-| **VMEC equilibria** | [closed field lines from a wout file](examples/geometry-3D/vmec-jax/closed_field_lines.py) (vmec_jax import; traced rotational transform matches the equilibrium `iotaf` profile to ~1e-6) + [closed + open field lines](examples/geometry-3D/vmec-jax/closed_open_field_lines.py) (coil field with the VMEC last closed flux surface overlaid) | imported VMEC equilibrium (Landreman-Paul precise QA) |
+| **VMEC equilibria** | [closed field lines from a wout file](examples/geometry-3D/vmex/closed_field_lines.py) (VMEX import; traced rotational transform matches the equilibrium `iotaf` profile to ~1e-6) + [closed + open field lines](examples/geometry-3D/vmex/closed_open_field_lines.py) (coil field with the VMEC last closed flux surface overlaid) | imported VMEC equilibrium (Landreman-Paul precise QA) |
 | **SOL (open)** | [open SOL flux tube](examples/sol/open_sol_flux_tube.py) (parallel transport to Bohm-sheath targets; two-point steady state) + [recycling SOL](examples/sol/recycling_sol.py) (neutrals, ionization/recombination, detachment onset) | open slab flux tube |
 
 Open-field-line SOL:
@@ -322,8 +326,8 @@ RK4 step is **bit-exact** against the single-device step (checked to ~1e-16 for
 single-device and forced-four-device runs in
 [`tests/test_fci_sharded_2field.py`](tests/test_fci_sharded_2field.py)). On a
 36-core Linux host with one core bound per shard, a 1.05M-cell step reaches a
-**7.4x speedup at 16 shards**, and one NVIDIA A4000 GPU runs the same step
-~96x faster than a single CPU shard
+**4.5x speedup at 16 shards** (1.18 s → 0.27 s), and one NVIDIA A4000 GPU runs
+the same step **~21x faster than a single CPU shard** (checksums identical)
 ([strong-scaling script](examples/benchmarks/fci_sharded_strong_scaling.py),
 [docs](docs/performance_and_differentiability.md)).
 
@@ -350,7 +354,7 @@ CI runs the full fast suite on Python 3.10–3.12.
 ## Releases
 
 The current development series is described in
-[docs/release_notes_2_0_0_dev0.md](docs/release_notes_2_0_0_dev0.md).
+[docs/release_notes_2_0_0.md](docs/release_notes_2_0_0.md).
 
 ## Citing
 

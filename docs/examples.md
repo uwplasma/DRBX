@@ -88,7 +88,7 @@ inputs, outputs, source modules, tests, and documentation page, see
 ## Imported 3D geometry (`examples/geometry-3D/`)
 
 The synthetic stellarator-FCI scripts are self-contained; the imported-field
-scripts need the named external checkout (ESSOS, vmec_jax) or run in dry-run
+scripts need the named external checkout (ESSOS, VMEX) or run in dry-run
 mode against release-backed arrays.
 
 | Example | What it teaches |
@@ -104,8 +104,8 @@ mode against release-backed arrays.
 | [`essos-field-lines/direct_coil_open_sol.py`](../examples/geometry-3D/essos-field-lines/direct_coil_open_sol.py) | Direct-coil open-SOL promotion workflow (dry-run contract by default). |
 | [`essos-field-lines/hybrid_open_sol.py`](../examples/geometry-3D/essos-field-lines/hybrid_open_sol.py) | Hybrid VMEC/coil open-SOL promotion workflow. |
 | [`essos-field-lines/vmec_closed_field.py`](../examples/geometry-3D/essos-field-lines/vmec_closed_field.py) | VMEC closed-field control with opt-in live periodic FCI gates. |
-| [`vmec-jax/closed_field_lines.py`](../examples/geometry-3D/vmec-jax/closed_field_lines.py) | vmec_jax equilibrium import: surface fields, JAX field-line tracing, traced iota matching the wout `iotaf` profile to ~1e-6. |
-| [`vmec-jax/closed_open_field_lines.py`](../examples/geometry-3D/vmec-jax/closed_open_field_lines.py) | ESSOS coil field with the vmec_jax LCFS overlay: closed core vs open SOL in one picture. |
+| [`vmex/closed_field_lines.py`](../examples/geometry-3D/vmex/closed_field_lines.py) | VMEX equilibrium import: surface fields, JAX field-line tracing, traced iota matching the wout `iotaf` profile to ~1e-6. |
+| [`vmex/closed_open_field_lines.py`](../examples/geometry-3D/vmex/closed_open_field_lines.py) | ESSOS coil field with the VMEX LCFS overlay: closed core vs open SOL in one picture. |
 | [`vmec-extender/imported_field.py`](../examples/geometry-3D/vmec-extender/imported_field.py) | VMEC-extender field-grid import and compact SOL verification gate ([page](vmec_extender_edge_fields.md)). |
 
 ![Closed vs open vacuum Poincare](media/closed_open_vacuum_poincare.png)

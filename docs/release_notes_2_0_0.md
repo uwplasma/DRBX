@@ -1,9 +1,28 @@
-# Release Notes: 2.0.0.dev0
+# Release Notes: 2.0.0
 
-Development series for the v2 research-grade program tracked in the project
-planning notes.
+The v2.0.0 release of the research-grade program tracked in the project
+planning notes. This is the first stable release under the **DRBX** name
+(the project was previously developed as `jax_drb`).
 
-Landed so far (Phase 0):
+Headline capabilities in 2.0.0:
+
+- end-to-end differentiable drift-reduced Braginskii turbulence on closed and
+  open field lines, in tokamak and stellarator (FCI) geometry;
+- Hasegawa-Wakatani drift-wave flagship with gradient-based optimization
+  through saturated turbulence; linear dispersion solver (drift-wave,
+  shear-Alfven, interchange) verified to machine precision;
+- rotating-ellipse and island-divertor stellarators, plus imported ESSOS coil
+  and VMEC (VMEX) equilibria, including four-field turbulence on the
+  Landreman-Paul configuration with a sheath-drained scrape-off layer;
+- hermes-3 neutral model (packaged AMJUEL rates) with a self-consistent
+  detaching SOL (SD1D rollover);
+- structured solves via `solvax` (the perpendicular-Laplacian GMRES potential
+  inversion, tridiagonal, Fourier-Helmholtz); the sync-free RHS and solvax
+  GMRES roughly halved the single-CPU four-field step;
+- multi-device `shard_map` FCI stepping, bit-exact against single-device
+  execution.
+
+Landed (Phase 0):
 
 - CI runs the full fast test suite on Python 3.10-3.12 instead of a
   seven-file slice.

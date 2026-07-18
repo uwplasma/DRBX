@@ -159,32 +159,32 @@ covariant metric exactly as the Gram matrix of the embedding Jacobian with
 metric formulas. Because the metric is built by autodiff, it is itself
 **differentiable with respect to the shape parameters** (the shape-gradient
 gate is `tests/test_rotating_ellipse_fci.py`). Imported geometries (ESSOS
-coils/VMEC, VMEC-extender field grids, vmec_jax equilibria) enter through the
+coils/VMEC, VMEC-extender field grids, VMEX equilibria) enter through the
 adapters in
 [`geometry/essos_import.py`](../src/drbx/geometry/essos_import.py),
 [`geometry/vmec_extender_import.py`](../src/drbx/geometry/vmec_extender_import.py),
-and [`geometry/vmec_jax_import.py`](../src/drbx/geometry/vmec_jax_import.py).
+and [`geometry/vmex_import.py`](../src/drbx/geometry/vmex_import.py).
 
-### The vmec_jax adapter
+### The VMEX adapter
 
-[`geometry/vmec_jax_import.py`](../src/drbx/geometry/vmec_jax_import.py)
-(new in July 2026) imports [vmec_jax](https://github.com/rogeriojorge/vmec_jax)
-from an external checkout (`DRBX_VMEC_JAX_ROOT`, default
-`~/local/vmec_jax`) the same way the ESSOS adapter does, and adds the pieces
+[`geometry/vmex_import.py`](../src/drbx/geometry/vmex_import.py)
+(new in July 2026) imports [VMEX](https://github.com/uwplasma/VMEX)
+from an external checkout (`DRBX_VMEX_ROOT`, default
+a local checkout) the same way the ESSOS adapter does, and adds the pieces
 `drbx` examples need on top of a loaded `wout_*.nc` equilibrium:
-`vmec_jax_runtime_available`, `load_vmec_jax_wout`, `vmec_jax_wout_summary`
+`vmex_runtime_available`, `load_vmex_wout`, `vmex_wout_summary`
 (nfp, aspect ratio, iota profile, \(B_0\)),
-`evaluate_vmec_jax_surface_field` (\(B^\theta\), \(B^\phi\), \(|B|\) on
-half-mesh surfaces from the Nyquist tables), `trace_vmec_jax_field_lines`
+`evaluate_vmex_surface_field` (\(B^\theta\), \(B^\phi\), \(|B|\) on
+half-mesh surfaces from the Nyquist tables), `trace_vmex_field_lines`
 (a JAX RK4 tracer in \((s,\theta,\phi)\): since \(B^s = 0\) a line stays on
 its surface and obeys \(d\theta/d\phi = B^\theta/B^\phi\)),
 `traced_rotational_transform`, and the cylindrical mappings
-`vmec_jax_surface_rz` / `vmec_jax_boundary_rz`. The examples are
-`examples/geometry-3D/vmec-jax/closed_field_lines.py` (traced iota matches the
+`vmex_surface_rz` / `vmex_boundary_rz`. The examples are
+`examples/geometry-3D/vmex/closed_field_lines.py` (traced iota matches the
 wout `iotaf` profile to ~1e-6) and
-`examples/geometry-3D/vmec-jax/closed_open_field_lines.py` (ESSOS coil field
+`examples/geometry-3D/vmex/closed_open_field_lines.py` (ESSOS coil field
 with the VMEC last-closed-flux-surface overlay). The adapter is lazy and
-optional: `drbx` imports cleanly without vmec_jax installed.
+optional: `drbx` imports cleanly without VMEX installed.
 
 ## Why FCI
 
