@@ -325,6 +325,7 @@ def build_essos_imported_fci_geometry(
     maxtime: float = 140.0,
     times_to_trace: int = 768,
     trace_tolerance: float = 1.0e-8,
+    mask_max_transits: int = 30,
 ) -> EssosImportedFciGeometry:
     """Build FCI maps from ESSOS tracing on a VMEC-shaped QA seed grid.
 
@@ -335,6 +336,24 @@ def build_essos_imported_fci_geometry(
       field-line masks;
     - ``"hybrid"`` uses VMEC-coordinate map coordinates with coil-derived
       boundary masks, connection lengths, and magnetic-field modulation.
+
+    For the coil/hybrid paths the open/closed mask is a **multi-transit
+    connection-length classification**: a cell is open only if its traced field
+    line crosses the plasma edge (minor radius past the outer surface, measured
+    from the coil field's own magnetic axis) within ``mask_max_transits``
+    toroidal transits, and closed if it stays inside for the whole budget. This
+    replaces the earlier one-cell "did the line cross the next plane" test,
+    which is noisy for a coil field on a coarse seed grid.
+
+    NOTE (coil seeding): the FCI grid is seeded on VMEC-equilibrium surfaces,
+    but a *vacuum* coil field has a different magnetic axis and different flux
+    surfaces than the finite-beta VMEC equilibrium (for the Landreman-Paul QA
+    set the axes differ by ~0.6 minor radii). VMEC-surface seed points therefore
+    do not lie on the coil field's good surfaces, so even VMEC-"core" cells can
+    trace out to the edge and read as open. A physically closed-core coil mask
+    requires seeding the FCI grid on the coil field's own surfaces; until then
+    the analytic ``build_island_divertor_geometry`` path is the recommended
+    island-divertor edge.
 
     The external field implementation owns the field evaluation. `drbx`
     provides only the logical-grid conversion needed by the native FCI,
@@ -393,6 +412,7 @@ def build_essos_imported_fci_geometry(
             maxtime=float(maxtime),
             times_to_trace=int(times_to_trace),
             trace_tolerance=float(trace_tolerance),
+            mask_max_transits=int(mask_max_transits),
         )
     vmec_data: dict[str, Any] | None = None
     if map_source in {"vmec", "hybrid"}:
@@ -787,6 +807,7 @@ def _build_essos_coil_fci_map_data(
     maxtime: float,
     times_to_trace: int,
     trace_tolerance: float,
+    mask_max_transits: int = 30,
 ) -> dict[str, Any]:
     import jax
     import jax.numpy as local_jnp
@@ -875,13 +896,64 @@ def _build_essos_coil_fci_map_data(
     )
     adjacent_length = 0.5 * (forward_length + backward_length).reshape(shape)
     connection_length = np.where(np.isfinite(exit_length), exit_length, adjacent_length)
+
+    # Multi-transit open/closed classification. The one-cell ``forward_boundary``
+    # (did the field line cross the next toroidal plane and land on-grid) is
+    # noisy for a coil field on a coarse seed grid: closed core lines drift
+    # radially over one cell and get mis-flagged as open, so it over-counts open
+    # (~50% even in the closed core). The structured-grid exit test over-counts
+    # the other way (a long trace of a *closed* line eventually wanders away from
+    # the coarse grid points). The physical test is annular: a line is *open*
+    # only if its minor radius rho = |point - magnetic axis| crosses the plasma
+    # edge within ``mask_max_transits`` toroidal transits; *closed* if it stays
+    # inside for the whole budget. This mirrors the analytic island-divertor
+    # ``mask_max_transits`` classification and yields a physical closed-core /
+    # open-edge mask.
+    # Use the coil field's OWN magnetic axis (not the VMEC-seed-surface
+    # centroid): the vacuum coil field and the finite-beta VMEC equilibrium have
+    # different axes, so minor radius must be measured from the field being
+    # traced.
+    axis_major_radius = float(getattr(field, "r_axis",
+                                      np.nanmean(np.sqrt(coordinates_x[0] ** 2
+                                                         + coordinates_y[0] ** 2))))
+    axis_vertical = float(getattr(field, "z_axis", np.nanmean(coordinates_z[0])))
+    grid_major = np.sqrt(coordinates_x ** 2 + coordinates_y ** 2)
+    grid_rho = np.sqrt((grid_major - axis_major_radius) ** 2
+                       + (coordinates_z - axis_vertical) ** 2)
+    rho_edge = float(np.nanmax(grid_rho[-1]))          # outer surface minor radius
+    transit_length = 2.0 * np.pi * max(axis_major_radius, 1.0e-6)
+    length_budget = float(mask_max_transits) * transit_length
+
+    def _annular_open(trajectories):
+        exit_len = _annular_exit_length_from_trajectories(
+            trajectories, axis_major_radius=axis_major_radius,
+            axis_vertical=axis_vertical, rho_min=-1.0, rho_max=1.02 * rho_edge)
+        exit_len = np.asarray(exit_len, dtype=np.float64).reshape(shape)
+        # a line "leaves" only if it actually crosses rho_max (not merely reaches
+        # the end of the trace); _annular_exit_length returns the full length
+        # when there is no crossing, so cap by the budget AND require a genuine
+        # crossing via the max-rho check below.
+        return exit_len <= length_budget
+
+    fwd_max_rho = np.nanmax(
+        np.sqrt((np.sqrt(forward_trajectories[:, :, 0] ** 2
+                         + forward_trajectories[:, :, 1] ** 2) - axis_major_radius) ** 2
+                + (forward_trajectories[:, :, 2] - axis_vertical) ** 2), axis=1).reshape(shape)
+    bwd_max_rho = np.nanmax(
+        np.sqrt((np.sqrt(backward_trajectories[:, :, 0] ** 2
+                         + backward_trajectories[:, :, 1] ** 2) - axis_major_radius) ** 2
+                + (backward_trajectories[:, :, 2] - axis_vertical) ** 2), axis=1).reshape(shape)
+    forward_open = _annular_open(forward_trajectories) & (fwd_max_rho > 1.02 * rho_edge)
+    backward_open = _annular_open(backward_trajectories) & (bwd_max_rho > 1.02 * rho_edge)
+    open_mask = forward_open | backward_open
+
     maps = FciMaps(
         forward_x=jnp.asarray(forward_x.reshape(shape), dtype=jnp.float64),
         forward_z=jnp.asarray(forward_z.reshape(shape), dtype=jnp.float64),
         backward_x=jnp.asarray(backward_x.reshape(shape), dtype=jnp.float64),
         backward_z=jnp.asarray(backward_z.reshape(shape), dtype=jnp.float64),
-        forward_boundary=jnp.asarray(forward_boundary.reshape(shape)),
-        backward_boundary=jnp.asarray(backward_boundary.reshape(shape)),
+        forward_boundary=jnp.asarray(open_mask),
+        backward_boundary=jnp.asarray(open_mask),
         dphi=dphi,
     )
     return {
@@ -892,6 +964,7 @@ def _build_essos_coil_fci_map_data(
         "target_exit_length": exit_length,
         "forward_target_exit_length": forward_exit_length,
         "backward_target_exit_length": backward_exit_length,
+        "open_fraction": float(np.mean(open_mask)),
         "current_sign": float(forward_current_sign),
     }
 
