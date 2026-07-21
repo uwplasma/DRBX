@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -8,26 +9,60 @@ import jax.numpy as jnp
 from ..geometry import (
     ConservativeStencilBuilder,
     FciGeometry3D,
+    LocalDomain3D,
+    LocalFciGeometry3D,
+    StencilBuilderContext,
     LocalStencilBuilder,
     build_conservative_stencil_from_field,
+    build_local_conservative_stencil_from_field,
+    build_local_direct_stencil_one_sided_physical_from_halo,
     build_local_stencil_from_field,
 )
 from .fci_model import FciModelState
+from .fci_model import inject_owned_state_to_halo
 from .fci_boundaries import (
+    BC_DIRICHLET,
+    BC_NONE,
     BoundaryFaceBC3D,
     ConservativeStencil3D,
     CutWallBC3D,
     CutWallGeometry3D,
+    LocalBoundaryFaceBC3D,
+    LocalControlVolumeBoundaryBC3D,
+    LocalEmbeddedControlVolumeGeometry3D,
     LocalStencil1D,
     LocalStencil3D,
 )
+from .fci_halo import (
+    HaloExchange3D,
+    LocalHaloClosure3D,
+    PhysicalGhostCellFiller3D,
+    TopologyHaloFiller3D,
+)
 from .fci_operators import (
+    LocalPerpLaplacianInverseSolver,
+    build_local_control_volume_polynomial_from_field,
     curvature_op,
+    expand_local_control_volume_owner_field,
+    local_control_volume_product_average,
     grad_parallel_op_direct,
+    local_curvature_op,
+    local_curvature_op_from_gradient,
+    local_grad_parallel_op_direct,
+    local_grad_parallel_op_from_gradient,
+    local_parallel_flux_div_op,
+    local_parallel_laplacian_conservative_op,
+    local_perp_laplacian_conservative_op,
+    local_poisson_bracket_op,
+    local_poisson_bracket_op_from_gradients,
+    _mask_inactive_owned,
+    _mask_state_inactive_owned,
     parallel_laplacian_direct_op,
     perp_laplacian_conservative_op,
     poisson_bracket_op,
 )
+from .fci_gmres import SpmdGmresConfig
+from .fci_model import inject_owned_field_to_halo
 
 
 @jax.tree_util.register_pytree_node_class
@@ -42,6 +77,15 @@ class FciDrbEBState(FciModelState):
     Vi: jax.Array
     Ve: jax.Array
     vorticity: jax.Array
+
+
+def _mask_local_eb_state_inactive(
+    state: FciDrbEBState,
+    geometry: LocalFciGeometry3D,
+) -> FciDrbEBState:
+    """Zero inactive owned cells for a local EB state/update payload."""
+
+    return _mask_state_inactive_owned(state, geometry)
 
 
 @jax.tree_util.register_pytree_node_class
@@ -113,9 +157,9 @@ class FciDrbEBRhsParameters:
     ion_temperature_D_perp: float = 0.0
     Ve_nu: float = 0.0
     Ve_D_perp: float = 0.0
-    Ve_D_parallel: float = 0.0
+    Ve_parallel_viscosity: float = 0.0
     Vi_D_perp: float = 0.0
-    Vi_D_parallel: float = 0.0
+    Vi_parallel_viscosity: float = 0.0
     vorticity_D_perp: float = 0.0
     vorticity_D_parallel: float = 0.0
 
@@ -140,9 +184,9 @@ class FciDrbEBRhsParameters:
                 self.ion_temperature_D_perp,
                 self.Ve_nu,
                 self.Ve_D_perp,
-                self.Ve_D_parallel,
+                self.Ve_parallel_viscosity,
                 self.Vi_D_perp,
-                self.Vi_D_parallel,
+                self.Vi_parallel_viscosity,
                 self.vorticity_D_perp,
                 self.vorticity_D_parallel,
             ),
@@ -170,9 +214,9 @@ class FciDrbEBRhsParameters:
             ion_temperature_D_perp,
             Ve_nu,
             Ve_D_perp,
-            Ve_D_parallel,
+            Ve_parallel_viscosity,
             Vi_D_perp,
-            Vi_D_parallel,
+            Vi_parallel_viscosity,
             vorticity_D_perp,
             vorticity_D_parallel,
         ) = children
@@ -195,9 +239,9 @@ class FciDrbEBRhsParameters:
             ion_temperature_D_perp=ion_temperature_D_perp,
             Ve_nu=Ve_nu,
             Ve_D_perp=Ve_D_perp,
-            Ve_D_parallel=Ve_D_parallel,
+            Ve_parallel_viscosity=Ve_parallel_viscosity,
             Vi_D_perp=Vi_D_perp,
-            Vi_D_parallel=Vi_D_parallel,
+            Vi_parallel_viscosity=Vi_parallel_viscosity,
             vorticity_D_perp=vorticity_D_perp,
             vorticity_D_parallel=vorticity_D_parallel,
         )
@@ -217,6 +261,1149 @@ class FciDrbEBRhsResult:
     def tree_unflatten(cls, _aux_data, children):
         rhs, potential, potential_residual_l2 = children
         return cls(rhs=rhs, potential=potential, potential_residual_l2=potential_residual_l2)
+
+
+@dataclass(frozen=True)
+class LocalFciDrbEBFaceBCBundle:
+    """Local/domain-decomposed face boundary bundle for the EB model."""
+
+    density: LocalBoundaryFaceBC3D
+    phi: LocalBoundaryFaceBC3D
+    Te: LocalBoundaryFaceBC3D
+    Ti: LocalBoundaryFaceBC3D
+    Vi: LocalBoundaryFaceBC3D
+    Ve: LocalBoundaryFaceBC3D
+    vorticity: LocalBoundaryFaceBC3D
+
+
+@dataclass(frozen=True)
+class LocalFciDrbEBControlVolumeBCBundle:
+    """Field-specific compact boundary data for the unified EB path."""
+
+    density: LocalControlVolumeBoundaryBC3D
+    phi: LocalControlVolumeBoundaryBC3D
+    Te: LocalControlVolumeBoundaryBC3D
+    Ti: LocalControlVolumeBoundaryBC3D
+    Vi: LocalControlVolumeBoundaryBC3D
+    Ve: LocalControlVolumeBoundaryBC3D
+    vorticity: LocalControlVolumeBoundaryBC3D
+
+
+LocalFciDrbEBFaceBCBuilder = Callable[
+    [FciDrbEBState, LocalFciGeometry3D, LocalDomain3D, FciDrbEBRhsParameters],
+    LocalFciDrbEBFaceBCBundle,
+]
+LocalFciDrbEBControlVolumeBCBuilder = Callable[
+    [
+        FciDrbEBState,
+        LocalFciGeometry3D,
+        LocalDomain3D,
+        FciDrbEBRhsParameters,
+        LocalEmbeddedControlVolumeGeometry3D,
+    ],
+    LocalFciDrbEBControlVolumeBCBundle,
+]
+
+
+def _binary_control_volume_dirichlet_bc(
+    left: LocalControlVolumeBoundaryBC3D,
+    right: LocalControlVolumeBoundaryBC3D,
+    operation: Callable[[jax.Array, jax.Array], jax.Array],
+) -> LocalControlVolumeBoundaryBC3D:
+    """Combine two collocated Dirichlet payloads for a derived scalar field."""
+
+    if (
+        left.max_rows != right.max_rows
+        or left.max_patches != right.max_patches
+    ):
+        raise ValueError("control-volume BC operands must share row layout")
+    is_dirichlet = (
+        left.active
+        & right.active
+        & (left.kind == BC_DIRICHLET)
+        & (right.kind == BC_DIRICHLET)
+    )
+    return LocalControlVolumeBoundaryBC3D(
+        kind=jnp.where(is_dirichlet, BC_DIRICHLET, BC_NONE),
+        centroid_value=operation(
+            left.centroid_value,
+            right.centroid_value,
+        ),
+        quadrature_value=operation(
+            left.quadrature_value,
+            right.quadrature_value,
+        ),
+        active=is_dirichlet,
+        max_rows=left.max_rows,
+        max_patches=left.max_patches,
+    )
+
+
+def _binary_local_dirichlet_face_bc(
+    left: LocalBoundaryFaceBC3D,
+    right: LocalBoundaryFaceBC3D,
+    operation: Callable[[jax.Array, jax.Array], jax.Array],
+) -> LocalBoundaryFaceBC3D:
+    """Combine collocated regular-face Dirichlet data."""
+
+    if left.layout != right.layout:
+        raise ValueError("regular-face BC operands must share one layout")
+
+    def combine(
+        left_kind,
+        right_kind,
+        left_value,
+        right_value,
+        left_mask,
+        right_mask,
+    ):
+        active = (
+            left_mask
+            & right_mask
+            & (left_kind == BC_DIRICHLET)
+            & (right_kind == BC_DIRICHLET)
+        )
+        return (
+            jnp.where(active, BC_DIRICHLET, BC_NONE),
+            jnp.where(active, operation(left_value, right_value), 0.0),
+            active,
+        )
+
+    x = combine(
+        left.kind_x,
+        right.kind_x,
+        left.value_x,
+        right.value_x,
+        left.mask_x,
+        right.mask_x,
+    )
+    y = combine(
+        left.kind_y,
+        right.kind_y,
+        left.value_y,
+        right.value_y,
+        left.mask_y,
+        right.mask_y,
+    )
+    z = combine(
+        left.kind_z,
+        right.kind_z,
+        left.value_z,
+        right.value_z,
+        left.mask_z,
+        right.mask_z,
+    )
+    return LocalBoundaryFaceBC3D(
+        kind_x=x[0],
+        kind_y=y[0],
+        kind_z=z[0],
+        value_x=x[1],
+        value_y=y[1],
+        value_z=z[1],
+        mask_x=x[2],
+        mask_y=y[2],
+        mask_z=z[2],
+        layout=left.layout,
+    )
+
+
+def _scale_local_dirichlet_face_bc(
+    boundary_bc: LocalBoundaryFaceBC3D,
+    scale: float | jax.Array,
+) -> LocalBoundaryFaceBC3D:
+    scale_value = jnp.asarray(scale, dtype=jnp.float64)
+    return LocalBoundaryFaceBC3D(
+        kind_x=boundary_bc.kind_x,
+        kind_y=boundary_bc.kind_y,
+        kind_z=boundary_bc.kind_z,
+        value_x=scale_value * boundary_bc.value_x,
+        value_y=scale_value * boundary_bc.value_y,
+        value_z=scale_value * boundary_bc.value_z,
+        mask_x=boundary_bc.mask_x,
+        mask_y=boundary_bc.mask_y,
+        mask_z=boundary_bc.mask_z,
+        layout=boundary_bc.layout,
+    )
+
+
+def _scale_control_volume_dirichlet_bc(
+    boundary_bc: LocalControlVolumeBoundaryBC3D,
+    scale: float | jax.Array,
+) -> LocalControlVolumeBoundaryBC3D:
+    scale_value = jnp.asarray(scale, dtype=jnp.float64)
+    return LocalControlVolumeBoundaryBC3D(
+        kind=boundary_bc.kind,
+        centroid_value=scale_value * boundary_bc.centroid_value,
+        quadrature_value=scale_value * boundary_bc.quadrature_value,
+        active=boundary_bc.active,
+        max_rows=boundary_bc.max_rows,
+        max_patches=boundary_bc.max_patches,
+    )
+
+
+def prepare_local_fci_drb_eb_state(
+    state_owned: FciDrbEBState,
+    domain: LocalDomain3D,
+    *,
+    face_bc: LocalFciDrbEBFaceBCBundle,
+    halo_exchange: HaloExchange3D,
+    topology_filler: TopologyHaloFiller3D,
+    physical_ghost_filler: PhysicalGhostCellFiller3D,
+) -> FciDrbEBState:
+    """Apply complete physical/topology/corner halo closure to all EB fields."""
+
+    state_halo = inject_owned_state_to_halo(state_owned, domain.layout)
+    closure = LocalHaloClosure3D(
+        physical_ghost_filler=physical_ghost_filler,
+        halo_exchange=halo_exchange,
+        topology_filler=topology_filler,
+    )
+    return FciDrbEBState(
+        density=closure(state_halo.density, domain, face_bc.density),
+        phi=closure(state_halo.phi, domain, face_bc.phi),
+        Te=closure(state_halo.Te, domain, face_bc.Te),
+        Ti=closure(state_halo.Ti, domain, face_bc.Ti),
+        Vi=closure(state_halo.Vi, domain, face_bc.Vi),
+        Ve=closure(state_halo.Ve, domain, face_bc.Ve),
+        vorticity=closure(state_halo.vorticity, domain, face_bc.vorticity),
+    )
+
+
+@dataclass(frozen=True)
+class LocalFciDrbEBRhs:
+    """SPMD/local EB RHS and phi reconstruction.
+
+    Boundary values are supplied by ``face_bc_builder`` so geometry/test-specific
+    wall policy can live outside the model while the EB equation assembly remains
+    in the native implementation.
+    """
+
+    geometry: LocalFciGeometry3D
+    domain: LocalDomain3D
+    halo_exchange: HaloExchange3D
+    topology_filler: TopologyHaloFiller3D
+    physical_ghost_filler: PhysicalGhostCellFiller3D
+    parameters: FciDrbEBRhsParameters
+    curvature_coefficients_owned: jnp.ndarray
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
+    gmres_config: SpmdGmresConfig
+    face_bc_builder: LocalFciDrbEBFaceBCBuilder
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D
+    control_volume_bc_builder: LocalFciDrbEBControlVolumeBCBuilder
+    diffusion_only: bool = False
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False)
+
+    def _face_bcs(self, state_owned: FciDrbEBState) -> LocalFciDrbEBFaceBCBundle:
+        return self.face_bc_builder(
+            state_owned,
+            self.geometry,
+            self.domain,
+            self.parameters,
+        )
+
+    def _control_volume_bcs(
+        self,
+        state_owned: FciDrbEBState,
+    ) -> LocalFciDrbEBControlVolumeBCBundle:
+        return self.control_volume_bc_builder(
+            state_owned,
+            self.geometry,
+            self.domain,
+            self.parameters,
+            self.control_volume_geometry,
+        )
+
+    def _expand_control_volume_state(
+        self,
+        state_owned: FciDrbEBState,
+    ) -> FciDrbEBState:
+        cells = self.control_volume_geometry.cells
+        return FciDrbEBState(
+            **{
+                field_name: expand_local_control_volume_owner_field(
+                    getattr(state_owned, field_name),
+                    cells,
+                )
+                for field_name in (
+                    "density",
+                    "phi",
+                    "Te",
+                    "Ti",
+                    "Vi",
+                    "Ve",
+                    "vorticity",
+                )
+            }
+        )
+
+    def _control_volume_polynomial(
+        self,
+        field_halo: jnp.ndarray,
+        boundary_bc: LocalControlVolumeBoundaryBC3D,
+        regular_face_bc: LocalBoundaryFaceBC3D,
+    ):
+        return build_local_control_volume_polynomial_from_field(
+            field_halo,
+            self.geometry,
+            self.domain,
+            StencilBuilderContext(
+                layout=self.domain.layout,
+                domain=self.domain,
+            ),
+            self.control_volume_geometry,
+            boundary_bc,
+            regular_face_bc,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+        )
+
+    def _prepare_scalar_halo(
+        self,
+        values_owned: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        storage = expand_local_control_volume_owner_field(
+            values_owned,
+            self.control_volume_geometry.cells,
+        )
+        field_halo = inject_owned_field_to_halo(
+            storage,
+            self.domain.layout,
+        )
+        return LocalHaloClosure3D(
+            physical_ghost_filler=self.physical_ghost_filler,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+        )(field_halo, self.domain, face_bc)
+
+    def _prepare_phi_halo(
+        self,
+        phi_owned: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        return self._prepare_scalar_halo(phi_owned, face_bc)
+
+    def _field_perp_diffusion(
+        self,
+        field_halo: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+        coefficient: float,
+        control_volume_bc: LocalControlVolumeBoundaryBC3D,
+    ) -> jnp.ndarray:
+        if float(coefficient) == 0.0:
+            return jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
+        context = StencilBuilderContext(layout=self.domain.layout, domain=self.domain)
+        conservative = build_local_conservative_stencil_from_field(
+            field_halo,
+            self.geometry,
+            context,
+        )
+        polynomial = self._control_volume_polynomial(
+            field_halo,
+            control_volume_bc,
+            face_bc,
+        )
+        return jnp.asarray(coefficient, dtype=jnp.float64) * local_perp_laplacian_conservative_op(
+            conservative,
+            self.geometry,
+            self.domain,
+            face_projectors=self.face_projectors,
+            face_bc=face_bc,
+            regular_face_geometry=self.geometry.regular_face_geometry,
+            control_volume_geometry=self.control_volume_geometry,
+            boundary_bc=control_volume_bc,
+            field_reconstruction=polynomial,
+            axis_regular_axes=self.axis_regular_axes,
+        )
+
+    def _field_parallel_diffusion(
+        self,
+        field_halo: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+        coefficient: float,
+        control_volume_bc: LocalControlVolumeBoundaryBC3D,
+    ) -> jnp.ndarray:
+        if float(coefficient) == 0.0:
+            return jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
+        context = StencilBuilderContext(layout=self.domain.layout, domain=self.domain)
+        conservative = build_local_conservative_stencil_from_field(
+            field_halo,
+            self.geometry,
+            context,
+        )
+        polynomial = self._control_volume_polynomial(
+            field_halo,
+            control_volume_bc,
+            face_bc,
+        )
+        return jnp.asarray(coefficient, dtype=jnp.float64) * local_parallel_laplacian_conservative_op(
+            conservative,
+            self.geometry,
+            self.domain,
+            face_bc=face_bc,
+            regular_face_geometry=self.geometry.regular_face_geometry,
+            control_volume_geometry=self.control_volume_geometry,
+            boundary_bc=control_volume_bc,
+            field_reconstruction=polynomial,
+            axis_regular_axes=self.axis_regular_axes,
+        )
+
+    def _reconstruct_phi_from_prepared(
+        self,
+        state_owned: FciDrbEBState,
+        state_halo: FciDrbEBState,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+        control_volume_bc: LocalFciDrbEBControlVolumeBCBundle,
+    ) -> jnp.ndarray:
+        context = StencilBuilderContext(layout=self.domain.layout, domain=self.domain)
+        ti_conservative = build_local_conservative_stencil_from_field(
+            state_halo.Ti,
+            self.geometry,
+            context,
+        )
+        ti_polynomial = self._control_volume_polynomial(
+            state_halo.Ti,
+            control_volume_bc.Ti,
+            face_bc.Ti,
+        )
+        ti_laplacian = local_perp_laplacian_conservative_op(
+            ti_conservative,
+            self.geometry,
+            self.domain,
+            face_projectors=self.face_projectors,
+            face_bc=face_bc.Ti,
+            regular_face_geometry=self.geometry.regular_face_geometry,
+            control_volume_geometry=self.control_volume_geometry,
+            boundary_bc=control_volume_bc.Ti,
+            field_reconstruction=ti_polynomial,
+            axis_regular_axes=self.axis_regular_axes,
+        )
+        owned = self.domain.layout.owned_slices_cell
+        phi_rhs = (
+            jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_laplacian
+            - jnp.asarray(state_owned.vorticity, dtype=jnp.float64)
+        )
+        phi_lift = jnp.asarray(state_owned.phi, dtype=jnp.float64)
+        solver = LocalPerpLaplacianInverseSolver(
+            geometry=self.geometry,
+            domain=self.domain,
+            stencil_builder=build_local_conservative_stencil_from_field,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+            physical_ghost_filler=self.physical_ghost_filler,
+            face_projectors=self.face_projectors,
+            control_volume_geometry=self.control_volume_geometry,
+            control_volume_boundary_bc=control_volume_bc.phi,
+            face_bc=face_bc.phi,
+            axis_regular_axes=self.axis_regular_axes,
+            config=self.gmres_config,
+        )
+        phi_owned = solver(
+            phi_rhs,
+            guess_owned=state_owned.phi,
+            phi_lift_owned=phi_lift,
+        )
+        return _mask_inactive_owned(phi_owned, self.geometry)
+
+    def reconstruct_phi(self, state_owned: FciDrbEBState) -> jnp.ndarray:
+        face_bc = self._face_bcs(state_owned)
+        control_volume_bc = self._control_volume_bcs(state_owned)
+        state_halo = prepare_local_fci_drb_eb_state(
+            self._expand_control_volume_state(state_owned),
+            self.domain,
+            face_bc=face_bc,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+            physical_ghost_filler=self.physical_ghost_filler,
+        )
+        return self._reconstruct_phi_from_prepared(
+            state_owned,
+            state_halo,
+            face_bc,
+            control_volume_bc,
+        )
+
+    def evaluate_stage(
+        self,
+        state_owned: FciDrbEBState,
+        source_owned: FciDrbEBState | None = None,
+    ) -> FciDrbEBState:
+        if source_owned is None:
+            source_owned = FciDrbEBState(
+                density=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                phi=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                Te=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                Ti=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                Vi=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                Ve=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                vorticity=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+            )
+        source_owned = _mask_local_eb_state_inactive(source_owned, self.geometry)
+        face_bc = self._face_bcs(state_owned)
+        control_volume_bc = self._control_volume_bcs(state_owned)
+        state_halo_without_phi = prepare_local_fci_drb_eb_state(
+            self._expand_control_volume_state(state_owned),
+            self.domain,
+            face_bc=face_bc,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+            physical_ghost_filler=self.physical_ghost_filler,
+        )
+        phi_owned = self._reconstruct_phi_from_prepared(
+            state_owned,
+            state_halo_without_phi,
+            face_bc,
+            control_volume_bc,
+        )
+        phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
+        state_halo = state_halo_without_phi.replace(phi=phi_halo)
+        context = StencilBuilderContext(layout=self.domain.layout, domain=self.domain)
+        direct = build_local_direct_stencil_one_sided_physical_from_halo
+
+        density_stencil = direct(state_halo.density, self.geometry, context)
+        Te_stencil = direct(state_halo.Te, self.geometry, context)
+        Ti_stencil = direct(state_halo.Ti, self.geometry, context)
+        Vi_stencil = direct(state_halo.Vi, self.geometry, context)
+        Ve_stencil = direct(state_halo.Ve, self.geometry, context)
+        vorticity_stencil = direct(state_halo.vorticity, self.geometry, context)
+        phi_stencil = direct(state_halo.phi, self.geometry, context)
+
+        Ve_conservative_stencil = build_local_conservative_stencil_from_field(
+            state_halo.Ve,
+            self.geometry,
+            context,
+        )
+        Vi_conservative_stencil = build_local_conservative_stencil_from_field(
+            state_halo.Vi,
+            self.geometry,
+            context,
+        )
+        if control_volume_bc is not None:
+            density_polynomial = self._control_volume_polynomial(
+                state_halo.density,
+                control_volume_bc.density,
+                face_bc.density,
+            )
+            phi_polynomial = self._control_volume_polynomial(
+                state_halo.phi,
+                control_volume_bc.phi,
+                face_bc.phi,
+            )
+            Te_polynomial = self._control_volume_polynomial(
+                state_halo.Te,
+                control_volume_bc.Te,
+                face_bc.Te,
+            )
+            Ti_polynomial = self._control_volume_polynomial(
+                state_halo.Ti,
+                control_volume_bc.Ti,
+                face_bc.Ti,
+            )
+            Vi_polynomial = self._control_volume_polynomial(
+                state_halo.Vi,
+                control_volume_bc.Vi,
+                face_bc.Vi,
+            )
+            Ve_polynomial = self._control_volume_polynomial(
+                state_halo.Ve,
+                control_volume_bc.Ve,
+                face_bc.Ve,
+            )
+            vorticity_polynomial = self._control_volume_polynomial(
+                state_halo.vorticity,
+                control_volume_bc.vorticity,
+                face_bc.vorticity,
+            )
+            Pe_control_volume_bc = _binary_control_volume_dirichlet_bc(
+                control_volume_bc.density,
+                control_volume_bc.Te,
+                lambda left, right: left * right,
+            )
+            ion_pressure_control_volume_bc = (
+                _binary_control_volume_dirichlet_bc(
+                    control_volume_bc.density,
+                    control_volume_bc.Ti,
+                    lambda left, right: left * right,
+                )
+            )
+            pressure_control_volume_bc = (
+                _binary_control_volume_dirichlet_bc(
+                    Pe_control_volume_bc,
+                    _scale_control_volume_dirichlet_bc(
+                        ion_pressure_control_volume_bc,
+                        self.parameters.tau,
+                    ),
+                    lambda left, right: left + right,
+                )
+            )
+            velocity_difference_control_volume_bc = (
+                _binary_control_volume_dirichlet_bc(
+                    control_volume_bc.Vi,
+                    control_volume_bc.Ve,
+                    lambda left, right: left - right,
+                )
+            )
+            current_control_volume_bc = _binary_control_volume_dirichlet_bc(
+                control_volume_bc.density,
+                velocity_difference_control_volume_bc,
+                lambda left, right: left * right,
+            )
+            density_flux_control_volume_bc = (
+                _binary_control_volume_dirichlet_bc(
+                    control_volume_bc.density,
+                    control_volume_bc.Ve,
+                    lambda left, right: left * right,
+                )
+            )
+            Pe_face_bc = _binary_local_dirichlet_face_bc(
+                face_bc.density,
+                face_bc.Te,
+                lambda left, right: left * right,
+            )
+            ion_pressure_face_bc = _binary_local_dirichlet_face_bc(
+                face_bc.density,
+                face_bc.Ti,
+                lambda left, right: left * right,
+            )
+            pressure_face_bc = _binary_local_dirichlet_face_bc(
+                Pe_face_bc,
+                _scale_local_dirichlet_face_bc(
+                    ion_pressure_face_bc,
+                    self.parameters.tau,
+                ),
+                lambda left, right: left + right,
+            )
+            velocity_difference_face_bc = _binary_local_dirichlet_face_bc(
+                face_bc.Vi,
+                face_bc.Ve,
+                lambda left, right: left - right,
+            )
+            current_face_bc = _binary_local_dirichlet_face_bc(
+                face_bc.density,
+                velocity_difference_face_bc,
+                lambda left, right: left * right,
+            )
+            density_flux_face_bc = _binary_local_dirichlet_face_bc(
+                face_bc.density,
+                face_bc.Ve,
+                lambda left, right: left * right,
+            )
+
+            cells = self.control_volume_geometry.cells
+            density_owned = jnp.asarray(
+                state_owned.density,
+                dtype=jnp.float64,
+            )
+            Te_owned = jnp.asarray(state_owned.Te, dtype=jnp.float64)
+            Ti_owned = jnp.asarray(state_owned.Ti, dtype=jnp.float64)
+            Vi_owned = jnp.asarray(state_owned.Vi, dtype=jnp.float64)
+            Ve_owned = jnp.asarray(state_owned.Ve, dtype=jnp.float64)
+            Pe_owned = local_control_volume_product_average(
+                density_owned,
+                Te_owned,
+                density_polynomial,
+                Te_polynomial,
+                cells,
+            )
+            ion_pressure_owned = local_control_volume_product_average(
+                density_owned,
+                Ti_owned,
+                density_polynomial,
+                Ti_polynomial,
+                cells,
+            )
+            density_Vi_owned = local_control_volume_product_average(
+                density_owned,
+                Vi_owned,
+                density_polynomial,
+                Vi_polynomial,
+                cells,
+            )
+            density_Ve_owned = local_control_volume_product_average(
+                density_owned,
+                Ve_owned,
+                density_polynomial,
+                Ve_polynomial,
+                cells,
+            )
+            pressure_owned = (
+                Pe_owned
+                + jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+                * ion_pressure_owned
+            )
+            current_owned = density_Vi_owned - density_Ve_owned
+            density_flux_owned = density_Ve_owned
+            Pe_halo = self._prepare_scalar_halo(Pe_owned, Pe_face_bc)
+            pressure_halo = self._prepare_scalar_halo(
+                pressure_owned,
+                pressure_face_bc,
+            )
+            current_halo = self._prepare_scalar_halo(
+                current_owned,
+                current_face_bc,
+            )
+            density_flux_halo = self._prepare_scalar_halo(
+                density_flux_owned,
+                density_flux_face_bc,
+            )
+            Pe_polynomial = self._control_volume_polynomial(
+                Pe_halo,
+                Pe_control_volume_bc,
+                Pe_face_bc,
+            )
+            pressure_polynomial = self._control_volume_polynomial(
+                pressure_halo,
+                pressure_control_volume_bc,
+                pressure_face_bc,
+            )
+            current_polynomial = self._control_volume_polynomial(
+                current_halo,
+                current_control_volume_bc,
+                current_face_bc,
+            )
+            density_flux_polynomial = self._control_volume_polynomial(
+                density_flux_halo,
+                density_flux_control_volume_bc,
+                density_flux_face_bc,
+            )
+        else:
+            Pe_halo = state_halo.density * state_halo.Te
+            pressure_halo = (
+                Pe_halo
+                + self.parameters.tau
+                * state_halo.density
+                * state_halo.Ti
+            )
+            current_halo = (
+                state_halo.density
+                * (state_halo.Vi - state_halo.Ve)
+            )
+            density_flux_halo = state_halo.density * state_halo.Ve
+            density_polynomial = None
+            phi_polynomial = None
+            Te_polynomial = None
+            Ti_polynomial = None
+            Vi_polynomial = None
+            Ve_polynomial = None
+            vorticity_polynomial = None
+            Pe_polynomial = None
+            pressure_polynomial = None
+            current_polynomial = None
+            density_flux_polynomial = None
+            Pe_control_volume_bc = None
+            pressure_control_volume_bc = None
+            current_control_volume_bc = None
+            density_flux_control_volume_bc = None
+
+        Pe_stencil = direct(Pe_halo, self.geometry, context)
+        pressure_stencil = direct(pressure_halo, self.geometry, context)
+        current_stencil = direct(current_halo, self.geometry, context)
+        density_flux_conservative_stencil = (
+            build_local_conservative_stencil_from_field(
+                density_flux_halo,
+                self.geometry,
+                context,
+            )
+        )
+        current_conservative_stencil = (
+            build_local_conservative_stencil_from_field(
+                current_halo,
+                self.geometry,
+                context,
+            )
+        )
+
+        owned = self.domain.layout.owned_slices_cell
+        density = jnp.asarray(state_halo.density[owned], dtype=jnp.float64)
+        Te = jnp.asarray(state_halo.Te[owned], dtype=jnp.float64)
+        Ti = jnp.asarray(state_halo.Ti[owned], dtype=jnp.float64)
+        Vi = jnp.asarray(state_halo.Vi[owned], dtype=jnp.float64)
+        Ve = jnp.asarray(state_halo.Ve[owned], dtype=jnp.float64)
+        density_safe = jnp.maximum(density, 1.0e-30)
+        bmag = jnp.maximum(
+            jnp.asarray(
+                (
+                    self.control_volume_geometry.centroid_Bmag
+                    if (
+                        self.control_volume_geometry is not None
+                        and self.control_volume_geometry.has_centroid_operator_geometry
+                    )
+                    else self.geometry.cell_bfield.Bmag_owned
+                ),
+                dtype=jnp.float64,
+            ),
+            1.0e-30,
+        )
+        rho_star = jnp.asarray(self.parameters.rho_star, dtype=jnp.float64)
+        tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+        mi_over_me = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
+        Ve_nu = jnp.asarray(self.parameters.Ve_nu, dtype=jnp.float64)
+        current = density * (Vi - Ve)
+
+        density_diff = self._field_perp_diffusion(
+            state_halo.density,
+            face_bc.density,
+            self.parameters.density_D_perp,
+            None if control_volume_bc is None else control_volume_bc.density,
+        )
+        density_parallel_diff = self._field_parallel_diffusion(
+            state_halo.density,
+            face_bc.density,
+            self.parameters.density_D_parallel,
+            None if control_volume_bc is None else control_volume_bc.density,
+        )
+        Te_diff = self._field_perp_diffusion(
+            state_halo.Te,
+            face_bc.Te,
+            self.parameters.electron_temperature_D_perp,
+            None if control_volume_bc is None else control_volume_bc.Te,
+        )
+        Te_parallel_diff = self._field_parallel_diffusion(
+            state_halo.Te,
+            face_bc.Te,
+            self.parameters.electron_temperature_chi_parallel,
+            None if control_volume_bc is None else control_volume_bc.Te,
+        )
+        Ti_diff = self._field_perp_diffusion(
+            state_halo.Ti,
+            face_bc.Ti,
+            self.parameters.ion_temperature_D_perp,
+            None if control_volume_bc is None else control_volume_bc.Ti,
+        )
+        Ti_parallel_diff = self._field_parallel_diffusion(
+            state_halo.Ti,
+            face_bc.Ti,
+            self.parameters.ion_temperature_chi_parallel,
+            None if control_volume_bc is None else control_volume_bc.Ti,
+        )
+        Vi_diff = self._field_perp_diffusion(
+            state_halo.Vi,
+            face_bc.Vi,
+            self.parameters.Vi_D_perp,
+            None if control_volume_bc is None else control_volume_bc.Vi,
+        )
+        Vi_parallel_diff = self._field_parallel_diffusion(
+            state_halo.Vi,
+            face_bc.Vi,
+            self.parameters.Vi_parallel_viscosity,
+            None if control_volume_bc is None else control_volume_bc.Vi,
+        )
+        Ve_diff = self._field_perp_diffusion(
+            state_halo.Ve,
+            face_bc.Ve,
+            self.parameters.Ve_D_perp,
+            None if control_volume_bc is None else control_volume_bc.Ve,
+        )
+        Ve_parallel_diff = self._field_parallel_diffusion(
+            state_halo.Ve,
+            face_bc.Ve,
+            self.parameters.Ve_parallel_viscosity,
+            None if control_volume_bc is None else control_volume_bc.Ve,
+        )
+        vorticity_diff = self._field_perp_diffusion(
+            state_halo.vorticity,
+            face_bc.vorticity,
+            self.parameters.vorticity_D_perp,
+            None if control_volume_bc is None else control_volume_bc.vorticity,
+        )
+        vorticity_parallel_diff = self._field_parallel_diffusion(
+            state_halo.vorticity,
+            face_bc.vorticity,
+            self.parameters.vorticity_D_parallel,
+            None if control_volume_bc is None else control_volume_bc.vorticity,
+        )
+
+        if bool(self.diffusion_only):
+            return _mask_local_eb_state_inactive(FciDrbEBState(
+                density=density_diff,
+                phi=jnp.zeros_like(phi_owned),
+                Te=Te_diff + Te_parallel_diff,
+                Ti=Ti_diff + Ti_parallel_diff,
+                Vi=Vi_diff + Vi_parallel_diff,
+                Ve=Ve_diff + Ve_parallel_diff,
+                vorticity=vorticity_diff + vorticity_parallel_diff,
+            ), self.geometry)
+
+        if control_volume_bc is not None:
+            density_gradient = density_polynomial.as_cell_gradient()
+            phi_gradient = phi_polynomial.as_cell_gradient()
+            Te_gradient = Te_polynomial.as_cell_gradient()
+            Ti_gradient = Ti_polynomial.as_cell_gradient()
+            Vi_gradient = Vi_polynomial.as_cell_gradient()
+            Ve_gradient = Ve_polynomial.as_cell_gradient()
+            vorticity_gradient = vorticity_polynomial.as_cell_gradient()
+            Pe_gradient = Pe_polynomial.as_cell_gradient()
+            pressure_gradient = pressure_polynomial.as_cell_gradient()
+            current_gradient = current_polynomial.as_cell_gradient()
+
+            def poisson(field_gradient):
+                return local_poisson_bracket_op_from_gradients(
+                    phi_gradient,
+                    field_gradient,
+                    self.geometry,
+                    control_volume_geometry=self.control_volume_geometry,
+                )
+
+            poisson_density = poisson(density_gradient)
+            poisson_Te = poisson(Te_gradient)
+            poisson_Ti = poisson(Ti_gradient)
+            poisson_Vi = poisson(Vi_gradient)
+            poisson_Ve = poisson(Ve_gradient)
+            poisson_vorticity = poisson(vorticity_gradient)
+
+            def curvature(field_gradient):
+                return local_curvature_op_from_gradient(
+                    field_gradient,
+                    self.geometry,
+                    curvature_coefficients=self.curvature_coefficients_owned,
+                    control_volume_geometry=self.control_volume_geometry,
+                )
+
+            curvature_Pe = curvature(Pe_gradient)
+            curvature_pressure = curvature(pressure_gradient)
+            curvature_phi = curvature(phi_gradient)
+            curvature_Te = curvature(Te_gradient)
+            curvature_Ti = curvature(Ti_gradient)
+
+            def parallel_flux(
+                conservative_stencil,
+                boundary_bc,
+                polynomial,
+            ):
+                return local_parallel_flux_div_op(
+                    conservative_stencil,
+                    self.geometry,
+                    self.domain,
+                    control_volume_geometry=self.control_volume_geometry,
+                    boundary_bc=boundary_bc,
+                    field_reconstruction=polynomial,
+                    axis_regular_axes=self.axis_regular_axes,
+                )
+
+            parallel_density_flux_divergence = parallel_flux(
+                density_flux_conservative_stencil,
+                density_flux_control_volume_bc,
+                density_flux_polynomial,
+            )
+            parallel_current_flux_divergence = parallel_flux(
+                current_conservative_stencil,
+                current_control_volume_bc,
+                current_polynomial,
+            )
+            parallel_Ve_flux_divergence = parallel_flux(
+                Ve_conservative_stencil,
+                control_volume_bc.Ve,
+                Ve_polynomial,
+            )
+            parallel_Vi_flux_divergence = parallel_flux(
+                Vi_conservative_stencil,
+                control_volume_bc.Vi,
+                Vi_polynomial,
+            )
+
+            def grad_parallel(field_gradient):
+                return local_grad_parallel_op_from_gradient(
+                    field_gradient,
+                    self.geometry,
+                    control_volume_geometry=self.control_volume_geometry,
+                )
+
+            grad_parallel_Te = grad_parallel(Te_gradient)
+            grad_parallel_Ti = grad_parallel(Ti_gradient)
+            grad_parallel_Ve = grad_parallel(Ve_gradient)
+            grad_parallel_Vi = grad_parallel(Vi_gradient)
+            grad_parallel_phi = grad_parallel(phi_gradient)
+            grad_parallel_Pe = grad_parallel(Pe_gradient)
+            grad_parallel_pressure = grad_parallel(pressure_gradient)
+            grad_parallel_current = grad_parallel(current_gradient)
+            grad_parallel_vorticity = grad_parallel(vorticity_gradient)
+        else:
+            poisson_density = local_poisson_bracket_op(
+                phi_stencil,
+                density_stencil,
+                self.geometry,
+            )
+            poisson_Te = local_poisson_bracket_op(
+                phi_stencil,
+                Te_stencil,
+                self.geometry,
+            )
+            poisson_Ti = local_poisson_bracket_op(
+                phi_stencil,
+                Ti_stencil,
+                self.geometry,
+            )
+            poisson_Vi = local_poisson_bracket_op(
+                phi_stencil,
+                Vi_stencil,
+                self.geometry,
+            )
+            poisson_Ve = local_poisson_bracket_op(
+                phi_stencil,
+                Ve_stencil,
+                self.geometry,
+            )
+            poisson_vorticity = local_poisson_bracket_op(
+                phi_stencil,
+                vorticity_stencil,
+                self.geometry,
+            )
+
+            curvature_Pe = local_curvature_op(
+                Pe_stencil,
+                self.geometry,
+                curvature_coefficients=self.curvature_coefficients_owned,
+            )
+            curvature_pressure = local_curvature_op(
+                pressure_stencil,
+                self.geometry,
+                curvature_coefficients=self.curvature_coefficients_owned,
+            )
+            curvature_phi = local_curvature_op(
+                phi_stencil,
+                self.geometry,
+                curvature_coefficients=self.curvature_coefficients_owned,
+            )
+            curvature_Te = local_curvature_op(
+                Te_stencil,
+                self.geometry,
+                curvature_coefficients=self.curvature_coefficients_owned,
+            )
+            curvature_Ti = local_curvature_op(
+                Ti_stencil,
+                self.geometry,
+                curvature_coefficients=self.curvature_coefficients_owned,
+            )
+
+            parallel_density_flux_divergence = local_parallel_flux_div_op(
+                density_flux_conservative_stencil,
+                self.geometry,
+                self.domain,
+                regular_face_geometry=self.geometry.regular_face_geometry,
+                axis_regular_axes=self.axis_regular_axes,
+            )
+            parallel_current_flux_divergence = local_parallel_flux_div_op(
+                current_conservative_stencil,
+                self.geometry,
+                self.domain,
+                regular_face_geometry=self.geometry.regular_face_geometry,
+                axis_regular_axes=self.axis_regular_axes,
+            )
+            parallel_Ve_flux_divergence = local_parallel_flux_div_op(
+                Ve_conservative_stencil,
+                self.geometry,
+                self.domain,
+                regular_face_geometry=self.geometry.regular_face_geometry,
+                axis_regular_axes=self.axis_regular_axes,
+            )
+            parallel_Vi_flux_divergence = local_parallel_flux_div_op(
+                Vi_conservative_stencil,
+                self.geometry,
+                self.domain,
+                regular_face_geometry=self.geometry.regular_face_geometry,
+                axis_regular_axes=self.axis_regular_axes,
+            )
+            grad_parallel_Te = local_grad_parallel_op_direct(
+                Te_stencil,
+                self.geometry,
+            )
+            grad_parallel_Ti = local_grad_parallel_op_direct(
+                Ti_stencil,
+                self.geometry,
+            )
+            grad_parallel_Ve = local_grad_parallel_op_direct(
+                Ve_stencil,
+                self.geometry,
+            )
+            grad_parallel_Vi = local_grad_parallel_op_direct(
+                Vi_stencil,
+                self.geometry,
+            )
+            grad_parallel_phi = local_grad_parallel_op_direct(
+                phi_stencil,
+                self.geometry,
+            )
+            grad_parallel_Pe = local_grad_parallel_op_direct(
+                Pe_stencil,
+                self.geometry,
+            )
+            grad_parallel_pressure = local_grad_parallel_op_direct(
+                pressure_stencil,
+                self.geometry,
+            )
+            grad_parallel_current = local_grad_parallel_op_direct(
+                current_stencil,
+                self.geometry,
+            )
+            grad_parallel_vorticity = local_grad_parallel_op_direct(
+                vorticity_stencil,
+                self.geometry,
+            )
+
+        density_rhs = (
+            -(poisson_density / (rho_star * bmag))
+            - parallel_density_flux_divergence
+            + (2.0 / bmag) * (curvature_Pe - density * curvature_phi)
+            + density_diff
+            + density_parallel_diff
+        )
+        Te_rhs = (
+            -(poisson_Te / (rho_star * bmag))
+            - Ve * grad_parallel_Te
+            + (4.0 * Te / (3.0 * bmag))
+            * (curvature_Pe / density_safe + 2.5 * curvature_Te - curvature_phi)
+            + (2.0 * Te / (3.0 * density_safe))
+            * (0.71 * parallel_current_flux_divergence - density * parallel_Ve_flux_divergence)
+            + Te_diff
+            + Te_parallel_diff
+        )
+        Ti_rhs = (
+            -(poisson_Ti / (rho_star * bmag))
+            - Vi * grad_parallel_Ti
+            + (4.0 * Ti / (3.0 * bmag))
+            * (curvature_Pe / density_safe - 2.5 * tau * curvature_Ti - curvature_phi)
+            + (2.0 * Ti / (3.0 * density_safe))
+            * (parallel_current_flux_divergence - density * parallel_Vi_flux_divergence)
+            + Ti_diff
+            + Ti_parallel_diff
+        )
+        Vi_rhs = (
+            -(poisson_Vi / (rho_star * bmag))
+            - Vi * grad_parallel_Vi
+            - grad_parallel_pressure / density_safe
+            + Vi_diff
+            + Vi_parallel_diff
+        )
+        Ve_rhs = (
+            -(poisson_Ve / (rho_star * bmag))
+            - Ve * grad_parallel_Ve
+            + mi_over_me
+            * (
+                Ve_nu * current
+                + grad_parallel_phi
+                - grad_parallel_Pe / density_safe
+                - 0.71 * grad_parallel_Te
+            )
+            + Ve_diff
+            + Ve_parallel_diff
+        )
+        vorticity_rhs = (
+            -(poisson_vorticity / (rho_star * bmag))
+            - Vi * grad_parallel_vorticity
+            + (bmag * bmag / density_safe) * parallel_current_flux_divergence
+            + (2.0 * bmag / density_safe) * curvature_pressure
+            + vorticity_diff
+            + vorticity_parallel_diff
+        )
+        return _mask_local_eb_state_inactive(FciDrbEBState(
+            density=density_rhs + source_owned.density,
+            phi=jnp.zeros_like(phi_owned),
+            Te=Te_rhs + source_owned.Te,
+            Ti=Ti_rhs + source_owned.Ti,
+            Vi=Vi_rhs + source_owned.Vi,
+            Ve=Ve_rhs + source_owned.Ve,
+            vorticity=vorticity_rhs + source_owned.vorticity,
+        ), self.geometry)
 
 
 def _multiply_local_stencils(left: LocalStencil3D, right: LocalStencil3D) -> LocalStencil3D:
@@ -531,7 +1718,7 @@ def _Ve_rhs(
     mi_over_me = jnp.asarray(parameters.mi_over_me, dtype=jnp.float64)
     Ve_nu = jnp.asarray(parameters.Ve_nu, dtype=jnp.float64)
     Ve_D_perp = jnp.asarray(parameters.Ve_D_perp, dtype=jnp.float64)
-    Ve_D_parallel = jnp.asarray(parameters.Ve_D_parallel, dtype=jnp.float64)
+    Ve_parallel_viscosity = jnp.asarray(parameters.Ve_parallel_viscosity, dtype=jnp.float64)
     bmag = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag, dtype=jnp.float64), float(b_floor))
 
     poisson_bracket_Ve = poisson_bracket_op(potential_stencil, Ve_stencil, geometry)
@@ -554,8 +1741,8 @@ def _Ve_rhs(
             jacobian_floor=jacobian_floor,
         )
     parallel_diffusion_Ve = jnp.zeros_like(Ve)
-    if float(Ve_D_parallel) != 0.0:
-        parallel_diffusion_Ve = Ve_D_parallel * parallel_laplacian_direct_op(
+    if float(Ve_parallel_viscosity) != 0.0:
+        parallel_diffusion_Ve = Ve_parallel_viscosity * parallel_laplacian_direct_op(
             Ve,
             geometry,
             face_bc=Ve_face_bc,
@@ -602,7 +1789,7 @@ def _Vi_rhs(
     density = jnp.asarray(density, dtype=jnp.float64)
     rho_star = jnp.asarray(parameters.rho_star, dtype=jnp.float64)
     Vi_D_perp = jnp.asarray(parameters.Vi_D_perp, dtype=jnp.float64)
-    Vi_D_parallel = jnp.asarray(parameters.Vi_D_parallel, dtype=jnp.float64)
+    Vi_parallel_viscosity = jnp.asarray(parameters.Vi_parallel_viscosity, dtype=jnp.float64)
     bmag = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag, dtype=jnp.float64), float(b_floor))
 
     poisson_bracket_Vi = poisson_bracket_op(potential_stencil, Vi_stencil, geometry)
@@ -623,8 +1810,8 @@ def _Vi_rhs(
             jacobian_floor=jacobian_floor,
         )
     parallel_diffusion_Vi = jnp.zeros_like(Vi)
-    if float(Vi_D_parallel) != 0.0:
-        parallel_diffusion_Vi = Vi_D_parallel * parallel_laplacian_direct_op(
+    if float(Vi_parallel_viscosity) != 0.0:
+        parallel_diffusion_Vi = Vi_parallel_viscosity * parallel_laplacian_direct_op(
             Vi,
             geometry,
             face_bc=Vi_face_bc,
@@ -819,7 +2006,7 @@ def _diffusion_only_rhs(
         Vi=_field_diffusion(
             Vi,
             perpendicular_coefficient=parameters.Vi_D_perp,
-            parallel_coefficient=parameters.Vi_D_parallel,
+            parallel_coefficient=parameters.Vi_parallel_viscosity,
             face_bc=ion_velocity_parallel_face_bc,
             cut_wall_geometry=ion_velocity_parallel_cut_wall_geometry,
             cut_wall_bc=ion_velocity_parallel_cut_wall_bc,
@@ -827,7 +2014,7 @@ def _diffusion_only_rhs(
         Ve=_field_diffusion(
             Ve,
             perpendicular_coefficient=parameters.Ve_D_perp,
-            parallel_coefficient=parameters.Ve_D_parallel,
+            parallel_coefficient=parameters.Ve_parallel_viscosity,
             face_bc=electron_velocity_parallel_face_bc,
             cut_wall_geometry=electron_velocity_parallel_cut_wall_geometry,
             cut_wall_bc=electron_velocity_parallel_cut_wall_bc,

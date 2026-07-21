@@ -154,6 +154,48 @@ from .fci_geometry import (
     build_local_stencil_from_field,
     logical_grid_from_axis_vectors,
 )
+
+# Embedded-control-volume additions used by the cut-wall FCI stack.  Keep
+# these additive so the broader geometry API from main remains available.
+from .fci_geometry import (
+    LocalAggregateCellGeometry3D,
+    LocalCellAgglomeration3D,
+    LocalControlVolumeCellGeometry3D,
+    LocalCoordinateStencilDependencyMap3D,
+    LocalCoordinateStencilLocalDependencyTable,
+    LocalCoordinateStencilRemoteDependencyTable,
+    LocalFciStencilBuilder,
+    agglomerate_local_cell_volume_geometry,
+    agglomerate_owned_cell_average,
+    build_local_aggregate_cell_geometry,
+    build_local_control_volume_cell_geometry,
+    build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry,
+    build_local_curvature_coefficients,
+    build_local_fci_stencil_from_field,
+    interpolate_B_contravariant,
+    logical_b_contravariant_from_geometry,
+    logical_b_contravariant_from_traced_maps,
+)
+
+__all__ += [
+    "LocalAggregateCellGeometry3D",
+    "LocalCellAgglomeration3D",
+    "LocalControlVolumeCellGeometry3D",
+    "LocalCoordinateStencilDependencyMap3D",
+    "LocalCoordinateStencilLocalDependencyTable",
+    "LocalCoordinateStencilRemoteDependencyTable",
+    "LocalFciStencilBuilder",
+    "agglomerate_local_cell_volume_geometry",
+    "agglomerate_owned_cell_average",
+    "build_local_aggregate_cell_geometry",
+    "build_local_control_volume_cell_geometry",
+    "build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry",
+    "build_local_curvature_coefficients",
+    "build_local_fci_stencil_from_field",
+    "interpolate_B_contravariant",
+    "logical_b_contravariant_from_geometry",
+    "logical_b_contravariant_from_traced_maps",
+]
 __all__ += [
     "BFieldGeometry",
     "CellCenteredGrid3D",

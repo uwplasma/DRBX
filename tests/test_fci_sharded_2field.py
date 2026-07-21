@@ -39,7 +39,7 @@ def test_multi_device_sharded_step_matches_direct_in_subprocess() -> None:
     env = dict(os.environ)
     existing_flags = env.get("XLA_FLAGS", "")
     env["XLA_FLAGS"] = f"{existing_flags} --xla_force_host_platform_device_count=4".strip()
-    env.pop("DRBX_HOST_DEVICE_COUNT", None)
+    env.pop("JAX_DRB_HOST_DEVICE_COUNT", None)
 
     completed = subprocess.run(
         [

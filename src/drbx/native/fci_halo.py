@@ -8,7 +8,6 @@ be represented. Those operations belong to later field-preparer stages.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
 import jax
 import jax.numpy as jnp
@@ -19,6 +18,8 @@ from ..geometry.fci_geometry import (
     FCI_DEP_FIELD_INTERIOR,
     FCI_DEP_INVALID,
     FCI_DEP_PHYSICAL_BOUNDARY,
+    HaloLayout3D,
+    LocalCoordinateStencilDependencyMap3D,
     SIDE_AXIS_REGULAR,
     SIDE_SIMPLE_PERIODIC,
     LocalDomain3D,
@@ -33,6 +34,7 @@ from .fci_boundaries import (
     LocalBoundaryFaceBC3D,
     LocalBoundaryConditionBuilder,
     LocalBoundaryData3D,
+    LocalBoundaryRemoteDependencyTable,
     LocalCutWallBC3D,
     LocalCutWallGeometry3D,
     LocalCutWallValueReconstructor3D,
@@ -180,26 +182,26 @@ class HaloExchange3D(_DataclassPyTreeMixin):
         h = int(layout.halo_width)
         nx, ny, nz = layout.owned_shape
 
-        i = slice(h, h + nx)
-        j = slice(h, h + ny)
-        k = slice(h, h + nz)
+        all_i = slice(None)
+        all_j = slice(None)
+        all_k = slice(None)
         trailing = _trailing_slices(field_halo.ndim)
 
         if axis == 0:
-            lower_owned_slab = field_halo[(slice(h, h + h), j, k) + trailing]
-            upper_owned_slab = field_halo[(slice(h + nx - h, h + nx), j, k) + trailing]
-            lower_halo_index = (slice(0, h), j, k) + trailing
-            upper_halo_index = (slice(h + nx, h + nx + h), j, k) + trailing
+            lower_owned_slab = field_halo[(slice(h, h + h), all_j, all_k) + trailing]
+            upper_owned_slab = field_halo[(slice(h + nx - h, h + nx), all_j, all_k) + trailing]
+            lower_halo_index = (slice(0, h), all_j, all_k) + trailing
+            upper_halo_index = (slice(h + nx, h + nx + h), all_j, all_k) + trailing
         elif axis == 1:
-            lower_owned_slab = field_halo[(i, slice(h, h + h), k) + trailing]
-            upper_owned_slab = field_halo[(i, slice(h + ny - h, h + ny), k) + trailing]
-            lower_halo_index = (i, slice(0, h), k) + trailing
-            upper_halo_index = (i, slice(h + ny, h + ny + h), k) + trailing
+            lower_owned_slab = field_halo[(all_i, slice(h, h + h), all_k) + trailing]
+            upper_owned_slab = field_halo[(all_i, slice(h + ny - h, h + ny), all_k) + trailing]
+            lower_halo_index = (all_i, slice(0, h), all_k) + trailing
+            upper_halo_index = (all_i, slice(h + ny, h + ny + h), all_k) + trailing
         else:
-            lower_owned_slab = field_halo[(i, j, slice(h, h + h)) + trailing]
-            upper_owned_slab = field_halo[(i, j, slice(h + nz - h, h + nz)) + trailing]
-            lower_halo_index = (i, j, slice(0, h)) + trailing
-            upper_halo_index = (i, j, slice(h + nz, h + nz + h)) + trailing
+            lower_owned_slab = field_halo[(all_i, all_j, slice(h, h + h)) + trailing]
+            upper_owned_slab = field_halo[(all_i, all_j, slice(h + nz - h, h + nz)) + trailing]
+            lower_halo_index = (all_i, all_j, slice(0, h)) + trailing
+            upper_halo_index = (all_i, all_j, slice(h + nz, h + nz + h)) + trailing
 
         shard_id = lax.axis_index(axis_name)
         # The domain metadata may be closed over by an SPMD function and can
@@ -260,133 +262,6 @@ class HaloExchange3D(_DataclassPyTreeMixin):
         return cls(exchange_axes=exchange_axes)
 
 
-class FciCutWallValueEvaluator(Protocol):
-    """Protocol for owner-local FCI cut-wall value evaluation."""
-
-    def __call__(
-        self,
-        *,
-        field_halo: jnp.ndarray,
-        cut_wall_geometry: LocalCutWallGeometry3D | None,
-        cut_wall_bc: LocalCutWallBC3D | None,
-        context: StencilBuilderContext,
-        value_slot: jnp.ndarray,
-        active: jnp.ndarray,
-    ) -> jnp.ndarray:
-        """Return one scalar cut-wall value per requested slot."""
-        ...
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class LocalFciCutWallValueEvaluator(_DataclassPyTreeMixin):
-    """Evaluate owner-local FCI cut-wall endpoint values.
-
-    ``value_slot`` indexes padded owner-local cut-wall metadata. The concrete
-    wall-value reconstruction is delegated to
-    ``context.cut_wall_value_reconstructor`` so the exchange uses the same
-    prepared-halo stencil data as the local FCI stencil builder. Dirichlet rows
-    override that reconstructed value with their prescribed wall value;
-    Neumann and flux-style rows use the reconstructed value directly.
-    """
-
-    def __call__(
-        self,
-        *,
-        field_halo: jnp.ndarray,
-        cut_wall_geometry: LocalCutWallGeometry3D | None,
-        cut_wall_bc: LocalCutWallBC3D | None,
-        context: StencilBuilderContext,
-        value_slot: jnp.ndarray,
-        active: jnp.ndarray,
-    ) -> jnp.ndarray:
-        if not isinstance(context, StencilBuilderContext):
-            raise TypeError("context must be a StencilBuilderContext instance")
-
-        field_halo = jnp.asarray(field_halo)
-        if field_halo.ndim != 3:
-            raise ValueError(
-                "LocalFciCutWallValueEvaluator currently supports scalar "
-                f"halo fields only; got shape {field_halo.shape}"
-            )
-        if field_halo.shape != context.layout.cell_halo_shape:
-            raise ValueError(
-                "field_halo must match context.layout.cell_halo_shape; "
-                f"got {field_halo.shape}, expected {context.layout.cell_halo_shape}"
-            )
-
-        value_slot = jnp.asarray(value_slot, dtype=jnp.int32)
-        active = jnp.asarray(active, dtype=bool)
-        if active.shape != value_slot.shape:
-            raise ValueError(
-                "active must have the same shape as value_slot; "
-                f"got active={active.shape}, value_slot={value_slot.shape}"
-            )
-
-        if cut_wall_geometry is None or cut_wall_bc is None:
-            return jnp.zeros(value_slot.shape, dtype=field_halo.dtype)
-        if not isinstance(cut_wall_geometry, LocalCutWallGeometry3D):
-            raise TypeError(
-                "cut_wall_geometry must be a LocalCutWallGeometry3D or None"
-            )
-        if not isinstance(cut_wall_bc, LocalCutWallBC3D):
-            raise TypeError("cut_wall_bc must be a LocalCutWallBC3D or None")
-        if cut_wall_geometry.max_wall_faces != cut_wall_bc.max_wall_faces:
-            raise ValueError(
-                "cut_wall_geometry and cut_wall_bc must have the same "
-                "max_wall_faces"
-            )
-
-        max_wall_faces = int(cut_wall_geometry.max_wall_faces)
-        if max_wall_faces == 0:
-            return jnp.zeros(value_slot.shape, dtype=field_halo.dtype)
-        value_reconstructor = context.cut_wall_value_reconstructor
-        if value_reconstructor is None:
-            raise ValueError(
-                "context.cut_wall_value_reconstructor is required for "
-                "nonempty FCI cut-wall value evaluation"
-            )
-        if not isinstance(value_reconstructor, LocalCutWallValueReconstructor3D):
-            raise TypeError(
-                "context.cut_wall_value_reconstructor must be a "
-                "LocalCutWallValueReconstructor3D"
-            )
-        if value_reconstructor.max_wall_faces != max_wall_faces:
-            raise ValueError(
-                "cut_wall_value_reconstructor.max_wall_faces must match "
-                "cut_wall_geometry.max_wall_faces"
-            )
-
-        safe_slot = jnp.clip(value_slot, 0, max_wall_faces - 1)
-        slot_active = (
-            jnp.asarray(cut_wall_geometry.active, dtype=bool)[safe_slot]
-            & jnp.asarray(cut_wall_bc.active, dtype=bool)[safe_slot]
-            & jnp.asarray(value_reconstructor.active, dtype=bool)[safe_slot]
-        )
-
-        wall_values = jnp.asarray(
-            value_reconstructor.extrapolate(field_halo),
-            dtype=field_halo.dtype,
-        )
-        cut_wall_kind = jnp.asarray(cut_wall_bc.kind, dtype=jnp.int32)
-        cut_wall_value = jnp.asarray(cut_wall_bc.value, dtype=field_halo.dtype)
-        wall_values = jnp.where(
-            cut_wall_kind == BC_DIRICHLET,
-            cut_wall_value,
-            wall_values,
-        )
-        values = wall_values[safe_slot]
-        return jnp.where(active & slot_active, values, jnp.zeros_like(values))
-
-    def tree_flatten(self):
-        return (), None
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        del children
-        return cls()
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class RemoteFciDependencyExchange(_DataclassPyTreeMixin):
@@ -398,19 +273,20 @@ class RemoteFciDependencyExchange(_DataclassPyTreeMixin):
     assembly from local rows plus these returned remote values.
     """
 
-    cut_wall_evaluator: FciCutWallValueEvaluator = LocalFciCutWallValueEvaluator()
-
     def __call__(
         self,
         *,
         field_halo: jnp.ndarray,
         direction: LocalFciDirectionMap,
         context: StencilBuilderContext,
+        cut_wall_bc: LocalCutWallBC3D | None,
     ) -> jnp.ndarray:
         if not isinstance(direction, LocalFciDirectionMap):
             raise TypeError("direction must be a LocalFciDirectionMap instance")
         if not isinstance(context, StencilBuilderContext):
             raise TypeError("context must be a StencilBuilderContext instance")
+        if cut_wall_bc is not None and not isinstance(cut_wall_bc, LocalCutWallBC3D):
+            raise TypeError("cut_wall_bc must be a LocalCutWallBC3D or None")
         if context.domain is None:
             raise ValueError("context.domain is required for remote FCI exchange")
         if context.layout != direction.layout:
@@ -489,19 +365,15 @@ class RemoteFciDependencyExchange(_DataclassPyTreeMixin):
             source_j=request_j,
             source_k=request_k,
         )
-        cut_wall_values = self.cut_wall_evaluator(
+        cut_wall_values = self._evaluate_cut_wall_values(
             field_halo=field_halo,
             cut_wall_geometry=context.cut_wall_geometry,
-            cut_wall_bc=context.cut_wall_bc,
-            context=context,
+            cut_wall_bc=cut_wall_bc,
+            value_reconstructor=context.cut_wall_value_reconstructor,
+            layout=context.layout,
             value_slot=request_value_slot,
             active=cut_wall_request,
         )
-        if cut_wall_values.shape != cut_wall_request.shape:
-            raise ValueError(
-                "cut_wall_evaluator must return an array with shape "
-                f"{cut_wall_request.shape}, got {cut_wall_values.shape}"
-            )
 
         owner_responses = jnp.zeros((n_shards, n_requests), dtype=field_halo.dtype)
         owner_responses = jnp.where(field_request, field_values, owner_responses)
@@ -540,6 +412,82 @@ class RemoteFciDependencyExchange(_DataclassPyTreeMixin):
         return field_halo[safe_i, safe_j, safe_k]
 
     @staticmethod
+    def _evaluate_cut_wall_values(
+        *,
+        field_halo: jnp.ndarray,
+        cut_wall_geometry: LocalCutWallGeometry3D | None,
+        cut_wall_bc: LocalCutWallBC3D | None,
+        value_reconstructor: LocalCutWallValueReconstructor3D | None,
+        layout: HaloLayout3D,
+        value_slot: jnp.ndarray,
+        active: jnp.ndarray,
+    ) -> jnp.ndarray:
+        value_slot = jnp.asarray(value_slot, dtype=jnp.int32)
+        active = jnp.asarray(active, dtype=bool)
+        if active.shape != value_slot.shape:
+            raise ValueError(
+                "active must have the same shape as value_slot; "
+                f"got active={active.shape}, value_slot={value_slot.shape}"
+            )
+
+        if cut_wall_geometry is None or cut_wall_bc is None:
+            return jnp.zeros(value_slot.shape, dtype=field_halo.dtype)
+        if not isinstance(cut_wall_geometry, LocalCutWallGeometry3D):
+            raise TypeError(
+                "context.cut_wall_geometry must be a LocalCutWallGeometry3D or None"
+            )
+        if cut_wall_geometry.max_wall_faces != cut_wall_bc.max_wall_faces:
+            raise ValueError(
+                "cut_wall_geometry and cut_wall_bc must have the same "
+                "max_wall_faces"
+            )
+
+        max_wall_faces = int(cut_wall_geometry.max_wall_faces)
+        if max_wall_faces == 0:
+            return jnp.zeros(value_slot.shape, dtype=field_halo.dtype)
+        if value_reconstructor is None:
+            raise ValueError(
+                "context.cut_wall_value_reconstructor is required for "
+                "nonempty remote cut-wall dependency evaluation"
+            )
+        if not isinstance(value_reconstructor, LocalCutWallValueReconstructor3D):
+            raise TypeError(
+                "context.cut_wall_value_reconstructor must be a "
+                "LocalCutWallValueReconstructor3D"
+            )
+        if value_reconstructor.max_wall_faces != max_wall_faces:
+            raise ValueError(
+                "cut_wall_value_reconstructor.max_wall_faces must match "
+                "cut_wall_geometry.max_wall_faces"
+            )
+        if field_halo.shape != layout.cell_halo_shape:
+            raise ValueError(
+                "field_halo must match context.layout.cell_halo_shape; "
+                f"got {field_halo.shape}, expected {layout.cell_halo_shape}"
+            )
+
+        safe_slot = jnp.clip(value_slot, 0, max_wall_faces - 1)
+        slot_active = (
+            jnp.asarray(cut_wall_geometry.active, dtype=bool)[safe_slot]
+            & jnp.asarray(cut_wall_bc.active, dtype=bool)[safe_slot]
+            & jnp.asarray(value_reconstructor.active, dtype=bool)[safe_slot]
+        )
+
+        wall_values = jnp.asarray(
+            value_reconstructor.extrapolate(field_halo),
+            dtype=field_halo.dtype,
+        )
+        cut_wall_kind = jnp.asarray(cut_wall_bc.kind, dtype=jnp.int32)
+        cut_wall_value = jnp.asarray(cut_wall_bc.value, dtype=field_halo.dtype)
+        wall_values = jnp.where(
+            cut_wall_kind == BC_DIRICHLET,
+            cut_wall_value,
+            wall_values,
+        )
+        values = wall_values[safe_slot]
+        return jnp.where(active & slot_active, values, jnp.zeros_like(values))
+
+    @staticmethod
     def _all_gather_flat(value: jnp.ndarray, domain: LocalDomain3D) -> jnp.ndarray:
         gathered = value
         for shard_count, axis_name in zip(
@@ -570,12 +518,303 @@ class RemoteFciDependencyExchange(_DataclassPyTreeMixin):
         return result
 
     def tree_flatten(self):
-        return (), self.cut_wall_evaluator
+        return (), None
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
+        del aux_data
         del children
-        return cls(cut_wall_evaluator=aux_data)
+        return cls()
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class RemoteLocalStencilDependencyExchange(_DataclassPyTreeMixin):
+    """Populate remote coordinate-stencil cut-wall receive values.
+
+    The exchange consumes the request side of
+    ``LocalCoordinateStencilRemoteDependencyTable`` and returns a local vector
+    indexed by ``receive_slot`` in the coordinate-stencil interpolation rows.
+    Request rows use the same source schema as remote FCI dependencies so the
+    owner-side sampling/reconstruction path stays shared.
+    """
+
+    def __call__(
+        self,
+        *,
+        field_halo: jnp.ndarray,
+        dependencies: LocalCoordinateStencilDependencyMap3D,
+        context: StencilBuilderContext,
+        cut_wall_bc: LocalCutWallBC3D | None,
+    ) -> jnp.ndarray:
+        if not isinstance(dependencies, LocalCoordinateStencilDependencyMap3D):
+            raise TypeError(
+                "dependencies must be a LocalCoordinateStencilDependencyMap3D instance"
+            )
+        if not isinstance(context, StencilBuilderContext):
+            raise TypeError("context must be a StencilBuilderContext instance")
+        if cut_wall_bc is not None and not isinstance(cut_wall_bc, LocalCutWallBC3D):
+            raise TypeError("cut_wall_bc must be a LocalCutWallBC3D or None")
+        if context.domain is None:
+            raise ValueError(
+                "context.domain is required for remote local-stencil exchange"
+            )
+        if context.layout != dependencies.layout:
+            raise ValueError(
+                "context and dependencies must share the same HaloLayout3D"
+            )
+
+        table = dependencies.remote
+        field_halo = jnp.asarray(field_halo)
+        if field_halo.ndim != 3:
+            raise ValueError(
+                "RemoteLocalStencilDependencyExchange currently supports scalar "
+                f"halo fields only; got shape {field_halo.shape}"
+            )
+        if field_halo.shape != dependencies.layout.cell_halo_shape:
+            raise ValueError(
+                "field_halo must match dependencies.layout.cell_halo_shape; "
+                f"got {field_halo.shape}, expected {dependencies.layout.cell_halo_shape}"
+            )
+        if table is None:
+            return jnp.zeros((0,), dtype=field_halo.dtype)
+
+        domain = context.domain
+        RemoteFciDependencyExchange._validate_mesh_axes(domain)
+
+        shard_counts = tuple(int(value) for value in domain.shard_spec.shard_counts)
+        n_shards = shard_counts[0] * shard_counts[1] * shard_counts[2]
+        n_requests = int(table.max_receive_values)
+
+        shard_x = jnp.asarray(domain.runtime_shard_id(0), dtype=jnp.int32)
+        shard_y = jnp.asarray(domain.runtime_shard_id(1), dtype=jnp.int32)
+        shard_z = jnp.asarray(domain.runtime_shard_id(2), dtype=jnp.int32)
+        my_shard_linear = (
+            shard_z * (shard_counts[1] * shard_counts[0])
+            + shard_y * shard_counts[0]
+            + shard_x
+        ).astype(jnp.int32)
+
+        request_active = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_active,
+            domain,
+        )
+        request_kind = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_dependency_kind,
+            domain,
+        )
+        request_owner_linear = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_source_shard_linear,
+            domain,
+        )
+        request_i = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_source_owner_local_i,
+            domain,
+        )
+        request_j = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_source_owner_local_j,
+            domain,
+        )
+        request_k = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_source_owner_local_k,
+            domain,
+        )
+        request_value_slot = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_value_slot,
+            domain,
+        )
+
+        owned_by_me = request_owner_linear == my_shard_linear
+        supported_kind = (
+            (request_kind == FCI_DEP_FIELD_INTERIOR)
+            | (request_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+            | (request_kind == FCI_DEP_CUT_WALL)
+        )
+        valid_request = request_active & owned_by_me & supported_kind
+        field_request = valid_request & (
+            (request_kind == FCI_DEP_FIELD_INTERIOR)
+            | (request_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+        )
+        cut_wall_request = valid_request & (request_kind == FCI_DEP_CUT_WALL)
+
+        field_values = RemoteFciDependencyExchange._sample_field_halo(
+            field_halo=field_halo,
+            source_i=request_i,
+            source_j=request_j,
+            source_k=request_k,
+        )
+        cut_wall_values = RemoteFciDependencyExchange._evaluate_cut_wall_values(
+            field_halo=field_halo,
+            cut_wall_geometry=context.cut_wall_geometry,
+            cut_wall_bc=cut_wall_bc,
+            value_reconstructor=context.cut_wall_value_reconstructor,
+            layout=context.layout,
+            value_slot=request_value_slot,
+            active=cut_wall_request,
+        )
+
+        owner_responses = jnp.zeros((n_shards, n_requests), dtype=field_halo.dtype)
+        owner_responses = jnp.where(field_request, field_values, owner_responses)
+        owner_responses = jnp.where(cut_wall_request, cut_wall_values, owner_responses)
+
+        responses_by_requester = RemoteFciDependencyExchange._psum_over_mesh_axes(
+            owner_responses,
+            domain,
+        )
+        remote_values = jnp.take(responses_by_requester, my_shard_linear, axis=0)
+        active_remote = table.request_active & (
+            table.request_dependency_kind != FCI_DEP_INVALID
+        )
+        return jnp.where(active_remote, remote_values, jnp.zeros_like(remote_values))
+
+    def tree_flatten(self):
+        return (), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        del aux_data
+        del children
+        return cls()
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class RemoteBoundaryDependencyExchange(_DataclassPyTreeMixin):
+    """Populate remote values needed to finalize pre-ghost boundary payloads."""
+
+    def __call__(
+        self,
+        *,
+        state_halo_pre_bc: FciModelState,
+        dependencies: FciFieldBundle,
+        domain: LocalDomain3D,
+    ) -> FciFieldBundle:
+        if not isinstance(state_halo_pre_bc, FciModelState):
+            raise TypeError("state_halo_pre_bc must be an FciModelState")
+        if not isinstance(dependencies, FciFieldBundle):
+            raise TypeError("dependencies must be an FciFieldBundle")
+        if not isinstance(domain, LocalDomain3D):
+            raise TypeError("domain must be a LocalDomain3D instance")
+        state_halo_pre_bc.assert_field_shape(domain.layout.cell_halo_shape)
+        assert_matching_field_names(state_halo_pre_bc, dependencies)
+        RemoteFciDependencyExchange._validate_mesh_axes(domain)
+
+        return dependencies.replace(
+            **{
+                name: self._exchange_field(
+                    field_halo=getattr(state_halo_pre_bc, name),
+                    table=getattr(dependencies, name),
+                    domain=domain,
+                )
+                for name in dependencies.field_names()
+            }
+        )
+
+    def _exchange_field(
+        self,
+        *,
+        field_halo: jnp.ndarray,
+        table: LocalBoundaryRemoteDependencyTable,
+        domain: LocalDomain3D,
+    ) -> jnp.ndarray:
+        if not isinstance(table, LocalBoundaryRemoteDependencyTable):
+            raise TypeError(
+                "boundary dependency bundle fields must be "
+                "LocalBoundaryRemoteDependencyTable instances"
+            )
+        field_halo = jnp.asarray(field_halo)
+        if field_halo.ndim != 3:
+            raise ValueError(
+                "RemoteBoundaryDependencyExchange currently supports scalar "
+                f"halo fields only; got shape {field_halo.shape}"
+            )
+        if field_halo.shape != domain.layout.cell_halo_shape:
+            raise ValueError(
+                "field_halo must match domain.layout.cell_halo_shape; "
+                f"got {field_halo.shape}, expected {domain.layout.cell_halo_shape}"
+            )
+        unsupported = table.request_active & (
+            (table.request_dependency_kind != FCI_DEP_INVALID)
+            & (table.request_dependency_kind != FCI_DEP_FIELD_INTERIOR)
+        )
+        if bool(jnp.any(unsupported)):
+            raise ValueError(
+                "RemoteBoundaryDependencyExchange only supports active "
+                "FCI_DEP_FIELD_INTERIOR requests in the pre-ghost BC stage"
+            )
+
+        shard_counts = tuple(int(value) for value in domain.shard_spec.shard_counts)
+        n_shards = shard_counts[0] * shard_counts[1] * shard_counts[2]
+        n_requests = int(table.max_receive_values)
+        if n_requests == 0:
+            return jnp.zeros((0,), dtype=field_halo.dtype)
+
+        shard_x = jnp.asarray(domain.runtime_shard_id(0), dtype=jnp.int32)
+        shard_y = jnp.asarray(domain.runtime_shard_id(1), dtype=jnp.int32)
+        shard_z = jnp.asarray(domain.runtime_shard_id(2), dtype=jnp.int32)
+        my_shard_linear = (
+            shard_z * (shard_counts[1] * shard_counts[0])
+            + shard_y * shard_counts[0]
+            + shard_x
+        ).astype(jnp.int32)
+
+        request_active = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_active,
+            domain,
+        )
+        request_kind = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_dependency_kind,
+            domain,
+        )
+        request_owner_linear = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_source_shard_linear,
+            domain,
+        )
+        request_i = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_source_owner_local_i,
+            domain,
+        )
+        request_j = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_source_owner_local_j,
+            domain,
+        )
+        request_k = RemoteFciDependencyExchange._all_gather_flat(
+            table.request_source_owner_local_k,
+            domain,
+        )
+
+        valid_request = (
+            request_active
+            & (request_owner_linear == my_shard_linear)
+            & (request_kind == FCI_DEP_FIELD_INTERIOR)
+        )
+        field_values = RemoteFciDependencyExchange._sample_field_halo(
+            field_halo=field_halo,
+            source_i=request_i,
+            source_j=request_j,
+            source_k=request_k,
+        )
+        owner_responses = jnp.zeros((n_shards, n_requests), dtype=field_halo.dtype)
+        owner_responses = jnp.where(valid_request, field_values, owner_responses)
+
+        responses_by_requester = RemoteFciDependencyExchange._psum_over_mesh_axes(
+            owner_responses,
+            domain,
+        )
+        remote_values = jnp.take(responses_by_requester, my_shard_linear, axis=0)
+        active_remote = table.request_active & (
+            table.request_dependency_kind != FCI_DEP_INVALID
+        )
+        return jnp.where(active_remote, remote_values, jnp.zeros_like(remote_values))
+
+    def tree_flatten(self):
+        return (), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        del aux_data
+        del children
+        return cls()
 
 
 @_pytree_base
@@ -686,34 +925,34 @@ class LocalPeriodicTopologyRule3D(_DataclassPyTreeMixin):
 
         h = domain.layout.halo_width
         ext = domain.layout.owned_shape
-        owned = tuple(slice(h, h + size) for size in ext)
+        full = (slice(None), slice(None), slice(None))
         trailing = _trailing_slices(field_halo.ndim)
         result = field_halo
         if axis == 0:
-            lower_index = (slice(0, h), owned[1], owned[2]) + trailing
-            upper_index = (slice(h + ext[0], h + ext[0] + h), owned[1], owned[2]) + trailing
+            lower_index = (slice(0, h), full[1], full[2]) + trailing
+            upper_index = (slice(h + ext[0], h + ext[0] + h), full[1], full[2]) + trailing
             old_lower = result[lower_index]
             old_upper = result[upper_index]
-            lower_value = result[(slice(h + ext[0] - h, h + ext[0]), owned[1], owned[2]) + trailing]
-            upper_value = result[(slice(h, h + h), owned[1], owned[2]) + trailing]
+            lower_value = result[(slice(h + ext[0] - h, h + ext[0]), full[1], full[2]) + trailing]
+            upper_value = result[(slice(h, h + h), full[1], full[2]) + trailing]
             result = result.at[lower_index].set(jnp.where(lower, lower_value, old_lower))
             result = result.at[upper_index].set(jnp.where(upper, upper_value, old_upper))
         elif axis == 1:
-            lower_index = (owned[0], slice(0, h), owned[2]) + trailing
-            upper_index = (owned[0], slice(h + ext[1], h + ext[1] + h), owned[2]) + trailing
+            lower_index = (full[0], slice(0, h), full[2]) + trailing
+            upper_index = (full[0], slice(h + ext[1], h + ext[1] + h), full[2]) + trailing
             old_lower = result[lower_index]
             old_upper = result[upper_index]
-            lower_value = result[(owned[0], slice(h + ext[1] - h, h + ext[1]), owned[2]) + trailing]
-            upper_value = result[(owned[0], slice(h, h + h), owned[2]) + trailing]
+            lower_value = result[(full[0], slice(h + ext[1] - h, h + ext[1]), full[2]) + trailing]
+            upper_value = result[(full[0], slice(h, h + h), full[2]) + trailing]
             result = result.at[lower_index].set(jnp.where(lower, lower_value, old_lower))
             result = result.at[upper_index].set(jnp.where(upper, upper_value, old_upper))
         elif axis == 2:
-            lower_index = (owned[0], owned[1], slice(0, h)) + trailing
-            upper_index = (owned[0], owned[1], slice(h + ext[2], h + ext[2] + h)) + trailing
+            lower_index = (full[0], full[1], slice(0, h)) + trailing
+            upper_index = (full[0], full[1], slice(h + ext[2], h + ext[2] + h)) + trailing
             old_lower = result[lower_index]
             old_upper = result[upper_index]
-            lower_value = result[(owned[0], owned[1], slice(h + ext[2] - h, h + ext[2])) + trailing]
-            upper_value = result[(owned[0], owned[1], slice(h, h + h)) + trailing]
+            lower_value = result[(full[0], full[1], slice(h + ext[2] - h, h + ext[2])) + trailing]
+            upper_value = result[(full[0], full[1], slice(h, h + h)) + trailing]
             result = result.at[lower_index].set(jnp.where(lower, lower_value, old_lower))
             result = result.at[upper_index].set(jnp.where(upper, upper_value, old_upper))
         else:
@@ -1297,8 +1536,9 @@ class PhysicalGhostCellFiller3D(_DataclassPyTreeMixin):
 
     This stage fills only slabs with exactly one ghost-coordinate direction.
     It intentionally does not fill halo edge or corner pieces (cells with two
-    or three ghost-coordinate directions); current operators do not require
-    those values. A future topology/corner stage can own that policy.
+    or three physical ghost-coordinate directions). ``LocalHaloClosure3D``
+    propagates these face values through topology boundaries and then fills
+    the remaining physical-physical edges and corners.
 
     Only ``BC_DIRICHLET`` and ``BC_NEUMANN`` are materialized. Flux-level BCs
     are not scalar ghost-cell rules and remain available to flux operators.
@@ -1454,6 +1694,304 @@ class PhysicalGhostCellFiller3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
+class PhysicalGhostCornerFiller3D(_DataclassPyTreeMixin):
+    """Complete physical-physical halo edges and corners.
+
+    Face ghosts must already be materialized and topology closure must already
+    have propagated them through periodic and shard boundaries. The filler
+    then works in increasing codimension:
+
+    1. physical-physical edges are extrapolated from completed face strips;
+    2. three-physical-side corners are extrapolated from completed edges.
+
+    Multiple valid directional extrapolations are averaged. Polynomial
+    extrapolation preserves constants and reproduces polynomials through
+    ``extrapolation_order`` on a uniform logical grid. This stage does not
+    overwrite owned cells, face ghosts, or physical-topology corners.
+    """
+
+    extrapolation_order: int = 2
+
+    def __post_init__(self) -> None:
+        order = int(self.extrapolation_order)
+        if order < 0:
+            raise ValueError("extrapolation_order must be nonnegative")
+        object.__setattr__(self, "extrapolation_order", order)
+
+    @staticmethod
+    def _lagrange_extrapolation_weights(
+        halo_width: int,
+        stencil_width: int,
+    ) -> jnp.ndarray:
+        """Return near-to-far ghost weights for inward cell-center samples."""
+
+        rows: list[list[float]] = []
+        nodes = [float(index) + 0.5 for index in range(stencil_width)]
+        for ghost_index in range(halo_width):
+            target = -(float(ghost_index) + 0.5)
+            row: list[float] = []
+            for node_index, node in enumerate(nodes):
+                weight = 1.0
+                for other_index, other in enumerate(nodes):
+                    if other_index != node_index:
+                        weight *= (target - other) / (node - other)
+                row.append(weight)
+            rows.append(row)
+        return jnp.asarray(rows, dtype=jnp.float64)
+
+    @staticmethod
+    def _physical_axis_side_mask(
+        domain: LocalDomain3D,
+        axis: int,
+        side: str,
+    ) -> jnp.ndarray:
+        layout = domain.layout
+        h = int(layout.halo_width)
+        extent = int(layout.owned_shape[axis])
+        coordinate = jnp.arange(layout.cell_halo_shape[axis])
+        reshape = [1, 1, 1]
+        reshape[axis] = layout.cell_halo_shape[axis]
+        coordinate = coordinate.reshape(tuple(reshape))
+        if side == "lower":
+            return (coordinate < h) & domain.runtime_has_physical_lower(axis)
+        if side == "upper":
+            return (
+                coordinate >= h + extent
+            ) & domain.runtime_has_physical_upper(axis)
+        raise ValueError(f"side must be 'lower' or 'upper', got {side!r}")
+
+    @staticmethod
+    def _full_owned_stencil(
+        field_halo: jnp.ndarray,
+        layout: HaloLayout3D,
+        axis: int,
+        side: str,
+        width: int,
+    ) -> jnp.ndarray:
+        h = int(layout.halo_width)
+        extent = int(layout.owned_shape[axis])
+        index = [slice(None), slice(None), slice(None)]
+        if side == "lower":
+            index[axis] = slice(h, h + width)
+            slab = field_halo[tuple(index)]
+        elif side == "upper":
+            index[axis] = slice(h + extent - width, h + extent)
+            slab = jnp.flip(field_halo[tuple(index)], axis=axis)
+        else:
+            raise ValueError(f"side must be 'lower' or 'upper', got {side!r}")
+        return jnp.moveaxis(slab, axis, 0)
+
+    @staticmethod
+    def _raw_ghost_slab(
+        near_to_far_slab: jnp.ndarray,
+        axis: int,
+        side: str,
+    ) -> jnp.ndarray:
+        slab = jnp.moveaxis(near_to_far_slab, 0, axis)
+        return jnp.flip(slab, axis=axis) if side == "lower" else slab
+
+    @staticmethod
+    def _ghost_index(
+        layout: HaloLayout3D,
+        axis: int,
+        side: str,
+    ) -> tuple[slice, slice, slice]:
+        h = int(layout.halo_width)
+        extent = int(layout.owned_shape[axis])
+        index = [slice(None), slice(None), slice(None)]
+        index[axis] = (
+            slice(0, h)
+            if side == "lower"
+            else slice(h + extent, h + extent + h)
+        )
+        return tuple(index)  # type: ignore[return-value]
+
+    def __call__(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        face_bc: LocalBoundaryFaceBC3D | None,
+    ) -> jnp.ndarray:
+        if face_bc is None:
+            return field_halo
+        field_halo = _validate_halo_spatial_prefix(field_halo, domain)
+        if field_halo.ndim != 3:
+            raise ValueError(
+                "PhysicalGhostCornerFiller3D currently requires a scalar 3D field"
+            )
+        if face_bc.layout != domain.layout:
+            raise ValueError("face_bc and domain must share the same HaloLayout3D")
+
+        layout = domain.layout
+        h = int(layout.halo_width)
+        if h == 0:
+            return field_halo
+
+        side_masks = {
+            (axis, side): self._physical_axis_side_mask(domain, axis, side)
+            for axis in range(3)
+            for side in ("lower", "upper")
+        }
+        physical_axis_masks = [
+            side_masks[(axis, "lower")] | side_masks[(axis, "upper")]
+            for axis in range(3)
+        ]
+        physical_codimension = sum(
+            mask.astype(jnp.int32) for mask in physical_axis_masks
+        )
+
+        result = field_halo
+        for codimension in (2, 3):
+            accumulated = jnp.zeros_like(result)
+            contribution_count = jnp.zeros(result.shape, dtype=jnp.int32)
+            for axis in range(3):
+                stencil_width = min(
+                    self.extrapolation_order + 1,
+                    int(layout.owned_shape[axis]),
+                )
+                weights = self._lagrange_extrapolation_weights(
+                    h,
+                    stencil_width,
+                ).astype(result.dtype)
+                for side in ("lower", "upper"):
+                    source = self._full_owned_stencil(
+                        result,
+                        layout,
+                        axis,
+                        side,
+                        stencil_width,
+                    )
+                    candidate = jnp.tensordot(weights, source, axes=((1,), (0,)))
+                    candidate = self._raw_ghost_slab(candidate, axis, side)
+                    index = self._ghost_index(layout, axis, side)
+                    target_mask = (
+                        side_masks[(axis, side)]
+                        & (physical_codimension == codimension)
+                    )[index]
+                    accumulated = accumulated.at[index].add(
+                        jnp.where(target_mask, candidate, 0.0)
+                    )
+                    contribution_count = contribution_count.at[index].add(
+                        target_mask.astype(jnp.int32)
+                    )
+            has_value = contribution_count > 0
+            result = jnp.where(
+                has_value,
+                accumulated
+                / jnp.maximum(contribution_count, 1).astype(result.dtype),
+                result,
+            )
+        return result
+
+    def tree_flatten(self):
+        return (), self.extrapolation_order
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        del children
+        return cls(extrapolation_order=aux_data)
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalHaloClosure3D(_DataclassPyTreeMixin):
+    """Prepare a complete scalar halo through three ordered closure stages.
+
+    ``face_closure`` materializes regular physical BCs. ``topology_closure``
+    then exchanges those values across shard and topology boundaries, which
+    completes physical-periodic and physical-shard edges. ``corner_closure``
+    finally fills intersections of two or three physical boundaries.
+    """
+
+    physical_ghost_filler: PhysicalGhostCellFiller3D
+    halo_exchange: HaloExchange3D | None = None
+    topology_filler: TopologyHaloFiller3D | None = None
+    corner_filler: PhysicalGhostCornerFiller3D = PhysicalGhostCornerFiller3D()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.physical_ghost_filler, PhysicalGhostCellFiller3D):
+            raise TypeError(
+                "physical_ghost_filler must be a PhysicalGhostCellFiller3D"
+            )
+        if self.halo_exchange is not None and not isinstance(
+            self.halo_exchange,
+            HaloExchange3D,
+        ):
+            raise TypeError("halo_exchange must be a HaloExchange3D or None")
+        if self.topology_filler is not None and not isinstance(
+            self.topology_filler,
+            TopologyHaloFiller3D,
+        ):
+            raise TypeError("topology_filler must be a TopologyHaloFiller3D or None")
+        if not isinstance(self.corner_filler, PhysicalGhostCornerFiller3D):
+            raise TypeError(
+                "corner_filler must be a PhysicalGhostCornerFiller3D"
+            )
+
+    def face_closure(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        face_bc: LocalBoundaryFaceBC3D | None,
+    ) -> jnp.ndarray:
+        return self.physical_ghost_filler(field_halo, domain, face_bc)
+
+    def topology_closure(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+    ) -> jnp.ndarray:
+        result = field_halo
+        if self.halo_exchange is not None:
+            result = self.halo_exchange(result, domain)
+        if self.topology_filler is not None:
+            result = self.topology_filler(result, domain)
+        return result
+
+    def corner_closure(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        face_bc: LocalBoundaryFaceBC3D | None,
+    ) -> jnp.ndarray:
+        return self.corner_filler(field_halo, domain, face_bc)
+
+    def __call__(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        face_bc: LocalBoundaryFaceBC3D | None,
+    ) -> jnp.ndarray:
+        result = self.face_closure(field_halo, domain, face_bc)
+        result = self.topology_closure(result, domain)
+        return self.corner_closure(result, domain, face_bc)
+
+    def tree_flatten(self):
+        return (
+            self.physical_ghost_filler,
+            self.halo_exchange,
+            self.topology_filler,
+            self.corner_filler,
+        ), None
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        (
+            physical_ghost_filler,
+            halo_exchange,
+            topology_filler,
+            corner_filler,
+        ) = children
+        return cls(
+            physical_ghost_filler=physical_ghost_filler,
+            halo_exchange=halo_exchange,
+            topology_filler=topology_filler,
+            corner_filler=corner_filler,
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
 class PreparedLocalState3D(_DataclassPyTreeMixin):
     """Fully prepared local state and its model-shaped boundary payloads."""
 
@@ -1472,19 +2010,19 @@ class PreparedLocalState3D(_DataclassPyTreeMixin):
 @_pytree_base
 @dataclass(frozen=True)
 class LocalStateAndBoundaryPreparer3D(_DataclassPyTreeMixin):
-    """Prepare state halos, coupled BCs, and physical ghost cells in order.
+    """Prepare state halos, coupled BCs, and complete ghost closure in order.
 
     The pre-BC stages operate field-by-field, while the boundary builder sees
     the complete topology-prepared state so it can construct coupled payloads.
-    Physical ghost filling then applies the matching face BC to each field.
-    Halo edges and corners remain governed by the individual field stages;
-    this orchestrator does not add corner handling.
+    After BC construction, ``LocalHaloClosure3D`` performs physical face,
+    topology, and physical-corner closure for each field.
     """
 
     boundary_builder: LocalBoundaryConditionBuilder
     physical_ghost_filler: PhysicalGhostCellFiller3D
     halo_exchange: HaloExchange3D | None = None
     topology_filler: TopologyHaloFiller3D | None = None
+    boundary_dependency_exchange: RemoteBoundaryDependencyExchange | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.boundary_builder, LocalBoundaryConditionBuilder):
@@ -1504,6 +2042,14 @@ class LocalStateAndBoundaryPreparer3D(_DataclassPyTreeMixin):
         ):
             raise TypeError(
                 "topology_filler must be a TopologyHaloFiller3D or None"
+            )
+        if self.boundary_dependency_exchange is not None and not isinstance(
+            self.boundary_dependency_exchange,
+            RemoteBoundaryDependencyExchange,
+        ):
+            raise TypeError(
+                "boundary_dependency_exchange must be a "
+                "RemoteBoundaryDependencyExchange or None"
             )
 
     def __call__(
@@ -1529,7 +2075,27 @@ class LocalStateAndBoundaryPreparer3D(_DataclassPyTreeMixin):
                 lambda field_halo: self.topology_filler(field_halo, domain)
             )
 
-        boundary_data = self.boundary_builder(
+        boundary_preparation = self.boundary_builder.prepare(
+            state_halo,
+            geometry,
+            domain,
+            cut_wall_geometry,
+        )
+        boundary_remote_values = None
+        if boundary_preparation.remote_dependencies is not None:
+            if self.boundary_dependency_exchange is None:
+                raise ValueError(
+                    "boundary_dependency_exchange is required when "
+                    "boundary preparation returns remote dependencies"
+                )
+            boundary_remote_values = self.boundary_dependency_exchange(
+                state_halo_pre_bc=state_halo,
+                dependencies=boundary_preparation.remote_dependencies,
+                domain=domain,
+            )
+        boundary_data = self.boundary_builder.finalize(
+            boundary_preparation,
+            boundary_remote_values,
             state_halo,
             geometry,
             domain,
@@ -1543,9 +2109,14 @@ class LocalStateAndBoundaryPreparer3D(_DataclassPyTreeMixin):
         face_bc_bundle = boundary_data.face_bc
         assert_matching_field_names(state_halo, face_bc_bundle)
 
+        halo_closure = LocalHaloClosure3D(
+            physical_ghost_filler=self.physical_ghost_filler,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+        )
         state_halo_full = state_halo.replace(
             **{
-                name: self.physical_ghost_filler(
+                name: halo_closure(
                     getattr(state_halo, name),
                     domain,
                     getattr(face_bc_bundle, name),
@@ -1559,17 +2130,19 @@ class LocalStateAndBoundaryPreparer3D(_DataclassPyTreeMixin):
         )
 
 __all__ = [
-    "FciCutWallValueEvaluator",
     "GhostFillWeights1D",
     "HaloExchange3D",
-    "LocalFciCutWallValueEvaluator",
+    "LocalHaloClosure3D",
     "LocalPeriodicTopologyRule3D",
     "LocalStateAndBoundaryPreparer3D",
     "PreparedLocalState3D",
+    "PhysicalGhostCornerFiller3D",
     "PhysicalGhostCellFiller3D",
     "PolarAxisRegularScalarRule3D",
     "PolarAxisRegularVectorRule3D",
+    "RemoteBoundaryDependencyExchange",
     "RemoteFciDependencyExchange",
+    "RemoteLocalStencilDependencyExchange",
     "TopologyHaloFiller3D",
     "make_default_topology_halo_filler_3d",
 ]
