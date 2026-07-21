@@ -1,0 +1,911 @@
+================================================================================
+JAX runtime
+================================================================================
+default backend: gpu
+local_device_count: 4
+compilation_cache_dir: /global/homes/y/yiqunx/.cache/jax_drb/jax_compilation_cache
+devices:
+  [0] cuda:0ss
+  [1] cuda:1
+  [2] cuda:2
+  [3] cuda:3
+================================================================================
+embedded control volumes: active_owners=61500, merged_sources=1258, aggregate_targets=1258, irregular_faces=8300, interior/partial/cutwall=4246/2604/1450, physical_boundary=0, transitions/invalid/remote/max_samples=4246/0/184/2, quadratic_rows=2900, linear_fallbacks=0, max_condition=4.711707e+00
+Starting shifted_torus control-volume operator sweep: N=40, shape=(40, 40, 40), shards=(1, 1, 4)
+  radial boundary contract: x-low=physical Dirichlet, x-high=physical Dirichlet, axis_regular_x=False
+N=40 operator=grad_parallel_density compile+run=4.400s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=6.424085e-17 Linf=1.047758e-15 rel_L2=6.424085e+13
+  bulk               count=   58600 volume_L2=6.387276e-17 Linf=6.699187e-16 rel_L2=6.387276e+13
+  one_wall           count=    1074 volume_L2=1.000143e-16 Linf=1.047758e-15 rel_L2=1.000143e+14
+  multi_wall         count=     184 volume_L2=7.789811e-17 Linf=6.201379e-16 rel_L2=7.789811e+13
+  aggregate_target   count=    1258 volume_L2=9.659096e-17 Linf=1.047758e-15 rel_L2=9.659096e+13
+  remote_interface   count=     184 volume_L2=8.748302e-17 Linf=4.647674e-16 rel_L2=8.748302e+13
+  reconstruction_row count=    2900 volume_L2=7.050237e-17 Linf=1.047758e-15 rel_L2=7.050237e+13
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=5.783232e-17 Linf=3.488742e-16 rel_L2=5.783232e+13
+  dense_compact_d2   count=    2066 volume_L2=5.379673e-17 Linf=3.488742e-16 rel_L2=5.379673e+13
+  dense_far          count=   54684 volume_L2=6.441975e-17 Linf=6.699187e-16 rel_L2=6.441975e+13
+  top_error index=(12, 33, 25) error=1.047758e-15 actual=1.047758e-15 reference=0.000000e+00 boundary_faces=1 irregular_faces=10 remote_faces=0 reconstruction_rows=1 aggregate=True compact_distance=0
+N=40 operator=grad_parallel_phi compile+run=3.466s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=2.412406e-03 Linf=8.961180e-03 rel_L2=4.518684e-02
+  bulk               count=   58600 volume_L2=2.311906e-03 Linf=6.253815e-03 rel_L2=4.336785e-02
+  one_wall           count=    1074 volume_L2=2.781547e-03 Linf=8.275579e-03 rel_L2=4.933075e-02
+  multi_wall         count=     184 volume_L2=4.007334e-03 Linf=8.291848e-03 rel_L2=6.846494e-02
+  aggregate_target   count=    1258 volume_L2=3.026624e-03 Linf=8.291848e-03 rel_L2=5.332469e-02
+  remote_interface   count=     184 volume_L2=2.944683e-03 Linf=8.275579e-03 rel_L2=5.322009e-02
+  reconstruction_row count=    2900 volume_L2=3.783419e-03 Linf=8.961180e-03 rel_L2=6.908282e-02
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=1.971698e-03 Linf=5.590047e-03 rel_L2=3.891069e-02
+  dense_compact_d2   count=    2066 volume_L2=1.996921e-03 Linf=5.636015e-03 rel_L2=3.936666e-02
+  dense_far          count=   54684 volume_L2=2.333698e-03 Linf=6.253815e-03 rel_L2=4.362678e-02
+  top_error index=(12, 29, 1) error=8.961180e-03 actual=-9.404528e-02 reference=-1.030065e-01 boundary_faces=0 irregular_faces=1 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+N=40 operator=grad_parallel_v_ion compile+run=3.371s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  bulk               count=   58600 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  one_wall           count=    1074 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  multi_wall         count=     184 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  aggregate_target   count=    1258 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  remote_interface   count=     184 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  reconstruction_row count=    2900 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d2   count=    2066 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_far          count=   54684 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  top_error index=(0, 0, 0) error=0.000000e+00 actual=0.000000e+00 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=grad_parallel_v_electron compile+run=3.581s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=6.754113e-03 Linf=2.298352e-02 rel_L2=8.393586e-02
+  bulk               count=   58600 volume_L2=6.537360e-03 Linf=1.684113e-02 rel_L2=8.091904e-02
+  one_wall           count=    1074 volume_L2=6.524840e-03 Linf=2.075233e-02 rel_L2=9.388264e-02
+  multi_wall         count=     184 volume_L2=1.049785e-02 Linf=2.102058e-02 rel_L2=1.379739e-01
+  aggregate_target   count=    1258 volume_L2=7.358127e-03 Linf=2.102058e-02 rel_L2=1.041195e-01
+  remote_interface   count=     184 volume_L2=7.013447e-03 Linf=2.075233e-02 rel_L2=1.015505e-01
+  reconstruction_row count=    2900 volume_L2=9.857067e-03 Linf=2.298352e-02 rel_L2=1.323376e-01
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=6.908741e-03 Linf=1.373155e-02 rel_L2=8.412602e-02
+  dense_compact_d2   count=    2066 volume_L2=6.567265e-03 Linf=1.389818e-02 rel_L2=8.248312e-02
+  dense_far          count=   54684 volume_L2=6.523235e-03 Linf=1.684113e-02 rel_L2=8.074562e-02
+  top_error index=(11, 26, 13) error=2.298352e-02 actual=-1.271862e-01 reference=-1.501697e-01 boundary_faces=0 irregular_faces=1 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+N=40 operator=parallel_density_flux_divergence compile+run=13.183s invalid_reconstruction_rows=0
+  mirrored_remote_flux signed_sum=-2.710505e-19 abs_sum=2.135032e-02 relative_imbalance=1.269539e-17 invalid_quadrature=0
+  all_active         count=   61500 volume_L2=4.458457e-03 Linf=1.347010e-02 rel_L2=5.683137e-02
+  bulk               count=   58600 volume_L2=4.513833e-03 Linf=1.189118e-02 rel_L2=5.729165e-02
+  one_wall           count=    1074 volume_L2=9.600015e-04 Linf=2.349774e-03 rel_L2=1.423391e-02
+  multi_wall         count=     184 volume_L2=1.459058e-03 Linf=3.641452e-03 rel_L2=2.035645e-02
+  aggregate_target   count=    1258 volume_L2=1.062123e-03 Linf=3.641452e-03 rel_L2=1.557662e-02
+  remote_interface   count=     184 volume_L2=8.710786e-04 Linf=1.713230e-03 rel_L2=1.304184e-02
+  reconstruction_row count=    2900 volume_L2=3.314913e-03 Linf=1.347010e-02 rel_L2=4.593215e-02
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=4.839137e-03 Linf=9.707987e-03 rel_L2=6.050344e-02
+  dense_compact_d2   count=    2066 volume_L2=4.573547e-03 Linf=9.769707e-03 rel_L2=5.887165e-02
+  dense_far          count=   54684 volume_L2=4.500078e-03 Linf=1.189118e-02 rel_L2=5.711647e-02
+  top_error index=(9, 33, 13) error=1.347010e-02 actual=4.983269e-02 reference=6.330280e-02 boundary_faces=0 irregular_faces=1 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+  top_face_balance aggregate_volume=6.731911e-04 actual_integrated=3.354693e-05 owner_dense=1.458092e-04 target_storage_dense=1.458092e-04 routed_member_dense=0.000000e+00 irregular=-1.122623e-04 reference_integrated=4.261488e-05 reference_remainder=1.555777e-04 exact_irregular=-1.129628e-04 attached_rows=1/32
+    dense x-low: open=True measure=2.467401e-02 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=False neighbor_reconstructed=False
+    dense x-high: open=True measure=2.467401e-02 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=False neighbor_reconstructed=True
+    dense theta-low: open=False measure=3.222146e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense theta-high: open=True measure=3.222146e-03 signed_flux=1.370458e-04 exact=1.464844e-04 error=-9.438591e-06 compact_owned=False neighbor_reconstructed=False
+    dense zeta-low: open=True measure=3.222146e-03 signed_flux=-1.108514e-04 exact=-1.150147e-04 error=4.163280e-06 compact_owned=False neighbor_reconstructed=True
+    dense zeta-high: open=True measure=3.222146e-03 signed_flux=1.196148e-04 exact=1.241072e-04 error=-4.492410e-06 compact_owned=False neighbor_reconstructed=True
+    irregular row=913 kind=interior sign=-1 owners=(9,32,3)/(9,33,3) plus=True remote=False flux=1.122623e-04 exact=1.129628e-04 error=-7.004698e-07 active_q=4
+      worst_q patch=0 q=3 point=(3.905369e-01,5.105088e+00,2.087380e+00) numerical=2.929373e-05 exact=2.957458e-05 error=-2.808505e-07
+N=40 operator=poisson_density compile+run=7.339s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=5.968410e-16 Linf=1.082198e-14 rel_L2=5.968410e+14
+  bulk               count=   58600 volume_L2=6.119085e-16 Linf=1.082198e-14 rel_L2=6.119085e+14
+  one_wall           count=    1074 volume_L2=2.195789e-16 Linf=1.438406e-15 rel_L2=2.195789e+14
+  multi_wall         count=     184 volume_L2=2.565691e-16 Linf=4.081851e-15 rel_L2=2.565691e+14
+  aggregate_target   count=    1258 volume_L2=2.263352e-16 Linf=4.081851e-15 rel_L2=2.263352e+14
+  remote_interface   count=     184 volume_L2=2.169413e-16 Linf=1.192382e-15 rel_L2=2.169413e+14
+  reconstruction_row count=    2900 volume_L2=1.742708e-16 Linf=4.081851e-15 rel_L2=1.742708e+14
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=4.769529e-16 Linf=2.857191e-15 rel_L2=4.769529e+14
+  dense_compact_d2   count=    2066 volume_L2=6.044475e-16 Linf=6.880854e-15 rel_L2=6.044475e+14
+  dense_far          count=   54684 volume_L2=6.162525e-16 Linf=1.082198e-14 rel_L2=6.162525e+14
+  top_error index=(3, 16, 37) error=1.082198e-14 actual=-1.082198e-14 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=poisson_omega compile+run=29.693s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=1.716068e-01 Linf=5.475509e+00 rel_L2=4.036972e-02
+  bulk               count=   58600 volume_L2=1.751112e-01 Linf=5.475509e+00 rel_L2=4.011997e-02
+  one_wall           count=    1074 volume_L2=4.132294e-02 Linf=2.493549e-01 rel_L2=6.594719e-02
+  multi_wall         count=     184 volume_L2=7.041528e-02 Linf=3.012361e-01 rel_L2=8.437799e-02
+  aggregate_target   count=    1258 volume_L2=4.757762e-02 Linf=3.012361e-01 rel_L2=7.135395e-02
+  remote_interface   count=     184 volume_L2=4.789187e-02 Linf=2.552570e-01 rel_L2=6.588955e-02
+  reconstruction_row count=    2900 volume_L2=8.781013e-02 Linf=6.973003e-01 rel_L2=1.209376e-01
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=2.112348e-02 Linf=1.115518e-01 rel_L2=2.272780e-02
+  dense_compact_d2   count=    2066 volume_L2=2.522220e-02 Linf=1.458222e-01 rel_L2=2.249596e-02
+  dense_far          count=   54684 volume_L2=1.812044e-01 Linf=5.475509e+00 rel_L2=4.017198e-02
+  top_error index=(0, 25, 30) error=5.475509e+00 actual=9.649496e+01 reference=1.019705e+02 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=poisson_v_ion compile+run=6.996s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  bulk               count=   58600 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  one_wall           count=    1074 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  multi_wall         count=     184 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  aggregate_target   count=    1258 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  remote_interface   count=     184 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  reconstruction_row count=    2900 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d2   count=    2066 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_far          count=   54684 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  top_error index=(0, 0, 0) error=0.000000e+00 actual=0.000000e+00 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=poisson_v_electron compile+run=7.406s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=1.071153e-03 Linf=2.043325e-02 rel_L2=1.525756e-01
+  bulk               count=   58600 volume_L2=1.041590e-03 Linf=1.092883e-02 rel_L2=1.482850e-01
+  one_wall           count=    1074 volume_L2=9.838871e-04 Linf=7.665079e-03 rel_L2=1.366147e-01
+  multi_wall         count=     184 volume_L2=2.902209e-03 Linf=2.043325e-02 rel_L2=4.261711e-01
+  aggregate_target   count=    1258 volume_L2=1.497729e-03 Linf=2.043325e-02 rel_L2=2.098719e-01
+  remote_interface   count=     184 volume_L2=1.205380e-03 Linf=7.665079e-03 rel_L2=2.393678e-01
+  reconstruction_row count=    2900 volume_L2=1.504939e-03 Linf=2.043325e-02 rel_L2=2.164554e-01
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=1.204625e-03 Linf=5.061001e-03 rel_L2=2.415536e-01
+  dense_compact_d2   count=    2066 volume_L2=1.107696e-03 Linf=5.475615e-03 rel_L2=1.866461e-01
+  dense_far          count=   54684 volume_L2=1.032985e-03 Linf=1.092883e-02 rel_L2=1.450609e-01
+  top_error index=(9, 31, 27) error=2.043325e-02 actual=2.932348e-02 reference=8.890229e-03 boundary_faces=2 irregular_faces=12 remote_faces=0 reconstruction_rows=1 aggregate=True compact_distance=0
+N=40 operator=curvature_density compile+run=4.550s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=9.298612e-16 Linf=1.361270e-14 rel_L2=9.298612e+14
+  bulk               count=   58600 volume_L2=9.490663e-16 Linf=1.361270e-14 rel_L2=9.490663e+14
+  one_wall           count=    1074 volume_L2=6.301690e-16 Linf=9.307113e-15 rel_L2=6.301690e+14
+  multi_wall         count=     184 volume_L2=5.543400e-16 Linf=3.820239e-15 rel_L2=5.543400e+14
+  aggregate_target   count=    1258 volume_L2=6.178584e-16 Linf=9.307113e-15 rel_L2=6.178584e+14
+  remote_interface   count=     184 volume_L2=5.345251e-16 Linf=1.929830e-15 rel_L2=5.345251e+14
+  reconstruction_row count=    2900 volume_L2=4.680191e-16 Linf=9.307113e-15 rel_L2=4.680191e+14
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=9.154521e-16 Linf=4.984615e-15 rel_L2=9.154521e+14
+  dense_compact_d2   count=    2066 volume_L2=8.686582e-16 Linf=6.100889e-15 rel_L2=8.686582e+14
+  dense_far          count=   54684 volume_L2=9.531153e-16 Linf=1.361270e-14 rel_L2=9.531153e+14
+  top_error index=(0, 21, 27) error=1.361270e-14 actual=-1.361270e-14 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=curvature_phi compile+run=4.530s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=5.836844e-03 Linf=6.727705e-02 rel_L2=1.993414e-02
+  bulk               count=   58600 volume_L2=5.450442e-03 Linf=6.727705e-02 rel_L2=1.827696e-02
+  one_wall           count=    1074 volume_L2=3.897466e-03 Linf=3.927309e-02 rel_L2=2.577133e-02
+  multi_wall         count=     184 volume_L2=1.100140e-02 Linf=5.118579e-02 rel_L2=6.844601e-02
+  aggregate_target   count=    1258 volume_L2=5.770140e-03 Linf=5.118579e-02 rel_L2=3.773820e-02
+  remote_interface   count=     184 volume_L2=5.849086e-03 Linf=5.097246e-02 rel_L2=3.634526e-02
+  reconstruction_row count=    2900 volume_L2=1.058772e-02 Linf=5.937172e-02 rel_L2=6.265196e-02
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=3.849704e-03 Linf=1.687239e-02 rel_L2=1.919597e-02
+  dense_compact_d2   count=    2066 volume_L2=3.976264e-03 Linf=1.971166e-02 rel_L2=1.905381e-02
+  dense_far          count=   54684 volume_L2=5.544611e-03 Linf=6.727705e-02 rel_L2=1.824873e-02
+  top_error index=(0, 27, 30) error=6.727705e-02 actual=3.356541e+00 reference=3.423818e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=perp_laplacian_phi compile+run=6.546s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=5.705560e-02 Linf=1.414326e+00 rel_L2=4.193282e-02
+  bulk               count=   58600 volume_L2=1.902805e-02 Linf=1.034956e+00 rel_L2=1.373174e-02
+  one_wall           count=    1074 volume_L2=2.774523e-01 Linf=8.299479e-01 rel_L2=3.531524e-01
+  multi_wall         count=     184 volume_L2=3.739329e-01 Linf=1.414326e+00 rel_L2=4.017695e-01
+  aggregate_target   count=    1258 volume_L2=2.961921e-01 Linf=1.414326e+00 rel_L2=3.646347e-01
+  remote_interface   count=     184 volume_L2=2.980885e-01 Linf=9.501978e-01 rel_L2=3.729215e-01
+  reconstruction_row count=    2900 volume_L2=2.345619e-01 Linf=1.414326e+00 rel_L2=2.978269e-01
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    1850 volume_L2=4.263355e-02 Linf=1.034956e+00 rel_L2=5.815591e-02
+  dense_compact_d2   count=    2066 volume_L2=6.458553e-03 Linf=3.517577e-02 rel_L2=8.559439e-03
+  dense_far          count=   54684 volume_L2=1.802406e-02 Linf=3.927211e-01 rel_L2=1.268602e-02
+  top_error index=(9, 30, 27) error=1.414326e+00 actual=1.983716e+00 reference=5.693897e-01 boundary_faces=2 irregular_faces=12 remote_faces=0 reconstruction_rows=1 aggregate=True compact_distance=0
+  top_face_balance aggregate_volume=9.155753e-04 actual_integrated=1.816241e-03 owner_dense=0.000000e+00 target_storage_dense=0.000000e+00 routed_member_dense=0.000000e+00 irregular=1.816241e-03 reference_integrated=5.213192e-04 reference_remainder=1.713609e-09 exact_irregular=5.213175e-04 attached_rows=12/32
+    dense x-low: open=False measure=2.467401e-02 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense x-high: open=False measure=2.467401e-02 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=False
+    dense theta-low: open=False measure=3.222146e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense theta-high: open=False measure=3.222146e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense zeta-low: open=False measure=3.222146e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense zeta-high: open=False measure=3.222146e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    irregular row=23 kind=interior sign=-1 owners=(8,30,7)/(9,30,7) plus=True remote=False flux=1.576217e-04 exact=1.788257e-04 error=-2.120403e-05 active_q=4
+      worst_q patch=0 q=1 point=(3.743590e-01,4.667044e+00,4.286495e+00) numerical=3.640857e-05 exact=7.603059e-05 error=-3.962202e-05
+    irregular row=58 kind=partial sign=+1 owners=(9,30,7)/(11,30,8) plus=True remote=False flux=6.380664e-04 exact=1.900258e-04 error=4.480405e-04 active_q=4
+      worst_q patch=0 q=2 point=(4.153846e-01,4.757734e+00,4.264727e+00) numerical=1.698618e-04 exact=4.145138e-05 error=1.284104e-04
+    irregular row=825 kind=interior sign=-1 owners=(9,29,7)/(9,30,7) plus=True remote=False flux=-2.852749e-04 exact=-2.701298e-04 error=-1.514510e-05 active_q=4
+      worst_q patch=0 q=2 point=(3.905369e-01,4.633849e+00,4.195805e+00) numerical=3.505204e-06 exact=1.955656e-05 error=-1.605135e-05
+    irregular row=833 kind=interior sign=+1 owners=(9,30,7)/(9,31,7) plus=True remote=False flux=-5.460592e-05 exact=-2.162217e-05 error=-3.298375e-05 active_q=4
+      worst_q patch=0 q=2 point=(3.905369e-01,4.790929e+00,4.195805e+00) numerical=1.202174e-05 exact=3.161231e-05 error=-1.959057e-05
+    irregular row=873 kind=partial sign=-1 owners=(9,29,7)/(9,30,7) plus=True remote=False flux=-2.573761e-04 exact=-2.284606e-04 error=-2.891556e-05 active_q=8
+      worst_q patch=1 q=2 point=(4.121335e-01,4.633849e+00,4.264727e+00) numerical=-3.599596e-05 exact=-3.002750e-05 error=-5.968466e-06
+    irregular row=881 kind=partial sign=+1 owners=(9,30,7)/(9,31,7) plus=True remote=False flux=-8.195352e-05 exact=-2.889771e-05 error=-5.305581e-05 active_q=8
+      worst_q patch=1 q=2 point=(4.121335e-01,4.790929e+00,4.264727e+00) numerical=-1.255926e-05 exact=-2.306544e-06 error=-1.025272e-05
+    irregular row=1469 kind=interior sign=-1 owners=(9,30,6)/(9,30,7) plus=True remote=False flux=-4.713969e-06 exact=-4.835923e-06 error=1.219535e-07 active_q=4
+      worst_q patch=0 q=0 point=(3.786938e-01,4.667044e+00,4.162610e+00) numerical=-1.198814e-06 exact=-1.332267e-06 error=1.334528e-07
+    irregular row=1470 kind=interior sign=+1 owners=(9,30,7)/(9,30,8) plus=True remote=False flux=8.892513e-06 exact=9.492419e-06 error=-5.999060e-07 active_q=4
+      worst_q patch=0 q=3 point=(3.905369e-01,4.757734e+00,4.319690e+00) numerical=1.311613e-06 exact=1.498872e-06 error=-1.872588e-07
+    irregular row=1514 kind=partial sign=-1 owners=(9,30,6)/(9,30,7) plus=True remote=False flux=-1.274079e-06 exact=-1.249867e-06 error=-2.421143e-08 active_q=4
+      worst_q patch=0 q=3 point=(3.989163e-01,4.757734e+00,4.162610e+00) numerical=-3.048439e-07 exact=-2.758529e-07 error=-2.899091e-08
+    irregular row=1515 kind=interior sign=+1 owners=(9,30,7)/(10,30,8) plus=True remote=False flux=8.144202e-06 exact=8.494912e-06 error=-3.507104e-07 active_q=4
+      worst_q patch=0 q=3 point=(4.110497e-01,4.757734e+00,4.319690e+00) numerical=1.036358e-06 exact=1.195321e-06 error=-1.589629e-07
+    irregular row=2331 kind=cut-wall sign=+1 owners=(9,30,7)/(0,0,0) plus=False remote=False flux=9.077895e-04 exact=3.979454e-05 error=8.679950e-04 active_q=4
+      worst_q patch=0 q=2 point=(4.000000e-01,4.757734e+00,4.181078e+00) numerical=2.431285e-04 exact=-4.810030e-06 error=2.479385e-04
+    irregular row=2710 kind=cut-wall sign=+1 owners=(9,30,7)/(0,0,0) plus=False remote=False flux=-1.109487e-06 exact=-1.820770e-06 error=7.112837e-07 active_q=4
+      worst_q patch=0 q=3 point=(4.121335e-01,4.757734e+00,4.250000e+00) numerical=1.367574e-07 exact=-1.136002e-07 error=2.503576e-07
+N=40 operator=full_rhs phi_mode=projected_exact compile+run=46.660s
+  v_ion source consistency: source_vs_exact_t=0.000000e+00 roundtrip_vs_source=1.110223e-16 operator_without_source=1.047758e-15 full_residual=1.047758e-15
+  field=density
+    all_active       count=   61500 volume_L2=4.674769e-03 Linf=1.693725e-02 rel_L2=1.394797e-02
+    bulk             count=   58600 volume_L2=4.645865e-03 Linf=1.316807e-02 rel_L2=1.369098e-02
+    one_wall         count=    1074 volume_L2=1.332250e-03 Linf=9.516712e-03 rel_L2=5.411060e-03
+    multi_wall       count=     184 volume_L2=3.291508e-03 Linf=1.184068e-02 rel_L2=1.115960e-02
+    aggregate_target count=    1258 volume_L2=1.823315e-03 Linf=1.184068e-02 rel_L2=7.144466e-03
+    remote_interface count=     184 volume_L2=1.800823e-03 Linf=1.184068e-02 rel_L2=2.679665e-02
+    reconstruction_row count=    2900 volume_L2=5.164634e-03 Linf=1.693725e-02 rel_L2=2.076022e-02
+    retained_cut_cell count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    dense_compact_d1 count=    1850 volume_L2=5.073195e-03 Linf=1.032822e-02 rel_L2=1.581074e-02
+    dense_compact_d2 count=    2066 volume_L2=4.633953e-03 Linf=1.067554e-02 rel_L2=1.194058e-02
+    dense_far        count=   54684 volume_L2=4.631120e-03 Linf=1.316807e-02 rel_L2=1.370347e-02
+  field=omega
+    all_active       count=   61500 volume_L2=2.792013e-01 Linf=4.350195e+00 rel_L2=2.792013e+29
+    bulk             count=   58600 volume_L2=2.786417e-01 Linf=4.350195e+00 rel_L2=2.786417e+29
+    one_wall         count=    1074 volume_L2=1.684438e-01 Linf=1.062098e+00 rel_L2=1.684438e+29
+    multi_wall       count=     184 volume_L2=3.103009e-01 Linf=1.086877e+00 rel_L2=3.103009e+29
+    aggregate_target count=    1258 volume_L2=1.999751e-01 Linf=1.086877e+00 rel_L2=1.999751e+29
+    remote_interface count=     184 volume_L2=2.042538e-01 Linf=1.062098e+00 rel_L2=2.042538e+29
+    reconstruction_row count=    2900 volume_L2=2.890304e-01 Linf=1.436621e+00 rel_L2=2.890304e+29
+    retained_cut_cell count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    dense_compact_d1 count=    1850 volume_L2=1.824935e-01 Linf=9.110693e-01 rel_L2=1.824935e+29
+    dense_compact_d2 count=    2066 volume_L2=1.819241e-01 Linf=1.030461e+00 rel_L2=1.819241e+29
+    dense_far        count=   54684 volume_L2=2.843330e-01 Linf=4.350195e+00 rel_L2=2.843330e+29
+  field=v_ion_parallel
+    all_active       count=   61500 volume_L2=6.454287e-17 Linf=1.047758e-15 rel_L2=2.712322e-16
+    bulk             count=   58600 volume_L2=6.409528e-17 Linf=6.699187e-16 rel_L2=2.692561e-16
+    one_wall         count=    1074 volume_L2=1.023009e-16 Linf=1.047758e-15 rel_L2=4.000391e-16
+    multi_wall       count=     184 volume_L2=7.908729e-17 Linf=6.106227e-16 rel_L2=2.594845e-16
+    aggregate_target count=    1258 volume_L2=9.871792e-17 Linf=1.047758e-15 rel_L2=3.728523e-16
+    remote_interface count=     184 volume_L2=8.847676e-17 Linf=4.718448e-16 rel_L2=6.485130e-16
+    reconstruction_row count=    2900 volume_L2=7.208266e-17 Linf=1.047758e-15 rel_L2=3.048490e-16
+    retained_cut_cell count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    dense_compact_d1 count=    1850 volume_L2=5.782627e-17 Linf=3.469447e-16 rel_L2=3.785660e-16
+    dense_compact_d2 count=    2066 volume_L2=5.424685e-17 Linf=3.469447e-16 rel_L2=3.296177e-16
+    dense_far        count=   54684 volume_L2=6.464211e-17 Linf=6.699187e-16 rel_L2=2.662954e-16
+  field=v_electron_parallel
+    all_active       count=   61500 volume_L2=3.179984e+00 Linf=1.390336e+01 rel_L2=3.179984e+30
+    bulk             count=   58600 volume_L2=2.989119e+00 Linf=8.355840e+00 rel_L2=2.989119e+30
+    one_wall         count=    1074 volume_L2=3.589368e+00 Linf=1.248424e+01 rel_L2=3.589368e+30
+    multi_wall       count=     184 volume_L2=5.402876e+00 Linf=1.251198e+01 rel_L2=5.402876e+30
+    aggregate_target count=    1258 volume_L2=3.958914e+00 Linf=1.251198e+01 rel_L2=3.958914e+30
+    remote_interface count=     184 volume_L2=4.027022e+00 Linf=1.248424e+01 rel_L2=4.027022e+30
+    reconstruction_row count=    2900 volume_L2=5.583774e+00 Linf=1.390336e+01 rel_L2=5.583774e+30
+    retained_cut_cell count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    dense_compact_d1 count=    1850 volume_L2=2.447215e+00 Linf=7.485834e+00 rel_L2=2.447215e+30
+    dense_compact_d2 count=    2066 volume_L2=2.483920e+00 Linf=7.543697e+00 rel_L2=2.483920e+30
+    dense_far        count=   54684 volume_L2=3.023292e+00 Linf=8.355840e+00 rel_L2=3.023292e+30
+N=40 phi algebraic solve skipped
+embedded control volumes: active_owners=494360, merged_sources=5138, aggregate_targets=5138, irregular_faces=32348, interior/partial/cutwall=16366/10460/5522, physical_boundary=0, transitions/invalid/remote/max_samples=16366/0/376/2, quadratic_rows=11044, linear_fallbacks=0, max_condition=5.253477e+00
+Starting shifted_torus control-volume operator sweep: N=80, shape=(80, 80, 80), shards=(1, 1, 4)
+  radial boundary contract: x-low=physical Dirichlet, x-high=physical Dirichlet, axis_regular_x=False
+N=80 operator=grad_parallel_density compile+run=6.413s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=1.535210e-16 Linf=2.548743e-15 rel_L2=1.535210e+14
+  bulk               count=  483316 volume_L2=1.489173e-16 Linf=1.681079e-15 rel_L2=1.489173e+14
+  one_wall           count=    4762 volume_L2=4.106825e-16 Linf=2.548743e-15 rel_L2=4.106825e+14
+  multi_wall         count=     376 volume_L2=2.100525e-16 Linf=1.627602e-15 rel_L2=2.100525e+14
+  aggregate_target   count=    5138 volume_L2=3.971163e-16 Linf=2.548743e-15 rel_L2=3.971163e+14
+  remote_interface   count=     376 volume_L2=4.241170e-16 Linf=2.548743e-15 rel_L2=4.241170e+14
+  reconstruction_row count=   11044 volume_L2=2.862923e-16 Linf=2.548743e-15 rel_L2=2.862923e+14
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=1.737064e-16 Linf=1.068510e-15 rel_L2=1.737064e+14
+  dense_compact_d2   count=    6714 volume_L2=1.632575e-16 Linf=1.681079e-15 rel_L2=1.632575e+14
+  dense_far          count=  470296 volume_L2=1.483446e-16 Linf=1.676876e-15 rel_L2=1.483446e+14
+  top_error index=(33, 65, 19) error=2.548743e-15 actual=2.548743e-15 reference=0.000000e+00 boundary_faces=1 irregular_faces=10 remote_faces=2 reconstruction_rows=1 aggregate=True compact_distance=0
+N=80 operator=grad_parallel_phi compile+run=6.178s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=5.975302e-04 Linf=2.349185e-03 rel_L2=1.117705e-02
+  bulk               count=  483316 volume_L2=5.855559e-04 Linf=1.596863e-03 rel_L2=1.097054e-02
+  one_wall           count=    4762 volume_L2=7.201671e-04 Linf=2.139512e-03 rel_L2=1.239978e-02
+  multi_wall         count=     376 volume_L2=1.040578e-03 Linf=2.132547e-03 rel_L2=1.774308e-02
+  aggregate_target   count=    5138 volume_L2=7.538463e-04 Linf=2.139512e-03 rel_L2=1.296845e-02
+  remote_interface   count=     376 volume_L2=7.574890e-04 Linf=2.132547e-03 rel_L2=1.329786e-02
+  reconstruction_row count=   11044 volume_L2=9.752912e-04 Linf=2.349185e-03 rel_L2=1.713546e-02
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=5.710971e-04 Linf=1.396883e-03 rel_L2=1.059149e-02
+  dense_compact_d2   count=    6714 volume_L2=5.359934e-04 Linf=1.404991e-03 rel_L2=1.022235e-02
+  dense_far          count=  470296 volume_L2=5.864210e-04 Linf=1.596863e-03 rel_L2=1.098552e-02
+  top_error index=(22, 57, 56) error=2.349185e-03 actual=-9.827021e-02 reference=-1.006194e-01 boundary_faces=0 irregular_faces=1 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+N=80 operator=grad_parallel_v_ion compile+run=6.839s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  bulk               count=  483316 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  one_wall           count=    4762 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  multi_wall         count=     376 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  aggregate_target   count=    5138 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  remote_interface   count=     376 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  reconstruction_row count=   11044 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d2   count=    6714 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_far          count=  470296 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  top_error index=(0, 0, 0) error=0.000000e+00 actual=0.000000e+00 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=80 operator=grad_parallel_v_electron compile+run=6.198s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=1.692680e-03 Linf=5.478481e-03 rel_L2=2.104985e-02
+  bulk               count=  483316 volume_L2=1.673033e-03 Linf=4.312803e-03 rel_L2=2.074903e-02
+  one_wall           count=    4762 volume_L2=1.644086e-03 Linf=5.365130e-03 rel_L2=2.356837e-02
+  multi_wall         count=     376 volume_L2=2.823809e-03 Linf=5.478481e-03 rel_L2=3.780004e-02
+  aggregate_target   count=    5138 volume_L2=1.779559e-03 Linf=5.478481e-03 rel_L2=2.534720e-02
+  remote_interface   count=     376 volume_L2=1.707038e-03 Linf=5.119031e-03 rel_L2=2.488933e-02
+  reconstruction_row count=   11044 volume_L2=2.374546e-03 Linf=5.478481e-03 rel_L2=3.362325e-02
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=1.502452e-03 Linf=3.278306e-03 rel_L2=2.014864e-02
+  dense_compact_d2   count=    6714 volume_L2=1.645156e-03 Linf=3.440478e-03 rel_L2=2.094303e-02
+  dense_far          count=  470296 volume_L2=1.675582e-03 Linf=4.312803e-03 rel_L2=2.075313e-02
+  top_error index=(19, 61, 54) error=5.478481e-03 actual=1.335207e-01 reference=1.389991e-01 boundary_faces=2 irregular_faces=12 remote_faces=0 reconstruction_rows=1 aggregate=True compact_distance=0
+N=80 operator=parallel_density_flux_divergence compile+run=14.131s invalid_reconstruction_rows=0
+  mirrored_remote_flux signed_sum=-5.421011e-20 abs_sum=8.696839e-03 relative_imbalance=6.233312e-18 invalid_quadrature=0
+  all_active         count=  494360 volume_L2=1.209839e-03 Linf=7.951967e-03 rel_L2=1.513208e-02
+  bulk               count=  483316 volume_L2=1.164664e-03 Linf=3.065018e-03 rel_L2=1.452696e-02
+  one_wall           count=    4762 volume_L2=1.670527e-04 Linf=6.104784e-04 rel_L2=2.406950e-03
+  multi_wall         count=     376 volume_L2=3.102879e-04 Linf=8.671704e-04 rel_L2=4.267660e-03
+  aggregate_target   count=    5138 volume_L2=1.841820e-04 Linf=8.671704e-04 rel_L2=2.642451e-03
+  remote_interface   count=     376 volume_L2=1.763663e-04 Linf=5.102005e-04 rel_L2=2.592258e-03
+  reconstruction_row count=   11044 volume_L2=2.441832e-03 Linf=7.951967e-03 rel_L2=3.484693e-02
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=1.033838e-03 Linf=2.380810e-03 rel_L2=1.398167e-02
+  dense_compact_d2   count=    6714 volume_L2=1.149309e-03 Linf=2.469615e-03 rel_L2=1.474682e-02
+  dense_far          count=  470296 volume_L2=1.166525e-03 Linf=3.065018e-03 rel_L2=1.453004e-02
+  top_error index=(52, 64, 55) error=7.951967e-03 actual=-3.941097e-02 reference=-3.145900e-02 boundary_faces=0 irregular_faces=2 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+  top_face_balance aggregate_volume=1.731835e-04 actual_integrated=-6.825330e-06 owner_dense=1.076964e-04 target_storage_dense=1.076964e-04 routed_member_dense=-1.355253e-20 irregular=-1.145217e-04 reference_integrated=-5.448180e-06 reference_remainder=1.091303e-04 exact_irregular=-1.145785e-04 attached_rows=2/32
+    dense x-low: open=True measure=6.168503e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=False neighbor_reconstructed=True
+    dense x-high: open=True measure=6.168503e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=False neighbor_reconstructed=True
+    dense theta-low: open=False measure=7.953399e-04 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense theta-high: open=True measure=7.953399e-04 signed_flux=5.741259e-05 exact=5.837841e-05 error=-9.658206e-07 compact_owned=False neighbor_reconstructed=True
+    dense zeta-low: open=False measure=7.953399e-04 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=False
+    dense zeta-high: open=True measure=7.953399e-04 signed_flux=5.028376e-05 exact=5.075191e-05 error=-4.681425e-07 compact_owned=False neighbor_reconstructed=False
+    irregular row=4944 kind=interior sign=-1 owners=(52,63,15)/(52,64,15) plus=True remote=False flux=5.858635e-05 exact=5.859377e-05 error=-7.422304e-09 active_q=4
+      worst_q patch=0 q=2 point=(7.295056e-01,4.987278e+00,4.297017e+00) numerical=1.516025e-05 exact=1.516985e-05 error=-9.597310e-09
+    irregular row=8053 kind=interior sign=-1 owners=(52,65,14)/(52,64,15) plus=True remote=False flux=5.593533e-05 exact=5.598471e-05 error=-4.937868e-08 active_q=4
+      worst_q patch=0 q=3 point=(7.295056e-01,5.049221e+00,4.280420e+00) numerical=1.403083e-05 exact=1.405134e-05 error=-2.051234e-08
+N=80 operator=poisson_density compile+run=7.975s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=1.040737e-15 Linf=1.898723e-14 rel_L2=1.040737e+15
+  bulk               count=  483316 volume_L2=1.049244e-15 Linf=1.898723e-14 rel_L2=1.049244e+15
+  one_wall           count=    4762 volume_L2=7.721285e-16 Linf=9.653733e-15 rel_L2=7.721285e+14
+  multi_wall         count=     376 volume_L2=4.484051e-16 Linf=3.730789e-15 rel_L2=4.484051e+14
+  aggregate_target   count=    5138 volume_L2=7.492757e-16 Linf=9.653733e-15 rel_L2=7.492757e+14
+  remote_interface   count=     376 volume_L2=8.626714e-16 Linf=5.547687e-15 rel_L2=8.626714e+14
+  reconstruction_row count=   11044 volume_L2=5.809397e-16 Linf=9.653733e-15 rel_L2=5.809397e+14
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=1.109116e-15 Linf=1.326086e-14 rel_L2=1.109116e+15
+  dense_compact_d2   count=    6714 volume_L2=1.097348e-15 Linf=8.943678e-15 rel_L2=1.097348e+15
+  dense_far          count=  470296 volume_L2=1.047722e-15 Linf=1.898723e-14 rel_L2=1.047722e+15
+  top_error index=(0, 32, 33) error=1.898723e-14 actual=-1.898723e-14 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=80 operator=poisson_omega compile+run=25.773s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=5.389073e-02 Linf=2.675468e+00 rel_L2=1.331341e-02
+  bulk               count=  483316 volume_L2=5.443003e-02 Linf=2.675468e+00 rel_L2=1.329367e-02
+  one_wall           count=    4762 volume_L2=1.042383e-02 Linf=6.157601e-02 rel_L2=1.626681e-02
+  multi_wall         count=     376 volume_L2=1.977544e-02 Linf=8.177662e-02 rel_L2=2.382210e-02
+  aggregate_target   count=    5138 volume_L2=1.155453e-02 Linf=8.177662e-02 rel_L2=1.751622e-02
+  remote_interface   count=     376 volume_L2=1.233727e-02 Linf=7.661071e-02 rel_L2=1.600708e-02
+  reconstruction_row count=   11044 volume_L2=2.131186e-02 Linf=1.545001e-01 rel_L2=3.079583e-02
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=4.224640e-03 Linf=2.175162e-02 rel_L2=5.501907e-03
+  dense_compact_d2   count=    6714 volume_L2=4.604962e-03 Linf=2.388006e-02 rel_L2=5.595267e-03
+  dense_far          count=  470296 volume_L2=5.516993e-02 Linf=2.675468e+00 rel_L2=1.329925e-02
+  top_error index=(0, 50, 20) error=2.675468e+00 actual=1.013684e+02 reference=1.040438e+02 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=80 operator=poisson_v_ion compile+run=7.910s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  bulk               count=  483316 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  one_wall           count=    4762 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  multi_wall         count=     376 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  aggregate_target   count=    5138 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  remote_interface   count=     376 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  reconstruction_row count=   11044 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d2   count=    6714 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_far          count=  470296 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  top_error index=(0, 0, 0) error=0.000000e+00 actual=0.000000e+00 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=80 operator=poisson_v_electron compile+run=7.947s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=2.753609e-04 Linf=5.891235e-03 rel_L2=3.751396e-02
+  bulk               count=  483316 volume_L2=2.733499e-04 Linf=3.151468e-03 rel_L2=3.726134e-02
+  one_wall           count=    4762 volume_L2=2.028107e-04 Linf=1.964607e-03 rel_L2=2.767622e-02
+  multi_wall         count=     376 volume_L2=6.479573e-04 Linf=5.323145e-03 rel_L2=9.247603e-02
+  aggregate_target   count=    5138 volume_L2=2.728690e-04 Linf=5.323145e-03 rel_L2=3.737788e-02
+  remote_interface   count=     376 volume_L2=1.964348e-04 Linf=1.352855e-03 rel_L2=5.869862e-02
+  reconstruction_row count=   11044 volume_L2=3.494309e-04 Linf=5.891235e-03 rel_L2=4.650116e-02
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=2.214480e-04 Linf=1.042321e-03 rel_L2=2.851921e-02
+  dense_compact_d2   count=    6714 volume_L2=2.697268e-04 Linf=1.183720e-03 rel_L2=3.866319e-02
+  dense_far          count=  470296 volume_L2=2.740262e-04 Linf=3.151468e-03 rel_L2=3.735804e-02
+  top_error index=(20, 55, 6) error=5.891235e-03 actual=9.260468e-03 reference=3.369233e-03 boundary_faces=0 irregular_faces=1 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+N=80 operator=curvature_density compile+run=7.540s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=1.692569e-15 Linf=3.077507e-14 rel_L2=1.692569e+15
+  bulk               count=  483316 volume_L2=1.689498e-15 Linf=3.077507e-14 rel_L2=1.689498e+15
+  one_wall           count=    4762 volume_L2=2.551908e-15 Linf=2.127916e-14 rel_L2=2.551908e+15
+  multi_wall         count=     376 volume_L2=1.253356e-15 Linf=1.204792e-14 rel_L2=1.253356e+15
+  aggregate_target   count=    5138 volume_L2=2.465242e-15 Linf=2.127916e-14 rel_L2=2.465242e+15
+  remote_interface   count=     376 volume_L2=2.681098e-15 Linf=2.127916e-14 rel_L2=2.681098e+15
+  reconstruction_row count=   11044 volume_L2=1.816702e-15 Linf=2.127916e-14 rel_L2=1.816702e+15
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=2.152653e-15 Linf=1.224957e-14 rel_L2=2.152653e+15
+  dense_compact_d2   count=    6714 volume_L2=2.023392e-15 Linf=1.663198e-14 rel_L2=2.023392e+15
+  dense_far          count=  470296 volume_L2=1.677215e-15 Linf=3.077507e-14 rel_L2=1.677215e+15
+  top_error index=(0, 73, 0) error=3.077507e-14 actual=-3.077507e-14 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=80 operator=curvature_phi compile+run=8.564s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=1.365037e-03 Linf=1.728379e-02 rel_L2=4.723303e-03
+  bulk               count=  483316 volume_L2=1.332271e-03 Linf=1.728379e-02 rel_L2=4.570920e-03
+  one_wall           count=    4762 volume_L2=1.063032e-03 Linf=1.147813e-02 rel_L2=7.508368e-03
+  multi_wall         count=     376 volume_L2=2.675780e-03 Linf=1.175442e-02 rel_L2=1.706662e-02
+  aggregate_target   count=    5138 volume_L2=1.288653e-03 Linf=1.175442e-02 rel_L2=9.012669e-03
+  remote_interface   count=     376 volume_L2=1.330391e-03 Linf=1.167650e-02 rel_L2=8.849526e-03
+  reconstruction_row count=   11044 volume_L2=2.360090e-03 Linf=1.488692e-02 rel_L2=1.540117e-02
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=8.673864e-04 Linf=3.547803e-03 rel_L2=4.904312e-03
+  dense_compact_d2   count=    6714 volume_L2=9.171448e-04 Linf=3.795373e-03 rel_L2=4.864782e-03
+  dense_far          count=  470296 volume_L2=1.342333e-03 Linf=1.728379e-02 rel_L2=4.567476e-03
+  top_error index=(0, 54, 60) error=1.728379e-02 actual=3.439356e+00 reference=3.456640e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=80 operator=perp_laplacian_phi compile+run=7.332s invalid_reconstruction_rows=0
+  all_active         count=  494360 volume_L2=1.907836e-02 Linf=2.651969e+00 rel_L2=1.414275e-02
+  bulk               count=  483316 volume_L2=8.996999e-03 Linf=1.485345e+00 rel_L2=6.621328e-03
+  one_wall           count=    4762 volume_L2=1.318595e-01 Linf=4.456841e-01 rel_L2=1.555655e-01
+  multi_wall         count=     376 volume_L2=1.312929e-01 Linf=6.165903e-01 rel_L2=1.392296e-01
+  aggregate_target   count=    5138 volume_L2=1.318098e-01 Linf=6.165903e-01 rel_L2=1.539054e-01
+  remote_interface   count=     376 volume_L2=1.316035e-01 Linf=4.456841e-01 rel_L2=1.547607e-01
+  reconstruction_row count=   11044 volume_L2=1.106105e-01 Linf=2.651969e+00 rel_L2=1.316261e-01
+  retained_cut_cell  count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  dense_compact_d1   count=    6306 volume_L2=2.393060e-02 Linf=1.485345e+00 rel_L2=3.018864e-02
+  dense_compact_d2   count=    6714 volume_L2=1.752079e-03 Linf=7.000178e-03 rel_L2=2.288820e-03
+  dense_far          count=  470296 volume_L2=8.689222e-03 Linf=3.480746e-01 rel_L2=6.336466e-03
+  top_error index=(21, 55, 54) error=2.651969e+00 actual=2.911570e+00 reference=2.596009e-01 boundary_faces=0 irregular_faces=2 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+  top_face_balance aggregate_volume=6.511104e-05 actual_integrated=1.895754e-04 owner_dense=3.083723e-04 target_storage_dense=3.083723e-04 routed_member_dense=0.000000e+00 irregular=-1.187969e-04 reference_integrated=1.690289e-05 reference_remainder=1.393505e-04 exact_irregular=-1.224476e-04 attached_rows=2/32
+    dense x-low: open=True measure=6.168503e-03 signed_flux=-1.612190e-04 exact=2.264324e-05 error=-1.838622e-04 compact_owned=False neighbor_reconstructed=True
+    dense x-high: open=True measure=6.168503e-03 signed_flux=3.272902e-04 exact=-2.272966e-05 error=3.500198e-04 compact_owned=False neighbor_reconstructed=True
+    dense theta-low: open=True measure=7.953399e-04 signed_flux=1.339535e-04 exact=1.340890e-04 error=-1.354608e-07 compact_owned=False neighbor_reconstructed=False
+    dense theta-high: open=False measure=7.953399e-04 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=False
+    dense zeta-low: open=False measure=7.953399e-04 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense zeta-high: open=True measure=7.953399e-04 signed_flux=8.347606e-06 exact=5.347886e-06 error=2.999720e-06 compact_owned=False neighbor_reconstructed=True
+    irregular row=3470 kind=interior sign=+1 owners=(21,55,14)/(21,56,15) plus=True remote=False flux=-1.184719e-04 exact=-1.220101e-04 error=3.538200e-06 active_q=4
+      worst_q patch=0 q=3 point=(4.155815e-01,4.358960e+00,4.263823e+00) numerical=-4.372934e-05 exact=-4.516773e-05 error=1.438392e-06
+    irregular row=5844 kind=interior sign=-1 owners=(21,55,13)/(21,55,14) plus=True remote=False flux=3.250003e-07 exact=4.374620e-07 error=-1.124617e-07 active_q=4
+      worst_q patch=0 q=3 point=(4.155815e-01,4.342362e+00,4.201880e+00) numerical=5.067436e-08 exact=9.479798e-08 error=-4.412362e-08
+N=80 operator=full_rhs phi_mode=projected_exact compile+run=60.767s
+  v_ion source consistency: source_vs_exact_t=0.000000e+00 roundtrip_vs_source=1.110223e-16 operator_without_source=2.553513e-15 full_residual=2.581269e-15
+  field=density
+    all_active       count=  494360 volume_L2=1.249088e-03 Linf=7.660990e-03 rel_L2=3.683622e-03
+    bulk             count=  483316 volume_L2=1.199789e-03 Linf=3.390191e-03 rel_L2=3.524204e-03
+    one_wall         count=    4762 volume_L2=3.183541e-04 Linf=2.634851e-03 rel_L2=1.046885e-03
+    multi_wall       count=     376 volume_L2=7.726368e-04 Linf=2.665193e-03 rel_L2=2.416666e-03
+    aggregate_target count=    5138 volume_L2=3.807380e-04 Linf=2.665193e-03 rel_L2=1.246267e-03
+    remote_interface count=     376 volume_L2=3.999820e-04 Linf=2.665193e-03 rel_L2=9.752526e-03
+    reconstruction_row count=   11044 volume_L2=2.573627e-03 Linf=7.660990e-03 rel_L2=9.304707e-03
+    retained_cut_cell count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    dense_compact_d1 count=    6306 volume_L2=1.164707e-03 Linf=2.605223e-03 rel_L2=5.178527e-03
+    dense_compact_d2 count=    6714 volume_L2=1.258423e-03 Linf=2.668749e-03 rel_L2=5.199221e-03
+    dense_far        count=  470296 volume_L2=1.199394e-03 Linf=3.390191e-03 rel_L2=3.497699e-03
+  field=omega
+    all_active       count=  494360 volume_L2=6.962496e-02 Linf=1.123373e+00 rel_L2=6.962496e+28
+    bulk             count=  483316 volume_L2=6.962830e-02 Linf=1.123373e+00 rel_L2=6.962830e+28
+    one_wall         count=    4762 volume_L2=4.504552e-02 Linf=2.670083e-01 rel_L2=4.504552e+28
+    multi_wall       count=     376 volume_L2=8.407738e-02 Linf=2.873033e-01 rel_L2=8.407738e+28
+    aggregate_target count=    5138 volume_L2=4.972512e-02 Linf=2.873033e-01 rel_L2=4.972512e+28
+    remote_interface count=     376 volume_L2=5.131405e-02 Linf=2.634374e-01 rel_L2=5.131405e+28
+    reconstruction_row count=   11044 volume_L2=6.948467e-02 Linf=3.246593e-01 rel_L2=6.948467e+28
+    retained_cut_cell count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    dense_compact_d1 count=    6306 volume_L2=3.909307e-02 Linf=1.831733e-01 rel_L2=3.909307e+28
+    dense_compact_d2 count=    6714 volume_L2=4.321099e-02 Linf=2.100479e-01 rel_L2=4.321099e+28
+    dense_far        count=  470296 volume_L2=7.024780e-02 Linf=1.123373e+00 rel_L2=7.024780e+28
+  field=v_ion_parallel
+    all_active       count=  494360 volume_L2=1.535694e-16 Linf=2.581269e-15 rel_L2=6.356614e-16
+    bulk             count=  483316 volume_L2=1.489590e-16 Linf=1.681079e-15 rel_L2=6.189398e-16
+    one_wall         count=    4762 volume_L2=4.111809e-16 Linf=2.581269e-15 rel_L2=1.429011e-15
+    multi_wall       count=     376 volume_L2=2.086354e-16 Linf=1.609823e-15 rel_L2=6.472462e-16
+    aggregate_target count=    5138 volume_L2=3.975207e-16 Linf=2.581269e-15 rel_L2=1.366293e-15
+    remote_interface count=     376 volume_L2=4.241270e-16 Linf=2.553513e-15 rel_L2=5.300815e-15
+    reconstruction_row count=   11044 volume_L2=2.864995e-16 Linf=2.581269e-15 rel_L2=1.032369e-15
+    retained_cut_cell count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    dense_compact_d1 count=    6306 volume_L2=1.736914e-16 Linf=1.068510e-15 rel_L2=7.451869e-16
+    dense_compact_d2 count=    6714 volume_L2=1.629474e-16 Linf=1.681079e-15 rel_L2=8.223109e-16
+    dense_far        count=  470296 volume_L2=1.483926e-16 Linf=1.679212e-15 rel_L2=6.149255e-16
+  field=v_electron_parallel
+    all_active       count=  494360 volume_L2=7.831778e-01 Linf=3.685863e+00 rel_L2=7.831778e+29
+    bulk             count=  483316 volume_L2=7.599272e-01 Linf=2.141593e+00 rel_L2=7.599272e+29
+    one_wall         count=    4762 volume_L2=9.728975e-01 Linf=3.251699e+00 rel_L2=9.728975e+29
+    multi_wall       count=     376 volume_L2=1.478152e+00 Linf=3.257599e+00 rel_L2=1.478152e+30
+    aggregate_target count=    5138 volume_L2=1.027377e+00 Linf=3.257599e+00 rel_L2=1.027377e+30
+    remote_interface count=     376 volume_L2=1.068046e+00 Linf=3.257599e+00 rel_L2=1.068046e+30
+    reconstruction_row count=   11044 volume_L2=1.455373e+00 Linf=3.685863e+00 rel_L2=1.455373e+30
+    retained_cut_cell count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    dense_compact_d1 count=    6306 volume_L2=7.346387e-01 Linf=1.879437e+00 rel_L2=7.346387e+29
+    dense_compact_d2 count=    6714 volume_L2=6.801580e-01 Linf=1.889805e+00 rel_L2=6.801580e+29
+    dense_far        count=  470296 volume_L2=7.613328e-01 Linf=2.141593e+00 rel_L2=7.613328e+29
+N=80 phi algebraic solve skipped
+embedded control volumes: active_owners=967000, merged_sources=1320, aggregate_targets=1320, irregular_faces=38530, interior/partial/cutwall=11938/17480/9112, physical_boundary=0, transitions/invalid/remote/max_samples=11938/0/88/2, quadratic_rows=17732, linear_fallbacks=0, max_condition=5.952119e+00
+Starting shifted_torus control-volume operator sweep: N=100, shape=(100, 100, 100), shards=(1, 1, 4)
+  radial boundary contract: x-low=physical Dirichlet, x-high=physical Dirichlet, axis_regular_x=False
+N=100 operator=grad_parallel_density compile+run=6.788s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=1.812525e-16 Linf=5.836109e-15 rel_L2=1.812525e+14
+  bulk               count=  949268 volume_L2=1.783104e-16 Linf=2.091272e-15 rel_L2=1.783104e+14
+  one_wall           count=    8136 volume_L2=4.273952e-16 Linf=5.836109e-15 rel_L2=4.273952e+14
+  multi_wall         count=     484 volume_L2=3.738427e-16 Linf=2.548378e-15 rel_L2=3.738427e+14
+  aggregate_target   count=    1320 volume_L2=2.472475e-16 Linf=8.595360e-16 rel_L2=2.472475e+14
+  remote_interface   count=     488 volume_L2=4.167462e-16 Linf=4.482196e-15 rel_L2=4.167462e+14
+  reconstruction_row count=   17732 volume_L2=3.021491e-16 Linf=5.836109e-15 rel_L2=3.021491e+14
+  retained_cut_cell  count=    7300 volume_L2=4.589549e-16 Linf=5.836109e-15 rel_L2=4.589549e+14
+  dense_compact_d1   count=    9612 volume_L2=2.154206e-16 Linf=1.600300e-15 rel_L2=2.154206e+14
+  dense_compact_d2   count=   10120 volume_L2=2.360596e-16 Linf=1.625927e-15 rel_L2=2.360596e+14
+  dense_far          count=  929536 volume_L2=1.771603e-16 Linf=2.091272e-15 rel_L2=1.771603e+14
+  top_error index=(32, 72, 7) error=5.836109e-15 actual=-5.836109e-15 reference=0.000000e+00 boundary_faces=1 irregular_faces=6 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+N=100 operator=grad_parallel_phi compile+run=7.009s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=3.812311e-04 Linf=1.380220e-03 rel_L2=7.129215e-03
+  bulk               count=  949268 volume_L2=3.755934e-04 Linf=1.023488e-03 rel_L2=7.032767e-03
+  one_wall           count=    8136 volume_L2=4.793490e-04 Linf=1.380220e-03 rel_L2=8.239630e-03
+  multi_wall         count=     484 volume_L2=5.563737e-04 Linf=1.083540e-03 rel_L2=9.942149e-03
+  aggregate_target   count=    1320 volume_L2=7.210936e-04 Linf=1.380220e-03 rel_L2=1.229834e-02
+  remote_interface   count=     488 volume_L2=4.900827e-04 Linf=1.368499e-03 rel_L2=8.564622e-03
+  reconstruction_row count=   17732 volume_L2=6.172898e-04 Linf=1.380220e-03 rel_L2=1.080705e-02
+  retained_cut_cell  count=    7300 volume_L2=4.017264e-04 Linf=1.086684e-03 rel_L2=6.937655e-03
+  dense_compact_d1   count=    9612 volume_L2=3.792646e-04 Linf=8.932913e-04 rel_L2=6.923954e-03
+  dense_compact_d2   count=   10120 volume_L2=3.588914e-04 Linf=8.972170e-04 rel_L2=6.714473e-03
+  dense_far          count=  929536 volume_L2=3.757323e-04 Linf=1.023488e-03 rel_L2=7.037305e-03
+  top_error index=(24, 76, 67) error=1.380220e-03 actual=-1.084594e-01 reference=-1.098396e-01 boundary_faces=1 irregular_faces=10 remote_faces=0 reconstruction_rows=1 aggregate=True compact_distance=0
+N=100 operator=grad_parallel_v_ion compile+run=6.575s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  bulk               count=  949268 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  one_wall           count=    8136 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  multi_wall         count=     484 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  aggregate_target   count=    1320 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  remote_interface   count=     488 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  reconstruction_row count=   17732 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  retained_cut_cell  count=    7300 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d1   count=    9612 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d2   count=   10120 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_far          count=  929536 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  top_error index=(0, 0, 0) error=0.000000e+00 actual=0.000000e+00 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=100 operator=grad_parallel_v_electron compile+run=7.252s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=1.082054e-03 Linf=3.620517e-03 rel_L2=1.345833e-02
+  bulk               count=  949268 volume_L2=1.073020e-03 Linf=2.768153e-03 rel_L2=1.331687e-02
+  one_wall           count=    8136 volume_L2=1.123364e-03 Linf=3.620517e-03 rel_L2=1.605744e-02
+  multi_wall         count=     484 volume_L2=1.385534e-03 Linf=2.915816e-03 rel_L2=1.935049e-02
+  aggregate_target   count=    1320 volume_L2=1.979201e-03 Linf=3.620517e-03 rel_L2=2.433133e-02
+  remote_interface   count=     488 volume_L2=1.105675e-03 Linf=3.283644e-03 rel_L2=1.598613e-02
+  reconstruction_row count=   17732 volume_L2=1.498806e-03 Linf=3.620517e-03 rel_L2=2.140670e-02
+  retained_cut_cell  count=    7300 volume_L2=7.944126e-04 Linf=3.059635e-03 rel_L2=1.188027e-02
+  dense_compact_d1   count=    9612 volume_L2=9.111489e-04 Linf=2.082234e-03 rel_L2=1.259912e-02
+  dense_compact_d2   count=   10120 volume_L2=9.871562e-04 Linf=2.148887e-03 rel_L2=1.306641e-02
+  dense_far          count=  929536 volume_L2=1.075444e-03 Linf=2.768153e-03 rel_L2=1.332497e-02
+  top_error index=(24, 77, 67) error=3.620517e-03 actual=1.375606e-01 reference=1.411812e-01 boundary_faces=1 irregular_faces=10 remote_faces=0 reconstruction_rows=1 aggregate=True compact_distance=0
+N=100 operator=parallel_density_flux_divergence compile+run=16.716s invalid_reconstruction_rows=0
+  mirrored_remote_flux signed_sum=-6.776264e-21 abs_sum=6.421634e-03 relative_imbalance=1.055224e-18 invalid_quadrature=0
+  all_active         count=  967000 volume_L2=7.910202e-04 Linf=5.905419e-03 rel_L2=9.872153e-03
+  bulk               count=  949268 volume_L2=7.476459e-04 Linf=1.968789e-03 rel_L2=9.310324e-03
+  one_wall           count=    8136 volume_L2=1.206573e-04 Linf=5.991102e-04 rel_L2=1.728954e-03
+  multi_wall         count=     484 volume_L2=1.449095e-04 Linf=3.475854e-04 rel_L2=2.069439e-03
+  aggregate_target   count=    1320 volume_L2=2.481923e-05 Linf=9.985700e-05 rel_L2=3.049693e-04
+  remote_interface   count=     488 volume_L2=9.953033e-05 Linf=3.432157e-04 rel_L2=1.447143e-03
+  reconstruction_row count=   17732 volume_L2=2.076683e-03 Linf=5.905419e-03 rel_L2=2.980054e-02
+  retained_cut_cell  count=    7300 volume_L2=1.362635e-04 Linf=5.991102e-04 rel_L2=2.048351e-03
+  dense_compact_d1   count=    9612 volume_L2=6.209039e-04 Linf=1.502647e-03 rel_L2=8.639202e-03
+  dense_compact_d2   count=   10120 volume_L2=6.829710e-04 Linf=1.572000e-03 rel_L2=9.095109e-03
+  dense_far          count=  929536 volume_L2=7.495028e-04 Linf=1.968789e-03 rel_L2=9.317623e-03
+  top_error index=(73, 68, 17) error=5.905419e-03 actual=-4.290445e-02 reference=-4.880987e-02 boundary_faces=0 irregular_faces=1 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+  top_face_balance aggregate_volume=6.926907e-05 actual_integrated=-2.971951e-06 owner_dense=-3.719119e-05 target_storage_dense=-3.719119e-05 routed_member_dense=0.000000e+00 irregular=3.421924e-05 reference_integrated=-3.381014e-06 reference_remainder=-3.759047e-05 exact_irregular=3.420946e-05 attached_rows=1/32
+    dense x-low: open=True measure=3.947842e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=False neighbor_reconstructed=True
+    dense x-high: open=True measure=3.947842e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=False neighbor_reconstructed=True
+    dense theta-low: open=True measure=5.077321e-04 signed_flux=-3.680644e-05 exact=-3.720337e-05 error=3.969332e-07 compact_owned=False neighbor_reconstructed=False
+    dense theta-high: open=False measure=5.077321e-04 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense zeta-low: open=True measure=5.077321e-04 signed_flux=-3.253992e-05 exact=-3.273792e-05 error=1.980022e-07 compact_owned=False neighbor_reconstructed=True
+    dense zeta-high: open=True measure=5.077321e-04 signed_flux=3.215516e-05 exact=3.235082e-05 error=-1.956610e-07 compact_owned=False neighbor_reconstructed=True
+    irregular row=5493 kind=interior sign=+1 owners=(73,68,17)/(73,69,17) plus=True remote=False flux=3.421924e-05 exact=3.420946e-05 error=9.787284e-09 active_q=4
+      worst_q patch=0 q=3 point=(7.922317e-01,4.303982e+00,1.086279e+00) numerical=8.536270e-06 exact=8.532976e-06 error=3.293731e-09
+N=100 operator=poisson_density compile+run=10.631s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=1.003087e-15 Linf=3.558465e-14 rel_L2=1.003087e+15
+  bulk               count=  949268 volume_L2=1.008765e-15 Linf=3.558465e-14 rel_L2=1.008765e+15
+  one_wall           count=    8136 volume_L2=7.230688e-16 Linf=1.440729e-14 rel_L2=7.230688e+14
+  multi_wall         count=     484 volume_L2=1.643202e-15 Linf=1.137617e-14 rel_L2=1.643202e+15
+  aggregate_target   count=    1320 volume_L2=7.566688e-16 Linf=1.433602e-14 rel_L2=7.566688e+14
+  remote_interface   count=     488 volume_L2=7.093586e-16 Linf=7.319997e-15 rel_L2=7.093586e+14
+  reconstruction_row count=   17732 volume_L2=6.123806e-16 Linf=1.440729e-14 rel_L2=6.123806e+14
+  retained_cut_cell  count=    7300 volume_L2=8.145868e-16 Linf=1.440729e-14 rel_L2=8.145868e+14
+  dense_compact_d1   count=    9612 volume_L2=1.122173e-15 Linf=1.146436e-14 rel_L2=1.122173e+15
+  dense_compact_d2   count=   10120 volume_L2=1.345392e-15 Linf=1.227865e-14 rel_L2=1.345392e+15
+  dense_far          count=  929536 volume_L2=1.003271e-15 Linf=3.558465e-14 rel_L2=1.003271e+15
+  top_error index=(2, 40, 58) error=3.558465e-14 actual=3.558465e-14 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=100 operator=poisson_omega compile+run=33.048s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=3.755973e-02 Linf=2.116081e+00 rel_L2=9.385078e-03
+  bulk               count=  949268 volume_L2=3.785139e-02 Linf=2.116081e+00 rel_L2=9.376019e-03
+  one_wall           count=    8136 volume_L2=7.748704e-03 Linf=6.888069e-02 rel_L2=1.165149e-02
+  multi_wall         count=     484 volume_L2=1.412701e-02 Linf=7.359321e-02 rel_L2=1.644467e-02
+  aggregate_target   count=    1320 volume_L2=1.088016e-02 Linf=6.888069e-02 rel_L2=1.380693e-02
+  remote_interface   count=     488 volume_L2=8.398436e-03 Linf=5.611684e-02 rel_L2=1.065457e-02
+  reconstruction_row count=   17732 volume_L2=1.398792e-02 Linf=1.003073e-01 rel_L2=2.010648e-02
+  retained_cut_cell  count=    7300 volume_L2=7.415890e-03 Linf=7.359321e-02 rel_L2=1.147666e-02
+  dense_compact_d1   count=    9612 volume_L2=2.621546e-03 Linf=1.324036e-02 rel_L2=3.504494e-03
+  dense_compact_d2   count=   10120 volume_L2=2.793354e-03 Linf=1.428163e-02 rel_L2=3.552153e-03
+  dense_far          count=  929536 volume_L2=3.824619e-02 Linf=2.116081e+00 rel_L2=9.379026e-03
+  top_error index=(0, 63, 75) error=2.116081e+00 actual=9.948930e+01 reference=1.016054e+02 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=100 operator=poisson_v_ion compile+run=10.326s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  bulk               count=  949268 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  one_wall           count=    8136 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  multi_wall         count=     484 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  aggregate_target   count=    1320 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  remote_interface   count=     488 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  reconstruction_row count=   17732 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  retained_cut_cell  count=    7300 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d1   count=    9612 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d2   count=   10120 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_far          count=  929536 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  top_error index=(0, 0, 0) error=0.000000e+00 actual=0.000000e+00 reference=0.000000e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=100 operator=poisson_v_electron compile+run=10.413s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=1.767198e-04 Linf=4.465999e-03 rel_L2=2.393665e-02
+  bulk               count=  949268 volume_L2=1.761151e-04 Linf=2.132313e-03 rel_L2=2.384195e-02
+  one_wall           count=    8136 volume_L2=1.458448e-04 Linf=1.630701e-03 rel_L2=2.048627e-02
+  multi_wall         count=     484 volume_L2=5.203540e-04 Linf=4.465999e-03 rel_L2=8.012116e-02
+  aggregate_target   count=    1320 volume_L2=2.555994e-04 Linf=1.630701e-03 rel_L2=2.439916e-02
+  remote_interface   count=     488 volume_L2=1.113270e-04 Linf=9.139915e-04 rel_L2=3.808585e-02
+  reconstruction_row count=   17732 volume_L2=2.074070e-04 Linf=4.465999e-03 rel_L2=2.896484e-02
+  retained_cut_cell  count=    7300 volume_L2=1.661696e-04 Linf=4.465999e-03 rel_L2=2.807939e-02
+  dense_compact_d1   count=    9612 volume_L2=1.239412e-04 Linf=6.231163e-04 rel_L2=1.604510e-02
+  dense_compact_d2   count=   10120 volume_L2=1.515166e-04 Linf=7.328441e-04 rel_L2=1.952028e-02
+  dense_far          count=  929536 volume_L2=1.768171e-04 Linf=2.132313e-03 rel_L2=2.396199e-02
+  top_error index=(25, 71, 7) error=4.465999e-03 actual=1.296111e-02 reference=8.495106e-03 boundary_faces=2 irregular_faces=8 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+N=100 operator=curvature_density compile+run=7.968s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=1.647361e-15 Linf=4.162370e-14 rel_L2=1.647361e+15
+  bulk               count=  949268 volume_L2=1.635288e-15 Linf=3.820079e-14 rel_L2=1.635288e+15
+  one_wall           count=    8136 volume_L2=3.100482e-15 Linf=4.162370e-14 rel_L2=3.100482e+15
+  multi_wall         count=     484 volume_L2=2.724373e-15 Linf=1.468262e-14 rel_L2=2.724373e+15
+  aggregate_target   count=    1320 volume_L2=3.296239e-15 Linf=1.757070e-14 rel_L2=3.296239e+15
+  remote_interface   count=     488 volume_L2=3.446349e-15 Linf=4.093777e-14 rel_L2=3.446349e+15
+  reconstruction_row count=   17732 volume_L2=2.214296e-15 Linf=4.162370e-14 rel_L2=2.214296e+15
+  retained_cut_cell  count=    7300 volume_L2=3.023124e-15 Linf=4.162370e-14 rel_L2=3.023124e+15
+  dense_compact_d1   count=    9612 volume_L2=2.098282e-15 Linf=1.737982e-14 rel_L2=2.098282e+15
+  dense_compact_d2   count=   10120 volume_L2=2.252202e-15 Linf=1.728410e-14 rel_L2=2.252202e+15
+  dense_far          count=  929536 volume_L2=1.621877e-15 Linf=3.820079e-14 rel_L2=1.621877e+15
+  top_error index=(26, 69, 12) error=4.162370e-14 actual=-4.162370e-14 reference=0.000000e+00 boundary_faces=1 irregular_faces=6 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+N=100 operator=curvature_phi compile+run=8.105s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=8.636610e-04 Linf=1.117712e-02 rel_L2=2.998469e-03
+  bulk               count=  949268 volume_L2=8.478886e-04 Linf=1.117712e-02 rel_L2=2.924662e-03
+  one_wall           count=    8136 volume_L2=8.911980e-04 Linf=8.295761e-03 rel_L2=6.228967e-03
+  multi_wall         count=     484 volume_L2=1.415424e-03 Linf=7.208027e-03 rel_L2=8.253601e-03
+  aggregate_target   count=    1320 volume_L2=1.788058e-03 Linf=8.295761e-03 rel_L2=1.288881e-02
+  remote_interface   count=     488 volume_L2=9.112954e-04 Linf=8.286297e-03 rel_L2=6.100530e-03
+  reconstruction_row count=   17732 volume_L2=1.495739e-03 Linf=8.404050e-03 rel_L2=9.847702e-03
+  retained_cut_cell  count=    7300 volume_L2=5.163278e-04 Linf=7.208027e-03 rel_L2=3.528559e-03
+  dense_compact_d1   count=    9612 volume_L2=5.375053e-04 Linf=2.189606e-03 rel_L2=3.156389e-03
+  dense_compact_d2   count=   10120 volume_L2=5.666440e-04 Linf=2.309099e-03 rel_L2=3.132562e-03
+  dense_far          count=  929536 volume_L2=8.530123e-04 Linf=1.117712e-02 rel_L2=2.922925e-03
+  top_error index=(0, 67, 75) error=1.117712e-02 actual=3.466198e+00 reference=3.477375e+00 boundary_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=100 operator=perp_laplacian_phi compile+run=9.611s invalid_reconstruction_rows=0
+  all_active         count=  967000 volume_L2=1.314974e-02 Linf=4.805010e-01 rel_L2=9.771952e-03
+  bulk               count=  949268 volume_L2=7.420544e-03 Linf=3.421823e-01 rel_L2=5.484639e-03
+  one_wall           count=    8136 volume_L2=1.077609e-01 Linf=3.678210e-01 rel_L2=1.248493e-01
+  multi_wall         count=     484 volume_L2=5.669466e-02 Linf=2.195014e-01 rel_L2=6.284305e-02
+  aggregate_target   count=    1320 volume_L2=1.491533e-01 Linf=3.473759e-01 rel_L2=1.382647e-01
+  remote_interface   count=     488 volume_L2=1.123618e-01 Linf=3.678210e-01 rel_L2=1.295257e-01
+  reconstruction_row count=   17732 volume_L2=8.175253e-02 Linf=4.805010e-01 rel_L2=9.625182e-02
+  retained_cut_cell  count=    7300 volume_L2=9.115137e-02 Linf=3.678210e-01 rel_L2=1.136681e-01
+  dense_compact_d1   count=    9612 volume_L2=1.169928e-02 Linf=2.305944e-01 rel_L2=1.447712e-02
+  dense_compact_d2   count=   10120 volume_L2=1.121805e-03 Linf=4.293184e-03 rel_L2=1.432079e-03
+  dense_far          count=  929536 volume_L2=7.403240e-03 Linf=3.421823e-01 rel_L2=5.434505e-03
+  top_error index=(24, 70, 7) error=4.805010e-01 actual=6.792955e-01 reference=1.159797e+00 boundary_faces=0 irregular_faces=2 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+  top_face_balance aggregate_volume=3.255981e-05 actual_integrated=2.211773e-05 owner_dense=3.221909e-05 target_storage_dense=3.221909e-05 routed_member_dense=5.421011e-20 irregular=-1.010136e-05 reference_integrated=3.776276e-05 reference_remainder=3.476947e-05 exact_irregular=2.993287e-06 attached_rows=2/32
+    dense x-low: open=True measure=3.947842e-03 signed_flux=1.082385e-05 exact=9.720015e-06 error=1.103839e-06 compact_owned=False neighbor_reconstructed=False
+    dense x-high: open=False measure=3.947842e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense theta-low: open=True measure=5.077321e-04 signed_flux=6.007991e-04 exact=5.959138e-04 error=4.885261e-06 compact_owned=False neighbor_reconstructed=True
+    dense theta-high: open=True measure=5.077321e-04 signed_flux=-5.682466e-04 exact=-5.596097e-04 error=-8.636874e-06 compact_owned=False neighbor_reconstructed=True
+    dense zeta-low: open=True measure=5.077321e-04 signed_flux=-1.115723e-05 exact=-1.125464e-05 error=9.740394e-08 compact_owned=False neighbor_reconstructed=False
+    dense zeta-high: open=False measure=5.077321e-04 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    irregular row=205 kind=interior sign=+1 owners=(24,70,7)/(25,70,7) plus=True remote=False flux=-2.185995e-05 exact=-8.874198e-06 error=-1.298575e-05 active_q=4
+      worst_q patch=0 q=3 point=(3.979798e-01,4.416368e+00,4.579610e-01) numerical=-3.405192e-06 exact=2.159196e-06 error=-5.564388e-06
+    irregular row=5987 kind=interior sign=+1 owners=(24,70,7)/(24,70,8) plus=True remote=False flux=1.175859e-05 exact=1.186748e-05 error=-1.088910e-07 active_q=4
+      worst_q patch=0 q=2 point=(3.962721e-01,4.380092e+00,4.712389e-01) numerical=3.019302e-06 exact=3.047028e-06 error=-2.772567e-08
+N=100 operator=full_rhs phi_mode=projected_exact compile+run=76.876s
+  v_ion source consistency: source_vs_exact_t=0.000000e+00 roundtrip_vs_source=1.110223e-16 operator_without_source=5.828671e-15 full_residual=5.828671e-15
+  field=density
+    all_active       count=  967000 volume_L2=8.143508e-04 Linf=5.787941e-03 rel_L2=2.398073e-03
+    bulk             count=  949268 volume_L2=7.703457e-04 Linf=2.177361e-03 rel_L2=2.262537e-03
+    one_wall         count=    8136 volume_L2=2.725550e-04 Linf=1.923047e-03 rel_L2=8.768419e-04
+    multi_wall       count=     484 volume_L2=4.271183e-04 Linf=1.433051e-03 rel_L2=1.530681e-03
+    aggregate_target count=    1320 volume_L2=4.981917e-04 Linf=1.923047e-03 rel_L2=1.223202e-03
+    remote_interface count=     488 volume_L2=2.713367e-04 Linf=1.892083e-03 rel_L2=7.906000e-03
+    reconstruction_row count=   17732 volume_L2=2.124993e-03 Linf=5.787941e-03 rel_L2=7.431586e-03
+    retained_cut_cell count=    7300 volume_L2=1.937843e-04 Linf=1.433051e-03 rel_L2=6.954931e-04
+    dense_compact_d1 count=    9612 volume_L2=7.097965e-04 Linf=1.651195e-03 rel_L2=3.039491e-03
+    dense_compact_d2 count=   10120 volume_L2=7.647623e-04 Linf=1.700703e-03 rel_L2=3.357871e-03
+    dense_far        count=  929536 volume_L2=7.710021e-04 Linf=2.177361e-03 rel_L2=2.251655e-03
+  field=omega
+    all_active       count=  967000 volume_L2=4.443700e-02 Linf=7.216991e-01 rel_L2=4.443700e+28
+    bulk             count=  949268 volume_L2=4.444724e-02 Linf=7.216991e-01 rel_L2=4.444724e+28
+    one_wall         count=    8136 volume_L2=3.269212e-02 Linf=1.863977e-01 rel_L2=3.269212e+28
+    multi_wall       count=     484 volume_L2=3.702678e-02 Linf=1.389921e-01 rel_L2=3.702678e+28
+    aggregate_target count=    1320 volume_L2=6.411930e-02 Linf=1.863977e-01 rel_L2=6.411930e+28
+    remote_interface count=     488 volume_L2=3.385682e-02 Linf=1.709027e-01 rel_L2=3.385682e+28
+    reconstruction_row count=   17732 volume_L2=4.386737e-02 Linf=2.081636e-01 rel_L2=4.386737e+28
+    retained_cut_cell count=    7300 volume_L2=1.772322e-02 Linf=1.389921e-01 rel_L2=1.772322e+28
+    dense_compact_d1 count=    9612 volume_L2=2.351503e-02 Linf=1.157408e-01 rel_L2=2.351503e+28
+    dense_compact_d2 count=   10120 volume_L2=2.583512e-02 Linf=1.290877e-01 rel_L2=2.583512e+28
+    dense_far        count=  929536 volume_L2=4.476943e-02 Linf=7.216991e-01 rel_L2=4.476943e+28
+  field=v_ion_parallel
+    all_active       count=  967000 volume_L2=1.814085e-16 Linf=5.828671e-15 rel_L2=7.495684e-16
+    bulk             count=  949268 volume_L2=1.784669e-16 Linf=2.092077e-15 rel_L2=7.396570e-16
+    one_wall         count=    8136 volume_L2=4.275855e-16 Linf=5.828671e-15 rel_L2=1.506423e-15
+    multi_wall       count=     484 volume_L2=3.726508e-16 Linf=2.553513e-15 rel_L2=1.214314e-15
+    aggregate_target count=    1320 volume_L2=2.474093e-16 Linf=8.881784e-16 rel_L2=8.400335e-16
+    remote_interface count=     488 volume_L2=4.168468e-16 Linf=4.482525e-15 rel_L2=6.353944e-15
+    reconstruction_row count=   17732 volume_L2=3.023088e-16 Linf=5.828671e-15 rel_L2=1.081277e-15
+    retained_cut_cell count=    7300 volume_L2=4.590743e-16 Linf=5.828671e-15 rel_L2=1.623586e-15
+    dense_compact_d1 count=    9612 volume_L2=2.163470e-16 Linf=1.609823e-15 rel_L2=8.528591e-16
+    dense_compact_d2 count=   10120 volume_L2=2.363512e-16 Linf=1.637579e-15 rel_L2=1.036716e-15
+    dense_far        count=  929536 volume_L2=1.773054e-16 Linf=2.092077e-15 rel_L2=7.348135e-16
+  field=v_electron_parallel
+    all_active       count=  967000 volume_L2=4.989371e-01 Linf=2.107971e+00 rel_L2=4.989371e+29
+    bulk             count=  949268 volume_L2=4.877061e-01 Linf=1.373404e+00 rel_L2=4.877061e+29
+    one_wall         count=    8136 volume_L2=6.863598e-01 Linf=2.107971e+00 rel_L2=6.863598e+29
+    multi_wall       count=     484 volume_L2=8.144494e-01 Linf=1.608696e+00 rel_L2=8.144494e+29
+    aggregate_target count=    1320 volume_L2=1.094559e+00 Linf=2.107971e+00 rel_L2=1.094559e+30
+    remote_interface count=     488 volume_L2=7.018093e-01 Linf=2.102182e+00 rel_L2=7.018093e+29
+    reconstruction_row count=   17732 volume_L2=9.279548e-01 Linf=2.107971e+00 rel_L2=9.279548e+29
+    retained_cut_cell count=    7300 volume_L2=5.470185e-01 Linf=1.695157e+00 rel_L2=5.470185e+29
+    dense_compact_d1 count=    9612 volume_L2=4.913600e-01 Linf=1.201570e+00 rel_L2=4.913600e+29
+    dense_compact_d2 count=   10120 volume_L2=4.600551e-01 Linf=1.206473e+00 rel_L2=4.600551e+29
+    dense_far        count=  929536 volume_L2=4.879592e-01 Linf=1.373404e+00 rel_L2=4.879592e+29
+N=100 phi algebraic solve skipped
+operator order grad_parallel_density all_active: volume_L2=exact, Linf=exact
+operator order grad_parallel_density bulk: volume_L2=exact, Linf=exact
+operator order grad_parallel_density one_wall: volume_L2=exact, Linf=exact
+operator order grad_parallel_density multi_wall: volume_L2=exact, Linf=exact
+operator order grad_parallel_density aggregate_target: volume_L2=exact, Linf=exact
+operator order grad_parallel_density remote_interface: volume_L2=exact, Linf=exact
+operator order grad_parallel_density reconstruction_row: volume_L2=exact, Linf=exact
+operator order grad_parallel_density retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_density dense_compact_d1: volume_L2=exact, Linf=exact
+operator order grad_parallel_density dense_compact_d2: volume_L2=exact, Linf=exact
+operator order grad_parallel_density dense_far: volume_L2=exact, Linf=exact
+operator order grad_parallel_phi all_active: volume_L2=2.013492, Linf=2.015389
+operator order grad_parallel_phi bulk: volume_L2=1.982835, Linf=1.973942
+operator order grad_parallel_phi one_wall: volume_L2=1.926226, Linf=1.953951
+operator order grad_parallel_phi multi_wall: volume_L2=2.104980, Linf=2.158682
+operator order grad_parallel_phi aggregate_target: volume_L2=1.670096, Linf=1.956259
+operator order grad_parallel_phi remote_interface: volume_L2=1.957433, Linf=1.962164
+operator order grad_parallel_phi reconstruction_row: volume_L2=1.973234, Linf=2.015389
+operator order grad_parallel_phi retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi dense_compact_d1: volume_L2=1.796304, Linf=2.001193
+operator order grad_parallel_phi dense_compact_d2: volume_L2=1.878932, Linf=2.005182
+operator order grad_parallel_phi dense_far: volume_L2=1.993044, Linf=1.973942
+operator order grad_parallel_v_ion all_active: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion bulk: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion one_wall: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion multi_wall: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion aggregate_target: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion remote_interface: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion reconstruction_row: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_ion dense_compact_d1: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion dense_compact_d2: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion dense_far: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_electron all_active: volume_L2=1.998084, Linf=2.029310
+operator order grad_parallel_v_electron bulk: volume_L2=1.970740, Linf=1.969338
+operator order grad_parallel_v_electron one_wall: volume_L2=1.936337, Linf=1.916502
+operator order grad_parallel_v_electron multi_wall: volume_L2=2.135006, Linf=2.104477
+operator order grad_parallel_v_electron aggregate_target: volume_L2=1.579276, Linf=1.924419
+operator order grad_parallel_v_electron remote_interface: volume_L2=2.021491, Linf=2.013850
+operator order grad_parallel_v_electron reconstruction_row: volume_L2=2.055096, Linf=2.029310
+operator order grad_parallel_v_electron retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron dense_compact_d1: volume_L2=2.208578, Linf=2.060454
+operator order grad_parallel_v_electron dense_compact_d2: volume_L2=2.051243, Linf=2.031850
+operator order grad_parallel_v_electron dense_far: volume_L2=1.965799, Linf=1.969338
+operator order parallel_density_flux_divergence all_active: volume_L2=1.885908, Linf=0.866745
+operator order parallel_density_flux_divergence bulk: volume_L2=1.960377, Linf=1.961067
+operator order parallel_density_flux_divergence one_wall: volume_L2=2.325116, Linf=1.599222
+operator order parallel_density_flux_divergence multi_wall: volume_L2=2.452149, Linf=2.446343
+operator order parallel_density_flux_divergence aggregate_target: volume_L2=3.725757, Linf=3.483828
+operator order parallel_density_flux_divergence remote_interface: volume_L2=2.352412, Linf=1.752975
+operator order parallel_density_flux_divergence reconstruction_row: volume_L2=0.493884, Linf=0.866745
+operator order parallel_density_flux_divergence retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence dense_compact_d1: volume_L2=2.237532, Linf=2.034158
+operator order parallel_density_flux_divergence dense_compact_d2: volume_L2=2.055631, Linf=1.991507
+operator order parallel_density_flux_divergence dense_far: volume_L2=1.954180, Linf=1.961067
+operator order poisson_density all_active: volume_L2=exact, Linf=exact
+operator order poisson_density bulk: volume_L2=exact, Linf=exact
+operator order poisson_density one_wall: volume_L2=exact, Linf=exact
+operator order poisson_density multi_wall: volume_L2=exact, Linf=exact
+operator order poisson_density aggregate_target: volume_L2=exact, Linf=exact
+operator order poisson_density remote_interface: volume_L2=exact, Linf=exact
+operator order poisson_density reconstruction_row: volume_L2=exact, Linf=exact
+operator order poisson_density retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order poisson_density dense_compact_d1: volume_L2=exact, Linf=exact
+operator order poisson_density dense_compact_d2: volume_L2=exact, Linf=exact
+operator order poisson_density dense_far: volume_L2=exact, Linf=exact
+operator order poisson_omega all_active: volume_L2=1.661144, Linf=1.036534
+operator order poisson_omega bulk: volume_L2=1.675045, Linf=1.036534
+operator order poisson_omega one_wall: volume_L2=1.864924, Linf=1.549992
+operator order poisson_omega multi_wall: volume_L2=1.771884, Linf=1.619678
+operator order poisson_omega aggregate_target: volume_L2=1.712860, Linf=1.674724
+operator order poisson_omega remote_interface: volume_L2=1.913455, Linf=1.672990
+operator order poisson_omega reconstruction_row: volume_L2=2.013823, Linf=2.129924
+operator order poisson_omega retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order poisson_omega dense_compact_d1: volume_L2=2.287878, Linf=2.333673
+operator order poisson_omega dense_compact_d2: volume_L2=2.413859, Linf=2.553429
+operator order poisson_omega dense_far: volume_L2=1.701968, Linf=1.036534
+operator order poisson_v_ion all_active: volume_L2=exact, Linf=exact
+operator order poisson_v_ion bulk: volume_L2=exact, Linf=exact
+operator order poisson_v_ion one_wall: volume_L2=exact, Linf=exact
+operator order poisson_v_ion multi_wall: volume_L2=exact, Linf=exact
+operator order poisson_v_ion aggregate_target: volume_L2=exact, Linf=exact
+operator order poisson_v_ion remote_interface: volume_L2=exact, Linf=exact
+operator order poisson_v_ion reconstruction_row: volume_L2=exact, Linf=exact
+operator order poisson_v_ion retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order poisson_v_ion dense_compact_d1: volume_L2=exact, Linf=exact
+operator order poisson_v_ion dense_compact_d2: volume_L2=exact, Linf=exact
+operator order poisson_v_ion dense_far: volume_L2=exact, Linf=exact
+operator order poisson_v_electron all_active: volume_L2=1.964932, Linf=1.691625
+operator order poisson_v_electron bulk: volume_L2=1.937415, Linf=1.786002
+operator order poisson_v_electron one_wall: volume_L2=2.129740, Linf=1.754457
+operator order poisson_v_electron multi_wall: volume_L2=1.944096, Linf=1.726417
+operator order poisson_v_electron aggregate_target: volume_L2=2.054925, Linf=2.564445
+operator order poisson_v_electron remote_interface: volume_L2=2.603899, Linf=2.364031
+operator order poisson_v_electron reconstruction_row: volume_L2=2.149499, Linf=1.691625
+operator order poisson_v_electron retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron dense_compact_d1: volume_L2=2.472757, Linf=2.284438
+operator order poisson_v_electron dense_compact_d2: volume_L2=2.139429, Linf=2.198385
+operator order poisson_v_electron dense_far: volume_L2=1.923512, Linf=1.786002
+operator order curvature_density all_active: volume_L2=exact, Linf=exact
+operator order curvature_density bulk: volume_L2=exact, Linf=exact
+operator order curvature_density one_wall: volume_L2=exact, Linf=exact
+operator order curvature_density multi_wall: volume_L2=exact, Linf=exact
+operator order curvature_density aggregate_target: volume_L2=exact, Linf=exact
+operator order curvature_density remote_interface: volume_L2=exact, Linf=exact
+operator order curvature_density reconstruction_row: volume_L2=exact, Linf=exact
+operator order curvature_density retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order curvature_density dense_compact_d1: volume_L2=exact, Linf=exact
+operator order curvature_density dense_compact_d2: volume_L2=exact, Linf=exact
+operator order curvature_density dense_far: volume_L2=exact, Linf=exact
+operator order curvature_phi all_active: volume_L2=2.087924, Linf=1.959351
+operator order curvature_phi bulk: volume_L2=2.031117, Linf=1.959351
+operator order curvature_phi one_wall: volume_L2=1.673109, Linf=1.715343
+operator order curvature_phi multi_wall: volume_L2=2.190774, Linf=2.135352
+operator order curvature_phi aggregate_target: volume_L2=1.488869, Linf=2.018443
+operator order curvature_phi remote_interface: volume_L2=2.054549, Linf=2.016767
+operator order curvature_phi reconstruction_row: volume_L2=2.142909, Linf=2.100900
+operator order curvature_phi retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order curvature_phi dense_compact_d1: volume_L2=2.148992, Linf=2.233537
+operator order curvature_phi dense_compact_d2: volume_L2=2.123944, Linf=2.348930
+operator order curvature_phi dense_far: volume_L2=2.043650, Linf=1.959351
+operator order perp_laplacian_phi all_active: volume_L2=1.596643, Linf=0.682303
+operator order perp_laplacian_phi bulk: volume_L2=1.040275, Linf=0.796655
+operator order perp_laplacian_phi one_wall: volume_L2=1.041909, Linf=0.890224
+operator order perp_laplacian_phi multi_wall: volume_L2=1.928227, Linf=1.834543
+operator order perp_laplacian_phi aggregate_target: volume_L2=0.848444, Linf=1.452705
+operator order perp_laplacian_phi remote_interface: volume_L2=1.092089, Linf=1.049198
+operator order perp_laplacian_phi reconstruction_row: volume_L2=1.134658, Linf=0.682303
+operator order perp_laplacian_phi retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi dense_compact_d1: volume_L2=1.273758, Linf=1.124954
+operator order perp_laplacian_phi dense_compact_d2: volume_L2=1.903667, Linf=2.303481
+operator order perp_laplacian_phi dense_far: volume_L2=0.990472, Linf=0.155993
+operator order full_rhs_density all_active: volume_L2=1.906439, Linf=1.165354
+operator order full_rhs_density bulk: volume_L2=1.959177, Linf=1.962551
+operator order full_rhs_density one_wall: volume_L2=1.811042, Linf=1.770800
+operator order full_rhs_density multi_wall: volume_L2=2.195844, Linf=2.268218
+operator order full_rhs_density aggregate_target: volume_L2=1.616618, Linf=2.023580
+operator order full_rhs_density remote_interface: volume_L2=2.090540, Linf=2.037082
+operator order full_rhs_density reconstruction_row: volume_L2=0.977679, Linf=1.165354
+operator order full_rhs_density retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density dense_compact_d1: volume_L2=2.140835, Linf=1.997600
+operator order full_rhs_density dense_compact_d2: volume_L2=1.945840, Linf=2.003620
+operator order full_rhs_density dense_far: volume_L2=1.954846, Linf=1.962551
+operator order full_rhs_omega all_active: volume_L2=2.005254, Linf=1.958757
+operator order full_rhs_omega bulk: volume_L2=2.002689, Linf=1.958757
+operator order full_rhs_omega one_wall: volume_L2=1.816253, Linf=1.921177
+operator order full_rhs_omega multi_wall: volume_L2=2.216368, Linf=2.167244
+operator order full_rhs_omega aggregate_target: volume_L2=1.423633, Linf=1.923138
+operator order full_rhs_omega remote_interface: volume_L2=1.968909, Linf=1.997987
+operator order full_rhs_omega reconstruction_row: volume_L2=2.057329, Linf=2.117114
+operator order full_rhs_omega retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega dense_compact_d1: volume_L2=2.233082, Linf=2.266645
+operator order full_rhs_omega dense_compact_d2: volume_L2=2.116779, Linf=2.273572
+operator order full_rhs_omega dense_far: volume_L2=2.017398, Linf=1.958757
+operator order full_rhs_v_ion_parallel all_active: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel bulk: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel one_wall: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel multi_wall: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel aggregate_target: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel remote_interface: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel reconstruction_row: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_ion_parallel dense_compact_d1: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel dense_compact_d2: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel dense_far: volume_L2=exact, Linf=exact
+operator order full_rhs_v_electron_parallel all_active: volume_L2=2.021417, Linf=2.024640
+operator order full_rhs_v_electron_parallel bulk: volume_L2=1.977971, Linf=1.969075
+operator order full_rhs_v_electron_parallel one_wall: volume_L2=1.823992, Linf=1.941146
+operator order full_rhs_v_electron_parallel multi_wall: volume_L2=2.018636, Linf=2.167970
+operator order full_rhs_v_electron_parallel aggregate_target: volume_L2=1.532224, Linf=1.943132
+operator order full_rhs_v_electron_parallel remote_interface: volume_L2=1.908636, Linf=1.942811
+operator order full_rhs_v_electron_parallel reconstruction_row: volume_L2=1.954133, Linf=2.024640
+operator order full_rhs_v_electron_parallel retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel dense_compact_d1: volume_L2=1.748359, Linf=1.995880
+operator order full_rhs_v_electron_parallel dense_compact_d2: volume_L2=1.847046, Linf=1.999652
+operator order full_rhs_v_electron_parallel dense_far: volume_L2=1.990262, Linf=1.969075
+Traceback (most recent call last):
+  File "/pscratch/sd/y/yiqunx/jax_drb/tests/test_fci_cutwall_shifted_torus_4field.py", line 8635, in <module>
+    main()
+  File "/pscratch/sd/y/yiqunx/jax_drb/tests/test_fci_cutwall_shifted_torus_4field.py", line 8607, in main
+    run_shifted_torus_control_volume_operator_convergence(
+  File "/pscratch/sd/y/yiqunx/jax_drb/tests/test_fci_cutwall_shifted_torus_4field.py", line 8287, in run_shifted_torus_control_volume_operator_convergence
+    raise AssertionError(
+AssertionError: operator convergence acceptance failed (minimum order 1.800): parallel_density_flux_divergence/all_active Linf=0.866745; poisson_omega/all_active L2=1.661144; poisson_omega/all_active Linf=1.036534; poisson_v_electron/all_active Linf=1.691625; perp_laplacian_phi/all_active L2=1.596643; perp_laplacian_phi/all_active Linf=0.682303; full_rhs_density/all_active Linf=1.165354

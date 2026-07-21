@@ -55,7 +55,7 @@ r0 = 3.0
 alpha_value = 0.25
 iota = 1.1
 c_phi = 3.0
-x_min = 0.15
+x_min = 0.2
 x_max = 1.0
 tf = 0.1
 num_steps = 50
@@ -96,6 +96,7 @@ class _ShiftedTorus4FieldInvariantBundle(_HelperBundle):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class _ShiftedTorus4FieldStageData(_HelperBundle):
+    stage_time: jnp.ndarray
     exact_halo: Fci4FieldState
     source_halo: Fci4FieldState
     phi_halo: jnp.ndarray
@@ -354,6 +355,46 @@ def _shifted_torus_geometry_quantities_scalar(x: float, theta: float) -> tuple[f
     J = x * R * Q
     S = (float(iota) ** 2) * x**2 + R**2
     return theta_shift, cos_shift, sin_shift, R, Q, J, S, x_mid
+
+
+def _parallel_density_flux_divergence(
+    *,
+    x: jnp.ndarray,
+    theta_shift: jnp.ndarray,
+    density: jnp.ndarray,
+    v_electron_parallel: jnp.ndarray,
+    density_grad: jnp.ndarray,
+    v_electron_grad: jnp.ndarray,
+    b_contra: jnp.ndarray,
+    jacobian: jnp.ndarray,
+) -> jnp.ndarray:
+    """Continuous counterpart of ``local_parallel_flux_div_op(n * v_e)``."""
+
+    density_flux = density * v_electron_parallel
+    density_flux_grad = (
+        v_electron_parallel[..., None] * density_grad
+        + density[..., None] * v_electron_grad
+    )
+    direct_parallel_gradient = jnp.einsum("...i,...i->...", b_contra, density_flux_grad)
+
+    cos_shift = jnp.cos(theta_shift)
+    sin_shift = jnp.sin(theta_shift)
+    radius = float(r0) + float(alpha_value) * x + x * cos_shift
+    q_value = 1.0 + float(alpha_value) * cos_shift
+    metric_jacobian = x * radius * q_value
+    s_value = (float(iota) ** 2) * x**2 + radius**2
+    sqrt_s = jnp.sqrt(jnp.maximum(s_value, 1.0e-30))
+
+    radius_theta = -x * sin_shift
+    q_theta = -float(alpha_value) * sin_shift
+    jacobian_theta = x * (radius_theta * q_value + radius * q_theta)
+    sqrt_s_theta = radius * radius_theta / sqrt_s
+    d_jbtheta_dtheta = float(iota) * (
+        jacobian_theta * sqrt_s - metric_jacobian * sqrt_s_theta
+    ) / jnp.maximum(s_value, 1.0e-30)
+
+    div_b = d_jbtheta_dtheta / jnp.maximum(jacobian, 1.0e-30)
+    return direct_parallel_gradient + density_flux * div_b
 
 
 def _shifted_torus_envelopes(geometry: FciGeometry3D) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
@@ -835,13 +876,24 @@ def _continuous_4field_rhs_terms_from_exact_state(
     grad_parallel_phi = jnp.einsum("...i,...i->...", b_contra, phi_grad)
     grad_parallel_v_ion = jnp.einsum("...i,...i->...", b_contra, v_ion_grad)
     grad_parallel_v_electron = jnp.einsum("...i,...i->...", b_contra, v_electron_grad)
+    x_coord, theta_shift_coord, _, _ = _shifted_torus_coordinates(geometry)
+    parallel_density_flux_divergence = _parallel_density_flux_divergence(
+        x=x_coord,
+        theta_shift=theta_shift_coord,
+        density=density,
+        v_electron_parallel=v_electron_parallel,
+        density_grad=density_grad,
+        v_electron_grad=v_electron_grad,
+        b_contra=b_contra,
+        jacobian=jacobian,
+    )
 
     return {
         "density": {
             "poisson": -(_poisson(phi_grad, density_grad) / (rho_star_value * bmag)),
             "curvature_density": (2.0 * te / bmag) * curvature_density,
             "curvature_phi": -(2.0 * density / bmag) * curvature_phi,
-            "parallel_v_electron": -density * grad_parallel_v_electron,
+            "parallel_density_v_electron": -parallel_density_flux_divergence,
         },
         "omega": {
             "poisson": -(_poisson(phi_grad, omega_grad) / (rho_star_value * bmag)),
@@ -1205,12 +1257,23 @@ def _shifted_torus_local_mms_source_state(
     grad_parallel_phi = jnp.einsum("...i,...i->...", b_contra, phi_grad)
     grad_parallel_v_ion = jnp.einsum("...i,...i->...", b_contra, v_ion_grad)
     grad_parallel_v_electron = jnp.einsum("...i,...i->...", b_contra, v_electron_grad)
+    x_coord, theta_shift_coord, _, _ = coordinates_halo
+    parallel_density_flux_divergence = _parallel_density_flux_divergence(
+        x=x_coord,
+        theta_shift=theta_shift_coord,
+        density=exact.density,
+        v_electron_parallel=exact.v_electron_parallel,
+        density_grad=density_grad,
+        v_electron_grad=v_electron_grad,
+        b_contra=b_contra,
+        jacobian=jacobian,
+    )
 
     density_rhs = (
         -(_poisson(phi_grad, density_grad) / (rho_star_value * bmag))
         + (2.0 * te / bmag) * curvature_density
         - (2.0 * density / bmag) * curvature_phi
-        - density * grad_parallel_v_electron
+        - parallel_density_flux_divergence
     )
     omega_rhs = (
         -(_poisson(phi_grad, omega_grad) / (rho_star_value * bmag))
@@ -1517,13 +1580,24 @@ def _shifted_torus_local_mms_source_state_from_invariants(
     grad_parallel_phi = jnp.einsum("...i,...i->...", b_contra, phi_grad)
     grad_parallel_v_ion = jnp.einsum("...i,...i->...", b_contra, v_ion_grad)
     grad_parallel_v_electron = jnp.einsum("...i,...i->...", b_contra, v_electron_grad)
+    x_coord, theta_shift_coord, _, _ = coordinates_halo
+    parallel_density_flux_divergence = _parallel_density_flux_divergence(
+        x=x_coord,
+        theta_shift=theta_shift_coord,
+        density=exact.density,
+        v_electron_parallel=exact.v_electron_parallel,
+        density_grad=density_grad,
+        v_electron_grad=v_electron_grad,
+        b_contra=b_contra,
+        jacobian=jacobian,
+    )
     bmag = jnp.maximum(invariants.bmag_halo, 1.0e-30)
 
     density_rhs = (
         -(_poisson(phi_grad, density_grad) / (rho_star_value * bmag))
         + (2.0 * te / bmag) * curvature_density
         - (2.0 * density / bmag) * curvature_phi
-        - density * grad_parallel_v_electron
+        - parallel_density_flux_divergence
     )
     omega_rhs = (
         -(_poisson(phi_grad, omega_grad) / (rho_star_value * bmag))
@@ -1573,6 +1647,7 @@ def _build_local_4field_stage_data(
         _shifted_torus_local_v_electron_parallel_derivatives(face_coordinates, time)[0]
     )
     return _ShiftedTorus4FieldStageData(
+        stage_time=jnp.asarray(time, dtype=jnp.float64),
         exact_halo=exact_halo,
         source_halo=_shifted_torus_local_mms_source_state_from_invariants(
             coordinates_halo,
@@ -1620,16 +1695,10 @@ def _prepare_local_shifted_torus_4field_stage_state(
     physical_ghost_filler: PhysicalGhostCellFiller3D,
 ) -> PreparedLocalState3D:
     from jax_drb.native.fci_boundaries import LocalBoundaryData3D
-    from jax_drb.native.fci_halo import PreparedLocalState3D
+    from jax_drb.native.fci_halo import LocalHaloClosure3D, PreparedLocalState3D
     from jax_drb.native.fci_model import inject_owned_state_to_halo
 
     state_halo = inject_owned_state_to_halo(state_owned, domain.layout)
-    state_halo = Fci4FieldState(
-        density=topology_filler(halo_exchange(state_halo.density, domain), domain),
-        omega=topology_filler(halo_exchange(state_halo.omega, domain), domain),
-        v_ion_parallel=topology_filler(halo_exchange(state_halo.v_ion_parallel, domain), domain),
-        v_electron_parallel=topology_filler(halo_exchange(state_halo.v_electron_parallel, domain), domain),
-    )
     face_bc_bundle = _ShiftedTorus4FieldFaceBCBundle(
         phi=_build_local_radial_dirichlet_face_bc_from_values(stage_data.phi_face_lower, stage_data.phi_face_upper, domain),
         density=_build_local_radial_dirichlet_face_bc_from_values(
@@ -1653,15 +1722,20 @@ def _prepare_local_shifted_torus_4field_stage_state(
             domain,
         ),
     )
+    closure = LocalHaloClosure3D(
+        physical_ghost_filler=physical_ghost_filler,
+        halo_exchange=halo_exchange,
+        topology_filler=topology_filler,
+    )
     prepared_state_halo = Fci4FieldState(
-        density=physical_ghost_filler(state_halo.density, domain, face_bc_bundle.density),
-        omega=physical_ghost_filler(state_halo.omega, domain, face_bc_bundle.omega),
-        v_ion_parallel=physical_ghost_filler(
+        density=closure(state_halo.density, domain, face_bc_bundle.density),
+        omega=closure(state_halo.omega, domain, face_bc_bundle.omega),
+        v_ion_parallel=closure(
             state_halo.v_ion_parallel,
             domain,
             face_bc_bundle.v_ion_parallel,
         ),
-        v_electron_parallel=physical_ghost_filler(
+        v_electron_parallel=closure(
             state_halo.v_electron_parallel,
             domain,
             face_bc_bundle.v_electron_parallel,

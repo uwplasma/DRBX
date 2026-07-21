@@ -41,6 +41,7 @@ from jax_drb.native.fci_helpers import _local_side_mask, local_physical_side_act
 from jax_drb.native.fci_halo import (
     GhostFillWeights1D,
     HaloExchange3D,
+    LocalHaloClosure3D,
     LocalPeriodicTopologyRule3D,
     LocalStateAndBoundaryPreparer3D,
     PhysicalGhostCellFiller3D,
@@ -228,6 +229,130 @@ def test_physical_ghost_filler_uses_axis_specific_dynamic_bc() -> None:
     assert filled[0, 0, 0] == -9.0
     assert jnp.all(filled[owned[0], 0, owned[2]] == -9.0)
     assert jnp.all(filled[owned[0], owned[1], 0] == -9.0)
+
+
+def _linear_dirichlet_ghost_filler() -> PhysicalGhostCellFiller3D:
+    dirichlet = GhostFillWeights1D(
+        owned_weights=jnp.array([[-1.0]], dtype=jnp.float64),
+        bc_weights=jnp.array([2.0], dtype=jnp.float64),
+    )
+    neutral = GhostFillWeights1D(
+        owned_weights=jnp.array([[1.0]], dtype=jnp.float64),
+        bc_weights=jnp.array([0.0], dtype=jnp.float64),
+    )
+    return PhysicalGhostCellFiller3D(
+        dirichlet=(dirichlet, dirichlet, dirichlet),
+        neumann_lower=(neutral, neutral, neutral),
+        neumann_upper=(neutral, neutral, neutral),
+    )
+
+
+def _linear_sum_face_bc(domain: LocalDomain3D) -> LocalBoundaryFaceBC3D:
+    layout = domain.layout
+    nx, ny, nz = layout.owned_shape
+    x_centers = jnp.arange(nx, dtype=jnp.float64) + 0.5
+    y_centers = jnp.arange(ny, dtype=jnp.float64) + 0.5
+    z_centers = jnp.arange(nz, dtype=jnp.float64) + 0.5
+    bc = LocalBoundaryFaceBC3D.empty(layout)
+
+    value_x = bc.value_x
+    value_x = value_x.at[0].set(
+        y_centers[:, None] + z_centers[None, :]
+    )
+    value_x = value_x.at[-1].set(
+        float(nx) + y_centers[:, None] + z_centers[None, :]
+    )
+    value_y = bc.value_y
+    value_y = value_y.at[:, 0, :].set(
+        x_centers[:, None] + z_centers[None, :]
+    )
+    value_y = value_y.at[:, -1, :].set(
+        x_centers[:, None] + float(ny) + z_centers[None, :]
+    )
+    value_z = bc.value_z
+    value_z = value_z.at[:, :, 0].set(
+        x_centers[:, None] + y_centers[None, :]
+    )
+    value_z = value_z.at[:, :, -1].set(
+        x_centers[:, None] + y_centers[None, :] + float(nz)
+    )
+    return replace(
+        bc,
+        kind_x=bc.kind_x.at[0].set(BC_DIRICHLET).at[-1].set(BC_DIRICHLET),
+        kind_y=bc.kind_y.at[:, 0, :].set(BC_DIRICHLET).at[:, -1, :].set(
+            BC_DIRICHLET
+        ),
+        kind_z=bc.kind_z.at[:, :, 0].set(BC_DIRICHLET).at[:, :, -1].set(
+            BC_DIRICHLET
+        ),
+        value_x=value_x,
+        value_y=value_y,
+        value_z=value_z,
+        mask_x=bc.mask_x.at[0].set(True).at[-1].set(True),
+        mask_y=bc.mask_y.at[:, 0, :].set(True).at[:, -1, :].set(True),
+        mask_z=bc.mask_z.at[:, :, 0].set(True).at[:, :, -1].set(True),
+    )
+
+
+def test_local_halo_closure_propagates_physical_faces_through_periodic_corners() -> None:
+    domain = _domain(
+        owned_shape=(3, 4, 2),
+        shard_counts=(1, 1, 1),
+        periodic_axes=(False, True, False),
+    )
+    layout = domain.layout
+    x = jnp.arange(3, dtype=jnp.float64)[:, None, None] + 0.5
+    y = jnp.arange(4, dtype=jnp.float64)[None, :, None] + 0.5
+    z = jnp.arange(2, dtype=jnp.float64)[None, None, :] + 0.5
+    field = jnp.full(layout.cell_halo_shape, -99.0)
+    field = field.at[layout.owned_slices_cell].set(x + y + z)
+
+    closed = LocalHaloClosure3D(
+        physical_ghost_filler=_linear_dirichlet_ghost_filler(),
+        topology_filler=TopologyHaloFiller3D(
+            rules=(LocalPeriodicTopologyRule3D(),)
+        ),
+    )(field, domain, _linear_sum_face_bc(domain))
+
+    h = layout.halo_width
+    assert jnp.allclose(
+        closed[0, 0, h : h + 2],
+        closed[0, h + 3, h : h + 2],
+    )
+    assert jnp.allclose(
+        closed[0, h + 4, h : h + 2],
+        closed[0, h, h : h + 2],
+    )
+
+
+def test_local_halo_closure_fills_physical_edges_and_corners_by_codimension() -> None:
+    owned_shape = (3, 4, 2)
+    domain = _domain(
+        owned_shape=owned_shape,
+        shard_counts=(1, 1, 1),
+        periodic_axes=(False, False, False),
+    )
+    layout = domain.layout
+    x = jnp.arange(owned_shape[0], dtype=jnp.float64)[:, None, None] + 0.5
+    y = jnp.arange(owned_shape[1], dtype=jnp.float64)[None, :, None] + 0.5
+    z = jnp.arange(owned_shape[2], dtype=jnp.float64)[None, None, :] + 0.5
+    field = jnp.full(layout.cell_halo_shape, -99.0)
+    field = field.at[layout.owned_slices_cell].set(x + y + z)
+
+    closed = LocalHaloClosure3D(
+        physical_ghost_filler=_linear_dirichlet_ghost_filler(),
+    )(field, domain, _linear_sum_face_bc(domain))
+
+    halo_coordinates = [
+        jnp.arange(-0.5, extent + 0.5 + 1.0e-12, 1.0)
+        for extent in owned_shape
+    ]
+    exact = (
+        halo_coordinates[0][:, None, None]
+        + halo_coordinates[1][None, :, None]
+        + halo_coordinates[2][None, None, :]
+    )
+    assert jnp.allclose(closed, exact)
 
 
 def test_local_state_and_boundary_preparer_wires_field_bundles() -> None:

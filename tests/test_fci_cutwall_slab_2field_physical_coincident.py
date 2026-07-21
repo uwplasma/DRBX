@@ -434,8 +434,16 @@ class LocalSlab2FieldCutWallRhs:
         )
 
         rhs = Fci2FieldState(
-            density=jnp.asarray(density_rhs, dtype=jnp.float64),
-            v_parallel=jnp.asarray(v_parallel_rhs, dtype=jnp.float64),
+            density=jnp.where(
+                self.geometry.active_cell_mask_owned,
+                jnp.asarray(density_rhs, dtype=jnp.float64),
+                0.0,
+            ),
+            v_parallel=jnp.where(
+                self.geometry.active_cell_mask_owned,
+                jnp.asarray(v_parallel_rhs, dtype=jnp.float64),
+                0.0,
+            ),
             density_background=jnp.zeros(
                 self.domain.layout.owned_shape,
                 dtype=jnp.float64,

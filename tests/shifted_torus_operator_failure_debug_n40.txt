@@ -1,0 +1,854 @@
+================================================================================
+JAX runtime
+================================================================================
+default backend: gpu
+local_device_count: 4
+compilation_cache_dir: /global/homes/y/yiqunx/.cache/jax_drb/jax_compilation_cache
+devices:
+  [0] cuda:0
+  [1] cuda:1
+  [2] cuda:2
+  [3] cuda:3
+================================================================================
+  shifted-torus radial moment reproduction: patch=(theta=20, zeta=20), owner_x=2.101476e-01
+    constant radial basis max derivative error: owner=1.250006e-10 face=9.558354e-12
+    fourier radial basis max derivative error: owner=9.548841e-11 face=4.265210e-11
+embedded control volumes: active_owners=61500, merged_sources=1120, aggregate_targets=1120, irregular_faces=12926, interior/partial/cutwall=9292/2184/1450, physical_boundary=0, transitions/invalid/remote/max_samples=9292/0/0/14, transition_direct/virtual=86414/43674, cutwall_normal_stencils=1450/1450, quadratic_rows=6816, linear_fallbacks=0, max_condition=6.670054e+00
+Starting shifted_torus control-volume operator sweep: N=40, shape=(40, 40, 40), shards=(1, 1, 1)
+  radial boundary contract: x-low=physical Dirichlet, x-high=physical Dirichlet, axis_regular_x=False
+N=40 operator=grad_parallel_density compile+run=1.337s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=7.125133e-17 Linf=1.000279e-15 rel_L2=7.125133e+13
+  bulk               count=   56750 volume_L2=7.209854e-17 Linf=1.000279e-15 rel_L2=7.209854e+13
+  one_wall           count=    1074 volume_L2=8.218168e-17 Linf=6.920773e-16 rel_L2=8.218168e+13
+  multi_wall         count=     184 volume_L2=1.026936e-16 Linf=8.816985e-16 rel_L2=1.026936e+14
+  aggregate_target   count=    1120 volume_L2=8.903097e-17 Linf=8.816985e-16 rel_L2=8.903097e+13
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=5.514301e-17 Linf=8.816985e-16 rel_L2=5.514301e+13
+  retained_cut_cell  count=     138 volume_L2=4.090095e-17 Linf=2.587586e-16 rel_L2=4.090095e+13
+  dense_compact_d1   count=    2290 volume_L2=8.200633e-17 Linf=7.175902e-16 rel_L2=8.200633e+13
+  dense_compact_d2   count=    2522 volume_L2=6.314533e-17 Linf=5.441050e-16 rel_L2=6.314533e+13
+  dense_far          count=   49872 volume_L2=7.313607e-17 Linf=1.000279e-15 rel_L2=7.313607e+13
+  radial_lower_owner count=    1600 volume_L2=6.412142e-17 Linf=3.381554e-16 rel_L2=6.412142e+13
+  radial_upper_owner count=    1600 volume_L2=6.245259e-17 Linf=3.543274e-16 rel_L2=6.245259e+13
+  radial_interior_2plus count=   55100 volume_L2=7.148982e-17 Linf=1.000279e-15 rel_L2=7.148982e+13
+  top_error index=(33, 13, 24) error=1.000279e-15 actual=1.000279e-15 reference=0.000000e+00 regular_physical_boundary=False embedded_cutwall_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=grad_parallel_phi compile+run=1.171s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=2.588881e-03 Linf=8.938188e-03 rel_L2=4.836961e-02
+  bulk               count=   56750 volume_L2=2.430683e-03 Linf=8.518820e-03 rel_L2=4.540089e-02
+  one_wall           count=    1074 volume_L2=2.816387e-03 Linf=7.914584e-03 rel_L2=4.996682e-02
+  multi_wall         count=     184 volume_L2=3.833710e-03 Linf=7.401906e-03 rel_L2=6.519061e-02
+  aggregate_target   count=    1120 volume_L2=2.861010e-03 Linf=7.401906e-03 rel_L2=5.062155e-02
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=4.008769e-03 Linf=8.938188e-03 rel_L2=7.617113e-02
+  retained_cut_cell  count=     138 volume_L2=4.239919e-03 Linf=7.914584e-03 rel_L2=7.141002e-02
+  dense_compact_d1   count=    2290 volume_L2=2.163020e-03 Linf=5.658536e-03 rel_L2=4.129710e-02
+  dense_compact_d2   count=    2522 volume_L2=2.354935e-03 Linf=5.772937e-03 rel_L2=4.338103e-02
+  dense_far          count=   49872 volume_L2=2.347158e-03 Linf=6.253788e-03 rel_L2=4.373843e-02
+  radial_lower_owner count=    1600 volume_L2=3.153298e-03 Linf=6.240570e-03 rel_L2=4.357423e-02
+  radial_upper_owner count=    1600 volume_L2=1.847525e-03 Linf=4.725275e-03 rel_L2=4.346364e-02
+  radial_interior_2plus count=   55100 volume_L2=2.637650e-03 Linf=8.938188e-03 rel_L2=4.881344e-02
+  top_error index=(12, 29, 1) error=8.938188e-03 actual=-9.388412e-02 reference=-1.028223e-01 regular_physical_boundary=False embedded_cutwall_faces=0 irregular_faces=6 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+N=40 operator=grad_parallel_v_ion compile+run=1.148s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  bulk               count=   56750 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  one_wall           count=    1074 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  multi_wall         count=     184 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  aggregate_target   count=    1120 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  retained_cut_cell  count=     138 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d1   count=    2290 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d2   count=    2522 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_far          count=   49872 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  radial_lower_owner count=    1600 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  radial_upper_owner count=    1600 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  radial_interior_2plus count=   55100 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  top_error index=(0, 0, 0) error=0.000000e+00 actual=0.000000e+00 reference=0.000000e+00 regular_physical_boundary=True embedded_cutwall_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=grad_parallel_v_electron compile+run=1.039s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=7.172044e-03 Linf=2.288789e-02 rel_L2=8.927849e-02
+  bulk               count=   56750 volume_L2=6.770558e-03 Linf=2.250678e-02 rel_L2=8.398935e-02
+  one_wall           count=    1074 volume_L2=6.478188e-03 Linf=1.993908e-02 rel_L2=9.396142e-02
+  multi_wall         count=     184 volume_L2=1.003492e-02 Linf=1.796683e-02 rel_L2=1.325878e-01
+  aggregate_target   count=    1120 volume_L2=6.594221e-03 Linf=1.796683e-02 rel_L2=9.606123e-02
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=1.097531e-02 Linf=2.288789e-02 rel_L2=1.409851e-01
+  retained_cut_cell  count=     138 volume_L2=1.167325e-02 Linf=1.993908e-02 rel_L2=1.394430e-01
+  dense_compact_d1   count=    2290 volume_L2=5.893823e-03 Linf=1.403477e-02 rel_L2=7.874513e-02
+  dense_compact_d2   count=    2522 volume_L2=5.828957e-03 Linf=1.418910e-02 rel_L2=7.817516e-02
+  dense_far          count=   49872 volume_L2=6.572084e-03 Linf=1.678596e-02 rel_L2=8.092237e-02
+  radial_lower_owner count=    1600 volume_L2=7.684494e-03 Linf=1.485294e-02 rel_L2=8.093777e-02
+  radial_upper_owner count=    1600 volume_L2=6.766063e-03 Linf=1.678596e-02 rel_L2=8.090553e-02
+  radial_interior_2plus count=   55100 volume_L2=7.199784e-03 Linf=2.288789e-02 rel_L2=9.035608e-02
+  top_error index=(11, 26, 13) error=2.288789e-02 actual=-1.267606e-01 reference=-1.496484e-01 regular_physical_boundary=False embedded_cutwall_faces=0 irregular_faces=6 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+N=40 operator=parallel_density_flux_divergence compile+run=3.917s invalid_reconstruction_rows=0
+  mirrored_remote_flux signed_sum=0.000000e+00 abs_sum=0.000000e+00 relative_imbalance=0.000000e+00 invalid_quadrature=0
+  all_active         count=   61500 volume_L2=4.541250e-03 Linf=1.545289e-02 rel_L2=5.798302e-02
+  bulk               count=   56750 volume_L2=4.495468e-03 Linf=1.185719e-02 rel_L2=5.718070e-02
+  one_wall           count=    1074 volume_L2=5.475408e-03 Linf=1.128239e-02 rel_L2=8.186376e-02
+  multi_wall         count=     184 volume_L2=7.311593e-03 Linf=1.545289e-02 rel_L2=1.027862e-01
+  aggregate_target   count=    1120 volume_L2=5.910106e-03 Linf=1.545289e-02 rel_L2=8.953208e-02
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=4.896840e-03 Linf=1.545289e-02 rel_L2=6.469081e-02
+  retained_cut_cell  count=     138 volume_L2=4.747987e-03 Linf=8.275334e-03 rel_L2=5.766765e-02
+  dense_compact_d1   count=    2290 volume_L2=4.036535e-03 Linf=9.924784e-03 rel_L2=5.518768e-02
+  dense_compact_d2   count=    2522 volume_L2=3.979587e-03 Linf=1.010099e-02 rel_L2=5.462369e-02
+  dense_far          count=   49872 volume_L2=4.537522e-03 Linf=1.185719e-02 rel_L2=5.729758e-02
+  radial_lower_owner count=    1600 volume_L2=5.296061e-03 Linf=1.052143e-02 rel_L2=5.721371e-02
+  radial_upper_owner count=    1600 volume_L2=4.668431e-03 Linf=1.185719e-02 rel_L2=5.723980e-02
+  radial_interior_2plus count=   55100 volume_L2=4.512152e-03 Linf=1.545289e-02 rel_L2=5.808418e-02
+  top_error index=(9, 32, 13) error=1.545289e-02 actual=1.006730e-01 reference=1.161259e-01 regular_physical_boundary=False embedded_cutwall_faces=2 irregular_faces=11 remote_faces=0 reconstruction_rows=1 aggregate=True compact_distance=0
+  top_face_balance aggregate_volume=8.173074e-04 actual_integrated=8.228082e-05 owner_dense=2.710505e-20 target_storage_dense=0.000000e+00 routed_member_dense=2.710505e-20 irregular=8.228082e-05 reference_integrated=9.491058e-05 reference_remainder=1.144147e-09 exact_irregular=9.490944e-05 attached_rows=11/32
+  attached_face_substitutions (same target scatter): numerical=1.006730e-01 exact_irregular=1.161245e-01 exact_dense=1.006730e-01 exact_all=1.161245e-01 reference=1.161259e-01
+    integrated deltas irregular=1.262862e-05 dense=-2.710505e-20 all_attached=1.262862e-05; dense values exclude routed merged-source storage contributions.
+  reconstruction_row_audit target=(9, 32, 13) rank=9 condition=4.315344e+00 synthetic_quadratic_replay=True max_error=3.092526e-13
+    equation[0] kind=cell rhs=+3.066354e-02 predicted=+2.891895e-02 residual=-1.744593e-03
+    equation[1] kind=cell rhs=-1.114652e-02 predicted=-1.061444e-02 residual=+5.320779e-04
+    equation[2] kind=cell rhs=-2.285299e-03 predicted=-2.589157e-03 residual=-3.038583e-04
+    equation[3] kind=cell rhs=-6.145808e-02 predicted=-5.828210e-02 residual=+3.175983e-03
+    equation[4] kind=cell rhs=+3.082723e-02 predicted=+2.980394e-02 residual=-1.023292e-03
+    equation[5] kind=cell rhs=-8.490835e-03 predicted=-7.245714e-03 residual=+1.245121e-03
+    equation[6] kind=cell rhs=+2.724098e-02 predicted=+2.924623e-02 residual=+2.005251e-03
+    equation[7] kind=cell rhs=+1.397003e-02 predicted=+1.538807e-02 residual=+1.418035e-03
+    equation[8] kind=cell rhs=-6.146400e-02 predicted=-6.443919e-02 residual=-2.975190e-03
+    equation[9] kind=cell rhs=-6.148693e-02 predicted=-6.532861e-02 residual=-3.841684e-03
+    equation[10] kind=cell rhs=+3.009485e-02 predicted=+2.773370e-02 residual=-2.361153e-03
+    equation[11] kind=cell rhs=+2.739860e-02 predicted=+3.039755e-02 residual=+2.998955e-03
+    equation[12] kind=cell rhs=+1.410411e-02 predicted=+1.600673e-02 residual=+1.902614e-03
+    equation[13] kind=cell rhs=-1.046122e-02 predicted=-1.042684e-02 residual=+3.438086e-05
+    equation[14] kind=cell rhs=-1.810138e-02 predicted=-1.726819e-02 residual=+8.331895e-04
+    equation[15] kind=cell rhs=-6.736369e-02 predicted=-6.369761e-02 residual=+3.666087e-03
+    equation[16] kind=cell rhs=+2.669338e-02 predicted=+2.779465e-02 residual=+1.101264e-03
+    equation[17] kind=cell rhs=+1.350422e-02 predicted=+1.446915e-02 residual=+9.649351e-04
+    equation[18] kind=cell rhs=-6.715058e-02 predicted=-7.012112e-02 residual=-2.970542e-03
+    equation[19] kind=cell rhs=-6.632422e-02 predicted=-7.047769e-02 residual=-4.153471e-03
+    equation[20] kind=dirichlet rhs=-2.091274e-02 predicted=-1.854497e-02 residual=+2.367766e-03
+    equation[21] kind=dirichlet rhs=-1.910869e-02 predicted=-1.699702e-02 residual=+2.111676e-03
+    equation[22] kind=dirichlet rhs=+2.988859e-04 predicted=+2.254633e-04 residual=-7.342256e-05
+    equation[23] kind=dirichlet rhs=+3.043039e-03 predicted=+2.560576e-03 residual=-4.824629e-04
+    equation[24] kind=dirichlet rhs=+7.667901e-03 predicted=+6.657966e-03 residual=-1.009936e-03
+    equation[25] kind=dirichlet rhs=+1.073865e-02 predicted=+9.313684e-03 residual=-1.424967e-03
+    equation[26] kind=dirichlet rhs=+9.249978e-03 predicted=+7.985943e-03 residual=-1.264035e-03
+    equation[27] kind=dirichlet rhs=+1.239085e-02 predicted=+1.073042e-02 residual=-1.660430e-03
+    dense x-low: open=False measure=2.467401e-02 signed_flux=-0.000000e+00 exact=0.000000e+00 error=-0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense x-high: open=False measure=6.707156e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=False
+    dense theta-low: open=False measure=3.141593e-03 signed_flux=-0.000000e+00 exact=0.000000e+00 error=-0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense theta-high: open=False measure=3.141593e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense zeta-low: open=False measure=3.141593e-03 signed_flux=-0.000000e+00 exact=0.000000e+00 error=-0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense zeta-high: open=False measure=3.141593e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    irregular row=269 kind=interior sign=-1 owners=(8,32,13)/(9,32,13) plus=True remote=False flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 active_q=4
+      worst_q patch=0 q=0 point=(3.800000e-01,4.981203e+00,1.996690e+00) numerical=0.000000e+00 exact=0.000000e+00 error=0.000000e+00
+      transition functional: valid=True production_q_sum=0.000000e+00 row_delta=0.000000e+00 exact_support_flux=0.000000e+00 support_gradient=(+2.001043e-01,+3.017262e-01,+2.523498e-02)
+        support[0]: storage=(8, 32, 13) center=(8, 32, 13) owner=(8, 32, 13) direct=True value=5.312670e-02 exact_avg=5.312670e-02 avg_error=+0.000000e+00 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[1]: storage=(9, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.767180e-02 exact_avg=5.712709e-02 avg_error=+5.447090e-04 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[2]: storage=(7, 32, 13) center=(8, 32, 13) owner=(7, 32, 13) direct=True value=4.875778e-02 exact_avg=4.875778e-02 avg_error=+1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-6.094723e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-6.094723e-01,+0.000000e+00,+0.000000e+00)
+        support[3]: storage=(9, 32, 13) center=(8, 32, 13) owner=(8, 32, 13) direct=False value=5.654170e-02 exact_avg=5.712709e-02 avg_error=-5.853931e-04 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+7.067713e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+7.140887e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.3701031154918649, 5.027278833174306, 2.042035224833366) order=2 condition=3.063e+00 stored=5.312670e-02 exact_centroid=5.452770e-02 grad=(+1.790486e-01,+2.918797e-01,+2.169987e-02) exact_grad=(+2.145824e-01,+3.403815e-01,+2.590902e-02)
+        support[4]: storage=(8, 31, 13) center=(8, 32, 13) owner=(8, 31, 13) direct=True value=-5.746158e-03 exact_avg=-5.746158e-03 avg_error=+3.469447e-18 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(-0.000000e+00,+9.145294e-03,-0.000000e+00) exact_contrib=(-0.000000e+00,+9.145294e-03,-0.000000e+00)
+        support[5]: storage=(8, 33, 13) center=(8, 32, 13) owner=(8, 33, 13) direct=True value=9.171239e-02 exact_avg=9.171239e-02 avg_error=+1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.459648e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.459648e-01,+0.000000e+00)
+        support[6]: storage=(8, 32, 12) center=(8, 32, 13) owner=(8, 32, 12) direct=True value=4.351616e-02 exact_avg=4.351616e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-6.925812e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,-6.925812e-02)
+        support[7]: storage=(8, 32, 14) center=(8, 32, 13) owner=(8, 32, 14) direct=True value=5.115632e-02 exact_avg=5.115632e-02 avg_error=-6.938894e-18 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+8.141780e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,+8.141780e-02)
+        support[8]: storage=(8, 32, 13) center=(9, 32, 13) owner=(8, 32, 13) direct=True value=5.312670e-02 exact_avg=5.312670e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-6.640838e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-6.640838e-01,+0.000000e+00,+0.000000e+00)
+        support[9]: storage=(10, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=6.067147e-02 exact_avg=6.076573e-02 avg_error=-9.426863e-05 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+7.583933e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+7.595717e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[10]: storage=(9, 31, 13) center=(9, 32, 13) owner=(9, 31, 13) direct=True value=1.594531e-04 exact_avg=1.594531e-04 avg_error=+1.355253e-18 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-2.537775e-04,+0.000000e+00) exact_contrib=(+0.000000e+00,-2.537775e-04,+0.000000e+00)
+        support[11]: storage=(9, 33, 13) center=(9, 32, 13) owner=(9, 33, 13) direct=True value=9.228108e-02 exact_avg=9.228108e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.468699e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.468699e-01,+0.000000e+00)
+        support[12]: storage=(9, 32, 12) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=4.738295e-02 exact_avg=4.679289e-02 avg_error=+5.900616e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-7.541231e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,-7.447319e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[13]: storage=(9, 32, 14) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.475706e-02 exact_avg=5.500834e-02 avg_error=-2.512821e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+8.714856e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,+8.754849e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+    irregular row=478 kind=partial sign=+1 owners=(9,32,13)/(11,33,13) plus=True remote=False flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 active_q=4
+      worst_q patch=0 q=0 point=(4.200000e-01,5.071412e+00,1.996690e+00) numerical=0.000000e+00 exact=0.000000e+00 error=0.000000e+00
+    irregular row=4378 kind=interior sign=-1 owners=(9,31,13)/(9,32,13) plus=True remote=False flux=3.936308e-05 exact=4.128840e-05 error=-1.925322e-06 active_q=4
+      worst_q patch=0 q=3 point=(3.957735e-01,4.948008e+00,2.087380e+00) numerical=9.994384e-06 exact=1.122828e-05 error=-1.233892e-06
+      transition functional: valid=True production_q_sum=3.936308e-05 row_delta=0.000000e+00 exact_support_flux=3.899232e-05 support_gradient=(+2.408746e-01,+3.280555e-01,+1.311179e-02)
+        support[0]: storage=(9, 31, 13) center=(9, 31, 13) owner=(9, 31, 13) direct=True value=1.594531e-04 exact_avg=1.594531e-04 avg_error=+1.355253e-18 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[1]: storage=(9, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.767180e-02 exact_avg=5.712709e-02 avg_error=+5.447090e-04 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[2]: storage=(8, 31, 13) center=(9, 31, 13) owner=(8, 31, 13) direct=True value=-5.746158e-03 exact_avg=-5.746158e-03 avg_error=+3.469447e-18 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+7.182697e-02,-0.000000e+00,-0.000000e+00) exact_contrib=(+7.182697e-02,-0.000000e+00,-0.000000e+00)
+        support[3]: storage=(10, 31, 13) center=(9, 31, 13) owner=(9, 31, 13) direct=False value=5.135738e-03 exact_avg=5.884780e-03 avg_error=-7.490424e-04 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+6.419673e-02,+0.000000e+00,+0.000000e+00) exact_contrib=(+7.355976e-02,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.3900975471901754, 4.870241122429716, 2.042035224833366) order=2 condition=6.481e+00 stored=1.594531e-04 exact_centroid=1.693319e-04 grad=(+2.472474e-01,+3.421560e-01,-6.287835e-05) exact_grad=(+2.984767e-01,+3.981443e-01,+8.045862e-05)
+        support[4]: storage=(9, 30, 13) center=(9, 31, 13) owner=(9, 30, 13) direct=True value=-5.687465e-02 exact_avg=-5.687465e-02 avg_error=-1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(-0.000000e+00,+9.051881e-02,-0.000000e+00) exact_contrib=(-0.000000e+00,+9.051881e-02,-0.000000e+00)
+        support[5]: storage=(9, 32, 13) center=(9, 31, 13) owner=(9, 31, 13) direct=False value=5.356878e-02 exact_avg=5.712709e-02 avg_error=-3.558314e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+8.525736e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,+9.092059e-02,+0.000000e+00)
+          owner polynomial: centroid=(0.3900975471901754, 4.870241122429716, 2.042035224833366) order=2 condition=6.481e+00 stored=1.594531e-04 exact_centroid=1.693319e-04 grad=(+2.472474e-01,+3.421560e-01,-6.287835e-05) exact_grad=(+2.984767e-01,+3.981443e-01,+8.045862e-05)
+        support[6]: storage=(9, 31, 12) center=(9, 31, 13) owner=(9, 31, 12) direct=True value=1.306083e-04 exact_avg=1.306083e-04 avg_error=+1.029992e-18 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-2.078695e-04) exact_contrib=(+0.000000e+00,+0.000000e+00,-2.078695e-04)
+        support[7]: storage=(9, 31, 14) center=(9, 31, 13) owner=(9, 31, 14) direct=True value=1.535392e-04 exact_avg=1.535392e-04 avg_error=-8.131516e-20 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+2.443653e-04) exact_contrib=(+0.000000e+00,+0.000000e+00,+2.443653e-04)
+        support[8]: storage=(8, 32, 13) center=(9, 32, 13) owner=(8, 32, 13) direct=True value=5.312670e-02 exact_avg=5.312670e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-6.640838e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-6.640838e-01,+0.000000e+00,+0.000000e+00)
+        support[9]: storage=(10, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=6.067147e-02 exact_avg=6.076573e-02 avg_error=-9.426863e-05 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+7.583933e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+7.595717e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[10]: storage=(9, 31, 13) center=(9, 32, 13) owner=(9, 31, 13) direct=True value=1.594531e-04 exact_avg=1.594531e-04 avg_error=+1.355253e-18 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-2.537775e-04,+0.000000e+00) exact_contrib=(+0.000000e+00,-2.537775e-04,+0.000000e+00)
+        support[11]: storage=(9, 33, 13) center=(9, 32, 13) owner=(9, 33, 13) direct=True value=9.228108e-02 exact_avg=9.228108e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.468699e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.468699e-01,+0.000000e+00)
+        support[12]: storage=(9, 32, 12) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=4.738295e-02 exact_avg=4.679289e-02 avg_error=+5.900616e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-7.541231e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,-7.447319e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[13]: storage=(9, 32, 14) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.475706e-02 exact_avg=5.500834e-02 avg_error=-2.512821e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+8.714856e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,+8.754849e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+    irregular row=4405 kind=interior sign=+1 owners=(9,32,13)/(9,33,13) plus=True remote=False flux=1.059820e-04 exact=1.126363e-04 error=-6.654320e-06 active_q=4
+      worst_q patch=0 q=3 point=(3.957735e-01,5.105088e+00,2.087380e+00) numerical=2.690776e-05 exact=2.945149e-05 error=-2.543731e-06
+      transition functional: valid=True production_q_sum=1.059820e-04 row_delta=0.000000e+00 exact_support_flux=1.055970e-04 support_gradient=(+1.046426e-01,+2.024511e-01,+3.419667e-02)
+        support[0]: storage=(9, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.767180e-02 exact_avg=5.712709e-02 avg_error=+5.447090e-04 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[1]: storage=(9, 33, 13) center=(9, 33, 13) owner=(9, 33, 13) direct=True value=9.228108e-02 exact_avg=9.228108e-02 avg_error=+0.000000e+00 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[2]: storage=(8, 32, 13) center=(9, 32, 13) owner=(8, 32, 13) direct=True value=5.312670e-02 exact_avg=5.312670e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-6.640838e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-6.640838e-01,+0.000000e+00,+0.000000e+00)
+        support[3]: storage=(10, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=6.067147e-02 exact_avg=6.076573e-02 avg_error=-9.426863e-05 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+7.583933e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+7.595717e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[4]: storage=(9, 31, 13) center=(9, 32, 13) owner=(9, 31, 13) direct=True value=1.594531e-04 exact_avg=1.594531e-04 avg_error=+1.355253e-18 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-2.537775e-04,+0.000000e+00) exact_contrib=(+0.000000e+00,-2.537775e-04,+0.000000e+00)
+        support[5]: storage=(9, 33, 13) center=(9, 32, 13) owner=(9, 33, 13) direct=True value=9.228108e-02 exact_avg=9.228108e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.468699e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.468699e-01,+0.000000e+00)
+        support[6]: storage=(9, 32, 12) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=4.738295e-02 exact_avg=4.679289e-02 avg_error=+5.900616e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-7.541231e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,-7.447319e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[7]: storage=(9, 32, 14) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.475706e-02 exact_avg=5.500834e-02 avg_error=-2.512821e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+8.714856e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,+8.754849e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[8]: storage=(8, 33, 13) center=(9, 33, 13) owner=(8, 33, 13) direct=True value=9.171239e-02 exact_avg=9.171239e-02 avg_error=+1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-1.146405e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(-1.146405e+00,+0.000000e+00,+0.000000e+00)
+        support[9]: storage=(10, 33, 13) center=(9, 33, 13) owner=(10, 33, 13) direct=True value=9.244477e-02 exact_avg=9.244477e-02 avg_error=+4.163336e-17 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+1.155560e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+1.155560e+00,+0.000000e+00,+0.000000e+00)
+        support[10]: storage=(9, 32, 13) center=(9, 33, 13) owner=(9, 33, 13) direct=False value=5.873975e-02 exact_avg=5.712709e-02 avg_error=+1.612661e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-9.348722e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-9.092059e-02,+0.000000e+00)
+          owner polynomial: centroid=(0.3900996463243407, 5.18431841207068, 2.042035224833365) order=2 condition=3.135e+00 stored=9.228108e-02 exact_centroid=9.470676e-02 grad=(+1.026352e-02,+1.060028e-01,+3.828156e-02) exact_grad=(+1.829696e-02,+1.225108e-01,+4.500023e-02)
+        support[11]: storage=(9, 34, 13) center=(9, 33, 13) owner=(9, 34, 13) direct=True value=9.220927e-02 exact_avg=9.220927e-02 avg_error=+2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.467556e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.467556e-01,+0.000000e+00)
+        support[12]: storage=(9, 33, 12) center=(9, 33, 13) owner=(9, 33, 12) direct=True value=7.558757e-02 exact_avg=7.558757e-02 avg_error=+1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.203014e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.203014e-01)
+        support[13]: storage=(9, 33, 14) center=(9, 33, 13) owner=(9, 33, 14) direct=True value=8.885852e-02 exact_avg=8.885852e-02 avg_error=+2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+1.414227e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,+1.414227e-01)
+    irregular row=4525 kind=interior sign=+1 owners=(9,32,13)/(10,33,13) plus=True remote=False flux=1.140629e-04 exact=1.217702e-04 error=-7.707274e-06 active_q=4
+      worst_q patch=0 q=3 point=(4.157735e-01,5.105088e+00,2.087380e+00) numerical=2.893842e-05 exact=3.176719e-05 error=-2.828765e-06
+      transition functional: valid=True production_q_sum=1.140629e-04 row_delta=0.000000e+00 exact_support_flux=1.141331e-04 support_gradient=(+8.624306e-02,+1.824409e-01,+3.506695e-02)
+        support[0]: storage=(10, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=6.067147e-02 exact_avg=6.076573e-02 avg_error=-9.426863e-05 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[1]: storage=(10, 33, 13) center=(10, 33, 13) owner=(10, 33, 13) direct=True value=9.244477e-02 exact_avg=9.244477e-02 avg_error=+4.163336e-17 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[2]: storage=(9, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.767180e-02 exact_avg=5.712709e-02 avg_error=+5.447090e-04 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-7.208975e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-7.140887e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[3]: storage=(11, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=6.337080e-02 exact_avg=6.405884e-02 avg_error=-6.880385e-04 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+7.921350e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+8.007355e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[4]: storage=(10, 31, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=8.450589e-03 exact_avg=5.884780e-03 avg_error=+2.565809e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-1.344953e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-9.365919e-03,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[5]: storage=(10, 33, 13) center=(9, 32, 13) owner=(10, 33, 13) direct=True value=9.244477e-02 exact_avg=9.244477e-02 avg_error=+4.163336e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.471304e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.471304e-01,+0.000000e+00)
+        support[6]: storage=(10, 32, 12) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.011623e-02 exact_avg=4.977330e-02 avg_error=+3.429292e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-7.976246e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,-7.921667e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[7]: storage=(10, 32, 14) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.802310e-02 exact_avg=5.851203e-02 avg_error=-4.889287e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+9.234663e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,+9.312478e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[8]: storage=(9, 33, 13) center=(10, 33, 13) owner=(9, 33, 13) direct=True value=9.228108e-02 exact_avg=9.228108e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-1.153513e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(-1.153513e+00,+0.000000e+00,+0.000000e+00)
+        support[9]: storage=(11, 33, 13) center=(10, 33, 13) owner=(10, 33, 13) direct=False value=9.203749e-02 exact_avg=9.224878e-02 avg_error=-2.112923e-04 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+1.150469e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+1.153110e+00,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.41009566447909224, 5.184324267936772, 2.0420352248333655) order=2 condition=4.957e+00 stored=9.244477e-02 exact_centroid=9.487287e-02 grad=(-3.234273e-03,+8.502260e-02,+3.925920e-02) exact_grad=(-1.357008e-03,+9.801987e-02,+4.507916e-02)
+        support[10]: storage=(10, 32, 13) center=(10, 33, 13) owner=(10, 33, 13) direct=False value=6.225794e-02 exact_avg=6.076573e-02 avg_error=+1.492205e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-9.908659e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-9.671167e-02,+0.000000e+00)
+          owner polynomial: centroid=(0.41009566447909224, 5.184324267936772, 2.0420352248333655) order=2 condition=4.957e+00 stored=9.244477e-02 exact_centroid=9.487287e-02 grad=(-3.234273e-03,+8.502260e-02,+3.925920e-02) exact_grad=(-1.357008e-03,+9.801987e-02,+4.507916e-02)
+        support[11]: storage=(10, 34, 13) center=(10, 33, 13) owner=(10, 34, 13) direct=True value=8.883676e-02 exact_avg=8.883676e-02 avg_error=+1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.413881e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.413881e-01,+0.000000e+00)
+        support[12]: storage=(10, 33, 12) center=(10, 33, 13) owner=(10, 33, 12) direct=True value=7.572165e-02 exact_avg=7.572165e-02 avg_error=+1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.205147e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.205147e-01)
+        support[13]: storage=(10, 33, 14) center=(10, 33, 13) owner=(10, 33, 14) direct=True value=8.901614e-02 exact_avg=8.901614e-02 avg_error=+4.163336e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+1.416736e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,+1.416736e-01)
+    irregular row=7739 kind=interior sign=-1 owners=(9,32,12)/(9,32,13) plus=True remote=False flux=6.616680e-05 exact=6.793571e-05 error=-1.768911e-06 active_q=4
+      worst_q patch=0 q=3 point=(3.957735e-01,5.071893e+00,1.963495e+00) numerical=1.698196e-05 exact=2.204993e-05 error=-5.067965e-06
+      transition functional: valid=True production_q_sum=6.616680e-05 row_delta=0.000000e+00 exact_support_flux=6.554186e-05 support_gradient=(+1.737022e-01,+2.667096e-01,+6.220428e-02)
+        support[0]: storage=(9, 32, 12) center=(9, 32, 12) owner=(9, 32, 12) direct=False value=4.723906e-02 exact_avg=4.679289e-02 avg_error=+4.461720e-04 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 1.8849555921538765) order=2 condition=4.315e+00 stored=5.047102e-02 exact_centroid=5.201883e-02 grad=(+1.190622e-01,+2.157504e-01,+9.598356e-02) exact_grad=(+1.465647e-01,+2.496175e-01,+1.133817e-01)
+        support[1]: storage=(9, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.767180e-02 exact_avg=5.712709e-02 avg_error=+5.447090e-04 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[2]: storage=(8, 32, 12) center=(9, 32, 12) owner=(8, 32, 12) direct=True value=4.351616e-02 exact_avg=4.351616e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-5.439520e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-5.439520e-01,+0.000000e+00,+0.000000e+00)
+        support[3]: storage=(10, 32, 12) center=(9, 32, 12) owner=(9, 32, 12) direct=False value=4.969609e-02 exact_avg=4.977330e-02 avg_error=-7.721558e-05 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+6.212011e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+6.221663e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 1.8849555921538765) order=2 condition=4.315e+00 stored=5.047102e-02 exact_centroid=5.201883e-02 grad=(+1.190622e-01,+2.157504e-01,+9.598356e-02) exact_grad=(+1.465647e-01,+2.496175e-01,+1.133817e-01)
+        support[4]: storage=(9, 31, 12) center=(9, 32, 12) owner=(9, 31, 12) direct=True value=1.306083e-04 exact_avg=1.306083e-04 avg_error=+1.029992e-18 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-2.078695e-04,+0.000000e+00) exact_contrib=(+0.000000e+00,-2.078695e-04,+0.000000e+00)
+        support[5]: storage=(9, 33, 12) center=(9, 32, 12) owner=(9, 33, 12) direct=True value=7.558757e-02 exact_avg=7.558757e-02 avg_error=+1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.203014e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.203014e-01,+0.000000e+00)
+        support[6]: storage=(9, 32, 11) center=(9, 32, 12) owner=(9, 32, 12) direct=False value=2.797782e-02 exact_avg=2.625844e-02 avg_error=+1.719375e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-4.452808e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,-4.179161e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 1.8849555921538765) order=2 condition=4.315e+00 stored=5.047102e-02 exact_centroid=5.201883e-02 grad=(+1.190622e-01,+2.157504e-01,+9.598356e-02) exact_grad=(+1.465647e-01,+2.496175e-01,+1.133817e-01)
+        support[7]: storage=(9, 32, 13) center=(9, 32, 12) owner=(9, 32, 12) direct=False value=5.568521e-02 exact_avg=5.712709e-02 avg_error=-1.441881e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+8.862577e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,+9.092059e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 1.8849555921538765) order=2 condition=4.315e+00 stored=5.047102e-02 exact_centroid=5.201883e-02 grad=(+1.190622e-01,+2.157504e-01,+9.598356e-02) exact_grad=(+1.465647e-01,+2.496175e-01,+1.133817e-01)
+        support[8]: storage=(8, 32, 13) center=(9, 32, 13) owner=(8, 32, 13) direct=True value=5.312670e-02 exact_avg=5.312670e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-6.640838e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-6.640838e-01,+0.000000e+00,+0.000000e+00)
+        support[9]: storage=(10, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=6.067147e-02 exact_avg=6.076573e-02 avg_error=-9.426863e-05 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+7.583933e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+7.595717e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[10]: storage=(9, 31, 13) center=(9, 32, 13) owner=(9, 31, 13) direct=True value=1.594531e-04 exact_avg=1.594531e-04 avg_error=+1.355253e-18 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-2.537775e-04,+0.000000e+00) exact_contrib=(+0.000000e+00,-2.537775e-04,+0.000000e+00)
+        support[11]: storage=(9, 33, 13) center=(9, 32, 13) owner=(9, 33, 13) direct=True value=9.228108e-02 exact_avg=9.228108e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.468699e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.468699e-01,+0.000000e+00)
+        support[12]: storage=(9, 32, 12) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=4.738295e-02 exact_avg=4.679289e-02 avg_error=+5.900616e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-7.541231e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,-7.447319e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[13]: storage=(9, 32, 14) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.475706e-02 exact_avg=5.500834e-02 avg_error=-2.512821e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+8.714856e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,+8.754849e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+    irregular row=7740 kind=interior sign=+1 owners=(9,32,13)/(9,32,14) plus=True remote=False flux=7.139765e-05 exact=7.330641e-05 error=-1.908754e-06 active_q=4
+      worst_q patch=0 q=3 point=(3.957735e-01,5.071893e+00,2.120575e+00) numerical=1.832448e-05 exact=2.379310e-05 error=-5.468615e-06
+      transition functional: valid=True production_q_sum=7.139765e-05 row_delta=0.000000e+00 exact_support_flux=7.072330e-05 support_gradient=(+1.874343e-01,+2.877945e-01,-1.275334e-02)
+        support[0]: storage=(9, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.767180e-02 exact_avg=5.712709e-02 avg_error=+5.447090e-04 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[1]: storage=(9, 32, 14) center=(9, 32, 14) owner=(9, 32, 14) direct=False value=5.553284e-02 exact_avg=5.500834e-02 avg_error=+5.245066e-04 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.1991148575128565) order=2 condition=4.315e+00 stored=5.933224e-02 exact_centroid=6.115180e-02 grad=(+1.399660e-01,+2.536298e-01,-5.046154e-02) exact_grad=(+1.722972e-01,+2.934429e-01,-5.960827e-02)
+        support[2]: storage=(8, 32, 13) center=(9, 32, 13) owner=(8, 32, 13) direct=True value=5.312670e-02 exact_avg=5.312670e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-6.640838e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-6.640838e-01,+0.000000e+00,+0.000000e+00)
+        support[3]: storage=(10, 32, 13) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=6.067147e-02 exact_avg=6.076573e-02 avg_error=-9.426863e-05 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+7.583933e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+7.595717e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[4]: storage=(9, 31, 13) center=(9, 32, 13) owner=(9, 31, 13) direct=True value=1.594531e-04 exact_avg=1.594531e-04 avg_error=+1.355253e-18 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-2.537775e-04,+0.000000e+00) exact_contrib=(+0.000000e+00,-2.537775e-04,+0.000000e+00)
+        support[5]: storage=(9, 33, 13) center=(9, 32, 13) owner=(9, 33, 13) direct=True value=9.228108e-02 exact_avg=9.228108e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.468699e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.468699e-01,+0.000000e+00)
+        support[6]: storage=(9, 32, 12) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=4.738295e-02 exact_avg=4.679289e-02 avg_error=+5.900616e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-7.541231e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,-7.447319e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[7]: storage=(9, 32, 14) center=(9, 32, 13) owner=(9, 32, 13) direct=False value=5.475706e-02 exact_avg=5.500834e-02 avg_error=-2.512821e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+8.714856e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,+8.754849e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.042035224833366) order=2 condition=4.315e+00 stored=6.161754e-02 exact_centroid=6.350718e-02 grad=(+1.453571e-01,+2.633988e-01,+2.554528e-02) exact_grad=(+1.789336e-01,+3.047455e-01,+3.017565e-02)
+        support[8]: storage=(8, 32, 14) center=(9, 32, 14) owner=(8, 32, 14) direct=True value=5.115632e-02 exact_avg=5.115632e-02 avg_error=-6.938894e-18 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-6.394539e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-6.394539e-01,+0.000000e+00,+0.000000e+00)
+        support[9]: storage=(10, 32, 14) center=(9, 32, 14) owner=(9, 32, 14) direct=False value=5.842126e-02 exact_avg=5.851203e-02 avg_error=-9.077236e-05 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+7.302657e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+7.314003e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.1991148575128565) order=2 condition=4.315e+00 stored=5.933224e-02 exact_centroid=6.115180e-02 grad=(+1.399660e-01,+2.536298e-01,-5.046154e-02) exact_grad=(+1.722972e-01,+2.934429e-01,-5.960827e-02)
+        support[10]: storage=(9, 31, 14) center=(9, 32, 14) owner=(9, 31, 14) direct=True value=1.535392e-04 exact_avg=1.535392e-04 avg_error=-8.131516e-20 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-2.443653e-04,+0.000000e+00) exact_contrib=(+0.000000e+00,-2.443653e-04,+0.000000e+00)
+        support[11]: storage=(9, 33, 14) center=(9, 32, 14) owner=(9, 33, 14) direct=True value=8.885852e-02 exact_avg=8.885852e-02 avg_error=+2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.414227e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.414227e-01,+0.000000e+00)
+        support[12]: storage=(9, 32, 13) center=(9, 32, 14) owner=(9, 32, 14) direct=False value=5.645922e-02 exact_avg=5.712709e-02 avg_error=-6.678780e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-8.985763e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,-9.092059e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.1991148575128565) order=2 condition=4.315e+00 stored=5.933224e-02 exact_centroid=6.115180e-02 grad=(+1.399660e-01,+2.536298e-01,-5.046154e-02) exact_grad=(+1.722972e-01,+2.934429e-01,-5.960827e-02)
+        support[13]: storage=(9, 32, 15) center=(9, 32, 14) owner=(9, 32, 14) direct=False value=4.189258e-02 exact_avg=4.089848e-02 avg_error=+9.940927e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+6.667411e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,+6.509196e-02)
+          owner polynomial: centroid=(0.39464269605710506, 5.040127435699998, 2.1991148575128565) order=2 condition=4.315e+00 stored=5.933224e-02 exact_centroid=6.115180e-02 grad=(+1.399660e-01,+2.536298e-01,-5.046154e-02) exact_grad=(+1.722972e-01,+2.934429e-01,-5.960827e-02)
+    irregular row=7859 kind=partial sign=-1 owners=(9,32,12)/(9,32,13) plus=True remote=False flux=2.592824e-05 exact=2.659242e-05 error=-6.641738e-07 active_q=4
+      worst_q patch=0 q=3 point=(4.157735e-01,5.096065e+00,1.963495e+00) numerical=6.888693e-06 exact=7.073390e-06 error=-1.846968e-07
+    irregular row=7860 kind=partial sign=+1 owners=(9,32,13)/(9,32,14) plus=True remote=False flux=2.797802e-05 exact=2.869470e-05 error=-7.166804e-07 active_q=4
+      worst_q patch=0 q=3 point=(4.157735e-01,5.096065e+00,2.120575e+00) numerical=7.433282e-06 exact=7.632580e-06 error=-1.992981e-07
+    irregular row=11586 kind=cut-wall sign=+1 owners=(9,32,13)/(0,0,0) plus=False remote=False flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 active_q=4
+      worst_q patch=0 q=0 point=(4.000000e-01,4.972180e+00,1.996690e+00) numerical=0.000000e+00 exact=0.000000e+00 error=0.000000e+00
+      cut-wall projected-flux diagnostics: bc_kind=1
+        patch=0 q=0 bc_value=4.070480e-02 poly_value=4.307256e-02 trace_residual=+2.367766e-03 projected_covector=(+4.255388e-03,-2.643604e-03,+0.000000e+00) normal_contra=(+9.733377e-01,-6.046733e-01,+0.000000e+00) normal_covector=(+1.027393e+00,+0.000000e+00,+0.000000e+00) raw_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) applied_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) closure=(valid=False, axis=0, exact_input_dxi=+0.000000e+00) normal=+0.000000e+00 exact_normal=+0.000000e+00 projected_derivative=+0.000000e+00 exact_projected_derivative=+0.000000e+00 flux=+0.000000e+00 exact_tangent_num_normal=+0.000000e+00 num_tangent_exact_normal=+0.000000e+00 exact_flux=+0.000000e+00
+        patch=0 q=1 bc_value=4.250884e-02 poly_value=4.462052e-02 trace_residual=+2.111676e-03 projected_covector=(+4.255388e-03,-2.643604e-03,+0.000000e+00) normal_contra=(+9.733377e-01,-6.046733e-01,+0.000000e+00) normal_covector=(+1.027393e+00,+0.000000e+00,+0.000000e+00) raw_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) applied_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) closure=(valid=False, axis=0, exact_input_dxi=+0.000000e+00) normal=+0.000000e+00 exact_normal=+0.000000e+00 projected_derivative=+0.000000e+00 exact_projected_derivative=+0.000000e+00 flux=+0.000000e+00 exact_tangent_num_normal=+0.000000e+00 num_tangent_exact_normal=+0.000000e+00 exact_flux=+0.000000e+00
+        patch=0 q=2 bc_value=6.191642e-02 poly_value=6.184300e-02 trace_residual=-7.342256e-05 projected_covector=(+4.123205e-03,-2.537271e-03,+0.000000e+00) normal_contra=(+9.581013e-01,-5.895808e-01,+0.000000e+00) normal_covector=(+1.043731e+00,+0.000000e+00,+0.000000e+00) raw_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) applied_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) closure=(valid=False, axis=0, exact_input_dxi=+0.000000e+00) normal=+0.000000e+00 exact_normal=+0.000000e+00 projected_derivative=+0.000000e+00 exact_projected_derivative=+0.000000e+00 flux=+0.000000e+00 exact_tangent_num_normal=+0.000000e+00 num_tangent_exact_normal=+0.000000e+00 exact_flux=+0.000000e+00
+        patch=0 q=3 bc_value=6.466058e-02 poly_value=6.417811e-02 trace_residual=-4.824629e-04 projected_covector=(+4.123205e-03,-2.537271e-03,+0.000000e+00) normal_contra=(+9.581013e-01,-5.895808e-01,+0.000000e+00) normal_covector=(+1.043731e+00,+0.000000e+00,+0.000000e+00) raw_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) applied_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) closure=(valid=False, axis=0, exact_input_dxi=+0.000000e+00) normal=+0.000000e+00 exact_normal=+0.000000e+00 projected_derivative=+0.000000e+00 exact_projected_derivative=+0.000000e+00 flux=+0.000000e+00 exact_tangent_num_normal=+0.000000e+00 num_tangent_exact_normal=+0.000000e+00 exact_flux=+0.000000e+00
+    irregular row=12236 kind=cut-wall sign=+1 owners=(9,32,13)/(0,0,0) plus=False remote=False flux=-1.056816e-04 exact=-1.056816e-04 error=0.000000e+00 active_q=4
+      worst_q patch=0 q=0 point=(4.042265e-01,5.062389e+00,1.996690e+00) numerical=-2.517239e-05 exact=-2.517239e-05 error=0.000000e+00
+      cut-wall projected-flux diagnostics: bc_kind=1
+        patch=0 q=0 bc_value=6.928544e-02 poly_value=6.827550e-02 trace_residual=-1.009936e-03 projected_covector=(+4.311553e-04,-4.975770e-03,+8.365996e-05) normal_contra=(+2.161122e-01,-2.540181e+00,+0.000000e+00) normal_covector=(+0.000000e+00,-3.936728e-01,+0.000000e+00) raw_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) applied_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) closure=(valid=False, axis=0, exact_input_dxi=+0.000000e+00) normal=+0.000000e+00 exact_normal=+0.000000e+00 projected_derivative=+0.000000e+00 exact_projected_derivative=+0.000000e+00 flux=-2.517239e-05 exact_tangent_num_normal=+0.000000e+00 num_tangent_exact_normal=+0.000000e+00 exact_flux=-2.517239e-05
+        patch=0 q=1 bc_value=7.235619e-02 poly_value=7.093122e-02 trace_residual=-1.424967e-03 projected_covector=(+4.311553e-04,-4.975770e-03,+8.365996e-05) normal_contra=(+2.161122e-01,-2.540181e+00,+0.000000e+00) normal_covector=(+0.000000e+00,-3.936728e-01,+0.000000e+00) raw_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) applied_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) closure=(valid=False, axis=0, exact_input_dxi=+0.000000e+00) normal=+0.000000e+00 exact_normal=+0.000000e+00 projected_derivative=+0.000000e+00 exact_projected_derivative=+0.000000e+00 flux=-2.628803e-05 exact_tangent_num_normal=+0.000000e+00 num_tangent_exact_normal=+0.000000e+00 exact_flux=-2.628803e-05
+        patch=0 q=2 bc_value=7.086751e-02 poly_value=6.960348e-02 trace_residual=-1.264035e-03 projected_covector=(+4.167348e-04,-4.696897e-03,+8.311935e-05) normal_contra=(+2.148933e-01,-2.469147e+00,+0.000000e+00) normal_covector=(+0.000000e+00,-4.049981e-01,+0.000000e+00) raw_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) applied_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) closure=(valid=False, axis=0, exact_input_dxi=+0.000000e+00) normal=+0.000000e+00 exact_normal=+0.000000e+00 projected_derivative=+0.000000e+00 exact_projected_derivative=+0.000000e+00 flux=-2.652283e-05 exact_tangent_num_normal=+0.000000e+00 num_tangent_exact_normal=+0.000000e+00 exact_flux=-2.652283e-05
+        patch=0 q=3 bc_value=7.400838e-02 poly_value=7.234795e-02 trace_residual=-1.660430e-03 projected_covector=(+4.167348e-04,-4.696897e-03,+8.311935e-05) normal_contra=(+2.148933e-01,-2.469147e+00,+0.000000e+00) normal_covector=(+0.000000e+00,-4.049981e-01,+0.000000e+00) raw_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) applied_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00) closure=(valid=False, axis=0, exact_input_dxi=+0.000000e+00) normal=+0.000000e+00 exact_normal=+0.000000e+00 projected_derivative=+0.000000e+00 exact_projected_derivative=+0.000000e+00 flux=-2.769833e-05 exact_tangent_num_normal=+0.000000e+00 num_tangent_exact_normal=+0.000000e+00 exact_flux=-2.769833e-05
+N=40 operator=poisson_density compile+run=2.190s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=4.151946e-16 Linf=1.891267e-14 rel_L2=4.151946e+14
+  bulk               count=   56750 volume_L2=4.299762e-16 Linf=1.891267e-14 rel_L2=4.299762e+14
+  one_wall           count=    1074 volume_L2=2.002204e-16 Linf=1.687626e-15 rel_L2=2.002204e+14
+  multi_wall         count=     184 volume_L2=1.630252e-16 Linf=9.015883e-16 rel_L2=1.630252e+14
+  aggregate_target   count=    1120 volume_L2=2.035074e-16 Linf=1.687626e-15 rel_L2=2.035074e+14
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=1.769859e-16 Linf=1.750111e-15 rel_L2=1.769859e+14
+  retained_cut_cell  count=     138 volume_L2=3.127003e-17 Linf=2.912135e-16 rel_L2=3.127003e+13
+  dense_compact_d1   count=    2290 volume_L2=2.660215e-16 Linf=4.340455e-15 rel_L2=2.660215e+14
+  dense_compact_d2   count=    2522 volume_L2=2.211868e-16 Linf=4.566408e-15 rel_L2=2.211868e+14
+  dense_far          count=   49872 volume_L2=4.514208e-16 Linf=1.891267e-14 rel_L2=4.514208e+14
+  radial_lower_owner count=    1600 volume_L2=2.752331e-15 Linf=1.891267e-14 rel_L2=2.752331e+15
+  radial_upper_owner count=    1600 volume_L2=4.965192e-16 Linf=2.334554e-15 rel_L2=4.965192e+14
+  radial_interior_2plus count=   55100 volume_L2=3.028569e-16 Linf=8.250498e-15 rel_L2=3.028569e+14
+  top_error index=(0, 17, 37) error=1.891267e-14 actual=1.891267e-14 reference=0.000000e+00 regular_physical_boundary=True embedded_cutwall_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=poisson_omega compile+run=5.880s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=9.488363e-02 Linf=1.563753e+00 rel_L2=2.578556e-02
+  bulk               count=   56750 volume_L2=9.380890e-02 Linf=1.563753e+00 rel_L2=2.446929e-02
+  one_wall           count=    1074 volume_L2=4.622343e-02 Linf=3.445717e-01 rel_L2=7.571220e-02
+  multi_wall         count=     184 volume_L2=7.388305e-02 Linf=3.125359e-01 rel_L2=9.104333e-02
+  aggregate_target   count=    1120 volume_L2=4.995266e-02 Linf=3.125359e-01 rel_L2=7.838931e-02
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=1.233592e-01 Linf=9.871858e-01 rel_L2=1.419903e-01
+  retained_cut_cell  count=     138 volume_L2=6.807792e-02 Linf=3.445717e-01 rel_L2=9.082501e-02
+  dense_compact_d1   count=    2290 volume_L2=2.734130e-02 Linf=1.746593e-01 rel_L2=2.206795e-02
+  dense_compact_d2   count=    2522 volume_L2=2.988319e-02 Linf=2.325082e-01 rel_L2=2.101648e-02
+  dense_far          count=   49872 volume_L2=9.440628e-02 Linf=1.563753e+00 rel_L2=2.321795e-02
+  radial_lower_owner count=    1600 volume_L2=7.163628e-01 Linf=1.563753e+00 rel_L2=2.724412e-02
+  radial_upper_owner count=    1600 volume_L2=1.907512e-03 Linf=6.479032e-03 rel_L2=2.970947e-02
+  radial_interior_2plus count=   55100 volume_L2=6.258748e-02 Linf=9.871858e-01 rel_L2=2.788050e-02
+  top_error index=(0, 25, 14) error=1.563753e+00 actual=8.006759e+00 reference=9.570512e+00 regular_physical_boundary=True embedded_cutwall_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+  radial_owner_gradient_diagnostic
+    centroid=[0.21015607 3.92737385 2.19911486] b_cov=[0.00951489 0.01688784 2.85817532] closure_valid=True
+    phi gradient baseline=[-0.04699033 -0.06007591  0.17941044] reconstructed=[-0.04636031 -0.06007591  0.17941044] exact=[-0.04693172 -0.06186422  0.18875161]
+      face_average=2.06370171e-02 inward_averages=[0.02016958 0.01922484 0.01824594] owner_weights=[-56.7009195   29.82541234  32.52893461  -5.65342745] face_weights=[-180.59582809  233.56063429  -64.19296531   11.22815911]
+    omega gradient baseline=[ 24.45427924   4.66556389 -22.24683934] reconstructed=[ 25.14331405   4.66556389 -22.24683934] exact=[ 25.42067953   4.72725533 -23.33572049]
+      face_average=-2.60696978e+00 inward_averages=[-2.33862016 -1.89714822 -1.55449977] owner_weights=[-56.7009195   29.82541234  32.52893461  -5.65342745] face_weights=[-180.59582809  233.56063429  -64.19296531   11.22815911]
+    radial_derivatives phi(owner/face/patch/exact)=-4.63603061e-02/-4.53704520e-02/-4.63597914e-02/-4.69317214e-02 omega(owner/face/patch/exact)=2.51433141e+01/2.89276565e+01/2.50979528e+01/2.54206795e+01
+    poisson variants baseline=7.73216738e+00 reconstructed=8.00675921e+00 exact_phi=8.27192980e+00 exact_omega=8.09178558e+00 exact_both=8.35985713e+00
+    poisson cross baseline=[0.49944818 3.34196658 1.2498766 ] reconstructed=[0.49944818 3.47960274 1.29421042] exact=[0.55136904 3.70300862 1.35077222]
+N=40 operator=poisson_v_ion compile+run=2.296s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  bulk               count=   56750 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  one_wall           count=    1074 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  multi_wall         count=     184 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  aggregate_target   count=    1120 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  retained_cut_cell  count=     138 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d1   count=    2290 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_compact_d2   count=    2522 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  dense_far          count=   49872 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  radial_lower_owner count=    1600 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  radial_upper_owner count=    1600 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  radial_interior_2plus count=   55100 volume_L2=0.000000e+00 Linf=0.000000e+00 rel_L2=0.000000e+00
+  top_error index=(0, 0, 0) error=0.000000e+00 actual=0.000000e+00 reference=0.000000e+00 regular_physical_boundary=True embedded_cutwall_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=poisson_v_electron compile+run=1.949s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=1.052378e-03 Linf=1.405512e-02 rel_L2=1.482531e-01
+  bulk               count=   56750 volume_L2=1.029329e-03 Linf=1.062494e-02 rel_L2=1.436275e-01
+  one_wall           count=    1074 volume_L2=7.502658e-04 Linf=1.052162e-02 rel_L2=1.058548e-01
+  multi_wall         count=     184 volume_L2=2.012535e-03 Linf=1.405512e-02 rel_L2=3.018766e-01
+  aggregate_target   count=    1120 volume_L2=1.022307e-03 Linf=1.405512e-02 rel_L2=1.555539e-01
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=1.296544e-03 Linf=1.405512e-02 rel_L2=2.090980e-01
+  retained_cut_cell  count=     138 volume_L2=1.444527e-03 Linf=1.052162e-02 rel_L2=1.361393e-01
+  dense_compact_d1   count=    2290 volume_L2=9.136913e-04 Linf=5.771594e-03 rel_L2=1.400147e-01
+  dense_compact_d2   count=    2522 volume_L2=8.712700e-04 Linf=6.193537e-03 rel_L2=1.387506e-01
+  dense_far          count=   49872 volume_L2=1.027477e-03 Linf=1.062494e-02 rel_L2=1.410876e-01
+  radial_lower_owner count=    1600 volume_L2=3.114134e-03 Linf=1.062494e-02 rel_L2=1.416310e+00
+  radial_upper_owner count=    1600 volume_L2=4.282978e-04 Linf=1.455359e-03 rel_L2=1.373195e-01
+  radial_interior_2plus count=   55100 volume_L2=1.023620e-03 Linf=1.405512e-02 rel_L2=1.379236e-01
+  top_error index=(9, 30, 27) error=1.405512e-02 actual=2.258391e-02 reference=8.528792e-03 regular_physical_boundary=False embedded_cutwall_faces=2 irregular_faces=11 remote_faces=0 reconstruction_rows=1 aggregate=True compact_distance=0
+N=40 operator=curvature_density compile+run=1.719s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=7.289645e-16 Linf=1.617862e-14 rel_L2=7.289645e+14
+  bulk               count=   56750 volume_L2=7.510105e-16 Linf=1.617862e-14 rel_L2=7.510105e+14
+  one_wall           count=    1074 volume_L2=5.824485e-16 Linf=4.212409e-15 rel_L2=5.824485e+14
+  multi_wall         count=     184 volume_L2=4.714540e-16 Linf=4.583823e-15 rel_L2=4.714540e+14
+  aggregate_target   count=    1120 volume_L2=5.626985e-16 Linf=4.583823e-15 rel_L2=5.626985e+14
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=3.766668e-16 Linf=4.583823e-15 rel_L2=3.766668e+14
+  retained_cut_cell  count=     138 volume_L2=5.958879e-16 Linf=4.212409e-15 rel_L2=5.958879e+14
+  dense_compact_d1   count=    2290 volume_L2=5.191105e-16 Linf=4.059820e-15 rel_L2=5.191105e+14
+  dense_compact_d2   count=    2522 volume_L2=4.102860e-16 Linf=5.108259e-15 rel_L2=4.102860e+14
+  dense_far          count=   49872 volume_L2=7.863510e-16 Linf=1.617862e-14 rel_L2=7.863510e+14
+  radial_lower_owner count=    1600 volume_L2=3.299186e-15 Linf=1.617862e-14 rel_L2=3.299186e+15
+  radial_upper_owner count=    1600 volume_L2=1.426666e-15 Linf=4.891555e-15 rel_L2=1.426666e+15
+  radial_interior_2plus count=   55100 volume_L2=5.565442e-16 Linf=7.933541e-15 rel_L2=5.565442e+14
+  top_error index=(0, 18, 27) error=1.617862e-14 actual=1.617862e-14 reference=0.000000e+00 regular_physical_boundary=True embedded_cutwall_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=0 aggregate=False compact_distance=3
+N=40 operator=curvature_phi compile+run=1.346s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=6.639569e-03 Linf=7.407472e-02 rel_L2=2.375905e-02
+  bulk               count=   56750 volume_L2=5.893714e-03 Linf=7.407472e-02 rel_L2=2.055604e-02
+  one_wall           count=    1074 volume_L2=3.911166e-03 Linf=3.646541e-02 rel_L2=2.593729e-02
+  multi_wall         count=     184 volume_L2=9.922601e-03 Linf=4.701274e-02 rel_L2=6.286269e-02
+  aggregate_target   count=    1120 volume_L2=4.867784e-03 Linf=4.701274e-02 rel_L2=3.148914e-02
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=1.313476e-02 Linf=7.407472e-02 rel_L2=7.016907e-02
+  retained_cut_cell  count=     138 volume_L2=9.157393e-03 Linf=3.646541e-02 rel_L2=7.532420e-02
+  dense_compact_d1   count=    2290 volume_L2=3.922571e-03 Linf=2.176836e-02 rel_L2=1.897802e-02
+  dense_compact_d2   count=    2522 volume_L2=3.919711e-03 Linf=2.562768e-02 rel_L2=1.900466e-02
+  dense_far          count=   49872 volume_L2=5.332277e-03 Linf=5.885847e-02 rel_L2=1.799860e-02
+  radial_lower_owner count=    1600 volume_L2=2.518229e-02 Linf=5.885847e-02 rel_L2=1.869228e-02
+  radial_upper_owner count=    1600 volume_L2=9.067546e-04 Linf=2.805818e-03 rel_L2=2.386594e-02
+  radial_interior_2plus count=   55100 volume_L2=6.220984e-03 Linf=7.407472e-02 rel_L2=2.613713e-02
+  top_error index=(6, 28, 10) error=7.407472e-02 actual=-9.113250e-01 reference=-9.853997e-01 regular_physical_boundary=False embedded_cutwall_faces=0 irregular_faces=0 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+N=40 operator=perp_laplacian_phi compile+run=1.729s invalid_reconstruction_rows=0
+  all_active         count=   61500 volume_L2=3.807252e-02 Linf=1.017746e+00 rel_L2=2.906042e-02
+  bulk               count=   56750 volume_L2=1.174206e-02 Linf=1.083002e-01 rel_L2=8.706220e-03
+  one_wall           count=    1074 volume_L2=1.808929e-01 Linf=1.017746e+00 rel_L2=2.347287e-01
+  multi_wall         count=     184 volume_L2=2.596534e-01 Linf=9.736539e-01 rel_L2=2.849003e-01
+  aggregate_target   count=    1120 volume_L2=1.980871e-01 Linf=9.736539e-01 rel_L2=2.605782e-01
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=    6816 volume_L2=1.069472e-01 Linf=1.017746e+00 rel_L2=1.425667e-01
+  retained_cut_cell  count=     138 volume_L2=1.732724e-01 Linf=1.017746e+00 rel_L2=1.579135e-01
+  dense_compact_d1   count=    2290 volume_L2=6.454628e-03 Linf=3.830614e-02 rel_L2=7.979337e-03
+  dense_compact_d2   count=    2522 volume_L2=6.938301e-03 Linf=4.415796e-02 rel_L2=7.635876e-03
+  dense_far          count=   49872 volume_L2=1.229116e-02 Linf=1.083002e-01 rel_L2=8.739824e-03
+  radial_lower_owner count=    1600 volume_L2=4.977475e-02 Linf=1.083002e-01 rel_L2=8.480151e-03
+  radial_upper_owner count=    1600 volume_L2=2.974226e-03 Linf=7.389111e-03 rel_L2=2.216794e-02
+  radial_interior_2plus count=   55100 volume_L2=3.969254e-02 Linf=1.017746e+00 rel_L2=3.441468e-02
+  top_error index=(9, 30, 26) error=1.017746e+00 actual=1.923624e-01 reference=-8.253835e-01 regular_physical_boundary=False embedded_cutwall_faces=1 irregular_faces=6 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+  radial_projected_face_diagnostic index=(0, 12, 10) operator_error=1.083002e-01
+    face_gradient=[-0.00875042 -0.00629479  0.        ] exact_center_gradient=[-5.09665426e-03 -6.79553902e-03  6.61044124e-17] projector=[1.00711716 1.25877026 0.        ] projected_components=[-0.0088127 -0.0079237  0.       ] J=6.07276437e-01
+    x-low flux density numerical/exact=-7.73842267e-03/-8.40699498e-03 integrated=-1.90937926e-04/-2.07434287e-04 measure=2.46740110e-02 volume=3.14154226e-04 operator_delta=5.25103882e-02
+  top_face_balance aggregate_volume=5.615426e-04 actual_integrated=1.080197e-04 owner_dense=2.168404e-19 target_storage_dense=0.000000e+00 routed_member_dense=2.168404e-19 irregular=1.080197e-04 reference_integrated=-4.634880e-04 reference_remainder=-5.336029e-09 exact_irregular=-4.634827e-04 attached_rows=6/32
+  attached_face_substitutions (same target scatter): numerical=1.923624e-01 exact_irregular=-8.253740e-01 exact_dense=1.923624e-01 exact_all=-8.253740e-01 reference=-8.253835e-01
+    integrated deltas irregular=-5.715024e-04 dense=-2.168404e-19 all_attached=-5.715024e-04; dense values exclude routed merged-source storage contributions.
+  reconstruction_row_audit target=(9, 30, 26) rank=9 condition=6.516853e+00 synthetic_quadratic_replay=True max_error=3.094580e-12
+    equation[0] kind=cell rhs=-4.559167e-05 predicted=-1.063960e-04 residual=-6.080437e-05
+    equation[1] kind=cell rhs=+1.701989e-03 predicted=+1.611486e-03 residual=-9.050341e-05
+    equation[2] kind=cell rhs=+4.285068e-02 predicted=+4.194292e-02 residual=-9.077600e-04
+    equation[3] kind=cell rhs=-4.958174e-03 predicted=-4.787257e-03 residual=+1.709167e-04
+    equation[4] kind=cell rhs=-5.456298e-02 predicted=-5.341114e-02 residual=+1.151841e-03
+    equation[5] kind=cell rhs=+1.997936e-03 predicted=+1.732957e-03 residual=-2.649797e-04
+    equation[6] kind=cell rhs=+4.274636e-02 predicted=+4.153082e-02 residual=-1.215533e-03
+    equation[7] kind=cell rhs=-5.007846e-02 predicted=-4.857685e-02 residual=+1.501609e-03
+    equation[8] kind=cell rhs=+4.674525e-02 predicted=+4.835187e-02 residual=+1.606619e-03
+    equation[9] kind=cell rhs=-5.340964e-03 predicted=-5.121623e-03 residual=+2.193406e-04
+    equation[10] kind=cell rhs=+3.150516e-02 predicted=+3.235760e-02 residual=+8.524402e-04
+    equation[11] kind=cell rhs=-5.148519e-02 predicted=-5.289825e-02 residual=-1.413065e-03
+    equation[12] kind=cell rhs=-5.555567e-02 predicted=-5.709925e-02 residual=-1.543581e-03
+    equation[13] kind=cell rhs=+4.742245e-02 predicted=+4.816770e-02 residual=+7.452530e-04
+    equation[14] kind=cell rhs=-5.111296e-02 predicted=-5.153503e-02 residual=-4.220652e-04
+    equation[15] kind=cell rhs=+3.062924e-02 predicted=+3.171747e-02 residual=+1.088230e-03
+    equation[16] kind=cell rhs=-4.739777e-02 predicted=-4.879396e-02 residual=-1.396186e-03
+    equation[17] kind=dirichlet rhs=+1.266239e-02 predicted=+1.198090e-02 residual=-6.814932e-04
+    equation[18] kind=dirichlet rhs=-1.456263e-02 predicted=-1.348119e-02 residual=+1.081445e-03
+    equation[19] kind=dirichlet rhs=+1.532101e-02 predicted=+1.457176e-02 residual=-7.492491e-04
+    equation[20] kind=dirichlet rhs=-1.348007e-02 predicted=-1.248963e-02 residual=+9.904396e-04
+    dense x-low: open=False measure=2.467401e-02 signed_flux=-0.000000e+00 exact=0.000000e+00 error=-0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense x-high: open=False measure=0.000000e+00 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=False
+    dense theta-low: open=False measure=3.141593e-03 signed_flux=-0.000000e+00 exact=0.000000e+00 error=-0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense theta-high: open=False measure=3.141593e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense zeta-low: open=False measure=3.141593e-03 signed_flux=-0.000000e+00 exact=0.000000e+00 error=-0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    dense zeta-high: open=False measure=3.141593e-03 signed_flux=0.000000e+00 exact=0.000000e+00 error=0.000000e+00 compact_owned=True neighbor_reconstructed=True
+    irregular row=228 kind=interior sign=-1 owners=(8,30,26)/(9,30,26) plus=True remote=False flux=-1.922332e-04 exact=-3.665397e-04 error=1.743065e-04 active_q=4
+      worst_q patch=0 q=2 point=(3.800000e-01,4.757734e+00,4.038725e+00) numerical=-4.857637e-05 exact=-1.419302e-04 error=9.335382e-05
+      transition functional: valid=True production_q_sum=-1.922332e-04 row_delta=0.000000e+00 exact_support_flux=-3.601483e-04 support_gradient=(+2.297949e-03,+2.228020e-02,-2.956733e-01)
+        support[0]: storage=(8, 30, 26) center=(8, 30, 26) owner=(8, 30, 26) direct=True value=3.321723e-02 exact_avg=3.321723e-02 avg_error=-6.938894e-18 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[1]: storage=(9, 30, 26) center=(9, 30, 26) owner=(9, 30, 26) direct=True value=3.326282e-02 exact_avg=3.326282e-02 avg_error=-1.387779e-17 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[2]: storage=(7, 30, 26) center=(8, 30, 26) owner=(7, 30, 26) direct=True value=3.310796e-02 exact_avg=3.310796e-02 avg_error=-6.938894e-18 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-4.138495e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-4.138495e-01,+0.000000e+00,+0.000000e+00)
+        support[3]: storage=(9, 30, 26) center=(8, 30, 26) owner=(9, 30, 26) direct=True value=3.326282e-02 exact_avg=3.326282e-02 avg_error=-1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+4.157852e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+4.157852e-01,+0.000000e+00,+0.000000e+00)
+        support[4]: storage=(8, 29, 26) center=(8, 30, 26) owner=(8, 29, 26) direct=True value=2.792185e-02 exact_avg=2.792185e-02 avg_error=-1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-4.443901e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-4.443901e-02,+0.000000e+00)
+        support[5]: storage=(8, 31, 26) center=(8, 30, 26) owner=(8, 31, 26) direct=True value=3.526075e-02 exact_avg=3.526075e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+5.611923e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,+5.611923e-02,+0.000000e+00)
+        support[6]: storage=(8, 30, 25) center=(8, 30, 26) owner=(8, 30, 25) direct=True value=7.600917e-02 exact_avg=7.600917e-02 avg_error=+5.551115e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.209724e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.209724e-01)
+        support[7]: storage=(8, 30, 27) center=(8, 30, 26) owner=(8, 30, 27) direct=True value=-1.681564e-02 exact_avg=-1.681564e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(-0.000000e+00,-0.000000e+00,-2.676293e-02) exact_contrib=(-0.000000e+00,-0.000000e+00,-2.676293e-02)
+        support[8]: storage=(8, 30, 26) center=(9, 30, 26) owner=(8, 30, 26) direct=True value=3.321723e-02 exact_avg=3.321723e-02 avg_error=-6.938894e-18 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-4.152153e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-4.152153e-01,+0.000000e+00,+0.000000e+00)
+        support[9]: storage=(10, 30, 26) center=(9, 30, 26) owner=(9, 30, 26) direct=False value=3.369922e-02 exact_avg=3.324621e-02 avg_error=+4.530153e-04 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+4.212403e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+4.155776e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39009608373937815, 4.713177715237496, 4.08407044966673) order=2 condition=6.517e+00 stored=3.326282e-02 exact_centroid=3.371363e-02 grad=(+1.355967e-02,+2.036723e-02,-2.887678e-01) exact_grad=(+7.029606e-04,+2.184280e-02,-3.112796e-01)
+        support[10]: storage=(9, 29, 26) center=(9, 30, 26) owner=(9, 29, 26) direct=True value=2.830464e-02 exact_avg=2.830464e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-4.504824e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-4.504824e-02,+0.000000e+00)
+        support[11]: storage=(9, 31, 26) center=(9, 30, 26) owner=(9, 31, 26) direct=True value=3.496481e-02 exact_avg=3.496481e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+5.564822e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,+5.564822e-02,+0.000000e+00)
+        support[12]: storage=(9, 30, 25) center=(9, 30, 26) owner=(9, 30, 25) direct=True value=7.611350e-02 exact_avg=7.611350e-02 avg_error=-2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.211384e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.211384e-01)
+        support[13]: storage=(9, 30, 27) center=(9, 30, 26) owner=(9, 30, 26) direct=False value=-1.551334e-02 exact_avg=-1.683872e-02 avg_error=+1.325383e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(-0.000000e+00,-0.000000e+00,-2.469025e-02) exact_contrib=(-0.000000e+00,-0.000000e+00,-2.679966e-02)
+          owner polynomial: centroid=(0.39009608373937815, 4.713177715237496, 4.08407044966673) order=2 condition=6.517e+00 stored=3.326282e-02 exact_centroid=3.371363e-02 grad=(+1.355967e-02,+2.036723e-02,-2.887678e-01) exact_grad=(+7.029606e-04,+2.184280e-02,-3.112796e-01)
+    irregular row=4337 kind=interior sign=-1 owners=(9,29,26)/(9,30,26) plus=True remote=False flux=7.955985e-04 exact=8.589508e-04 error=-6.335230e-05 active_q=4
+      worst_q patch=0 q=0 point=(3.842265e-01,4.633849e+00,4.038725e+00) numerical=2.009589e-04 exact=2.990732e-04 error=-9.811430e-05
+      transition functional: valid=True production_q_sum=7.955985e-04 row_delta=0.000000e+00 exact_support_flux=8.259362e-04 support_gradient=(+9.191154e-03,+3.079419e-02,-2.738244e-01)
+        support[0]: storage=(9, 29, 26) center=(9, 29, 26) owner=(9, 29, 26) direct=True value=2.830464e-02 exact_avg=2.830464e-02 avg_error=+0.000000e+00 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[1]: storage=(9, 30, 26) center=(9, 30, 26) owner=(9, 30, 26) direct=True value=3.326282e-02 exact_avg=3.326282e-02 avg_error=-1.387779e-17 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[2]: storage=(8, 29, 26) center=(9, 29, 26) owner=(8, 29, 26) direct=True value=2.792185e-02 exact_avg=2.792185e-02 avg_error=-1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-3.490232e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-3.490232e-01,+0.000000e+00,+0.000000e+00)
+        support[3]: storage=(10, 29, 26) center=(9, 29, 26) owner=(9, 29, 26) direct=False value=2.871529e-02 exact_avg=2.862817e-02 avg_error=+8.712160e-05 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+3.589411e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+3.578521e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.3900943586310637, 4.556094813510868, 4.084070449666733) order=2 condition=6.656e+00 stored=2.830464e-02 exact_centroid=2.868850e-02 grad=(+2.086061e-02,+3.861023e-02,-2.454964e-01) exact_grad=(+1.786584e-02,+4.161046e-02,-2.648824e-01)
+        support[4]: storage=(9, 28, 26) center=(9, 29, 26) owner=(9, 29, 26) direct=False value=2.089638e-02 exact_avg=2.057442e-02 avg_error=+3.219520e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-3.325761e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-3.274521e-02,+0.000000e+00)
+          owner polynomial: centroid=(0.3900943586310637, 4.556094813510868, 4.084070449666733) order=2 condition=6.656e+00 stored=2.830464e-02 exact_centroid=2.868850e-02 grad=(+2.086061e-02,+3.861023e-02,-2.454964e-01) exact_grad=(+1.786584e-02,+4.161046e-02,-2.648824e-01)
+        support[5]: storage=(9, 30, 26) center=(9, 29, 26) owner=(9, 30, 26) direct=True value=3.326282e-02 exact_avg=3.326282e-02 avg_error=-1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+5.293942e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,+5.293942e-02,+0.000000e+00)
+        support[6]: storage=(9, 29, 25) center=(9, 29, 26) owner=(9, 29, 25) direct=True value=6.476798e-02 exact_avg=6.476798e-02 avg_error=+2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.030814e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.030814e-01)
+        support[7]: storage=(9, 29, 27) center=(9, 29, 26) owner=(9, 29, 26) direct=False value=-1.315660e-02 exact_avg=-1.432873e-02 avg_error=+1.172131e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(-0.000000e+00,-0.000000e+00,-2.093938e-02) exact_contrib=(-0.000000e+00,-0.000000e+00,-2.280489e-02)
+          owner polynomial: centroid=(0.3900943586310637, 4.556094813510868, 4.084070449666733) order=2 condition=6.656e+00 stored=2.830464e-02 exact_centroid=2.868850e-02 grad=(+2.086061e-02,+3.861023e-02,-2.454964e-01) exact_grad=(+1.786584e-02,+4.161046e-02,-2.648824e-01)
+        support[8]: storage=(8, 30, 26) center=(9, 30, 26) owner=(8, 30, 26) direct=True value=3.321723e-02 exact_avg=3.321723e-02 avg_error=-6.938894e-18 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-4.152153e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-4.152153e-01,+0.000000e+00,+0.000000e+00)
+        support[9]: storage=(10, 30, 26) center=(9, 30, 26) owner=(9, 30, 26) direct=False value=3.369922e-02 exact_avg=3.324621e-02 avg_error=+4.530153e-04 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+4.212403e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+4.155776e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39009608373937815, 4.713177715237496, 4.08407044966673) order=2 condition=6.517e+00 stored=3.326282e-02 exact_centroid=3.371363e-02 grad=(+1.355967e-02,+2.036723e-02,-2.887678e-01) exact_grad=(+7.029606e-04,+2.184280e-02,-3.112796e-01)
+        support[10]: storage=(9, 29, 26) center=(9, 30, 26) owner=(9, 29, 26) direct=True value=2.830464e-02 exact_avg=2.830464e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-4.504824e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-4.504824e-02,+0.000000e+00)
+        support[11]: storage=(9, 31, 26) center=(9, 30, 26) owner=(9, 31, 26) direct=True value=3.496481e-02 exact_avg=3.496481e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+5.564822e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,+5.564822e-02,+0.000000e+00)
+        support[12]: storage=(9, 30, 25) center=(9, 30, 26) owner=(9, 30, 25) direct=True value=7.611350e-02 exact_avg=7.611350e-02 avg_error=-2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.211384e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.211384e-01)
+        support[13]: storage=(9, 30, 27) center=(9, 30, 26) owner=(9, 30, 26) direct=False value=-1.551334e-02 exact_avg=-1.683872e-02 avg_error=+1.325383e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(-0.000000e+00,-0.000000e+00,-2.469025e-02) exact_contrib=(-0.000000e+00,-0.000000e+00,-2.679966e-02)
+          owner polynomial: centroid=(0.39009608373937815, 4.713177715237496, 4.08407044966673) order=2 condition=6.517e+00 stored=3.326282e-02 exact_centroid=3.371363e-02 grad=(+1.355967e-02,+2.036723e-02,-2.887678e-01) exact_grad=(+7.029606e-04,+2.184280e-02,-3.112796e-01)
+    irregular row=4364 kind=interior sign=+1 owners=(9,30,26)/(9,31,26) plus=True remote=False flux=3.996168e-04 exact=4.343409e-04 error=-3.472404e-05 active_q=4
+      worst_q patch=0 q=0 point=(3.842265e-01,4.790929e+00,4.038725e+00) numerical=1.003452e-04 exact=1.443822e-04 error=-4.403700e-05
+      transition functional: valid=True production_q_sum=3.996168e-04 row_delta=0.000000e+00 exact_support_flux=4.149636e-04 support_gradient=(-7.774564e-03,+1.057199e-02,-3.034458e-01)
+        support[0]: storage=(9, 30, 26) center=(9, 30, 26) owner=(9, 30, 26) direct=True value=3.326282e-02 exact_avg=3.326282e-02 avg_error=-1.387779e-17 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[1]: storage=(9, 31, 26) center=(9, 31, 26) owner=(9, 31, 26) direct=True value=3.496481e-02 exact_avg=3.496481e-02 avg_error=+0.000000e+00 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[2]: storage=(8, 30, 26) center=(9, 30, 26) owner=(8, 30, 26) direct=True value=3.321723e-02 exact_avg=3.321723e-02 avg_error=-6.938894e-18 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-4.152153e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-4.152153e-01,+0.000000e+00,+0.000000e+00)
+        support[3]: storage=(10, 30, 26) center=(9, 30, 26) owner=(9, 30, 26) direct=False value=3.369922e-02 exact_avg=3.324621e-02 avg_error=+4.530153e-04 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+4.212403e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+4.155776e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39009608373937815, 4.713177715237496, 4.08407044966673) order=2 condition=6.517e+00 stored=3.326282e-02 exact_centroid=3.371363e-02 grad=(+1.355967e-02,+2.036723e-02,-2.887678e-01) exact_grad=(+7.029606e-04,+2.184280e-02,-3.112796e-01)
+        support[4]: storage=(9, 29, 26) center=(9, 30, 26) owner=(9, 29, 26) direct=True value=2.830464e-02 exact_avg=2.830464e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-4.504824e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-4.504824e-02,+0.000000e+00)
+        support[5]: storage=(9, 31, 26) center=(9, 30, 26) owner=(9, 31, 26) direct=True value=3.496481e-02 exact_avg=3.496481e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+5.564822e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,+5.564822e-02,+0.000000e+00)
+        support[6]: storage=(9, 30, 25) center=(9, 30, 26) owner=(9, 30, 25) direct=True value=7.611350e-02 exact_avg=7.611350e-02 avg_error=-2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.211384e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.211384e-01)
+        support[7]: storage=(9, 30, 27) center=(9, 30, 26) owner=(9, 30, 26) direct=False value=-1.551334e-02 exact_avg=-1.683872e-02 avg_error=+1.325383e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(-0.000000e+00,-0.000000e+00,-2.469025e-02) exact_contrib=(-0.000000e+00,-0.000000e+00,-2.679966e-02)
+          owner polynomial: centroid=(0.39009608373937815, 4.713177715237496, 4.08407044966673) order=2 condition=6.517e+00 stored=3.326282e-02 exact_centroid=3.371363e-02 grad=(+1.355967e-02,+2.036723e-02,-2.887678e-01) exact_grad=(+7.029606e-04,+2.184280e-02,-3.112796e-01)
+        support[8]: storage=(8, 31, 26) center=(9, 31, 26) owner=(8, 31, 26) direct=True value=3.526075e-02 exact_avg=3.526075e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-4.407594e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-4.407594e-01,+0.000000e+00,+0.000000e+00)
+        support[9]: storage=(10, 31, 26) center=(9, 31, 26) owner=(9, 31, 26) direct=False value=3.459879e-02 exact_avg=3.460981e-02 avg_error=-1.102305e-05 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+4.324848e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+4.326226e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.3900975471901754, 4.870241122429717, 4.084070449666732) order=2 condition=6.670e+00 stored=3.496481e-02 exact_centroid=3.543844e-02 grad=(-1.421417e-02,-1.595249e-04,-3.028182e-01) exact_grad=(-1.652662e-02,-6.028824e-05,-3.272049e-01)
+        support[10]: storage=(9, 30, 26) center=(9, 31, 26) owner=(9, 30, 26) direct=True value=3.326282e-02 exact_avg=3.326282e-02 avg_error=-1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-5.293942e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-5.293942e-02,+0.000000e+00)
+        support[11]: storage=(9, 32, 26) center=(9, 31, 26) owner=(9, 31, 26) direct=False value=3.324747e-02 exact_avg=3.324523e-02 avg_error=+2.231041e-06 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+5.291499e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,+5.291143e-02,+0.000000e+00)
+          owner polynomial: centroid=(0.3900975471901754, 4.870241122429717, 4.084070449666732) order=2 condition=6.670e+00 stored=3.496481e-02 exact_centroid=3.543844e-02 grad=(-1.421417e-02,-1.595249e-04,-3.028182e-01) exact_grad=(-1.652662e-02,-6.028824e-05,-3.272049e-01)
+        support[12]: storage=(9, 31, 25) center=(9, 31, 26) owner=(9, 31, 25) direct=True value=8.000807e-02 exact_avg=8.000807e-02 avg_error=-1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.273368e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.273368e-01)
+        support[13]: storage=(9, 31, 27) center=(9, 31, 26) owner=(9, 31, 26) direct=False value=-1.619443e-02 exact_avg=-1.770032e-02 avg_error=+1.505898e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(-0.000000e+00,-0.000000e+00,-2.577423e-02) exact_contrib=(-0.000000e+00,-0.000000e+00,-2.817094e-02)
+          owner polynomial: centroid=(0.3900975471901754, 4.870241122429717, 4.084070449666732) order=2 condition=6.670e+00 stored=3.496481e-02 exact_centroid=3.543844e-02 grad=(-1.421417e-02,-1.595249e-04,-3.028182e-01) exact_grad=(-1.652662e-02,-6.028824e-05,-3.272049e-01)
+    irregular row=7696 kind=interior sign=-1 owners=(9,30,25)/(9,30,26) plus=True remote=False flux=-1.651554e-05 exact=-1.753624e-05 error=1.020698e-06 active_q=4
+      worst_q patch=0 q=0 point=(3.842265e-01,4.667044e+00,4.005531e+00) numerical=-4.034895e-06 exact=-5.443542e-06 error=1.408647e-06
+      transition functional: valid=True production_q_sum=-1.651554e-05 row_delta=0.000000e+00 exact_support_flux=-1.653156e-05 support_gradient=(+1.191123e-03,+3.485533e-02,-2.579294e-01)
+        support[0]: storage=(9, 30, 25) center=(9, 30, 25) owner=(9, 30, 25) direct=True value=7.611350e-02 exact_avg=7.611350e-02 avg_error=-2.775558e-17 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[1]: storage=(9, 30, 26) center=(9, 30, 26) owner=(9, 30, 26) direct=True value=3.326282e-02 exact_avg=3.326282e-02 avg_error=-1.387779e-17 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[2]: storage=(8, 30, 25) center=(9, 30, 25) owner=(8, 30, 25) direct=True value=7.600917e-02 exact_avg=7.600917e-02 avg_error=+5.551115e-17 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-9.501147e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-9.501147e-01,+0.000000e+00,+0.000000e+00)
+        support[3]: storage=(10, 30, 25) center=(9, 30, 25) owner=(9, 30, 25) direct=False value=7.606019e-02 exact_avg=7.607548e-02 avg_error=-1.529056e-05 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+9.507524e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+9.509436e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.3900960837393781, 4.713177715237496, 3.926990816987241) order=2 condition=6.301e+00 stored=7.611350e-02 exact_centroid=7.714506e-02 grad=(+1.935119e-03,+4.607994e-02,-2.155761e-01) exact_grad=(+1.608547e-03,+4.998169e-02,-2.314352e-01)
+        support[4]: storage=(9, 29, 25) center=(9, 30, 25) owner=(9, 29, 25) direct=True value=6.476798e-02 exact_avg=6.476798e-02 avg_error=+2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-1.030814e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,-1.030814e-01,+0.000000e+00)
+        support[5]: storage=(9, 31, 25) center=(9, 30, 25) owner=(9, 31, 25) direct=True value=8.000807e-02 exact_avg=8.000807e-02 avg_error=-1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+1.273368e-01,+0.000000e+00) exact_contrib=(+0.000000e+00,+1.273368e-01,+0.000000e+00)
+        support[6]: storage=(9, 30, 24) center=(9, 30, 25) owner=(9, 30, 24) direct=True value=1.023724e-01 exact_avg=1.023724e-01 avg_error=+1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.629308e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.629308e-01)
+        support[7]: storage=(9, 30, 26) center=(9, 30, 25) owner=(9, 30, 26) direct=True value=3.326282e-02 exact_avg=3.326282e-02 avg_error=-1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+5.293942e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,+5.293942e-02)
+        support[8]: storage=(8, 30, 26) center=(9, 30, 26) owner=(8, 30, 26) direct=True value=3.321723e-02 exact_avg=3.321723e-02 avg_error=-6.938894e-18 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-4.152153e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-4.152153e-01,+0.000000e+00,+0.000000e+00)
+        support[9]: storage=(10, 30, 26) center=(9, 30, 26) owner=(9, 30, 26) direct=False value=3.369922e-02 exact_avg=3.324621e-02 avg_error=+4.530153e-04 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+4.212403e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+4.155776e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39009608373937815, 4.713177715237496, 4.08407044966673) order=2 condition=6.517e+00 stored=3.326282e-02 exact_centroid=3.371363e-02 grad=(+1.355967e-02,+2.036723e-02,-2.887678e-01) exact_grad=(+7.029606e-04,+2.184280e-02,-3.112796e-01)
+        support[10]: storage=(9, 29, 26) center=(9, 30, 26) owner=(9, 29, 26) direct=True value=2.830464e-02 exact_avg=2.830464e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-4.504824e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-4.504824e-02,+0.000000e+00)
+        support[11]: storage=(9, 31, 26) center=(9, 30, 26) owner=(9, 31, 26) direct=True value=3.496481e-02 exact_avg=3.496481e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+5.564822e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,+5.564822e-02,+0.000000e+00)
+        support[12]: storage=(9, 30, 25) center=(9, 30, 26) owner=(9, 30, 25) direct=True value=7.611350e-02 exact_avg=7.611350e-02 avg_error=-2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.211384e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.211384e-01)
+        support[13]: storage=(9, 30, 27) center=(9, 30, 26) owner=(9, 30, 26) direct=False value=-1.551334e-02 exact_avg=-1.683872e-02 avg_error=+1.325383e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(-0.000000e+00,-0.000000e+00,-2.469025e-02) exact_contrib=(-0.000000e+00,-0.000000e+00,-2.679966e-02)
+          owner polynomial: centroid=(0.39009608373937815, 4.713177715237496, 4.08407044966673) order=2 condition=6.517e+00 stored=3.326282e-02 exact_centroid=3.371363e-02 grad=(+1.355967e-02,+2.036723e-02,-2.887678e-01) exact_grad=(+7.029606e-04,+2.184280e-02,-3.112796e-01)
+    irregular row=7697 kind=interior sign=+1 owners=(9,30,26)/(9,30,27) plus=True remote=False flux=-4.687287e-06 exact=-4.781847e-06 error=9.455999e-08 active_q=4
+      worst_q patch=0 q=0 point=(3.842265e-01,4.667044e+00,4.162610e+00) numerical=-1.137777e-06 exact=-1.318457e-06 error=1.806802e-07
+      transition functional: valid=True production_q_sum=-4.687287e-06 row_delta=0.000000e+00 exact_support_flux=-4.477915e-06 support_gradient=(+1.788607e-04,+5.233924e-03,-3.015742e-01)
+        support[0]: storage=(9, 30, 26) center=(9, 30, 26) owner=(9, 30, 26) direct=True value=3.326282e-02 exact_avg=3.326282e-02 avg_error=-1.387779e-17 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00) exact_contrib=(+0.000000e+00,+0.000000e+00,+0.000000e+00)
+        support[1]: storage=(9, 30, 27) center=(9, 30, 27) owner=(9, 30, 27) direct=False value=-1.722625e-02 exact_avg=-1.683872e-02 avg_error=-3.875259e-04 coeff=(scalar=+5.000000e-01, grad=(+0.000000e+00,+0.000000e+00,+0.000000e+00)) grad_contrib=(-0.000000e+00,-0.000000e+00,-0.000000e+00) exact_contrib=(-0.000000e+00,-0.000000e+00,-0.000000e+00)
+          owner polynomial: centroid=(0.3964841799588116, 4.713181686419311, 4.255109126137566) order=2 condition=4.507e+00 stored=-2.130016e-02 exact_centroid=-2.156406e-02 grad=(+2.193578e-02,-1.179443e-02,-3.000763e-01) exact_grad=(+1.919404e-04,-1.351558e-02,-3.208553e-01)
+        support[2]: storage=(8, 30, 26) center=(9, 30, 26) owner=(8, 30, 26) direct=True value=3.321723e-02 exact_avg=3.321723e-02 avg_error=-6.938894e-18 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-4.152153e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(-4.152153e-01,+0.000000e+00,+0.000000e+00)
+        support[3]: storage=(10, 30, 26) center=(9, 30, 26) owner=(9, 30, 26) direct=False value=3.369922e-02 exact_avg=3.324621e-02 avg_error=+4.530153e-04 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+4.212403e-01,+0.000000e+00,+0.000000e+00) exact_contrib=(+4.155776e-01,+0.000000e+00,+0.000000e+00)
+          owner polynomial: centroid=(0.39009608373937815, 4.713177715237496, 4.08407044966673) order=2 condition=6.517e+00 stored=3.326282e-02 exact_centroid=3.371363e-02 grad=(+1.355967e-02,+2.036723e-02,-2.887678e-01) exact_grad=(+7.029606e-04,+2.184280e-02,-3.112796e-01)
+        support[4]: storage=(9, 29, 26) center=(9, 30, 26) owner=(9, 29, 26) direct=True value=2.830464e-02 exact_avg=2.830464e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,-4.504824e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,-4.504824e-02,+0.000000e+00)
+        support[5]: storage=(9, 31, 26) center=(9, 30, 26) owner=(9, 31, 26) direct=True value=3.496481e-02 exact_avg=3.496481e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(+0.000000e+00,+5.564822e-02,+0.000000e+00) exact_contrib=(+0.000000e+00,+5.564822e-02,+0.000000e+00)
+        support[6]: storage=(9, 30, 25) center=(9, 30, 26) owner=(9, 30, 25) direct=True value=7.611350e-02 exact_avg=7.611350e-02 avg_error=-2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-1.211384e-01) exact_contrib=(+0.000000e+00,+0.000000e+00,-1.211384e-01)
+        support[7]: storage=(9, 30, 27) center=(9, 30, 26) owner=(9, 30, 26) direct=False value=-1.551334e-02 exact_avg=-1.683872e-02 avg_error=+1.325383e-03 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(-0.000000e+00,-0.000000e+00,-2.469025e-02) exact_contrib=(-0.000000e+00,-0.000000e+00,-2.679966e-02)
+          owner polynomial: centroid=(0.39009608373937815, 4.713177715237496, 4.08407044966673) order=2 condition=6.517e+00 stored=3.326282e-02 exact_centroid=3.371363e-02 grad=(+1.355967e-02,+2.036723e-02,-2.887678e-01) exact_grad=(+7.029606e-04,+2.184280e-02,-3.112796e-01)
+        support[8]: storage=(8, 30, 27) center=(9, 30, 27) owner=(8, 30, 27) direct=True value=-1.681564e-02 exact_avg=-1.681564e-02 avg_error=+0.000000e+00 coeff=(scalar=+0.000000e+00, grad=(-1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(+2.101955e-01,-0.000000e+00,-0.000000e+00) exact_contrib=(+2.101955e-01,-0.000000e+00,-0.000000e+00)
+        support[9]: storage=(10, 30, 27) center=(9, 30, 27) owner=(9, 30, 27) direct=False value=-1.666475e-02 exact_avg=-1.683031e-02 avg_error=+1.655666e-04 coeff=(scalar=+0.000000e+00, grad=(+1.250000e+01,+0.000000e+00,+0.000000e+00)) grad_contrib=(-2.083093e-01,-0.000000e+00,-0.000000e+00) exact_contrib=(-2.103789e-01,-0.000000e+00,-0.000000e+00)
+          owner polynomial: centroid=(0.3964841799588116, 4.713181686419311, 4.255109126137566) order=2 condition=4.507e+00 stored=-2.130016e-02 exact_centroid=-2.156406e-02 grad=(+2.193578e-02,-1.179443e-02,-3.000763e-01) exact_grad=(+1.919404e-04,-1.351558e-02,-3.208553e-01)
+        support[10]: storage=(9, 29, 27) center=(9, 30, 27) owner=(9, 30, 27) direct=False value=-1.444234e-02 exact_avg=-1.432873e-02 avg_error=-1.136091e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,-1.591549e+00,+0.000000e+00)) grad_contrib=(-0.000000e+00,+2.298570e-02,-0.000000e+00) exact_contrib=(-0.000000e+00,+2.280489e-02,-0.000000e+00)
+          owner polynomial: centroid=(0.3964841799588116, 4.713181686419311, 4.255109126137566) order=2 condition=4.507e+00 stored=-2.130016e-02 exact_centroid=-2.156406e-02 grad=(+2.193578e-02,-1.179443e-02,-3.000763e-01) exact_grad=(+1.919404e-04,-1.351558e-02,-3.208553e-01)
+        support[11]: storage=(9, 31, 27) center=(9, 30, 27) owner=(9, 30, 27) direct=False value=-1.747523e-02 exact_avg=-1.770032e-02 avg_error=+2.250923e-04 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+1.591549e+00,+0.000000e+00)) grad_contrib=(-0.000000e+00,-2.781270e-02,-0.000000e+00) exact_contrib=(-0.000000e+00,-2.817094e-02,-0.000000e+00)
+          owner polynomial: centroid=(0.3964841799588116, 4.713181686419311, 4.255109126137566) order=2 condition=4.507e+00 stored=-2.130016e-02 exact_centroid=-2.156406e-02 grad=(+2.193578e-02,-1.179443e-02,-3.000763e-01) exact_grad=(+1.919404e-04,-1.351558e-02,-3.208553e-01)
+        support[12]: storage=(9, 30, 26) center=(9, 30, 27) owner=(9, 30, 26) direct=True value=3.326282e-02 exact_avg=3.326282e-02 avg_error=-1.387779e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,-1.591549e+00)) grad_contrib=(+0.000000e+00,+0.000000e+00,-5.293942e-02) exact_contrib=(+0.000000e+00,+0.000000e+00,-5.293942e-02)
+        support[13]: storage=(9, 30, 28) center=(9, 30, 27) owner=(9, 30, 28) direct=True value=-6.326964e-02 exact_avg=-6.326964e-02 avg_error=+2.775558e-17 coeff=(scalar=+0.000000e+00, grad=(+0.000000e+00,+0.000000e+00,+1.591549e+00)) grad_contrib=(-0.000000e+00,-0.000000e+00,-1.006968e-01) exact_contrib=(-0.000000e+00,-0.000000e+00,-1.006968e-01)
+    irregular row=11549 kind=cut-wall sign=+1 owners=(9,30,26)/(0,0,0) plus=False remote=False flux=2.999399e-04 exact=-4.181669e-04 error=7.181068e-04 active_q=4
+      worst_q patch=0 q=2 point=(4.000000e-01,4.757734e+00,4.038725e+00) numerical=6.805310e-05 exact=-1.626183e-04 error=2.306714e-04
+      cut-wall projected-flux diagnostics: bc_kind=1
+        patch=0 q=0 bc_value=4.592521e-02 poly_value=4.524372e-02 trace_residual=-6.814932e-04 projected_covector=(+6.813749e-03,-4.177598e-03,+0.000000e+00) normal_contra=(+1.051001e+00,-6.443824e-01,+0.000000e+00) normal_covector=(+9.514738e-01,+0.000000e+00,+0.000000e+00) raw_grad=(+2.948636e-02,+3.440436e-02,-2.682018e-01) applied_grad=(+2.948636e-02,+3.440436e-02,-2.682018e-01) exact_grad=(+6.027269e-03,+3.782967e-02,-2.850759e-01) closure=(valid=False, axis=0, exact_input_dxi=+5.979410e-03) normal=+8.820629e-03 exact_normal=-1.804211e-02 projected_derivative=+5.718505e-05 exact_projected_derivative=-1.169689e-04 flux=+6.577869e-05 exact_tangent_num_normal=+6.577869e-05 num_tangent_exact_normal=-1.345467e-04 exact_flux=-1.345467e-04
+        patch=0 q=1 bc_value=1.870019e-02 poly_value=1.978163e-02 trace_residual=+1.081445e-03 projected_covector=(+6.813749e-03,-4.177598e-03,+0.000000e+00) normal_contra=(+1.051001e+00,-6.443824e-01,+0.000000e+00) normal_covector=(+9.514738e-01,+0.000000e+00,+0.000000e+00) raw_grad=(+2.067078e-02,+1.676942e-02,-2.933175e-01) applied_grad=(+2.067078e-02,+1.676942e-02,-2.933175e-01) exact_grad=(+2.454230e-03,+1.540378e-02,-3.116137e-01) closure=(valid=False, axis=0, exact_input_dxi=+2.434743e-03) normal=+1.091909e-02 exact_normal=-7.346527e-03 projected_derivative=+7.078959e-05 exact_projected_derivative=-4.762829e-05 flux=+8.142769e-05 exact_tangent_num_normal=+8.142769e-05 num_tangent_exact_normal=-5.478577e-05 exact_flux=-5.478577e-05
+        patch=0 q=2 bc_value=4.858383e-02 poly_value=4.783458e-02 trace_residual=-7.492491e-04 projected_covector=(+6.503772e-03,-4.042617e-03,+0.000000e+00) normal_contra=(+1.026816e+00,-6.382489e-01,+0.000000e+00) normal_covector=(+9.738840e-01,+0.000000e+00,+0.000000e+00) raw_grad=(+2.291309e-02,+2.273238e-02,-2.858367e-01) applied_grad=(+2.291309e-02,+2.273238e-02,-2.858367e-01) exact_grad=(-8.158184e-03,+2.064047e-02,-3.015790e-01) closure=(valid=False, axis=0, exact_input_dxi=-8.239958e-03) normal=+9.018624e-03 exact_normal=-2.155072e-02 projected_derivative=+5.712324e-05 exact_projected_derivative=-1.365005e-04 flux=+6.805310e-05 exact_tangent_num_normal=+6.805310e-05 num_tangent_exact_normal=-1.626183e-04 exact_flux=-1.626183e-04
+        patch=0 q=3 bc_value=1.978274e-02 poly_value=2.077318e-02 trace_residual=+9.904396e-04 projected_covector=(+6.503772e-03,-4.042617e-03,+0.000000e+00) normal_contra=(+1.026816e+00,-6.382489e-01,+0.000000e+00) normal_covector=(+9.738840e-01,+0.000000e+00,+0.000000e+00) raw_grad=(+1.409752e-02,+5.097441e-03,-3.109525e-01) applied_grad=(+1.409752e-02,+5.097441e-03,-3.109525e-01) exact_grad=(-3.321913e-03,+8.404550e-03,-3.296531e-01) closure=(valid=False, axis=0, exact_input_dxi=-3.355210e-03) normal=+1.122212e-02 exact_normal=-8.775190e-03 projected_derivative=+7.108003e-05 exact_projected_derivative=-5.558135e-05 flux=+8.468037e-05 exact_tangent_num_normal=+8.468037e-05 num_tangent_exact_normal=-6.621619e-05 exact_flux=-6.621619e-05
+N=40 operator=full_rhs phi_mode=projected_exact compile+run=12.548s
+  v_ion source consistency: source_vs_exact_t=0.000000e+00 roundtrip_vs_source=1.110223e-16 operator_without_source=9.992007e-16 full_residual=9.992007e-16
+  field=density
+    all_active       count=   61500 volume_L2=4.909838e-03 Linf=1.854242e-02 rel_L2=1.461951e-02
+    bulk             count=   56750 volume_L2=4.703309e-03 Linf=1.854242e-02 rel_L2=1.380269e-02
+    one_wall         count=    1074 volume_L2=5.611062e-03 Linf=1.194407e-02 rel_L2=2.345787e-02
+    multi_wall       count=     184 volume_L2=7.848096e-03 Linf=1.547036e-02 rel_L2=2.703388e-02
+    aggregate_target count=    1120 volume_L2=6.091923e-03 Linf=1.547036e-02 rel_L2=2.724158e-02
+    remote_interface count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    reconstruction_row count=    6816 volume_L2=6.719980e-03 Linf=1.854242e-02 rel_L2=2.151495e-02
+    retained_cut_cell count=     138 volume_L2=5.424165e-03 Linf=1.194407e-02 rel_L2=1.268569e-02
+    dense_compact_d1 count=    2290 volume_L2=4.033205e-03 Linf=1.088908e-02 rel_L2=9.978162e-03
+    dense_compact_d2 count=    2522 volume_L2=4.055221e-03 Linf=1.118187e-02 rel_L2=1.098118e-02
+    dense_far        count=   49872 volume_L2=4.673323e-03 Linf=1.312295e-02 rel_L2=1.400151e-02
+    radial_lower_owner count=    1600 volume_L2=6.230408e-03 Linf=1.228881e-02 rel_L2=1.998137e-02
+    radial_upper_owner count=    1600 volume_L2=4.706181e-03 Linf=1.312295e-02 rel_L2=1.509481e-02
+    radial_interior_2plus count=   55100 volume_L2=4.901252e-03 Linf=1.854242e-02 rel_L2=1.448528e-02
+  field=omega
+    all_active       count=   61500 volume_L2=2.783778e-01 Linf=3.931319e+00 rel_L2=2.783778e+29
+    bulk             count=   56750 volume_L2=2.748968e-01 Linf=3.931319e+00 rel_L2=2.748968e+29
+    one_wall         count=    1074 volume_L2=1.588383e-01 Linf=9.941617e-01 rel_L2=1.588383e+29
+    multi_wall       count=     184 volume_L2=2.747255e-01 Linf=9.491755e-01 rel_L2=2.747255e+29
+    aggregate_target count=    1120 volume_L2=1.538021e-01 Linf=9.491755e-01 rel_L2=1.538021e+29
+    remote_interface count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    reconstruction_row count=    6816 volume_L2=3.347124e-01 Linf=1.864269e+00 rel_L2=3.347124e+29
+    retained_cut_cell count=     138 volume_L2=3.684399e-01 Linf=9.941617e-01 rel_L2=3.684399e+29
+    dense_compact_d1 count=    2290 volume_L2=1.748726e-01 Linf=1.124553e+00 rel_L2=1.748726e+29
+    dense_compact_d2 count=    2522 volume_L2=1.886614e-01 Linf=1.319794e+00 rel_L2=1.886614e+29
+    dense_far        count=   49872 volume_L2=2.772664e-01 Linf=3.931319e+00 rel_L2=2.772664e+29
+    radial_lower_owner count=    1600 volume_L2=1.257705e+00 Linf=3.931319e+00 rel_L2=1.257705e+30
+    radial_upper_owner count=    1600 volume_L2=5.817402e-02 Linf=2.341104e-01 rel_L2=5.817402e+28
+    radial_interior_2plus count=   55100 volume_L2=2.445462e-01 Linf=2.722275e+00 rel_L2=2.445462e+29
+  field=v_ion_parallel
+    all_active       count=   61500 volume_L2=7.133336e-17 Linf=9.992007e-16 rel_L2=3.000824e-16
+    bulk             count=   56750 volume_L2=7.205626e-17 Linf=9.992007e-16 rel_L2=3.001163e-16
+    one_wall         count=    1074 volume_L2=8.536085e-17 Linf=6.938894e-16 rel_L2=3.349501e-16
+    multi_wall       count=     184 volume_L2=1.075696e-16 Linf=8.881784e-16 rel_L2=3.501411e-16
+    aggregate_target count=    1120 volume_L2=9.273436e-17 Linf=8.881784e-16 rel_L2=3.553920e-16
+    remote_interface count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    reconstruction_row count=    6816 volume_L2=5.651018e-17 Linf=8.881784e-16 rel_L2=2.864962e-16
+    retained_cut_cell count=     138 volume_L2=4.084671e-17 Linf=2.498002e-16 rel_L2=1.381110e-16
+    dense_compact_d1 count=    2290 volume_L2=8.140482e-17 Linf=7.175902e-16 rel_L2=3.780322e-16
+    dense_compact_d2 count=    2522 volume_L2=6.257570e-17 Linf=5.551115e-16 rel_L2=2.472216e-16
+    dense_far        count=   49872 volume_L2=7.314190e-17 Linf=9.992007e-16 rel_L2=3.008117e-16
+    radial_lower_owner count=    1600 volume_L2=6.415844e-17 Linf=3.381554e-16 rel_L2=2.581390e-16
+    radial_upper_owner count=    1600 volume_L2=6.325241e-17 Linf=3.543274e-16 rel_L2=2.593561e-16
+    radial_interior_2plus count=   55100 volume_L2=7.153765e-17 Linf=9.992007e-16 rel_L2=3.017785e-16
+  field=v_electron_parallel
+    all_active       count=   61500 volume_L2=3.518233e+00 Linf=1.386720e+01 rel_L2=3.518233e+30
+    bulk             count=   56750 volume_L2=3.217089e+00 Linf=1.285537e+01 rel_L2=3.217089e+30
+    one_wall         count=    1074 volume_L2=3.570475e+00 Linf=1.183692e+01 rel_L2=3.570475e+30
+    multi_wall       count=     184 volume_L2=4.973676e+00 Linf=1.086248e+01 rel_L2=4.973676e+30
+    aggregate_target count=    1120 volume_L2=3.502612e+00 Linf=1.086248e+01 rel_L2=3.502612e+30
+    remote_interface count=       0 volume_L2=nan Linf=nan rel_L2=nan
+    reconstruction_row count=    6816 volume_L2=6.060022e+00 Linf=1.386720e+01 rel_L2=6.060022e+30
+    retained_cut_cell count=     138 volume_L2=6.340640e+00 Linf=1.183692e+01 rel_L2=6.340640e+30
+    dense_compact_d1 count=    2290 volume_L2=2.742140e+00 Linf=7.572431e+00 rel_L2=2.742140e+30
+    dense_compact_d2 count=    2522 volume_L2=3.042396e+00 Linf=7.654908e+00 rel_L2=3.042396e+30
+    dense_far        count=   49872 volume_L2=3.043751e+00 Linf=8.355902e+00 rel_L2=3.043751e+30
+    radial_lower_owner count=    1600 volume_L2=4.074766e+00 Linf=8.342988e+00 rel_L2=4.074766e+30
+    radial_upper_owner count=    1600 volume_L2=2.396450e+00 Linf=6.280089e+00 rel_L2=2.396450e+30
+    radial_interior_2plus count=   55100 volume_L2=3.597061e+00 Linf=1.386720e+01 rel_L2=3.597061e+30
+N=40 phi algebraic solve skipped
+operator order grad_parallel_density all_active: volume_L2=exact, Linf=exact
+operator order grad_parallel_density bulk: volume_L2=exact, Linf=exact
+operator order grad_parallel_density one_wall: volume_L2=exact, Linf=exact
+operator order grad_parallel_density multi_wall: volume_L2=exact, Linf=exact
+operator order grad_parallel_density aggregate_target: volume_L2=exact, Linf=exact
+operator order grad_parallel_density remote_interface: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_density reconstruction_row: volume_L2=exact, Linf=exact
+operator order grad_parallel_density retained_cut_cell: volume_L2=exact, Linf=exact
+operator order grad_parallel_density dense_compact_d1: volume_L2=exact, Linf=exact
+operator order grad_parallel_density dense_compact_d2: volume_L2=exact, Linf=exact
+operator order grad_parallel_density dense_far: volume_L2=exact, Linf=exact
+operator order grad_parallel_density radial_lower_owner: volume_L2=exact, Linf=exact
+operator order grad_parallel_density radial_upper_owner: volume_L2=exact, Linf=exact
+operator order grad_parallel_density radial_interior_2plus: volume_L2=exact, Linf=exact
+operator order grad_parallel_phi all_active: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi bulk: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi one_wall: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi multi_wall: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi aggregate_target: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi remote_interface: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi dense_far: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_phi radial_interior_2plus: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_ion all_active: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion bulk: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion one_wall: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion multi_wall: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion aggregate_target: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion remote_interface: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_ion reconstruction_row: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion retained_cut_cell: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion dense_compact_d1: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion dense_compact_d2: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion dense_far: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion radial_lower_owner: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion radial_upper_owner: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_ion radial_interior_2plus: volume_L2=exact, Linf=exact
+operator order grad_parallel_v_electron all_active: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron bulk: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron one_wall: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron multi_wall: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron aggregate_target: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron remote_interface: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron dense_far: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order grad_parallel_v_electron radial_interior_2plus: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence all_active: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence bulk: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence one_wall: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence multi_wall: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence aggregate_target: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence remote_interface: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence dense_far: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence radial_interior_2plus: volume_L2=n/a, Linf=n/a
+operator order poisson_density all_active: volume_L2=exact, Linf=exact
+operator order poisson_density bulk: volume_L2=exact, Linf=exact
+operator order poisson_density one_wall: volume_L2=exact, Linf=exact
+operator order poisson_density multi_wall: volume_L2=exact, Linf=exact
+operator order poisson_density aggregate_target: volume_L2=exact, Linf=exact
+operator order poisson_density remote_interface: volume_L2=n/a, Linf=n/a
+operator order poisson_density reconstruction_row: volume_L2=exact, Linf=exact
+operator order poisson_density retained_cut_cell: volume_L2=exact, Linf=exact
+operator order poisson_density dense_compact_d1: volume_L2=exact, Linf=exact
+operator order poisson_density dense_compact_d2: volume_L2=exact, Linf=exact
+operator order poisson_density dense_far: volume_L2=exact, Linf=exact
+operator order poisson_density radial_lower_owner: volume_L2=exact, Linf=exact
+operator order poisson_density radial_upper_owner: volume_L2=exact, Linf=exact
+operator order poisson_density radial_interior_2plus: volume_L2=exact, Linf=exact
+operator order poisson_omega all_active: volume_L2=n/a, Linf=n/a
+operator order poisson_omega bulk: volume_L2=n/a, Linf=n/a
+operator order poisson_omega one_wall: volume_L2=n/a, Linf=n/a
+operator order poisson_omega multi_wall: volume_L2=n/a, Linf=n/a
+operator order poisson_omega aggregate_target: volume_L2=n/a, Linf=n/a
+operator order poisson_omega remote_interface: volume_L2=n/a, Linf=n/a
+operator order poisson_omega reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order poisson_omega retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order poisson_omega dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order poisson_omega dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order poisson_omega dense_far: volume_L2=n/a, Linf=n/a
+operator order poisson_omega radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order poisson_omega radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order poisson_omega radial_interior_2plus: volume_L2=n/a, Linf=n/a
+operator order poisson_v_ion all_active: volume_L2=exact, Linf=exact
+operator order poisson_v_ion bulk: volume_L2=exact, Linf=exact
+operator order poisson_v_ion one_wall: volume_L2=exact, Linf=exact
+operator order poisson_v_ion multi_wall: volume_L2=exact, Linf=exact
+operator order poisson_v_ion aggregate_target: volume_L2=exact, Linf=exact
+operator order poisson_v_ion remote_interface: volume_L2=n/a, Linf=n/a
+operator order poisson_v_ion reconstruction_row: volume_L2=exact, Linf=exact
+operator order poisson_v_ion retained_cut_cell: volume_L2=exact, Linf=exact
+operator order poisson_v_ion dense_compact_d1: volume_L2=exact, Linf=exact
+operator order poisson_v_ion dense_compact_d2: volume_L2=exact, Linf=exact
+operator order poisson_v_ion dense_far: volume_L2=exact, Linf=exact
+operator order poisson_v_ion radial_lower_owner: volume_L2=exact, Linf=exact
+operator order poisson_v_ion radial_upper_owner: volume_L2=exact, Linf=exact
+operator order poisson_v_ion radial_interior_2plus: volume_L2=exact, Linf=exact
+operator order poisson_v_electron all_active: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron bulk: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron one_wall: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron multi_wall: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron aggregate_target: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron remote_interface: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron dense_far: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order poisson_v_electron radial_interior_2plus: volume_L2=n/a, Linf=n/a
+operator order curvature_density all_active: volume_L2=exact, Linf=exact
+operator order curvature_density bulk: volume_L2=exact, Linf=exact
+operator order curvature_density one_wall: volume_L2=exact, Linf=exact
+operator order curvature_density multi_wall: volume_L2=exact, Linf=exact
+operator order curvature_density aggregate_target: volume_L2=exact, Linf=exact
+operator order curvature_density remote_interface: volume_L2=n/a, Linf=n/a
+operator order curvature_density reconstruction_row: volume_L2=exact, Linf=exact
+operator order curvature_density retained_cut_cell: volume_L2=exact, Linf=exact
+operator order curvature_density dense_compact_d1: volume_L2=exact, Linf=exact
+operator order curvature_density dense_compact_d2: volume_L2=exact, Linf=exact
+operator order curvature_density dense_far: volume_L2=exact, Linf=exact
+operator order curvature_density radial_lower_owner: volume_L2=exact, Linf=exact
+operator order curvature_density radial_upper_owner: volume_L2=exact, Linf=exact
+operator order curvature_density radial_interior_2plus: volume_L2=exact, Linf=exact
+operator order curvature_phi all_active: volume_L2=n/a, Linf=n/a
+operator order curvature_phi bulk: volume_L2=n/a, Linf=n/a
+operator order curvature_phi one_wall: volume_L2=n/a, Linf=n/a
+operator order curvature_phi multi_wall: volume_L2=n/a, Linf=n/a
+operator order curvature_phi aggregate_target: volume_L2=n/a, Linf=n/a
+operator order curvature_phi remote_interface: volume_L2=n/a, Linf=n/a
+operator order curvature_phi reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order curvature_phi retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order curvature_phi dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order curvature_phi dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order curvature_phi dense_far: volume_L2=n/a, Linf=n/a
+operator order curvature_phi radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order curvature_phi radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order curvature_phi radial_interior_2plus: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi all_active: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi bulk: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi one_wall: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi multi_wall: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi aggregate_target: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi remote_interface: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi dense_far: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order perp_laplacian_phi radial_interior_2plus: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density all_active: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density bulk: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density one_wall: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density multi_wall: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density aggregate_target: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density remote_interface: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density dense_far: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order full_rhs_density radial_interior_2plus: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega all_active: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega bulk: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega one_wall: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega multi_wall: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega aggregate_target: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega remote_interface: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega dense_far: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order full_rhs_omega radial_interior_2plus: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_ion_parallel all_active: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel bulk: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel one_wall: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel multi_wall: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel aggregate_target: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel remote_interface: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_ion_parallel reconstruction_row: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel retained_cut_cell: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel dense_compact_d1: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel dense_compact_d2: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel dense_far: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel radial_lower_owner: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel radial_upper_owner: volume_L2=exact, Linf=exact
+operator order full_rhs_v_ion_parallel radial_interior_2plus: volume_L2=exact, Linf=exact
+operator order full_rhs_v_electron_parallel all_active: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel bulk: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel one_wall: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel multi_wall: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel aggregate_target: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel remote_interface: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel dense_far: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order full_rhs_v_electron_parallel radial_interior_2plus: volume_L2=n/a, Linf=n/a

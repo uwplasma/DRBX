@@ -100,9 +100,10 @@ def _axis_grid(
     axis: int,
     shard_id: object,
     endpoint: bool,
+    cell_centered: bool = False,
 ) -> LocalGrid1D:
     halo_width = int(layout.halo_width)
-    if bool(endpoint):
+    if bool(endpoint) and not bool(cell_centered):
         spacing = (
             1.0
             if int(global_size) == 1
@@ -113,11 +114,17 @@ def _axis_grid(
     start = jnp.asarray(shard_id, dtype=jnp.int32) * int(local_size)
     center_indices = start + jnp.arange(-halo_width, local_size + halo_width)
     face_indices = start + jnp.arange(-halo_width, local_size + halo_width + 1)
+    if cell_centered:
+        centers_halo = float(lower) + (center_indices + 0.5) * spacing
+        faces_halo = float(lower) + face_indices * spacing
+    else:
+        centers_halo = float(lower) + center_indices * spacing
+        faces_halo = float(lower) + (face_indices - 0.5) * spacing
     return LocalGrid1D(
         layout=layout,
         axis=axis,
-        centers_halo=float(lower) + center_indices * spacing,
-        faces_halo=float(lower) + (face_indices - 0.5) * spacing,
+        centers_halo=centers_halo,
+        faces_halo=faces_halo,
         owned_start_global=0,
         owned_stop_global=local_size,
     )
@@ -206,7 +213,7 @@ def build_shifted_torus_local_geometry(
     shard_index: tuple[object, object, object] = (0, 0, 0),
     construct_fci_maps: bool = False,
     traced_maps=None,
-    x_min: float = 0.15,
+    x_min: float = 0.2,
     x_max: float = 1.0,
     r0: float = 3.0,
     alpha_value: float = 0.25,
@@ -237,6 +244,7 @@ def build_shifted_torus_local_geometry(
             axis=0,
             shard_id=shard_index[0],
             endpoint=True,
+            cell_centered=True,
         ),
         y=_axis_grid(
             layout,
@@ -265,7 +273,7 @@ def build_shifted_torus_local_geometry(
         grid.z.centers_halo,
         indexing="ij",
     )
-    dx = 1.0 if global_nx == 1 else (float(x_max) - float(x_min)) / float(global_nx - 1)
+    dx = (float(x_max) - float(x_min)) / float(global_nx)
     dy = 2.0 * jnp.pi / float(global_ny)
     dz = 2.0 * jnp.pi / float(global_nz)
     spacing = LocalSpacing3D(

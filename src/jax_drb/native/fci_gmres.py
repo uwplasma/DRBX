@@ -180,11 +180,45 @@ def _local_cell_volume_weights(geometry: LocalFciGeometry3D) -> jnp.ndarray:
     if not isinstance(geometry, LocalFciGeometry3D):
         raise TypeError("geometry must be a LocalFciGeometry3D instance")
     return (
-        jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64)
+        jnp.asarray(
+            geometry.cell_volume_geometry.volume,
+            dtype=jnp.float64,
+        )
+        * jnp.asarray(
+            geometry.cell_volume_geometry.volume_fraction,
+            dtype=jnp.float64,
+        )
         * jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
         * jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
         * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
     )
+
+
+def _normalize_active_cell_mask(
+    active_cell_mask: jnp.ndarray | None,
+    geometry: LocalFciGeometry3D,
+) -> jnp.ndarray | None:
+    if active_cell_mask is None:
+        return None
+    mask = jnp.asarray(active_cell_mask, dtype=bool)
+    if mask.shape != geometry.owned_shape:
+        raise ValueError(
+            "active_cell_mask must have shape "
+            f"{geometry.owned_shape}, got {mask.shape}"
+        )
+    return mask
+
+
+def _mask_inactive_owned(
+    values: jnp.ndarray,
+    active_cell_mask: jnp.ndarray | None,
+    *,
+    inactive_value: float = 0.0,
+) -> jnp.ndarray:
+    values = jnp.asarray(values, dtype=jnp.float64)
+    if active_cell_mask is None:
+        return values
+    return jnp.where(active_cell_mask, values, jnp.asarray(inactive_value, dtype=values.dtype))
 
 
 def _spmd_dot(
@@ -192,12 +226,13 @@ def _spmd_dot(
     y: jnp.ndarray,
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
+    active_cell_mask: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Unweighted global dot product over owned-local vector shards."""
 
     del geometry
-    x = jnp.asarray(x, dtype=jnp.float64)
-    y = jnp.asarray(y, dtype=jnp.float64)
+    x = _mask_inactive_owned(x, active_cell_mask)
+    y = _mask_inactive_owned(y, active_cell_mask)
     return _spmd_sum(jnp.sum(x * y), domain)
 
 
@@ -205,21 +240,27 @@ def _spmd_norm(
     x: jnp.ndarray,
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
+    active_cell_mask: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Unweighted global L2 norm over owned-local vector shards."""
 
-    return jnp.sqrt(jnp.maximum(_spmd_dot(x, x, geometry, domain), 0.0))
+    return jnp.sqrt(
+        jnp.maximum(_spmd_dot(x, x, geometry, domain, active_cell_mask), 0.0)
+    )
 
 
 def _spmd_weighted_mean(
     field: jnp.ndarray,
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
+    active_cell_mask: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Weighted global mean over owned-local cells."""
 
-    values = jnp.asarray(field, dtype=jnp.float64)
+    values = _mask_inactive_owned(field, active_cell_mask)
     weights = _local_cell_volume_weights(geometry)
+    if active_cell_mask is not None:
+        weights = jnp.where(active_cell_mask, weights, 0.0)
     numerator = _spmd_sum(jnp.sum(weights * values), domain)
     denominator = _spmd_sum(jnp.sum(weights), domain)
     return numerator / jnp.maximum(denominator, 1.0e-30)
@@ -229,11 +270,14 @@ def _spmd_weighted_l2(
     field: jnp.ndarray,
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
+    active_cell_mask: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Weighted global RMS norm over owned-local cells."""
 
-    values = jnp.asarray(field, dtype=jnp.float64)
+    values = _mask_inactive_owned(field, active_cell_mask)
     weights = _local_cell_volume_weights(geometry)
+    if active_cell_mask is not None:
+        weights = jnp.where(active_cell_mask, weights, 0.0)
     numerator = _spmd_sum(jnp.sum(weights * values * values), domain)
     denominator = _spmd_sum(jnp.sum(weights), domain)
     return jnp.sqrt(numerator / jnp.maximum(denominator, 1.0e-30))
@@ -243,15 +287,24 @@ def _spmd_remove_weighted_mean(
     field: jnp.ndarray,
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
+    active_cell_mask: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Remove the global weighted mean from an owned-local field."""
 
-    values = jnp.asarray(field, dtype=jnp.float64)
-    return values - _spmd_weighted_mean(values, geometry, domain)
+    values = _mask_inactive_owned(field, active_cell_mask)
+    result = values - _spmd_weighted_mean(values, geometry, domain, active_cell_mask)
+    return _mask_inactive_owned(result, active_cell_mask)
 
 
-def _spmd_all_finite(field: jnp.ndarray, domain: LocalDomain3D) -> jnp.ndarray:
-    local = jnp.all(jnp.isfinite(field))
+def _spmd_all_finite(
+    field: jnp.ndarray,
+    domain: LocalDomain3D,
+    active_cell_mask: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    finite = jnp.isfinite(field)
+    if active_cell_mask is not None:
+        finite = finite | (~active_cell_mask)
+    local = jnp.all(finite)
     return _spmd_sum(local.astype(jnp.int32), domain) == _spmd_sum(
         jnp.asarray(1, dtype=jnp.int32),
         domain,
@@ -284,6 +337,7 @@ def spmd_gmres_solve(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
     config: SpmdGmresConfig = SpmdGmresConfig(),
+    active_cell_mask: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, SpmdGmresInfo]:
     """Solve ``A x = rhs`` with restarted GMRES inside an SPMD transform."""
 
@@ -305,13 +359,23 @@ def spmd_gmres_solve(
             f"guess_owned must have shape {geometry.owned_shape}, got {guess.shape}"
         )
 
-    rhs_is_finite = _spmd_all_finite(rhs, domain)
-    guess_is_finite = _spmd_all_finite(guess, domain)
+    active_mask = _normalize_active_cell_mask(active_cell_mask, geometry)
+    rhs_is_finite = _spmd_all_finite(rhs, domain, active_mask)
+    guess_is_finite = _spmd_all_finite(guess, domain, active_mask)
+    rhs = _mask_inactive_owned(rhs, active_mask)
+    guess = _mask_inactive_owned(guess, active_mask)
+
+    def masked_apply_A(values: jnp.ndarray) -> jnp.ndarray:
+        return _mask_inactive_owned(
+            apply_A(_mask_inactive_owned(values, active_mask)),
+            active_mask,
+        )
+
     if config.project_mean_zero:
-        rhs = _spmd_remove_weighted_mean(rhs, geometry, domain)
-        guess = _spmd_remove_weighted_mean(guess, geometry, domain)
-    projected_rhs_mean = _spmd_weighted_mean(rhs, geometry, domain)
-    projected_rhs_l2 = _spmd_weighted_l2(rhs, geometry, domain)
+        rhs = _spmd_remove_weighted_mean(rhs, geometry, domain, active_mask)
+        guess = _spmd_remove_weighted_mean(guess, geometry, domain, active_mask)
+    projected_rhs_mean = _spmd_weighted_mean(rhs, geometry, domain, active_mask)
+    projected_rhs_l2 = _spmd_weighted_l2(rhs, geometry, domain, active_mask)
 
     restart = int(config.restart)
     maxiter = int(config.maxiter)
@@ -319,7 +383,7 @@ def spmd_gmres_solve(
     shape = geometry.owned_shape
     dtype = rhs.dtype
 
-    rhs_l2 = _spmd_norm(rhs, geometry, domain)
+    rhs_l2 = _spmd_norm(rhs, geometry, domain, active_mask)
     threshold = jnp.maximum(
         jnp.asarray(config.atol, dtype=dtype),
         jnp.asarray(config.tol, dtype=dtype) * rhs_l2,
@@ -330,8 +394,8 @@ def spmd_gmres_solve(
     )
 
     x0 = guess
-    r0 = rhs - apply_A(x0)
-    beta0 = _spmd_norm(r0, geometry, domain)
+    r0 = _mask_inactive_owned(rhs - masked_apply_A(x0), active_mask)
+    beta0 = _spmd_norm(r0, geometry, domain, active_mask)
     initial_residual = beta0
     initial_converged = beta0 <= threshold
     initial_failed = (
@@ -362,8 +426,8 @@ def spmd_gmres_solve(
             stale_count,
         ) = carry
 
-        r = rhs - apply_A(x_base)
-        beta = _spmd_norm(r, geometry, domain)
+        r = _mask_inactive_owned(rhs - masked_apply_A(x_base), active_mask)
+        beta = _spmd_norm(r, geometry, domain, active_mask)
         safe_beta = jnp.maximum(beta, 1.0e-30)
         v0 = jnp.where(beta > 0.0, r / safe_beta, jnp.zeros_like(r))
         V = jnp.zeros((restart + 1,) + shape, dtype=dtype)
@@ -409,19 +473,19 @@ def spmd_gmres_solve(
             ) = inner_carry
 
             vj = V[j]
-            w0 = apply_A(vj)
+            w0 = masked_apply_A(vj)
 
             def _orthogonalize(i, orth_carry):
                 w, H = orth_carry
                 vi = V[i]
-                hij_raw = _spmd_dot(w, vi, geometry, domain)
+                hij_raw = _spmd_dot(w, vi, geometry, domain, active_mask)
                 hij = jnp.where(i <= j, hij_raw, 0.0)
-                w = w - hij * vi
+                w = _mask_inactive_owned(w - hij * vi, active_mask)
                 H = H.at[i, j].set(hij)
                 return w, H
 
             w, H = lax.fori_loop(0, restart, _orthogonalize, (w0, H))
-            h_next_raw = _spmd_norm(w, geometry, domain)
+            h_next_raw = _spmd_norm(w, geometry, domain, active_mask)
             H = H.at[j + 1, j].set(h_next_raw)
             v_next = jnp.where(
                 h_next_raw > 1.0e-30,
@@ -431,7 +495,10 @@ def spmd_gmres_solve(
             V = V.at[j + 1].set(v_next)
 
             y, residual_estimate = _gmres_least_squares_solution(H, beta, j)
-            candidate = x_base + jnp.tensordot(y, V[:-1], axes=((0,), (0,)))
+            candidate = _mask_inactive_owned(
+                x_base + jnp.tensordot(y, V[:-1], axes=((0,), (0,))),
+                active_mask,
+            )
             residual_next = residual_estimate
             improved = residual_next < residual_current * (1.0 - 1.0e-12)
             stale_next = jnp.where(improved, 0, stale_count + 1)
@@ -441,7 +508,11 @@ def spmd_gmres_solve(
                 & (stale_next >= stagnation_iters)
                 & (residual_next > acceptance_threshold)
             )
-            finite_ok = jnp.isfinite(residual_next) & jnp.all(jnp.isfinite(candidate))
+            finite_ok = jnp.isfinite(residual_next) & _spmd_all_finite(
+                candidate,
+                domain,
+                active_mask,
+            )
             finite_failed = failed_current | (~finite_ok)
             finite_failed = jnp.where(config.check_finite, finite_failed, failed_current)
             failed_next = finite_failed | stagnated
@@ -483,7 +554,12 @@ def spmd_gmres_solve(
             ),
         )
 
-        true_residual = _spmd_norm(rhs - apply_A(x_current), geometry, domain)
+        true_residual = _spmd_norm(
+            rhs - masked_apply_A(x_current),
+            geometry,
+            domain,
+            active_mask,
+        )
         converged_current = true_residual <= threshold
         finite_failed = failed_current | (~jnp.isfinite(true_residual))
         failed_current = jnp.where(config.check_finite, finite_failed, failed_current)
@@ -517,9 +593,15 @@ def spmd_gmres_solve(
     )
 
     if config.project_mean_zero:
-        phi = _spmd_remove_weighted_mean(phi, geometry, domain)
-        final_residual = _spmd_norm(rhs - apply_A(phi), geometry, domain)
-    phi_is_finite = _spmd_all_finite(phi, domain)
+        phi = _spmd_remove_weighted_mean(phi, geometry, domain, active_mask)
+        final_residual = _spmd_norm(
+            rhs - masked_apply_A(phi),
+            geometry,
+            domain,
+            active_mask,
+        )
+    phi = _mask_inactive_owned(phi, active_mask)
+    phi_is_finite = _spmd_all_finite(phi, domain, active_mask)
     accepted = converged | (final_residual <= acceptance_threshold)
     failed = failed | (~accepted)
     failed = failed | jnp.where(config.check_finite, ~phi_is_finite, False)

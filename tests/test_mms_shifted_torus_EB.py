@@ -68,6 +68,7 @@ from jax_drb.native.fci_boundaries import (
 from jax_drb.native.fci_halo import (
     GhostFillWeights1D,
     HaloExchange3D,
+    LocalHaloClosure3D,
     PhysicalGhostCellFiller3D,
     PreparedLocalState3D,
     TopologyHaloFiller3D,
@@ -1393,8 +1394,11 @@ def _prepare_local_field_halo(
     face_bc: LocalBoundaryFaceBC3D,
 ) -> jnp.ndarray:
     field_halo = inject_owned_field_to_halo(field_owned, domain.layout)
-    field_halo = topology_filler(halo_exchange(field_halo, domain), domain)
-    return physical_ghost_filler(field_halo, domain, face_bc)
+    return LocalHaloClosure3D(
+        physical_ghost_filler=physical_ghost_filler,
+        halo_exchange=halo_exchange,
+        topology_filler=topology_filler,
+    )(field_halo, domain, face_bc)
 
 
 def _local_perp_laplacian_from_owned_field(
@@ -2103,23 +2107,19 @@ def _prepare_local_eb_stage_state(
     physical_ghost_filler: PhysicalGhostCellFiller3D,
 ) -> PreparedLocalState3D:
     state_halo = inject_owned_state_to_halo(state_owned, domain.layout)
-    state_halo = FciDrbEBState(
-        density=topology_filler(halo_exchange(state_halo.density, domain), domain),
-        phi=topology_filler(halo_exchange(state_halo.phi, domain), domain),
-        Te=topology_filler(halo_exchange(state_halo.Te, domain), domain),
-        Ti=topology_filler(halo_exchange(state_halo.Ti, domain), domain),
-        Vi=topology_filler(halo_exchange(state_halo.Vi, domain), domain),
-        Ve=topology_filler(halo_exchange(state_halo.Ve, domain), domain),
-        vorticity=topology_filler(halo_exchange(state_halo.vorticity, domain), domain),
+    closure = LocalHaloClosure3D(
+        physical_ghost_filler=physical_ghost_filler,
+        halo_exchange=halo_exchange,
+        topology_filler=topology_filler,
     )
     state_halo = FciDrbEBState(
-        density=physical_ghost_filler(state_halo.density, domain, face_bc.density),
-        phi=physical_ghost_filler(state_halo.phi, domain, face_bc.phi),
-        Te=physical_ghost_filler(state_halo.Te, domain, face_bc.Te),
-        Ti=physical_ghost_filler(state_halo.Ti, domain, face_bc.Ti),
-        Vi=physical_ghost_filler(state_halo.Vi, domain, face_bc.Vi),
-        Ve=physical_ghost_filler(state_halo.Ve, domain, face_bc.Ve),
-        vorticity=physical_ghost_filler(
+        density=closure(state_halo.density, domain, face_bc.density),
+        phi=closure(state_halo.phi, domain, face_bc.phi),
+        Te=closure(state_halo.Te, domain, face_bc.Te),
+        Ti=closure(state_halo.Ti, domain, face_bc.Ti),
+        Vi=closure(state_halo.Vi, domain, face_bc.Vi),
+        Ve=closure(state_halo.Ve, domain, face_bc.Ve),
+        vorticity=closure(
             state_halo.vorticity,
             domain,
             face_bc.vorticity,
@@ -2149,11 +2149,11 @@ class LocalShiftedTorusEbRhs:
         face_bc: LocalBoundaryFaceBC3D,
     ) -> jnp.ndarray:
         phi_halo = inject_owned_field_to_halo(phi_owned, self.domain.layout)
-        phi_halo = self.topology_filler(
-            self.halo_exchange(phi_halo, self.domain),
-            self.domain,
-        )
-        return self.physical_ghost_filler(phi_halo, self.domain, face_bc)
+        return LocalHaloClosure3D(
+            physical_ghost_filler=self.physical_ghost_filler,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+        )(phi_halo, self.domain, face_bc)
 
     def reconstruct_phi(
         self,

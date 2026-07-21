@@ -51,6 +51,7 @@ from jax_drb.native.fci_model import FciFieldBundle, inject_owned_state_to_halo
 from jax_drb.native.fci_halo import (
     GhostFillWeights1D,
     HaloExchange3D,
+    LocalHaloClosure3D,
     PhysicalGhostCellFiller3D,
     PreparedLocalState3D,
     TopologyHaloFiller3D,
@@ -201,6 +202,15 @@ def _discrete_4field_rhs_terms_with_phi(
         v_electron_parallel,
         v_electron_face_bc,
     )
+    density_v_electron_face_bc = density_face_bc.replace(
+        value_x=density_face_bc.value_x * v_electron_face_bc.value_x,
+        value_y=density_face_bc.value_y * v_electron_face_bc.value_y,
+        value_z=density_face_bc.value_z * v_electron_face_bc.value_z,
+    )
+    density_v_electron_stencil = _stencil(
+        density * v_electron_parallel,
+        density_v_electron_face_bc,
+    )
 
     poisson_density = poisson_bracket_op(phi_stencil, density_stencil, geometry)
     poisson_omega = poisson_bracket_op(phi_stencil, omega_stencil, geometry)
@@ -212,13 +222,17 @@ def _discrete_4field_rhs_terms_with_phi(
     grad_parallel_phi = grad_parallel_op_direct(phi_stencil, geometry)
     grad_parallel_v_ion = grad_parallel_op_direct(v_ion_stencil, geometry)
     grad_parallel_v_electron = grad_parallel_op_direct(v_electron_stencil, geometry)
+    grad_parallel_density_v_electron = grad_parallel_op_direct(
+        density_v_electron_stencil,
+        geometry,
+    )
 
     return {
         "density": {
             "poisson": -(poisson_density / (rho_star_value * bmag)),
             "curvature_density": (2.0 * te / bmag) * curvature_density,
             "curvature_phi": -(2.0 * density / bmag) * curvature_phi,
-            "parallel_v_electron": -density * grad_parallel_v_electron,
+            "parallel_density_v_electron": -grad_parallel_density_v_electron,
         },
         "omega": {
             "poisson": -(poisson_omega / (rho_star_value * bmag)),
@@ -635,11 +649,11 @@ class LocalShiftedTorus4FieldRhs:
             ),
             self.domain.layout,
         ).density
-        phi_halo = self.topology_filler(
-            self.halo_exchange(phi_halo, self.domain),
-            self.domain,
-        )
-        return self.physical_ghost_filler(phi_halo, self.domain, face_bc)
+        return LocalHaloClosure3D(
+            physical_ghost_filler=self.physical_ghost_filler,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+        )(phi_halo, self.domain, face_bc)
 
     def evaluate_stage(
         self,
@@ -685,6 +699,11 @@ class LocalShiftedTorus4FieldRhs:
         omega_stencil = build_local_stencil_from_field(state_halo.omega, self.geometry, context)
         v_ion_stencil = build_local_stencil_from_field(state_halo.v_ion_parallel, self.geometry, context)
         v_electron_stencil = build_local_stencil_from_field(state_halo.v_electron_parallel, self.geometry, context)
+        density_v_electron_stencil = build_local_stencil_from_field(
+            state_halo.density * state_halo.v_electron_parallel,
+            self.geometry,
+            context,
+        )
         phi_stencil = build_local_stencil_from_field(phi_halo, self.geometry, context)
 
         density_owned = jnp.asarray(
@@ -718,12 +737,16 @@ class LocalShiftedTorus4FieldRhs:
         grad_parallel_phi = local_grad_parallel_op_direct(phi_stencil, self.geometry)
         grad_parallel_v_ion = local_grad_parallel_op_direct(v_ion_stencil, self.geometry)
         grad_parallel_v_electron = local_grad_parallel_op_direct(v_electron_stencil, self.geometry)
+        grad_parallel_density_v_electron = local_grad_parallel_op_direct(
+            density_v_electron_stencil,
+            self.geometry,
+        )
 
         density_rhs = (
             -(poisson_density / (rho_star_value * bmag_owned))
             + (2.0 * te / bmag_owned) * curvature_density
             - (2.0 * density_owned / bmag_owned) * curvature_phi
-            - density_owned * grad_parallel_v_electron
+            - grad_parallel_density_v_electron
         )
         omega_rhs = (
             -(poisson_omega / (rho_star_value * bmag_owned))

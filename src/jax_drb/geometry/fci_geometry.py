@@ -59,11 +59,17 @@ def _validate_coordinate_stencil_dependency_rows(
     valid_axis = (~active) | ((axis >= 0) & (axis <= 2))
     valid_side = (~active) | ((side >= 0) & (side <= 1))
     valid_distance = (~active) | (distance > 0.0)
-    if not bool(jnp.all(valid_axis)):
+    try:
+        all_valid_axis = bool(jnp.all(valid_axis))
+        all_valid_side = bool(jnp.all(valid_side))
+        all_valid_distance = bool(jnp.all(valid_distance))
+    except jax.errors.TracerBoolConversionError:
+        return
+    if not all_valid_axis:
         raise ValueError(f"{label}.axis must be 0, 1, or 2 for active rows")
-    if not bool(jnp.all(valid_side)):
+    if not all_valid_side:
         raise ValueError(f"{label}.side must be 0 or 1 for active rows")
-    if not bool(jnp.all(valid_distance)):
+    if not all_valid_distance:
         raise ValueError(f"{label}.distance must be positive for active rows")
 
     seen: set[tuple[int, int, int]] = set()
@@ -1315,7 +1321,11 @@ def build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry(
         & (owner_k >= 0)
         & (owner_k < nz)
     )
-    if not bool(jnp.all((~active) | target_in_bounds)):
+    try:
+        all_targets_in_bounds = bool(jnp.all((~active) | target_in_bounds))
+    except jax.errors.TracerBoolConversionError:
+        all_targets_in_bounds = True
+    if not all_targets_in_bounds:
         raise ValueError(
             "active coordinate-stencil cut-wall rows must use owned-local "
             "owner_i/j/k coordinates"
@@ -1483,6 +1493,7 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
     face_bfield: LocalFaceBFieldGeometry
     regular_face_geometry: LocalRegularFaceGeometry3D
     cell_volume_geometry: LocalCellVolumeGeometry3D
+    active_cell_mask: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -1519,6 +1530,14 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
         ):
             if value != self.layout:
                 raise ValueError(f"LocalFciGeometry3D.{name} must share the same HaloLayout3D")
+        if self.active_cell_mask is not None:
+            active_cell_mask = jnp.asarray(self.active_cell_mask, dtype=bool)
+            if active_cell_mask.shape != self.layout.owned_shape:
+                raise ValueError(
+                    "LocalFciGeometry3D.active_cell_mask must have shape "
+                    f"{self.layout.owned_shape}, got {active_cell_mask.shape}"
+                )
+            object.__setattr__(self, "active_cell_mask", active_cell_mask)
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -1539,6 +1558,20 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
     @property
     def local_halo_shape(self) -> tuple[int, int, int]:
         return self.layout.cell_halo_shape
+
+    @property
+    def active_cell_mask_owned(self) -> jnp.ndarray:
+        """Owned-cell mask for cells that participate in solves and norms.
+
+        Embedded solid or otherwise inactive cells are still valid storage, but
+        callers that solve active-domain equations should exclude them from
+        algebraic unknowns and diagnostics.  Geometries without embedded
+        inactive regions default to all owned cells active.
+        """
+
+        if self.active_cell_mask is None:
+            return jnp.ones(self.layout.owned_shape, dtype=bool)
+        return self.active_cell_mask
 
     @property
     def x_centers(self) -> jnp.ndarray:
@@ -2658,6 +2691,14 @@ class LocalRegularFaceGeometry3D(_DataclassPyTreeMixin):
     x_open_mask: jnp.ndarray  # (nx_owned + 1, ny_owned, nz_owned)
     y_open_mask: jnp.ndarray  # (nx_owned, ny_owned + 1, nz_owned)
     z_open_mask: jnp.ndarray  # (nx_owned, ny_owned, nz_owned + 1)
+    # Offset, in logical coordinates, from the coordinate-face center to the
+    # centroid of the remaining open regular face.  This is zero for ordinary
+    # uncut faces.  Embedded cut cells can set it when a solid clips only part
+    # of a regular face; conservative face-gradient reconstruction then uses
+    # the actual open-face centroid instead of the full coordinate face center.
+    x_centroid_offset: jnp.ndarray | None = None  # (nx_owned + 1, ny_owned, nz_owned, 3)
+    y_centroid_offset: jnp.ndarray | None = None  # (nx_owned, ny_owned + 1, nz_owned, 3)
+    z_centroid_offset: jnp.ndarray | None = None  # (nx_owned, ny_owned, nz_owned + 1, 3)
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -2688,10 +2729,31 @@ class LocalRegularFaceGeometry3D(_DataclassPyTreeMixin):
             if value.shape != shape:
                 raise ValueError(f"LocalRegularFaceGeometry3D.{name} must have shape {shape}, got {value.shape}")
             object.__setattr__(self, name, value)
+        for name, shape in (
+            ("x_centroid_offset", expected_x),
+            ("y_centroid_offset", expected_y),
+            ("z_centroid_offset", expected_z),
+        ):
+            value = getattr(self, name)
+            expected_offset_shape = shape + (3,)
+            if value is None:
+                offset = jnp.zeros(expected_offset_shape, dtype=jnp.float64)
+            else:
+                offset = jnp.asarray(value, dtype=jnp.float64)
+                if offset.shape != expected_offset_shape:
+                    raise ValueError(
+                        f"LocalRegularFaceGeometry3D.{name} must have shape "
+                        f"{expected_offset_shape}, got {offset.shape}"
+                    )
+            object.__setattr__(self, name, offset)
 
     @property
     def axes(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         return self.x_area, self.y_area, self.z_area
+
+    @property
+    def centroid_offsets(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        return self.x_centroid_offset, self.y_centroid_offset, self.z_centroid_offset
 
     @property
     def shape(self) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
@@ -2704,6 +2766,47 @@ class LocalRegularFaceGeometry3D(_DataclassPyTreeMixin):
     @property
     def local_halo_shape(self) -> tuple[int, int, int]:
         return self.layout.cell_halo_shape
+
+    def tree_flatten(self):
+        return (
+            (
+                self.x_area,
+                self.y_area,
+                self.z_area,
+                self.x_area_fraction,
+                self.y_area_fraction,
+                self.z_area_fraction,
+                self.x_open_mask,
+                self.y_open_mask,
+                self.z_open_mask,
+                self.x_centroid_offset,
+                self.y_centroid_offset,
+                self.z_centroid_offset,
+            ),
+            self.layout,
+        )
+
+    @classmethod
+    def tree_unflatten(cls, layout, children):
+        names = (
+            "x_area",
+            "y_area",
+            "z_area",
+            "x_area_fraction",
+            "y_area_fraction",
+            "z_area_fraction",
+            "x_open_mask",
+            "y_open_mask",
+            "z_open_mask",
+            "x_centroid_offset",
+            "y_centroid_offset",
+            "z_centroid_offset",
+        )
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "layout", layout)
+        for name, value in zip(names, children):
+            object.__setattr__(instance, name, value)
+        return instance
 
 
 @_pytree_base
@@ -2720,6 +2823,9 @@ class RegularFaceGeometry3D(_DataclassPyTreeMixin):
     x_open_mask: jnp.ndarray
     y_open_mask: jnp.ndarray
     z_open_mask: jnp.ndarray
+    x_centroid_offset: jnp.ndarray | None = None
+    y_centroid_offset: jnp.ndarray | None = None
+    z_centroid_offset: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         x_area = jnp.asarray(self.x_area, dtype=jnp.float64)
@@ -2755,6 +2861,23 @@ class RegularFaceGeometry3D(_DataclassPyTreeMixin):
             if value.shape != shape:
                 raise ValueError(f"RegularFaceGeometry3D.{name} must have shape {shape}, got {value.shape}")
             object.__setattr__(self, name, value)
+        for name, shape in (
+            ("x_centroid_offset", x_shape),
+            ("y_centroid_offset", y_shape),
+            ("z_centroid_offset", z_shape),
+        ):
+            value = getattr(self, name)
+            expected_offset_shape = shape + (3,)
+            if value is None:
+                offset = jnp.zeros(expected_offset_shape, dtype=jnp.float64)
+            else:
+                offset = jnp.asarray(value, dtype=jnp.float64)
+                if offset.shape != expected_offset_shape:
+                    raise ValueError(
+                        f"RegularFaceGeometry3D.{name} must have shape "
+                        f"{expected_offset_shape}, got {offset.shape}"
+                    )
+            object.__setattr__(self, name, offset)
 
     @classmethod
     def unit(cls, geometry: "FciGeometry3D") -> "RegularFaceGeometry3D":
@@ -2777,6 +2900,10 @@ class RegularFaceGeometry3D(_DataclassPyTreeMixin):
     @property
     def shape(self) -> tuple[int, int, int]:
         return (int(self.x_area.shape[0] - 1), int(self.y_area.shape[1] - 1), int(self.z_area.shape[2] - 1))
+
+    @property
+    def centroid_offsets(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        return self.x_centroid_offset, self.y_centroid_offset, self.z_centroid_offset
 
 
 @_pytree_base
@@ -2864,6 +2991,956 @@ class LocalCellVolumeGeometry3D(_DataclassPyTreeMixin):
     @property
     def volume_fraction_owned(self) -> jnp.ndarray:
         return self.volume_fraction
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalCellAgglomeration3D(_DataclassPyTreeMixin):
+    """Owned-cell agglomeration map for embedded-boundary control volumes.
+
+    ``source_active`` marks owned storage cells whose fluid volume is merged
+    into another active owned cell.  The target indices identify the active
+    owner of that merged control volume.  Empty/all-false maps are a no-op.
+    """
+
+    layout: HaloLayout3D
+    source_active: jnp.ndarray
+    target_i: jnp.ndarray
+    target_j: jnp.ndarray
+    target_k: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("layout must be a HaloLayout3D instance")
+        shape = self.layout.owned_shape
+        source_active = jnp.asarray(self.source_active, dtype=bool)
+        if source_active.shape != shape:
+            raise ValueError(
+                "LocalCellAgglomeration3D.source_active must match layout.owned_shape; "
+                f"got {source_active.shape}, expected {shape}"
+            )
+        target_i = _require_shape(self.target_i, shape, "LocalCellAgglomeration3D.target_i").astype(jnp.int32)
+        target_j = _require_shape(self.target_j, shape, "LocalCellAgglomeration3D.target_j").astype(jnp.int32)
+        target_k = _require_shape(self.target_k, shape, "LocalCellAgglomeration3D.target_k").astype(jnp.int32)
+        valid = (
+            (~source_active)
+            | (
+                (target_i >= 0)
+                & (target_i < shape[0])
+                & (target_j >= 0)
+                & (target_j < shape[1])
+                & (target_k >= 0)
+                & (target_k < shape[2])
+            )
+        )
+        try:
+            all_valid = bool(jnp.all(valid))
+        except jax.errors.TracerBoolConversionError:
+            all_valid = True
+        if not all_valid:
+            raise ValueError("active agglomeration sources must map to owned target cells")
+
+        object.__setattr__(self, "source_active", source_active)
+        object.__setattr__(self, "target_i", jnp.where(source_active, target_i, 0))
+        object.__setattr__(self, "target_j", jnp.where(source_active, target_j, 0))
+        object.__setattr__(self, "target_k", jnp.where(source_active, target_k, 0))
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        return self.layout.owned_shape
+
+    @property
+    def has_sources(self) -> bool:
+        return bool(jnp.any(self.source_active))
+
+    @classmethod
+    def empty(cls, layout: HaloLayout3D) -> "LocalCellAgglomeration3D":
+        shape = layout.owned_shape
+        return cls(
+            layout=layout,
+            source_active=jnp.zeros(shape, dtype=bool),
+            target_i=jnp.zeros(shape, dtype=jnp.int32),
+            target_j=jnp.zeros(shape, dtype=jnp.int32),
+            target_k=jnp.zeros(shape, dtype=jnp.int32),
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalAggregateCellGeometry3D(_DataclassPyTreeMixin):
+    """Owned aggregate-control-volume metadata for reconstruction.
+
+    ``centroid`` is the logical fluid/control-volume centroid associated with
+    each owned storage cell after local agglomeration.  Non-target source cells
+    keep a finite centroid for shape consistency, but are marked inactive by
+    ``source_active`` and should not receive operator outputs.
+    """
+
+    layout: HaloLayout3D
+    source_active: jnp.ndarray
+    target_i: jnp.ndarray
+    target_j: jnp.ndarray
+    target_k: jnp.ndarray
+    is_agglomerated_target: jnp.ndarray
+    raw_volume: jnp.ndarray
+    aggregate_volume: jnp.ndarray
+    centroid: jnp.ndarray
+    source_count: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("layout must be a HaloLayout3D instance")
+        shape = self.layout.owned_shape
+        vector_shape = shape + (3,)
+        source_active = _require_shape(
+            self.source_active,
+            shape,
+            "LocalAggregateCellGeometry3D.source_active",
+        ).astype(bool)
+        target_i = _require_shape(self.target_i, shape, "LocalAggregateCellGeometry3D.target_i").astype(jnp.int32)
+        target_j = _require_shape(self.target_j, shape, "LocalAggregateCellGeometry3D.target_j").astype(jnp.int32)
+        target_k = _require_shape(self.target_k, shape, "LocalAggregateCellGeometry3D.target_k").astype(jnp.int32)
+        is_agglomerated_target = _require_shape(
+            self.is_agglomerated_target,
+            shape,
+            "LocalAggregateCellGeometry3D.is_agglomerated_target",
+        ).astype(bool)
+        raw_volume = _require_float_shape(
+            self.raw_volume,
+            shape,
+            "LocalAggregateCellGeometry3D.raw_volume",
+        )
+        aggregate_volume = _require_float_shape(
+            self.aggregate_volume,
+            shape,
+            "LocalAggregateCellGeometry3D.aggregate_volume",
+        )
+        centroid = _require_float_shape(
+            self.centroid,
+            vector_shape,
+            "LocalAggregateCellGeometry3D.centroid",
+        )
+        source_count = _require_shape(
+            self.source_count,
+            shape,
+            "LocalAggregateCellGeometry3D.source_count",
+        ).astype(jnp.int32)
+
+        object.__setattr__(self, "source_active", source_active)
+        object.__setattr__(self, "target_i", jnp.where(source_active, target_i, 0))
+        object.__setattr__(self, "target_j", jnp.where(source_active, target_j, 0))
+        object.__setattr__(self, "target_k", jnp.where(source_active, target_k, 0))
+        object.__setattr__(self, "is_agglomerated_target", is_agglomerated_target)
+        object.__setattr__(self, "raw_volume", raw_volume)
+        object.__setattr__(self, "aggregate_volume", aggregate_volume)
+        object.__setattr__(self, "centroid", centroid)
+        object.__setattr__(self, "source_count", source_count)
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        return self.layout.owned_shape
+
+    @property
+    def has_agglomeration(self) -> bool:
+        return bool(jnp.any(self.source_active) | jnp.any(self.is_agglomerated_target))
+
+    @classmethod
+    def empty(
+        cls,
+        layout: HaloLayout3D,
+        centroid: jnp.ndarray | None = None,
+        raw_volume: jnp.ndarray | None = None,
+    ) -> "LocalAggregateCellGeometry3D":
+        shape = layout.owned_shape
+        if centroid is None:
+            centroid = jnp.zeros(shape + (3,), dtype=jnp.float64)
+        if raw_volume is None:
+            raw_volume = jnp.ones(shape, dtype=jnp.float64)
+        return cls(
+            layout=layout,
+            source_active=jnp.zeros(shape, dtype=bool),
+            target_i=jnp.zeros(shape, dtype=jnp.int32),
+            target_j=jnp.zeros(shape, dtype=jnp.int32),
+            target_k=jnp.zeros(shape, dtype=jnp.int32),
+            is_agglomerated_target=jnp.zeros(shape, dtype=bool),
+            raw_volume=raw_volume,
+            aggregate_volume=raw_volume,
+            centroid=centroid,
+            source_count=jnp.ones(shape, dtype=jnp.int32),
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
+    """Authoritative owned-cell geometry for embedded control volumes.
+
+    Storage cells either own themselves or map directly to one owned active
+    control volume.  ``raw_*`` fields describe the fluid portion of each
+    storage cell before merging.  ``aggregate_*`` fields are meaningful on
+    active owners and contain the volume-weighted union of all mapped members.
+
+    Second moments are central logical-coordinate moments,
+
+    ``M2 = (1 / V) integral J (xi - centroid) (xi - centroid)^T dxi``.
+
+    Keeping the owner map and the moments in one object prevents reconstruction
+    and conservative flux paths from assigning different meanings to the same
+    stored finite-volume value.
+    """
+
+    layout: HaloLayout3D
+    owner_i: jnp.ndarray
+    owner_j: jnp.ndarray
+    owner_k: jnp.ndarray
+    is_merged_source: jnp.ndarray
+    is_active_owner: jnp.ndarray
+    is_aggregate_target: jnp.ndarray
+    received_source_count: jnp.ndarray
+    member_count: jnp.ndarray
+    raw_volume: jnp.ndarray
+    aggregate_volume: jnp.ndarray
+    raw_centroid: jnp.ndarray
+    centroid: jnp.ndarray
+    raw_second_moment: jnp.ndarray
+    second_moment: jnp.ndarray
+    raw_third_moment: jnp.ndarray | None = None
+    third_moment: jnp.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError(
+                "LocalControlVolumeCellGeometry3D.layout must be a HaloLayout3D"
+            )
+        shape = self.layout.owned_shape
+        vector_shape = shape + (3,)
+        tensor_shape = shape + (3, 3)
+        third_tensor_shape = shape + (3, 3, 3)
+        owner_i = _require_shape(
+            self.owner_i,
+            shape,
+            "LocalControlVolumeCellGeometry3D.owner_i",
+        ).astype(jnp.int32)
+        owner_j = _require_shape(
+            self.owner_j,
+            shape,
+            "LocalControlVolumeCellGeometry3D.owner_j",
+        ).astype(jnp.int32)
+        owner_k = _require_shape(
+            self.owner_k,
+            shape,
+            "LocalControlVolumeCellGeometry3D.owner_k",
+        ).astype(jnp.int32)
+        is_merged_source = _require_shape(
+            self.is_merged_source,
+            shape,
+            "LocalControlVolumeCellGeometry3D.is_merged_source",
+        ).astype(bool)
+        is_active_owner = _require_shape(
+            self.is_active_owner,
+            shape,
+            "LocalControlVolumeCellGeometry3D.is_active_owner",
+        ).astype(bool)
+        is_aggregate_target = _require_shape(
+            self.is_aggregate_target,
+            shape,
+            "LocalControlVolumeCellGeometry3D.is_aggregate_target",
+        ).astype(bool)
+        received_source_count = _require_shape(
+            self.received_source_count,
+            shape,
+            "LocalControlVolumeCellGeometry3D.received_source_count",
+        ).astype(jnp.int32)
+        member_count = _require_shape(
+            self.member_count,
+            shape,
+            "LocalControlVolumeCellGeometry3D.member_count",
+        ).astype(jnp.int32)
+        raw_volume = _require_float_shape(
+            self.raw_volume,
+            shape,
+            "LocalControlVolumeCellGeometry3D.raw_volume",
+        )
+        aggregate_volume = _require_float_shape(
+            self.aggregate_volume,
+            shape,
+            "LocalControlVolumeCellGeometry3D.aggregate_volume",
+        )
+        raw_centroid = _require_float_shape(
+            self.raw_centroid,
+            vector_shape,
+            "LocalControlVolumeCellGeometry3D.raw_centroid",
+        )
+        centroid = _require_float_shape(
+            self.centroid,
+            vector_shape,
+            "LocalControlVolumeCellGeometry3D.centroid",
+        )
+        raw_second_moment = _require_float_shape(
+            self.raw_second_moment,
+            tensor_shape,
+            "LocalControlVolumeCellGeometry3D.raw_second_moment",
+        )
+        second_moment = _require_float_shape(
+            self.second_moment,
+            tensor_shape,
+            "LocalControlVolumeCellGeometry3D.second_moment",
+        )
+        raw_third_moment = _require_float_shape(
+            jnp.zeros(third_tensor_shape, dtype=jnp.float64)
+            if self.raw_third_moment is None
+            else self.raw_third_moment,
+            third_tensor_shape,
+            "LocalControlVolumeCellGeometry3D.raw_third_moment",
+        )
+        third_moment = _require_float_shape(
+            jnp.zeros(third_tensor_shape, dtype=jnp.float64)
+            if self.third_moment is None
+            else self.third_moment,
+            third_tensor_shape,
+            "LocalControlVolumeCellGeometry3D.third_moment",
+        )
+
+        in_bounds = (
+            (owner_i >= 0)
+            & (owner_i < shape[0])
+            & (owner_j >= 0)
+            & (owner_j < shape[1])
+            & (owner_k >= 0)
+            & (owner_k < shape[2])
+        )
+        try:
+            all_in_bounds = bool(jnp.all(in_bounds))
+            no_owner_source_overlap = bool(
+                jnp.all(~(is_merged_source & is_active_owner))
+            )
+            target_semantics_valid = bool(
+                jnp.all(is_aggregate_target == (received_source_count > 0))
+            )
+            positive_owner_volume = bool(
+                jnp.all((~is_active_owner) | (aggregate_volume > 0.0))
+            )
+            finite_active_moments = bool(
+                jnp.all(
+                    (~is_active_owner)
+                    | (
+                        jnp.all(jnp.isfinite(centroid), axis=-1)
+                        & jnp.all(
+                            jnp.isfinite(second_moment),
+                            axis=(-2, -1),
+                        )
+                        & jnp.all(jnp.isfinite(third_moment), axis=(-3, -2, -1))
+                    )
+                )
+            )
+        except jax.errors.TracerBoolConversionError:
+            all_in_bounds = True
+            no_owner_source_overlap = True
+            target_semantics_valid = True
+            positive_owner_volume = True
+            finite_active_moments = True
+        if not all_in_bounds:
+            raise ValueError("all control-volume owners must be local owned cells")
+        if not no_owner_source_overlap:
+            raise ValueError("a merged source cannot also be an active owner")
+        if not target_semantics_valid:
+            raise ValueError(
+                "is_aggregate_target must equal received_source_count > 0"
+            )
+        if not positive_owner_volume:
+            raise ValueError("every active control-volume owner must have positive volume")
+        if not finite_active_moments:
+            raise ValueError("active control-volume moments must be finite")
+
+        object.__setattr__(self, "owner_i", owner_i)
+        object.__setattr__(self, "owner_j", owner_j)
+        object.__setattr__(self, "owner_k", owner_k)
+        object.__setattr__(self, "is_merged_source", is_merged_source)
+        object.__setattr__(self, "is_active_owner", is_active_owner)
+        object.__setattr__(self, "is_aggregate_target", is_aggregate_target)
+        object.__setattr__(self, "received_source_count", received_source_count)
+        object.__setattr__(self, "member_count", member_count)
+        object.__setattr__(self, "raw_volume", jnp.maximum(raw_volume, 0.0))
+        object.__setattr__(
+            self,
+            "aggregate_volume",
+            jnp.where(is_active_owner, aggregate_volume, 0.0),
+        )
+        object.__setattr__(self, "raw_centroid", raw_centroid)
+        object.__setattr__(self, "centroid", centroid)
+        object.__setattr__(
+            self,
+            "raw_second_moment",
+            0.5 * (raw_second_moment + jnp.swapaxes(raw_second_moment, -1, -2)),
+        )
+        object.__setattr__(
+            self,
+            "second_moment",
+            0.5 * (second_moment + jnp.swapaxes(second_moment, -1, -2)),
+        )
+        # The raw quadrature and aggregation paths construct fully symmetric
+        # third moments. Average all index permutations defensively here.
+        permutations = (
+            (0, 1, 2), (0, 2, 1), (1, 0, 2),
+            (1, 2, 0), (2, 0, 1), (2, 1, 0),
+        )
+        object.__setattr__(
+            self,
+            "raw_third_moment",
+            sum(jnp.transpose(raw_third_moment, (0, 1, 2) + tuple(axis + 3 for axis in perm)) for perm in permutations) / 6.0,
+        )
+        object.__setattr__(
+            self,
+            "third_moment",
+            sum(jnp.transpose(third_moment, (0, 1, 2) + tuple(axis + 3 for axis in perm)) for perm in permutations) / 6.0,
+        )
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        return self.layout.owned_shape
+
+    @property
+    def active_volume(self) -> jnp.ndarray:
+        return jnp.where(self.is_active_owner, self.aggregate_volume, 0.0)
+
+    def tree_flatten(self):
+        return (
+            (
+                self.owner_i,
+                self.owner_j,
+                self.owner_k,
+                self.is_merged_source,
+                self.is_active_owner,
+                self.is_aggregate_target,
+                self.received_source_count,
+                self.member_count,
+                self.raw_volume,
+                self.aggregate_volume,
+                self.raw_centroid,
+                self.centroid,
+                self.raw_second_moment,
+                self.second_moment,
+                self.raw_third_moment,
+                self.third_moment,
+            ),
+            self.layout,
+        )
+
+    @classmethod
+    def tree_unflatten(cls, layout, children):
+        names = (
+            "owner_i",
+            "owner_j",
+            "owner_k",
+            "is_merged_source",
+            "is_active_owner",
+            "is_aggregate_target",
+            "received_source_count",
+            "member_count",
+            "raw_volume",
+            "aggregate_volume",
+            "raw_centroid",
+            "centroid",
+            "raw_second_moment",
+            "second_moment",
+            "raw_third_moment",
+            "third_moment",
+        )
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "layout", layout)
+        for name, value in zip(names, children):
+            object.__setattr__(instance, name, value)
+        return instance
+
+    @classmethod
+    def identity(
+        cls,
+        layout: HaloLayout3D,
+        *,
+        volume: jnp.ndarray,
+        centroid: jnp.ndarray,
+        second_moment: jnp.ndarray | None = None,
+        third_moment: jnp.ndarray | None = None,
+        active: jnp.ndarray | None = None,
+    ) -> "LocalControlVolumeCellGeometry3D":
+        shape = layout.owned_shape
+        i, j, k = jnp.meshgrid(
+            jnp.arange(shape[0], dtype=jnp.int32),
+            jnp.arange(shape[1], dtype=jnp.int32),
+            jnp.arange(shape[2], dtype=jnp.int32),
+            indexing="ij",
+        )
+        volume = _require_float_shape(
+            volume,
+            shape,
+            "LocalControlVolumeCellGeometry3D.identity.volume",
+        )
+        centroid = _require_float_shape(
+            centroid,
+            shape + (3,),
+            "LocalControlVolumeCellGeometry3D.identity.centroid",
+        )
+        if second_moment is None:
+            second_moment = jnp.zeros(shape + (3, 3), dtype=jnp.float64)
+        if third_moment is None:
+            third_moment = jnp.zeros(shape + (3, 3, 3), dtype=jnp.float64)
+        if active is None:
+            active = volume > 0.0
+        active = _require_shape(
+            active,
+            shape,
+            "LocalControlVolumeCellGeometry3D.identity.active",
+        ).astype(bool)
+        return cls(
+            layout=layout,
+            owner_i=i,
+            owner_j=j,
+            owner_k=k,
+            is_merged_source=jnp.zeros(shape, dtype=bool),
+            is_active_owner=active,
+            is_aggregate_target=jnp.zeros(shape, dtype=bool),
+            received_source_count=jnp.zeros(shape, dtype=jnp.int32),
+            member_count=active.astype(jnp.int32),
+            raw_volume=volume,
+            aggregate_volume=jnp.where(active, volume, 0.0),
+            raw_centroid=centroid,
+            centroid=centroid,
+            raw_second_moment=second_moment,
+            second_moment=second_moment,
+            raw_third_moment=third_moment,
+            third_moment=third_moment,
+        )
+
+
+def build_local_control_volume_cell_geometry(
+    layout: HaloLayout3D,
+    *,
+    raw_volume: jnp.ndarray,
+    raw_centroid: jnp.ndarray,
+    raw_second_moment: jnp.ndarray,
+    raw_third_moment: jnp.ndarray | None = None,
+    source_active: jnp.ndarray | None = None,
+    target_i: jnp.ndarray | None = None,
+    target_j: jnp.ndarray | None = None,
+    target_k: jnp.ndarray | None = None,
+    retained_active: jnp.ndarray | None = None,
+) -> LocalControlVolumeCellGeometry3D:
+    """Build direct local aggregate ownership and combine fluid moments.
+
+    The input target map is consulted only for ``source_active`` cells.  Every
+    other positive-volume cell owns itself.  The function deliberately does not
+    follow target chains; callers must choose non-source local targets.
+    """
+
+    if not isinstance(layout, HaloLayout3D):
+        raise TypeError("layout must be a HaloLayout3D")
+    shape = layout.owned_shape
+    raw_volume = _require_float_shape(
+        raw_volume,
+        shape,
+        "build_local_control_volume_cell_geometry.raw_volume",
+    )
+    raw_centroid = _require_float_shape(
+        raw_centroid,
+        shape + (3,),
+        "build_local_control_volume_cell_geometry.raw_centroid",
+    )
+    raw_second_moment = _require_float_shape(
+        raw_second_moment,
+        shape + (3, 3),
+        "build_local_control_volume_cell_geometry.raw_second_moment",
+    )
+    if raw_third_moment is None:
+        raw_third_moment = jnp.zeros(shape + (3, 3, 3), dtype=jnp.float64)
+    raw_third_moment = _require_float_shape(
+        raw_third_moment,
+        shape + (3, 3, 3),
+        "build_local_control_volume_cell_geometry.raw_third_moment",
+    )
+    i, j, k = jnp.meshgrid(
+        jnp.arange(shape[0], dtype=jnp.int32),
+        jnp.arange(shape[1], dtype=jnp.int32),
+        jnp.arange(shape[2], dtype=jnp.int32),
+        indexing="ij",
+    )
+    if source_active is None:
+        source_active = jnp.zeros(shape, dtype=bool)
+    else:
+        source_active = _require_shape(
+            source_active,
+            shape,
+            "build_local_control_volume_cell_geometry.source_active",
+        ).astype(bool)
+    supplied_targets = (target_i, target_j, target_k)
+    if any(value is None for value in supplied_targets):
+        if not all(value is None for value in supplied_targets):
+            raise ValueError("target_i, target_j, and target_k must be supplied together")
+        target_i, target_j, target_k = i, j, k
+    else:
+        target_i = _require_shape(
+            target_i,
+            shape,
+            "build_local_control_volume_cell_geometry.target_i",
+        ).astype(jnp.int32)
+        target_j = _require_shape(
+            target_j,
+            shape,
+            "build_local_control_volume_cell_geometry.target_j",
+        ).astype(jnp.int32)
+        target_k = _require_shape(
+            target_k,
+            shape,
+            "build_local_control_volume_cell_geometry.target_k",
+        ).astype(jnp.int32)
+    owner_i = jnp.where(source_active, target_i, i)
+    owner_j = jnp.where(source_active, target_j, j)
+    owner_k = jnp.where(source_active, target_k, k)
+    safe_owner_i = jnp.clip(owner_i, 0, shape[0] - 1)
+    safe_owner_j = jnp.clip(owner_j, 0, shape[1] - 1)
+    safe_owner_k = jnp.clip(owner_k, 0, shape[2] - 1)
+    target_is_source = source_active[
+        safe_owner_i,
+        safe_owner_j,
+        safe_owner_k,
+    ]
+    try:
+        has_chain = bool(jnp.any(source_active & target_is_source))
+    except jax.errors.TracerBoolConversionError:
+        has_chain = False
+    if has_chain:
+        raise ValueError("control-volume source targets must not be merge sources")
+
+    positive_raw = raw_volume > 0.0
+    if retained_active is None:
+        retained_active = positive_raw
+    else:
+        retained_active = _require_shape(
+            retained_active,
+            shape,
+            "build_local_control_volume_cell_geometry.retained_active",
+        ).astype(bool)
+    is_active_owner = positive_raw & retained_active & (~source_active)
+    target_is_active_owner = is_active_owner[
+        safe_owner_i,
+        safe_owner_j,
+        safe_owner_k,
+    ]
+    orphan_positive = positive_raw & (~source_active) & (~is_active_owner)
+    invalid_source = source_active & (
+        (~positive_raw) | (~target_is_active_owner)
+    )
+    try:
+        has_orphan_positive = bool(jnp.any(orphan_positive))
+        has_invalid_source = bool(jnp.any(invalid_source))
+    except jax.errors.TracerBoolConversionError:
+        has_orphan_positive = False
+        has_invalid_source = False
+    if has_orphan_positive:
+        raise ValueError(
+            "every positive-volume cell must be an active owner or merge source"
+        )
+    if has_invalid_source:
+        raise ValueError(
+            "every merge source must have positive volume and target a "
+            "positive active owner"
+        )
+
+    moved_volume = jnp.where(source_active, raw_volume, 0.0)
+    kept_volume = jnp.where(is_active_owner, raw_volume, 0.0)
+    received_volume = jnp.zeros(shape, dtype=jnp.float64).at[
+        safe_owner_i,
+        safe_owner_j,
+        safe_owner_k,
+    ].add(moved_volume)
+    aggregate_volume = kept_volume + received_volume
+
+    raw_first = raw_volume[..., None] * raw_centroid
+    raw_second_origin = raw_volume[..., None, None] * (
+        raw_second_moment
+        + raw_centroid[..., :, None] * raw_centroid[..., None, :]
+    )
+    raw_third_origin = raw_volume[..., None, None, None] * (
+        raw_third_moment
+        + raw_centroid[..., :, None, None] * raw_second_moment[..., None, :, :]
+        + raw_centroid[..., None, :, None] * raw_second_moment[..., :, None, :]
+        + raw_centroid[..., None, None, :] * raw_second_moment[..., :, :, None]
+        + raw_centroid[..., :, None, None]
+        * raw_centroid[..., None, :, None]
+        * raw_centroid[..., None, None, :]
+    )
+    kept_first = jnp.where(is_active_owner[..., None], raw_first, 0.0)
+    kept_second = jnp.where(
+        is_active_owner[..., None, None],
+        raw_second_origin,
+        0.0,
+    )
+    kept_third = jnp.where(
+        is_active_owner[..., None, None, None], raw_third_origin, 0.0
+    )
+    received_first = jnp.zeros(shape + (3,), dtype=jnp.float64).at[
+        safe_owner_i,
+        safe_owner_j,
+        safe_owner_k,
+        :,
+    ].add(jnp.where(source_active[..., None], raw_first, 0.0))
+    received_second = jnp.zeros(shape + (3, 3), dtype=jnp.float64).at[
+        safe_owner_i,
+        safe_owner_j,
+        safe_owner_k,
+        :,
+        :,
+    ].add(jnp.where(source_active[..., None, None], raw_second_origin, 0.0))
+    received_third = jnp.zeros(shape + (3, 3, 3), dtype=jnp.float64).at[
+        safe_owner_i, safe_owner_j, safe_owner_k, :, :, :
+    ].add(jnp.where(source_active[..., None, None, None], raw_third_origin, 0.0))
+    aggregate_first = kept_first + received_first
+    aggregate_second_origin = kept_second + received_second
+    aggregate_third_origin = kept_third + received_third
+    safe_volume = jnp.maximum(aggregate_volume, 1.0e-30)
+    centroid = aggregate_first / safe_volume[..., None]
+    second_moment = aggregate_second_origin / safe_volume[..., None, None]
+    second_moment = second_moment - (
+        centroid[..., :, None] * centroid[..., None, :]
+    )
+    centroid = jnp.where(
+        aggregate_volume[..., None] > 0.0,
+        centroid,
+        raw_centroid,
+    )
+    second_moment = jnp.where(
+        aggregate_volume[..., None, None] > 0.0,
+        second_moment,
+        raw_second_moment,
+    )
+    second_origin = aggregate_second_origin / safe_volume[..., None, None]
+    third_origin = aggregate_third_origin / safe_volume[..., None, None, None]
+    centroid_outer_second = (
+        centroid[..., :, None, None] * second_origin[..., None, :, :]
+        + centroid[..., None, :, None] * second_origin[..., :, None, :]
+        + centroid[..., None, None, :] * second_origin[..., :, :, None]
+    )
+    centroid_cubed = (
+        centroid[..., :, None, None]
+        * centroid[..., None, :, None]
+        * centroid[..., None, None, :]
+    )
+    third_moment = third_origin - centroid_outer_second + 2.0 * centroid_cubed
+    third_moment = jnp.where(
+        aggregate_volume[..., None, None, None] > 0.0,
+        third_moment,
+        raw_third_moment,
+    )
+
+    received_source_count = jnp.zeros(shape, dtype=jnp.int32).at[
+        safe_owner_i,
+        safe_owner_j,
+        safe_owner_k,
+    ].add(source_active.astype(jnp.int32))
+    member_count = is_active_owner.astype(jnp.int32) + received_source_count
+    is_aggregate_target = received_source_count > 0
+    try:
+        raw_volume_sum = float(jnp.sum(jnp.where(positive_raw, raw_volume, 0.0)))
+        aggregate_volume_sum = float(
+            jnp.sum(jnp.where(is_active_owner, aggregate_volume, 0.0))
+        )
+        volume_conserved = bool(
+            jnp.isclose(
+                raw_volume_sum,
+                aggregate_volume_sum,
+                rtol=5.0e-13,
+                atol=5.0e-14,
+            )
+        )
+    except (jax.errors.ConcretizationTypeError, TypeError):
+        volume_conserved = True
+    if not volume_conserved:
+        raise ValueError(
+            "control-volume ownership must conserve local fluid volume: "
+            f"raw={raw_volume_sum:.16e}, aggregate={aggregate_volume_sum:.16e}"
+        )
+
+    return LocalControlVolumeCellGeometry3D(
+        layout=layout,
+        owner_i=owner_i,
+        owner_j=owner_j,
+        owner_k=owner_k,
+        is_merged_source=source_active,
+        is_active_owner=is_active_owner,
+        is_aggregate_target=is_aggregate_target,
+        received_source_count=received_source_count,
+        member_count=member_count,
+        raw_volume=raw_volume,
+        aggregate_volume=aggregate_volume,
+        raw_centroid=raw_centroid,
+        centroid=centroid,
+        raw_second_moment=raw_second_moment,
+        second_moment=second_moment,
+        raw_third_moment=raw_third_moment,
+        third_moment=third_moment,
+    )
+
+
+def agglomerate_local_cell_volume_geometry(
+    cell_volume: LocalCellVolumeGeometry3D,
+    agglomeration: LocalCellAgglomeration3D | None,
+) -> LocalCellVolumeGeometry3D:
+    """Scatter inactive-source fluid volume into active target cells.
+
+    The returned ``volume_fraction`` is an effective finite-volume measure:
+    target cells can legitimately exceed ``1`` when they own an agglomerated
+    control volume.  It is no longer just the raw geometric fraction of the
+    coordinate cell in that case.
+    """
+
+    if agglomeration is None:
+        return cell_volume
+    if not isinstance(cell_volume, LocalCellVolumeGeometry3D):
+        raise TypeError("cell_volume must be a LocalCellVolumeGeometry3D")
+    if not isinstance(agglomeration, LocalCellAgglomeration3D):
+        raise TypeError("agglomeration must be a LocalCellAgglomeration3D or None")
+    if cell_volume.layout != agglomeration.layout:
+        raise ValueError("cell_volume and agglomeration must share the same HaloLayout3D")
+
+    source_active = jnp.asarray(agglomeration.source_active, dtype=bool)
+    effective_volume = (
+        jnp.asarray(cell_volume.volume, dtype=jnp.float64)
+        * jnp.asarray(cell_volume.volume_fraction, dtype=jnp.float64)
+    )
+    moved_volume = jnp.where(source_active, effective_volume, 0.0)
+    remaining_volume = jnp.where(source_active, 0.0, effective_volume)
+    target_volume = jnp.zeros_like(effective_volume).at[
+        agglomeration.target_i,
+        agglomeration.target_j,
+        agglomeration.target_k,
+    ].add(moved_volume)
+    agglomerated_volume = remaining_volume + target_volume
+    base_volume = jnp.maximum(jnp.asarray(cell_volume.volume, dtype=jnp.float64), 1.0e-30)
+    return LocalCellVolumeGeometry3D(
+        layout=cell_volume.layout,
+        volume=cell_volume.volume,
+        volume_fraction=agglomerated_volume / base_volume,
+    )
+
+
+def _local_owned_cell_logical_centroids(geometry: LocalFciGeometry3D) -> jnp.ndarray:
+    x = jnp.asarray(geometry.grid.x.centers_owned, dtype=jnp.float64)
+    y = jnp.asarray(geometry.grid.y.centers_owned, dtype=jnp.float64)
+    z = jnp.asarray(geometry.grid.z.centers_owned, dtype=jnp.float64)
+    xx, yy, zz = jnp.meshgrid(x, y, z, indexing="ij")
+    return jnp.stack((xx, yy, zz), axis=-1)
+
+
+def build_local_aggregate_cell_geometry(
+    geometry: LocalFciGeometry3D,
+    agglomeration: LocalCellAgglomeration3D | None,
+    *,
+    raw_volume: jnp.ndarray | None = None,
+    fluid_centroid_owned: jnp.ndarray | None = None,
+) -> LocalAggregateCellGeometry3D:
+    """Build aggregate-control-volume metadata for owned-cell reconstruction."""
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError("geometry must be a LocalFciGeometry3D instance")
+    shape = geometry.owned_shape
+    if raw_volume is None:
+        raw_volume = (
+            jnp.asarray(geometry.cell_volume_geometry.volume, dtype=jnp.float64)
+            * jnp.asarray(geometry.cell_volume_geometry.volume_fraction, dtype=jnp.float64)
+        )
+    else:
+        raw_volume = _require_float_shape(
+            raw_volume,
+            shape,
+            "build_local_aggregate_cell_geometry.raw_volume",
+        )
+    if fluid_centroid_owned is None:
+        fluid_centroid_owned = _local_owned_cell_logical_centroids(geometry)
+    else:
+        fluid_centroid_owned = _require_float_shape(
+            fluid_centroid_owned,
+            shape + (3,),
+            "build_local_aggregate_cell_geometry.fluid_centroid_owned",
+        )
+    if agglomeration is None:
+        return LocalAggregateCellGeometry3D.empty(
+            geometry.layout,
+            centroid=fluid_centroid_owned,
+            raw_volume=raw_volume,
+        )
+    if not isinstance(agglomeration, LocalCellAgglomeration3D):
+        raise TypeError("agglomeration must be a LocalCellAgglomeration3D or None")
+    if agglomeration.layout != geometry.layout:
+        raise ValueError("agglomeration must share geometry.layout")
+
+    source_active = jnp.asarray(agglomeration.source_active, dtype=bool)
+    moved_volume = jnp.where(source_active, raw_volume, 0.0)
+    kept_volume = jnp.where(source_active, 0.0, raw_volume)
+    moved_moment = moved_volume[..., None] * fluid_centroid_owned
+    kept_moment = kept_volume[..., None] * fluid_centroid_owned
+
+    target_volume = jnp.zeros_like(raw_volume).at[
+        agglomeration.target_i,
+        agglomeration.target_j,
+        agglomeration.target_k,
+    ].add(moved_volume)
+    target_moment = jnp.zeros_like(kept_moment).at[
+        agglomeration.target_i,
+        agglomeration.target_j,
+        agglomeration.target_k,
+        :,
+    ].add(moved_moment)
+    moved_source_count = jnp.zeros(shape, dtype=jnp.int32).at[
+        agglomeration.target_i,
+        agglomeration.target_j,
+        agglomeration.target_k,
+    ].add(source_active.astype(jnp.int32))
+    source_count = moved_source_count + (~source_active).astype(jnp.int32)
+    aggregate_volume = kept_volume + target_volume
+    aggregate_moment = kept_moment + target_moment
+    centroid = aggregate_moment / jnp.maximum(aggregate_volume[..., None], 1.0e-30)
+    centroid = jnp.where(aggregate_volume[..., None] > 0.0, centroid, fluid_centroid_owned)
+    return LocalAggregateCellGeometry3D(
+        layout=geometry.layout,
+        source_active=source_active,
+        target_i=agglomeration.target_i,
+        target_j=agglomeration.target_j,
+        target_k=agglomeration.target_k,
+        is_agglomerated_target=moved_source_count > 0,
+        raw_volume=raw_volume,
+        aggregate_volume=aggregate_volume,
+        centroid=centroid,
+        source_count=source_count,
+    )
+
+
+def agglomerate_owned_cell_average(
+    values_owned: jnp.ndarray,
+    aggregate_geometry: LocalAggregateCellGeometry3D,
+) -> jnp.ndarray:
+    """Average owned cell values over aggregate-control-volume metadata."""
+
+    if not isinstance(aggregate_geometry, LocalAggregateCellGeometry3D):
+        raise TypeError("aggregate_geometry must be a LocalAggregateCellGeometry3D")
+    values = _require_float_shape(
+        values_owned,
+        aggregate_geometry.shape,
+        "agglomerate_owned_cell_average.values_owned",
+    )
+    source_active = jnp.asarray(aggregate_geometry.source_active, dtype=bool)
+    raw_volume = jnp.asarray(aggregate_geometry.raw_volume, dtype=jnp.float64)
+    weighted = raw_volume * values
+    moved_weighted = jnp.where(source_active, weighted, 0.0)
+    kept_weighted = jnp.where(source_active, 0.0, weighted)
+    target_weighted = jnp.zeros_like(weighted).at[
+        aggregate_geometry.target_i,
+        aggregate_geometry.target_j,
+        aggregate_geometry.target_k,
+    ].add(moved_weighted)
+    averaged = (kept_weighted + target_weighted) / jnp.maximum(
+        aggregate_geometry.aggregate_volume,
+        1.0e-30,
+    )
+    return jnp.where(aggregate_geometry.aggregate_volume > 0.0, averaged, 0.0)
 
 
 @_pytree_base
@@ -3012,13 +4089,6 @@ def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) 
     if periodic:
         lower_ghost = last
         upper_ghost = first
-    elif axis_n >= 3:
-        # Quadratic (three-point) ghost extrapolation keeps the boundary-face
-        # average reconstruction second-order accurate for curved profiles.
-        third = jnp.take(values_3d, 2, axis=axis)
-        antepenultimate = jnp.take(values_3d, -3, axis=axis)
-        lower_ghost = 3.0 * first - 3.0 * second + third
-        upper_ghost = 3.0 * last - 3.0 * penultimate + antepenultimate
     else:
         lower_ghost = 2.0 * first - second
         upper_ghost = 2.0 * last - penultimate
@@ -3136,103 +4206,12 @@ def _global_axis_stencil_from_field(
     )
 
 
-def _one_sided_physical_global_axis_stencil(
-    stencil: "LocalStencil1D",
-    values: jnp.ndarray,
-    grid_axis: Grid1D,
-    *,
-    axis: int,
-) -> "LocalStencil1D":
-    """Patch global physical side planes with nonuniform three-point formulas."""
-
-    axis = int(axis)
-    axis_n = int(values.shape[axis])
-    if axis_n < 3:
-        return stencil
-
-    centers = jnp.asarray(grid_axis.centers, dtype=jnp.float64)
-
-    minus = jnp.asarray(stencil.minus, dtype=jnp.float64)
-    center = jnp.asarray(stencil.center, dtype=jnp.float64)
-    plus = jnp.asarray(stencil.plus, dtype=jnp.float64)
-    dx_min = jnp.asarray(stencil.dx_min, dtype=jnp.float64)
-    dx_plus = jnp.asarray(stencil.dx_plus, dtype=jnp.float64)
-    c_minus = jnp.asarray(stencil.derivative_minus_weight, dtype=jnp.float64)
-    c_center = jnp.asarray(stencil.derivative_center_weight, dtype=jnp.float64)
-    c_plus = jnp.asarray(stencil.derivative_plus_weight, dtype=jnp.float64)
-
-    lower_plane = _axis_index_nd(axis, 0, values.ndim)
-    lower_f0 = jnp.take(values, 0, axis=axis)
-    lower_f1 = jnp.take(values, 1, axis=axis)
-    lower_f2 = jnp.take(values, 2, axis=axis)
-    lower_weights = _three_point_first_derivative_weights(
-        centers[0],
-        centers[1],
-        centers[2],
-    )
-    minus = minus.at[lower_plane].set(lower_f2)
-    center = center.at[lower_plane].set(lower_f0)
-    plus = plus.at[lower_plane].set(lower_f1)
-    c_minus = c_minus.at[lower_plane].set(jnp.full_like(lower_f0, lower_weights[2]))
-    c_center = c_center.at[lower_plane].set(jnp.full_like(lower_f0, lower_weights[0]))
-    c_plus = c_plus.at[lower_plane].set(jnp.full_like(lower_f0, lower_weights[1]))
-    dx_min = dx_min.at[lower_plane].set(jnp.full_like(lower_f0, jnp.abs(centers[2] - centers[0])))
-    dx_plus = dx_plus.at[lower_plane].set(jnp.full_like(lower_f0, jnp.abs(centers[1] - centers[0])))
-
-    upper_plane = _axis_index_nd(axis, axis_n - 1, values.ndim)
-    upper_f0 = jnp.take(values, axis_n - 1, axis=axis)
-    upper_f1 = jnp.take(values, axis_n - 2, axis=axis)
-    upper_f2 = jnp.take(values, axis_n - 3, axis=axis)
-    upper_weights = _three_point_first_derivative_weights(
-        centers[axis_n - 1],
-        centers[axis_n - 2],
-        centers[axis_n - 3],
-    )
-    minus = minus.at[upper_plane].set(upper_f1)
-    center = center.at[upper_plane].set(upper_f0)
-    plus = plus.at[upper_plane].set(upper_f2)
-    c_minus = c_minus.at[upper_plane].set(jnp.full_like(upper_f0, upper_weights[1]))
-    c_center = c_center.at[upper_plane].set(jnp.full_like(upper_f0, upper_weights[0]))
-    c_plus = c_plus.at[upper_plane].set(jnp.full_like(upper_f0, upper_weights[2]))
-    dx_min = dx_min.at[upper_plane].set(jnp.full_like(upper_f0, jnp.abs(centers[axis_n - 2] - centers[axis_n - 1])))
-    dx_plus = dx_plus.at[upper_plane].set(jnp.full_like(upper_f0, jnp.abs(centers[axis_n - 3] - centers[axis_n - 1])))
-
-    return stencil.replace(
-        minus=minus,
-        center=center,
-        plus=plus,
-        dx_min=dx_min,
-        dx_plus=dx_plus,
-        derivative_minus_weight=c_minus,
-        derivative_center_weight=c_center,
-        derivative_plus_weight=c_plus,
-    )
-
-
 def _build_conservative_stencil_from_field(
     field_halo: jnp.ndarray,
-    geometry: LocalFciGeometry3D | FciGeometry3D,
-    context: StencilBuilderContext | tuple[bool | None, bool | None, bool | None] | None = None,
-    face_bc: object | None = None,
-    cut_wall_geometry: object | None = None,
-    cut_wall_bc: object | None = None,
-    *,
-    periodic_axes: tuple[bool | None, bool | None, bool | None] | None = None,
+    geometry: LocalFciGeometry3D,
+    context: StencilBuilderContext,
 ) -> "ConservativeStencil3D":
-    ConservativeStencil3D, FaceGradientStencil3D, _, _ = _stencil_types()
-    if isinstance(geometry, FciGeometry3D):
-        # Global single-device path (legacy call convention:
-        # ``(field, geometry, periodic_axes, face_bc[, cut_wall...])``).
-        # Boundary conditions are applied by the downstream flux/operator
-        # assembly, not during stencil reconstruction.
-        del face_bc, cut_wall_geometry, cut_wall_bc
-        if periodic_axes is None:
-            periodic_axes = context
-        return _global_axis_stencil_from_field(
-            field_halo,
-            geometry,
-            periodic_axes=_normalize_periodic_axes(periodic_axes),
-        )
+    ConservativeStencil3D, FaceGradientStencil3D, _, LocalStencil3D = _stencil_types()
     if not isinstance(geometry, LocalFciGeometry3D):
         raise TypeError("geometry must be a LocalFciGeometry3D instance")
     if not isinstance(context, StencilBuilderContext):
@@ -3247,10 +4226,59 @@ def _build_conservative_stencil_from_field(
             "field_halo must match geometry.halo_shape; "
             f"got {field_halo.shape}, expected {geometry.halo_shape}"
         )
-    return ConservativeStencil3D(
+    coordinate_stencil = LocalStencil3D(
         x=_local_axis_stencil_from_halo(field_halo, geometry, axis=0),
         y=_local_axis_stencil_from_halo(field_halo, geometry, axis=1),
         z=_local_axis_stencil_from_halo(field_halo, geometry, axis=2),
+    )
+
+    cut_wall_values = context.cut_wall_values
+    cut_wall_dependencies = context.cut_wall_stencil_dependencies
+    if (
+        cut_wall_dependencies is None
+        and context.cut_wall_geometry is not None
+        and context.cut_wall_bc is not None
+    ):
+        cut_wall_dependencies = build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry(
+            context.layout,
+            context.cut_wall_geometry,
+        )
+        cut_wall_values = jnp.asarray(context.cut_wall_bc.value, dtype=field_halo.dtype)
+        # Avoid interpreting Neumann/normal-flux data as Dirichlet wall values.
+        # The native boundary module defines BC_DIRICHLET as 1; keep this
+        # module independent from native imports and only auto-patch those rows.
+        dirichlet_mask = jnp.asarray(context.cut_wall_bc.kind, dtype=jnp.int32) == 1
+        local = cut_wall_dependencies.local
+        cut_wall_dependencies = LocalCoordinateStencilDependencyMap3D(
+            layout=cut_wall_dependencies.layout,
+            local=LocalCoordinateStencilLocalDependencyTable(
+                target_flat=local.target_flat,
+                axis=local.axis,
+                side=local.side,
+                value_slot=local.value_slot,
+                distance=local.distance,
+                active=local.active & dirichlet_mask,
+            ),
+            remote=cut_wall_dependencies.remote,
+        )
+
+    if cut_wall_dependencies is not None:
+        coordinate_stencil = _patch_local_coordinate_cut_wall_stencil(
+            coordinate_stencil,
+            context=StencilBuilderContext(
+                layout=context.layout,
+                domain=context.domain,
+                cut_wall_stencil_dependencies=cut_wall_dependencies,
+                cut_wall_values=cut_wall_values,
+                cut_wall_stencil_remote_values=context.cut_wall_stencil_remote_values,
+            ),
+            dtype=field_halo.dtype,
+        )
+
+    return ConservativeStencil3D(
+        x=coordinate_stencil.x,
+        y=coordinate_stencil.y,
+        z=coordinate_stencil.z,
         face_grad=_build_local_face_gradient_from_halo(
             field_halo,
             geometry,
@@ -3261,48 +4289,11 @@ def _build_conservative_stencil_from_field(
 
 def _build_local_stencil_from_field(
     field_halo: jnp.ndarray,
-    geometry: LocalFciGeometry3D | FciGeometry3D,
-    context: StencilBuilderContext | tuple[bool | None, bool | None, bool | None] | None = None,
-    face_bc: object | None = None,
-    cut_wall_geometry: object | None = None,
-    cut_wall_bc: object | None = None,
-    *,
-    periodic_axes: tuple[bool | None, bool | None, bool | None] | None = None,
+    geometry: LocalFciGeometry3D,
+    context: StencilBuilderContext,
 ) -> "LocalStencil3D":
     _, _, _, LocalStencil3D = _stencil_types()
 
-    if isinstance(geometry, FciGeometry3D):
-        # Global single-device path (legacy call convention:
-        # ``(field, geometry, periodic_axes, face_bc[, cut_wall...])``).
-        # Boundary conditions are applied by the downstream operators, not
-        # during stencil reconstruction. Physical (non-periodic) side planes
-        # use nonuniform second-order one-sided derivative stencils, matching
-        # the shard-local one-sided physical closure.
-        del face_bc, cut_wall_geometry, cut_wall_bc
-        if periodic_axes is None:
-            periodic_axes = context
-        normalized_periodic_axes = _normalize_periodic_axes(periodic_axes)
-        conservative = _global_axis_stencil_from_field(
-            field_halo,
-            geometry,
-            periodic_axes=normalized_periodic_axes,
-        )
-        values = jnp.asarray(field_halo, dtype=jnp.float64)
-        axis_stencils = [conservative.x, conservative.y, conservative.z]
-        grid_axes = (geometry.grid.x, geometry.grid.y, geometry.grid.z)
-        for axis in range(3):
-            if not normalized_periodic_axes[axis]:
-                axis_stencils[axis] = _one_sided_physical_global_axis_stencil(
-                    axis_stencils[axis],
-                    values,
-                    grid_axes[axis],
-                    axis=axis,
-                )
-        return LocalStencil3D(
-            x=axis_stencils[0],
-            y=axis_stencils[1],
-            z=axis_stencils[2],
-        )
     if not isinstance(geometry, LocalFciGeometry3D):
         raise TypeError("geometry must be a LocalFciGeometry3D instance")
     if not isinstance(context, StencilBuilderContext):
@@ -3399,8 +4390,17 @@ def _patch_flat_coordinate_stencil_side(
         return current
     safe_target = jnp.clip(target_flat, 0, n - 1)
     row_mask = row_active & (row_axis == patch_axis) & (row_side == patch_side)
-    delta = jnp.where(row_mask, row_values - flat[safe_target], 0.0)
-    return flat.at[safe_target].add(delta).reshape(current.shape)
+    row_mask_f = row_mask.astype(row_values.dtype)
+    replacement_sum = jnp.zeros_like(flat).at[safe_target].add(
+        jnp.where(row_mask, row_values, 0.0)
+    )
+    replacement_count = jnp.zeros_like(flat).at[safe_target].add(row_mask_f)
+    patched = jnp.where(
+        replacement_count > 0.0,
+        replacement_sum / jnp.maximum(replacement_count, 1.0),
+        flat,
+    )
+    return patched.reshape(current.shape)
 
 
 def _patch_coordinate_stencil_rows(
@@ -3556,11 +4556,13 @@ class ConservativeStencilBuilder(_DataclassPyTreeMixin):
         "ConservativeStencil3D",
     ]
 
-    def __call__(self, *args: object, **kwargs: object) -> "ConservativeStencil3D":
-        # Signature-agnostic delegation: the shard-local halo contract is
-        # ``(field_halo, geometry, context)`` while the global single-device
-        # contract is ``(field, geometry, periodic_axes, face_bc[, cut_wall...])``.
-        return self.build_fn(*args, **kwargs)
+    def __call__(
+        self,
+        field_halo: jnp.ndarray,
+        geometry: "LocalFciGeometry3D",
+        context: "StencilBuilderContext",
+    ) -> "ConservativeStencil3D":
+        return self.build_fn(field_halo, geometry, context)
 
     def tree_flatten(self):
         return (), self.build_fn
@@ -3587,11 +4589,13 @@ class LocalStencilBuilder(_DataclassPyTreeMixin):
         "LocalStencil3D",
     ]
 
-    def __call__(self, *args: object, **kwargs: object) -> "LocalStencil3D":
-        # Signature-agnostic delegation: the shard-local halo contract is
-        # ``(field_halo, geometry, context)`` while the global single-device
-        # contract is ``(field, geometry, periodic_axes, face_bc[, cut_wall...])``.
-        return self.build_fn(*args, **kwargs)
+    def __call__(
+        self,
+        field_halo: jnp.ndarray,
+        geometry: "LocalFciGeometry3D",
+        context: "StencilBuilderContext",
+    ) -> "LocalStencil3D":
+        return self.build_fn(field_halo, geometry, context)
 
     def tree_flatten(self):
         return (), self.build_fn

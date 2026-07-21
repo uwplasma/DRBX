@@ -1536,8 +1536,9 @@ class PhysicalGhostCellFiller3D(_DataclassPyTreeMixin):
 
     This stage fills only slabs with exactly one ghost-coordinate direction.
     It intentionally does not fill halo edge or corner pieces (cells with two
-    or three ghost-coordinate directions); current operators do not require
-    those values. A future topology/corner stage can own that policy.
+    or three physical ghost-coordinate directions). ``LocalHaloClosure3D``
+    propagates these face values through topology boundaries and then fills
+    the remaining physical-physical edges and corners.
 
     Only ``BC_DIRICHLET`` and ``BC_NEUMANN`` are materialized. Flux-level BCs
     are not scalar ghost-cell rules and remain available to flux operators.
@@ -1693,6 +1694,304 @@ class PhysicalGhostCellFiller3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
+class PhysicalGhostCornerFiller3D(_DataclassPyTreeMixin):
+    """Complete physical-physical halo edges and corners.
+
+    Face ghosts must already be materialized and topology closure must already
+    have propagated them through periodic and shard boundaries. The filler
+    then works in increasing codimension:
+
+    1. physical-physical edges are extrapolated from completed face strips;
+    2. three-physical-side corners are extrapolated from completed edges.
+
+    Multiple valid directional extrapolations are averaged. Polynomial
+    extrapolation preserves constants and reproduces polynomials through
+    ``extrapolation_order`` on a uniform logical grid. This stage does not
+    overwrite owned cells, face ghosts, or physical-topology corners.
+    """
+
+    extrapolation_order: int = 2
+
+    def __post_init__(self) -> None:
+        order = int(self.extrapolation_order)
+        if order < 0:
+            raise ValueError("extrapolation_order must be nonnegative")
+        object.__setattr__(self, "extrapolation_order", order)
+
+    @staticmethod
+    def _lagrange_extrapolation_weights(
+        halo_width: int,
+        stencil_width: int,
+    ) -> jnp.ndarray:
+        """Return near-to-far ghost weights for inward cell-center samples."""
+
+        rows: list[list[float]] = []
+        nodes = [float(index) + 0.5 for index in range(stencil_width)]
+        for ghost_index in range(halo_width):
+            target = -(float(ghost_index) + 0.5)
+            row: list[float] = []
+            for node_index, node in enumerate(nodes):
+                weight = 1.0
+                for other_index, other in enumerate(nodes):
+                    if other_index != node_index:
+                        weight *= (target - other) / (node - other)
+                row.append(weight)
+            rows.append(row)
+        return jnp.asarray(rows, dtype=jnp.float64)
+
+    @staticmethod
+    def _physical_axis_side_mask(
+        domain: LocalDomain3D,
+        axis: int,
+        side: str,
+    ) -> jnp.ndarray:
+        layout = domain.layout
+        h = int(layout.halo_width)
+        extent = int(layout.owned_shape[axis])
+        coordinate = jnp.arange(layout.cell_halo_shape[axis])
+        reshape = [1, 1, 1]
+        reshape[axis] = layout.cell_halo_shape[axis]
+        coordinate = coordinate.reshape(tuple(reshape))
+        if side == "lower":
+            return (coordinate < h) & domain.runtime_has_physical_lower(axis)
+        if side == "upper":
+            return (
+                coordinate >= h + extent
+            ) & domain.runtime_has_physical_upper(axis)
+        raise ValueError(f"side must be 'lower' or 'upper', got {side!r}")
+
+    @staticmethod
+    def _full_owned_stencil(
+        field_halo: jnp.ndarray,
+        layout: HaloLayout3D,
+        axis: int,
+        side: str,
+        width: int,
+    ) -> jnp.ndarray:
+        h = int(layout.halo_width)
+        extent = int(layout.owned_shape[axis])
+        index = [slice(None), slice(None), slice(None)]
+        if side == "lower":
+            index[axis] = slice(h, h + width)
+            slab = field_halo[tuple(index)]
+        elif side == "upper":
+            index[axis] = slice(h + extent - width, h + extent)
+            slab = jnp.flip(field_halo[tuple(index)], axis=axis)
+        else:
+            raise ValueError(f"side must be 'lower' or 'upper', got {side!r}")
+        return jnp.moveaxis(slab, axis, 0)
+
+    @staticmethod
+    def _raw_ghost_slab(
+        near_to_far_slab: jnp.ndarray,
+        axis: int,
+        side: str,
+    ) -> jnp.ndarray:
+        slab = jnp.moveaxis(near_to_far_slab, 0, axis)
+        return jnp.flip(slab, axis=axis) if side == "lower" else slab
+
+    @staticmethod
+    def _ghost_index(
+        layout: HaloLayout3D,
+        axis: int,
+        side: str,
+    ) -> tuple[slice, slice, slice]:
+        h = int(layout.halo_width)
+        extent = int(layout.owned_shape[axis])
+        index = [slice(None), slice(None), slice(None)]
+        index[axis] = (
+            slice(0, h)
+            if side == "lower"
+            else slice(h + extent, h + extent + h)
+        )
+        return tuple(index)  # type: ignore[return-value]
+
+    def __call__(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        face_bc: LocalBoundaryFaceBC3D | None,
+    ) -> jnp.ndarray:
+        if face_bc is None:
+            return field_halo
+        field_halo = _validate_halo_spatial_prefix(field_halo, domain)
+        if field_halo.ndim != 3:
+            raise ValueError(
+                "PhysicalGhostCornerFiller3D currently requires a scalar 3D field"
+            )
+        if face_bc.layout != domain.layout:
+            raise ValueError("face_bc and domain must share the same HaloLayout3D")
+
+        layout = domain.layout
+        h = int(layout.halo_width)
+        if h == 0:
+            return field_halo
+
+        side_masks = {
+            (axis, side): self._physical_axis_side_mask(domain, axis, side)
+            for axis in range(3)
+            for side in ("lower", "upper")
+        }
+        physical_axis_masks = [
+            side_masks[(axis, "lower")] | side_masks[(axis, "upper")]
+            for axis in range(3)
+        ]
+        physical_codimension = sum(
+            mask.astype(jnp.int32) for mask in physical_axis_masks
+        )
+
+        result = field_halo
+        for codimension in (2, 3):
+            accumulated = jnp.zeros_like(result)
+            contribution_count = jnp.zeros(result.shape, dtype=jnp.int32)
+            for axis in range(3):
+                stencil_width = min(
+                    self.extrapolation_order + 1,
+                    int(layout.owned_shape[axis]),
+                )
+                weights = self._lagrange_extrapolation_weights(
+                    h,
+                    stencil_width,
+                ).astype(result.dtype)
+                for side in ("lower", "upper"):
+                    source = self._full_owned_stencil(
+                        result,
+                        layout,
+                        axis,
+                        side,
+                        stencil_width,
+                    )
+                    candidate = jnp.tensordot(weights, source, axes=((1,), (0,)))
+                    candidate = self._raw_ghost_slab(candidate, axis, side)
+                    index = self._ghost_index(layout, axis, side)
+                    target_mask = (
+                        side_masks[(axis, side)]
+                        & (physical_codimension == codimension)
+                    )[index]
+                    accumulated = accumulated.at[index].add(
+                        jnp.where(target_mask, candidate, 0.0)
+                    )
+                    contribution_count = contribution_count.at[index].add(
+                        target_mask.astype(jnp.int32)
+                    )
+            has_value = contribution_count > 0
+            result = jnp.where(
+                has_value,
+                accumulated
+                / jnp.maximum(contribution_count, 1).astype(result.dtype),
+                result,
+            )
+        return result
+
+    def tree_flatten(self):
+        return (), self.extrapolation_order
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        del children
+        return cls(extrapolation_order=aux_data)
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalHaloClosure3D(_DataclassPyTreeMixin):
+    """Prepare a complete scalar halo through three ordered closure stages.
+
+    ``face_closure`` materializes regular physical BCs. ``topology_closure``
+    then exchanges those values across shard and topology boundaries, which
+    completes physical-periodic and physical-shard edges. ``corner_closure``
+    finally fills intersections of two or three physical boundaries.
+    """
+
+    physical_ghost_filler: PhysicalGhostCellFiller3D
+    halo_exchange: HaloExchange3D | None = None
+    topology_filler: TopologyHaloFiller3D | None = None
+    corner_filler: PhysicalGhostCornerFiller3D = PhysicalGhostCornerFiller3D()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.physical_ghost_filler, PhysicalGhostCellFiller3D):
+            raise TypeError(
+                "physical_ghost_filler must be a PhysicalGhostCellFiller3D"
+            )
+        if self.halo_exchange is not None and not isinstance(
+            self.halo_exchange,
+            HaloExchange3D,
+        ):
+            raise TypeError("halo_exchange must be a HaloExchange3D or None")
+        if self.topology_filler is not None and not isinstance(
+            self.topology_filler,
+            TopologyHaloFiller3D,
+        ):
+            raise TypeError("topology_filler must be a TopologyHaloFiller3D or None")
+        if not isinstance(self.corner_filler, PhysicalGhostCornerFiller3D):
+            raise TypeError(
+                "corner_filler must be a PhysicalGhostCornerFiller3D"
+            )
+
+    def face_closure(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        face_bc: LocalBoundaryFaceBC3D | None,
+    ) -> jnp.ndarray:
+        return self.physical_ghost_filler(field_halo, domain, face_bc)
+
+    def topology_closure(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+    ) -> jnp.ndarray:
+        result = field_halo
+        if self.halo_exchange is not None:
+            result = self.halo_exchange(result, domain)
+        if self.topology_filler is not None:
+            result = self.topology_filler(result, domain)
+        return result
+
+    def corner_closure(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        face_bc: LocalBoundaryFaceBC3D | None,
+    ) -> jnp.ndarray:
+        return self.corner_filler(field_halo, domain, face_bc)
+
+    def __call__(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        face_bc: LocalBoundaryFaceBC3D | None,
+    ) -> jnp.ndarray:
+        result = self.face_closure(field_halo, domain, face_bc)
+        result = self.topology_closure(result, domain)
+        return self.corner_closure(result, domain, face_bc)
+
+    def tree_flatten(self):
+        return (
+            self.physical_ghost_filler,
+            self.halo_exchange,
+            self.topology_filler,
+            self.corner_filler,
+        ), None
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        (
+            physical_ghost_filler,
+            halo_exchange,
+            topology_filler,
+            corner_filler,
+        ) = children
+        return cls(
+            physical_ghost_filler=physical_ghost_filler,
+            halo_exchange=halo_exchange,
+            topology_filler=topology_filler,
+            corner_filler=corner_filler,
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
 class PreparedLocalState3D(_DataclassPyTreeMixin):
     """Fully prepared local state and its model-shaped boundary payloads."""
 
@@ -1711,13 +2010,12 @@ class PreparedLocalState3D(_DataclassPyTreeMixin):
 @_pytree_base
 @dataclass(frozen=True)
 class LocalStateAndBoundaryPreparer3D(_DataclassPyTreeMixin):
-    """Prepare state halos, coupled BCs, and physical ghost cells in order.
+    """Prepare state halos, coupled BCs, and complete ghost closure in order.
 
     The pre-BC stages operate field-by-field, while the boundary builder sees
     the complete topology-prepared state so it can construct coupled payloads.
-    Physical ghost filling then applies the matching face BC to each field.
-    Halo edges and corners remain governed by the individual field stages;
-    this orchestrator does not add corner handling.
+    After BC construction, ``LocalHaloClosure3D`` performs physical face,
+    topology, and physical-corner closure for each field.
     """
 
     boundary_builder: LocalBoundaryConditionBuilder
@@ -1811,9 +2109,14 @@ class LocalStateAndBoundaryPreparer3D(_DataclassPyTreeMixin):
         face_bc_bundle = boundary_data.face_bc
         assert_matching_field_names(state_halo, face_bc_bundle)
 
+        halo_closure = LocalHaloClosure3D(
+            physical_ghost_filler=self.physical_ghost_filler,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+        )
         state_halo_full = state_halo.replace(
             **{
-                name: self.physical_ghost_filler(
+                name: halo_closure(
                     getattr(state_halo, name),
                     domain,
                     getattr(face_bc_bundle, name),
@@ -1829,9 +2132,11 @@ class LocalStateAndBoundaryPreparer3D(_DataclassPyTreeMixin):
 __all__ = [
     "GhostFillWeights1D",
     "HaloExchange3D",
+    "LocalHaloClosure3D",
     "LocalPeriodicTopologyRule3D",
     "LocalStateAndBoundaryPreparer3D",
     "PreparedLocalState3D",
+    "PhysicalGhostCornerFiller3D",
     "PhysicalGhostCellFiller3D",
     "PolarAxisRegularScalarRule3D",
     "PolarAxisRegularVectorRule3D",
