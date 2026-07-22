@@ -62,8 +62,6 @@ LocalEmbeddedControlVolumeGeometry3D
   cells              LocalControlVolumeCellGeometry3D
   regular_faces      LocalRegularFaceGeometry3D
   irregular_faces    LocalControlVolumeFaceRows3D
-  regular_transition_faces
-                     LocalRegularTransitionFaceRows3D
   reconstruction     LocalMomentReconstruction3D (19-coefficient cubic on irregular owners)
   regular_boundary_closure
                      LocalRegularBoundaryMomentClosure3D
@@ -161,11 +159,10 @@ once and scattered with equal and opposite signs.
 
 A regular owner next to the compact region can still have ordinary dense faces
 on its other sides. A full face whose structured support touches cut,
-aggregate, or merged-source storage is a regular transition face: its dense
-mask is closed and one compact `CV_FACE_INTERIOR` row owns the interface.
-`LocalRegularTransitionFaceRows3D` indexes those rows and records validity,
-remote ownership, and sample count without duplicating their metric or
-quadrature payload.
+aggregate, or merged-source storage is closed on the dense path and owned by
+one compact `CV_FACE_INTERIOR` row. Both local owners of every compact row are
+included in the cubic reconstruction target mask; remote neighbors are
+supplied through the reconstruction exchange.
 
 Dense faces between untouched regular owners retain the original structured
 stencil. There is no full-array polynomial replacement pass. This is
