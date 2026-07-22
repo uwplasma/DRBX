@@ -200,6 +200,146 @@ def test_cross_shard_aggregate_owner_is_explicit_in_local_metadata() -> None:
     assert int(lower.local_aggregate_id[source]) == target_id
 
 
+def test_historical_direction_ordinal_breaks_geometric_target_ties() -> None:
+    """The legacy ordinal order is x-, x+, y-, y+, z-, z+ (not target lexicographic order)."""
+    shape = (3, 3, 1)
+    volume, centroid, second, third, fraction = _raw_geometry(shape)
+    source = (1, 1, 0)
+    volume[source] = fraction[source] = 0.2
+    faces = [np.zeros_like(face) for face in _unit_faces(shape)]
+    # x+ and y- have equal measure and equal centroid distance.  Their target
+    # coordinates sort as y- < x+, but historical direction ordinal chooses x+.
+    faces[0][2, 1, 0] = 1.0
+    faces[1][1, 1, 0] = 1.0
+    topology = build_global_control_volume_topology(
+        raw_volume=volume,
+        raw_centroid=centroid,
+        raw_second_moment=second,
+        raw_third_moment=third,
+        fluid_volume_fraction=fraction,
+        face_open_measure=tuple(faces),
+    )
+    assert tuple(topology.owner_index[source]) == (2, 1, 0)
+
+
+def test_positive_volume_floor_removes_tiny_cells_from_ownership_and_faces() -> None:
+    shape = (3, 2, 2)
+    volume, centroid, second, third, fraction = _raw_geometry(shape)
+    tiny = (1, 0, 0)
+    volume[tiny] = 1.0e-14
+    fraction[tiny] = 0.1
+    topology = build_global_control_volume_topology(
+        raw_volume=volume,
+        raw_centroid=centroid,
+        raw_second_moment=second,
+        raw_third_moment=third,
+        fluid_volume_fraction=fraction,
+        face_open_measure=_unit_faces(shape),
+        positive_volume_floor=1.0e-12,
+    )
+    tiny_id = int(topology.aggregate_id[tiny])
+    assert not bool(topology.is_merge_source[tiny])
+    assert not bool(topology.is_active_owner[tiny])
+    assert bool(topology.is_active_owner[0, 0, 0])
+    assert bool(topology.is_active_owner[2, 1, 1])
+    assert tiny_id not in set(topology.face_minus_aggregate_id.tolist())
+    assert tiny_id not in set(topology.face_plus_aggregate_id.tolist())
+
+
+def _cross_shard_topology_with_moments():
+    """A cheap topology whose only merge crosses the j=2 shard boundary."""
+    shape = (4, 4, 4)
+    volume, centroid, second, third, fraction = _raw_geometry(shape)
+    grid = np.indices(shape, dtype=np.float64)
+    second[..., 0, 1] = second[..., 1, 0] = 0.01 * (1.0 + grid[0])
+    third[..., 0, 1, 2] = 0.002 * (1.0 + grid[1])
+    third[..., 1, 0, 2] = third[..., 2, 0, 1] = third[..., 0, 2, 1] = third[..., 0, 1, 2]
+    source, target = (1, 1, 1), (1, 2, 1)
+    volume[source] = fraction[source] = 0.2
+    faces = [np.zeros_like(face) for face in _unit_faces(shape)]
+    faces[1][1, 2, 1] = 3.0
+    topology = build_global_control_volume_topology(
+        raw_volume=volume,
+        raw_centroid=centroid,
+        raw_second_moment=second,
+        raw_third_moment=third,
+        fluid_volume_fraction=fraction,
+        face_open_measure=tuple(faces),
+    )
+    return topology, volume, centroid, second, third, source, target
+
+
+def test_raw_geometry_compilation_is_decomposition_invariant_with_full_moments() -> None:
+    topology, volume, centroid, second, third, _, _ = _cross_shard_topology_with_moments()
+    shape = topology.shape
+    for counts in ((1, 1, 1), (1, 2, 1), (1, 1, 2), (1, 2, 2)):
+        owned = tuple(shape[axis] // counts[axis] for axis in range(3))
+        stitched_id = np.empty(shape, dtype=np.int64)
+        stitched_owner = np.empty(shape + (3,), dtype=np.int32)
+        total_active_volume = 0.0
+        for shard in np.ndindex(counts):
+            local = compile_local_control_volume_geometry(
+                topology, shard_index=shard, shard_counts=counts,
+                raw_volume=volume, raw_centroid=centroid,
+                raw_second_moment=second, raw_third_moment=third,
+            )
+            slices = tuple(slice(shard[a] * owned[a], (shard[a] + 1) * owned[a]) for a in range(3))
+            stitched_id[slices] = local.local_aggregate_id
+            stitched_owner[slices] = local.local_owner_index
+            active = local.local_active_owner
+            total_active_volume += float(np.sum(local.local_aggregate_volume[active]))
+            for owner in np.argwhere(active):
+                owner_t = tuple(owner)
+                global_owner = tuple(owner[a] + slices[a].start for a in range(3))
+                members = topology.aggregate_id == topology.aggregate_id[global_owner]
+                assert int(local.local_member_count[owner_t]) == int(np.count_nonzero(members))
+                assert int(local.local_received_source_count[owner_t]) == int(np.count_nonzero(members) - 1)
+                np.testing.assert_array_equal(local.local_aggregate_volume[owner_t], topology.aggregate_volume[global_owner])
+                np.testing.assert_array_equal(local.local_aggregate_centroid[owner_t], topology.aggregate_centroid[global_owner])
+                np.testing.assert_array_equal(local.local_aggregate_second_moment[owner_t], topology.aggregate_second_moment[global_owner])
+                np.testing.assert_array_equal(local.local_aggregate_third_moment[owner_t], topology.aggregate_third_moment[global_owner])
+        np.testing.assert_array_equal(stitched_id, topology.aggregate_id)
+        np.testing.assert_array_equal(stitched_owner, topology.owner_index)
+        assert total_active_volume == float(np.sum(topology.aggregate_volume[topology.is_active_owner]))
+
+
+def test_cross_shard_source_has_exact_remote_owner_metadata() -> None:
+    topology, volume, centroid, second, third, source, target = _cross_shard_topology_with_moments()
+    lower = compile_local_control_volume_geometry(
+        topology, shard_index=(0, 0, 0), shard_counts=(1, 2, 1),
+        raw_volume=volume, raw_centroid=centroid,
+        raw_second_moment=second, raw_third_moment=third,
+    )
+    upper = compile_local_control_volume_geometry(
+        topology, shard_index=(0, 1, 0), shard_counts=(1, 2, 1),
+    )
+    target_id = int(topology.aggregate_id[target])
+    assert bool(lower.owner_is_remote[source])
+    np.testing.assert_array_equal(lower.owner_shard_index[source], (0, 1, 0))
+    np.testing.assert_array_equal(lower.owner_local_index[source], (1, 0, 1))
+    assert target_id in set(lower.remote_aggregate_id.tolist())
+    assert not bool(lower.local_active_owner[source])
+    assert bool(upper.local_active_owner[1, 0, 1])
+    assert int(np.count_nonzero(lower.local_active_owner)) + int(np.count_nonzero(upper.local_active_owner)) == int(np.count_nonzero(topology.is_active_owner))
+
+
+def test_periodic_seam_face_ids_are_unique_contiguous_and_canonical() -> None:
+    shape = (4, 2, 2)
+    volume, centroid, second, third, fraction = _raw_geometry(shape)
+    faces = [np.zeros_like(face) for face in _unit_faces(shape)]
+    faces[0][0, 0, 0] = faces[0][-1, 0, 0] = 2.0
+    topology = build_global_control_volume_topology(
+        raw_volume=volume, raw_centroid=centroid,
+        raw_second_moment=second, raw_third_moment=third,
+        fluid_volume_fraction=fraction, face_open_measure=tuple(faces),
+        periodic_axes=(True, False, False), coordinate_periods=(4.0, 1.0, 1.0),
+    )
+    np.testing.assert_array_equal(topology.face_id, np.arange(topology.face_id.size))
+    seam = np.flatnonzero((topology.face_axis == 0) & (topology.face_storage_index[:, 0] == 0))
+    assert seam.size == 1
+    assert not np.any((topology.face_axis == 0) & (topology.face_storage_index[:, 0] == shape[0]))
+
+
 def test_direct_cubic_face_functional_reproduces_monomials() -> None:
     rng = np.random.default_rng(7)
     points = rng.uniform(-0.8, 0.8, size=(32, 3))

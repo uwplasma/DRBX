@@ -213,6 +213,20 @@ class LocalControlVolumeGeometry3D:
     local_aggregate_id: np.ndarray
     local_owner_index: np.ndarray
     local_active_owner: np.ndarray
+    local_merge_source: np.ndarray
+    owner_shard_index: np.ndarray
+    owner_local_index: np.ndarray
+    owner_is_remote: np.ndarray
+    local_raw_volume: np.ndarray
+    local_raw_centroid: np.ndarray
+    local_raw_second_moment: np.ndarray
+    local_raw_third_moment: np.ndarray
+    local_aggregate_volume: np.ndarray
+    local_aggregate_centroid: np.ndarray
+    local_aggregate_second_moment: np.ndarray
+    local_aggregate_third_moment: np.ndarray
+    local_received_source_count: np.ndarray
+    local_member_count: np.ndarray
     local_face_id: np.ndarray
     local_face_axis: np.ndarray
     local_face_storage_index: np.ndarray
@@ -220,6 +234,37 @@ class LocalControlVolumeGeometry3D:
     local_face_plus_aggregate_id: np.ndarray
     local_face_measure: np.ndarray
     remote_aggregate_id: np.ndarray
+
+    def __post_init__(self) -> None:
+        if any(self.global_shape[a] % self.shard_counts[a] for a in range(3)):
+            raise ValueError("global_shape must divide evenly across shard_counts")
+        shape = tuple(self.global_shape[a] // self.shard_counts[a] for a in range(3))
+        checks = {
+            "local_aggregate_id": (self.local_aggregate_id, shape),
+            "local_owner_index": (self.local_owner_index, shape + (3,)),
+            "local_active_owner": (self.local_active_owner, shape),
+            "local_merge_source": (self.local_merge_source, shape),
+            "owner_shard_index": (self.owner_shard_index, shape + (3,)),
+            "owner_local_index": (self.owner_local_index, shape + (3,)),
+            "owner_is_remote": (self.owner_is_remote, shape),
+            "local_raw_volume": (self.local_raw_volume, shape),
+            "local_raw_centroid": (self.local_raw_centroid, shape + (3,)),
+            "local_raw_second_moment": (self.local_raw_second_moment, shape + (3, 3)),
+            "local_raw_third_moment": (self.local_raw_third_moment, shape + (3, 3, 3)),
+            "local_aggregate_volume": (self.local_aggregate_volume, shape),
+            "local_aggregate_centroid": (self.local_aggregate_centroid, shape + (3,)),
+            "local_aggregate_second_moment": (self.local_aggregate_second_moment, shape + (3, 3)),
+            "local_aggregate_third_moment": (self.local_aggregate_third_moment, shape + (3, 3, 3)),
+            "local_received_source_count": (self.local_received_source_count, shape),
+            "local_member_count": (self.local_member_count, shape),
+        }
+        for name, (value, expected) in checks.items():
+            value = np.asarray(value)
+            if value.shape != expected:
+                raise ValueError(f"{name} must have shape {expected}, got {value.shape}")
+            object.__setattr__(self, name, value)
+        if np.any(np.asarray(self.local_active_owner) & np.asarray(self.owner_is_remote)):
+            raise ValueError("active owners cannot be remote")
 
 
 def _neighbor_index(
@@ -262,6 +307,8 @@ def build_global_control_volume_topology(
     periodic_axes: tuple[bool, bool, bool] = (False, False, False),
     coordinate_periods: tuple[float, float, float] = (1.0, 1.0, 1.0),
     merge_fraction: float = 0.5,
+    positive_volume_floor: float = 0.0,
+    positive_mask: np.ndarray | None = None,
 ) -> GlobalControlVolumeTopology3D:
     """Build direct, decomposition-invariant aggregate ownership.
 
@@ -296,16 +343,24 @@ def build_global_control_volume_topology(
     )
     if tuple(value.shape for value in face_open_measure) != expected_face_shapes:
         raise ValueError("face_open_measure has incompatible face shapes")
-    positive = raw_volume > 0.0
+    if positive_volume_floor < 0.0:
+        raise ValueError("positive_volume_floor must be nonnegative")
+    positive = raw_volume > float(positive_volume_floor)
+    if positive_mask is not None:
+        positive_mask = np.asarray(positive_mask, dtype=bool)
+        if positive_mask.shape != shape:
+            raise ValueError("positive_mask must match raw_volume")
+        positive &= positive_mask
     candidate_source = positive & (fraction < float(merge_fraction))
     owner_index = np.stack(np.indices(shape, dtype=np.int32), axis=-1)
     is_merge_source = np.zeros(shape, dtype=bool)
     retained_cut_cell = candidate_source.copy()
     for source_array in np.argwhere(candidate_source):
         source = tuple(int(value) for value in source_array)
-        choices: list[tuple[float, float, tuple[int, int, int]]] = []
-        for axis in range(3):
-            for direction in (-1, 1):
+        choices: list[tuple[float, float, int, tuple[int, int, int]]] = []
+        for direction_ordinal, (axis, direction) in enumerate(
+            ((0, -1), (0, 1), (1, -1), (1, 1), (2, -1), (2, 1))
+        ):
                 target = _neighbor_index(
                     source, axis, direction, shape, periodic_axes
                 )
@@ -321,10 +376,10 @@ def build_global_control_volume_topology(
                     periodic_axes=periodic_axes,
                     periods=coordinate_periods,
                 )
-                choices.append((-measure, float(np.dot(delta, delta)), target))
+                choices.append((-measure, float(np.linalg.norm(delta)), direction_ordinal, target))
         if not choices:
             continue
-        _, _, target = min(choices)
+        _, _, _, target = min(choices)
         owner_index[source] = target
         is_merge_source[source] = True
         retained_cut_cell[source] = False
@@ -426,12 +481,19 @@ def compile_local_control_volume_geometry(
     *,
     shard_index: tuple[int, int, int],
     shard_counts: tuple[int, int, int],
+    raw_volume: np.ndarray | None = None,
+    raw_centroid: np.ndarray | None = None,
+    raw_second_moment: np.ndarray | None = None,
+    raw_third_moment: np.ndarray | None = None,
 ) -> LocalControlVolumeGeometry3D:
     """Compile one host-side shard view from global aggregate topology."""
 
     shard_counts = tuple(int(value) for value in shard_counts)
+    shard_index = tuple(int(value) for value in shard_index)
     if any(value <= 0 for value in shard_counts):
         raise ValueError("shard_counts must be positive")
+    if len(shard_index) != 3 or any(value < 0 or value >= shard_counts[axis] for axis, value in enumerate(shard_index)):
+        raise ValueError("shard_index must be in range for shard_counts")
     if any(
         topology.shape[axis] % shard_counts[axis] for axis in range(3)
     ):
@@ -449,6 +511,27 @@ def compile_local_control_volume_geometry(
     local_ids = topology.aggregate_id[slices]
     local_owner = topology.owner_index[slices]
     local_active = topology.is_active_owner[slices]
+    local_source = topology.is_merge_source[slices]
+    owner_shard = local_owner // np.asarray(owned_shape, dtype=np.int32)
+    owner_local = local_owner % np.asarray(owned_shape, dtype=np.int32)
+    owner_remote = np.any(owner_shard != np.asarray(shard_index, dtype=np.int32), axis=-1)
+    if np.any(local_active & owner_remote):
+        raise ValueError("a physical active owner must be local to its shard")
+    local_owner_active = local_active[tuple(np.moveaxis(owner_local, -1, 0))]
+    if np.any(local_source & ~owner_remote & ~local_owner_active):
+        raise ValueError("a local merge source must target a local active owner")
+
+    def local_raw(value: np.ndarray | None, suffix: tuple[int, ...]) -> np.ndarray:
+        if value is None:
+            return np.zeros(owned_shape + suffix, dtype=np.float64)
+        value = np.asarray(value, dtype=np.float64)
+        if value.shape != topology.shape + suffix:
+            raise ValueError("raw moment input has incompatible global shape")
+        return value[slices]
+
+    member_counts = np.bincount(topology.aggregate_id.reshape((-1,)), minlength=int(np.prod(topology.shape)))
+    local_member_count = np.where(local_active, member_counts[local_ids], 0).astype(np.int32)
+    local_received_count = np.where(local_active, member_counts[local_ids] - 1, 0).astype(np.int32)
     # A source owned by another shard carries that remote aggregate ID in its
     # local map.  It must not cause the remote owner to be classified as
     # local: locality belongs to the physical active-owner cell, not to an ID
@@ -477,11 +560,25 @@ def compile_local_control_volume_geometry(
     remote_ids = remote_ids[(remote_ids >= 0) & ~np.isin(remote_ids, list(local_id_set))]
     return LocalControlVolumeGeometry3D(
         global_shape=topology.shape,
-        shard_index=tuple(int(value) for value in shard_index),
+        shard_index=shard_index,
         shard_counts=shard_counts,
         local_aggregate_id=local_ids,
         local_owner_index=local_owner,
         local_active_owner=local_active,
+        local_merge_source=local_source,
+        owner_shard_index=owner_shard,
+        owner_local_index=owner_local,
+        owner_is_remote=owner_remote,
+        local_raw_volume=local_raw(raw_volume, ()),
+        local_raw_centroid=local_raw(raw_centroid, (3,)),
+        local_raw_second_moment=local_raw(raw_second_moment, (3, 3)),
+        local_raw_third_moment=local_raw(raw_third_moment, (3, 3, 3)),
+        local_aggregate_volume=topology.aggregate_volume[slices],
+        local_aggregate_centroid=topology.aggregate_centroid[slices],
+        local_aggregate_second_moment=topology.aggregate_second_moment[slices],
+        local_aggregate_third_moment=topology.aggregate_third_moment[slices],
+        local_received_source_count=local_received_count,
+        local_member_count=local_member_count,
         local_face_id=local_faces,
         local_face_axis=local_face_axis,
         local_face_storage_index=local_face_storage_index,

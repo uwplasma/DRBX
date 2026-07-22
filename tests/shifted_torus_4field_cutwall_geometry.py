@@ -21,6 +21,12 @@ from drbx.geometry import (
     LocalRegularFaceGeometry3D,
     build_local_control_volume_cell_geometry,
 )
+from drbx.geometry.fci_control_volumes import (
+    GlobalControlVolumeTopology3D,
+    LocalControlVolumeGeometry3D,
+    build_global_control_volume_topology,
+    compile_local_control_volume_geometry,
+)
 from drbx.native import precompute_local_moment_reconstruction
 from drbx.native.fci_boundaries import (
     CV_FACE_CUT_WALL,
@@ -1525,6 +1531,63 @@ def _build_closed_box_control_volume_cells(
     return cells
 
 
+def _build_global_closed_box_control_volume_topology(
+    *, global_shape: tuple[int, int, int], halo_width: int
+) -> tuple[GlobalControlVolumeTopology3D, tuple[np.ndarray, ...]]:
+    """Build the one canonical host topology for every shifted-torus shard."""
+    geometry = build_shifted_torus_local_geometry(
+        global_shape, halo_width, global_shape=global_shape, shard_index=(0, 0, 0),
+        x_min=shifted_mms.x_min, x_max=shifted_mms.x_max, r0=shifted_mms.r0,
+        alpha_value=shifted_mms.alpha_value, iota=shifted_mms.iota,
+        c_phi=shifted_mms.c_phi, sigma=shifted_mms.sigma,
+    )
+    raw_volume, centroid, second, third, full_volume = _closed_box_fluid_moments_3point(geometry)
+    grids = (geometry.grid.x, geometry.grid.y, geometry.grid.z)
+    axis_faces = tuple(np.asarray(grid.faces_owned, dtype=np.float64) for grid in grids)
+    measures: list[np.ndarray] = []
+    for axis in range(3):
+        face_shape = list(global_shape); face_shape[axis] += 1
+        measure = np.zeros(tuple(face_shape), dtype=np.float64)
+        for face in np.ndindex(*face_shape):
+            tangential = tuple((float(axis_faces[t][face[t]]), float(axis_faces[t][face[t] + 1])) for t in range(3) if t != axis)
+            for rectangle in _open_face_rectangles_numpy(axis=axis, face_coordinate=float(axis_faces[axis][face[axis]]), tangential_bounds=tangential):
+                points, area_weight = _face_patch_quadrature_numpy(axis=axis, face_coordinate=float(axis_faces[axis][face[axis]]), rectangle=rectangle, orientation=1.0)
+                measure[face] += float(np.sum(_shifted_torus_metric_payload_numpy(points)[0] * np.linalg.norm(area_weight, axis=-1)))
+        measures.append(measure)
+    x, y, z = np.meshgrid(*(np.asarray(grid.centers_owned, dtype=np.float64) for grid in grids), indexing="ij")
+    bounds = _box_bounds()
+    center_in_solid = ((x > bounds[0][0]) & (x < bounds[0][1]) & (y > bounds[1][0]) & (y < bounds[1][1]) & (z > bounds[2][0]) & (z < bounds[2][1]))
+    floor = 1.0e-14 * max(float(np.max(full_volume)), 1.0)
+    fraction = raw_volume / np.maximum(full_volume, 1.0e-30)
+    # Legacy selection is ``fraction < .5 OR center_in_solid``.
+    fraction = np.where(center_in_solid & (raw_volume > floor), 0.0, fraction)
+    topology = build_global_control_volume_topology(
+        raw_volume=raw_volume, raw_centroid=centroid, raw_second_moment=second, raw_third_moment=third,
+        fluid_volume_fraction=fraction, face_open_measure=tuple(measures), periodic_axes=(False, True, True),
+        coordinate_periods=(float(shifted_mms.x_max - shifted_mms.x_min), 2.0 * np.pi, 2.0 * np.pi),
+        positive_volume_floor=floor,
+    )
+    return topology, (raw_volume, centroid, second, third)
+
+
+def _lower_global_control_volume_cells(geometry: LocalFciGeometry3D, local: LocalControlVolumeGeometry3D) -> LocalControlVolumeCellGeometry3D:
+    """Lower canonical data only when this legacy runtime can represent it."""
+    if np.any(local.owner_is_remote):
+        raise NotImplementedError("legacy LocalControlVolumeCellGeometry3D cannot lower remote aggregate owners")
+    owner = local.owner_local_index
+    active = local.local_active_owner
+    return LocalControlVolumeCellGeometry3D(
+        layout=geometry.layout, owner_i=jnp.asarray(owner[..., 0]), owner_j=jnp.asarray(owner[..., 1]), owner_k=jnp.asarray(owner[..., 2]),
+        is_merged_source=jnp.asarray(local.local_merge_source), is_active_owner=jnp.asarray(active),
+        is_aggregate_target=jnp.asarray(active & (local.local_received_source_count > 0)),
+        received_source_count=jnp.asarray(local.local_received_source_count), member_count=jnp.asarray(local.local_member_count),
+        raw_volume=jnp.asarray(local.local_raw_volume), aggregate_volume=jnp.asarray(local.local_aggregate_volume),
+        raw_centroid=jnp.asarray(local.local_raw_centroid), centroid=jnp.asarray(local.local_aggregate_centroid),
+        raw_second_moment=jnp.asarray(local.local_raw_second_moment), second_moment=jnp.asarray(local.local_aggregate_second_moment),
+        raw_third_moment=jnp.asarray(local.local_raw_third_moment), third_moment=jnp.asarray(local.local_aggregate_third_moment),
+    )
+
+
 def _intrinsic_reconstruction_owner_mask(
     cells: LocalControlVolumeCellGeometry3D,
     irregular_faces: LocalControlVolumeFaceRows3D,
@@ -1932,6 +1995,10 @@ def _build_stacked_embedded_control_volume_geometry(
         int(size) // int(count)
         for size, count in zip(global_shape, shard_counts)
     )
+    global_topology: GlobalControlVolumeTopology3D | None = None
+    global_raw: tuple[np.ndarray, ...] | None = None
+    if enable_merging:
+        global_topology, global_raw = _build_global_closed_box_control_volume_topology(global_shape=global_shape, halo_width=halo_width)
     local_geometry_and_cells: dict[
         tuple[int, int, int],
         tuple[LocalFciGeometry3D, LocalControlVolumeCellGeometry3D],
@@ -1953,13 +2020,12 @@ def _build_stacked_embedded_control_volume_geometry(
                     c_phi=shifted_mms.c_phi,
                     sigma=shifted_mms.sigma,
                 )
-                local_geometry_and_cells[shard_index] = (
-                    local_geometry,
-                    _build_closed_box_control_volume_cells(
-                        local_geometry,
-                        enable_merging=enable_merging,
-                    ),
-                )
+                if global_topology is None:
+                    cells = _build_closed_box_control_volume_cells(local_geometry, enable_merging=False)
+                else:
+                    local_topology = compile_local_control_volume_geometry(global_topology, shard_index=shard_index, shard_counts=shard_counts, raw_volume=global_raw[0], raw_centroid=global_raw[1], raw_second_moment=global_raw[2], raw_third_moment=global_raw[3])
+                    cells = _lower_global_control_volume_cells(local_geometry, local_topology)
+                local_geometry_and_cells[shard_index] = (local_geometry, cells)
 
     periodic_axes = (False, True, True)
 
