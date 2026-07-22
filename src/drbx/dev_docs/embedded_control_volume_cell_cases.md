@@ -38,8 +38,8 @@ authoritative combined object is `LocalEmbeddedControlVolumeGeometry3D`.
 | --- | --- | --- | --- |
 | Ordinary interior owner | Yes | Structured by default | Dense regular faces |
 | Coordinate-boundary owner | Yes | Structured by default | Dense boundary closure |
-| Retained cut-cell owner | Yes | Moment-aware quadratic | Compact irregular faces where needed |
-| Aggregate target | Yes | Moment-aware quadratic about aggregate centroid | Compact aggregate interfaces plus eligible dense faces |
+| Retained cut-cell owner | Yes | Moment-aware cubic | Compact irregular faces where needed |
+| Aggregate target | Yes | Moment-aware cubic about aggregate centroid | Compact aggregate interfaces plus eligible dense faces |
 | Merged source | No | None; output is zero | Its exterior faces route to the target owner |
 | Zero-fluid or inactive storage | No | None; output is zero | No fluid flux |
 | Dense-to-compact transition owner | Yes | Polynomial available for affected faces | Chosen independently per face |
@@ -189,8 +189,8 @@ second moment is the moment of that same union.
 
 ### Machinery Used
 
-- aggregate volume, centroid, and second moment;
-- moment-aware quadratic reconstruction;
+- aggregate volume, centroid, second moment, and third moment;
+- moment-aware cubic reconstruction;
 - unique owner samples rather than storage-cell samples;
 - aggregate-volume division after integrated flux accumulation.
 
@@ -255,7 +255,7 @@ condition layered on top of the retained-cut or aggregate-target cell case.
 - compact `CV_FACE_CUT_WALL` rows;
 - wall centroid and Gauss-point geometry;
 - field-specific BC kind and values;
-- wall equations in the quadratic reconstruction;
+- wall equations in the cubic reconstruction;
 - quadrature of boundary flux.
 
 ### Why BC Objects Are Required
@@ -319,7 +319,7 @@ For each field, the runtime logic can be read as:
 
 1. Expand owner values into storage shape where dense infrastructure needs it.
 2. Complete physical, topology, and corner halos.
-3. Build quadratic polynomials for active reconstruction owners.
+3. Build cubic polynomials for active reconstruction owners.
 4. Exchange polynomial coefficients needed by remote compact interfaces.
 5. Evaluate untouched ordinary faces with dense structured stencils.
 6. Apply the moment-derived closure on full regular Dirichlet boundaries.
