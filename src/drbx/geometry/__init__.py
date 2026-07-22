@@ -16,6 +16,14 @@ from .essos_import import (
     trace_essos_vmec_initial_conditions,
 )
 from .fci_maps import FciMaps, identity_fci_maps, load_fci_maps_netcdf
+from .fci_control_volumes import (
+    GlobalControlVolumeTopology3D,
+    LocalControlVolumeGeometry3D,
+    build_global_control_volume_topology,
+    combine_volume_moments,
+    compile_local_control_volume_geometry,
+    nearest_periodic_image_delta,
+)
 from .metric_tensor import MetricTensor3D, build_metric_report, metric_inverse_residual
 from .stellarator import SyntheticStellaratorGeometry, build_synthetic_stellarator_geometry
 from .island_divertor import (
@@ -50,6 +58,12 @@ from .vmec_extender_import import (
 )
 
 __all__ = [
+    "GlobalControlVolumeTopology3D",
+    "LocalControlVolumeGeometry3D",
+    "build_global_control_volume_topology",
+    "combine_volume_moments",
+    "compile_local_control_volume_geometry",
+    "nearest_periodic_image_delta",
     "EssosFieldLineBundle",
     "EssosImportedFciGeometry",
     "build_essos_vmec_scaled_qa_coordinates",
