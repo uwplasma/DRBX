@@ -39,6 +39,7 @@ from drbx.native.fci_boundaries import (
 )
 from drbx.native.fci_helpers import _local_side_mask, local_physical_side_active
 from drbx.native.fci_halo import (
+    accumulate_halo_contributions_to_owned,
     GhostFillWeights1D,
     HaloExchange3D,
     LocalHaloClosure3D,
@@ -1186,3 +1187,103 @@ def test_two_shard_nonperiodic_exchange_fills_only_internal_faces() -> None:
     assert jnp.all(exchanged[1, -1, owned[1], owned[2]] == -99.0)
     assert jnp.all(exchanged[:, owned[0], 0, :] == -99.0)
     assert jnp.all(exchanged[:, owned[0], owned[1], 0] == -99.0)
+
+
+@pytest.mark.skipif(
+    jax.local_device_count() < 2,
+    reason="requires two local devices for a collective reverse-exchange test",
+)
+def test_two_shard_reverse_halo_accumulator_routes_nonperiodic_faces_and_components() -> None:
+    """Remote aggregate residuals cross one face and preserve component axes."""
+    owned_shape = (3, 2, 2)
+    domain = _domain(
+        owned_shape=owned_shape,
+        shard_counts=(2, 1, 1),
+        periodic_axes=(False, False, False),
+        mesh_axis_names=("x", None, None),
+    )
+    layout = domain.layout
+    h = layout.halo_width
+
+    def make_upper_payload(shard: int) -> jax.Array:
+        field = jnp.zeros(layout.cell_halo_shape + (2,), dtype=jnp.float64)
+        if shard == 0:
+            # A source on shard 0 merged into a lower-face owner on shard 1.
+            field = field.at[h + owned_shape[0], h, h].set(jnp.array([-3.0, 5.0]))
+            # Unrelated owned data must survive the accumulator unchanged.
+            field = field.at[h + 1, h, h].set(jnp.array([11.0, 13.0]))
+        return field
+
+    fields = jax.device_put_sharded(
+        [make_upper_payload(0), make_upper_payload(1)], jax.local_devices()[:2]
+    )
+    accumulated = jax.pmap(
+        lambda field: accumulate_halo_contributions_to_owned(
+            field, domain, exchange_axes=(True, False, False)
+        ),
+        axis_name="x",
+    )(fields)
+
+    expected = jnp.zeros((2,) + owned_shape + (2,), dtype=jnp.float64)
+    expected = expected.at[0, 1, 0, 0].set(jnp.array([11.0, 13.0]))
+    expected = expected.at[1, 0, 0, 0].set(jnp.array([-3.0, 5.0]))
+    assert jnp.array_equal(accumulated, expected)
+
+    # Reverse direction: a shard-1 lower halo reaches shard-0's upper owner.
+    reverse = jnp.zeros_like(fields)
+    reverse = reverse.at[1, 0, h, h].set(jnp.array([7.0, -2.0]))
+    reverse_accumulated = jax.pmap(
+        lambda field: accumulate_halo_contributions_to_owned(
+            field, domain, exchange_axes=(True, False, False)
+        ),
+        axis_name="x",
+    )(reverse)
+    reverse_expected = jnp.zeros_like(accumulated)
+    reverse_expected = reverse_expected.at[0, -1, 0, 0].set(jnp.array([7.0, -2.0]))
+    assert jnp.array_equal(reverse_accumulated, reverse_expected)
+
+
+@pytest.mark.skipif(
+    jax.local_device_count() < 2,
+    reason="requires two local devices for a compact-face routing test",
+)
+def test_two_shard_compact_face_contribution_is_unique_and_conservative() -> None:
+    """One face evaluator yields exactly one +F/-F owner pair after routing."""
+    owned_shape = (3, 2, 2)
+    domain = _domain(
+        owned_shape=owned_shape,
+        shard_counts=(2, 1, 1),
+        periodic_axes=(False, False, False),
+        mesh_axis_names=("x", None, None),
+    )
+    layout = domain.layout
+    h = layout.halo_width
+
+    def evaluator_rows(shard: int) -> jax.Array:
+        field = jnp.zeros(layout.cell_halo_shape, dtype=jnp.float64)
+        if shard == 0:
+            # The evaluator owns +F locally and routes the sole -F to the
+            # adjacent aggregate.  A poisoned unrelated owned slot confirms
+            # that the routing layer does not duplicate or overwrite storage.
+            field = field.at[h + 1, h, h].set(4.0)
+            field = field.at[h + owned_shape[0], h, h].set(-4.0)
+            field = field.at[h + 2, h + 1, h + 1].set(17.0)
+        return field
+
+    payload = jax.device_put_sharded(
+        [evaluator_rows(0), evaluator_rows(1)], jax.local_devices()[:2]
+    )
+    owners = jax.pmap(
+        lambda field: accumulate_halo_contributions_to_owned(
+            field, domain, exchange_axes=(True, False, False)
+        ),
+        axis_name="x",
+    )(payload)
+    assert owners[0, 1, 0, 0] == 4.0
+    assert owners[1, 0, 0, 0] == -4.0
+    assert owners[0, 2, 1, 1] == 17.0
+    assert jnp.sum(owners) == 17.0
+    # Removing the unrelated poisoned value reveals the compact face pair is
+    # exactly conservative, with no second evaluator contribution.
+    face_only_sum = jnp.sum(owners) - owners[0, 2, 1, 1]
+    assert face_only_sum == 0.0

@@ -28,6 +28,7 @@ from ..geometry import FCI_DEP_CUT_WALL, FCI_DEP_FIELD_INTERIOR, FCI_DEP_INVALID
 from .fci_halo import (
     GhostFillWeights1D,
     HaloExchange3D,
+    accumulate_halo_contributions_to_owned,
     LocalHaloClosure3D,
     LocalPeriodicTopologyRule3D,
     LocalStateAndBoundaryPreparer3D,
@@ -223,6 +224,7 @@ __all__ = [
     "build_local_fci_stencil_from_field",
     "build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry",
     "HaloExchange3D",
+    "accumulate_halo_contributions_to_owned",
     "GhostFillWeights1D",
     "LocalHaloClosure3D",
     "PhysicalGhostCornerFiller3D",

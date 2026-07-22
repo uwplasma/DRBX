@@ -77,6 +77,98 @@ def _trailing_slices(ndim: int) -> tuple[slice, ...]:
     return (slice(None),) * (ndim - 3)
 
 
+def accumulate_halo_contributions_to_owned(
+    field_halo: jnp.ndarray,
+    domain: LocalDomain3D,
+    *,
+    exchange_axes: tuple[bool, bool, bool] = (True, True, True),
+) -> jnp.ndarray:
+    """Reverse a face-halo scatter and return owned accumulated values.
+
+    A contribution placed in a lower (upper) halo is delivered to the upper
+    (lower) owned boundary slab of the neighbouring rank.  This is deliberately
+    the adjoint of :class:`HaloExchange3D` for face-only, one-neighbour halos;
+    corners are unsupported and must remain zero.
+    """
+    field_halo = _validate_halo_spatial_prefix(field_halo, domain)
+    axes = tuple(bool(x) for x in exchange_axes)
+    if len(axes) != 3:
+        raise ValueError("exchange_axes must have length 3")
+    h = int(domain.layout.halo_width)
+    shard_counts = tuple(int(value) for value in domain.shard_spec.shard_counts)
+    if len(domain.mesh_axis_names) != 3:
+        raise ValueError("domain.mesh_axis_names must have length 3")
+    for axis, (enabled, count, name) in enumerate(
+        zip(axes, shard_counts, domain.mesh_axis_names)
+    ):
+        if enabled and count > 1 and not name:
+            raise ValueError(
+                "accumulate_halo_contributions_to_owned requires a mesh axis "
+                f"name in domain.mesh_axis_names[{axis}] for decomposed exchange"
+            )
+        if enabled and count > 1 and h > domain.owned_shape[axis]:
+            raise ValueError(
+                "reverse halo exchange requires halo_width no larger than the "
+                "owned extent on each exchanged axis; "
+                f"axis={axis}, halo_width={h}, "
+                f"owned_extent={domain.owned_shape[axis]}"
+            )
+    owned = field_halo[domain.layout.owned_slices_cell]
+    if h == 0:
+        return owned
+    # Only one-face payloads are routable.  An edge/corner value has no unique
+    # receiving rank under this one-neighbour reverse exchange, so reject it
+    # in eager preprocessing rather than silently dropping it.  Under a JAX
+    # trace the same shape contract remains documented and callers construct
+    # payloads solely through face rows.
+    spatial_shape = domain.layout.cell_halo_shape
+    coordinates = jnp.indices(spatial_shape)
+    halo_count = sum(
+        (coordinates[axis] < h)
+        | (coordinates[axis] >= h + domain.owned_shape[axis])
+        for axis in range(3)
+    )
+    face_only = halo_count <= 1
+    try:
+        invalid_payload = bool(
+            jnp.any(jnp.where(face_only[(...,) + (None,) * (field_halo.ndim - 3)], 0.0, field_halo) != 0)
+        )
+    except jax.errors.TracerBoolConversionError:
+        invalid_payload = False
+    if invalid_payload:
+        raise ValueError(
+            "reverse halo exchange accepts face-only payloads; halo edges and corners must be zero"
+        )
+    result = owned
+    trailing = _trailing_slices(field_halo.ndim)
+    for axis, enabled in enumerate(axes):
+        count = shard_counts[axis]
+        name = domain.mesh_axis_names[axis]
+        if not enabled or count <= 1 or name is None:
+            continue
+        # No corner payload: reverse accumulation is intentionally face-only.
+        if axis == 0:
+            lower = field_halo[(slice(0,h), slice(h,h+domain.owned_shape[1]), slice(h,h+domain.owned_shape[2])) + trailing]
+            upper = field_halo[(slice(h+domain.owned_shape[0],h+domain.owned_shape[0]+h), slice(h,h+domain.owned_shape[1]), slice(h,h+domain.owned_shape[2])) + trailing]
+            lo = (slice(0,h), slice(None), slice(None)) + trailing; hi = (slice(-h,None), slice(None), slice(None)) + trailing
+        elif axis == 1:
+            lower = field_halo[(slice(h,h+domain.owned_shape[0]), slice(0,h), slice(h,h+domain.owned_shape[2])) + trailing]
+            upper = field_halo[(slice(h,h+domain.owned_shape[0]), slice(h+domain.owned_shape[1],h+domain.owned_shape[1]+h), slice(h,h+domain.owned_shape[2])) + trailing]
+            lo = (slice(None), slice(0,h), slice(None)) + trailing; hi = (slice(None), slice(-h,None), slice(None)) + trailing
+        else:
+            lower = field_halo[(slice(h,h+domain.owned_shape[0]), slice(h,h+domain.owned_shape[1]), slice(0,h)) + trailing]
+            upper = field_halo[(slice(h,h+domain.owned_shape[0]), slice(h,h+domain.owned_shape[1]), slice(h+domain.owned_shape[2],h+domain.owned_shape[2]+h)) + trailing]
+            lo = (slice(None), slice(None), slice(0,h)) + trailing; hi = (slice(None), slice(None), slice(-h,None)) + trailing
+        sid = lax.axis_index(name)
+        lower_allowed = domain.shard_spec.lower_side_kind(axis) == SIDE_SIMPLE_PERIODIC
+        upper_allowed = domain.shard_spec.upper_side_kind(axis) == SIDE_SIMPLE_PERIODIC
+        recv_lower = lax.ppermute(upper, axis_name=name, perm=[(s,(s+1)%count) for s in range(count)])
+        recv_upper = lax.ppermute(lower, axis_name=name, perm=[(s,(s-1)%count) for s in range(count)])
+        result = result.at[lo].add(jnp.where((sid > 0) | lower_allowed, recv_lower, 0.0))
+        result = result.at[hi].add(jnp.where((sid < count-1) | upper_allowed, recv_upper, 0.0))
+    return result
+
+
 @_pytree_base
 @dataclass(frozen=True)
 class HaloExchange3D(_DataclassPyTreeMixin):

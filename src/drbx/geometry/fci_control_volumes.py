@@ -306,6 +306,58 @@ class LocalControlVolumeGeometry3D:
         object.__setattr__(self, "visible_face_id", visible)
 
 
+def remote_owner_halo_coordinate(
+    *,
+    owner_local: np.ndarray,
+    owner_shard: np.ndarray,
+    local_shard: np.ndarray,
+    owned_shape: tuple[int, int, int],
+    halo_width: int,
+    shard_counts: tuple[int, int, int],
+    periodic_axes: tuple[bool, bool, bool],
+) -> np.ndarray:
+    """Return the one-face halo address of a directly adjacent remote owner.
+
+    Global agglomeration only permits one source to merge across one physical
+    face.  A remote target must therefore lie in exactly one adjacent shard;
+    periodic shard-index wrap is normalized before this contract is checked.
+    """
+    owner_local = np.asarray(owner_local, dtype=np.int32)
+    owner_shard = np.asarray(owner_shard, dtype=np.int32)
+    local_shard = np.asarray(local_shard, dtype=np.int32)
+    shape = np.asarray(owned_shape, dtype=np.int32)
+    counts = np.asarray(shard_counts, dtype=np.int32)
+    if owner_local.shape != (3,) or owner_shard.shape != (3,) or local_shard.shape != (3,):
+        raise ValueError("remote owner and shard indices must have shape (3,)")
+    if np.any(owner_local < 0) or np.any(owner_local >= shape):
+        raise ValueError("remote owner local index is out of range")
+    delta = owner_shard - local_shard
+    for axis in range(3):
+        if periodic_axes[axis] and counts[axis] > 1:
+            if delta[axis] == counts[axis] - 1:
+                delta[axis] = -1
+            elif delta[axis] == -(counts[axis] - 1):
+                delta[axis] = 1
+    nonzero = np.flatnonzero(delta)
+    if nonzero.size != 1 or abs(int(delta[nonzero[0]])) != 1:
+        raise ValueError(
+            "a remote aggregate owner must be in exactly one directly adjacent shard"
+        )
+    axis = int(nonzero[0])
+    coord = int(halo_width) + owner_local.copy()
+    if delta[axis] < 0:
+        coord[axis] = int(halo_width) - int(shape[axis]) + int(owner_local[axis])
+    else:
+        coord[axis] = int(halo_width) + int(shape[axis]) + int(owner_local[axis])
+    halo_shape = shape + 2 * int(halo_width)
+    if np.any(coord < 0) or np.any(coord >= halo_shape):
+        raise ValueError("remote aggregate owner must land in a face halo slab")
+    expected = int(halo_width) - 1 if delta[axis] < 0 else int(halo_width) + int(shape[axis])
+    if int(coord[axis]) != expected:
+        raise ValueError("remote aggregate owner is not on the adjacent shard face")
+    return coord
+
+
 def _neighbor_index(
     index: tuple[int, int, int],
     axis: int,

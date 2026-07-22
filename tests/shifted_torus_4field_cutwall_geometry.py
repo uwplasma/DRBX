@@ -26,6 +26,7 @@ from drbx.geometry.fci_control_volumes import (
     LocalControlVolumeGeometry3D,
     build_global_control_volume_topology,
     compile_local_control_volume_geometry,
+    remote_owner_halo_coordinate,
 )
 from drbx.native import precompute_local_moment_reconstruction
 from drbx.native.fci_boundaries import (
@@ -1669,11 +1670,33 @@ def _build_global_closed_box_control_volume_topology(
     return topology, (raw_volume, centroid, second, third)
 
 
-def _lower_global_control_volume_cells(geometry: LocalFciGeometry3D, local: LocalControlVolumeGeometry3D) -> LocalControlVolumeCellGeometry3D:
-    """Lower canonical data only when this legacy runtime can represent it."""
-    if np.any(local.owner_is_remote):
-        raise NotImplementedError("legacy LocalControlVolumeCellGeometry3D cannot lower remote aggregate owners")
-    owner = local.owner_local_index
+def _lower_global_control_volume_cells(
+    geometry: LocalFciGeometry3D,
+    local: LocalControlVolumeGeometry3D,
+    *,
+    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
+) -> LocalControlVolumeCellGeometry3D:
+    """Lower global aggregate ownership, including directly-neighbour owners."""
+    owner = np.asarray(local.owner_local_index, dtype=np.int32).copy()
+    remote = np.asarray(local.owner_is_remote, dtype=bool)
+    shape = geometry.owned_shape
+    h = int(geometry.layout.halo_width)
+    # Local indices for a remote owner are only inactive-storage placeholders.
+    ii, jj, kk = np.indices(shape, dtype=np.int32)
+    owner[remote] = np.stack((ii, jj, kk), axis=-1)[remote]
+    remote_halo = np.zeros(shape + (3,), dtype=np.int32)
+    remote_shard = np.asarray(local.owner_shard_index, dtype=np.int32)
+    for index in np.argwhere(remote):
+        index_t = tuple(index)
+        remote_halo[index_t] = remote_owner_halo_coordinate(
+            owner_local=local.owner_local_index[index_t],
+            owner_shard=remote_shard[index_t],
+            local_shard=np.asarray(local.shard_index, dtype=np.int32),
+            owned_shape=shape,
+            halo_width=h,
+            shard_counts=local.shard_counts,
+            periodic_axes=periodic_axes,
+        )
     active = local.local_active_owner
     return LocalControlVolumeCellGeometry3D(
         layout=geometry.layout, owner_i=jnp.asarray(owner[..., 0]), owner_j=jnp.asarray(owner[..., 1]), owner_k=jnp.asarray(owner[..., 2]),
@@ -1684,6 +1707,8 @@ def _lower_global_control_volume_cells(geometry: LocalFciGeometry3D, local: Loca
         raw_centroid=jnp.asarray(local.local_raw_centroid), centroid=jnp.asarray(local.local_aggregate_centroid),
         raw_second_moment=jnp.asarray(local.local_raw_second_moment), second_moment=jnp.asarray(local.local_aggregate_second_moment),
         raw_third_moment=jnp.asarray(local.local_raw_third_moment), third_moment=jnp.asarray(local.local_aggregate_third_moment),
+        aggregate_id=jnp.asarray(local.local_aggregate_id), owner_is_remote=jnp.asarray(remote),
+        remote_owner_halo_i=jnp.asarray(remote_halo[..., 0]), remote_owner_halo_j=jnp.asarray(remote_halo[..., 1]), remote_owner_halo_k=jnp.asarray(remote_halo[..., 2]),
     )
 
 
