@@ -172,7 +172,7 @@ stencil. There is no full-array polynomial replacement pass. This is
 intentionally a face-level contract: requiring whole-cell path exclusivity
 would recursively promote every cell in a connected fluid domain.
 
-Partial physical-boundary rows use the same moment-aware quadratic polynomial
+Partial physical-boundary rows use the same moment-aware cubic polynomial
 as embedded cut-wall rows. Full coordinate-aligned physical faces do not
 create reconstruction rows; their normal closure comes from the regular face
 BC and their tangential faces retain centered structured stencils.
@@ -215,6 +215,7 @@ For an active owner `i`, reconstruction is centered at its aggregate centroid:
 u_i(x) = U_i
        + g_i . d
        + 1/2 H_i : (d d^T - M2_i)
+       + 1/6 T_i : (d d d - M3_i)
 d = x - centroid_i
 ```
 
@@ -227,6 +228,7 @@ For a neighboring owner `j`, the cell-average equation is:
 U_j - U_i =
   g_i . d_ij
   + 1/2 H_i : (M2_j + d_ij d_ij^T - M2_i)
+  + 1/6 T_i : (M3_j + sym(d_ij, M2_j) + d_ij d_ij d_ij - M3_i)
 ```
 
 For a Dirichlet boundary centroid `w`, the wall equation is:
@@ -235,20 +237,22 @@ For a Dirichlet boundary centroid `w`, the wall equation is:
 u_w - U_i =
   g_i . d_iw
   + 1/2 H_i : (d_iw d_iw^T - M2_i)
+  + 1/6 T_i : (d_iw d_iw d_iw - M3_i)
 ```
 
-There are three gradient and six symmetric Hessian coefficients. Coordinates
+There are three gradient, six symmetric Hessian, and ten symmetric
+third-derivative coefficients. Coordinates
 are normalized by local spacing and equations receive inverse-square distance
 weights. The host precompute uses rank-revealing SVD:
 
 - radius-one unique active owners are considered first;
 - radius two is added when rank or conditioning is inadequate;
-- at most 32 nearest unique samples are retained;
+- at most 48 nearest unique samples are retained;
 - transforms and condition diagnostics are stored in
   `LocalMomentReconstruction3D`.
 
-The shifted-torus convergence fixture requires rank nine and quadratic order on
-every active reconstruction row. A general linear fallback remains available
+The shifted-torus convergence fixture requires rank 19 and cubic order on
+every active reconstruction row. Lower-order fallbacks remain available
 for non-convergence callers.
 
 `build_local_control_volume_polynomial_from_field` performs the runtime work:
@@ -504,7 +508,7 @@ four-shard tests pass.
 | --- | --- | --- |
 | Cell ownership and moments | Yes | Every source maps directly to a local owned target |
 | Host geometry construction | Yes | Build per shard, then stack matching padded pytrees |
-| Quadratic precompute | Yes | Host-side local rows plus explicit remote sample metadata |
+| Cubic moment precompute | Yes | Host-side local rows plus explicit remote sample metadata |
 | Runtime polynomial build | Yes | Prepared halos for remote cell equations |
 | Ordinary dense faces | Yes | Existing halo/topology preparation |
 | Local compact interior face | Yes | One unique row, two local owners |
