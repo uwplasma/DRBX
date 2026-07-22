@@ -96,7 +96,7 @@ from .fci_boundaries import (
     LocalControlVolumeFaceRows3D,
     LocalControlVolumePolynomial3D,
     LocalEmbeddedControlVolumeGeometry3D,
-    LocalQuadraticReconstruction3D,
+    LocalMomentReconstruction3D,
     LocalRegularBoundaryMomentClosure3D,
     LocalCutWallBC3D,
     LocalCutWallGeometry3D,
@@ -4405,7 +4405,7 @@ def precompute_local_physical_boundary_gradient_reconstruction(
     )
 
 
-def precompute_local_quadratic_reconstruction(
+def _precompute_local_degree_two_reconstruction(
     cells: LocalControlVolumeCellGeometry3D,
     irregular_faces: LocalControlVolumeFaceRows3D,
     *,
@@ -4420,7 +4420,7 @@ def precompute_local_quadratic_reconstruction(
     max_equations: int = 40,
     condition_limit: float = 1.0e4,
     svd_rcond: float = 1.0e-12,
-) -> LocalQuadraticReconstruction3D:
+) -> LocalMomentReconstruction3D:
     """Precompute finite-volume quadratic reconstruction transforms on the host.
 
     Neighborhood selection and rank-revealing SVD are intentionally outside
@@ -4612,7 +4612,7 @@ def precompute_local_quadratic_reconstruction(
     targets = np.argwhere(touched & active_owner)
     n_rows = int(targets.shape[0])
     if n_rows == 0:
-        return LocalQuadraticReconstruction3D.empty(
+        return LocalMomentReconstruction3D.empty(
             cells.layout,
             max_rows=0,
             max_equations=max_equations,
@@ -5078,7 +5078,7 @@ def precompute_local_quadratic_reconstruction(
                 boundary_quadrature[row_index, equation_index] = int(payload[2])
 
     active = polynomial_order > 0
-    return LocalQuadraticReconstruction3D(
+    return LocalMomentReconstruction3D(
         layout=cells.layout,
         target_i=jnp.asarray(target_i),
         target_j=jnp.asarray(target_j),
@@ -5102,7 +5102,7 @@ def precompute_local_quadratic_reconstruction(
     )
 
 
-def precompute_local_cubic_reconstruction(
+def _precompute_local_cubic_reconstruction(
     cells: LocalControlVolumeCellGeometry3D,
     irregular_faces: LocalControlVolumeFaceRows3D,
     *,
@@ -5119,7 +5119,7 @@ def precompute_local_cubic_reconstruction(
     max_equations: int = 64,
     condition_limit: float = 1.0e6,
     svd_rcond: float = 1.0e-12,
-) -> LocalQuadraticReconstruction3D:
+) -> LocalMomentReconstruction3D:
     """Precompute 19-coefficient cubic finite-volume reconstruction rows.
 
     This deliberately lives beside the quadratic builder during migration.
@@ -5144,7 +5144,7 @@ def precompute_local_cubic_reconstruction(
     targets = np.argwhere(requested & active)
     n_rows = len(targets)
     if n_rows == 0:
-        return LocalQuadraticReconstruction3D.empty(
+        return LocalMomentReconstruction3D.empty(
             cells.layout,
             max_rows=0,
             max_equations=max_equations,
@@ -5541,7 +5541,7 @@ def precompute_local_cubic_reconstruction(
                 sample_i[r, e], sample_j[r, e], sample_k[r, e] = payload
             else:
                 boundary_face_row[r, e], boundary_patch[r, e], boundary_quadrature[r, e] = payload
-    return LocalQuadraticReconstruction3D(layout=cells.layout, target_i=jnp.asarray(target_i), target_j=jnp.asarray(target_j), target_k=jnp.asarray(target_k), equation_kind=jnp.asarray(equation_kind), sample_i=jnp.asarray(sample_i), sample_j=jnp.asarray(sample_j), sample_k=jnp.asarray(sample_k), boundary_face_row=jnp.asarray(boundary_face_row), boundary_patch=jnp.asarray(boundary_patch), boundary_quadrature=jnp.asarray(boundary_quadrature), equation_active=jnp.asarray(equation_active), rhs_transform=jnp.asarray(transform_out), active=jnp.asarray(order > 0), target_row_for_cell=jnp.asarray(row_for_cell), polynomial_order=jnp.asarray(order), rank=jnp.asarray(rank), condition_number=jnp.asarray(condition), max_rows=n_rows, max_equations=max_equations)
+    return LocalMomentReconstruction3D(layout=cells.layout, target_i=jnp.asarray(target_i), target_j=jnp.asarray(target_j), target_k=jnp.asarray(target_k), equation_kind=jnp.asarray(equation_kind), sample_i=jnp.asarray(sample_i), sample_j=jnp.asarray(sample_j), sample_k=jnp.asarray(sample_k), boundary_face_row=jnp.asarray(boundary_face_row), boundary_patch=jnp.asarray(boundary_patch), boundary_quadrature=jnp.asarray(boundary_quadrature), equation_active=jnp.asarray(equation_active), rhs_transform=jnp.asarray(transform_out), active=jnp.asarray(order > 0), target_row_for_cell=jnp.asarray(row_for_cell), polynomial_order=jnp.asarray(order), rank=jnp.asarray(rank), condition_number=jnp.asarray(condition), max_rows=n_rows, max_equations=max_equations)
 
 
 def build_local_control_volume_polynomial_from_field(
@@ -6374,24 +6374,6 @@ def _local_control_volume_irregular_parallel_flux(
         interior_value,
         boundary_value,
     )
-    transition_value, _transition_gradient, transition_valid = (
-        _evaluate_local_regular_transition_functional(
-            canonical_values,
-            polynomial,
-            control_volume_geometry,
-        )
-    )
-    transition_rows = control_volume_geometry.regular_transition_faces
-    transition_active = (
-        transition_rows.active
-        if int(transition_rows.max_rows) == int(faces.max_rows)
-        else jnp.zeros((int(faces.max_rows),), dtype=bool)
-    )
-    face_value = jnp.where(
-        transition_active[:, None, None],
-        transition_value[:, None, None],
-        face_value,
-    )
     unit_b = faces.B_contra / jnp.maximum(
         faces.Bmag[..., None],
         float(b_floor),
@@ -6431,110 +6413,11 @@ def _local_control_volume_irregular_parallel_flux(
         & ((~has_neighbor[:, None, None]) | neighbor_valid)
         & jnp.isfinite(quadrature_flux)
     )
-    valid = valid & (
-        (~transition_active[:, None, None])
-        | transition_valid[:, None, None]
-    )
     return jnp.where(
         faces.active,
         jnp.sum(jnp.where(valid, quadrature_flux, 0.0), axis=(1, 2)),
         0.0,
     )
-
-
-def _replace_local_cut_wall_dirichlet_normal_derivative(
-    values_owned: jnp.ndarray,
-    polynomial: LocalControlVolumePolynomial3D,
-    cells: LocalControlVolumeCellGeometry3D,
-    faces: LocalControlVolumeFaceRows3D,
-    boundary_bc: LocalControlVolumeBoundaryBC3D,
-    face_gradient: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Apply the coordinate-normal Dirichlet closure on embedded box walls.
-
-    The polynomial provides the tangential derivatives at a cut-wall
-    quadrature point.  For an axis-aligned embedded wall, the missing normal
-    coordinate derivative is better determined by the wall value plus the
-    first two distinct inward control-volume samples.  This quadratic
-    functional is second-order at the face and avoids amplifying the ordinary
-    reconstruction error through a cubic one-sided extrapolation.
-    """
-
-    cut_wall_dirichlet = (
-        faces.active
-        & (faces.kind == CV_FACE_CUT_WALL)
-        & (~faces.has_plus_owner)
-        & (~faces.has_remote_owner)
-        & faces.boundary_normal_stencil_valid
-        & boundary_bc.active
-        & (boundary_bc.kind == BC_DIRICHLET)
-    )
-    if int(faces.max_rows) == 0:
-        return face_gradient, jnp.zeros((0,), dtype=bool)
-
-    canonical_values = (
-        values_owned
-        if polynomial.owner_values is None
-        else polynomial.owner_values
-    )
-
-    points = faces.quadrature_points
-    axis_vector = jax.nn.one_hot(
-        faces.boundary_normal_axis,
-        3,
-        dtype=points.dtype,
-    )
-    boundary_coordinate = jnp.einsum("rpqi,ri->rpq", points, axis_vector)
-    inward_values = []
-    inward_valid = []
-    for sample_index in range(3):
-        sample_coordinate = faces.boundary_sample_coordinate[:, sample_index]
-        sample_points = (
-            points
-            + axis_vector[:, None, None, :]
-            * (
-                sample_coordinate[:, None, None, None]
-                - boundary_coordinate[..., None]
-            )
-        )
-        sample_value, _sample_gradient, sample_valid = (
-            evaluate_local_control_volume_polynomial(
-                canonical_values,
-                polynomial,
-                cells,
-                faces.boundary_sample_owner_i[:, sample_index, None, None],
-                faces.boundary_sample_owner_j[:, sample_index, None, None],
-                faces.boundary_sample_owner_k[:, sample_index, None, None],
-                sample_points,
-            )
-        )
-        inward_values.append(sample_value)
-        inward_valid.append(sample_valid)
-    inward_values_array = jnp.stack(inward_values, axis=-1)
-    inward_valid_array = jnp.all(jnp.stack(inward_valid, axis=-1), axis=-1)
-    derivative_weights = faces.boundary_dcoordinate_weights
-    normal_derivative = (
-        derivative_weights[:, None, None, 0] * boundary_bc.quadrature_value
-        + jnp.sum(
-            derivative_weights[:, None, None, 1:] * inward_values_array,
-            axis=-1,
-        )
-    )
-    valid = (
-        cut_wall_dirichlet[:, None, None]
-        & faces.quadrature_active
-        & inward_valid_array
-        & jnp.isfinite(normal_derivative)
-    )
-    baseline_normal_derivative = jnp.einsum(
-        "rpqi,ri->rpq",
-        face_gradient,
-        axis_vector,
-    )
-    corrected_gradient = face_gradient + axis_vector[:, None, None, :] * (
-        normal_derivative - baseline_normal_derivative
-    )[..., None]
-    return jnp.where(valid[..., None], corrected_gradient, face_gradient), valid
 
 
 def _local_control_volume_irregular_projected_flux(
@@ -6608,40 +6491,6 @@ def _local_control_volume_irregular_projected_flux(
         0.5 * (minus_gradient + neighbor_gradient),
         minus_gradient,
     )
-    _transition_value, transition_gradient, transition_valid = (
-        _evaluate_local_regular_transition_functional(
-            canonical_values,
-            polynomial,
-            control_volume_geometry,
-        )
-    )
-    transition_rows = control_volume_geometry.regular_transition_faces
-    transition_active = (
-        transition_rows.active
-        if int(transition_rows.max_rows) == int(faces.max_rows)
-        else jnp.zeros((int(faces.max_rows),), dtype=bool)
-    )
-    face_gradient = jnp.where(
-        transition_active[:, None, None, None],
-        transition_gradient[:, None, None, :],
-        face_gradient,
-    )
-    # Dirichlet wall values constrain the polynomial trace, but they do not
-    # sufficiently constrain its one-sided coordinate-normal derivative.  At
-    # an embedded wall, use the precomputed wall-plus-inward-CV functional for
-    # that component only.  The cubic polynomial continues to supply all
-    # tangential components, including their variation over each quadrature
-    # patch.
-    face_gradient, _cut_wall_normal_closure_valid = (
-        _replace_local_cut_wall_dirichlet_normal_derivative(
-            canonical_values,
-            polynomial,
-            cells,
-            faces,
-            boundary_bc,
-            face_gradient,
-        )
-    )
     quadrature_flux = faces.J * jnp.einsum(
         "rpqi,rpqij,rpqj->rpq",
         faces.area_covector_weight,
@@ -6676,10 +6525,6 @@ def _local_control_volume_irregular_projected_flux(
         & minus_valid
         & ((~has_neighbor[:, None, None]) | neighbor_valid)
         & jnp.isfinite(quadrature_flux)
-    )
-    valid = valid & (
-        (~transition_active[:, None, None])
-        | transition_valid[:, None, None]
     )
     return jnp.where(
         faces.active,

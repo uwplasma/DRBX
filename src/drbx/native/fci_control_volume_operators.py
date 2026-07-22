@@ -17,7 +17,7 @@ from .fci_boundaries import (
     CV_RECONSTRUCTION_EQUATION_CELL,
     CV_RECONSTRUCTION_EQUATION_DIRICHLET,
     CV_RECONSTRUCTION_EQUATION_REMOTE_CELL,
-    LocalQuadraticReconstruction3D,
+    LocalMomentReconstruction3D,
 )
 
 
@@ -139,30 +139,6 @@ def cubic_dense_face_targets(
     if scalar.shape != (basis.shape[0],) or gradient.shape != (3, basis.shape[0]):
         raise ValueError("dense coefficients must align with regular samples")
     return scalar @ basis, gradient @ basis
-
-
-@dataclass(frozen=True)
-class LocalMomentReconstruction3D:
-    """Order-independent reconstruction metadata.
-
-    The wrapped rows may contain degree-one, degree-two, or degree-three
-    transforms during migration.  Consumers use ``polynomial_order`` instead
-    of relying on a historical class name.
-    """
-
-    rows: LocalQuadraticReconstruction3D
-
-    @property
-    def polynomial_order(self) -> jnp.ndarray:
-        return self.rows.polynomial_order
-
-    @property
-    def rank(self) -> jnp.ndarray:
-        return self.rows.rank
-
-    @property
-    def condition_number(self) -> jnp.ndarray:
-        return self.rows.condition_number
 
 
 @dataclass(frozen=True)
@@ -327,19 +303,30 @@ def precompute_local_moment_reconstruction(
     halo contract and introduces decomposition-dependent support.
     """
 
-    if int(requested_order) != 3:
-        raise ValueError("the embedded-control-volume path currently requires cubic order")
+    requested_order = int(requested_order)
+    if requested_order not in (1, 2, 3):
+        raise ValueError("requested_order must be one, two, or three")
     if int(max_radius) != 2:
         raise ValueError("max_radius must match the two-cell halo contract")
-    from .fci_operators import precompute_local_cubic_reconstruction
+    from .fci_operators import (
+        _precompute_local_cubic_reconstruction,
+        _precompute_local_degree_two_reconstruction,
+    )
 
-    rows = precompute_local_cubic_reconstruction(
+    if requested_order < 3:
+        return _precompute_local_degree_two_reconstruction(
+            cells,
+            irregular_faces,
+            spacing_owned=spacing_owned,
+            **kwargs,
+        )
+
+    return _precompute_local_cubic_reconstruction(
         cells,
         irregular_faces,
         spacing_owned=spacing_owned,
         **kwargs,
     )
-    return LocalMomentReconstruction3D(rows=rows)
 
 
 def precompute_local_face_functional(

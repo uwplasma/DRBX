@@ -130,7 +130,7 @@ differs from that of a full rectangular cell.
 ### Machinery Used
 
 - raw fluid volume, centroid, and second moment;
-- `LocalQuadraticReconstruction3D`;
+- `LocalMomentReconstruction3D`;
 - field-specific `LocalControlVolumeBoundaryBC3D`;
 - compact partial, interior, and cut-wall face rows;
 - face quadrature for conservative fluxes.

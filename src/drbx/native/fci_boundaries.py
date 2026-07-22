@@ -3228,7 +3228,7 @@ class LocalControlVolumeBoundaryBC3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class LocalQuadraticReconstruction3D(_DataclassPyTreeMixin):
+class LocalMomentReconstruction3D(_DataclassPyTreeMixin):
     """Precomputed moment-aware polynomial equations for irregular owners.
 
     ``rhs_transform`` maps equation right-hand sides directly to the nine
@@ -3260,7 +3260,7 @@ class LocalQuadraticReconstruction3D(_DataclassPyTreeMixin):
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
-            raise TypeError("LocalQuadraticReconstruction3D.layout must be a HaloLayout3D")
+            raise TypeError("LocalMomentReconstruction3D.layout must be a HaloLayout3D")
         max_rows = int(self.max_rows)
         max_equations = int(self.max_equations)
         if max_rows < 0 or max_equations < 1:
@@ -3414,7 +3414,7 @@ class LocalQuadraticReconstruction3D(_DataclassPyTreeMixin):
         max_rows: int = 0,
         max_equations: int = 1,
         coefficient_count: int = 9,
-    ) -> "LocalQuadraticReconstruction3D":
+    ) -> "LocalMomentReconstruction3D":
         coefficient_count = int(coefficient_count)
         if coefficient_count not in (9, 19):
             raise ValueError("coefficient_count must be 9 or 19")
@@ -3501,12 +3501,6 @@ class LocalQuadraticReconstruction3D(_DataclassPyTreeMixin):
         for name, value in zip(names, children):
             object.__setattr__(instance, name, value)
         return instance
-
-
-# The historical name remains a compatibility alias for fixtures that create
-# nine-coefficient rows. New embedded-control-volume builders emit 19-column
-# cubic rows through this public name.
-LocalControlVolumeReconstruction3D = LocalQuadraticReconstruction3D
 
 
 @_pytree_base
@@ -4061,7 +4055,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
     cells: LocalControlVolumeCellGeometry3D
     regular_faces: LocalRegularFaceGeometry3D
     irregular_faces: LocalControlVolumeFaceRows3D
-    reconstruction: LocalQuadraticReconstruction3D
+    reconstruction: LocalMomentReconstruction3D
     regular_transition_faces: LocalRegularTransitionFaceRows3D | None = None
     centroid_J: jnp.ndarray | None = None
     centroid_g_cov: jnp.ndarray | None = None
@@ -4079,8 +4073,8 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
             raise TypeError("regular_faces must be LocalRegularFaceGeometry3D")
         if not isinstance(self.irregular_faces, LocalControlVolumeFaceRows3D):
             raise TypeError("irregular_faces must be LocalControlVolumeFaceRows3D")
-        if not isinstance(self.reconstruction, LocalQuadraticReconstruction3D):
-            raise TypeError("reconstruction must be LocalQuadraticReconstruction3D")
+        if not isinstance(self.reconstruction, LocalMomentReconstruction3D):
+            raise TypeError("reconstruction must be LocalMomentReconstruction3D")
         if self.regular_transition_faces is None:
             object.__setattr__(
                 self,

@@ -56,7 +56,7 @@ from drbx.native.fci_boundaries import (
     LocalControlVolumePolynomial3D,
     LocalBoundaryFaceBC3D,
     LocalEmbeddedControlVolumeGeometry3D,
-    LocalQuadraticReconstruction3D,
+    LocalMomentReconstruction3D,
     LocalRegularBoundaryMomentClosure3D,
     LocalRegularTransitionFaceRows3D,
     LocalCutWallBC3D,
@@ -80,8 +80,9 @@ from drbx.native.fci_operators import (
     local_grad_perp_op_direct,
     local_parallel_flux_div_op,
     local_perp_laplacian_conservative_op,
-    precompute_local_quadratic_reconstruction,
-    precompute_local_cubic_reconstruction,
+)
+from drbx.native.fci_control_volume_operators import (
+    precompute_local_moment_reconstruction,
 )
 
 
@@ -1625,7 +1626,7 @@ def test_compact_rows_exclusively_identify_regular_transitions() -> None:
         cells=cells,
         regular_faces=geometry.regular_face_geometry,
         irregular_faces=faces,
-        reconstruction=LocalQuadraticReconstruction3D.empty(geometry.layout),
+        reconstruction=LocalMomentReconstruction3D.empty(geometry.layout),
         regular_transition_faces=transitions,
     )
     assert int(bundle.regular_transition_faces.max_rows) == 1
@@ -1682,7 +1683,7 @@ def test_transition_occurrences_keep_requesting_center() -> None:
         cells=cells,
         regular_faces=geometry.regular_face_geometry,
         irregular_faces=faces,
-        reconstruction=LocalQuadraticReconstruction3D.empty(geometry.layout),
+        reconstruction=LocalMomentReconstruction3D.empty(geometry.layout),
         regular_transition_faces=transitions,
     )
     values = jnp.zeros(cells.shape, dtype=jnp.float64)
@@ -1789,7 +1790,7 @@ def test_regular_boundary_moment_closure_reproduces_cubic() -> None:
         irregular_faces=LocalControlVolumeFaceRows3D.empty(
             geometry.layout
         ),
-        reconstruction=LocalQuadraticReconstruction3D.empty(
+        reconstruction=LocalMomentReconstruction3D.empty(
             geometry.layout
         ),
         regular_boundary_closure=closure,
@@ -1798,7 +1799,7 @@ def test_regular_boundary_moment_closure_reproduces_cubic() -> None:
     # candidate is deliberately zero here: the final boundary patch must
     # restore the cubic moment derivative after row assembly.
     target_row_for_cell = -jnp.ones(shape, dtype=jnp.int32).at[0, 0, 0].set(0)
-    ordering_row = LocalQuadraticReconstruction3D(
+    ordering_row = LocalMomentReconstruction3D(
         layout=geometry.layout,
         target_i=jnp.asarray((0,), dtype=jnp.int32),
         target_j=jnp.asarray((0,), dtype=jnp.int32),
@@ -1987,7 +1988,7 @@ def test_control_volume_quadratic_reconstruction_reproduces_polynomials() -> Non
         ),
         axis=-1,
     )
-    reconstruction = precompute_local_cubic_reconstruction(
+    reconstruction = precompute_local_moment_reconstruction(
         cells,
         faces,
         spacing_owned=spacing,
@@ -2173,10 +2174,11 @@ def test_control_volume_padded_rows_do_not_overwrite_real_target() -> None:
         ),
         axis=-1,
     )
-    reconstruction = precompute_local_quadratic_reconstruction(
+    reconstruction = precompute_local_moment_reconstruction(
         cells,
         faces,
         spacing_owned=spacing,
+        requested_order=2,
     )
     assert reconstruction.max_rows == 1
     extra_rows = 3
@@ -2187,7 +2189,7 @@ def test_control_volume_padded_rows_do_not_overwrite_real_target() -> None:
         )
         return jnp.pad(array, padding, constant_values=value)
 
-    padded = LocalQuadraticReconstruction3D(
+    padded = LocalMomentReconstruction3D(
         layout=reconstruction.layout,
         target_i=pad_rows(reconstruction.target_i),
         target_j=pad_rows(reconstruction.target_j),
@@ -2325,10 +2327,11 @@ def test_control_volume_partial_aggregate_flux_is_conservative_and_source_safe()
         ),
         axis=-1,
     )
-    reconstruction = precompute_local_quadratic_reconstruction(
+    reconstruction = precompute_local_moment_reconstruction(
         cells,
         faces,
         spacing_owned=spacing,
+        requested_order=2,
     )
     bundle = LocalEmbeddedControlVolumeGeometry3D(
         cells=cells,
@@ -2437,10 +2440,11 @@ def test_control_volume_projected_flux_is_conservative_and_source_safe() -> None
         ),
         axis=-1,
     )
-    reconstruction = precompute_local_quadratic_reconstruction(
+    reconstruction = precompute_local_moment_reconstruction(
         cells,
         faces,
         spacing_owned=spacing,
+        requested_order=2,
     )
     bundle = LocalEmbeddedControlVolumeGeometry3D(
         cells=cells,
@@ -2547,10 +2551,11 @@ def test_control_volume_physical_boundary_uses_quadratic_gradient() -> None:
         ),
         axis=-1,
     )
-    reconstruction = precompute_local_quadratic_reconstruction(
+    reconstruction = precompute_local_moment_reconstruction(
         cells,
         faces,
         spacing_owned=spacing,
+        requested_order=2,
     )
     bundle = LocalEmbeddedControlVolumeGeometry3D(
         cells=cells,
