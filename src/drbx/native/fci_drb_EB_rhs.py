@@ -523,6 +523,9 @@ class LocalFciDrbEBRhs:
                 field_name: expand_local_control_volume_owner_field(
                     getattr(state_owned, field_name),
                     cells,
+                    owner_values_halo=self.halo_exchange(
+                        inject_owned_field_to_halo(getattr(state_owned, field_name), self.domain.layout), self.domain
+                    ),
                 )
                 for field_name in (
                     "density",
@@ -562,9 +565,11 @@ class LocalFciDrbEBRhs:
         values_owned: jnp.ndarray,
         face_bc: LocalBoundaryFaceBC3D,
     ) -> jnp.ndarray:
+        owner_halo = self.halo_exchange(
+            inject_owned_field_to_halo(values_owned, self.domain.layout), self.domain
+        )
         storage = expand_local_control_volume_owner_field(
-            values_owned,
-            self.control_volume_geometry.cells,
+            values_owned, self.control_volume_geometry.cells, owner_values_halo=owner_halo,
         )
         field_halo = inject_owned_field_to_halo(
             storage,

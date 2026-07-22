@@ -7,11 +7,17 @@ import time
 
 import numpy as np
 import pytest
+import jax
+import jax.numpy as jnp
+
+from drbx.geometry import HaloLayout3D, LocalControlVolumeCellGeometry3D
+from drbx.native.fci_operators import expand_local_control_volume_owner_field
 
 from drbx.geometry.fci_control_volumes import (
     build_global_control_volume_topology,
     combine_volume_moments,
     compile_local_control_volume_geometry,
+    remote_owner_halo_coordinate,
 )
 from drbx.native.fci_boundaries import CV_RECONSTRUCTION_EQUATION_CELL
 from drbx.native.fci_control_volume_operators import (
@@ -49,6 +55,54 @@ def _raw_geometry(shape: tuple[int, int, int]):
     third = np.zeros(shape + (3, 3, 3), dtype=np.float64)
     fraction = np.ones(shape, dtype=np.float64)
     return volume, coordinate, second, third, fraction
+
+
+def test_remote_owner_halo_coordinate_is_face_exact_and_periodic_aware() -> None:
+    shape = (3, 4, 5)
+    h = 1
+    counts = (2, 3, 4)
+    # Target in the lower neighbouring shard: remote local index n-1 maps to
+    # the immediately adjacent lower halo, not to raw owner_local=n-1.
+    lower = remote_owner_halo_coordinate(
+        owner_local=np.array([2, 1, 3]), owner_shard=np.array([0, 1, 2]),
+        local_shard=np.array([1, 1, 2]), owned_shape=shape, halo_width=h,
+        shard_counts=counts, periodic_axes=(False, True, True),
+    )
+    np.testing.assert_array_equal(lower, np.array([h - 1, h + 1, h + 3]))
+    upper = remote_owner_halo_coordinate(
+        owner_local=np.array([0, 1, 3]), owner_shard=np.array([1, 1, 2]),
+        local_shard=np.array([0, 1, 2]), owned_shape=shape, halo_width=h,
+        shard_counts=counts, periodic_axes=(False, True, True),
+    )
+    np.testing.assert_array_equal(upper, np.array([h + shape[0], h + 1, h + 3]))
+    # Periodic y wrap: local shard zero sees the final shard as its lower
+    # neighbour, then maps its upper boundary owner to halo h-1.
+    wrapped = remote_owner_halo_coordinate(
+        owner_local=np.array([1, shape[1] - 1, 2]), owner_shard=np.array([0, 2, 1]),
+        local_shard=np.array([0, 0, 1]), owned_shape=shape, halo_width=h,
+        shard_counts=counts, periodic_axes=(False, True, True),
+    )
+    np.testing.assert_array_equal(wrapped, np.array([h + 1, h - 1, h + 2]))
+    with pytest.raises(ValueError, match="exactly one directly adjacent"):
+        remote_owner_halo_coordinate(
+            owner_local=np.array([0, 0, 0]), owner_shard=np.array([1, 1, 2]),
+            local_shard=np.array([0, 0, 2]), owned_shape=shape, halo_width=h,
+            shard_counts=counts, periodic_axes=(False, True, True),
+        )
+
+
+def test_control_volume_aggregate_id_defaults_to_owner_identity() -> None:
+    layout = HaloLayout3D((2, 2, 2), 1)
+    volume, centroid, second, third, _ = _raw_geometry((2, 2, 2))
+    cells = LocalControlVolumeCellGeometry3D.identity(
+        layout, volume=jnp.asarray(volume), centroid=jnp.asarray(centroid),
+        second_moment=jnp.asarray(second), third_moment=jnp.asarray(third),
+    )
+    expected = np.arange(8, dtype=np.int64).reshape((2, 2, 2))
+    np.testing.assert_array_equal(np.asarray(cells.aggregate_id), expected)
+    leaves, tree = jax.tree_util.tree_flatten(cells)
+    restored = jax.tree_util.tree_unflatten(tree, leaves)
+    np.testing.assert_array_equal(np.asarray(restored.aggregate_id), expected)
 
 
 def test_global_agglomeration_is_direct_and_conservative() -> None:
@@ -367,6 +421,28 @@ def test_cross_shard_source_has_exact_remote_owner_metadata() -> None:
     assert not bool(lower.local_active_owner[source])
     assert bool(upper.local_active_owner[1, 0, 1])
     assert int(np.count_nonzero(lower.local_active_owner)) + int(np.count_nonzero(upper.local_active_owner)) == int(np.count_nonzero(topology.is_active_owner))
+
+
+def test_remote_owner_metadata_and_expansion_use_owner_halo() -> None:
+    layout = HaloLayout3D((2, 2, 2), 1)
+    volume = jnp.ones((2, 2, 2), dtype=jnp.float64)
+    centroid = jnp.zeros((2, 2, 2, 3), dtype=jnp.float64)
+    base = LocalControlVolumeCellGeometry3D.identity(layout, volume=volume, centroid=centroid)
+    source = (0, 0, 0)
+    cells = LocalControlVolumeCellGeometry3D(
+        **{**base.__dict__, "is_merged_source": base.is_merged_source.at[source].set(True),
+           "is_active_owner": base.is_active_owner.at[source].set(False),
+           "aggregate_volume": base.aggregate_volume.at[source].set(0.0),
+           "owner_is_remote": jnp.zeros((2,2,2), dtype=bool).at[source].set(True),
+           "remote_owner_halo_i": jnp.zeros((2,2,2), dtype=jnp.int32).at[source].set(3),
+           "remote_owner_halo_j": jnp.zeros((2,2,2), dtype=jnp.int32).at[source].set(1),
+           "remote_owner_halo_k": jnp.zeros((2,2,2), dtype=jnp.int32).at[source].set(1)})
+    values = jnp.arange(8, dtype=jnp.float64).reshape((2,2,2))
+    with pytest.raises(ValueError, match="owner_values_halo"):
+        expand_local_control_volume_owner_field(values, cells)
+    halo = jnp.zeros(layout.cell_halo_shape, dtype=jnp.float64).at[3,1,1].set(37.0)
+    expanded = expand_local_control_volume_owner_field(values, cells, owner_values_halo=halo)
+    assert float(expanded[source]) == 37.0
 
 
 def test_periodic_seam_face_ids_are_unique_contiguous_and_canonical() -> None:

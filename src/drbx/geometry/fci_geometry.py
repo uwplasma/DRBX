@@ -3203,6 +3203,11 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
     second_moment: jnp.ndarray
     raw_third_moment: jnp.ndarray | None = None
     third_moment: jnp.ndarray | None = None
+    aggregate_id: jnp.ndarray | None = None
+    owner_is_remote: jnp.ndarray | None = None
+    remote_owner_halo_i: jnp.ndarray | None = None
+    remote_owner_halo_j: jnp.ndarray | None = None
+    remote_owner_halo_k: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -3297,6 +3302,23 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
             third_tensor_shape,
             "LocalControlVolumeCellGeometry3D.third_moment",
         )
+        # ``aggregate_id`` identifies the physical aggregate, rather than the
+        # storage cell.  For the local-only representation the canonical,
+        # deterministic identity is the flattened active-owner index.  Do not
+        # default this to zero: doing so aliases every untouched cell into one
+        # fictitious aggregate as soon as callers inspect this metadata.
+        default_aggregate_id = jnp.ravel_multi_index(
+            (owner_i, owner_j, owner_k), shape,
+        ).astype(jnp.int64)
+        aggregate_id = _require_shape(
+            default_aggregate_id if self.aggregate_id is None else self.aggregate_id,
+            shape,
+            "LocalControlVolumeCellGeometry3D.aggregate_id",
+        ).astype(jnp.int64)
+        owner_is_remote = _require_shape(jnp.zeros(shape, dtype=bool) if self.owner_is_remote is None else self.owner_is_remote, shape, "LocalControlVolumeCellGeometry3D.owner_is_remote").astype(bool)
+        remote_owner_halo_i = _require_shape(jnp.zeros(shape, dtype=jnp.int32) if self.remote_owner_halo_i is None else self.remote_owner_halo_i, shape, "LocalControlVolumeCellGeometry3D.remote_owner_halo_i").astype(jnp.int32)
+        remote_owner_halo_j = _require_shape(jnp.zeros(shape, dtype=jnp.int32) if self.remote_owner_halo_j is None else self.remote_owner_halo_j, shape, "LocalControlVolumeCellGeometry3D.remote_owner_halo_j").astype(jnp.int32)
+        remote_owner_halo_k = _require_shape(jnp.zeros(shape, dtype=jnp.int32) if self.remote_owner_halo_k is None else self.remote_owner_halo_k, shape, "LocalControlVolumeCellGeometry3D.remote_owner_halo_k").astype(jnp.int32)
 
         in_bounds = (
             (owner_i >= 0)
@@ -3330,12 +3352,24 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
                     )
                 )
             )
+            aggregate_id_valid = bool(
+                jnp.all(
+                    (~(is_active_owner | (raw_volume > 0.0)))
+                    | (aggregate_id >= 0)
+                )
+            )
+            remote_semantics_valid = bool(jnp.all(~owner_is_remote | (is_merged_source & ~is_active_owner)))
+            halo_shape = self.layout.cell_halo_shape
+            remote_in_bounds = bool(jnp.all(~owner_is_remote | ((remote_owner_halo_i >= 0) & (remote_owner_halo_i < halo_shape[0]) & (remote_owner_halo_j >= 0) & (remote_owner_halo_j < halo_shape[1]) & (remote_owner_halo_k >= 0) & (remote_owner_halo_k < halo_shape[2]))))
         except jax.errors.TracerBoolConversionError:
             all_in_bounds = True
             no_owner_source_overlap = True
             target_semantics_valid = True
             positive_owner_volume = True
             finite_active_moments = True
+            remote_semantics_valid = True
+            remote_in_bounds = True
+            aggregate_id_valid = True
         if not all_in_bounds:
             raise ValueError("all control-volume owners must be local owned cells")
         if not no_owner_source_overlap:
@@ -3348,6 +3382,14 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
             raise ValueError("every active control-volume owner must have positive volume")
         if not finite_active_moments:
             raise ValueError("active control-volume moments must be finite")
+        if not aggregate_id_valid:
+            raise ValueError(
+                "aggregate_id must be nonnegative for active or positive-volume cells"
+            )
+        if not remote_semantics_valid:
+            raise ValueError("a remote owner must be an inactive merged source")
+        if not remote_in_bounds:
+            raise ValueError("remote owner halo indices must be in bounds")
 
         object.__setattr__(self, "owner_i", owner_i)
         object.__setattr__(self, "owner_j", owner_j)
@@ -3391,6 +3433,11 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
             "third_moment",
             sum(jnp.transpose(third_moment, (0, 1, 2) + tuple(axis + 3 for axis in perm)) for perm in permutations) / 6.0,
         )
+        object.__setattr__(self, "aggregate_id", aggregate_id)
+        object.__setattr__(self, "owner_is_remote", owner_is_remote)
+        object.__setattr__(self, "remote_owner_halo_i", remote_owner_halo_i)
+        object.__setattr__(self, "remote_owner_halo_j", remote_owner_halo_j)
+        object.__setattr__(self, "remote_owner_halo_k", remote_owner_halo_k)
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -3419,6 +3466,8 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
                 self.second_moment,
                 self.raw_third_moment,
                 self.third_moment,
+                self.aggregate_id, self.owner_is_remote,
+                self.remote_owner_halo_i, self.remote_owner_halo_j, self.remote_owner_halo_k,
             ),
             self.layout,
         )
@@ -3442,6 +3491,7 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
             "second_moment",
             "raw_third_moment",
             "third_moment",
+            "aggregate_id", "owner_is_remote", "remote_owner_halo_i", "remote_owner_halo_j", "remote_owner_halo_k",
         )
         instance = object.__new__(cls)
         object.__setattr__(instance, "layout", layout)
@@ -3506,6 +3556,7 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
             second_moment=second_moment,
             raw_third_moment=third_moment,
             third_moment=third_moment,
+            aggregate_id=jnp.ravel_multi_index((i, j, k), shape).astype(jnp.int64),
         )
 
 
@@ -3774,6 +3825,7 @@ def build_local_control_volume_cell_geometry(
         second_moment=second_moment,
         raw_third_moment=raw_third_moment,
         third_moment=third_moment,
+        aggregate_id=jnp.ravel_multi_index((owner_i, owner_j, owner_k), shape).astype(jnp.int64),
     )
 
 

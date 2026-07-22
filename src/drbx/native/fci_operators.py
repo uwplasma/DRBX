@@ -63,6 +63,7 @@ from ..geometry.fci_geometry import (
 from .fci import _first_derivative_3d
 from .fci_halo import (
     HaloExchange3D,
+    accumulate_halo_contributions_to_owned,
     LocalHaloClosure3D,
     PhysicalGhostCellFiller3D,
     TopologyHaloFiller3D,
@@ -2918,6 +2919,7 @@ def local_parallel_flux_div_op(
             (x_flux, y_flux, z_flux),
             irregular_flux,
             geometry,
+            domain,
             control_volume_geometry,
             volume_floor=jacobian_floor,
         )
@@ -5645,6 +5647,8 @@ def _attach_remote_control_volume_face_samples(
 def expand_local_control_volume_owner_field(
     values_owned: jnp.ndarray,
     cells: LocalControlVolumeCellGeometry3D,
+    *,
+    owner_values_halo: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Fill each positive-volume storage cell from its active owner.
 
@@ -5659,6 +5663,18 @@ def expand_local_control_volume_owner_field(
             f"values_owned must have shape {cells.shape}, got {values.shape}"
         )
     expanded = values[cells.owner_i, cells.owner_j, cells.owner_k]
+    if owner_values_halo is None:
+        try:
+            if bool(jnp.any(cells.owner_is_remote)):
+                raise ValueError("owner_values_halo is required when control-volume owners are remote")
+        except jax.errors.TracerBoolConversionError:
+            pass
+    else:
+        halo = jnp.asarray(owner_values_halo, dtype=values.dtype)
+        if halo.shape[:3] != cells.layout.cell_halo_shape:
+            raise ValueError("owner_values_halo must match cells.layout.cell_halo_shape")
+        remote = halo[cells.remote_owner_halo_i, cells.remote_owner_halo_j, cells.remote_owner_halo_k]
+        expanded = jnp.where(cells.owner_is_remote, remote, expanded)
     return jnp.where(cells.raw_volume > 0.0, expanded, 0.0)
 
 
@@ -6014,6 +6030,7 @@ def _local_control_volume_integrated_divergence(
     regular_flux: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
     irregular_flux: jnp.ndarray,
     geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
     *,
     volume_floor: float,
@@ -6071,13 +6088,17 @@ def _local_control_volume_integrated_divergence(
         )
 
     cells = control_volume_geometry.cells
+    local_source = (cells.raw_volume > 0.0) & ~cells.owner_is_remote
     owner_sum = jnp.zeros(geometry.owned_shape, dtype=jnp.float64).at[
         cells.owner_i,
         cells.owner_j,
         cells.owner_k,
     ].add(
-        jnp.where(cells.raw_volume > 0.0, integrated_sum, 0.0)
+        jnp.where(local_source, integrated_sum, 0.0)
     )
+    remote_halo = jnp.zeros(cells.layout.cell_halo_shape, dtype=jnp.float64).at[
+        cells.remote_owner_halo_i, cells.remote_owner_halo_j, cells.remote_owner_halo_k
+    ].add(jnp.where((cells.raw_volume > 0.0) & cells.owner_is_remote, integrated_sum, 0.0))
 
     faces = control_volume_geometry.irregular_faces
     if int(faces.max_rows) > 0:
@@ -6092,6 +6113,11 @@ def _local_control_volume_integrated_divergence(
             faces.plus_owner_j,
             faces.plus_owner_k,
         ].add(jnp.where(faces.has_plus_owner, -row_flux, 0.0))
+        remote_halo = remote_halo.at[
+            faces.remote_residual_halo_i, faces.remote_residual_halo_j, faces.remote_residual_halo_k
+        ].add(jnp.where(faces.has_remote_residual, -row_flux, 0.0))
+
+    owner_sum = owner_sum + accumulate_halo_contributions_to_owned(remote_halo, domain)
 
     result = owner_sum / jnp.maximum(
         cells.aggregate_volume,
@@ -6630,6 +6656,7 @@ def local_perp_laplacian_conservative_op(
             regular_flux,
             irregular_flux,
             geometry,
+            domain,
             control_volume_geometry,
             volume_floor=jacobian_floor,
         )
@@ -6722,6 +6749,7 @@ def local_parallel_laplacian_conservative_op(
             ),
             irregular_flux,
             geometry,
+            domain,
             control_volume_geometry,
             volume_floor=jacobian_floor,
         )
@@ -8776,9 +8804,11 @@ class LocalPerpLaplacianInverseSolver:
                 active_mask,
             )
 
+        owner_halo = inject_owned_field_to_halo(values, self.domain.layout)
+        if self.halo_exchange is not None:
+            owner_halo = self.halo_exchange(owner_halo, self.domain)
         storage_values = expand_local_control_volume_owner_field(
-            values,
-            self.control_volume_geometry.cells,
+            values, self.control_volume_geometry.cells, owner_values_halo=owner_halo,
         )
         field_halo = inject_owned_field_to_halo(
             storage_values,
