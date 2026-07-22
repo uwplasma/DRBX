@@ -227,12 +227,21 @@ class LocalControlVolumeGeometry3D:
     local_aggregate_third_moment: np.ndarray
     local_received_source_count: np.ndarray
     local_member_count: np.ndarray
+    # ``local_face_*`` are evaluator rows, not merely faces visible to this
+    # shard.  Their union over a decomposition is exactly the global face set.
     local_face_id: np.ndarray
     local_face_axis: np.ndarray
     local_face_storage_index: np.ndarray
     local_face_minus_aggregate_id: np.ndarray
     local_face_plus_aggregate_id: np.ndarray
     local_face_measure: np.ndarray
+    local_face_evaluator_aggregate_id: np.ndarray
+    local_face_evaluator_shard_index: np.ndarray
+    local_face_evaluator_owner_index: np.ndarray
+    local_face_evaluator_local_index: np.ndarray
+    local_face_remote_target_aggregate_id: np.ndarray
+    # Visibility is retained separately for host-side diagnostics/lowering.
+    visible_face_id: np.ndarray
     remote_aggregate_id: np.ndarray
 
     def __post_init__(self) -> None:
@@ -265,6 +274,36 @@ class LocalControlVolumeGeometry3D:
             object.__setattr__(self, name, value)
         if np.any(np.asarray(self.local_active_owner) & np.asarray(self.owner_is_remote)):
             raise ValueError("active owners cannot be remote")
+        face_count = np.asarray(self.local_face_id).size
+        face_checks = {
+            "local_face_axis": (self.local_face_axis, (face_count,)),
+            "local_face_storage_index": (self.local_face_storage_index, (face_count, 3)),
+            "local_face_minus_aggregate_id": (self.local_face_minus_aggregate_id, (face_count,)),
+            "local_face_plus_aggregate_id": (self.local_face_plus_aggregate_id, (face_count,)),
+            "local_face_measure": (self.local_face_measure, (face_count,)),
+            "local_face_evaluator_aggregate_id": (self.local_face_evaluator_aggregate_id, (face_count,)),
+            "local_face_evaluator_shard_index": (self.local_face_evaluator_shard_index, (face_count, 3)),
+            "local_face_evaluator_owner_index": (self.local_face_evaluator_owner_index, (face_count, 3)),
+            "local_face_evaluator_local_index": (self.local_face_evaluator_local_index, (face_count, 3)),
+            "local_face_remote_target_aggregate_id": (self.local_face_remote_target_aggregate_id, (face_count,)),
+        }
+        for name, (value, expected) in face_checks.items():
+            array = np.asarray(value)
+            if array.shape != expected:
+                raise ValueError(f"{name} must have shape {expected}, got {array.shape}")
+            object.__setattr__(self, name, array)
+        local_face_id = np.asarray(self.local_face_id, dtype=np.int64)
+        if np.unique(local_face_id).size != face_count:
+            raise ValueError("evaluator local_face_id values must be unique")
+        if np.any(np.asarray(self.local_face_evaluator_shard_index) != np.asarray(self.shard_index)):
+            raise ValueError("evaluator rows must be owned by their evaluator shard")
+        if np.any(np.asarray(self.local_face_evaluator_aggregate_id) < 0):
+            raise ValueError("each evaluator row needs a physical aggregate owner")
+        visible = np.asarray(self.visible_face_id, dtype=np.int64)
+        if np.unique(visible).size != visible.size:
+            raise ValueError("visible_face_id values must be unique")
+        object.__setattr__(self, "local_face_id", local_face_id)
+        object.__setattr__(self, "visible_face_id", visible)
 
 
 def _neighbor_index(
@@ -538,20 +577,46 @@ def compile_local_control_volume_geometry(
     # referenced by local storage.
     local_owner_ids = local_ids[local_active]
     local_id_set = set(int(value) for value in np.unique(local_owner_ids))
-    local_face_mask = np.isin(topology.face_minus_aggregate_id, list(local_id_set)) | np.isin(
+    visible_face_mask = np.isin(topology.face_minus_aggregate_id, list(local_id_set)) | np.isin(
         topology.face_plus_aggregate_id,
         list(local_id_set),
     )
-    local_faces = topology.face_id[local_face_mask]
-    local_face_axis = topology.face_axis[local_face_mask]
-    local_face_storage_index = topology.face_storage_index[local_face_mask]
-    local_face_minus = topology.face_minus_aggregate_id[local_face_mask]
-    local_face_plus = topology.face_plus_aggregate_id[local_face_mask]
-    local_face_measure = topology.face_measure[local_face_mask]
+    # Canonical orientation is global minus -> plus.  Physical low boundaries
+    # have no minus aggregate, hence the plus aggregate evaluates that row.
+    evaluator_id = np.where(
+        topology.face_minus_aggregate_id >= 0,
+        topology.face_minus_aggregate_id,
+        topology.face_plus_aggregate_id,
+    )
+    evaluator_owner = np.stack(np.unravel_index(evaluator_id, topology.shape), axis=-1)
+    evaluator_shard = evaluator_owner // np.asarray(owned_shape, dtype=np.int32)
+    evaluator_mask = np.all(evaluator_shard == np.asarray(shard_index, dtype=np.int32), axis=-1)
+    local_faces = topology.face_id[evaluator_mask]
+    local_face_axis = topology.face_axis[evaluator_mask]
+    local_face_storage_index = topology.face_storage_index[evaluator_mask]
+    local_face_minus = topology.face_minus_aggregate_id[evaluator_mask]
+    local_face_plus = topology.face_plus_aggregate_id[evaluator_mask]
+    local_face_measure = topology.face_measure[evaluator_mask]
+    local_evaluator_id = evaluator_id[evaluator_mask]
+    local_evaluator_owner = evaluator_owner[evaluator_mask]
+    local_evaluator_shard = evaluator_shard[evaluator_mask]
+    local_evaluator_local = local_evaluator_owner % np.asarray(owned_shape, dtype=np.int32)
+    plus_owner = np.where(
+        topology.face_plus_aggregate_id[:, None] >= 0,
+        np.stack(np.unravel_index(np.maximum(topology.face_plus_aggregate_id, 0), topology.shape), axis=-1),
+        -1,
+    )
+    plus_shard = plus_owner // np.asarray(owned_shape, dtype=np.int32)
+    remote_target = np.where(
+        (topology.face_plus_aggregate_id >= 0)
+        & np.any(plus_shard != evaluator_shard, axis=-1),
+        topology.face_plus_aggregate_id,
+        -1,
+    )[evaluator_mask]
     face_references = np.concatenate(
         (
-            topology.face_minus_aggregate_id[local_face_mask],
-            topology.face_plus_aggregate_id[local_face_mask],
+            topology.face_minus_aggregate_id[visible_face_mask],
+            topology.face_plus_aggregate_id[visible_face_mask],
         )
     )
     remote_ids = np.unique(
@@ -585,6 +650,12 @@ def compile_local_control_volume_geometry(
         local_face_minus_aggregate_id=local_face_minus,
         local_face_plus_aggregate_id=local_face_plus,
         local_face_measure=local_face_measure,
+        local_face_evaluator_aggregate_id=local_evaluator_id,
+        local_face_evaluator_shard_index=local_evaluator_shard,
+        local_face_evaluator_owner_index=local_evaluator_owner,
+        local_face_evaluator_local_index=local_evaluator_local,
+        local_face_remote_target_aggregate_id=remote_target,
+        visible_face_id=topology.face_id[visible_face_mask],
         remote_aggregate_id=remote_ids,
     )
 

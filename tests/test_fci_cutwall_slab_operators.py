@@ -10,6 +10,7 @@ import sys
 import time
 
 import numpy as np
+import pytest
 
 import jax
 import jax.numpy as jnp
@@ -421,6 +422,34 @@ def test_control_volume_face_rows_activate_all_gauss_points() -> None:
         np.asarray(rows.quadrature_active[0, 1:]),
         np.zeros((3, 4), dtype=bool),
     )
+
+
+def test_remote_residual_metadata_requires_matching_remote_owner() -> None:
+    geometry = _build_geometry((5, 5, 5), 2)
+    rows = _unit_control_volume_face_rows(
+        geometry,
+        ((CV_FACE_PHYSICAL_BOUNDARY, (2, 2, 2), None, 0, (0.5, 0.5, 0.5), 1.0),),
+    )
+    valid = replace(
+        rows,
+        global_face_id=jnp.asarray([2**31 + 17], dtype=jnp.int64),
+        has_remote_owner=jnp.asarray([True]),
+        remote_halo_i=jnp.asarray([0]),
+        remote_halo_j=jnp.asarray([2]),
+        remote_halo_k=jnp.asarray([2]),
+        has_remote_residual=jnp.asarray([True]),
+        remote_residual_halo_i=jnp.asarray([0]),
+        remote_residual_halo_j=jnp.asarray([2]),
+        remote_residual_halo_k=jnp.asarray([2]),
+    )
+    assert bool(valid.has_remote_owner[0])
+    assert bool(valid.has_remote_residual[0])
+    assert valid.global_face_id.dtype == jnp.int64
+    assert int(valid.global_face_id[0]) == 2**31 + 17
+    with pytest.raises(ValueError, match="owners must be local"):
+        replace(valid, has_remote_owner=jnp.asarray([False]))
+    with pytest.raises(ValueError, match="owners must be local"):
+        replace(valid, remote_residual_halo_i=jnp.asarray([1]))
 
 
 def _all_closed_regular_faces(
