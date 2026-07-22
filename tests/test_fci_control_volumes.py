@@ -6,6 +6,7 @@ import argparse
 import time
 
 import numpy as np
+import pytest
 
 from drbx.geometry.fci_control_volumes import (
     build_global_control_volume_topology,
@@ -127,6 +128,51 @@ def test_global_topology_compiles_identically_across_shards() -> None:
             3,
         )
         assert local.local_face_axis.shape == local.local_face_id.shape
+
+
+@pytest.mark.parametrize("shard_counts", ((1, 1, 1), (1, 2, 1), (1, 1, 2), (1, 2, 2)))
+def test_global_faces_have_one_evaluator_row_and_exact_remote_target(
+    shard_counts: tuple[int, int, int],
+) -> None:
+    shape = (4, 4, 4)
+    volume, centroid, second, third, fraction = _raw_geometry(shape)
+    volume[1, 1, 1] = 0.2
+    fraction[1, 1, 1] = 0.2
+    topology = build_global_control_volume_topology(
+        raw_volume=volume, raw_centroid=centroid, raw_second_moment=second,
+        raw_third_moment=third, fluid_volume_fraction=fraction,
+        face_open_measure=_unit_faces(shape), periodic_axes=(False, True, True),
+        coordinate_periods=(1.0, 4.0, 4.0),
+    )
+    compiled = [
+        compile_local_control_volume_geometry(
+            topology, shard_index=index, shard_counts=shard_counts,
+        )
+        for index in np.ndindex(*shard_counts)
+    ]
+    evaluator_ids = np.concatenate([local.local_face_id for local in compiled])
+    np.testing.assert_array_equal(np.sort(evaluator_ids), topology.face_id)
+    assert np.unique(evaluator_ids).size == topology.face_id.size
+    extent = np.asarray(shape) // np.asarray(shard_counts)
+    by_id = {int(face_id): row for row, face_id in enumerate(topology.face_id)}
+    for local in compiled:
+        for row, face_id in enumerate(local.local_face_id):
+            global_row = by_id[int(face_id)]
+            minus = int(topology.face_minus_aggregate_id[global_row])
+            plus = int(topology.face_plus_aggregate_id[global_row])
+            evaluator = minus if minus >= 0 else plus
+            owner = np.asarray(np.unravel_index(evaluator, shape))
+            expected_shard = owner // extent
+            np.testing.assert_array_equal(local.local_face_evaluator_shard_index[row], expected_shard)
+            np.testing.assert_array_equal(local.local_face_evaluator_owner_index[row], owner)
+            expected_remote = -1
+            if plus >= 0 and np.any(np.asarray(np.unravel_index(plus, shape)) // extent != expected_shard):
+                expected_remote = plus
+            assert int(local.local_face_remote_target_aggregate_id[row]) == expected_remote
+    # The periodic high images never reappear as additional global IDs.
+    for axis in (1, 2):
+        seam = topology.face_storage_index[:, axis] == 0
+        assert np.unique(topology.face_id[seam]).size == np.count_nonzero(seam)
 
 
 def test_periodic_seam_is_one_global_interface_and_can_merge_across_it() -> None:

@@ -2414,6 +2414,16 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
     remote_centroid: jnp.ndarray | None = None
     remote_second_moment: jnp.ndarray | None = None
     remote_third_moment: jnp.ndarray | None = None
+    # A nonnegative ID identifies a canonical global logical face.  Cut-wall
+    # surface rows deliberately retain -1 because they are not grid faces.
+    global_face_id: jnp.ndarray | None = None
+    # Step 2A metadata for the eventual reverse residual exchange.  These are
+    # intentionally distinct from ``remote_halo_*``: the latter address field
+    # samples, whereas these address the plus residual destination.
+    has_remote_residual: jnp.ndarray | None = None
+    remote_residual_halo_i: jnp.ndarray | None = None
+    remote_residual_halo_j: jnp.ndarray | None = None
+    remote_residual_halo_k: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -2432,6 +2442,12 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
 
         def _row_int(value, name):
             array = jnp.asarray(value, dtype=jnp.int32)
+            if array.shape != row_shape:
+                raise ValueError(f"{name} must have shape {row_shape}, got {array.shape}")
+            return array
+
+        def _row_int64(value, name):
+            array = jnp.asarray(value, dtype=jnp.int64)
             if array.shape != row_shape:
                 raise ValueError(f"{name} must have shape {row_shape}, got {array.shape}")
             return array
@@ -2470,6 +2486,16 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             ),
             dtype=bool,
         )
+        global_face_id = _row_int64(
+            jnp.full(row_shape, -1, dtype=jnp.int32)
+            if self.global_face_id is None else self.global_face_id,
+            "LocalControlVolumeFaceRows3D.global_face_id",
+        )
+        has_remote_residual = jnp.asarray(
+            jnp.zeros(row_shape, dtype=bool)
+            if self.has_remote_residual is None else self.has_remote_residual,
+            dtype=bool,
+        )
         remote_halo_i = _row_int(
             (
                 jnp.zeros(row_shape, dtype=jnp.int32)
@@ -2493,6 +2519,21 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
                 else self.remote_halo_k
             ),
             "LocalControlVolumeFaceRows3D.remote_halo_k",
+        )
+        remote_residual_halo_i = _row_int(
+            jnp.zeros(row_shape, dtype=jnp.int32)
+            if self.remote_residual_halo_i is None else self.remote_residual_halo_i,
+            "LocalControlVolumeFaceRows3D.remote_residual_halo_i",
+        )
+        remote_residual_halo_j = _row_int(
+            jnp.zeros(row_shape, dtype=jnp.int32)
+            if self.remote_residual_halo_j is None else self.remote_residual_halo_j,
+            "LocalControlVolumeFaceRows3D.remote_residual_halo_j",
+        )
+        remote_residual_halo_k = _row_int(
+            jnp.zeros(row_shape, dtype=jnp.int32)
+            if self.remote_residual_halo_k is None else self.remote_residual_halo_k,
+            "LocalControlVolumeFaceRows3D.remote_residual_halo_k",
         )
         remote_centroid = jnp.asarray(
             (
@@ -2545,6 +2586,8 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
                 "LocalControlVolumeFaceRows3D.has_remote_owner must have shape "
                 f"{row_shape}, got {has_remote_owner.shape}"
             )
+        if global_face_id.shape != row_shape or has_remote_residual.shape != row_shape:
+            raise ValueError("global face and remote residual metadata must have row shape")
         if active.shape != row_shape:
             raise ValueError(
                 f"LocalControlVolumeFaceRows3D.active must have shape {row_shape}, got {active.shape}"
@@ -2631,10 +2674,28 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             & (remote_halo_k >= 0)
             & (remote_halo_k < hz)
         )
+        remote_residual_in_bounds = (
+            (remote_residual_halo_i >= 0) & (remote_residual_halo_i < hx)
+            & (remote_residual_halo_j >= 0) & (remote_residual_halo_j < hy)
+            & (remote_residual_halo_k >= 0) & (remote_residual_halo_k < hz)
+        )
         valid_owners = (~active) | (
             minus_in_bounds
             & ((~has_plus_owner) | plus_in_bounds)
             & ((~has_remote_owner) | remote_in_bounds)
+            # Step 2A uses the field-sample halo coordinate as the single
+            # authoritative remote aggregate destination.  Step 2B will
+            # reverse-scatter -F to precisely this same storage location.
+            & (
+                (~has_remote_residual)
+                | (
+                    has_remote_owner
+                    & remote_residual_in_bounds
+                    & (remote_residual_halo_i == remote_halo_i)
+                    & (remote_residual_halo_j == remote_halo_j)
+                    & (remote_residual_halo_k == remote_halo_k)
+                )
+            )
             & ~(has_plus_owner & has_remote_owner)
         )
         try:
@@ -2690,11 +2751,16 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
         object.__setattr__(self, "plus_owner_j", jnp.where(active, plus_owner_j, 0))
         object.__setattr__(self, "plus_owner_k", jnp.where(active, plus_owner_k, 0))
         object.__setattr__(self, "has_plus_owner", active & has_plus_owner)
+        object.__setattr__(self, "global_face_id", jnp.where(active, global_face_id, -1))
         object.__setattr__(
             self,
             "has_remote_owner",
             active & has_remote_owner,
         )
+        object.__setattr__(self, "has_remote_residual", active & has_remote_residual)
+        object.__setattr__(self, "remote_residual_halo_i", jnp.where(active & has_remote_residual, remote_residual_halo_i, 0))
+        object.__setattr__(self, "remote_residual_halo_j", jnp.where(active & has_remote_residual, remote_residual_halo_j, 0))
+        object.__setattr__(self, "remote_residual_halo_k", jnp.where(active & has_remote_residual, remote_residual_halo_k, 0))
         object.__setattr__(
             self,
             "remote_halo_i",
@@ -2839,6 +2905,11 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             remote_centroid=jnp.zeros(row + (3,), dtype=jnp.float64),
             remote_second_moment=jnp.zeros(row + (3, 3), dtype=jnp.float64),
             remote_third_moment=jnp.zeros(row + (3, 3, 3), dtype=jnp.float64),
+            global_face_id=jnp.full(row, -1, dtype=jnp.int64),
+            has_remote_residual=jnp.zeros(row, dtype=bool),
+            remote_residual_halo_i=jnp.zeros(row, dtype=jnp.int32),
+            remote_residual_halo_j=jnp.zeros(row, dtype=jnp.int32),
+            remote_residual_halo_k=jnp.zeros(row, dtype=jnp.int32),
         )
 
     def tree_flatten(self):
@@ -2869,6 +2940,11 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
                 self.remote_centroid,
                 self.remote_second_moment,
                 self.remote_third_moment,
+                self.global_face_id,
+                self.has_remote_residual,
+                self.remote_residual_halo_i,
+                self.remote_residual_halo_j,
+                self.remote_residual_halo_k,
             ),
             (self.layout, self.max_rows, self.max_patches),
         )
@@ -2902,6 +2978,11 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             "remote_centroid",
             "remote_second_moment",
             "remote_third_moment",
+            "global_face_id",
+            "has_remote_residual",
+            "remote_residual_halo_i",
+            "remote_residual_halo_j",
+            "remote_residual_halo_k",
         )
         instance = object.__new__(cls)
         object.__setattr__(instance, "layout", layout)

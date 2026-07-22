@@ -11,6 +11,9 @@ from drbx.runtime import configure_jax_runtime
 _JAX_COMPILATION_CACHE_DIR = configure_jax_runtime(precision="float64")
 
 import jax
+import numpy as np
+
+from drbx.geometry.fci_control_volumes import compile_local_control_volume_geometry
 
 _TEST_DIR = Path(__file__).resolve().parent
 if str(_TEST_DIR) not in sys.path:
@@ -29,6 +32,7 @@ from shifted_torus_4field_cutwall_geometry import (  # noqa: E402
     _build_closed_box_control_volume_cells,
     _build_closed_box_control_volume_faces,
     _build_closed_box_embedded_control_volume_geometry,
+    _build_global_closed_box_control_volume_topology,
     _build_shifted_torus_regular_boundary_closure,
     _build_stacked_embedded_control_volume_geometry,
     _closed_box_fluid_moments_3point,
@@ -142,6 +146,66 @@ def make_mesh_for_shard_counts(*args, **kwargs):
     from mms_domain_decomp_helpers import make_mesh_for_shard_counts as impl
 
     return impl(*args, **kwargs)
+
+
+def test_shifted_torus_global_compact_face_ids_are_unique_across_shards() -> None:
+    """Step-2A decomposition characterization against an N=6 baseline."""
+    global_shape = (6, 6, 6)
+    topology, _ = _build_global_closed_box_control_volume_topology(
+        global_shape=global_shape, halo_width=2,
+    )
+    baseline_ids: set[int] | None = None
+    baseline_wall_rows: int | None = None
+    for shard_counts in ((1, 1, 1), (1, 2, 1), (1, 1, 2), (1, 2, 2)):
+        geometry = _build_stacked_embedded_control_volume_geometry(
+            global_shape=global_shape,
+            shard_counts=shard_counts,
+            halo_width=2,
+            enable_merging=True,
+        )
+        rows = geometry.irregular_faces
+        active = np.asarray(rows.active, dtype=bool)
+        face_id = np.asarray(rows.global_face_id, dtype=np.int64)
+        logical = face_id[active & (face_id >= 0)]
+        assert logical.size == np.unique(logical).size
+        current_ids = set(int(value) for value in logical)
+        wall_rows = int(np.count_nonzero(active & (face_id < 0)))
+        if baseline_ids is None:
+            baseline_ids, baseline_wall_rows = current_ids, wall_rows
+        else:
+            assert current_ids == baseline_ids
+            assert wall_rows == baseline_wall_rows
+        # Validate every row against the evaluator IDs for its actual shard.
+        for shard_index in np.ndindex(*shard_counts):
+            local = compile_local_control_volume_geometry(
+                topology, shard_index=shard_index, shard_counts=shard_counts,
+            )
+            shard_active = active[shard_index]
+            shard_ids = face_id[shard_index][shard_active]
+            assert set(int(value) for value in shard_ids if value >= 0).issubset(
+                set(int(value) for value in local.local_face_id)
+            )
+            remote = np.asarray(rows.has_remote_residual[shard_index], dtype=bool)
+            remote_owner = np.asarray(rows.has_remote_owner[shard_index], dtype=bool)
+            assert np.all(~remote | remote_owner)
+            np.testing.assert_array_equal(
+                np.asarray(rows.remote_residual_halo_i[shard_index])[remote],
+                np.asarray(rows.remote_halo_i[shard_index])[remote],
+            )
+            np.testing.assert_array_equal(
+                np.asarray(rows.remote_residual_halo_j[shard_index])[remote],
+                np.asarray(rows.remote_halo_j[shard_index])[remote],
+            )
+            np.testing.assert_array_equal(
+                np.asarray(rows.remote_residual_halo_k[shard_index])[remote],
+                np.asarray(rows.remote_halo_k[shard_index])[remote],
+            )
+        if shard_counts != (1, 1, 1):
+            # The y interface is evaluated once, and its plus residual has a
+            # precomputed halo destination for the forthcoming reverse exchange.
+            assert int(np.sum(np.asarray(rows.has_remote_residual, dtype=bool))) > 0
+        del geometry
+        jax.clear_caches()
 
 
 

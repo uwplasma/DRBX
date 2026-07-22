@@ -900,6 +900,9 @@ def _build_closed_box_control_volume_faces(
     | None = None,
     reconstruction_owner_mask: np.ndarray | None = None,
     compact_owner_mask: np.ndarray | None = None,
+    global_topology: GlobalControlVolumeTopology3D | None = None,
+    local_topology: LocalControlVolumeGeometry3D | None = None,
+    canonical_compact_face_ids: set[int] | None = None,
 ) -> tuple[LocalRegularFaceGeometry3D, LocalControlVolumeFaceRows3D]:
     """Build dense ordinary faces and compact unique irregular interfaces."""
 
@@ -953,6 +956,38 @@ def _build_closed_box_control_volume_faces(
         for fraction in solid_face_fraction
     )
     open_masks = [fraction > 1.0e-12 for fraction in open_fraction]
+    global_face_lookup: dict[tuple[int, int, int, int], int] = {}
+    evaluator_face_ids: set[int] | None = None
+    if global_topology is not None:
+        if local_topology is None:
+            raise ValueError("global face topology needs a local shard compilation")
+        global_face_lookup = {
+            (int(axis), *(int(v) for v in storage)): int(face_id)
+            for face_id, axis, storage in zip(
+                global_topology.face_id,
+                global_topology.face_axis,
+                global_topology.face_storage_index,
+            )
+        }
+        evaluator_face_ids = set(int(value) for value in local_topology.local_face_id)
+        shard_extent = tuple(
+            global_topology.shape[axis] // local_topology.shard_counts[axis]
+            for axis in range(3)
+        )
+        shard_start = tuple(
+            local_topology.shard_index[axis] * shard_extent[axis]
+            for axis in range(3)
+        )
+
+        def global_face_id(axis: int, face: tuple[int, int, int]) -> int:
+            storage = [shard_start[d] + int(face[d]) for d in range(3)]
+            # Global topology stores periodic seams at the low image.
+            if axis in (1, 2) and storage[axis] == global_topology.shape[axis]:
+                storage[axis] = 0
+            return global_face_lookup.get((axis, *storage), -1)
+    else:
+        def global_face_id(axis: int, face: tuple[int, int, int]) -> int:
+            return -1
 
     face_candidates: set[tuple[int, int, int, int]] = set()
     for axis, fraction in enumerate(open_fraction):
@@ -1049,6 +1084,35 @@ def _build_closed_box_control_volume_faces(
             face[tangential_axes[1]] = int(tangential_index[1])
             face_candidates.add((axis, face[0], face[1], face[2]))
 
+    if (
+        global_topology is not None
+        and local_topology is not None
+        and canonical_compact_face_ids is not None
+        and evaluator_face_ids is not None
+    ):
+        # A shard halo can discover fewer compact candidates than the global
+        # build.  Insert every globally selected face owned by this evaluator
+        # shard, converting the canonical periodic low seam to the local high
+        # image when its minus owner lives on the final periodic shard.
+        records = {
+            int(face_id): (int(axis), tuple(int(v) for v in storage))
+            for face_id, axis, storage in zip(
+                global_topology.face_id,
+                global_topology.face_axis,
+                global_topology.face_storage_index,
+            )
+        }
+        for face_id in evaluator_face_ids & canonical_compact_face_ids:
+            axis, storage = records[face_id]
+            local_face = [storage[d] - shard_start[d] for d in range(3)]
+            if axis in (1, 2) and storage[axis] == 0 and shard_start[axis] > 0:
+                local_face[axis] = shape[axis]
+            tangential_axes = [d for d in range(3) if d != axis]
+            if not all(0 <= local_face[d] < shape[d] for d in tangential_axes):
+                continue
+            if 0 <= local_face[axis] <= shape[axis]:
+                face_candidates.add((axis, *local_face))
+
     rows: list[dict[str, object]] = []
 
 
@@ -1065,6 +1129,8 @@ def _build_closed_box_control_volume_faces(
         remote_centroid: np.ndarray | None = None,
         remote_second_moment: np.ndarray | None = None,
         remote_third_moment: np.ndarray | None = None,
+        global_face_id: int = -1,
+        remote_residual_halo: tuple[int, int, int] | None = None,
     ) -> None:
         if not rectangles:
             return
@@ -1087,6 +1153,8 @@ def _build_closed_box_control_volume_faces(
                 "remote_centroid": remote_centroid,
                 "remote_second_moment": remote_second_moment,
                 "remote_third_moment": remote_third_moment,
+                "global_face_id": global_face_id,
+                "remote_residual_halo": remote_residual_halo,
                 "patches": patches,
             }
         )
@@ -1100,6 +1168,18 @@ def _build_closed_box_control_volume_faces(
         ):
             continue
         axis_face_index = face_index[axis]
+        row_global_face_id = global_face_id(axis, face_index)
+        # Keep dense masks closed on every shard, but only the canonical
+        # evaluator shard receives the compact logical-face row.
+        if (
+            row_global_face_id >= 0
+            and (
+                (evaluator_face_ids is not None and row_global_face_id not in evaluator_face_ids)
+                or (canonical_compact_face_ids is not None and row_global_face_id not in canonical_compact_face_ids)
+            )
+        ):
+            open_masks[axis][face_index] = False
+            continue
         if axis_face_index in (0, shape[axis]):
             side = 0 if axis_face_index == 0 else 1
             remote_payload = remote_boundary_payloads.get((axis, side))
@@ -1154,6 +1234,7 @@ def _build_closed_box_control_volume_faces(
                     coordinate=face_coordinate,
                     rectangles=rectangles,
                     orientation=-1.0 if side == 0 else 1.0,
+                    global_face_id=row_global_face_id,
                 )
                 open_masks[axis][face_index] = False
                 continue
@@ -1224,6 +1305,8 @@ def _build_closed_box_control_volume_faces(
                 coordinate=face_coordinate,
                 rectangles=rectangles,
                 orientation=-1.0 if side == 0 else 1.0,
+                global_face_id=row_global_face_id,
+                remote_residual_halo=tuple(remote_halo),
             )
             open_masks[axis][face_index] = False
             continue
@@ -1276,6 +1359,7 @@ def _build_closed_box_control_volume_faces(
             coordinate=face_coordinate,
             rectangles=rectangles,
             orientation=1.0,
+            global_face_id=row_global_face_id,
         )
         open_masks[axis][face_index] = False
 
@@ -1364,6 +1448,11 @@ def _build_closed_box_control_volume_faces(
     remote_centroid = np.zeros(row_shape + (3,), dtype=np.float64)
     remote_second_moment = np.zeros(row_shape + (3, 3), dtype=np.float64)
     remote_third_moment = np.zeros(row_shape + (3, 3, 3), dtype=np.float64)
+    global_face_ids = np.full(row_shape, -1, dtype=np.int64)
+    has_remote_residual = np.zeros(row_shape, dtype=bool)
+    remote_residual_halo_i = np.zeros(row_shape, dtype=np.int32)
+    remote_residual_halo_j = np.zeros(row_shape, dtype=np.int32)
+    remote_residual_halo_k = np.zeros(row_shape, dtype=np.int32)
     points = np.zeros(quadrature_shape + (3,), dtype=np.float64)
     area = np.zeros(quadrature_shape + (3,), dtype=np.float64)
     J = np.zeros(quadrature_shape, dtype=np.float64)
@@ -1375,6 +1464,7 @@ def _build_closed_box_control_volume_faces(
     patch_active = np.zeros(patch_shape, dtype=bool)
     for row_index, row in enumerate(rows):
         kind[row_index] = int(row["kind"])
+        global_face_ids[row_index] = int(row.get("global_face_id", -1))
         minus = row["minus"]
         minus_i[row_index], minus_j[row_index], minus_k[row_index] = minus
         plus = row["plus"]
@@ -1392,6 +1482,10 @@ def _build_closed_box_control_volume_faces(
             remote_centroid[row_index] = row["remote_centroid"]
             remote_second_moment[row_index] = row["remote_second_moment"]
             remote_third_moment[row_index] = row.get("remote_third_moment", 0.0)
+        residual_halo = row.get("remote_residual_halo")
+        if residual_halo is not None:
+            has_remote_residual[row_index] = True
+            remote_residual_halo_i[row_index], remote_residual_halo_j[row_index], remote_residual_halo_k[row_index] = residual_halo
         for patch_index, (q_points, q_area, metric) in enumerate(row["patches"]):
             patch_active[row_index, patch_index] = True
             points[row_index, patch_index] = q_points
@@ -1434,6 +1528,11 @@ def _build_closed_box_control_volume_faces(
         remote_centroid=jnp.asarray(remote_centroid),
         remote_second_moment=jnp.asarray(remote_second_moment),
         remote_third_moment=jnp.asarray(remote_third_moment),
+        global_face_id=jnp.asarray(global_face_ids),
+        has_remote_residual=jnp.asarray(has_remote_residual),
+        remote_residual_halo_i=jnp.asarray(remote_residual_halo_i),
+        remote_residual_halo_j=jnp.asarray(remote_residual_halo_j),
+        remote_residual_halo_k=jnp.asarray(remote_residual_halo_k),
     )
     base_regular = geometry.regular_face_geometry
     regular = LocalRegularFaceGeometry3D(
@@ -1708,6 +1807,9 @@ def _build_closed_box_embedded_control_volume_geometry(
     ]
     | None = None,
     local_periodic_axes: tuple[bool, bool, bool] = (False, True, True),
+    global_topology: GlobalControlVolumeTopology3D | None = None,
+    local_topology: LocalControlVolumeGeometry3D | None = None,
+    canonical_compact_face_ids: set[int] | None = None,
 ) -> LocalEmbeddedControlVolumeGeometry3D:
     if cells is None:
         cells = _build_closed_box_control_volume_cells(
@@ -1720,6 +1822,9 @@ def _build_closed_box_embedded_control_volume_geometry(
         geometry,
         cells,
         remote_boundary_payloads=remote_boundary_payloads,
+        global_topology=global_topology,
+        local_topology=local_topology,
+        canonical_compact_face_ids=canonical_compact_face_ids,
     )
     intrinsic_reconstruction_owner_mask = _intrinsic_reconstruction_owner_mask(
         cells,
@@ -1736,6 +1841,9 @@ def _build_closed_box_embedded_control_volume_geometry(
         remote_boundary_payloads=remote_boundary_payloads,
         reconstruction_owner_mask=reconstruction_owner_mask,
         compact_owner_mask=intrinsic_reconstruction_owner_mask,
+        global_topology=global_topology,
+        local_topology=local_topology,
+        canonical_compact_face_ids=canonical_compact_face_ids,
     )
     reconstruction_owner_mask = _dilate_reconstruction_owner_mask(
         cells,
@@ -1910,6 +2018,11 @@ def _pad_control_volume_face_rows(
         remote_centroid=row_pad(rows.remote_centroid),
         remote_second_moment=row_pad(rows.remote_second_moment),
         remote_third_moment=row_pad(rows.remote_third_moment),
+        global_face_id=row_pad(rows.global_face_id, -1),
+        has_remote_residual=row_pad(rows.has_remote_residual, False),
+        remote_residual_halo_i=row_pad(rows.remote_residual_halo_i),
+        remote_residual_halo_j=row_pad(rows.remote_residual_halo_j),
+        remote_residual_halo_k=row_pad(rows.remote_residual_halo_k),
     )
 
 
@@ -1997,11 +2110,35 @@ def _build_stacked_embedded_control_volume_geometry(
     )
     global_topology: GlobalControlVolumeTopology3D | None = None
     global_raw: tuple[np.ndarray, ...] | None = None
+    canonical_compact_face_ids: set[int] | None = None
     if enable_merging:
         global_topology, global_raw = _build_global_closed_box_control_volume_topology(global_shape=global_shape, halo_width=halo_width)
+        # Define compact logical interfaces once on the unsplit global
+        # geometry.  Local face discovery can be more conservative near a
+        # shard halo; this set prevents those extra interfaces from changing
+        # the canonical compact/dense partition.
+        global_geometry = build_shifted_torus_local_geometry(
+            global_shape, halo_width, global_shape=global_shape, shard_index=(0, 0, 0),
+            x_min=shifted_mms.x_min, x_max=shifted_mms.x_max, r0=shifted_mms.r0,
+            alpha_value=shifted_mms.alpha_value, iota=shifted_mms.iota,
+            c_phi=shifted_mms.c_phi, sigma=shifted_mms.sigma,
+        )
+        whole_topology = compile_local_control_volume_geometry(
+            global_topology, shard_index=(0, 0, 0), shard_counts=(1, 1, 1),
+            raw_volume=global_raw[0], raw_centroid=global_raw[1],
+            raw_second_moment=global_raw[2], raw_third_moment=global_raw[3],
+        )
+        whole_cells = _lower_global_control_volume_cells(global_geometry, whole_topology)
+        whole_bundle = _build_closed_box_embedded_control_volume_geometry(
+            global_geometry, enable_merging=True, cells=whole_cells,
+            global_topology=global_topology, local_topology=whole_topology,
+        )
+        whole_ids = np.asarray(whole_bundle.irregular_faces.global_face_id, dtype=np.int64)
+        whole_active = np.asarray(whole_bundle.irregular_faces.active, dtype=bool)
+        canonical_compact_face_ids = set(int(value) for value in whole_ids[whole_active & (whole_ids >= 0)])
     local_geometry_and_cells: dict[
         tuple[int, int, int],
-        tuple[LocalFciGeometry3D, LocalControlVolumeCellGeometry3D],
+        tuple[LocalFciGeometry3D, LocalControlVolumeCellGeometry3D, LocalControlVolumeGeometry3D | None],
     ] = {}
     for shard_i in range(int(shard_counts[0])):
         for shard_j in range(int(shard_counts[1])):
@@ -2022,10 +2159,11 @@ def _build_stacked_embedded_control_volume_geometry(
                 )
                 if global_topology is None:
                     cells = _build_closed_box_control_volume_cells(local_geometry, enable_merging=False)
+                    local_topology = None
                 else:
                     local_topology = compile_local_control_volume_geometry(global_topology, shard_index=shard_index, shard_counts=shard_counts, raw_volume=global_raw[0], raw_centroid=global_raw[1], raw_second_moment=global_raw[2], raw_third_moment=global_raw[3])
                     cells = _lower_global_control_volume_cells(local_geometry, local_topology)
-                local_geometry_and_cells[shard_index] = (local_geometry, cells)
+                local_geometry_and_cells[shard_index] = (local_geometry, cells, local_topology)
 
     periodic_axes = (False, True, True)
 
@@ -2046,7 +2184,7 @@ def _build_stacked_embedded_control_volume_geometry(
         return None
 
     local_bundles: list[LocalEmbeddedControlVolumeGeometry3D] = []
-    for shard_index, (local_geometry, cells) in local_geometry_and_cells.items():
+    for shard_index, (local_geometry, cells, local_topology) in local_geometry_and_cells.items():
         local_touched_storage = _closed_box_irregular_storage_mask(
             local_geometry,
             cells,
@@ -2066,7 +2204,7 @@ def _build_stacked_embedded_control_volume_geometry(
                 remote_index = neighbor_index(shard_index, axis, side)
                 if remote_index is None:
                     continue
-                remote_geometry, remote_cells = local_geometry_and_cells[remote_index]
+                remote_geometry, remote_cells, _remote_topology = local_geometry_and_cells[remote_index]
                 remote_raw_volume = np.asarray(
                     remote_cells.raw_volume,
                     dtype=np.float64,
@@ -2226,6 +2364,9 @@ def _build_stacked_embedded_control_volume_geometry(
                     periodic_axes[axis] and int(shard_counts[axis]) == 1
                     for axis in range(3)
                 ),
+                global_topology=global_topology,
+                local_topology=local_topology,
+                canonical_compact_face_ids=canonical_compact_face_ids,
             )
         )
     max_face_rows = max(
