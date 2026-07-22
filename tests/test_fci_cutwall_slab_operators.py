@@ -1203,17 +1203,6 @@ def _unit_control_volume_face_rows(
     projector = identity.copy()
     projector[..., 2, 2] = 0.0
     patch_active = np.zeros((max_rows, max_patches), dtype=bool)
-    boundary_axis = np.zeros((max_rows,), dtype=np.int32)
-    boundary_sample_owner = np.zeros(
-        (max_rows, 3, 3),
-        dtype=np.int32,
-    )
-    boundary_sample_coordinate = np.zeros(
-        (max_rows, 3),
-        dtype=np.float64,
-    )
-    boundary_weights = np.zeros((max_rows, 4), dtype=np.float64)
-    boundary_stencil_valid = np.zeros((max_rows,), dtype=bool)
     spacing = np.asarray(
         (
             float(np.asarray(geometry.spacing.dx_owned).flat[0]),
@@ -1253,61 +1242,6 @@ def _unit_control_volume_face_rows(
                 )
                 q += 1
         patch_active[row, 0] = True
-        if int(row_kind) == CV_FACE_PHYSICAL_BOUNDARY:
-            inward = 1 if float(orientation) < 0.0 else -1
-            sample_owners = []
-            for depth in range(3):
-                sample_owner = list(minus_owner)
-                sample_owner[axis] += depth * inward
-                if not 0 <= sample_owner[axis] < geometry.owned_shape[axis]:
-                    sample_owners = []
-                    break
-                sample_owners.append(tuple(sample_owner))
-            if len(sample_owners) == 3:
-                axis_centers = (
-                    geometry.grid.x.centers_owned,
-                    geometry.grid.y.centers_owned,
-                    geometry.grid.z.centers_owned,
-                )[axis]
-                coordinates = np.asarray(
-                    [
-                        float(axis_centers[owner[axis]])
-                        for owner in sample_owners
-                    ],
-                    dtype=np.float64,
-                )
-                offsets = np.concatenate(
-                    (
-                        np.zeros((1,), dtype=np.float64),
-                        coordinates - float(center[axis]),
-                    )
-                )
-                scale = float(np.max(np.abs(offsets[1:])))
-                normalized = offsets / scale
-                vandermonde = np.stack(
-                    (
-                        normalized**0,
-                        normalized,
-                        normalized**2,
-                        normalized**3,
-                    ),
-                    axis=0,
-                )
-                derivative_weights = np.linalg.solve(
-                    vandermonde,
-                    np.asarray(
-                        (0.0, 1.0, 0.0, 0.0),
-                        dtype=np.float64,
-                    ),
-                ) / scale
-                boundary_axis[row] = axis
-                boundary_sample_owner[row] = np.asarray(
-                    sample_owners,
-                    dtype=np.int32,
-                )
-                boundary_sample_coordinate[row] = coordinates
-                boundary_weights[row] = derivative_weights
-                boundary_stencil_valid[row] = True
 
     return LocalControlVolumeFaceRows3D(
         layout=geometry.layout,
@@ -1331,23 +1265,6 @@ def _unit_control_volume_face_rows(
         active=jnp.ones((max_rows,), dtype=bool),
         max_rows=max_rows,
         max_patches=max_patches,
-        boundary_normal_axis=jnp.asarray(boundary_axis),
-        boundary_sample_owner_i=jnp.asarray(
-            boundary_sample_owner[..., 0]
-        ),
-        boundary_sample_owner_j=jnp.asarray(
-            boundary_sample_owner[..., 1]
-        ),
-        boundary_sample_owner_k=jnp.asarray(
-            boundary_sample_owner[..., 2]
-        ),
-        boundary_sample_coordinate=jnp.asarray(
-            boundary_sample_coordinate
-        ),
-        boundary_dcoordinate_weights=jnp.asarray(boundary_weights),
-        boundary_normal_stencil_valid=jnp.asarray(
-            boundary_stencil_valid
-        ),
     )
 
 
@@ -2542,7 +2459,6 @@ def test_control_volume_physical_boundary_uses_quadratic_gradient() -> None:
             ),
         ),
     )
-    assert bool(faces.boundary_normal_stencil_valid[0])
     spacing = jnp.stack(
         (
             geometry.spacing.dx_owned,

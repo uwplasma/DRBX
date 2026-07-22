@@ -2414,13 +2414,6 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
     remote_centroid: jnp.ndarray | None = None
     remote_second_moment: jnp.ndarray | None = None
     remote_third_moment: jnp.ndarray | None = None
-    boundary_normal_axis: jnp.ndarray | None = None
-    boundary_sample_owner_i: jnp.ndarray | None = None
-    boundary_sample_owner_j: jnp.ndarray | None = None
-    boundary_sample_owner_k: jnp.ndarray | None = None
-    boundary_sample_coordinate: jnp.ndarray | None = None
-    boundary_dcoordinate_weights: jnp.ndarray | None = None
-    boundary_normal_stencil_valid: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -2525,72 +2518,6 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             ),
             dtype=jnp.float64,
         )
-        boundary_normal_axis = _row_int(
-            (
-                jnp.zeros(row_shape, dtype=jnp.int32)
-                if self.boundary_normal_axis is None
-                else self.boundary_normal_axis
-            ),
-            "LocalControlVolumeFaceRows3D.boundary_normal_axis",
-        )
-
-        def _row_sample_int(value, name):
-            array = jnp.asarray(value, dtype=jnp.int32)
-            expected = row_shape + (3,)
-            if array.shape != expected:
-                raise ValueError(
-                    f"{name} must have shape {expected}, got {array.shape}"
-                )
-            return array
-
-        boundary_sample_owner_i = _row_sample_int(
-            (
-                jnp.zeros(row_shape + (3,), dtype=jnp.int32)
-                if self.boundary_sample_owner_i is None
-                else self.boundary_sample_owner_i
-            ),
-            "LocalControlVolumeFaceRows3D.boundary_sample_owner_i",
-        )
-        boundary_sample_owner_j = _row_sample_int(
-            (
-                jnp.zeros(row_shape + (3,), dtype=jnp.int32)
-                if self.boundary_sample_owner_j is None
-                else self.boundary_sample_owner_j
-            ),
-            "LocalControlVolumeFaceRows3D.boundary_sample_owner_j",
-        )
-        boundary_sample_owner_k = _row_sample_int(
-            (
-                jnp.zeros(row_shape + (3,), dtype=jnp.int32)
-                if self.boundary_sample_owner_k is None
-                else self.boundary_sample_owner_k
-            ),
-            "LocalControlVolumeFaceRows3D.boundary_sample_owner_k",
-        )
-        boundary_sample_coordinate = jnp.asarray(
-            (
-                jnp.zeros(row_shape + (3,), dtype=jnp.float64)
-                if self.boundary_sample_coordinate is None
-                else self.boundary_sample_coordinate
-            ),
-            dtype=jnp.float64,
-        )
-        boundary_dcoordinate_weights = jnp.asarray(
-            (
-                jnp.zeros(row_shape + (4,), dtype=jnp.float64)
-                if self.boundary_dcoordinate_weights is None
-                else self.boundary_dcoordinate_weights
-            ),
-            dtype=jnp.float64,
-        )
-        boundary_normal_stencil_valid = jnp.asarray(
-            (
-                jnp.zeros(row_shape, dtype=bool)
-                if self.boundary_normal_stencil_valid is None
-                else self.boundary_normal_stencil_valid
-            ),
-            dtype=bool,
-        )
         if remote_centroid.shape != row_shape + (3,):
             raise ValueError(
                 "LocalControlVolumeFaceRows3D.remote_centroid must have shape "
@@ -2605,24 +2532,6 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             raise ValueError(
                 "LocalControlVolumeFaceRows3D.remote_third_moment must have "
                 f"shape {row_shape + (3, 3, 3)}, got {remote_third_moment.shape}"
-            )
-        if boundary_sample_coordinate.shape != row_shape + (3,):
-            raise ValueError(
-                "LocalControlVolumeFaceRows3D.boundary_sample_coordinate must "
-                f"have shape {row_shape + (3,)}, got "
-                f"{boundary_sample_coordinate.shape}"
-            )
-        if boundary_dcoordinate_weights.shape != row_shape + (4,):
-            raise ValueError(
-                "LocalControlVolumeFaceRows3D.boundary_dcoordinate_weights must "
-                f"have shape {row_shape + (4,)}, got "
-                f"{boundary_dcoordinate_weights.shape}"
-            )
-        if boundary_normal_stencil_valid.shape != row_shape:
-            raise ValueError(
-                "LocalControlVolumeFaceRows3D.boundary_normal_stencil_valid "
-                f"must have shape {row_shape}, got "
-                f"{boundary_normal_stencil_valid.shape}"
             )
         active = jnp.asarray(self.active, dtype=bool)
         patch_active = jnp.asarray(self.patch_active, dtype=bool)
@@ -2722,46 +2631,15 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             & (remote_halo_k >= 0)
             & (remote_halo_k < hz)
         )
-        boundary_samples_in_bounds = (
-            (boundary_sample_owner_i >= 0)
-            & (boundary_sample_owner_i < nx)
-            & (boundary_sample_owner_j >= 0)
-            & (boundary_sample_owner_j < ny)
-            & (boundary_sample_owner_k >= 0)
-            & (boundary_sample_owner_k < nz)
-        )
         valid_owners = (~active) | (
             minus_in_bounds
             & ((~has_plus_owner) | plus_in_bounds)
             & ((~has_remote_owner) | remote_in_bounds)
             & ~(has_plus_owner & has_remote_owner)
         )
-        valid_boundary_stencil = (
-            (~boundary_normal_stencil_valid)
-            | (
-                active
-                & (
-                    (kind == CV_FACE_PHYSICAL_BOUNDARY)
-                    | (kind == CV_FACE_CUT_WALL)
-                )
-                & (~has_plus_owner)
-                & (~has_remote_owner)
-                & (boundary_normal_axis >= 0)
-                & (boundary_normal_axis <= 2)
-                & jnp.all(boundary_samples_in_bounds, axis=-1)
-                & jnp.all(jnp.isfinite(boundary_sample_coordinate), axis=-1)
-                & jnp.all(
-                    jnp.isfinite(boundary_dcoordinate_weights),
-                    axis=-1,
-                )
-            )
-        )
         try:
             all_valid_kind = bool(jnp.all(valid_kind))
             all_valid_owners = bool(jnp.all(valid_owners))
-            all_valid_boundary_stencils = bool(
-                jnp.all(valid_boundary_stencil)
-            )
             finite_active_geometry = bool(
                 jnp.all(
                     (~(active[:, None, None] & patch_active[:, :, None]))
@@ -2789,17 +2667,12 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
         except jax.errors.TracerBoolConversionError:
             all_valid_kind = True
             all_valid_owners = True
-            all_valid_boundary_stencils = True
             finite_active_geometry = True
             finite_remote_geometry = True
         if not all_valid_kind:
             raise ValueError("active control-volume face rows have an invalid kind")
         if not all_valid_owners:
             raise ValueError("active control-volume face owners must be local")
-        if not all_valid_boundary_stencils:
-            raise ValueError(
-                "active physical-boundary derivative stencils are invalid"
-            )
         if not finite_active_geometry:
             raise ValueError("active control-volume face quadrature must be finite")
         if not finite_remote_geometry:
@@ -2877,61 +2750,6 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
                 ) / 6.0,
                 0.0,
             ),
-        )
-        object.__setattr__(
-            self,
-            "boundary_normal_axis",
-            jnp.where(boundary_normal_stencil_valid, boundary_normal_axis, 0),
-        )
-        object.__setattr__(
-            self,
-            "boundary_sample_owner_i",
-            jnp.where(
-                boundary_normal_stencil_valid[:, None],
-                boundary_sample_owner_i,
-                0,
-            ),
-        )
-        object.__setattr__(
-            self,
-            "boundary_sample_owner_j",
-            jnp.where(
-                boundary_normal_stencil_valid[:, None],
-                boundary_sample_owner_j,
-                0,
-            ),
-        )
-        object.__setattr__(
-            self,
-            "boundary_sample_owner_k",
-            jnp.where(
-                boundary_normal_stencil_valid[:, None],
-                boundary_sample_owner_k,
-                0,
-            ),
-        )
-        object.__setattr__(
-            self,
-            "boundary_sample_coordinate",
-            jnp.where(
-                boundary_normal_stencil_valid[:, None],
-                boundary_sample_coordinate,
-                0.0,
-            ),
-        )
-        object.__setattr__(
-            self,
-            "boundary_dcoordinate_weights",
-            jnp.where(
-                boundary_normal_stencil_valid[:, None],
-                boundary_dcoordinate_weights,
-                0.0,
-            ),
-        )
-        object.__setattr__(
-            self,
-            "boundary_normal_stencil_valid",
-            active & boundary_normal_stencil_valid,
         )
         object.__setattr__(
             self,
@@ -3021,23 +2839,6 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             remote_centroid=jnp.zeros(row + (3,), dtype=jnp.float64),
             remote_second_moment=jnp.zeros(row + (3, 3), dtype=jnp.float64),
             remote_third_moment=jnp.zeros(row + (3, 3, 3), dtype=jnp.float64),
-            boundary_normal_axis=jnp.zeros(row, dtype=jnp.int32),
-            boundary_sample_owner_i=jnp.zeros(
-                row + (3,), dtype=jnp.int32
-            ),
-            boundary_sample_owner_j=jnp.zeros(
-                row + (3,), dtype=jnp.int32
-            ),
-            boundary_sample_owner_k=jnp.zeros(
-                row + (3,), dtype=jnp.int32
-            ),
-            boundary_sample_coordinate=jnp.zeros(
-                row + (3,), dtype=jnp.float64
-            ),
-            boundary_dcoordinate_weights=jnp.zeros(
-                row + (4,), dtype=jnp.float64
-            ),
-            boundary_normal_stencil_valid=jnp.zeros(row, dtype=bool),
         )
 
     def tree_flatten(self):
@@ -3068,13 +2869,6 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
                 self.remote_centroid,
                 self.remote_second_moment,
                 self.remote_third_moment,
-                self.boundary_normal_axis,
-                self.boundary_sample_owner_i,
-                self.boundary_sample_owner_j,
-                self.boundary_sample_owner_k,
-                self.boundary_sample_coordinate,
-                self.boundary_dcoordinate_weights,
-                self.boundary_normal_stencil_valid,
             ),
             (self.layout, self.max_rows, self.max_patches),
         )
@@ -3108,13 +2902,6 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             "remote_centroid",
             "remote_second_moment",
             "remote_third_moment",
-            "boundary_normal_axis",
-            "boundary_sample_owner_i",
-            "boundary_sample_owner_j",
-            "boundary_sample_owner_k",
-            "boundary_sample_coordinate",
-            "boundary_dcoordinate_weights",
-            "boundary_normal_stencil_valid",
         )
         instance = object.__new__(cls)
         object.__setattr__(instance, "layout", layout)
