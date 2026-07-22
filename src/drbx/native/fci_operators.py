@@ -101,7 +101,6 @@ from .fci_boundaries import (
     LocalCutWallBC3D,
     LocalCutWallGeometry3D,
     LocalRegularFaceContributionRows3D,
-    LocalCutWallNormalDerivativeConstructor3D,
     LocalCutWallValueReconstructor3D,
     CutWallBC3D,
     CutWallGeometry3D,

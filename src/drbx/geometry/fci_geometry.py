@@ -2085,9 +2085,6 @@ class StencilBuilderContext(_DataclassPyTreeMixin):
     cut_wall_geometry: "LocalCutWallGeometry3D | None" = None
     cut_wall_bc: "LocalCutWallBC3D | None" = None
     cut_wall_value_reconstructor: "LocalCutWallValueReconstructor3D | None" = None
-    cut_wall_normal_derivative_constructor: (
-        "LocalCutWallNormalDerivativeConstructor3D | None"
-    ) = None
     cut_wall_stencil_dependencies: (
         "LocalCoordinateStencilDependencyMap3D | None"
     ) = None
