@@ -5112,6 +5112,7 @@ def precompute_local_cubic_reconstruction(
     remote_sample_second_moments: np.ndarray | None = None,
     remote_sample_third_moments: np.ndarray | None = None,
     periodic_axes: tuple[bool, bool, bool] = (False, False, False),
+    coordinate_periodic_axes: tuple[bool, bool, bool] | None = None,
     coordinate_periods: tuple[float, float, float] | None = None,
     target_mask: jnp.ndarray | None = None,
     max_samples: int = 48,
@@ -5144,13 +5145,27 @@ def precompute_local_cubic_reconstruction(
     n_rows = len(targets)
     if n_rows == 0:
         return LocalQuadraticReconstruction3D.empty(
-            cells.layout, max_rows=0, max_equations=max_equations
+            cells.layout,
+            max_rows=0,
+            max_equations=max_equations,
+            coefficient_count=19,
         )
     periods = np.asarray(
         coordinate_periods if coordinate_periods is not None else (1.0, 1.0, 1.0),
         dtype=np.float64,
     )
+    # Local index periodicity and global coordinate periodicity are distinct
+    # on a decomposed periodic axis. Local candidates must not wrap within a
+    # shard, while remote samples across the global seam must still be
+    # unwrapped to the nearest periodic image.
     periodic_axes = tuple(bool(value) for value in periodic_axes)
+    coordinate_periodic_axes = tuple(
+        bool(value) for value in (
+            periodic_axes
+            if coordinate_periodic_axes is None
+            else coordinate_periodic_axes
+        )
+    )
     if remote_sample_halo_indices is None:
         remote_indices = np.zeros((0, 3), dtype=np.int32)
         remote_centroids = np.zeros((0, 3), dtype=np.float64)
@@ -5171,7 +5186,7 @@ def precompute_local_cubic_reconstruction(
 
     def unwrap(delta: np.ndarray) -> np.ndarray:
         delta = np.asarray(delta, dtype=np.float64).copy()
-        for axis, is_periodic in enumerate(periodic_axes):
+        for axis, is_periodic in enumerate(coordinate_periodic_axes):
             if is_periodic:
                 delta[..., axis] -= np.round(delta[..., axis] / periods[axis]) * periods[axis]
         return delta
@@ -5211,11 +5226,241 @@ def precompute_local_cubic_reconstruction(
     transform_out = np.zeros((n_rows, 19, max_equations), dtype=np.float64)
     order = np.zeros((n_rows,), dtype=np.int32); rank = np.zeros((n_rows,), dtype=np.int32); condition = np.full((n_rows,), np.inf)
     row_for_cell = -np.ones(shape, dtype=np.int32)
-    scale_power = np.asarray((
-        1/spacing[..., 0].flat[0], 1/spacing[..., 1].flat[0], 1/spacing[..., 2].flat[0],
-    ))  # Per-row scale is computed below.
+    target_i[:] = targets[:, 0]
+    target_j[:] = targets[:, 1]
+    target_k[:] = targets[:, 2]
+    row_for_cell[tuple(targets.T)] = np.arange(n_rows, dtype=np.int32)
+
+    # The common guard-ring case has no wall equation and a complete local
+    # radius-two stencil.  Assemble those fixed-shape systems in chunks and
+    # hand a stack of matrices to NumPy's batched SVD/pseudoinverse kernels.
+    # Rows near a wall, shard edge, or rank deficiency deliberately retain
+    # the detailed path below, where variable boundary/remote equations are
+    # part of the reconstruction contract.
+    boundary_target = np.zeros(shape, dtype=bool)
+    boundary_rows = face_active & (
+        (face_kind == CV_FACE_CUT_WALL)
+        | (face_kind == CV_FACE_PHYSICAL_BOUNDARY)
+    )
+    if np.any(boundary_rows):
+        boundary_target[tuple(minus[boundary_rows].T)] = True
+    radius_two_offsets = np.asarray(
+        [
+            (di, dj, dk)
+            for di in range(-2, 3)
+            for dj in range(-2, 3)
+            for dk in range(-2, 3)
+            if (di, dj, dk) != (0, 0, 0)
+        ],
+        dtype=np.int32,
+    )
+    radius_two_shell = np.max(np.abs(radius_two_offsets), axis=1)
+    radius_two_tie = np.arange(radius_two_offsets.shape[0], dtype=np.float64)
+    processed = np.zeros((n_rows,), dtype=bool)
+    if max_samples >= 19 and all(size >= 5 for size in shape):
+        target_interior = np.all(
+            (targets >= 2)
+            & (targets <= np.asarray(shape, dtype=np.int32)[None, :] - 3),
+            axis=1,
+        )
+        batch_candidate_rows = np.flatnonzero(
+            target_interior & ~boundary_target[tuple(targets.T)]
+        )
+        batch_size = 256
+        selected_count = min(int(max_samples), int(radius_two_offsets.shape[0]))
+        for begin in range(0, len(batch_candidate_rows), batch_size):
+            rows = batch_candidate_rows[begin : begin + batch_size]
+            target_batch = targets[rows]
+            candidates = target_batch[:, None, :] + radius_two_offsets[None, :, :]
+            candidate_active = active[
+                candidates[..., 0],
+                candidates[..., 1],
+                candidates[..., 2],
+            ]
+            if not np.any(np.sum(candidate_active, axis=1) >= selected_count):
+                continue
+
+            x0_batch = centroid[
+                target_batch[:, 0], target_batch[:, 1], target_batch[:, 2]
+            ]
+            m20_batch = m2[
+                target_batch[:, 0], target_batch[:, 1], target_batch[:, 2]
+            ]
+            m30_batch = m3[
+                target_batch[:, 0], target_batch[:, 1], target_batch[:, 2]
+            ]
+            h_batch = spacing[
+                target_batch[:, 0], target_batch[:, 1], target_batch[:, 2]
+            ]
+            candidate_centroid = centroid[
+                candidates[..., 0], candidates[..., 1], candidates[..., 2]
+            ]
+            candidate_m2 = m2[
+                candidates[..., 0], candidates[..., 1], candidates[..., 2]
+            ]
+            candidate_m3 = m3[
+                candidates[..., 0], candidates[..., 1], candidates[..., 2]
+            ]
+            delta = unwrap(candidate_centroid - x0_batch[:, None, :])
+            scaled_delta = delta / h_batch[:, None, :]
+            d2 = np.einsum("bsi,bsi->bs", scaled_delta, scaled_delta)
+            priority = (
+                1.0e3 * radius_two_shell[None, :]
+                + d2
+                + 1.0e-9 * radius_two_tie[None, :]
+            )
+            priority = np.where(candidate_active, priority, np.inf)
+            selected_indices = np.argsort(priority, axis=1)[:, :selected_count]
+            selected_finite = np.take_along_axis(
+                np.isfinite(priority), selected_indices, axis=1
+            )
+            batch_eligible = np.all(selected_finite, axis=1)
+            if not np.any(batch_eligible):
+                continue
+
+            selected_delta = np.take_along_axis(
+                delta,
+                np.broadcast_to(
+                    selected_indices[..., None],
+                    selected_indices.shape + (3,),
+                ),
+                axis=1,
+            )
+            selected_m2 = np.take_along_axis(
+                candidate_m2,
+                np.broadcast_to(
+                    selected_indices[..., None, None],
+                    selected_indices.shape + (3, 3),
+                ),
+                axis=1,
+            )
+            selected_m3 = np.take_along_axis(
+                candidate_m3,
+                np.broadcast_to(
+                    selected_indices[..., None, None, None],
+                    selected_indices.shape + (3, 3, 3),
+                ),
+                axis=1,
+            )
+            selected_d2 = np.take_along_axis(d2, selected_indices, axis=1)
+            dm2 = (
+                selected_m2
+                + selected_delta[..., :, None] * selected_delta[..., None, :]
+                - m20_batch[:, None, :, :]
+            )
+            dm3 = (
+                selected_m3
+                + selected_delta[..., :, None, None]
+                * selected_m2[..., None, :, :]
+                + selected_delta[..., None, :, None]
+                * selected_m2[..., :, None, :]
+                + selected_delta[..., None, None, :]
+                * selected_m2[..., :, :, None]
+                + selected_delta[..., :, None, None]
+                * selected_delta[..., None, :, None]
+                * selected_delta[..., None, None, :]
+                - m30_batch[:, None, :, :, :]
+            )
+            d = selected_delta / h_batch[:, None, :]
+            q = dm2 / (
+                h_batch[:, None, :, None] * h_batch[:, None, None, :]
+            )
+            c = dm3 / (
+                h_batch[:, None, :, None, None]
+                * h_batch[:, None, None, :, None]
+                * h_batch[:, None, None, None, :]
+            )
+            design = np.stack(
+                (
+                    d[..., 0], d[..., 1], d[..., 2],
+                    0.5 * q[..., 0, 0], 0.5 * q[..., 1, 1],
+                    0.5 * q[..., 2, 2], q[..., 0, 1], q[..., 0, 2],
+                    q[..., 1, 2], c[..., 0, 0, 0] / 6.0,
+                    c[..., 1, 1, 1] / 6.0, c[..., 2, 2, 2] / 6.0,
+                    c[..., 0, 0, 1] / 2.0, c[..., 0, 0, 2] / 2.0,
+                    c[..., 0, 1, 1] / 2.0, c[..., 0, 2, 2] / 2.0,
+                    c[..., 1, 1, 2] / 2.0, c[..., 1, 2, 2] / 2.0,
+                    c[..., 0, 1, 2],
+                ),
+                axis=-1,
+            )
+            weights = 1.0 / np.maximum(selected_d2, 1.0e-12)
+            weighted = np.sqrt(weights)[..., None] * design
+            try:
+                singular = np.linalg.svd(weighted, compute_uv=False)
+            except np.linalg.LinAlgError:
+                continue
+            tolerance = svd_rcond * singular[:, :1]
+            batch_rank = np.sum(singular > tolerance, axis=1).astype(np.int32)
+            batch_condition = np.where(
+                batch_rank >= 19,
+                singular[:, 0] / np.maximum(singular[:, -1], 1.0e-300),
+                np.inf,
+            )
+            batch_valid = (
+                batch_eligible
+                & (batch_rank >= 19)
+                & (batch_condition <= condition_limit)
+            )
+            if not np.any(batch_valid):
+                continue
+            try:
+                pseudoinverse = np.linalg.pinv(
+                    weighted[batch_valid],
+                    rcond=svd_rcond,
+                )
+            except np.linalg.LinAlgError:
+                continue
+            valid_rows = rows[batch_valid]
+            valid_h = h_batch[batch_valid]
+            scale = np.stack(
+                (
+                    1 / valid_h[:, 0], 1 / valid_h[:, 1], 1 / valid_h[:, 2],
+                    1 / valid_h[:, 0] ** 2, 1 / valid_h[:, 1] ** 2,
+                    1 / valid_h[:, 2] ** 2,
+                    1 / (valid_h[:, 0] * valid_h[:, 1]),
+                    1 / (valid_h[:, 0] * valid_h[:, 2]),
+                    1 / (valid_h[:, 1] * valid_h[:, 2]),
+                    1 / valid_h[:, 0] ** 3, 1 / valid_h[:, 1] ** 3,
+                    1 / valid_h[:, 2] ** 3,
+                    1 / (valid_h[:, 0] ** 2 * valid_h[:, 1]),
+                    1 / (valid_h[:, 0] ** 2 * valid_h[:, 2]),
+                    1 / (valid_h[:, 0] * valid_h[:, 1] ** 2),
+                    1 / (valid_h[:, 0] * valid_h[:, 2] ** 2),
+                    1 / (valid_h[:, 1] ** 2 * valid_h[:, 2]),
+                    1 / (valid_h[:, 1] * valid_h[:, 2] ** 2),
+                    1 / (valid_h[:, 0] * valid_h[:, 1] * valid_h[:, 2]),
+                ),
+                axis=1,
+            )
+            transform_out[valid_rows, :, :selected_count] = (
+                scale[:, :, None]
+                * pseudoinverse
+                * np.sqrt(weights[batch_valid])[:, None, :]
+            )
+            selected_candidates = np.take_along_axis(
+                candidates,
+                np.broadcast_to(
+                    selected_indices[..., None],
+                    selected_indices.shape + (3,),
+                ),
+                axis=1,
+            )[batch_valid]
+            equation_kind[valid_rows, :selected_count] = (
+                CV_RECONSTRUCTION_EQUATION_CELL
+            )
+            sample_i[valid_rows, :selected_count] = selected_candidates[..., 0]
+            sample_j[valid_rows, :selected_count] = selected_candidates[..., 1]
+            sample_k[valid_rows, :selected_count] = selected_candidates[..., 2]
+            equation_active[valid_rows, :selected_count] = True
+            order[valid_rows] = 3
+            rank[valid_rows] = batch_rank[batch_valid]
+            condition[valid_rows] = batch_condition[batch_valid]
+            processed[valid_rows] = True
     for r, target_array in enumerate(targets):
-        target = tuple(int(x) for x in target_array); target_i[r], target_j[r], target_k[r] = target; row_for_cell[target] = r
+        if processed[r]:
+            continue
+        target = tuple(int(x) for x in target_array)
         x0, m20, m30, h = centroid[target], m2[target], m3[target], spacing[target]
         records: list[tuple[int, float, np.ndarray, tuple[int, tuple[int, int, int]]]] = []
         for di in range(-3, 4):
@@ -5236,13 +5481,25 @@ def precompute_local_cubic_reconstruction(
             zip(remote_centroids, remote_m2, remote_m3)
         ):
             delta = unwrap(remote_position - x0)
-            d2 = float(np.dot(delta / h, delta / h))
+            scaled_delta = delta / h
+            d2 = float(np.dot(scaled_delta, scaled_delta))
             if d2 > 27.0 + 1.0e-12:
                 continue
             dm2 = remote_second + np.outer(delta, delta) - m20
             dm3 = translated_m3(delta, remote_second, remote_third) - m30
+            # Rank remote candidates by their actual geometric shell. Marking
+            # every remote sample as shell three sorts adjacent cross-shard
+            # owners behind the local sample cap and makes the fit spuriously
+            # one-sided at decomposition boundaries.
+            remote_shell = max(
+                1,
+                min(
+                    3,
+                    int(np.ceil(np.max(np.abs(scaled_delta)) - 1.0e-12)),
+                ),
+            )
             records.append((
-                3,
+                remote_shell,
                 d2,
                 cubic_row(delta, dm2, dm3, h),
                 (CV_RECONSTRUCTION_EQUATION_REMOTE_CELL, tuple(int(v) for v in remote_indices[remote_index])),
@@ -5269,13 +5526,15 @@ def precompute_local_cubic_reconstruction(
                 fr, patch, quad = item[3][1]; weights[idx] *= measure[fr, patch, quad] / max(float(np.sum(np.where(qactive[fr], measure[fr], 0.0))), 1e-30)
         weighted = np.sqrt(weights)[:, None] * design; singular = np.linalg.svd(weighted, compute_uv=False)
         tolerance = svd_rcond * singular[0] if singular.size else np.inf; full_rank = int(np.sum(singular > tolerance)); cond = float(singular[0]/singular[-1]) if full_rank >= 19 else np.inf
+        rank[r] = full_rank
+        condition[r] = cond
         if full_rank < 19 or cond > condition_limit: continue
         scale = np.asarray((
             1/h[0], 1/h[1], 1/h[2], 1/h[0]**2, 1/h[1]**2, 1/h[2]**2, 1/(h[0]*h[1]), 1/(h[0]*h[2]), 1/(h[1]*h[2]),
             1/h[0]**3, 1/h[1]**3, 1/h[2]**3, 1/(h[0]**2*h[1]), 1/(h[0]**2*h[2]), 1/(h[0]*h[1]**2), 1/(h[0]*h[2]**2), 1/(h[1]**2*h[2]), 1/(h[1]*h[2]**2), 1/(h[0]*h[1]*h[2]),
         ))
         transform_out[r, :, :len(selected)] = scale[:, None] * np.linalg.pinv(weighted, rcond=svd_rcond) * np.sqrt(weights)[None, :]
-        order[r] = 3; rank[r] = full_rank; condition[r] = cond; equation_active[r, :len(selected)] = True
+        order[r] = 3; equation_active[r, :len(selected)] = True
         for e, (_, _, _, (kind, payload)) in enumerate(selected):
             equation_kind[r, e] = kind
             if kind in (CV_RECONSTRUCTION_EQUATION_CELL, CV_RECONSTRUCTION_EQUATION_REMOTE_CELL):

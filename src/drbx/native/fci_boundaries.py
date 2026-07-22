@@ -3413,7 +3413,11 @@ class LocalQuadraticReconstruction3D(_DataclassPyTreeMixin):
         *,
         max_rows: int = 0,
         max_equations: int = 1,
+        coefficient_count: int = 9,
     ) -> "LocalQuadraticReconstruction3D":
+        coefficient_count = int(coefficient_count)
+        if coefficient_count not in (9, 19):
+            raise ValueError("coefficient_count must be 9 or 19")
         return cls(
             layout=layout,
             target_i=jnp.zeros((max_rows,), dtype=jnp.int32),
@@ -3432,7 +3436,7 @@ class LocalQuadraticReconstruction3D(_DataclassPyTreeMixin):
             ),
             equation_active=jnp.zeros((max_rows, max_equations), dtype=bool),
             rhs_transform=jnp.zeros(
-                (max_rows, 9, max_equations),
+                (max_rows, coefficient_count, max_equations),
                 dtype=jnp.float64,
             ),
             active=jnp.zeros((max_rows,), dtype=bool),
@@ -3520,6 +3524,7 @@ class LocalControlVolumePolynomial3D(_DataclassPyTreeMixin):
     remote_face_value: jnp.ndarray | None = None
     remote_face_gradient: jnp.ndarray | None = None
     remote_face_valid: jnp.ndarray | None = None
+    remote_functional_value: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         gradient = jnp.asarray(self.gradient, dtype=jnp.float64)
@@ -3565,6 +3570,19 @@ class LocalControlVolumePolynomial3D(_DataclassPyTreeMixin):
                 raise ValueError(
                     "remote_face_valid must have shape remote_face_value.shape"
                 )
+        remote_functional_value = jnp.asarray(
+            (
+                jnp.zeros((0, 0), dtype=jnp.float64)
+                if self.remote_functional_value is None
+                else self.remote_functional_value
+            ),
+            dtype=jnp.float64,
+        )
+        if remote_functional_value.ndim != 2:
+            raise ValueError(
+                "remote_functional_value must have shape "
+                "(face_functional_rows, equations)"
+            )
         if gradient.ndim != 4 or gradient.shape[-1] != 3:
             raise ValueError("polynomial gradient must have shape owned_shape + (3,)")
         owned_shape = gradient.shape[:-1]
@@ -3620,6 +3638,11 @@ class LocalControlVolumePolynomial3D(_DataclassPyTreeMixin):
         object.__setattr__(self, "remote_face_value", remote_face_value)
         object.__setattr__(self, "remote_face_gradient", remote_face_gradient)
         object.__setattr__(self, "remote_face_valid", remote_face_valid)
+        object.__setattr__(
+            self,
+            "remote_functional_value",
+            remote_functional_value,
+        )
 
     @property
     def shape(self) -> tuple[int, int, int]:

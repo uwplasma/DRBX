@@ -49,6 +49,12 @@ def stack_local_shard_pytree(
 
     def _stack(*leaves):
         arrays = [jnp.asarray(leaf) for leaf in leaves]
+        shapes = tuple(array.shape for array in arrays)
+        if any(shape != shapes[0] for shape in shapes[1:]):
+            raise ValueError(
+                "cannot stack local shard metadata with unequal leaf "
+                f"shapes: {shapes}"
+            )
         stacked = jnp.stack(arrays, axis=0)
         return stacked.reshape(tuple(int(value) for value in shard_counts) + arrays[0].shape)
 

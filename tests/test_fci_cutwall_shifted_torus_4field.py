@@ -31,7 +31,12 @@ from drbx.geometry import (
     build_local_conservative_stencil_from_field,
     build_local_stencil_from_field,
 )
-from drbx.native import Fci4FieldRhsParameters, Fci4FieldState, SpmdGmresConfig
+from drbx.native import (
+    Fci4FieldRhsParameters,
+    Fci4FieldState,
+    SpmdGmresConfig,
+    precompute_local_moment_reconstruction,
+)
 from drbx.native.fci_boundaries import (
     BC_DIRICHLET,
     BC_NONE,
@@ -71,8 +76,6 @@ from drbx.native.fci_operators import (
     _take_stencil_finite_difference,
     build_local_control_volume_polynomial_from_field,
     build_local_perp_laplacian_stencil,
-    precompute_local_quadratic_reconstruction,
-    precompute_local_cubic_reconstruction,
     _local_control_volume_irregular_parallel_flux,
     _local_control_volume_irregular_projected_flux,
     evaluate_local_control_volume_polynomial,
@@ -1116,6 +1119,7 @@ def _build_closed_box_control_volume_faces(
         _remote_fluid,
         _remote_centroid,
         _remote_second_moment,
+        _remote_third_moment,
     ) in (
         remote_boundary_payloads.items()
     ):
@@ -1884,6 +1888,8 @@ def _build_regular_transition_face_rows(
     cells: LocalControlVolumeCellGeometry3D,
     irregular_faces: LocalControlVolumeFaceRows3D,
     reconstruction_owner_mask: np.ndarray,
+    *,
+    local_periodic_axes: tuple[bool, bool, bool] = (False, True, True),
 ) -> LocalRegularTransitionFaceRows3D:
     """Compile dense-compatible scalar and gradient stencils for full rows."""
 
@@ -1968,9 +1974,21 @@ def _build_regular_transition_face_rows(
     valid = active.copy()
 
     def wrap(index: list[int]) -> tuple[int, int, int] | None:
-        for axis in (1, 2):
-            index[axis] %= shape[axis]
-        if not 0 <= index[0] < shape[0]:
+        """Map a dense support sample into this shard's owned storage.
+
+        A periodic global coordinate is only locally periodic when it has one
+        shard.  Wrapping a zeta support sample from the last local plane to
+        local zero on a decomposed mesh silently substitutes an unrelated
+        control volume.  Remote transition samples need a dedicated packed
+        polynomial exchange; until that path exists, leave such faces on the
+        regular irregular-row flux path below.
+        """
+        for axis in range(3):
+            if 0 <= index[axis] < shape[axis]:
+                continue
+            if local_periodic_axes[axis]:
+                index[axis] %= shape[axis]
+                continue
             return None
         return tuple(index)
 
@@ -2045,6 +2063,13 @@ def _build_regular_transition_face_rows(
                 )
         if len(occurrences) > max_samples:
             valid[row] = False
+            continue
+        if not valid[row]:
+            # The underlying irregular row remains active and computes its
+            # polynomial flux normally.  Only the local dense-compatible
+            # transition functional is deferred until remote support is
+            # represented explicitly.
+            active[row] = False
             continue
         face_axis[row] = axis
         face_i[row], face_j[row], face_k[row] = index
@@ -2208,7 +2233,7 @@ def _build_closed_box_embedded_control_volume_geometry(
             remote_second_moments,
             remote_third_moments,
         ) = remote_reconstruction_samples
-    reconstruction = precompute_local_cubic_reconstruction(
+    reconstruction = precompute_local_moment_reconstruction(
         cells,
         irregular_faces,
         spacing_owned=spacing,
@@ -2217,6 +2242,7 @@ def _build_closed_box_embedded_control_volume_geometry(
         remote_sample_second_moments=remote_second_moments,
         remote_sample_third_moments=remote_third_moments,
         periodic_axes=local_periodic_axes,
+        coordinate_periodic_axes=(False, True, True),
         coordinate_periods=(
             float(shifted_mms.x_max) - float(shifted_mms.x_min),
             2.0 * np.pi,
@@ -2225,7 +2251,7 @@ def _build_closed_box_embedded_control_volume_geometry(
         target_mask=jnp.asarray(reconstruction_owner_mask),
         max_samples=48,
         max_equations=64,
-    )
+    ).rows
     reconstruction_active = np.asarray(reconstruction.active, dtype=bool)
     reconstruction_order = np.asarray(
         reconstruction.polynomial_order,
@@ -2266,6 +2292,7 @@ def _build_closed_box_embedded_control_volume_geometry(
         cells,
         irregular_faces,
         reconstruction_owner_mask,
+        local_periodic_axes=local_periodic_axes,
     )
     invalid_transition_count = int(
         np.sum(
@@ -4876,7 +4903,7 @@ def simulate_mms_shifted_torus_4field_cutwall(
     final_time: float = shifted_mms.tf,
     rho_star_value: float = shifted_mms.rho_star,
     show_progress: bool = False,
-    deactivate_center_in_solid: bool = False,
+    enable_agglomeration: bool = False,
     stacked_control_volume_geometry: (
         LocalEmbeddedControlVolumeGeometry3D | None
     ) = None,
@@ -4898,7 +4925,7 @@ def simulate_mms_shifted_torus_4field_cutwall(
                 global_shape=geometry.shape,
                 shard_counts=shard_counts,
                 halo_width=halo_width,
-                enable_merging=deactivate_center_in_solid,
+                enable_merging=enable_agglomeration,
             )
         )
     initial_state, initial_phi_guess = (
@@ -5392,7 +5419,7 @@ def run_shifted_torus_control_volume_operator_convergence(
     shard_counts: tuple[int, int, int],
     halo_width: int,
     rho_star_value: float = shifted_mms.rho_star,
-    deactivate_center_in_solid: bool = True,
+    enable_agglomeration: bool = True,
     minimum_order: float = 1.8,
     check_phi_solve: bool = True,
     debug_operator_failures: bool = False,
@@ -5431,20 +5458,32 @@ def run_shifted_torus_control_volume_operator_convergence(
             for size, count in zip(shape, shard_counts)
         )
         geometry = shifted_mms.build_shifted_torus_4field_geometry(shape)
+        print(
+            "Preparing shifted_torus control-volume geometry: "
+            f"N={resolution}, shape={shape}, shards={shard_counts}",
+            flush=True,
+        )
+        geometry_start = time_module.perf_counter()
         stacked_control_volume_geometry = (
             _build_stacked_embedded_control_volume_geometry(
                 global_shape=shape,
                 shard_counts=shard_counts,
                 halo_width=halo_width,
-                enable_merging=deactivate_center_in_solid,
+                enable_merging=enable_agglomeration,
             )
+        )
+        print(
+            "Prepared shifted_torus control-volume geometry: "
+            f"N={resolution}, elapsed="
+            f"{time_module.perf_counter() - geometry_start:.3f}s",
+            flush=True,
         )
         if debug_operator_failures and resolution == int(resolutions[0]):
             _print_shifted_torus_radial_moment_reproduction(
                 global_shape=shape,
                 owned_shape=owned_shape,
                 halo_width=halo_width,
-                enable_merging=deactivate_center_in_solid,
+                enable_merging=enable_agglomeration,
             )
         exact_state, exact_phi = _project_global_exact_state_to_control_volumes(
             geometry,
@@ -7340,7 +7379,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                             applied_face_gradient, cut_wall_normal_closure_valid = (
                                 _replace_local_cut_wall_dirichlet_normal_derivative(
                                     values_owned,
-                                    phi_poly,
+                                    polynomial,
                                     cells,
                                     faces,
                                     boundary_bc,
@@ -10936,7 +10975,7 @@ def run_shifted_torus_4field_cutwall_convergence(
     plot: bool = False,
     plot_path: str | None = None,
     show_progress: bool = False,
-    deactivate_center_in_solid: bool = False,
+    enable_agglomeration: bool = False,
     minimum_order: float | None = None,
 ) -> dict[str, object]:
     successful_resolutions: list[int] = []
@@ -10953,7 +10992,7 @@ def run_shifted_torus_4field_cutwall_convergence(
                 global_shape=shape,
                 shard_counts=shard_counts,
                 halo_width=halo_width,
-                enable_merging=deactivate_center_in_solid,
+                enable_merging=enable_agglomeration,
             )
         )
         steps = _resolution_step_count(int(resolution), base_steps=base_steps)
@@ -10961,7 +11000,7 @@ def run_shifted_torus_4field_cutwall_convergence(
         print(
             f"Starting shifted_torus_4field_cutwall MMS run: resolution={int(resolution)}, "
             f"shard_counts={shard_counts}, steps={steps}, dt={dt:.6e}, "
-            f"deactivate_center_in_solid={deactivate_center_in_solid}"
+            f"enable_agglomeration={enable_agglomeration}"
         )
         _print_control_volume_geometry_summary(
             stacked_control_volume_geometry
@@ -10975,7 +11014,7 @@ def run_shifted_torus_4field_cutwall_convergence(
             timestep=dt,
             rho_star_value=rho_star_value,
             show_progress=show_progress,
-            deactivate_center_in_solid=deactivate_center_in_solid,
+            enable_agglomeration=enable_agglomeration,
             stacked_control_volume_geometry=stacked_control_volume_geometry,
         )
         elapsed = time_module.perf_counter() - start
@@ -11228,11 +11267,11 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--deactivate-center-in-solid",
+        "--enable-agglomeration",
         action="store_true",
         help=(
-            "Diagnostic option: mark cut cells whose logical coordinate center "
-            "lies inside the embedded solid obstacle as inactive."
+            "Merge sub-threshold fluid cut cells into a face-connected "
+            "control-volume owner."
         ),
     )
     parser.add_argument("--skip-runtime-info", action="store_true")
@@ -11246,9 +11285,7 @@ def main() -> None:
             shard_counts=tuple(int(value) for value in args.shard_counts),
             halo_width=int(args.halo_width),
             rho_star_value=float(args.rho_star),
-            deactivate_center_in_solid=bool(
-                args.deactivate_center_in_solid
-            ),
+            enable_agglomeration=bool(args.enable_agglomeration),
             minimum_order=float(args.minimum_order),
             check_phi_solve=not bool(args.skip_operator_phi_solve),
             debug_operator_failures=bool(args.debug_operator_failures),
@@ -11268,7 +11305,7 @@ def main() -> None:
         plot=bool(args.plot),
         plot_path=args.plot_path,
         show_progress=bool(args.show_progress),
-        deactivate_center_in_solid=bool(args.deactivate_center_in_solid),
+        enable_agglomeration=bool(args.enable_agglomeration),
         minimum_order=float(args.minimum_order),
     )
 

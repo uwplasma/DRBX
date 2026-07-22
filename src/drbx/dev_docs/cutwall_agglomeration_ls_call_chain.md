@@ -323,10 +323,11 @@ For a field entering an operator:
 Raw `jnp.roll` on owned arrays is never a valid cross-shard sample. Periodic
 remote coordinates are unwrapped before reconstruction equations are formed.
 
-Aggregate ownership is intentionally shard local. This can make the aggregate
-map decomposition dependent, but it avoids cross-shard aggregate reductions.
-Interface fluxes remain sharding compatible through coefficient exchange and
-mirrored compact rows.
+The legacy runtime payload still requires aggregate ownership to be shard
+local.  The canonical topology migration replaces that limitation with a
+single global owner map and explicit remote-owner metadata; its runtime
+aggregate exchange is the remaining migration item.  Interface fluxes remain
+sharding compatible through coefficient exchange and mirrored compact rows.
 
 ## Conservative Flux And Divergence
 
@@ -470,6 +471,33 @@ The full time sweep scales RK steps linearly with resolution. The CLI defaults
 to a minimum observed order of `1.8` for every field's volume-L2 and
 active-owner Linf norm.
 
+## Canonical Migration Status
+
+The cleanup is intentionally staged.  The canonical host-side implementation
+now lives in `drbx.geometry.fci_control_volumes` and
+`drbx.native.fci_control_volume_operators`:
+
+```text
+raw moments -> GlobalControlVolumeTopology3D
+            -> LocalControlVolumeGeometry3D
+            -> LocalMomentReconstruction3D / direct face-functional weights
+```
+
+It has characterization coverage for direct owner maps, central-moment
+translation, unique physical faces, periodic seams, cross-shard owner
+references, and cubic finite-volume basis reproduction.  In particular,
+`LocalControlVolumeGeometry3D.remote_aggregate_id` distinguishes an ID merely
+referenced by a local source from an aggregate physically owned on the shard.
+
+The shifted-torus fixture now enters cubic reconstruction through
+`precompute_local_moment_reconstruction`.  Its JAX operator kernels still
+consume the historical row payload while the direct face-functional gather and
+mirrored cross-shard flux evaluator are migrated.  Therefore the following
+legacy statements describe the current runtime compatibility, not the target
+architecture.  Do not delete those row types until compact parallel and
+projected fluxes both execute through direct functionals and their one- and
+four-shard tests pass.
+
 ## Sharding Compatibility Matrix
 
 | Subsystem | Compatible | Requirement |
@@ -485,7 +513,7 @@ active-owner Linf norm.
 | Regular transition face | Yes | Unique compact row; mirrored row and coefficient exchange when remote |
 | Physical Dirichlet closure | Yes | Three inward owners must be ordinary and local; runtime applies face and first-centroid four-value functionals |
 | Phi GMRES | Yes | Active-owner mask and collective global reductions |
-| Cross-shard aggregate ownership | No | Requires a future aggregate reduction/exchange design |
+| Cross-shard aggregate ownership | Metadata only | Canonical global topology and local remote IDs support it; legacy JAX operator rows still require direct functional gather/exchange migration |
 | Global debug assembly | Debug only | Host gather, not a production SPMD kernel |
 
 ## Required Invariants
@@ -510,13 +538,14 @@ The following are correctness conditions, not optional diagnostics:
 
 ## Accuracy Boundary
 
-Quadratic reconstruction exactly reproduces quadratic finite-volume data and
-provides the common conservative representation for embedded and
-aggregate-touching faces. Full coordinate boundaries use the regular
-moment-derived boundary functional described above. The two paths are
-deliberately separate: the coordinate boundary has an ordered inward stencil,
-whereas an embedded wall requires the multidimensional compact
-reconstruction.
+Cubic reconstruction exactly reproduces cubic finite-volume data on the
+irregular-owner mask and supplies the moment data used by the direct compact
+face-functional migration. Full coordinate boundaries use the regular
+moment-derived boundary functional described above until physical-boundary
+faces migrate to the same direct-functional representation. The two paths are
+deliberately separate during this transition: the coordinate boundary has an
+ordered inward stencil, whereas an embedded wall requires multidimensional
+moment data.
 
 The operator-only Linf gate remains authoritative. If a cut-wall category
 converges below order `1.8`, the next change must add information to the
