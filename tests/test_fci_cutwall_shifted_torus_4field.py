@@ -52,7 +52,7 @@ from drbx.native.fci_boundaries import (
     LocalControlVolumeBoundaryBC3D,
     LocalControlVolumeFaceRows3D,
     LocalEmbeddedControlVolumeGeometry3D,
-    LocalQuadraticReconstruction3D,
+    LocalMomentReconstruction3D,
     LocalRegularBoundaryMomentClosure3D,
     LocalRegularTransitionFaceRows3D,
 )
@@ -71,7 +71,6 @@ from drbx.native.fci_operators import (
     _axis_slice_nd,
     _lift_cell_field_to_faces,
     _local_axis_face_values_from_stencil,
-    _replace_local_cut_wall_dirichlet_normal_derivative,
     _evaluate_local_regular_transition_functional,
     _take_stencil_finite_difference,
     build_local_control_volume_polynomial_from_field,
@@ -2251,7 +2250,7 @@ def _build_closed_box_embedded_control_volume_geometry(
         target_mask=jnp.asarray(reconstruction_owner_mask),
         max_samples=48,
         max_equations=64,
-    ).rows
+    )
     reconstruction_active = np.asarray(reconstruction.active, dtype=bool)
     reconstruction_order = np.asarray(
         reconstruction.polynomial_order,
@@ -2418,9 +2417,9 @@ def _pad_control_volume_face_rows(
 
 
 def _pad_quadratic_reconstruction(
-    rows: LocalQuadraticReconstruction3D,
+    rows: LocalMomentReconstruction3D,
     max_rows: int,
-) -> LocalQuadraticReconstruction3D:
+) -> LocalMomentReconstruction3D:
     max_rows = int(max_rows)
     pad = max_rows - int(rows.max_rows)
     if pad < 0:
@@ -2432,7 +2431,7 @@ def _pad_quadratic_reconstruction(
         widths = ((0, pad),) + tuple((0, 0) for _ in range(value.ndim - 1))
         return jnp.pad(value, widths, constant_values=fill_value)
 
-    return LocalQuadraticReconstruction3D(
+    return LocalMomentReconstruction3D(
         layout=rows.layout,
         target_i=row_pad(rows.target_i),
         target_j=row_pad(rows.target_j),
@@ -7376,15 +7375,9 @@ def run_shifted_torus_control_volume_operator_convergence(
                                 transition_gradient[:, None, None, :],
                                 face_gradient,
                             )
-                            applied_face_gradient, cut_wall_normal_closure_valid = (
-                                _replace_local_cut_wall_dirichlet_normal_derivative(
-                                    values_owned,
-                                    polynomial,
-                                    cells,
-                                    faces,
-                                    boundary_bc,
-                                    face_gradient,
-                                )
+                            applied_face_gradient = face_gradient
+                            cut_wall_normal_closure_valid = jnp.zeros_like(
+                                faces.quadrature_active
                             )
                             numerical_quadrature_flux = (
                                 faces.J

@@ -64,7 +64,7 @@ LocalEmbeddedControlVolumeGeometry3D
   irregular_faces    LocalControlVolumeFaceRows3D
   regular_transition_faces
                      LocalRegularTransitionFaceRows3D
-  reconstruction     LocalControlVolumeReconstruction3D (19-coefficient cubic on irregular owners)
+  reconstruction     LocalMomentReconstruction3D (19-coefficient cubic on irregular owners)
   regular_boundary_closure
                      LocalRegularBoundaryMomentClosure3D
   centroid_*         operator coefficients at aggregate centroids
@@ -204,9 +204,9 @@ The native four-field EB path groups these objects in
 and density times parallel velocity derive collocated BC values from the same
 field bundles.
 
-## Quadratic Reconstruction
+## Moment Reconstruction
 
-`precompute_local_cubic_reconstruction` builds compact reconstruction
+`precompute_local_moment_reconstruction` builds compact cubic reconstruction
 metadata outside JIT. Runtime code does not factor a least-squares matrix.
 
 For an active owner `i`, reconstruction is centered at its aggregate centroid:
@@ -245,7 +245,7 @@ weights. The host precompute uses rank-revealing SVD:
 - radius two is added when rank or conditioning is inadequate;
 - at most 32 nearest unique samples are retained;
 - transforms and condition diagnostics are stored in
-  `LocalQuadraticReconstruction3D`.
+  `LocalMomentReconstruction3D`.
 
 The shifted-torus convergence fixture requires rank nine and quadratic order on
 every active reconstruction row. A general linear fallback remains available
