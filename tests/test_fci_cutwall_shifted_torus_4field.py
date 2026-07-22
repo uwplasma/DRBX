@@ -1137,117 +1137,6 @@ def _build_closed_box_control_volume_faces(
 
     rows: list[dict[str, object]] = []
 
-    def physical_boundary_normal_stencil(
-        *,
-        storage_index: tuple[int, int, int],
-        axis: int,
-        side: int,
-        wall_coordinate: float,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
-        """Build a stable quadratic derivative from inward CV owners.
-
-        The wall value is a point Dirichlet datum while the inward values are
-        reconstructed control-volume samples.  A three-point quadratic
-        functional is sufficient for a second-order face derivative, provided
-        its interior samples are separated from the wall by an ordinary cell
-        scale.  An aggregate centroid can lie arbitrarily close to the wall;
-        using it here creates weights of order ``1 / distance`` and amplifies
-        the tangential reconstruction error.  Skip that near-wall owner and
-        use the first two distinct, well-separated inward control volumes.
-        """
-
-        sample_owners: list[tuple[int, int, int]] = []
-        sample_coordinates: list[float] = []
-        seen: set[tuple[int, int, int]] = set()
-        # Start at the storage cell adjacent to this particular boundary and
-        # walk only into its fluid-facing side.  Starting at a global axis end
-        # is correct for a physical endpoint but wrong for an embedded box
-        # wall: it can select samples across the solid from the opposite fluid
-        # region.
-        start = int(storage_index[axis])
-        nominal_spacing = float(
-            axis_faces[axis][start + 1] - axis_faces[axis][start]
-        )
-        minimum_sample_distance = 0.999 * abs(nominal_spacing)
-        inward_indices = (
-            range(start, shape[axis])
-            if side == 0
-            else range(start, -1, -1)
-        )
-        for axis_index in inward_indices:
-            sample_storage = list(storage_index)
-            sample_storage[axis] = int(axis_index)
-            sample_storage_index = tuple(sample_storage)
-            owner = (
-                int(owner_i[sample_storage_index]),
-                int(owner_j[sample_storage_index]),
-                int(owner_k[sample_storage_index]),
-            )
-            if owner in seen or not bool(active_owner[owner]):
-                continue
-            coordinate = float(aggregate_centroid[owner][axis])
-            if not np.isfinite(coordinate):
-                continue
-            if abs(coordinate - float(wall_coordinate)) < minimum_sample_distance:
-                continue
-            seen.add(owner)
-            sample_owners.append(owner)
-            sample_coordinates.append(coordinate)
-            if len(sample_owners) == 2:
-                break
-        if len(sample_owners) != 2:
-            return None
-
-        offsets = np.asarray(
-            [0.0]
-            + [
-                coordinate - float(wall_coordinate)
-                for coordinate in sample_coordinates
-            ],
-            dtype=np.float64,
-        )
-        scale = float(np.max(np.abs(offsets[1:])))
-        if not np.isfinite(scale) or scale <= 1.0e-14:
-            return None
-        normalized = offsets / scale
-        if (
-            np.min(np.abs(normalized[1:])) <= 1.0e-12
-            or np.min(
-                np.abs(
-                    normalized[1:, None] - normalized[None, 1:]
-                    + np.eye(2)
-                )
-            )
-            <= 1.0e-12
-        ):
-            return None
-        vandermonde = np.stack(
-            (
-                normalized**0,
-                normalized,
-                normalized**2,
-            ),
-            axis=0,
-        )
-        if not np.isfinite(np.linalg.cond(vandermonde)):
-            return None
-        quadratic_weights = np.linalg.solve(
-            vandermonde,
-            np.asarray((0.0, 1.0, 0.0), dtype=np.float64),
-        ) / scale
-        if not np.all(np.isfinite(quadratic_weights)):
-            return None
-        weights = np.zeros((4,), dtype=np.float64)
-        weights[:3] = quadratic_weights
-        # The face-row data model reserves three inward owner slots.  Repeat
-        # the last valid owner in the unused slot; its coefficient is zero.
-        sample_owners.append(sample_owners[-1])
-        sample_coordinates.append(sample_coordinates[-1])
-        return (
-            np.asarray(sample_owners, dtype=np.int32),
-            np.asarray(sample_coordinates, dtype=np.float64),
-            np.asarray(weights, dtype=np.float64),
-        )
 
     def add_row(
         *,
@@ -1262,9 +1151,6 @@ def _build_closed_box_control_volume_faces(
         remote_centroid: np.ndarray | None = None,
         remote_second_moment: np.ndarray | None = None,
         remote_third_moment: np.ndarray | None = None,
-        boundary_normal_stencil: (
-            tuple[np.ndarray, np.ndarray, np.ndarray] | None
-        ) = None,
     ) -> None:
         if not rectangles:
             return
@@ -1287,8 +1173,6 @@ def _build_closed_box_control_volume_faces(
                 "remote_centroid": remote_centroid,
                 "remote_second_moment": remote_second_moment,
                 "remote_third_moment": remote_third_moment,
-                "boundary_axis": int(axis),
-                "boundary_normal_stencil": boundary_normal_stencil,
                 "patches": patches,
             }
         )
@@ -1536,16 +1420,6 @@ def _build_closed_box_control_volume_faces(
                     )
                     if not active_owner[owner]:
                         continue
-                    # The fluid lies outside the closed solid box.  Its
-                    # inward normal is therefore opposite the box-surface
-                    # enumeration used above: lower surface samples toward
-                    # decreasing coordinate and upper toward increasing.
-                    boundary_stencil = physical_boundary_normal_stencil(
-                        storage_index=storage_index,
-                        axis=axis,
-                        side=1 - surface,
-                        wall_coordinate=float(coordinate),
-                    )
                     add_row(
                         kind=CV_FACE_CUT_WALL,
                         minus_owner=owner,
@@ -1554,7 +1428,6 @@ def _build_closed_box_control_volume_faces(
                         coordinate=float(coordinate),
                         rectangles=[(first_bounds, second_bounds)],
                         orientation=orientation,
-                        boundary_normal_stencil=boundary_stencil,
                     )
 
     max_rows = len(rows)
@@ -1577,19 +1450,6 @@ def _build_closed_box_control_volume_faces(
     remote_centroid = np.zeros(row_shape + (3,), dtype=np.float64)
     remote_second_moment = np.zeros(row_shape + (3, 3), dtype=np.float64)
     remote_third_moment = np.zeros(row_shape + (3, 3, 3), dtype=np.float64)
-    boundary_axis = np.zeros(row_shape, dtype=np.int32)
-    boundary_sample_i = np.zeros(row_shape + (3,), dtype=np.int32)
-    boundary_sample_j = np.zeros(row_shape + (3,), dtype=np.int32)
-    boundary_sample_k = np.zeros(row_shape + (3,), dtype=np.int32)
-    boundary_sample_coordinate = np.zeros(
-        row_shape + (3,),
-        dtype=np.float64,
-    )
-    boundary_dcoordinate_weights = np.zeros(
-        row_shape + (4,),
-        dtype=np.float64,
-    )
-    boundary_normal_stencil_valid = np.zeros(row_shape, dtype=bool)
     points = np.zeros(quadrature_shape + (3,), dtype=np.float64)
     area = np.zeros(quadrature_shape + (3,), dtype=np.float64)
     J = np.zeros(quadrature_shape, dtype=np.float64)
@@ -1618,22 +1478,6 @@ def _build_closed_box_control_volume_faces(
             remote_centroid[row_index] = row["remote_centroid"]
             remote_second_moment[row_index] = row["remote_second_moment"]
             remote_third_moment[row_index] = row.get("remote_third_moment", 0.0)
-        boundary_stencil = row["boundary_normal_stencil"]
-        if boundary_stencil is not None:
-            (
-                boundary_sample_owners,
-                boundary_sample_coordinates,
-                boundary_weights,
-            ) = boundary_stencil
-            boundary_axis[row_index] = int(row["boundary_axis"])
-            boundary_sample_i[row_index] = boundary_sample_owners[:, 0]
-            boundary_sample_j[row_index] = boundary_sample_owners[:, 1]
-            boundary_sample_k[row_index] = boundary_sample_owners[:, 2]
-            boundary_sample_coordinate[row_index] = (
-                boundary_sample_coordinates
-            )
-            boundary_dcoordinate_weights[row_index] = boundary_weights
-            boundary_normal_stencil_valid[row_index] = True
         for patch_index, (q_points, q_area, metric) in enumerate(row["patches"]):
             patch_active[row_index, patch_index] = True
             points[row_index, patch_index] = q_points
@@ -1676,17 +1520,6 @@ def _build_closed_box_control_volume_faces(
         remote_centroid=jnp.asarray(remote_centroid),
         remote_second_moment=jnp.asarray(remote_second_moment),
         remote_third_moment=jnp.asarray(remote_third_moment),
-        boundary_normal_axis=jnp.asarray(boundary_axis),
-        boundary_sample_owner_i=jnp.asarray(boundary_sample_i),
-        boundary_sample_owner_j=jnp.asarray(boundary_sample_j),
-        boundary_sample_owner_k=jnp.asarray(boundary_sample_k),
-        boundary_sample_coordinate=jnp.asarray(boundary_sample_coordinate),
-        boundary_dcoordinate_weights=jnp.asarray(
-            boundary_dcoordinate_weights
-        ),
-        boundary_normal_stencil_valid=jnp.asarray(
-            boundary_normal_stencil_valid
-        ),
     )
     base_regular = geometry.regular_face_geometry
     regular = LocalRegularFaceGeometry3D(
@@ -2393,26 +2226,6 @@ def _pad_control_volume_face_rows(
         remote_centroid=row_pad(rows.remote_centroid),
         remote_second_moment=row_pad(rows.remote_second_moment),
         remote_third_moment=row_pad(rows.remote_third_moment),
-        boundary_normal_axis=row_pad(rows.boundary_normal_axis),
-        boundary_sample_owner_i=row_pad(
-            rows.boundary_sample_owner_i
-        ),
-        boundary_sample_owner_j=row_pad(
-            rows.boundary_sample_owner_j
-        ),
-        boundary_sample_owner_k=row_pad(
-            rows.boundary_sample_owner_k
-        ),
-        boundary_sample_coordinate=row_pad(
-            rows.boundary_sample_coordinate
-        ),
-        boundary_dcoordinate_weights=row_pad(
-            rows.boundary_dcoordinate_weights
-        ),
-        boundary_normal_stencil_valid=row_pad(
-            rows.boundary_normal_stencil_valid,
-            False,
-        ),
     )
 
 
@@ -3350,11 +3163,6 @@ def _print_control_volume_geometry_summary(
         )
     )
     transition_virtual = int(np.sum(transition_sample_active) - transition_direct)
-    cut_wall_dirichlet_stencils = (
-        face_active
-        & (face_kind == CV_FACE_CUT_WALL)
-        & np.asarray(faces.boundary_normal_stencil_valid, dtype=bool)
-    )
     print(
         "embedded control volumes: "
         f"active_owners={int(np.sum(np.asarray(cells.is_active_owner)))}, "
@@ -3374,9 +3182,6 @@ def _print_control_volume_geometry_summary(
         f"{int(np.max(np.asarray(transitions.sample_count, dtype=np.int32))) if int(transitions.max_rows) else 0}, "
         "transition_direct/virtual="
         f"{transition_direct}/{transition_virtual}, "
-        "cutwall_normal_stencils="
-        f"{int(np.sum(cut_wall_dirichlet_stencils))}/"
-        f"{int(np.sum(face_active & (face_kind == CV_FACE_CUT_WALL)))}, "
         f"cubic_rows={int(np.sum(reconstruction_active & (reconstruction_order == 3)))}, "
         f"quadratic_fallbacks={int(np.sum(reconstruction_active & (reconstruction_order == 2)))}, "
         f"linear_fallbacks={int(np.sum(reconstruction_active & (reconstruction_order == 1)))}, "
@@ -7438,65 +7243,15 @@ def run_shifted_torus_control_volume_operator_convergence(
                             )
                         else:
                             diagnostic_face_gradient = face_gradient
-                            diagnostic_applied_face_gradient = (
-                                applied_face_gradient
-                            )
+                            diagnostic_applied_face_gradient = face_gradient
                             diagnostic_exact_gradient = exact_gradient
-                            diagnostic_closure_valid = (
-                                cut_wall_normal_closure_valid
+                            diagnostic_closure_valid = jnp.zeros_like(
+                                faces.quadrature_active
                             )
-                            diagnostic_closure_axis = (
-                                faces.boundary_normal_axis
-                            )
-                            closure_axis_vector = jax.nn.one_hot(
-                                faces.boundary_normal_axis,
-                                3,
-                                dtype=points.dtype,
-                            )
-                            closure_coordinate = jnp.einsum(
-                                "rpqi,ri->rpq",
-                                points,
-                                closure_axis_vector,
-                            )
-                            exact_inward_values = []
-                            for sample_index in range(3):
-                                sample_points = (
-                                    points
-                                    + closure_axis_vector[:, None, None, :]
-                                    * (
-                                        faces.boundary_sample_coordinate[
-                                            :, sample_index, None, None, None
-                                        ]
-                                        - closure_coordinate[..., None]
-                                    )
-                                )
-                                exact_sample_value, _ = (
-                                    _shifted_torus_exact_field_and_gradient_at_logical_points(
-                                        sample_points,
-                                        stage_time,
-                                        exact_field_name,
-                                    )
-                                )
-                                exact_inward_values.append(exact_sample_value)
-                            exact_wall_value, _ = (
-                                _shifted_torus_exact_field_and_gradient_at_logical_points(
-                                    points,
-                                    stage_time,
-                                    exact_field_name,
-                                )
-                            )
-                            diagnostic_exact_input_derivative = (
-                                faces.boundary_dcoordinate_weights[
-                                    :, None, None, 0
-                                ]
-                                * exact_wall_value
-                                + jnp.sum(
-                                    faces.boundary_dcoordinate_weights[
-                                        :, None, None, 1:
-                                    ]
-                                    * jnp.stack(exact_inward_values, axis=-1),
-                                    axis=-1,
-                                )
+                            diagnostic_closure_axis = jnp.zeros_like(faces.kind)
+                            diagnostic_exact_input_derivative = jnp.zeros_like(
+                                faces.quadrature_active,
+                                dtype=jnp.float64,
                             )
                         diagnostic_projected_covector = jnp.einsum(
                             "rpqij,rpqi->rpqj",
