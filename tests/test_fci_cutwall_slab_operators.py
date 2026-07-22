@@ -58,7 +58,6 @@ from drbx.native.fci_boundaries import (
     LocalEmbeddedControlVolumeGeometry3D,
     LocalMomentReconstruction3D,
     LocalRegularBoundaryMomentClosure3D,
-    LocalRegularTransitionFaceRows3D,
     LocalCutWallBC3D,
     LocalCutWallGeometry3D,
     LocalStencil1D,
@@ -71,7 +70,6 @@ from drbx.native.fci_halo import (
     TopologyHaloFiller3D,
 )
 from drbx.native.fci_operators import (
-    _evaluate_local_regular_transition_functional,
     build_local_control_volume_polynomial_from_field,
     build_local_perp_laplacian_stencil,
     evaluate_local_control_volume_polynomial,
@@ -1505,127 +1503,6 @@ def test_control_volume_product_average_includes_moment_covariance() -> None:
     assert float(actual[source]) == 0.0
 
 
-def test_compact_rows_exclusively_identify_regular_transitions() -> None:
-    geometry = _build_geometry((7, 7, 7), 2)
-    cells = _uniform_control_volume_cells(geometry)
-    minus_owner = (3, 3, 3)
-    plus_owner = (4, 3, 3)
-    face_point = (
-        0.5
-        * (
-            np.asarray(cells.centroid[minus_owner], dtype=np.float64)
-            + np.asarray(cells.centroid[plus_owner], dtype=np.float64)
-        )
-    )
-    faces = _unit_control_volume_face_rows(
-        geometry,
-        (
-            (
-                CV_FACE_INTERIOR,
-                minus_owner,
-                plus_owner,
-                0,
-                tuple(face_point),
-                1.0,
-            ),
-        ),
-    )
-    transitions = LocalRegularTransitionFaceRows3D(
-        layout=geometry.layout,
-        irregular_face_row=jnp.asarray((0,), dtype=jnp.int32),
-        active=jnp.asarray((True,)),
-        valid=jnp.asarray((True,)),
-        has_remote_owner=jnp.asarray((False,)),
-        sample_count=jnp.asarray((2,), dtype=jnp.int32),
-        max_rows=1,
-    )
-    bundle = LocalEmbeddedControlVolumeGeometry3D(
-        cells=cells,
-        regular_faces=geometry.regular_face_geometry,
-        irregular_faces=faces,
-        reconstruction=LocalMomentReconstruction3D.empty(geometry.layout),
-        regular_transition_faces=transitions,
-    )
-    assert int(bundle.regular_transition_faces.max_rows) == 1
-    assert bool(bundle.regular_transition_faces.active[0])
-    assert bool(bundle.regular_transition_faces.valid[0])
-    assert int(bundle.regular_transition_faces.irregular_face_row[0]) == 0
-    assert int(bundle.regular_transition_faces.sample_count[0]) == 2
-    assert bool(bundle.irregular_faces.has_plus_owner[0])
-
-
-def test_transition_occurrences_keep_requesting_center() -> None:
-    """A virtual storage sample must not be collapsed across stencil centers."""
-
-    geometry = _build_geometry((7, 7, 7), 2)
-    cells = _uniform_control_volume_cells(geometry)
-    minus_owner = (2, 3, 3)
-    plus_owner = (4, 3, 3)
-    face_point = 0.5 * (
-        np.asarray(cells.centroid[minus_owner], dtype=np.float64)
-        + np.asarray(cells.centroid[plus_owner], dtype=np.float64)
-    )
-    faces = _unit_control_volume_face_rows(
-        geometry,
-        ((CV_FACE_INTERIOR, minus_owner, plus_owner, 0, tuple(face_point), 1.0),),
-    )
-    shared_storage = (3, 3, 3)
-    transitions = LocalRegularTransitionFaceRows3D(
-        layout=geometry.layout,
-        irregular_face_row=jnp.asarray((0,), dtype=jnp.int32),
-        active=jnp.asarray((True,)),
-        valid=jnp.asarray((True,)),
-        has_remote_owner=jnp.asarray((False,)),
-        sample_count=jnp.asarray((2,), dtype=jnp.int32),
-        sample_storage_i=jnp.asarray(((shared_storage[0], shared_storage[0]),)),
-        sample_storage_j=jnp.asarray(((shared_storage[1], shared_storage[1]),)),
-        sample_storage_k=jnp.asarray(((shared_storage[2], shared_storage[2]),)),
-        sample_owner_i=jnp.asarray(((minus_owner[0], plus_owner[0]),)),
-        sample_owner_j=jnp.asarray(((minus_owner[1], plus_owner[1]),)),
-        sample_owner_k=jnp.asarray(((minus_owner[2], plus_owner[2]),)),
-        sample_center_owner_i=jnp.asarray(((minus_owner[0], plus_owner[0]),)),
-        sample_center_owner_j=jnp.asarray(((minus_owner[1], plus_owner[1]),)),
-        sample_center_owner_k=jnp.asarray(((minus_owner[2], plus_owner[2]),)),
-        sample_active=jnp.asarray(((True, True),)),
-        sample_direct=jnp.asarray(((False, False),)),
-        sample_remote=jnp.asarray(((False, False),)),
-        sample_displacement=jnp.asarray(((((1.0, 0.0, 0.0), (2.0, 0.0, 0.0)),)), dtype=jnp.float64),
-        sample_moment_delta=jnp.zeros((1, 2, 3, 3), dtype=jnp.float64),
-        scalar_coefficients=jnp.asarray(((0.5, 0.5),), dtype=jnp.float64),
-        gradient_coefficients=jnp.zeros((1, 3, 2), dtype=jnp.float64),
-        max_rows=1,
-        max_samples=2,
-    )
-    bundle = LocalEmbeddedControlVolumeGeometry3D(
-        cells=cells,
-        regular_faces=geometry.regular_face_geometry,
-        irregular_faces=faces,
-        reconstruction=LocalMomentReconstruction3D.empty(geometry.layout),
-        regular_transition_faces=transitions,
-    )
-    values = jnp.zeros(cells.shape, dtype=jnp.float64)
-    values = values.at[shared_storage].set(1.0e6)
-    values = values.at[minus_owner].set(10.0)
-    values = values.at[plus_owner].set(20.0)
-    gradient = jnp.zeros(cells.shape + (3,), dtype=jnp.float64)
-    gradient = gradient.at[minus_owner + (0,)].set(1.0)
-    gradient = gradient.at[plus_owner + (0,)].set(2.0)
-    polynomial = LocalControlVolumePolynomial3D(
-        gradient=gradient,
-        hessian=jnp.zeros(cells.shape + (3, 3), dtype=jnp.float64),
-        valid=cells.is_active_owner,
-        polynomial_order=jnp.where(cells.is_active_owner, 2, 0),
-        condition_number=jnp.where(cells.is_active_owner, 1.0, jnp.inf),
-    )
-    scalar, gradient_result, valid = _evaluate_local_regular_transition_functional(
-        values,
-        polynomial,
-        bundle,
-    )
-    np.testing.assert_allclose(float(scalar[0]), 17.5, rtol=0.0, atol=1.0e-14)
-    np.testing.assert_allclose(np.asarray(gradient_result[0]), 0.0, rtol=0.0, atol=1.0e-14)
-    assert bool(valid[0])
-    assert tuple(np.asarray(transitions.sample_center_owner_i)[0]) == (2, 4)
 
 
 def test_regular_boundary_moment_closure_reproduces_cubic() -> None:
@@ -2604,14 +2481,6 @@ def run_control_volume_reconstruction_checks() -> dict[str, object]:
         (
             "product_average_includes_moment_covariance",
             test_control_volume_product_average_includes_moment_covariance,
-        ),
-        (
-            "compact_rows_exclusively_identify_regular_transitions",
-            test_compact_rows_exclusively_identify_regular_transitions,
-        ),
-        (
-            "transition_occurrences_keep_requesting_center",
-            test_transition_occurrences_keep_requesting_center,
         ),
         (
             "regular_boundary_moment_closure_reproduces_cubic",

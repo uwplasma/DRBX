@@ -3611,231 +3611,6 @@ class LocalRegularBoundaryMomentClosure3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class LocalRegularTransitionFaceRows3D(_DataclassPyTreeMixin):
-    """Precomputed dense-compatible functionals for compact full faces.
-
-    A transition row owns a full logical face whose *dense stencil support*
-    touches an embedded or reconstructed control volume.  The row stores the
-    same linear scalar/gradient functional used by the dense stencil, while
-    allowing unavailable logical samples to be synthesized from an owning
-    quadratic polynomial.  The corresponding quadrature/metric payload stays
-    in :class:`LocalControlVolumeFaceRows3D`.
-    """
-
-    layout: HaloLayout3D
-    irregular_face_row: jnp.ndarray
-    active: jnp.ndarray
-    valid: jnp.ndarray
-    has_remote_owner: jnp.ndarray
-    sample_count: jnp.ndarray
-    max_rows: int
-    face_axis: jnp.ndarray | None = None
-    face_i: jnp.ndarray | None = None
-    face_j: jnp.ndarray | None = None
-    face_k: jnp.ndarray | None = None
-    sample_storage_i: jnp.ndarray | None = None
-    sample_storage_j: jnp.ndarray | None = None
-    sample_storage_k: jnp.ndarray | None = None
-    sample_owner_i: jnp.ndarray | None = None
-    sample_owner_j: jnp.ndarray | None = None
-    sample_owner_k: jnp.ndarray | None = None
-    # The active control-volume owner whose dense stencil requested this
-    # occurrence.  A logical solid sample can occur in multiple centered
-    # derivatives, each of which needs a different reconstruction anchor.
-    sample_center_owner_i: jnp.ndarray | None = None
-    sample_center_owner_j: jnp.ndarray | None = None
-    sample_center_owner_k: jnp.ndarray | None = None
-    sample_active: jnp.ndarray | None = None
-    sample_direct: jnp.ndarray | None = None
-    sample_remote: jnp.ndarray | None = None
-    sample_displacement: jnp.ndarray | None = None
-    sample_moment_delta: jnp.ndarray | None = None
-    sample_third_moment_delta: jnp.ndarray | None = None
-    scalar_coefficients: jnp.ndarray | None = None
-    gradient_coefficients: jnp.ndarray | None = None
-    max_samples: int = 16
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.layout, HaloLayout3D):
-            raise TypeError(
-                "LocalRegularTransitionFaceRows3D.layout must be a HaloLayout3D"
-            )
-        max_rows = int(self.max_rows)
-        max_samples = int(self.max_samples)
-        if max_rows < 0:
-            raise ValueError("max_rows must be non-negative")
-        if max_samples < 2:
-            raise ValueError("max_samples must be at least two")
-        shape = (max_rows,)
-        sample_shape = shape + (max_samples,)
-        vector_sample_shape = sample_shape + (3,)
-        tensor_sample_shape = sample_shape + (3, 3)
-        third_tensor_sample_shape = sample_shape + (3, 3, 3)
-        irregular_face_row = jnp.asarray(
-            self.irregular_face_row,
-            dtype=jnp.int32,
-        )
-        active = jnp.asarray(self.active, dtype=bool)
-        valid = jnp.asarray(self.valid, dtype=bool)
-        has_remote_owner = jnp.asarray(self.has_remote_owner, dtype=bool)
-        sample_count = jnp.asarray(self.sample_count, dtype=jnp.int32)
-        def _row(value, name, dtype, expected, fill=0):
-            array = jnp.asarray(
-                jnp.full(expected, fill, dtype=dtype) if value is None else value,
-                dtype=dtype,
-            )
-            if array.shape != expected:
-                raise ValueError(f"{name} must have shape {expected}, got {array.shape}")
-            return array
-
-        face_axis = _row(self.face_axis, "face_axis", jnp.int32, shape)
-        face_i = _row(self.face_i, "face_i", jnp.int32, shape)
-        face_j = _row(self.face_j, "face_j", jnp.int32, shape)
-        face_k = _row(self.face_k, "face_k", jnp.int32, shape)
-        sample_storage_i = _row(self.sample_storage_i, "sample_storage_i", jnp.int32, sample_shape)
-        sample_storage_j = _row(self.sample_storage_j, "sample_storage_j", jnp.int32, sample_shape)
-        sample_storage_k = _row(self.sample_storage_k, "sample_storage_k", jnp.int32, sample_shape)
-        sample_owner_i = _row(self.sample_owner_i, "sample_owner_i", jnp.int32, sample_shape)
-        sample_owner_j = _row(self.sample_owner_j, "sample_owner_j", jnp.int32, sample_shape)
-        sample_owner_k = _row(self.sample_owner_k, "sample_owner_k", jnp.int32, sample_shape)
-        sample_center_owner_i = _row(self.sample_center_owner_i, "sample_center_owner_i", jnp.int32, sample_shape)
-        sample_center_owner_j = _row(self.sample_center_owner_j, "sample_center_owner_j", jnp.int32, sample_shape)
-        sample_center_owner_k = _row(self.sample_center_owner_k, "sample_center_owner_k", jnp.int32, sample_shape)
-        sample_active = _row(self.sample_active, "sample_active", bool, sample_shape)
-        sample_direct = _row(self.sample_direct, "sample_direct", bool, sample_shape)
-        sample_remote = _row(self.sample_remote, "sample_remote", bool, sample_shape)
-        sample_displacement = _row(self.sample_displacement, "sample_displacement", jnp.float64, vector_sample_shape)
-        sample_moment_delta = _row(self.sample_moment_delta, "sample_moment_delta", jnp.float64, tensor_sample_shape)
-        sample_third_moment_delta = _row(self.sample_third_moment_delta, "sample_third_moment_delta", jnp.float64, third_tensor_sample_shape)
-        scalar_coefficients = _row(self.scalar_coefficients, "scalar_coefficients", jnp.float64, sample_shape)
-        gradient_coefficients = _row(self.gradient_coefficients, "gradient_coefficients", jnp.float64, shape + (3, max_samples))
-        for value, name in (
-            (irregular_face_row, "irregular_face_row"),
-            (active, "active"),
-            (valid, "valid"),
-            (has_remote_owner, "has_remote_owner"),
-            (sample_count, "sample_count"),
-        ):
-            if value.shape != shape:
-                raise ValueError(f"{name} must have shape {shape}, got {value.shape}")
-        object.__setattr__(
-            self,
-            "irregular_face_row",
-            jnp.where(active, irregular_face_row, 0),
-        )
-        object.__setattr__(self, "active", active)
-        object.__setattr__(self, "valid", active & valid)
-        object.__setattr__(
-            self,
-            "has_remote_owner",
-            active & has_remote_owner,
-        )
-        object.__setattr__(
-            self,
-            "sample_count",
-            jnp.where(active, sample_count, 0),
-        )
-        object.__setattr__(self, "max_rows", max_rows)
-        object.__setattr__(self, "face_axis", jnp.where(active, face_axis, 0))
-        object.__setattr__(self, "face_i", jnp.where(active, face_i, 0))
-        object.__setattr__(self, "face_j", jnp.where(active, face_j, 0))
-        object.__setattr__(self, "face_k", jnp.where(active, face_k, 0))
-        sample_gate = active[:, None] & sample_active
-        object.__setattr__(self, "sample_storage_i", jnp.where(sample_gate, sample_storage_i, 0))
-        object.__setattr__(self, "sample_storage_j", jnp.where(sample_gate, sample_storage_j, 0))
-        object.__setattr__(self, "sample_storage_k", jnp.where(sample_gate, sample_storage_k, 0))
-        object.__setattr__(self, "sample_owner_i", jnp.where(sample_gate, sample_owner_i, 0))
-        object.__setattr__(self, "sample_owner_j", jnp.where(sample_gate, sample_owner_j, 0))
-        object.__setattr__(self, "sample_owner_k", jnp.where(sample_gate, sample_owner_k, 0))
-        object.__setattr__(self, "sample_center_owner_i", jnp.where(sample_gate, sample_center_owner_i, 0))
-        object.__setattr__(self, "sample_center_owner_j", jnp.where(sample_gate, sample_center_owner_j, 0))
-        object.__setattr__(self, "sample_center_owner_k", jnp.where(sample_gate, sample_center_owner_k, 0))
-        object.__setattr__(self, "sample_active", sample_gate)
-        object.__setattr__(self, "sample_direct", sample_gate & sample_direct)
-        object.__setattr__(self, "sample_remote", sample_gate & sample_remote)
-        object.__setattr__(self, "sample_displacement", jnp.where(sample_gate[..., None], sample_displacement, 0.0))
-        object.__setattr__(self, "sample_moment_delta", jnp.where(sample_gate[..., None, None], sample_moment_delta, 0.0))
-        object.__setattr__(self, "sample_third_moment_delta", jnp.where(sample_gate[..., None, None, None], sample_third_moment_delta, 0.0))
-        object.__setattr__(self, "scalar_coefficients", jnp.where(sample_gate, scalar_coefficients, 0.0))
-        object.__setattr__(self, "gradient_coefficients", jnp.where(sample_gate[:, None, :], gradient_coefficients, 0.0))
-        object.__setattr__(self, "max_samples", max_samples)
-
-    @classmethod
-    def empty(cls, layout: HaloLayout3D) -> "LocalRegularTransitionFaceRows3D":
-        return cls(
-            layout=layout,
-            irregular_face_row=jnp.zeros((0,), dtype=jnp.int32),
-            active=jnp.zeros((0,), dtype=bool),
-            valid=jnp.zeros((0,), dtype=bool),
-            has_remote_owner=jnp.zeros((0,), dtype=bool),
-            sample_count=jnp.zeros((0,), dtype=jnp.int32),
-            max_rows=0,
-        )
-
-    def tree_flatten(self):
-        return (
-            (
-                self.irregular_face_row,
-                self.active,
-                self.valid,
-                self.has_remote_owner,
-                self.sample_count,
-                self.face_axis,
-                self.face_i,
-                self.face_j,
-                self.face_k,
-                self.sample_storage_i,
-                self.sample_storage_j,
-                self.sample_storage_k,
-                self.sample_owner_i,
-                self.sample_owner_j,
-                self.sample_owner_k,
-                self.sample_center_owner_i,
-                self.sample_center_owner_j,
-                self.sample_center_owner_k,
-                self.sample_active,
-                self.sample_direct,
-                self.sample_remote,
-                self.sample_displacement,
-                self.sample_moment_delta,
-                self.sample_third_moment_delta,
-                self.scalar_coefficients,
-                self.gradient_coefficients,
-            ),
-            (self.layout, self.max_rows, self.max_samples),
-        )
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        layout, max_rows, max_samples = aux_data
-        instance = object.__new__(cls)
-        object.__setattr__(instance, "layout", layout)
-        for name, value in zip(
-            (
-                "irregular_face_row",
-                "active",
-                "valid",
-                "has_remote_owner",
-                "sample_count",
-                "face_axis", "face_i", "face_j", "face_k",
-                "sample_storage_i", "sample_storage_j", "sample_storage_k",
-                "sample_owner_i", "sample_owner_j", "sample_owner_k",
-                "sample_center_owner_i", "sample_center_owner_j", "sample_center_owner_k",
-                "sample_active", "sample_direct", "sample_remote",
-                "sample_displacement", "sample_moment_delta",
-                "sample_third_moment_delta",
-                "scalar_coefficients", "gradient_coefficients",
-            ),
-            children,
-        ):
-            object.__setattr__(instance, name, value)
-        object.__setattr__(instance, "max_rows", int(max_rows))
-        object.__setattr__(instance, "max_samples", int(max_samples))
-        return instance
-
-
-@_pytree_base
-@dataclass(frozen=True)
 class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
     """Unified geometry used by embedded-boundary reconstruction and fluxes."""
 
@@ -3843,7 +3618,6 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
     regular_faces: LocalRegularFaceGeometry3D
     irregular_faces: LocalControlVolumeFaceRows3D
     reconstruction: LocalMomentReconstruction3D
-    regular_transition_faces: LocalRegularTransitionFaceRows3D | None = None
     centroid_J: jnp.ndarray | None = None
     centroid_g_cov: jnp.ndarray | None = None
     centroid_B_contra: jnp.ndarray | None = None
@@ -3862,63 +3636,14 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
             raise TypeError("irregular_faces must be LocalControlVolumeFaceRows3D")
         if not isinstance(self.reconstruction, LocalMomentReconstruction3D):
             raise TypeError("reconstruction must be LocalMomentReconstruction3D")
-        if self.regular_transition_faces is None:
-            object.__setattr__(
-                self,
-                "regular_transition_faces",
-                LocalRegularTransitionFaceRows3D.empty(self.cells.layout),
-            )
-        elif not isinstance(
-            self.regular_transition_faces,
-            LocalRegularTransitionFaceRows3D,
-        ):
-            raise TypeError(
-                "regular_transition_faces must be "
-                "LocalRegularTransitionFaceRows3D or None"
-            )
         layout = self.cells.layout
         for name, other_layout in (
             ("regular_faces", self.regular_faces.layout),
             ("irregular_faces", self.irregular_faces.layout),
             ("reconstruction", self.reconstruction.layout),
-            ("regular_transition_faces", self.regular_transition_faces.layout),
         ):
             if other_layout != layout:
                 raise ValueError(f"{name} must share the control-volume cell layout")
-        transitions = self.regular_transition_faces
-        if int(transitions.max_rows) > 0:
-            safe_row = jnp.clip(
-                transitions.irregular_face_row,
-                0,
-                max(0, int(self.irregular_faces.max_rows) - 1),
-            )
-            transition_consistent = (
-                (~transitions.active)
-                | (
-                    transitions.valid
-                    & (transitions.irregular_face_row >= 0)
-                    & (
-                        transitions.irregular_face_row
-                        < int(self.irregular_faces.max_rows)
-                    )
-                    & self.irregular_faces.active[safe_row]
-                    & (
-                        self.irregular_faces.kind[safe_row]
-                        == CV_FACE_INTERIOR
-                    )
-                )
-            )
-            try:
-                all_transition_consistent = bool(
-                    jnp.all(transition_consistent)
-                )
-            except jax.errors.TracerBoolConversionError:
-                all_transition_consistent = True
-            if not all_transition_consistent:
-                raise ValueError(
-                    "active regular transition rows must reference valid "
-                    "CV_FACE_INTERIOR compact rows"
-                )
         if self.regular_boundary_closure is not None:
             if not isinstance(
                 self.regular_boundary_closure,
@@ -4033,7 +3758,6 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                 self.regular_faces,
                 self.irregular_faces,
                 self.reconstruction,
-                self.regular_transition_faces,
                 self.centroid_J,
                 self.centroid_g_cov,
                 self.centroid_B_contra,
@@ -4051,7 +3775,6 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
             "regular_faces",
             "irregular_faces",
             "reconstruction",
-            "regular_transition_faces",
             "centroid_J",
             "centroid_g_cov",
             "centroid_B_contra",
@@ -4799,7 +4522,6 @@ __all__ = [
     "LocalCoordinateSideValues3D",
     "LocalControlVolumeFluxStencil3D",
     "LocalRegularBoundaryMomentClosure3D",
-    "LocalRegularTransitionFaceRows3D",
     "LocalCutWallBC3D",
     "LocalCutWallGeometry3D",
     "LocalCutWallNormalDerivativeConstructor3D",

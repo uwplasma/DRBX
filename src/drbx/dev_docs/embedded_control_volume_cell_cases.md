@@ -234,8 +234,9 @@ compact path.
 - a partial or embedded boundary face uses one compact row;
 - a full interface represented by a compact row is excluded from dense
   divergence;
-- a full face whose structured support touches nonregular storage is indexed
-  by `LocalRegularTransitionFaceRows3D` and evaluated by its compact row;
+- a full face whose structured support touches nonregular storage is owned by
+  its compact row, and both local face owners receive cubic reconstruction
+  support;
 - every other full face remains entirely on the structured dense path.
 
 ### Why Exclusive Face Ownership Is Needed
