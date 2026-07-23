@@ -43,6 +43,7 @@ from drbx.native.fci_operators import (
     _apply_local_face_value_dirichlet_bc,
     _local_axis_face_values_from_stencil,
     _take_stencil_finite_difference,
+    build_local_control_volume_field_closure,
     build_local_control_volume_polynomial_from_field,
     build_local_perp_laplacian_stencil,
     local_control_volume_product_average,
@@ -399,8 +400,11 @@ class LocalShiftedTorus4FieldCutWallRhs:
             self.geometry,
             self.domain,
             control_volume_geometry=control_volume_geometry,
-            boundary_bc=density_v_electron_control_volume_bc,
-            field_reconstruction=density_v_electron_polynomial,
+            field_closure=build_local_control_volume_field_closure(
+                density_v_electron_halo,
+                control_volume_geometry,
+                density_v_electron_control_volume_bc,
+            ),
         )
 
         density_poisson_term = -(poisson_density / (rho_star_value * bmag_owned))

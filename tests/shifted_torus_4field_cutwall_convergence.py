@@ -20,7 +20,6 @@ from drbx.geometry import (
     LocalFciGeometry3D,
     StencilBuilderContext,
     build_local_conservative_stencil_from_field,
-    build_local_stencil_from_field,
 )
 from drbx.native import Fci4FieldState
 from drbx.native.fci_boundaries import (
@@ -45,11 +44,8 @@ from drbx.native.fci_operators import (
     LocalPerpLaplacianInverseSolver,
     _axis_slice_nd,
     _lift_cell_field_to_faces,
-    _take_stencil_finite_difference,
+    build_local_control_volume_field_closure,
     build_local_control_volume_polynomial_from_field,
-    build_local_perp_laplacian_stencil,
-    _local_control_volume_irregular_parallel_flux,
-    _local_control_volume_irregular_projected_flux,
     evaluate_local_control_volume_polynomial,
     local_control_volume_product_average,
     local_curvature_op_from_gradient,
@@ -77,13 +73,9 @@ from mms_domain_decomp_helpers import (  # noqa: E402
 )
 from shifted_torus_4field_cutwall_geometry import (  # noqa: E402
     MESH_AXIS_NAMES,
-    _GAUSS3_NODES,
-    _GAUSS3_WEIGHTS,
     _build_stacked_embedded_control_volume_geometry,
-    _print_shifted_torus_radial_moment_reproduction,
     _shape_from_resolution,
     _shifted_torus_curvature_at_logical_points,
-    _shifted_torus_metric_payload_jax,
     _with_embedded_control_volume_geometry,
 )
 from shifted_torus_4field_cutwall_mms import (  # noqa: E402
@@ -99,8 +91,6 @@ from shifted_torus_4field_cutwall_mms import (  # noqa: E402
     _project_local_exact_time_derivative_to_control_volumes,
     _project_local_mms_source_to_control_volumes,
     _shifted_torus_analytic_rhs_at_logical_points,
-    _shifted_torus_exact_field_and_gradient_at_logical_points,
-    _shifted_torus_exact_field_at_logical_points,
     _shifted_torus_exact_time_derivative_at_logical_points,
     _shifted_torus_mms_source_at_logical_points,
     _shifted_torus_operator_reference_at_logical_points,
@@ -429,7 +419,6 @@ def run_shifted_torus_control_volume_operator_convergence(
     enable_agglomeration: bool = True,
     minimum_order: float = 1.8,
     check_phi_solve: bool = True,
-    debug_operator_failures: bool = False,
 ) -> dict[str, object]:
     """Run low-memory spatial convergence kernels for the unified CV path."""
 
@@ -485,13 +474,6 @@ def run_shifted_torus_control_volume_operator_convergence(
             f"{time_module.perf_counter() - geometry_start:.3f}s",
             flush=True,
         )
-        if debug_operator_failures and resolution == int(resolutions[0]):
-            _print_shifted_torus_radial_moment_reproduction(
-                global_shape=shape,
-                owned_shape=owned_shape,
-                halo_width=halo_width,
-                enable_merging=enable_agglomeration,
-            )
         exact_state, exact_phi = _project_global_exact_state_to_control_volumes(
             geometry,
             stacked_control_volume_geometry,
@@ -820,14 +802,18 @@ def run_shifted_torus_control_volume_operator_convergence(
                             domain=domain,
                         ),
                     )
+                    field_closure = build_local_control_volume_field_closure(
+                        field_halo,
+                        control_volume_geometry,
+                        boundary_bc,
+                    )
                     actual = local_parallel_flux_div_op(
                         local,
                         local_geometry_value,
                         domain,
                         face_bc=face_bc,
                         control_volume_geometry=control_volume_geometry,
-                        boundary_bc=boundary_bc,
-                        field_reconstruction=polynomial,
+                        field_closure=field_closure,
                     )
                     invalid_reconstruction_rows = jnp.sum(
                         (
@@ -839,15 +825,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                             )
                         ).astype(jnp.int32)
                     )
-                    irregular_flux = (
-                        _local_control_volume_irregular_parallel_flux(
-                            jnp.asarray(local.x.center, dtype=jnp.float64),
-                            polynomial,
-                            control_volume_geometry,
-                            boundary_bc,
-                            b_floor=1.0e-30,
-                        )
-                    )
+                    irregular_flux = field_closure.parallel_flux
                     remote_row = (
                         control_volume_geometry.irregular_faces.active
                         & control_volume_geometry.irregular_faces.has_remote_owner
@@ -862,15 +840,8 @@ def run_shifted_torus_control_volume_operator_convergence(
                             0.0,
                         )
                     )
-                    remote_quadrature = (
-                        remote_row[:, None, None]
-                        & control_volume_geometry.irregular_faces.quadrature_active
-                    )
                     invalid_remote_quadrature = jnp.sum(
-                        (
-                            remote_quadrature
-                            & (~polynomial.remote_face_valid)
-                        ).astype(jnp.int32)
+                        (remote_row & (~field_closure.valid)).astype(jnp.int32)
                     )
                     for mesh_axis_name in MESH_AXIS_NAMES:
                         remote_flux_sum = lax.psum(
@@ -1006,6 +977,11 @@ def run_shifted_torus_control_volume_operator_convergence(
                             domain=domain,
                         ),
                     )
+                    phi_closure = build_local_control_volume_field_closure(
+                        phi_halo,
+                        control_volume_geometry,
+                        boundary_bc,
+                    )
                     actual = local_perp_laplacian_conservative_op(
                         local,
                         local_geometry_value,
@@ -1017,8 +993,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                         ),
                         face_bc=face_bc,
                         control_volume_geometry=control_volume_geometry,
-                        boundary_bc=boundary_bc,
-                        field_reconstruction=phi_poly,
+                        field_closure=phi_closure,
                     )
                     invalid_reconstruction_rows = jnp.sum(
                         (
@@ -1256,626 +1231,6 @@ def run_shifted_torus_control_volume_operator_convergence(
                         top_compact_distance,
                     )
                 )
-                if (
-                    debug_operator_failures
-                    and operator_name == "poisson_omega"
-                    and top_index[0] == 0
-                ):
-                    target_shard = tuple(
-                        int(top_index[axis]) // int(owned_shape[axis])
-                        for axis in range(3)
-                    )
-                    target_local = tuple(
-                        int(top_index[axis]) % int(owned_shape[axis])
-                        for axis in range(3)
-                    )
-
-                    def radial_owner_gradient_diagnostic_kernel(
-                        state_owned,
-                        phi_owned,
-                        local_invariants,
-                        control_volume_geometry,
-                        stage_time,
-                    ):
-                        local_invariants = extract_local_shard_pytree(
-                            local_invariants
-                        )
-                        control_volume_geometry = extract_local_shard_pytree(
-                            control_volume_geometry
-                        )
-                        local_geometry_value = local_geometry(
-                            control_volume_geometry
-                        )
-                        phi_halo, phi_poly, _phi_bc, phi_face_bc = prepare_field(
-                            phi_owned,
-                            "phi",
-                            local_invariants,
-                            local_geometry_value,
-                            control_volume_geometry,
-                            stage_time,
-                        )
-                        omega_halo, omega_poly, _omega_bc, omega_face_bc = prepare_field(
-                            state_owned.omega,
-                            "omega",
-                            local_invariants,
-                            local_geometry_value,
-                            control_volume_geometry,
-                            stage_time,
-                        )
-                        context = StencilBuilderContext(
-                            layout=domain.layout,
-                            domain=domain,
-                        )
-                        phi_stencil = build_local_stencil_from_field(
-                            phi_halo,
-                            local_geometry_value,
-                            context,
-                        )
-                        omega_stencil = build_local_stencil_from_field(
-                            omega_halo,
-                            local_geometry_value,
-                            context,
-                        )
-                        phi_baseline = jnp.stack(
-                            (
-                                _take_stencil_finite_difference(phi_stencil.x),
-                                _take_stencil_finite_difference(phi_stencil.y),
-                                _take_stencil_finite_difference(phi_stencil.z),
-                            ),
-                            axis=-1,
-                        )
-                        omega_baseline = jnp.stack(
-                            (
-                                _take_stencil_finite_difference(omega_stencil.x),
-                                _take_stencil_finite_difference(omega_stencil.y),
-                                _take_stencil_finite_difference(omega_stencil.z),
-                            ),
-                            axis=-1,
-                        )
-                        local_i, local_j, local_k = target_local
-                        cells = control_volume_geometry.cells
-                        centroid = cells.centroid[local_i, local_j, local_k]
-                        phi_exact_value, phi_exact_gradient = (
-                            _shifted_torus_exact_field_and_gradient_at_logical_points(
-                                centroid,
-                                stage_time,
-                                "phi",
-                            )
-                        )
-                        omega_exact_value, omega_exact_gradient = (
-                            _shifted_torus_exact_field_and_gradient_at_logical_points(
-                                centroid,
-                                stage_time,
-                                "omega",
-                            )
-                        )
-                        del phi_exact_value, omega_exact_value
-                        closure = control_volume_geometry.regular_boundary_closure
-                        face_weights, owner_weights, closure_valid = closure.axis_payload(0)
-                        phi_owned_values = phi_halo[
-                            local_geometry_value.layout.owned_slices_cell
-                        ]
-                        omega_owned_values = omega_halo[
-                            local_geometry_value.layout.owned_slices_cell
-                        ]
-                        phi_samples = phi_owned_values[:3, local_j, local_k]
-                        omega_samples = omega_owned_values[:3, local_j, local_k]
-                        phi_face_value = phi_face_bc.value_x[0, local_j, local_k]
-                        omega_face_value = omega_face_bc.value_x[0, local_j, local_k]
-                        phi_owner_weights = owner_weights[0, local_j, local_k]
-                        omega_owner_weights = owner_weights[0, local_j, local_k]
-                        phi_face_weights = face_weights[0, local_j, local_k]
-                        omega_face_weights = face_weights[0, local_j, local_k]
-                        phi_owner_derivative = (
-                            phi_owner_weights[0] * phi_face_value
-                            + jnp.dot(phi_owner_weights[1:], phi_samples)
-                        )
-                        omega_owner_derivative = (
-                            omega_owner_weights[0] * omega_face_value
-                            + jnp.dot(omega_owner_weights[1:], omega_samples)
-                        )
-                        phi_face_derivative = (
-                            phi_face_weights[0] * phi_face_value
-                            + jnp.dot(phi_face_weights[1:], phi_samples)
-                        )
-                        omega_face_derivative = (
-                            omega_face_weights[0] * omega_face_value
-                            + jnp.dot(omega_face_weights[1:], omega_samples)
-                        )
-                        theta_lower = local_geometry_value.grid.y.faces_owned[local_j]
-                        theta_upper = local_geometry_value.grid.y.faces_owned[local_j + 1]
-                        zeta_lower = local_geometry_value.grid.z.faces_owned[local_k]
-                        zeta_upper = local_geometry_value.grid.z.faces_owned[local_k + 1]
-
-                        def patch_average(x, field_name):
-                            numerator = jnp.asarray(0.0, dtype=jnp.float64)
-                            denominator = jnp.asarray(0.0, dtype=jnp.float64)
-                            for node_y, weight_y in zip(_GAUSS3_NODES, _GAUSS3_WEIGHTS):
-                                theta = 0.5 * (theta_lower + theta_upper) + 0.5 * (
-                                    theta_upper - theta_lower
-                                ) * float(node_y)
-                                for node_z, weight_z in zip(_GAUSS3_NODES, _GAUSS3_WEIGHTS):
-                                    zeta = 0.5 * (zeta_lower + zeta_upper) + 0.5 * (
-                                        zeta_upper - zeta_lower
-                                    ) * float(node_z)
-                                    point = jnp.stack((x, theta, zeta))
-                                    measure = (
-                                        float(weight_y)
-                                        * float(weight_z)
-                                        * 0.25
-                                        * (theta_upper - theta_lower)
-                                        * (zeta_upper - zeta_lower)
-                                        * _shifted_torus_metric_payload_jax(point)[0]
-                                    )
-                                    numerator = numerator + measure * (
-                                        _shifted_torus_exact_field_at_logical_points(
-                                            point,
-                                            stage_time,
-                                            field_name,
-                                        )
-                                    )
-                                    denominator = denominator + measure
-                            return numerator / jnp.maximum(denominator, 1.0e-30)
-
-                        phi_patch_derivative = jax.jacfwd(
-                            lambda x: patch_average(x, "phi")
-                        )(centroid[0])
-                        omega_patch_derivative = jax.jacfwd(
-                            lambda x: patch_average(x, "omega")
-                        )(centroid[0])
-                        g_cov = control_volume_geometry.centroid_g_cov[
-                            local_i, local_j, local_k
-                        ]
-                        b_contra = (
-                            control_volume_geometry.centroid_B_contra[
-                                local_i, local_j, local_k
-                            ]
-                            / jnp.maximum(
-                                control_volume_geometry.centroid_Bmag[
-                                    local_i, local_j, local_k
-                                ],
-                                1.0e-30,
-                            )
-                        )
-                        b_cov = jnp.einsum("ij,j->i", g_cov, b_contra)
-                        J = control_volume_geometry.centroid_J[
-                            local_i, local_j, local_k
-                        ]
-
-                        def bracket(phi_gradient, omega_gradient):
-                            cross = jnp.cross(phi_gradient, omega_gradient)
-                            return jnp.dot(b_cov, cross) / jnp.maximum(J, 1.0e-30), cross
-
-                        bracket_baseline, cross_baseline = bracket(
-                            phi_baseline[local_i, local_j, local_k],
-                            omega_baseline[local_i, local_j, local_k],
-                        )
-                        bracket_reconstructed, cross_reconstructed = bracket(
-                            phi_poly.gradient[local_i, local_j, local_k],
-                            omega_poly.gradient[local_i, local_j, local_k],
-                        )
-                        bracket_exact_phi, _ = bracket(
-                            phi_exact_gradient,
-                            omega_poly.gradient[local_i, local_j, local_k],
-                        )
-                        bracket_exact_omega, _ = bracket(
-                            phi_poly.gradient[local_i, local_j, local_k],
-                            omega_exact_gradient,
-                        )
-                        bracket_exact, cross_exact = bracket(
-                            phi_exact_gradient,
-                            omega_exact_gradient,
-                        )
-                        owns_target = jnp.asarray(True)
-                        for axis, mesh_axis_name in enumerate(MESH_AXIS_NAMES):
-                            owns_target = owns_target & (
-                                lax.axis_index(mesh_axis_name)
-                                == int(target_shard[axis])
-                            )
-
-                        def reduce_target(value):
-                            value = jnp.where(
-                                owns_target,
-                                value,
-                                jnp.zeros_like(value),
-                            )
-                            for mesh_axis_name in MESH_AXIS_NAMES:
-                                value = lax.psum(value, mesh_axis_name)
-                            return value
-
-                        return (
-                            reduce_target(centroid),
-                            reduce_target(phi_baseline[local_i, local_j, local_k]),
-                            reduce_target(omega_baseline[local_i, local_j, local_k]),
-                            reduce_target(phi_poly.gradient[local_i, local_j, local_k]),
-                            reduce_target(omega_poly.gradient[local_i, local_j, local_k]),
-                            reduce_target(phi_exact_gradient),
-                            reduce_target(omega_exact_gradient),
-                            reduce_target(phi_samples),
-                            reduce_target(omega_samples),
-                            reduce_target(phi_face_value),
-                            reduce_target(omega_face_value),
-                            reduce_target(phi_owner_weights),
-                            reduce_target(omega_owner_weights),
-                            reduce_target(phi_face_weights),
-                            reduce_target(omega_face_weights),
-                            reduce_target(jnp.stack((
-                                phi_owner_derivative,
-                                omega_owner_derivative,
-                                phi_face_derivative,
-                                omega_face_derivative,
-                                phi_patch_derivative,
-                                omega_patch_derivative,
-                                phi_exact_gradient[0],
-                                omega_exact_gradient[0],
-                                closure_valid[0, local_j, local_k].astype(jnp.float64),
-                            ))),
-                            reduce_target(jnp.stack((
-                                bracket_baseline,
-                                bracket_reconstructed,
-                                bracket_exact_phi,
-                                bracket_exact_omega,
-                                bracket_exact,
-                            ))),
-                            reduce_target(cross_baseline),
-                            reduce_target(cross_reconstructed),
-                            reduce_target(cross_exact),
-                            reduce_target(b_cov),
-                        )
-
-                    radial_diagnostic = jax.jit(
-                        shard_map(
-                            radial_owner_gradient_diagnostic_kernel,
-                            mesh=mesh,
-                            in_specs=(
-                                state_spec,
-                                field_spec,
-                                invariant_spec,
-                                control_volume_spec,
-                                P(),
-                            ),
-                            out_specs=(P(),) * 21,
-                            check_rep=False,
-                        )
-                    )(
-                        state_mesh,
-                        phi_mesh,
-                        invariants_mesh,
-                        control_volume_mesh,
-                        jnp.asarray(0.0, dtype=jnp.float64),
-                    )
-                    radial_diagnostic = tuple(
-                        np.asarray(jax.device_get(value))
-                        for value in radial_diagnostic
-                    )
-                    (
-                        radial_centroid,
-                        phi_baseline,
-                        omega_baseline,
-                        phi_reconstructed,
-                        omega_reconstructed,
-                        phi_exact,
-                        omega_exact,
-                        phi_samples,
-                        omega_samples,
-                        phi_face_value,
-                        omega_face_value,
-                        phi_owner_weights,
-                        omega_owner_weights,
-                        phi_face_weights,
-                        omega_face_weights,
-                        radial_derivatives,
-                        bracket_variants,
-                        cross_baseline,
-                        cross_reconstructed,
-                        cross_exact,
-                        b_cov,
-                    ) = radial_diagnostic
-                    print("  radial_owner_gradient_diagnostic")
-                    print(
-                        "    centroid={} b_cov={} closure_valid={}".format(
-                            np.array2string(radial_centroid, precision=8),
-                            np.array2string(b_cov, precision=8),
-                            bool(radial_derivatives[8]),
-                        )
-                    )
-                    for field_name, baseline, reconstructed, exact, samples, face_value, owner_weights, face_weights in (
-                        ("phi", phi_baseline, phi_reconstructed, phi_exact, phi_samples, phi_face_value, phi_owner_weights, phi_face_weights),
-                        ("omega", omega_baseline, omega_reconstructed, omega_exact, omega_samples, omega_face_value, omega_owner_weights, omega_face_weights),
-                    ):
-                        print(
-                            "    {} gradient baseline={} reconstructed={} exact={}".format(
-                                field_name,
-                                np.array2string(baseline, precision=8),
-                                np.array2string(reconstructed, precision=8),
-                                np.array2string(exact, precision=8),
-                            )
-                        )
-                        print(
-                            "      face_average={:.8e} inward_averages={} owner_weights={} face_weights={}".format(
-                                float(face_value),
-                                np.array2string(samples, precision=8),
-                                np.array2string(owner_weights, precision=8),
-                                np.array2string(face_weights, precision=8),
-                            )
-                        )
-                    print(
-                        "    radial_derivatives phi(owner/face/patch/exact)={:.8e}/{:.8e}/{:.8e}/{:.8e} "
-                        "omega(owner/face/patch/exact)={:.8e}/{:.8e}/{:.8e}/{:.8e}".format(
-                            float(radial_derivatives[0]),
-                            float(radial_derivatives[2]),
-                            float(radial_derivatives[4]),
-                            float(radial_derivatives[6]),
-                            float(radial_derivatives[1]),
-                            float(radial_derivatives[3]),
-                            float(radial_derivatives[5]),
-                            float(radial_derivatives[7]),
-                        )
-                    )
-                    print(
-                        "    poisson variants baseline={:.8e} reconstructed={:.8e} "
-                        "exact_phi={:.8e} exact_omega={:.8e} exact_both={:.8e}".format(
-                            *[float(value) for value in bracket_variants]
-                        )
-                    )
-                    print(
-                        "    poisson cross baseline={} reconstructed={} exact={}".format(
-                            np.array2string(cross_baseline, precision=8),
-                            np.array2string(cross_reconstructed, precision=8),
-                            np.array2string(cross_exact, precision=8),
-                        )
-                    )
-                if (
-                    debug_operator_failures
-                    and operator_name == "perp_laplacian_phi"
-                ):
-                    radial_error = np.where(
-                        np.asarray(categories["radial_lower_owner"], dtype=bool),
-                        absolute_error,
-                        -np.inf,
-                    )
-                    radial_flat = int(np.argmax(radial_error))
-                    radial_index = tuple(
-                        int(value)
-                        for value in np.unravel_index(radial_flat, shape)
-                    )
-                    radial_shard = tuple(
-                        int(radial_index[axis]) // int(owned_shape[axis])
-                        for axis in range(3)
-                    )
-                    radial_local = tuple(
-                        int(radial_index[axis]) % int(owned_shape[axis])
-                        for axis in range(3)
-                    )
-
-                    def radial_projected_flux_diagnostic_kernel(
-                        phi_owned,
-                        local_invariants,
-                        control_volume_geometry,
-                        stage_time,
-                    ):
-                        local_invariants = extract_local_shard_pytree(
-                            local_invariants
-                        )
-                        control_volume_geometry = extract_local_shard_pytree(
-                            control_volume_geometry
-                        )
-                        local_geometry_value = local_geometry(
-                            control_volume_geometry
-                        )
-                        phi_halo, _poly, _boundary_bc, face_bc = prepare_field(
-                            phi_owned,
-                            "phi",
-                            local_invariants,
-                            local_geometry_value,
-                            control_volume_geometry,
-                            stage_time,
-                        )
-                        local = build_local_conservative_stencil_from_field(
-                            phi_halo,
-                            local_geometry_value,
-                            StencilBuilderContext(
-                                layout=domain.layout,
-                                domain=domain,
-                            ),
-                        )
-                        cv_flux = build_local_perp_laplacian_stencil(
-                            local,
-                            local_geometry_value,
-                            domain,
-                            face_projectors=(
-                                local_invariants.face_projector_x,
-                                local_invariants.face_projector_y,
-                                local_invariants.face_projector_z,
-                            ),
-                            face_bc=face_bc,
-                            regular_face_geometry=(
-                                control_volume_geometry.regular_faces
-                            ),
-                            regular_boundary_closure=(
-                                control_volume_geometry.regular_boundary_closure
-                            ),
-                        )
-                        local_i, local_j, local_k = radial_local
-                        face_gradient = local.face_grad.x[0, local_j, local_k]
-                        face_projector = local_invariants.face_projector_x[
-                            0, local_j, local_k, 0
-                        ]
-                        x_metric = local_geometry_value.face_metric.x
-                        face_J = x_metric.J_owned[0, local_j, local_k]
-                        regular_faces = control_volume_geometry.regular_faces
-                        open_measure = (
-                            local_geometry_value.spacing.dy_owned[
-                                local_i, local_j, local_k
-                            ]
-                            * local_geometry_value.spacing.dz_owned[
-                                local_i, local_j, local_k
-                            ]
-                            * regular_faces.x_area[0, local_j, local_k]
-                            * regular_faces.x_area_fraction[0, local_j, local_k]
-                        )
-                        numerical_density = cv_flux.regular_flux.x[
-                            0, local_j, local_k
-                        ]
-                        numerical_integrated = numerical_density * open_measure
-                        x_face = local_geometry_value.grid.x.faces_owned[0]
-                        theta_center = local_geometry_value.grid.y.centers_owned[local_j]
-                        zeta_center = local_geometry_value.grid.z.centers_owned[local_k]
-                        dy = local_geometry_value.spacing.dy_owned[
-                            local_i, local_j, local_k
-                        ]
-                        dz = local_geometry_value.spacing.dz_owned[
-                            local_i, local_j, local_k
-                        ]
-                        signs = jnp.asarray(
-                            ((-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)),
-                            dtype=jnp.float64,
-                        )
-                        points = jnp.stack(
-                            (
-                                jnp.full((4,), x_face),
-                                theta_center + signs[:, 0] * dy / (2.0 * jnp.sqrt(3.0)),
-                                zeta_center + signs[:, 1] * dz / (2.0 * jnp.sqrt(3.0)),
-                            ),
-                            axis=-1,
-                        )
-                        (
-                            exact_J,
-                            _g_contra,
-                            _g_cov,
-                            _B_contra,
-                            _Bmag,
-                            exact_projector,
-                        ) = _shifted_torus_metric_payload_jax(points)
-                        _exact_value, exact_gradient_q = (
-                            _shifted_torus_exact_field_and_gradient_at_logical_points(
-                                points,
-                                stage_time,
-                                "phi",
-                            )
-                        )
-                        exact_density_q = exact_J * jnp.einsum(
-                            "qi,qi->q",
-                            exact_projector[:, 0, :],
-                            exact_gradient_q,
-                        )
-                        exact_density = jnp.mean(exact_density_q)
-                        exact_integrated = exact_density * open_measure
-                        center_point = jnp.asarray(
-                            (x_face, theta_center, zeta_center),
-                            dtype=jnp.float64,
-                        )
-                        _center_value, exact_center_gradient = (
-                            _shifted_torus_exact_field_and_gradient_at_logical_points(
-                                center_point,
-                                stage_time,
-                                "phi",
-                            )
-                        )
-                        owns_target = jnp.asarray(True)
-                        for axis, mesh_axis_name in enumerate(MESH_AXIS_NAMES):
-                            owns_target = owns_target & (
-                                lax.axis_index(mesh_axis_name)
-                                == int(radial_shard[axis])
-                            )
-
-                        def reduce_target(value):
-                            value = jnp.where(
-                                owns_target,
-                                value,
-                                jnp.zeros_like(value),
-                            )
-                            for mesh_axis_name in MESH_AXIS_NAMES:
-                                value = lax.psum(value, mesh_axis_name)
-                            return value
-
-                        return (
-                            reduce_target(face_gradient),
-                            reduce_target(exact_center_gradient),
-                            reduce_target(face_projector),
-                            reduce_target(face_projector * face_gradient),
-                            reduce_target(face_J),
-                            reduce_target(numerical_density),
-                            reduce_target(exact_density),
-                            reduce_target(open_measure),
-                            reduce_target(numerical_integrated),
-                            reduce_target(exact_integrated),
-                            reduce_target(
-                                control_volume_geometry.cells.aggregate_volume[
-                                    local_i, local_j, local_k
-                                ]
-                            ),
-                        )
-
-                    radial_flux = jax.jit(
-                        shard_map(
-                            radial_projected_flux_diagnostic_kernel,
-                            mesh=mesh,
-                            in_specs=(
-                                field_spec,
-                                invariant_spec,
-                                control_volume_spec,
-                                P(),
-                            ),
-                            out_specs=(P(),) * 11,
-                            check_rep=False,
-                        )
-                    )(
-                        phi_mesh,
-                        invariants_mesh,
-                        control_volume_mesh,
-                        jnp.asarray(0.0, dtype=jnp.float64),
-                    )
-                    radial_flux = tuple(
-                        np.asarray(jax.device_get(value))
-                        for value in radial_flux
-                    )
-                    (
-                        radial_face_gradient,
-                        radial_exact_gradient,
-                        radial_projector,
-                        radial_component_flux,
-                        radial_J,
-                        radial_numerical_density,
-                        radial_exact_density,
-                        radial_measure,
-                        radial_numerical_integrated,
-                        radial_exact_integrated,
-                        radial_volume,
-                    ) = radial_flux
-                    print(
-                        "  radial_projected_face_diagnostic index={} operator_error={:.6e}".format(
-                            radial_index,
-                            float(radial_error[radial_index]),
-                        )
-                    )
-                    print(
-                        "    face_gradient={} exact_center_gradient={} projector={} "
-                        "projected_components={} J={:.8e}".format(
-                            np.array2string(radial_face_gradient, precision=8),
-                            np.array2string(radial_exact_gradient, precision=8),
-                            np.array2string(radial_projector, precision=8),
-                            np.array2string(radial_component_flux, precision=8),
-                            float(radial_J),
-                        )
-                    )
-                    print(
-                        "    x-low flux density numerical/exact={:.8e}/{:.8e} "
-                        "integrated={:.8e}/{:.8e} measure={:.8e} volume={:.8e} "
-                        "operator_delta={:.8e}".format(
-                            float(radial_numerical_density),
-                            float(radial_exact_density),
-                            float(radial_numerical_integrated),
-                            float(radial_exact_integrated),
-                            float(radial_measure),
-                            float(radial_volume),
-                            float(
-                                (radial_numerical_integrated - radial_exact_integrated)
-                                / max(float(radial_volume), 1.0e-30)
-                            ),
-                        )
-                    )
-
             def full_rhs_kernel(
                 state_owned,
                 phi_owned,

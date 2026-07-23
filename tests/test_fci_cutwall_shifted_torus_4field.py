@@ -26,8 +26,6 @@ from shifted_torus_4field_cutwall_geometry import (  # noqa: E402
     BOX_ZETA_RANGE,
     MESH_AXIS_NAMES,
     _GAUSS2_NODES,
-    _GAUSS3_NODES,
-    _GAUSS3_WEIGHTS,
     _box_bounds,
     _build_closed_box_control_volume_cells,
     _build_closed_box_control_volume_faces,
@@ -37,7 +35,6 @@ from shifted_torus_4field_cutwall_geometry import (  # noqa: E402
     _build_stacked_embedded_control_volume_geometry,
     _closed_box_fluid_moments_3point,
     _closed_box_irregular_storage_mask,
-    _compact_face_reconstruction_owner_mask,
     _dilate_reconstruction_owner_mask,
     _face_patch_quadrature_numpy,
     _integrate_shifted_torus_rectangular_moments,
@@ -46,12 +43,10 @@ from shifted_torus_4field_cutwall_geometry import (  # noqa: E402
     _pad_control_volume_face_rows,
     _pad_embedded_control_volume_geometry,
     _pad_quadratic_reconstruction,
-    _print_shifted_torus_radial_moment_reproduction,
     _select_closed_box_control_volume_owners,
     _shape_from_resolution,
     _shifted_torus_cartesian_from_logical,
     _shifted_torus_curvature_at_logical_points,
-    _shifted_torus_metric_payload_jax,
     _shifted_torus_metric_payload_numpy,
     _with_embedded_control_volume_geometry,
 )
@@ -68,8 +63,6 @@ from shifted_torus_4field_cutwall_mms import (  # noqa: E402
     _project_local_exact_time_derivative_to_control_volumes,
     _project_local_mms_source_to_control_volumes,
     _shifted_torus_analytic_rhs_at_logical_points,
-    _shifted_torus_exact_field_and_gradient_at_logical_points,
-    _shifted_torus_exact_field_at_logical_points,
     _shifted_torus_exact_time_derivative_at_logical_points,
     _shifted_torus_mms_source_at_logical_points,
     _shifted_torus_operator_reference_at_logical_points,
@@ -152,10 +145,11 @@ def test_shifted_torus_global_compact_face_ids_are_unique_across_shards() -> Non
     """Step-2A decomposition characterization against an N=6 baseline."""
     global_shape = (6, 6, 6)
     topology, _ = _build_global_closed_box_control_volume_topology(
-        global_shape=global_shape, halo_width=2,
+        global_shape=global_shape, halo_width=2, enable_merging=True,
     )
     baseline_ids: set[int] | None = None
     baseline_wall_rows: int | None = None
+    baseline_functionals: dict[int, tuple[np.ndarray, ...]] | None = None
     for shard_counts in ((1, 1, 1), (1, 2, 1), (1, 1, 2), (1, 2, 2)):
         geometry = _build_stacked_embedded_control_volume_geometry(
             global_shape=global_shape,
@@ -170,11 +164,42 @@ def test_shifted_torus_global_compact_face_ids_are_unique_across_shards() -> Non
         assert logical.size == np.unique(logical).size
         current_ids = set(int(value) for value in logical)
         wall_rows = int(np.count_nonzero(active & (face_id < 0)))
+        functionals = geometry.face_functionals
+        current_functionals: dict[int, tuple[np.ndarray, ...]] = {}
+        for shard_index in np.ndindex(*shard_counts):
+            for row in np.flatnonzero(active[shard_index]):
+                current_face_id = int(face_id[shard_index][row])
+                equation_active = np.asarray(
+                    functionals.observation_active[shard_index][row],
+                    dtype=bool,
+                )
+                payload = (
+                    np.asarray(functionals.projected_flux_weights[shard_index][row])[equation_active],
+                    np.asarray(functionals.parallel_flux_weights[shard_index][row])[equation_active],
+                    np.asarray(functionals.parallel_gradient_flux_weights[shard_index][row])[equation_active],
+                    np.asarray((
+                        functionals.condition_number[shard_index][row],
+                        functionals.reproduction_residual[shard_index][row],
+                        functionals.normalized_projected_weight_norm[shard_index][row],
+                        functionals.normalized_parallel_weight_norm[shard_index][row],
+                        functionals.normalized_parallel_gradient_weight_norm[shard_index][row],
+                    )),
+                )
+                assert current_face_id not in current_functionals
+                current_functionals[current_face_id] = payload
         if baseline_ids is None:
             baseline_ids, baseline_wall_rows = current_ids, wall_rows
+            baseline_functionals = current_functionals
         else:
             assert current_ids == baseline_ids
             assert wall_rows == baseline_wall_rows
+            assert baseline_functionals is not None
+            assert current_functionals.keys() == baseline_functionals.keys()
+            for current_face_id, payload in current_functionals.items():
+                for actual, expected in zip(
+                    payload, baseline_functionals[current_face_id]
+                ):
+                    np.testing.assert_array_equal(actual, expected)
         # Validate every row against the evaluator IDs for its actual shard.
         for shard_index in np.ndindex(*shard_counts):
             local = compile_local_control_volume_geometry(
@@ -265,14 +290,6 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--debug-operator-failures",
-        action="store_true",
-        help=(
-            "Print focused radial-boundary, compact-face, and reconstruction "
-            "failure attribution diagnostics during --operator-convergence-only."
-        ),
-    )
-    parser.add_argument(
         "--enable-agglomeration",
         action="store_true",
         help=(
@@ -294,13 +311,8 @@ def main() -> None:
             enable_agglomeration=bool(args.enable_agglomeration),
             minimum_order=float(args.minimum_order),
             check_phi_solve=not bool(args.skip_operator_phi_solve),
-            debug_operator_failures=bool(args.debug_operator_failures),
         )
         return
-    if bool(args.debug_operator_failures):
-        parser.error(
-            "--debug-operator-failures requires --operator-convergence-only"
-        )
     run_shifted_torus_4field_cutwall_convergence(
         resolutions=[int(value) for value in args.resolutions],
         shard_counts=tuple(int(value) for value in args.shard_counts),
