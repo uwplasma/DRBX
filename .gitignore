@@ -39,3 +39,7 @@ docs/movies/**/*.mp4
 docs/movies/**/*.gif
 docs/runtime_precision_benchmark/images/**/*.png
 output/
+
+# Generated FCI cut-wall diagnostics and convergence captures.
+tests/shifted_torus_*.txt
+tests/*cutwall*.txt

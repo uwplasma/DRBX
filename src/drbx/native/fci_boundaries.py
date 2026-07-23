@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Generic, TypeVar
 
 import jax
@@ -12,10 +12,11 @@ from ..geometry.fci_geometry import (
     LocalDomain3D,
     LocalFciGeometry3D,
     HaloLayout3D,
-    LocalRegularFaceGeometry3D,
-    LocalCellVolumeGeometry3D,
     RegularFaceGeometry3D,
+    LocalRegularFaceGeometry3D,
     CellVolumeGeometry3D,
+    LocalCellVolumeGeometry3D,
+    LocalControlVolumeCellGeometry3D,
 )
 from .fci_model import (
     FciFieldBundle,
@@ -51,6 +52,17 @@ BC_DIRICHLET = 1
 BC_NEUMANN = 2
 BC_NORMALFLUX = 3
 BC_NOFLUX = 4
+
+CV_FACE_NONE = 0
+CV_FACE_INTERIOR = 1
+CV_FACE_CUT_WALL = 2
+CV_FACE_PARTIAL = 3
+CV_FACE_PHYSICAL_BOUNDARY = 4
+
+CV_RECONSTRUCTION_EQUATION_NONE = 0
+CV_RECONSTRUCTION_EQUATION_CELL = 1
+CV_RECONSTRUCTION_EQUATION_DIRICHLET = 2
+CV_RECONSTRUCTION_EQUATION_REMOTE_CELL = 3
 
 
 BoundaryPayloadT = TypeVar("BoundaryPayloadT")
@@ -89,11 +101,144 @@ class LocalBoundaryData3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
-    """Build all field boundary payloads from a complete pre-BC state."""
+class LocalBoundaryPreparation3D(_DataclassPyTreeMixin):
+    """Local boundary data plus optional remote dependency requests."""
 
-    build_fn: Callable[
+    local_data: LocalBoundaryData3D | None = None
+    remote_dependencies: FciFieldBundle | None = None
+
+    def __post_init__(self) -> None:
+        if self.local_data is not None and not isinstance(
+            self.local_data,
+            LocalBoundaryData3D,
+        ):
+            raise TypeError(
+                "LocalBoundaryPreparation3D.local_data must be a "
+                "LocalBoundaryData3D or None"
+            )
+        if self.remote_dependencies is not None and not isinstance(
+            self.remote_dependencies,
+            FciFieldBundle,
+        ):
+            raise TypeError(
+                "LocalBoundaryPreparation3D.remote_dependencies must be an "
+                "FciFieldBundle or None"
+            )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalBoundaryRemoteDependencyTable(_DataclassPyTreeMixin):
+    """Remote scalar requests used while finalizing local boundary payloads."""
+
+    request_active: jnp.ndarray
+    request_dependency_kind: jnp.ndarray
+    request_source_global_i: jnp.ndarray
+    request_source_global_j: jnp.ndarray
+    request_source_global_k: jnp.ndarray
+    request_source_shard_index: jnp.ndarray
+    request_source_shard_linear: jnp.ndarray
+    request_source_owner_local_i: jnp.ndarray
+    request_source_owner_local_j: jnp.ndarray
+    request_source_owner_local_k: jnp.ndarray
+    request_value_slot: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        request_active = jnp.asarray(self.request_active, dtype=bool)
+        request_shape = tuple(int(v) for v in request_active.shape)
+        if request_active.ndim != 1:
+            raise ValueError(
+                "LocalBoundaryRemoteDependencyTable.request_active must be 1D, "
+                f"got {request_active.shape}"
+            )
+        object.__setattr__(self, "request_active", request_active)
+        for name in (
+            "request_dependency_kind",
+            "request_source_global_i",
+            "request_source_global_j",
+            "request_source_global_k",
+            "request_source_shard_linear",
+            "request_source_owner_local_i",
+            "request_source_owner_local_j",
+            "request_source_owner_local_k",
+            "request_value_slot",
+        ):
+            value = jnp.asarray(getattr(self, name), dtype=jnp.int32)
+            if value.shape != request_shape:
+                raise ValueError(
+                    f"LocalBoundaryRemoteDependencyTable.{name} must have "
+                    f"shape {request_shape}, got {value.shape}"
+                )
+            object.__setattr__(self, name, value)
+
+        request_source_shard_index = jnp.asarray(
+            self.request_source_shard_index,
+            dtype=jnp.int32,
+        )
+        if (
+            request_source_shard_index.ndim != 2
+            or request_source_shard_index.shape[1] != 3
+        ):
+            raise ValueError(
+                "LocalBoundaryRemoteDependencyTable.request_source_shard_index "
+                "must have shape (max_receive_values, 3), got "
+                f"{request_source_shard_index.shape}"
+            )
+        if int(request_source_shard_index.shape[0]) != request_shape[0]:
+            raise ValueError(
+                "LocalBoundaryRemoteDependencyTable.request_source_shard_index "
+                "must match request_active length; got "
+                f"{request_source_shard_index.shape[0]}, expected {request_shape[0]}"
+            )
+        object.__setattr__(
+            self,
+            "request_source_shard_index",
+            request_source_shard_index,
+        )
+
+    @property
+    def max_receive_values(self) -> int:
+        return int(self.request_active.size)
+
+    @property
+    def has_requests(self) -> bool:
+        return self.max_receive_values > 0
+
+    @classmethod
+    def empty(cls) -> "LocalBoundaryRemoteDependencyTable":
+        return cls(
+            request_active=jnp.zeros((0,), dtype=bool),
+            request_dependency_kind=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_global_i=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_global_j=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_global_k=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_shard_index=jnp.zeros((0, 3), dtype=jnp.int32),
+            request_source_shard_linear=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_owner_local_i=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_owner_local_j=jnp.zeros((0,), dtype=jnp.int32),
+            request_source_owner_local_k=jnp.zeros((0,), dtype=jnp.int32),
+            request_value_slot=jnp.zeros((0,), dtype=jnp.int32),
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
+    """Prepare and finalize local boundary payloads around remote exchange."""
+
+    prepare_fn: Callable[
         [
+            FciModelState,
+            LocalFciGeometry3D,
+            LocalDomain3D,
+            LocalCutWallGeometry3D | None,
+        ],
+        LocalBoundaryPreparation3D,
+    ]
+    finalize_fn: Callable[
+        [
+            LocalBoundaryPreparation3D,
+            FciFieldBundle | None,
             FciModelState,
             LocalFciGeometry3D,
             LocalDomain3D,
@@ -102,20 +247,58 @@ class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
         LocalBoundaryData3D,
     ]
 
-    def __call__(
+    def prepare(
         self,
         state_halo_pre_bc: FciModelState,
         geometry: LocalFciGeometry3D,
         domain: LocalDomain3D,
         cut_wall_geometry: LocalCutWallGeometry3D | None,
-    ) -> LocalBoundaryData3D:
+    ) -> LocalBoundaryPreparation3D:
         if not isinstance(state_halo_pre_bc, FciModelState):
             raise TypeError(
-                "LocalBoundaryConditionBuilder requires an FciModelState "
-                "with physical ghost cells not yet filled"
+                "LocalBoundaryConditionBuilder.prepare requires an "
+                "FciModelState with physical ghost cells not yet filled"
             )
         state_halo_pre_bc.assert_field_shape(domain.layout.cell_halo_shape)
-        result = self.build_fn(
+        result = self.prepare_fn(
+            state_halo_pre_bc,
+            geometry,
+            domain,
+            cut_wall_geometry,
+        )
+        if not isinstance(result, LocalBoundaryPreparation3D):
+            raise TypeError(
+                "LocalBoundaryConditionBuilder.prepare_fn must return "
+                "LocalBoundaryPreparation3D"
+            )
+        if result.local_data is not None:
+            self._validate_boundary_data_field_names(
+                state_halo_pre_bc,
+                result.local_data,
+            )
+        if result.remote_dependencies is not None:
+            assert_matching_field_names(state_halo_pre_bc, result.remote_dependencies)
+        return result
+
+    def finalize(
+        self,
+        preparation: LocalBoundaryPreparation3D,
+        remote_values: FciFieldBundle | None,
+        state_halo_pre_bc: FciModelState,
+        geometry: LocalFciGeometry3D,
+        domain: LocalDomain3D,
+        cut_wall_geometry: LocalCutWallGeometry3D | None,
+    ) -> LocalBoundaryData3D:
+        if not isinstance(preparation, LocalBoundaryPreparation3D):
+            raise TypeError("preparation must be a LocalBoundaryPreparation3D")
+        if not isinstance(state_halo_pre_bc, FciModelState):
+            raise TypeError("state_halo_pre_bc must be an FciModelState")
+        state_halo_pre_bc.assert_field_shape(domain.layout.cell_halo_shape)
+        if remote_values is not None:
+            assert_matching_field_names(state_halo_pre_bc, remote_values)
+        result = self.finalize_fn(
+            preparation,
+            remote_values,
             state_halo_pre_bc,
             geometry,
             domain,
@@ -123,21 +306,30 @@ class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
         )
         if not isinstance(result, LocalBoundaryData3D):
             raise TypeError(
-                "LocalBoundaryConditionBuilder.build_fn must return "
+                "LocalBoundaryConditionBuilder.finalize_fn must return "
                 "LocalBoundaryData3D"
             )
-        if result.face_bc is not None:
-            assert_matching_field_names(state_halo_pre_bc, result.face_bc)
-        if result.cut_wall_bc is not None:
-            assert_matching_field_names(state_halo_pre_bc, result.cut_wall_bc)
+        self._validate_boundary_data_field_names(state_halo_pre_bc, result)
         return result
 
+    @staticmethod
+    def _validate_boundary_data_field_names(
+        state_halo_pre_bc: FciModelState,
+        data: LocalBoundaryData3D,
+    ) -> None:
+        if data.face_bc is not None:
+            assert_matching_field_names(state_halo_pre_bc, data.face_bc)
+        if data.cut_wall_bc is not None:
+            assert_matching_field_names(state_halo_pre_bc, data.cut_wall_bc)
+
     def tree_flatten(self):
-        return (), self.build_fn
+        return (), (self.prepare_fn, self.finalize_fn)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return cls(aux_data)
+        del children
+        prepare_fn, finalize_fn = aux_data
+        return cls(prepare_fn=prepare_fn, finalize_fn=finalize_fn)
 
 
 
@@ -1221,6 +1413,56 @@ class LocalStencil3D:
 
 @_pytree_base
 @dataclass(frozen=True)
+class LocalCellGradient3D:
+    """Owned-cell reconstructed gradient for local derivative operators.
+
+    Unlike ``LocalStencil3D``, this object stores the reconstructed derivative
+    itself. Builders may use polynomial fits, wall samples, or other
+    reconstruction strategies internally.
+    """
+
+    gradient: jnp.ndarray
+    valid: jnp.ndarray
+    reconstruction_mask: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        gradient = jnp.asarray(self.gradient, dtype=jnp.float64)
+        if gradient.ndim != 4 or gradient.shape[-1] != 3:
+            raise ValueError(
+                "LocalCellGradient3D.gradient must have shape "
+                f"owned_shape + (3,), got {gradient.shape}"
+            )
+        owned_shape = gradient.shape[:-1]
+        valid = jnp.asarray(self.valid, dtype=bool)
+        reconstruction_mask = jnp.asarray(self.reconstruction_mask, dtype=bool)
+        if valid.shape != owned_shape:
+            raise ValueError(
+                "LocalCellGradient3D.valid must match gradient owned shape; "
+                f"got {valid.shape}, expected {owned_shape}"
+            )
+        if reconstruction_mask.shape != owned_shape:
+            raise ValueError(
+                "LocalCellGradient3D.reconstruction_mask must match gradient owned shape; "
+                f"got {reconstruction_mask.shape}, expected {owned_shape}"
+            )
+        object.__setattr__(self, "gradient", gradient)
+        object.__setattr__(self, "valid", valid)
+        object.__setattr__(self, "reconstruction_mask", reconstruction_mask)
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        return tuple(int(v) for v in self.gradient.shape[:-1])
+
+    def tree_flatten(self):
+        return ((self.gradient, self.valid, self.reconstruction_mask), None)
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        return cls(*children)
+
+
+@_pytree_base
+@dataclass(frozen=True)
 class FaceGradientStencil3D:
     """Face-centered coordinate gradients for a scalar field."""
 
@@ -1805,31 +2047,22 @@ class CutWallBC3D:
         return cls(*children)
 
 
-@dataclass(frozen=True)
-class FourFieldBoundaryConditions:
-    """Per-field face BCs (plus optional cut-wall data) for the four-field model."""
-
-    phi_face_bc: BoundaryFaceBC3D
-    density_face_bc: BoundaryFaceBC3D
-    omega_face_bc: BoundaryFaceBC3D
-    v_ion_parallel_face_bc: BoundaryFaceBC3D
-    v_electron_parallel_face_bc: BoundaryFaceBC3D
-    phi_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
-    phi_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
-    density_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
-    density_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
-    omega_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
-    omega_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
-    v_ion_parallel_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
-    v_ion_parallel_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
-    v_electron_parallel_cut_wall_geometry: CutWallGeometry3D = field(default_factory=CutWallGeometry3D.empty)
-    v_electron_parallel_cut_wall_bc: CutWallBC3D = field(default_factory=CutWallBC3D.empty)
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
-    """Padded cut-wall geometry owned by one local shard."""
+    """Padded cut-wall geometry owned by one local shard.
+
+    ``normal_contra`` is the outward unit normal in contravariant logical
+    components, normalized with ``g_cov`` so that ``n^i g_ij n^j = 1``.
+    ``distance`` is the physical distance from the owner cell center to the
+    wall along that unit normal; coordinate-stencil distances belong in
+    ``stencil_distance`` instead.  Conservative wall fluxes use
+    ``J * area_covector`` as the signed logical wall-area covector, with
+    ``sign`` selecting the owner-cell outward orientation.  ``stencil_axis``
+    controls coordinate-stencil dependency construction; ``wall_axis`` records
+    the physical coordinate-plane orientation for rows whose owner was moved by
+    agglomeration and therefore have ``stencil_axis == -1``.
+    """
 
     owner_i: jnp.ndarray
     owner_j: jnp.ndarray
@@ -1846,6 +2079,10 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
     sign: jnp.ndarray
     active: jnp.ndarray
     max_wall_faces: int
+    stencil_axis: jnp.ndarray | None = None
+    stencil_side: jnp.ndarray | None = None
+    stencil_distance: jnp.ndarray | None = None
+    wall_axis: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         max_wall_faces = int(self.max_wall_faces)
@@ -1866,6 +2103,60 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
         Bmag = _as_local_wall_array(self.Bmag, max_wall_faces, (), "LocalCutWallGeometry3D.Bmag")
         sign = _as_local_wall_array(self.sign, max_wall_faces, (), "LocalCutWallGeometry3D.sign")
         active = _as_local_wall_bool_array(self.active, max_wall_faces, "LocalCutWallGeometry3D.active")
+        if self.stencil_axis is None:
+            stencil_axis = -jnp.ones((max_wall_faces,), dtype=jnp.int32)
+        else:
+            stencil_axis = _as_local_wall_int_array(
+                self.stencil_axis,
+                max_wall_faces,
+                "LocalCutWallGeometry3D.stencil_axis",
+            )
+        if self.stencil_side is None:
+            stencil_side = jnp.zeros((max_wall_faces,), dtype=jnp.int32)
+        else:
+            stencil_side = _as_local_wall_int_array(
+                self.stencil_side,
+                max_wall_faces,
+                "LocalCutWallGeometry3D.stencil_side",
+            )
+        if self.stencil_distance is None:
+            stencil_distance = jnp.zeros((max_wall_faces,), dtype=jnp.float64)
+        else:
+            stencil_distance = _as_local_wall_array(
+                self.stencil_distance,
+                max_wall_faces,
+                (),
+                "LocalCutWallGeometry3D.stencil_distance",
+            )
+        if self.wall_axis is None:
+            wall_axis = stencil_axis
+        else:
+            wall_axis = _as_local_wall_int_array(
+                self.wall_axis,
+                max_wall_faces,
+                "LocalCutWallGeometry3D.wall_axis",
+            )
+
+        axis_enabled = stencil_axis >= 0
+        wall_axis_enabled = wall_axis >= 0
+        valid_axis = (stencil_axis == -1) | ((stencil_axis >= 0) & (stencil_axis <= 2))
+        valid_wall_axis = (wall_axis == -1) | ((wall_axis >= 0) & (wall_axis <= 2))
+        valid_side = (~axis_enabled) | ((stencil_side >= 0) & (stencil_side <= 1))
+        valid_distance = (~(axis_enabled | wall_axis_enabled)) | (stencil_distance > 0.0)
+        if not bool(jnp.all(valid_axis)):
+            raise ValueError("LocalCutWallGeometry3D.stencil_axis must contain -1, 0, 1, or 2")
+        if not bool(jnp.all(valid_wall_axis)):
+            raise ValueError("LocalCutWallGeometry3D.wall_axis must contain -1, 0, 1, or 2")
+        if not bool(jnp.all(valid_side)):
+            raise ValueError(
+                "LocalCutWallGeometry3D.stencil_side must contain 0 or 1 for enabled stencil rows"
+            )
+        if not bool(jnp.all(valid_distance)):
+            raise ValueError(
+                "LocalCutWallGeometry3D.stencil_distance must be positive for enabled stencil or wall-axis rows"
+            )
+        stencil_side = jnp.where(axis_enabled, stencil_side, 0)
+        stencil_distance = jnp.where(axis_enabled | wall_axis_enabled, stencil_distance, 0.0)
 
         object.__setattr__(self, "owner_i", owner_i)
         object.__setattr__(self, "owner_j", owner_j)
@@ -1882,6 +2173,10 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
         object.__setattr__(self, "sign", sign)
         object.__setattr__(self, "active", active)
         object.__setattr__(self, "max_wall_faces", max_wall_faces)
+        object.__setattr__(self, "stencil_axis", stencil_axis)
+        object.__setattr__(self, "stencil_side", stencil_side)
+        object.__setattr__(self, "stencil_distance", stencil_distance)
+        object.__setattr__(self, "wall_axis", wall_axis)
 
     @property
     def n_wall_faces(self) -> int:
@@ -1890,25 +2185,43 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
     @classmethod
     def empty(cls, max_wall_faces: int) -> "LocalCutWallGeometry3D":
         max_wall_faces = int(max_wall_faces)
+        if max_wall_faces < 0:
+            raise ValueError(f"max_wall_faces must be non-negative, got {max_wall_faces}")
         zeros3 = (max_wall_faces, 3)
         zeros33 = (max_wall_faces, 3, 3)
-        return cls(
-            owner_i=jnp.zeros((max_wall_faces,), dtype=jnp.int32),
-            owner_j=jnp.zeros((max_wall_faces,), dtype=jnp.int32),
-            owner_k=jnp.zeros((max_wall_faces,), dtype=jnp.int32),
-            center=jnp.zeros(zeros3, dtype=jnp.float64),
-            normal_contra=jnp.zeros(zeros3, dtype=jnp.float64),
-            area_covector=jnp.zeros(zeros3, dtype=jnp.float64),
-            distance=jnp.zeros((max_wall_faces,), dtype=jnp.float64),
-            J=jnp.zeros((max_wall_faces,), dtype=jnp.float64),
-            g_contra=jnp.zeros(zeros33, dtype=jnp.float64),
-            g_cov=jnp.zeros(zeros33, dtype=jnp.float64),
-            B_contra=jnp.zeros(zeros3, dtype=jnp.float64),
-            Bmag=jnp.zeros((max_wall_faces,), dtype=jnp.float64),
-            sign=jnp.zeros((max_wall_faces,), dtype=jnp.float64),
-            active=jnp.zeros((max_wall_faces,), dtype=bool),
-            max_wall_faces=max_wall_faces,
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "owner_i", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
+        object.__setattr__(obj, "owner_j", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
+        object.__setattr__(obj, "owner_k", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
+        object.__setattr__(obj, "center", jnp.zeros(zeros3, dtype=jnp.float64))
+        object.__setattr__(obj, "normal_contra", jnp.zeros(zeros3, dtype=jnp.float64))
+        object.__setattr__(obj, "area_covector", jnp.zeros(zeros3, dtype=jnp.float64))
+        object.__setattr__(obj, "distance", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
+        object.__setattr__(obj, "J", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
+        object.__setattr__(obj, "g_contra", jnp.zeros(zeros33, dtype=jnp.float64))
+        object.__setattr__(obj, "g_cov", jnp.zeros(zeros33, dtype=jnp.float64))
+        object.__setattr__(obj, "B_contra", jnp.zeros(zeros3, dtype=jnp.float64))
+        object.__setattr__(obj, "Bmag", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
+        object.__setattr__(obj, "sign", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
+        object.__setattr__(obj, "active", jnp.zeros((max_wall_faces,), dtype=bool))
+        object.__setattr__(obj, "max_wall_faces", max_wall_faces)
+        object.__setattr__(
+            obj,
+            "stencil_axis",
+            -jnp.ones((max_wall_faces,), dtype=jnp.int32),
         )
+        object.__setattr__(obj, "stencil_side", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
+        object.__setattr__(
+            obj,
+            "stencil_distance",
+            jnp.zeros((max_wall_faces,), dtype=jnp.float64),
+        )
+        object.__setattr__(
+            obj,
+            "wall_axis",
+            -jnp.ones((max_wall_faces,), dtype=jnp.int32),
+        )
+        return obj
 
     def tree_flatten(self):
         return (
@@ -1927,6 +2240,10 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
                 self.Bmag,
                 self.sign,
                 self.active,
+                self.stencil_axis,
+                self.stencil_side,
+                self.stencil_distance,
+                self.wall_axis,
             ),
             self.max_wall_faces,
         )
@@ -1948,24 +2265,32 @@ class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
             Bmag,
             sign,
             active,
+            stencil_axis,
+            stencil_side,
+            stencil_distance,
+            wall_axis,
         ) = children
-        return cls(
-            owner_i=owner_i,
-            owner_j=owner_j,
-            owner_k=owner_k,
-            center=center,
-            normal_contra=normal_contra,
-            area_covector=area_covector,
-            distance=distance,
-            J=J,
-            g_contra=g_contra,
-            g_cov=g_cov,
-            B_contra=B_contra,
-            Bmag=Bmag,
-            sign=sign,
-            active=active,
-            max_wall_faces=max_wall_faces,
-        )
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "owner_i", owner_i)
+        object.__setattr__(obj, "owner_j", owner_j)
+        object.__setattr__(obj, "owner_k", owner_k)
+        object.__setattr__(obj, "center", center)
+        object.__setattr__(obj, "normal_contra", normal_contra)
+        object.__setattr__(obj, "area_covector", area_covector)
+        object.__setattr__(obj, "distance", distance)
+        object.__setattr__(obj, "J", J)
+        object.__setattr__(obj, "g_contra", g_contra)
+        object.__setattr__(obj, "g_cov", g_cov)
+        object.__setattr__(obj, "B_contra", B_contra)
+        object.__setattr__(obj, "Bmag", Bmag)
+        object.__setattr__(obj, "sign", sign)
+        object.__setattr__(obj, "active", active)
+        object.__setattr__(obj, "max_wall_faces", int(max_wall_faces))
+        object.__setattr__(obj, "stencil_axis", stencil_axis)
+        object.__setattr__(obj, "stencil_side", stencil_side)
+        object.__setattr__(obj, "stencil_distance", stencil_distance)
+        object.__setattr__(obj, "wall_axis", wall_axis)
+        return obj
 
 
 @_pytree_base
@@ -2043,6 +2368,1956 @@ class LocalCutWallBC3D(_DataclassPyTreeMixin):
     def tree_unflatten(cls, max_wall_faces, children):
         kind, value, active = children
         return cls(kind=kind, value=value, active=active, max_wall_faces=max_wall_faces)
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
+    """Compact unique irregular interfaces for owned control volumes.
+
+    Each active row is one physical interface.  Interior rows have both a
+    minus and plus owner and are scattered with equal and opposite signs.
+    Boundary rows have only a minus owner.  A face can be decomposed into
+    ``max_patches`` non-overlapping rectangles, each evaluated at four tensor
+    Gauss points.
+
+    ``area_covector_weight`` contains the oriented logical area covector
+    including the 2D quadrature weight, but not ``J``.  Geometry-dependent
+    metric, magnetic, and projector data are collocated at the same points.
+    """
+
+    layout: HaloLayout3D
+    kind: jnp.ndarray
+    minus_owner_i: jnp.ndarray
+    minus_owner_j: jnp.ndarray
+    minus_owner_k: jnp.ndarray
+    plus_owner_i: jnp.ndarray
+    plus_owner_j: jnp.ndarray
+    plus_owner_k: jnp.ndarray
+    has_plus_owner: jnp.ndarray
+    quadrature_points: jnp.ndarray
+    area_covector_weight: jnp.ndarray
+    J: jnp.ndarray
+    g_contra: jnp.ndarray
+    g_cov: jnp.ndarray
+    B_contra: jnp.ndarray
+    Bmag: jnp.ndarray
+    projector: jnp.ndarray
+    patch_active: jnp.ndarray
+    active: jnp.ndarray
+    max_rows: int
+    max_patches: int = 4
+    has_remote_owner: jnp.ndarray | None = None
+    remote_halo_i: jnp.ndarray | None = None
+    remote_halo_j: jnp.ndarray | None = None
+    remote_halo_k: jnp.ndarray | None = None
+    remote_centroid: jnp.ndarray | None = None
+    remote_second_moment: jnp.ndarray | None = None
+    remote_third_moment: jnp.ndarray | None = None
+    # A nonnegative ID identifies a canonical global logical face.  Cut-wall
+    # surface rows deliberately retain -1 because they are not grid faces.
+    global_face_id: jnp.ndarray | None = None
+    # Step 2A metadata for the eventual reverse residual exchange.  These are
+    # intentionally distinct from ``remote_halo_*``: the latter address field
+    # samples, whereas these address the plus residual destination.
+    has_remote_residual: jnp.ndarray | None = None
+    remote_residual_halo_i: jnp.ndarray | None = None
+    remote_residual_halo_j: jnp.ndarray | None = None
+    remote_residual_halo_k: jnp.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("LocalControlVolumeFaceRows3D.layout must be a HaloLayout3D")
+        max_rows = int(self.max_rows)
+        max_patches = int(self.max_patches)
+        if max_rows < 0:
+            raise ValueError("LocalControlVolumeFaceRows3D.max_rows must be non-negative")
+        if max_patches < 1:
+            raise ValueError("LocalControlVolumeFaceRows3D.max_patches must be positive")
+        row_shape = (max_rows,)
+        patch_shape = (max_rows, max_patches)
+        quadrature_shape = (max_rows, max_patches, 4)
+        point_shape = quadrature_shape + (3,)
+        tensor_shape = quadrature_shape + (3, 3)
+
+        def _row_int(value, name):
+            array = jnp.asarray(value, dtype=jnp.int32)
+            if array.shape != row_shape:
+                raise ValueError(f"{name} must have shape {row_shape}, got {array.shape}")
+            return array
+
+        def _row_int64(value, name):
+            array = jnp.asarray(value, dtype=jnp.int64)
+            if array.shape != row_shape:
+                raise ValueError(f"{name} must have shape {row_shape}, got {array.shape}")
+            return array
+
+        kind = _row_int(self.kind, "LocalControlVolumeFaceRows3D.kind")
+        minus_owner_i = _row_int(
+            self.minus_owner_i,
+            "LocalControlVolumeFaceRows3D.minus_owner_i",
+        )
+        minus_owner_j = _row_int(
+            self.minus_owner_j,
+            "LocalControlVolumeFaceRows3D.minus_owner_j",
+        )
+        minus_owner_k = _row_int(
+            self.minus_owner_k,
+            "LocalControlVolumeFaceRows3D.minus_owner_k",
+        )
+        plus_owner_i = _row_int(
+            self.plus_owner_i,
+            "LocalControlVolumeFaceRows3D.plus_owner_i",
+        )
+        plus_owner_j = _row_int(
+            self.plus_owner_j,
+            "LocalControlVolumeFaceRows3D.plus_owner_j",
+        )
+        plus_owner_k = _row_int(
+            self.plus_owner_k,
+            "LocalControlVolumeFaceRows3D.plus_owner_k",
+        )
+        has_plus_owner = jnp.asarray(self.has_plus_owner, dtype=bool)
+        has_remote_owner = jnp.asarray(
+            (
+                jnp.zeros(row_shape, dtype=bool)
+                if self.has_remote_owner is None
+                else self.has_remote_owner
+            ),
+            dtype=bool,
+        )
+        global_face_id = _row_int64(
+            jnp.full(row_shape, -1, dtype=jnp.int32)
+            if self.global_face_id is None else self.global_face_id,
+            "LocalControlVolumeFaceRows3D.global_face_id",
+        )
+        has_remote_residual = jnp.asarray(
+            jnp.zeros(row_shape, dtype=bool)
+            if self.has_remote_residual is None else self.has_remote_residual,
+            dtype=bool,
+        )
+        remote_halo_i = _row_int(
+            (
+                jnp.zeros(row_shape, dtype=jnp.int32)
+                if self.remote_halo_i is None
+                else self.remote_halo_i
+            ),
+            "LocalControlVolumeFaceRows3D.remote_halo_i",
+        )
+        remote_halo_j = _row_int(
+            (
+                jnp.zeros(row_shape, dtype=jnp.int32)
+                if self.remote_halo_j is None
+                else self.remote_halo_j
+            ),
+            "LocalControlVolumeFaceRows3D.remote_halo_j",
+        )
+        remote_halo_k = _row_int(
+            (
+                jnp.zeros(row_shape, dtype=jnp.int32)
+                if self.remote_halo_k is None
+                else self.remote_halo_k
+            ),
+            "LocalControlVolumeFaceRows3D.remote_halo_k",
+        )
+        remote_residual_halo_i = _row_int(
+            jnp.zeros(row_shape, dtype=jnp.int32)
+            if self.remote_residual_halo_i is None else self.remote_residual_halo_i,
+            "LocalControlVolumeFaceRows3D.remote_residual_halo_i",
+        )
+        remote_residual_halo_j = _row_int(
+            jnp.zeros(row_shape, dtype=jnp.int32)
+            if self.remote_residual_halo_j is None else self.remote_residual_halo_j,
+            "LocalControlVolumeFaceRows3D.remote_residual_halo_j",
+        )
+        remote_residual_halo_k = _row_int(
+            jnp.zeros(row_shape, dtype=jnp.int32)
+            if self.remote_residual_halo_k is None else self.remote_residual_halo_k,
+            "LocalControlVolumeFaceRows3D.remote_residual_halo_k",
+        )
+        remote_centroid = jnp.asarray(
+            (
+                jnp.zeros(row_shape + (3,), dtype=jnp.float64)
+                if self.remote_centroid is None
+                else self.remote_centroid
+            ),
+            dtype=jnp.float64,
+        )
+        remote_second_moment = jnp.asarray(
+            (
+                jnp.zeros(row_shape + (3, 3), dtype=jnp.float64)
+                if self.remote_second_moment is None
+                else self.remote_second_moment
+            ),
+            dtype=jnp.float64,
+        )
+        remote_third_moment = jnp.asarray(
+            (
+                jnp.zeros(row_shape + (3, 3, 3), dtype=jnp.float64)
+                if self.remote_third_moment is None
+                else self.remote_third_moment
+            ),
+            dtype=jnp.float64,
+        )
+        if remote_centroid.shape != row_shape + (3,):
+            raise ValueError(
+                "LocalControlVolumeFaceRows3D.remote_centroid must have shape "
+                f"{row_shape + (3,)}, got {remote_centroid.shape}"
+            )
+        if remote_second_moment.shape != row_shape + (3, 3):
+            raise ValueError(
+                "LocalControlVolumeFaceRows3D.remote_second_moment must have "
+                f"shape {row_shape + (3, 3)}, got {remote_second_moment.shape}"
+            )
+        if remote_third_moment.shape != row_shape + (3, 3, 3):
+            raise ValueError(
+                "LocalControlVolumeFaceRows3D.remote_third_moment must have "
+                f"shape {row_shape + (3, 3, 3)}, got {remote_third_moment.shape}"
+            )
+        active = jnp.asarray(self.active, dtype=bool)
+        patch_active = jnp.asarray(self.patch_active, dtype=bool)
+        if has_plus_owner.shape != row_shape:
+            raise ValueError(
+                "LocalControlVolumeFaceRows3D.has_plus_owner must have shape "
+                f"{row_shape}, got {has_plus_owner.shape}"
+            )
+        if has_remote_owner.shape != row_shape:
+            raise ValueError(
+                "LocalControlVolumeFaceRows3D.has_remote_owner must have shape "
+                f"{row_shape}, got {has_remote_owner.shape}"
+            )
+        if global_face_id.shape != row_shape or has_remote_residual.shape != row_shape:
+            raise ValueError("global face and remote residual metadata must have row shape")
+        if active.shape != row_shape:
+            raise ValueError(
+                f"LocalControlVolumeFaceRows3D.active must have shape {row_shape}, got {active.shape}"
+            )
+        if patch_active.shape != patch_shape:
+            raise ValueError(
+                "LocalControlVolumeFaceRows3D.patch_active must have shape "
+                f"{patch_shape}, got {patch_active.shape}"
+            )
+
+        def _float_shape(value, expected, name):
+            array = jnp.asarray(value, dtype=jnp.float64)
+            if array.shape != expected:
+                raise ValueError(f"{name} must have shape {expected}, got {array.shape}")
+            return array
+
+        quadrature_points = _float_shape(
+            self.quadrature_points,
+            point_shape,
+            "LocalControlVolumeFaceRows3D.quadrature_points",
+        )
+        area_covector_weight = _float_shape(
+            self.area_covector_weight,
+            point_shape,
+            "LocalControlVolumeFaceRows3D.area_covector_weight",
+        )
+        J = _float_shape(self.J, quadrature_shape, "LocalControlVolumeFaceRows3D.J")
+        g_contra = _float_shape(
+            self.g_contra,
+            tensor_shape,
+            "LocalControlVolumeFaceRows3D.g_contra",
+        )
+        g_cov = _float_shape(
+            self.g_cov,
+            tensor_shape,
+            "LocalControlVolumeFaceRows3D.g_cov",
+        )
+        B_contra = _float_shape(
+            self.B_contra,
+            point_shape,
+            "LocalControlVolumeFaceRows3D.B_contra",
+        )
+        Bmag = _float_shape(
+            self.Bmag,
+            quadrature_shape,
+            "LocalControlVolumeFaceRows3D.Bmag",
+        )
+        projector = _float_shape(
+            self.projector,
+            tensor_shape,
+            "LocalControlVolumeFaceRows3D.projector",
+        )
+
+        valid_kind = (
+            (~active)
+            | (kind == CV_FACE_INTERIOR)
+            | (kind == CV_FACE_CUT_WALL)
+            | (kind == CV_FACE_PARTIAL)
+            | (kind == CV_FACE_PHYSICAL_BOUNDARY)
+        )
+        nx, ny, nz = self.layout.owned_shape
+        minus_in_bounds = (
+            (minus_owner_i >= 0)
+            & (minus_owner_i < nx)
+            & (minus_owner_j >= 0)
+            & (minus_owner_j < ny)
+            & (minus_owner_k >= 0)
+            & (minus_owner_k < nz)
+        )
+        plus_in_bounds = (
+            (plus_owner_i >= 0)
+            & (plus_owner_i < nx)
+            & (plus_owner_j >= 0)
+            & (plus_owner_j < ny)
+            & (plus_owner_k >= 0)
+            & (plus_owner_k < nz)
+        )
+        hx, hy, hz = self.layout.cell_halo_shape
+        remote_in_bounds = (
+            (remote_halo_i >= 0)
+            & (remote_halo_i < hx)
+            & (remote_halo_j >= 0)
+            & (remote_halo_j < hy)
+            & (remote_halo_k >= 0)
+            & (remote_halo_k < hz)
+        )
+        remote_residual_in_bounds = (
+            (remote_residual_halo_i >= 0) & (remote_residual_halo_i < hx)
+            & (remote_residual_halo_j >= 0) & (remote_residual_halo_j < hy)
+            & (remote_residual_halo_k >= 0) & (remote_residual_halo_k < hz)
+        )
+        valid_owners = (~active) | (
+            minus_in_bounds
+            & ((~has_plus_owner) | plus_in_bounds)
+            & ((~has_remote_owner) | remote_in_bounds)
+            # Step 2A uses the field-sample halo coordinate as the single
+            # authoritative remote aggregate destination.  Step 2B will
+            # reverse-scatter -F to precisely this same storage location.
+            & (
+                (~has_remote_residual)
+                | (
+                    has_remote_owner
+                    & remote_residual_in_bounds
+                    & (remote_residual_halo_i == remote_halo_i)
+                    & (remote_residual_halo_j == remote_halo_j)
+                    & (remote_residual_halo_k == remote_halo_k)
+                )
+            )
+            & ~(has_plus_owner & has_remote_owner)
+        )
+        try:
+            all_valid_kind = bool(jnp.all(valid_kind))
+            all_valid_owners = bool(jnp.all(valid_owners))
+            finite_active_geometry = bool(
+                jnp.all(
+                    (~(active[:, None, None] & patch_active[:, :, None]))
+                    | (
+                        jnp.isfinite(J)
+                        & jnp.isfinite(Bmag)
+                        & jnp.all(jnp.isfinite(quadrature_points), axis=-1)
+                        & jnp.all(jnp.isfinite(area_covector_weight), axis=-1)
+                    )
+                )
+            )
+            finite_remote_geometry = bool(
+                jnp.all(
+                    (~(active & has_remote_owner))
+                    | (
+                        jnp.all(jnp.isfinite(remote_centroid), axis=-1)
+                        & jnp.all(
+                            jnp.isfinite(remote_second_moment),
+                            axis=(-2, -1),
+                        )
+                        & jnp.all(jnp.isfinite(remote_third_moment), axis=(-3, -2, -1))
+                    )
+                )
+            )
+        except jax.errors.TracerBoolConversionError:
+            all_valid_kind = True
+            all_valid_owners = True
+            finite_active_geometry = True
+            finite_remote_geometry = True
+        if not all_valid_kind:
+            raise ValueError("active control-volume face rows have an invalid kind")
+        if not all_valid_owners:
+            raise ValueError("active control-volume face owners must be local")
+        if not finite_active_geometry:
+            raise ValueError("active control-volume face quadrature must be finite")
+        if not finite_remote_geometry:
+            raise ValueError("active remote control-volume moments must be finite")
+
+        quadrature_active = jnp.broadcast_to(
+            active[:, None, None] & patch_active[:, :, None],
+            quadrature_shape,
+        )
+        object.__setattr__(self, "kind", jnp.where(active, kind, CV_FACE_NONE))
+        object.__setattr__(self, "minus_owner_i", jnp.where(active, minus_owner_i, 0))
+        object.__setattr__(self, "minus_owner_j", jnp.where(active, minus_owner_j, 0))
+        object.__setattr__(self, "minus_owner_k", jnp.where(active, minus_owner_k, 0))
+        object.__setattr__(self, "plus_owner_i", jnp.where(active, plus_owner_i, 0))
+        object.__setattr__(self, "plus_owner_j", jnp.where(active, plus_owner_j, 0))
+        object.__setattr__(self, "plus_owner_k", jnp.where(active, plus_owner_k, 0))
+        object.__setattr__(self, "has_plus_owner", active & has_plus_owner)
+        object.__setattr__(self, "global_face_id", jnp.where(active, global_face_id, -1))
+        object.__setattr__(
+            self,
+            "has_remote_owner",
+            active & has_remote_owner,
+        )
+        object.__setattr__(self, "has_remote_residual", active & has_remote_residual)
+        object.__setattr__(self, "remote_residual_halo_i", jnp.where(active & has_remote_residual, remote_residual_halo_i, 0))
+        object.__setattr__(self, "remote_residual_halo_j", jnp.where(active & has_remote_residual, remote_residual_halo_j, 0))
+        object.__setattr__(self, "remote_residual_halo_k", jnp.where(active & has_remote_residual, remote_residual_halo_k, 0))
+        object.__setattr__(
+            self,
+            "remote_halo_i",
+            jnp.where(active & has_remote_owner, remote_halo_i, 0),
+        )
+        object.__setattr__(
+            self,
+            "remote_halo_j",
+            jnp.where(active & has_remote_owner, remote_halo_j, 0),
+        )
+        object.__setattr__(
+            self,
+            "remote_halo_k",
+            jnp.where(active & has_remote_owner, remote_halo_k, 0),
+        )
+        object.__setattr__(
+            self,
+            "remote_centroid",
+            jnp.where(
+                (active & has_remote_owner)[:, None],
+                remote_centroid,
+                0.0,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "remote_second_moment",
+            jnp.where(
+                (active & has_remote_owner)[:, None, None],
+                0.5
+                * (
+                    remote_second_moment
+                    + jnp.swapaxes(remote_second_moment, -1, -2)
+                ),
+                0.0,
+            ),
+        )
+        permutations = (
+            (0, 1, 2), (0, 2, 1), (1, 0, 2),
+            (1, 2, 0), (2, 0, 1), (2, 1, 0),
+        )
+        object.__setattr__(
+            self,
+            "remote_third_moment",
+            jnp.where(
+                (active & has_remote_owner)[:, None, None, None],
+                sum(
+                    jnp.transpose(
+                        remote_third_moment,
+                        (0,) + tuple(axis + 1 for axis in permutation),
+                    )
+                    for permutation in permutations
+                ) / 6.0,
+                0.0,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "quadrature_points",
+            jnp.where(quadrature_active[..., None], quadrature_points, 0.0),
+        )
+        object.__setattr__(
+            self,
+            "area_covector_weight",
+            jnp.where(quadrature_active[..., None], area_covector_weight, 0.0),
+        )
+        object.__setattr__(self, "J", jnp.where(quadrature_active, J, 0.0))
+        object.__setattr__(
+            self,
+            "g_contra",
+            jnp.where(quadrature_active[..., None, None], g_contra, 0.0),
+        )
+        object.__setattr__(
+            self,
+            "g_cov",
+            jnp.where(quadrature_active[..., None, None], g_cov, 0.0),
+        )
+        object.__setattr__(
+            self,
+            "B_contra",
+            jnp.where(quadrature_active[..., None], B_contra, 0.0),
+        )
+        object.__setattr__(self, "Bmag", jnp.where(quadrature_active, Bmag, 1.0))
+        object.__setattr__(
+            self,
+            "projector",
+            jnp.where(quadrature_active[..., None, None], projector, 0.0),
+        )
+        object.__setattr__(self, "patch_active", active[:, None] & patch_active)
+        object.__setattr__(self, "active", active)
+        object.__setattr__(self, "max_rows", max_rows)
+        object.__setattr__(self, "max_patches", max_patches)
+
+    @property
+    def quadrature_active(self) -> jnp.ndarray:
+        return jnp.broadcast_to(
+            self.active[:, None, None] & self.patch_active[:, :, None],
+            (int(self.max_rows), int(self.max_patches), 4),
+        )
+
+    @classmethod
+    def empty(
+        cls,
+        layout: HaloLayout3D,
+        *,
+        max_rows: int = 0,
+        max_patches: int = 4,
+    ) -> "LocalControlVolumeFaceRows3D":
+        max_rows = int(max_rows)
+        max_patches = int(max_patches)
+        row = (max_rows,)
+        patch = (max_rows, max_patches)
+        quadrature = (max_rows, max_patches, 4)
+        points = quadrature + (3,)
+        tensors = quadrature + (3, 3)
+        return cls(
+            layout=layout,
+            kind=jnp.zeros(row, dtype=jnp.int32),
+            minus_owner_i=jnp.zeros(row, dtype=jnp.int32),
+            minus_owner_j=jnp.zeros(row, dtype=jnp.int32),
+            minus_owner_k=jnp.zeros(row, dtype=jnp.int32),
+            plus_owner_i=jnp.zeros(row, dtype=jnp.int32),
+            plus_owner_j=jnp.zeros(row, dtype=jnp.int32),
+            plus_owner_k=jnp.zeros(row, dtype=jnp.int32),
+            has_plus_owner=jnp.zeros(row, dtype=bool),
+            quadrature_points=jnp.zeros(points, dtype=jnp.float64),
+            area_covector_weight=jnp.zeros(points, dtype=jnp.float64),
+            J=jnp.zeros(quadrature, dtype=jnp.float64),
+            g_contra=jnp.zeros(tensors, dtype=jnp.float64),
+            g_cov=jnp.zeros(tensors, dtype=jnp.float64),
+            B_contra=jnp.zeros(points, dtype=jnp.float64),
+            Bmag=jnp.ones(quadrature, dtype=jnp.float64),
+            projector=jnp.zeros(tensors, dtype=jnp.float64),
+            patch_active=jnp.zeros(patch, dtype=bool),
+            active=jnp.zeros(row, dtype=bool),
+            max_rows=max_rows,
+            max_patches=max_patches,
+            has_remote_owner=jnp.zeros(row, dtype=bool),
+            remote_halo_i=jnp.zeros(row, dtype=jnp.int32),
+            remote_halo_j=jnp.zeros(row, dtype=jnp.int32),
+            remote_halo_k=jnp.zeros(row, dtype=jnp.int32),
+            remote_centroid=jnp.zeros(row + (3,), dtype=jnp.float64),
+            remote_second_moment=jnp.zeros(row + (3, 3), dtype=jnp.float64),
+            remote_third_moment=jnp.zeros(row + (3, 3, 3), dtype=jnp.float64),
+            global_face_id=jnp.full(row, -1, dtype=jnp.int64),
+            has_remote_residual=jnp.zeros(row, dtype=bool),
+            remote_residual_halo_i=jnp.zeros(row, dtype=jnp.int32),
+            remote_residual_halo_j=jnp.zeros(row, dtype=jnp.int32),
+            remote_residual_halo_k=jnp.zeros(row, dtype=jnp.int32),
+        )
+
+    def tree_flatten(self):
+        return (
+            (
+                self.kind,
+                self.minus_owner_i,
+                self.minus_owner_j,
+                self.minus_owner_k,
+                self.plus_owner_i,
+                self.plus_owner_j,
+                self.plus_owner_k,
+                self.has_plus_owner,
+                self.quadrature_points,
+                self.area_covector_weight,
+                self.J,
+                self.g_contra,
+                self.g_cov,
+                self.B_contra,
+                self.Bmag,
+                self.projector,
+                self.patch_active,
+                self.active,
+                self.has_remote_owner,
+                self.remote_halo_i,
+                self.remote_halo_j,
+                self.remote_halo_k,
+                self.remote_centroid,
+                self.remote_second_moment,
+                self.remote_third_moment,
+                self.global_face_id,
+                self.has_remote_residual,
+                self.remote_residual_halo_i,
+                self.remote_residual_halo_j,
+                self.remote_residual_halo_k,
+            ),
+            (self.layout, self.max_rows, self.max_patches),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        layout, max_rows, max_patches = aux_data
+        names = (
+            "kind",
+            "minus_owner_i",
+            "minus_owner_j",
+            "minus_owner_k",
+            "plus_owner_i",
+            "plus_owner_j",
+            "plus_owner_k",
+            "has_plus_owner",
+            "quadrature_points",
+            "area_covector_weight",
+            "J",
+            "g_contra",
+            "g_cov",
+            "B_contra",
+            "Bmag",
+            "projector",
+            "patch_active",
+            "active",
+            "has_remote_owner",
+            "remote_halo_i",
+            "remote_halo_j",
+            "remote_halo_k",
+            "remote_centroid",
+            "remote_second_moment",
+            "remote_third_moment",
+            "global_face_id",
+            "has_remote_residual",
+            "remote_residual_halo_i",
+            "remote_residual_halo_j",
+            "remote_residual_halo_k",
+        )
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "layout", layout)
+        object.__setattr__(instance, "max_rows", max_rows)
+        object.__setattr__(instance, "max_patches", max_patches)
+        for name, value in zip(names, children):
+            object.__setattr__(instance, name, value)
+        return instance
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
+    """Static direct cubic face-functionals aligned with irregular face rows.
+
+    Each active row reconstructs three integrated flux functionals directly
+    from ``max_equations`` gathered observations.  Observation coordinates are
+    deliberately explicit: local samples use ``owned_*``, remote samples use
+    ``halo_*``, and boundary traces use the three boundary reference arrays.
+    This keeps runtime evaluation free of reconstruction factorizations and
+    avoids storing field-dependent fluxes in polynomial geometry.
+    """
+
+    layout: HaloLayout3D
+    functional_face_id: jnp.ndarray
+    observation_kind: jnp.ndarray
+    owned_i: jnp.ndarray
+    owned_j: jnp.ndarray
+    owned_k: jnp.ndarray
+    halo_i: jnp.ndarray
+    halo_j: jnp.ndarray
+    halo_k: jnp.ndarray
+    boundary_face_row: jnp.ndarray
+    boundary_patch: jnp.ndarray
+    boundary_quadrature: jnp.ndarray
+    observation_active: jnp.ndarray
+    projected_flux_weights: jnp.ndarray
+    parallel_flux_weights: jnp.ndarray
+    parallel_gradient_flux_weights: jnp.ndarray
+    polynomial_order: jnp.ndarray
+    rank: jnp.ndarray
+    condition_number: jnp.ndarray
+    reproduction_residual: jnp.ndarray
+    normalized_projected_weight_norm: jnp.ndarray
+    normalized_parallel_weight_norm: jnp.ndarray
+    normalized_parallel_gradient_weight_norm: jnp.ndarray
+    active: jnp.ndarray
+    max_rows: int
+    max_equations: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("LocalMomentFittedFaceRows3D.layout must be a HaloLayout3D")
+        max_rows = int(self.max_rows)
+        max_equations = int(self.max_equations)
+        if max_rows < 0 or max_equations < 1:
+            raise ValueError("face-functional sizes must be non-negative/positive")
+        row_shape = (max_rows,)
+        observation_shape = (max_rows, max_equations)
+
+        def _row(value, dtype, name):
+            array = jnp.asarray(value, dtype=dtype)
+            if array.shape != row_shape:
+                raise ValueError(f"{name} must have shape {row_shape}, got {array.shape}")
+            return array
+
+        def _observation(value, dtype, name):
+            array = jnp.asarray(value, dtype=dtype)
+            if array.shape != observation_shape:
+                raise ValueError(
+                    f"{name} must have shape {observation_shape}, got {array.shape}"
+                )
+            return array
+
+        functional_face_id = _row(
+            self.functional_face_id, jnp.int64, "functional_face_id"
+        )
+        observation_kind = _observation(
+            self.observation_kind, jnp.int32, "observation_kind"
+        )
+        owned_i = _observation(self.owned_i, jnp.int32, "owned_i")
+        owned_j = _observation(self.owned_j, jnp.int32, "owned_j")
+        owned_k = _observation(self.owned_k, jnp.int32, "owned_k")
+        halo_i = _observation(self.halo_i, jnp.int32, "halo_i")
+        halo_j = _observation(self.halo_j, jnp.int32, "halo_j")
+        halo_k = _observation(self.halo_k, jnp.int32, "halo_k")
+        boundary_face_row = _observation(
+            self.boundary_face_row, jnp.int32, "boundary_face_row"
+        )
+        boundary_patch = _observation(self.boundary_patch, jnp.int32, "boundary_patch")
+        boundary_quadrature = _observation(
+            self.boundary_quadrature, jnp.int32, "boundary_quadrature"
+        )
+        observation_active = _observation(
+            self.observation_active, bool, "observation_active"
+        )
+        projected_flux_weights = _observation(
+            self.projected_flux_weights, jnp.float64, "projected_flux_weights"
+        )
+        parallel_flux_weights = _observation(
+            self.parallel_flux_weights, jnp.float64, "parallel_flux_weights"
+        )
+        parallel_gradient_flux_weights = _observation(
+            self.parallel_gradient_flux_weights,
+            jnp.float64,
+            "parallel_gradient_flux_weights",
+        )
+        polynomial_order = _row(self.polynomial_order, jnp.int32, "polynomial_order")
+        rank = _row(self.rank, jnp.int32, "rank")
+        condition_number = _row(self.condition_number, jnp.float64, "condition_number")
+        reproduction_residual = _row(
+            self.reproduction_residual, jnp.float64, "reproduction_residual"
+        )
+        projected_norm = _row(
+            self.normalized_projected_weight_norm,
+            jnp.float64,
+            "normalized_projected_weight_norm",
+        )
+        parallel_norm = _row(
+            self.normalized_parallel_weight_norm,
+            jnp.float64,
+            "normalized_parallel_weight_norm",
+        )
+        parallel_gradient_norm = _row(
+            self.normalized_parallel_gradient_weight_norm,
+            jnp.float64,
+            "normalized_parallel_gradient_weight_norm",
+        )
+        active = _row(self.active, bool, "active")
+
+        nx, ny, nz = self.layout.owned_shape
+        hx, hy, hz = self.layout.cell_halo_shape
+        owned_in_bounds = (
+            (owned_i >= 0) & (owned_i < nx)
+            & (owned_j >= 0) & (owned_j < ny)
+            & (owned_k >= 0) & (owned_k < nz)
+        )
+        halo_in_bounds = (
+            (halo_i >= 0) & (halo_i < hx)
+            & (halo_j >= 0) & (halo_j < hy)
+            & (halo_k >= 0) & (halo_k < hz)
+        )
+        boundary_reference_valid = (
+            (boundary_face_row >= 0)
+            & (boundary_patch >= 0)
+            & (boundary_quadrature >= 0)
+            & (boundary_quadrature < 4)
+        )
+        valid_kind = (
+            (observation_kind == CV_RECONSTRUCTION_EQUATION_CELL)
+            | (observation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL)
+            | (observation_kind == CV_RECONSTRUCTION_EQUATION_DIRICHLET)
+        )
+        valid_observation = (~observation_active) | (
+            valid_kind
+            & (
+                ((observation_kind == CV_RECONSTRUCTION_EQUATION_CELL) & owned_in_bounds)
+                | (
+                    (observation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL)
+                    & halo_in_bounds
+                )
+                | (
+                    (observation_kind == CV_RECONSTRUCTION_EQUATION_DIRICHLET)
+                    & boundary_reference_valid
+                )
+            )
+        )
+        finite_active = (
+            jnp.isfinite(condition_number)
+            & jnp.isfinite(reproduction_residual)
+            & jnp.isfinite(projected_norm)
+            & jnp.isfinite(parallel_norm)
+            & jnp.isfinite(parallel_gradient_norm)
+            & (projected_norm >= 0.0)
+            & (parallel_norm >= 0.0)
+            & (parallel_gradient_norm >= 0.0)
+            & jnp.all(
+                (~observation_active)
+                | (
+                    jnp.isfinite(projected_flux_weights)
+                    & jnp.isfinite(parallel_flux_weights)
+                    & jnp.isfinite(parallel_gradient_flux_weights)
+                ),
+                axis=1,
+            )
+        )
+        try:
+            valid = bool(
+                jnp.all(valid_observation)
+                & jnp.all((~active) | (polynomial_order == 3))
+                & jnp.all((~active) | (rank >= 20))
+                & jnp.all((~active) | finite_active)
+                & jnp.all((~active) | jnp.any(observation_active, axis=1))
+                & jnp.all((~active) | (functional_face_id != -1))
+            )
+        except jax.errors.TracerBoolConversionError:
+            valid = True
+        if not valid:
+            raise ValueError(
+                "active cubic face-functionals require valid observations, "
+                "finite diagnostics, and rank at least 20"
+            )
+
+        active_observation = active[:, None] & observation_active
+        object.__setattr__(self, "functional_face_id", jnp.where(active, functional_face_id, -1))
+        object.__setattr__(
+            self, "observation_kind",
+            jnp.where(active_observation, observation_kind, CV_RECONSTRUCTION_EQUATION_NONE),
+        )
+        for name, array in (
+            ("owned_i", owned_i), ("owned_j", owned_j), ("owned_k", owned_k),
+            ("halo_i", halo_i), ("halo_j", halo_j), ("halo_k", halo_k),
+            ("boundary_face_row", boundary_face_row),
+            ("boundary_patch", boundary_patch), ("boundary_quadrature", boundary_quadrature),
+        ):
+            object.__setattr__(self, name, jnp.where(active_observation, array, 0))
+        object.__setattr__(self, "observation_active", active_observation)
+        object.__setattr__(
+            self, "projected_flux_weights",
+            jnp.where(active_observation, projected_flux_weights, 0.0),
+        )
+        object.__setattr__(
+            self, "parallel_flux_weights",
+            jnp.where(active_observation, parallel_flux_weights, 0.0),
+        )
+        object.__setattr__(
+            self,
+            "parallel_gradient_flux_weights",
+            jnp.where(active_observation, parallel_gradient_flux_weights, 0.0),
+        )
+        object.__setattr__(self, "polynomial_order", jnp.where(active, polynomial_order, 0))
+        object.__setattr__(self, "rank", jnp.where(active, rank, 0))
+        object.__setattr__(self, "condition_number", jnp.where(active, condition_number, jnp.inf))
+        object.__setattr__(self, "reproduction_residual", jnp.where(active, reproduction_residual, 0.0))
+        object.__setattr__(self, "normalized_projected_weight_norm", jnp.where(active, projected_norm, 0.0))
+        object.__setattr__(self, "normalized_parallel_weight_norm", jnp.where(active, parallel_norm, 0.0))
+        object.__setattr__(
+            self,
+            "normalized_parallel_gradient_weight_norm",
+            jnp.where(active, parallel_gradient_norm, 0.0),
+        )
+        object.__setattr__(self, "active", active)
+        object.__setattr__(self, "max_rows", max_rows)
+        object.__setattr__(self, "max_equations", max_equations)
+
+    @classmethod
+    def empty(
+        cls, layout: HaloLayout3D, *, max_rows: int = 0, max_equations: int = 1
+    ) -> "LocalMomentFittedFaceRows3D":
+        row = (int(max_rows),)
+        observations = row + (int(max_equations),)
+        return cls(
+            layout=layout,
+            functional_face_id=jnp.full(row, -1, dtype=jnp.int64),
+            observation_kind=jnp.zeros(observations, dtype=jnp.int32),
+            owned_i=jnp.zeros(observations, dtype=jnp.int32),
+            owned_j=jnp.zeros(observations, dtype=jnp.int32),
+            owned_k=jnp.zeros(observations, dtype=jnp.int32),
+            halo_i=jnp.zeros(observations, dtype=jnp.int32),
+            halo_j=jnp.zeros(observations, dtype=jnp.int32),
+            halo_k=jnp.zeros(observations, dtype=jnp.int32),
+            boundary_face_row=jnp.zeros(observations, dtype=jnp.int32),
+            boundary_patch=jnp.zeros(observations, dtype=jnp.int32),
+            boundary_quadrature=jnp.zeros(observations, dtype=jnp.int32),
+            observation_active=jnp.zeros(observations, dtype=bool),
+            projected_flux_weights=jnp.zeros(observations, dtype=jnp.float64),
+            parallel_flux_weights=jnp.zeros(observations, dtype=jnp.float64),
+            parallel_gradient_flux_weights=jnp.zeros(
+                observations, dtype=jnp.float64
+            ),
+            polynomial_order=jnp.zeros(row, dtype=jnp.int32),
+            rank=jnp.zeros(row, dtype=jnp.int32),
+            condition_number=jnp.full(row, jnp.inf, dtype=jnp.float64),
+            reproduction_residual=jnp.zeros(row, dtype=jnp.float64),
+            normalized_projected_weight_norm=jnp.zeros(row, dtype=jnp.float64),
+            normalized_parallel_weight_norm=jnp.zeros(row, dtype=jnp.float64),
+            normalized_parallel_gradient_weight_norm=jnp.zeros(
+                row, dtype=jnp.float64
+            ),
+            active=jnp.zeros(row, dtype=bool),
+            max_rows=max_rows,
+            max_equations=max_equations,
+        )
+
+    def tree_flatten(self):
+        names = (
+            "functional_face_id", "observation_kind", "owned_i", "owned_j", "owned_k",
+            "halo_i", "halo_j", "halo_k", "boundary_face_row", "boundary_patch",
+            "boundary_quadrature", "observation_active", "projected_flux_weights",
+            "parallel_flux_weights", "polynomial_order", "rank", "condition_number",
+            "parallel_gradient_flux_weights",
+            "reproduction_residual", "normalized_projected_weight_norm",
+            "normalized_parallel_weight_norm",
+            "normalized_parallel_gradient_weight_norm", "active",
+        )
+        return (tuple(getattr(self, name) for name in names), (self.layout, self.max_rows, self.max_equations))
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        layout, max_rows, max_equations = aux_data
+        names = (
+            "functional_face_id", "observation_kind", "owned_i", "owned_j", "owned_k",
+            "halo_i", "halo_j", "halo_k", "boundary_face_row", "boundary_patch",
+            "boundary_quadrature", "observation_active", "projected_flux_weights",
+            "parallel_flux_weights", "polynomial_order", "rank", "condition_number",
+            "parallel_gradient_flux_weights",
+            "reproduction_residual", "normalized_projected_weight_norm",
+            "normalized_parallel_weight_norm",
+            "normalized_parallel_gradient_weight_norm", "active",
+        )
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "layout", layout)
+        object.__setattr__(instance, "max_rows", max_rows)
+        object.__setattr__(instance, "max_equations", max_equations)
+        for name, value in zip(names, children):
+            object.__setattr__(instance, name, value)
+        return instance
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalControlVolumeFieldClosure3D(_DataclassPyTreeMixin):
+    """Field-dependent direct fluxes evaluated from face-functional rows."""
+
+    projected_flux: jnp.ndarray
+    parallel_flux: jnp.ndarray
+    parallel_gradient_flux: jnp.ndarray
+    valid: jnp.ndarray
+    active: jnp.ndarray
+    max_rows: int
+
+    def __post_init__(self) -> None:
+        max_rows = int(self.max_rows)
+        if max_rows < 0:
+            raise ValueError("LocalControlVolumeFieldClosure3D.max_rows must be non-negative")
+        shape = (max_rows,)
+        projected_flux = jnp.asarray(self.projected_flux, dtype=jnp.float64)
+        parallel_flux = jnp.asarray(self.parallel_flux, dtype=jnp.float64)
+        parallel_gradient_flux = jnp.asarray(
+            self.parallel_gradient_flux, dtype=jnp.float64
+        )
+        valid = jnp.asarray(self.valid, dtype=bool)
+        active = jnp.asarray(self.active, dtype=bool)
+        for name, value in (
+            ("projected_flux", projected_flux), ("parallel_flux", parallel_flux),
+            ("parallel_gradient_flux", parallel_gradient_flux),
+            ("valid", valid), ("active", active),
+        ):
+            if value.shape != shape:
+                raise ValueError(f"LocalControlVolumeFieldClosure3D.{name} must have shape {shape}, got {value.shape}")
+        try:
+            finite = bool(
+                jnp.all(
+                    (~(active & valid))
+                    | (
+                        jnp.isfinite(projected_flux)
+                        & jnp.isfinite(parallel_flux)
+                        & jnp.isfinite(parallel_gradient_flux)
+                    )
+                )
+            )
+        except jax.errors.TracerBoolConversionError:
+            finite = True
+        if not finite:
+            raise ValueError("valid active field-closure fluxes must be finite")
+        # An active invalid row is a contract violation, never a zero-flux
+        # fallback. Preserve it as NaN so compiled operator paths fail loudly.
+        object.__setattr__(self, "projected_flux", jnp.where(active, jnp.where(valid, projected_flux, jnp.nan), 0.0))
+        object.__setattr__(self, "parallel_flux", jnp.where(active, jnp.where(valid, parallel_flux, jnp.nan), 0.0))
+        object.__setattr__(
+            self,
+            "parallel_gradient_flux",
+            jnp.where(active, jnp.where(valid, parallel_gradient_flux, jnp.nan), 0.0),
+        )
+        object.__setattr__(self, "valid", active & valid)
+        object.__setattr__(self, "active", active)
+        object.__setattr__(self, "max_rows", max_rows)
+
+    @classmethod
+    def empty(cls, *, max_rows: int = 0) -> "LocalControlVolumeFieldClosure3D":
+        return cls(
+            projected_flux=jnp.zeros((max_rows,), dtype=jnp.float64),
+            parallel_flux=jnp.zeros((max_rows,), dtype=jnp.float64),
+            parallel_gradient_flux=jnp.zeros((max_rows,), dtype=jnp.float64),
+            valid=jnp.zeros((max_rows,), dtype=bool),
+            active=jnp.zeros((max_rows,), dtype=bool),
+            max_rows=max_rows,
+        )
+
+    def tree_flatten(self):
+        return (
+            (
+                self.projected_flux,
+                self.parallel_flux,
+                self.parallel_gradient_flux,
+                self.valid,
+                self.active,
+            ),
+            self.max_rows,
+        )
+
+    @classmethod
+    def tree_unflatten(cls, max_rows, children):
+        projected_flux, parallel_flux, parallel_gradient_flux, valid, active = children
+        return cls(
+            projected_flux=projected_flux,
+            parallel_flux=parallel_flux,
+            parallel_gradient_flux=parallel_gradient_flux,
+            valid=valid,
+            active=active,
+            max_rows=max_rows,
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalControlVolumeBoundaryBC3D(_DataclassPyTreeMixin):
+    """Field-specific BC values collocated with irregular face rows."""
+
+    kind: jnp.ndarray
+    centroid_value: jnp.ndarray
+    quadrature_value: jnp.ndarray
+    active: jnp.ndarray
+    max_rows: int
+    max_patches: int = 4
+
+    def __post_init__(self) -> None:
+        max_rows = int(self.max_rows)
+        max_patches = int(self.max_patches)
+        row_shape = (max_rows,)
+        quadrature_shape = (max_rows, max_patches, 4)
+        kind = jnp.asarray(self.kind, dtype=jnp.int32)
+        centroid_value = jnp.asarray(self.centroid_value, dtype=jnp.float64)
+        quadrature_value = jnp.asarray(self.quadrature_value, dtype=jnp.float64)
+        active = jnp.asarray(self.active, dtype=bool)
+        if kind.shape != row_shape:
+            raise ValueError(f"boundary kind must have shape {row_shape}, got {kind.shape}")
+        if centroid_value.shape != row_shape:
+            raise ValueError(
+                f"boundary centroid_value must have shape {row_shape}, got {centroid_value.shape}"
+            )
+        if quadrature_value.shape != quadrature_shape:
+            raise ValueError(
+                "boundary quadrature_value must have shape "
+                f"{quadrature_shape}, got {quadrature_value.shape}"
+            )
+        if active.shape != row_shape:
+            raise ValueError(f"boundary active must have shape {row_shape}, got {active.shape}")
+        supported = (
+            (kind == BC_NONE)
+            | (kind == BC_DIRICHLET)
+            | (kind == BC_NEUMANN)
+            | (kind == BC_NORMALFLUX)
+            | (kind == BC_NOFLUX)
+        )
+        try:
+            all_supported = bool(jnp.all((~active) | supported))
+        except jax.errors.TracerBoolConversionError:
+            all_supported = True
+        if not all_supported:
+            raise ValueError("active control-volume boundary rows use an unsupported BC kind")
+        object.__setattr__(self, "kind", jnp.where(active, kind, BC_NONE))
+        object.__setattr__(
+            self,
+            "centroid_value",
+            jnp.where(active, centroid_value, 0.0),
+        )
+        object.__setattr__(
+            self,
+            "quadrature_value",
+            jnp.where(active[:, None, None], quadrature_value, 0.0),
+        )
+        object.__setattr__(self, "active", active)
+        object.__setattr__(self, "max_rows", max_rows)
+        object.__setattr__(self, "max_patches", max_patches)
+
+    @classmethod
+    def empty(
+        cls,
+        *,
+        max_rows: int = 0,
+        max_patches: int = 4,
+    ) -> "LocalControlVolumeBoundaryBC3D":
+        return cls(
+            kind=jnp.zeros((max_rows,), dtype=jnp.int32),
+            centroid_value=jnp.zeros((max_rows,), dtype=jnp.float64),
+            quadrature_value=jnp.zeros(
+                (max_rows, max_patches, 4),
+                dtype=jnp.float64,
+            ),
+            active=jnp.zeros((max_rows,), dtype=bool),
+            max_rows=max_rows,
+            max_patches=max_patches,
+        )
+
+    def tree_flatten(self):
+        return (
+            (self.kind, self.centroid_value, self.quadrature_value, self.active),
+            (self.max_rows, self.max_patches),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        max_rows, max_patches = aux_data
+        kind, centroid_value, quadrature_value, active = children
+        return cls(
+            kind=kind,
+            centroid_value=centroid_value,
+            quadrature_value=quadrature_value,
+            active=active,
+            max_rows=max_rows,
+            max_patches=max_patches,
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalMomentReconstruction3D(_DataclassPyTreeMixin):
+    """Precomputed moment-aware polynomial equations for irregular owners.
+
+    ``rhs_transform`` maps equation right-hand sides directly to the nine
+    physical logical-coordinate coefficients ``(g, Hsym[, Tsym])``.  Rank-revealing
+    factorization is performed when this metadata is built, never in an
+    operator JIT.
+    """
+
+    layout: HaloLayout3D
+    target_i: jnp.ndarray
+    target_j: jnp.ndarray
+    target_k: jnp.ndarray
+    equation_kind: jnp.ndarray
+    sample_i: jnp.ndarray
+    sample_j: jnp.ndarray
+    sample_k: jnp.ndarray
+    boundary_face_row: jnp.ndarray
+    equation_active: jnp.ndarray
+    rhs_transform: jnp.ndarray
+    active: jnp.ndarray
+    target_row_for_cell: jnp.ndarray
+    polynomial_order: jnp.ndarray
+    rank: jnp.ndarray
+    condition_number: jnp.ndarray
+    max_rows: int
+    max_equations: int
+    boundary_patch: jnp.ndarray | None = None
+    boundary_quadrature: jnp.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("LocalMomentReconstruction3D.layout must be a HaloLayout3D")
+        max_rows = int(self.max_rows)
+        max_equations = int(self.max_equations)
+        if max_rows < 0 or max_equations < 1:
+            raise ValueError("reconstruction sizes must be non-negative/positive")
+        row_shape = (max_rows,)
+        equation_shape = (max_rows, max_equations)
+
+        def _int(value, shape, name):
+            array = jnp.asarray(value, dtype=jnp.int32)
+            if array.shape != shape:
+                raise ValueError(f"{name} must have shape {shape}, got {array.shape}")
+            return array
+
+        target_i = _int(self.target_i, row_shape, "quadratic target_i")
+        target_j = _int(self.target_j, row_shape, "quadratic target_j")
+        target_k = _int(self.target_k, row_shape, "quadratic target_k")
+        equation_kind = _int(
+            self.equation_kind,
+            equation_shape,
+            "quadratic equation_kind",
+        )
+        sample_i = _int(self.sample_i, equation_shape, "quadratic sample_i")
+        sample_j = _int(self.sample_j, equation_shape, "quadratic sample_j")
+        sample_k = _int(self.sample_k, equation_shape, "quadratic sample_k")
+        boundary_face_row = _int(
+            self.boundary_face_row,
+            equation_shape,
+            "quadratic boundary_face_row",
+        )
+        boundary_patch = _int(
+            (
+                jnp.zeros(equation_shape, dtype=jnp.int32)
+                if self.boundary_patch is None
+                else self.boundary_patch
+            ),
+            equation_shape,
+            "quadratic boundary_patch",
+        )
+        boundary_quadrature = _int(
+            (
+                jnp.zeros(equation_shape, dtype=jnp.int32)
+                if self.boundary_quadrature is None
+                else self.boundary_quadrature
+            ),
+            equation_shape,
+            "quadratic boundary_quadrature",
+        )
+        equation_active = jnp.asarray(self.equation_active, dtype=bool)
+        rhs_transform = jnp.asarray(self.rhs_transform, dtype=jnp.float64)
+        active = jnp.asarray(self.active, dtype=bool)
+        target_row_for_cell = jnp.asarray(self.target_row_for_cell, dtype=jnp.int32)
+        polynomial_order = _int(
+            self.polynomial_order,
+            row_shape,
+            "quadratic polynomial_order",
+        )
+        rank = _int(self.rank, row_shape, "quadratic rank")
+        condition_number = jnp.asarray(self.condition_number, dtype=jnp.float64)
+        if equation_active.shape != equation_shape:
+            raise ValueError(
+                f"equation_active must have shape {equation_shape}, got {equation_active.shape}"
+            )
+        if rhs_transform.ndim != 3 or rhs_transform.shape[0] != max_rows or rhs_transform.shape[2] != max_equations or rhs_transform.shape[1] not in (9, 19):
+            raise ValueError(
+                "rhs_transform must have shape "
+                f"(max_rows, 9|19, max_equations), got {rhs_transform.shape}"
+            )
+        if active.shape != row_shape:
+            raise ValueError(f"quadratic active must have shape {row_shape}, got {active.shape}")
+        if target_row_for_cell.shape != self.layout.owned_shape:
+            raise ValueError(
+                "target_row_for_cell must match layout.owned_shape, got "
+                f"{target_row_for_cell.shape}"
+            )
+        if condition_number.shape != row_shape:
+            raise ValueError(
+                f"condition_number must have shape {row_shape}, got {condition_number.shape}"
+            )
+        valid_kind = (
+            (~equation_active)
+            | (equation_kind == CV_RECONSTRUCTION_EQUATION_CELL)
+            | (equation_kind == CV_RECONSTRUCTION_EQUATION_DIRICHLET)
+            | (equation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL)
+        )
+        try:
+            all_valid_kind = bool(jnp.all(valid_kind))
+            all_valid_order = bool(
+                jnp.all((~active) | ((polynomial_order >= 1) & (polynomial_order <= 3)))
+            )
+        except jax.errors.TracerBoolConversionError:
+            all_valid_kind = True
+            all_valid_order = True
+        if not all_valid_kind:
+            raise ValueError("active reconstruction equation has an invalid kind")
+        if not all_valid_order:
+            raise ValueError("active reconstruction rows must have order one, two, or three")
+
+        object.__setattr__(self, "target_i", jnp.where(active, target_i, 0))
+        object.__setattr__(self, "target_j", jnp.where(active, target_j, 0))
+        object.__setattr__(self, "target_k", jnp.where(active, target_k, 0))
+        object.__setattr__(
+            self,
+            "equation_kind",
+            jnp.where(equation_active, equation_kind, CV_RECONSTRUCTION_EQUATION_NONE),
+        )
+        object.__setattr__(self, "sample_i", jnp.where(equation_active, sample_i, 0))
+        object.__setattr__(self, "sample_j", jnp.where(equation_active, sample_j, 0))
+        object.__setattr__(self, "sample_k", jnp.where(equation_active, sample_k, 0))
+        object.__setattr__(
+            self,
+            "boundary_face_row",
+            jnp.where(equation_active, boundary_face_row, 0),
+        )
+        object.__setattr__(
+            self,
+            "boundary_patch",
+            jnp.where(equation_active, boundary_patch, 0),
+        )
+        object.__setattr__(
+            self,
+            "boundary_quadrature",
+            jnp.where(equation_active, boundary_quadrature, 0),
+        )
+        object.__setattr__(self, "equation_active", equation_active)
+        object.__setattr__(
+            self,
+            "rhs_transform",
+            jnp.where(equation_active[:, None, :], rhs_transform, 0.0),
+        )
+        object.__setattr__(self, "active", active)
+        object.__setattr__(self, "target_row_for_cell", target_row_for_cell)
+        object.__setattr__(
+            self,
+            "polynomial_order",
+            jnp.where(active, polynomial_order, 0),
+        )
+        object.__setattr__(self, "rank", jnp.where(active, rank, 0))
+        object.__setattr__(
+            self,
+            "condition_number",
+            jnp.where(active, condition_number, jnp.inf),
+        )
+        object.__setattr__(self, "max_rows", max_rows)
+        object.__setattr__(self, "max_equations", max_equations)
+
+    @classmethod
+    def empty(
+        cls,
+        layout: HaloLayout3D,
+        *,
+        max_rows: int = 0,
+        max_equations: int = 1,
+        coefficient_count: int = 9,
+    ) -> "LocalMomentReconstruction3D":
+        coefficient_count = int(coefficient_count)
+        if coefficient_count not in (9, 19):
+            raise ValueError("coefficient_count must be 9 or 19")
+        return cls(
+            layout=layout,
+            target_i=jnp.zeros((max_rows,), dtype=jnp.int32),
+            target_j=jnp.zeros((max_rows,), dtype=jnp.int32),
+            target_k=jnp.zeros((max_rows,), dtype=jnp.int32),
+            equation_kind=jnp.zeros(
+                (max_rows, max_equations),
+                dtype=jnp.int32,
+            ),
+            sample_i=jnp.zeros((max_rows, max_equations), dtype=jnp.int32),
+            sample_j=jnp.zeros((max_rows, max_equations), dtype=jnp.int32),
+            sample_k=jnp.zeros((max_rows, max_equations), dtype=jnp.int32),
+            boundary_face_row=jnp.zeros(
+                (max_rows, max_equations),
+                dtype=jnp.int32,
+            ),
+            equation_active=jnp.zeros((max_rows, max_equations), dtype=bool),
+            rhs_transform=jnp.zeros(
+                (max_rows, coefficient_count, max_equations),
+                dtype=jnp.float64,
+            ),
+            active=jnp.zeros((max_rows,), dtype=bool),
+            target_row_for_cell=-jnp.ones(layout.owned_shape, dtype=jnp.int32),
+            polynomial_order=jnp.zeros((max_rows,), dtype=jnp.int32),
+            rank=jnp.zeros((max_rows,), dtype=jnp.int32),
+            condition_number=jnp.full((max_rows,), jnp.inf, dtype=jnp.float64),
+            max_rows=max_rows,
+            max_equations=max_equations,
+        )
+
+    def tree_flatten(self):
+        return (
+            (
+                self.target_i,
+                self.target_j,
+                self.target_k,
+                self.equation_kind,
+                self.sample_i,
+                self.sample_j,
+                self.sample_k,
+                self.boundary_face_row,
+                self.boundary_patch,
+                self.boundary_quadrature,
+                self.equation_active,
+                self.rhs_transform,
+                self.active,
+                self.target_row_for_cell,
+                self.polynomial_order,
+                self.rank,
+                self.condition_number,
+            ),
+            (self.layout, self.max_rows, self.max_equations),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        layout, max_rows, max_equations = aux_data
+        names = (
+            "target_i",
+            "target_j",
+            "target_k",
+            "equation_kind",
+            "sample_i",
+            "sample_j",
+            "sample_k",
+            "boundary_face_row",
+            "boundary_patch",
+            "boundary_quadrature",
+            "equation_active",
+            "rhs_transform",
+            "active",
+            "target_row_for_cell",
+            "polynomial_order",
+            "rank",
+            "condition_number",
+        )
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "layout", layout)
+        object.__setattr__(instance, "max_rows", max_rows)
+        object.__setattr__(instance, "max_equations", max_equations)
+        for name, value in zip(names, children):
+            object.__setattr__(instance, name, value)
+        return instance
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalControlVolumePolynomial3D(_DataclassPyTreeMixin):
+    """Runtime moment-aware polynomial coefficients for one owned scalar field."""
+
+    gradient: jnp.ndarray
+    hessian: jnp.ndarray
+    valid: jnp.ndarray
+    polynomial_order: jnp.ndarray
+    condition_number: jnp.ndarray
+    third_derivative: jnp.ndarray | None = None
+    owner_values: jnp.ndarray | None = None
+    remote_face_value: jnp.ndarray | None = None
+    remote_face_gradient: jnp.ndarray | None = None
+    remote_face_valid: jnp.ndarray | None = None
+    remote_functional_value: jnp.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        gradient = jnp.asarray(self.gradient, dtype=jnp.float64)
+        hessian = jnp.asarray(self.hessian, dtype=jnp.float64)
+        valid = jnp.asarray(self.valid, dtype=bool)
+        polynomial_order = jnp.asarray(self.polynomial_order, dtype=jnp.int32)
+        condition_number = jnp.asarray(self.condition_number, dtype=jnp.float64)
+        owner_values = (
+            None
+            if self.owner_values is None
+            else jnp.asarray(self.owner_values, dtype=jnp.float64)
+        )
+        if self.remote_face_value is None:
+            remote_face_value = jnp.zeros((0, 0, 0), dtype=jnp.float64)
+            remote_face_gradient = jnp.zeros((0, 0, 0, 3), dtype=jnp.float64)
+            remote_face_valid = jnp.zeros((0, 0, 0), dtype=bool)
+        else:
+            remote_face_value = jnp.asarray(
+                self.remote_face_value,
+                dtype=jnp.float64,
+            )
+            if self.remote_face_gradient is None or self.remote_face_valid is None:
+                raise ValueError(
+                    "remote_face_gradient and remote_face_valid are required "
+                    "when remote_face_value is provided"
+                )
+            remote_face_gradient = jnp.asarray(
+                self.remote_face_gradient,
+                dtype=jnp.float64,
+            )
+            remote_face_valid = jnp.asarray(self.remote_face_valid, dtype=bool)
+            if remote_face_value.ndim != 3:
+                raise ValueError(
+                    "remote_face_value must have shape "
+                    "(face_rows, patches, quadrature_points)"
+                )
+            if remote_face_gradient.shape != remote_face_value.shape + (3,):
+                raise ValueError(
+                    "remote_face_gradient must have shape "
+                    "remote_face_value.shape + (3,)"
+                )
+            if remote_face_valid.shape != remote_face_value.shape:
+                raise ValueError(
+                    "remote_face_valid must have shape remote_face_value.shape"
+                )
+        remote_functional_value = jnp.asarray(
+            (
+                jnp.zeros((0, 0), dtype=jnp.float64)
+                if self.remote_functional_value is None
+                else self.remote_functional_value
+            ),
+            dtype=jnp.float64,
+        )
+        if remote_functional_value.ndim != 2:
+            raise ValueError(
+                "remote_functional_value must have shape "
+                "(face_functional_rows, equations)"
+            )
+        if gradient.ndim != 4 or gradient.shape[-1] != 3:
+            raise ValueError("polynomial gradient must have shape owned_shape + (3,)")
+        owned_shape = gradient.shape[:-1]
+        third_derivative = jnp.asarray(
+            jnp.zeros(owned_shape + (3, 3, 3), dtype=jnp.float64)
+            if self.third_derivative is None
+            else self.third_derivative,
+            dtype=jnp.float64,
+        )
+        if hessian.shape != owned_shape + (3, 3):
+            raise ValueError("polynomial hessian must have shape owned_shape + (3, 3)")
+        if third_derivative.shape != owned_shape + (3, 3, 3):
+            raise ValueError(
+                "polynomial third_derivative must have shape owned_shape + (3, 3, 3)"
+            )
+        for name, array in (
+            ("valid", valid),
+            ("polynomial_order", polynomial_order),
+            ("condition_number", condition_number),
+        ):
+            if array.shape != owned_shape:
+                raise ValueError(f"polynomial {name} must have shape {owned_shape}")
+        if owner_values is not None and owner_values.shape != owned_shape:
+            raise ValueError(
+                "polynomial owner_values must have shape "
+                f"{owned_shape}, got {owner_values.shape}"
+            )
+        object.__setattr__(self, "gradient", gradient)
+        object.__setattr__(
+            self,
+            "hessian",
+            0.5 * (hessian + jnp.swapaxes(hessian, -1, -2)),
+        )
+        permutations = (
+            (0, 1, 2), (0, 2, 1), (1, 0, 2),
+            (1, 2, 0), (2, 0, 1), (2, 1, 0),
+        )
+        object.__setattr__(
+            self,
+            "third_derivative",
+            sum(
+                jnp.transpose(
+                    third_derivative,
+                    (0, 1, 2) + tuple(axis + 3 for axis in permutation),
+                )
+                for permutation in permutations
+            ) / 6.0,
+        )
+        object.__setattr__(self, "valid", valid)
+        object.__setattr__(self, "polynomial_order", polynomial_order)
+        object.__setattr__(self, "condition_number", condition_number)
+        object.__setattr__(self, "owner_values", owner_values)
+        object.__setattr__(self, "remote_face_value", remote_face_value)
+        object.__setattr__(self, "remote_face_gradient", remote_face_gradient)
+        object.__setattr__(self, "remote_face_valid", remote_face_valid)
+        object.__setattr__(
+            self,
+            "remote_functional_value",
+            remote_functional_value,
+        )
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        return tuple(int(value) for value in self.gradient.shape[:-1])
+
+    def as_cell_gradient(self) -> LocalCellGradient3D:
+        return LocalCellGradient3D(
+            gradient=self.gradient,
+            valid=self.valid,
+            reconstruction_mask=self.polynomial_order > 0,
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalRegularBoundaryMomentClosure3D(_DataclassPyTreeMixin):
+    """Moment-aware Dirichlet derivative weights on regular boundaries.
+
+    The final axis of each face/owner weight array multiplies
+    ``(boundary_value, first, second, third inward cell average)``.  Weights
+    return the positive-coordinate derivative either at the boundary face or
+    at the first control-volume centroid. Only entries selected by the
+    corresponding validity mask are used.
+    """
+
+    layout: HaloLayout3D
+    x_face_weights: jnp.ndarray
+    y_face_weights: jnp.ndarray
+    z_face_weights: jnp.ndarray
+    x_owner_weights: jnp.ndarray
+    y_owner_weights: jnp.ndarray
+    z_owner_weights: jnp.ndarray
+    x_valid: jnp.ndarray
+    y_valid: jnp.ndarray
+    z_valid: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("layout must be a HaloLayout3D")
+        face_shapes = tuple(
+            self.layout.face_control_shape(axis) for axis in range(3)
+        )
+        face_weights = tuple(
+            jnp.asarray(value, dtype=jnp.float64)
+            for value in (
+                self.x_face_weights,
+                self.y_face_weights,
+                self.z_face_weights,
+            )
+        )
+        owner_weights = tuple(
+            jnp.asarray(value, dtype=jnp.float64)
+            for value in (
+                self.x_owner_weights,
+                self.y_owner_weights,
+                self.z_owner_weights,
+            )
+        )
+        valid = tuple(
+            jnp.asarray(value, dtype=bool)
+            for value in (self.x_valid, self.y_valid, self.z_valid)
+        )
+        for axis, (axis_face, axis_owner, axis_valid, face_shape) in enumerate(
+            zip(face_weights, owner_weights, valid, face_shapes)
+        ):
+            for name, axis_weights in (
+                ("face", axis_face),
+                ("owner", axis_owner),
+            ):
+                if axis_weights.shape != face_shape + (4,):
+                    raise ValueError(
+                        f"regular boundary {name} weights must have shape "
+                        f"{face_shape + (4,)} on axis {axis}, got "
+                        f"{axis_weights.shape}"
+                    )
+            if axis_valid.shape != face_shape:
+                raise ValueError(
+                    "regular boundary derivative validity must have shape "
+                    f"{face_shape} on axis {axis}, got {axis_valid.shape}"
+                )
+            try:
+                finite = bool(
+                    jnp.all(
+                        (~axis_valid)[..., None]
+                        | (
+                            jnp.isfinite(axis_face)
+                            & jnp.isfinite(axis_owner)
+                        )
+                    )
+                )
+            except jax.errors.TracerBoolConversionError:
+                finite = True
+            if not finite:
+                raise ValueError(
+                    "active regular boundary derivative weights must be finite"
+                )
+        object.__setattr__(self, "x_face_weights", face_weights[0])
+        object.__setattr__(self, "y_face_weights", face_weights[1])
+        object.__setattr__(self, "z_face_weights", face_weights[2])
+        object.__setattr__(self, "x_owner_weights", owner_weights[0])
+        object.__setattr__(self, "y_owner_weights", owner_weights[1])
+        object.__setattr__(self, "z_owner_weights", owner_weights[2])
+        object.__setattr__(self, "x_valid", valid[0])
+        object.__setattr__(self, "y_valid", valid[1])
+        object.__setattr__(self, "z_valid", valid[2])
+
+    @classmethod
+    def empty(
+        cls,
+        layout: HaloLayout3D,
+    ) -> "LocalRegularBoundaryMomentClosure3D":
+        face_shapes = tuple(layout.face_control_shape(axis) for axis in range(3))
+        zero_weights = tuple(
+            jnp.zeros(shape + (4,), dtype=jnp.float64)
+            for shape in face_shapes
+        )
+        return cls(
+            layout=layout,
+            x_face_weights=zero_weights[0],
+            y_face_weights=zero_weights[1],
+            z_face_weights=zero_weights[2],
+            x_owner_weights=zero_weights[0],
+            y_owner_weights=zero_weights[1],
+            z_owner_weights=zero_weights[2],
+            x_valid=jnp.zeros(face_shapes[0], dtype=bool),
+            y_valid=jnp.zeros(face_shapes[1], dtype=bool),
+            z_valid=jnp.zeros(face_shapes[2], dtype=bool),
+        )
+
+    def axis_payload(
+        self,
+        axis: int,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        return (
+            (
+                self.x_face_weights,
+                self.y_face_weights,
+                self.z_face_weights,
+            )[axis],
+            (
+                self.x_owner_weights,
+                self.y_owner_weights,
+                self.z_owner_weights,
+            )[axis],
+            (self.x_valid, self.y_valid, self.z_valid)[axis],
+        )
+
+    def tree_flatten(self):
+        return (
+            (
+                self.x_face_weights,
+                self.y_face_weights,
+                self.z_face_weights,
+                self.x_owner_weights,
+                self.y_owner_weights,
+                self.z_owner_weights,
+                self.x_valid,
+                self.y_valid,
+                self.z_valid,
+            ),
+            self.layout,
+        )
+
+    @classmethod
+    def tree_unflatten(cls, layout, children):
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "layout", layout)
+        for name, value in zip(
+            (
+                "x_face_weights",
+                "y_face_weights",
+                "z_face_weights",
+                "x_owner_weights",
+                "y_owner_weights",
+                "z_owner_weights",
+                "x_valid",
+                "y_valid",
+                "z_valid",
+            ),
+            children,
+        ):
+            object.__setattr__(instance, name, value)
+        return instance
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
+    """Unified geometry used by embedded-boundary reconstruction and fluxes."""
+
+    cells: LocalControlVolumeCellGeometry3D
+    regular_faces: LocalRegularFaceGeometry3D
+    irregular_faces: LocalControlVolumeFaceRows3D
+    reconstruction: LocalMomentReconstruction3D
+    face_functionals: LocalMomentFittedFaceRows3D | None = None
+    centroid_J: jnp.ndarray | None = None
+    centroid_g_cov: jnp.ndarray | None = None
+    centroid_B_contra: jnp.ndarray | None = None
+    centroid_Bmag: jnp.ndarray | None = None
+    centroid_curvature: jnp.ndarray | None = None
+    regular_boundary_closure: (
+        LocalRegularBoundaryMomentClosure3D | None
+    ) = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.cells, LocalControlVolumeCellGeometry3D):
+            raise TypeError("cells must be LocalControlVolumeCellGeometry3D")
+        if not isinstance(self.regular_faces, LocalRegularFaceGeometry3D):
+            raise TypeError("regular_faces must be LocalRegularFaceGeometry3D")
+        if not isinstance(self.irregular_faces, LocalControlVolumeFaceRows3D):
+            raise TypeError("irregular_faces must be LocalControlVolumeFaceRows3D")
+        if not isinstance(self.reconstruction, LocalMomentReconstruction3D):
+            raise TypeError("reconstruction must be LocalMomentReconstruction3D")
+        layout = self.cells.layout
+        for name, other_layout in (
+            ("regular_faces", self.regular_faces.layout),
+            ("irregular_faces", self.irregular_faces.layout),
+            ("reconstruction", self.reconstruction.layout),
+        ):
+            if other_layout != layout:
+                raise ValueError(f"{name} must share the control-volume cell layout")
+        if self.face_functionals is not None:
+            if not isinstance(self.face_functionals, LocalMomentFittedFaceRows3D):
+                raise TypeError(
+                    "face_functionals must be LocalMomentFittedFaceRows3D or None"
+                )
+            if self.face_functionals.layout != layout:
+                raise ValueError(
+                    "face_functionals must share the control-volume cell layout"
+                )
+            if self.face_functionals.max_rows != self.irregular_faces.max_rows:
+                raise ValueError(
+                    "face_functionals must have one row per irregular face row"
+                )
+            if self.face_functionals.max_rows:
+                try:
+                    aligned = bool(
+                        jnp.all(
+                            self.face_functionals.active
+                            == self.irregular_faces.active
+                        )
+                        & jnp.all(
+                            (~self.irregular_faces.active)
+                            | (
+                                self.face_functionals.functional_face_id
+                                == self.irregular_faces.global_face_id
+                            )
+                        )
+                    )
+                except jax.errors.TracerBoolConversionError:
+                    aligned = True
+                if not aligned:
+                    raise ValueError(
+                        "face functionals must be active and face-ID-aligned "
+                        "with irregular face rows"
+                    )
+        else:
+            try:
+                has_irregular_faces = bool(jnp.any(self.irregular_faces.active))
+            except jax.errors.TracerBoolConversionError:
+                has_irregular_faces = False
+            if has_irregular_faces:
+                raise ValueError(
+                    "face_functionals are required when irregular face rows are active"
+                )
+        if self.regular_boundary_closure is not None:
+            if not isinstance(
+                self.regular_boundary_closure,
+                LocalRegularBoundaryMomentClosure3D,
+            ):
+                raise TypeError(
+                    "regular_boundary_closure must be "
+                    "LocalRegularBoundaryMomentClosure3D or None"
+                )
+            if self.regular_boundary_closure.layout != layout:
+                raise ValueError(
+                    "regular_boundary_closure must share the "
+                    "control-volume cell layout"
+                )
+        coefficient_values = (
+            self.centroid_J,
+            self.centroid_g_cov,
+            self.centroid_B_contra,
+            self.centroid_Bmag,
+            self.centroid_curvature,
+        )
+        if any(value is not None for value in coefficient_values):
+            if not all(value is not None for value in coefficient_values):
+                raise ValueError(
+                    "centroid operator geometry must provide J, g_cov, "
+                    "B_contra, Bmag, and curvature together"
+                )
+            shape = self.cells.shape
+            centroid_J = jnp.asarray(self.centroid_J, dtype=jnp.float64)
+            centroid_g_cov = jnp.asarray(
+                self.centroid_g_cov,
+                dtype=jnp.float64,
+            )
+            centroid_B_contra = jnp.asarray(
+                self.centroid_B_contra,
+                dtype=jnp.float64,
+            )
+            centroid_Bmag = jnp.asarray(
+                self.centroid_Bmag,
+                dtype=jnp.float64,
+            )
+            centroid_curvature = jnp.asarray(
+                self.centroid_curvature,
+                dtype=jnp.float64,
+            )
+            expected_shapes = (
+                (centroid_J, shape, "centroid_J"),
+                (centroid_g_cov, shape + (3, 3), "centroid_g_cov"),
+                (
+                    centroid_B_contra,
+                    shape + (3,),
+                    "centroid_B_contra",
+                ),
+                (centroid_Bmag, shape, "centroid_Bmag"),
+                (
+                    centroid_curvature,
+                    shape + (3,),
+                    "centroid_curvature",
+                ),
+            )
+            for value, expected, name in expected_shapes:
+                if value.shape != expected:
+                    raise ValueError(
+                        f"{name} must have shape {expected}, got {value.shape}"
+                    )
+            active = self.cells.is_active_owner
+            finite = (
+                jnp.isfinite(centroid_J)
+                & jnp.isfinite(centroid_Bmag)
+                & jnp.all(jnp.isfinite(centroid_g_cov), axis=(-2, -1))
+                & jnp.all(jnp.isfinite(centroid_B_contra), axis=-1)
+                & jnp.all(jnp.isfinite(centroid_curvature), axis=-1)
+            )
+            try:
+                all_finite = bool(jnp.all((~active) | finite))
+            except jax.errors.TracerBoolConversionError:
+                all_finite = True
+            if not all_finite:
+                raise ValueError(
+                    "active centroid operator geometry must be finite"
+                )
+            object.__setattr__(self, "centroid_J", centroid_J)
+            object.__setattr__(self, "centroid_g_cov", centroid_g_cov)
+            object.__setattr__(
+                self,
+                "centroid_B_contra",
+                centroid_B_contra,
+            )
+            object.__setattr__(self, "centroid_Bmag", centroid_Bmag)
+            object.__setattr__(
+                self,
+                "centroid_curvature",
+                centroid_curvature,
+            )
+
+    @property
+    def layout(self) -> HaloLayout3D:
+        return self.cells.layout
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        return self.cells.shape
+
+    @property
+    def has_centroid_operator_geometry(self) -> bool:
+        return self.centroid_J is not None
+
+    def tree_flatten(self):
+        return (
+            (
+                self.cells,
+                self.regular_faces,
+                self.irregular_faces,
+                self.reconstruction,
+                self.face_functionals,
+                self.centroid_J,
+                self.centroid_g_cov,
+                self.centroid_B_contra,
+                self.centroid_Bmag,
+                self.centroid_curvature,
+                self.regular_boundary_closure,
+            ),
+            None,
+        )
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        names = (
+            "cells",
+            "regular_faces",
+            "irregular_faces",
+            "reconstruction",
+            "face_functionals",
+            "centroid_J",
+            "centroid_g_cov",
+            "centroid_B_contra",
+            "centroid_Bmag",
+            "centroid_curvature",
+            "regular_boundary_closure",
+        )
+        instance = object.__new__(cls)
+        for name, value in zip(names, children):
+            object.__setattr__(instance, name, value)
+        return instance
 
 
 @_pytree_base
@@ -2152,162 +4427,242 @@ class LocalCutWallValueReconstructor3D(_DataclassPyTreeMixin):
         )
 
 
+
+
 @_pytree_base
 @dataclass(frozen=True)
-class LocalCutWallNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
-    """Construct wall-normal derivatives at local cut-wall pieces from field_halo."""
+class LocalRegularFaceContributionRows3D(_DataclassPyTreeMixin):
+    """Sparse regular-face flux rows for agglomerated control volumes.
 
-    cut_wall_geometry: LocalCutWallGeometry3D
-    neighbor_i: jnp.ndarray
-    neighbor_j: jnp.ndarray
-    neighbor_k: jnp.ndarray
-    weights_dnormal: jnp.ndarray
-    weights_d2normal: jnp.ndarray
-    wall_coeff_dnormal: jnp.ndarray
-    wall_coeff_d2normal: jnp.ndarray
+    Each active row samples one already-built regular face flux, multiplies it
+    by ``area`` and ``sign``, and scatters it into the row owner cell.  This is
+    used when a deactivated cut/sliver cell's exterior regular face belongs to
+    a neighboring agglomerated active control volume instead of the structured
+    coordinate cell-difference update.
+    """
+
+    owner_i: jnp.ndarray
+    owner_j: jnp.ndarray
+    owner_k: jnp.ndarray
+    face_axis: jnp.ndarray
+    face_i: jnp.ndarray
+    face_j: jnp.ndarray
+    face_k: jnp.ndarray
+    sign: jnp.ndarray
+    area: jnp.ndarray
     active: jnp.ndarray
-    stencil_width: int
-    max_wall_faces: int
+    max_rows: int
+    minus_owner_i: jnp.ndarray | None = None
+    minus_owner_j: jnp.ndarray | None = None
+    minus_owner_k: jnp.ndarray | None = None
+    plus_owner_i: jnp.ndarray | None = None
+    plus_owner_j: jnp.ndarray | None = None
+    plus_owner_k: jnp.ndarray | None = None
+    use_reconstructed_flux: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.cut_wall_geometry, LocalCutWallGeometry3D):
-            raise TypeError("cut_wall_geometry must be a LocalCutWallGeometry3D")
-
-        max_wall_faces = int(self.max_wall_faces)
-        stencil_width = int(self.stencil_width)
-        if max_wall_faces < 0:
-            raise ValueError(f"max_wall_faces must be non-negative, got {max_wall_faces}")
-        if stencil_width < 1:
-            raise ValueError(f"stencil_width must be positive, got {stencil_width}")
-        if self.cut_wall_geometry.max_wall_faces != max_wall_faces:
-            raise ValueError(
-                "LocalCutWallNormalDerivativeConstructor3D.cut_wall_geometry.max_wall_faces must match max_wall_faces; "
-                f"got {self.cut_wall_geometry.max_wall_faces} and {max_wall_faces}"
+        max_rows = int(self.max_rows)
+        if max_rows < 0:
+            raise ValueError(f"max_rows must be non-negative, got {max_rows}")
+        shape = (max_rows,)
+        owner_i = _as_local_wall_int_array(self.owner_i, max_rows, "LocalRegularFaceContributionRows3D.owner_i")
+        owner_j = _as_local_wall_int_array(self.owner_j, max_rows, "LocalRegularFaceContributionRows3D.owner_j")
+        owner_k = _as_local_wall_int_array(self.owner_k, max_rows, "LocalRegularFaceContributionRows3D.owner_k")
+        face_axis = _as_local_wall_int_array(self.face_axis, max_rows, "LocalRegularFaceContributionRows3D.face_axis")
+        face_i = _as_local_wall_int_array(self.face_i, max_rows, "LocalRegularFaceContributionRows3D.face_i")
+        face_j = _as_local_wall_int_array(self.face_j, max_rows, "LocalRegularFaceContributionRows3D.face_j")
+        face_k = _as_local_wall_int_array(self.face_k, max_rows, "LocalRegularFaceContributionRows3D.face_k")
+        sign = _as_local_wall_array(self.sign, max_rows, (), "LocalRegularFaceContributionRows3D.sign")
+        area = _as_local_wall_array(self.area, max_rows, (), "LocalRegularFaceContributionRows3D.area")
+        active = _as_local_wall_bool_array(self.active, max_rows, "LocalRegularFaceContributionRows3D.active")
+        minus_owner_i = (
+            owner_i
+            if self.minus_owner_i is None
+            else _as_local_wall_int_array(
+                self.minus_owner_i,
+                max_rows,
+                "LocalRegularFaceContributionRows3D.minus_owner_i",
             )
-
-        expected_stencil = (max_wall_faces, stencil_width)
-        expected_wall = (max_wall_faces,)
-        neighbor_i = _as_local_wall_stencil_index_array(
-            self.neighbor_i, max_wall_faces, stencil_width, "LocalCutWallNormalDerivativeConstructor3D.neighbor_i"
         )
-        neighbor_j = _as_local_wall_stencil_index_array(
-            self.neighbor_j, max_wall_faces, stencil_width, "LocalCutWallNormalDerivativeConstructor3D.neighbor_j"
-        )
-        neighbor_k = _as_local_wall_stencil_index_array(
-            self.neighbor_k, max_wall_faces, stencil_width, "LocalCutWallNormalDerivativeConstructor3D.neighbor_k"
-        )
-        weights_dnormal = _as_local_wall_stencil_weight_array(
-            self.weights_dnormal, max_wall_faces, stencil_width, "LocalCutWallNormalDerivativeConstructor3D.weights_dnormal"
-        )
-        weights_d2normal = _as_local_wall_stencil_weight_array(
-            self.weights_d2normal, max_wall_faces, stencil_width, "LocalCutWallNormalDerivativeConstructor3D.weights_d2normal"
-        )
-        wall_coeff_dnormal = _as_local_wall_array(
-            self.wall_coeff_dnormal, max_wall_faces, (), "LocalCutWallNormalDerivativeConstructor3D.wall_coeff_dnormal"
-        )
-        wall_coeff_d2normal = _as_local_wall_array(
-            self.wall_coeff_d2normal, max_wall_faces, (), "LocalCutWallNormalDerivativeConstructor3D.wall_coeff_d2normal"
-        )
-        active = _as_local_wall_bool_array(self.active, max_wall_faces, "LocalCutWallNormalDerivativeConstructor3D.active")
-
-        if active.shape != expected_wall:
-            raise ValueError(
-                f"LocalCutWallNormalDerivativeConstructor3D.active must have shape {expected_wall}, got {active.shape}"
+        minus_owner_j = (
+            owner_j
+            if self.minus_owner_j is None
+            else _as_local_wall_int_array(
+                self.minus_owner_j,
+                max_rows,
+                "LocalRegularFaceContributionRows3D.minus_owner_j",
             )
+        )
+        minus_owner_k = (
+            owner_k
+            if self.minus_owner_k is None
+            else _as_local_wall_int_array(
+                self.minus_owner_k,
+                max_rows,
+                "LocalRegularFaceContributionRows3D.minus_owner_k",
+            )
+        )
+        plus_owner_i = (
+            owner_i
+            if self.plus_owner_i is None
+            else _as_local_wall_int_array(
+                self.plus_owner_i,
+                max_rows,
+                "LocalRegularFaceContributionRows3D.plus_owner_i",
+            )
+        )
+        plus_owner_j = (
+            owner_j
+            if self.plus_owner_j is None
+            else _as_local_wall_int_array(
+                self.plus_owner_j,
+                max_rows,
+                "LocalRegularFaceContributionRows3D.plus_owner_j",
+            )
+        )
+        plus_owner_k = (
+            owner_k
+            if self.plus_owner_k is None
+            else _as_local_wall_int_array(
+                self.plus_owner_k,
+                max_rows,
+                "LocalRegularFaceContributionRows3D.plus_owner_k",
+            )
+        )
+        use_reconstructed_flux = (
+            jnp.zeros(shape, dtype=bool)
+            if self.use_reconstructed_flux is None
+            else _as_local_wall_bool_array(
+                self.use_reconstructed_flux,
+                max_rows,
+                "LocalRegularFaceContributionRows3D.use_reconstructed_flux",
+            )
+        )
 
-        active2 = active[:, None]
-        neighbor_i = jnp.where(active2, neighbor_i, 0)
-        neighbor_j = jnp.where(active2, neighbor_j, 0)
-        neighbor_k = jnp.where(active2, neighbor_k, 0)
-        weights_dnormal = jnp.where(active2, weights_dnormal, 0.0)
-        weights_d2normal = jnp.where(active2, weights_d2normal, 0.0)
-        wall_coeff_dnormal = jnp.where(active, wall_coeff_dnormal, 0.0)
-        wall_coeff_d2normal = jnp.where(active, wall_coeff_d2normal, 0.0)
+        valid_axis = (~active) | ((face_axis >= 0) & (face_axis <= 2))
+        try:
+            all_valid_axis = bool(jnp.all(valid_axis))
+        except jax.errors.TracerBoolConversionError:
+            all_valid_axis = True
+        if not all_valid_axis:
+            raise ValueError("active LocalRegularFaceContributionRows3D.face_axis values must be 0, 1, or 2")
 
-        object.__setattr__(self, "neighbor_i", neighbor_i)
-        object.__setattr__(self, "neighbor_j", neighbor_j)
-        object.__setattr__(self, "neighbor_k", neighbor_k)
-        object.__setattr__(self, "weights_dnormal", weights_dnormal)
-        object.__setattr__(self, "weights_d2normal", weights_d2normal)
-        object.__setattr__(self, "wall_coeff_dnormal", wall_coeff_dnormal)
-        object.__setattr__(self, "wall_coeff_d2normal", wall_coeff_d2normal)
+        object.__setattr__(self, "owner_i", jnp.where(active, owner_i, 0))
+        object.__setattr__(self, "owner_j", jnp.where(active, owner_j, 0))
+        object.__setattr__(self, "owner_k", jnp.where(active, owner_k, 0))
+        object.__setattr__(self, "face_axis", jnp.where(active, face_axis, 0))
+        object.__setattr__(self, "face_i", jnp.where(active, face_i, 0))
+        object.__setattr__(self, "face_j", jnp.where(active, face_j, 0))
+        object.__setattr__(self, "face_k", jnp.where(active, face_k, 0))
+        object.__setattr__(self, "sign", jnp.where(active, sign, 0.0))
+        object.__setattr__(self, "area", jnp.where(active, area, 0.0))
         object.__setattr__(self, "active", active)
-        object.__setattr__(self, "stencil_width", stencil_width)
-        object.__setattr__(self, "max_wall_faces", max_wall_faces)
-
-    def _gather(self, field_halo: jnp.ndarray) -> jnp.ndarray:
-        values = jnp.asarray(field_halo, dtype=jnp.float64)
-        return values[self.neighbor_i, self.neighbor_j, self.neighbor_k]
-
-    def dnormal_from_wall_value(self, field_halo: jnp.ndarray, wall_value: jnp.ndarray) -> jnp.ndarray:
-        wall_value = jnp.asarray(wall_value, dtype=jnp.float64)
-        expected_wall = (int(self.max_wall_faces),)
-        if wall_value.shape != expected_wall:
-            raise ValueError(f"wall_value must have shape {expected_wall}, got {wall_value.shape}")
-        gathered = self._gather(field_halo)
-        dnormal = jnp.sum(self.weights_dnormal * gathered, axis=-1) + self.wall_coeff_dnormal * wall_value
-        return jnp.where(self.active, dnormal, 0.0)
-
-    def d2normal_from_wall_value(self, field_halo: jnp.ndarray, wall_value: jnp.ndarray) -> jnp.ndarray:
-        wall_value = jnp.asarray(wall_value, dtype=jnp.float64)
-        expected_wall = (int(self.max_wall_faces),)
-        if wall_value.shape != expected_wall:
-            raise ValueError(f"wall_value must have shape {expected_wall}, got {wall_value.shape}")
-        gathered = self._gather(field_halo)
-        d2normal = jnp.sum(self.weights_d2normal * gathered, axis=-1) + self.wall_coeff_d2normal * wall_value
-        return jnp.where(self.active, d2normal, 0.0)
-
-    def normal_derivatives_from_wall_value(
-        self, field_halo: jnp.ndarray, wall_value: jnp.ndarray
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        return (
-            self.dnormal_from_wall_value(field_halo, wall_value),
-            self.d2normal_from_wall_value(field_halo, wall_value),
+        object.__setattr__(self, "max_rows", max_rows)
+        object.__setattr__(self, "minus_owner_i", jnp.where(active, minus_owner_i, 0))
+        object.__setattr__(self, "minus_owner_j", jnp.where(active, minus_owner_j, 0))
+        object.__setattr__(self, "minus_owner_k", jnp.where(active, minus_owner_k, 0))
+        object.__setattr__(self, "plus_owner_i", jnp.where(active, plus_owner_i, 0))
+        object.__setattr__(self, "plus_owner_j", jnp.where(active, plus_owner_j, 0))
+        object.__setattr__(self, "plus_owner_k", jnp.where(active, plus_owner_k, 0))
+        object.__setattr__(
+            self,
+            "use_reconstructed_flux",
+            active & use_reconstructed_flux,
         )
+
+    @classmethod
+    def empty(cls, max_rows: int = 0) -> "LocalRegularFaceContributionRows3D":
+        max_rows = int(max_rows)
+        return cls(
+            owner_i=jnp.zeros((max_rows,), dtype=jnp.int32),
+            owner_j=jnp.zeros((max_rows,), dtype=jnp.int32),
+            owner_k=jnp.zeros((max_rows,), dtype=jnp.int32),
+            face_axis=jnp.zeros((max_rows,), dtype=jnp.int32),
+            face_i=jnp.zeros((max_rows,), dtype=jnp.int32),
+            face_j=jnp.zeros((max_rows,), dtype=jnp.int32),
+            face_k=jnp.zeros((max_rows,), dtype=jnp.int32),
+            sign=jnp.zeros((max_rows,), dtype=jnp.float64),
+            area=jnp.zeros((max_rows,), dtype=jnp.float64),
+            active=jnp.zeros((max_rows,), dtype=bool),
+            max_rows=max_rows,
+            minus_owner_i=jnp.zeros((max_rows,), dtype=jnp.int32),
+            minus_owner_j=jnp.zeros((max_rows,), dtype=jnp.int32),
+            minus_owner_k=jnp.zeros((max_rows,), dtype=jnp.int32),
+            plus_owner_i=jnp.zeros((max_rows,), dtype=jnp.int32),
+            plus_owner_j=jnp.zeros((max_rows,), dtype=jnp.int32),
+            plus_owner_k=jnp.zeros((max_rows,), dtype=jnp.int32),
+            use_reconstructed_flux=jnp.zeros((max_rows,), dtype=bool),
+        )
+
+    @property
+    def n_rows(self) -> int:
+        return int(self.max_rows)
 
     def tree_flatten(self):
         return (
             (
-                self.cut_wall_geometry,
-                self.neighbor_i,
-                self.neighbor_j,
-                self.neighbor_k,
-                self.weights_dnormal,
-                self.weights_d2normal,
-                self.wall_coeff_dnormal,
-                self.wall_coeff_d2normal,
+                self.owner_i,
+                self.owner_j,
+                self.owner_k,
+                self.face_axis,
+                self.face_i,
+                self.face_j,
+                self.face_k,
+                self.sign,
+                self.area,
                 self.active,
+                self.minus_owner_i,
+                self.minus_owner_j,
+                self.minus_owner_k,
+                self.plus_owner_i,
+                self.plus_owner_j,
+                self.plus_owner_k,
+                self.use_reconstructed_flux,
             ),
-            (self.stencil_width, self.max_wall_faces),
+            self.max_rows,
         )
 
     @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        stencil_width, max_wall_faces = aux_data
+    def tree_unflatten(cls, max_rows, children):
         (
-            cut_wall_geometry,
-            neighbor_i,
-            neighbor_j,
-            neighbor_k,
-            weights_dnormal,
-            weights_d2normal,
-            wall_coeff_dnormal,
-            wall_coeff_d2normal,
+            owner_i,
+            owner_j,
+            owner_k,
+            face_axis,
+            face_i,
+            face_j,
+            face_k,
+            sign,
+            area,
             active,
+            minus_owner_i,
+            minus_owner_j,
+            minus_owner_k,
+            plus_owner_i,
+            plus_owner_j,
+            plus_owner_k,
+            use_reconstructed_flux,
         ) = children
-        return cls(
-            cut_wall_geometry=cut_wall_geometry,
-            neighbor_i=neighbor_i,
-            neighbor_j=neighbor_j,
-            neighbor_k=neighbor_k,
-            weights_dnormal=weights_dnormal,
-            weights_d2normal=weights_d2normal,
-            wall_coeff_dnormal=wall_coeff_dnormal,
-            wall_coeff_d2normal=wall_coeff_d2normal,
-            active=active,
-            stencil_width=stencil_width,
-            max_wall_faces=max_wall_faces,
-        )
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "owner_i", owner_i)
+        object.__setattr__(obj, "owner_j", owner_j)
+        object.__setattr__(obj, "owner_k", owner_k)
+        object.__setattr__(obj, "face_axis", face_axis)
+        object.__setattr__(obj, "face_i", face_i)
+        object.__setattr__(obj, "face_j", face_j)
+        object.__setattr__(obj, "face_k", face_k)
+        object.__setattr__(obj, "sign", sign)
+        object.__setattr__(obj, "area", area)
+        object.__setattr__(obj, "active", active)
+        object.__setattr__(obj, "minus_owner_i", minus_owner_i)
+        object.__setattr__(obj, "minus_owner_j", minus_owner_j)
+        object.__setattr__(obj, "minus_owner_k", minus_owner_k)
+        object.__setattr__(obj, "plus_owner_i", plus_owner_i)
+        object.__setattr__(obj, "plus_owner_j", plus_owner_j)
+        object.__setattr__(obj, "plus_owner_k", plus_owner_k)
+        object.__setattr__(obj, "use_reconstructed_flux", use_reconstructed_flux)
+        object.__setattr__(obj, "max_rows", int(max_rows))
+        return obj
 
 
 @_pytree_base
@@ -2316,38 +4671,46 @@ class LocalControlVolumeFluxStencil3D:
     """Local control-volume flux payload consumed by conservative divergence."""
 
     regular_flux: FaceFluxStencil3D
-    regular_face_geometry: "LocalRegularFaceGeometry3D | RegularFaceGeometry3D"
-    cell_volume: "LocalCellVolumeGeometry3D | CellVolumeGeometry3D"
-    cut_wall_geometry: "LocalCutWallGeometry3D | CutWallGeometry3D | None" = None
+    regular_face_geometry: RegularFaceGeometry3D | LocalRegularFaceGeometry3D
+    cell_volume: CellVolumeGeometry3D | LocalCellVolumeGeometry3D
+    cut_wall_geometry: "CutWallGeometry3D | LocalCutWallGeometry3D | None" = None
     cut_wall_flux: jnp.ndarray | None = None
+    regular_face_contribution_rows: LocalRegularFaceContributionRows3D | None = None
+    regular_face_contribution_flux: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.regular_flux, FaceFluxStencil3D):
             raise TypeError("LocalControlVolumeFluxStencil3D.regular_flux must be a FaceFluxStencil3D")
-        if not isinstance(self.regular_face_geometry, (LocalRegularFaceGeometry3D, RegularFaceGeometry3D)):
+        if not isinstance(
+            self.regular_face_geometry,
+            (RegularFaceGeometry3D, LocalRegularFaceGeometry3D),
+        ):
             raise TypeError(
                 "LocalControlVolumeFluxStencil3D.regular_face_geometry must be a "
-                "LocalRegularFaceGeometry3D or RegularFaceGeometry3D"
+                "RegularFaceGeometry3D or LocalRegularFaceGeometry3D"
             )
-        if not isinstance(self.cell_volume, (LocalCellVolumeGeometry3D, CellVolumeGeometry3D)):
+        if not isinstance(
+            self.cell_volume,
+            (CellVolumeGeometry3D, LocalCellVolumeGeometry3D),
+        ):
             raise TypeError(
                 "LocalControlVolumeFluxStencil3D.cell_volume must be a "
-                "LocalCellVolumeGeometry3D or CellVolumeGeometry3D"
+                "CellVolumeGeometry3D or LocalCellVolumeGeometry3D"
             )
         cell_shape = self.cell_volume.shape
         if self.regular_flux.shape != cell_shape:
             raise ValueError(
                 f"regular_flux.shape must match cell_volume.shape, got {self.regular_flux.shape} and {cell_shape}"
             )
-        face_geometry_cell_shape = (
+        regular_cell_shape = (
             self.regular_face_geometry.local_owned_shape
             if isinstance(self.regular_face_geometry, LocalRegularFaceGeometry3D)
             else self.regular_face_geometry.shape
         )
-        if face_geometry_cell_shape != cell_shape:
+        if regular_cell_shape != cell_shape:
             raise ValueError(
-                "regular_face_geometry.local_owned_shape must match cell_volume.shape, "
-                f"got {face_geometry_cell_shape} and {cell_shape}"
+                "regular_face_geometry cell shape must match cell_volume.shape, "
+                f"got {regular_cell_shape} and {cell_shape}"
             )
         if (
             self.regular_face_geometry.x_area.shape != self.regular_flux.x.shape
@@ -2358,20 +4721,51 @@ class LocalControlVolumeFluxStencil3D:
                 "regular_face_geometry face arrays must match regular_flux face shapes"
             )
 
+        if self.regular_face_contribution_rows is None:
+            object.__setattr__(
+                self,
+                "regular_face_contribution_rows",
+                LocalRegularFaceContributionRows3D.empty(0),
+            )
+        elif not isinstance(
+            self.regular_face_contribution_rows,
+            LocalRegularFaceContributionRows3D,
+        ):
+            raise TypeError(
+                "LocalControlVolumeFluxStencil3D.regular_face_contribution_rows "
+                "must be a LocalRegularFaceContributionRows3D or None"
+            )
+        if self.regular_face_contribution_flux is not None:
+            row_flux = jnp.asarray(self.regular_face_contribution_flux, dtype=jnp.float64)
+            expected = (int(self.regular_face_contribution_rows.max_rows),)
+            if row_flux.shape != expected:
+                raise ValueError(
+                    "LocalControlVolumeFluxStencil3D.regular_face_contribution_flux "
+                    f"must have shape {expected}, got {row_flux.shape}"
+                )
+            row_flux = jnp.where(
+                self.regular_face_contribution_rows.active,
+                row_flux,
+                0.0,
+            )
+            object.__setattr__(self, "regular_face_contribution_flux", row_flux)
+
         if self.cut_wall_geometry is None:
             if self.cut_wall_flux is not None:
                 raise ValueError("cut_wall_flux must be None when cut_wall_geometry is None")
             object.__setattr__(self, "cut_wall_flux", None)
             return
 
-        if not isinstance(self.cut_wall_geometry, (LocalCutWallGeometry3D, CutWallGeometry3D)):
+        if not isinstance(
+            self.cut_wall_geometry,
+            (CutWallGeometry3D, LocalCutWallGeometry3D),
+        ):
             raise TypeError(
                 "LocalControlVolumeFluxStencil3D.cut_wall_geometry must be a "
-                "LocalCutWallGeometry3D or CutWallGeometry3D"
+                "CutWallGeometry3D or LocalCutWallGeometry3D"
             )
         if self.cut_wall_flux is None:
-            Wmax = getattr(self.cut_wall_geometry, "max_wall_faces", self.cut_wall_geometry.n_wall_faces)
-            cut_wall_flux = jnp.zeros((Wmax,), dtype=jnp.float64)
+            cut_wall_flux = jnp.zeros((self.cut_wall_geometry.n_wall_faces,), dtype=jnp.float64)
         else:
             cut_wall_flux = jnp.asarray(self.cut_wall_flux, dtype=jnp.float64)
             expected = (self.cut_wall_geometry.n_wall_faces,)
@@ -2402,6 +4796,8 @@ class LocalControlVolumeFluxStencil3D:
                 self.cell_volume,
                 self.cut_wall_geometry,
                 self.cut_wall_flux,
+                self.regular_face_contribution_rows,
+                self.regular_face_contribution_flux,
             ),
             None,
         )
@@ -2413,24 +4809,40 @@ class LocalControlVolumeFluxStencil3D:
 def dataclass_replace_1d(instance: LocalStencil1D, **updates: object) -> LocalStencil1D:
     """Small ``dataclasses.replace`` helper that keeps this module self-contained."""
 
+    weight_names = (
+        "derivative_minus_weight",
+        "derivative_center_weight",
+        "derivative_plus_weight",
+    )
+    distance_changed = "dx_min" in updates or "dx_plus" in updates
+    any_weight_updated = any(name in updates for name in weight_names)
+    if distance_changed and not any_weight_updated:
+        derivative_minus_weight = None
+        derivative_center_weight = None
+        derivative_plus_weight = None
+    else:
+        derivative_minus_weight = updates.get(
+            "derivative_minus_weight",
+            instance.derivative_minus_weight,
+        )
+        derivative_center_weight = updates.get(
+            "derivative_center_weight",
+            instance.derivative_center_weight,
+        )
+        derivative_plus_weight = updates.get(
+            "derivative_plus_weight",
+            instance.derivative_plus_weight,
+        )
+
     return LocalStencil1D(
         center=updates.get("center", instance.center),
         minus=updates.get("minus", instance.minus),
         plus=updates.get("plus", instance.plus),
         dx_min=updates.get("dx_min", instance.dx_min),
         dx_plus=updates.get("dx_plus", instance.dx_plus),
-        derivative_minus_weight=updates.get(
-            "derivative_minus_weight",
-            instance.derivative_minus_weight,
-        ),
-        derivative_center_weight=updates.get(
-            "derivative_center_weight",
-            instance.derivative_center_weight,
-        ),
-        derivative_plus_weight=updates.get(
-            "derivative_plus_weight",
-            instance.derivative_plus_weight,
-        ),
+        derivative_minus_weight=derivative_minus_weight,
+        derivative_center_weight=derivative_center_weight,
+        derivative_plus_weight=derivative_plus_weight,
     )
 
 
@@ -2475,19 +4887,21 @@ __all__ = [
     "CutWallNormalDerivativeConstructor3D",
     "CutWallValueReconstructor3D",
     "FaceFluxStencil3D",
-    "FourFieldBoundaryConditions",
     "LocalBoundaryConditionBuilder",
     "LocalBoundaryData3D",
     "LocalBoundaryFaceBC3D",
+    "LocalBoundaryPreparation3D",
+    "LocalBoundaryRemoteDependencyTable",
     "LocalCoordinateFaceValueReconstructor3D",
     "LocalCoordinateNormalDerivativeConstructor3D",
     "LocalCoordinateSideValues1D",
     "LocalCoordinateSideValues3D",
     "LocalControlVolumeFluxStencil3D",
+    "LocalRegularBoundaryMomentClosure3D",
     "LocalCutWallBC3D",
     "LocalCutWallGeometry3D",
-    "LocalCutWallNormalDerivativeConstructor3D",
     "LocalCutWallValueReconstructor3D",
+    "LocalCellGradient3D",
     "LocalStencil1D",
     "LocalStencil3D",
     "RegularFaceGeometry3D",
