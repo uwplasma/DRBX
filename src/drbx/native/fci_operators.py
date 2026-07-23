@@ -91,7 +91,9 @@ from .fci_boundaries import (
     LocalCoordinateSideValues1D,
     LocalCellGradient3D,
     LocalControlVolumeBoundaryBC3D,
+    LocalControlVolumeFieldClosure3D,
     LocalControlVolumeFaceRows3D,
+    LocalMomentFittedFaceRows3D,
     LocalControlVolumePolynomial3D,
     LocalEmbeddedControlVolumeGeometry3D,
     LocalMomentReconstruction3D,
@@ -2766,8 +2768,7 @@ def local_parallel_flux_div_op(
     cell_gradient: LocalCellGradient3D | None = None,
     aggregate_geometry: LocalAggregateCellGeometry3D | None = None,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
-    boundary_bc: LocalControlVolumeBoundaryBC3D | None = None,
-    field_reconstruction: LocalControlVolumePolynomial3D | None = None,
+    field_closure: LocalControlVolumeFieldClosure3D | None = None,
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
     b_floor: float = 1.0e-30,
     jacobian_floor: float = 1.0e-30,
@@ -2903,21 +2904,13 @@ def local_parallel_flux_div_op(
                 "control_volume_geometry must be "
                 "LocalEmbeddedControlVolumeGeometry3D or None"
             )
-        if boundary_bc is None or field_reconstruction is None:
-            raise ValueError(
-                "boundary_bc and field_reconstruction are required with "
-                "control_volume_geometry"
-            )
-        irregular_flux = _local_control_volume_irregular_parallel_flux(
-            jnp.asarray(local.x.center, dtype=jnp.float64),
-            field_reconstruction,
+        field_closure = _require_local_control_volume_field_closure(
+            field_closure,
             control_volume_geometry,
-            boundary_bc,
-            b_floor=b_floor,
         )
         return _local_control_volume_integrated_divergence(
             (x_flux, y_flux, z_flux),
-            irregular_flux,
+            field_closure.parallel_flux,
             geometry,
             domain,
             control_volume_geometry,
@@ -5123,6 +5116,207 @@ def _precompute_local_cubic_reconstruction(
     return LocalMomentReconstruction3D(layout=cells.layout, target_i=jnp.asarray(target_i), target_j=jnp.asarray(target_j), target_k=jnp.asarray(target_k), equation_kind=jnp.asarray(equation_kind), sample_i=jnp.asarray(sample_i), sample_j=jnp.asarray(sample_j), sample_k=jnp.asarray(sample_k), boundary_face_row=jnp.asarray(boundary_face_row), boundary_patch=jnp.asarray(boundary_patch), boundary_quadrature=jnp.asarray(boundary_quadrature), equation_active=jnp.asarray(equation_active), rhs_transform=jnp.asarray(transform_out), active=jnp.asarray(order > 0), target_row_for_cell=jnp.asarray(row_for_cell), polynomial_order=jnp.asarray(order), rank=jnp.asarray(rank), condition_number=jnp.asarray(condition), max_rows=n_rows, max_equations=max_equations)
 
 
+def build_local_control_volume_field_closure(
+    field_halo: jnp.ndarray,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    boundary_bc: LocalControlVolumeBoundaryBC3D,
+) -> LocalControlVolumeFieldClosure3D:
+    """Evaluate static direct cubic face functionals for one scalar field.
+
+    The compiler has already selected the observations and formed all three flux
+    functionals.  This routine only performs bounded gathers and three weighted
+    weighted sums, so it is safe to call under ``jax.jit`` and has no reconstruction or
+    search-time work at runtime.
+    """
+
+    if not isinstance(control_volume_geometry, LocalEmbeddedControlVolumeGeometry3D):
+        raise TypeError(
+            "control_volume_geometry must be LocalEmbeddedControlVolumeGeometry3D"
+        )
+    if not isinstance(boundary_bc, LocalControlVolumeBoundaryBC3D):
+        raise TypeError("boundary_bc must be LocalControlVolumeBoundaryBC3D")
+
+    faces = control_volume_geometry.irregular_faces
+    rows = control_volume_geometry.face_functionals
+    if rows is None:
+        raise ValueError("control-volume geometry requires direct face functionals")
+    if not isinstance(rows, LocalMomentFittedFaceRows3D):
+        raise TypeError("face_functionals must be LocalMomentFittedFaceRows3D")
+    if rows.layout != control_volume_geometry.cells.layout:
+        raise ValueError("face functionals must share the control-volume layout")
+    if rows.max_rows != faces.max_rows:
+        raise ValueError("face functionals must align with irregular face rows")
+    if boundary_bc.max_rows != faces.max_rows:
+        raise ValueError("boundary BC rows must align with irregular face rows")
+    if boundary_bc.max_patches != faces.max_patches:
+        raise ValueError("boundary BC patches must align with irregular face rows")
+
+    field = jnp.asarray(field_halo, dtype=jnp.float64)
+    if field.ndim != 3 or field.shape != rows.layout.cell_halo_shape:
+        raise ValueError(
+            "field_halo must have shape "
+            f"{rows.layout.cell_halo_shape}, got {field.shape}"
+        )
+    if int(rows.max_rows) == 0:
+        return LocalControlVolumeFieldClosure3D.empty(max_rows=0)
+
+    # Clip every dynamic gather.  The accompanying masks make a malformed,
+    # referenced coordinate invalid rather than allowing it to select a value.
+    nx, ny, nz = rows.layout.owned_shape
+    hx, hy, hz = rows.layout.cell_halo_shape
+    owned_in_bounds = (
+        (rows.owned_i >= 0) & (rows.owned_i < nx)
+        & (rows.owned_j >= 0) & (rows.owned_j < ny)
+        & (rows.owned_k >= 0) & (rows.owned_k < nz)
+    )
+    halo_in_bounds = (
+        (rows.halo_i >= 0) & (rows.halo_i < hx)
+        & (rows.halo_j >= 0) & (rows.halo_j < hy)
+        & (rows.halo_k >= 0) & (rows.halo_k < hz)
+    )
+    boundary_in_bounds = (
+        (rows.boundary_face_row >= 0) & (rows.boundary_face_row < boundary_bc.max_rows)
+        & (rows.boundary_patch >= 0) & (rows.boundary_patch < boundary_bc.max_patches)
+        & (rows.boundary_quadrature >= 0) & (rows.boundary_quadrature < 4)
+    )
+    owned = field[rows.layout.owned_slices_cell]
+    owned_sample = owned[
+        jnp.clip(rows.owned_i, 0, nx - 1),
+        jnp.clip(rows.owned_j, 0, ny - 1),
+        jnp.clip(rows.owned_k, 0, nz - 1),
+    ]
+    halo_sample = field[
+        jnp.clip(rows.halo_i, 0, hx - 1),
+        jnp.clip(rows.halo_j, 0, hy - 1),
+        jnp.clip(rows.halo_k, 0, hz - 1),
+    ]
+    boundary_row = jnp.clip(rows.boundary_face_row, 0, boundary_bc.max_rows - 1)
+    boundary_patch = jnp.clip(rows.boundary_patch, 0, boundary_bc.max_patches - 1)
+    boundary_quad = jnp.clip(rows.boundary_quadrature, 0, 3)
+    boundary_sample = boundary_bc.quadrature_value[
+        boundary_row, boundary_patch, boundary_quad
+    ]
+    boundary_kind = boundary_bc.kind[boundary_row]
+    boundary_active = boundary_bc.active[boundary_row]
+
+    is_owned = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_CELL
+    is_halo = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL
+    is_dirichlet = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_DIRICHLET
+    observation_value = jnp.where(
+        is_owned,
+        owned_sample,
+        jnp.where(is_halo, halo_sample, boundary_sample),
+    )
+    # Padded observations may point anywhere.  Mask their values *before* the
+    # dot product so a poisoned dummy slot cannot turn 0 * NaN into NaN.
+    observation_value = jnp.where(rows.observation_active, observation_value, 0.0)
+    observation_valid = (
+        (~rows.observation_active)
+        | (
+            (is_owned & owned_in_bounds & jnp.isfinite(owned_sample))
+            | (is_halo & halo_in_bounds & jnp.isfinite(halo_sample))
+            | (
+                is_dirichlet
+                & boundary_in_bounds
+                & boundary_active
+                & (boundary_kind == BC_DIRICHLET)
+                & jnp.isfinite(boundary_sample)
+            )
+        )
+    )
+    weights_finite = jnp.all(
+        (~rows.observation_active)
+        | (
+            jnp.isfinite(rows.projected_flux_weights)
+            & jnp.isfinite(rows.parallel_flux_weights)
+            & jnp.isfinite(rows.parallel_gradient_flux_weights)
+        ),
+        axis=1,
+    )
+    projected_flux = jnp.einsum(
+        "re,re->r", rows.projected_flux_weights, observation_value
+    )
+    parallel_flux = jnp.einsum(
+        "re,re->r", rows.parallel_flux_weights, observation_value
+    )
+    parallel_gradient_flux = jnp.einsum(
+        "re,re->r", rows.parallel_gradient_flux_weights, observation_value
+    )
+
+    has_neighbor = faces.has_plus_owner | faces.has_remote_owner
+    target_kind = boundary_bc.kind
+    target_active = boundary_bc.active
+    supported_target_bc = (
+        (target_kind == BC_DIRICHLET)
+        | (target_kind == BC_NORMALFLUX)
+        | (target_kind == BC_NOFLUX)
+    )
+    target_boundary_valid = (
+        has_neighbor
+        | (target_active & supported_target_bc)
+    )
+    normal_flux = jnp.sum(
+        jnp.where(
+            faces.quadrature_active,
+            faces.J
+            * jnp.linalg.norm(faces.area_covector_weight, axis=-1)
+            * boundary_bc.quadrature_value,
+            0.0,
+        ),
+        axis=(1, 2),
+    )
+    use_normal_flux = (~has_neighbor) & (target_kind == BC_NORMALFLUX) & target_active
+    use_no_flux = (~has_neighbor) & (target_kind == BC_NOFLUX) & target_active
+    projected_flux = jnp.where(use_normal_flux, normal_flux, projected_flux)
+    parallel_flux = jnp.where(use_normal_flux, normal_flux, parallel_flux)
+    parallel_gradient_flux = jnp.where(
+        use_normal_flux, normal_flux, parallel_gradient_flux
+    )
+    projected_flux = jnp.where(use_no_flux, 0.0, projected_flux)
+    parallel_flux = jnp.where(use_no_flux, 0.0, parallel_flux)
+    parallel_gradient_flux = jnp.where(
+        use_no_flux, 0.0, parallel_gradient_flux
+    )
+    fitted_valid = (
+        jnp.all(observation_valid, axis=1)
+        & weights_finite
+    )
+    normal_inputs_valid = jnp.all(
+        (~faces.quadrature_active)
+        | (
+            jnp.isfinite(faces.J)
+            & jnp.all(jnp.isfinite(faces.area_covector_weight), axis=-1)
+            & jnp.isfinite(boundary_bc.quadrature_value)
+        ),
+        axis=(1, 2),
+    )
+    # A prescribed normal flux replaces the fitted functional completely.
+    # In particular, a row compiled with Dirichlet observations remains usable
+    # for a field that prescribes NOFLUX/NORMALFLUX on that target face.
+    functional_valid = jnp.where(
+        use_normal_flux,
+        normal_inputs_valid,
+        jnp.where(use_no_flux, True, fitted_valid),
+    )
+    valid = (
+        rows.active
+        & faces.active
+        & functional_valid
+        & target_boundary_valid
+        & jnp.isfinite(projected_flux)
+        & jnp.isfinite(parallel_flux)
+        & jnp.isfinite(parallel_gradient_flux)
+    )
+    return LocalControlVolumeFieldClosure3D(
+        projected_flux=projected_flux,
+        parallel_flux=parallel_flux,
+        parallel_gradient_flux=parallel_gradient_flux,
+        valid=valid,
+        active=rows.active & faces.active,
+        max_rows=rows.max_rows,
+    )
+
+
 def build_local_control_volume_polynomial_from_field(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
@@ -5788,242 +5982,40 @@ def evaluate_local_control_volume_polynomial(
 
 
 
-def _local_control_volume_irregular_parallel_flux(
-    values_owned: jnp.ndarray,
-    polynomial: LocalControlVolumePolynomial3D,
+def _require_local_control_volume_field_closure(
+    field_closure: LocalControlVolumeFieldClosure3D | None,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
-    boundary_bc: LocalControlVolumeBoundaryBC3D,
-    *,
-    b_floor: float,
-) -> jnp.ndarray:
-    """Integrate one parallel scalar flux for each unique irregular face."""
+) -> LocalControlVolumeFieldClosure3D:
+    """Validate the direct field closure against the compiled face rows."""
 
+    if field_closure is None:
+        raise ValueError("field_closure is required with control_volume_geometry")
+    if not isinstance(field_closure, LocalControlVolumeFieldClosure3D):
+        raise TypeError(
+            "field_closure must be LocalControlVolumeFieldClosure3D with "
+            "control_volume_geometry"
+        )
     faces = control_volume_geometry.irregular_faces
-    cells = control_volume_geometry.cells
-    canonical_values = (
-        values_owned
-        if polynomial.owner_values is None
-        else polynomial.owner_values
-    )
-    if int(faces.max_rows) == 0:
-        return jnp.zeros((0,), dtype=jnp.float64)
-    points = faces.quadrature_points
-    minus_index = (
-        faces.minus_owner_i[:, None, None],
-        faces.minus_owner_j[:, None, None],
-        faces.minus_owner_k[:, None, None],
-    )
-    plus_index = (
-        faces.plus_owner_i[:, None, None],
-        faces.plus_owner_j[:, None, None],
-        faces.plus_owner_k[:, None, None],
-    )
-    minus_value, _minus_gradient, minus_valid = (
-        evaluate_local_control_volume_polynomial(
-            canonical_values,
-            polynomial,
-            cells,
-            *minus_index,
-            points,
+    rows = control_volume_geometry.face_functionals
+    if not isinstance(rows, LocalMomentFittedFaceRows3D):
+        raise ValueError("control-volume geometry requires direct face functionals")
+    if rows.max_rows != faces.max_rows:
+        raise ValueError("face functionals must align with irregular face rows")
+    if field_closure.max_rows != faces.max_rows:
+        raise ValueError("field_closure.max_rows must align with irregular face rows")
+    try:
+        active_aligned = bool(
+            jnp.all(field_closure.active == (rows.active & faces.active))
         )
-    )
-    plus_value, _plus_gradient, plus_valid = (
-        evaluate_local_control_volume_polynomial(
-            canonical_values,
-            polynomial,
-            cells,
-            *plus_index,
-            points,
-        )
-    )
-    quadrature_shape = faces.quadrature_points.shape[:-1]
-    has_remote_samples = (
-        polynomial.remote_face_value.shape == quadrature_shape
-        and polynomial.remote_face_valid.shape == quadrature_shape
-    )
-    if has_remote_samples:
-        neighbor_value = jnp.where(
-            faces.has_remote_owner[:, None, None],
-            polynomial.remote_face_value,
-            plus_value,
-        )
-        neighbor_valid = jnp.where(
-            faces.has_remote_owner[:, None, None],
-            polynomial.remote_face_valid,
-            plus_valid,
-        )
-    else:
-        neighbor_value = plus_value
-        neighbor_valid = plus_valid
-    has_neighbor = faces.has_plus_owner | faces.has_remote_owner
-    interior_value = 0.5 * (minus_value + neighbor_value)
-    boundary_value = jnp.where(
-        boundary_bc.kind[:, None, None] == BC_DIRICHLET,
-        boundary_bc.quadrature_value,
-        minus_value,
-    )
-    face_value = jnp.where(
-        has_neighbor[:, None, None],
-        interior_value,
-        boundary_value,
-    )
-    unit_b = faces.B_contra / jnp.maximum(
-        faces.Bmag[..., None],
-        float(b_floor),
-    )
-    directed_measure = jnp.einsum(
-        "rpqi,rpqi->rpq",
-        faces.area_covector_weight,
-        unit_b,
-    )
-    quadrature_flux = faces.J * directed_measure * face_value
-    normal_flux = (
-        faces.J
-        * jnp.linalg.norm(faces.area_covector_weight, axis=-1)
-        * boundary_bc.quadrature_value
-    )
-    quadrature_flux = jnp.where(
-        (
-            (~has_neighbor)
-            & boundary_bc.active
-            & (boundary_bc.kind == BC_NORMALFLUX)
-        )[:, None, None],
-        normal_flux,
-        quadrature_flux,
-    )
-    quadrature_flux = jnp.where(
-        (
-            (~has_neighbor)
-            & boundary_bc.active
-            & (boundary_bc.kind == BC_NOFLUX)
-        )[:, None, None],
-        0.0,
-        quadrature_flux,
-    )
-    valid = (
-        faces.quadrature_active
-        & minus_valid
-        & ((~has_neighbor[:, None, None]) | neighbor_valid)
-        & jnp.isfinite(quadrature_flux)
-    )
-    return jnp.where(
-        faces.active,
-        jnp.sum(jnp.where(valid, quadrature_flux, 0.0), axis=(1, 2)),
-        0.0,
-    )
-
-
-def _local_control_volume_irregular_projected_flux(
-    values_owned: jnp.ndarray,
-    polynomial: LocalControlVolumePolynomial3D,
-    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
-    boundary_bc: LocalControlVolumeBoundaryBC3D,
-) -> jnp.ndarray:
-    """Integrate one projected-gradient flux for each irregular face."""
-
-    faces = control_volume_geometry.irregular_faces
-    cells = control_volume_geometry.cells
-    canonical_values = (
-        values_owned
-        if polynomial.owner_values is None
-        else polynomial.owner_values
-    )
-    if int(faces.max_rows) == 0:
-        return jnp.zeros((0,), dtype=jnp.float64)
-    points = faces.quadrature_points
-    minus_index = (
-        faces.minus_owner_i[:, None, None],
-        faces.minus_owner_j[:, None, None],
-        faces.minus_owner_k[:, None, None],
-    )
-    plus_index = (
-        faces.plus_owner_i[:, None, None],
-        faces.plus_owner_j[:, None, None],
-        faces.plus_owner_k[:, None, None],
-    )
-    _minus_value, minus_gradient, minus_valid = (
-        evaluate_local_control_volume_polynomial(
-            canonical_values,
-            polynomial,
-            cells,
-            *minus_index,
-            points,
-        )
-    )
-    _plus_value, plus_gradient, plus_valid = (
-        evaluate_local_control_volume_polynomial(
-            canonical_values,
-            polynomial,
-            cells,
-            *plus_index,
-            points,
-        )
-    )
-    quadrature_shape = faces.quadrature_points.shape[:-1]
-    has_remote_samples = (
-        polynomial.remote_face_gradient.shape == quadrature_shape + (3,)
-        and polynomial.remote_face_valid.shape == quadrature_shape
-    )
-    if has_remote_samples:
-        neighbor_gradient = jnp.where(
-            faces.has_remote_owner[:, None, None, None],
-            polynomial.remote_face_gradient,
-            plus_gradient,
-        )
-        neighbor_valid = jnp.where(
-            faces.has_remote_owner[:, None, None],
-            polynomial.remote_face_valid,
-            plus_valid,
-        )
-    else:
-        neighbor_gradient = plus_gradient
-        neighbor_valid = plus_valid
-    has_neighbor = faces.has_plus_owner | faces.has_remote_owner
-    face_gradient = jnp.where(
-        has_neighbor[:, None, None, None],
-        0.5 * (minus_gradient + neighbor_gradient),
-        minus_gradient,
-    )
-    quadrature_flux = faces.J * jnp.einsum(
-        "rpqi,rpqij,rpqj->rpq",
-        faces.area_covector_weight,
-        faces.projector,
-        face_gradient,
-    )
-    normal_flux = (
-        faces.J
-        * jnp.linalg.norm(faces.area_covector_weight, axis=-1)
-        * boundary_bc.quadrature_value
-    )
-    quadrature_flux = jnp.where(
-        (
-            (~has_neighbor)
-            & boundary_bc.active
-            & (boundary_bc.kind == BC_NORMALFLUX)
-        )[:, None, None],
-        normal_flux,
-        quadrature_flux,
-    )
-    quadrature_flux = jnp.where(
-        (
-            (~has_neighbor)
-            & boundary_bc.active
-            & (boundary_bc.kind == BC_NOFLUX)
-        )[:, None, None],
-        0.0,
-        quadrature_flux,
-    )
-    valid = (
-        faces.quadrature_active
-        & minus_valid
-        & ((~has_neighbor[:, None, None]) | neighbor_valid)
-        & jnp.isfinite(quadrature_flux)
-    )
-    return jnp.where(
-        faces.active,
-        jnp.sum(jnp.where(valid, quadrature_flux, 0.0), axis=(1, 2)),
-        0.0,
-    )
+        valid_aligned = bool(jnp.all(field_closure.valid == field_closure.active))
+    except jax.errors.TracerBoolConversionError:
+        active_aligned = True
+        valid_aligned = True
+    if not active_aligned:
+        raise ValueError("field_closure.active must align with compiled face rows")
+    if not valid_aligned:
+        raise ValueError("every active direct face-functional row must be valid")
+    return field_closure
 
 
 def _local_control_volume_integrated_divergence(
@@ -6575,8 +6567,7 @@ def local_perp_laplacian_conservative_op(
     cell_gradient: LocalCellGradient3D | None = None,
     aggregate_geometry: LocalAggregateCellGeometry3D | None = None,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
-    boundary_bc: LocalControlVolumeBoundaryBC3D | None = None,
-    field_reconstruction: LocalControlVolumePolynomial3D | None = None,
+    field_closure: LocalControlVolumeFieldClosure3D | None = None,
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
     b_floor: float = 1.0e-30,
     jacobian_floor: float = 1.0e-30,
@@ -6636,25 +6627,18 @@ def local_perp_laplacian_conservative_op(
                 "control_volume_geometry must be "
                 "LocalEmbeddedControlVolumeGeometry3D or None"
             )
-        if boundary_bc is None or field_reconstruction is None:
-            raise ValueError(
-                "boundary_bc and field_reconstruction are required with "
-                "control_volume_geometry"
-            )
         regular_flux = (
             cv_flux.regular_flux.x,
             cv_flux.regular_flux.y,
             cv_flux.regular_flux.z,
         )
-        irregular_flux = _local_control_volume_irregular_projected_flux(
-            jnp.asarray(local.x.center, dtype=jnp.float64),
-            field_reconstruction,
+        field_closure = _require_local_control_volume_field_closure(
+            field_closure,
             control_volume_geometry,
-            boundary_bc,
         )
         return _local_control_volume_integrated_divergence(
             regular_flux,
-            irregular_flux,
+            field_closure.projected_flux,
             geometry,
             domain,
             control_volume_geometry,
@@ -6678,8 +6662,7 @@ def local_parallel_laplacian_conservative_op(
     cell_gradient: LocalCellGradient3D | None = None,
     aggregate_geometry: LocalAggregateCellGeometry3D | None = None,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
-    boundary_bc: LocalControlVolumeBoundaryBC3D | None = None,
-    field_reconstruction: LocalControlVolumePolynomial3D | None = None,
+    field_closure: LocalControlVolumeFieldClosure3D | None = None,
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
     b_floor: float = 1.0e-30,
     jacobian_floor: float = 1.0e-30,
@@ -6730,16 +6713,9 @@ def local_parallel_laplacian_conservative_op(
         b_floor=b_floor,
     )
     if control_volume_geometry is not None:
-        if boundary_bc is None or field_reconstruction is None:
-            raise ValueError(
-                "boundary_bc and field_reconstruction are required with "
-                "control_volume_geometry"
-            )
-        irregular_flux = _local_control_volume_irregular_projected_flux(
-            jnp.asarray(local.x.center, dtype=jnp.float64),
-            field_reconstruction,
+        field_closure = _require_local_control_volume_field_closure(
+            field_closure,
             control_volume_geometry,
-            boundary_bc,
         )
         return _local_control_volume_integrated_divergence(
             (
@@ -6747,7 +6723,7 @@ def local_parallel_laplacian_conservative_op(
                 cv_flux.regular_flux.y,
                 cv_flux.regular_flux.z,
             ),
-            irregular_flux,
+            field_closure.parallel_gradient_flux,
             geometry,
             domain,
             control_volume_geometry,
@@ -8835,16 +8811,10 @@ class LocalPerpLaplacianInverseSolver:
             domain=self.domain,
         )
         local = self.stencil_builder(field_halo, self.geometry, context)
-        field_reconstruction = build_local_control_volume_polynomial_from_field(
+        field_closure = build_local_control_volume_field_closure(
             field_halo,
-            self.geometry,
-            self.domain,
-            context,
             self.control_volume_geometry,
             control_volume_boundary_bc,
-            face_bc,
-            halo_exchange=self.halo_exchange,
-            topology_filler=self.topology_filler,
         )
         face_projectors = self.face_projectors
         if face_projectors is None:
@@ -8861,8 +8831,7 @@ class LocalPerpLaplacianInverseSolver:
             face_projectors=face_projectors,
             face_bc=face_bc,
             control_volume_geometry=self.control_volume_geometry,
-            boundary_bc=control_volume_boundary_bc,
-            field_reconstruction=field_reconstruction,
+            field_closure=field_closure,
             axis_regular_axes=self.axis_regular_axes,
             b_floor=self.b_floor,
             jacobian_floor=self.jacobian_floor,

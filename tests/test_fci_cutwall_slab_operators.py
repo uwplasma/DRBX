@@ -38,6 +38,7 @@ from drbx.native.fci_boundaries import (
     CV_FACE_INTERIOR,
     CV_FACE_PARTIAL,
     CV_FACE_PHYSICAL_BOUNDARY,
+    CV_RECONSTRUCTION_EQUATION_CELL,
     CV_RECONSTRUCTION_EQUATION_DIRICHLET,
     LocalControlVolumeBoundaryBC3D,
     LocalControlVolumeFaceRows3D,
@@ -45,6 +46,7 @@ from drbx.native.fci_boundaries import (
     LocalBoundaryFaceBC3D,
     LocalEmbeddedControlVolumeGeometry3D,
     LocalMomentReconstruction3D,
+    LocalMomentFittedFaceRows3D,
     LocalRegularBoundaryMomentClosure3D,
     LocalStencil1D,
 )
@@ -56,6 +58,7 @@ from drbx.native.fci_halo import (
     TopologyHaloFiller3D,
 )
 from drbx.native.fci_operators import (
+    build_local_control_volume_field_closure,
     build_local_control_volume_polynomial_from_field,
     build_local_perp_laplacian_stencil,
     evaluate_local_control_volume_polynomial,
@@ -66,6 +69,11 @@ from drbx.native.fci_operators import (
     local_perp_laplacian_conservative_op,
 )
 from drbx.native.fci_control_volume_operators import (
+    cubic_control_volume_average_basis,
+    cubic_monomial_basis,
+    cubic_parallel_face_flux_target,
+    cubic_projected_face_flux_target,
+    precompute_local_face_functional,
     precompute_local_moment_reconstruction,
 )
 
@@ -392,8 +400,229 @@ def _unit_control_volume_face_rows(
         projector=jnp.asarray(projector),
         patch_active=jnp.asarray(patch_active),
         active=jnp.ones((max_rows,), dtype=bool),
+        global_face_id=jnp.arange(
+            1_000_001,
+            1_000_001 + max_rows,
+            dtype=jnp.int64,
+        ),
         max_rows=max_rows,
         max_patches=max_patches,
+    )
+
+
+def _cubic_face_functionals(
+    cells: LocalControlVolumeCellGeometry3D,
+    faces: LocalControlVolumeFaceRows3D,
+) -> LocalMomentFittedFaceRows3D:
+    """Compile compact cubic direct-flux rows for focused slab fixtures."""
+
+    if faces.max_rows == 0:
+        return LocalMomentFittedFaceRows3D.empty(cells.layout)
+
+    active_cells = np.asarray(cells.is_active_owner, dtype=bool)
+    centroids = np.asarray(cells.centroid, dtype=np.float64)
+    second_moments = np.asarray(cells.second_moment, dtype=np.float64)
+    third_moments = np.asarray(cells.third_moment, dtype=np.float64)
+    face_active = np.asarray(faces.active, dtype=bool)
+    qactive = np.asarray(faces.quadrature_active, dtype=bool)
+    qpoints = np.asarray(faces.quadrature_points, dtype=np.float64)
+    functionals: list[tuple[object, list[tuple[int, tuple[int, ...]]]]] = []
+    max_equations = 1
+
+    for row in range(faces.max_rows):
+        if not face_active[row]:
+            functionals.append((None, []))
+            continue
+        owners = [
+            np.asarray(
+                (
+                    faces.minus_owner_i[row],
+                    faces.minus_owner_j[row],
+                    faces.minus_owner_k[row],
+                ),
+                dtype=np.int32,
+            )
+        ]
+        if bool(faces.has_plus_owner[row]):
+            owners.append(
+                np.asarray(
+                    (
+                        faces.plus_owner_i[row],
+                        faces.plus_owner_j[row],
+                        faces.plus_owner_k[row],
+                    ),
+                    dtype=np.int32,
+                )
+            )
+        candidate = np.zeros(cells.shape, dtype=bool)
+        for owner in owners:
+            lower = np.maximum(owner - 2, 0)
+            upper = np.minimum(owner + 3, np.asarray(cells.shape))
+            candidate[
+                lower[0] : upper[0],
+                lower[1] : upper[1],
+                lower[2] : upper[2],
+            ] = True
+        cell_indices = np.argwhere(candidate & active_cells)
+
+        active_points = qpoints[row][qactive[row]]
+        origin = np.mean(active_points, axis=0)
+        owner_index = tuple(int(value) for value in owners[0])
+        # The slab fixtures are Cartesian but may be anisotropic.  Recover the
+        # componentwise widths from the exact central second moments.
+        scale = np.sqrt(
+            12.0 * np.diag(second_moments[owner_index])
+        )
+        matrix_rows = list(
+            cubic_control_volume_average_basis(
+                centroids[tuple(cell_indices.T)],
+                second_moments[tuple(cell_indices.T)],
+                third_moments[tuple(cell_indices.T)],
+                origin=origin,
+                scale=scale,
+            )
+        )
+        references: list[tuple[int, tuple[int, ...]]] = [
+            (CV_RECONSTRUCTION_EQUATION_CELL, tuple(int(v) for v in index))
+            for index in cell_indices
+        ]
+        if int(faces.kind[row]) in (
+            CV_FACE_CUT_WALL,
+            CV_FACE_PHYSICAL_BOUNDARY,
+        ):
+            for patch, quadrature in np.argwhere(qactive[row]):
+                matrix_rows.append(
+                    cubic_monomial_basis(
+                        (qpoints[row, patch, quadrature] - origin) / scale
+                    )
+                )
+                references.append(
+                    (
+                        CV_RECONSTRUCTION_EQUATION_DIRICHLET,
+                        (row, int(patch), int(quadrature)),
+                    )
+                )
+        matrix = np.asarray(matrix_rows, dtype=np.float64)
+        kinds = np.asarray([kind for kind, _ in references], dtype=np.int32)
+        sample_reference = np.arange(len(references), dtype=np.int64)
+        projected_target = cubic_projected_face_flux_target(
+            qpoints[row],
+            np.asarray(faces.J[row]),
+            np.asarray(faces.area_covector_weight[row]),
+            np.asarray(faces.projector[row]),
+            qactive[row],
+            origin=origin,
+            scale=scale,
+        )
+        parallel_target = cubic_parallel_face_flux_target(
+            qpoints[row],
+            np.asarray(faces.J[row]),
+            np.asarray(faces.area_covector_weight[row]),
+            np.asarray(faces.B_contra[row]),
+            np.asarray(faces.Bmag[row]),
+            qactive[row],
+            origin=origin,
+            scale=scale,
+        )
+        unit_b = np.asarray(faces.B_contra[row]) / np.maximum(
+            np.asarray(faces.Bmag[row])[..., None],
+            1.0e-30,
+        )
+        b_cov = np.einsum("...ij,...j->...i", np.asarray(faces.g_cov[row]), unit_b)
+        parallel_projector = unit_b[..., :, None] * b_cov[..., None, :]
+        parallel_gradient_target = cubic_projected_face_flux_target(
+            qpoints[row],
+            np.asarray(faces.J[row]),
+            np.asarray(faces.area_covector_weight[row]),
+            parallel_projector,
+            qactive[row],
+            origin=origin,
+            scale=scale,
+        )
+        functional = precompute_local_face_functional(
+            matrix,
+            equation_kind=kinds,
+            sample_reference=sample_reference,
+            value_target=np.zeros((20,), dtype=np.float64),
+            gradient_target=np.zeros((3, 20), dtype=np.float64),
+            projected_flux_target=projected_target,
+            parallel_flux_target=parallel_target,
+            parallel_gradient_flux_target=parallel_gradient_target,
+            face_id=int(faces.global_face_id[row]),
+        )
+        functionals.append((functional, references))
+        max_equations = max(max_equations, len(references))
+
+    row_shape = (faces.max_rows,)
+    observation_shape = row_shape + (max_equations,)
+    observation_kind = np.zeros(observation_shape, dtype=np.int32)
+    owned = np.zeros(observation_shape + (3,), dtype=np.int32)
+    boundary = np.zeros(observation_shape + (3,), dtype=np.int32)
+    observation_active = np.zeros(observation_shape, dtype=bool)
+    projected_weights = np.zeros(observation_shape, dtype=np.float64)
+    parallel_weights = np.zeros(observation_shape, dtype=np.float64)
+    parallel_gradient_weights = np.zeros(observation_shape, dtype=np.float64)
+    polynomial_order = np.zeros(row_shape, dtype=np.int32)
+    rank = np.zeros(row_shape, dtype=np.int32)
+    condition = np.full(row_shape, np.inf, dtype=np.float64)
+    residual = np.zeros(row_shape, dtype=np.float64)
+    projected_norm = np.zeros(row_shape, dtype=np.float64)
+    parallel_norm = np.zeros(row_shape, dtype=np.float64)
+    parallel_gradient_norm = np.zeros(row_shape, dtype=np.float64)
+    for row, (functional, references) in enumerate(functionals):
+        if functional is None:
+            continue
+        count = len(references)
+        observation_active[row, :count] = True
+        observation_kind[row, :count] = functional.equation_kind
+        projected_weights[row, :count] = functional.projected_flux_weights
+        parallel_weights[row, :count] = functional.parallel_flux_weights
+        parallel_gradient_weights[row, :count] = (
+            functional.parallel_gradient_flux_weights
+        )
+        for equation, (kind, reference) in enumerate(references):
+            if kind == CV_RECONSTRUCTION_EQUATION_CELL:
+                owned[row, equation] = reference
+            else:
+                boundary[row, equation] = reference
+        polynomial_order[row] = functional.polynomial_order
+        rank[row] = functional.rank
+        condition[row] = functional.condition_number
+        residual[row] = functional.reproduction_residual
+        projected_norm[row] = functional.normalized_projected_weight_norm
+        parallel_norm[row] = functional.normalized_parallel_weight_norm
+        parallel_gradient_norm[row] = (
+            functional.normalized_parallel_gradient_weight_norm
+        )
+    return LocalMomentFittedFaceRows3D(
+        layout=cells.layout,
+        functional_face_id=faces.global_face_id,
+        observation_kind=jnp.asarray(observation_kind),
+        owned_i=jnp.asarray(owned[..., 0]),
+        owned_j=jnp.asarray(owned[..., 1]),
+        owned_k=jnp.asarray(owned[..., 2]),
+        halo_i=jnp.zeros(observation_shape, dtype=jnp.int32),
+        halo_j=jnp.zeros(observation_shape, dtype=jnp.int32),
+        halo_k=jnp.zeros(observation_shape, dtype=jnp.int32),
+        boundary_face_row=jnp.asarray(boundary[..., 0]),
+        boundary_patch=jnp.asarray(boundary[..., 1]),
+        boundary_quadrature=jnp.asarray(boundary[..., 2]),
+        observation_active=jnp.asarray(observation_active),
+        projected_flux_weights=jnp.asarray(projected_weights),
+        parallel_flux_weights=jnp.asarray(parallel_weights),
+        parallel_gradient_flux_weights=jnp.asarray(parallel_gradient_weights),
+        polynomial_order=jnp.asarray(polynomial_order),
+        rank=jnp.asarray(rank),
+        condition_number=jnp.asarray(condition),
+        reproduction_residual=jnp.asarray(residual),
+        normalized_projected_weight_norm=jnp.asarray(projected_norm),
+        normalized_parallel_weight_norm=jnp.asarray(parallel_norm),
+        normalized_parallel_gradient_weight_norm=jnp.asarray(
+            parallel_gradient_norm
+        ),
+        active=faces.active,
+        max_rows=faces.max_rows,
+        max_equations=max_equations,
     )
 
 
@@ -746,6 +975,9 @@ def test_regular_boundary_moment_closure_reproduces_cubic() -> None:
         reconstruction=LocalMomentReconstruction3D.empty(
             geometry.layout
         ),
+        face_functionals=LocalMomentFittedFaceRows3D.empty(
+            geometry.layout
+        ),
         regular_boundary_closure=closure,
     )
     # A reconstruction row may target a first physical owner cell.  Its
@@ -951,6 +1183,7 @@ def test_control_volume_quadratic_reconstruction_reproduces_polynomials() -> Non
         regular_faces=geometry.regular_face_geometry,
         irregular_faces=faces,
         reconstruction=reconstruction,
+        face_functionals=_cubic_face_functionals(cells, faces),
     )
     assert bool(jnp.all(reconstruction.polynomial_order[reconstruction.active] == 3))
     one_row = int(reconstruction.target_row_for_cell[target_one_wall])
@@ -1175,6 +1408,7 @@ def test_control_volume_padded_rows_do_not_overwrite_real_target() -> None:
         regular_faces=geometry.regular_face_geometry,
         irregular_faces=faces,
         reconstruction=padded,
+        face_functionals=_cubic_face_functionals(cells, faces),
     )
     constant = 0.3
     gradient = jnp.asarray((0.8, -0.4, 0.25), dtype=jnp.float64)
@@ -1291,6 +1525,7 @@ def test_control_volume_partial_aggregate_flux_is_conservative_and_source_safe()
         regular_faces=_all_closed_regular_faces(geometry),
         irregular_faces=faces,
         reconstruction=reconstruction,
+        face_functionals=_cubic_face_functionals(cells, faces),
     )
     boundary_bc = LocalControlVolumeBoundaryBC3D.empty(
         max_rows=faces.max_rows,
@@ -1315,13 +1550,17 @@ def test_control_volume_partial_aggregate_flux_is_conservative_and_source_safe()
             bundle,
             boundary_bc,
         )
+        field_closure = build_local_control_volume_field_closure(
+            field_halo,
+            bundle,
+            boundary_bc,
+        )
         divergence = local_parallel_flux_div_op(
             local,
             geometry,
             domain,
             control_volume_geometry=bundle,
-            boundary_bc=boundary_bc,
-            field_reconstruction=polynomial,
+            field_closure=field_closure,
         )
         return divergence, polynomial
 
@@ -1404,6 +1643,7 @@ def test_control_volume_projected_flux_is_conservative_and_source_safe() -> None
         regular_faces=_all_closed_regular_faces(geometry),
         irregular_faces=faces,
         reconstruction=reconstruction,
+        face_functionals=_cubic_face_functionals(cells, faces),
     )
     boundary_bc = LocalControlVolumeBoundaryBC3D.empty(
         max_rows=faces.max_rows,
@@ -1436,13 +1676,17 @@ def test_control_volume_projected_flux_is_conservative_and_source_safe() -> None
             bundle,
             boundary_bc,
         )
+        field_closure = build_local_control_volume_field_closure(
+            field_halo,
+            bundle,
+            boundary_bc,
+        )
         divergence = local_perp_laplacian_conservative_op(
             local,
             geometry,
             domain,
             control_volume_geometry=bundle,
-            boundary_bc=boundary_bc,
-            field_reconstruction=polynomial,
+            field_closure=field_closure,
         )
         return divergence, polynomial
 
@@ -1514,6 +1758,7 @@ def test_control_volume_physical_boundary_uses_quadratic_gradient() -> None:
         regular_faces=_all_closed_regular_faces(geometry),
         irregular_faces=faces,
         reconstruction=reconstruction,
+        face_functionals=_cubic_face_functionals(cells, faces),
     )
 
     x = cells.centroid[..., 0]
@@ -1548,14 +1793,6 @@ def test_control_volume_physical_boundary_uses_quadratic_gradient() -> None:
         ),
         axis=-1,
     )
-    hessian = jnp.zeros(cells.shape + (3, 3), dtype=jnp.float64)
-    polynomial = LocalControlVolumePolynomial3D(
-        gradient=gradient,
-        hessian=hessian,
-        valid=cells.is_active_owner,
-        polynomial_order=jnp.where(cells.is_active_owner, 2, 0),
-        condition_number=jnp.where(cells.is_active_owner, 1.0, jnp.inf),
-    )
     quadrature_points = faces.quadrature_points
     qx = quadrature_points[..., 0]
     qy = quadrature_points[..., 1]
@@ -1585,18 +1822,26 @@ def test_control_volume_physical_boundary_uses_quadratic_gradient() -> None:
         geometry,
         StencilBuilderContext(layout=geometry.layout, domain=domain),
     )
-    quadratic_face_gradient = jnp.broadcast_to(
-        gradient[owner],
-        faces.quadrature_points[0].shape,
+    field_closure = build_local_control_volume_field_closure(
+        field_halo,
+        bundle,
+        boundary_bc,
     )
     divergence = local_perp_laplacian_conservative_op(
         local,
         geometry,
         domain,
         control_volume_geometry=bundle,
-        boundary_bc=boundary_bc,
-        field_reconstruction=polynomial,
+        field_closure=field_closure,
     )
+    quadratic_face_gradient = jnp.stack(
+        (
+            3.0 * qx**2 + 0.7 * qy * qz + 2.0,
+            1.5 * qy**2 + 0.7 * qx * qz - 1.0,
+            -0.75 * qz**2 + 0.7 * qx * qy + 0.3,
+        ),
+        axis=-1,
+    )[0]
     expected_flux = jnp.sum(
         faces.J[0]
         * jnp.einsum(
