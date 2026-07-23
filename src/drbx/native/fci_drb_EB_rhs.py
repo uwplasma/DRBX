@@ -41,6 +41,7 @@ from .fci_halo import (
 )
 from .fci_operators import (
     LocalPerpLaplacianInverseSolver,
+    build_local_control_volume_field_closure,
     build_local_control_volume_polynomial_from_field,
     curvature_op,
     expand_local_control_volume_owner_field,
@@ -603,10 +604,14 @@ class LocalFciDrbEBRhs:
             self.geometry,
             context,
         )
-        polynomial = self._control_volume_polynomial(
-            field_halo,
-            control_volume_bc,
-            face_bc,
+        field_closure = (
+            None
+            if control_volume_bc is None
+            else build_local_control_volume_field_closure(
+                field_halo,
+                self.control_volume_geometry,
+                control_volume_bc,
+            )
         )
         return jnp.asarray(coefficient, dtype=jnp.float64) * local_perp_laplacian_conservative_op(
             conservative,
@@ -616,8 +621,7 @@ class LocalFciDrbEBRhs:
             face_bc=face_bc,
             regular_face_geometry=self.geometry.regular_face_geometry,
             control_volume_geometry=self.control_volume_geometry,
-            boundary_bc=control_volume_bc,
-            field_reconstruction=polynomial,
+            field_closure=field_closure,
             axis_regular_axes=self.axis_regular_axes,
         )
 
@@ -636,10 +640,14 @@ class LocalFciDrbEBRhs:
             self.geometry,
             context,
         )
-        polynomial = self._control_volume_polynomial(
-            field_halo,
-            control_volume_bc,
-            face_bc,
+        field_closure = (
+            None
+            if control_volume_bc is None
+            else build_local_control_volume_field_closure(
+                field_halo,
+                self.control_volume_geometry,
+                control_volume_bc,
+            )
         )
         return jnp.asarray(coefficient, dtype=jnp.float64) * local_parallel_laplacian_conservative_op(
             conservative,
@@ -648,8 +656,7 @@ class LocalFciDrbEBRhs:
             face_bc=face_bc,
             regular_face_geometry=self.geometry.regular_face_geometry,
             control_volume_geometry=self.control_volume_geometry,
-            boundary_bc=control_volume_bc,
-            field_reconstruction=polynomial,
+            field_closure=field_closure,
             axis_regular_axes=self.axis_regular_axes,
         )
 
@@ -666,10 +673,10 @@ class LocalFciDrbEBRhs:
             self.geometry,
             context,
         )
-        ti_polynomial = self._control_volume_polynomial(
+        ti_field_closure = build_local_control_volume_field_closure(
             state_halo.Ti,
+            self.control_volume_geometry,
             control_volume_bc.Ti,
-            face_bc.Ti,
         )
         ti_laplacian = local_perp_laplacian_conservative_op(
             ti_conservative,
@@ -679,8 +686,7 @@ class LocalFciDrbEBRhs:
             face_bc=face_bc.Ti,
             regular_face_geometry=self.geometry.regular_face_geometry,
             control_volume_geometry=self.control_volume_geometry,
-            boundary_bc=control_volume_bc.Ti,
-            field_reconstruction=ti_polynomial,
+            field_closure=ti_field_closure,
             axis_regular_axes=self.axis_regular_axes,
         )
         owned = self.domain.layout.owned_slices_cell
@@ -1172,38 +1178,42 @@ class LocalFciDrbEBRhs:
 
             def parallel_flux(
                 conservative_stencil,
+                field_halo,
                 boundary_bc,
-                polynomial,
             ):
+                field_closure = build_local_control_volume_field_closure(
+                    field_halo,
+                    self.control_volume_geometry,
+                    boundary_bc,
+                )
                 return local_parallel_flux_div_op(
                     conservative_stencil,
                     self.geometry,
                     self.domain,
                     control_volume_geometry=self.control_volume_geometry,
-                    boundary_bc=boundary_bc,
-                    field_reconstruction=polynomial,
+                    field_closure=field_closure,
                     axis_regular_axes=self.axis_regular_axes,
                 )
 
             parallel_density_flux_divergence = parallel_flux(
                 density_flux_conservative_stencil,
+                density_flux_halo,
                 density_flux_control_volume_bc,
-                density_flux_polynomial,
             )
             parallel_current_flux_divergence = parallel_flux(
                 current_conservative_stencil,
+                current_halo,
                 current_control_volume_bc,
-                current_polynomial,
             )
             parallel_Ve_flux_divergence = parallel_flux(
                 Ve_conservative_stencil,
+                state_halo.Ve,
                 control_volume_bc.Ve,
-                Ve_polynomial,
             )
             parallel_Vi_flux_divergence = parallel_flux(
                 Vi_conservative_stencil,
+                state_halo.Vi,
                 control_volume_bc.Vi,
-                Vi_polynomial,
             )
 
             def grad_parallel(field_gradient):
