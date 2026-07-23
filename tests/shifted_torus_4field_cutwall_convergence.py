@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace as dataclass_replace
+import gc
 from pathlib import Path
 import sys
 import time as time_module
@@ -1079,8 +1080,17 @@ def run_shifted_torus_control_volume_operator_convergence(
                 )
                 jax.block_until_ready(actual_mesh)
                 elapsed = time_module.perf_counter() - start
-                actual = jnp.asarray(jax.device_get(actual_mesh))
-                reference = jnp.asarray(jax.device_get(reference_mesh))
+                # Keep diagnostics on the host. Re-wrapping these arrays with
+                # jnp.asarray would copy each result back to the accelerator
+                # and retain another device allocation across the sweep.
+                actual = np.asarray(
+                    jax.device_get(actual_mesh),
+                    dtype=np.float64,
+                )
+                reference = np.asarray(
+                    jax.device_get(reference_mesh),
+                    dtype=np.float64,
+                )
                 statistics = _operator_category_statistics(
                     actual,
                     reference,
@@ -1231,6 +1241,24 @@ def run_shifted_torus_control_volume_operator_convergence(
                         top_compact_distance,
                     )
                 )
+
+                # Each operator creates a distinct large shard_map executable.
+                # Release its device outputs and compiled executable before
+                # compiling the next operator in this diagnostic sweep.
+                del (
+                    compiled,
+                    actual_mesh,
+                    reference_mesh,
+                    remote_flux_sum,
+                    remote_flux_abs_sum,
+                    invalid_remote_quadrature,
+                    invalid_reconstruction_rows,
+                    actual,
+                    reference,
+                    statistics,
+                )
+                jax.clear_caches()
+                gc.collect()
             def full_rhs_kernel(
                 state_owned,
                 phi_owned,
