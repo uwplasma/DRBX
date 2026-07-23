@@ -9,17 +9,20 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from drbx.geometry import HaloLayout3D
+from drbx.geometry import HaloLayout3D, LocalDomain3D, ShardSpec3D
 from drbx.native.fci_boundaries import (
     BC_DIRICHLET,
     BC_NEUMANN,
     BC_NOFLUX,
     BC_NORMALFLUX,
+    CV_FACE_CUT_WALL,
+    CV_FACE_INTERIOR,
     CV_RECONSTRUCTION_EQUATION_CELL,
     CV_RECONSTRUCTION_EQUATION_DIRICHLET,
     CV_RECONSTRUCTION_EQUATION_REMOTE_CELL,
     LocalControlVolumeBoundaryBC3D,
     LocalControlVolumeFieldClosure3D,
+    LocalControlVolumePolynomial3D,
     LocalEmbeddedControlVolumeGeometry3D,
     LocalMomentFittedFaceRows3D,
 )
@@ -27,6 +30,7 @@ from drbx.native import fci_operators
 from drbx.native.fci_operators import (
     build_local_control_volume_field_closure,
     local_parallel_laplacian_conservative_op,
+    replace_local_control_volume_projected_flux_with_owner_polynomials,
 )
 
 
@@ -100,6 +104,226 @@ def _field(layout):
     field = field.at[1, 1, 1].set(2.0)  # owned observation
     field = field.at[2, 1, 1].set(5.0)  # concrete remote-halo observation
     return field
+
+
+def _owner_polynomial_fixture(
+    *,
+    kind: int = CV_FACE_INTERIOR,
+    has_plus_owner: bool = True,
+    has_remote_owner: bool = False,
+    global_radial_boundary: bool = False,
+    minus_valid: bool = True,
+    plus_valid: bool = True,
+    remote_valid: bool = True,
+):
+    """One oriented face with constant owner polynomials.
+
+    The x component of the face covector is two, so the selected gradients
+    produce easy-to-read flux values.  The local owners are interior in the
+    global radial direction unless the fixture explicitly places the shard at
+    the lower global boundary.
+    """
+    layout = HaloLayout3D((3, 2, 2), 1)
+    cells_shape = layout.owned_shape
+    cells = SimpleNamespace(
+        shape=cells_shape,
+        centroid=jnp.zeros(cells_shape + (3,), dtype=jnp.float64),
+        second_moment=jnp.zeros(cells_shape + (3, 3), dtype=jnp.float64),
+        third_moment=jnp.zeros(cells_shape + (3, 3, 3), dtype=jnp.float64),
+    )
+    faces = SimpleNamespace(
+        max_rows=1,
+        max_patches=1,
+        active=jnp.array([True]),
+        kind=jnp.array([kind], dtype=jnp.int32),
+        minus_owner_i=jnp.array([0], dtype=jnp.int32),
+        minus_owner_j=jnp.array([0], dtype=jnp.int32),
+        minus_owner_k=jnp.array([0], dtype=jnp.int32),
+        plus_owner_i=jnp.array([1], dtype=jnp.int32),
+        plus_owner_j=jnp.array([0], dtype=jnp.int32),
+        plus_owner_k=jnp.array([0], dtype=jnp.int32),
+        has_plus_owner=jnp.array([has_plus_owner]),
+        has_remote_owner=jnp.array([has_remote_owner]),
+        remote_halo_i=jnp.array([2], dtype=jnp.int32),
+        remote_halo_j=jnp.array([1], dtype=jnp.int32),
+        remote_halo_k=jnp.array([1], dtype=jnp.int32),
+        quadrature_points=jnp.array([[[[0.0, 0.0, 0.0]] * 4]]),
+        quadrature_active=jnp.array([[[True, False, False, False]]]),
+        J=jnp.array([[[1.0, 0.0, 0.0, 0.0]]]),
+        area_covector_weight=jnp.array([[[[2.0, 0.0, 0.0]] * 4]]),
+        projector=jnp.broadcast_to(
+            jnp.eye(3, dtype=jnp.float64), (1, 1, 4, 3, 3)
+        ),
+    )
+    geometry = object.__new__(LocalEmbeddedControlVolumeGeometry3D)
+    object.__setattr__(geometry, "cells", cells)
+    object.__setattr__(geometry, "irregular_faces", faces)
+    object.__setattr__(geometry, "face_functionals", None)
+
+    gradient = jnp.zeros(cells_shape + (3,), dtype=jnp.float64)
+    gradient = gradient.at[0, 0, 0, 0].set(1.0)
+    gradient = gradient.at[1, 0, 0, 0].set(3.0)
+    valid = jnp.ones(cells_shape, dtype=bool)
+    valid = valid.at[0, 0, 0].set(minus_valid)
+    valid = valid.at[1, 0, 0].set(plus_valid)
+    remote_gradient = jnp.zeros((1, 1, 4, 3), dtype=jnp.float64)
+    remote_gradient = remote_gradient.at[0, 0, 0, 0].set(7.0)
+    polynomial = LocalControlVolumePolynomial3D(
+        gradient=gradient,
+        hessian=jnp.zeros(cells_shape + (3, 3), dtype=jnp.float64),
+        third_derivative=jnp.zeros(cells_shape + (3, 3, 3), dtype=jnp.float64),
+        valid=valid,
+        polynomial_order=jnp.ones(cells_shape, dtype=jnp.int32),
+        condition_number=jnp.ones(cells_shape, dtype=jnp.float64),
+        owner_values=jnp.zeros(cells_shape, dtype=jnp.float64),
+        remote_face_value=jnp.zeros((1, 1, 4), dtype=jnp.float64),
+        remote_face_gradient=remote_gradient,
+        remote_face_valid=jnp.full((1, 1, 4), remote_valid),
+    )
+    owned_start = ((0 if global_radial_boundary else 2), 0, 0)
+    domain = LocalDomain3D(
+        layout=layout,
+        shard_spec=ShardSpec3D(
+            global_shape=(7, 2, 2),
+            owned_start=owned_start,
+            owned_stop=tuple(
+                start + size
+                for start, size in zip(owned_start, layout.owned_shape)
+            ),
+            shard_index=(0, 0, 0),
+            shard_counts=(1, 1, 1),
+            periodic_axes=(False, False, False),
+            halo_width=layout.halo_width,
+        ),
+    )
+    closure = LocalControlVolumeFieldClosure3D(
+        projected_flux=jnp.array([99.0]),
+        parallel_flux=jnp.array([17.0]),
+        parallel_gradient_flux=jnp.array([19.0]),
+        valid=jnp.array([True]),
+        active=jnp.array([True]),
+        max_rows=1,
+    )
+    return geometry, domain, polynomial, closure
+
+
+def _replace_owner_flux(*args, **kwargs):
+    field_closure, polynomial, geometry, domain = args
+    eager = replace_local_control_volume_projected_flux_with_owner_polynomials(
+        *args, **kwargs
+    )
+    compiled = jax.jit(
+        lambda field_closure, polynomial: (
+            replace_local_control_volume_projected_flux_with_owner_polynomials(
+                field_closure,
+                polynomial,
+                geometry,
+                domain,
+                **kwargs,
+            )
+        )
+    )(field_closure, polynomial)
+    return eager, compiled
+
+
+def test_owner_polynomial_two_owner_flux_replaces_projected_only() -> None:
+    geometry, domain, polynomial, closure = _owner_polynomial_fixture()
+    eager, compiled = _replace_owner_flux(
+        closure,
+        polynomial,
+        geometry,
+        domain,
+        use_two_owner_flux=True,
+        use_cut_wall_owner_flux=False,
+    )
+    for result in (eager, compiled):
+        np.testing.assert_allclose(result.projected_flux, [4.0])
+        np.testing.assert_allclose(result.parallel_flux, closure.parallel_flux)
+        np.testing.assert_allclose(
+            result.parallel_gradient_flux, closure.parallel_gradient_flux
+        )
+        assert bool(result.valid[0])
+
+
+def test_owner_polynomial_remote_flux_uses_remote_gradient_orientation() -> None:
+    geometry, domain, polynomial, closure = _owner_polynomial_fixture(
+        has_plus_owner=False,
+        has_remote_owner=True,
+    )
+    eager, compiled = _replace_owner_flux(
+        closure,
+        polynomial,
+        geometry,
+        domain,
+        use_two_owner_flux=True,
+        use_cut_wall_owner_flux=False,
+    )
+    for result in (eager, compiled):
+        # 2 * (minus_x + remote_x) / 2; the remote gradient keeps the
+        # canonical row orientation and is not negated on exchange.
+        np.testing.assert_allclose(result.projected_flux, [8.0])
+        np.testing.assert_allclose(result.parallel_flux, closure.parallel_flux)
+        np.testing.assert_allclose(
+            result.parallel_gradient_flux, closure.parallel_gradient_flux
+        )
+
+
+def test_owner_polynomial_cut_wall_uses_minus_owner() -> None:
+    geometry, domain, polynomial, closure = _owner_polynomial_fixture(
+        kind=CV_FACE_CUT_WALL,
+        has_plus_owner=False,
+    )
+    eager, compiled = _replace_owner_flux(
+        closure,
+        polynomial,
+        geometry,
+        domain,
+        use_two_owner_flux=False,
+        use_cut_wall_owner_flux=True,
+    )
+    for result in (eager, compiled):
+        np.testing.assert_allclose(result.projected_flux, [2.0])
+        np.testing.assert_allclose(result.parallel_flux, closure.parallel_flux)
+        np.testing.assert_allclose(
+            result.parallel_gradient_flux, closure.parallel_gradient_flux
+        )
+
+
+def test_owner_polynomial_invalid_selected_owner_invalidates_row() -> None:
+    geometry, domain, polynomial, closure = _owner_polynomial_fixture(
+        plus_valid=False,
+    )
+    eager, compiled = _replace_owner_flux(
+        closure,
+        polynomial,
+        geometry,
+        domain,
+        use_two_owner_flux=True,
+        use_cut_wall_owner_flux=False,
+    )
+    for result in (eager, compiled):
+        assert not bool(result.valid[0])
+        assert np.isnan(np.asarray(result.projected_flux)[0])
+
+
+def test_owner_polynomial_global_radial_boundary_keeps_direct_flux() -> None:
+    geometry, domain, polynomial, closure = _owner_polynomial_fixture(
+        global_radial_boundary=True,
+    )
+    eager, compiled = _replace_owner_flux(
+        closure,
+        polynomial,
+        geometry,
+        domain,
+        use_two_owner_flux=True,
+        use_cut_wall_owner_flux=True,
+    )
+    for result in (eager, compiled):
+        np.testing.assert_allclose(result.projected_flux, closure.projected_flux)
+        np.testing.assert_allclose(result.parallel_flux, closure.parallel_flux)
+        np.testing.assert_allclose(
+            result.parallel_gradient_flux, closure.parallel_gradient_flux
+        )
 
 
 def test_direct_face_closure_eager_jit_and_pytree() -> None:

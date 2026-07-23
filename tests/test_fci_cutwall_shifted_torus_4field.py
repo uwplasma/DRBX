@@ -379,6 +379,38 @@ def test_reconstruction_boundary_weight_scale_validates_without_geometry() -> No
     assert _validate_reconstruction_boundary_weight_scale(1.0) == 1.0
 
 
+def test_reconstruction_distance_row_weight_exponent_validates_without_geometry() -> None:
+    result = run_shifted_torus_control_volume_operator_convergence(
+        resolutions=[],
+        shard_counts=(1, 1, 1),
+        halo_width=2,
+        reconstruction_distance_row_weight_exponent=0.0,
+    )
+    assert result == {"records": {}, "orders": {}, "phi_residuals": []}
+    for valid in (0.0, 1.0, 4.0):
+        result = run_shifted_torus_control_volume_operator_convergence(
+            resolutions=[],
+            shard_counts=(1, 1, 1),
+            halo_width=2,
+            reconstruction_distance_row_weight_exponent=valid,
+        )
+        assert result == {"records": {}, "orders": {}, "phi_residuals": []}
+    for invalid in (-1.0, np.nan, np.inf, -np.inf):
+        try:
+            run_shifted_torus_control_volume_operator_convergence(
+                resolutions=[],
+                shard_counts=(1, 1, 1),
+                halo_width=2,
+                reconstruction_distance_row_weight_exponent=invalid,
+            )
+        except ValueError as error:
+            assert "finite and nonnegative" in str(error)
+        else:
+            raise AssertionError(
+                "invalid reconstruction distance-row weight exponent must be rejected"
+            )
+
+
 def test_face_functional_cell_radius_validates_without_geometry() -> None:
     result = run_shifted_torus_control_volume_operator_convergence(
         resolutions=[],
@@ -405,49 +437,25 @@ def test_face_functional_cell_radius_validates_without_geometry() -> None:
 
 
 def test_perp_two_owner_polynomial_flux_validates_without_geometry() -> None:
-    result = run_shifted_torus_control_volume_operator_convergence(
-        resolutions=[],
-        shard_counts=(1, 1, 1),
-        halo_width=2,
-        perp_use_two_owner_polynomial_flux=True,
-    )
-    assert result == {"records": {}, "orders": {}, "phi_residuals": []}
-    try:
-        run_shifted_torus_control_volume_operator_convergence(
+    for shard_counts in ((1, 1, 1), (1, 2, 1)):
+        result = run_shifted_torus_control_volume_operator_convergence(
             resolutions=[],
-            shard_counts=(1, 2, 1),
+            shard_counts=shard_counts,
             halo_width=2,
             perp_use_two_owner_polynomial_flux=True,
         )
-    except ValueError as error:
-        assert "requires one shard" in str(error)
-    else:
-        raise AssertionError(
-            "two-owner polynomial flux must be rejected for multiple shards"
-        )
+        assert result == {"records": {}, "orders": {}, "phi_residuals": []}
 
 
 def test_perp_cutwall_owner_polynomial_flux_validates_without_geometry() -> None:
-    result = run_shifted_torus_control_volume_operator_convergence(
-        resolutions=[],
-        shard_counts=(1, 1, 1),
-        halo_width=2,
-        perp_use_cutwall_owner_polynomial_flux=True,
-    )
-    assert result == {"records": {}, "orders": {}, "phi_residuals": []}
-    try:
-        run_shifted_torus_control_volume_operator_convergence(
+    for shard_counts in ((1, 1, 1), (1, 2, 1)):
+        result = run_shifted_torus_control_volume_operator_convergence(
             resolutions=[],
-            shard_counts=(1, 2, 1),
+            shard_counts=shard_counts,
             halo_width=2,
             perp_use_cutwall_owner_polynomial_flux=True,
         )
-    except ValueError as error:
-        assert "requires one shard" in str(error)
-    else:
-        raise AssertionError(
-            "cut-wall owner polynomial flux must be rejected for multiple shards"
-        )
+        assert result == {"records": {}, "orders": {}, "phi_residuals": []}
 
 
 def test_all_owner_boundary_observations_validates_without_geometry() -> None:
@@ -530,6 +538,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--reconstruction-distance-row-weight-exponent",
+        type=float,
+        default=0.0,
+        help=(
+            "Test-only distance-row weight exponent for reconstruction; "
+            "zero preserves legacy behavior."
+        ),
+    )
+    parser.add_argument(
         "--face-functional-boundary-weight-scale",
         type=float,
         default=1.0,
@@ -561,7 +578,7 @@ def main() -> None:
         help=(
             "Diagnostic-only perp option: average minus/plus owner polynomial "
             "flux on all faces with a plus owner and both owners radially "
-            "interior (one shard only)."
+            "interior."
         ),
     )
     parser.add_argument(
@@ -569,7 +586,7 @@ def main() -> None:
         action="store_true",
         help=(
             "Diagnostic-only perp option: use minus-owner polynomial flux only "
-            "on radially-interior cut-wall faces (one shard only)."
+            "on radially-interior cut-wall faces."
         ),
     )
     parser.add_argument(
@@ -654,6 +671,9 @@ def main() -> None:
             reconstruction_boundary_weight_scale=(
                 float(args.reconstruction_boundary_weight_scale)
             ),
+            reconstruction_distance_row_weight_exponent=(
+                float(args.reconstruction_distance_row_weight_exponent)
+            ),
             face_functional_boundary_weight_scale=(
                 float(args.face_functional_boundary_weight_scale)
             ),
@@ -683,6 +703,9 @@ def main() -> None:
         minimum_order=float(args.minimum_order),
         reconstruction_boundary_weight_scale=(
             float(args.reconstruction_boundary_weight_scale)
+        ),
+        reconstruction_distance_row_weight_exponent=(
+            float(args.reconstruction_distance_row_weight_exponent)
         ),
     )
 

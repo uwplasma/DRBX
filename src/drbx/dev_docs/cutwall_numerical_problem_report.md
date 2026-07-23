@@ -51,11 +51,15 @@ cell-gradient consumers such as parallel first derivatives, Poisson brackets,
 curvature, and nonlinear product averages.
 
 The remaining challenge is measured approximation quality, not missing flux
-wiring. A one-shard `N=6` audit verified valid direct rows and improved the
-perpendicular-Laplacian error, but it did not contain any merged sources and
-still showed large errors in `poisson_omega`, the perpendicular Laplacian, and
-the electron-parallel full RHS. The subsequent agglomeration-enabled
-`N=10,14` operator sweep with projected exact phi is summarized in
+wiring. An opt-in native helper now constructs one projected interior-face
+flux from the adjacent owner polynomials, including an already exchanged
+remote-owner gradient, and uses the minus-owner polynomial on selected
+cut-wall faces. It preserves the canonical face record and conservative
+scatter. A localized reconstruction-distance experiment improves the
+three-grid all-active perpendicular-Laplacian volume-L2 order to `2.483`, but
+Linf is only `0.987`, and one-wall and aggregate categories reverse on the
+finest pair. The implementation, exact measurements, and remaining two-part
+failure are summarized in
 [cutwall_current_progress.md](cutwall_current_progress.md).
 
 ## 1. Discrete Meaning of a Stored Field
@@ -564,31 +568,36 @@ changing the control-volume topology.
 | Dense/compact ownership | Exclusive global face paths established | Confirm cluster multi-shard equivalence |
 | Cross-shard residuals | Reverse face-halo accumulation implemented | Run decomposed operator convergence |
 | Parallel density flux | Product-average input and conservative scatter cleared as first defects | Direct tangential face functional remains nonconvergent |
-| Perpendicular Laplacian | Experimental two-owner shared flux materially improves `N=10,14` | Three-grid all-active order is `1.575`; one-wall aggregate failure remains at `N=18` |
+| Perpendicular Laplacian | Native opt-in shared owner flux and localized weighting reach three-grid all-active L2 order `2.483` | Linf is `0.987`; one-wall and aggregate errors reverse at `N=18` |
 | Regular radial closure | Cubic reproduction passes | Lower-plane Poisson Linf remains |
 | Phi GMRES solve | Implemented but intentionally skipped | Re-enable after forward operator consistency |
 | Full RK/MMS convergence | Not ready | Operator convergence must pass first |
 
 ## 16. Immediate Validation Sequence
 
-The previous `N=10,14` forward sweep and the follow-up `N=18` perpendicular
-diagnostic have completed. They did not pass the convergence gates. The
+The shared-flux and localized-weighting `N=10,14,18` perpendicular diagnostics
+have completed. They do not pass the convergence gates. The all-active
+volume-L2 norm is now convincingly decreasing, but the category-level reversal
+and sub-first-order Linf result prevent an isolated convergence claim. The
 current experiment record, exact values, and command-line controls are in
 [cutwall_current_progress.md](cutwall_current_progress.md).
 
 Work is paused before a production method change. When it resumes:
 
-1. Implement one decomposition-safe radial-interior face flux from the two
-   adjacent owner Taylor reconstructions.
-2. Include boundary equations from all relevant boundary-containing
+1. Retain the implemented decomposition-safe shared-face helper and validate
+   the remote path on real multiple devices when hardware permits.
+2. Separate the regular-boundary-adjacent direct-functional outlier from the
+   embedded cut-wall owner-polynomial error in all diagnostics.
+3. Include boundary equations from all relevant boundary-containing
    neighbors, including a remote-boundary data path.
-3. Use a polynomial-order-aware distance decay and controlled/adaptive support
-   instead of a broad inverse-square fit or an arbitrary boundary multiplier.
-4. Preserve face-level comparisons of direct, minus-owner, plus-owner, final
+4. Use controlled/adaptive full-rank support together with a dimensionless
+   polynomial-order-aware distance decay; record coefficient norms as well as
+   reproduction residuals.
+5. Preserve face-level comparisons of direct, minus-owner, plus-owner, final
    shared, and exact integrated flux.
-5. Repeat only `perp_laplacian_phi` at `N=10,14,18` and require monotone
+6. Repeat only `perp_laplacian_phi` at `N=10,14,18` and require monotone
    all-active and wall-category errors.
-6. Repair `parallel_density_flux_divergence`, then continue through the regular
+7. Repair `parallel_density_flux_divergence`, then continue through the regular
    radial operators, projected-exact-phi full RHS, phi solve, decomposed
    equivalence, and the full time-dependent MMS test.
 
@@ -617,14 +626,17 @@ direct-functional neighborhood policy:
 
 The current moment-aware control volumes, integrated flux targets, boundary
 equations, and unique conservative face records are therefore well motivated.
-The experiments and literature both point to the same next refinement:
-localize the support more strongly, include complete neighboring boundary
-information, and construct the interior face flux symmetrically from adjacent
-reconstructions. The radius-1 rank failure does not mean the coarse grids are
-intrinsically unusable; successful high-order methods also use broader
-boundary stencils. The issue is allowing enough equations for rank while
-making distant observations decay strongly enough that they do not control
-the local flux.
+The experiments and literature still point to localized support, complete
+neighboring boundary information, and one symmetric interior-face flux. The
+last item is now implemented as an opt-in native helper and is no longer the
+main missing code path. The exponent-4 experiment confirms that stronger
+localization can repair global L2 behavior, but also shows that distance decay
+alone does not cure every one-sided wall reconstruction or
+regular-boundary-adjacent direct functional. The radius-1 rank failure does
+not mean the coarse grids are intrinsically unusable; successful high-order
+methods also use broader boundary stencils. The issue is allowing enough
+equations for rank while selecting and weighting them so distant observations
+do not control the local flux.
 
 The topic map below is retained for future extensions, especially small-cell
 time integration and physical sheath conditions.

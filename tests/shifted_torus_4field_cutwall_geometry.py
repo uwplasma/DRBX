@@ -1719,6 +1719,18 @@ def _validate_reconstruction_boundary_weight_scale(value: float) -> float:
     return scale
 
 
+def _validate_reconstruction_distance_row_weight_exponent(
+    value: float,
+) -> float:
+    exponent = float(value)
+    if not np.isfinite(exponent) or exponent < 0.0:
+        raise ValueError(
+            "reconstruction_distance_row_weight_exponent must be finite "
+            "and nonnegative"
+        )
+    return exponent
+
+
 def _validate_face_functional_cell_radius(value: int) -> int:
     if isinstance(value, (bool, np.bool_)) or not isinstance(
         value, (int, np.integer)
@@ -2033,6 +2045,7 @@ def _build_closed_box_embedded_control_volume_geometry(
     *,
     enable_merging: bool,
     reconstruction_boundary_weight_scale: float = 1.0,
+    reconstruction_distance_row_weight_exponent: float = 0.0,
     face_functional_boundary_weight_scale: float = 1.0,
     face_functional_all_owner_boundary_observations: bool = False,
     face_functional_cell_radius: int = 2,
@@ -2053,6 +2066,7 @@ def _build_closed_box_embedded_control_volume_geometry(
     global_topology: GlobalControlVolumeTopology3D | None = None,
     local_topology: LocalControlVolumeGeometry3D | None = None,
     canonical_compact_face_ids: set[int] | None = None,
+    global_radial_size: int | None = None,
     global_face_functional_records: dict[int, dict[str, object]] | None = None,
     compiled_face_functional_records_out: (
         dict[int, dict[str, object]] | None
@@ -2060,6 +2074,11 @@ def _build_closed_box_embedded_control_volume_geometry(
 ) -> LocalEmbeddedControlVolumeGeometry3D:
     reconstruction_boundary_weight_scale = _validate_reconstruction_boundary_weight_scale(
         reconstruction_boundary_weight_scale
+    )
+    reconstruction_distance_row_weight_exponent = (
+        _validate_reconstruction_distance_row_weight_exponent(
+            reconstruction_distance_row_weight_exponent
+        )
     )
     face_functional_boundary_weight_scale = _validate_face_functional_boundary_weight_scale(
         face_functional_boundary_weight_scale
@@ -2107,6 +2126,23 @@ def _build_closed_box_embedded_control_volume_geometry(
         | _compact_face_reconstruction_owner_mask(cells, irregular_faces),
         periodic_axes=local_periodic_axes,
     )
+    distance_weight_target_mask = np.asarray(
+        reconstruction_owner_mask,
+        dtype=bool,
+    ).copy()
+    if global_radial_size is not None:
+        global_radial_size = int(global_radial_size)
+        if global_radial_size < 5:
+            raise ValueError("global_radial_size must be at least five")
+        global_radial_index = (
+            int(geometry.grid.x.owned_start_global)
+            + np.arange(cells.shape[0], dtype=np.int32)
+        )
+        radial_interior_two_plus = (
+            (global_radial_index >= 2)
+            & (global_radial_index < global_radial_size - 2)
+        )
+        distance_weight_target_mask &= radial_interior_two_plus[:, None, None]
     spacing = jnp.stack(
         (
             geometry.spacing.dx_owned,
@@ -2143,9 +2179,15 @@ def _build_closed_box_embedded_control_volume_geometry(
             2.0 * np.pi,
         ),
         target_mask=jnp.asarray(reconstruction_owner_mask),
+        distance_weight_target_mask=jnp.asarray(
+            distance_weight_target_mask
+        ),
         max_samples=48,
         max_equations=64,
         boundary_weight_scale=reconstruction_boundary_weight_scale,
+        distance_row_weight_exponent=(
+            reconstruction_distance_row_weight_exponent
+        ),
     )
     reconstruction_active = np.asarray(reconstruction.active, dtype=bool)
     reconstruction_order = np.asarray(
@@ -2434,6 +2476,7 @@ def _build_stacked_embedded_control_volume_geometry(
     halo_width: int,
     enable_merging: bool,
     reconstruction_boundary_weight_scale: float = 1.0,
+    reconstruction_distance_row_weight_exponent: float = 0.0,
     face_functional_boundary_weight_scale: float = 1.0,
     face_functional_all_owner_boundary_observations: bool = False,
     face_functional_cell_radius: int = 2,
@@ -2442,6 +2485,11 @@ def _build_stacked_embedded_control_volume_geometry(
 
     reconstruction_boundary_weight_scale = _validate_reconstruction_boundary_weight_scale(
         reconstruction_boundary_weight_scale
+    )
+    reconstruction_distance_row_weight_exponent = (
+        _validate_reconstruction_distance_row_weight_exponent(
+            reconstruction_distance_row_weight_exponent
+        )
     )
     face_functional_boundary_weight_scale = _validate_face_functional_boundary_weight_scale(
         face_functional_boundary_weight_scale
@@ -2499,7 +2547,11 @@ def _build_stacked_embedded_control_volume_geometry(
     whole_bundle = _build_closed_box_embedded_control_volume_geometry(
         global_geometry, enable_merging=enable_merging, cells=whole_cells,
         global_topology=global_topology, local_topology=whole_topology,
+        global_radial_size=int(global_shape[0]),
         reconstruction_boundary_weight_scale=reconstruction_boundary_weight_scale,
+        reconstruction_distance_row_weight_exponent=(
+            reconstruction_distance_row_weight_exponent
+        ),
         face_functional_boundary_weight_scale=face_functional_boundary_weight_scale,
         face_functional_all_owner_boundary_observations=(
             face_functional_all_owner_boundary_observations
@@ -2749,8 +2801,12 @@ def _build_stacked_embedded_control_volume_geometry(
                 global_topology=global_topology,
                 local_topology=local_topology,
                 canonical_compact_face_ids=canonical_compact_face_ids,
+                global_radial_size=int(global_shape[0]),
                 global_face_functional_records=global_face_functional_records,
                 reconstruction_boundary_weight_scale=reconstruction_boundary_weight_scale,
+                reconstruction_distance_row_weight_exponent=(
+                    reconstruction_distance_row_weight_exponent
+                ),
                 face_functional_boundary_weight_scale=face_functional_boundary_weight_scale,
                 face_functional_all_owner_boundary_observations=(
                     face_functional_all_owner_boundary_observations

@@ -57,6 +57,7 @@ from drbx.native.fci_operators import (
     local_parallel_flux_div_op,
     local_perp_laplacian_conservative_op,
     local_poisson_bracket_op_from_gradients,
+    replace_local_control_volume_projected_flux_with_owner_polynomials,
 )
 
 
@@ -83,6 +84,7 @@ from shifted_torus_4field_cutwall_geometry import (  # noqa: E402
     _validate_face_functional_boundary_weight_scale,
     _validate_face_functional_cell_radius,
     _validate_reconstruction_boundary_weight_scale,
+    _validate_reconstruction_distance_row_weight_exponent,
     _with_embedded_control_volume_geometry,
 )
 from shifted_torus_4field_cutwall_mms import (  # noqa: E402
@@ -776,6 +778,7 @@ def run_shifted_torus_control_volume_operator_convergence(
     selected_operators: list[str] | None = None,
     face_audit: bool = False,
     reconstruction_boundary_weight_scale: float = 1.0,
+    reconstruction_distance_row_weight_exponent: float = 0.0,
     face_functional_boundary_weight_scale: float = 1.0,
     face_functional_all_owner_boundary_observations: bool = False,
     face_functional_cell_radius: int = 2,
@@ -786,6 +789,11 @@ def run_shifted_torus_control_volume_operator_convergence(
 
     reconstruction_boundary_weight_scale = _validate_reconstruction_boundary_weight_scale(
         reconstruction_boundary_weight_scale
+    )
+    reconstruction_distance_row_weight_exponent = (
+        _validate_reconstruction_distance_row_weight_exponent(
+            reconstruction_distance_row_weight_exponent
+        )
     )
     face_functional_boundary_weight_scale = _validate_face_functional_boundary_weight_scale(
         face_functional_boundary_weight_scale
@@ -798,16 +806,6 @@ def run_shifted_torus_control_volume_operator_convergence(
         raise ValueError(
             "face_functional_all_owner_boundary_observations requires one shard "
             "because remote Dirichlet observations are not exchanged"
-        )
-    if perp_use_two_owner_polynomial_flux and shard_counts != (1, 1, 1):
-        raise ValueError(
-            "perp_use_two_owner_polynomial_flux requires one shard "
-            "because owner polynomial values are not exchanged"
-        )
-    if perp_use_cutwall_owner_polynomial_flux and shard_counts != (1, 1, 1):
-        raise ValueError(
-            "perp_use_cutwall_owner_polynomial_flux requires one shard "
-            "because owner polynomial values are not exchanged"
         )
     parameters = _make_parameters(rho_star_value)
     gmres_config = _make_gmres_config(parameters)
@@ -880,6 +878,9 @@ def run_shifted_torus_control_volume_operator_convergence(
                 halo_width=halo_width,
                 enable_merging=enable_agglomeration,
                 reconstruction_boundary_weight_scale=reconstruction_boundary_weight_scale,
+                reconstruction_distance_row_weight_exponent=(
+                    reconstruction_distance_row_weight_exponent
+                ),
                 face_functional_boundary_weight_scale=face_functional_boundary_weight_scale,
                 face_functional_all_owner_boundary_observations=(
                     face_functional_all_owner_boundary_observations
@@ -1539,46 +1540,19 @@ def run_shifted_torus_control_volume_operator_convergence(
                             perp_use_two_owner_polynomial_flux
                             or perp_use_cutwall_owner_polynomial_flux
                         ):
-                            radial_owner_upper = (
-                                control_volume_geometry.cells.shape[0] - 1
-                            )
-                            minus_radial_interior = (
-                                (faces.minus_owner_i > 0)
-                                & (faces.minus_owner_i < radial_owner_upper)
-                            )
-                            plus_radial_interior = (
-                                (faces.plus_owner_i > 0)
-                                & (faces.plus_owner_i < radial_owner_upper)
-                            )
-                            use_two_owner_flux = (
-                                faces.has_plus_owner
-                                & minus_radial_interior
-                                & plus_radial_interior
-                            )
-                            use_cut_wall_flux = (
-                                (faces.kind == CV_FACE_CUT_WALL)
-                                & minus_radial_interior
-                            )
-                            projected_flux = phi_closure.projected_flux
-                            if perp_use_two_owner_polynomial_flux:
-                                projected_flux = jnp.where(
-                                    use_two_owner_flux,
-                                    0.5
-                                    * (
-                                        minus_polynomial_flux
-                                        + plus_polynomial_flux
+                            phi_closure = (
+                                replace_local_control_volume_projected_flux_with_owner_polynomials(
+                                    phi_closure,
+                                    phi_poly,
+                                    control_volume_geometry,
+                                    domain,
+                                    use_two_owner_flux=(
+                                        perp_use_two_owner_polynomial_flux
                                     ),
-                                    projected_flux,
+                                    use_cut_wall_owner_flux=(
+                                        perp_use_cutwall_owner_polynomial_flux
+                                    ),
                                 )
-                            if perp_use_cutwall_owner_polynomial_flux:
-                                projected_flux = jnp.where(
-                                    use_cut_wall_flux,
-                                    minus_polynomial_flux,
-                                    projected_flux,
-                                )
-                            phi_closure = dataclass_replace(
-                                phi_closure,
-                                projected_flux=projected_flux,
                             )
                         if face_audit:
                             diagnostic_flux = phi_closure.projected_flux
@@ -2439,9 +2413,15 @@ def run_shifted_torus_4field_cutwall_convergence(
     enable_agglomeration: bool = False,
     minimum_order: float | None = None,
     reconstruction_boundary_weight_scale: float = 1.0,
+    reconstruction_distance_row_weight_exponent: float = 0.0,
 ) -> dict[str, object]:
     reconstruction_boundary_weight_scale = _validate_reconstruction_boundary_weight_scale(
         reconstruction_boundary_weight_scale
+    )
+    reconstruction_distance_row_weight_exponent = (
+        _validate_reconstruction_distance_row_weight_exponent(
+            reconstruction_distance_row_weight_exponent
+        )
     )
     successful_resolutions: list[int] = []
     l2_errors: list[float] = []
@@ -2459,6 +2439,9 @@ def run_shifted_torus_4field_cutwall_convergence(
                 halo_width=halo_width,
                 enable_merging=enable_agglomeration,
                 reconstruction_boundary_weight_scale=reconstruction_boundary_weight_scale,
+                reconstruction_distance_row_weight_exponent=(
+                    reconstruction_distance_row_weight_exponent
+                ),
             )
         )
         steps = _resolution_step_count(int(resolution), base_steps=base_steps)

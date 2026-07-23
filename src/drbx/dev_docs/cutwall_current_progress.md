@@ -17,7 +17,7 @@ to the durable infrastructure documents:
 
 Snapshot date: 2026-07-23.
 
-Repository baseline at the time of this snapshot: `7407d1a8`, plus the current
+Repository baseline at the time of this snapshot: `0caa74b8`, plus the current
 worktree changes summarized below.
 
 ## Executive Summary
@@ -77,33 +77,57 @@ locality of the fitted face flux itself.
 
 The strongest experimental improvement came from constructing one
 conservative interior-face flux by averaging the two adjacent owner-polynomial
-fluxes, while using the owner polynomial on embedded cut-wall faces. This is
-not yet a production implementation, but it improved the perpendicular
-Laplacian all-active volume-L2 error from `5.445e-1` to `4.444e-1` at `N=10`
-and from the direct-functional baseline to `2.405e-1` at `N=14`. The
-three-grid `N=10,14,18` all-active fitted order is `1.575`, not the requested
-`1.8`; a topology-dependent one-wall aggregate failure appears at `N=18`.
-The parallel-density flux remains unresolved.
+fluxes, while using the owner polynomial on embedded cut-wall faces. That
+diagnostic has now been moved into a default-neutral native helper that uses
+the already exchanged remote-owner polynomial gradient on cross-shard faces.
+The canonical face record and equal-and-opposite scatter are unchanged.
+Focused eager and JIT tests cover local, remote, cut-wall, invalid-row, and
+radial-boundary cases. Actual multi-device execution remains untested because
+this host exposes only one JAX CPU device.
+
+The first three-grid shared-flux result still failed: its all-active fitted
+volume-L2 order was `1.575`, with a topology-dependent one-wall aggregate
+failure at `N=18`. A second experiment added stronger dimensionless distance
+decay to selected compact owner reconstructions and excluded the first two
+global radial owner layers from both that weighting and the owner-flux
+replacement. With a `1/d^4` WLS row multiplier and boundary scale 10, the
+all-active errors became:
+
+```text
+N=10: volume L2 = 4.388113e-1, Linf = 3.511981
+N=14: volume L2 = 2.153701e-1, Linf = 2.643948
+N=18: volume L2 = 1.007078e-1, Linf = 1.956872
+```
+
+The fitted all-active orders are `2.483` in volume L2 and `0.987` in Linf.
+This is a meaningful global-L2 improvement, but it is not an accepted
+isolated convergence result: one-wall and aggregate-target errors reverse
+between `N=14` and `N=18`, and the finest-grid maximum is a non-wall compact
+reconstruction owner. The parallel-density flux also remains unresolved.
 
 Work is paused at this diagnostic checkpoint. All alternative flux and weight
 paths added in this phase are opt-in and default-neutral.
 
 ## 1. Latest Validation Configuration
 
-The completed sweep used:
+The latest completed isolated perpendicular sweep used:
 
 ```text
-resolutions                 N=10,14
+resolutions                 N=10,14,18
 shard counts                1,1,1
 agglomeration               enabled
 operator-only mode          enabled
 phi algebraic solve         skipped
-full-RHS phi                projected exact phi
+selected operator           perp_laplacian_phi
+two-owner projected flux    enabled
+cut-wall owner flux         enabled
+distance row exponent       4
+boundary equation scale     10
 minimum requested order     1.8
-CUDA command buffers        disabled
 ```
 
-Disabling CUDA command buffers was initially necessary because the sweep
+The earlier all-operator `N=10,14` sweep used projected exact phi for the full
+RHS. Disabling CUDA command buffers was initially necessary because that sweep
 exhausted accelerator memory while instantiating a later compiled operator.
 The convergence harness now also:
 
@@ -117,25 +141,25 @@ and both resolutions to complete.
 
 ## 2. Geometry and Reconstruction Results
 
-The geometry summary was:
+The latest geometry summary was:
 
-| Quantity | `N=10` | `N=14` |
-|---|---:|---:|
-| Active aggregate owners | 952 | 2648 |
-| Merged sources | 48 | 96 |
-| Aggregate targets | 48 | 96 |
-| Irregular faces | 898 | 1522 |
-| Interior compact faces | 622 | 1058 |
-| Partial faces | 140 | 252 |
-| Cut-wall faces | 136 | 212 |
-| Cubic reconstruction rows | 566 | 956 |
-| Quadratic fallbacks | 0 | 0 |
-| Linear fallbacks | 0 | 0 |
-| Maximum reported condition number | `5.336e4` | `1.404e5` |
+| Quantity | `N=10` | `N=14` | `N=18` |
+|---|---:|---:|---:|
+| Active aggregate owners | 952 | 2648 | 5636 |
+| Merged sources | 48 | 96 | 36 |
+| Aggregate targets | 48 | 96 | 36 |
+| Irregular faces | 898 | 1522 | 2860 |
+| Interior compact faces | 622 | 1058 | 1812 |
+| Partial faces | 140 | 252 | 632 |
+| Cut-wall faces | 136 | 212 | 416 |
+| Cubic reconstruction rows | 566 | 956 | 1844 |
+| Quadratic fallbacks | 0 | 0 | 0 |
+| Linear fallbacks | 0 | 0 | 0 |
+| Maximum reported condition number | `5.336e4` | `1.404e5` | `3.085e5` |
 
 Positive conclusions:
 
-- Agglomeration is active at both resolutions.
+- Agglomeration is active at all three resolutions.
 - Every required reconstruction row remains cubic.
 - No active reconstruction row is invalid.
 - No runtime reconstruction fallback is being used to hide a rank failure.
@@ -446,10 +470,11 @@ Completed far enough to identify the next design question:
   operator, but the current diagnostic implementation is not robust at every
   regular radial boundary or every one-wall aggregate.
 
-The next method change should therefore be a boundary-aware, decomposition-safe
-construction of one symmetric physical face flux, with controlled stencil
-locality. It should not be another global scalar multiplier applied to the
-existing direct-functional fit.
+The decomposition-safe symmetric physical-face flux is now implemented as an
+opt-in native helper. The remaining method question is controlled
+reconstruction locality and boundary accuracy. A global boundary multiplier
+alone does not fix the topology-sensitive rows, and a strong distance law
+improves global L2 while leaving category and Linf failures.
 
 ### Phase C: isolate regular radial-boundary defects
 
@@ -467,12 +492,12 @@ regular radial closure independently of the embedded box.
 
 ### Phase D: establish convergence
 
-The first three-resolution perpendicular diagnostic has been run, but its
-acceptance gate did not pass. After the compact flux is redesigned:
+Two three-resolution perpendicular diagnostics have been run, but neither
+passes the acceptance gate. When work resumes:
 
 1. repeat `N=10,14,18` for `perp_laplacian_phi`;
-2. require monotone all-active and wall-category reduction before fitting an
-   order;
+2. require monotone all-active, one-wall, multi-wall, aggregate-target, and
+   retained-cut-cell reduction before accepting a fitted order;
 3. repair and repeat `parallel_density_flux_divergence`;
 4. run the projected-exact-phi full RHS only after isolated operators pass;
 5. re-enable the algebraic phi solve;
@@ -635,26 +660,117 @@ scales only those Dirichlet equations:
 | 100 | `0.17270 / 2.98781` | `0.54700 / 2.98781` | `0.19357 / 0.73147` | `1.24581 / 2.98781` |
 
 The response saturates. Boundary weighting is directionally helpful but does
-not remove the topology-sensitive one-wall aggregate error. No lower-resolution
-scale-10 or scale-100 sweep was run, so no convergence claim should be made
-from this experiment.
+not remove the topology-sensitive one-wall aggregate error. A later
+three-resolution scale-10 sweep gave:
+
+| Resolution | All L2/Linf | One-wall L2/Linf | Multi-wall L2/Linf | Aggregate L2/Linf |
+|---:|---|---|---|---|
+| 10 | `0.46922 / 4.43032` | `0.85870 / 2.11224` | `0.95824 / 2.45551` | `0.94644 / 2.45551` |
+| 14 | `0.21446 / 4.09232` | `0.33306 / 1.16648` | `0.26139 / 0.78586` | `0.30762 / 1.16648` |
+| 18 | `0.16920 / 3.03060` | `0.55036 / 3.03060` | `0.14694 / 0.57952` | `1.22736 / 3.03060` |
+
+The fitted all-active volume-L2 order is `1.768`, still below the requested
+`1.8`, and the one-wall and aggregate categories reverse on the finest grid.
+Boundary scale 10 is therefore not a fix.
 
 ### 11.5 Diagnostic code state
 
-The current worktree contains default-neutral controls for:
+The committed baseline contains default-neutral controls for:
 
 - exact product-average face auditing;
 - observation counts and weight splits;
 - face-functional boundary weight scale;
 - all-local-owner boundary observations, one shard only;
 - face-functional cell radius;
-- two-owner perpendicular polynomial flux, one shard only;
-- cut-wall owner-polynomial perpendicular flux, one shard only;
 - reconstruction boundary equation weight scale.
 
-All production defaults retain the previous behavior. The one-shard-only
-paths require a remote-boundary-observation design before they can be
-considered for the decomposed solver.
+The current worktree additionally contains:
+
+- the native
+  `replace_local_control_volume_projected_flux_with_owner_polynomials`
+  helper;
+- local-local and local-remote two-owner projected-flux averaging;
+- cut-wall minus-owner projected flux;
+- invalid selected-row propagation without silent fallback;
+- global-radial eligibility that excludes the first two owner layers at each
+  regular boundary;
+- an opt-in reconstruction distance-row exponent and a target mask restricted
+  to the compact reconstruction neighborhood away from those radial layers;
+- CLI validation and plumbing for the distance exponent;
+- focused eager/JIT tests for the helper, including the remote-owner branch.
+
+All defaults remain unchanged. The helper no longer has a one-shard software
+restriction because it consumes the polynomial remote-face gradient already
+exchanged by the existing lowering path. This host has only one JAX device,
+so decomposition safety is covered structurally and by the remote-branch unit
+test, not yet by a real multi-shard convergence run.
+
+### 11.6 Localized owner-reconstruction experiment
+
+The distance experiment applies a dimensionless row multiplier to selected
+compact owner reconstructions. Exponent zero reproduces the legacy `1/d`
+weighted-least-squares row multiplier exactly. A positive exponent `e` uses
+`1/max(d,1)^e` for selected rows. The unit floor avoids singularly
+overweighting observations inside one local cell width.
+
+Three variants were tried:
+
+1. Applying exponent 4 to every selected reconstruction row improved wall
+   categories but created a large non-wall reconstruction error next to the
+   regular radial boundary.
+2. Applying exponent 4 only to exact wall owners destroyed cancellation
+   between differently weighted adjacent owner polynomials and severely
+   worsened the multi-wall category.
+3. Applying exponent 4 to the complete compact reconstruction neighborhood,
+   while excluding the first two global radial owner layers, preserved the
+   shared weighting context and avoided the worst boundary-layer damage.
+
+For variant 3 with boundary scale 10:
+
+| Resolution | Category | Volume L2 | Linf |
+|---:|---|---:|---:|
+| 10 | all active | `0.438811` | `3.511981` |
+| 10 | one wall | `0.247087` | `0.712083` |
+| 10 | multi wall | `0.937001` | `3.237150` |
+| 10 | aggregate target | `0.802880` | `3.237150` |
+| 10 | retained cut cell | `0.258182` | `0.416787` |
+| 14 | all active | `0.215370` | `2.643948` |
+| 14 | one wall | `0.153163` | `0.461210` |
+| 14 | multi wall | `0.281706` | `0.952191` |
+| 14 | aggregate target | `0.217621` | `0.952191` |
+| 14 | retained cut cell | `0.198419` | `0.417714` |
+| 18 | all active | `0.100708` | `1.956872` |
+| 18 | one wall | `0.191200` | `1.180011` |
+| 18 | multi wall | `0.127367` | `0.603588` |
+| 18 | aggregate target | `0.411046` | `1.180011` |
+| 18 | retained cut cell | `0.110576` | `0.702874` |
+
+Three-grid fitted orders are:
+
+| Category | Volume-L2 order | Linf order |
+|---|---:|---:|
+| all active | `2.483` | `0.987` |
+| bulk | `1.726` | `1.508` |
+| one wall | `0.490` | `-0.741` |
+| multi wall | `3.405` | `2.900` |
+| aggregate target | `1.290` | `1.822` |
+| retained cut cell | `1.406` | `-0.841` |
+
+The `N=18` face audit separates the remaining failures:
+
+- The worst active owner `(2,14,2)` has no embedded wall face. Its dominant
+  radial face is outside the shared-owner replacement eligibility and uses
+  the direct functional. The numerical integrated residual is
+  `1.102662e-2` versus `2.102979e-2` reference.
+- The worst aggregate `(3,14,2)` is dominated by its cut-wall owner-polynomial
+  flux: `1.618864e-2` numerical versus `6.946984e-3` analytic. Its compact
+  signed sum closes, so scatter and volume division are not the first defect.
+
+A milder exponent 2 was then checked at `N=10,14`. It gave all-active L2
+`0.457714 -> 0.233861` (order `1.996`) but Linf
+`3.511981 -> 3.439366` (order `0.062`). The same non-wall compact
+reconstruction outlier persisted, and the N=10 wall categories were worse
+than exponent 4. No exponent-2 `N=18` run is warranted from this checkpoint.
 
 ## 12. Primary-Literature Check
 
@@ -720,27 +836,30 @@ and the parallel-density operator has not been repaired.
 
 When work resumes:
 
-1. Design one decomposition-safe projected flux per radial-interior compact
-   face from the two adjacent owner reconstructions.
-2. Include boundary equations from every relevant boundary-containing
+1. Keep the native decomposition-safe shared-flux helper and its canonical
+   scatter invariant; validate it on real multiple devices when available.
+2. Diagnose the regular-boundary-adjacent direct-functional row separately
+   from the embedded cut-wall owner reconstruction.
+3. Include boundary equations from every relevant boundary-containing
    neighbor, including a defined remote exchange/lowering path.
-3. Replace the ad hoc weight multipliers with a dimensionless,
-   polynomial-order-aware distance law; compare at least inverse fourth and
-   inverse fifth power and record functional weight norms.
-4. Select the smallest full-rank support adaptively or by controlled shells;
-   do not force radius 1, and do not admit a broad shell at nearly equal
-   influence.
-5. Preserve the direct-functional and owner-polynomial face audit so exact,
+4. Replace the broad fixed support with the smallest full-rank support chosen
+   adaptively or by controlled shells; retain the dimensionless distance law
+   and record reconstruction/functional weight norms.
+5. Investigate why the `N=18` cut-wall owner polynomial overpredicts the
+   dominant wall flux despite full cubic rank and low reproduction residual.
+6. Preserve the direct-functional and owner-polynomial face audit so exact,
    direct, minus-owner, plus-owner, and final shared flux can be compared on
    the same face.
-6. Rerun only `perp_laplacian_phi` at `N=10,14,18`. Proceed to the parallel
+7. Rerun only `perp_laplacian_phi` at `N=10,14,18`. Proceed to the parallel
    flux only after all-active, one-wall, multi-wall, aggregate, and retained
    categories reduce monotonically.
-7. Continue with the regular radial-boundary operators, projected-exact-phi
+8. Continue with the regular radial-boundary operators, projected-exact-phi
    full RHS, phi inversion, decomposed equivalence, and finally the full
    time-dependent four-field MMS test.
 
 The next agent should not increase polynomial degree, restore the removed
-wall-normal point-gradient patch, or treat the scale-10 result as a fix. The
-current evidence points to conservative face construction, complete boundary
-coverage, and support weighting/locality.
+wall-normal point-gradient patch, or treat either the scale-10 or exponent-4
+global-L2 result as a fix. The current evidence points to two distinct
+accuracy defects: a regular-boundary-adjacent direct-functional row and an
+embedded cut-wall owner reconstruction. Conservative face construction is no
+longer the missing implementation step.
