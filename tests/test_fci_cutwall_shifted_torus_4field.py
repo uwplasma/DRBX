@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+from unittest import mock
 
 from drbx.runtime import configure_jax_runtime
 
@@ -19,6 +20,7 @@ _TEST_DIR = Path(__file__).resolve().parent
 if str(_TEST_DIR) not in sys.path:
     sys.path.insert(0, str(_TEST_DIR))
 import shifted_torus_4field_mms_helpers as shifted_mms  # noqa: E402
+import shifted_torus_4field_cutwall_geometry as cutwall_geometry  # noqa: E402
 from shifted_torus_4field_cutwall_geometry import (  # noqa: E402
     BOX_THETA_CENTER,
     BOX_THETA_HALF_WIDTH,
@@ -43,11 +45,15 @@ from shifted_torus_4field_cutwall_geometry import (  # noqa: E402
     _pad_control_volume_face_rows,
     _pad_embedded_control_volume_geometry,
     _pad_quadratic_reconstruction,
+    _sanitize_centroid_metric_points,
     _select_closed_box_control_volume_owners,
     _shape_from_resolution,
     _shifted_torus_cartesian_from_logical,
     _shifted_torus_curvature_at_logical_points,
     _shifted_torus_metric_payload_numpy,
+    _validate_face_functional_boundary_weight_scale,
+    _validate_face_functional_cell_radius,
+    _validate_reconstruction_boundary_weight_scale,
     _with_embedded_control_volume_geometry,
 )
 from shifted_torus_4field_cutwall_mms import (  # noqa: E402
@@ -233,6 +239,240 @@ def test_shifted_torus_global_compact_face_ids_are_unique_across_shards() -> Non
         jax.clear_caches()
 
 
+def test_shifted_torus_one_shard_reuses_unsplit_bundle_and_sanitizes_metrics() -> None:
+    """The one-shard fast path stacks the already-compiled global bundle."""
+    captured_bundles = []
+    compile_calls = 0
+    original_stack = cutwall_geometry.stack_local_shard_pytree
+    original_compile = cutwall_geometry._compile_global_cubic_face_functional_records
+
+    def capture_stack(shard_counts, builder):
+        assert shard_counts == (1, 1, 1)
+        bundle = builder((0, 0, 0))
+        captured_bundles.append(bundle)
+        return original_stack(shard_counts, lambda _index: bundle)
+
+    def count_compile(*args, **kwargs):
+        nonlocal compile_calls
+        compile_calls += 1
+        return original_compile(*args, **kwargs)
+
+    with mock.patch.object(
+        cutwall_geometry, "stack_local_shard_pytree", capture_stack
+    ), mock.patch.object(
+        cutwall_geometry,
+        "_compile_global_cubic_face_functional_records",
+        count_compile,
+    ):
+        stacked = _build_stacked_embedded_control_volume_geometry(
+            global_shape=(6, 6, 6),
+            shard_counts=(1, 1, 1),
+            halo_width=2,
+            enable_merging=True,
+        )
+
+    assert compile_calls == 1
+    assert len(captured_bundles) == 1
+    unsplit = captured_bundles[0]
+    # Compare matching pytrees after removing only the one-shard dimensions.
+    stacked_leaves = jax.tree_util.tree_leaves(extract_local_shard_pytree(stacked))
+    unsplit_leaves = jax.tree_util.tree_leaves(unsplit)
+    assert len(stacked_leaves) == len(unsplit_leaves)
+    for stacked_leaf, unsplit_leaf in zip(stacked_leaves, unsplit_leaves):
+        np.testing.assert_array_equal(
+            np.asarray(stacked_leaf), np.asarray(unsplit_leaf)
+        )
+
+    assert np.all(np.isfinite(np.asarray(unsplit.centroid_J)))
+
+
+def test_inactive_centroid_metric_points_are_replaced_in_domain() -> None:
+    points = np.asarray(
+        (((0.4, 1.0, 2.0), (np.nan, 0.0, 0.0)), ((0.0, 0.0, 0.0), (np.inf, 0.0, 0.0))),
+        dtype=np.float64,
+    )
+    active = np.asarray(((True, True), (False, True)), dtype=bool)
+    sanitized = _sanitize_centroid_metric_points(points, active)
+    reference = np.asarray(
+        (0.5 * (shifted_mms.x_min + shifted_mms.x_max), 0.0, 0.0),
+        dtype=np.float64,
+    )
+    np.testing.assert_array_equal(sanitized[0, 0], points[0, 0])
+    np.testing.assert_array_equal(sanitized[0, 1], reference)
+    np.testing.assert_array_equal(sanitized[1, 0], reference)
+    np.testing.assert_array_equal(sanitized[1, 1], reference)
+    assert np.all(np.isfinite(sanitized))
+
+
+def test_targeted_operator_selection_validates_names_without_running_geometry() -> None:
+    """Targeted mode accepts known names and rejects unknown names up front."""
+    result = run_shifted_torus_control_volume_operator_convergence(
+        resolutions=[],
+        shard_counts=(1, 1, 1),
+        halo_width=2,
+        selected_operators=[
+            "perp_laplacian_phi",
+            "parallel_density_flux_divergence",
+        ],
+    )
+    assert result == {"records": {}, "orders": {}, "phi_residuals": []}
+    try:
+        run_shifted_torus_control_volume_operator_convergence(
+            resolutions=[],
+            shard_counts=(1, 1, 1),
+            halo_width=2,
+            selected_operators=["not_an_operator"],
+        )
+    except ValueError as error:
+        assert "unknown control-volume operators" in str(error)
+    else:
+        raise AssertionError("unknown targeted operator must be rejected")
+
+
+def test_face_functional_boundary_weight_scale_validates_without_geometry() -> None:
+    result = run_shifted_torus_control_volume_operator_convergence(
+        resolutions=[],
+        shard_counts=(1, 1, 1),
+        halo_width=2,
+        face_functional_boundary_weight_scale=1.0,
+    )
+    assert result == {"records": {}, "orders": {}, "phi_residuals": []}
+    for invalid in (0.0, np.nan):
+        try:
+            run_shifted_torus_control_volume_operator_convergence(
+                resolutions=[],
+                shard_counts=(1, 1, 1),
+                halo_width=2,
+                face_functional_boundary_weight_scale=invalid,
+            )
+        except ValueError as error:
+            assert "finite and positive" in str(error)
+        else:
+            raise AssertionError("invalid boundary weight scale must be rejected")
+
+    assert _validate_face_functional_boundary_weight_scale(1.0) == 1.0
+
+
+def test_reconstruction_boundary_weight_scale_validates_without_geometry() -> None:
+    result = run_shifted_torus_control_volume_operator_convergence(
+        resolutions=[],
+        shard_counts=(1, 1, 1),
+        halo_width=2,
+        reconstruction_boundary_weight_scale=1.0,
+    )
+    assert result == {"records": {}, "orders": {}, "phi_residuals": []}
+    for invalid in (0.0, np.nan):
+        try:
+            run_shifted_torus_control_volume_operator_convergence(
+                resolutions=[],
+                shard_counts=(1, 1, 1),
+                halo_width=2,
+                reconstruction_boundary_weight_scale=invalid,
+            )
+        except ValueError as error:
+            assert "finite and positive" in str(error)
+        else:
+            raise AssertionError(
+                "invalid reconstruction boundary weight scale must be rejected"
+            )
+
+    assert _validate_reconstruction_boundary_weight_scale(1.0) == 1.0
+
+
+def test_face_functional_cell_radius_validates_without_geometry() -> None:
+    result = run_shifted_torus_control_volume_operator_convergence(
+        resolutions=[],
+        shard_counts=(1, 1, 1),
+        halo_width=2,
+        face_functional_cell_radius=2,
+    )
+    assert result == {"records": {}, "orders": {}, "phi_residuals": []}
+    for invalid in (0, 3, 1.0, True):
+        try:
+            run_shifted_torus_control_volume_operator_convergence(
+                resolutions=[],
+                shard_counts=(1, 1, 1),
+                halo_width=2,
+                face_functional_cell_radius=invalid,
+            )
+        except ValueError as error:
+            assert "integer 1 or 2" in str(error)
+        else:
+            raise AssertionError("invalid face-functional cell radius must be rejected")
+
+    assert _validate_face_functional_cell_radius(1) == 1
+    assert _validate_face_functional_cell_radius(2) == 2
+
+
+def test_perp_two_owner_polynomial_flux_validates_without_geometry() -> None:
+    result = run_shifted_torus_control_volume_operator_convergence(
+        resolutions=[],
+        shard_counts=(1, 1, 1),
+        halo_width=2,
+        perp_use_two_owner_polynomial_flux=True,
+    )
+    assert result == {"records": {}, "orders": {}, "phi_residuals": []}
+    try:
+        run_shifted_torus_control_volume_operator_convergence(
+            resolutions=[],
+            shard_counts=(1, 2, 1),
+            halo_width=2,
+            perp_use_two_owner_polynomial_flux=True,
+        )
+    except ValueError as error:
+        assert "requires one shard" in str(error)
+    else:
+        raise AssertionError(
+            "two-owner polynomial flux must be rejected for multiple shards"
+        )
+
+
+def test_perp_cutwall_owner_polynomial_flux_validates_without_geometry() -> None:
+    result = run_shifted_torus_control_volume_operator_convergence(
+        resolutions=[],
+        shard_counts=(1, 1, 1),
+        halo_width=2,
+        perp_use_cutwall_owner_polynomial_flux=True,
+    )
+    assert result == {"records": {}, "orders": {}, "phi_residuals": []}
+    try:
+        run_shifted_torus_control_volume_operator_convergence(
+            resolutions=[],
+            shard_counts=(1, 2, 1),
+            halo_width=2,
+            perp_use_cutwall_owner_polynomial_flux=True,
+        )
+    except ValueError as error:
+        assert "requires one shard" in str(error)
+    else:
+        raise AssertionError(
+            "cut-wall owner polynomial flux must be rejected for multiple shards"
+        )
+
+
+def test_all_owner_boundary_observations_validates_without_geometry() -> None:
+    result = run_shifted_torus_control_volume_operator_convergence(
+        resolutions=[],
+        shard_counts=(1, 1, 1),
+        halo_width=2,
+        face_functional_all_owner_boundary_observations=True,
+    )
+    assert result == {"records": {}, "orders": {}, "phi_residuals": []}
+    try:
+        run_shifted_torus_control_volume_operator_convergence(
+            resolutions=[],
+            shard_counts=(1, 2, 1),
+            halo_width=2,
+            face_functional_all_owner_boundary_observations=True,
+        )
+    except ValueError as error:
+        assert "requires one shard" in str(error)
+    else:
+        raise AssertionError(
+            "all-owner boundary observations must be rejected for multiple shards"
+        )
+
+
 
 
 
@@ -281,12 +521,81 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--reconstruction-boundary-weight-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Test-only reconstruction scale for boundary observation fitting "
+            "weights."
+        ),
+    )
+    parser.add_argument(
+        "--face-functional-boundary-weight-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Diagnostic-only operator-convergence scale for Dirichlet "
+            "observation fitting weights."
+        ),
+    )
+    parser.add_argument(
+        "--face-functional-all-owner-boundary-observations",
+        action="store_true",
+        help=(
+            "Diagnostic-only operator-convergence option: include Dirichlet "
+            "observations from every local compact-face owner (one shard only)."
+        ),
+    )
+    parser.add_argument(
+        "--face-functional-cell-radius",
+        type=int,
+        default=2,
+        help=(
+            "Diagnostic-only operator-convergence candidate-cell radius; "
+            "must be 1 or 2."
+        ),
+    )
+    parser.add_argument(
+        "--perp-use-two-owner-polynomial-flux",
+        action="store_true",
+        help=(
+            "Diagnostic-only perp option: average minus/plus owner polynomial "
+            "flux on all faces with a plus owner and both owners radially "
+            "interior (one shard only)."
+        ),
+    )
+    parser.add_argument(
+        "--perp-use-cutwall-owner-polynomial-flux",
+        action="store_true",
+        help=(
+            "Diagnostic-only perp option: use minus-owner polynomial flux only "
+            "on radially-interior cut-wall faces (one shard only)."
+        ),
+    )
+    parser.add_argument(
         "--skip-operator-phi-solve",
         action="store_true",
         help=(
             "Diagnostic-only: use projected exact phi in the full-RHS kernel "
             "and skip the separate phi inversion check while retaining all "
             "spatial operator kernels."
+        ),
+    )
+    parser.add_argument(
+        "--operators",
+        nargs="+",
+        default=None,
+        help=(
+            "Run only the named scalar operators in operator-convergence "
+            "mode. Targeted mode skips the full RHS and phi solve."
+        ),
+    )
+    parser.add_argument(
+        "--face-audit",
+        action="store_true",
+        help=(
+            "Print the compact physical faces attached to each operator's "
+            "worst aggregate, including functional conditioning diagnostics."
         ),
     )
     parser.add_argument(
@@ -300,6 +609,31 @@ def main() -> None:
     parser.add_argument("--skip-runtime-info", action="store_true")
     args = parser.parse_args()
 
+    if (
+        bool(args.face_functional_all_owner_boundary_observations)
+        and not bool(args.operator_convergence_only)
+    ):
+        parser.error(
+            "--face-functional-all-owner-boundary-observations is only available "
+            "with --operator-convergence-only"
+        )
+    if (
+        bool(args.perp_use_two_owner_polynomial_flux)
+        and not bool(args.operator_convergence_only)
+    ):
+        parser.error(
+            "--perp-use-two-owner-polynomial-flux is only available "
+            "with --operator-convergence-only"
+        )
+    if (
+        bool(args.perp_use_cutwall_owner_polynomial_flux)
+        and not bool(args.operator_convergence_only)
+    ):
+        parser.error(
+            "--perp-use-cutwall-owner-polynomial-flux is only available "
+            "with --operator-convergence-only"
+        )
+
     if not args.skip_runtime_info:
         _print_runtime_info()
     if bool(args.operator_convergence_only):
@@ -311,6 +645,28 @@ def main() -> None:
             enable_agglomeration=bool(args.enable_agglomeration),
             minimum_order=float(args.minimum_order),
             check_phi_solve=not bool(args.skip_operator_phi_solve),
+            selected_operators=(
+                None
+                if args.operators is None
+                else [str(value) for value in args.operators]
+            ),
+            face_audit=bool(args.face_audit),
+            reconstruction_boundary_weight_scale=(
+                float(args.reconstruction_boundary_weight_scale)
+            ),
+            face_functional_boundary_weight_scale=(
+                float(args.face_functional_boundary_weight_scale)
+            ),
+            face_functional_all_owner_boundary_observations=bool(
+                args.face_functional_all_owner_boundary_observations
+            ),
+            face_functional_cell_radius=int(args.face_functional_cell_radius),
+            perp_use_two_owner_polynomial_flux=bool(
+                args.perp_use_two_owner_polynomial_flux
+            ),
+            perp_use_cutwall_owner_polynomial_flux=bool(
+                args.perp_use_cutwall_owner_polynomial_flux
+            ),
         )
         return
     run_shifted_torus_4field_cutwall_convergence(
@@ -325,6 +681,9 @@ def main() -> None:
         show_progress=bool(args.show_progress),
         enable_agglomeration=bool(args.enable_agglomeration),
         minimum_order=float(args.minimum_order),
+        reconstruction_boundary_weight_scale=(
+            float(args.reconstruction_boundary_weight_scale)
+        ),
     )
 
 

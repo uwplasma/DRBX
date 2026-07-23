@@ -1,0 +1,56 @@
+Targeted operator mode: parallel_density_flux_divergence; full RHS and phi solve skipped
+Preparing shifted_torus control-volume geometry: N=10, shape=(10, 10, 10), shards=(1, 1, 1)
+  geometry_phase name='raw moments and global topology' elapsed=1.059s total=1.059s
+  geometry_phase name='unsplit geometry and cell lowering' elapsed=0.198s total=1.257s
+  geometry_phase name='global faces, reconstruction, and direct functionals' elapsed=39.414s total=40.671s
+  geometry_phase name='one-shard stack' elapsed=0.399s total=41.070s
+Prepared shifted_torus control-volume geometry: N=10, elapsed=41.082s
+embedded control volumes: active_owners=952, merged_sources=48, aggregate_targets=48, irregular_faces=898, interior/partial/cutwall=622/140/136, physical_boundary=0, cubic_rows=566, quadratic_fallbacks=0, linear_fallbacks=0, max_condition=5.335990e+04
+Starting shifted_torus control-volume operator sweep: N=10, shape=(10, 10, 10), shards=(1, 1, 1)
+  radial boundary contract: x-low=physical Dirichlet, x-high=physical Dirichlet, axis_regular_x=False
+N=10 operator=parallel_density_flux_divergence compile+run=4.133s invalid_reconstruction_rows=0
+  mirrored_remote_flux signed_sum=0.000000e+00 abs_sum=0.000000e+00 relative_imbalance=0.000000e+00 invalid_quadrature=0
+  all_active         count=     952 volume_L2=3.780362e-02 Linf=9.164545e-02 rel_L2=7.253573e-01
+  bulk               count=     584 volume_L2=3.593041e-02 Linf=8.238230e-02 rel_L2=6.845238e-01
+  one_wall           count=      20 volume_L2=2.542734e-02 Linf=3.751595e-02 rel_L2=6.458956e-01
+  multi_wall         count=      40 volume_L2=3.663984e-02 Linf=7.822621e-02 rel_L2=7.956200e-01
+  aggregate_target   count=      48 volume_L2=3.140140e-02 Linf=7.822621e-02 rel_L2=7.254650e-01
+  remote_interface   count=       0 volume_L2=nan Linf=nan rel_L2=nan
+  reconstruction_row count=     566 volume_L2=3.918158e-02 Linf=9.164545e-02 rel_L2=7.562264e-01
+  retained_cut_cell  count=      12 volume_L2=4.022372e-02 Linf=6.570979e-02 rel_L2=8.841749e-01
+  dense_compact_d1   count=     178 volume_L2=3.360147e-02 Linf=7.980513e-02 rel_L2=6.699182e-01
+  dense_compact_d2   count=     128 volume_L2=3.454739e-02 Linf=7.980513e-02 rel_L2=6.699198e-01
+  dense_far          count=      80 volume_L2=4.149645e-02 Linf=7.599001e-02 rel_L2=6.966136e-01
+  radial_lower_owner count=     100 volume_L2=4.214253e-02 Linf=7.638673e-02 rel_L2=6.910851e-01
+  radial_upper_owner count=     100 volume_L2=3.756220e-02 Linf=7.799886e-02 rel_L2=6.909588e-01
+  radial_interior_2plus count=     552 volume_L2=3.702353e-02 Linf=9.164545e-02 rel_L2=7.430226e-01
+  top_error index=(5, 5, 5) error=9.164545e-02 actual=-7.175037e-03 reference=-9.882048e-02 regular_physical_boundary=False embedded_cutwall_faces=0 irregular_faces=6 remote_faces=0 reconstruction_rows=1 aggregate=False compact_distance=0
+  face_audit_target kind=worst_aggregate_target index=(7, 7, 2) error=7.822621e-02 actual=1.786217e-02 reference=-6.036404e-02
+  worst_aggregate_face_audit operator=parallel_density_flux_divergence aggregate=(7, 7, 2) volume=7.957835e-02 numerical_integrated=1.421442e-03 reference_integrated=-4.803671e-03
+    face_id=660 kind=partial row=179 shard=(0, 0, 0) owner_relation=plus minus=(5, 6, 2) plus=(7, 7, 2) scatter_sign=-1 functional_flux=0.000000e+00 exact_flux=0.000000e+00 flux_error=0.000000e+00 signed_contribution=-0.000000e+00 oriented_area_covector=(3.079156e-01,0.000000e+00,0.000000e+00) physical_area=3.434173e-01 rank=20 condition=3.556934e+01 reproduction=5.587544e-15 norm(projected,parallel,parallel_grad)=(1.952922e-01,0.000000e+00,0.000000e+00)
+    face_id=848 kind=interior row=233 shard=(0, 0, 0) owner_relation=minus minus=(7, 7, 2) plus=(8, 7, 2) scatter_sign=+1 functional_flux=0.000000e+00 exact_flux=0.000000e+00 flux_error=0.000000e+00 signed_contribution=0.000000e+00 oriented_area_covector=(9.962667e-01,0.000000e+00,0.000000e+00) physical_area=1.027848e+00 rank=20 condition=1.424182e+01 reproduction=1.636491e-14 norm(projected,parallel,parallel_grad)=(3.812499e-01,0.000000e+00,0.000000e+00)
+    face_id=1711 kind=interior row=427 shard=(0, 0, 0) owner_relation=plus minus=(6, 6, 2) plus=(7, 7, 2) scatter_sign=-1 functional_flux=7.665046e-05 exact_flux=1.820220e-03 flux_error=-1.743570e-03 signed_contribution=-7.665046e-05 oriented_area_covector=(0.000000e+00,8.872143e-02,0.000000e+00) physical_area=1.268787e-01 rank=20 condition=2.811296e+01 reproduction=9.436896e-16 norm(projected,parallel,parallel_grad)=(2.551732e-01,4.220773e-01,2.642289e-01)
+    face_id=1806 kind=interior row=456 shard=(0, 0, 0) owner_relation=plus minus=(7, 6, 2) plus=(7, 7, 2) scatter_sign=-1 functional_flux=5.280481e-04 exact_flux=2.435709e-03 flux_error=-1.907661e-03 signed_contribution=-5.280481e-04 oriented_area_covector=(0.000000e+00,1.008068e-01,0.000000e+00) physical_area=1.298838e-01 rank=20 condition=1.990581e+01 reproduction=1.221245e-15 norm(projected,parallel,parallel_grad)=(4.032859e-01,4.188401e-01,3.345145e-01)
+    face_id=1816 kind=partial row=465 shard=(0, 0, 0) owner_relation=minus minus=(7, 7, 2) plus=(7, 8, 2) scatter_sign=+1 functional_flux=3.788883e-05 exact_flux=-9.826107e-04 flux_error=1.020499e-03 signed_contribution=3.788883e-05 oriented_area_covector=(0.000000e+00,7.166140e-02,0.000000e+00) physical_area=8.980306e-02 rank=20 condition=1.923919e+01 reproduction=3.300311e-16 norm(projected,parallel,parallel_grad)=(2.861522e-01,2.463881e-01,2.406809e-01)
+    face_id=2704 kind=partial row=687 shard=(0, 0, 0) owner_relation=plus minus=(7, 7, 1) plus=(7, 7, 2) scatter_sign=-1 functional_flux=3.299083e-04 exact_flux=1.185266e-03 flux_error=-8.553575e-04 signed_contribution=-3.299083e-04 oriented_area_covector=(0.000000e+00,0.000000e+00,4.203619e-02) physical_area=1.448085e-02 rank=20 condition=2.767382e+01 reproduction=2.562868e-17 norm(projected,parallel,parallel_grad)=(3.110918e-01,3.036085e-01,3.061900e-01)
+    face_id=2705 kind=partial row=688 shard=(0, 0, 0) owner_relation=minus minus=(7, 7, 2) plus=(7, 7, 3) scatter_sign=+1 functional_flux=2.560012e-04 exact_flux=2.289347e-19 flux_error=2.560012e-04 signed_contribution=2.560012e-04 oriented_area_covector=(0.000000e+00,0.000000e+00,4.203619e-02) physical_area=1.448085e-02 rank=20 condition=2.998693e+01 reproduction=2.817570e-17 norm(projected,parallel,parallel_grad)=(3.453995e-01,3.334062e-01,3.129456e-01)
+    face_id=2804 kind=partial row=721 shard=(0, 0, 0) owner_relation=plus minus=(7, 7, 1) plus=(7, 7, 2) scatter_sign=-1 functional_flux=5.697727e-04 exact_flux=1.388912e-03 flux_error=-8.191391e-04 signed_contribution=-5.697727e-04 oriented_area_covector=(0.000000e+00,0.000000e+00,8.461808e-02) physical_area=2.778978e-02 rank=20 condition=1.927982e+01 reproduction=4.504842e-17 norm(projected,parallel,parallel_grad)=(2.665532e-01,2.858256e-01,2.794756e-01)
+    face_id=2805 kind=partial row=722 shard=(0, 0, 0) owner_relation=minus minus=(7, 7, 2) plus=(7, 7, 3) scatter_sign=+1 functional_flux=2.089477e-04 exact_flux=2.682690e-19 flux_error=2.089477e-04 signed_contribution=2.089477e-04 oriented_area_covector=(0.000000e+00,0.000000e+00,8.461808e-02) physical_area=2.778978e-02 rank=20 condition=2.001704e+01 reproduction=5.616845e-17 norm(projected,parallel,parallel_grad)=(2.808134e-01,2.825775e-01,2.845369e-01)
+    face_id=-1000070000700004 kind=cut_wall row=777 shard=(0, 0, 0) owner_relation=minus minus=(7, 7, 2) plus=(0, 0, 0) scatter_sign=+1 functional_flux=0.000000e+00 exact_flux=0.000000e+00 flux_error=0.000000e+00 signed_contribution=0.000000e+00 oriented_area_covector=(-5.563524e-01,0.000000e+00,0.000000e+00) physical_area=5.594731e-01 rank=20 condition=1.465575e+01 reproduction=1.315614e-14 norm(projected,parallel,parallel_grad)=(3.200445e-01,0.000000e+00,0.000000e+00)
+    face_id=-2000060000700004 kind=cut_wall row=819 shard=(0, 0, 0) owner_relation=minus minus=(7, 7, 2) plus=(0, 0, 0) scatter_sign=+1 functional_flux=1.513146e-03 exact_flux=2.017747e-03 flux_error=-5.046009e-04 signed_contribution=1.513146e-03 oriented_area_covector=(0.000000e+00,1.014671e-01,0.000000e+00) physical_area=1.455072e-01 rank=20 condition=2.754739e+01 reproduction=1.129522e-15 norm(projected,parallel,parallel_grad)=(3.316821e-01,3.358982e-01,3.353008e-01)
+    face_id=-2000070000700004 kind=cut_wall row=826 shard=(0, 0, 0) owner_relation=minus minus=(7, 7, 2) plus=(0, 0, 0) scatter_sign=+1 functional_flux=9.098378e-04 exact_flux=1.013020e-03 flux_error=-1.031822e-04 signed_contribution=9.098378e-04 oriented_area_covector=(0.000000e+00,5.621052e-02,0.000000e+00) physical_area=7.441949e-02 rank=20 condition=1.493389e+01 reproduction=2.498002e-15 norm(projected,parallel,parallel_grad)=(3.366003e-01,8.880653e-01,3.717797e-01)
+    compact_signed_sum numerical=1.421442e-03 exact=-4.781951e-03 error=6.203393e-03; dense_remainder numerical=4.336809e-19 exact=-2.171997e-05 error=2.171997e-05; aggregate_error=6.225113e-03
+operator order parallel_density_flux_divergence all_active: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence bulk: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence one_wall: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence multi_wall: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence aggregate_target: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence remote_interface: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence reconstruction_row: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence retained_cut_cell: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence dense_compact_d1: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence dense_compact_d2: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence dense_far: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence radial_lower_owner: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence radial_upper_owner: volume_L2=n/a, Linf=n/a
+operator order parallel_density_flux_divergence radial_interior_2plus: volume_L2=n/a, Linf=n/a

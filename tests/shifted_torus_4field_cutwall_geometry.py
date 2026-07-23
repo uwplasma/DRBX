@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
 import sys
+import time as time_module
 
 import jax
 import jax.numpy as jnp
@@ -1700,6 +1701,35 @@ def _compact_face_reconstruction_owner_mask(
 _FACE_FUNCTIONAL_NORMALIZED_NORM_LIMIT = 100.0
 
 
+def _validate_face_functional_boundary_weight_scale(value: float) -> float:
+    scale = float(value)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError(
+            "face_functional_boundary_weight_scale must be finite and positive"
+        )
+    return scale
+
+
+def _validate_reconstruction_boundary_weight_scale(value: float) -> float:
+    scale = float(value)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError(
+            "reconstruction_boundary_weight_scale must be finite and positive"
+        )
+    return scale
+
+
+def _validate_face_functional_cell_radius(value: int) -> int:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (int, np.integer)
+    ):
+        raise ValueError("face_functional_cell_radius must be integer 1 or 2")
+    radius = int(value)
+    if radius not in (1, 2):
+        raise ValueError("face_functional_cell_radius must be integer 1 or 2")
+    return radius
+
+
 def _nearest_periodic_image(
     points: np.ndarray,
     reference: np.ndarray,
@@ -1719,6 +1749,10 @@ def _compile_global_cubic_face_functional_records(
     geometry: LocalFciGeometry3D,
     cells: LocalControlVolumeCellGeometry3D,
     faces: LocalControlVolumeFaceRows3D,
+    *,
+    face_functional_boundary_weight_scale: float = 1.0,
+    face_functional_all_owner_boundary_observations: bool = False,
+    face_functional_cell_radius: int = 2,
 ) -> dict[int, dict[str, object]]:
     """Compile each compact face once on the unsplit global fixture.
 
@@ -1727,6 +1761,12 @@ def _compile_global_cubic_face_functional_records(
     coordinates and boundary references use stable global face IDs, so local
     lowering cannot change the fitted weights or diagnostics.
     """
+    face_functional_boundary_weight_scale = _validate_face_functional_boundary_weight_scale(
+        face_functional_boundary_weight_scale
+    )
+    face_functional_cell_radius = _validate_face_functional_cell_radius(
+        face_functional_cell_radius
+    )
     count = int(faces.max_rows)
     active = np.asarray(faces.active, dtype=bool)
     centroid = np.asarray(cells.centroid, dtype=np.float64)
@@ -1783,9 +1823,9 @@ def _compile_global_cubic_face_functional_records(
         weights: list[float] = []
         candidates: dict[int, tuple[int, float, tuple[int, int, int]]] = {}
         for base in owner_list:
-            for di in range(-2, 3):
-                for dj in range(-2, 3):
-                    for dk in range(-2, 3):
+            for di in range(-face_functional_cell_radius, face_functional_cell_radius + 1):
+                for dj in range(-face_functional_cell_radius, face_functional_cell_radius + 1):
+                    for dk in range(-face_functional_cell_radius, face_functional_cell_radius + 1):
                         candidate = [base[0] + di, base[1] + dj, base[2] + dk]
                         candidate[1] %= shape[1]
                         candidate[2] %= shape[2]
@@ -1822,13 +1862,23 @@ def _compile_global_cubic_face_functional_records(
             )
             weights.append(1.0 / max(distance2, 1.0e-12))
             metadata.append((CV_RECONSTRUCTION_EQUATION_CELL, owner))
-        # BC quadrature values are not halo-exchanged. Restrict trace
-        # observations to the evaluator owner so every referenced boundary
-        # row is owned by the same shard under every decomposition.
-        boundary_rows = sorted(
-            set(boundary_by_owner.get(evaluator, ())),
-            key=lambda boundary_row: int(face_ids[boundary_row]),
-        )
+        if face_functional_all_owner_boundary_observations:
+            boundary_rows = sorted(
+                {
+                    boundary_row
+                    for owner in owner_list
+                    for boundary_row in boundary_by_owner.get(owner, ())
+                },
+                key=lambda boundary_row: int(face_ids[boundary_row]),
+            )
+        else:
+            # BC quadrature values are not halo-exchanged. Restrict trace
+            # observations to the evaluator owner so every referenced boundary
+            # row is owned by the same shard under every decomposition.
+            boundary_rows = sorted(
+                set(boundary_by_owner.get(evaluator, ())),
+                key=lambda boundary_row: int(face_ids[boundary_row]),
+            )
         for boundary_row in boundary_rows:
             measure = np.asarray(faces.J)[boundary_row] * np.linalg.norm(np.asarray(faces.area_covector_weight)[boundary_row], axis=-1)
             total = float(np.sum(np.where(qactive[boundary_row], measure, 0.0)))
@@ -1842,7 +1892,11 @@ def _compile_global_cubic_face_functional_records(
                     )
                     matrix.append(cubic_control_volume_average_basis(point, np.zeros((3, 3)), np.zeros((3, 3, 3)), origin=origin, scale=scale))
                     delta = point - origin
-                    weights.append(float(measure[patch, quad] / max(total, 1.0e-30)) / max(float(np.dot(delta / scale, delta / scale)), 1.0e-12))
+                    weights.append(
+                        face_functional_boundary_weight_scale
+                        * float(measure[patch, quad] / max(total, 1.0e-30))
+                        / max(float(np.dot(delta / scale, delta / scale)), 1.0e-12)
+                    )
                     metadata.append(
                         (
                             CV_RECONSTRUCTION_EQUATION_DIRICHLET,
@@ -1958,10 +2012,30 @@ def _lower_global_cubic_face_functionals(
     return LocalMomentFittedFaceRows3D(layout=geometry.layout, functional_face_id=faces.global_face_id, observation_active=jnp.asarray(observation_active), polynomial_order=jnp.asarray(polynomial_order), rank=jnp.asarray(rank), condition_number=jnp.asarray(condition), reproduction_residual=jnp.asarray(residual), normalized_projected_weight_norm=jnp.asarray(projected_norm), normalized_parallel_weight_norm=jnp.asarray(parallel_norm), normalized_parallel_gradient_weight_norm=jnp.asarray(parallel_gradient_norm), active=faces.active, max_rows=count, max_equations=max_equations, **{key: jnp.asarray(value) for key, value in kwargs.items()})
 
 
+def _sanitize_centroid_metric_points(
+    centroid: np.ndarray | jnp.ndarray,
+    active_owner: np.ndarray | jnp.ndarray,
+) -> np.ndarray:
+    """Provide finite in-domain coordinates for metric-masked storage slots."""
+    points = np.asarray(centroid, dtype=np.float64)
+    valid = np.asarray(active_owner, dtype=bool) & np.all(
+        np.isfinite(points), axis=-1
+    )
+    reference = np.asarray(
+        (0.5 * (float(shifted_mms.x_min) + float(shifted_mms.x_max)), 0.0, 0.0),
+        dtype=np.float64,
+    )
+    return np.where(valid[..., None], points, reference)
+
+
 def _build_closed_box_embedded_control_volume_geometry(
     geometry: LocalFciGeometry3D,
     *,
     enable_merging: bool,
+    reconstruction_boundary_weight_scale: float = 1.0,
+    face_functional_boundary_weight_scale: float = 1.0,
+    face_functional_all_owner_boundary_observations: bool = False,
+    face_functional_cell_radius: int = 2,
     cells: LocalControlVolumeCellGeometry3D | None = None,
     remote_boundary_payloads: dict[
         tuple[int, int],
@@ -1980,7 +2054,19 @@ def _build_closed_box_embedded_control_volume_geometry(
     local_topology: LocalControlVolumeGeometry3D | None = None,
     canonical_compact_face_ids: set[int] | None = None,
     global_face_functional_records: dict[int, dict[str, object]] | None = None,
+    compiled_face_functional_records_out: (
+        dict[int, dict[str, object]] | None
+    ) = None,
 ) -> LocalEmbeddedControlVolumeGeometry3D:
+    reconstruction_boundary_weight_scale = _validate_reconstruction_boundary_weight_scale(
+        reconstruction_boundary_weight_scale
+    )
+    face_functional_boundary_weight_scale = _validate_face_functional_boundary_weight_scale(
+        face_functional_boundary_weight_scale
+    )
+    face_functional_cell_radius = _validate_face_functional_cell_radius(
+        face_functional_cell_radius
+    )
     if cells is None:
         cells = _build_closed_box_control_volume_cells(
             geometry,
@@ -2059,6 +2145,7 @@ def _build_closed_box_embedded_control_volume_geometry(
         target_mask=jnp.asarray(reconstruction_owner_mask),
         max_samples=48,
         max_equations=64,
+        boundary_weight_scale=reconstruction_boundary_weight_scale,
     )
     reconstruction_active = np.asarray(reconstruction.active, dtype=bool)
     reconstruction_order = np.asarray(
@@ -2080,7 +2167,10 @@ def _build_closed_box_embedded_control_volume_geometry(
             "shifted-torus control-volume fixture produced "
             f"{invalid_count} invalid reconstruction rows"
         )
-    centroid_points = np.asarray(cells.centroid, dtype=np.float64)
+    centroid_points = _sanitize_centroid_metric_points(
+        cells.centroid,
+        cells.is_active_owner,
+    )
     (
         centroid_J,
         _centroid_g_contra,
@@ -2139,6 +2229,15 @@ def _build_closed_box_embedded_control_volume_geometry(
             geometry,
             cells,
             irregular_faces,
+            face_functional_boundary_weight_scale=face_functional_boundary_weight_scale,
+            face_functional_all_owner_boundary_observations=(
+                face_functional_all_owner_boundary_observations
+            ),
+            face_functional_cell_radius=face_functional_cell_radius,
+        )
+    if compiled_face_functional_records_out is not None:
+        compiled_face_functional_records_out.update(
+            global_face_functional_records
         )
     face_functionals = _lower_global_cubic_face_functionals(
         geometry,
@@ -2334,8 +2433,42 @@ def _build_stacked_embedded_control_volume_geometry(
     shard_counts: tuple[int, int, int],
     halo_width: int,
     enable_merging: bool,
+    reconstruction_boundary_weight_scale: float = 1.0,
+    face_functional_boundary_weight_scale: float = 1.0,
+    face_functional_all_owner_boundary_observations: bool = False,
+    face_functional_cell_radius: int = 2,
 ) -> LocalEmbeddedControlVolumeGeometry3D:
     """Precompute compact geometry and reconstruction transforms on the host."""
+
+    reconstruction_boundary_weight_scale = _validate_reconstruction_boundary_weight_scale(
+        reconstruction_boundary_weight_scale
+    )
+    face_functional_boundary_weight_scale = _validate_face_functional_boundary_weight_scale(
+        face_functional_boundary_weight_scale
+    )
+    face_functional_cell_radius = _validate_face_functional_cell_radius(
+        face_functional_cell_radius
+    )
+    shard_counts = tuple(int(value) for value in shard_counts)
+    if face_functional_all_owner_boundary_observations and shard_counts != (1, 1, 1):
+        raise ValueError(
+            "face_functional_all_owner_boundary_observations requires one shard "
+            "because remote Dirichlet observations are not exchanged"
+        )
+
+    phase_start = time_module.perf_counter()
+    previous_phase = phase_start
+
+    def report_phase(name: str) -> None:
+        nonlocal previous_phase
+        now = time_module.perf_counter()
+        print(
+            "  geometry_phase "
+            f"name={name!r} elapsed={now - previous_phase:.3f}s "
+            f"total={now - phase_start:.3f}s",
+            flush=True,
+        )
+        previous_phase = now
 
     owned_shape = tuple(
         int(size) // int(count)
@@ -2346,6 +2479,7 @@ def _build_stacked_embedded_control_volume_geometry(
         halo_width=halo_width,
         enable_merging=enable_merging,
     )
+    report_phase("raw moments and global topology")
     # Define the compact partition and cubic face functionals once on the
     # unsplit global fixture. Local shards only lower stable references.
     global_geometry = build_shifted_torus_local_geometry(
@@ -2360,15 +2494,28 @@ def _build_stacked_embedded_control_volume_geometry(
         raw_second_moment=global_raw[2], raw_third_moment=global_raw[3],
     )
     whole_cells = _lower_global_control_volume_cells(global_geometry, whole_topology)
+    report_phase("unsplit geometry and cell lowering")
+    global_face_functional_records: dict[int, dict[str, object]] = {}
     whole_bundle = _build_closed_box_embedded_control_volume_geometry(
         global_geometry, enable_merging=enable_merging, cells=whole_cells,
         global_topology=global_topology, local_topology=whole_topology,
+        reconstruction_boundary_weight_scale=reconstruction_boundary_weight_scale,
+        face_functional_boundary_weight_scale=face_functional_boundary_weight_scale,
+        face_functional_all_owner_boundary_observations=(
+            face_functional_all_owner_boundary_observations
+        ),
+        face_functional_cell_radius=face_functional_cell_radius,
+        compiled_face_functional_records_out=global_face_functional_records,
     )
-    global_face_functional_records = _compile_global_cubic_face_functional_records(
-        global_geometry,
-        whole_cells,
-        whole_bundle.irregular_faces,
-    )
+    report_phase("global faces, reconstruction, and direct functionals")
+    if tuple(int(value) for value in shard_counts) == (1, 1, 1):
+        stacked = stack_local_shard_pytree(
+            (1, 1, 1),
+            lambda _shard_index: whole_bundle,
+        )
+        report_phase("one-shard stack")
+        return stacked
+
     whole_ids = np.asarray(whole_bundle.irregular_faces.global_face_id, dtype=np.int64)
     whole_active = np.asarray(whole_bundle.irregular_faces.active, dtype=bool)
     canonical_compact_face_ids = set(
@@ -2398,6 +2545,7 @@ def _build_stacked_embedded_control_volume_geometry(
                 local_topology = compile_local_control_volume_geometry(global_topology, shard_index=shard_index, shard_counts=shard_counts, raw_volume=global_raw[0], raw_centroid=global_raw[1], raw_second_moment=global_raw[2], raw_third_moment=global_raw[3])
                 cells = _lower_global_control_volume_cells(local_geometry, local_topology)
                 local_geometry_and_cells[shard_index] = (local_geometry, cells, local_topology)
+    report_phase("local geometry and cell lowering")
 
     periodic_axes = (False, True, True)
 
@@ -2602,8 +2750,15 @@ def _build_stacked_embedded_control_volume_geometry(
                 local_topology=local_topology,
                 canonical_compact_face_ids=canonical_compact_face_ids,
                 global_face_functional_records=global_face_functional_records,
+                reconstruction_boundary_weight_scale=reconstruction_boundary_weight_scale,
+                face_functional_boundary_weight_scale=face_functional_boundary_weight_scale,
+                face_functional_all_owner_boundary_observations=(
+                    face_functional_all_owner_boundary_observations
+                ),
+                face_functional_cell_radius=face_functional_cell_radius,
             )
         )
+    report_phase("local bundle lowering")
     max_face_rows = max(
         (
             int(bundle.irregular_faces.max_rows)
@@ -2635,7 +2790,9 @@ def _build_stacked_embedded_control_volume_geometry(
     def builder(_shard_index):
         return next(padded)
 
-    return stack_local_shard_pytree(shard_counts, builder)
+    stacked = stack_local_shard_pytree(shard_counts, builder)
+    report_phase("padding and stacking")
+    return stacked
 
 
 def _with_embedded_control_volume_geometry(
