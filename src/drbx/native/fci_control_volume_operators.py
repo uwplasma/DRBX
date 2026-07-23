@@ -141,6 +141,69 @@ def cubic_dense_face_targets(
     return scalar @ basis, gradient @ basis
 
 
+def cubic_projected_face_flux_target(
+    points: np.ndarray,
+    jacobian: np.ndarray,
+    area_covector_weight: np.ndarray,
+    projector: np.ndarray,
+    active: np.ndarray,
+    *,
+    origin: np.ndarray,
+    scale: np.ndarray | float,
+) -> np.ndarray:
+    """Return the direct cubic target for the projected face-flux oracle.
+
+    This exactly follows ``_local_control_volume_irregular_projected_flux``:
+    ``J * a_weight^T P grad_x(phi)`` is summed over active quadrature points.
+    ``area_covector_weight`` already contains the two-dimensional Gauss weight;
+    ``J`` is intentionally multiplied separately here (never double counted).
+    """
+    points = np.asarray(points, dtype=np.float64)
+    jacobian = np.asarray(jacobian, dtype=np.float64)
+    area = np.asarray(area_covector_weight, dtype=np.float64)
+    projector = np.asarray(projector, dtype=np.float64)
+    active = np.asarray(active, dtype=bool)
+    origin = np.asarray(origin, dtype=np.float64)
+    scale = np.asarray(scale, dtype=np.float64)
+    if scale.ndim == 0:
+        scale = np.full((3,), float(scale))
+    if (
+        points.shape[-1:] != (3,)
+        or area.shape != points.shape
+        or projector.shape != points.shape[:-1] + (3, 3)
+        or jacobian.shape != active.shape
+        or jacobian.shape != points.shape[:-1]
+    ):
+        raise ValueError("quadrature points/J/area/projector/active shapes are incompatible")
+    if (
+        origin.shape != (3,)
+        or scale.shape != (3,)
+        or np.any(~np.isfinite(scale))
+        or np.any(scale <= 0)
+    ):
+        raise ValueError("origin and positive componentwise scale are required")
+    if any(np.any(~np.isfinite(x)) for x in (points, jacobian, area, projector, origin)):
+        raise ValueError("projected face target inputs must be finite")
+    xi = (points - origin) / scale
+    target = np.zeros((20,), dtype=np.float64)
+    for column, power in enumerate(CUBIC_MONOMIAL_EXPONENTS):
+        grad = np.zeros_like(points)
+        for axis in range(3):
+            if power[axis]:
+                reduced = list(power)
+                reduced[axis] -= 1
+                grad[..., axis] = (
+                    power[axis]
+                    * np.prod(
+                        [xi[..., q] ** reduced[q] for q in range(3)], axis=0,
+                    )
+                    / scale[axis]
+                )
+        integrand = jacobian * np.einsum("...i,...ij,...j->...", area, projector, grad)
+        target[column] = np.sum(np.where(active, integrand, 0.0))
+    return target
+
+
 @dataclass(frozen=True)
 class LocalMomentFittedFaceFunctional3D:
     """One direct compact-face functional with static observation weights."""
@@ -157,6 +220,7 @@ class LocalMomentFittedFaceFunctional3D:
     normalized_weight_norm: float
     face_id: int = -1
     face_sign: int = 1
+    projected_flux_weights: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         kind = np.asarray(self.equation_kind, dtype=np.int32).reshape((-1,))
@@ -165,9 +229,14 @@ class LocalMomentFittedFaceFunctional3D:
         value = np.asarray(self.value_weights, dtype=np.float64).reshape((-1,))
         gradient = np.asarray(self.gradient_weights, dtype=np.float64)
         count = kind.size
+        projected = (
+            np.zeros((count,), dtype=np.float64)
+            if self.projected_flux_weights is None
+            else np.asarray(self.projected_flux_weights, dtype=np.float64).reshape((-1,))
+        )
         if not (
             reference.size == active.size == value.size == count
-            and gradient.shape == (3, count)
+            and gradient.shape == (3, count) and projected.shape == (count,)
         ):
             raise ValueError("face-functional observation arrays must align")
         valid_kind = {
@@ -177,11 +246,14 @@ class LocalMomentFittedFaceFunctional3D:
         }
         if any(int(item) not in valid_kind for item in kind[active]):
             raise ValueError("face functional has an unsupported equation kind")
+        if np.any(active & (reference < 0)):
+            raise ValueError("active face-functional observations need nonnegative references")
         object.__setattr__(self, "equation_kind", kind)
         object.__setattr__(self, "sample_reference", reference)
         object.__setattr__(self, "active", active)
         object.__setattr__(self, "value_weights", value)
         object.__setattr__(self, "gradient_weights", gradient)
+        object.__setattr__(self, "projected_flux_weights", projected)
 
 
 @dataclass(frozen=True)
@@ -201,6 +273,7 @@ class LocalMomentFittedFaceFunctionals3D:
     observation_active: np.ndarray
     value_weights: np.ndarray
     gradient_weights: np.ndarray
+    projected_flux_weights: np.ndarray
     rank: np.ndarray
     condition_number: np.ndarray
     reproduction_residual: np.ndarray
@@ -215,6 +288,7 @@ class LocalMomentFittedFaceFunctionals3D:
         active = np.asarray(self.observation_active, dtype=bool)
         value = np.asarray(self.value_weights, dtype=np.float64)
         gradient = np.asarray(self.gradient_weights, dtype=np.float64)
+        projected = np.asarray(self.projected_flux_weights, dtype=np.float64)
         rank = np.asarray(self.rank, dtype=np.int32).reshape((-1,))
         condition = np.asarray(self.condition_number, dtype=np.float64).reshape((-1,))
         residual = np.asarray(self.reproduction_residual, dtype=np.float64).reshape((-1,))
@@ -222,7 +296,7 @@ class LocalMomentFittedFaceFunctionals3D:
         if not (
             kind.ndim == reference.ndim == active.ndim == value.ndim == 2
             and kind.shape == reference.shape == active.shape == value.shape
-            and gradient.shape == (count, 3, kind.shape[1])
+            and gradient.shape == (count, 3, kind.shape[1]) and projected.shape == kind.shape
             and face_sign.shape == rank.shape == condition.shape == residual.shape == norm.shape == (count,)
         ):
             raise ValueError("packed face-functional arrays must have compatible shapes")
@@ -239,6 +313,7 @@ class LocalMomentFittedFaceFunctionals3D:
         object.__setattr__(self, "observation_active", active)
         object.__setattr__(self, "value_weights", value)
         object.__setattr__(self, "gradient_weights", gradient)
+        object.__setattr__(self, "projected_flux_weights", projected)
         object.__setattr__(self, "rank", rank)
         object.__setattr__(self, "condition_number", condition)
         object.__setattr__(self, "reproduction_residual", residual)
@@ -264,6 +339,7 @@ def pack_local_face_functionals(
             observation_active=np.zeros((0, 0), dtype=bool),
             value_weights=np.zeros((0, 0), dtype=np.float64),
             gradient_weights=np.zeros((0, 3, 0), dtype=np.float64),
+            projected_flux_weights=np.zeros((0, 0), dtype=np.float64),
             rank=np.zeros((0,), dtype=np.int32),
             condition_number=np.zeros((0,), dtype=np.float64),
             reproduction_residual=np.zeros((0,), dtype=np.float64),
@@ -280,6 +356,7 @@ def pack_local_face_functionals(
         observation_active=np.stack([item.active for item in functionals]),
         value_weights=np.stack([item.value_weights for item in functionals]),
         gradient_weights=np.stack([item.gradient_weights for item in functionals]),
+        projected_flux_weights=np.stack([item.projected_flux_weights for item in functionals]),
         rank=np.asarray([item.rank for item in functionals]),
         condition_number=np.asarray([item.condition_number for item in functionals]),
         reproduction_residual=np.asarray([item.reproduction_residual for item in functionals]),
@@ -336,11 +413,13 @@ def precompute_local_face_functional(
     sample_reference: np.ndarray,
     value_target: np.ndarray,
     gradient_target: np.ndarray,
+    projected_flux_target: np.ndarray | None = None,
     observation_weight: np.ndarray | None = None,
     requested_order: int = 3,
     svd_cutoff: float = 1.0e-12,
     condition_limit: float = 1.0e6,
     max_derivative_l1: float = 100.0,
+    max_projected_flux_l1: float = 100.0,
     face_id: int = -1,
     face_sign: int = 1,
 ) -> LocalMomentFittedFaceFunctional3D:
@@ -361,10 +440,15 @@ def precompute_local_face_functional(
     gradient_target = np.asarray(gradient_target, dtype=np.float64)
     if matrix.ndim != 2 or matrix.shape != (kind.size, 20):
         raise ValueError("cubic observation_matrix must have shape (observations, 20)")
+    if np.any(~np.isfinite(matrix)) or np.any(~np.isfinite(value_target)) or np.any(~np.isfinite(gradient_target)):
+        raise ValueError("face-functional matrix and targets must be finite")
     if reference.size != kind.size or value_target.shape != (20,):
         raise ValueError("face-functional targets must align with the cubic basis")
     if gradient_target.shape != (3, 20):
         raise ValueError("gradient_target must have shape (3, 20)")
+    projected_target = np.zeros((20,), dtype=np.float64) if projected_flux_target is None else np.asarray(projected_flux_target, dtype=np.float64).reshape((-1,))
+    if projected_target.shape != (20,) or np.any(~np.isfinite(projected_target)):
+        raise ValueError("projected_flux_target must have shape (20,) and be finite")
     if observation_weight is None:
         weight = np.ones((kind.size,), dtype=np.float64)
     else:
@@ -389,18 +473,27 @@ def precompute_local_face_functional(
     inverse = (vh[:20].T / singular[:20]) @ u[:, :20].T
     weighted_value_weights = value_target @ inverse
     weighted_gradient_weights = gradient_target @ inverse
+    weighted_projected_weights = projected_target @ inverse
     value_weights = weighted_value_weights * np.sqrt(weight)
     gradient_weights = weighted_gradient_weights * np.sqrt(weight)[None, :]
+    projected_weights = weighted_projected_weights * np.sqrt(weight)
     reproduction = max(
         float(np.max(np.abs(value_weights @ matrix - value_target))),
         float(np.max(np.abs(gradient_weights @ matrix - gradient_target))),
+        float(np.max(np.abs(projected_weights @ matrix - projected_target))),
     )
     derivative_l1 = float(np.max(np.sum(np.abs(gradient_weights), axis=1)))
+    projected_l1 = float(np.sum(np.abs(projected_weights)))
     if not np.isfinite(reproduction) or reproduction > 1.0e-10:
         raise ValueError(f"cubic face functional reproduction failed: {reproduction:.3e}")
     if derivative_l1 > float(max_derivative_l1):
         raise ValueError(
             f"cubic face functional derivative norm {derivative_l1:.3e} exceeds limit"
+        )
+    if projected_l1 > float(max_projected_flux_l1):
+        raise ValueError(
+            "cubic face functional projected-flux norm "
+            f"{projected_l1:.3e} exceeds limit"
         )
     return LocalMomentFittedFaceFunctional3D(
         equation_kind=kind,
@@ -415,9 +508,11 @@ def precompute_local_face_functional(
         normalized_weight_norm=max(
             float(np.linalg.norm(value_weights)),
             float(np.max(np.linalg.norm(gradient_weights, axis=1))),
+            float(np.linalg.norm(projected_weights)),
         ),
         face_id=int(face_id),
         face_sign=int(face_sign),
+        projected_flux_weights=projected_weights,
     )
 
 
@@ -469,15 +564,34 @@ def evaluate_local_face_functional(
     )
 
 
+def evaluate_local_projected_face_flux(
+    functional: LocalMomentFittedFaceFunctional3D, *, local_values: np.ndarray,
+    remote_values: np.ndarray | None = None, boundary_values: np.ndarray | None = None,
+) -> float:
+    """Evaluate only the precompiled scalar projected flux observation row."""
+    local_values = np.asarray(local_values, dtype=np.float64).reshape((-1,))
+    remote_values = np.zeros((0,), dtype=np.float64) if remote_values is None else np.asarray(remote_values, dtype=np.float64).reshape((-1,))
+    boundary_values = np.zeros((0,), dtype=np.float64) if boundary_values is None else np.asarray(boundary_values, dtype=np.float64).reshape((-1,))
+    observation = np.zeros_like(functional.projected_flux_weights)
+    for row, (kind, ref, active) in enumerate(zip(functional.equation_kind, functional.sample_reference, functional.active)):
+        if active:
+            values = local_values if kind == CV_RECONSTRUCTION_EQUATION_CELL else remote_values if kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL else boundary_values
+            if not 0 <= int(ref) < values.size: raise ValueError("face-functional observation reference is unavailable")
+            observation[row] = values[int(ref)]
+    return float(functional.projected_flux_weights @ observation)
+
+
 __all__ = [
     "CUBIC_MONOMIAL_EXPONENTS",
     "cubic_control_volume_average_basis",
     "cubic_dense_face_targets",
+    "cubic_projected_face_flux_target",
     "cubic_monomial_basis",
     "LocalMomentFittedFaceFunctional3D",
     "LocalMomentFittedFaceFunctionals3D",
     "LocalMomentReconstruction3D",
     "evaluate_local_face_functional",
+    "evaluate_local_projected_face_flux",
     "pack_local_face_functionals",
     "precompute_local_face_functional",
     "precompute_local_moment_reconstruction",
