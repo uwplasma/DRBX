@@ -176,11 +176,25 @@ class HaloExchange3D(_DataclassPyTreeMixin):
 
     This backend is intended to run inside ``shard_map``/``pmap``-style SPMD
     code where each configured ``LocalDomain3D.mesh_axis_names`` entry is a
-    valid collective axis name. It exchanges only the six face slabs of a
-    cell-centered field. Trailing component axes are carried unchanged, so a
-    vector field can be exchanged in one call:
-    halo edges and corners are deliberately left for a later topology or
-    ghost-cell stage.
+    valid collective axis name.  Each axis stage exchanges a *full* face slab
+    (including the halo coordinates of the other spatial axes).  The stages
+    run in axis order ``x, y, z``.  Consequently, after this complete three
+    axis exchange, an edge or corner is populated when every one of its halo
+    directions is an enabled, decomposed regular interface (or an enabled
+    decomposed ``SIDE_SIMPLE_PERIODIC`` global interface).  A later axis
+    carries the earlier-axis halo values to its neighbour.  Trailing component
+    axes are carried unchanged, so a vector field can be exchanged in one
+    call.
+
+    This is a deliberately narrow promise: a slot involving a physical,
+    axis-regular, topology-mapped, unused, disabled, or undecomposed axis is
+    not populated by this class.  In particular, this class does not infer a
+    physical corner or apply an arbitrary topology map.  Those slots belong
+    to their corresponding closure stage.  ``LocalPeriodicTopologyRule3D``
+    provides the analogous full-slab propagation for undecomposed simple
+    periodic axes; when it is run after this exchange, intersections between
+    its periodic directions and the valid exchanged directions are populated
+    as well.
 
     Global side kinds in ``ShardSpec3D`` control whether a wrapped collective
     is allowed. Internal shard interfaces are always exchanged; global sides
@@ -980,7 +994,15 @@ class TopologyHaloFiller3D(_DataclassPyTreeMixin):
 @_pytree_base
 @dataclass(frozen=True)
 class LocalPeriodicTopologyRule3D(_DataclassPyTreeMixin):
-    """Fill undecomposed ``SIDE_SIMPLE_PERIODIC`` face halos locally."""
+    """Fill undecomposed ``SIDE_SIMPLE_PERIODIC`` halo slabs locally.
+
+    Axis stages run in ``x, y, z`` order and copy full slabs.  Thus, after a
+    complete invocation, intersections of two or three enabled undecomposed
+    simple-periodic directions are wrapped too.  When run after
+    :class:`HaloExchange3D`, it also carries already exchanged decomposed-axis
+    halo values through its local periodic directions.  It makes no promise
+    for physical sides or topology-mapped sides.
+    """
 
     fill_axes: tuple[bool, bool, bool] = (True, True, True)
 

@@ -4,7 +4,10 @@ from dataclasses import dataclass, replace
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
+from jax.experimental.shard_map import shard_map
+from jax.sharding import Mesh, PartitionSpec as P
 
 from drbx.geometry import (
     FCI_DEP_CUT_WALL,
@@ -146,6 +149,112 @@ def test_single_shard_exchange_preserves_input() -> None:
     )
 
     assert jnp.array_equal(exchange(field, domain), field)
+
+
+def test_local_periodic_rule_wraps_two_axis_corner_with_halo_width_two() -> None:
+    """Full-slab periodic stages carry the first wrapped axis through the next."""
+    domain = _domain(
+        owned_shape=(3, 4, 2),
+        shard_counts=(1, 1, 1),
+        periodic_axes=(True, True, False),
+        halo_width=2,
+    )
+    layout = domain.layout
+    h = layout.halo_width
+    field = jnp.full(layout.cell_halo_shape, -987.0)
+    owned = (
+        100.0 * jnp.arange(3, dtype=jnp.float64)[:, None, None]
+        + 10.0 * jnp.arange(4, dtype=jnp.float64)[None, :, None]
+        + jnp.arange(2, dtype=jnp.float64)[None, None, :]
+    )
+    field = field.at[layout.owned_slices_cell].set(owned)
+
+    filled = LocalPeriodicTopologyRule3D()(field, domain)
+    expected = owned[jnp.array([1, 2, 0, 1, 2, 0, 1]), :, :]
+    expected = expected[:, jnp.array([2, 3, 0, 1, 2, 3, 0, 1]), :]
+
+    # This includes all four x/y corners and proves each width-two layer is
+    # sourced from the doubly wrapped owned cell, not an input halo sentinel.
+    assert jnp.array_equal(filled[:, :, h : h + 2], expected)
+    assert jnp.all(filled[:, :, 0] == -987.0)
+
+
+@pytest.mark.skipif(
+    jax.local_device_count() < 4,
+    reason="requires four local devices for a 2x2 staged collective exchange",
+)
+def test_two_by_two_exchange_propagates_internal_edge_corner_with_halo_width_two() -> None:
+    """The y stage propagates the x halo, so an internal 2x2 corner is valid."""
+    owned_shape = (3, 3, 2)
+    domain = _domain(
+        owned_shape=owned_shape,
+        shard_counts=(2, 2, 1),
+        periodic_axes=(False, False, False),
+        halo_width=2,
+        mesh_axis_names=("x", "y", None),
+    )
+    layout = domain.layout
+    h = layout.halo_width
+    exchange = HaloExchange3D(exchange_axes=(True, True, False))
+
+    def make_field(shard_x: int, shard_y: int) -> jax.Array:
+        field = jnp.full(layout.cell_halo_shape, -321.0)
+        owned = (
+            1000.0 * shard_x
+            + 100.0 * shard_y
+            + 10.0 * jnp.arange(owned_shape[0], dtype=jnp.float64)[:, None, None]
+            + 2.0 * jnp.arange(owned_shape[1], dtype=jnp.float64)[None, :, None]
+            + jnp.arange(owned_shape[2], dtype=jnp.float64)[None, None, :]
+        )
+        return field.at[layout.owned_slices_cell].set(owned)
+
+    halo_shape = layout.cell_halo_shape
+    fields = jnp.full((2 * halo_shape[0], 2 * halo_shape[1], halo_shape[2]), -321.0)
+    for shard_x in range(2):
+        for shard_y in range(2):
+            fields = fields.at[
+                shard_x * halo_shape[0] : (shard_x + 1) * halo_shape[0],
+                shard_y * halo_shape[1] : (shard_y + 1) * halo_shape[1],
+                :,
+            ].set(make_field(shard_x, shard_y))
+
+    mesh = Mesh(np.asarray(jax.local_devices()[:4]).reshape((2, 2)), ("x", "y"))
+    exchanged = shard_map(
+        lambda field: exchange(field, domain),
+        mesh=mesh,
+        in_specs=P("x", "y", None),
+        out_specs=P("x", "y", None),
+        check_rep=False,
+    )(fields)
+
+    def local(array: jax.Array, shard_x: int, shard_y: int) -> jax.Array:
+        return array[
+            shard_x * halo_shape[0] : (shard_x + 1) * halo_shape[0],
+            shard_y * halo_shape[1] : (shard_y + 1) * halo_shape[1],
+            :,
+        ]
+
+    lower_x, upper_x = slice(0, h), slice(h + owned_shape[0], h + owned_shape[0] + h)
+    lower_y, upper_y = slice(0, h), slice(h + owned_shape[1], h + owned_shape[1] + h)
+    owned_x, owned_y, owned_z = layout.owned_slices_cell
+    # Each 2x2 shard has one inward x/y corner.  Check all width-two layers
+    # against the appropriate diagonal shard's owned slab.
+    assert jnp.array_equal(
+        local(exchanged, 0, 0)[upper_x, upper_y, owned_z],
+        local(fields, 1, 1)[owned_x.start : owned_x.start + h, owned_y.start : owned_y.start + h, owned_z],
+    )
+    assert jnp.array_equal(
+        local(exchanged, 0, 1)[upper_x, lower_y, owned_z],
+        local(fields, 1, 0)[owned_x.start : owned_x.start + h, owned_y.stop - h : owned_y.stop, owned_z],
+    )
+    assert jnp.array_equal(
+        local(exchanged, 1, 0)[lower_x, upper_y, owned_z],
+        local(fields, 0, 1)[owned_x.stop - h : owned_x.stop, owned_y.start : owned_y.start + h, owned_z],
+    )
+    assert jnp.array_equal(
+        local(exchanged, 1, 1)[lower_x, lower_y, owned_z],
+        local(fields, 0, 0)[owned_x.stop - h : owned_x.stop, owned_y.stop - h : owned_y.stop, owned_z],
+    )
 
 
 def test_shard_side_kinds_default_and_describe_global_boundaries() -> None:
