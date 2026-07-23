@@ -29,6 +29,13 @@ from drbx.geometry.fci_control_volumes import (
     remote_owner_halo_coordinate,
 )
 from drbx.native import precompute_local_moment_reconstruction
+from drbx.native.fci_control_volume_operators import (
+    cubic_control_volume_average_basis,
+    cubic_parallel_gradient_face_flux_target,
+    cubic_parallel_face_flux_target,
+    cubic_projected_face_flux_target,
+    precompute_local_face_functional,
+)
 from drbx.native.fci_boundaries import (
     CV_FACE_CUT_WALL,
     CV_FACE_INTERIOR,
@@ -36,8 +43,14 @@ from drbx.native.fci_boundaries import (
     CV_FACE_PHYSICAL_BOUNDARY,
     LocalControlVolumeFaceRows3D,
     LocalEmbeddedControlVolumeGeometry3D,
+    LocalMomentFittedFaceRows3D,
     LocalMomentReconstruction3D,
     LocalRegularBoundaryMomentClosure3D,
+)
+from drbx.native.fci_boundaries import (
+    CV_RECONSTRUCTION_EQUATION_CELL,
+    CV_RECONSTRUCTION_EQUATION_DIRICHLET,
+    CV_RECONSTRUCTION_EQUATION_REMOTE_CELL,
 )
 
 
@@ -523,174 +536,6 @@ def _build_shifted_torus_regular_boundary_closure(
     )
 
 
-def _print_shifted_torus_radial_moment_reproduction(
-    *,
-    global_shape: tuple[int, int, int],
-    owned_shape: tuple[int, int, int],
-    halo_width: int,
-    enable_merging: bool,
-) -> None:
-    """Report what the radial closure reconstructs on actual torus moments."""
-
-    geometry = build_shifted_torus_local_geometry(
-        owned_shape,
-        halo_width,
-        global_shape=global_shape,
-        shard_index=(0, 0, 0),
-        x_min=shifted_mms.x_min,
-        x_max=shifted_mms.x_max,
-        r0=shifted_mms.r0,
-        alpha_value=shifted_mms.alpha_value,
-        iota=shifted_mms.iota,
-        c_phi=shifted_mms.c_phi,
-        sigma=shifted_mms.sigma,
-    )
-    cells = _build_closed_box_control_volume_cells(
-        geometry,
-        enable_merging=enable_merging,
-    )
-    closure = _build_shifted_torus_regular_boundary_closure(geometry, cells)
-    face_weights, owner_weights, valid = closure.axis_payload(0)
-    valid_lower = np.argwhere(np.asarray(valid[0], dtype=bool))
-    if valid_lower.size == 0:
-        print(
-            "  shifted-torus radial moment reproduction: no valid lower "
-            "patches (physical_face={:.8e}, configured_x_min={:.8e}); "
-            "the regular moment closure is inactive.".format(
-                float(np.asarray(geometry.grid.x.faces_owned)[0]),
-                float(shifted_mms.x_min),
-            )
-        )
-        return
-    center = np.asarray(geometry.owned_shape[1:], dtype=np.float64) / 2.0
-    chosen = valid_lower[
-        int(
-            np.argmin(
-                np.sum((valid_lower.astype(np.float64) - center) ** 2, axis=1)
-            )
-        )
-    ]
-    j_index, k_index = (int(chosen[0]), int(chosen[1]))
-    x_faces = np.asarray(geometry.grid.x.faces_owned, dtype=np.float64)
-    theta_faces = np.asarray(geometry.grid.y.faces_owned, dtype=np.float64)
-    zeta_faces = np.asarray(geometry.grid.z.faces_owned, dtype=np.float64)
-    radial_span = float(shifted_mms.x_max) - float(shifted_mms.x_min)
-    owner_x = float(np.asarray(cells.raw_centroid)[0, j_index, k_index, 0])
-    face_weights = np.asarray(face_weights[0, j_index, k_index])
-    owner_weights = np.asarray(owner_weights[0, j_index, k_index])
-
-    def average_at_x(
-        x_lower: float,
-        x_upper: float,
-        *,
-        degree: int,
-        fourier: bool,
-    ) -> float:
-        numerator = 0.0
-        denominator = 0.0
-        is_volume = x_upper > x_lower
-        x_nodes = _GAUSS3_NODES if is_volume else np.asarray((0.0,))
-        x_weights = _GAUSS3_WEIGHTS if is_volume else np.asarray((1.0,))
-        x_measure = 0.5 * (x_upper - x_lower) if is_volume else 1.0
-        for node_x, weight_x in zip(x_nodes, x_weights):
-            x = 0.5 * (x_lower + x_upper) + 0.5 * (x_upper - x_lower) * node_x
-            for node_y, weight_y in zip(_GAUSS3_NODES, _GAUSS3_WEIGHTS):
-                theta = 0.5 * (theta_faces[j_index] + theta_faces[j_index + 1]) + 0.5 * (
-                    theta_faces[j_index + 1] - theta_faces[j_index]
-                ) * node_y
-                for node_z, weight_z in zip(_GAUSS3_NODES, _GAUSS3_WEIGHTS):
-                    zeta = 0.5 * (zeta_faces[k_index] + zeta_faces[k_index + 1]) + 0.5 * (
-                        zeta_faces[k_index + 1] - zeta_faces[k_index]
-                    ) * node_z
-                    point = np.asarray((x, theta, zeta), dtype=np.float64)
-                    jacobian = float(_shifted_torus_metric_payload_numpy(point)[0])
-                    modulation = (
-                        1.0
-                        if not fourier
-                        else 1.0 + 0.25 * np.cos(theta) + 0.15 * np.sin(zeta)
-                    )
-                    value = ((x - x_faces[0]) / radial_span) ** degree * modulation
-                    measure = (
-                        weight_x
-                        * weight_y
-                        * weight_z
-                        * x_measure
-                        * 0.5
-                        * (theta_faces[j_index + 1] - theta_faces[j_index])
-                        * 0.5
-                        * (zeta_faces[k_index + 1] - zeta_faces[k_index])
-                        * jacobian
-                    )
-                    numerator += measure * value
-                    denominator += measure
-        return numerator / max(denominator, 1.0e-30)
-
-    def radial_derivative(x: float, *, degree: int, fourier: bool, side: str) -> float:
-        step = radial_span * 1.0e-5
-        if side == "lower":
-            values = [
-                average_at_x(x + offset * step, x + offset * step, degree=degree, fourier=fourier)
-                for offset in range(5)
-            ]
-            return (-25.0 * values[0] + 48.0 * values[1] - 36.0 * values[2] + 16.0 * values[3] - 3.0 * values[4]) / (12.0 * step)
-        return (
-            average_at_x(x + step, x + step, degree=degree, fourier=fourier)
-            - average_at_x(x - step, x - step, degree=degree, fourier=fourier)
-        ) / (2.0 * step)
-
-    print(
-        "  shifted-torus radial moment reproduction: patch=(theta={}, zeta={}), owner_x={:.6e}".format(
-            j_index,
-            k_index,
-            owner_x,
-        )
-    )
-    for fourier, label in ((False, "constant"), (True, "fourier")):
-        max_owner_error = 0.0
-        max_face_error = 0.0
-        for degree in range(4):
-            samples = np.asarray(
-                [
-                    average_at_x(
-                        x_faces[index],
-                        x_faces[index + 1],
-                        degree=degree,
-                        fourier=fourier,
-                    )
-                    for index in range(3)
-                ]
-            )
-            face_value = average_at_x(
-                x_faces[0],
-                x_faces[0],
-                degree=degree,
-                fourier=fourier,
-            )
-            owner_value = float(np.dot(owner_weights, np.concatenate(((face_value,), samples))))
-            face_value_derivative = float(np.dot(face_weights, np.concatenate(((face_value,), samples))))
-            owner_expected = radial_derivative(
-                owner_x,
-                degree=degree,
-                fourier=fourier,
-                side="owner",
-            )
-            face_expected = radial_derivative(
-                x_faces[0],
-                degree=degree,
-                fourier=fourier,
-                side="lower",
-            )
-            max_owner_error = max(max_owner_error, abs(owner_value - owner_expected))
-            max_face_error = max(max_face_error, abs(face_value_derivative - face_expected))
-        print(
-            "    {} radial basis max derivative error: owner={:.6e} face={:.6e}".format(
-                label,
-                max_owner_error,
-                max_face_error,
-            )
-        )
-
-
 def _open_face_rectangles_numpy(
     *,
     axis: int,
@@ -989,6 +834,35 @@ def _build_closed_box_control_volume_faces(
     else:
         def global_face_id(axis: int, face: tuple[int, int, int]) -> int:
             return -1
+
+    def cut_wall_face_id(
+        axis: int,
+        surface: int,
+        storage: tuple[int, int, int],
+    ) -> int:
+        """Collision-free negative ID for a physical cut-wall patch.
+
+        ``-1`` is the inactive sentinel, hence live wall IDs start at ``-2``.
+        The coordinate slots are global storage indices: topology supplies the
+        shard offset when available, otherwise the uniform logical lattice is
+        recovered from the local physical face coordinates.
+        """
+        if local_topology is not None:
+            global_storage = tuple(
+                int(shard_start[d]) + int(storage[d]) for d in range(3)
+            )
+        else:
+            global_storage = []
+            for d in range(3):
+                width = float(axis_faces[d][1] - axis_faces[d][0])
+                low = float(shifted_mms.x_min) if d == 0 else 0.0
+                coordinate = 0.5 * float(axis_faces[d][storage[d]] + axis_faces[d][storage[d] + 1])
+                global_storage.append(int(np.rint((coordinate - low) / width - 0.5)))
+            global_storage = tuple(global_storage)
+        i, j, k = global_storage
+        if min(i, j, k) < 0 or max(i, j, k) >= 100_000:
+            raise ValueError("cut-wall global storage index is outside ID encoding")
+        return -int(2 + axis * 2 * 10**15 + surface * 10**15 + i * 10**10 + j * 10**5 + k)
 
     face_candidates: set[tuple[int, int, int, int]] = set()
     for axis, fraction in enumerate(open_fraction):
@@ -1427,6 +1301,11 @@ def _build_closed_box_control_volume_faces(
                         coordinate=float(coordinate),
                         rectangles=[(first_bounds, second_bounds)],
                         orientation=orientation,
+                        global_face_id=cut_wall_face_id(
+                            axis,
+                            surface,
+                            storage_index,
+                        ),
                     )
 
     max_rows = len(rows)
@@ -1632,7 +1511,10 @@ def _build_closed_box_control_volume_cells(
 
 
 def _build_global_closed_box_control_volume_topology(
-    *, global_shape: tuple[int, int, int], halo_width: int
+    *,
+    global_shape: tuple[int, int, int],
+    halo_width: int,
+    enable_merging: bool,
 ) -> tuple[GlobalControlVolumeTopology3D, tuple[np.ndarray, ...]]:
     """Build the one canonical host topology for every shifted-torus shard."""
     geometry = build_shifted_torus_local_geometry(
@@ -1665,6 +1547,7 @@ def _build_global_closed_box_control_volume_topology(
         raw_volume=raw_volume, raw_centroid=centroid, raw_second_moment=second, raw_third_moment=third,
         fluid_volume_fraction=fraction, face_open_measure=tuple(measures), periodic_axes=(False, True, True),
         coordinate_periods=(float(shifted_mms.x_max - shifted_mms.x_min), 2.0 * np.pi, 2.0 * np.pi),
+        merge_fraction=0.5 if enable_merging else 0.0,
         positive_volume_floor=floor,
     )
     return topology, (raw_volume, centroid, second, third)
@@ -1814,6 +1697,267 @@ def _compact_face_reconstruction_owner_mask(
     return result & np.asarray(cells.is_active_owner, dtype=bool)
 
 
+_FACE_FUNCTIONAL_NORMALIZED_NORM_LIMIT = 100.0
+
+
+def _nearest_periodic_image(
+    points: np.ndarray,
+    reference: np.ndarray,
+) -> np.ndarray:
+    """Put logical points in the evaluator owner's periodic image."""
+
+    result = np.asarray(points, dtype=np.float64).copy()
+    reference = np.asarray(reference, dtype=np.float64)
+    for axis in (1, 2):
+        result[..., axis] += 2.0 * np.pi * np.round(
+            (reference[axis] - result[..., axis]) / (2.0 * np.pi)
+        )
+    return result
+
+
+def _compile_global_cubic_face_functional_records(
+    geometry: LocalFciGeometry3D,
+    cells: LocalControlVolumeCellGeometry3D,
+    faces: LocalControlVolumeFaceRows3D,
+) -> dict[int, dict[str, object]]:
+    """Compile each compact face once on the unsplit global fixture.
+
+    Records remain test-owned until the final production embedded-face input
+    representation is chosen.  Cell references are global aggregate-owner
+    coordinates and boundary references use stable global face IDs, so local
+    lowering cannot change the fitted weights or diagnostics.
+    """
+    count = int(faces.max_rows)
+    active = np.asarray(faces.active, dtype=bool)
+    centroid = np.asarray(cells.centroid, dtype=np.float64)
+    second = np.asarray(cells.second_moment, dtype=np.float64)
+    third = np.asarray(cells.third_moment, dtype=np.float64)
+    owner_active = np.asarray(cells.is_active_owner, dtype=bool)
+    owners = np.stack((np.asarray(cells.owner_i), np.asarray(cells.owner_j), np.asarray(cells.owner_k)), axis=-1)
+    aggregate_id = np.asarray(cells.aggregate_id, dtype=np.int64)
+    shape = tuple(int(value) for value in geometry.owned_shape)
+    spacing = np.stack((np.asarray(geometry.spacing.dx_owned), np.asarray(geometry.spacing.dy_owned), np.asarray(geometry.spacing.dz_owned)), axis=-1)
+    face_kind = np.asarray(faces.kind, dtype=np.int32)
+    face_minus = np.stack((np.asarray(faces.minus_owner_i), np.asarray(faces.minus_owner_j), np.asarray(faces.minus_owner_k)), axis=-1)
+    face_plus = np.stack((np.asarray(faces.plus_owner_i), np.asarray(faces.plus_owner_j), np.asarray(faces.plus_owner_k)), axis=-1)
+    has_plus = np.asarray(faces.has_plus_owner, dtype=bool)
+    qactive = np.asarray(faces.patch_active, dtype=bool)[..., None] & np.ones((1, 1, 4), dtype=bool)
+    qpoints = np.asarray(faces.quadrature_points, dtype=np.float64)
+    face_ids = np.asarray(faces.global_face_id, dtype=np.int64)
+    if np.any(active & (face_ids == -1)):
+        raise ValueError("every active global compact face needs a stable ID")
+    boundary_by_owner: dict[tuple[int, int, int], list[int]] = {}
+    for boundary_row in np.flatnonzero(
+        active
+        & (
+            (face_kind == CV_FACE_CUT_WALL)
+            | (face_kind == CV_FACE_PHYSICAL_BOUNDARY)
+        )
+    ):
+        owner = tuple(int(value) for value in face_minus[boundary_row])
+        boundary_by_owner.setdefault(owner, []).append(int(boundary_row))
+    records: dict[int, dict[str, object]] = {}
+    for row in range(count):
+        if not active[row]:
+            continue
+        owner_list = [tuple(int(v) for v in face_minus[row])]
+        if has_plus[row]:
+            owner_list.append(tuple(int(v) for v in face_plus[row]))
+        evaluator = owner_list[0]
+        evaluator_centroid = centroid[evaluator]
+        scale = np.asarray(spacing[evaluator], dtype=np.float64)
+        all_qpoints = _nearest_periodic_image(qpoints[row], evaluator_centroid)
+        active_qpoints = all_qpoints[qactive[row]]
+        qmeasure = (
+            np.asarray(faces.J, dtype=np.float64)[row]
+            * np.linalg.norm(
+                np.asarray(faces.area_covector_weight, dtype=np.float64)[row],
+                axis=-1,
+            )
+        )[qactive[row]]
+        if active_qpoints.size == 0 or not np.any(qmeasure > 0.0):
+            raise ValueError("active compact face has no positive quadrature measure")
+        origin = np.average(active_qpoints, axis=0, weights=qmeasure)
+        metadata: list[tuple[int, tuple[int, ...]]] = []
+        matrix: list[np.ndarray] = []
+        weights: list[float] = []
+        candidates: dict[int, tuple[int, float, tuple[int, int, int]]] = {}
+        for base in owner_list:
+            for di in range(-2, 3):
+                for dj in range(-2, 3):
+                    for dk in range(-2, 3):
+                        candidate = [base[0] + di, base[1] + dj, base[2] + dk]
+                        candidate[1] %= shape[1]
+                        candidate[2] %= shape[2]
+                        if not 0 <= candidate[0] < shape[0]:
+                            continue
+                        storage = tuple(candidate)
+                        owner = tuple(int(value) for value in owners[storage])
+                        if not owner_active[owner]:
+                            continue
+                        owner_id = int(aggregate_id[owner])
+                        shell = max(abs(di), abs(dj), abs(dk))
+                        owner_centroid = _nearest_periodic_image(
+                            centroid[owner], evaluator_centroid
+                        )
+                        delta = (owner_centroid - origin) / scale
+                        key = (shell, float(np.dot(delta, delta)), owner)
+                        previous = candidates.get(owner_id)
+                        if previous is None or key < previous:
+                            candidates[owner_id] = key
+        for owner_id, (_shell, distance2, owner) in sorted(
+            candidates.items(), key=lambda item: (*item[1][:2], item[0])
+        ):
+            owner_centroid = _nearest_periodic_image(
+                centroid[owner], evaluator_centroid
+            )
+            matrix.append(
+                cubic_control_volume_average_basis(
+                    owner_centroid,
+                    second[owner],
+                    third[owner],
+                    origin=origin,
+                    scale=scale,
+                )
+            )
+            weights.append(1.0 / max(distance2, 1.0e-12))
+            metadata.append((CV_RECONSTRUCTION_EQUATION_CELL, owner))
+        # BC quadrature values are not halo-exchanged. Restrict trace
+        # observations to the evaluator owner so every referenced boundary
+        # row is owned by the same shard under every decomposition.
+        boundary_rows = sorted(
+            set(boundary_by_owner.get(evaluator, ())),
+            key=lambda boundary_row: int(face_ids[boundary_row]),
+        )
+        for boundary_row in boundary_rows:
+            measure = np.asarray(faces.J)[boundary_row] * np.linalg.norm(np.asarray(faces.area_covector_weight)[boundary_row], axis=-1)
+            total = float(np.sum(np.where(qactive[boundary_row], measure, 0.0)))
+            for patch in range(int(faces.max_patches)):
+                for quad in range(4):
+                    if not qactive[boundary_row, patch, quad]:
+                        continue
+                    point = _nearest_periodic_image(
+                        np.asarray(faces.quadrature_points)[boundary_row, patch, quad],
+                        evaluator_centroid,
+                    )
+                    matrix.append(cubic_control_volume_average_basis(point, np.zeros((3, 3)), np.zeros((3, 3, 3)), origin=origin, scale=scale))
+                    delta = point - origin
+                    weights.append(float(measure[patch, quad] / max(total, 1.0e-30)) / max(float(np.dot(delta / scale, delta / scale)), 1.0e-12))
+                    metadata.append(
+                        (
+                            CV_RECONSTRUCTION_EQUATION_DIRICHLET,
+                            (int(face_ids[boundary_row]), patch, quad),
+                        )
+                    )
+        functional = precompute_local_face_functional(
+            np.asarray(matrix), equation_kind=np.asarray([m[0] for m in metadata]),
+            sample_reference=np.arange(len(metadata), dtype=np.int64),
+            value_target=np.zeros((20,)), gradient_target=np.zeros((3, 20)),
+            projected_flux_target=cubic_projected_face_flux_target(all_qpoints, np.asarray(faces.J)[row], np.asarray(faces.area_covector_weight)[row], np.asarray(faces.projector)[row], qactive[row], origin=origin, scale=scale),
+            parallel_flux_target=cubic_parallel_face_flux_target(all_qpoints, np.asarray(faces.J)[row], np.asarray(faces.area_covector_weight)[row], np.asarray(faces.B_contra)[row], np.asarray(faces.Bmag)[row], qactive[row], origin=origin, scale=scale),
+            parallel_gradient_flux_target=cubic_parallel_gradient_face_flux_target(all_qpoints, np.asarray(faces.J)[row], np.asarray(faces.area_covector_weight)[row], np.asarray(faces.B_contra)[row], np.asarray(faces.Bmag)[row], qactive[row], origin=origin, scale=scale),
+            observation_weight=np.asarray(weights), face_id=int(np.asarray(faces.global_face_id)[row]),
+            max_projected_flux_l1=np.inf, max_parallel_flux_l1=np.inf,
+            max_parallel_gradient_flux_l1=np.inf,
+            max_normalized_projected_weight_norm=_FACE_FUNCTIONAL_NORMALIZED_NORM_LIMIT,
+            max_normalized_parallel_weight_norm=_FACE_FUNCTIONAL_NORMALIZED_NORM_LIMIT,
+            max_normalized_parallel_gradient_weight_norm=_FACE_FUNCTIONAL_NORMALIZED_NORM_LIMIT,
+        )
+        records[int(face_ids[row])] = {
+            "functional": functional,
+            "metadata": tuple(metadata),
+        }
+    return records
+
+
+def _lower_global_cubic_face_functionals(
+    geometry: LocalFciGeometry3D,
+    faces: LocalControlVolumeFaceRows3D,
+    records: dict[int, dict[str, object]],
+    *,
+    global_shape: tuple[int, int, int],
+    shard_index: tuple[int, int, int],
+    shard_counts: tuple[int, int, int],
+) -> LocalMomentFittedFaceRows3D:
+    """Lower global observation references into owned, halo, and BC gathers."""
+
+    count = int(faces.max_rows)
+    if count == 0:
+        return LocalMomentFittedFaceRows3D.empty(geometry.layout)
+    face_ids = np.asarray(faces.global_face_id, dtype=np.int64)
+    active = np.asarray(faces.active, dtype=bool)
+    local_face_rows = {
+        int(face_id): int(row)
+        for row, face_id in enumerate(face_ids)
+        if active[row]
+    }
+    missing = sorted(set(local_face_rows) - set(records))
+    if missing:
+        raise ValueError(f"local compact faces lack global functionals: {missing[:4]}")
+    owned_shape = tuple(int(value) for value in geometry.owned_shape)
+    if tuple(global_shape[axis] // shard_counts[axis] for axis in range(3)) != owned_shape:
+        raise ValueError("global shape and shard counts must match local owned shape")
+    shard_start = tuple(shard_index[axis] * owned_shape[axis] for axis in range(3))
+    halo_width = int(geometry.layout.halo_width)
+    max_equations = max(
+        len(records[int(face_ids[row])]["metadata"])
+        for row in np.flatnonzero(active)
+    )
+    kwargs = {name: np.zeros((count, max_equations), dtype=dtype) for name, dtype in (("observation_kind", np.int32), ("owned_i", np.int32), ("owned_j", np.int32), ("owned_k", np.int32), ("halo_i", np.int32), ("halo_j", np.int32), ("halo_k", np.int32), ("boundary_face_row", np.int32), ("boundary_patch", np.int32), ("boundary_quadrature", np.int32), ("projected_flux_weights", np.float64), ("parallel_flux_weights", np.float64), ("parallel_gradient_flux_weights", np.float64))}
+    observation_active = np.zeros((count, max_equations), dtype=bool)
+    polynomial_order = np.zeros((count,), dtype=np.int32); rank = np.zeros((count,), dtype=np.int32)
+    condition = np.full((count,), np.inf); residual = np.zeros((count,)); projected_norm = np.zeros((count,)); parallel_norm = np.zeros((count,)); parallel_gradient_norm = np.zeros((count,))
+    for row in np.flatnonzero(active):
+        item = records[int(face_ids[row])]
+        functional = item["functional"]
+        metadata = item["metadata"]
+        n = len(metadata); observation_active[row, :n] = True
+        kwargs["projected_flux_weights"][row, :n] = functional.projected_flux_weights
+        kwargs["parallel_flux_weights"][row, :n] = functional.parallel_flux_weights
+        kwargs["parallel_gradient_flux_weights"][row, :n] = functional.parallel_gradient_flux_weights
+        polynomial_order[row] = functional.polynomial_order; rank[row] = functional.rank; condition[row] = functional.condition_number; residual[row] = functional.reproduction_residual; projected_norm[row] = functional.normalized_projected_weight_norm; parallel_norm[row] = functional.normalized_parallel_weight_norm; parallel_gradient_norm[row] = functional.normalized_parallel_gradient_weight_norm
+        for equation, (kind, payload) in enumerate(metadata):
+            kwargs["observation_kind"][row, equation] = kind
+            if kind == CV_RECONSTRUCTION_EQUATION_CELL:
+                relative = [int(payload[axis]) - shard_start[axis] for axis in range(3)]
+                for axis in (1, 2):
+                    candidates = (
+                        relative[axis] - global_shape[axis],
+                        relative[axis],
+                        relative[axis] + global_shape[axis],
+                    )
+                    relative[axis] = min(
+                        candidates,
+                        key=lambda value: (
+                            max(-value, value - owned_shape[axis] + 1, 0),
+                            abs(value - 0.5 * (owned_shape[axis] - 1)),
+                        ),
+                    )
+                if all(0 <= relative[axis] < owned_shape[axis] for axis in range(3)):
+                    kwargs["owned_i"][row, equation], kwargs["owned_j"][row, equation], kwargs["owned_k"][row, equation] = relative
+                else:
+                    halo = [relative[axis] + halo_width for axis in range(3)]
+                    if any(
+                        not 0 <= halo[axis] < owned_shape[axis] + 2 * halo_width
+                        for axis in range(3)
+                    ):
+                        raise ValueError(
+                            "global cubic observation lies outside the populated local halo"
+                        )
+                    kwargs["observation_kind"][row, equation] = CV_RECONSTRUCTION_EQUATION_REMOTE_CELL
+                    kwargs["halo_i"][row, equation], kwargs["halo_j"][row, equation], kwargs["halo_k"][row, equation] = halo
+            else:
+                boundary_face_id, patch, quadrature = payload
+                if int(boundary_face_id) not in local_face_rows:
+                    raise ValueError(
+                        "global boundary observation is not owned by the evaluator shard"
+                    )
+                kwargs["boundary_face_row"][row, equation] = local_face_rows[int(boundary_face_id)]
+                kwargs["boundary_patch"][row, equation] = int(patch)
+                kwargs["boundary_quadrature"][row, equation] = int(quadrature)
+    return LocalMomentFittedFaceRows3D(layout=geometry.layout, functional_face_id=faces.global_face_id, observation_active=jnp.asarray(observation_active), polynomial_order=jnp.asarray(polynomial_order), rank=jnp.asarray(rank), condition_number=jnp.asarray(condition), reproduction_residual=jnp.asarray(residual), normalized_projected_weight_norm=jnp.asarray(projected_norm), normalized_parallel_weight_norm=jnp.asarray(parallel_norm), normalized_parallel_gradient_weight_norm=jnp.asarray(parallel_gradient_norm), active=faces.active, max_rows=count, max_equations=max_equations, **{key: jnp.asarray(value) for key, value in kwargs.items()})
+
+
 def _build_closed_box_embedded_control_volume_geometry(
     geometry: LocalFciGeometry3D,
     *,
@@ -1835,6 +1979,7 @@ def _build_closed_box_embedded_control_volume_geometry(
     global_topology: GlobalControlVolumeTopology3D | None = None,
     local_topology: LocalControlVolumeGeometry3D | None = None,
     canonical_compact_face_ids: set[int] | None = None,
+    global_face_functional_records: dict[int, dict[str, object]] | None = None,
 ) -> LocalEmbeddedControlVolumeGeometry3D:
     if cells is None:
         cells = _build_closed_box_control_volume_cells(
@@ -1979,11 +2124,36 @@ def _build_closed_box_embedded_control_volume_geometry(
                 "each local compact-face owner must have a "
                 "cubic reconstruction row"
             )
+    if global_topology is None:
+        functional_global_shape = tuple(int(value) for value in geometry.owned_shape)
+        functional_shard_index = (0, 0, 0)
+        functional_shard_counts = (1, 1, 1)
+    else:
+        functional_global_shape = tuple(int(value) for value in global_topology.shape)
+        if local_topology is None:
+            raise ValueError("global face functional lowering needs local topology")
+        functional_shard_index = tuple(int(value) for value in local_topology.shard_index)
+        functional_shard_counts = tuple(int(value) for value in local_topology.shard_counts)
+    if global_face_functional_records is None:
+        global_face_functional_records = _compile_global_cubic_face_functional_records(
+            geometry,
+            cells,
+            irregular_faces,
+        )
+    face_functionals = _lower_global_cubic_face_functionals(
+        geometry,
+        irregular_faces,
+        global_face_functional_records,
+        global_shape=functional_global_shape,
+        shard_index=functional_shard_index,
+        shard_counts=functional_shard_counts,
+    )
     return LocalEmbeddedControlVolumeGeometry3D(
         cells=cells,
         regular_faces=regular_faces,
         irregular_faces=irregular_faces,
         reconstruction=reconstruction,
+        face_functionals=face_functionals,
         centroid_J=jnp.asarray(centroid_J),
         centroid_g_cov=jnp.asarray(centroid_g_cov),
         centroid_B_contra=jnp.asarray(centroid_B_contra),
@@ -2090,6 +2260,38 @@ def _pad_quadratic_reconstruction(
     )
 
 
+def _pad_face_functionals(
+    rows: LocalMomentFittedFaceRows3D,
+    *,
+    max_rows: int,
+    max_equations: int,
+) -> LocalMomentFittedFaceRows3D:
+    """Pad direct-functional rows with the same static shapes as face rows."""
+    row_pad = int(max_rows) - int(rows.max_rows)
+    equation_pad = int(max_equations) - int(rows.max_equations)
+    if row_pad < 0 or equation_pad < 0:
+        raise ValueError("functional padding may only increase static capacities")
+    if row_pad == equation_pad == 0:
+        return rows
+    def pad(value, fill=0):
+        widths = ((0, row_pad),) + ((0, equation_pad),) * (value.ndim > 1)
+        return jnp.pad(value, widths, constant_values=fill)
+    return LocalMomentFittedFaceRows3D(
+        layout=rows.layout,
+        functional_face_id=pad(rows.functional_face_id, -1),
+        observation_kind=pad(rows.observation_kind),
+        owned_i=pad(rows.owned_i), owned_j=pad(rows.owned_j), owned_k=pad(rows.owned_k),
+        halo_i=pad(rows.halo_i), halo_j=pad(rows.halo_j), halo_k=pad(rows.halo_k),
+        boundary_face_row=pad(rows.boundary_face_row), boundary_patch=pad(rows.boundary_patch), boundary_quadrature=pad(rows.boundary_quadrature),
+        observation_active=pad(rows.observation_active, False),
+        projected_flux_weights=pad(rows.projected_flux_weights), parallel_flux_weights=pad(rows.parallel_flux_weights), parallel_gradient_flux_weights=pad(rows.parallel_gradient_flux_weights),
+        polynomial_order=pad(rows.polynomial_order), rank=pad(rows.rank),
+        condition_number=pad(rows.condition_number, jnp.inf), reproduction_residual=pad(rows.reproduction_residual),
+        normalized_projected_weight_norm=pad(rows.normalized_projected_weight_norm), normalized_parallel_weight_norm=pad(rows.normalized_parallel_weight_norm), normalized_parallel_gradient_weight_norm=pad(rows.normalized_parallel_gradient_weight_norm),
+        active=pad(rows.active, False), max_rows=max_rows, max_equations=max_equations,
+    )
+
+
 
 
 def _pad_embedded_control_volume_geometry(
@@ -2097,6 +2299,7 @@ def _pad_embedded_control_volume_geometry(
     *,
     max_face_rows: int,
     max_reconstruction_rows: int,
+    max_functional_equations: int,
 ) -> LocalEmbeddedControlVolumeGeometry3D:
     """Pad only live compact-face and reconstruction payloads for SPMD."""
 
@@ -2110,6 +2313,11 @@ def _pad_embedded_control_volume_geometry(
         reconstruction=_pad_quadratic_reconstruction(
             control_volume_geometry.reconstruction,
             max_reconstruction_rows,
+        ),
+        face_functionals=_pad_face_functionals(
+            control_volume_geometry.face_functionals,
+            max_rows=max_face_rows,
+            max_equations=max_functional_equations,
         ),
         centroid_J=control_volume_geometry.centroid_J,
         centroid_g_cov=control_volume_geometry.centroid_g_cov,
@@ -2133,34 +2341,39 @@ def _build_stacked_embedded_control_volume_geometry(
         int(size) // int(count)
         for size, count in zip(global_shape, shard_counts)
     )
-    global_topology: GlobalControlVolumeTopology3D | None = None
-    global_raw: tuple[np.ndarray, ...] | None = None
-    canonical_compact_face_ids: set[int] | None = None
-    if enable_merging:
-        global_topology, global_raw = _build_global_closed_box_control_volume_topology(global_shape=global_shape, halo_width=halo_width)
-        # Define compact logical interfaces once on the unsplit global
-        # geometry.  Local face discovery can be more conservative near a
-        # shard halo; this set prevents those extra interfaces from changing
-        # the canonical compact/dense partition.
-        global_geometry = build_shifted_torus_local_geometry(
-            global_shape, halo_width, global_shape=global_shape, shard_index=(0, 0, 0),
-            x_min=shifted_mms.x_min, x_max=shifted_mms.x_max, r0=shifted_mms.r0,
-            alpha_value=shifted_mms.alpha_value, iota=shifted_mms.iota,
-            c_phi=shifted_mms.c_phi, sigma=shifted_mms.sigma,
-        )
-        whole_topology = compile_local_control_volume_geometry(
-            global_topology, shard_index=(0, 0, 0), shard_counts=(1, 1, 1),
-            raw_volume=global_raw[0], raw_centroid=global_raw[1],
-            raw_second_moment=global_raw[2], raw_third_moment=global_raw[3],
-        )
-        whole_cells = _lower_global_control_volume_cells(global_geometry, whole_topology)
-        whole_bundle = _build_closed_box_embedded_control_volume_geometry(
-            global_geometry, enable_merging=True, cells=whole_cells,
-            global_topology=global_topology, local_topology=whole_topology,
-        )
-        whole_ids = np.asarray(whole_bundle.irregular_faces.global_face_id, dtype=np.int64)
-        whole_active = np.asarray(whole_bundle.irregular_faces.active, dtype=bool)
-        canonical_compact_face_ids = set(int(value) for value in whole_ids[whole_active & (whole_ids >= 0)])
+    global_topology, global_raw = _build_global_closed_box_control_volume_topology(
+        global_shape=global_shape,
+        halo_width=halo_width,
+        enable_merging=enable_merging,
+    )
+    # Define the compact partition and cubic face functionals once on the
+    # unsplit global fixture. Local shards only lower stable references.
+    global_geometry = build_shifted_torus_local_geometry(
+        global_shape, halo_width, global_shape=global_shape, shard_index=(0, 0, 0),
+        x_min=shifted_mms.x_min, x_max=shifted_mms.x_max, r0=shifted_mms.r0,
+        alpha_value=shifted_mms.alpha_value, iota=shifted_mms.iota,
+        c_phi=shifted_mms.c_phi, sigma=shifted_mms.sigma,
+    )
+    whole_topology = compile_local_control_volume_geometry(
+        global_topology, shard_index=(0, 0, 0), shard_counts=(1, 1, 1),
+        raw_volume=global_raw[0], raw_centroid=global_raw[1],
+        raw_second_moment=global_raw[2], raw_third_moment=global_raw[3],
+    )
+    whole_cells = _lower_global_control_volume_cells(global_geometry, whole_topology)
+    whole_bundle = _build_closed_box_embedded_control_volume_geometry(
+        global_geometry, enable_merging=enable_merging, cells=whole_cells,
+        global_topology=global_topology, local_topology=whole_topology,
+    )
+    global_face_functional_records = _compile_global_cubic_face_functional_records(
+        global_geometry,
+        whole_cells,
+        whole_bundle.irregular_faces,
+    )
+    whole_ids = np.asarray(whole_bundle.irregular_faces.global_face_id, dtype=np.int64)
+    whole_active = np.asarray(whole_bundle.irregular_faces.active, dtype=bool)
+    canonical_compact_face_ids = set(
+        int(value) for value in whole_ids[whole_active & (whole_ids >= 0)]
+    )
     local_geometry_and_cells: dict[
         tuple[int, int, int],
         tuple[LocalFciGeometry3D, LocalControlVolumeCellGeometry3D, LocalControlVolumeGeometry3D | None],
@@ -2182,12 +2395,8 @@ def _build_stacked_embedded_control_volume_geometry(
                     c_phi=shifted_mms.c_phi,
                     sigma=shifted_mms.sigma,
                 )
-                if global_topology is None:
-                    cells = _build_closed_box_control_volume_cells(local_geometry, enable_merging=False)
-                    local_topology = None
-                else:
-                    local_topology = compile_local_control_volume_geometry(global_topology, shard_index=shard_index, shard_counts=shard_counts, raw_volume=global_raw[0], raw_centroid=global_raw[1], raw_second_moment=global_raw[2], raw_third_moment=global_raw[3])
-                    cells = _lower_global_control_volume_cells(local_geometry, local_topology)
+                local_topology = compile_local_control_volume_geometry(global_topology, shard_index=shard_index, shard_counts=shard_counts, raw_volume=global_raw[0], raw_centroid=global_raw[1], raw_second_moment=global_raw[2], raw_third_moment=global_raw[3])
+                cells = _lower_global_control_volume_cells(local_geometry, local_topology)
                 local_geometry_and_cells[shard_index] = (local_geometry, cells, local_topology)
 
     periodic_axes = (False, True, True)
@@ -2392,6 +2601,7 @@ def _build_stacked_embedded_control_volume_geometry(
                 global_topology=global_topology,
                 local_topology=local_topology,
                 canonical_compact_face_ids=canonical_compact_face_ids,
+                global_face_functional_records=global_face_functional_records,
             )
         )
     max_face_rows = max(
@@ -2408,11 +2618,16 @@ def _build_stacked_embedded_control_volume_geometry(
         ),
         default=0,
     )
+    max_functional_equations = max(
+        (int(bundle.face_functionals.max_equations) for bundle in local_bundles),
+        default=1,
+    )
     padded = iter(
         _pad_embedded_control_volume_geometry(
             bundle,
             max_face_rows=max_face_rows,
             max_reconstruction_rows=max_reconstruction_rows,
+            max_functional_equations=max_functional_equations,
         )
         for bundle in local_bundles
     )
