@@ -39,11 +39,20 @@ must all describe the same discrete control volume:
 6. The conservative scatter of one face flux to adjacent owners.
 7. Halo and shard communication for reconstruction support.
 
-Several concrete wiring bugs have been found and repaired. The remaining
-challenge is approximation quality near embedded boundaries, especially the
-wall-normal derivative used by projected diffusive fluxes. A Dirichlet wall
-value strongly constrains the polynomial trace, but does not by itself
-determine a reliable one-sided normal derivative.
+Several concrete wiring bugs have been repaired. Compact conservative fluxes
+now use direct cubic moment-fitted functionals for the complete integrated
+projected, parallel-value, and parallel-gradient fluxes. This removes the
+assumption that every reconstructed Cartesian gradient component must be
+individually accurate at the wall. Cubic polynomials remain in use for
+cell-gradient consumers such as parallel first derivatives, Poisson brackets,
+curvature, and nonlinear product averages.
+
+The remaining challenge is measured approximation quality, not missing flux
+wiring. A one-shard `N=6` audit verified valid direct rows and improved the
+perpendicular-Laplacian error, but it did not contain any merged sources and
+still showed large errors in `poisson_omega`, the perpendicular Laplacian, and
+the electron-parallel full RHS. The next decisive test is therefore the
+agglomeration-enabled `N=10,14` operator sweep with projected exact phi.
 
 ## 1. Discrete Meaning of a Stored Field
 
@@ -120,10 +129,11 @@ Current aggregate geometry includes:
 - symmetric second central moment;
 - symmetric third central moment.
 
-Agglomeration remains local to a shard. Cross-shard aggregates are forbidden
-because they would require distributed ownership, volume reduction, and
-synchronized state updates. Values, moments, and reconstruction coefficients
-may cross shards; ownership does not.
+The canonical topology permits a source to merge across one face into a
+directly adjacent shard, including a periodic seam. Prepared owner halos
+supply its value; integrated source and compact-face residuals return to the
+canonical owner through reverse face-halo accumulation. Edge- and
+corner-routed remote aggregates remain unsupported.
 
 ## 3. Why the Original Directional Stencils Became Inadequate
 
@@ -262,49 +272,35 @@ This shows that, for that failure:
 - the remaining error was the normal derivative from the unconstrained cubic
   polynomial.
 
-## 6. Current Embedded-Wall Normal-Derivative Closure
+## 6. Direct Embedded-Wall Flux Functionals
 
-The cut-wall geometry precomputes a dedicated one-dimensional normal
-functional for each axis-aligned wall patch. It uses:
-
-- the Dirichlet value at the wall quadrature point;
-- two distinct, well-separated inward control-volume samples;
-- their coordinates relative to the wall.
-
-The production projected-flux path now performs the following steps:
-
-1. Evaluate the cubic polynomial and gradient at the wall quadrature point.
-2. Evaluate inward reconstructed samples at the same tangential location.
-3. Apply the wall-plus-inward normal derivative functional.
-4. Replace only the coordinate-normal gradient component.
-5. Preserve both cubic tangential components.
-6. Apply the perpendicular projector, metric, Jacobian, and area weights.
-7. Integrate the face flux and scatter it to the owning control volume.
-
-In compact notation,
+The dedicated one-dimensional wall-normal patch was useful diagnostically,
+but it is no longer the production compact-flux algorithm. The current method
+targets the complete face-integrated functional during geometry preprocessing:
 
 ```text
-grad_applied = grad_cubic
-             + e_a (D_wall,a u - e_a . grad_cubic),
+G_perp[u] = integral_f J a . P_perp grad(u) dA
+G_par[u]  = integral_f J (a . b) u dA
+G_bb[u]   = integral_f J a . (b b) grad(u) dA.
 ```
 
-where `a` is the coordinate direction normal to the axis-aligned embedded
-wall.
+For every cubic basis mode, the target is evaluated with the stored face
+quadrature, metric, magnetic field, projector, and oriented area covector. The
+moment matrix contains aggregate-average, remote-average, and Dirichlet trace
+observations. Weighted SVD then produces direct observation weights for each
+integrated flux.
 
-This repair has been wired into the production irregular projected-flux path
-and the focused diagnostic path. It has not yet been validated by the next
-`N=40` run.
+At runtime, `build_local_control_volume_field_closure` performs bounded
+owned/halo/boundary gathers and three weighted sums. It does not construct a
+face gradient or solve a reconstruction system. Because the target is the
+physical scalar flux itself, normal/tangential coupling from `P_perp` is
+preserved without requiring a separately fitted normal derivative.
 
-There is an important order concern. A quadratic one-sided functional can be
-second-order accurate for a face derivative, but a finite-volume second
-derivative divides a face-flux difference by a cell length. At a boundary,
-where opposite-face error cancellation is weaker, second-order face-gradient
-accuracy may not guarantee second-order pointwise operator accuracy. Meeting
-the requested `1.8+` Linf order may require a cubic or constrained Hermite
-normal functional with moment-aware control-volume samples.
-
-The restored closure is therefore the immediate, evidence-based repair, but
-not assumed to be the final high-order boundary method.
+This change addresses the diagnosed weakness more directly than increasing
+the polynomial degree or tuning a one-dimensional normal stencil. It still
+requires a convergence measurement: polynomial reproduction proves algebraic
+consistency on the fitted space, but not the size or asymptotic order of the
+smooth nonpolynomial MMS error on translated and agglomerated geometries.
 
 ## 7. Conservative Face Ownership
 
@@ -351,8 +347,8 @@ A transition face can be geometrically full and regular while its structured
 operator support touches an irregular, merged, or reconstruction-controlled
 owner.
 
-The dense projected-gradient formula needs more samples than the two cells
-directly adjacent to the face. Reading logical storage blindly can introduce:
+The dense structured formula can read invalid storage when its support crosses
+the compact band. Reading logical storage blindly can introduce:
 
 - inactive zeros;
 - merged-source values;
@@ -360,69 +356,35 @@ directly adjacent to the face. Reading logical storage blindly can introduce:
 - aggregate values interpreted at the wrong location;
 - stale local-shard periodic samples.
 
-Transition metadata now stores the complete support of the corresponding
-dense structured functional. Each support entry is either:
+The current topology closes that dense face and assigns one canonical compact
+face evaluator. Its direct cubic functional gathers actual aggregate averages,
+remote averages, and boundary observations; it does not manufacture virtual
+regular-cell point samples. The resulting integrated flux is scattered to the
+minus owner, the local plus owner when present, or the exact remote residual
+halo destination.
 
-- a direct ordinary control-volume average; or
-- a virtual regular-cell average reconstructed from an irregular owner.
+Focused tests establish unique global face IDs, decomposition-independent
+functional weights, source-storage poisoning independence, and conservative
+reverse halo accumulation. The production operator still needs the planned
+multi-resolution and multi-shard convergence measurements.
 
-For a virtual regular-cell average,
+## 9. Current Parallel Scalar-Flux Evidence
 
-```text
-U_virtual = U_i
-          + g . d
-          + 1/2 H : (M2_v + d d^T - M2_i)
-          + 1/6 T : (M3_v + sym(d, M2_v) + d d d - M3_i).
-```
-
-The transition row then applies the same linear face functional used by the
-dense structured operator. Consequently, an all-ordinary transition support
-reduces exactly to the dense formula.
-
-The current transition diagnostics show:
-
-- zero invalid transition rows;
-- complete support with at most 14 samples in the `N=40` case;
-- source-storage poisoning independence in focused checks;
-- exclusive dense/transition ownership;
-- no conservation imbalance in the single-shard diagnostic.
-
-This indicates that the earlier dense-to-compact wiring gap has been repaired
-at the architectural level.
-
-## 9. Remaining Parallel Scalar-Flux Error
-
-The cubic reconstruction greatly improved first derivatives, but the `N=40`
-parallel density-flux divergence changed very little.
-
-At the worst aggregate target, the diagnostic found approximately
+The direct parallel-value functional is now active. In the one-shard `N=6`
+audit, parallel density-flux divergence had approximately
 
 ```text
-numerical divergence              1.0086e-1
-reference divergence              1.1613e-1
-divergence with exact irregular   1.1612e-1
-divergence with exact dense       1.0086e-1.
+all-active volume L2     2.997e-2
+all-active Linf          5.502e-2
+invalid functional rows  0.
 ```
 
-Thus the error is carried by attached irregular faces, not the dense faces.
-However, transition functionals evaluated with exact support averages are
-already close to their production values. This means the dominant residual is
-not obviously a bad cubic coefficient or a remaining owner-routing bug.
-
-Remaining possibilities include:
-
-- ordinary second-order truncation with a large coarse-grid coefficient;
-- face-value accuracy that is insufficient after divergence cancellation;
-- inconsistency between the exact face reference and the projected
-  finite-volume source;
-- insufficient quadrature order for the metric-weighted scalar flux;
-- loss of cancellation among multiple irregular faces of one aggregate;
-- a boundary face value that must be treated as a face average rather than a
-  pointwise quadrature trace.
-
-The decisive next measurement is `N=40` versus `N=80` using the same merge and
-shard policy. A factor near four supports second-order truncation. A factor
-near two or a flat error indicates another consistency defect.
+That run had no merged sources and only one resolution, so it cannot establish
+the agglomerated order. Remaining possibilities include ordinary coarse-grid
+truncation, insufficient metric-weighted face quadrature, imperfect
+cancellation among multiple compact faces, or inconsistency in the analytic
+finite-volume reference. The `N=10,14` sweep is the next discriminating
+measurement.
 
 ## 10. Perpendicular Laplacian Sensitivity
 
@@ -435,30 +397,28 @@ lap_perp(u) =
 
 Errors can enter through:
 
-- reconstructed point gradients;
-- wall-normal derivative closure;
-- face-gradient interpolation;
+- direct functional observation selection and weights;
 - metric and magnetic projector evaluation;
 - face quadrature;
 - face ownership and sign;
 - aggregate volume normalization.
 
-The latest cubic run improved all-active L2 error compared with the quadratic
-path, but worsened the worst cut-wall Linf error. Exact substitution then
-showed:
+The direct projected functional materially improved the one-shard `N=6`
+baseline relative to the preceding reconstructed-gradient path:
 
-- exact dense fluxes did not repair the worst cell;
-- exact irregular fluxes recovered the reference operator;
-- exact tangential data with the numerical normal derivative retained the
-  error;
-- the numerical tangential data with the exact normal derivative recovered
-  the exact cut-wall flux.
+```text
+                              previous        direct functional
+all-active volume L2          about 6.12e-1   1.717e-1
+all-active Linf               about 3.55      1.342
+invalid functional rows       n/a             0
+```
 
-This is unusually strong attribution. The next normal-closure run should show
-whether the restored dedicated functional removes that spike. If it improves
-the coarse result but does not reach the desired order, the normal functional
-must be raised in order or enforced through a constrained multidimensional
-reconstruction.
+The remaining error is still too large to claim success. Because the direct
+target already contains normal/tangential projector coupling, the next action
+is not to restore a separate wall-normal patch. First measure `N=10,14` order
+and localize the worst categories. If order remains deficient, inspect
+functional observation coverage, face quadrature, weight amplification, and
+the exact finite-volume reference before increasing polynomial degree.
 
 ## 11. Regular Physical Radial Boundaries
 
@@ -498,26 +458,28 @@ moment-aware path. Embedded cut-wall machinery should not replace it.
 
 The current design permits:
 
-- shard-local aggregate ownership;
+- aggregate ownership on the same or one directly adjacent shard;
 - owned reconstruction targets;
 - exchanged remote values and geometric moments;
-- exchanged cubic polynomial coefficients;
-- mirrored transition rows at cross-shard regular interfaces.
+- direct functional gathers from prepared face halos;
+- one canonical cross-shard face evaluator;
+- reverse face-halo accumulation of remote residuals.
 
-It does not permit a merged source to map to an owner on another shard.
+It does not permit edge- or corner-routed remote aggregate ownership.
 
 Any cross-shard reconstruction sample must use prepared halo or exchanged
 metadata. Raw `jnp.roll` on a local shard is invalid because it wraps within
 the shard rather than across the global periodic domain.
 
-The single-shard tests establish local mathematical behavior. The same
-`N=40,80` operator tests must then run with `1 1 4` sharding to verify:
+The single-shard tests establish local mathematical behavior. After the
+`N=10,14` one-shard sweep is understood, the same resolutions must run with a
+compatible decomposed layout to verify:
 
 - matching reconstruction masks;
-- valid remote transition samples;
-- identical mirrored face fluxes;
+- valid remote functional observations;
+- one evaluator and one remote residual destination per shared face;
 - no shard-boundary loss of order;
-- no accidental cross-shard aggregate ownership.
+- conservative cross-shard aggregate accumulation.
 
 ## 13. MMS Projection and Error Norms
 
@@ -591,52 +553,60 @@ changing the control-volume topology.
 
 | Subsystem | Current status | Remaining concern |
 | --- | --- | --- |
-| Aggregate ownership | Local, idempotent, conservative | `N=100` topology change needs a later audit |
+| Aggregate ownership | Global, direct, idempotent | Demonstrate nonzero merges in the convergence resolutions |
 | Aggregate geometry | Volume, centroid, `M2`, and `M3` available | Validate cut-volume quadrature order |
-| Cubic reconstruction | Rank 19 with no `N=40` fallbacks | Derivative quality remains geometry dependent |
-| First parallel gradients | Strongly improved near walls | Measure `N=40` to `N=80` order |
-| Dense/compact ownership | Exclusive face paths established | Confirm multi-shard equivalence |
-| Transition virtual averages | Moment-aware cubic | Scalar divergence order remains unknown |
-| Cut-wall Dirichlet trace | Accurate in diagnostics | Trace accuracy does not ensure derivative accuracy |
-| Cut-wall normal derivative | Dedicated closure restored | Re-run and measure convergence |
-| Perpendicular Laplacian | Largest error isolated to wall-normal flux | Validate closure; possibly raise its order |
+| Cubic reconstruction | Required on every shifted-torus active row | Cell-gradient accuracy remains geometry dependent |
+| Direct compact functionals | Projected, parallel-value, and parallel-gradient wired | Measure smooth-field order and weight amplification |
+| Dense/compact ownership | Exclusive global face paths established | Confirm cluster multi-shard equivalence |
+| Cross-shard residuals | Reverse face-halo accumulation implemented | Run decomposed operator convergence |
+| First parallel gradients | Still polynomial based | `N=6` phi/electron errors remain large |
+| Perpendicular Laplacian | Improved materially with direct functional | `N=6` error remains too large; measure order |
 | Regular radial closure | Cubic reproduction passes | Lower-plane Poisson Linf remains |
-| Phi GMRES solve | Temporarily skipped | Revisit after forward operator consistency |
+| Phi GMRES solve | Implemented but skipped in the next isolation run | Re-enable after forward operator consistency |
 | Full RK/MMS convergence | Not ready | Operator convergence must pass first |
 
 ## 16. Immediate Validation Sequence
 
-The next focused run is
+The code is ready for a full forward-operator diagnostic sweep. Run it from
+the repository root with agglomeration explicitly enabled and projected exact
+phi so the spatial operators are isolated from GMRES:
 
 ```bash
-python test_fci_cutwall_shifted_torus_4field.py \
-  --resolutions 40 \
+python tests/test_fci_cutwall_shifted_torus_4field.py \
+  --resolutions 10 14 \
   --shard-counts 1 1 1 \
-  --deactivate-center-in-solid \
   --operator-convergence-only \
   --skip-operator-phi-solve \
-  --debug-operator-failures \
-  2>&1 | tee shifted_torus_operator_cubic_normal_closure_n40.txt
+  --enable-agglomeration \
+  --minimum-order 1.8 \
+  --skip-runtime-info \
+  2>&1 | tee shifted_torus_operator_direct_flux_n10_n14.txt
 ```
 
 Expected evidence from that run:
 
-- cut-wall diagnostics report `closure valid=True`;
-- `applied_grad` differs from `raw_grad` only in the wall-normal coordinate;
-- the applied normal derivative is closer to the exact derivative;
-- the worst projected cut-wall flux spike decreases;
-- transition and tangential-gradient accuracy do not regress.
+- `merged_sources > 0` at one or both resolutions;
+- every compact functional row is active and valid;
+- no cubic reconstruction fallback is selected;
+- no nonfinite operator or full-RHS values occur;
+- every all-active volume-L2 and Linf order is reported;
+- failures, if any, identify the operator and category rather than a geometry
+  or routing contract violation.
 
 After that:
 
-1. Run `N=40,80` on one shard to measure spatial order.
-2. If the wall-normal error remains first-order, replace the quadratic normal
-   functional with a higher-order moment or constrained Hermite functional.
-3. Diagnose the parallel scalar-flux order separately using the `N=40,80`
-   ratio.
-4. Repeat `N=40,80` with `1 1 4` sharding.
-5. Re-enable and validate the phi solve.
-6. Only then run the full RK MMS convergence sweep.
+1. Preserve the complete cluster log and geometry summaries.
+2. If the gate fails, fix the first nonconvergent forward operator before
+   enabling GMRES; prioritize `poisson_omega`, parallel first gradients, the
+   perpendicular Laplacian, and the electron-parallel full RHS.
+3. Repeat the same resolutions with a compatible multi-shard decomposition
+   and compare face IDs, functional diagnostics, errors, and fitted orders.
+4. Remove `--skip-operator-phi-solve` and validate the phi residual and
+   solution error.
+5. Run the full four-field RK MMS convergence sweep with
+   `--enable-agglomeration` and `--minimum-order 1.8`.
+6. Only after those gates pass, remove superseded compact-flux row code and
+   consolidate the temporary reconstruction precompute delegate.
 
 ## 17. Literature Search Map
 
@@ -777,7 +747,7 @@ Every embedded operator should satisfy one common contract:
 
 ```text
 control-volume average
-  -> moment-aware reconstruction
+  -> moment-aware cell reconstruction and/or direct face functional
   -> one unique physical face flux
   -> equal-and-opposite conservative scatter
   -> division by the same physical aggregate volume.
@@ -791,9 +761,10 @@ compact machinery must reduce to those formulas on regular geometry and add
 only the information required by cut cells, aggregate owners, partial faces,
 and physical walls.
 
-The central unresolved mathematical question is how best to construct a
-high-order, stable wall-normal derivative from finite-volume averages and
-Dirichlet wall data while preserving conservative projected fluxes. The
-current dedicated normal functional directly addresses the diagnosed failure;
-the next convergence runs will determine whether its order is sufficient or a
-constrained higher-order boundary reconstruction is required.
+The central unresolved mathematical question is whether the direct cubic
+integrated functionals, together with the remaining polynomial cell-gradient
+operators, deliver the required smooth-field order on translated,
+agglomerated, and decomposed geometries. The next convergence runs determine
+that empirically. Any further boundary refinement should target the failed
+physical functional and its observation coverage, rather than reintroducing an
+unconstrained point-gradient patch by default.

@@ -63,6 +63,7 @@ LocalEmbeddedControlVolumeGeometry3D
   regular_faces      LocalRegularFaceGeometry3D
   irregular_faces    LocalControlVolumeFaceRows3D
   reconstruction     LocalMomentReconstruction3D (19-coefficient cubic on irregular owners)
+  face_functionals   LocalMomentFittedFaceRows3D (direct integrated compact-face fluxes)
   regular_boundary_closure
                      LocalRegularBoundaryMomentClosure3D
   centroid_*         operator coefficients at aggregate centroids
@@ -76,8 +77,10 @@ receive the unified geometry directly.
 
 `LocalControlVolumeCellGeometry3D` owns all cell-level embedded geometry.
 
-- `owner_i/j/k` maps every storage cell directly to itself or to one local
-  active owner.
+- `owner_i/j/k` maps every locally owned storage cell directly to itself or to
+  an active owner visible in the local layout.
+- `owner_is_remote` and `remote_owner_halo_i/j/k` identify a source whose
+  canonical aggregate owner lies on one directly adjacent shard.
 - `is_merged_source` marks storage cells whose fluid region belongs to another
   owner.
 - `is_active_owner` marks cells with an independent finite-volume unknown.
@@ -273,6 +276,41 @@ retain the structured path.  The resulting `LocalControlVolumePolynomial3D` eval
 point gradients. `as_cell_gradient()` preserves `LocalCellGradient3D` for
 gradient-consuming operator APIs.
 
+### Direct Compact-Face Functionals
+
+Compact conservative fluxes no longer reconstruct a point value or gradient
+at runtime and then combine its components. During global geometry
+preprocessing, each canonical compact face receives one cubic moment system
+and three target functionals:
+
+```text
+projected_flux          = integral_f J a . P grad(u) dA
+parallel_flux           = integral_f J (a . b) u dA
+parallel_gradient_flux  = integral_f J a . (b b) grad(u) dA
+```
+
+Here `a` is the oriented area covector. The observation matrix contains
+aggregate-volume-average rows, remote aggregate-average rows, and Dirichlet
+trace rows at active wall quadrature points. Weighted SVD produces direct
+observation weights and records rank, condition number, reproduction
+residual, and scale-normalized functional norms.
+
+Global records are keyed by canonical physical face ID. Lowering maps every
+observation into one static runtime gather:
+
+- an owned aggregate index;
+- a prepared face-halo index;
+- a boundary face/patch/quadrature index.
+
+`build_local_control_volume_field_closure` gathers those values and evaluates
+all three integrated functionals with fixed weighted sums. It performs no
+stencil search, QR, SVD, or polynomial solve under JIT. An active invalid row
+is a contract failure; it is not converted to a zero-flux fallback.
+
+The cubic polynomial path remains necessary for cell-centered gradients,
+Poisson brackets, curvature, parallel first derivatives, and product-average
+covariance. It is no longer the compact conservative face-flux path.
+
 ### Physical Boundary Gradient
 
 Full coordinate-aligned physical faces remain on the dense regular path.
@@ -318,22 +356,25 @@ For a field entering an operator:
 2. inject owned storage into the halo array;
 3. exchange topology and shard halos;
 4. fill physical ghosts for dense ordinary faces;
-5. build the polynomial from owner averages and compact BC data;
-6. exchange reconstructed polynomial coefficients for remote compact faces.
+5. build the polynomial from owner averages and compact BC data for
+   cell-gradient consumers;
+6. evaluate direct face functionals from owned, halo, and boundary
+   observations for conservative compact fluxes.
 
 Raw `jnp.roll` on owned arrays is never a valid cross-shard sample. Periodic
 remote coordinates are unwrapped before reconstruction equations are formed.
 
-The legacy runtime payload still requires aggregate ownership to be shard
-local.  The canonical topology migration replaces that limitation with a
-single global owner map and explicit remote-owner metadata; its runtime
-aggregate exchange is the remaining migration item.  Interface fluxes remain
-sharding compatible through coefficient exchange and mirrored compact rows.
+The canonical topology permits a source to merge through one physical face to
+an owner on a directly adjacent shard, including a periodic seam. Owner values
+are read from prepared face halos. Integrated source-cell and remote-plus-face
+residuals are placed into face halos and returned to the canonical owner by
+`accumulate_halo_contributions_to_owned`. Edge- or corner-routed aggregates
+remain intentionally unsupported.
 
 ## Conservative Flux And Divergence
 
 Dense ordinary faces use the existing structured face kernels. Compact faces
-evaluate the same field polynomial at face quadrature points.
+use the precomputed direct integrated functionals described above.
 
 Parallel scalar flux uses:
 
@@ -341,8 +382,9 @@ Parallel scalar flux uses:
 F_q = J_q (area_covector_q . b_q) u_face_q
 ```
 
-Interior `u_face_q` is the average of the two owner reconstructions at the same
-quadrature point. A Dirichlet boundary uses its boundary face value.
+The parallel scalar functional fits this complete integrated quantity from
+control-volume averages and Dirichlet observations. A prescribed normal flux
+or no-flux condition replaces the fitted boundary result directly.
 
 Projected perpendicular or parallel diffusion uses:
 
@@ -350,11 +392,11 @@ Projected perpendicular or parallel diffusion uses:
 F_q = J_q area_covector_q . P_q . grad(u)_face_q
 ```
 
-Interior face gradients are averages of the two owner reconstructions.
-Embedded cut-wall and partial physical-boundary gradients come from the
-polynomial whose equations include the relevant Dirichlet wall data.
-Coordinate-aligned full physical boundaries use the regular face BC closure.
-There is no field-specific gradient replacement after polynomial evaluation.
+The projected and parallel-gradient functionals fit these complete integrated
+quantities directly. They retain normal/tangential metric coupling without
+requiring each Cartesian gradient component to be independently accurate.
+Coordinate-aligned full physical boundaries remain on the separate regular
+moment-derived BC closure.
 
 `_local_control_volume_integrated_divergence`:
 
@@ -362,8 +404,10 @@ There is no field-specific gradient replacement after polynomial evaluation.
 2. scatters storage-cell dense sums to mapped owners;
 3. adds each compact row to the minus owner;
 4. subtracts the same row flux from a local plus owner;
-5. divides by `cells.aggregate_volume`;
-6. masks merged sources and inactive storage to zero.
+5. scatters remote-source and remote-plus contributions into face halos;
+6. reverse-accumulates those contributions on the canonical remote owner;
+7. divides by `cells.aggregate_volume`;
+8. masks merged sources and inactive storage to zero.
 
 Cut-wall boundary fluxes and active/aggregate interior fluxes therefore share
 one face representation. No inactive source value participates in a compact
@@ -382,8 +426,8 @@ flux.
 7. obtain gradients from those polynomials;
 8. evaluate parallel gradients, Poisson brackets, and curvature using
    aggregate-centroid metric and magnetic coefficients;
-9. evaluate conservative parallel and projected flux divergences through the
-   unified face path;
+9. build direct field closures and evaluate conservative parallel and
+   projected flux divergences through the unified face path;
 10. add sources and mask nonowners.
 
 The phi inverse solver uses the same `control_volume_geometry`, compact phi BC,
@@ -490,14 +534,19 @@ references, and cubic finite-volume basis reproduction.  In particular,
 `LocalControlVolumeGeometry3D.remote_aggregate_id` distinguishes an ID merely
 referenced by a local source from an aggregate physically owned on the shard.
 
-The shifted-torus fixture now enters cubic reconstruction through
-`precompute_local_moment_reconstruction`.  Its JAX operator kernels still
-consume the historical row payload while the direct face-functional gather and
-mirrored cross-shard flux evaluator are migrated.  Therefore the following
-legacy statements describe the current runtime compatibility, not the target
-architecture.  Do not delete those row types until compact parallel and
-projected fluxes both execute through direct functionals and their one- and
-four-shard tests pass.
+The shifted-torus fixture enters cell-gradient reconstruction through
+`precompute_local_moment_reconstruction` and compiles every compact face into
+a global cubic functional before lowering it to shard-local owned/halo/BC
+gathers. Parallel scalar flux, projected perpendicular flux, and parallel
+gradient flux execute through those direct functionals. Cross-shard compact
+residuals use reverse halo accumulation.
+
+This completes the direct compact-flux migration, but not the final cleanup.
+`precompute_local_moment_reconstruction` still delegates to private builders
+in `fci_operators.py`, and the polynomial payload remains required by
+cell-gradient consumers. Historical point-gradient and compact-flux row types
+must not be deleted together: only the latter are candidates for removal after
+the multi-resolution and multi-shard operator gates pass.
 
 ## Sharding Compatibility Matrix
 
@@ -509,19 +558,21 @@ four-shard tests pass.
 | Runtime polynomial build | Yes | Prepared halos for remote cell equations |
 | Ordinary dense faces | Yes | Existing halo/topology preparation |
 | Local compact interior face | Yes | One unique row, two local owners |
-| Shard-boundary compact face | Yes | Mirrored rows plus polynomial coefficient exchange |
-| Cut-wall boundary face | Yes | Field-specific compact BC on each local row |
-| Regular transition face | Yes | Unique compact row; mirrored row and coefficient exchange when remote |
+| Direct compact fluxes | Yes | Static projected, parallel-value, and parallel-gradient functional weights |
+| Shard-boundary compact face | Yes | One canonical evaluator plus remote residual destination |
+| Cut-wall boundary face | Yes | Field-specific BC observations or prescribed-flux override |
+| Regular transition face | Yes | Unique compact row and direct functional |
 | Physical Dirichlet closure | Yes | Three inward owners must be ordinary and local; runtime applies face and first-centroid four-value functionals |
 | Phi GMRES | Yes | Active-owner mask and collective global reductions |
-| Cross-shard aggregate ownership | Metadata only | Canonical global topology and local remote IDs support it; legacy JAX operator rows still require direct functional gather/exchange migration |
+| Cross-shard aggregate ownership | Adjacent faces | Prepared owner halo plus reverse residual accumulation; no edge/corner routing |
 | Global debug assembly | Debug only | Host gather, not a production SPMD kernel |
 
 ## Required Invariants
 
 The following are correctness conditions, not optional diagnostics:
 
-- owner mapping is local, direct, and idempotent;
+- owner mapping is global, direct, and idempotent, with remote owners limited
+  to one adjacent face halo;
 - every active owner has positive finite aggregate volume and moments;
 - ordinary cells are not labeled aggregate targets;
 - aggregate volume is conserved;
@@ -533,23 +584,30 @@ The following are correctness conditions, not optional diagnostics:
 - full coordinate-aligned physical faces remain dense and do not activate
   tangential polynomial replacement;
 - local compact interior fluxes cancel to roundoff before volume division;
-- mirrored shard rows compute equal physical flux;
-- no convergence-fixture row uses linear fallback;
+- every canonical compact face has exactly one evaluator row;
+- remote plus-owner and remote aggregate residuals have exact face-halo destinations;
+- every active direct functional has valid observations, rank at least 20,
+  finite diagnostics, and bounded normalized weights;
+- no convergence-fixture row uses a lower-order reconstruction fallback;
 - MMS projection and operator divergence use the same physical volume.
 
 ## Accuracy Boundary
 
 Cubic reconstruction exactly reproduces cubic finite-volume data on the
-irregular-owner mask and supplies the moment data used by the direct compact
-face-functional migration. Full coordinate boundaries use the regular
-moment-derived boundary functional described above until physical-boundary
-faces migrate to the same direct-functional representation. The two paths are
-deliberately separate during this transition: the coordinate boundary has an
-ordered inward stencil, whereas an embedded wall requires multidimensional
-moment data.
+irregular-owner mask. Direct compact functionals independently reproduce their
+three integrated cubic targets. Full coordinate boundaries deliberately use
+the regular moment-derived boundary functional: the coordinate boundary has
+an ordered inward stencil, whereas an embedded wall uses multidimensional
+moment data and face quadrature.
+
+The current one-shard `N=6` audit had 212 cubic rows, no invalid or lower-order
+rows, and a maximum reconstruction condition number of about `3.58e3`. It did
+not contain any merged sources, so it validates functional wiring but not the
+agglomerated numerical path. The authoritative next measurement is the
+agglomeration-enabled `N=10,14` operator sweep with projected exact phi.
 
 The operator-only Linf gate remains authoritative. If a cut-wall category
-converges below order `1.8`, the next change must add information to the
-boundary reconstruction (for example, a higher-order wall-normal equation or
-higher moments). Weight tuning or reintroducing one-wall/multi-wall hard
-projection is not a valid substitute.
+converges below order `1.8`, inspect the failed functional's observation
+coverage, normalized weights, quadrature, and finite-volume reference before
+changing polynomial degree. Weight tuning or reintroducing one-wall/multi-wall
+hard projection is not a valid substitute for missing physical information.

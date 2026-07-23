@@ -124,13 +124,14 @@ If no acceptable local merge target exists, or the merge policy elects to
 keep it, it remains an independent active owner.
 
 Its value is an average over the actual fluid fragment, so its anchor is the
-fluid centroid rather than the storage-cell center. Its second moment also
-differs from that of a full rectangular cell.
+fluid centroid rather than the storage-cell center. Its second and third
+moments also differ from those of a full rectangular cell.
 
 ### Machinery Used
 
-- raw fluid volume, centroid, and second moment;
+- raw fluid volume, centroid, second moment, and third moment;
 - `LocalMomentReconstruction3D`;
+- `LocalMomentFittedFaceRows3D` for integrated compact fluxes;
 - field-specific `LocalControlVolumeBoundaryBC3D`;
 - compact partial, interior, and cut-wall face rows;
 - face quadrature for conservative fluxes.
@@ -171,7 +172,8 @@ moments.
 
 - a source is never an active owner;
 - mappings do not form chains;
-- the target is local and active;
+- the target is active and is either local or on one directly adjacent shard;
+- a remote target has an exact face-halo address;
 - source storage values cannot affect reconstructed flux;
 - source gradients and operator outputs are zero.
 
@@ -257,7 +259,8 @@ condition layered on top of the retained-cut or aggregate-target cell case.
 - wall centroid and Gauss-point geometry;
 - field-specific BC kind and values;
 - wall equations in the cubic reconstruction;
-- quadrature of boundary flux.
+- direct cubic projected, parallel-value, and parallel-gradient flux weights;
+- quadrature embedded in each target functional.
 
 ### Why BC Objects Are Required
 
@@ -300,9 +303,11 @@ Prepared halos supply the neighboring values through topology exchange.
 
 ### Compact Interface
 
-Each shard stores a mirrored, locally outward row. Reconstructed owner value,
-gradient, Hessian, and validity are exchanged. Both sides evaluate the same
-physical interface flux and apply opposite local divergence signs.
+One shard owns the canonical face evaluator. Its direct functional gathers
+owned, halo, and boundary observations and produces one integrated flux. The
+local plus owner receives the opposite contribution directly; a remote plus
+owner receives it through an exact residual-halo destination and reverse halo
+accumulation.
 
 ### Why It Is Needed
 
@@ -310,9 +315,10 @@ physical interface flux and apply opposite local divergence signs.
 operation. Raw owned arrays therefore cannot provide cross-shard
 reconstruction samples or face values.
 
-Aggregate ownership itself remains shard local. Cross-shard aggregates would
-require a separate reduction and ownership protocol and are not currently
-supported.
+A source may map across one physical face to an owner on a directly adjacent
+shard, including a periodic seam. Prepared owner halos supply its value and
+reverse face-halo accumulation returns its residual. Edge- and corner-routed
+remote aggregates are not supported.
 
 ## Operator Decision Sequence
 
@@ -320,13 +326,14 @@ For each field, the runtime logic can be read as:
 
 1. Expand owner values into storage shape where dense infrastructure needs it.
 2. Complete physical, topology, and corner halos.
-3. Build cubic polynomials for active reconstruction owners.
-4. Exchange polynomial coefficients needed by remote compact interfaces.
-5. Evaluate untouched ordinary faces with dense structured stencils.
-6. Apply the moment-derived closure on full regular Dirichlet boundaries.
-7. Evaluate compact transition, partial, and cut-wall rows by quadrature.
-8. Verify that no compact row has an open dense-face counterpart.
-9. Scatter integrated fluxes to active owners exactly once.
+3. Build cubic polynomials for cell-gradient consumers.
+4. Evaluate untouched ordinary faces with dense structured stencils.
+5. Apply the moment-derived closure on full regular Dirichlet boundaries.
+6. Gather direct compact-face observations and evaluate integrated
+   projected, parallel-value, and parallel-gradient functionals.
+7. Verify that no compact row has an open dense-face counterpart.
+8. Scatter integrated fluxes to local owners exactly once.
+9. Reverse-accumulate remote source and plus-owner contributions.
 10. Divide by the matching aggregate physical volume.
 11. Set merged-source and inactive-storage outputs to zero.
 
