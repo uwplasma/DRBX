@@ -4687,11 +4687,13 @@ def _precompute_local_cubic_reconstruction(
     coordinate_periodic_axes: tuple[bool, bool, bool] | None = None,
     coordinate_periods: tuple[float, float, float] | None = None,
     target_mask: jnp.ndarray | None = None,
+    distance_weight_target_mask: jnp.ndarray | None = None,
     max_samples: int = 48,
     max_equations: int = 64,
     condition_limit: float = 1.0e6,
     svd_rcond: float = 1.0e-12,
     boundary_weight_scale: float = 1.0,
+    distance_row_weight_exponent: float = 0.0,
 ) -> LocalMomentReconstruction3D:
     """Precompute 19-coefficient cubic finite-volume reconstruction rows.
 
@@ -4707,6 +4709,37 @@ def _precompute_local_cubic_reconstruction(
         raise ValueError(
             "boundary_weight_scale must be finite and positive"
         )
+    distance_row_weight_exponent = float(distance_row_weight_exponent)
+    if (
+        not np.isfinite(distance_row_weight_exponent)
+        or distance_row_weight_exponent < 0.0
+    ):
+        raise ValueError(
+            "distance_row_weight_exponent must be finite and nonnegative"
+        )
+
+    def distance_observation_weight(
+        distance_squared: np.ndarray | float,
+        *,
+        localized: np.ndarray | bool,
+    ) -> np.ndarray:
+        distance_squared = np.asarray(distance_squared, dtype=np.float64)
+        # Exact legacy behavior: ``sqrt(weight)`` gives a 1/d row multiplier
+        # in the weighted least-squares system.
+        legacy = 1.0 / np.maximum(distance_squared, 1.0e-12)
+        if distance_row_weight_exponent == 0.0:
+            return legacy
+        # ``sqrt(weight)`` is the actual WLS row multiplier.  The unit floor
+        # avoids singularly over-weighting wall points inside one local cell
+        # width while the exponent controls decay of farther observations.
+        distance = np.maximum(np.sqrt(distance_squared), 1.0)
+        localized_weight = distance ** (
+            -2.0 * distance_row_weight_exponent
+        )
+        localized_array = np.asarray(localized, dtype=bool)
+        while localized_array.ndim < distance_squared.ndim:
+            localized_array = localized_array[..., None]
+        return np.where(localized_array, localized_weight, legacy)
     shape = cells.shape
     active = np.asarray(cells.is_active_owner, dtype=bool)
     centroid = np.asarray(cells.centroid, dtype=np.float64)
@@ -4722,6 +4755,16 @@ def _precompute_local_cubic_reconstruction(
     )
     if requested.shape != shape:
         raise ValueError("target_mask must match control-volume owned shape")
+    distance_weight_target = (
+        requested & active
+        if distance_weight_target_mask is None
+        else np.asarray(distance_weight_target_mask, dtype=bool)
+    )
+    if distance_weight_target.shape != shape:
+        raise ValueError(
+            "distance_weight_target_mask must match control-volume owned shape"
+        )
+    distance_weight_target = distance_weight_target & requested & active
     targets = np.argwhere(requested & active)
     n_rows = len(targets)
     if n_rows == 0:
@@ -4965,7 +5008,10 @@ def _precompute_local_cubic_reconstruction(
                 ),
                 axis=-1,
             )
-            weights = 1.0 / np.maximum(selected_d2, 1.0e-12)
+            weights = distance_observation_weight(
+                selected_d2,
+                localized=distance_weight_target[tuple(target_batch.T)],
+            )
             weighted = np.sqrt(weights)[..., None] * design
             try:
                 singular = np.linalg.svd(weighted, compute_uv=False)
@@ -5100,7 +5146,11 @@ def _precompute_local_cubic_reconstruction(
                     selected.append((0, d2, cubic_row(delta, dm2, dm3, h), (CV_RECONSTRUCTION_EQUATION_DIRICHLET, (int(fr), patch, quad))))
         selected = selected[:max_equations]
         if len(selected) < 19: continue
-        design = np.stack([item[2] for item in selected]); weights = np.asarray([1.0/max(item[1], 1e-12) for item in selected])
+        design = np.stack([item[2] for item in selected])
+        weights = distance_observation_weight(
+            np.asarray([item[1] for item in selected], dtype=np.float64),
+            localized=bool(distance_weight_target[target]),
+        )
         # Each wall face shares one normalized distance weight.
         for idx, item in enumerate(selected):
             if item[3][0] == CV_RECONSTRUCTION_EQUATION_DIRICHLET:
@@ -5988,6 +6038,245 @@ def evaluate_local_control_volume_polynomial(
         )
     )
     return point_value, point_gradient, owner_valid
+
+
+def replace_local_control_volume_projected_flux_with_owner_polynomials(
+    field_closure: LocalControlVolumeFieldClosure3D,
+    polynomial: LocalControlVolumePolynomial3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    use_two_owner_flux: bool,
+    use_cut_wall_owner_flux: bool,
+    radial_axis: int = 0,
+) -> LocalControlVolumeFieldClosure3D:
+    """Replace selected compact projected fluxes with owner-polynomial fluxes.
+
+    Interior faces use one conservative flux obtained by averaging the two
+    adjacent owner reconstructions.  A remote plus owner is evaluated from the
+    polynomial payload already exchanged by
+    :func:`build_local_control_volume_polynomial_from_field`; no second face
+    row or residual scatter is introduced.
+
+    The replacement is intentionally opt-in while convergence is established.
+    It excludes the first two owner layers next to each global radial boundary,
+    where the regular moment closure and direct face functional remain
+    authoritative.  If a selected owner polynomial is invalid, the closure
+    row is invalidated rather than silently falling back to a different face
+    formula.
+    """
+
+    if not isinstance(field_closure, LocalControlVolumeFieldClosure3D):
+        raise TypeError(
+            "field_closure must be a LocalControlVolumeFieldClosure3D"
+        )
+    if not isinstance(polynomial, LocalControlVolumePolynomial3D):
+        raise TypeError("polynomial must be a LocalControlVolumePolynomial3D")
+    if not isinstance(
+        control_volume_geometry,
+        LocalEmbeddedControlVolumeGeometry3D,
+    ):
+        raise TypeError(
+            "control_volume_geometry must be a "
+            "LocalEmbeddedControlVolumeGeometry3D"
+        )
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError("domain must be a LocalDomain3D")
+    radial_axis = int(radial_axis)
+    if radial_axis not in (0, 1, 2):
+        raise ValueError("radial_axis must be 0, 1, or 2")
+    if not use_two_owner_flux and not use_cut_wall_owner_flux:
+        return field_closure
+
+    faces = control_volume_geometry.irregular_faces
+    cells = control_volume_geometry.cells
+    if field_closure.max_rows != faces.max_rows:
+        raise ValueError(
+            "field_closure rows must align with irregular face rows"
+        )
+    if polynomial.shape != cells.shape:
+        raise ValueError("polynomial shape must match control-volume cells")
+    if polynomial.owner_values is None:
+        raise ValueError("polynomial.owner_values are required")
+
+    quadrature_points = jnp.asarray(
+        faces.quadrature_points,
+        dtype=jnp.float64,
+    )
+    quadrature_shape = quadrature_points.shape[:-1]
+    if polynomial.remote_face_gradient.shape != quadrature_shape + (3,):
+        raise ValueError(
+            "polynomial.remote_face_gradient must align with face quadrature"
+        )
+    if polynomial.remote_face_valid.shape != quadrature_shape:
+        raise ValueError(
+            "polynomial.remote_face_valid must align with face quadrature"
+        )
+
+    def _broadcast_owner(
+        owner_i: jnp.ndarray,
+        owner_j: jnp.ndarray,
+        owner_k: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        return tuple(
+            jnp.broadcast_to(component[:, None, None], quadrature_shape)
+            for component in (owner_i, owner_j, owner_k)
+        )
+
+    minus_owner = _broadcast_owner(
+        faces.minus_owner_i,
+        faces.minus_owner_j,
+        faces.minus_owner_k,
+    )
+    _minus_value, minus_gradient, minus_valid = (
+        evaluate_local_control_volume_polynomial(
+            polynomial.owner_values,
+            polynomial,
+            cells,
+            *minus_owner,
+            quadrature_points,
+        )
+    )
+    plus_owner = _broadcast_owner(
+        faces.plus_owner_i,
+        faces.plus_owner_j,
+        faces.plus_owner_k,
+    )
+    _plus_value, local_plus_gradient, local_plus_valid = (
+        evaluate_local_control_volume_polynomial(
+            polynomial.owner_values,
+            polynomial,
+            cells,
+            *plus_owner,
+            quadrature_points,
+        )
+    )
+    plus_gradient = jnp.where(
+        faces.has_remote_owner[:, None, None, None],
+        polynomial.remote_face_gradient,
+        local_plus_gradient,
+    )
+    plus_valid = jnp.where(
+        faces.has_remote_owner[:, None, None],
+        polynomial.remote_face_valid,
+        local_plus_valid,
+    )
+
+    quadrature_active = jnp.asarray(faces.quadrature_active, dtype=bool)
+    face_weight = (
+        jnp.asarray(faces.J, dtype=jnp.float64)[..., None]
+        * jnp.asarray(faces.area_covector_weight, dtype=jnp.float64)
+    )
+    projector = jnp.asarray(faces.projector, dtype=jnp.float64)
+
+    def _integrated_flux(gradient: jnp.ndarray) -> jnp.ndarray:
+        point_flux = jnp.einsum(
+            "...i,...ij,...j->...",
+            face_weight,
+            projector,
+            gradient,
+        )
+        return jnp.sum(
+            jnp.where(quadrature_active, point_flux, 0.0),
+            axis=(-2, -1),
+        )
+
+    minus_flux = _integrated_flux(minus_gradient)
+    plus_flux = _integrated_flux(plus_gradient)
+    minus_row_valid = jnp.all(
+        (~quadrature_active)
+        | (
+            minus_valid
+            & jnp.all(jnp.isfinite(minus_gradient), axis=-1)
+        ),
+        axis=(-2, -1),
+    ) & jnp.isfinite(minus_flux)
+    plus_row_valid = jnp.all(
+        (~quadrature_active)
+        | (
+            plus_valid
+            & jnp.all(jnp.isfinite(plus_gradient), axis=-1)
+        ),
+        axis=(-2, -1),
+    ) & jnp.isfinite(plus_flux)
+
+    owner_axis = (
+        (faces.minus_owner_i, faces.plus_owner_i, faces.remote_halo_i),
+        (faces.minus_owner_j, faces.plus_owner_j, faces.remote_halo_j),
+        (faces.minus_owner_k, faces.plus_owner_k, faces.remote_halo_k),
+    )[radial_axis]
+    minus_local_axis, plus_local_axis, remote_halo_axis = owner_axis
+    local_size = int(domain.layout.owned_shape[radial_axis])
+    global_size = int(domain.shard_spec.global_shape[radial_axis])
+    if domain.mesh_axis_names[radial_axis] is None:
+        global_start = jnp.asarray(
+            domain.shard_spec.owned_start[radial_axis],
+            dtype=jnp.int32,
+        )
+    else:
+        runtime_shard = jnp.asarray(
+            domain.runtime_shard_id(radial_axis),
+            dtype=jnp.int32,
+        )
+        global_start = runtime_shard * local_size
+    minus_global_axis = global_start + minus_local_axis
+    local_plus_global_axis = global_start + plus_local_axis
+    remote_plus_global_axis = (
+        global_start
+        + remote_halo_axis
+        - int(domain.layout.halo_width)
+    )
+    plus_global_axis = jnp.where(
+        faces.has_remote_owner,
+        remote_plus_global_axis,
+        local_plus_global_axis,
+    )
+    if domain.periodic_axes[radial_axis]:
+        minus_radial_interior = jnp.ones_like(faces.active, dtype=bool)
+        plus_radial_interior = jnp.ones_like(faces.active, dtype=bool)
+    else:
+        minus_radial_interior = (
+            (minus_global_axis > 1)
+            & (minus_global_axis < global_size - 2)
+        )
+        plus_radial_interior = (
+            (plus_global_axis > 1)
+            & (plus_global_axis < global_size - 2)
+        )
+
+    has_two_owners = faces.has_plus_owner | faces.has_remote_owner
+    use_two_owner = (
+        bool(use_two_owner_flux)
+        & faces.active
+        & has_two_owners
+        & minus_radial_interior
+        & plus_radial_interior
+    )
+    use_cut_wall_owner = (
+        bool(use_cut_wall_owner_flux)
+        & faces.active
+        & (faces.kind == CV_FACE_CUT_WALL)
+        & minus_radial_interior
+    )
+    selected_valid = jnp.where(
+        use_two_owner,
+        minus_row_valid & plus_row_valid,
+        jnp.where(use_cut_wall_owner, minus_row_valid, True),
+    )
+    projected_flux = jnp.where(
+        use_two_owner,
+        0.5 * (minus_flux + plus_flux),
+        jnp.where(
+            use_cut_wall_owner,
+            minus_flux,
+            field_closure.projected_flux,
+        ),
+    )
+    return dataclass_replace(
+        field_closure,
+        projected_flux=projected_flux,
+        valid=field_closure.valid & selected_valid,
+    )
 
 
 
