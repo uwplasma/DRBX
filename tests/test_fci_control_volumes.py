@@ -30,7 +30,11 @@ from drbx.native.fci_control_volume_operators import (
     pack_local_face_functionals,
     precompute_local_face_functional,
     cubic_projected_face_flux_target,
+    cubic_parallel_face_flux_target,
+    cubic_parallel_gradient_face_flux_target,
     evaluate_local_projected_face_flux,
+    evaluate_local_parallel_face_flux,
+    evaluate_local_parallel_gradient_face_flux,
 )
 
 
@@ -467,6 +471,48 @@ def test_cubic_projected_flux_target_matches_explicit_monomial_quadrature() -> N
     np.testing.assert_allclose(target, explicit, atol=1e-12)
 
 
+def test_cubic_parallel_flux_target_matches_explicit_monomial_quadrature() -> None:
+    rng = np.random.default_rng(41)
+    points = rng.normal(size=(2, 3, 3)); jacobian = 0.2 + rng.random((2, 3))
+    area = rng.normal(size=(2, 3, 3)); b_contra = rng.normal(size=(2, 3, 3))
+    bmag = rng.random((2, 3)); active = np.array([[True, False, True], [True, True, False]])
+    origin = np.array([.3, -.7, 1.1]); scale = np.array([.4, 1.7, 2.2])
+    target = cubic_parallel_face_flux_target(
+        points, jacobian, area, b_contra, bmag, active,
+        origin=origin, scale=scale, b_floor=.15,
+    )
+    xi = (points - origin) / scale
+    explicit = []
+    flux_scale = jacobian * np.einsum("...i,...i->...", area, b_contra / np.maximum(bmag, .15)[..., None])
+    for power in CUBIC_MONOMIAL_EXPONENTS:
+        phi = xi[..., 0] ** power[0] * xi[..., 1] ** power[1] * xi[..., 2] ** power[2]
+        explicit.append(np.sum(np.where(active, flux_scale * phi, 0.0)))
+    np.testing.assert_allclose(target, explicit, atol=1e-12)
+
+    gradient_target = cubic_parallel_gradient_face_flux_target(
+        points,
+        jacobian,
+        area,
+        b_contra,
+        bmag,
+        active,
+        origin=origin,
+        scale=scale,
+        b_floor=.15,
+    )
+    b = b_contra / np.maximum(bmag, .15)[..., None]
+    expected_gradient_target = cubic_projected_face_flux_target(
+        points,
+        jacobian,
+        area,
+        np.einsum("...i,...j->...ij", b, b),
+        active,
+        origin=origin,
+        scale=scale,
+    )
+    np.testing.assert_allclose(gradient_target, expected_gradient_target, atol=1e-12)
+
+
 def test_projected_functional_reproduces_mixed_observations_and_packs() -> None:
     rng = np.random.default_rng(6)
     points = rng.normal(size=(20, 3))
@@ -495,15 +541,36 @@ def test_projected_functional_reproduces_mixed_observations_and_packs() -> None:
         np.array([[[.2, 1., 0.], [-.3, .1, .5], [.7, 0., .4]]]),
         np.array([True]), origin=origin, scale=scale,
     )
-    f=precompute_local_face_functional(matrix,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),projected_flux_target=target,face_id=2,face_sign=-1,max_projected_flux_l1=1e9)
+    parallel_target = cubic_parallel_face_flux_target(
+        points[:1], np.ones((1,)), np.array([[1., 2., -1.]]),
+        np.array([[.4, -.8, .6]]), np.array([.2]), np.array([True]),
+        origin=origin, scale=scale, b_floor=.3,
+    )
+    parallel_gradient_target = cubic_projected_face_flux_target(
+        points[:1], np.ones((1,)), np.array([[1., 2., -1.]]),
+        np.array([[[.8, -.1, .2], [-.1, .5, .3], [.2, .3, .7]]]),
+        np.array([True]), origin=origin, scale=scale,
+    )
+    f=precompute_local_face_functional(matrix,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),projected_flux_target=target,parallel_flux_target=parallel_target,parallel_gradient_flux_target=parallel_gradient_target,face_id=2,face_sign=-1,max_projected_flux_l1=1e9,max_parallel_flux_l1=1e9,max_parallel_gradient_flux_l1=1e9)
     for column in range(20):
         obs=matrix[:,column]
         got=evaluate_local_projected_face_flux(f,local_values=obs[:7],remote_values=obs[7:14],boundary_values=obs[14:])
         np.testing.assert_allclose(got,target[column],atol=1e-10)
+        got_parallel=evaluate_local_parallel_face_flux(f,local_values=obs[:7],remote_values=obs[7:14],boundary_values=obs[14:])
+        np.testing.assert_allclose(got_parallel,parallel_target[column],atol=1e-10)
+        got_parallel_gradient=evaluate_local_parallel_gradient_face_flux(f,local_values=obs[:7],remote_values=obs[7:14],boundary_values=obs[14:])
+        np.testing.assert_allclose(got_parallel_gradient,parallel_gradient_target[column],atol=1e-10)
     packed=pack_local_face_functionals([f])
     assert packed.face_id.dtype==np.int64 and packed.face_sign[0]==-1
     np.testing.assert_allclose(packed.projected_flux_weights[0],f.projected_flux_weights)
+    np.testing.assert_allclose(packed.parallel_flux_weights[0],f.parallel_flux_weights)
+    np.testing.assert_allclose(packed.parallel_gradient_flux_weights[0],f.parallel_gradient_flux_weights)
+    assert packed.normalized_projected_weight_norm[0] == f.normalized_projected_weight_norm
+    assert packed.normalized_parallel_weight_norm[0] == f.normalized_parallel_weight_norm
+    assert packed.normalized_parallel_gradient_weight_norm[0] == f.normalized_parallel_gradient_weight_norm
     assert pack_local_face_functionals([]).projected_flux_weights.shape==(0,0)
+    assert pack_local_face_functionals([]).parallel_flux_weights.shape==(0,0)
+    assert pack_local_face_functionals([]).parallel_gradient_flux_weights.shape==(0,0)
 
 
 def test_projected_functional_rejects_bad_rank_condition_and_weight_norm() -> None:
@@ -518,11 +585,21 @@ def test_projected_functional_rejects_bad_rank_condition_and_weight_norm() -> No
         precompute_local_face_functional(full,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),condition_limit=1.0)
     with pytest.raises(ValueError, match='projected-flux norm'):
         precompute_local_face_functional(full,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),projected_flux_target=np.ones(20),max_projected_flux_l1=1e-16)
-    # Omitted target is intentionally a zero-weight compatible legacy call.
+    with pytest.raises(ValueError, match='parallel-flux norm'):
+        precompute_local_face_functional(full,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),parallel_flux_target=np.ones(20),max_parallel_flux_l1=1e-16)
+    with pytest.raises(ValueError, match='normalized parallel weight norm'):
+        precompute_local_face_functional(full,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),parallel_flux_target=np.ones(20),max_normalized_parallel_weight_norm=1e-16)
+    with pytest.raises(ValueError, match='parallel-gradient-flux norm'):
+        precompute_local_face_functional(full,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),parallel_gradient_flux_target=np.ones(20),max_parallel_gradient_flux_l1=1e-16)
+    # An omitted optional target is intentionally represented by zero weights.
     f=precompute_local_face_functional(full,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),max_derivative_l1=1e9)
     np.testing.assert_array_equal(f.projected_flux_weights,0.0)
+    np.testing.assert_array_equal(f.parallel_flux_weights,0.0)
+    np.testing.assert_array_equal(f.parallel_gradient_flux_weights,0.0)
     direct = LocalMomentFittedFaceFunctional3D(equation_kind=np.array([CV_RECONSTRUCTION_EQUATION_CELL]),sample_reference=np.array([0]),active=np.array([True]),value_weights=np.zeros(1),gradient_weights=np.zeros((3,1)),polynomial_order=3,rank=1,condition_number=1.,reproduction_residual=0.,normalized_weight_norm=0.)
     np.testing.assert_array_equal(direct.projected_flux_weights,0.0)
+    np.testing.assert_array_equal(direct.parallel_flux_weights,0.0)
+    np.testing.assert_array_equal(direct.parallel_gradient_flux_weights,0.0)
 
 
 def test_face_functional_reference_padding_is_valid_only_when_inactive() -> None:
@@ -564,6 +641,26 @@ def test_projected_target_rejects_shape_and_nonfinite_inputs() -> None:
     matrix=np.eye(20); kinds=np.full(20,CV_RECONSTRUCTION_EQUATION_CELL); refs=np.arange(20)
     with pytest.raises(ValueError, match='finite'):
         precompute_local_face_functional(matrix,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),projected_flux_target=np.r_[np.nan,np.zeros(19)])
+    with pytest.raises(ValueError, match='finite'):
+        precompute_local_face_functional(matrix,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),parallel_flux_target=np.r_[np.nan,np.zeros(19)])
+
+
+def test_parallel_target_rejects_shape_nonfinite_and_invalid_floor() -> None:
+    points=np.zeros((2,3)); jac=np.ones(2); area=np.ones((2,3)); b=np.ones((2,3)); bmag=np.ones(2); active=np.ones(2,dtype=bool)
+    for args in [
+        (points, np.ones(3), area, b, bmag),
+        (points, jac, np.ones((3,3)), b, bmag),
+        (points, jac, area, np.ones((2,2)), bmag),
+        (points, jac, area, b, np.ones(3)),
+        (np.array([[np.nan,0,0],[0,0,0]]), jac, area, b, bmag),
+        (points, jac, area, np.array([[np.nan,0,0],[0,0,0]]), bmag),
+        (points, jac, area, b, np.array([np.inf, 1.])),
+    ]:
+        with pytest.raises(ValueError):
+            cubic_parallel_face_flux_target(*args, active, origin=np.zeros(3), scale=1.0)
+    for bad_floor in (-1.0, 0.0, np.nan):
+        with pytest.raises(ValueError, match='b_floor'):
+            cubic_parallel_face_flux_target(points, jac, area, b, bmag, active, origin=np.zeros(3), scale=1.0, b_floor=bad_floor)
 
 
 def test_periodic_seam_face_ids_are_unique_contiguous_and_canonical() -> None:

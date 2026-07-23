@@ -153,8 +153,8 @@ def cubic_projected_face_flux_target(
 ) -> np.ndarray:
     """Return the direct cubic target for the projected face-flux oracle.
 
-    This exactly follows ``_local_control_volume_irregular_projected_flux``:
-    ``J * a_weight^T P grad_x(phi)`` is summed over active quadrature points.
+    This is the compact-face runtime expression:
+    ``J * a_weight^T P grad_x(phi)`` summed over active quadrature points.
     ``area_covector_weight`` already contains the two-dimensional Gauss weight;
     ``J`` is intentionally multiplied separately here (never double counted).
     """
@@ -204,6 +204,105 @@ def cubic_projected_face_flux_target(
     return target
 
 
+def cubic_parallel_face_flux_target(
+    points: np.ndarray,
+    jacobian: np.ndarray,
+    area_covector_weight: np.ndarray,
+    B_contra: np.ndarray,
+    Bmag: np.ndarray,
+    active: np.ndarray,
+    *,
+    origin: np.ndarray,
+    scale: np.ndarray | float,
+    b_floor: float = 1.0e-30,
+) -> np.ndarray:
+    """Return the direct cubic target for the conservative parallel flux.
+
+    The target follows the runtime face quadrature exactly: for each cubic
+    monomial ``phi``, sum ``J * dot(a_weight, B_contra / max(Bmag, b_floor))
+    * phi`` over active points.  ``area_covector_weight`` contains the
+    two-dimensional Gauss weight, while ``jacobian`` is deliberately applied
+    once here.
+    """
+    points = np.asarray(points, dtype=np.float64)
+    jacobian = np.asarray(jacobian, dtype=np.float64)
+    area = np.asarray(area_covector_weight, dtype=np.float64)
+    b_contra = np.asarray(B_contra, dtype=np.float64)
+    bmag = np.asarray(Bmag, dtype=np.float64)
+    active = np.asarray(active, dtype=bool)
+    origin = np.asarray(origin, dtype=np.float64)
+    scale = np.asarray(scale, dtype=np.float64)
+    b_floor = float(b_floor)
+    if scale.ndim == 0:
+        scale = np.full((3,), float(scale), dtype=np.float64)
+    if (
+        points.shape[-1:] != (3,)
+        or area.shape != points.shape
+        or b_contra.shape != points.shape
+        or jacobian.shape != active.shape
+        or bmag.shape != active.shape
+        or jacobian.shape != points.shape[:-1]
+    ):
+        raise ValueError("quadrature points/J/area/B_contra/Bmag/active shapes are incompatible")
+    if (
+        origin.shape != (3,)
+        or scale.shape != (3,)
+        or np.any(~np.isfinite(scale))
+        or np.any(scale <= 0.0)
+        or not np.isfinite(b_floor)
+        or b_floor <= 0.0
+    ):
+        raise ValueError("origin, positive componentwise scale, and positive b_floor are required")
+    if any(np.any(~np.isfinite(item)) for item in (points, jacobian, area, b_contra, bmag, origin)):
+        raise ValueError("parallel face target inputs must be finite")
+    xi = (points - origin) / scale
+    flux_scale = jacobian * np.einsum(
+        "...i,...i->...", area, b_contra / np.maximum(bmag, b_floor)[..., None],
+    )
+    basis = cubic_monomial_basis(xi)
+    return np.sum(np.where(active[..., None], flux_scale[..., None] * basis, 0.0), axis=tuple(range(active.ndim)))
+
+
+def cubic_parallel_gradient_face_flux_target(
+    points: np.ndarray,
+    jacobian: np.ndarray,
+    area_covector_weight: np.ndarray,
+    B_contra: np.ndarray,
+    Bmag: np.ndarray,
+    active: np.ndarray,
+    *,
+    origin: np.ndarray,
+    scale: np.ndarray | float,
+    b_floor: float = 1.0e-30,
+) -> np.ndarray:
+    """Return the cubic target for ``J a^T P_parallel grad(phi)``.
+
+    This is the direct face functional required by the conservative parallel
+    Laplacian.  It is intentionally distinct from ``cubic_parallel_face_flux_target``,
+    whose integrand contains the scalar value ``phi`` rather than its gradient.
+    """
+    b_contra = np.asarray(B_contra, dtype=np.float64)
+    bmag = np.asarray(Bmag, dtype=np.float64)
+    b_floor = float(b_floor)
+    if b_floor <= 0.0 or not np.isfinite(b_floor):
+        raise ValueError("b_floor must be positive and finite")
+    if b_contra.shape[-1:] != (3,) or bmag.shape != b_contra.shape[:-1]:
+        raise ValueError("B_contra and Bmag shapes are incompatible")
+    if np.any(~np.isfinite(b_contra)) or np.any(~np.isfinite(bmag)):
+        raise ValueError("parallel-gradient face target magnetic inputs must be finite")
+    b = b_contra / np.maximum(bmag, b_floor)[..., None]
+    projector = np.einsum("...i,...j->...ij", b, b)
+    return cubic_projected_face_flux_target(
+        points,
+        jacobian,
+        area_covector_weight,
+        projector,
+        active,
+        origin=origin,
+        scale=scale,
+    )
+
+
 @dataclass(frozen=True)
 class LocalMomentFittedFaceFunctional3D:
     """One direct compact-face functional with static observation weights."""
@@ -221,6 +320,11 @@ class LocalMomentFittedFaceFunctional3D:
     face_id: int = -1
     face_sign: int = 1
     projected_flux_weights: np.ndarray | None = None
+    parallel_flux_weights: np.ndarray | None = None
+    parallel_gradient_flux_weights: np.ndarray | None = None
+    normalized_projected_weight_norm: float | None = None
+    normalized_parallel_weight_norm: float | None = None
+    normalized_parallel_gradient_weight_norm: float | None = None
 
     def __post_init__(self) -> None:
         kind = np.asarray(self.equation_kind, dtype=np.int32).reshape((-1,))
@@ -234,9 +338,22 @@ class LocalMomentFittedFaceFunctional3D:
             if self.projected_flux_weights is None
             else np.asarray(self.projected_flux_weights, dtype=np.float64).reshape((-1,))
         )
+        parallel = (
+            np.zeros((count,), dtype=np.float64)
+            if self.parallel_flux_weights is None
+            else np.asarray(self.parallel_flux_weights, dtype=np.float64).reshape((-1,))
+        )
+        parallel_gradient = (
+            np.zeros((count,), dtype=np.float64)
+            if self.parallel_gradient_flux_weights is None
+            else np.asarray(
+                self.parallel_gradient_flux_weights, dtype=np.float64
+            ).reshape((-1,))
+        )
         if not (
             reference.size == active.size == value.size == count
-            and gradient.shape == (3, count) and projected.shape == (count,)
+            and gradient.shape == (3, count)
+            and projected.shape == parallel.shape == parallel_gradient.shape == (count,)
         ):
             raise ValueError("face-functional observation arrays must align")
         valid_kind = {
@@ -254,6 +371,33 @@ class LocalMomentFittedFaceFunctional3D:
         object.__setattr__(self, "value_weights", value)
         object.__setattr__(self, "gradient_weights", gradient)
         object.__setattr__(self, "projected_flux_weights", projected)
+        object.__setattr__(self, "parallel_flux_weights", parallel)
+        object.__setattr__(
+            self, "parallel_gradient_flux_weights", parallel_gradient
+        )
+        object.__setattr__(
+            self, "normalized_projected_weight_norm",
+            float(np.linalg.norm(projected)) if self.normalized_projected_weight_norm is None
+            else float(self.normalized_projected_weight_norm),
+        )
+        object.__setattr__(
+            self, "normalized_parallel_weight_norm",
+            float(np.linalg.norm(parallel)) if self.normalized_parallel_weight_norm is None
+            else float(self.normalized_parallel_weight_norm),
+        )
+        object.__setattr__(
+            self, "normalized_parallel_gradient_weight_norm",
+            float(np.linalg.norm(parallel_gradient))
+            if self.normalized_parallel_gradient_weight_norm is None
+            else float(self.normalized_parallel_gradient_weight_norm),
+        )
+        diagnostics = (
+            self.normalized_projected_weight_norm,
+            self.normalized_parallel_weight_norm,
+            self.normalized_parallel_gradient_weight_norm,
+        )
+        if any(not np.isfinite(value) or value < 0.0 for value in diagnostics):
+            raise ValueError("normalized face-functional weight norms must be finite and nonnegative")
 
 
 @dataclass(frozen=True)
@@ -274,10 +418,15 @@ class LocalMomentFittedFaceFunctionals3D:
     value_weights: np.ndarray
     gradient_weights: np.ndarray
     projected_flux_weights: np.ndarray
+    parallel_flux_weights: np.ndarray
+    parallel_gradient_flux_weights: np.ndarray
     rank: np.ndarray
     condition_number: np.ndarray
     reproduction_residual: np.ndarray
     normalized_weight_norm: np.ndarray
+    normalized_projected_weight_norm: np.ndarray
+    normalized_parallel_weight_norm: np.ndarray
+    normalized_parallel_gradient_weight_norm: np.ndarray
 
     def __post_init__(self) -> None:
         face_id = np.asarray(self.face_id, dtype=np.int64).reshape((-1,))
@@ -289,15 +438,25 @@ class LocalMomentFittedFaceFunctionals3D:
         value = np.asarray(self.value_weights, dtype=np.float64)
         gradient = np.asarray(self.gradient_weights, dtype=np.float64)
         projected = np.asarray(self.projected_flux_weights, dtype=np.float64)
+        parallel = np.asarray(self.parallel_flux_weights, dtype=np.float64)
+        parallel_gradient = np.asarray(
+            self.parallel_gradient_flux_weights, dtype=np.float64
+        )
         rank = np.asarray(self.rank, dtype=np.int32).reshape((-1,))
         condition = np.asarray(self.condition_number, dtype=np.float64).reshape((-1,))
         residual = np.asarray(self.reproduction_residual, dtype=np.float64).reshape((-1,))
         norm = np.asarray(self.normalized_weight_norm, dtype=np.float64).reshape((-1,))
+        projected_norm = np.asarray(self.normalized_projected_weight_norm, dtype=np.float64).reshape((-1,))
+        parallel_norm = np.asarray(self.normalized_parallel_weight_norm, dtype=np.float64).reshape((-1,))
+        parallel_gradient_norm = np.asarray(
+            self.normalized_parallel_gradient_weight_norm, dtype=np.float64
+        ).reshape((-1,))
         if not (
             kind.ndim == reference.ndim == active.ndim == value.ndim == 2
             and kind.shape == reference.shape == active.shape == value.shape
-            and gradient.shape == (count, 3, kind.shape[1]) and projected.shape == kind.shape
-            and face_sign.shape == rank.shape == condition.shape == residual.shape == norm.shape == (count,)
+            and gradient.shape == (count, 3, kind.shape[1])
+            and projected.shape == parallel.shape == parallel_gradient.shape == kind.shape
+            and face_sign.shape == rank.shape == condition.shape == residual.shape == norm.shape == projected_norm.shape == parallel_norm.shape == parallel_gradient_norm.shape == (count,)
         ):
             raise ValueError("packed face-functional arrays must have compatible shapes")
         if np.unique(face_id).size != count:
@@ -314,10 +473,19 @@ class LocalMomentFittedFaceFunctionals3D:
         object.__setattr__(self, "value_weights", value)
         object.__setattr__(self, "gradient_weights", gradient)
         object.__setattr__(self, "projected_flux_weights", projected)
+        object.__setattr__(self, "parallel_flux_weights", parallel)
+        object.__setattr__(self, "parallel_gradient_flux_weights", parallel_gradient)
         object.__setattr__(self, "rank", rank)
         object.__setattr__(self, "condition_number", condition)
         object.__setattr__(self, "reproduction_residual", residual)
         object.__setattr__(self, "normalized_weight_norm", norm)
+        object.__setattr__(self, "normalized_projected_weight_norm", projected_norm)
+        object.__setattr__(self, "normalized_parallel_weight_norm", parallel_norm)
+        object.__setattr__(
+            self,
+            "normalized_parallel_gradient_weight_norm",
+            parallel_gradient_norm,
+        )
 
 
 def pack_local_face_functionals(
@@ -340,10 +508,15 @@ def pack_local_face_functionals(
             value_weights=np.zeros((0, 0), dtype=np.float64),
             gradient_weights=np.zeros((0, 3, 0), dtype=np.float64),
             projected_flux_weights=np.zeros((0, 0), dtype=np.float64),
+            parallel_flux_weights=np.zeros((0, 0), dtype=np.float64),
+            parallel_gradient_flux_weights=np.zeros((0, 0), dtype=np.float64),
             rank=np.zeros((0,), dtype=np.int32),
             condition_number=np.zeros((0,), dtype=np.float64),
             reproduction_residual=np.zeros((0,), dtype=np.float64),
             normalized_weight_norm=np.zeros((0,), dtype=np.float64),
+            normalized_projected_weight_norm=np.zeros((0,), dtype=np.float64),
+            normalized_parallel_weight_norm=np.zeros((0,), dtype=np.float64),
+            normalized_parallel_gradient_weight_norm=np.zeros((0,), dtype=np.float64),
         )
     count = functionals[0].equation_kind.size
     if any(item.equation_kind.size != count for item in functionals):
@@ -357,10 +530,19 @@ def pack_local_face_functionals(
         value_weights=np.stack([item.value_weights for item in functionals]),
         gradient_weights=np.stack([item.gradient_weights for item in functionals]),
         projected_flux_weights=np.stack([item.projected_flux_weights for item in functionals]),
+        parallel_flux_weights=np.stack([item.parallel_flux_weights for item in functionals]),
+        parallel_gradient_flux_weights=np.stack(
+            [item.parallel_gradient_flux_weights for item in functionals]
+        ),
         rank=np.asarray([item.rank for item in functionals]),
         condition_number=np.asarray([item.condition_number for item in functionals]),
         reproduction_residual=np.asarray([item.reproduction_residual for item in functionals]),
         normalized_weight_norm=np.asarray([item.normalized_weight_norm for item in functionals]),
+        normalized_projected_weight_norm=np.asarray([item.normalized_projected_weight_norm for item in functionals]),
+        normalized_parallel_weight_norm=np.asarray([item.normalized_parallel_weight_norm for item in functionals]),
+        normalized_parallel_gradient_weight_norm=np.asarray(
+            [item.normalized_parallel_gradient_weight_norm for item in functionals]
+        ),
     )
 
 
@@ -414,12 +596,19 @@ def precompute_local_face_functional(
     value_target: np.ndarray,
     gradient_target: np.ndarray,
     projected_flux_target: np.ndarray | None = None,
+    parallel_flux_target: np.ndarray | None = None,
+    parallel_gradient_flux_target: np.ndarray | None = None,
     observation_weight: np.ndarray | None = None,
     requested_order: int = 3,
     svd_cutoff: float = 1.0e-12,
     condition_limit: float = 1.0e6,
     max_derivative_l1: float = 100.0,
     max_projected_flux_l1: float = 100.0,
+    max_parallel_flux_l1: float = 100.0,
+    max_parallel_gradient_flux_l1: float = 100.0,
+    max_normalized_projected_weight_norm: float = np.inf,
+    max_normalized_parallel_weight_norm: float = np.inf,
+    max_normalized_parallel_gradient_weight_norm: float = np.inf,
     face_id: int = -1,
     face_sign: int = 1,
 ) -> LocalMomentFittedFaceFunctional3D:
@@ -449,6 +638,20 @@ def precompute_local_face_functional(
     projected_target = np.zeros((20,), dtype=np.float64) if projected_flux_target is None else np.asarray(projected_flux_target, dtype=np.float64).reshape((-1,))
     if projected_target.shape != (20,) or np.any(~np.isfinite(projected_target)):
         raise ValueError("projected_flux_target must have shape (20,) and be finite")
+    parallel_target = np.zeros((20,), dtype=np.float64) if parallel_flux_target is None else np.asarray(parallel_flux_target, dtype=np.float64).reshape((-1,))
+    if parallel_target.shape != (20,) or np.any(~np.isfinite(parallel_target)):
+        raise ValueError("parallel_flux_target must have shape (20,) and be finite")
+    parallel_gradient_target = (
+        np.zeros((20,), dtype=np.float64)
+        if parallel_gradient_flux_target is None
+        else np.asarray(parallel_gradient_flux_target, dtype=np.float64).reshape((-1,))
+    )
+    if parallel_gradient_target.shape != (20,) or np.any(
+        ~np.isfinite(parallel_gradient_target)
+    ):
+        raise ValueError(
+            "parallel_gradient_flux_target must have shape (20,) and be finite"
+        )
     if observation_weight is None:
         weight = np.ones((kind.size,), dtype=np.float64)
     else:
@@ -474,16 +677,53 @@ def precompute_local_face_functional(
     weighted_value_weights = value_target @ inverse
     weighted_gradient_weights = gradient_target @ inverse
     weighted_projected_weights = projected_target @ inverse
+    weighted_parallel_weights = parallel_target @ inverse
+    weighted_parallel_gradient_weights = parallel_gradient_target @ inverse
     value_weights = weighted_value_weights * np.sqrt(weight)
     gradient_weights = weighted_gradient_weights * np.sqrt(weight)[None, :]
     projected_weights = weighted_projected_weights * np.sqrt(weight)
+    parallel_weights = weighted_parallel_weights * np.sqrt(weight)
+    parallel_gradient_weights = weighted_parallel_gradient_weights * np.sqrt(weight)
     reproduction = max(
         float(np.max(np.abs(value_weights @ matrix - value_target))),
         float(np.max(np.abs(gradient_weights @ matrix - gradient_target))),
         float(np.max(np.abs(projected_weights @ matrix - projected_target))),
+        float(np.max(np.abs(parallel_weights @ matrix - parallel_target))),
+        float(
+            np.max(
+                np.abs(
+                    parallel_gradient_weights @ matrix
+                    - parallel_gradient_target
+                )
+            )
+        ),
     )
     derivative_l1 = float(np.max(np.sum(np.abs(gradient_weights), axis=1)))
     projected_l1 = float(np.sum(np.abs(projected_weights)))
+    parallel_l1 = float(np.sum(np.abs(parallel_weights)))
+    parallel_gradient_l1 = float(np.sum(np.abs(parallel_gradient_weights)))
+    # Observation rows use the nondimensional normalized cubic basis.  Divide
+    # by the corresponding target coefficient norm so these diagnostics are
+    # dimensionless amplification factors rather than mesh-scaled flux norms.
+    projected_target_norm = float(np.linalg.norm(projected_target))
+    parallel_target_norm = float(np.linalg.norm(parallel_target))
+    parallel_gradient_target_norm = float(np.linalg.norm(parallel_gradient_target))
+    projected_norm = (
+        0.0
+        if projected_target_norm == 0.0
+        else float(np.linalg.norm(projected_weights)) / projected_target_norm
+    )
+    parallel_norm = (
+        0.0
+        if parallel_target_norm == 0.0
+        else float(np.linalg.norm(parallel_weights)) / parallel_target_norm
+    )
+    parallel_gradient_norm = (
+        0.0
+        if parallel_gradient_target_norm == 0.0
+        else float(np.linalg.norm(parallel_gradient_weights))
+        / parallel_gradient_target_norm
+    )
     if not np.isfinite(reproduction) or reproduction > 1.0e-10:
         raise ValueError(f"cubic face functional reproduction failed: {reproduction:.3e}")
     if derivative_l1 > float(max_derivative_l1):
@@ -494,6 +734,33 @@ def precompute_local_face_functional(
         raise ValueError(
             "cubic face functional projected-flux norm "
             f"{projected_l1:.3e} exceeds limit"
+        )
+    if parallel_l1 > float(max_parallel_flux_l1):
+        raise ValueError(
+            "cubic face functional parallel-flux norm "
+            f"{parallel_l1:.3e} exceeds limit"
+        )
+    if parallel_gradient_l1 > float(max_parallel_gradient_flux_l1):
+        raise ValueError(
+            "cubic face functional parallel-gradient-flux norm "
+            f"{parallel_gradient_l1:.3e} exceeds limit"
+        )
+    if projected_norm > float(max_normalized_projected_weight_norm):
+        raise ValueError(
+            "cubic face functional normalized projected weight norm "
+            f"{projected_norm:.3e} exceeds limit"
+        )
+    if parallel_norm > float(max_normalized_parallel_weight_norm):
+        raise ValueError(
+            "cubic face functional normalized parallel weight norm "
+            f"{parallel_norm:.3e} exceeds limit"
+        )
+    if parallel_gradient_norm > float(
+        max_normalized_parallel_gradient_weight_norm
+    ):
+        raise ValueError(
+            "cubic face functional normalized parallel-gradient weight norm "
+            f"{parallel_gradient_norm:.3e} exceeds limit"
         )
     return LocalMomentFittedFaceFunctional3D(
         equation_kind=kind,
@@ -508,11 +775,15 @@ def precompute_local_face_functional(
         normalized_weight_norm=max(
             float(np.linalg.norm(value_weights)),
             float(np.max(np.linalg.norm(gradient_weights, axis=1))),
-            float(np.linalg.norm(projected_weights)),
         ),
         face_id=int(face_id),
         face_sign=int(face_sign),
         projected_flux_weights=projected_weights,
+        parallel_flux_weights=parallel_weights,
+        parallel_gradient_flux_weights=parallel_gradient_weights,
+        normalized_projected_weight_norm=projected_norm,
+        normalized_parallel_weight_norm=parallel_norm,
+        normalized_parallel_gradient_weight_norm=parallel_gradient_norm,
     )
 
 
@@ -581,17 +852,79 @@ def evaluate_local_projected_face_flux(
     return float(functional.projected_flux_weights @ observation)
 
 
+def evaluate_local_parallel_face_flux(
+    functional: LocalMomentFittedFaceFunctional3D, *, local_values: np.ndarray,
+    remote_values: np.ndarray | None = None, boundary_values: np.ndarray | None = None,
+) -> float:
+    """Evaluate only the precompiled scalar parallel flux observation row."""
+    local_values = np.asarray(local_values, dtype=np.float64).reshape((-1,))
+    remote_values = np.zeros((0,), dtype=np.float64) if remote_values is None else np.asarray(remote_values, dtype=np.float64).reshape((-1,))
+    boundary_values = np.zeros((0,), dtype=np.float64) if boundary_values is None else np.asarray(boundary_values, dtype=np.float64).reshape((-1,))
+    observation = np.zeros_like(functional.parallel_flux_weights)
+    for row, (kind, ref, active) in enumerate(zip(functional.equation_kind, functional.sample_reference, functional.active)):
+        if active:
+            values = local_values if kind == CV_RECONSTRUCTION_EQUATION_CELL else remote_values if kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL else boundary_values
+            if not 0 <= int(ref) < values.size: raise ValueError("face-functional observation reference is unavailable")
+            observation[row] = values[int(ref)]
+    return float(functional.parallel_flux_weights @ observation)
+
+
+def evaluate_local_parallel_gradient_face_flux(
+    functional: LocalMomentFittedFaceFunctional3D, *, local_values: np.ndarray,
+    remote_values: np.ndarray | None = None,
+    boundary_values: np.ndarray | None = None,
+) -> float:
+    """Evaluate the precompiled ``P_parallel grad(field)`` face flux."""
+    local_values = np.asarray(local_values, dtype=np.float64).reshape((-1,))
+    remote_values = (
+        np.zeros((0,), dtype=np.float64)
+        if remote_values is None
+        else np.asarray(remote_values, dtype=np.float64).reshape((-1,))
+    )
+    boundary_values = (
+        np.zeros((0,), dtype=np.float64)
+        if boundary_values is None
+        else np.asarray(boundary_values, dtype=np.float64).reshape((-1,))
+    )
+    observation = np.zeros_like(functional.parallel_gradient_flux_weights)
+    for row, (kind, ref, active) in enumerate(
+        zip(
+            functional.equation_kind,
+            functional.sample_reference,
+            functional.active,
+        )
+    ):
+        if active:
+            values = (
+                local_values
+                if kind == CV_RECONSTRUCTION_EQUATION_CELL
+                else remote_values
+                if kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL
+                else boundary_values
+            )
+            if not 0 <= int(ref) < values.size:
+                raise ValueError(
+                    "face-functional observation reference is unavailable"
+                )
+            observation[row] = values[int(ref)]
+    return float(functional.parallel_gradient_flux_weights @ observation)
+
+
 __all__ = [
     "CUBIC_MONOMIAL_EXPONENTS",
     "cubic_control_volume_average_basis",
     "cubic_dense_face_targets",
     "cubic_projected_face_flux_target",
+    "cubic_parallel_face_flux_target",
+    "cubic_parallel_gradient_face_flux_target",
     "cubic_monomial_basis",
     "LocalMomentFittedFaceFunctional3D",
     "LocalMomentFittedFaceFunctionals3D",
     "LocalMomentReconstruction3D",
     "evaluate_local_face_functional",
     "evaluate_local_projected_face_flux",
+    "evaluate_local_parallel_face_flux",
+    "evaluate_local_parallel_gradient_face_flux",
     "pack_local_face_functionals",
     "precompute_local_face_functional",
     "precompute_local_moment_reconstruction",
