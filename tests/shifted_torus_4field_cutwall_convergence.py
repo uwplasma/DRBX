@@ -28,6 +28,9 @@ from drbx.native.fci_boundaries import (
     CV_FACE_INTERIOR,
     CV_FACE_PARTIAL,
     CV_FACE_PHYSICAL_BOUNDARY,
+    CV_RECONSTRUCTION_EQUATION_CELL,
+    CV_RECONSTRUCTION_EQUATION_DIRICHLET,
+    CV_RECONSTRUCTION_EQUATION_REMOTE_CELL,
     LocalBoundaryFaceBC3D,
     LocalCellGradient3D,
     LocalControlVolumeBoundaryBC3D,
@@ -77,6 +80,9 @@ from shifted_torus_4field_cutwall_geometry import (  # noqa: E402
     _build_stacked_embedded_control_volume_geometry,
     _shape_from_resolution,
     _shifted_torus_curvature_at_logical_points,
+    _validate_face_functional_boundary_weight_scale,
+    _validate_face_functional_cell_radius,
+    _validate_reconstruction_boundary_weight_scale,
     _with_embedded_control_volume_geometry,
 )
 from shifted_torus_4field_cutwall_mms import (  # noqa: E402
@@ -93,6 +99,8 @@ from shifted_torus_4field_cutwall_mms import (  # noqa: E402
     _project_local_mms_source_to_control_volumes,
     _shifted_torus_analytic_rhs_at_logical_points,
     _shifted_torus_exact_time_derivative_at_logical_points,
+    _shifted_torus_exact_field_at_logical_points,
+    _shifted_torus_exact_field_and_gradient_at_logical_points,
     _shifted_torus_mms_source_at_logical_points,
     _shifted_torus_operator_reference_at_logical_points,
     _shifted_torus_regular_radial_face_average,
@@ -411,6 +419,351 @@ def _fit_operator_order(
     return float(-slope)
 
 
+def _print_worst_aggregate_face_audit(
+    *,
+    operator_name: str,
+    top_index: tuple[int, int, int],
+    actual: np.ndarray,
+    reference: np.ndarray,
+    cell_data: dict[str, jnp.ndarray],
+    stacked_control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    shard_counts: tuple[int, int, int],
+    diagnostic_flux: np.ndarray,
+    exact_product_average_flux: np.ndarray,
+    minus_polynomial_flux: np.ndarray,
+    plus_polynomial_flux: np.ndarray,
+) -> None:
+    """Print compact-face contributions to one worst global aggregate.
+
+    ``diagnostic_flux`` is the direct functional flux used by the conservative
+    operator (parallel or projected as appropriate); zero means this operator
+    has no compact face-flux diagnostic yet.
+    """
+    shape = tuple(int(size) for size in actual.shape)
+    owned_shape = tuple(
+        size // count for size, count in zip(shape, shard_counts)
+    )
+    volume = float(np.asarray(cell_data["aggregate_volume"])[top_index])
+    print(
+        "  worst_aggregate_face_audit operator={} aggregate={} volume={:.6e} "
+        "numerical_integrated={:.6e} reference_integrated={:.6e}".format(
+            operator_name,
+            top_index,
+            volume,
+            float(actual[top_index]) * volume,
+            float(reference[top_index]) * volume,
+        )
+    )
+    kind_names = {
+        CV_FACE_INTERIOR: "interior",
+        CV_FACE_PARTIAL: "partial",
+        CV_FACE_CUT_WALL: "cut_wall",
+        CV_FACE_PHYSICAL_BOUNDARY: "physical_boundary",
+    }
+    found = 0
+    compact_numerical = 0.0
+    compact_exact_product_average = 0.0
+    compact_exact = 0.0
+    for shard_index in np.ndindex(*shard_counts):
+        local = jax.tree_util.tree_map(
+            lambda leaf: np.asarray(leaf[shard_index]),
+            stacked_control_volume_geometry,
+        )
+        faces = local.irregular_faces
+        rows = local.face_functionals
+        starts = tuple(
+            shard_index[axis] * owned_shape[axis] for axis in range(3)
+        )
+        active = np.asarray(faces.active, dtype=bool)
+        for row in np.flatnonzero(active):
+            minus = tuple(
+                starts[axis]
+                + int(getattr(faces, f"minus_owner_{'ijk'[axis]}")[row])
+                for axis in range(3)
+            )
+            plus = tuple(
+                starts[axis]
+                + int(getattr(faces, f"plus_owner_{'ijk'[axis]}")[row])
+                for axis in range(3)
+            )
+            has_plus = bool(np.asarray(faces.has_plus_owner)[row])
+            if minus != top_index and (not has_plus or plus != top_index):
+                continue
+            found += 1
+            scatter_sign = 1 if minus == top_index else -1
+            kind = int(np.asarray(faces.kind)[row])
+            flux = float(np.asarray(diagnostic_flux)[shard_index + (row,)])
+            qactive = np.asarray(faces.quadrature_active[row], dtype=bool)
+            points = np.asarray(faces.quadrature_points[row], dtype=np.float64)
+            J = np.asarray(faces.J[row], dtype=np.float64)
+            area = np.asarray(faces.area_covector_weight[row], dtype=np.float64)
+            projector = np.asarray(faces.projector[row], dtype=np.float64)
+            b_contra = np.asarray(faces.B_contra[row], dtype=np.float64)
+            bmag = np.asarray(faces.Bmag[row], dtype=np.float64)
+            observation_active = np.asarray(
+                rows.observation_active[row], dtype=bool
+            )
+            observation_kind = np.asarray(
+                rows.observation_kind[row], dtype=np.int32
+            )
+            cell_observations = observation_active & (
+                observation_kind == CV_RECONSTRUCTION_EQUATION_CELL
+            )
+            remote_observations = observation_active & (
+                observation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL
+            )
+            cell_weight_observations = cell_observations | remote_observations
+            dirichlet_observations = observation_active & (
+                observation_kind == CV_RECONSTRUCTION_EQUATION_DIRICHLET
+            )
+            if operator_name == "parallel_density_flux_divergence":
+                observation_weight_name = "parallel"
+                observation_weights = np.asarray(
+                    rows.parallel_flux_weights[row], dtype=np.float64
+                )
+            elif operator_name == "perp_laplacian_phi":
+                observation_weight_name = "projected"
+                observation_weights = np.asarray(
+                    rows.projected_flux_weights[row], dtype=np.float64
+                )
+            else:
+                observation_weight_name = None
+                observation_weights = None
+            if observation_weights is not None:
+                absolute_weights = np.abs(observation_weights)
+                cell_l1 = float(np.sum(absolute_weights[cell_weight_observations]))
+                cell_max = float(
+                    np.max(absolute_weights[cell_weight_observations])
+                    if np.any(cell_weight_observations) else 0.0
+                )
+                dirichlet_l1 = float(
+                    np.sum(absolute_weights[dirichlet_observations])
+                )
+                dirichlet_max = float(
+                    np.max(absolute_weights[dirichlet_observations])
+                    if np.any(dirichlet_observations) else 0.0
+                )
+                boundary_face_rows = np.asarray(
+                    rows.boundary_face_row[row], dtype=np.int32
+                )[dirichlet_observations]
+                valid_boundary_face_rows = boundary_face_rows[
+                    (boundary_face_rows >= 0)
+                    & (boundary_face_rows < np.asarray(faces.global_face_id).size)
+                ]
+                boundary_global_face_ids = tuple(
+                    int(value)
+                    for value in np.unique(
+                        np.asarray(faces.global_face_id)[valid_boundary_face_rows]
+                    )
+                )
+                observation_summary = (
+                    "obs(cell={},remote={},dirichlet={}) {}_weights="
+                    "cell_L1={:.3e},cell_max={:.3e},dirichlet_L1={:.3e},"
+                    "dirichlet_max={:.3e} dirichlet_face_ids={}"
+                ).format(
+                    int(np.sum(cell_observations)),
+                    int(np.sum(remote_observations)),
+                    int(np.sum(dirichlet_observations)),
+                    observation_weight_name,
+                    cell_l1,
+                    cell_max,
+                    dirichlet_l1,
+                    dirichlet_max,
+                    boundary_global_face_ids,
+                )
+            else:
+                observation_summary = (
+                    "obs(cell={},remote={},dirichlet={}) weights=unavailable"
+                ).format(
+                    int(np.sum(cell_observations)),
+                    int(np.sum(remote_observations)),
+                    int(np.sum(dirichlet_observations)),
+                )
+            if operator_name == "parallel_density_flux_divergence":
+                exact_product_average_flux_value = float(
+                    np.asarray(exact_product_average_flux)[shard_index + (row,)]
+                )
+                exact_value = np.asarray(
+                    _shifted_torus_exact_field_at_logical_points(
+                        points, 0.0, "density_v_electron"
+                    ),
+                    dtype=np.float64,
+                )
+                exact_flux = float(np.sum(np.where(
+                    qactive,
+                    J * np.einsum(
+                        "...i,...i->...", area,
+                        b_contra / np.maximum(bmag[..., None], 1.0e-30),
+                    ) * exact_value,
+                    0.0,
+                )))
+            elif operator_name == "perp_laplacian_phi":
+                _value, gradient = _shifted_torus_exact_field_and_gradient_at_logical_points(
+                    points, 0.0, "phi"
+                )
+                exact_flux = float(np.sum(np.where(
+                    qactive,
+                    J * np.einsum("...i,...ij,...j->...", area, projector, gradient),
+                    0.0,
+                )))
+            else:
+                exact_flux = float("nan")
+            if operator_name == "perp_laplacian_phi":
+                minus_polynomial_flux_value = float(
+                    np.asarray(minus_polynomial_flux)[shard_index + (row,)]
+                )
+                plus_polynomial_flux_value = (
+                    float(np.asarray(plus_polynomial_flux)[shard_index + (row,)])
+                    if has_plus
+                    else None
+                )
+            g_contra = np.asarray(faces.g_contra[row], dtype=np.float64)
+            oriented_area = np.sum(
+                np.where(qactive[..., None], J[..., None] * area, 0.0), axis=(0, 1)
+            )
+            physical_area = float(np.sum(np.where(
+                qactive,
+                J * np.sqrt(np.maximum(
+                    np.einsum("...i,...ij,...j->...", area, g_contra, area), 0.0,
+                )),
+                0.0,
+            )))
+            compact_numerical += scatter_sign * flux
+            compact_exact += scatter_sign * exact_flux
+            face_prefix = (
+                "    face_id={} kind={} row={} shard={} owner_relation={} "
+                "minus={} plus={} scatter_sign={:+d} "
+            )
+            face_suffix = (
+                "{} signed_contribution={:.6e} "
+                "oriented_area_covector=({:.6e},{:.6e},{:.6e}) physical_area={:.6e} rank={} "
+                "condition={:.6e} reproduction={:.6e} norm(projected,parallel,parallel_grad)="
+                "({:.6e},{:.6e},{:.6e})"
+            )
+            face_identity = (
+                int(np.asarray(faces.global_face_id)[row]),
+                kind_names.get(kind, str(kind)),
+                int(row), shard_index,
+                "minus" if scatter_sign > 0 else "plus",
+                minus, plus, scatter_sign,
+            )
+            face_metadata = (
+                observation_summary,
+                scatter_sign * flux,
+                *oriented_area, physical_area,
+                int(np.asarray(rows.rank)[row]),
+                float(np.asarray(rows.condition_number)[row]),
+                float(np.asarray(rows.reproduction_residual)[row]),
+                float(np.asarray(rows.normalized_projected_weight_norm)[row]),
+                float(np.asarray(rows.normalized_parallel_weight_norm)[row]),
+                float(np.asarray(rows.normalized_parallel_gradient_weight_norm)[row]),
+            )
+            if operator_name == "parallel_density_flux_divergence":
+                compact_exact_product_average += (
+                    scatter_sign * exact_product_average_flux_value
+                )
+                print(
+                    (
+                        face_prefix
+                        + "runtime_product_average_flux={:.6e} "
+                        + "exact_product_average_flux={:.6e} "
+                        + "analytic_quadrature_flux={:.6e} "
+                        + "runtime_error={:.6e} "
+                        + "exact_product_average_error={:.6e} "
+                        + face_suffix
+                    ).format(
+                        *face_identity,
+                        flux,
+                        exact_product_average_flux_value,
+                        exact_flux,
+                        flux - exact_flux,
+                        exact_product_average_flux_value - exact_flux,
+                        *face_metadata,
+                    )
+                )
+            elif operator_name == "perp_laplacian_phi":
+                print(
+                    (
+                        face_prefix
+                        + "runtime_flux={:.6e} "
+                        + "minus_polynomial_flux={:.6e} "
+                        + "plus_polynomial_flux={} "
+                        + "analytic_flux={:.6e} "
+                        + "flux_error={:.6e} "
+                        + face_suffix
+                    ).format(
+                        *face_identity,
+                        flux,
+                        minus_polynomial_flux_value,
+                        ("{:.6e}".format(plus_polynomial_flux_value)
+                         if plus_polynomial_flux_value is not None else "n/a"),
+                        exact_flux,
+                        flux - exact_flux,
+                        *face_metadata,
+                    )
+                )
+            else:
+                print(
+                    (
+                        face_prefix
+                        + "runtime_flux={:.6e} analytic_flux={:.6e} "
+                        + "flux_error={:.6e} "
+                        + face_suffix
+                    ).format(
+                        *face_identity,
+                        flux,
+                        exact_flux,
+                        flux - exact_flux,
+                        *face_metadata,
+                    )
+                )
+    if not found:
+        print("    no attached irregular faces; numerical/reference integrated values isolate dense/volume/reference paths")
+        return
+    numerical_integrated = float(actual[top_index]) * volume
+    reference_integrated = float(reference[top_index]) * volume
+    numerical_dense_remainder = numerical_integrated - compact_numerical
+    analytic_dense_remainder = reference_integrated - compact_exact
+    if operator_name == "parallel_density_flux_divergence":
+        alternative_aggregate_error = (
+            numerical_integrated
+            - compact_numerical
+            + compact_exact_product_average
+            - reference_integrated
+        )
+        print(
+            "    compact_signed_sum runtime_product_average={:.6e} "
+            "exact_product_average={:.6e} analytic_quadrature={:.6e} "
+            "runtime_error={:.6e} exact_product_average_error={:.6e}; "
+            "dense_remainder numerical={:.6e} analytic={:.6e}; "
+            "aggregate_runtime_error={:.6e} "
+            "aggregate_exact_product_average_error={:.6e}".format(
+                compact_numerical,
+                compact_exact_product_average,
+                compact_exact,
+                compact_numerical - compact_exact,
+                compact_exact_product_average - compact_exact,
+                numerical_dense_remainder,
+                analytic_dense_remainder,
+                numerical_integrated - reference_integrated,
+                alternative_aggregate_error,
+            )
+        )
+    else:
+        print(
+            "    compact_signed_sum runtime={:.6e} analytic={:.6e} "
+            "error={:.6e}; dense_remainder numerical={:.6e} "
+            "analytic={:.6e}; aggregate_error={:.6e}".format(
+                compact_numerical,
+                compact_exact,
+                compact_numerical - compact_exact,
+                numerical_dense_remainder,
+                analytic_dense_remainder,
+                numerical_integrated - reference_integrated,
+            )
+        )
+
+
 def run_shifted_torus_control_volume_operator_convergence(
     *,
     resolutions: list[int],
@@ -420,13 +773,45 @@ def run_shifted_torus_control_volume_operator_convergence(
     enable_agglomeration: bool = True,
     minimum_order: float = 1.8,
     check_phi_solve: bool = True,
+    selected_operators: list[str] | None = None,
+    face_audit: bool = False,
+    reconstruction_boundary_weight_scale: float = 1.0,
+    face_functional_boundary_weight_scale: float = 1.0,
+    face_functional_all_owner_boundary_observations: bool = False,
+    face_functional_cell_radius: int = 2,
+    perp_use_two_owner_polynomial_flux: bool = False,
+    perp_use_cutwall_owner_polynomial_flux: bool = False,
 ) -> dict[str, object]:
     """Run low-memory spatial convergence kernels for the unified CV path."""
 
+    reconstruction_boundary_weight_scale = _validate_reconstruction_boundary_weight_scale(
+        reconstruction_boundary_weight_scale
+    )
+    face_functional_boundary_weight_scale = _validate_face_functional_boundary_weight_scale(
+        face_functional_boundary_weight_scale
+    )
+    face_functional_cell_radius = _validate_face_functional_cell_radius(
+        face_functional_cell_radius
+    )
     shard_counts = tuple(int(value) for value in shard_counts)
+    if face_functional_all_owner_boundary_observations and shard_counts != (1, 1, 1):
+        raise ValueError(
+            "face_functional_all_owner_boundary_observations requires one shard "
+            "because remote Dirichlet observations are not exchanged"
+        )
+    if perp_use_two_owner_polynomial_flux and shard_counts != (1, 1, 1):
+        raise ValueError(
+            "perp_use_two_owner_polynomial_flux requires one shard "
+            "because owner polynomial values are not exchanged"
+        )
+    if perp_use_cutwall_owner_polynomial_flux and shard_counts != (1, 1, 1):
+        raise ValueError(
+            "perp_use_cutwall_owner_polynomial_flux requires one shard "
+            "because owner polynomial values are not exchanged"
+        )
     parameters = _make_parameters(rho_star_value)
     gmres_config = _make_gmres_config(parameters)
-    operator_names = (
+    available_operator_names = (
         "grad_parallel_density",
         "grad_parallel_phi",
         "grad_parallel_v_ion",
@@ -440,6 +825,33 @@ def run_shifted_torus_control_volume_operator_convergence(
         "curvature_phi",
         "perp_laplacian_phi",
     )
+    if selected_operators is None:
+        operator_names = available_operator_names
+    else:
+        requested_operators = tuple(
+            dict.fromkeys(str(name) for name in selected_operators)
+        )
+        unknown_operators = sorted(
+            set(requested_operators) - set(available_operator_names)
+        )
+        if unknown_operators:
+            raise ValueError(
+                "unknown control-volume operators "
+                f"{unknown_operators}; available operators are "
+                f"{list(available_operator_names)}"
+            )
+        operator_names = tuple(
+            name
+            for name in available_operator_names
+            if name in requested_operators
+        )
+        if not operator_names:
+            raise ValueError("selected_operators must not be empty")
+        print(
+            "Targeted operator mode: "
+            f"{', '.join(operator_names)}; full RHS and phi solve skipped",
+            flush=True,
+        )
     records: dict[
         str,
         dict[str, list[tuple[int, float, float]]],
@@ -467,6 +879,12 @@ def run_shifted_torus_control_volume_operator_convergence(
                 shard_counts=shard_counts,
                 halo_width=halo_width,
                 enable_merging=enable_agglomeration,
+                reconstruction_boundary_weight_scale=reconstruction_boundary_weight_scale,
+                face_functional_boundary_weight_scale=face_functional_boundary_weight_scale,
+                face_functional_all_owner_boundary_observations=(
+                    face_functional_all_owner_boundary_observations
+                ),
+                face_functional_cell_radius=face_functional_cell_radius,
             )
         )
         print(
@@ -681,6 +1099,10 @@ def run_shifted_torus_control_volume_operator_convergence(
                 jnp.ndarray,
                 jnp.ndarray,
                 jnp.ndarray,
+                jnp.ndarray,
+                jnp.ndarray,
+                jnp.ndarray,
+                jnp.ndarray,
             ]:
                 local_invariants = extract_local_shard_pytree(
                     local_invariants
@@ -702,6 +1124,16 @@ def run_shifted_torus_control_volume_operator_convergence(
                     0,
                     dtype=jnp.int32,
                 )
+                diagnostic_flux = jnp.zeros(
+                    (
+                        control_volume_geometry.irregular_faces.max_rows
+                        if face_audit else 1,
+                    ),
+                    dtype=jnp.float64,
+                )
+                exact_product_average_flux = jnp.zeros_like(diagnostic_flux)
+                minus_polynomial_flux = jnp.zeros_like(diagnostic_flux)
+                plus_polynomial_flux = jnp.zeros_like(diagnostic_flux)
                 reconstruction_target = (
                     control_volume_geometry.reconstruction.target_row_for_cell
                     >= 0
@@ -808,6 +1240,43 @@ def run_shifted_torus_control_volume_operator_convergence(
                         control_volume_geometry,
                         boundary_bc,
                     )
+                    if face_audit:
+                        exact_density_v_electron = (
+                            _integrate_local_scalar_over_fluid(
+                                local_geometry_value,
+                                control_volume_geometry,
+                                lambda points: (
+                                    _shifted_torus_exact_field_at_logical_points(
+                                        points,
+                                        stage_time,
+                                        "density_v_electron",
+                                    )
+                                ),
+                            )
+                        )
+                        (
+                            exact_field_halo,
+                            _exact_field_polynomial,
+                            exact_boundary_bc,
+                            _exact_face_bc,
+                        ) = prepare_field(
+                            exact_density_v_electron,
+                            "density_v_electron",
+                            local_invariants,
+                            local_geometry_value,
+                            control_volume_geometry,
+                            stage_time,
+                        )
+                        exact_field_closure = (
+                            build_local_control_volume_field_closure(
+                                exact_field_halo,
+                                control_volume_geometry,
+                                exact_boundary_bc,
+                            )
+                        )
+                        exact_product_average_flux = (
+                            exact_field_closure.parallel_flux
+                        )
                     actual = local_parallel_flux_div_op(
                         local,
                         local_geometry_value,
@@ -827,6 +1296,8 @@ def run_shifted_torus_control_volume_operator_convergence(
                         ).astype(jnp.int32)
                     )
                     irregular_flux = field_closure.parallel_flux
+                    if face_audit:
+                        diagnostic_flux = irregular_flux
                     remote_row = (
                         control_volume_geometry.irregular_faces.active
                         & control_volume_geometry.irregular_faces.has_remote_owner
@@ -983,6 +1454,134 @@ def run_shifted_torus_control_volume_operator_convergence(
                         control_volume_geometry,
                         boundary_bc,
                     )
+                    if (
+                        face_audit
+                        or perp_use_two_owner_polynomial_flux
+                        or perp_use_cutwall_owner_polynomial_flux
+                    ):
+                        faces = control_volume_geometry.irregular_faces
+                        quadrature_points = faces.quadrature_points
+                        quadrature_shape = quadrature_points.shape[:-1]
+                        minus_owner_i = jnp.broadcast_to(
+                            faces.minus_owner_i[:, None, None], quadrature_shape
+                        )
+                        minus_owner_j = jnp.broadcast_to(
+                            faces.minus_owner_j[:, None, None], quadrature_shape
+                        )
+                        minus_owner_k = jnp.broadcast_to(
+                            faces.minus_owner_k[:, None, None], quadrature_shape
+                        )
+                        _minus_value, minus_gradient, _minus_valid = (
+                            evaluate_local_control_volume_polynomial(
+                                phi_owned,
+                                phi_poly,
+                                control_volume_geometry.cells,
+                                minus_owner_i,
+                                minus_owner_j,
+                                minus_owner_k,
+                                quadrature_points,
+                            )
+                        )
+                        face_weight = (
+                            faces.J[..., None] * faces.area_covector_weight
+                        )
+                        minus_polynomial_flux = jnp.sum(
+                            jnp.where(
+                                faces.quadrature_active,
+                                jnp.einsum(
+                                    "...i,...ij,...j->...",
+                                    face_weight,
+                                    faces.projector,
+                                    minus_gradient,
+                                ),
+                                0.0,
+                            ),
+                            axis=(-2, -1),
+                        )
+                        plus_owner_i = jnp.broadcast_to(
+                            faces.plus_owner_i[:, None, None], quadrature_shape
+                        )
+                        plus_owner_j = jnp.broadcast_to(
+                            faces.plus_owner_j[:, None, None], quadrature_shape
+                        )
+                        plus_owner_k = jnp.broadcast_to(
+                            faces.plus_owner_k[:, None, None], quadrature_shape
+                        )
+                        _plus_value, plus_gradient, _plus_valid = (
+                            evaluate_local_control_volume_polynomial(
+                                phi_owned,
+                                phi_poly,
+                                control_volume_geometry.cells,
+                                plus_owner_i,
+                                plus_owner_j,
+                                plus_owner_k,
+                                quadrature_points,
+                            )
+                        )
+                        plus_polynomial_flux = jnp.where(
+                            faces.has_plus_owner,
+                            jnp.sum(
+                                jnp.where(
+                                    faces.quadrature_active,
+                                    jnp.einsum(
+                                        "...i,...ij,...j->...",
+                                        face_weight,
+                                        faces.projector,
+                                        plus_gradient,
+                                    ),
+                                    0.0,
+                                ),
+                                axis=(-2, -1),
+                            ),
+                            0.0,
+                        )
+                        if (
+                            perp_use_two_owner_polynomial_flux
+                            or perp_use_cutwall_owner_polynomial_flux
+                        ):
+                            radial_owner_upper = (
+                                control_volume_geometry.cells.shape[0] - 1
+                            )
+                            minus_radial_interior = (
+                                (faces.minus_owner_i > 0)
+                                & (faces.minus_owner_i < radial_owner_upper)
+                            )
+                            plus_radial_interior = (
+                                (faces.plus_owner_i > 0)
+                                & (faces.plus_owner_i < radial_owner_upper)
+                            )
+                            use_two_owner_flux = (
+                                faces.has_plus_owner
+                                & minus_radial_interior
+                                & plus_radial_interior
+                            )
+                            use_cut_wall_flux = (
+                                (faces.kind == CV_FACE_CUT_WALL)
+                                & minus_radial_interior
+                            )
+                            projected_flux = phi_closure.projected_flux
+                            if perp_use_two_owner_polynomial_flux:
+                                projected_flux = jnp.where(
+                                    use_two_owner_flux,
+                                    0.5
+                                    * (
+                                        minus_polynomial_flux
+                                        + plus_polynomial_flux
+                                    ),
+                                    projected_flux,
+                                )
+                            if perp_use_cutwall_owner_polynomial_flux:
+                                projected_flux = jnp.where(
+                                    use_cut_wall_flux,
+                                    minus_polynomial_flux,
+                                    projected_flux,
+                                )
+                            phi_closure = dataclass_replace(
+                                phi_closure,
+                                projected_flux=projected_flux,
+                            )
+                        if face_audit:
+                            diagnostic_flux = phi_closure.projected_flux
                     actual = local_perp_laplacian_conservative_op(
                         local,
                         local_geometry_value,
@@ -1019,6 +1618,10 @@ def run_shifted_torus_control_volume_operator_convergence(
                     remote_flux_abs_sum,
                     invalid_remote_quadrature,
                     invalid_reconstruction_rows,
+                    diagnostic_flux[None, None, None, :],
+                    exact_product_average_flux[None, None, None, :],
+                    minus_polynomial_flux[None, None, None, :],
+                    plus_polynomial_flux[None, None, None, :],
                 )
 
             def make_scalar_kernel(operator_name: str):
@@ -1059,6 +1662,10 @@ def run_shifted_torus_control_volume_operator_convergence(
                             P(),
                             P(),
                             P(),
+                            P(*MESH_AXIS_NAMES, None),
+                            P(*MESH_AXIS_NAMES, None),
+                            P(*MESH_AXIS_NAMES, None),
+                            P(*MESH_AXIS_NAMES, None),
                         ),
                         check_rep=False,
                     )
@@ -1071,6 +1678,10 @@ def run_shifted_torus_control_volume_operator_convergence(
                     remote_flux_abs_sum,
                     invalid_remote_quadrature,
                     invalid_reconstruction_rows,
+                    diagnostic_flux_mesh,
+                    exact_product_average_flux_mesh,
+                    minus_polynomial_flux_mesh,
+                    plus_polynomial_flux_mesh,
                 ) = compiled(
                     state_mesh,
                     phi_mesh,
@@ -1090,6 +1701,31 @@ def run_shifted_torus_control_volume_operator_convergence(
                 reference = np.asarray(
                     jax.device_get(reference_mesh),
                     dtype=np.float64,
+                )
+                diagnostic_flux = (
+                    np.asarray(jax.device_get(diagnostic_flux_mesh), dtype=np.float64)
+                    if face_audit else None
+                )
+                exact_product_average_flux = (
+                    np.asarray(
+                        jax.device_get(exact_product_average_flux_mesh),
+                        dtype=np.float64,
+                    )
+                    if face_audit else None
+                )
+                minus_polynomial_flux = (
+                    np.asarray(
+                        jax.device_get(minus_polynomial_flux_mesh),
+                        dtype=np.float64,
+                    )
+                    if face_audit else None
+                )
+                plus_polynomial_flux = (
+                    np.asarray(
+                        jax.device_get(plus_polynomial_flux_mesh),
+                        dtype=np.float64,
+                    )
+                    if face_audit else None
                 )
                 statistics = _operator_category_statistics(
                     actual,
@@ -1241,6 +1877,73 @@ def run_shifted_torus_control_volume_operator_convergence(
                         top_compact_distance,
                     )
                 )
+                if face_audit:
+                    assert diagnostic_flux is not None
+                    assert exact_product_average_flux is not None
+                    assert minus_polynomial_flux is not None
+                    assert plus_polynomial_flux is not None
+                    aggregate_mask = active_mask & np.asarray(
+                        cell_data["is_aggregate_target"], dtype=bool
+                    )
+                    if np.any(aggregate_mask):
+                        audit_error = np.where(
+                            aggregate_mask, absolute_error, -np.inf
+                        )
+                        audit_flat = int(np.argmax(audit_error))
+                        audit_index = tuple(
+                            int(value)
+                            for value in np.unravel_index(audit_flat, shape)
+                        )
+                        audit_label = "worst_aggregate_target"
+                    else:
+                        audit_index = top_index
+                        audit_label = "worst_active_no_aggregate_target"
+                    print(
+                        "  face_audit_target kind={} index={} error={:.6e} "
+                        "actual={:.6e} reference={:.6e}".format(
+                            audit_label,
+                            audit_index,
+                            float(absolute_error[audit_index]),
+                            float(actual[audit_index]),
+                            float(reference[audit_index]),
+                        )
+                    )
+                    _print_worst_aggregate_face_audit(
+                        operator_name=operator_name,
+                        top_index=audit_index,
+                        actual=actual,
+                        reference=reference,
+                        cell_data=cell_data,
+                        stacked_control_volume_geometry=stacked_control_volume_geometry,
+                        shard_counts=shard_counts,
+                        diagnostic_flux=diagnostic_flux,
+                        exact_product_average_flux=exact_product_average_flux,
+                        minus_polynomial_flux=minus_polynomial_flux,
+                        plus_polynomial_flux=plus_polynomial_flux,
+                    )
+                    if top_index != audit_index:
+                        print(
+                            "  face_audit_target kind=worst_active index={} "
+                            "error={:.6e} actual={:.6e} reference={:.6e}".format(
+                                top_index,
+                                float(absolute_error[top_index]),
+                                float(actual[top_index]),
+                                float(reference[top_index]),
+                            )
+                        )
+                        _print_worst_aggregate_face_audit(
+                            operator_name=operator_name,
+                            top_index=top_index,
+                            actual=actual,
+                            reference=reference,
+                            cell_data=cell_data,
+                            stacked_control_volume_geometry=stacked_control_volume_geometry,
+                            shard_counts=shard_counts,
+                            diagnostic_flux=diagnostic_flux,
+                            exact_product_average_flux=exact_product_average_flux,
+                            minus_polynomial_flux=minus_polynomial_flux,
+                            plus_polynomial_flux=plus_polynomial_flux,
+                        )
 
                 # Each operator creates a distinct large shard_map executable.
                 # Release its device outputs and compiled executable before
@@ -1253,12 +1956,23 @@ def run_shifted_torus_control_volume_operator_convergence(
                     remote_flux_abs_sum,
                     invalid_remote_quadrature,
                     invalid_reconstruction_rows,
+                    diagnostic_flux_mesh,
+                    exact_product_average_flux_mesh,
+                    minus_polynomial_flux_mesh,
+                    plus_polynomial_flux_mesh,
                     actual,
                     reference,
+                    diagnostic_flux,
+                    exact_product_average_flux,
+                    minus_polynomial_flux,
+                    plus_polynomial_flux,
                     statistics,
                 )
                 jax.clear_caches()
                 gc.collect()
+            if selected_operators is not None:
+                continue
+
             def full_rhs_kernel(
                 state_owned,
                 phi_owned,
@@ -1724,7 +2438,11 @@ def run_shifted_torus_4field_cutwall_convergence(
     show_progress: bool = False,
     enable_agglomeration: bool = False,
     minimum_order: float | None = None,
+    reconstruction_boundary_weight_scale: float = 1.0,
 ) -> dict[str, object]:
+    reconstruction_boundary_weight_scale = _validate_reconstruction_boundary_weight_scale(
+        reconstruction_boundary_weight_scale
+    )
     successful_resolutions: list[int] = []
     l2_errors: list[float] = []
     max_errors: list[float] = []
@@ -1740,6 +2458,7 @@ def run_shifted_torus_4field_cutwall_convergence(
                 shard_counts=shard_counts,
                 halo_width=halo_width,
                 enable_merging=enable_agglomeration,
+                reconstruction_boundary_weight_scale=reconstruction_boundary_weight_scale,
             )
         )
         steps = _resolution_step_count(int(resolution), base_steps=base_steps)

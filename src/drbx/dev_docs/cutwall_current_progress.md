@@ -15,11 +15,10 @@ to the durable infrastructure documents:
 - [cutwall_numerical_problem_report.md](cutwall_numerical_problem_report.md)
   explains the numerical problem and the design rationale.
 
-Snapshot date: 2026-07-22.
+Snapshot date: 2026-07-23.
 
-Repository baseline at the time of this snapshot: `f2a50f60`, plus the current
-worktree change that releases each compiled operator kernel and its device
-outputs during the convergence sweep.
+Repository baseline at the time of this snapshot: `7407d1a8`, plus the current
+worktree changes summarized below.
 
 ## Executive Summary
 
@@ -50,16 +49,44 @@ error grows at multi-wall aggregate targets while nearby dense cells converge
 near second order. That behavior should be diagnosed before simply running a
 larger full sweep.
 
-Geometry preprocessing is also too expensive for the current problem size:
+All five Phase A items are now implemented and checked in the current worktree:
+geometry-phase timing, one-shard unsplit-bundle reuse, reuse of the generated
+global functional records, inactive-centroid metric sanitation, and targeted
+operator selection. Focused `N=6` coverage verifies that the one-shard result
+is exactly the captured unsplit bundle and that global functional compilation
+occurs once; the sanitation test covers inactive and nonfinite centroid
+placeholders. The one-shard `N=6` build took `18.1 s`, versus `23.9 s` for the
+decomposed build.
+
+The resulting one-shard preprocessing times are:
 
 ```text
-N=10:  92.514 s
-N=14: 144.647 s
+N=10: 46.0 s  (previously 92.514 s)
+N=14: 73.5 s  (previously 144.647 s)
 ```
 
-The single-shard builder currently repeats major global and local bundle work
-and compiles global face-functional records more than once. Removing that
-duplication is the next infrastructure priority.
+This materially improves iteration time without changing the numerical
+method. The remaining geometry cost is dominated by global direct-functional
+construction, not duplicate one-shard lowering.
+
+Follow-up diagnostics have now isolated the perpendicular failure more
+precisely. Disabling agglomeration does not restore convergence, exact
+manufactured product averages do not repair the parallel face fluxes, and the
+compact signed sums close correctly. The main defect is the accuracy and
+locality of the fitted face flux itself.
+
+The strongest experimental improvement came from constructing one
+conservative interior-face flux by averaging the two adjacent owner-polynomial
+fluxes, while using the owner polynomial on embedded cut-wall faces. This is
+not yet a production implementation, but it improved the perpendicular
+Laplacian all-active volume-L2 error from `5.445e-1` to `4.444e-1` at `N=10`
+and from the direct-functional baseline to `2.405e-1` at `N=14`. The
+three-grid `N=10,14,18` all-active fitted order is `1.575`, not the requested
+`1.8`; a topology-dependent one-wall aggregate failure appears at `N=18`.
+The parallel-density flux remains unresolved.
+
+Work is paused at this diagnostic checkpoint. All alternative flux and weight
+paths added in this phase are opt-in and default-neutral.
 
 ## 1. Latest Validation Configuration
 
@@ -230,6 +257,33 @@ the two operator failures as unrelated.
 
 The following are hypotheses to test, not established causes.
 
+### 6.0 Face-audit result: the direct functional is the first bad stage
+
+The targeted `N=10,14` audit is recorded in
+`shifted_torus_targeted_face_audit_n10_n14.txt`. It selected only
+`parallel_density_flux_divergence` and `perp_laplacian_phi`; their all-active
+volume-L2/Linf two-point orders were respectively `0.788/-0.361` and
+`0.847/-0.852`.
+
+The original process loaded before the audit target was restricted from the
+global worst cell to the worst aggregate target. Its corrected `N=10`
+parallel aggregate audit is preserved separately in
+`shifted_torus_parallel_face_audit_n10_corrected.txt`.
+
+For each worst aggregate, the numerical compact signed sum equals the actual
+integrated residual to machine precision. The exact compact sum differs from
+the independently projected reference only by the reported dense remainder.
+Thus face ownership, scatter signs, aggregate-volume division, and the MMS
+control-volume reference are not the first defect.
+
+The first bad quantity is the individual direct-functional flux. The dominant
+perpendicular failures are x-normal interior and cut-wall functional fluxes
+with incorrect sign or magnitude; their signed contributions drive the
+multi-wall aggregate error. The parallel-density flux also has large
+tangential face errors whose cancellation is wrong. These rows have full
+cubic rank and small reproduction residuals, so polynomial reproduction alone
+does not establish physical flux accuracy.
+
 ### 6.1 Multi-face aggregate divergence
 
 A direct face functional may reproduce its target polynomial correctly while
@@ -244,9 +298,10 @@ the final aggregate divergence is still wrong because:
   level;
 - the MMS reference is projected over a different control volume.
 
-The worst aggregate should be audited face by face. For every physical face,
-print its global face ID, kind, signed area measure, exact integrated flux,
-numerical integrated flux, residual contribution, and final owner.
+The completed worst-aggregate audit now clears this class as the first defect
+for the two targeted operators: numerical compact sums close to their actual
+integrated residuals, and exact compact sums close to the MMS reference. Keep
+these checks as invariants while repairing the individual functional fluxes.
 
 ### 6.2 Functional conditioning and coefficient amplification
 
@@ -302,9 +357,9 @@ whose:
 - wall trace varies tangentially;
 - projected normal flux is nonzero on oblique and multi-wall faces.
 
-## 7. Geometry Build-Time Problem
+## 7. Geometry Build-Time Status
 
-Measured preprocessing time:
+Previous measured preprocessing time:
 
 ```text
 N=10:  92.514 s for  898 irregular faces and 566 reconstruction rows
@@ -315,7 +370,7 @@ The growth broadly follows the irregular wall band rather than the full cell
 count, which is desirable. The absolute constant is not acceptable for an
 iterative development test.
 
-The current `_build_stacked_embedded_control_volume_geometry` path performs:
+The previous `_build_stacked_embedded_control_volume_geometry` path performed:
 
 1. Global raw moments, face measures, and aggregate topology.
 2. A complete unsplit global embedded bundle.
@@ -327,38 +382,19 @@ The current `_build_stacked_embedded_control_volume_geometry` path performs:
 7. Padding and stacking of the local bundles.
 
 For `shard_counts=(1,1,1)`, the unsplit global bundle and the only local bundle
-describe the same partition. Rebuilding both is unnecessary.
+describe the same partition. The current path directly stacks the unsplit
+bundle and carries the generated functional-record dictionary forward, which
+removes both duplicates.
 
 The global topology builder also loops in Python over every coordinate face,
 constructs its open rectangles, evaluates quadrature, and evaluates the
 shifted-torus metric separately. That path should eventually be batched.
 
-### Build optimization priorities
+### Remaining build optimization priorities
 
-1. Add phase timers before changing algorithms:
-
-   ```text
-   raw moments
-   global face measures
-   global topology/agglomeration
-   global face discovery
-   cell reconstruction precompute
-   global direct functional fitting
-   local lowering
-   regular boundary closure
-   padding and stacking
-   ```
-
-2. Add a one-shard fast path that directly stacks and returns the already
-   constructed unsplit bundle.
-3. Refactor global functional compilation so generated records are returned
-   and reused rather than recomputed.
-4. Batch the coordinate-face measure calculation.
-5. Add an optional persistent geometry cache keyed by all geometry-affecting
+1. Batch the coordinate-face measure calculation.
+2. Add an optional persistent geometry cache keyed by all geometry-affecting
    inputs after the build path is deterministic and validated.
-
-The first two changes should remove major duplicated work without changing
-the numerical method.
 
 ## 8. Known Diagnostic Noise
 
@@ -369,9 +405,9 @@ array. Inactive solid and merged-source slots contain the placeholder
 centroid `(0,0,0)`, which produces divide-by-zero warnings even though the
 physical radial domain begins at `x_min=0.2`.
 
-Use a valid reference coordinate for inactive entries before evaluating
-centroid metric and curvature arrays. This is a data sanitation fix and
-should not alter any active-owner result.
+This is fixed: inactive or nonfinite centroid slots are replaced by an
+in-domain reference coordinate before metric and curvature evaluation. The
+replacement is masked from active-owner physics and is unit-tested.
 
 ### Empty categories
 
@@ -385,38 +421,39 @@ When the exact reference norm is zero, machine-precision absolute errors are
 printed with enormous relative errors. Acceptance and diagnosis must use the
 absolute error or mark the result exact/degenerate.
 
-## 9. Prioritized Next Steps
+## 9. Phase Status
 
 ### Phase A: make iteration affordable
 
-1. Add geometry phase timings.
-2. Add the one-shard bundle-reuse fast path.
-3. Remove duplicate global functional compilation.
-4. Sanitize inactive centroid metric evaluation.
-5. Add an operator-selection CLI option to the sweep.
+Completed: geometry phase timings, the one-shard bundle-reuse fast path,
+single global functional compilation, inactive-centroid sanitation, and the
+targeted `--operators` CLI option. Focused `N=6` tests cover the first four;
+the operator-selection test validates accepted and rejected names without a
+geometry build.
 
-### Phase B: isolate the multi-wall aggregate defect
+### Phase B: diagnose direct-functional accuracy
 
-1. Reproduce only:
+Completed far enough to identify the next design question:
 
-   ```text
-   perp_laplacian_phi
-   parallel_density_flux_divergence
-   ```
+- exact compact sums and the MMS reference agree, clearing conservative
+  scatter, aggregate-volume division, and reference projection as the first
+  defect;
+- disabling agglomeration does not restore convergence;
+- exact analytic product averages do not repair the parallel flux;
+- bad direct functionals can draw on more than 100 cell averages while
+  receiving few or no wall equations;
+- symmetric two-owner polynomial fluxes materially improve the perpendicular
+  operator, but the current diagnostic implementation is not robust at every
+  regular radial boundary or every one-wall aggregate.
 
-2. For the maximum-error aggregate, dump every contributing face.
-3. Compare numerical and exact integrated flux per face.
-4. Verify one unique face ID and one signed scatter per physical face.
-5. Verify the sum is divided by the same aggregate volume used by the MMS
-   projection.
-6. Report direct-functional condition numbers, reproduction residuals, and
-   normalized weight norms for those faces.
-7. Repeat with agglomeration disabled to separate the cut-face closure from
-   aggregate ownership/divergence.
+The next method change should therefore be a boundary-aware, decomposition-safe
+construction of one symmetric physical face flux, with controlled stencil
+locality. It should not be another global scalar multiplier applied to the
+existing direct-functional fit.
 
 ### Phase C: isolate regular radial-boundary defects
 
-Run only:
+Still pending. Run only:
 
 ```text
 grad_parallel_v_electron
@@ -430,19 +467,18 @@ regular radial closure independently of the embedded box.
 
 ### Phase D: establish convergence
 
-After Phases A-C:
+The first three-resolution perpendicular diagnostic has been run, but its
+acceptance gate did not pass. After the compact flux is redesigned:
 
-1. Run at least three resolutions, initially `N=10,14,18`.
-2. Require monotone error reduction before interpreting a fitted order.
-3. Inspect all-active, bulk, one-wall, multi-wall, aggregate-target, retained
-   cut-cell, and radial-boundary categories separately.
-4. Run the projected-exact-phi full RHS only after the isolated operators are
-   understood.
-5. Re-enable the algebraic phi solve after the spatial operator sweep passes.
-6. Run a decomposed case to validate remote compact faces and reverse
-   residual accumulation.
-7. Finally run the time-dependent four-field shifted-torus MMS convergence
-   test.
+1. repeat `N=10,14,18` for `perp_laplacian_phi`;
+2. require monotone all-active and wall-category reduction before fitting an
+   order;
+3. repair and repeat `parallel_density_flux_divergence`;
+4. run the projected-exact-phi full RHS only after isolated operators pass;
+5. re-enable the algebraic phi solve;
+6. run a decomposed case to validate remote compact faces and reverse
+   residual accumulation;
+7. finally run the time-dependent four-field shifted-torus MMS test.
 
 ## 10. Acceptance Gates
 
@@ -464,19 +500,247 @@ when:
 - geometry preprocessing is fast enough to make repeated validation
   practical, or a validated persistent cache is available.
 
-## 11. Immediate Handoff
+## 11. Follow-up Direct-Functional Experiments
 
-The next agent should not begin by increasing polynomial degree or restoring
-the removed wall-normal gradient patch.
+### 11.1 Controls that ruled out earlier hypotheses
 
-The immediate work package is:
+Agglomeration-disabled `N=10,14` tests remained nonconvergent:
 
-1. instrument geometry build phases;
-2. remove single-shard duplicate bundle and functional construction;
-3. add targeted operator selection;
-4. audit the worst `perp_laplacian_phi` aggregate face by face;
-5. determine whether the first bad quantity is an individual face flux, its
-   signed scatter, aggregate-volume division, or the MMS reference.
+| Operator | All-active L2 order | All-active Linf order | Multi-wall L2 order |
+|---|---:|---:|---:|
+| Parallel density flux divergence | `0.867` | `0.041` | `-0.279` |
+| Perpendicular Laplacian | `0.705` | `-0.474` | `-0.284` |
 
-Only after that audit should a third resolution be used to decide whether the
-remaining behavior is pre-asymptotic or a closure defect.
+The defect is therefore intrinsic to the compact closure rather than created
+only by merged-cell ownership.
+
+For the bad parallel faces, the runtime covariance-corrected product and the
+exact manufactured control-volume product average produced the same fitted
+flux to the shown precision. Examples are:
+
+```text
+face 1711: fitted 7.665046e-05, exact flux 1.820220e-03
+face 1806: fitted 5.280481e-04, exact flux 2.435709e-03
+```
+
+The product-average input is not the first parallel-density defect; the face
+functional maps accurate input averages to an inaccurate flux.
+
+### 11.2 Observation coverage and locality
+
+Representative rows expose a large support and weak boundary influence:
+
+| Face | Role | Cell equations | Dirichlet equations | Cell-weight L1 | Dirichlet-weight L1 |
+|---|---|---:|---:|---:|---:|
+| `1711` | parallel interior | 150 | 0 | not recorded | `0` |
+| `1806` | parallel interior | 134 | 0 | not recorded | `0` |
+| `284` | perpendicular interior x-face | 105 | 0 | `10.77` | `0` |
+| `-20000800006` | perpendicular cut-wall x-face | 105 | 12 | `6.381` | `1.166` |
+
+For face `284`, the direct fitted flux was `8.90e-2` versus the exact
+`1.656e-2`. For cut-wall face `-20000800006`, it was `-6.42e-2` versus the
+exact `+1.234e-2`.
+
+Reducing the cell radius from 2 to 1 made the `N=10` cubic face system rank
+deficient (`18/20`). Thus the present cubic basis genuinely needs more than a
+radius-1 support on this coarse geometry. The concern is not that radius 2 is
+automatically invalid; it is that a necessary broad candidate neighborhood is
+only weakly localized and can draw appreciable weight from physically distant
+cells.
+
+Increasing the direct-functional boundary equation weight by 10 did not fix
+the method. The perpendicular all-active error changed from
+`0.54449/4.690` to `0.66554/5.339` in volume L2/Linf. Including wall
+observations from all local compact-face owners improved the multi-wall error
+from `1.466/4.690` to `0.878/2.693`, but worsened the all-active result to
+`0.57113/6.909`. This confirms that missing neighboring-owner boundary data is
+real, but not sufficient by itself.
+
+### 11.3 Owner-polynomial and symmetric-face diagnostics
+
+At the `N=10` worst aggregate face `284`:
+
+```text
+direct functional          +0.0890
+minus-owner polynomial     +0.1563
+plus-owner polynomial      -0.1269
+two-owner average          +0.0147
+exact                      +0.01656
+```
+
+Neither one-sided polynomial was reliable alone, but their average nearly
+recovered the exact physical face flux. Applying two-owner averaging at every
+face was not viable: regular radial-boundary errors grew above `1e2`.
+Restricting it to radial-interior two-owner faces avoided that failure.
+
+The best tested experimental split was:
+
+- average the two owner-polynomial projected fluxes on radial-interior
+  two-owner faces;
+- use the owner-polynomial flux on embedded cut-wall faces;
+- retain the direct path on regular radial boundaries.
+
+It produced:
+
+| Resolution | Category | Volume L2 | Linf |
+|---:|---|---:|---:|
+| 10 | all active | `0.444420` | `3.782884` |
+| 10 | one wall | `0.766496` | `1.764649` |
+| 10 | multi wall | `0.833655` | `2.315240` |
+| 10 | aggregate target | `0.826535` | `2.315240` |
+| 10 | retained cut cell | `0.687384` | `1.552876` |
+| 14 | all active | `0.240544` | `4.284419` |
+| 14 | one wall | `0.472573` | `1.205924` |
+| 14 | multi wall | `0.451669` | `1.514102` |
+| 14 | aggregate target | `0.481845` | `1.514102` |
+| 14 | retained cut cell | `0.215238` | `0.361580` |
+| 18 | all active | `0.177572` | `3.430412` |
+| 18 | one wall | `0.632235` | `3.430412` |
+| 18 | multi wall | `0.179591` | `0.599786` |
+| 18 | aggregate target | `1.308957` | `3.430412` |
+| 18 | retained cut cell | `0.322684` | `2.080289` |
+
+The `N=10,14` all-active volume-L2 order is `1.824`, but the three-grid
+regression is:
+
+| Category | Volume-L2 order | Linf order |
+|---|---:|---:|
+| all active | `1.575` | `0.137` |
+| multi wall | `2.568` | `2.241` |
+| aggregate target | `-0.651` | `-0.563` |
+| retained cut cell | `1.405` | `-0.232` |
+
+The multi-wall category now converges. The `N=18` failure is concentrated in
+one-wall aggregates and coincides with a topology change: aggregate count
+falls from 96 at `N=14` to 36 at `N=18`. The worst aggregate has only four
+Dirichlet samples, and its owner-polynomial cut-wall flux is
+`-2.591e-2` versus the exact `-2.695e-3`.
+
+Using the direct cut-wall functional instead does not solve the problem. At
+`N=18` it worsens the all-active error to `0.21070/4.35758`, and individual
+direct cut-wall fluxes can have the wrong sign. The owner-polynomial cut-wall
+path is better overall, but its one-wall reconstruction remains
+underconstrained by boundary information.
+
+### 11.4 Boundary weighting in owner reconstruction
+
+A one-wall cubic owner reconstruction can contain up to 48 cell-average
+equations but only four Dirichlet equations. A default-neutral diagnostic
+scales only those Dirichlet equations:
+
+| Boundary scale | `N=18` all L2/Linf | One-wall L2/Linf | Multi-wall L2/Linf | Aggregate L2/Linf |
+|---:|---|---|---|---|
+| 1 | `0.17757 / 3.43041` | `0.63223 / 3.43041` | `0.17959 / 0.59979` | `1.30896 / 3.43041` |
+| 10 | `0.16920 / 3.03060` | `0.55036 / 3.03060` | `0.14694 / 0.57952` | `1.22736 / 3.03060` |
+| 100 | `0.17270 / 2.98781` | `0.54700 / 2.98781` | `0.19357 / 0.73147` | `1.24581 / 2.98781` |
+
+The response saturates. Boundary weighting is directionally helpful but does
+not remove the topology-sensitive one-wall aggregate error. No lower-resolution
+scale-10 or scale-100 sweep was run, so no convergence claim should be made
+from this experiment.
+
+### 11.5 Diagnostic code state
+
+The current worktree contains default-neutral controls for:
+
+- exact product-average face auditing;
+- observation counts and weight splits;
+- face-functional boundary weight scale;
+- all-local-owner boundary observations, one shard only;
+- face-functional cell radius;
+- two-owner perpendicular polynomial flux, one shard only;
+- cut-wall owner-polynomial perpendicular flux, one shard only;
+- reconstruction boundary equation weight scale.
+
+All production defaults retain the previous behavior. The one-shard-only
+paths require a remote-boundary-observation design before they can be
+considered for the decomposed solver.
+
+## 12. Primary-Literature Check
+
+The literature supports the overall architecture:
+
+- Devendran, Graves, Johansen, and Ligocki use weighted least squares for
+  fourth-order Cartesian embedded-boundary Poisson stencils and validate both
+  convergence and operator stability:
+  [CAMCoS 12 (2017)](https://escholarship.org/uc/item/9b97g2dg).
+- Overton-Katz et al. reconstruct face fluxes from control-volume moments with
+  overdetermined weighted least squares, add physical boundary conditions as
+  equations whenever a neighboring cell contains boundary, and use an
+  inverse-fifth-power distance weight for fourth-order stencils:
+  [SIAM J. Sci. Comput. 45 (2023)](https://arxiv.org/pdf/2209.02840).
+- Thacher, Johansen, and Martin build cell-centered Taylor reconstructions
+  constrained by interface or boundary data, use SVD and distance weights
+  proportional to `(1 + distance)^-(P+1)`, and enforce conservation by
+  averaging the neighboring Taylor-polynomial fluxes into one shared face
+  flux:
+  [J. Comput. Phys. 491 (2023)](https://escholarship.org/uc/item/69t7h4bx).
+- Established second-order Cartesian cut-cell methods also impose interface
+  matching through boundary flux approximations and demonstrate convergence
+  on nontrivial geometries:
+  [Colella and Graves, JCP 230 (2011)](https://www.osti.gov/biblio/21499787).
+
+The comparison gives the following judgment.
+
+**The project is on the right mathematical track, but the present direct face
+fit is too global and too weakly localized.** Moment-aware volume averages,
+boundary equations, integrated face fluxes, and one conservative physical
+face record are all literature-aligned. The successful two-owner diagnostic
+is especially significant because a recent high-order conservative method
+uses exactly this neighboring-polynomial averaging pattern.
+
+The important discrepancies are:
+
+1. The current direct face fit can use 105--165 cell observations with only
+   inverse-distance-squared localization. The cited high-order methods use a
+   neighborhood only as large as needed for rank/robustness and make weights
+   decay faster than the highest polynomial growth, for example inverse fifth
+   power for a fourth-order fit.
+2. Boundary observations are currently evaluator-owner restricted. The
+   literature includes boundary equations from every boundary-containing
+   neighbor in the reconstruction.
+3. Tuning an arbitrary boundary multiplier is not a substitute for a unified,
+   nondimensional distance and equation-type weighting law.
+4. A radius-1 failure does not imply the resolution is unusable. Published
+   fourth-order methods use radius-3 neighborhoods near boundaries. The
+   requirement is enough equations with controlled locality, not the smallest
+   possible stencil.
+5. Cut cells commonly dominate Linf error even in successful methods. That
+   explains why Linf is the hardest norm, but it does not relax the current
+   acceptance gate.
+6. High-order embedded-boundary elliptic methods can remain stable without
+   merging. Combined with the agglomeration-disabled result, this reinforces
+   that agglomeration is not the first error source here.
+
+## 13. Paused Handoff
+
+No full convergence test should be started from this checkpoint. The isolated
+perpendicular operator still fails its three-grid all-active and Linf gates,
+and the parallel-density operator has not been repaired.
+
+When work resumes:
+
+1. Design one decomposition-safe projected flux per radial-interior compact
+   face from the two adjacent owner reconstructions.
+2. Include boundary equations from every relevant boundary-containing
+   neighbor, including a defined remote exchange/lowering path.
+3. Replace the ad hoc weight multipliers with a dimensionless,
+   polynomial-order-aware distance law; compare at least inverse fourth and
+   inverse fifth power and record functional weight norms.
+4. Select the smallest full-rank support adaptively or by controlled shells;
+   do not force radius 1, and do not admit a broad shell at nearly equal
+   influence.
+5. Preserve the direct-functional and owner-polynomial face audit so exact,
+   direct, minus-owner, plus-owner, and final shared flux can be compared on
+   the same face.
+6. Rerun only `perp_laplacian_phi` at `N=10,14,18`. Proceed to the parallel
+   flux only after all-active, one-wall, multi-wall, aggregate, and retained
+   categories reduce monotonically.
+7. Continue with the regular radial-boundary operators, projected-exact-phi
+   full RHS, phi inversion, decomposed equivalence, and finally the full
+   time-dependent four-field MMS test.
+
+The next agent should not increase polynomial degree, restore the removed
+wall-normal point-gradient patch, or treat the scale-10 result as a fix. The
+current evidence points to conservative face construction, complete boundary
+coverage, and support weighting/locality.

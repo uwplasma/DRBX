@@ -4691,6 +4691,7 @@ def _precompute_local_cubic_reconstruction(
     max_equations: int = 64,
     condition_limit: float = 1.0e6,
     svd_rcond: float = 1.0e-12,
+    boundary_weight_scale: float = 1.0,
 ) -> LocalMomentReconstruction3D:
     """Precompute 19-coefficient cubic finite-volume reconstruction rows.
 
@@ -4698,6 +4699,14 @@ def _precompute_local_cubic_reconstruction(
     Remote samples are compact halo references, so aggregate ownership stays
     local while the fitted stencil remains decomposition-compatible.
     """
+    boundary_weight_scale = float(boundary_weight_scale)
+    if (
+        not np.isfinite(boundary_weight_scale)
+        or boundary_weight_scale <= 0.0
+    ):
+        raise ValueError(
+            "boundary_weight_scale must be finite and positive"
+        )
     shape = cells.shape
     active = np.asarray(cells.is_active_owner, dtype=bool)
     centroid = np.asarray(cells.centroid, dtype=np.float64)
@@ -5096,6 +5105,7 @@ def _precompute_local_cubic_reconstruction(
         for idx, item in enumerate(selected):
             if item[3][0] == CV_RECONSTRUCTION_EQUATION_DIRICHLET:
                 fr, patch, quad = item[3][1]; weights[idx] *= measure[fr, patch, quad] / max(float(np.sum(np.where(qactive[fr], measure[fr], 0.0))), 1e-30)
+                weights[idx] *= boundary_weight_scale
         weighted = np.sqrt(weights)[:, None] * design; singular = np.linalg.svd(weighted, compute_uv=False)
         tolerance = svd_rcond * singular[0] if singular.size else np.inf; full_rank = int(np.sum(singular > tolerance)); cond = float(singular[0]/singular[-1]) if full_rank >= 19 else np.inf
         rank[r] = full_rank
