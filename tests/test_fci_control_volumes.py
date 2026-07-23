@@ -19,15 +19,18 @@ from drbx.geometry.fci_control_volumes import (
     compile_local_control_volume_geometry,
     remote_owner_halo_coordinate,
 )
-from drbx.native.fci_boundaries import CV_RECONSTRUCTION_EQUATION_CELL
+from drbx.native.fci_boundaries import (CV_RECONSTRUCTION_EQUATION_CELL, CV_RECONSTRUCTION_EQUATION_DIRICHLET, CV_RECONSTRUCTION_EQUATION_REMOTE_CELL)
 from drbx.native.fci_control_volume_operators import (
     CUBIC_MONOMIAL_EXPONENTS,
+    LocalMomentFittedFaceFunctional3D,
     cubic_control_volume_average_basis,
     cubic_dense_face_targets,
     cubic_monomial_basis,
     evaluate_local_face_functional,
     pack_local_face_functionals,
     precompute_local_face_functional,
+    cubic_projected_face_flux_target,
+    evaluate_local_projected_face_flux,
 )
 
 
@@ -443,6 +446,124 @@ def test_remote_owner_metadata_and_expansion_use_owner_halo() -> None:
     halo = jnp.zeros(layout.cell_halo_shape, dtype=jnp.float64).at[3,1,1].set(37.0)
     expanded = expand_local_control_volume_owner_field(values, cells, owner_values_halo=halo)
     assert float(expanded[source]) == 37.0
+
+
+def test_cubic_projected_flux_target_matches_explicit_monomial_quadrature() -> None:
+    rng = np.random.default_rng(4)
+    points = rng.normal(size=(2, 3, 3)); jacobian = 0.2 + rng.random((2,3))
+    area = rng.normal(size=(2,3,3)); projector = rng.normal(size=(2,3,3,3))
+    active = np.array([[True, False, True], [True, True, False]])
+    origin = np.array([.3,-.7,1.1]); scale = np.array([.4,1.7,2.2])
+    target = cubic_projected_face_flux_target(points, jacobian, area, projector, active, origin=origin, scale=scale)
+    explicit = []
+    xi = (points-origin)/scale
+    for p in CUBIC_MONOMIAL_EXPONENTS:
+        grad = np.zeros_like(points)
+        for a in range(3):
+            if p[a]:
+                q=list(p); q[a]-=1
+                grad[...,a]=p[a]*xi[...,0]**q[0]*xi[...,1]**q[1]*xi[...,2]**q[2]/scale[a]
+        explicit.append(np.sum(np.where(active, jacobian*np.einsum('...i,...ij,...j->...',area,projector,grad),0)))
+    np.testing.assert_allclose(target, explicit, atol=1e-12)
+
+
+def test_projected_functional_reproduces_mixed_observations_and_packs() -> None:
+    rng = np.random.default_rng(6)
+    points = rng.normal(size=(20, 3))
+    origin = np.array([0.2, -0.4, 0.7])
+    scale = np.array([0.8, 1.7, 2.3])
+    centroids = points[:14]
+    second = np.broadcast_to(np.diag([.07, .11, .13]), (14, 3, 3)).copy()
+    seed_third = np.full((3, 3, 3), 0.002)
+    # Explicitly symmetrize a finite nonzero central M3 tensor.
+    third_one = sum(
+        np.transpose(seed_third, permutation)
+        for permutation in ((0, 1, 2), (0, 2, 1), (1, 0, 2), (1, 2, 0), (2, 0, 1), (2, 1, 0))
+    ) / 6.0
+    third = np.broadcast_to(third_one, (14, 3, 3, 3)).copy()
+    # CELL/REMOTE are genuine finite-volume average rows; only Dirichlet is a trace.
+    matrix = np.vstack((
+        cubic_control_volume_average_basis(
+            centroids, second, third, origin=origin, scale=scale,
+        ),
+        cubic_monomial_basis((points[14:] - origin) / scale),
+    ))
+    kinds=np.array([CV_RECONSTRUCTION_EQUATION_CELL]*7+[CV_RECONSTRUCTION_EQUATION_REMOTE_CELL]*7+[CV_RECONSTRUCTION_EQUATION_DIRICHLET]*6)
+    refs=np.r_[np.arange(7),np.arange(7),np.arange(6)]
+    target = cubic_projected_face_flux_target(
+        points[:1], np.ones((1,)), np.array([[1., 2., -1.]]),
+        np.array([[[.2, 1., 0.], [-.3, .1, .5], [.7, 0., .4]]]),
+        np.array([True]), origin=origin, scale=scale,
+    )
+    f=precompute_local_face_functional(matrix,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),projected_flux_target=target,face_id=2,face_sign=-1,max_projected_flux_l1=1e9)
+    for column in range(20):
+        obs=matrix[:,column]
+        got=evaluate_local_projected_face_flux(f,local_values=obs[:7],remote_values=obs[7:14],boundary_values=obs[14:])
+        np.testing.assert_allclose(got,target[column],atol=1e-10)
+    packed=pack_local_face_functionals([f])
+    assert packed.face_id.dtype==np.int64 and packed.face_sign[0]==-1
+    np.testing.assert_allclose(packed.projected_flux_weights[0],f.projected_flux_weights)
+    assert pack_local_face_functionals([]).projected_flux_weights.shape==(0,0)
+
+
+def test_projected_functional_rejects_bad_rank_condition_and_weight_norm() -> None:
+    points=np.stack(np.meshgrid(np.arange(3.),np.arange(3.),np.arange(3.),indexing='ij'),axis=-1).reshape((-1,3))[:20]
+    # A repeated row is rank deficient.
+    matrix=cubic_monomial_basis(points); kinds=np.full(20,CV_RECONSTRUCTION_EQUATION_CELL); refs=np.arange(20)
+    with pytest.raises(ValueError, match='rank deficient'):
+        precompute_local_face_functional(np.tile(matrix[0],(20,1)),equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)))
+    # Full rank Vandermonde, rejected solely by an intentionally strict limit.
+    rng=np.random.default_rng(10); full=cubic_monomial_basis(rng.normal(size=(20,3)))
+    with pytest.raises(ValueError, match='ill conditioned'):
+        precompute_local_face_functional(full,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),condition_limit=1.0)
+    with pytest.raises(ValueError, match='projected-flux norm'):
+        precompute_local_face_functional(full,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),projected_flux_target=np.ones(20),max_projected_flux_l1=1e-16)
+    # Omitted target is intentionally a zero-weight compatible legacy call.
+    f=precompute_local_face_functional(full,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),max_derivative_l1=1e9)
+    np.testing.assert_array_equal(f.projected_flux_weights,0.0)
+    direct = LocalMomentFittedFaceFunctional3D(equation_kind=np.array([CV_RECONSTRUCTION_EQUATION_CELL]),sample_reference=np.array([0]),active=np.array([True]),value_weights=np.zeros(1),gradient_weights=np.zeros((3,1)),polynomial_order=3,rank=1,condition_number=1.,reproduction_residual=0.,normalized_weight_norm=0.)
+    np.testing.assert_array_equal(direct.projected_flux_weights,0.0)
+
+
+def test_face_functional_reference_padding_is_valid_only_when_inactive() -> None:
+    kwargs = dict(
+        equation_kind=np.array([CV_RECONSTRUCTION_EQUATION_CELL]),
+        sample_reference=np.array([-1]),
+        value_weights=np.zeros(1),
+        gradient_weights=np.zeros((3, 1)),
+        polynomial_order=3,
+        rank=1,
+        condition_number=1.0,
+        reproduction_residual=0.0,
+        normalized_weight_norm=0.0,
+    )
+    with pytest.raises(ValueError, match="nonnegative references"):
+        LocalMomentFittedFaceFunctional3D(active=np.array([True]), **kwargs)
+    padded = LocalMomentFittedFaceFunctional3D(active=np.array([False]), **kwargs)
+    assert int(padded.sample_reference[0]) == -1
+
+
+@pytest.mark.parametrize('bad_scale', [0.0, -1.0, [1.0, 2.0], [1.0, -2.0, 3.0]])
+def test_projected_target_rejects_invalid_scale_and_input_data(bad_scale) -> None:
+    points=np.zeros((2,3)); jac=np.ones(2); area=np.ones((2,3)); proj=np.ones((2,3,3)); active=np.ones(2,dtype=bool)
+    with pytest.raises(ValueError): cubic_projected_face_flux_target(points,jac,area,proj,active,origin=np.zeros(3),scale=bad_scale)
+
+
+def test_projected_target_rejects_shape_and_nonfinite_inputs() -> None:
+    points=np.zeros((2,3)); jac=np.ones(2); area=np.ones((2,3)); proj=np.ones((2,3,3)); active=np.ones(2,dtype=bool)
+    for args in [
+        (points, np.ones(3), area, proj),
+        (points, jac, np.ones((3,3)), proj),
+        (points, jac, area, np.ones((2,3,2))),
+        (np.array([[np.nan,0,0],[0,0,0]]),jac,area,proj),
+        (points,np.array([np.inf,1]),area,proj),
+        (points,jac,np.array([[np.inf,0,0],[0,0,0]]),proj),
+        (points,jac,area,np.where(np.eye(3)[None,:,:].astype(bool),np.nan,proj)),
+    ]:
+        with pytest.raises(ValueError): cubic_projected_face_flux_target(*args,active,origin=np.zeros(3),scale=1.0)
+    matrix=np.eye(20); kinds=np.full(20,CV_RECONSTRUCTION_EQUATION_CELL); refs=np.arange(20)
+    with pytest.raises(ValueError, match='finite'):
+        precompute_local_face_functional(matrix,equation_kind=kinds,sample_reference=refs,value_target=np.zeros(20),gradient_target=np.zeros((3,20)),projected_flux_target=np.r_[np.nan,np.zeros(19)])
 
 
 def test_periodic_seam_face_ids_are_unique_contiguous_and_canonical() -> None:
