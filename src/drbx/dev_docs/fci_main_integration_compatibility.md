@@ -28,6 +28,34 @@ be migrated separately before being used as gates:
 - `tests/test_mms_shifted_torus_EB.py`
 - `tests/test_shifted_torus_EB_blob.py`
 
+The coincident and oblique slab cut-wall scripts also still call
+domain-decomposition helpers through `test_mms_slab_2_field` that the module
+does not export. They must be rewired to the shared helper module before those
+seven tests can be restored as gates:
+
+- `tests/test_fci_cutwall_slab_2field_physical_coincident.py`
+- `tests/test_fci_cutwall_slab_2field_oblique.py`
+
+## Current Cut-Wall Validation Boundary
+
+The authoritative focused contracts currently cover:
+
+- canonical global agglomeration and translated moments;
+- unique compact physical faces and periodic seams;
+- direct cubic functional reproduction and diagnostics;
+- owned, halo, and boundary runtime gathers;
+- reverse face-halo residual accumulation;
+- required use of valid direct closures by conservative compact operators.
+
+The full repository test collection is not a release gate while the deferred
+callers above still import removed APIs. Do not restore compatibility aliases
+only to make collection green; migrate each caller to the authoritative API.
+
+The cut-wall implementation is ready for the forward operator convergence
+sweep described in
+`cutwall_numerical_problem_report.md`. It is not yet ready for the phi-solve,
+full RK/MMS, or final legacy-code-removal gates.
+
 ## Migration Rule
 
 New or repaired FCI code must use `Rk4Stepper(rhs_fn)(state, time=...,\
