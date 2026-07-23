@@ -12,6 +12,9 @@ This document is organized around the mathematical problem and the evidence
 from the shifted-torus manufactured-solution (MMS) tests. For the detailed
 runtime call chain, see
 [cutwall_agglomeration_ls_call_chain.md](cutwall_agglomeration_ls_call_chain.md).
+For the latest completed sweep, measured orders, suspected failure locations,
+and prioritized next steps, see
+[cutwall_current_progress.md](cutwall_current_progress.md).
 For the cases a logical cell can occupy, see
 [embedded_control_volume_cell_cases.md](embedded_control_volume_cell_cases.md).
 
@@ -51,8 +54,9 @@ The remaining challenge is measured approximation quality, not missing flux
 wiring. A one-shard `N=6` audit verified valid direct rows and improved the
 perpendicular-Laplacian error, but it did not contain any merged sources and
 still showed large errors in `poisson_omega`, the perpendicular Laplacian, and
-the electron-parallel full RHS. The next decisive test is therefore the
-agglomeration-enabled `N=10,14` operator sweep with projected exact phi.
+the electron-parallel full RHS. The subsequent agglomeration-enabled
+`N=10,14` operator sweep with projected exact phi is summarized in
+[cutwall_current_progress.md](cutwall_current_progress.md).
 
 ## 1. Discrete Meaning of a Stored Field
 

@@ -3,6 +3,10 @@
 This document describes the unified aggregate-cell and cut-wall path used by
 the native FCI operators and the shifted-torus four-field MMS harness.
 
+For the latest validation results, suspected remaining problems, build-time
+observations, and prioritized handoff plan, see
+[cutwall_current_progress.md](cutwall_current_progress.md).
+
 For a case-by-case explanation of ordinary, boundary, cut, merged, aggregate,
 transition, and shard-interface cells, see
 [embedded_control_volume_cell_cases.md](embedded_control_volume_cell_cases.md).
@@ -603,8 +607,9 @@ moment data and face quadrature.
 The current one-shard `N=6` audit had 212 cubic rows, no invalid or lower-order
 rows, and a maximum reconstruction condition number of about `3.58e3`. It did
 not contain any merged sources, so it validates functional wiring but not the
-agglomerated numerical path. The authoritative next measurement is the
-agglomeration-enabled `N=10,14` operator sweep with projected exact phi.
+agglomerated numerical path. The subsequent agglomeration-enabled `N=10,14`
+operator sweep is summarized in
+[cutwall_current_progress.md](cutwall_current_progress.md).
 
 The operator-only Linf gate remains authoritative. If a cut-wall category
 converges below order `1.8`, inspect the failed functional's observation
