@@ -32,6 +32,7 @@ from drbx.geometry import (
     build_local_stencil_from_field,
 )
 from drbx.native.fci_model import inject_owned_field_to_halo
+import drbx.native.fci_operators as fci_operators_module
 from drbx.native.fci_boundaries import (
     BC_DIRICHLET,
     CV_FACE_CUT_WALL,
@@ -58,6 +59,7 @@ from drbx.native.fci_halo import (
     TopologyHaloFiller3D,
 )
 from drbx.native.fci_operators import (
+    aggregate_local_control_volume_average,
     build_local_control_volume_field_closure,
     build_local_control_volume_polynomial_from_field,
     build_local_perp_laplacian_stencil,
@@ -607,6 +609,7 @@ def _cubic_face_functionals(
         boundary_face_row=jnp.asarray(boundary[..., 0]),
         boundary_patch=jnp.asarray(boundary[..., 1]),
         boundary_quadrature=jnp.asarray(boundary[..., 2]),
+        boundary_source_shard=jnp.zeros(observation_shape, dtype=jnp.int32),
         observation_active=jnp.asarray(observation_active),
         projected_flux_weights=jnp.asarray(projected_weights),
         parallel_flux_weights=jnp.asarray(parallel_weights),
@@ -828,6 +831,101 @@ def test_control_volume_identity_geometry_is_noop() -> None:
         rtol=0.0,
         atol=1.0e-15,
     )
+
+
+def test_aggregate_local_control_volume_average_merges_raw_integrals() -> None:
+    geometry = _build_geometry((7, 7, 7), 2)
+    domain = _build_domain((7, 7, 7), 2)
+    source = (3, 3, 3)
+    target = (2, 3, 3)
+    cells = _uniform_control_volume_cells(
+        geometry,
+        merged_source=source,
+        merge_target=target,
+    )
+    values_raw = jnp.full(cells.shape, 1.5, dtype=jnp.float64)
+    values_raw = values_raw.at[source].set(4.5)
+
+    result = aggregate_local_control_volume_average(values_raw, cells, domain)
+
+    expected = np.asarray(values_raw).copy()
+    expected[target] = 3.0
+    expected[source] = 0.0
+    np.testing.assert_allclose(
+        np.asarray(result),
+        expected,
+        rtol=0.0,
+        atol=1.0e-14,
+    )
+    assert result.dtype == jnp.float64
+
+
+def test_aggregate_local_control_volume_average_routes_remote_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    geometry = _build_geometry((7, 7, 7), 2)
+    domain = _build_domain((7, 7, 7), 2)
+    source = (3, 3, 3)
+    target = (2, 3, 3)
+    cells = _uniform_control_volume_cells(
+        geometry,
+        merged_source=source,
+        merge_target=target,
+    )
+    remote = jnp.zeros(cells.shape, dtype=bool).at[source].set(True)
+    halo_i = jnp.zeros(cells.shape, dtype=jnp.int32).at[source].set(0)
+    halo_j = jnp.zeros(cells.shape, dtype=jnp.int32).at[source].set(2 + target[1])
+    halo_k = jnp.zeros(cells.shape, dtype=jnp.int32).at[source].set(2 + target[2])
+    cells = replace(
+        cells,
+        owner_is_remote=remote,
+        remote_owner_halo_i=halo_i,
+        remote_owner_halo_j=halo_j,
+        remote_owner_halo_k=halo_k,
+    )
+
+    def fake_reverse_exchange(field_halo: jnp.ndarray, passed_domain: LocalDomain3D) -> jnp.ndarray:
+        assert passed_domain is domain
+        received = jnp.zeros(cells.shape, dtype=jnp.float64)
+        return received.at[target].set(field_halo[0, 2 + target[1], 2 + target[2]])
+
+    monkeypatch.setattr(
+        fci_operators_module,
+        "accumulate_halo_contributions_to_owned",
+        fake_reverse_exchange,
+    )
+    values_raw = jnp.full(cells.shape, 1.5, dtype=jnp.float64)
+    values_raw = values_raw.at[source].set(4.5)
+
+    result = aggregate_local_control_volume_average(values_raw, cells, domain)
+
+    assert float(result[target]) == pytest.approx(3.0)
+    assert float(result[source]) == 0.0
+
+
+def test_aggregate_local_control_volume_average_validates_inputs() -> None:
+    geometry = _build_geometry((7, 7, 7), 2)
+    domain = _build_domain((7, 7, 7), 2)
+    cells = _uniform_control_volume_cells(geometry)
+
+    with pytest.raises(ValueError, match="scalar field"):
+        aggregate_local_control_volume_average(
+            jnp.zeros(cells.shape + (1,), dtype=jnp.float64),
+            cells,
+            domain,
+        )
+    with pytest.raises(TypeError, match="floating-point"):
+        aggregate_local_control_volume_average(
+            jnp.zeros(cells.shape, dtype=jnp.int32),
+            cells,
+            domain,
+        )
+    with pytest.raises(ValueError, match="cells.layout"):
+        aggregate_local_control_volume_average(
+            jnp.zeros(cells.shape, dtype=jnp.float64),
+            cells,
+            _build_domain((5, 5, 5), 2),
+        )
 
 
 def test_control_volume_product_average_includes_moment_covariance() -> None:
@@ -1554,6 +1652,7 @@ def test_control_volume_partial_aggregate_flux_is_conservative_and_source_safe()
             field_halo,
             bundle,
             boundary_bc,
+            domain=domain,
         )
         divergence = local_parallel_flux_div_op(
             local,
@@ -1680,12 +1779,14 @@ def test_control_volume_projected_flux_is_conservative_and_source_safe() -> None
             field_halo,
             bundle,
             boundary_bc,
+            domain=domain,
         )
         divergence = local_perp_laplacian_conservative_op(
             local,
             geometry,
             domain,
             control_volume_geometry=bundle,
+            control_volume_polynomial=polynomial,
             field_closure=field_closure,
         )
         return divergence, polynomial
@@ -1817,21 +1918,32 @@ def test_control_volume_physical_boundary_uses_quadratic_gradient() -> None:
     )
     storage = expand_local_control_volume_owner_field(owner_values, cells)
     field_halo = inject_owned_field_to_halo(storage, geometry.layout)
+    context = StencilBuilderContext(layout=geometry.layout, domain=domain)
     local = build_conservative_stencil_from_field(
         field_halo,
         geometry,
-        StencilBuilderContext(layout=geometry.layout, domain=domain),
+        context,
+    )
+    polynomial = build_local_control_volume_polynomial_from_field(
+        field_halo,
+        geometry,
+        domain,
+        context,
+        bundle,
+        boundary_bc,
     )
     field_closure = build_local_control_volume_field_closure(
         field_halo,
         bundle,
         boundary_bc,
+        domain=domain,
     )
     divergence = local_perp_laplacian_conservative_op(
         local,
         geometry,
         domain,
         control_volume_geometry=bundle,
+        control_volume_polynomial=polynomial,
         field_closure=field_closure,
     )
     quadratic_face_gradient = jnp.stack(

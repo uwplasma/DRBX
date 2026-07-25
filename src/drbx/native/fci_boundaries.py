@@ -3032,6 +3032,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
     active: jnp.ndarray
     max_rows: int
     max_equations: int
+    boundary_source_shard: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -3076,6 +3077,12 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
         boundary_quadrature = _observation(
             self.boundary_quadrature, jnp.int32, "boundary_quadrature"
         )
+        if self.boundary_source_shard is None:
+            boundary_source_shard = jnp.zeros(observation_shape, dtype=jnp.int32)
+        else:
+            boundary_source_shard = _observation(
+                self.boundary_source_shard, jnp.int32, "boundary_source_shard"
+            )
         observation_active = _observation(
             self.observation_active, bool, "observation_active"
         )
@@ -3131,6 +3138,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             & (boundary_quadrature >= 0)
             & (boundary_quadrature < 4)
         )
+        boundary_source_valid = boundary_source_shard >= 0
         valid_kind = (
             (observation_kind == CV_RECONSTRUCTION_EQUATION_CELL)
             | (observation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL)
@@ -3147,6 +3155,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
                 | (
                     (observation_kind == CV_RECONSTRUCTION_EQUATION_DIRICHLET)
                     & boundary_reference_valid
+                    & boundary_source_valid
                 )
             )
         )
@@ -3197,6 +3206,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             ("halo_i", halo_i), ("halo_j", halo_j), ("halo_k", halo_k),
             ("boundary_face_row", boundary_face_row),
             ("boundary_patch", boundary_patch), ("boundary_quadrature", boundary_quadrature),
+            ("boundary_source_shard", boundary_source_shard),
         ):
             object.__setattr__(self, name, jnp.where(active_observation, array, 0))
         object.__setattr__(self, "observation_active", active_observation)
@@ -3247,6 +3257,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             boundary_face_row=jnp.zeros(observations, dtype=jnp.int32),
             boundary_patch=jnp.zeros(observations, dtype=jnp.int32),
             boundary_quadrature=jnp.zeros(observations, dtype=jnp.int32),
+            boundary_source_shard=jnp.zeros(observations, dtype=jnp.int32),
             observation_active=jnp.zeros(observations, dtype=bool),
             projected_flux_weights=jnp.zeros(observations, dtype=jnp.float64),
             parallel_flux_weights=jnp.zeros(observations, dtype=jnp.float64),
@@ -3271,7 +3282,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
         names = (
             "functional_face_id", "observation_kind", "owned_i", "owned_j", "owned_k",
             "halo_i", "halo_j", "halo_k", "boundary_face_row", "boundary_patch",
-            "boundary_quadrature", "observation_active", "projected_flux_weights",
+            "boundary_quadrature", "boundary_source_shard", "observation_active", "projected_flux_weights",
             "parallel_flux_weights", "polynomial_order", "rank", "condition_number",
             "parallel_gradient_flux_weights",
             "reproduction_residual", "normalized_projected_weight_norm",
@@ -3286,7 +3297,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
         names = (
             "functional_face_id", "observation_kind", "owned_i", "owned_j", "owned_k",
             "halo_i", "halo_j", "halo_k", "boundary_face_row", "boundary_patch",
-            "boundary_quadrature", "observation_active", "projected_flux_weights",
+            "boundary_quadrature", "boundary_source_shard", "observation_active", "projected_flux_weights",
             "parallel_flux_weights", "polynomial_order", "rank", "condition_number",
             "parallel_gradient_flux_weights",
             "reproduction_residual", "normalized_projected_weight_norm",

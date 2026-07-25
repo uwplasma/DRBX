@@ -98,6 +98,65 @@ def test_remote_owner_halo_coordinate_is_face_exact_and_periodic_aware() -> None
         )
 
 
+@pytest.mark.parametrize(
+    ("local_shard", "owner_shard", "owner_local", "expected"),
+    (
+        # Internal-facing image: local shard zero receives the lower cell of
+        # shard one in its upper halo.
+        ((0, 0, 0), (0, 0, 1), (1, 1, 0), (2, 2, 5)),
+        # Internal-facing image from the other local shard.
+        ((0, 0, 1), (0, 0, 0), (1, 1, 3), (2, 2, 0)),
+        # Wrapped image: local shard zero receives the upper cell of shard one
+        # in its lower halo.
+        ((0, 0, 0), (0, 0, 1), (1, 1, 3), (2, 2, 0)),
+        # Wrapped image from the other local shard.
+        ((0, 0, 1), (0, 0, 0), (1, 1, 0), (2, 2, 5)),
+    ),
+)
+def test_remote_owner_halo_coordinate_disambiguates_periodic_two_shards(
+    local_shard: tuple[int, int, int],
+    owner_shard: tuple[int, int, int],
+    owner_local: tuple[int, int, int],
+    expected: tuple[int, int, int],
+) -> None:
+    result = remote_owner_halo_coordinate(
+        owner_local=np.asarray(owner_local),
+        owner_shard=np.asarray(owner_shard),
+        local_shard=np.asarray(local_shard),
+        owned_shape=(2, 2, 4),
+        halo_width=1,
+        shard_counts=(1, 1, 2),
+        periodic_axes=(False, False, True),
+    )
+    np.testing.assert_array_equal(result, np.asarray(expected))
+
+
+def test_remote_owner_halo_coordinate_rejects_ambiguous_periodic_two_shard_owner() -> None:
+    with pytest.raises(ValueError, match="not a boundary coordinate"):
+        remote_owner_halo_coordinate(
+            owner_local=np.array([1, 1, 1]),
+            owner_shard=np.array([0, 0, 1]),
+            local_shard=np.array([0, 0, 0]),
+            owned_shape=(2, 2, 4),
+            halo_width=1,
+            shard_counts=(1, 1, 2),
+            periodic_axes=(False, False, True),
+        )
+
+
+def test_remote_owner_halo_coordinate_rejects_extent_one_periodic_two_shards() -> None:
+    with pytest.raises(ValueError, match="extent-one axes"):
+        remote_owner_halo_coordinate(
+            owner_local=np.array([1, 1, 0]),
+            owner_shard=np.array([0, 0, 1]),
+            local_shard=np.array([0, 0, 0]),
+            owned_shape=(2, 2, 1),
+            halo_width=1,
+            shard_counts=(1, 1, 2),
+            periodic_axes=(False, False, True),
+        )
+
+
 def test_control_volume_aggregate_id_defaults_to_owner_identity() -> None:
     layout = HaloLayout3D((2, 2, 2), 1)
     volume, centroid, second, third, _ = _raw_geometry((2, 2, 2))

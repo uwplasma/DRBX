@@ -334,9 +334,29 @@ def remote_owner_halo_coordinate(
     delta = owner_shard - local_shard
     for axis in range(3):
         if periodic_axes[axis] and counts[axis] > 1:
-            if delta[axis] == counts[axis] - 1:
+            raw_delta = int(delta[axis])
+            if counts[axis] == 2 and abs(raw_delta) == 1:
+                extent = int(shape[axis])
+                owner_coordinate = int(owner_local[axis])
+                if extent <= 1:
+                    raise ValueError(
+                        "periodic two-shard owner direction is ambiguous when "
+                        f"the owned extent is {extent}; extent-one axes have "
+                        "the same lower and upper boundary-local coordinate"
+                    )
+                if owner_coordinate == 0:
+                    delta[axis] = 1
+                elif owner_coordinate == extent - 1:
+                    delta[axis] = -1
+                else:
+                    raise ValueError(
+                        "periodic two-shard remote owner direction is ambiguous: "
+                        f"owner_local[{axis}]={owner_coordinate} is not a boundary "
+                        f"coordinate (expected 0 or {extent - 1})"
+                    )
+            elif raw_delta == counts[axis] - 1:
                 delta[axis] = -1
-            elif delta[axis] == -(counts[axis] - 1):
+            elif raw_delta == -(counts[axis] - 1):
                 delta[axis] = 1
     nonzero = np.flatnonzero(delta)
     if nonzero.size != 1 or abs(int(delta[nonzero[0]])) != 1:
@@ -480,10 +500,41 @@ def build_global_control_volume_topology(
     aggregate_centroid = np.zeros(shape + (3,), dtype=np.float64)
     aggregate_second = np.zeros(shape + (3, 3), dtype=np.float64)
     aggregate_third = np.zeros(shape + (3, 3, 3), dtype=np.float64)
-    for owner_array in np.argwhere(is_active_owner):
-        owner = tuple(int(value) for value in owner_array)
-        members = np.argwhere(aggregate_id == aggregate_id[owner])
-        member_index = tuple(members.T)
+
+    # Most active owners are one-cell aggregates.  Copy those moments in one
+    # batch, then recompute only the comparatively few owners that received a
+    # merge source.  Scanning the entire aggregate-id field once per active
+    # owner made this step quadratic in the global cell count.
+    aggregate_volume[is_active_owner] = raw_volume[is_active_owner]
+    aggregate_centroid[is_active_owner] = raw_centroid[is_active_owner]
+    aggregate_second[is_active_owner] = raw_second_moment[is_active_owner]
+    aggregate_third[is_active_owner] = raw_third_moment[is_active_owner]
+    source_flat = np.flatnonzero(is_merge_source)
+    source_owner_id = aggregate_id.reshape((-1,))[source_flat]
+    if source_flat.size:
+        source_order = np.argsort(source_owner_id, kind="stable")
+        source_flat = source_flat[source_order]
+        source_owner_id = source_owner_id[source_order]
+        owner_ids, group_start = np.unique(
+            source_owner_id, return_index=True
+        )
+        group_stop = np.concatenate(
+            (group_start[1:], np.asarray((source_flat.size,), dtype=np.int64))
+        )
+    else:
+        owner_ids = np.empty((0,), dtype=np.int64)
+        group_start = np.empty((0,), dtype=np.int64)
+        group_stop = np.empty((0,), dtype=np.int64)
+    for owner_id, first, stop in zip(owner_ids, group_start, group_stop):
+        member_flat = np.sort(
+            np.concatenate(
+                (
+                    np.asarray((owner_id,), dtype=np.int64),
+                    source_flat[first:stop],
+                )
+            )
+        )
+        member_index = np.unravel_index(member_flat, shape)
         volume, centroid, second, third = combine_volume_moments(
             raw_volume[member_index],
             raw_centroid[member_index],
@@ -492,6 +543,7 @@ def build_global_control_volume_topology(
             periodic_axes=periodic_axes,
             periods=coordinate_periods,
         )
+        owner = np.unravel_index(int(owner_id), shape)
         aggregate_volume[owner] = volume
         aggregate_centroid[owner] = centroid
         aggregate_second[owner] = second
