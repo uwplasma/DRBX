@@ -37,6 +37,7 @@ from drbx.native.fci_boundaries import (
     LocalEmbeddedControlVolumeGeometry3D,
 )
 from drbx.native.fci_halo import (
+    accumulate_halo_contributions_to_owned,
     HaloExchange3D,
     LocalHaloClosure3D,
     LocalPeriodicTopologyRule3D,
@@ -50,6 +51,7 @@ from drbx.native.fci_operators import (
     _lift_cell_field_to_faces,
     build_local_control_volume_field_closure,
     build_local_control_volume_polynomial_from_field,
+    build_local_perp_laplacian_stencil,
     evaluate_local_control_volume_polynomial,
     local_control_volume_product_average,
     local_curvature_op_from_gradient,
@@ -57,7 +59,6 @@ from drbx.native.fci_operators import (
     local_parallel_flux_div_op,
     local_perp_laplacian_conservative_op,
     local_poisson_bracket_op_from_gradients,
-    replace_local_control_volume_projected_flux_with_owner_polynomials,
 )
 
 
@@ -89,6 +90,7 @@ from shifted_torus_4field_cutwall_geometry import (  # noqa: E402
 )
 from shifted_torus_4field_cutwall_mms import (  # noqa: E402
     _agglomerate_control_volume_average,
+    _aggregate_control_volume_average,
     _assemble_global_control_volume_cell_data,
     _control_volume_exact_boundary_bc,
     _expand_control_volume_owner_values,
@@ -153,6 +155,53 @@ def _print_control_volume_geometry_summary(
         f"linear_fallbacks={int(np.sum(reconstruction_active & (reconstruction_order == 1)))}, "
         "max_condition="
         f"{float(np.max(finite_condition)) if finite_condition.size else 0.0:.6e}"
+    )
+    active_owner = np.asarray(cells.is_active_owner, dtype=bool)
+    raw_volume = np.asarray(cells.raw_volume, dtype=np.float64)
+    aggregate_volume = np.asarray(cells.aggregate_volume, dtype=np.float64)
+    positive_raw = raw_volume[active_owner & (raw_volume > 0.0)]
+    if positive_raw.size:
+        raw_reference = float(np.median(positive_raw))
+        raw_ratio = raw_volume[active_owner] / raw_reference
+        aggregate_ratio = aggregate_volume[active_owner] / raw_reference
+        raw_ratio = raw_ratio[np.isfinite(raw_ratio)]
+        aggregate_ratio = aggregate_ratio[np.isfinite(aggregate_ratio)]
+        raw_ratio_text = "[{:.3e},{:.3e}]".format(
+            float(np.min(raw_ratio)), float(np.max(raw_ratio))
+        )
+        aggregate_ratio_text = "[{:.3e},{:.3e}]".format(
+            float(np.min(aggregate_ratio)), float(np.max(aggregate_ratio))
+        )
+    else:
+        raw_ratio_text = "[nan,nan]"
+        aggregate_ratio_text = "[nan,nan]"
+    received_sources = np.asarray(cells.received_source_count, dtype=np.int32)
+    member_count = np.asarray(cells.member_count, dtype=np.int32)
+    projected_norm = np.asarray(
+        stacked.face_functionals.normalized_projected_weight_norm,
+        dtype=np.float64,
+    )
+    functional_active = np.asarray(faces.active, dtype=bool) & np.isfinite(
+        projected_norm
+    )
+    projected_norm = projected_norm[functional_active]
+    projected_norm_p95 = (
+        float(np.percentile(projected_norm, 95.0))
+        if projected_norm.size
+        else float("nan")
+    )
+    projected_norm_max = (
+        float(np.max(projected_norm)) if projected_norm.size else float("nan")
+    )
+    active_received = received_sources[active_owner]
+    active_members = member_count[active_owner]
+    print(
+        "topology descriptor: "
+        f"raw/median={raw_ratio_text} "
+        f"aggregate/median={aggregate_ratio_text} "
+        f"max_received_sources={int(np.max(active_received)) if active_received.size else 0} "
+        f"max_members={int(np.max(active_members)) if active_members.size else 0} "
+        f"face_projected_weight_norm_p95/max={projected_norm_p95:.3e}/{projected_norm_max:.3e}"
     )
 
 def _state_error_statistics(
@@ -278,6 +327,40 @@ def _resolution_step_count(resolution: int, *, base_steps: int) -> int:
     )
 
 
+def _effective_box_translation(
+    resolution: int,
+    *,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    box_cell_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> tuple[float, float, float]:
+    """Return absolute box translation plus resolution-scaled cell offsets."""
+
+    resolution_value = int(resolution)
+    if resolution_value <= 0:
+        raise ValueError("resolution must be positive")
+
+    def validate(value: tuple[float, float, float], name: str) -> tuple[float, ...]:
+        try:
+            values = tuple(float(component) for component in value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must contain exactly three finite values") from exc
+        if len(values) != 3 or not all(np.isfinite(component) for component in values):
+            raise ValueError(f"{name} must contain exactly three finite values")
+        return values
+
+    absolute = validate(box_translation, "box_translation")
+    fractional = validate(box_cell_translation, "box_cell_translation")
+    cell_widths = (
+        (float(shifted_mms.x_max) - float(shifted_mms.x_min)) / float(resolution_value),
+        2.0 * np.pi / float(resolution_value),
+        2.0 * np.pi / float(resolution_value),
+    )
+    return tuple(
+        absolute[index] + fractional[index] * cell_widths[index]
+        for index in range(3)
+    )
+
+
 
 
 
@@ -369,6 +452,108 @@ def _control_volume_operator_category_masks(
         "radial_lower_owner": radial_lower_owner,
         "radial_upper_owner": radial_upper_owner,
         "radial_interior_2plus": radial_interior,
+    }
+
+
+_POISSON_RADIAL_DIAGNOSTIC_OPERATORS = frozenset(
+    ("poisson_omega", "poisson_v_electron")
+)
+_POISSON_RADIAL_DIAGNOSTIC_CATEGORIES = (
+    "radial_lower_x0",
+    "radial_lower_x1",
+    "radial_lower_x2",
+    "radial_core",
+    "radial_upper_xm2",
+    "radial_upper_xm1",
+)
+_POISSON_OMEGA_DIAGNOSTIC_WIDTH = 21
+_POISSON_OMEGA_EXACT_PHI_RECONSTRUCTED_OMEGA = 0
+_POISSON_OMEGA_RECONSTRUCTED_PHI_EXACT_OMEGA = 1
+_POISSON_OMEGA_EXACT_CENTROID = 2
+_POISSON_OMEGA_RECONSTRUCTED_CONTRIBUTIONS = slice(3, 6)
+_POISSON_OMEGA_EXACT_CONTRIBUTIONS = slice(6, 9)
+_POISSON_OMEGA_RECONSTRUCTED_PHI_GRADIENT = slice(9, 12)
+_POISSON_OMEGA_EXACT_PHI_GRADIENT = slice(12, 15)
+_POISSON_OMEGA_RECONSTRUCTED_OMEGA_GRADIENT = slice(15, 18)
+_POISSON_OMEGA_EXACT_OMEGA_GRADIENT = slice(18, 21)
+
+
+def _poisson_radial_plane_category_masks(
+    cell_data: dict[str, jnp.ndarray],
+) -> dict[str, jnp.ndarray]:
+    """Split active owners into disjoint radial planes/bands for diagnostics."""
+    active = jnp.asarray(cell_data["is_active_owner"], dtype=bool)
+    radial_size = int(active.shape[0])
+    if radial_size < 6:
+        raise ValueError(
+            "Poisson radial-plane diagnostics require at least six radial "
+            f"owner planes, got {radial_size}"
+        )
+    radial_index = jnp.arange(radial_size, dtype=jnp.int32)[:, None, None]
+    return {
+        "radial_lower_x0": active & (radial_index == 0),
+        "radial_lower_x1": active & (radial_index == 1),
+        "radial_lower_x2": active & (radial_index == 2),
+        "radial_core": (
+            active
+            & (radial_index >= 3)
+            & (radial_index < radial_size - 2)
+        ),
+        "radial_upper_xm2": active & (radial_index == radial_size - 2),
+        "radial_upper_xm1": active & (radial_index == radial_size - 1),
+    }
+
+
+def _poisson_omega_component_diagnostic_statistics(
+    actual: np.ndarray,
+    integrated_reference: np.ndarray,
+    diagnostic_payload: np.ndarray,
+    volume: np.ndarray,
+    categories: dict[str, jnp.ndarray],
+    *,
+    comparison_target: str = "integrated_reference",
+) -> dict[str, dict[str, tuple[float, float, float, int]]]:
+    """Compare mixed brackets with the integrated or exact-centroid target."""
+    payload = np.asarray(diagnostic_payload, dtype=np.float64)
+    if (
+        payload.ndim != np.asarray(actual).ndim + 1
+        or payload.shape[:-1] != np.asarray(actual).shape
+        or payload.shape[-1] != _POISSON_OMEGA_DIAGNOSTIC_WIDTH
+    ):
+        raise ValueError(
+            "Poisson-omega diagnostic payload must have shape "
+            f"{np.asarray(actual).shape + (_POISSON_OMEGA_DIAGNOSTIC_WIDTH,)}, "
+            f"got {payload.shape}"
+        )
+    variants = {
+        "reconstructed": np.asarray(actual, dtype=np.float64),
+        "exact_phi_reconstructed_omega": payload[
+            ..., _POISSON_OMEGA_EXACT_PHI_RECONSTRUCTED_OMEGA
+        ],
+        "reconstructed_phi_exact_omega": payload[
+            ..., _POISSON_OMEGA_RECONSTRUCTED_PHI_EXACT_OMEGA
+        ],
+        "exact_centroid": payload[
+            ..., _POISSON_OMEGA_EXACT_CENTROID
+        ],
+    }
+    if comparison_target == "integrated_reference":
+        target = np.asarray(integrated_reference, dtype=np.float64)
+    elif comparison_target == "exact_centroid":
+        target = variants["exact_centroid"]
+    else:
+        raise ValueError(
+            "comparison_target must be 'integrated_reference' or "
+            f"'exact_centroid', got {comparison_target!r}"
+        )
+    return {
+        variant_name: _operator_category_statistics(
+            variant,
+            target,
+            volume,
+            categories,
+        )
+        for variant_name, variant in variants.items()
     }
 
 
@@ -766,6 +951,610 @@ def _print_worst_aggregate_face_audit(
         )
 
 
+def _clear_resolution_level_caches(resolution: int) -> int:
+    """Release compiled JAX state after one convergence resolution."""
+
+    jax.clear_caches()
+    collected = int(gc.collect())
+    print(
+        "Released shifted_torus resolution payloads: "
+        f"N={int(resolution)}, collected={collected}",
+        flush=True,
+    )
+    return collected
+
+
+def run_shifted_torus_direct_face_closure_diagnostic(
+    *,
+    resolution: int = 16,
+    shard_counts: tuple[int, int, int] = (1, 1, 4),
+    halo_width: int = 3,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    box_cell_translation: tuple[float, float, float] = (0.0, 0.5, 0.5),
+) -> dict[str, object]:
+    """Compare direct face-functional rows across two shard layouts.
+
+    This is deliberately host-facing diagnostic code.  The direct closure is
+    evaluated inside the same ``shard_map`` preparation used by operator
+    convergence, then rows are keyed by their canonical global face ID.
+    """
+
+    if int(resolution) != 16:
+        raise ValueError("the focused direct-face diagnostic is restricted to N=16")
+    shape = _shape_from_resolution(int(resolution))
+    shard_counts = tuple(int(value) for value in shard_counts)
+    assert_shape_divisible_by_shards(shape, shard_counts)
+    effective_translation = _effective_box_translation(
+        int(resolution),
+        box_translation=box_translation,
+        box_cell_translation=box_cell_translation,
+    )
+    geometry = shifted_mms.build_shifted_torus_4field_geometry(shape)
+    results: dict[tuple[int, int, int], dict[int, dict[str, object]]] = {}
+
+    stacked = _build_stacked_embedded_control_volume_geometry(
+        global_shape=shape,
+        shard_counts=shard_counts,
+        halo_width=halo_width,
+        enable_merging=True,
+        box_translation=effective_translation,
+    )
+    exact_state, exact_phi = _project_global_exact_state_to_control_volumes(
+        geometry,
+        stacked,
+        shard_counts=shard_counts,
+        halo_width=halo_width,
+        time=0.0,
+        box_translation=effective_translation,
+    )
+    domain = build_shifted_torus_local_domain(shape, halo_width, shard_counts)
+    topology_filler = TopologyHaloFiller3D(
+        rules=(LocalPeriodicTopologyRule3D(),)
+    )
+    physical_ghost_filler = shifted_mms._build_ghost_filler(halo_width)
+    owned_shape = tuple(
+        int(size) // int(count)
+        for size, count in zip(shape, shard_counts)
+    )
+
+    with make_mesh_for_shard_counts(shard_counts) as mesh:
+        field_spec = P(*MESH_AXIS_NAMES)
+        phi_mesh = jax.device_put(
+            jnp.asarray(exact_phi, dtype=jnp.float64),
+            NamedSharding(mesh, field_spec),
+        )
+        control_volume_spec = local_shard_pytree_partition_spec(stacked)
+        control_volume_sharding = jax.tree_util.tree_map(
+            lambda spec: NamedSharding(mesh, spec),
+            control_volume_spec,
+        )
+        control_volume_mesh = jax.device_put(stacked, control_volume_sharding)
+        host_domain = LocalDomain3D(
+            shard_spec=domain.shard_spec,
+            layout=domain.layout,
+            mesh_axis_names=(None, None, None),
+        )
+        sample_invariants = expand_local_shard_pytree(
+            shifted_mms._build_local_4field_invariants(
+                (0, 0, 0),
+                owned_shape=owned_shape,
+                halo_width=halo_width,
+                global_shape=shape,
+                domain=host_domain,
+            )
+        )
+        invariant_spec = local_shard_pytree_partition_spec(sample_invariants)
+
+        def invariant_kernel():
+            shard_index = tuple(
+                lax.axis_index(name) for name in MESH_AXIS_NAMES
+            )
+            return expand_local_shard_pytree(
+                shifted_mms._build_local_4field_invariants(
+                    shard_index,
+                    owned_shape=owned_shape,
+                    halo_width=halo_width,
+                    global_shape=shape,
+                    domain=domain,
+                )
+            )
+
+        invariants_mesh = jax.jit(
+            shard_map(
+                invariant_kernel,
+                mesh=mesh,
+                in_specs=(),
+                out_specs=invariant_spec,
+                check_rep=False,
+            )
+        )()
+
+        def local_geometry(
+            local_control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+        ) -> LocalFciGeometry3D:
+            shard_index = tuple(
+                lax.axis_index(name) for name in MESH_AXIS_NAMES
+            )
+            base = build_shifted_torus_local_geometry(
+                owned_shape,
+                halo_width,
+                global_shape=shape,
+                shard_index=shard_index,
+                x_min=shifted_mms.x_min,
+                x_max=shifted_mms.x_max,
+                r0=shifted_mms.r0,
+                alpha_value=shifted_mms.alpha_value,
+                iota=shifted_mms.iota,
+                c_phi=shifted_mms.c_phi,
+                sigma=shifted_mms.sigma,
+            )
+            return _with_embedded_control_volume_geometry(
+                base,
+                local_control_volume_geometry,
+            )
+
+        def kernel(phi_owned, local_invariants, control_volume_geometry):
+            local_invariants = extract_local_shard_pytree(local_invariants)
+            control_volume_geometry = extract_local_shard_pytree(
+                control_volume_geometry
+            )
+            local_geometry_value = local_geometry(control_volume_geometry)
+            cells = control_volume_geometry.cells
+            phi_storage = _expand_control_volume_owner_values(
+                phi_owned,
+                cells,
+                domain=domain,
+                halo_exchange=HaloExchange3D(),
+                topology_filler=topology_filler,
+            )
+            phi_halo = inject_owned_field_to_halo(
+                phi_storage,
+                domain.layout,
+            )
+            phi_face_bc = _shifted_torus_regular_radial_face_average(
+                local_geometry_value,
+                jnp.asarray(0.0, dtype=jnp.float64),
+                "phi",
+            )
+            face_bc = shifted_mms._build_local_radial_dirichlet_face_bc_from_values(
+                phi_face_bc[0], phi_face_bc[1], domain
+            )
+            phi_halo = LocalHaloClosure3D(
+                physical_ghost_filler=physical_ghost_filler,
+                halo_exchange=HaloExchange3D(),
+                topology_filler=topology_filler,
+            )(phi_halo, domain, face_bc)
+            boundary_bc = _control_volume_exact_boundary_bc(
+                control_volume_geometry,
+                jnp.asarray(0.0, dtype=jnp.float64),
+                "phi",
+            )
+            closure = build_local_control_volume_field_closure(
+                phi_halo,
+                control_volume_geometry,
+                boundary_bc,
+                domain=domain,
+            )
+            local = build_local_conservative_stencil_from_field(
+                phi_halo,
+                local_geometry_value,
+                StencilBuilderContext(layout=domain.layout, domain=domain),
+            )
+            cv_flux = build_local_perp_laplacian_stencil(
+                local,
+                local_geometry_value,
+                domain,
+                face_projectors=(
+                    local_invariants.face_projector_x,
+                    local_invariants.face_projector_y,
+                    local_invariants.face_projector_z,
+                ),
+                face_bc=face_bc,
+                regular_face_geometry=control_volume_geometry.regular_faces,
+                regular_boundary_closure=(
+                    control_volume_geometry.regular_boundary_closure
+                ),
+            )
+            regular_faces = control_volume_geometry.regular_faces
+            spacing = (
+                jnp.asarray(local_geometry_value.spacing.dx_owned, dtype=jnp.float64),
+                jnp.asarray(local_geometry_value.spacing.dy_owned, dtype=jnp.float64),
+                jnp.asarray(local_geometry_value.spacing.dz_owned, dtype=jnp.float64),
+            )
+            logical_cell_measure = (
+                spacing[1] * spacing[2],
+                spacing[0] * spacing[2],
+                spacing[0] * spacing[1],
+            )
+            regular_divergence = jnp.zeros(owned_shape, dtype=jnp.float64)
+            regular_fluxes = (
+                cv_flux.regular_flux.x,
+                cv_flux.regular_flux.y,
+                cv_flux.regular_flux.z,
+            )
+            for axis, regular_flux in enumerate(regular_fluxes):
+                logical_area = _lift_cell_field_to_faces(
+                    logical_cell_measure[axis],
+                    axis=axis,
+                    periodic=False,
+                )
+                open_measure = (
+                    logical_area
+                    * jnp.asarray(
+                        (
+                            regular_faces.x_area,
+                            regular_faces.y_area,
+                            regular_faces.z_area,
+                        )[axis],
+                        dtype=jnp.float64,
+                    )
+                    * jnp.asarray(
+                        (
+                            regular_faces.x_area_fraction,
+                            regular_faces.y_area_fraction,
+                            regular_faces.z_area_fraction,
+                        )[axis],
+                        dtype=jnp.float64,
+                    )
+                )
+                integrated_face = jnp.where(
+                    jnp.asarray(
+                        (
+                            regular_faces.x_open_mask,
+                            regular_faces.y_open_mask,
+                            regular_faces.z_open_mask,
+                        )[axis],
+                        dtype=bool,
+                    )
+                    & (open_measure > 0.0),
+                    regular_flux * open_measure,
+                    0.0,
+                )
+                regular_divergence = regular_divergence + (
+                    integrated_face[_axis_slice_nd(axis, 1, None, 3)]
+                    - integrated_face[_axis_slice_nd(axis, None, -1, 3)]
+                )
+            z_logical_open_measure = (
+                _lift_cell_field_to_faces(
+                    logical_cell_measure[2],
+                    axis=2,
+                    periodic=False,
+                )
+                * jnp.asarray(regular_faces.z_area, dtype=jnp.float64)
+                * jnp.asarray(regular_faces.z_area_fraction, dtype=jnp.float64)
+            )
+            z_integrated_face = jnp.where(
+                jnp.asarray(regular_faces.z_open_mask, dtype=bool)
+                & (z_logical_open_measure > 0.0),
+                cv_flux.regular_flux.z * z_logical_open_measure,
+                0.0,
+            )
+            cells = control_volume_geometry.cells
+            local_source = (cells.raw_volume > 0.0) & ~cells.owner_is_remote
+            owner_sum = jnp.zeros(owned_shape, dtype=jnp.float64).at[
+                cells.owner_i,
+                cells.owner_j,
+                cells.owner_k,
+            ].add(jnp.where(local_source, regular_divergence, 0.0))
+            owner_sum_regular = owner_sum
+            remote_halo = jnp.zeros(
+                cells.layout.cell_halo_shape, dtype=jnp.float64
+            ).at[
+                cells.remote_owner_halo_i,
+                cells.remote_owner_halo_j,
+                cells.remote_owner_halo_k,
+            ].add(
+                jnp.where(
+                    (cells.raw_volume > 0.0) & cells.owner_is_remote,
+                    regular_divergence,
+                    0.0,
+                )
+                )
+            remote_halo_regular = remote_halo
+            faces = control_volume_geometry.irregular_faces
+            row_flux = jnp.where(faces.active, closure.projected_flux, 0.0)
+            owner_sum = owner_sum.at[
+                faces.minus_owner_i,
+                faces.minus_owner_j,
+                faces.minus_owner_k,
+            ].add(row_flux)
+            owner_sum = owner_sum.at[
+                faces.plus_owner_i,
+                faces.plus_owner_j,
+                faces.plus_owner_k,
+            ].add(jnp.where(faces.has_plus_owner, -row_flux, 0.0))
+            remote_halo = remote_halo.at[
+                faces.remote_residual_halo_i,
+                faces.remote_residual_halo_j,
+                faces.remote_residual_halo_k,
+            ].add(jnp.where(faces.has_remote_residual, -row_flux, 0.0))
+            accumulated_owner_sum = owner_sum + accumulate_halo_contributions_to_owned(
+                remote_halo, domain
+            )
+            final_divergence = accumulated_owner_sum / jnp.maximum(
+                cells.aggregate_volume,
+                1.0e-300,
+            )
+            operator_value = local_perp_laplacian_conservative_op(
+                local,
+                local_geometry_value,
+                domain,
+                face_projectors=(
+                    local_invariants.face_projector_x,
+                    local_invariants.face_projector_y,
+                    local_invariants.face_projector_z,
+                ),
+                face_bc=face_bc,
+                control_volume_geometry=control_volume_geometry,
+                field_closure=closure,
+                control_volume_polynomial=build_local_control_volume_polynomial_from_field(
+                    phi_halo,
+                    local_geometry_value,
+                    domain,
+                    StencilBuilderContext(layout=domain.layout, domain=domain),
+                    control_volume_geometry,
+                    boundary_bc,
+                    face_bc,
+                    halo_exchange=HaloExchange3D(),
+                    topology_filler=topology_filler,
+                ),
+            )
+            shard_flat_index = (
+                lax.axis_index(MESH_AXIS_NAMES[0])
+                * int(shard_counts[1])
+                * int(shard_counts[2])
+                + lax.axis_index(MESH_AXIS_NAMES[1])
+                * int(shard_counts[2])
+                + lax.axis_index(MESH_AXIS_NAMES[2])
+            )
+            compact_flux = jnp.zeros(
+                (int(np.prod(shard_counts)), closure.max_rows),
+                dtype=jnp.float64,
+            ).at[shard_flat_index].set(closure.projected_flux)
+            compact_valid = jnp.zeros(
+                (int(np.prod(shard_counts)), closure.max_rows),
+                dtype=bool,
+            ).at[shard_flat_index].set(closure.valid)
+            for mesh_axis_name in MESH_AXIS_NAMES:
+                compact_flux = lax.psum(compact_flux, mesh_axis_name)
+                compact_valid = lax.psum(compact_valid, mesh_axis_name)
+
+            def compact_payload(value):
+                value = jnp.asarray(value)
+                compact = jnp.zeros(
+                    (int(np.prod(shard_counts)),) + value.shape,
+                    dtype=value.dtype,
+                ).at[shard_flat_index].set(value)
+                for mesh_axis_name in MESH_AXIS_NAMES:
+                    compact = lax.psum(compact, mesh_axis_name)
+                return compact
+
+            return (
+                compact_flux,
+                compact_valid,
+                operator_value,
+                regular_divergence,
+                compact_payload(phi_halo),
+                compact_payload(local.face_grad.z),
+                compact_payload(local_invariants.face_projector_z),
+                compact_payload(regular_faces.z_area),
+                compact_payload(regular_faces.z_area_fraction),
+                compact_payload(regular_faces.z_open_mask),
+                compact_payload(z_logical_open_measure),
+                compact_payload(cv_flux.regular_flux.z),
+                compact_payload(z_integrated_face),
+                compact_payload(owner_sum_regular),
+                compact_payload(remote_halo_regular),
+                compact_payload(owner_sum),
+                compact_payload(remote_halo),
+                compact_payload(accumulated_owner_sum),
+                compact_payload(cells.aggregate_volume),
+                compact_payload(final_divergence),
+            )
+
+        compiled = jax.jit(
+            shard_map(
+                kernel,
+                mesh=mesh,
+                in_specs=(field_spec, invariant_spec, control_volume_spec),
+                out_specs=(
+                    P(),
+                    P(),
+                    field_spec,
+                    field_spec,
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                    P(),
+                ),
+                check_rep=False,
+            )
+        )
+        (
+            flux_mesh,
+            valid_mesh,
+            operator_mesh,
+            regular_mesh,
+            phi_halo_mesh,
+            z_gradient_mesh,
+            z_projector_mesh,
+            z_area_mesh,
+            z_fraction_mesh,
+            z_open_mesh,
+            z_measure_mesh,
+            z_flux_mesh,
+            z_integrated_mesh,
+            owner_sum_regular_mesh,
+            remote_halo_regular_mesh,
+            owner_sum_mesh,
+            remote_halo_mesh,
+            accumulated_owner_sum_mesh,
+            aggregate_volume_mesh,
+            final_divergence_mesh,
+        ) = compiled(
+            phi_mesh,
+            invariants_mesh,
+            control_volume_mesh,
+        )
+        flux = np.asarray(flux_mesh)
+        valid = np.asarray(valid_mesh, dtype=bool)
+        operator_value = np.asarray(operator_mesh)
+        regular_divergence = np.asarray(regular_mesh)
+        payload = {
+            "phi_halo": np.asarray(phi_halo_mesh),
+            "z_gradient": np.asarray(z_gradient_mesh),
+            "z_projector": np.asarray(z_projector_mesh),
+            "z_area": np.asarray(z_area_mesh),
+            "z_fraction": np.asarray(z_fraction_mesh),
+            "z_open": np.asarray(z_open_mesh, dtype=bool),
+            "z_measure": np.asarray(z_measure_mesh),
+            "z_flux": np.asarray(z_flux_mesh),
+            "z_integrated_flux": np.asarray(z_integrated_mesh),
+            "owner_sum_regular": np.asarray(owner_sum_regular_mesh),
+            "remote_halo_regular": np.asarray(remote_halo_regular_mesh),
+            "owner_sum": np.asarray(owner_sum_mesh),
+            "remote_halo": np.asarray(remote_halo_mesh),
+            "accumulated_owner_sum": np.asarray(accumulated_owner_sum_mesh),
+            "aggregate_volume": np.asarray(aggregate_volume_mesh),
+            "final_divergence": np.asarray(final_divergence_mesh),
+        }
+
+    faces = stacked.irregular_faces
+    face_ids = np.asarray(faces.global_face_id, dtype=np.int64)
+    active = np.asarray(faces.active, dtype=bool)
+    kinds = np.asarray(faces.kind, dtype=np.int32)
+    remote = np.asarray(faces.has_remote_owner, dtype=bool)
+    cell_data = _assemble_global_control_volume_cell_data(
+        shape,
+        stacked,
+        shard_counts=shard_counts,
+    )
+    rows: dict[int, dict[str, object]] = {}
+    for index in np.ndindex(face_ids.shape[:-1]):
+        evaluator = tuple(
+            int(index[axis]) for axis in range(3)
+        )
+        local_shape = tuple(
+            int(shape[axis]) // int(shard_counts[axis]) for axis in range(3)
+        )
+        for row in np.flatnonzero(active[index]):
+            face_id = int(face_ids[index + (row,)])
+            if face_id < 0:
+                continue
+            if face_id in rows:
+                raise AssertionError(f"duplicate active global face ID {face_id}")
+            minus_local = (
+                int(np.asarray(faces.minus_owner_i)[index + (row,)]),
+                int(np.asarray(faces.minus_owner_j)[index + (row,)]),
+                int(np.asarray(faces.minus_owner_k)[index + (row,)]),
+            )
+            minus_global = tuple(
+                evaluator[axis] * local_shape[axis] + minus_local[axis]
+                for axis in range(3)
+            )
+            has_plus_owner = bool(
+                np.asarray(faces.has_plus_owner)[index + (row,)]
+            )
+            plus_global = None
+            if has_plus_owner:
+                plus_local = (
+                    int(np.asarray(faces.plus_owner_i)[index + (row,)]),
+                    int(np.asarray(faces.plus_owner_j)[index + (row,)]),
+                    int(np.asarray(faces.plus_owner_k)[index + (row,)]),
+                )
+                plus_global = tuple(
+                    evaluator[axis] * local_shape[axis] + plus_local[axis]
+                    for axis in range(3)
+                )
+            has_remote_residual = bool(
+                np.asarray(faces.has_remote_residual)[index + (row,)]
+            )
+            remote_residual_global = None
+            if has_remote_residual:
+                residual_local = (
+                    int(np.asarray(faces.remote_residual_halo_i)[index + (row,)]),
+                    int(np.asarray(faces.remote_residual_halo_j)[index + (row,)]),
+                    int(np.asarray(faces.remote_residual_halo_k)[index + (row,)]),
+                )
+                residual_global = list(
+                    evaluator[axis] * local_shape[axis]
+                    + residual_local[axis] - int(halo_width)
+                    for axis in range(3)
+                )
+                for axis in range(3):
+                    lower = residual_local[axis] < int(halo_width)
+                    upper = residual_local[axis] >= int(halo_width) + local_shape[axis]
+                    if lower or upper:
+                        receiver = (
+                            evaluator[axis] - 1
+                            if lower
+                            else evaluator[axis] + 1
+                        ) % int(shard_counts[axis])
+                        receiver_local = (
+                            local_shape[axis] - int(halo_width) + residual_local[axis]
+                            if lower
+                            else residual_local[axis]
+                            - int(halo_width)
+                            - local_shape[axis]
+                        )
+                        residual_global[axis] = receiver * local_shape[axis] + receiver_local
+                remote_residual_global = tuple(residual_global)
+            rows[face_id] = {
+                "flux": float(
+                    flux[
+                        int(index[0]) * int(shard_counts[1]) * int(shard_counts[2])
+                        + int(index[1]) * int(shard_counts[2])
+                        + int(index[2]),
+                        row,
+                    ]
+                ),
+                "valid": bool(
+                    valid[
+                        int(index[0]) * int(shard_counts[1]) * int(shard_counts[2])
+                        + int(index[1]) * int(shard_counts[2])
+                        + int(index[2]),
+                        row,
+                    ]
+                ),
+                "evaluator": evaluator,
+                "kind": int(kinds[index + (row,)]),
+                "remote_owner": bool(remote[index + (row,)]),
+                "minus_global": minus_global,
+                "plus_global": plus_global,
+                "has_remote_residual": has_remote_residual,
+                "remote_residual_global": remote_residual_global,
+            }
+    results[shard_counts] = rows
+    return {
+        "resolution": int(resolution),
+        "effective_translation": effective_translation,
+        "rows": results,
+        "operator": operator_value,
+        "regular_divergence": regular_divergence,
+        "active_owner": np.asarray(
+            cell_data["is_active_owner"],
+            dtype=bool,
+        ),
+        "aggregate_volume": np.asarray(
+            cell_data["aggregate_volume"],
+            dtype=np.float64,
+        ),
+        "payload": payload,
+    }
+
+
 def run_shifted_torus_control_volume_operator_convergence(
     *,
     resolutions: list[int],
@@ -782,8 +1571,9 @@ def run_shifted_torus_control_volume_operator_convergence(
     face_functional_boundary_weight_scale: float = 1.0,
     face_functional_all_owner_boundary_observations: bool = False,
     face_functional_cell_radius: int = 2,
-    perp_use_two_owner_polynomial_flux: bool = False,
-    perp_use_cutwall_owner_polynomial_flux: bool = False,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    box_cell_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    geometry_cache_dir: str | Path | None = None,
 ) -> dict[str, object]:
     """Run low-memory spatial convergence kernels for the unified CV path."""
 
@@ -802,10 +1592,11 @@ def run_shifted_torus_control_volume_operator_convergence(
         face_functional_cell_radius
     )
     shard_counts = tuple(int(value) for value in shard_counts)
-    if face_functional_all_owner_boundary_observations and shard_counts != (1, 1, 1):
+    if face_functional_all_owner_boundary_observations and any(
+        count != 1 for count in shard_counts
+    ):
         raise ValueError(
-            "face_functional_all_owner_boundary_observations requires one shard "
-            "because remote Dirichlet observations are not exchanged"
+            "face_functional_all_owner_boundary_observations requires one shard"
         )
     parameters = _make_parameters(rho_star_value)
     gmres_config = _make_gmres_config(parameters)
@@ -854,10 +1645,19 @@ def run_shifted_torus_control_volume_operator_convergence(
         str,
         dict[str, list[tuple[int, float, float]]],
     ] = {}
+    poisson_omega_diagnostic_records: dict[
+        str,
+        dict[str, list[tuple[int, float, float]]],
+    ] = {}
     phi_residuals: list[tuple[int, float]] = []
 
     for resolution in resolutions:
         resolution = int(resolution)
+        effective_box_translation = _effective_box_translation(
+            resolution,
+            box_translation=box_translation,
+            box_cell_translation=box_cell_translation,
+        )
         shape = _shape_from_resolution(resolution)
         assert_shape_divisible_by_shards(shape, shard_counts)
         owned_shape = tuple(
@@ -886,6 +1686,8 @@ def run_shifted_torus_control_volume_operator_convergence(
                     face_functional_all_owner_boundary_observations
                 ),
                 face_functional_cell_radius=face_functional_cell_radius,
+                box_translation=effective_box_translation,
+                geometry_cache_dir=geometry_cache_dir,
             )
         )
         print(
@@ -900,6 +1702,7 @@ def run_shifted_torus_control_volume_operator_convergence(
             shard_counts=shard_counts,
             halo_width=halo_width,
             time=0.0,
+            box_translation=effective_box_translation,
         )
         cell_data = _assemble_global_control_volume_cell_data(
             shape,
@@ -908,6 +1711,15 @@ def run_shifted_torus_control_volume_operator_convergence(
         )
         categories = _control_volume_operator_category_masks(cell_data)
         volume = cell_data["aggregate_volume"]
+        active_raw_volume = np.asarray(
+            cell_data["raw_volume"], dtype=np.float64
+        )[np.asarray(cell_data["is_active_owner"], dtype=bool)]
+        positive_active_raw_volume = active_raw_volume[active_raw_volume > 0.0]
+        raw_volume_reference = (
+            float(np.median(positive_active_raw_volume))
+            if positive_active_raw_volume.size
+            else float("nan")
+        )
         _print_control_volume_geometry_summary(
             stacked_control_volume_geometry
         )
@@ -1051,6 +1863,9 @@ def run_shifted_torus_control_volume_operator_convergence(
                 storage = _expand_control_volume_owner_values(
                     values_owned,
                     control_volume_geometry.cells,
+                    domain=domain,
+                    halo_exchange=HaloExchange3D(),
+                    topology_filler=topology_filler,
                 )
                 field_halo = inject_owned_field_to_halo(
                     storage,
@@ -1104,6 +1919,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                 jnp.ndarray,
                 jnp.ndarray,
                 jnp.ndarray,
+                jnp.ndarray,
             ]:
                 local_invariants = extract_local_shard_pytree(
                     local_invariants
@@ -1115,8 +1931,12 @@ def run_shifted_torus_control_volume_operator_convergence(
                     control_volume_geometry
                 )
                 active = control_volume_geometry.cells.is_active_owner
-                remote_flux_sum = jnp.asarray(0.0, dtype=jnp.float64)
-                remote_flux_abs_sum = jnp.asarray(0.0, dtype=jnp.float64)
+                canonical_remote_residual_sum = jnp.asarray(
+                    0.0, dtype=jnp.float64
+                )
+                canonical_remote_residual_abs_sum = jnp.asarray(
+                    0.0, dtype=jnp.float64
+                )
                 invalid_remote_quadrature = jnp.asarray(
                     0,
                     dtype=jnp.int32,
@@ -1135,6 +1955,15 @@ def run_shifted_torus_control_volume_operator_convergence(
                 exact_product_average_flux = jnp.zeros_like(diagnostic_flux)
                 minus_polynomial_flux = jnp.zeros_like(diagnostic_flux)
                 plus_polynomial_flux = jnp.zeros_like(diagnostic_flux)
+                poisson_omega_diagnostic = jnp.zeros(
+                    active.shape
+                    + (
+                        _POISSON_OMEGA_DIAGNOSTIC_WIDTH
+                        if operator_name == "poisson_omega"
+                        else 1,
+                    ),
+                    dtype=jnp.float64,
+                )
                 reconstruction_target = (
                     control_volume_geometry.reconstruction.target_row_for_cell
                     >= 0
@@ -1240,6 +2069,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                         field_halo,
                         control_volume_geometry,
                         boundary_bc,
+                        domain=domain,
                     )
                     if face_audit:
                         exact_density_v_electron = (
@@ -1253,6 +2083,8 @@ def run_shifted_torus_control_volume_operator_convergence(
                                         "density_v_electron",
                                     )
                                 ),
+                                box_translation=effective_box_translation,
+                                domain=domain,
                             )
                         )
                         (
@@ -1273,6 +2105,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                                 exact_field_halo,
                                 control_volume_geometry,
                                 exact_boundary_bc,
+                                domain=domain,
                             )
                         )
                         exact_product_average_flux = (
@@ -1299,30 +2132,61 @@ def run_shifted_torus_control_volume_operator_convergence(
                     irregular_flux = field_closure.parallel_flux
                     if face_audit:
                         diagnostic_flux = irregular_flux
-                    remote_row = (
+                    canonical_remote_residual_row = (
                         control_volume_geometry.irregular_faces.active
-                        & control_volume_geometry.irregular_faces.has_remote_owner
+                        & control_volume_geometry.irregular_faces.has_remote_residual
                     )
-                    remote_flux_sum = jnp.sum(
-                        jnp.where(remote_row, irregular_flux, 0.0)
-                    )
-                    remote_flux_abs_sum = jnp.sum(
+                    local_canonical_residual = jnp.sum(
                         jnp.where(
-                            remote_row,
+                            canonical_remote_residual_row,
+                            irregular_flux,
+                            0.0,
+                        )
+                    )
+                    remote_residual_halo = jnp.zeros(
+                        control_volume_geometry.cells.layout.cell_halo_shape,
+                        dtype=jnp.float64,
+                    ).at[
+                        control_volume_geometry.irregular_faces.remote_residual_halo_i,
+                        control_volume_geometry.irregular_faces.remote_residual_halo_j,
+                        control_volume_geometry.irregular_faces.remote_residual_halo_k,
+                    ].add(
+                        jnp.where(
+                            canonical_remote_residual_row,
+                            -irregular_flux,
+                            0.0,
+                        )
+                    )
+                    received_canonical_residual = (
+                        accumulate_halo_contributions_to_owned(
+                            remote_residual_halo,
+                            domain,
+                        )
+                    )
+                    canonical_remote_residual_sum = (
+                        local_canonical_residual
+                        + jnp.sum(received_canonical_residual)
+                    )
+                    canonical_remote_residual_abs_sum = 2.0 * jnp.sum(
+                        jnp.where(
+                            canonical_remote_residual_row,
                             jnp.abs(irregular_flux),
                             0.0,
                         )
                     )
                     invalid_remote_quadrature = jnp.sum(
-                        (remote_row & (~field_closure.valid)).astype(jnp.int32)
+                        (
+                            canonical_remote_residual_row
+                            & (~field_closure.valid)
+                        ).astype(jnp.int32)
                     )
                     for mesh_axis_name in MESH_AXIS_NAMES:
-                        remote_flux_sum = lax.psum(
-                            remote_flux_sum,
+                        canonical_remote_residual_sum = lax.psum(
+                            canonical_remote_residual_sum,
                             mesh_axis_name,
                         )
-                        remote_flux_abs_sum = lax.psum(
-                            remote_flux_abs_sum,
+                        canonical_remote_residual_abs_sum = lax.psum(
+                            canonical_remote_residual_abs_sum,
                             mesh_axis_name,
                         )
                         invalid_remote_quadrature = lax.psum(
@@ -1339,6 +2203,8 @@ def run_shifted_torus_control_volume_operator_convergence(
                                 "parallel_density_flux_divergence",
                             )
                         ),
+                        box_translation=effective_box_translation,
+                        domain=domain,
                     )
                 elif operator_name.startswith("poisson_"):
                     suffix = operator_name.removeprefix("poisson_")
@@ -1352,7 +2218,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                         control_volume_geometry,
                         stage_time,
                     )
-                    _v_electron_halo, v_electron_poly, _bc, _face_bc = (
+                    _field_halo, field_poly, _bc, _face_bc = (
                         prepare_field(
                             field_owned,
                             field_name,
@@ -1364,7 +2230,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                     )
                     actual = local_poisson_bracket_op_from_gradients(
                         phi_poly.as_cell_gradient(),
-                        v_electron_poly.as_cell_gradient(),
+                        field_poly.as_cell_gradient(),
                         local_geometry_value,
                         control_volume_geometry=control_volume_geometry,
                     )
@@ -1373,7 +2239,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                             reconstruction_target
                             & (
                                 (~phi_poly.valid)
-                                | (~v_electron_poly.valid)
+                                | (~field_poly.valid)
                             )
                         ).astype(jnp.int32)
                     )
@@ -1387,7 +2253,150 @@ def run_shifted_torus_control_volume_operator_convergence(
                                 operator_name,
                             )
                         ),
+                        box_translation=effective_box_translation,
+                        domain=domain,
                     )
+                    if operator_name == "poisson_omega":
+                        centroid = control_volume_geometry.cells.centroid
+                        _phi_value, exact_phi_gradient = (
+                            _shifted_torus_exact_field_and_gradient_at_logical_points(
+                                centroid,
+                                stage_time,
+                                "phi",
+                            )
+                        )
+                        _omega_value, exact_omega_gradient = (
+                            _shifted_torus_exact_field_and_gradient_at_logical_points(
+                                centroid,
+                                stage_time,
+                                "omega",
+                            )
+                        )
+                        reconstructed_phi_gradient = phi_poly.gradient
+                        reconstructed_omega_gradient = field_poly.gradient
+                        b_contra = (
+                            jnp.asarray(
+                                control_volume_geometry.centroid_B_contra,
+                                dtype=jnp.float64,
+                            )
+                            / jnp.maximum(
+                                jnp.asarray(
+                                    control_volume_geometry.centroid_Bmag,
+                                    dtype=jnp.float64,
+                                )[..., None],
+                                1.0e-30,
+                            )
+                        )
+                        b_covariant = jnp.einsum(
+                            "...ij,...j->...i",
+                            jnp.asarray(
+                                control_volume_geometry.centroid_g_cov,
+                                dtype=jnp.float64,
+                            ),
+                            b_contra,
+                        )
+                        bracket_factor = b_covariant / jnp.maximum(
+                            jnp.asarray(
+                                control_volume_geometry.centroid_J,
+                                dtype=jnp.float64,
+                            )[..., None],
+                            1.0e-30,
+                        )
+
+                        def bracket_payload(
+                            phi_gradient: jnp.ndarray,
+                            omega_gradient: jnp.ndarray,
+                        ) -> tuple[jnp.ndarray, jnp.ndarray]:
+                            contributions = bracket_factor * jnp.cross(
+                                phi_gradient,
+                                omega_gradient,
+                                axis=-1,
+                            )
+                            return jnp.sum(contributions, axis=-1), contributions
+
+                        (
+                            exact_phi_reconstructed_omega,
+                            _mixed_phi_contributions,
+                        ) = bracket_payload(
+                            exact_phi_gradient,
+                            reconstructed_omega_gradient,
+                        )
+                        (
+                            reconstructed_phi_exact_omega,
+                            _mixed_omega_contributions,
+                        ) = bracket_payload(
+                            reconstructed_phi_gradient,
+                            exact_omega_gradient,
+                        )
+                        (
+                            _reconstructed_centroid,
+                            reconstructed_contributions,
+                        ) = bracket_payload(
+                            reconstructed_phi_gradient,
+                            reconstructed_omega_gradient,
+                        )
+                        exact_centroid, exact_contributions = bracket_payload(
+                            exact_phi_gradient,
+                            exact_omega_gradient,
+                        )
+                        reconstructed_valid = (
+                            active
+                            & phi_poly.valid
+                            & field_poly.valid
+                        )
+                        exact_phi_reconstructed_omega = jnp.where(
+                            reconstructed_valid,
+                            exact_phi_reconstructed_omega,
+                            0.0,
+                        )
+                        reconstructed_phi_exact_omega = jnp.where(
+                            reconstructed_valid,
+                            reconstructed_phi_exact_omega,
+                            0.0,
+                        )
+                        reconstructed_contributions = jnp.where(
+                            reconstructed_valid[..., None],
+                            reconstructed_contributions,
+                            0.0,
+                        )
+                        poisson_omega_diagnostic = jnp.concatenate(
+                            (
+                                exact_phi_reconstructed_omega[..., None],
+                                reconstructed_phi_exact_omega[..., None],
+                                jnp.where(
+                                    active,
+                                    exact_centroid,
+                                    0.0,
+                                )[..., None],
+                                reconstructed_contributions,
+                                jnp.where(
+                                    active[..., None],
+                                    exact_contributions,
+                                    0.0,
+                                ),
+                                jnp.where(
+                                    reconstructed_valid[..., None],
+                                    reconstructed_phi_gradient,
+                                    0.0,
+                                ),
+                                jnp.where(
+                                    active[..., None],
+                                    exact_phi_gradient,
+                                    0.0,
+                                ),
+                                jnp.where(
+                                    reconstructed_valid[..., None],
+                                    reconstructed_omega_gradient,
+                                    0.0,
+                                ),
+                                jnp.where(
+                                    active[..., None],
+                                    exact_omega_gradient,
+                                    0.0,
+                                ),
+                            ),
+                            axis=-1,
+                        )
                 elif operator_name.startswith("curvature_"):
                     suffix = operator_name.removeprefix("curvature_")
                     field_name = field_suffixes[suffix]
@@ -1430,6 +2439,8 @@ def run_shifted_torus_control_volume_operator_convergence(
                                 operator_name,
                             )
                         ),
+                        box_translation=effective_box_translation,
+                        domain=domain,
                     )
                 elif operator_name == "perp_laplacian_phi":
                     phi_halo, phi_poly, boundary_bc, face_bc = (
@@ -1454,12 +2465,9 @@ def run_shifted_torus_control_volume_operator_convergence(
                         phi_halo,
                         control_volume_geometry,
                         boundary_bc,
+                        domain=domain,
                     )
-                    if (
-                        face_audit
-                        or perp_use_two_owner_polynomial_flux
-                        or perp_use_cutwall_owner_polynomial_flux
-                    ):
+                    if face_audit:
                         faces = control_volume_geometry.irregular_faces
                         quadrature_points = faces.quadrature_points
                         quadrature_shape = quadrature_points.shape[:-1]
@@ -1536,24 +2544,6 @@ def run_shifted_torus_control_volume_operator_convergence(
                             ),
                             0.0,
                         )
-                        if (
-                            perp_use_two_owner_polynomial_flux
-                            or perp_use_cutwall_owner_polynomial_flux
-                        ):
-                            phi_closure = (
-                                replace_local_control_volume_projected_flux_with_owner_polynomials(
-                                    phi_closure,
-                                    phi_poly,
-                                    control_volume_geometry,
-                                    domain,
-                                    use_two_owner_flux=(
-                                        perp_use_two_owner_polynomial_flux
-                                    ),
-                                    use_cut_wall_owner_flux=(
-                                        perp_use_cutwall_owner_polynomial_flux
-                                    ),
-                                )
-                            )
                         if face_audit:
                             diagnostic_flux = phi_closure.projected_flux
                     actual = local_perp_laplacian_conservative_op(
@@ -1568,6 +2558,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                         face_bc=face_bc,
                         control_volume_geometry=control_volume_geometry,
                         field_closure=phi_closure,
+                        control_volume_polynomial=phi_poly,
                     )
                     invalid_reconstruction_rows = jnp.sum(
                         (
@@ -1588,14 +2579,15 @@ def run_shifted_torus_control_volume_operator_convergence(
                 return (
                     jnp.where(active, actual, 0.0),
                     jnp.where(active, reference, 0.0),
-                    remote_flux_sum,
-                    remote_flux_abs_sum,
+                    canonical_remote_residual_sum,
+                    canonical_remote_residual_abs_sum,
                     invalid_remote_quadrature,
                     invalid_reconstruction_rows,
                     diagnostic_flux[None, None, None, :],
                     exact_product_average_flux[None, None, None, :],
                     minus_polynomial_flux[None, None, None, :],
                     plus_polynomial_flux[None, None, None, :],
+                    poisson_omega_diagnostic,
                 )
 
             def make_scalar_kernel(operator_name: str):
@@ -1640,6 +2632,7 @@ def run_shifted_torus_control_volume_operator_convergence(
                             P(*MESH_AXIS_NAMES, None),
                             P(*MESH_AXIS_NAMES, None),
                             P(*MESH_AXIS_NAMES, None),
+                            P(*MESH_AXIS_NAMES, None),
                         ),
                         check_rep=False,
                     )
@@ -1648,14 +2641,15 @@ def run_shifted_torus_control_volume_operator_convergence(
                 (
                     actual_mesh,
                     reference_mesh,
-                    remote_flux_sum,
-                    remote_flux_abs_sum,
+                    canonical_remote_residual_sum,
+                    canonical_remote_residual_abs_sum,
                     invalid_remote_quadrature,
                     invalid_reconstruction_rows,
                     diagnostic_flux_mesh,
                     exact_product_average_flux_mesh,
                     minus_polynomial_flux_mesh,
                     plus_polynomial_flux_mesh,
+                    poisson_omega_diagnostic_mesh,
                 ) = compiled(
                     state_mesh,
                     phi_mesh,
@@ -1701,11 +2695,25 @@ def run_shifted_torus_control_volume_operator_convergence(
                     )
                     if face_audit else None
                 )
+                poisson_omega_diagnostic = (
+                    np.asarray(
+                        jax.device_get(poisson_omega_diagnostic_mesh),
+                        dtype=np.float64,
+                    )
+                    if operator_name == "poisson_omega"
+                    else None
+                )
+                radial_diagnostic_categories = (
+                    _poisson_radial_plane_category_masks(cell_data)
+                    if operator_name
+                    in _POISSON_RADIAL_DIAGNOSTIC_OPERATORS
+                    else {}
+                )
                 statistics = _operator_category_statistics(
                     actual,
                     reference,
                     volume,
-                    categories,
+                    {**categories, **radial_diagnostic_categories},
                 )
                 print(
                     f"N={resolution} operator={operator_name} "
@@ -1721,11 +2729,15 @@ def run_shifted_torus_control_volume_operator_convergence(
                         "quadratic reconstruction rows"
                     )
                 if operator_name == "parallel_density_flux_divergence":
-                    remote_flux_sum_value = float(
-                        np.asarray(jax.device_get(remote_flux_sum))
+                    canonical_remote_residual_sum_value = float(
+                        np.asarray(
+                            jax.device_get(canonical_remote_residual_sum)
+                        )
                     )
-                    remote_flux_abs_sum_value = float(
-                        np.asarray(jax.device_get(remote_flux_abs_sum))
+                    canonical_remote_residual_abs_sum_value = float(
+                        np.asarray(
+                            jax.device_get(canonical_remote_residual_abs_sum)
+                        )
                     )
                     invalid_remote_quadrature_value = int(
                         np.asarray(
@@ -1733,29 +2745,29 @@ def run_shifted_torus_control_volume_operator_convergence(
                         )
                     )
                     print(
-                        "  mirrored_remote_flux signed_sum="
-                        f"{remote_flux_sum_value:.6e} "
-                        f"abs_sum={remote_flux_abs_sum_value:.6e} "
+                        "  canonical_remote_residual signed_sum="
+                        f"{canonical_remote_residual_sum_value:.6e} "
+                        f"twice_abs_sum={canonical_remote_residual_abs_sum_value:.6e} "
                         "relative_imbalance="
-                        f"{abs(remote_flux_sum_value) / max(remote_flux_abs_sum_value, 1.0e-30):.6e} "
+                        f"{abs(canonical_remote_residual_sum_value) / max(canonical_remote_residual_abs_sum_value, 1.0e-30):.6e} "
                         "invalid_quadrature="
                         f"{invalid_remote_quadrature_value}"
                     )
                     remote_relative_imbalance = (
-                        abs(remote_flux_sum_value)
-                        / max(remote_flux_abs_sum_value, 1.0e-30)
+                        abs(canonical_remote_residual_sum_value)
+                        / max(canonical_remote_residual_abs_sum_value, 1.0e-30)
                     )
                     if invalid_remote_quadrature_value:
                         raise AssertionError(
-                            "mirrored remote interfaces contain invalid "
+                            "canonical remote residual rows contain invalid "
                             f"quadrature samples: {invalid_remote_quadrature_value}"
                         )
                     if (
-                        remote_flux_abs_sum_value > 1.0e-14
+                        canonical_remote_residual_abs_sum_value > 1.0e-14
                         and remote_relative_imbalance > 1.0e-12
                     ):
                         raise AssertionError(
-                            "mirrored remote interface fluxes do not cancel: "
+                            "canonical remote residuals do not cancel: "
                             f"relative imbalance={remote_relative_imbalance:.6e}"
                         )
                 for category, (
@@ -1826,7 +2838,9 @@ def run_shifted_torus_control_volume_operator_convergence(
                     "reference={:.6e} regular_physical_boundary={} "
                     "embedded_cutwall_faces={} irregular_faces={} "
                     "remote_faces={} reconstruction_rows={} aggregate={} "
-                    "compact_distance={}".format(
+                    "compact_distance={} raw_volume_ratio={:.6e} "
+                    "aggregate_volume_ratio={:.6e} received_sources={} "
+                    "members={}".format(
                         top_index,
                         float(absolute_error[top_index]),
                         float(np.asarray(actual)[top_index]),
@@ -1849,8 +2863,396 @@ def run_shifted_torus_control_volume_operator_convergence(
                             )[top_index]
                         ),
                         top_compact_distance,
+                        float(np.asarray(cell_data["raw_volume"])[top_index])
+                        / raw_volume_reference,
+                        float(np.asarray(cell_data["aggregate_volume"])[top_index])
+                        / raw_volume_reference,
+                        int(np.asarray(cell_data["received_source_count"])[top_index]),
+                        int(np.asarray(cell_data["member_count"])[top_index]),
                     )
                 )
+                for category, mask in radial_diagnostic_categories.items():
+                    category_mask = np.asarray(mask, dtype=bool)
+                    if not np.any(category_mask):
+                        print(
+                            "    radial_top_error "
+                            f"category={category} no_active_owners"
+                        )
+                        continue
+                    category_error = np.where(
+                        category_mask,
+                        absolute_error,
+                        -np.inf,
+                    )
+                    category_top_flat = int(np.argmax(category_error))
+                    category_top_index = tuple(
+                        int(value)
+                        for value in np.unravel_index(
+                            category_top_flat,
+                            shape,
+                        )
+                    )
+                    print(
+                        "    radial_top_error category={} index={} "
+                        "error={:.6e} actual={:.6e} reference={:.6e}".format(
+                            category,
+                            category_top_index,
+                            float(category_error[category_top_index]),
+                            float(np.asarray(actual)[category_top_index]),
+                            float(np.asarray(reference)[category_top_index]),
+                        )
+                    )
+                if poisson_omega_diagnostic is not None:
+                    component_categories = {
+                        "all_active": categories["all_active"],
+                        **radial_diagnostic_categories,
+                    }
+                    integrated_component_statistics = (
+                        _poisson_omega_component_diagnostic_statistics(
+                            actual,
+                            reference,
+                            poisson_omega_diagnostic,
+                            volume,
+                            component_categories,
+                        )
+                    )
+                    centroid_component_statistics = (
+                        _poisson_omega_component_diagnostic_statistics(
+                            actual,
+                            reference,
+                            poisson_omega_diagnostic,
+                            volume,
+                            component_categories,
+                            comparison_target="exact_centroid",
+                        )
+                    )
+                    reconstructed_from_contributions = np.sum(
+                        poisson_omega_diagnostic[
+                            ...,
+                            _POISSON_OMEGA_RECONSTRUCTED_CONTRIBUTIONS,
+                        ],
+                        axis=-1,
+                    )
+                    contribution_closure_error = float(
+                        np.max(
+                            np.abs(
+                                actual[active_mask]
+                                - reconstructed_from_contributions[active_mask]
+                            )
+                        )
+                    )
+                    print(
+                        "  poisson_omega_component_audit "
+                        "reconstructed_contribution_closure_Linf="
+                        f"{contribution_closure_error:.6e}"
+                    )
+                    for target_name, target_statistics in (
+                        (
+                            "integrated_reference",
+                            integrated_component_statistics,
+                        ),
+                        (
+                            "exact_centroid",
+                            centroid_component_statistics,
+                        ),
+                    ):
+                        for variant_name, variant_statistics in (
+                            target_statistics.items()
+                        ):
+                            if (
+                                target_name == "exact_centroid"
+                                and variant_name == "exact_centroid"
+                            ):
+                                continue
+                            record_name = (
+                                f"{target_name}::{variant_name}"
+                            )
+                            for category, (
+                                l2,
+                                linf,
+                                _relative,
+                                _count,
+                            ) in variant_statistics.items():
+                                poisson_omega_diagnostic_records.setdefault(
+                                    record_name,
+                                    {},
+                                ).setdefault(category, []).append(
+                                    (resolution, l2, linf)
+                                )
+                    for category, mask in (
+                        radial_diagnostic_categories.items()
+                    ):
+                        category_mask = np.asarray(mask, dtype=bool)
+                        if not np.any(category_mask):
+                            continue
+                        category_error = np.where(
+                            category_mask,
+                            absolute_error,
+                            -np.inf,
+                        )
+                        category_top_index = tuple(
+                            int(value)
+                            for value in np.unravel_index(
+                                int(np.argmax(category_error)),
+                                shape,
+                            )
+                        )
+                        reconstructed_stats = integrated_component_statistics[
+                            "reconstructed"
+                        ][category]
+                        exact_phi_stats = integrated_component_statistics[
+                            "exact_phi_reconstructed_omega"
+                        ][category]
+                        exact_omega_stats = integrated_component_statistics[
+                            "reconstructed_phi_exact_omega"
+                        ][category]
+                        exact_centroid_stats = integrated_component_statistics[
+                            "exact_centroid"
+                        ][category]
+                        print(
+                            "    poisson_omega_component_errors "
+                            f"category={category} "
+                            "L2/Linf reconstructed="
+                            f"{reconstructed_stats[0]:.6e}/"
+                            f"{reconstructed_stats[1]:.6e} "
+                            "exact_phi_reconstructed_omega="
+                            f"{exact_phi_stats[0]:.6e}/"
+                            f"{exact_phi_stats[1]:.6e} "
+                            "reconstructed_phi_exact_omega="
+                            f"{exact_omega_stats[0]:.6e}/"
+                            f"{exact_omega_stats[1]:.6e} "
+                            "exact_centroid_vs_integrated="
+                            f"{exact_centroid_stats[0]:.6e}/"
+                            f"{exact_centroid_stats[1]:.6e}"
+                        )
+                        centroid_reconstructed_stats = (
+                            centroid_component_statistics["reconstructed"][
+                                category
+                            ]
+                        )
+                        centroid_exact_phi_stats = (
+                            centroid_component_statistics[
+                                "exact_phi_reconstructed_omega"
+                            ][category]
+                        )
+                        centroid_exact_omega_stats = (
+                            centroid_component_statistics[
+                                "reconstructed_phi_exact_omega"
+                            ][category]
+                        )
+                        print(
+                            "    poisson_omega_centroid_errors "
+                            f"category={category} "
+                            "L2/Linf reconstructed="
+                            f"{centroid_reconstructed_stats[0]:.6e}/"
+                            f"{centroid_reconstructed_stats[1]:.6e} "
+                            "exact_phi_reconstructed_omega="
+                            f"{centroid_exact_phi_stats[0]:.6e}/"
+                            f"{centroid_exact_phi_stats[1]:.6e} "
+                            "reconstructed_phi_exact_omega="
+                            f"{centroid_exact_omega_stats[0]:.6e}/"
+                            f"{centroid_exact_omega_stats[1]:.6e}"
+                        )
+                        payload_at_top = poisson_omega_diagnostic[
+                            category_top_index
+                        ]
+                        print(
+                            "      values index={} reconstructed={:.6e} "
+                            "integrated_reference={:.6e} "
+                            "exact_phi_reconstructed_omega={:.6e} "
+                            "reconstructed_phi_exact_omega={:.6e} "
+                            "exact_centroid={:.6e}".format(
+                                category_top_index,
+                                float(actual[category_top_index]),
+                                float(reference[category_top_index]),
+                                float(
+                                    payload_at_top[
+                                        _POISSON_OMEGA_EXACT_PHI_RECONSTRUCTED_OMEGA
+                                    ]
+                                ),
+                                float(
+                                    payload_at_top[
+                                        _POISSON_OMEGA_RECONSTRUCTED_PHI_EXACT_OMEGA
+                                    ]
+                                ),
+                                float(
+                                    payload_at_top[
+                                        _POISSON_OMEGA_EXACT_CENTROID
+                                    ]
+                                ),
+                            )
+                        )
+                        print(
+                            "      contracted_cross reconstructed={} exact={}"
+                            .format(
+                                np.array2string(
+                                    payload_at_top[
+                                        _POISSON_OMEGA_RECONSTRUCTED_CONTRIBUTIONS
+                                    ],
+                                    precision=6,
+                                    separator=",",
+                                ),
+                                np.array2string(
+                                    payload_at_top[
+                                        _POISSON_OMEGA_EXACT_CONTRIBUTIONS
+                                    ],
+                                    precision=6,
+                                    separator=",",
+                                ),
+                            )
+                        )
+                        print(
+                            "      gradients phi_reconstructed={} "
+                            "phi_exact={} omega_reconstructed={} "
+                            "omega_exact={}".format(
+                                np.array2string(
+                                    payload_at_top[
+                                        _POISSON_OMEGA_RECONSTRUCTED_PHI_GRADIENT
+                                    ],
+                                    precision=6,
+                                    separator=",",
+                                ),
+                                np.array2string(
+                                    payload_at_top[
+                                        _POISSON_OMEGA_EXACT_PHI_GRADIENT
+                                    ],
+                                    precision=6,
+                                    separator=",",
+                                ),
+                                np.array2string(
+                                    payload_at_top[
+                                        _POISSON_OMEGA_RECONSTRUCTED_OMEGA_GRADIENT
+                                    ],
+                                    precision=6,
+                                    separator=",",
+                                ),
+                                np.array2string(
+                                    payload_at_top[
+                                        _POISSON_OMEGA_EXACT_OMEGA_GRADIENT
+                                    ],
+                                    precision=6,
+                                    separator=",",
+                                ),
+                            )
+                        )
+                    component_variants = {
+                        "reconstructed": actual,
+                        "exact_phi_reconstructed_omega": (
+                            poisson_omega_diagnostic[
+                                ...,
+                                _POISSON_OMEGA_EXACT_PHI_RECONSTRUCTED_OMEGA,
+                            ]
+                        ),
+                        "reconstructed_phi_exact_omega": (
+                            poisson_omega_diagnostic[
+                                ...,
+                                _POISSON_OMEGA_RECONSTRUCTED_PHI_EXACT_OMEGA,
+                            ]
+                        ),
+                        "exact_centroid": poisson_omega_diagnostic[
+                            ...,
+                            _POISSON_OMEGA_EXACT_CENTROID,
+                        ],
+                    }
+                    component_targets = {
+                        "integrated_reference": reference,
+                        "exact_centroid": component_variants[
+                            "exact_centroid"
+                        ],
+                    }
+                    for target_name, target_values in (
+                        component_targets.items()
+                    ):
+                        for variant_name, variant_values in (
+                            component_variants.items()
+                        ):
+                            if (
+                                target_name == "exact_centroid"
+                                and variant_name == "exact_centroid"
+                            ):
+                                continue
+                            variant_error = np.where(
+                                active_mask,
+                                np.abs(variant_values - target_values),
+                                -np.inf,
+                            )
+                            variant_top_index = tuple(
+                                int(value)
+                                for value in np.unravel_index(
+                                    int(np.argmax(variant_error)),
+                                    shape,
+                                )
+                            )
+                            radial_index = variant_top_index[0]
+                            if radial_index == 0:
+                                radial_region = "radial_lower_x0"
+                            elif radial_index == 1:
+                                radial_region = "radial_lower_x1"
+                            elif radial_index == 2:
+                                radial_region = "radial_lower_x2"
+                            elif radial_index == shape[0] - 2:
+                                radial_region = "radial_upper_xm2"
+                            elif radial_index == shape[0] - 1:
+                                radial_region = "radial_upper_xm1"
+                            else:
+                                radial_region = "radial_core"
+                            variant_payload = poisson_omega_diagnostic[
+                                variant_top_index
+                            ]
+                            phi_gradient_delta = (
+                                variant_payload[
+                                    _POISSON_OMEGA_RECONSTRUCTED_PHI_GRADIENT
+                                ]
+                                - variant_payload[
+                                    _POISSON_OMEGA_EXACT_PHI_GRADIENT
+                                ]
+                            )
+                            omega_gradient_delta = (
+                                variant_payload[
+                                    _POISSON_OMEGA_RECONSTRUCTED_OMEGA_GRADIENT
+                                ]
+                                - variant_payload[
+                                    _POISSON_OMEGA_EXACT_OMEGA_GRADIENT
+                                ]
+                            )
+                            print(
+                                "    poisson_omega_variant_top "
+                                f"target={target_name} "
+                                f"variant={variant_name} "
+                                f"index={variant_top_index} "
+                                f"radial_region={radial_region} "
+                                "error="
+                                f"{float(variant_error[variant_top_index]):.6e} "
+                                "value="
+                                f"{float(variant_values[variant_top_index]):.6e} "
+                                "target_value="
+                                f"{float(target_values[variant_top_index]):.6e}"
+                            )
+                            print(
+                                "      gradient_delta phi={} omega={}".format(
+                                    np.array2string(
+                                        phi_gradient_delta,
+                                        precision=6,
+                                        separator=",",
+                                    ),
+                                    np.array2string(
+                                        omega_gradient_delta,
+                                        precision=6,
+                                        separator=",",
+                                    ),
+                                )
+                            )
+                    del (
+                        component_categories,
+                        integrated_component_statistics,
+                        centroid_component_statistics,
+                        reconstructed_from_contributions,
+                        payload_at_top,
+                        component_variants,
+                        component_targets,
+                        variant_error,
+                        variant_payload,
+                    )
                 if face_audit:
                     assert diagnostic_flux is not None
                     assert exact_product_average_flux is not None
@@ -1926,25 +3328,47 @@ def run_shifted_torus_control_volume_operator_convergence(
                     compiled,
                     actual_mesh,
                     reference_mesh,
-                    remote_flux_sum,
-                    remote_flux_abs_sum,
+                    canonical_remote_residual_sum,
+                    canonical_remote_residual_abs_sum,
                     invalid_remote_quadrature,
                     invalid_reconstruction_rows,
                     diagnostic_flux_mesh,
                     exact_product_average_flux_mesh,
                     minus_polynomial_flux_mesh,
                     plus_polynomial_flux_mesh,
+                    poisson_omega_diagnostic_mesh,
                     actual,
                     reference,
                     diagnostic_flux,
                     exact_product_average_flux,
                     minus_polynomial_flux,
                     plus_polynomial_flux,
+                    poisson_omega_diagnostic,
                     statistics,
                 )
                 jax.clear_caches()
                 gc.collect()
             if selected_operators is not None:
+                del (
+                    geometry,
+                    stacked_control_volume_geometry,
+                    exact_state,
+                    exact_phi,
+                    cell_data,
+                    categories,
+                    volume,
+                    active_raw_volume,
+                    positive_active_raw_volume,
+                    state_mesh,
+                    phi_mesh,
+                    sample_invariants,
+                    invariants_mesh,
+                    control_volume_mesh,
+                    control_volume_sharding,
+                    control_volume_spec,
+                    invariant_spec,
+                )
+                _clear_resolution_level_caches(resolution)
                 continue
 
             def full_rhs_kernel(
@@ -1978,29 +3402,46 @@ def run_shifted_torus_control_volume_operator_convergence(
                     control_volume_geometry,
                     stage_time,
                     parameters,
+                    box_translation=effective_box_translation,
+                    domain=domain,
                 )
                 cells = control_volume_geometry.cells
                 source_storage = Fci4FieldState(
                     density=_expand_control_volume_owner_values(
                         source_owner.density,
                         cells,
+                        domain=domain,
+                        halo_exchange=HaloExchange3D(),
+                        topology_filler=topology_filler,
                     ),
                     omega=_expand_control_volume_owner_values(
                         source_owner.omega,
                         cells,
+                        domain=domain,
+                        halo_exchange=HaloExchange3D(),
+                        topology_filler=topology_filler,
                     ),
                     v_ion_parallel=_expand_control_volume_owner_values(
                         source_owner.v_ion_parallel,
                         cells,
+                        domain=domain,
+                        halo_exchange=HaloExchange3D(),
+                        topology_filler=topology_filler,
                     ),
                     v_electron_parallel=_expand_control_volume_owner_values(
                         source_owner.v_electron_parallel,
                         cells,
+                        domain=domain,
+                        halo_exchange=HaloExchange3D(),
+                        topology_filler=topology_filler,
                     ),
                 )
                 phi_storage = _expand_control_volume_owner_values(
                     phi_owned,
                     cells,
+                    domain=domain,
+                    halo_exchange=HaloExchange3D(),
+                    topology_filler=topology_filler,
                 )
                 stage = dataclass_replace(
                     stage,
@@ -2043,24 +3484,30 @@ def run_shifted_torus_control_volume_operator_convergence(
                         local_geometry_value,
                         control_volume_geometry,
                         stage_time,
+                        box_translation=effective_box_translation,
+                        domain=domain,
                     )
                 )
                 source_roundtrip = Fci4FieldState(
-                    density=_agglomerate_control_volume_average(
+                    density=_aggregate_control_volume_average(
                         source_storage.density,
                         cells,
+                        domain=domain,
                     ),
-                    omega=_agglomerate_control_volume_average(
+                    omega=_aggregate_control_volume_average(
                         source_storage.omega,
                         cells,
+                        domain=domain,
                     ),
-                    v_ion_parallel=_agglomerate_control_volume_average(
+                    v_ion_parallel=_aggregate_control_volume_average(
                         source_storage.v_ion_parallel,
                         cells,
+                        domain=domain,
                     ),
-                    v_electron_parallel=_agglomerate_control_volume_average(
+                    v_electron_parallel=_aggregate_control_volume_average(
                         source_storage.v_electron_parallel,
                         cells,
+                        domain=domain,
                     ),
                 )
                 active = cells.is_active_owner
@@ -2180,6 +3627,34 @@ def run_shifted_torus_control_volume_operator_convergence(
 
             if not bool(check_phi_solve):
                 print(f"N={resolution} phi algebraic solve skipped")
+                del (
+                    compiled_full_rhs,
+                    actual_rhs_mesh,
+                    reference_rhs_mesh,
+                    source_diagnostics,
+                    actual_rhs,
+                    reference_rhs,
+                    source_diagnostics_host,
+                    full_rhs_kernel,
+                    geometry,
+                    stacked_control_volume_geometry,
+                    exact_state,
+                    exact_phi,
+                    cell_data,
+                    categories,
+                    volume,
+                    active_raw_volume,
+                    positive_active_raw_volume,
+                    state_mesh,
+                    phi_mesh,
+                    sample_invariants,
+                    invariants_mesh,
+                    control_volume_mesh,
+                    control_volume_sharding,
+                    control_volume_spec,
+                    invariant_spec,
+                )
+                _clear_resolution_level_caches(resolution)
                 continue
 
             def phi_solve_kernel(
@@ -2325,6 +3800,44 @@ def run_shifted_torus_control_volume_operator_convergence(
                     f"N={resolution}, residual={relative_residual_value:.6e}, "
                     f"converged={converged_value}, failed={failed_value}"
                 )
+            del (
+                compiled_phi_solve,
+                solved_phi,
+                relative_residual,
+                converged,
+                phi_failed,
+                phi_num_steps,
+                phi_initial_residual,
+                phi_final_residual,
+                phi_rhs_l2,
+                phi_solve_kernel,
+                compiled_full_rhs,
+                actual_rhs_mesh,
+                reference_rhs_mesh,
+                source_diagnostics,
+                actual_rhs,
+                reference_rhs,
+                source_diagnostics_host,
+                full_rhs_kernel,
+                geometry,
+                stacked_control_volume_geometry,
+                exact_state,
+                exact_phi,
+                cell_data,
+                categories,
+                volume,
+                active_raw_volume,
+                positive_active_raw_volume,
+                state_mesh,
+                phi_mesh,
+                sample_invariants,
+                invariants_mesh,
+                control_volume_mesh,
+                control_volume_sharding,
+                control_volume_spec,
+                invariant_spec,
+            )
+            _clear_resolution_level_caches(resolution)
 
     order_results: dict[
         str,
@@ -2365,6 +3878,38 @@ def run_shifted_torus_control_volume_operator_convergence(
                 f"operator order {operator_name} {category}: "
                 f"volume_L2={l2_text}, Linf={linf_text}"
             )
+            if (
+                operator_name in _POISSON_RADIAL_DIAGNOSTIC_OPERATORS
+                and (
+                    category == "all_active"
+                    or category in _POISSON_RADIAL_DIAGNOSTIC_CATEGORIES
+                )
+            ):
+                for coarse, fine in zip(values, values[1:]):
+                    pair_l2_order = _fit_operator_order(
+                        [coarse[0], fine[0]],
+                        [coarse[1], fine[1]],
+                    )
+                    pair_linf_order = _fit_operator_order(
+                        [coarse[0], fine[0]],
+                        [coarse[2], fine[2]],
+                    )
+                    pair_l2_text = (
+                        "n/a"
+                        if pair_l2_order is None
+                        else f"{pair_l2_order:.6f}"
+                    )
+                    pair_linf_text = (
+                        "n/a"
+                        if pair_linf_order is None
+                        else f"{pair_linf_order:.6f}"
+                    )
+                    print(
+                        "  adjacent order "
+                        f"N={coarse[0]}->{fine[0]}: "
+                        f"volume_L2={pair_l2_text}, "
+                        f"Linf={pair_linf_text}"
+                    )
             if len(resolutions) >= 2 and category == "all_active":
                 if (
                     not exact_to_roundoff
@@ -2386,6 +3931,55 @@ def run_shifted_torus_control_volume_operator_convergence(
                     failed_orders.append(
                         f"{operator_name}/{category} Linf={linf_text}"
                     )
+    for record_name, category_records in (
+        poisson_omega_diagnostic_records.items()
+    ):
+        comparison_target, variant_name = record_name.split("::", maxsplit=1)
+        for category, values in category_records.items():
+            category_resolutions = [value[0] for value in values]
+            l2_order = _fit_operator_order(
+                category_resolutions,
+                [value[1] for value in values],
+            )
+            linf_order = _fit_operator_order(
+                category_resolutions,
+                [value[2] for value in values],
+            )
+            l2_text = "n/a" if l2_order is None else f"{l2_order:.6f}"
+            linf_text = (
+                "n/a" if linf_order is None else f"{linf_order:.6f}"
+            )
+            print(
+                "poisson_omega diagnostic order "
+                f"target={comparison_target} "
+                f"variant={variant_name} {category}: "
+                f"volume_L2={l2_text}, Linf={linf_text}"
+            )
+            for coarse, fine in zip(values, values[1:]):
+                pair_l2_order = _fit_operator_order(
+                    [coarse[0], fine[0]],
+                    [coarse[1], fine[1]],
+                )
+                pair_linf_order = _fit_operator_order(
+                    [coarse[0], fine[0]],
+                    [coarse[2], fine[2]],
+                )
+                pair_l2_text = (
+                    "n/a"
+                    if pair_l2_order is None
+                    else f"{pair_l2_order:.6f}"
+                )
+                pair_linf_text = (
+                    "n/a"
+                    if pair_linf_order is None
+                    else f"{pair_linf_order:.6f}"
+                )
+                print(
+                    "  adjacent diagnostic order "
+                    f"N={coarse[0]}->{fine[0]}: "
+                    f"volume_L2={pair_l2_text}, "
+                    f"Linf={pair_linf_text}"
+                )
     if failed_orders:
         raise AssertionError(
             "operator convergence acceptance failed (minimum order "
@@ -2414,6 +4008,9 @@ def run_shifted_torus_4field_cutwall_convergence(
     minimum_order: float | None = None,
     reconstruction_boundary_weight_scale: float = 1.0,
     reconstruction_distance_row_weight_exponent: float = 0.0,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    box_cell_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    geometry_cache_dir: str | Path | None = None,
 ) -> dict[str, object]:
     reconstruction_boundary_weight_scale = _validate_reconstruction_boundary_weight_scale(
         reconstruction_boundary_weight_scale
@@ -2429,6 +4026,11 @@ def run_shifted_torus_4field_cutwall_convergence(
     per_resolution_stats: list[tuple[int, dict[str, tuple[float, float, float]]]] = []
 
     for resolution in resolutions:
+        effective_box_translation = _effective_box_translation(
+            int(resolution),
+            box_translation=box_translation,
+            box_cell_translation=box_cell_translation,
+        )
         shape = _shape_from_resolution(int(resolution))
         assert_shape_divisible_by_shards(shape, shard_counts)
         geometry = shifted_mms.build_shifted_torus_4field_geometry(shape)
@@ -2442,6 +4044,8 @@ def run_shifted_torus_4field_cutwall_convergence(
                 reconstruction_distance_row_weight_exponent=(
                     reconstruction_distance_row_weight_exponent
                 ),
+                box_translation=effective_box_translation,
+                geometry_cache_dir=geometry_cache_dir,
             )
         )
         steps = _resolution_step_count(int(resolution), base_steps=base_steps)
@@ -2465,6 +4069,7 @@ def run_shifted_torus_4field_cutwall_convergence(
             show_progress=show_progress,
             enable_agglomeration=enable_agglomeration,
             stacked_control_volume_geometry=stacked_control_volume_geometry,
+            box_translation=effective_box_translation,
         )
         elapsed = time_module.perf_counter() - start
         exact_state, _exact_phi = _project_global_exact_state_to_control_volumes(
@@ -2473,6 +4078,7 @@ def run_shifted_torus_4field_cutwall_convergence(
             shard_counts=shard_counts,
             halo_width=halo_width,
             time=final_time,
+            box_translation=effective_box_translation,
         )
         control_volume_cells = _assemble_global_control_volume_cell_data(
             geometry.shape,
@@ -2542,6 +4148,23 @@ def run_shifted_torus_4field_cutwall_convergence(
                 f"inactive_or_source={solid_nonfinite}"
             )
         _print_state_error_statistics(f"N={int(resolution)} per-field final errors", per_field_stats)
+        del (
+            geometry,
+            stacked_control_volume_geometry,
+            final_state,
+            exact_state,
+            _exact_phi,
+            control_volume_cells,
+            active_mask,
+            aggregate_volume,
+            solid_mask,
+            abs_errors,
+            active_errors,
+            masked_values,
+            solid_values,
+            finite_masked_values,
+        )
+        _clear_resolution_level_caches(int(resolution))
 
     l2_order: float | None = None
     max_order: float | None = None

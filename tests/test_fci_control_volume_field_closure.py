@@ -17,6 +17,7 @@ from drbx.native.fci_boundaries import (
     BC_NORMALFLUX,
     CV_FACE_CUT_WALL,
     CV_FACE_INTERIOR,
+    CV_FACE_PARTIAL,
     CV_RECONSTRUCTION_EQUATION_CELL,
     CV_RECONSTRUCTION_EQUATION_DIRICHLET,
     CV_RECONSTRUCTION_EQUATION_REMOTE_CELL,
@@ -34,7 +35,12 @@ from drbx.native.fci_operators import (
 )
 
 
-def _geometry(*, neighbor: bool = True, reference_dirichlet: bool = True):
+def _geometry(
+    *,
+    neighbor: bool = True,
+    reference_dirichlet: bool = True,
+    boundary_source_shard: int = 0,
+):
     layout = HaloLayout3D((1, 1, 1), 1)
     rows = LocalMomentFittedFaceRows3D(
         layout=layout,
@@ -53,6 +59,9 @@ def _geometry(*, neighbor: bool = True, reference_dirichlet: bool = True):
         boundary_face_row=jnp.zeros((1, 3), dtype=jnp.int32),
         boundary_patch=jnp.zeros((1, 3), dtype=jnp.int32),
         boundary_quadrature=jnp.zeros((1, 3), dtype=jnp.int32),
+        boundary_source_shard=jnp.full(
+            (1, 3), boundary_source_shard, dtype=jnp.int32
+        ),
         observation_active=jnp.array([[True, True, reference_dirichlet]]),
         projected_flux_weights=jnp.array([[1.0, 2.0, 3.0 if reference_dirichlet else 0.0]]),
         parallel_flux_weights=jnp.array([[4.0, 5.0, 6.0 if reference_dirichlet else 0.0]]),
@@ -115,6 +124,7 @@ def _owner_polynomial_fixture(
     minus_valid: bool = True,
     plus_valid: bool = True,
     remote_valid: bool = True,
+    mesh_axis_names: tuple[str | None, str | None, str | None] = (None, None, None),
 ):
     """One oriented face with constant owner polynomials.
 
@@ -195,6 +205,7 @@ def _owner_polynomial_fixture(
             periodic_axes=(False, False, False),
             halo_width=layout.halo_width,
         ),
+        mesh_axis_names=mesh_axis_names,
     )
     closure = LocalControlVolumeFieldClosure3D(
         projected_flux=jnp.array([99.0]),
@@ -233,8 +244,6 @@ def test_owner_polynomial_two_owner_flux_replaces_projected_only() -> None:
         polynomial,
         geometry,
         domain,
-        use_two_owner_flux=True,
-        use_cut_wall_owner_flux=False,
     )
     for result in (eager, compiled):
         np.testing.assert_allclose(result.projected_flux, [4.0])
@@ -255,8 +264,6 @@ def test_owner_polynomial_remote_flux_uses_remote_gradient_orientation() -> None
         polynomial,
         geometry,
         domain,
-        use_two_owner_flux=True,
-        use_cut_wall_owner_flux=False,
     )
     for result in (eager, compiled):
         # 2 * (minus_x + remote_x) / 2; the remote gradient keeps the
@@ -278,8 +285,6 @@ def test_owner_polynomial_cut_wall_uses_minus_owner() -> None:
         polynomial,
         geometry,
         domain,
-        use_two_owner_flux=False,
-        use_cut_wall_owner_flux=True,
     )
     for result in (eager, compiled):
         np.testing.assert_allclose(result.projected_flux, [2.0])
@@ -287,6 +292,21 @@ def test_owner_polynomial_cut_wall_uses_minus_owner() -> None:
         np.testing.assert_allclose(
             result.parallel_gradient_flux, closure.parallel_gradient_flux
         )
+
+
+def test_owner_polynomial_two_owner_path_replaces_partial_faces() -> None:
+    geometry, domain, polynomial, closure = _owner_polynomial_fixture(
+        kind=CV_FACE_PARTIAL,
+    )
+    eager, compiled = _replace_owner_flux(
+        closure,
+        polynomial,
+        geometry,
+        domain,
+    )
+    for result in (eager, compiled):
+        np.testing.assert_allclose(result.projected_flux, [4.0])
+        assert bool(result.valid[0])
 
 
 def test_owner_polynomial_invalid_selected_owner_invalidates_row() -> None:
@@ -298,8 +318,6 @@ def test_owner_polynomial_invalid_selected_owner_invalidates_row() -> None:
         polynomial,
         geometry,
         domain,
-        use_two_owner_flux=True,
-        use_cut_wall_owner_flux=False,
     )
     for result in (eager, compiled):
         assert not bool(result.valid[0])
@@ -315,8 +333,6 @@ def test_owner_polynomial_global_radial_boundary_keeps_direct_flux() -> None:
         polynomial,
         geometry,
         domain,
-        use_two_owner_flux=True,
-        use_cut_wall_owner_flux=True,
     )
     for result in (eager, compiled):
         np.testing.assert_allclose(result.projected_flux, closure.projected_flux)
@@ -324,6 +340,36 @@ def test_owner_polynomial_global_radial_boundary_keeps_direct_flux() -> None:
         np.testing.assert_allclose(
             result.parallel_gradient_flux, closure.parallel_gradient_flux
         )
+
+
+def test_owner_polynomial_one_shard_named_radial_axis_eager_and_jit() -> None:
+    geometry, domain, polynomial, closure = _owner_polynomial_fixture(
+        mesh_axis_names=("x", None, None),
+    )
+    eager, compiled = _replace_owner_flux(
+        closure,
+        polynomial,
+        geometry,
+        domain,
+    )
+    for result in (eager, compiled):
+        np.testing.assert_allclose(result.projected_flux, [4.0])
+        assert bool(result.valid[0])
+
+    boundary_geometry, boundary_domain, boundary_polynomial, boundary_closure = (
+        _owner_polynomial_fixture(
+            global_radial_boundary=True,
+            mesh_axis_names=("x", None, None),
+        )
+    )
+    eager, compiled = _replace_owner_flux(
+        boundary_closure,
+        boundary_polynomial,
+        boundary_geometry,
+        boundary_domain,
+    )
+    for result in (eager, compiled):
+        np.testing.assert_allclose(result.projected_flux, boundary_closure.projected_flux)
 
 
 def test_direct_face_closure_eager_jit_and_pytree() -> None:
@@ -340,6 +386,48 @@ def test_direct_face_closure_eager_jit_and_pytree() -> None:
     np.testing.assert_allclose(doubled.parallel_flux, [150.0])
 
 
+def test_direct_face_closure_gathers_remote_dirichlet_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layout, geometry = _geometry(boundary_source_shard=1)
+    domain = LocalDomain3D(
+        layout=layout,
+        shard_spec=ShardSpec3D(
+            global_shape=(2, 1, 1),
+            owned_start=(0, 0, 0),
+            owned_stop=(1, 1, 1),
+            shard_index=(0, 0, 0),
+            shard_counts=(2, 1, 1),
+            periodic_axes=(False, False, False),
+            halo_width=layout.halo_width,
+        ),
+        mesh_axis_names=("x", None, None),
+    )
+
+    def fake_all_gather(value, axis_name, *, axis=0, tiled=False):
+        del axis_name, tiled
+        if value.dtype == jnp.bool_:
+            remote = value
+        elif value.ndim == 3:
+            remote = value + 4.0
+        else:
+            remote = value
+        return jnp.stack((value, remote), axis=axis)
+
+    monkeypatch.setattr(fci_operators.jax.lax, "all_gather", fake_all_gather)
+    closure = build_local_control_volume_field_closure(
+        _field(layout),
+        geometry,
+        _bc(),
+        domain=domain,
+    )
+    # The remote source has value 11 instead of the local value 7.
+    np.testing.assert_allclose(closure.projected_flux, [45.0])
+    np.testing.assert_allclose(closure.parallel_flux, [99.0])
+    np.testing.assert_allclose(closure.parallel_gradient_flux, [153.0])
+    assert bool(closure.valid[0])
+
+
 def test_face_row_pytree_roundtrip_preserves_ids_and_inactive_padding() -> None:
     layout, geometry = _geometry()
     rows = geometry.face_functionals
@@ -347,6 +435,7 @@ def test_face_row_pytree_roundtrip_preserves_ids_and_inactive_padding() -> None:
     restored = jax.tree_util.tree_unflatten(treedef, leaves)
     assert restored.functional_face_id.dtype == jnp.int64
     np.testing.assert_array_equal(restored.functional_face_id, [8])
+    np.testing.assert_array_equal(restored.boundary_source_shard, [[0, 0, 0]])
     np.testing.assert_array_equal(restored.active, [True])
 
     padded = LocalMomentFittedFaceRows3D.empty(
@@ -357,6 +446,10 @@ def test_face_row_pytree_roundtrip_preserves_ids_and_inactive_padding() -> None:
     leaves, treedef = jax.tree_util.tree_flatten(padded)
     restored_padding = jax.tree_util.tree_unflatten(treedef, leaves)
     np.testing.assert_array_equal(restored_padding.functional_face_id, [-1, -1])
+    np.testing.assert_array_equal(
+        restored_padding.boundary_source_shard,
+        np.zeros((2, 4), dtype=np.int32),
+    )
     assert not bool(jnp.any(restored_padding.active))
     assert not bool(jnp.any(restored_padding.observation_active))
 

@@ -17,6 +17,7 @@ from drbx.geometry import (
     LocalFciGeometry3D,
 )
 from drbx.native import Fci4FieldRhsParameters, Fci4FieldState
+from drbx.native import fci_operators as _fci_operators
 from drbx.native.fci_boundaries import (
     BC_DIRICHLET,
     BC_NONE,
@@ -26,6 +27,8 @@ from drbx.native.fci_boundaries import (
     LocalControlVolumeBoundaryBC3D,
     LocalEmbeddedControlVolumeGeometry3D,
 )
+from drbx.native.fci_halo import HaloExchange3D
+from drbx.native.fci_model import inject_owned_field_to_halo
 
 
 _TEST_DIR = Path(__file__).resolve().parent
@@ -159,6 +162,10 @@ def _integrate_local_exact_state_over_fluid(
     geometry: LocalFciGeometry3D,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
     time: float | jax.Array,
+    *,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    domain=None,
+    return_raw: bool = False,
 ) -> tuple[Fci4FieldState, jnp.ndarray]:
     """Project exact state and phi to true three-point fluid-volume averages."""
 
@@ -177,7 +184,7 @@ def _integrate_local_exact_state_over_fluid(
         faces[1][None, 1:, None],
         faces[2][None, None, 1:],
     )
-    bounds = _box_bounds()
+    bounds = _box_bounds(box_translation=box_translation)
     solid_lower = tuple(
         jnp.maximum(value, float(bounds[axis][0]))
         for axis, value in enumerate(lower)
@@ -289,8 +296,8 @@ def _integrate_local_exact_state_over_fluid(
         integral / jnp.maximum(cells.raw_volume, 1.0e-30)
         for integral in fluid_integrals
     )
-    aggregate = tuple(
-        _agglomerate_control_volume_average(value, cells)
+    aggregate = raw_averages if return_raw else tuple(
+        _aggregate_control_volume_average(value, cells, domain=domain)
         for value in raw_averages
     )
     return (
@@ -311,6 +318,7 @@ def _project_global_exact_state_to_control_volumes(
     shard_counts: tuple[int, int, int],
     halo_width: int,
     time: float,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> tuple[Fci4FieldState, jnp.ndarray]:
     """Assemble global exact control-volume averages from local-owned bundles."""
 
@@ -318,10 +326,14 @@ def _project_global_exact_state_to_control_volumes(
         int(size) // int(count)
         for size, count in zip(geometry.shape, shard_counts)
     )
-    fields = [
+    raw_fields = [
         jnp.zeros(geometry.shape, dtype=jnp.float64)
         for _ in range(5)
     ]
+    raw_volume = jnp.zeros(geometry.shape, dtype=jnp.float64)
+    aggregate_id = jnp.full(geometry.shape, -1, dtype=jnp.int64)
+    active_owner = jnp.zeros(geometry.shape, dtype=bool)
+    aggregate_volume = jnp.zeros(geometry.shape, dtype=jnp.float64)
     for shard_i in range(shard_counts[0]):
         for shard_j in range(shard_counts[1]):
             for shard_k in range(shard_counts[2]):
@@ -347,7 +359,10 @@ def _project_global_exact_state_to_control_volumes(
                     local_geometry,
                     local_control_volume_geometry,
                     jnp.asarray(time, dtype=jnp.float64),
+                    box_translation=box_translation,
+                    return_raw=True,
                 )
+                local_cells = local_control_volume_geometry.cells
                 starts = tuple(
                     shard_index[axis] * owned_shape[axis]
                     for axis in range(3)
@@ -363,10 +378,25 @@ def _project_global_exact_state_to_control_volumes(
                     local_state.v_electron_parallel,
                     local_phi,
                 )
-                fields = [
+                raw_fields = [
                     field.at[slices].set(local_value)
-                    for field, local_value in zip(fields, local_values)
+                    for field, local_value in zip(raw_fields, local_values)
                 ]
+                raw_volume = raw_volume.at[slices].set(local_cells.raw_volume)
+                aggregate_id = aggregate_id.at[slices].set(local_cells.aggregate_id)
+                active_owner = active_owner.at[slices].set(local_cells.is_active_owner)
+                aggregate_volume = aggregate_volume.at[slices].set(local_cells.aggregate_volume)
+
+    def aggregate_raw(raw: jnp.ndarray) -> jnp.ndarray:
+        weighted = raw_volume * raw
+        flat = jnp.zeros(geometry.shape, dtype=jnp.float64).reshape(-1)
+        flat = flat.at[aggregate_id.reshape(-1)].add(weighted.reshape(-1))
+        result = flat.reshape(geometry.shape) / jnp.maximum(
+            aggregate_volume, 1.0e-30
+        )
+        return jnp.where(active_owner, result, 0.0)
+
+    fields = [aggregate_raw(raw) for raw in raw_fields]
     return (
         Fci4FieldState(
             density=fields[0],
@@ -878,6 +908,9 @@ def _integrate_local_four_field_over_fluid(
     geometry: LocalFciGeometry3D,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
     evaluator,
+    *,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    domain=None,
 ) -> Fci4FieldState:
     """Project a pointwise four-field evaluator with compact 3x3x3 quadrature."""
 
@@ -896,7 +929,7 @@ def _integrate_local_four_field_over_fluid(
         jnp.broadcast_to(faces[1][None, 1:, None], geometry.owned_shape),
         jnp.broadcast_to(faces[2][None, None, 1:], geometry.owned_shape),
     )
-    box = _box_bounds()
+    box = _box_bounds(box_translation=box_translation)
     solid_lower = tuple(
         jnp.maximum(value, float(box[axis][0]))
         for axis, value in enumerate(lower)
@@ -989,7 +1022,7 @@ def _integrate_local_four_field_over_fluid(
 
     def to_aggregate_average(integral: jnp.ndarray) -> jnp.ndarray:
         raw_average = integral / jnp.maximum(cells.raw_volume, 1.0e-30)
-        return _agglomerate_control_volume_average(raw_average, cells)
+        return _aggregate_control_volume_average(raw_average, cells, domain=domain)
 
     return Fci4FieldState(
         density=to_aggregate_average(raw_integrals.density),
@@ -1006,6 +1039,9 @@ def _project_local_mms_source_to_control_volumes(
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
     stage_time: float | jax.Array,
     parameters: Fci4FieldRhsParameters,
+    *,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    domain=None,
 ) -> Fci4FieldState:
     return _integrate_local_four_field_over_fluid(
         geometry,
@@ -1015,6 +1051,8 @@ def _project_local_mms_source_to_control_volumes(
             stage_time,
             parameters,
         ),
+        box_translation=box_translation,
+        domain=domain,
     )
 
 
@@ -1022,6 +1060,9 @@ def _project_local_exact_time_derivative_to_control_volumes(
     geometry: LocalFciGeometry3D,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
     stage_time: float | jax.Array,
+    *,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    domain=None,
 ) -> Fci4FieldState:
     return _integrate_local_four_field_over_fluid(
         geometry,
@@ -1030,6 +1071,8 @@ def _project_local_exact_time_derivative_to_control_volumes(
             points,
             stage_time,
         ),
+        box_translation=box_translation,
+        domain=domain,
     )
 
 
@@ -1037,6 +1080,9 @@ def _integrate_local_scalar_over_fluid(
     geometry: LocalFciGeometry3D,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
     evaluator,
+    *,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    domain=None,
 ) -> jnp.ndarray:
     def four_field_evaluator(points: jnp.ndarray) -> Fci4FieldState:
         value = evaluator(points)
@@ -1051,6 +1097,8 @@ def _integrate_local_scalar_over_fluid(
         geometry,
         control_volume_geometry,
         four_field_evaluator,
+        box_translation=box_translation,
+        domain=domain,
     ).density
 
 
@@ -1321,12 +1369,65 @@ def _agglomerate_control_volume_average(
     return jnp.where(cells.is_active_owner, result, 0.0)
 
 
+def _aggregate_control_volume_average(
+    values_raw: jnp.ndarray,
+    cells: LocalControlVolumeCellGeometry3D,
+    *,
+    domain=None,
+) -> jnp.ndarray:
+    """Aggregate raw averages through the production distributed path."""
+
+    production = getattr(
+        _fci_operators,
+        "aggregate_local_control_volume_average",
+        None,
+    )
+    if production is not None and domain is not None:
+        return production(values_raw, cells, domain)
+    if domain is not None:
+        shard_counts = tuple(int(value) for value in domain.shard_spec.shard_counts)
+        if shard_counts != (1, 1, 1):
+            raise ImportError(
+                "drbx.native.fci_operators.aggregate_local_control_volume_average "
+                "is required for distributed control-volume projection"
+            )
+    return _agglomerate_control_volume_average(values_raw, cells)
+
+
 def _expand_control_volume_owner_values(
     owner_values: jnp.ndarray,
     cells: LocalControlVolumeCellGeometry3D,
+    *,
+    domain=None,
+    halo_exchange=None,
+    topology_filler=None,
 ) -> jnp.ndarray:
     """Fill every positive-volume storage cell from its mapped owner value."""
 
     values = jnp.asarray(owner_values, dtype=jnp.float64)
+    owner_values_halo = None
+    if domain is not None:
+        owner_values_halo = inject_owned_field_to_halo(values, domain.layout)
+        if halo_exchange is None:
+            halo_exchange = HaloExchange3D()
+        owner_values_halo = halo_exchange(owner_values_halo, domain)
+        if topology_filler is not None:
+            owner_values_halo = topology_filler(owner_values_halo, domain)
+    production = getattr(
+        _fci_operators,
+        "expand_local_control_volume_owner_field",
+        None,
+    )
+    if production is not None:
+        return production(
+            values,
+            cells,
+            owner_values_halo=owner_values_halo,
+        )
+    if owner_values_halo is not None and bool(np.any(np.asarray(cells.owner_is_remote))):
+        raise ImportError(
+            "production expand_local_control_volume_owner_field is required "
+            "for remote control-volume owners"
+        )
     expanded = values[cells.owner_i, cells.owner_j, cells.owner_k]
     return jnp.where(cells.raw_volume > 0.0, expanded, 0.0)

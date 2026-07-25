@@ -4836,6 +4836,53 @@ def _precompute_local_cubic_reconstruction(
             + delta[:, None, None] * delta[None, :, None] * delta[None, None, :]
         )
 
+    def cubic_rows(
+        delta: np.ndarray,
+        sample_m2: np.ndarray,
+        sample_m3: np.ndarray,
+        target_m2: np.ndarray,
+        target_m3: np.ndarray,
+        h: np.ndarray,
+    ) -> np.ndarray:
+        """Vectorized counterpart of ``cubic_row`` for candidate batches."""
+
+        dm2 = (
+            sample_m2
+            + delta[..., :, None] * delta[..., None, :]
+            - target_m2
+        )
+        dm3 = (
+            sample_m3
+            + delta[..., :, None, None] * sample_m2[..., None, :, :]
+            + delta[..., None, :, None] * sample_m2[..., :, None, :]
+            + delta[..., None, None, :] * sample_m2[..., :, :, None]
+            + delta[..., :, None, None]
+            * delta[..., None, :, None]
+            * delta[..., None, None, :]
+            - target_m3
+        )
+        d = delta / h
+        q = dm2 / (h[:, None] * h[None, :])
+        c = dm3 / (
+            h[:, None, None]
+            * h[None, :, None]
+            * h[None, None, :]
+        )
+        return np.stack(
+            (
+                d[..., 0], d[..., 1], d[..., 2],
+                0.5 * q[..., 0, 0], 0.5 * q[..., 1, 1],
+                0.5 * q[..., 2, 2], q[..., 0, 1], q[..., 0, 2],
+                q[..., 1, 2], c[..., 0, 0, 0] / 6.0,
+                c[..., 1, 1, 1] / 6.0, c[..., 2, 2, 2] / 6.0,
+                c[..., 0, 0, 1] / 2.0, c[..., 0, 0, 2] / 2.0,
+                c[..., 0, 1, 1] / 2.0, c[..., 0, 2, 2] / 2.0,
+                c[..., 1, 1, 2] / 2.0, c[..., 1, 2, 2] / 2.0,
+                c[..., 0, 1, 2],
+            ),
+            axis=-1,
+        )
+
     face_active = np.asarray(irregular_faces.active, dtype=bool)
     face_kind = np.asarray(irregular_faces.kind, dtype=np.int32)
     minus = np.stack((np.asarray(irregular_faces.minus_owner_i), np.asarray(irregular_faces.minus_owner_j), np.asarray(irregular_faces.minus_owner_k)), axis=-1)
@@ -5084,26 +5131,93 @@ def _precompute_local_cubic_reconstruction(
             rank[valid_rows] = batch_rank[batch_valid]
             condition[valid_rows] = batch_condition[batch_valid]
             processed[valid_rows] = True
+    radius_three_offsets = np.asarray(
+        [
+            (di, dj, dk)
+            for di in range(-3, 4)
+            for dj in range(-3, 4)
+            for dk in range(-3, 4)
+            if (di, dj, dk) != (0, 0, 0)
+        ],
+        dtype=np.int32,
+    )
+    radius_three_shell = np.max(np.abs(radius_three_offsets), axis=1)
     for r, target_array in enumerate(targets):
         if processed[r]:
             continue
         target = tuple(int(x) for x in target_array)
         x0, m20, m30, h = centroid[target], m2[target], m3[target], spacing[target]
         records: list[tuple[int, float, np.ndarray, tuple[int, tuple[int, int, int]]]] = []
-        for di in range(-3, 4):
-            for dj in range(-3, 4):
-                for dk in range(-3, 4):
-                    if di == dj == dk == 0: continue
-                    raw = (target[0]+di, target[1]+dj, target[2]+dk); candidate = list(raw); okay = True
-                    for axis in range(3):
-                        if periodic_axes[axis]: candidate[axis] %= shape[axis]
-                        elif not (0 <= candidate[axis] < shape[axis]): okay = False; break
-                    if not okay or not active[tuple(candidate)]: continue
-                    candidate_t = tuple(candidate); delta = unwrap(centroid[candidate_t] - x0)
-                    dm2 = m2[candidate_t] + np.outer(delta, delta) - m20
-                    dm3 = translated_m3(delta, m2[candidate_t], m3[candidate_t]) - m30
-                    d2 = float(np.dot(delta/h, delta/h)); shell = max(abs(di), abs(dj), abs(dk))
-                    records.append((shell, d2, cubic_row(delta, dm2, dm3, h), (CV_RECONSTRUCTION_EQUATION_CELL, candidate_t)))
+        raw_candidate = target_array[None, :] + radius_three_offsets
+        candidate = raw_candidate.copy()
+        candidate_in_bounds = np.ones((len(candidate),), dtype=bool)
+        for axis in range(3):
+            if periodic_axes[axis]:
+                candidate[:, axis] %= shape[axis]
+            else:
+                candidate_in_bounds &= (
+                    (candidate[:, axis] >= 0)
+                    & (candidate[:, axis] < shape[axis])
+                )
+        safe_candidate = np.clip(
+            candidate,
+            0,
+            np.asarray(shape, dtype=np.int32)[None, :] - 1,
+        )
+        candidate_in_bounds &= active[
+            safe_candidate[:, 0],
+            safe_candidate[:, 1],
+            safe_candidate[:, 2],
+        ]
+        candidate = candidate[candidate_in_bounds]
+        candidate_shell = radius_three_shell[candidate_in_bounds]
+        if len(candidate):
+            candidate_centroid = centroid[
+                candidate[:, 0],
+                candidate[:, 1],
+                candidate[:, 2],
+            ]
+            candidate_m2 = m2[
+                candidate[:, 0],
+                candidate[:, 1],
+                candidate[:, 2],
+            ]
+            candidate_m3 = m3[
+                candidate[:, 0],
+                candidate[:, 1],
+                candidate[:, 2],
+            ]
+            candidate_delta = unwrap(candidate_centroid - x0[None, :])
+            candidate_scaled_delta = candidate_delta / h[None, :]
+            candidate_distance2 = np.sum(
+                candidate_scaled_delta * candidate_scaled_delta,
+                axis=1,
+            )
+            candidate_design = cubic_rows(
+                candidate_delta,
+                candidate_m2,
+                candidate_m3,
+                m20,
+                m30,
+                h,
+            )
+            records.extend(
+                (
+                    int(shell),
+                    float(distance2),
+                    design,
+                    (
+                        CV_RECONSTRUCTION_EQUATION_CELL,
+                        tuple(int(value) for value in candidate_index),
+                    ),
+                )
+                for shell, distance2, design, candidate_index in zip(
+                    candidate_shell,
+                    candidate_distance2,
+                    candidate_design,
+                    candidate,
+                )
+            )
         for remote_index, (remote_position, remote_second, remote_third) in enumerate(
             zip(remote_centroids, remote_m2, remote_m3)
         ):
@@ -5180,6 +5294,7 @@ def build_local_control_volume_field_closure(
     field_halo: jnp.ndarray,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
     boundary_bc: LocalControlVolumeBoundaryBC3D,
+    domain: LocalDomain3D | None = None,
 ) -> LocalControlVolumeFieldClosure3D:
     """Evaluate static direct cubic face functionals for one scalar field.
 
@@ -5195,6 +5310,8 @@ def build_local_control_volume_field_closure(
         )
     if not isinstance(boundary_bc, LocalControlVolumeBoundaryBC3D):
         raise TypeError("boundary_bc must be LocalControlVolumeBoundaryBC3D")
+    if domain is not None and not isinstance(domain, LocalDomain3D):
+        raise TypeError("domain must be a LocalDomain3D or None")
 
     faces = control_volume_geometry.irregular_faces
     rows = control_volume_geometry.face_functionals
@@ -5239,6 +5356,52 @@ def build_local_control_volume_field_closure(
         & (rows.boundary_patch >= 0) & (rows.boundary_patch < boundary_bc.max_patches)
         & (rows.boundary_quadrature >= 0) & (rows.boundary_quadrature < 4)
     )
+    if domain is None:
+        boundary_kind_all = jnp.expand_dims(boundary_bc.kind, axis=0)
+        boundary_active_all = jnp.expand_dims(boundary_bc.active, axis=0)
+        boundary_value_all = jnp.expand_dims(boundary_bc.quadrature_value, axis=0)
+        n_boundary_shards = 1
+    else:
+        gathered_kind = boundary_bc.kind
+        gathered_active = boundary_bc.active
+        gathered_value = boundary_bc.quadrature_value
+        for axis, (axis_name, shard_count) in enumerate(
+            zip(domain.mesh_axis_names, domain.shard_spec.shard_counts)
+        ):
+            if int(shard_count) > 1:
+                if axis_name is None:
+                    raise ValueError(
+                        "decomposed control-volume boundary observations require "
+                        f"a mesh axis name for axis {axis}"
+                    )
+                gathered_kind = jax.lax.all_gather(
+                    gathered_kind, axis_name, axis=0, tiled=False
+                )
+                gathered_active = jax.lax.all_gather(
+                    gathered_active, axis_name, axis=0, tiled=False
+                )
+                gathered_value = jax.lax.all_gather(
+                    gathered_value, axis_name, axis=0, tiled=False
+                )
+            else:
+                gathered_kind = jnp.expand_dims(gathered_kind, axis=0)
+                gathered_active = jnp.expand_dims(gathered_active, axis=0)
+                gathered_value = jnp.expand_dims(gathered_value, axis=0)
+        boundary_kind_all = jnp.reshape(
+            gathered_kind, (-1, boundary_bc.max_rows)
+        )
+        boundary_active_all = jnp.reshape(
+            gathered_active, (-1, boundary_bc.max_rows)
+        )
+        boundary_value_all = jnp.reshape(
+            gathered_value,
+            (-1, boundary_bc.max_rows, boundary_bc.max_patches, 4),
+        )
+        n_boundary_shards = int(np.prod(domain.shard_spec.shard_counts))
+    boundary_source = rows.boundary_source_shard
+    boundary_source_in_bounds = (
+        (boundary_source >= 0) & (boundary_source < n_boundary_shards)
+    )
     owned = field[rows.layout.owned_slices_cell]
     owned_sample = owned[
         jnp.clip(rows.owned_i, 0, nx - 1),
@@ -5253,11 +5416,12 @@ def build_local_control_volume_field_closure(
     boundary_row = jnp.clip(rows.boundary_face_row, 0, boundary_bc.max_rows - 1)
     boundary_patch = jnp.clip(rows.boundary_patch, 0, boundary_bc.max_patches - 1)
     boundary_quad = jnp.clip(rows.boundary_quadrature, 0, 3)
-    boundary_sample = boundary_bc.quadrature_value[
-        boundary_row, boundary_patch, boundary_quad
+    boundary_source_clipped = jnp.clip(boundary_source, 0, n_boundary_shards - 1)
+    boundary_sample = boundary_value_all[
+        boundary_source_clipped, boundary_row, boundary_patch, boundary_quad
     ]
-    boundary_kind = boundary_bc.kind[boundary_row]
-    boundary_active = boundary_bc.active[boundary_row]
+    boundary_kind = boundary_kind_all[boundary_source_clipped, boundary_row]
+    boundary_active = boundary_active_all[boundary_source_clipped, boundary_row]
 
     is_owned = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_CELL
     is_halo = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL
@@ -5278,6 +5442,7 @@ def build_local_control_volume_field_closure(
             | (
                 is_dirichlet
                 & boundary_in_bounds
+                & boundary_source_in_bounds
                 & boundary_active
                 & (boundary_kind == BC_DIRICHLET)
                 & jnp.isfinite(boundary_sample)
@@ -5932,6 +6097,68 @@ def expand_local_control_volume_owner_field(
     return jnp.where(cells.raw_volume > 0.0, expanded, 0.0)
 
 
+def aggregate_local_control_volume_average(
+    values_raw: jnp.ndarray,
+    cells: LocalControlVolumeCellGeometry3D,
+    domain: LocalDomain3D,
+) -> jnp.ndarray:
+    """Aggregate raw-cell averages onto unique local control-volume owners."""
+
+    if not isinstance(cells, LocalControlVolumeCellGeometry3D):
+        raise TypeError(
+            "cells must be LocalControlVolumeCellGeometry3D, "
+            f"got {type(cells).__name__}"
+        )
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError(
+            "domain must be LocalDomain3D, "
+            f"got {type(domain).__name__}"
+        )
+    if cells.layout != domain.layout:
+        raise ValueError("cells.layout must match domain.layout")
+
+    values = jnp.asarray(values_raw)
+    if values.ndim != 3 or tuple(values.shape) != tuple(cells.shape):
+        raise ValueError(
+            "values_raw must be a scalar field with cells.shape; "
+            f"got {values.shape}, expected {cells.shape}"
+        )
+    if not jnp.issubdtype(values.dtype, jnp.floating):
+        raise TypeError(
+            "values_raw must have a floating-point dtype, "
+            f"got {values.dtype}"
+        )
+    values = jnp.asarray(values, dtype=jnp.float64)
+
+    raw_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64)
+    integrated = raw_volume * values
+    local_source = (raw_volume > 0.0) & ~cells.owner_is_remote
+    owner_sum = jnp.zeros(cells.shape, dtype=jnp.float64).at[
+        cells.owner_i,
+        cells.owner_j,
+        cells.owner_k,
+    ].add(jnp.where(local_source, integrated, 0.0))
+
+    remote_halo = jnp.zeros(cells.layout.cell_halo_shape, dtype=jnp.float64).at[
+        cells.remote_owner_halo_i,
+        cells.remote_owner_halo_j,
+        cells.remote_owner_halo_k,
+    ].add(jnp.where(cells.owner_is_remote & (raw_volume > 0.0), integrated, 0.0))
+    owner_sum = owner_sum + accumulate_halo_contributions_to_owned(
+        remote_halo,
+        domain,
+    )
+
+    active = jnp.asarray(cells.is_active_owner, dtype=bool)
+    safe_volume = jnp.where(
+        active,
+        jnp.asarray(cells.aggregate_volume, dtype=jnp.float64),
+        1.0,
+    )
+    result = owner_sum / safe_volume
+    return jnp.where(active, result, 0.0).astype(jnp.float64)
+
+
 def local_control_volume_product_average(
     left_owned: jnp.ndarray,
     right_owned: jnp.ndarray,
@@ -6046,8 +6273,6 @@ def replace_local_control_volume_projected_flux_with_owner_polynomials(
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
     domain: LocalDomain3D,
     *,
-    use_two_owner_flux: bool,
-    use_cut_wall_owner_flux: bool,
     radial_axis: int = 0,
 ) -> LocalControlVolumeFieldClosure3D:
     """Replace selected compact projected fluxes with owner-polynomial fluxes.
@@ -6058,12 +6283,11 @@ def replace_local_control_volume_projected_flux_with_owner_polynomials(
     :func:`build_local_control_volume_polynomial_from_field`; no second face
     row or residual scatter is introduced.
 
-    The replacement is intentionally opt-in while convergence is established.
-    It excludes the first two owner layers next to each global radial boundary,
-    where the regular moment closure and direct face functional remain
-    authoritative.  If a selected owner polynomial is invalid, the closure
-    row is invalidated rather than silently falling back to a different face
-    formula.
+    The replacement is the default compact-face closure.  It excludes the
+    first two owner layers next to each global radial boundary, where the
+    regular moment closure and direct face functional remain authoritative.  If
+    a selected owner polynomial is invalid, the closure row is invalidated
+    rather than silently falling back to a different face formula.
     """
 
     if not isinstance(field_closure, LocalControlVolumeFieldClosure3D):
@@ -6085,9 +6309,6 @@ def replace_local_control_volume_projected_flux_with_owner_polynomials(
     radial_axis = int(radial_axis)
     if radial_axis not in (0, 1, 2):
         raise ValueError("radial_axis must be 0, 1, or 2")
-    if not use_two_owner_flux and not use_cut_wall_owner_flux:
-        return field_closure
-
     faces = control_volume_geometry.irregular_faces
     cells = control_volume_geometry.cells
     if field_closure.max_rows != faces.max_rows:
@@ -6208,7 +6429,10 @@ def replace_local_control_volume_projected_flux_with_owner_polynomials(
     minus_local_axis, plus_local_axis, remote_halo_axis = owner_axis
     local_size = int(domain.layout.owned_shape[radial_axis])
     global_size = int(domain.shard_spec.global_shape[radial_axis])
-    if domain.mesh_axis_names[radial_axis] is None:
+    if domain.shard_spec.shard_counts[radial_axis] == 1:
+        # A named mesh axis can still be a singleton axis outside shard_map;
+        # use the static shard metadata in that case.  runtime_shard_id is
+        # only meaningful for a genuinely decomposed axis.
         global_start = jnp.asarray(
             domain.shard_spec.owned_start[radial_axis],
             dtype=jnp.int32,
@@ -6246,15 +6470,13 @@ def replace_local_control_volume_projected_flux_with_owner_polynomials(
 
     has_two_owners = faces.has_plus_owner | faces.has_remote_owner
     use_two_owner = (
-        bool(use_two_owner_flux)
-        & faces.active
+        faces.active
         & has_two_owners
         & minus_radial_interior
         & plus_radial_interior
     )
     use_cut_wall_owner = (
-        bool(use_cut_wall_owner_flux)
-        & faces.active
+        faces.active
         & (faces.kind == CV_FACE_CUT_WALL)
         & minus_radial_interior
     )
@@ -6867,6 +7089,7 @@ def local_perp_laplacian_conservative_op(
     aggregate_geometry: LocalAggregateCellGeometry3D | None = None,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
     field_closure: LocalControlVolumeFieldClosure3D | None = None,
+    control_volume_polynomial: LocalControlVolumePolynomial3D | None = None,
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
     b_floor: float = 1.0e-30,
     jacobian_floor: float = 1.0e-30,
@@ -6918,6 +7141,11 @@ def local_perp_laplacian_conservative_op(
         b_floor=b_floor,
     )
     if control_volume_geometry is not None:
+        if control_volume_polynomial is None:
+            raise ValueError(
+                "control_volume_polynomial is required with "
+                "control_volume_geometry for the perpendicular operator"
+            )
         if not isinstance(
             control_volume_geometry,
             LocalEmbeddedControlVolumeGeometry3D,
@@ -6934,6 +7162,12 @@ def local_perp_laplacian_conservative_op(
         field_closure = _require_local_control_volume_field_closure(
             field_closure,
             control_volume_geometry,
+        )
+        field_closure = replace_local_control_volume_projected_flux_with_owner_polynomials(
+            field_closure,
+            control_volume_polynomial,
+            control_volume_geometry,
+            domain,
         )
         return _local_control_volume_integrated_divergence(
             regular_flux,
@@ -9114,6 +9348,18 @@ class LocalPerpLaplacianInverseSolver:
             field_halo,
             self.control_volume_geometry,
             control_volume_boundary_bc,
+            domain=self.domain,
+        )
+        field_polynomial = build_local_control_volume_polynomial_from_field(
+            field_halo,
+            self.geometry,
+            self.domain,
+            context,
+            self.control_volume_geometry,
+            control_volume_boundary_bc,
+            face_bc,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
         )
         face_projectors = self.face_projectors
         if face_projectors is None:
@@ -9131,6 +9377,7 @@ class LocalPerpLaplacianInverseSolver:
             face_bc=face_bc,
             control_volume_geometry=self.control_volume_geometry,
             field_closure=field_closure,
+            control_volume_polynomial=field_polynomial,
             axis_regular_axes=self.axis_regular_axes,
             b_floor=self.b_floor,
             jacobian_floor=self.jacobian_floor,

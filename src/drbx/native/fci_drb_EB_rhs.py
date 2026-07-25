@@ -611,6 +611,22 @@ class LocalFciDrbEBRhs:
                 field_halo,
                 self.control_volume_geometry,
                 control_volume_bc,
+                domain=self.domain,
+            )
+        )
+        field_polynomial = (
+            None
+            if control_volume_bc is None
+            else build_local_control_volume_polynomial_from_field(
+                field_halo,
+                self.geometry,
+                self.domain,
+                context,
+                self.control_volume_geometry,
+                control_volume_bc,
+                face_bc,
+                halo_exchange=self.halo_exchange,
+                topology_filler=self.topology_filler,
             )
         )
         return jnp.asarray(coefficient, dtype=jnp.float64) * local_perp_laplacian_conservative_op(
@@ -622,6 +638,7 @@ class LocalFciDrbEBRhs:
             regular_face_geometry=self.geometry.regular_face_geometry,
             control_volume_geometry=self.control_volume_geometry,
             field_closure=field_closure,
+            control_volume_polynomial=field_polynomial,
             axis_regular_axes=self.axis_regular_axes,
         )
 
@@ -647,6 +664,7 @@ class LocalFciDrbEBRhs:
                 field_halo,
                 self.control_volume_geometry,
                 control_volume_bc,
+                domain=self.domain,
             )
         )
         return jnp.asarray(coefficient, dtype=jnp.float64) * local_parallel_laplacian_conservative_op(
@@ -677,6 +695,12 @@ class LocalFciDrbEBRhs:
             state_halo.Ti,
             self.control_volume_geometry,
             control_volume_bc.Ti,
+            domain=self.domain,
+        )
+        ti_polynomial = self._control_volume_polynomial(
+            state_halo.Ti,
+            control_volume_bc.Ti,
+            face_bc.Ti,
         )
         ti_laplacian = local_perp_laplacian_conservative_op(
             ti_conservative,
@@ -687,6 +711,7 @@ class LocalFciDrbEBRhs:
             regular_face_geometry=self.geometry.regular_face_geometry,
             control_volume_geometry=self.control_volume_geometry,
             field_closure=ti_field_closure,
+            control_volume_polynomial=ti_polynomial,
             axis_regular_axes=self.axis_regular_axes,
         )
         owned = self.domain.layout.owned_slices_cell
@@ -1185,6 +1210,7 @@ class LocalFciDrbEBRhs:
                     field_halo,
                     self.control_volume_geometry,
                     boundary_bc,
+                    domain=self.domain,
                 )
                 return local_parallel_flux_div_op(
                     conservative_stencil,

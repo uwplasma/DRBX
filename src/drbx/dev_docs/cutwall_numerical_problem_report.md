@@ -51,16 +51,203 @@ cell-gradient consumers such as parallel first derivatives, Poisson brackets,
 curvature, and nonlinear product averages.
 
 The remaining challenge is measured approximation quality, not missing flux
-wiring. An opt-in native helper now constructs one projected interior-face
-flux from the adjacent owner polynomials, including an already exchanged
-remote-owner gradient, and uses the minus-owner polynomial on selected
-cut-wall faces. It preserves the canonical face record and conservative
-scatter. A localized reconstruction-distance experiment improves the
-three-grid all-active perpendicular-Laplacian volume-L2 order to `2.483`, but
-Linf is only `0.987`, and one-wall and aggregate categories reverse on the
-finest pair. The implementation, exact measurements, and remaining two-part
-failure are summarized in
+wiring. The accepted perpendicular closure is now the default and only
+control-volume perpendicular path: eligible active faces with plus or remote
+owners use the symmetric two-owner polynomial flux when both owners pass the
+radial-interior rule, including partial faces; eligible cut-wall faces use the
+minus/fluid-owner polynomial; and the first two global radial owner layers
+retain direct-functional fallback. It preserves the canonical face record and
+conservative scatter. The fixed-box N=18,22,26 experiment gives a three-grid all-active
+volume-L2 slope of `2.985`, but only `1.269` in Linf; the wall categories are
+nonmonotone. Bulk errors are near second order, while changes in cut-wall and
+agglomeration topology correlate with oscillatory extrema. That fixed-box
+sequence alone does not establish isolated perpendicular convergence. The
+later translated-topology campaign below does establish the isolated scalar
+gate on a controlled O(h) phase sequence. Exact measurements and the rejected
+diagnostics are summarized in
 [cutwall_current_progress.md](cutwall_current_progress.md).
+
+The retained path was subsequently extended to `N=40,60,80` with
+`shard_counts=(1,1,4)`, where it gives all-active `1.991546/1.962795`, bulk
+`1.998658/1.858362`, and remote-interface `1.450711/1.424796` in L2/Linf.
+This validates the perpendicular operator and sharding, not projected full
+RHS, phi inversion convergence, or full time MMS.
+
+Production perpendicular diffusion, `Ti` reconstruction, and the `phi`
+inverse now build and pass owner polynomials; control-volume perpendicular
+calls reject a missing polynomial. The former perpendicular CLI switches and
+their diagnostic/manual path were removed. Generic direct face functionals
+remain because parallel/gradient closures and radial fallback still need them.
+
+## Completed Isolated-Operator Campaign
+
+The earlier fixed-grid results below are retained as history. The completed
+campaign added absolute `box_translation=(dx,dtheta,dz)` and the CLI option
+`--box-translation DX DTHETA DZ`, together with resolution-scaled
+`--box-cell-translation FX FTHETA FZETA`. The effective translation is
+
+```text
+box_translation + (FX * dx_cell, FTHETA * dtheta_cell, FZETA * dz_cell).
+```
+
+These controls are threaded through geometry, exact and source projection,
+convergence, and runtime initialization. Reports now include raw and aggregate
+volume ratios relative to the median positive active raw volume, maximum
+received source/member counts, and p95/max projected face-weight norms;
+`top_error` includes the corresponding volume/source/member metadata.
+
+The fixed-grid topology sequence oscillates and has an N=26 Linf rebound. A
+quarter-cell translated sequence improves the fine trend. The cleanest result
+is the half-cell `(0,0.5,0.5)` sequence. Because this phase is resolution
+scaled, it is an O(h) topology ensemble and not proof of convergence for one
+fixed physical geometry.
+
+The half-cell all-active isolated results are:
+
+| Operator | Resolutions | L2 order | Linf order |
+| --- | --- | ---: | ---: |
+| `perp_laplacian_phi` | N=40,60,80 retained fine path | 1.991546 | 1.962795 |
+| `parallel_density_flux_divergence` | N=18,22,26 | 1.899879 | 1.928475 |
+| `poisson_omega` | N=18,22,26 | 2.010197 | 2.236330 |
+| `poisson_v_electron` | N=18,22,26 | 2.254952 | 3.144134 |
+| `curvature_phi` | N=18,22,26 | 1.843095 | 2.226615 |
+| `grad_parallel_v_electron` | N=26,30,34 fine window | 1.812328 | 1.982034 |
+| `grad_parallel_phi` | N=26,30,34 fine window | 1.811031 | 1.939895 |
+
+The parallel-density conservative signed sum is zero and invalid quadrature is
+zero. `grad_parallel_density`, `grad_parallel_v_ion`, `poisson_density`,
+`poisson_v_ion`, and `curvature_density` are zero-target exact/roundoff cases.
+The direct regular-grid gradient baseline on N=18,22,26 was approximately
+second order (`~1.99`).
+
+The projected-exact-phi full-RHS result is not yet a clean pass:
+
+| Component | L2 order | Linf order | N=18/N=22/N=26 L2 errors |
+| --- | ---: | ---: | --- |
+| density | 1.877320 | 1.955059 | `.02091865/.01441512/.01048588` |
+| omega | 1.567201 | 1.482046 | `.9997461/.7420204/.5612542` |
+| v_ion | exact | exact | zero-target exact cancellation |
+| v_electron | 1.602884 | 1.787992 | `11.48058/8.426111/6.362756` |
+
+Density passes the 1.8 gate. Omega misses, and electron misses clearly in L2
+and narrowly in Linf. At the tested `t=0` stage, the exact omega and electron
+time derivatives are zero, so these components deliberately test cancellation
+between the discrete operator sum and the projected source. The electron
+residual is amplified by `mi_over_me=1836` multiplying
+`grad_parallel_phi`. Its adjacent L2 orders improve from `1.541` to `1.681`;
+omega improves from `1.486` to `1.671`. These trends are consistent with the
+delayed fine-window asymptotics of the isolated parallel gradients. They point
+first to pre-asymptotic, coefficient-amplified cancellation, not a newly
+identified production discretization error.
+
+The stop/go decision is to accept the isolated scalar stage on this controlled
+translated sequence but pause phi inversion and time convergence. The next
+bounded diagnostic should report each full-RHS component and its cancellation:
+omega (Poisson, parallel-gradient difference, curvature), electron (Poisson,
+phi parallel gradient, pressure gradient), and the comparison between the sum
+of independently projected analytic terms and projection of their pointwise
+sum. A full-RHS-only path should then repeat the N=26,30,34 fine window.
+Less cancellation-sensitive stage times or MMS amplitudes/fields are useful as
+secondary conditioning checks before code fixes, but do not replace the
+zero-target consistency test.
+
+All reported runs used one shard; real multi-device validation remains
+unavailable. N=34 geometry preprocessing takes approximately 330 s, so
+caching/reuse is a priority. No invalid reconstruction rows occurred.
+
+## Resumed Status Through N=26
+
+The retained one-shard `perp_laplacian_phi` configuration uses agglomeration,
+projected exact phi, the decomposition-safe two-owner projected flux,
+cut-wall owner-polynomial flux, `1/d^4` reconstruction row weighting, and
+boundary equation scale 10. The fine-grid geometry reports were:
+
+| Quantity | `N=22` | `N=26` |
+|---|---:|---:|
+| Active aggregate owners | 10364 | 17162 |
+| Merged sources | 44 | 54 |
+| Aggregate targets | 44 | 54 |
+| Irregular faces | 3794 | 5045 |
+| Interior/partial/cut-wall faces | 2390/860/544 | 3145/1176/724 |
+| Cubic reconstruction rows | 2412 | 3168 |
+| Maximum reported condition number | 32.50649 | 34.98056 |
+| Invalid reconstruction rows | 0 | 0 |
+
+The exact N=22/N=26 error record is:
+
+| Resolution | Category | Volume L2 | Linf |
+|---:|---|---:|---:|
+| 22 | all active | 0.04013236 | 0.5914156 |
+| 22 | bulk | 0.03794186 | 0.3317934 |
+| 22 | one wall | 0.08846575 | 0.5914156 |
+| 22 | multi-wall | 0.05378290 | 0.2835862 |
+| 22 | aggregate target | 0.07214926 | 0.1775413 |
+| 22 | retained cut cell | 0.08196992 | 0.5914156 |
+| 26 | all active | 0.03428972 | 1.301826 |
+| 26 | bulk | 0.02732468 | 0.2429065 |
+| 26 | one wall | 0.1352501 | 1.301826 |
+| 26 | multi-wall | 0.09147248 | 0.5119297 |
+| 26 | aggregate target | 0.2597501 | 1.301826 |
+| 26 | retained cut cell | 0.084212 | 0.8028512 |
+
+The adjacent N=22 to N=26 orders are `0.942/-4.723` for all-active L2/Linf
+and `1.965/1.867` for bulk L2/Linf. The three-grid N=18,22,26 all-active
+orders are `2.985/1.269`. These results do not support an isolated convergence
+claim: the bulk is near second order, but the cut-wall and aggregate-target
+categories are nonmonotone and the all-active Linf worsens on the finest pair.
+
+At N=18, audited reconstruction rows had rank 19 with condition numbers
+`14.4384` and `24.8176`. Their dimensionless first-derivative coefficient
+sizes were O(1) after the expected grid-spacing derivative scaling, so the
+audit found no evidence of rank loss or pathological coefficient amplification.
+
+Four local diagnostics were tested and reverted: neighborhood-complete wall
+observations; a nearest-48 direct-functional target with adaptive expansion;
+reducing the radial owner-flux guard from 2 to 1; and choosing a farther
+interior owner polynomial. Their exact N=10 results and failure modes are in
+the companion progress log. The committed code remains `cf1d2ad7`; none of
+these experiments should be treated as production changes.
+
+## Fine-Grid Perpendicular Confirmation: N=40,60,80
+
+The complete retained perpendicular configuration was run on the controlled
+half-cell sequence through `N=80` with `shard_counts=(1,1,4)`: agglomeration,
+the consolidated owner-polynomial closure, `1/d^4` reconstruction-row
+localization, and boundary equation scale 10 were all enabled. The result is:
+
+| Resolution | All-active L2 | All-active Linf | Bulk L2 | Bulk Linf |
+|---:|---:|---:|---:|---:|
+| 40 | `1.242690e-2` | `1.995061e-1` | `1.173657e-2` | `1.083002e-1` |
+| 60 | `5.689690e-3` | `1.902729e-1` | `5.216219e-3` | `5.068009e-2` |
+| 80 | `3.115134e-3` | `4.678020e-2` | `2.934457e-3` | `2.988912e-2` |
+
+The fitted all-active orders are `1.991546/1.962795` in volume L2/Linf.
+Bulk orders are `1.998658/1.858362`, one-wall orders are
+`1.963498/2.054307`, and multi-wall orders are `2.530420/2.354154`.
+Every reconstruction row remained cubic and valid. Maximum reconstruction
+condition numbers were `28.83/39.04/28.74`, and maximum normalized projected
+functional weight norms were `3.34/3.93/4.73`.
+
+This is strong evidence for the retained perpendicular operator path: one
+canonical conservative interior flux averaged from the two adjacent owner
+polynomials on eligible radial-interior active faces (including partial
+faces), a fluid-owner polynomial flux on eligible embedded cut-wall faces,
+direct-functional fallback on the first two global radial owner layers, and
+localized owner reconstruction. It clears the requested all-active `1.8`
+fine-grid gate and validates sharding for this isolated operator.
+
+There are four qualifications. First, all-active adjacent Linf orders are
+`0.117` and `4.877`; the three-grid fit is near second order because the
+finest maximum drops sharply. Second, agglomeration occurs only at `N=60`
+(`360` sources), so the multi-wall and aggregate categories do not describe
+one smoothly varying topology. Third, the reconstruction-row L2 category fits
+only `1.499804`. Fourth, this result does not validate the projected full RHS,
+phi inversion convergence, or full time MMS. The remote-interface orders are
+L2 `1.450711` and Linf `1.424796`.
+
+The completed output reports geometry elapsed times of `68.397 s`, `156.276 s`,
+and `330.598 s` for `N=40,60,80`. Local-bundle payload/bundle totals were
+`2.673/27.295 s`, `9.339/63.001 s`, and `22.931/139.311 s`.
 
 ## 1. Discrete Meaning of a Stored Field
 
@@ -561,45 +748,149 @@ changing the control-volume topology.
 
 | Subsystem | Current status | Remaining concern |
 | --- | --- | --- |
-| Aggregate ownership | Global, direct, idempotent; nonzero merges demonstrated at `N=10,14,18` | Topology changes between resolutions and affects the worst aggregate |
+| Aggregate ownership | Global, direct, idempotent; nonzero merges demonstrated through `N=26` | Topology changes between resolutions and affects the worst aggregate |
 | Aggregate geometry | Volume, centroid, `M2`, and `M3` available | Validate cut-volume quadrature order |
 | Cubic reconstruction | Required on every shifted-torus active row; no fallback in the tested grids | One-wall owners have many cell equations but few boundary equations |
 | Direct compact functionals | Projected, parallel-value, and parallel-gradient wired and audited face by face | Broad, weakly localized fits produce inaccurate individual fluxes despite full rank |
 | Dense/compact ownership | Exclusive global face paths established | Confirm cluster multi-shard equivalence |
-| Cross-shard residuals | Reverse face-halo accumulation implemented | Run decomposed operator convergence |
-| Parallel density flux | Product-average input and conservative scatter cleared as first defects | Direct tangential face functional remains nonconvergent |
-| Perpendicular Laplacian | Native opt-in shared owner flux and localized weighting reach three-grid all-active L2 order `2.483` | Linf is `0.987`; one-wall and aggregate errors reverse at `N=18` |
+| Cross-shard residuals | Reverse face-halo accumulation implemented; isolated perpendicular operator convergence completed with `shard_counts=(1,1,4)` | Full-RHS sharding and one-vs-four equivalence remain unvalidated |
+| Geometry preprocessing | Batched coordinate-face quadrature, compact functional rows, reconstruction fallback, and canonical-only decomposed local-bundle lowering; aggregate moment construction is no longer quadratic; optional face-functional NPZ cache; resolution payloads are explicitly released between sweep grids | The downstream `N=100` run still appears to exceed the 14-GiB host envelope |
+| Parallel density flux | Half-cell isolated all-active order `1.899879/1.928475`; signed sum and invalid quadrature are zero | Full-RHS coupling still requires component cancellation audit |
+| Perpendicular Laplacian | Retained half-cell path at `N=40,60,80` with `shard_counts=(1,1,4)` gives all-active `1.991546/1.962795`, bulk `1.998658/1.858362`, and remote-interface `1.450711/1.424796`, with no invalid rows | Adjacent Linf and agglomeration topology are nonmonotone; this validates the isolated operator and sharding only |
+| Isolated scalar operators | All advertised nondegenerate scalar components meet the 1.8 all-active gate on the controlled sequence | Full-RHS coupling and broader sharding coverage remain |
+| Projected full RHS | Density passes at `1.877320/1.955059`; ion is exact | Omega `1.567201/1.482046` and electron `1.602884/1.787992` miss |
 | Regular radial closure | Cubic reproduction passes | Lower-plane Poisson Linf remains |
-| Phi GMRES solve | Implemented but intentionally skipped | Re-enable after forward operator consistency |
-| Full RK/MMS convergence | Not ready | Operator convergence must pass first |
+| Phi GMRES solve | Implemented but intentionally paused | Re-enable after full-RHS cancellation is understood |
+| Full RK/MMS convergence | Not ready | Do not start until projected full RHS passes |
 
 ## 16. Immediate Validation Sequence
 
-The shared-flux and localized-weighting `N=10,14,18` perpendicular diagnostics
-have completed. They do not pass the convergence gates. The all-active
-volume-L2 norm is now convincingly decreasing, but the category-level reversal
-and sub-first-order Linf result prevent an isolated convergence claim. The
-current experiment record, exact values, and command-line controls are in
-[cutwall_current_progress.md](cutwall_current_progress.md).
+The fine half-cell result establishes the retained perpendicular formulation
+as the production default: localized owner reconstruction followed by one
+shared conservative owner-polynomial face flux. Repeat one additional
+controlled wall phase before broader acceptance.
 
-Work is paused before a production method change. When it resumes:
+The next steps are:
 
-1. Retain the implemented decomposition-safe shared-face helper and validate
-   the remote path on real multiple devices when hardware permits.
-2. Separate the regular-boundary-adjacent direct-functional outlier from the
-   embedded cut-wall owner-polynomial error in all diagnostics.
-3. Include boundary equations from all relevant boundary-containing
-   neighbors, including a remote-boundary data path.
-4. Use controlled/adaptive full-rank support together with a dimensionless
-   polynomial-order-aware distance decay; record coefficient norms as well as
-   reproduction residuals.
-5. Preserve face-level comparisons of direct, minus-owner, plus-owner, final
-   shared, and exact integrated flux.
-6. Repeat only `perp_laplacian_phi` at `N=10,14,18` and require monotone
-   all-active and wall-category errors.
-7. Repair `parallel_density_flux_divergence`, then continue through the regular
-   radial operators, projected-exact-phi full RHS, phi solve, decomposed
-   equivalence, and the full time-dependent MMS test.
+1. run one affordable alternate wall-phase regression;
+2. lock radial, parallel, and gradient operator regressions;
+3. rerun projected-exact-phi full RHS and isolate omega/electron cancellation
+   and order failures;
+4. establish one-vs-four full-RHS equivalence;
+5. then measure phi-inverse convergence;
+6. only then run full four-field time MMS.
+
+Only after these steps should the accepted perpendicular closure be routed
+through the phi inverse and into the full time-dependent MMS test.
+
+## 16.1 Sharding Handoff: Completed Infrastructure and Evidence
+
+The earlier one-shard-only qualification is now superseded for the isolated
+perpendicular operator. The shifted-torus retained path has been executed
+with a real `1x1x4` decomposition. This validates sharding of the isolated
+`perp_laplacian_phi` operator only; it does not validate the full four-field
+RHS, the algebraic phi solve, or full time-dependent MMS convergence.
+
+The completed sharding path provides boundary-observation source-shard
+metadata with global all-gather, canonical whole-domain face lowering,
+canonical whole-domain reconstruction lowering, and canonical dense/compact
+face and reconstruction-target masks. Decomposed radius-2 reconstruction
+support requires `halo_width >= 3`. Owner aggregation and owner-field
+expansion are production distributed operations, including remote source
+averages and halo exchange, and remote residual contributions are reverse
+scattered to their canonical aggregate owners.
+
+Two bugs found during decomposition equivalence testing are fixed. A local
+periodic-support candidate could wrongly close a valid dense face; canonical
+global dense/compact masks now prevent that. Separately, a same-ID local
+compact row was retained instead of replaced by the canonical whole-domain
+row. Face `10488` exposed the error: the local row targeted `(8,13,4)` while
+the canonical row targeted `(8,14,4)`.
+
+The explicit N=16 diagnostic gives operator maximum difference
+`4.440892098500626e-15` and compact signed-sum difference `6.94e-18` between
+one shard and `1x1x4`. The retained runs have identical counts, error
+summaries, and top-error record, with zero invalid reconstruction rows. Only
+the decomposed reporting adds `remote_interface` count `134`, which records
+remote participation and does not represent additional physical faces.
+
+The isolated sharding handoff completed the 40/60/80 operator sweep. The
+reproducible command was:
+
+```bash
+XLA_FLAGS=--xla_force_host_platform_device_count=4 \
+.venv/bin/python tests/test_fci_cutwall_shifted_torus_4field.py \
+  --operator-convergence-only \
+  --resolutions 40 60 80 \
+  --shard-counts 1 1 4 \
+  --halo-width 3 \
+  --operators perp_laplacian_phi \
+  --enable-agglomeration \
+  --box-cell-translation 0 0.5 0.5 \
+  --reconstruction-distance-row-weight-exponent 4 \
+  --reconstruction-boundary-weight-scale 10 \
+  --minimum-order 1.8 \
+  --geometry-cache-dir ~/.cache/drbx/cutwall_geometry \
+  --skip-runtime-info \
+  2>&1 | tee ~/shifted_torus_perp_laplacian_n40_n60_n80_shards_1x1x4.txt
+```
+
+The output is
+`/home/exouser/shifted_torus_perp_laplacian_n40_n60_n80_shards_1x1x4.txt`.
+It reports all-active errors `1.242690e-02`, `5.689690e-03`, and
+`3.115134e-03`, final orders L2 `1.991546` and Linf `1.962795`, bulk orders
+L2 `1.998658` and Linf `1.858362`, and remote-interface orders L2 `1.450711`
+and Linf `1.424796`. This validates the perpendicular operator and sharding,
+not projected full RHS, phi inversion convergence, or full time MMS.
+
+## 16.2 Sharded preprocessing optimization
+
+The decomposed local-bundle path now directly lowers the canonical whole-domain
+reconstruction instead of calling per-shard
+`precompute_local_moment_reconstruction`. Remote reconstruction sample-cloud
+construction was removed as part of the same path. Legacy and one-shard
+fitting remains unchanged, and local face discovery still remains in the
+decomposed path. Thus the optimization removes the discarded per-shard SVD
+and sample-cloud work without changing the canonical whole-domain geometry or
+the one-shard fitting behavior.
+
+The numeric-only face-functional cache covers only the global compiled face
+functionals. It does not cache all geometry or topology. The redundant local
+SVD work is now gone from decomposed local-bundle preparation despite that
+cache scope.
+
+Independent cache-hit N=40 `1x1x4` timing:
+
+```text
+global phase:                 23.028 s
+local geometry:                1.745 s
+per-shard payload total:       2.667 s
+bundle total:                 26.722 s
+local bundle phase:           29.390 s
+padding/stacking:              9.134 s
+total prepared geometry:      67.156 s
+operator compile+run:          2.028 s
+invalid reconstruction rows:       0
+```
+
+The optimization agent's earlier run measured `30.026 s` for local bundle
+lowering; the independent run measured `29.390 s`. This is a reduction from
+the previous `584.190 s` phase by approximately `19.9x`. The N=16 one-shard
+versus `1x1x4` operator difference remains `4.44e-15`.
+
+These measurements establish the preprocessing optimization and complement
+the completed 40/60/80 fine-grid sharded convergence result above.
+
+The previous `N=34` preprocessing measurement was roughly `330 s`. The
+geometry path has since been optimized and must be remeasured: an old sweep
+spent `845.624 s` in the `N=80` raw-topology phase, while the optimized
+isolated `N=80` topology build takes `29.41 s` including process startup and
+uses approximately `1.9 GB` peak resident memory. The improvement comes from
+batched coordinate-face clipping/quadrature and removal of a quadratic
+aggregate-ID rescan. Global compact functionals and fallback reconstruction
+rows are also batched. An optional numeric-only face-functional cache is
+available through `--geometry-cache-dir`; it does not bypass raw topology.
+Any sweep process started before these edits must be restarted to load them.
 
 ## 17. Literature Search Map
 
@@ -628,8 +919,8 @@ The current moment-aware control volumes, integrated flux targets, boundary
 equations, and unique conservative face records are therefore well motivated.
 The experiments and literature still point to localized support, complete
 neighboring boundary information, and one symmetric interior-face flux. The
-last item is now implemented as an opt-in native helper and is no longer the
-main missing code path. The exponent-4 experiment confirms that stronger
+last item is now the default perpendicular control-volume path. The
+exponent-4 experiment confirms that stronger
 localization can repair global L2 behavior, but also shows that distance decay
 alone does not cure every one-sided wall reconstruction or
 regular-boundary-adjacent direct functional. The radius-1 rank failure does

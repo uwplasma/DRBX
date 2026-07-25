@@ -156,7 +156,13 @@ class LocalShiftedTorus4FieldCutWallRhs:
             field_face_bc: LocalBoundaryFaceBC3D,
         ) -> jnp.ndarray:
             return self._prepare_phi_halo(
-                _expand_control_volume_owner_values(values_owned, cells),
+                _expand_control_volume_owner_values(
+                    values_owned,
+                    cells,
+                    domain=self.domain,
+                    halo_exchange=self.halo_exchange,
+                    topology_filler=self.topology_filler,
+                ),
                 field_face_bc,
             )
 
@@ -404,6 +410,7 @@ class LocalShiftedTorus4FieldCutWallRhs:
                 density_v_electron_halo,
                 control_volume_geometry,
                 density_v_electron_control_volume_bc,
+                domain=self.domain,
             ),
         )
 
@@ -515,6 +522,7 @@ def simulate_mms_shifted_torus_4field_cutwall(
     rho_star_value: float = shifted_mms.rho_star,
     show_progress: bool = False,
     enable_agglomeration: bool = False,
+    box_translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
     stacked_control_volume_geometry: (
         LocalEmbeddedControlVolumeGeometry3D | None
     ) = None,
@@ -537,6 +545,7 @@ def simulate_mms_shifted_torus_4field_cutwall(
                 shard_counts=shard_counts,
                 halo_width=halo_width,
                 enable_merging=enable_agglomeration,
+                box_translation=box_translation,
             )
         )
     initial_state, initial_phi_guess = (
@@ -546,6 +555,7 @@ def simulate_mms_shifted_torus_4field_cutwall(
             shard_counts=shard_counts,
             halo_width=halo_width,
             time=0.0,
+            box_translation=box_translation,
         )
     )
     times: list[float] = [0.0]
@@ -673,24 +683,38 @@ def simulate_mms_shifted_torus_4field_cutwall(
                     local_control_volume_geometry,
                     stage_time,
                     parameters,
+                    box_translation=box_translation,
+                    domain=domain,
                 )
                 cells = local_control_volume_geometry.cells
                 expanded_source = Fci4FieldState(
                     density=_expand_control_volume_owner_values(
                         owner_source.density,
                         cells,
+                        domain=domain,
+                        halo_exchange=HaloExchange3D(),
+                        topology_filler=topology_filler,
                     ),
                     omega=_expand_control_volume_owner_values(
                         owner_source.omega,
                         cells,
+                        domain=domain,
+                        halo_exchange=HaloExchange3D(),
+                        topology_filler=topology_filler,
                     ),
                     v_ion_parallel=_expand_control_volume_owner_values(
                         owner_source.v_ion_parallel,
                         cells,
+                        domain=domain,
+                        halo_exchange=HaloExchange3D(),
+                        topology_filler=topology_filler,
                     ),
                     v_electron_parallel=_expand_control_volume_owner_values(
                         owner_source.v_electron_parallel,
                         cells,
+                        domain=domain,
+                        halo_exchange=HaloExchange3D(),
+                        topology_filler=topology_filler,
                     ),
                 )
                 return dataclass_replace(
