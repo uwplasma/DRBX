@@ -56,6 +56,26 @@ from .vmec_extender_import import (
     vmec_extender_fieldline_rhs_RZ_phi,
     vmec_extender_points_in_bounds,
 )
+from .Bfield_evaluator import (
+    BFieldEvaluator,
+    ComponentSplineBFieldEvaluator,
+    bfield_evaluator_from_makegrid,
+)
+from .ScalarPotential_evaluator import (
+    ChebyshevFourierScalarPotentialEvaluator,
+    ReferenceAxis,
+    ScalarPotentialEvaluator,
+    scalar_potential_evaluator_from_bfield,
+)
+from .solve_MMPDE import MMPDEOptions, MMPDEResult, solve_mmpde
+from .MetricEvaluator import (
+    MagneticFieldEvaluation,
+    MetricEvaluation,
+    MetricEvaluator,
+    build_metric_evaluator,
+    build_wall_fitted_initial_mesh,
+)
+from .WallEvaluator import WallEvaluator, parse_kisslinger
 
 __all__ = [
     "GlobalControlVolumeTopology3D",
@@ -75,6 +95,10 @@ __all__ = [
     "SyntheticStellaratorGeometry",
     "VmecExtenderGrid",
     "build_metric_report",
+    "build_metric_evaluator",
+    "build_wall_fitted_initial_mesh",
+    "WallEvaluator",
+    "parse_kisslinger",
     "IslandDivertorField",
     "build_island_divertor_geometry",
     "island_divertor_connection_length",
@@ -209,6 +233,27 @@ __all__ += [
     "interpolate_B_contravariant",
     "logical_b_contravariant_from_geometry",
     "logical_b_contravariant_from_traced_maps",
+]
+__all__ += [
+    "BFieldEvaluator",
+    "ComponentSplineBFieldEvaluator",
+    "bfield_evaluator_from_makegrid",
+    "ScalarPotentialEvaluator",
+    "ChebyshevFourierScalarPotentialEvaluator",
+    "ReferenceAxis",
+    "scalar_potential_evaluator_from_bfield",
+]
+__all__ += [
+    "MMPDEOptions",
+    "MMPDEResult",
+    "solve_mmpde",
+    "MagneticFieldEvaluation",
+    "MetricEvaluation",
+    "MetricEvaluator",
+    "build_metric_evaluator",
+    "build_wall_fitted_initial_mesh",
+    "WallEvaluator",
+    "parse_kisslinger",
 ]
 __all__ += [
     "BFieldGeometry",
