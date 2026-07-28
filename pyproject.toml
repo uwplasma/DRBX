@@ -19,6 +19,7 @@ dependencies = [
     "jax",
     "scipy",
     "matplotlib",
+    "plotly",
     "netCDF4",
     "rich",
     "pillow",
