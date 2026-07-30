@@ -135,6 +135,27 @@ class Rk4Stepper(Generic[StateT, CarryT, AuxT]):
         )
 
 
+def rk4_step(
+    state: StateT,
+    *,
+    time: float | jax.Array,
+    timestep: float | jax.Array,
+    rhs_fn: Callable[
+        [StateT, float | jax.Array, CarryT],
+        tuple[StateT, CarryT, AuxT],
+    ],
+    carry: CarryT,
+) -> Rk4StepResult[StateT, CarryT, AuxT]:
+    """Compatibility function for callers not retaining an ``Rk4Stepper``."""
+
+    return Rk4Stepper(rhs_fn)(
+        state,
+        time=time,
+        timestep=timestep,
+        carry=carry,
+    )
+
+
 def sum_stage_outputs(stage_outputs: tuple[AuxT, AuxT, AuxT, AuxT]) -> AuxT:
     """Reduce four stage payloads by addition.
 
@@ -149,4 +170,4 @@ def sum_stage_outputs(stage_outputs: tuple[AuxT, AuxT, AuxT, AuxT]) -> AuxT:
     return reduce(_add, stage_outputs[1:], stage_outputs[0])
 
 
-__all__ = ["Rk4StepResult", "Rk4Stepper", "sum_stage_outputs"]
+__all__ = ["Rk4StepResult", "Rk4Stepper", "rk4_step", "sum_stage_outputs"]

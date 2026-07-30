@@ -53,6 +53,32 @@ def test_periodic_broadcast_evaluation_and_derivatives():
     assert axis_r.shape == axis_z.shape == axis_dr.shape == axis_dz.shape == (2,)
 
 
+def test_value_only_evaluation_does_not_request_spline_derivatives():
+    wall = WallEvaluator(text_wall())
+    calls = []
+
+    class SpySpline:
+        def __init__(self, spline):
+            self.spline = spline
+
+        def ev(self, *args, **kwargs):
+            calls.append(kwargs.copy())
+            return self.spline.ev(*args, **kwargs)
+
+    wall._interpolation = tuple(SpySpline(spline) for spline in wall.interpolation)
+    phi = np.array([0.1, 0.4])
+    theta = np.array([0.2, 1.2])
+
+    wall.cartesian(phi, theta)
+    assert len(calls) == 2
+    assert all(not kwargs for kwargs in calls)
+
+    calls.clear()
+    wall.derivatives_cylindrical(phi, theta)
+    assert len(calls) == 6
+    assert sum(bool(kwargs) for kwargs in calls) == 4
+
+
 def test_contains_projection_and_closed_curves():
     w = WallEvaluator(text_wall())
     inside = w.cartesian(0.2, 0.0)

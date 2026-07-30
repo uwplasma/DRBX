@@ -114,6 +114,20 @@ class ScalarPotentialEvaluator(ABC):
     def gradient_cartesian(self, points_xyz: Any) -> np.ndarray:
         """Evaluate Cartesian components of grad(eta)."""
 
+    def evaluate_and_gradient_cartesian(
+        self, points_xyz: Any, *, wrapped: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Evaluate eta and its Cartesian gradient.
+
+        Concrete evaluators may override this to share basis construction. The
+        default preserves compatibility for third-party implementations.
+        """
+
+        return (
+            self.evaluate_cartesian(points_xyz, wrapped=wrapped),
+            self.gradient_cartesian(points_xyz),
+        )
+
     @abstractmethod
     def evaluate_magnetic_potential_cylindrical(
         self, points_rphiz: Any
@@ -261,7 +275,7 @@ class ChebyshevFourierScalarPotentialEvaluator(ScalarPotentialEvaluator):
             raise ValueError("normalized eta is undefined because fitted G is zero")
         points, leading_shape = _points(points_rphiz, "points_rphiz")
         self._check_bounds(points)
-        value, _, _, _ = self._periodic_terms(points)
+        value, _, _, _ = self._periodic_terms(points, derivatives=False)
         eta = points[:, 1] - self._phi0 + value / self._G
         if wrapped:
             eta = np.mod(eta, self._period)
@@ -325,6 +339,37 @@ class ChebyshevFourierScalarPotentialEvaluator(ScalarPotentialEvaluator):
         result[:, 2] = gradient[:, 2]
         return result.reshape(leading_shape + (3,))
 
+    def evaluate_and_gradient_cartesian(
+        self, points_xyz: Any, *, wrapped: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Evaluate eta and ``grad(eta)`` with one shared basis pass."""
+
+        if abs(self._G) <= np.finfo(np.float64).eps:
+            raise ValueError("normalized eta is undefined because fitted G is zero")
+        points, leading_shape = _points(points_xyz, "points_xyz")
+        cylindrical, phi = _cartesian_to_cylindrical(points)
+        self._check_bounds(cylindrical)
+        value, derivative_R, derivative_phi, derivative_Z = self._periodic_terms(
+            cylindrical, derivatives=True
+        )
+        eta = cylindrical[:, 1] - self._phi0 + value / self._G
+        if wrapped:
+            eta = np.mod(eta, self._period)
+        gradient_cylindrical = np.column_stack(
+            (
+                derivative_R / self._G,
+                (1.0 + derivative_phi / self._G) / cylindrical[:, 0],
+                derivative_Z / self._G,
+            )
+        )
+        cosine = np.cos(phi)
+        sine = np.sin(phi)
+        gradient = np.empty_like(gradient_cylindrical)
+        gradient[:, 0] = gradient_cylindrical[:, 0] * cosine - gradient_cylindrical[:, 1] * sine
+        gradient[:, 1] = gradient_cylindrical[:, 0] * sine + gradient_cylindrical[:, 1] * cosine
+        gradient[:, 2] = gradient_cylindrical[:, 2]
+        return eta.reshape(leading_shape), gradient.reshape(leading_shape + (3,))
+
     def evaluate_magnetic_potential_cylindrical(
         self, points_rphiz: Any
     ) -> np.ndarray:
@@ -332,7 +377,7 @@ class ChebyshevFourierScalarPotentialEvaluator(ScalarPotentialEvaluator):
 
         points, leading_shape = _points(points_rphiz, "points_rphiz")
         self._check_bounds(points)
-        periodic_value, _, _, _ = self._periodic_terms(points)
+        periodic_value, _, _, _ = self._periodic_terms(points, derivatives=False)
         theta, _ = self._theta_reference_terms(points)
         potential = (
             self._I * theta
@@ -406,20 +451,15 @@ class ChebyshevFourierScalarPotentialEvaluator(ScalarPotentialEvaluator):
             raise ValueError("Z query lies outside the scalar-potential fit domain")
 
     def _periodic_terms(
-        self, points: np.ndarray
+        self, points: np.ndarray, *, derivatives=True
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         scaled_R = _scale_to_chebyshev(points[:, 0], self._R[0], self._R[-1])
         scaled_Z = _scale_to_chebyshev(points[:, 2], self._Z[0], self._Z[-1])
         basis_R = chebvander(scaled_R, self.radial_degree)
         basis_Z = chebvander(scaled_Z, self.vertical_degree)
-        derivative_R = _chebyshev_derivative_vander(
-            scaled_R, self.radial_degree
-        ) * (2.0 / (self._R[-1] - self._R[0]))
-        derivative_Z = _chebyshev_derivative_vander(
-            scaled_Z, self.vertical_degree
-        ) * (2.0 / (self._Z[-1] - self._Z[0]))
         basis_phi, derivative_phi = _fourier_vander(
-            points[:, 1], self._phi0, self._nfp, self.toroidal_modes
+            points[:, 1], self._phi0, self._nfp, self.toroidal_modes,
+            derivatives=derivatives,
         )
         value = np.einsum(
             "ni,nj,nk,ijk->n",
@@ -429,6 +469,14 @@ class ChebyshevFourierScalarPotentialEvaluator(ScalarPotentialEvaluator):
             self._coefficients,
             optimize=True,
         )
+        if not derivatives:
+            return value, None, None, None
+        derivative_R = _chebyshev_derivative_vander(
+            scaled_R, self.radial_degree
+        ) * (2.0 / (self._R[-1] - self._R[0]))
+        derivative_Z = _chebyshev_derivative_vander(
+            scaled_Z, self.vertical_degree
+        ) * (2.0 / (self._Z[-1] - self._Z[0]))
         dR = np.einsum(
             "ni,nj,nk,ijk->n",
             derivative_R,
@@ -807,10 +855,10 @@ def _chebyshev_derivative_vander(
 
 
 def _fourier_vander(
-    phi: np.ndarray, phi0: float, nfp: int, modes: int
+    phi: np.ndarray, phi0: float, nfp: int, modes: int, *, derivatives=True
 ) -> tuple[np.ndarray, np.ndarray]:
     basis = np.empty((phi.size, 2 * modes + 1), dtype=np.float64)
-    derivative = np.zeros_like(basis)
+    derivative = np.zeros_like(basis) if derivatives else None
     basis[:, 0] = 1.0
     angle = nfp * (phi - phi0)
     for mode in range(1, modes + 1):
@@ -821,8 +869,9 @@ def _fourier_vander(
         frequency = mode * nfp
         basis[:, cosine_index] = cosine
         basis[:, sine_index] = sine
-        derivative[:, cosine_index] = -frequency * sine
-        derivative[:, sine_index] = frequency * cosine
+        if derivatives:
+            derivative[:, cosine_index] = -frequency * sine
+            derivative[:, sine_index] = frequency * cosine
     return basis, derivative
 
 

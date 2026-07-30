@@ -46,13 +46,13 @@ The native solver families are:
   the JAX-native 2-D Hasegawa-Wakatani drift-wave turbulence flagship, with
   differentiable inverse design
 - the FCI stack:
-  `fci_operators.py` (parallel/perpendicular gradient and Laplacian stencils on
-  the field-line maps), `fci_boundaries.py`, `fci_halo.py`, `fci_2_field_rhs.py`
-  and `fci_4_field_rhs.py` (reduced models), `fci_drb_EB_rhs.py` and
-  `fci_drb_rhs.py` (drift-reduced Braginskii right-hand sides),
-  `fci_vorticity.py` (perpendicular vorticity inversion),
-  `fci_sheath_recycling.py` (3-D FCI Bohm-sheath target closure),
-  `fci_neutral.py` (neutral reaction-diffusion), and
+  `fci_operators.py` (local parallel/perpendicular gradient and Laplacian
+  stencils on field-line maps), `fci_boundaries.py`, `fci_halo.py`,
+  `fci_2_field_rhs.py`, and the shard-local `fci_drb_EB_rhs.py` path. The
+  retained `FciGeometry3D` stages host geometry; numerical updates consume the
+  lowered local payload inside `jax.shard_map`.
+  The stack also contains `fci_sheath_recycling.py` for the 3-D FCI
+  Bohm-sheath target closure and
   `fci_time_integrator.py` (RK4)
 - `fluid_1d.py`
   compact manufactured-solution and differentiable verification lane

@@ -1,20 +1,25 @@
-"""Generic structured three-dimensional MMPDE solver.
+"""Composite structured three-dimensional MMPDE solver.
 
-This module contains a small, conservative baseline for a globally coupled
+This module contains a small, conservative solver for a globally coupled
 structured mesh with topology ``D^2 x S^1``.  The first two logical axes are
 non-periodic and the last axis is periodic.  It is deliberately independent
 of magnetic geometry: callers may supply a projector for eta or boundary
 constraints, and a periodic-image callback for the physical field-period
 identification.
 
-The baseline minimizes a frozen-monitor weighted Dirichlet (Winslow-type)
-energy on all structured edges.  It is intended as reliable infrastructure,
-not as a replacement for a higher-order production MMPDE functional.
+The objective is a dimensionless composite of a normalized frozen-monitor
+Dirichlet edge regularizer and four cell-quality terms: metric alignment,
+metric-volume equidistribution, a positive-volume barrier, and neighboring
+log-volume smoothness.  The reference metric volume ``vbar`` and nodal
+monitor are frozen for the solve/backtracking objective.  Candidate meshes
+must also pass the hard positive-Jacobian check, and the initial descent trial
+is limited by a scale-aware physical cell-edge cap before any projector is
+called.  Component histories are returned for diagnostics.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
@@ -51,19 +56,44 @@ class _AffinePeriodicTransform:
 
 @dataclass(frozen=True)
 class MMPDEOptions:
-    """Numerical controls for :func:`solve_mmpde`."""
+    """Numerical and objective controls for :func:`solve_mmpde`.
+
+    ``dirichlet_weight`` scales the normalized edge regularizer.  The other
+    weights select the alignment, equidistribution, positive-volume barrier,
+    and neighboring log-volume smoothness terms, respectively.  The cell
+    monitor and initial mean metric volume used by these terms are frozen
+    during each solve.  ``maximum_step_fraction`` caps the first trial's
+    maximum free-node displacement relative to the initial median physical
+    cell-edge length; ordinary backtracking remains active after that cap.
+    """
 
     max_iterations: int = 500
+    progress_interval: int = 0
     tolerance: float = 1.0e-8
     initial_step: float = 1.0
     backtracking_factor: float = 0.5
     minimum_step: float = 1.0e-12
     minimum_jacobian: float = 1.0e-12
+    maximum_step_fraction: float = 0.25
+    # The edge term is retained as a weak, normalized regularizer.  The
+    # remaining terms are cell-quality objectives and are dimensionless.
+    dirichlet_weight: float = 0.05
+    alignment_weight: float = 0.2
+    equidistribution_weight: float = 0.2
+    jacobian_barrier_weight: float = 1.0e-3
+    volume_smoothness_weight: float = 0.1
+    barrier_power: float = 2.0
 
 
 @dataclass
 class MMPDEResult:
-    """Output and diagnostics from a structured MMPDE solve."""
+    """Output and diagnostics from a structured MMPDE solve.
+
+    ``component_energy_history`` stores raw, unweighted component values for
+    ``dirichlet``, ``alignment``, ``equidistribution``,
+    ``jacobian_barrier``, ``volume_smoothness``, and ``total``.  It defaults
+    to an empty mapping for compatibility with older result objects.
+    """
 
     positions: Array
     converged: bool
@@ -71,12 +101,43 @@ class MMPDEResult:
     energy_history: Array
     residual_history: Array
     minimum_jacobian_history: Array
+    component_energy_history: dict[str, Array] = field(default_factory=dict)
 
     @property
     def max_free_node_update(self) -> float:
         """Final maximum free-node update, or zero for an empty history."""
 
         return float(self.residual_history[-1]) if self.residual_history.size else 0.0
+
+
+@dataclass(frozen=True)
+class _EdgeFamily:
+    """Vectorized data for one structured edge family.
+
+    Endpoint indices are flattened indices into the first three dimensions of
+    the position array.  ``wraps`` is true only for the periodic eta seam;
+    keeping the seam separate lets the regular families use ordinary indexed
+    gathers and avoids per-edge Python objects.
+    """
+
+    p: Array
+    q: Array
+    monitor: Array
+    coefficient: Array
+    wraps: bool
+
+
+@dataclass(frozen=True)
+class _EdgeFamilies:
+    """The four structured edge families used by the Dirichlet term."""
+
+    u: _EdgeFamily
+    v: _EdgeFamily
+    eta: _EdgeFamily
+    seam: _EdgeFamily
+
+    def __iter__(self):
+        return iter((self.u, self.v, self.eta, self.seam))
 
 
 def _fail(message: str) -> None:
@@ -86,12 +147,30 @@ def _fail(message: str) -> None:
 def _validate_options(options: MMPDEOptions) -> None:
     if options.max_iterations < 0:
         _fail("max_iterations must be nonnegative")
+    if (
+        int(options.progress_interval) != options.progress_interval
+        or options.progress_interval < 0
+    ):
+        _fail("progress_interval must be a nonnegative integer")
     if options.tolerance < 0 or options.initial_step <= 0:
         _fail("tolerance must be nonnegative and initial_step positive")
     if not 0 < options.backtracking_factor < 1:
         _fail("backtracking_factor must lie strictly between zero and one")
     if options.minimum_step <= 0 or options.minimum_jacobian <= 0:
         _fail("minimum_step and minimum_jacobian must be positive")
+    if not np.isfinite(options.maximum_step_fraction) or options.maximum_step_fraction <= 0:
+        _fail("maximum_step_fraction must be finite and positive")
+    weights = (
+        options.dirichlet_weight,
+        options.alignment_weight,
+        options.equidistribution_weight,
+        options.jacobian_barrier_weight,
+        options.volume_smoothness_weight,
+    )
+    if not all(np.isfinite(w) and w >= 0 for w in weights):
+        _fail("MMPDE energy weights must be finite and nonnegative")
+    if not np.isfinite(options.barrier_power) or options.barrier_power <= 0:
+        _fail("barrier_power must be finite and positive")
 
 
 def _validate_positions(positions: Array) -> Array:
@@ -203,102 +282,303 @@ def _edge_data(
     monitor: Monitor,
     periodic_image: PeriodicImage,
     periodic_rotation: Array,
-) -> list[tuple[tuple[tuple[int, int, int], tuple[int, int, int]], Array, Array, float, bool]]:
-    """Return edge endpoint indices, physical difference, monitor, and weight."""
+) -> _EdgeFamilies:
+    """Build vectorized edge-family data for the Dirichlet term.
 
-    edges = []
+    Nodal monitors have already been checked by :func:`_monitor_nodes`, so
+    their arithmetic edge averages are SPD without another eigendecomposition.
+    A callable monitor is evaluated once per family and validated as one
+    batch.  The monitor and coefficients are frozen by the caller for the
+    duration of an objective/backtracking evaluation.
+    """
+
     shape = positions.shape[:3]
-    spacings = [np.diff(axis) for axis in axes]
-    for axis in range(3):
-        for i in range(shape[0]):
-            for j in range(shape[1]):
-                for k in range(shape[2]):
-                    index = (i, j, k)
-                    if axis < 2:
-                        if index[axis] >= shape[axis] - 1:
-                            continue
-                        other = list(index)
-                        other[axis] += 1
-                        other = tuple(other)
-                        h = spacings[axis][index[axis]]
-                        q = positions[other]
-                        m = 0.5 * (positions[index] + q)
-                        if monitor_nodes is None:
-                            mm = np.asarray(monitor(m[None, :])[0], dtype=float)
-                        else:
-                            mm = 0.5 * (monitor_nodes[index] + monitor_nodes[other])
-                        weight = np.prod(
-                            [spacings[a][min(index[a], len(spacings[a]) - 1)] for a in range(3) if a != axis]
-                        )
-                    else:
-                        if index[axis] < shape[axis] - 1:
-                            other = (i, j, k + 1)
-                            h = spacings[2][k]
-                            q = positions[other]
-                            m = 0.5 * (positions[index] + q)
-                            if monitor_nodes is None:
-                                mm = np.asarray(monitor(m[None, :])[0], dtype=float)
-                            else:
-                                mm = 0.5 * (monitor_nodes[index] + monitor_nodes[other])
-                        else:
-                            other = (i, j, 0)
-                            h = axes[2][-1] - axes[2][-2]
-                            q = np.asarray(periodic_image(positions[other][None, :], 1), dtype=float)[0]
-                            m = 0.5 * (positions[index] + q)
-                            if monitor_nodes is None:
-                                mm = np.asarray(monitor(m[None, :])[0], dtype=float)
-                            else:
-                                other_monitor = periodic_rotation @ monitor_nodes[other] @ periodic_rotation.T
-                                mm = 0.5 * (monitor_nodes[index] + other_monitor)
-                        weight = spacings[0][min(i, len(spacings[0]) - 1)] * spacings[1][min(j, len(spacings[1]) - 1)]
-                    if mm.shape != (3, 3) or not np.all(np.isfinite(mm)):
-                        _fail("monitor callback returned an invalid matrix")
-                    if np.any(np.linalg.eigvalsh(0.5 * (mm + mm.T)) <= 0):
-                        _fail("monitor callback must return SPD matrices")
-                    edges.append(((index, other), np.asarray(q - positions[index]), mm, float(weight / h), axis == 2 and index[2] == shape[2] - 1))
-    return edges
+    nu, nv, neta = shape
+    du, dv, deta = (np.diff(axis) for axis in axes)
+    # The two non-periodic edge families have one edge per eta node.  At the
+    # last eta node their transverse logical measure uses the final periodic
+    # spacing, matching the scalar implementation's ``min(k, neta-2)`` rule.
+    u_node_spacing = np.concatenate((du, du[-1:]))
+    v_node_spacing = np.concatenate((dv, dv[-1:]))
+    eta_node_spacing = np.concatenate((deta, deta[-1:]))
+    flat_indices = np.arange(nu * nv * neta, dtype=np.intp).reshape(shape)
+
+    def monitor_at(midpoints: Array) -> Array:
+        values = np.asarray(monitor(midpoints), dtype=float)
+        expected = (midpoints.shape[0], 3, 3)
+        if values.shape != expected or not np.all(np.isfinite(values)):
+            _fail("monitor callback returned an invalid matrix")
+        if not np.allclose(values, np.swapaxes(values, -1, -2), rtol=1e-10, atol=1e-12):
+            _fail("monitor callback must return symmetric matrices")
+        if np.any(np.linalg.eigvalsh(values) <= 0.0):
+            _fail("monitor callback must return SPD matrices")
+        return values
+
+    def family(
+        p: Array,
+        q: Array,
+        coefficients: Array,
+        wraps: bool = False,
+    ) -> _EdgeFamily:
+        p = np.asarray(p, dtype=np.intp).reshape(-1)
+        q = np.asarray(q, dtype=np.intp).reshape(-1)
+        coefficients = np.asarray(coefficients, dtype=float).reshape(-1)
+        if monitor_nodes is None:
+            p_points = positions.reshape(-1, 3)[p]
+            q_points = positions.reshape(-1, 3)[q]
+            if wraps:
+                q_points = np.asarray(periodic_image(q_points, 1), dtype=float)
+            monitors = monitor_at(0.5 * (p_points + q_points))
+        else:
+            nodal = monitor_nodes.reshape(-1, 3, 3)
+            p_monitor = nodal[p]
+            q_monitor = nodal[q]
+            if wraps:
+                q_monitor = np.einsum(
+                    "ab,nbc,cd->nad", periodic_rotation, q_monitor, periodic_rotation.T
+                )
+            monitors = 0.5 * (p_monitor + q_monitor)
+        return _EdgeFamily(p, q, monitors, coefficients, wraps)
+
+    # Each coefficient is the transverse logical measure divided by the
+    # edge's logical length.  The eta axis is periodic and validated to be
+    # uniform, but retain its final spacing for the seam exactly as before.
+    u = family(
+        flat_indices[:-1, :, :], flat_indices[1:, :, :],
+        (v_node_spacing[None, :, None] * eta_node_spacing[None, None, :]) / du[:, None, None],
+    )
+    v = family(
+        flat_indices[:, :-1, :], flat_indices[:, 1:, :],
+        (u_node_spacing[:, None, None] * eta_node_spacing[None, None, :]) / dv[None, :, None],
+    )
+    eta = family(
+        flat_indices[:, :, :-1], flat_indices[:, :, 1:],
+        (u_node_spacing[:, None, None] * v_node_spacing[None, :, None])
+        / deta[None, None, :],
+    )
+    seam = family(
+        flat_indices[:, :, -1], flat_indices[:, :, 0],
+        (u_node_spacing[:, None] * v_node_spacing[None, :]) / deta[-1], wraps=True,
+    )
+    return _EdgeFamilies(u=u, v=v, eta=eta, seam=seam)
 
 
 def _energy_gradient(
     positions: Array,
-    edges: list,
+    edges: _EdgeFamilies,
     fixed: Array,
     periodic_image: PeriodicImage,
     periodic_rotation: Array,
 ) -> tuple[float, Array]:
-    gradient = np.zeros_like(positions)
+    flat_positions = positions.reshape(-1, 3)
+    gradient = np.zeros_like(flat_positions)
     energy = 0.0
-    for (pidx, qidx), _, monitor, coefficient, wraps in edges:
-        if wraps:
-            q = np.asarray(periodic_image(positions[qidx][None, :], 1), dtype=float)[0]
-        else:
-            q = positions[qidx]
-        difference = q - positions[pidx]
-        edge_gradient = coefficient * monitor @ difference
-        energy += 0.5 * coefficient * float(difference @ monitor @ difference)
-        gradient[pidx] -= edge_gradient
-        gradient[qidx] += periodic_rotation.T @ edge_gradient if wraps else edge_gradient
+    for family in edges:
+        p = flat_positions[family.p]
+        q = flat_positions[family.q]
+        if family.wraps:
+            q = np.asarray(periodic_image(q, 1), dtype=float)
+        difference = q - p
+        edge_gradient = family.coefficient[:, None] * np.einsum(
+            "nij,nj->ni", family.monitor, difference
+        )
+        energy += 0.5 * np.sum(
+            family.coefficient * np.einsum("ni,nij,nj->n", difference, family.monitor, difference)
+        )
+        np.add.at(gradient, family.p, -edge_gradient)
+        if family.wraps:
+            edge_gradient = edge_gradient @ periodic_rotation
+        np.add.at(gradient, family.q, edge_gradient)
+    gradient[fixed.reshape(-1)] = 0.0
+    return float(energy), gradient.reshape(positions.shape)
+
+
+def _cell_data(
+    positions: Array,
+    axes: tuple[Array, Array, Array],
+    monitor_nodes: Array,
+    periodic_image: PeriodicImage,
+    periodic_rotation: Array,
+) -> tuple[list[tuple[int, int, int]], Array, Array]:
+    """Return cell indices, physical edge matrices, and frozen cell monitors.
+
+    The columns of each ``F`` are physical edges, rather than derivatives
+    divided by logical cell widths.  At the eta seam the third edge ends at
+    the rotated image of the first layer.  The cell monitor is the arithmetic
+    mean of the eight nodal monitors, with the seam layer pulled into the
+    current image before averaging.
+    """
+
+    nu, nv, neta = positions.shape[:3]
+    cells = list(np.ndindex(nu - 1, nv - 1, neta))
+    p = positions[:-1, :-1]
+    q0 = positions[1:, :-1]
+    q1 = positions[:-1, 1:]
+    seam_points = np.asarray(
+        periodic_image(positions[:-1, :-1, 0].reshape(-1, 3), 1), dtype=float
+    ).reshape(nu - 1, nv - 1, 3)
+    q2 = np.concatenate((positions[:-1, :-1, 1:], seam_points[..., None, :]), axis=2)
+    matrices = np.stack((q0 - p, q1 - p, q2 - p), axis=-1).reshape(-1, 3, 3)
+
+    rotated_first = np.einsum(
+        "ab,ijbc,cd->ijad", periodic_rotation, monitor_nodes[:, :, 0], periodic_rotation.T
+    )
+    next_monitor = np.concatenate(
+        (monitor_nodes[:, :, 1:], rotated_first[..., None, :, :]), axis=2
+    )
+    monitors_grid = (
+        monitor_nodes[:-1, :-1]
+        + monitor_nodes[1:, :-1]
+        + monitor_nodes[:-1, 1:]
+        + monitor_nodes[1:, 1:]
+        + next_monitor[:-1, :-1]
+        + next_monitor[1:, :-1]
+        + next_monitor[:-1, 1:]
+        + next_monitor[1:, 1:]
+    ) / 8.0
+    return cells, matrices, monitors_grid.reshape(-1, 3, 3)
+
+
+def _cell_quality_energy_gradient(
+    positions: Array,
+    axes: tuple[Array, Array, Array],
+    fixed: Array,
+    monitor_nodes: Array,
+    periodic_image: PeriodicImage,
+    periodic_rotation: Array,
+    options: MMPDEOptions,
+    initial_vbar: float,
+    initial_dirichlet_energy: float,
+    frozen_edges: _EdgeFamilies,
+) -> tuple[float, Array, dict[str, float]]:
+    """Evaluate the frozen-monitor composite cell objective and its gradient."""
+
+    cells, matrices, monitors = _cell_data(
+        positions, axes, monitor_nodes, periodic_image, periodic_rotation
+    )
+    ncell = len(cells)
+    gradient = np.zeros_like(positions)
+    edge_energy, edge_gradient = _energy_gradient(
+        positions, frozen_edges, fixed, periodic_image, periodic_rotation
+    )
+    dirichlet_scale = max(float(initial_dirichlet_energy), np.finfo(float).tiny)
+    components = {
+        "dirichlet": edge_energy / dirichlet_scale,
+        "alignment": 0.0,
+        "equidistribution": 0.0,
+        "jacobian_barrier": 0.0,
+        "volume_smoothness": 0.0,
+    }
+    gradient += options.dirichlet_weight * edge_gradient / dirichlet_scale
+    if ncell == 0:
+        return 0.0, gradient, components
+
+    detF = np.linalg.det(matrices)
+    detM = np.linalg.det(monitors)
+    if np.any(detF <= 0.0) or np.any(detM <= 0.0) or not np.all(np.isfinite(detF * detM)):
+        return np.inf, np.zeros_like(positions), {**components, "total": np.inf}
+    C = np.einsum("nai,nab,nbj->nij", matrices, monitors, matrices)
+    detC = np.linalg.det(C)
+    if np.any(detC <= 0.0) or not np.all(np.isfinite(detC)):
+        return np.inf, np.zeros_like(positions), {**components, "total": np.inf}
+    inverse_transposes = np.transpose(np.linalg.inv(matrices), (0, 2, 1))
+    volumes = detF * np.sqrt(detM)
+    detC13 = detC ** (1.0 / 3.0)
+    ratios = np.trace(C, axis1=1, axis2=2) / (3.0 * detC13)
+    residuals = ratios - 1.0
+    components["alignment"] = float(np.mean(residuals * residuals))
+    d_ratio_dC = np.eye(3)[None, :, :] / (3.0 * detC13[:, None, None]) - (
+        np.trace(C, axis1=1, axis2=2)[:, None, None]
+        * np.transpose(np.linalg.inv(C), (0, 2, 1))
+        / (9.0 * detC13[:, None, None])
+    )
+    align_gradients = (4.0 / ncell) * residuals[:, None, None] * np.einsum(
+        "nab,nbj,njk->nak", monitors, matrices, d_ratio_dC
+    )
+
+    log_ratio = np.log(volumes / initial_vbar)
+    components["equidistribution"] = float(np.mean(log_ratio * log_ratio))
+    barrier_values = (initial_vbar / volumes) ** options.barrier_power
+    components["jacobian_barrier"] = float(np.mean(barrier_values))
+
+    # Build the neighbor derivative in log-volume space first.  This includes
+    # the eta seam by rolling each (u,v) cell plane.
+    cell_shape = (positions.shape[0] - 1, positions.shape[1] - 1, positions.shape[2])
+    log_volume = log_ratio.reshape(cell_shape)
+    log_coefficients = np.zeros(cell_shape, dtype=float)
+    u_difference = log_volume[:-1] - log_volume[1:]
+    v_difference = log_volume[:, :-1] - log_volume[:, 1:]
+    eta_difference = log_volume - np.roll(log_volume, -1, axis=2)
+    log_coefficients[:-1] += 2.0 * u_difference
+    log_coefficients[1:] -= 2.0 * u_difference
+    log_coefficients[:, :-1] += 2.0 * v_difference
+    log_coefficients[:, 1:] -= 2.0 * v_difference
+    log_coefficients += 2.0 * eta_difference
+    log_coefficients -= 2.0 * np.roll(eta_difference, 1, axis=2)
+    pair_count = u_difference.size + v_difference.size + eta_difference.size
+    if pair_count:
+        components["volume_smoothness"] = float(
+            (
+                np.sum(u_difference * u_difference)
+                + np.sum(v_difference * v_difference)
+                + np.sum(eta_difference * eta_difference)
+            )
+            / pair_count
+        )
+        log_coefficients /= pair_count
+
+    cell_gradients = options.alignment_weight * align_gradients
+    cell_gradients += (
+        options.equidistribution_weight
+        * (2.0 / ncell)
+        * log_ratio[:, None, None]
+        * inverse_transposes
+    )
+    cell_gradients += (
+        options.jacobian_barrier_weight
+        * (-options.barrier_power / ncell * barrier_values[:, None, None])
+        * inverse_transposes
+    )
+    cell_gradients += (
+        options.volume_smoothness_weight
+        * log_coefficients.reshape(-1, 1, 1)
+        * inverse_transposes
+    )
+    cell_gradients = cell_gradients.reshape(*cell_shape, 3, 3)
+    gradient[:-1, :-1] -= np.sum(cell_gradients, axis=-1)
+    gradient[1:, :-1] += cell_gradients[..., :, 0]
+    gradient[:-1, 1:] += cell_gradients[..., :, 1]
+    gradient[:-1, :-1, 1:] += cell_gradients[:, :, :-1, :, 2]
+    gradient[:-1, :-1, 0] += np.einsum(
+        "ab,ijb->ija", periodic_rotation.T, cell_gradients[:, :, -1, :, 2]
+    )
+
     gradient[fixed] = 0.0
-    return energy, gradient
+    components = {name: float(value) for name, value in components.items()}
+    total = sum(
+        getattr(options, f"{name}_weight") * value
+        for name, value in components.items()
+        if name != "dirichlet" and name != "total"
+    ) + options.dirichlet_weight * components["dirichlet"]
+    components["total"] = float(total)
+    return float(total), gradient, components
 
 
 def _cell_jacobians(positions: Array, axes: tuple[Array, Array, Array], periodic_image: PeriodicImage) -> Array:
     nu, nv, neta = positions.shape[:3]
-    jac = np.empty((nu - 1, nv - 1, neta), dtype=float)
     du, dv = np.diff(axes[0]), np.diff(axes[1])
-    for i in range(nu - 1):
-        for j in range(nv - 1):
-            for k in range(neta):
-                p = positions[i, j, k]
-                a = (positions[i + 1, j, k] - p) / du[i]
-                b = (positions[i, j + 1, k] - p) / dv[j]
-                if k + 1 < neta:
-                    q = positions[i, j, k + 1]
-                else:
-                    q = np.asarray(periodic_image(positions[i, j, 0][None, :], 1), dtype=float)[0]
-                c = (q - p) / (axes[2][-1] - axes[2][-2])
-                jac[i, j, k] = np.linalg.det(np.column_stack((a, b, c)))
-    return jac
+    p = positions[:-1, :-1]
+    q0 = positions[1:, :-1]
+    q1 = positions[:-1, 1:]
+    seam_points = np.asarray(
+        periodic_image(positions[:-1, :-1, 0].reshape(-1, 3), 1), dtype=float
+    ).reshape(nu - 1, nv - 1, 3)
+    q2 = np.concatenate((positions[:-1, :-1, 1:], seam_points[..., None, :]), axis=2)
+    edges = np.stack((q0 - p, q1 - p, q2 - p), axis=-1)
+    edges[..., 0] /= du[:, None, None, None]
+    edges[..., 1] /= dv[None, :, None, None]
+    edges[..., 2] /= axes[2][-1] - axes[2][-2]
+    return np.linalg.det(edges)
 
 
 def solve_mmpde(
@@ -325,8 +605,16 @@ def solve_mmpde(
     ``bool`` or NumPy ``bool_``.  ``False`` rejects a candidate and causes
     backtracking; a false initial result raises ``ValueError``.  Exceptions
     raised by the callback propagate unchanged.  Any other return value
-    raises ``TypeError``.  The monitor is evaluated once per iteration and
-    held fixed while backtracking evaluates that iteration's candidates.
+    raises ``TypeError``.  The normalized Dirichlet edge term is retained as
+    a weak regularizer alongside cell alignment, equidistribution,
+    positive-volume barrier, and neighboring log-volume smoothness
+    objectives.  The initial mean metric volume and each iteration's nodal
+    monitor are frozen during that iteration's line search.  A hard
+    positive-Jacobian check is always applied.  The initial trial is capped
+    by ``maximum_step_fraction`` times the initial median physical cell-edge
+    length before the projector is called.  The monitor is evaluated once per
+    iteration and held fixed while backtracking evaluates that iteration's
+    candidates.
     """
 
     opts = options or MMPDEOptions()
@@ -349,26 +637,97 @@ def solve_mmpde(
         if not bool(initial_valid):
             _fail("initial mesh rejected by candidate_validator")
     initial_edges = _edge_data(x, axes, nodes_monitor, monitor, affine_image, affine_image.rotation)
-    energy, _ = _energy_gradient(x, initial_edges, fixed, affine_image, affine_image.rotation)
+    initial_dirichlet_energy, _ = _energy_gradient(
+        x, initial_edges, fixed, affine_image, affine_image.rotation
+    )
+    _, initial_matrices, initial_monitors = _cell_data(
+        x, axes, nodes_monitor, affine_image, affine_image.rotation
+    )
+    if initial_matrices.size == 0:
+        _fail("mesh must contain at least one structured cell")
+    initial_vbar = float(
+        np.mean(np.linalg.det(initial_matrices) * np.sqrt(np.linalg.det(initial_monitors)))
+    )
+    characteristic_cell_edge_length = float(
+        np.median(np.linalg.norm(initial_matrices, axis=2))
+    )
+    if not np.isfinite(characteristic_cell_edge_length) or characteristic_cell_edge_length <= 0:
+        _fail("initial mesh has no finite positive characteristic cell-edge length")
+    energy, _, initial_components = _cell_quality_energy_gradient(
+        x,
+        axes,
+        fixed,
+        nodes_monitor,
+        affine_image,
+        affine_image.rotation,
+        opts,
+        initial_vbar,
+        initial_dirichlet_energy,
+        initial_edges,
+    )
     energies = [energy]
+    component_histories = {
+        name: [value] for name, value in initial_components.items() if name != "total"
+    }
     residuals: list[float] = []
     min_jacobians = [float(np.min(initial_jac))]
     converged = False
     iterations = 0
+    progress_interval = int(opts.progress_interval)
+    if progress_interval > 0:
+        print(
+            "[MMPDE] starting: "
+            f"nodes={x.shape[:3]}, max_iterations={opts.max_iterations}, "
+            f"energy={energy:.6e}, min_jacobian={min_jacobians[-1]:.6e}",
+            flush=True,
+        )
     for iteration in range(opts.max_iterations):
         # A callable monitor is sampled at the start of the iteration and is
         # then frozen for both the gradient and all backtracking candidates.
         iteration_monitor = _monitor_nodes(monitor, x) if callable(monitor) else nodes_monitor
-        frozen_edges = _edge_data(x, axes, iteration_monitor, monitor, affine_image, affine_image.rotation)
-        current_energy, gradient = _energy_gradient(
-            x, frozen_edges, fixed, affine_image, affine_image.rotation
+        frozen_edges = (
+            _edge_data(x, axes, iteration_monitor, monitor, affine_image, affine_image.rotation)
+            if callable(monitor)
+            else initial_edges
+        )
+        current_energy, gradient, current_components = _cell_quality_energy_gradient(
+            x,
+            axes,
+            fixed,
+            iteration_monitor,
+            affine_image,
+            affine_image.rotation,
+            opts,
+            initial_vbar,
+            initial_dirichlet_energy,
+            frozen_edges,
         )
         free_gradient = gradient[~fixed]
         norm = float(np.max(np.linalg.norm(free_gradient, axis=-1))) if free_gradient.size else 0.0
         if norm <= opts.tolerance:
             converged = True
+            if progress_interval > 0:
+                print(
+                    f"[MMPDE] converged before iteration {iteration + 1}: "
+                    f"gradient_norm={norm:.6e}",
+                    flush=True,
+                )
             break
-        step = opts.initial_step
+        # The composite gradient can have a large magnitude when a cell is
+        # close to degeneracy.  Limit the first trial before invoking the
+        # projector, whose valid coordinate domain may be bounded.  Subsequent
+        # trials still use ordinary backtracking from this scale-aware step.
+        gradient_displacement = (
+            float(np.max(np.linalg.norm(free_gradient, axis=-1))) if free_gradient.size else 0.0
+        )
+        if gradient_displacement > 0.0:
+            maximum_step = (
+                opts.maximum_step_fraction * characteristic_cell_edge_length
+                / gradient_displacement
+            )
+        else:
+            maximum_step = opts.initial_step
+        step = min(opts.initial_step, maximum_step)
         accepted = False
         while step >= opts.minimum_step:
             candidate = x - step * gradient
@@ -386,24 +745,62 @@ def solve_mmpde(
                     if not bool(candidate_valid):
                         step *= opts.backtracking_factor
                         continue
-                candidate_energy, _ = _energy_gradient(
-                    candidate, frozen_edges, fixed, affine_image, affine_image.rotation
+                candidate_energy, _, candidate_components = _cell_quality_energy_gradient(
+                    candidate,
+                    axes,
+                    fixed,
+                    iteration_monitor,
+                    affine_image,
+                    affine_image.rotation,
+                    opts,
+                    initial_vbar,
+                    initial_dirichlet_energy,
+                    frozen_edges,
                 )
-                if candidate_energy < current_energy:
+                if np.isfinite(candidate_energy) and candidate_energy < current_energy:
                     accepted = True
                     break
             step *= opts.backtracking_factor
         if not accepted:
+            if progress_interval > 0:
+                print(
+                    f"[MMPDE] stopped at iteration {iteration + 1}: "
+                    "line search found no acceptable update",
+                    flush=True,
+                )
             break
         update = float(np.max(np.linalg.norm(candidate[~fixed] - x[~fixed], axis=-1))) if np.any(~fixed) else 0.0
         x = candidate
         iterations = iteration + 1
         energies.append(candidate_energy)
+        for name in component_histories:
+            component_histories[name].append(candidate_components[name])
         residuals.append(update)
         min_jacobians.append(float(np.min(candidate_jac)))
+        if (
+            progress_interval > 0
+            and (
+                iterations % progress_interval == 0
+                or iterations == opts.max_iterations
+            )
+        ):
+            print(
+                f"[MMPDE] iteration {iterations}/{opts.max_iterations}: "
+                f"energy={candidate_energy:.6e}, "
+                f"max_update={update:.6e}, "
+                f"min_jacobian={min_jacobians[-1]:.6e}",
+                flush=True,
+            )
         if update <= opts.tolerance:
             converged = True
             break
+    if progress_interval > 0:
+        print(
+            f"[MMPDE] finished: iterations={iterations}, "
+            f"converged={converged}, energy={energies[-1]:.6e}, "
+            f"min_jacobian={min_jacobians[-1]:.6e}",
+            flush=True,
+        )
     return MMPDEResult(
         positions=x,
         converged=converged,
@@ -411,6 +808,10 @@ def solve_mmpde(
         energy_history=np.asarray(energies),
         residual_history=np.asarray(residuals),
         minimum_jacobian_history=np.asarray(min_jacobians),
+        component_energy_history={
+            **{name: np.asarray(values) for name, values in component_histories.items()},
+            "total": np.asarray(energies),
+        },
     )
 
 

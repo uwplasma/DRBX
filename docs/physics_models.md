@@ -173,11 +173,10 @@ source. The associated validation campaign checks exact particle recycling,
 neutral-energy source accounting, and zero-current particle balance on a 3-D
 non-axisymmetric map.
 
-### FCI Neutral Reaction-Diffusion
+### Neutral Reaction-Diffusion
 
-The compact neutral component in
-[native/fci_neutral.py](../src/drbx/native/fci_neutral.py) evaluates neutral
-diffusion plus the ionisation, recombination, and charge-exchange sources
+The compact neutral component evaluates neutral diffusion plus the ionisation,
+recombination, and charge-exchange sources
 
 ```text
 S_ion = k_ion n_n n_e sqrt(T_e)
@@ -191,9 +190,8 @@ momentum.
 
 ### Perpendicular Vorticity Inversion
 
-The vorticity component in
-[native/fci_vorticity.py](../src/drbx/native/fci_vorticity.py) applies and
-inverts the perpendicular polarization relation
+The vorticity component applies and inverts the perpendicular polarization
+relation
 
 ```text
 Omega = - div_perp(K_pol grad_perp phi)
@@ -205,17 +203,13 @@ with the metric-weighted perpendicular operator, solved by conjugate gradient.
 The Boussinesq and non-Boussinesq operators differ on a nonuniform density
 field and become identical to roundoff when `n/B^2` is constant.
 
-### Combined Differentiable RHS
+### Composed local FCI RHS
 
-The compact combined state in
-[native/fci_drb_rhs.py](../src/drbx/native/fci_drb_rhs.py) is a PyTree RHS
-that threads the sheath, neutral, and vorticity components into a single
-differentiable right-hand side. It carries the Boussinesq/non-Boussinesq
-polarization switch through the potential solve and exposes an opt-in
-potential-fed `E×B` advection path for the charged-fluid density, pressure, ion
-parallel momentum, and vorticity. Neutral gas density, pressure, and momentum
-are deliberately not `E×B`-advected in this closure; they remain controlled by
-neutral diffusion and reaction terms.
+The former monolithic differentiable FCI RHS has been retired. Current FCI
+experiments compose the local operators explicitly inside a `jax.shard_map`
+kernel, with halo exchange and the potential solve visible at the call site.
+`FciGeometry3D` remains the host-side staging object; lowered shard-local
+geometry is used for the numerical update.
 
 ## Numerical Algorithms
 
@@ -256,9 +250,9 @@ structured-solver library. The electrostatic vorticity lane
 ([native/vorticity.py](../src/drbx/native/vorticity.py)) inverts its
 potential with that operator; the compact FCI vorticity component inverts the
 metric-weighted perpendicular operator with conjugate gradient; and the
-4-field/DRB lanes invert the conservative perpendicular Laplacian with the
-solvax GMRES `PerpLaplacianInverseSolver` (optionally multigrid-preconditioned
-with a prefactored LU coarse solve) — see
+4-field/DRB lanes invert the conservative perpendicular Laplacian with
+SOLVAX FGMRES through `LocalPerpLaplacianInverseSolver`, optionally using
+geometry-aware point or local line preconditioning — see
 [Solvers and Design Decisions](solvers_and_design.md).
 
 ## Linear Stability And Dispersion
@@ -313,9 +307,8 @@ payload:
 
 - **2-field** reduced model (density and parallel velocity) in
   [native/fci_2_field_rhs.py](../src/drbx/native/fci_2_field_rhs.py);
-- **4-field** model (density, vorticity, ion and electron parallel velocity),
-  with free-decay and blob variants, in
-  [native/fci_4_field_rhs.py](../src/drbx/native/fci_4_field_rhs.py);
+- the former global **4-field** model and its free-decay/blob variants are
+  retired;
 - the full **electrostatic/electromagnetic drift-reduced Braginskii**
   right-hand side (density, potential, `Te`, `Ti`, ion and electron parallel
   velocity, vorticity) in
@@ -324,21 +317,16 @@ payload:
 These are assembled from the shared FCI operators, boundary/halo handling, and
 geometry maps described above, and are validated on tokamak and non-axisymmetric
 stellarator geometry (see
-[Stellarator FCI Validation](stellarator_fci_validation.md) and
-[Differentiable FCI Flux Tube](stellarator_fci_differentiable.md)).
+[Stellarator FCI Validation](stellarator_fci_validation.md)).
 
 Primary source files:
 
 - reduced models:
-  [native/fci_2_field_rhs.py](../src/drbx/native/fci_2_field_rhs.py),
-  [native/fci_4_field_rhs.py](../src/drbx/native/fci_4_field_rhs.py)
+  [native/fci_2_field_rhs.py](../src/drbx/native/fci_2_field_rhs.py)
 - full drift-reduced Braginskii RHS:
-  [native/fci_drb_EB_rhs.py](../src/drbx/native/fci_drb_EB_rhs.py),
-  [native/fci_drb_rhs.py](../src/drbx/native/fci_drb_rhs.py)
-- sheath / neutral / vorticity closures:
-  [native/fci_sheath_recycling.py](../src/drbx/native/fci_sheath_recycling.py),
-  [native/fci_neutral.py](../src/drbx/native/fci_neutral.py),
-  [native/fci_vorticity.py](../src/drbx/native/fci_vorticity.py)
+  [native/fci_drb_EB_rhs.py](../src/drbx/native/fci_drb_EB_rhs.py)
+- sheath closure:
+  [native/fci_sheath_recycling.py](../src/drbx/native/fci_sheath_recycling.py)
 - operators, boundaries, geometry:
   [native/fci_operators.py](../src/drbx/native/fci_operators.py),
   [native/fci_boundaries.py](../src/drbx/native/fci_boundaries.py),

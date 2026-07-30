@@ -5,7 +5,7 @@ from typing import Literal, Sequence
 import jax
 import jax.numpy as jnp
 
-from ..geometry.fci_geometry import FciGeometry3D, HaloLayout3D, LocalDomain3D
+from ..geometry.fci_geometry import HaloLayout3D, LocalDomain3D
 
 
 def _as_float64_array(value: jnp.ndarray, name: str) -> jnp.ndarray:
@@ -14,17 +14,6 @@ def _as_float64_array(value: jnp.ndarray, name: str) -> jnp.ndarray:
     array = jnp.asarray(value, dtype=jnp.float64)
     if array.ndim != 3:
         raise ValueError(f"{name} must be 3D, got {array.shape}")
-    return array
-
-
-def _as_optional_boundary_plane(value: jnp.ndarray | float | None, name: str) -> jnp.ndarray | None:
-    """Normalize a boundary-plane payload for the global/reference path."""
-
-    if value is None:
-        return None
-    array = jnp.asarray(value, dtype=jnp.float64)
-    if array.ndim not in (0, 2):
-        raise ValueError(f"{name} must be scalar or 2D, got {array.shape}")
     return array
 
 
@@ -55,24 +44,6 @@ def _as_bool_face_array(value: jnp.ndarray, name: str) -> jnp.ndarray:
     return array
 
 
-def _as_int_stencil_array(value: jnp.ndarray, name: str) -> jnp.ndarray:
-    """Normalize a 2D integer stencil array."""
-
-    array = jnp.asarray(value, dtype=jnp.int32)
-    if array.ndim != 2:
-        raise ValueError(f"{name} must be 2D, got {array.shape}")
-    return array
-
-
-def _as_weight_stencil_array(value: jnp.ndarray, name: str) -> jnp.ndarray:
-    """Normalize a 2D floating-point stencil weight array."""
-
-    array = jnp.asarray(value, dtype=jnp.float64)
-    if array.ndim != 2:
-        raise ValueError(f"{name} must be 2D, got {array.shape}")
-    return array
-
-
 def _as_coordinate_derivative_weight_array(value: jnp.ndarray, name: str) -> jnp.ndarray:
     """Normalize the fixed coordinate-derivative weight tensor."""
 
@@ -95,7 +66,7 @@ def _as_wall_face_array(value: jnp.ndarray | float, n_faces: int, name: str) -> 
 
 def _as_coordinate_face_tuple(
     value: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-    geometry: FciGeometry3D,
+    geometry,
     name: str,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Validate global face tuples against a global active-cell geometry."""

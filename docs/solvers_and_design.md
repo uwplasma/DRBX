@@ -5,80 +5,53 @@ concrete parameters and file locations — and the design rules the codebase
 follows. The governing equations these solvers advance are on
 [Models and Governing Equations](models_and_equations.md).
 
-## Perpendicular-Laplacian inversion (solvax GMRES)
+## Perpendicular-Laplacian inversion (SOLVAX FGMRES)
 
-The 4-field and DRB lanes must invert the conservative perpendicular
-Laplacian \(-\nabla_\perp\!\cdot\!\nabla_\perp \phi = -\omega\) once per RK4
-stage. The solver is `PerpLaplacianInverseSolver` in
-[`native/fci_operators.py`](../src/drbx/native/fci_operators.py):
+The sharded FCI lanes invert the conservative perpendicular Laplacian through
+`LocalPerpLaplacianInverseSolver` in
+[`native/fci_operators.py`](../src/drbx/native/fci_operators.py). Its Krylov
+adapter and diagnostics live in
+[`native/fci_gmres.py`](../src/drbx/native/fci_gmres.py).
 
-- the operator is a matrix-free matvec wrapping the conservative stencil
-  (`perp_laplacian_conservative_op` on a `ConservativeStencilBuilder`
-  payload), solved with `solvax.gmres` (restarted flexible GMRES, fully
-  jit-able) using `rtol = atol = tol` (default `1e-6`) on the **true**
-  residual, a Krylov cycle of `min(restart, maxiter)`, and a total iteration
-  budget of `maxiter`; the multigrid V-cycle enters as a right
-  preconditioner;
-- nonzero regular-face and cut-wall boundary values are **lifted out of the
-  operator** (a one-time boundary-source application) so the GMRES matvec
-  stays linear; Dirichlet lifts get a homogeneous correction solve;
-- nullspace handling is explicit: optional weighted mean-zero projection
-  (`project_mean_zero`), a pinned point (`pin_point`/`pin_value`), or a Tikhonov
-  `regularization_epsilon` — mutually checked against the preconditioner;
-- the solve closures are built **once per geometry/BC payload** and cached as
-  jitted functions; the stage-dependent RHS, warm-start guess, and boundary
-  values remain dynamic arguments, and the previous stage's \(\phi\) is passed
-  back as `phi_guess` to warm-start the next inversion.
+- `solvax.gmres` supplies restarted flexible GMRES, CGS2 Arnoldi
+  orthogonalization, incremental Givens rotations, and right
+  preconditioning.
+- DRBX supplies a custom inner product whose local owned-cell dot product is
+  reduced over every `shard_map` mesh axis. The SOLVAX default inner product
+  must not be used for a partitioned field because it would stop on a
+  shard-local residual.
+- `maxiter` remains a total Krylov-step budget. The adapter chooses an exact
+  restart-cycle divisor and maps that budget to SOLVAX `max_restarts`.
+- Nonzero physical boundary data are lifted before the solve. FGMRES sees the
+  homogeneous correction operator, and the lift is added back afterward.
+- The adapter recomputes the global true residual and retains separate target
+  and acceptance tolerances, active-cell masking, optional weighted
+  mean-zero projection, regularization, and finiteness diagnostics.
 
-### Fast path vs diagnostic path
+The regular-grid solver currently supports these local right
+preconditioners:
 
-The solver has two call paths (new 2026-07-17):
+- `none`;
+- geometry-aware point `jacobi`;
+- tridiagonal `line-u`;
+- tridiagonal `line-v`;
+- additive `line-uv`.
 
-- **Diagnostic path** (`check_residual=True`, the default, or
-  `return_diagnostics=True`): after the GMRES solve it recomputes the true
-  residual, compatibility ratios, and finiteness flags, converts them to
-  Python floats (host syncs), and raises if the relative residual exceeds
-  `10 x tol`. This is the validation/debugging path — those host-synced
-  `float(...)` conversions force a device round-trip per stage.
-- **Fast path** (`check_residual=False` and no `return_diagnostics`):
-  `_solve_fast_impl` returns \(\phi\) only — one boundary-source application
-  plus the GMRES solve, **no diagnostic matvecs and no host syncs** — so it is
-  safe to call from inside `jit`-compiled stepping code. Two companion fixes
-  landed with it: the GMRES solve now honors the requested
-  `phi_inversion_tol` (it was previously hardcoded to `rtol=atol=1e-6`,
-  over-solving each stage for looser-tolerance models), and the FCI RHS
-  assemblies (`compute_2field_rhs`, `compute_4field_*`) return
-  `timings=None` by default so they are sync-free and jittable —
-  `with_diagnostics=True` restores the host-synced stage-timings and
-  phi-diagnostics payload for the validation harnesses.
+The bands retain the axis-normal part of the metric projector and omit mixed
+metric couplings. With `(1,1,N)` sharding, complete `u` and `v` lines are
+local, so these line solves remain shard-compatible. A cyclic `eta` line
+solve is intentionally not offered: an eta-sharded local cyclic solve would
+invert independent shard segments rather than the global periodic line.
 
-On the fast path the **entire 4-field RK4 step** — four RHS evaluations
-including their GMRES phi inversions — compiles as one jit program in
-`drbx.native.stellarator_turbulence.run_stellarator_turbulence` (a
-one-time ~9 s compile). On the `(24, 32, 8)` rotating-ellipse case this took
-the single-CPU step from 1.200 s (eager, host-synced diagnostics) to
-0.623 s (1.9x); the measurement and its context are on
-[Performance and Differentiability](performance_and_differentiability.md).
+Distributed multigrid is not implemented in this path yet. A correct version
+must keep halo exchange in every coarse matvec and provide a distributed
+coarse solve; applying a stock local hierarchy independently on each shard
+would change the global operator.
 
-### Multigrid V-cycle preconditioner
-
-For larger grids the GMRES solve takes an optional geometric-multigrid
-preconditioner: `build_perp_laplacian_mg_hierarchy` coarsens the geometry,
-face BCs, and face metrics by factors of two into a
-`PerpLaplacianMgHierarchy` of `PerpLaplacianMgLevel`s, applied as a V-cycle
-(`pre_smooth=2`, `post_smooth=2`) with a Chebyshev smoother by default
-(`smoother="chebyshev"`, order 2; weighted-Jacobi `omega_jacobi=0.65` is the
-alternative). The hierarchy is a pytree, so it passes through `jit`
-unchanged.
-
-When the coarsest level has at most `direct_coarse_size=512` cells, the dense
-coarse operator is assembled **once at build time** and LU-factorized with
-`jax.scipy.linalg.lu_factor`; each V-cycle then does a cheap triangular
-`lu_solve` instead of smoothing (or re-factorizing) at the coarsest level
-(new in July 2026, stored as `coarse_lu_and_piv` on the hierarchy).
-Cut-wall payloads are not coarsened (`NotImplementedError`), and hierarchies
-exclude pinned rows and Tikhonov regularization by construction. Gate:
-`tests/test_multigrid_preconditioner.py`.
+The full EB RK4 advance, including four potential reconstructions, is lowered
+as one jitted `shard_map` program. The driver returns each stage's iteration
+count, true relative residual, acceptance flag, and failure flag, and aborts
+before continuing from an unaccepted inversion.
 
 ## solvax structured solves
 
@@ -158,7 +131,8 @@ covariant metric exactly as the Gram matrix of the embedding Jacobian with
 \(J = \sqrt{\det g}\), \(g^{ij} = (g_{ij})^{-1}\) — instead of hand-derived
 metric formulas. Because the metric is built by autodiff, it is itself
 **differentiable with respect to the shape parameters** (the shape-gradient
-gate is `tests/test_rotating_ellipse_fci.py`). Imported geometries (ESSOS
+gate is the supported sharded full-EB MMS gate
+(`tests/test_mms_shifted_torus_EB_sharded.py`). Imported geometries (ESSOS
 coils/VMEC, VMEC-extender field grids, VMEX equilibria) enter through the
 adapters in
 [`geometry/essos_import.py`](../src/drbx/geometry/essos_import.py),
@@ -207,23 +181,23 @@ The codebase follows a small set of deliberate rules:
 
 - **Pure-`jnp` hot paths.** Every RHS, operator, and solver kernel is pure
   `jax.numpy` on explicit inputs — `jit`/`grad`/`vmap`-transparent by
-  construction. Optional diagnostics that need host values (timings, residual
-  checks) are opt-in flags (`with_diagnostics`, `check_residual`,
-  `return_diagnostics`), never the default inside stepping loops.
+  construction. Solver diagnostics remain device arrays inside the compiled
+  advance and are transferred to the host only at progress/output boundaries.
 - **Host syncs only at boundaries.** `float(...)`, `block_until_ready`,
   printing, plotting, and file I/O happen in the driver scripts and
   validation harnesses, not inside kernels. The phi-solver fast path exists
   precisely to keep the RK4 hot loop free of device round-trips.
 - **Pytree dataclasses.** Model states (`Fci4FieldState`, `FciDrbState`,
-  …), parameter bundles, boundary payloads, and even the multigrid hierarchy
-  are frozen dataclasses registered with
+  …), parameter bundles, boundary payloads, local geometry, and SOLVAX
+  configuration/diagnostics are frozen dataclasses registered with
   `jax.tree_util.register_pytree_node_class`, so whole model configurations
   pass through `jit`, `grad`, and `shard_map` as ordinary arguments and
   static metadata lives in `aux_data`.
 - **Build once, solve many.** Stencil builders, face projectors, BC payloads,
-  curvature coefficients, the GMRES solve closures, and the MG hierarchy
-  (with its prefactored coarse LU) are constructed once per geometry and
-  reused every stage; only fields and dynamic BC values change per call.
+  curvature coefficients, and invariant boundary characteristic projectors
+  are constructed once per geometry and reused every stage. The local
+  preconditioner bands are geometry-only arrays lowered with the compiled
+  solve; only fields and dynamic BC values change per call.
 - **TOML decks at the user boundary.** The CLI (`drbx inspect/run`,
   [`cli.py`](../src/drbx/cli.py) →
   [`native/deck_runner.py`](../src/drbx/native/deck_runner.py)) parses TOML

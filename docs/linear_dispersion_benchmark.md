@@ -70,11 +70,10 @@ curved and non-axisymmetric geometry elsewhere in the suite:
   eigenvalue to ~1e-14 (`tests/test_hasegawa_wakatani.py`), tying the
   nonlinear code to the linear solver; the drift-reduced FCI operator stack
   carries the same curvature terms on the shifted-torus helical geometry.
-- **Rotating-ellipse stellarator.** The small-amplitude response on the
-  genuinely non-axisymmetric metric is pinned by the differentiable rollout
-  gates: the gradient of an evolved diagnostic matches finite differences
-  (`tests/test_rotating_ellipse_fci.py`), which is the linearized response
-  computed two independent ways.
+- **Sharded FCI path.** The supported nonlinear FCI validation is the ported
+  sharded two-field gate (`tests/test_fci_sharded_2field.py`); its strong-
+  scaling benchmark is documented in
+  `docs/performance_and_differentiability.md`.
 
 ## Using it
 

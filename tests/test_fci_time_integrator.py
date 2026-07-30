@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
+import pytest
 
 import jax
 import jax.numpy as jnp

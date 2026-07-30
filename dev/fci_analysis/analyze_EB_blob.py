@@ -13,7 +13,7 @@ if str(_REPO_ROOT) not in sys.path:
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
-from test_shifted_torus_EB_blob import (  # noqa: E402
+from eb_blob_analysis_helpers import (  # noqa: E402
     _build_eb_blob_geometry,
     _eb_blob_artifact_stem,
     _eb_blob_z_indices,

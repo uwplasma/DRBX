@@ -136,8 +136,8 @@ The intended end-to-end differentiable lane is:
 - JAX-side objective or analysis functional.
 
 The compact diffusion and vorticity kernels, the Hasegawa-Wakatani flagship, and
-the differentiable FCI drift-reduced RHS (`native/fci_drb_rhs.py`) are the best
-starting points today because they stay fully inside JAX.
+the local/sharded FCI drift-reduced RHS is the best starting point today
+because it stays fully inside JAX and lowers through `shard_map`.
 
 The diffusion lane has committed focused differentiable examples:
 
@@ -238,7 +238,7 @@ device-memory profiles, persistent compilation-cache runs, and XLA dump trees.
 The workflow and recommended cases are documented in
 [profiling_runtime.md](profiling_runtime.md).
 
-## 4-Field Step: Fast Path, Whole-Step JIT, Coarse LU (2026-07-17)
+## 4-Field Step: Whole-Step JIT and SOLVAX FGMRES
 
 Profiling the 4-field interchange RK4 step on the rotating ellipse at
 `(24, 32, 8)`, single CPU, found the old eager default costing **1.200 s per
@@ -250,30 +250,25 @@ batch per RK4 stage). Three changes landed in response, bringing the same
 step to **0.623 s per step (1.9x)**, with all 26
 operator/turbulence/MMS/blob/sharded gates passing:
 
-- **phi-solver fast path**: constructing `PerpLaplacianInverseSolver` with
-  `check_residual=False` and calling it without `return_diagnostics`
-  dispatches a jitted phi-only solve — no diagnostic matvecs, no residual
-  floats, no host syncs — making the solver safe to call from inside
-  `jit`-compiled stepping code. The diagnostic path is unchanged and remains
-  the default for validation harnesses.
+- **shard-compatible SOLVAX solve**:
+  `LocalPerpLaplacianInverseSolver` uses SOLVAX FGMRES with a custom global
+  `psum` inner product. True-residual and finiteness diagnostics remain JAX
+  arrays inside the compiled step and are materialized only at the driver
+  boundary.
 - **whole-step JIT**: the entire RK4 step — all four RHS evaluations,
   including their GMRES phi inversions — now compiles as **one jit program**
-  in `drbx.native.stellarator_turbulence.run_stellarator_turbulence`
-  (a one-time compile of about 9 s, then no per-stage Python dispatch).
-  Supporting this, `compute_2field_rhs` / `compute_4field_*` now return
-  `timings=None` by default (sync-free, jittable); passing
-  `with_diagnostics=True` restores the host-synced stage-timings and
-  phi-diagnostics payload the validation harnesses use.
+  in the shard-local full-EB driver (a one-time compile followed by no
+  per-stage Python dispatch). Local RHS calls are sync-free and jittable;
+  host-side timing and diagnostics remain in the driver.
 - **honored GMRES tolerance**: the phi solve now honors the requested
   `phi_inversion_tol` — it was previously hardcoded to `rtol=atol=1e-6`,
   silently over-solving every stage for models that asked for a looser
   tolerance. Solvers constructed with the default `tol=1e-6` are unchanged.
 
-Additionally, `build_perp_laplacian_mg_hierarchy` now LU-factorizes the
-coarsest-level dense operator once at build time
-(`jax.scipy.linalg.lu_factor`, coarse systems up to 512 cells), so each
-V-cycle does a triangular solve instead of relying on coarse smoothing
-sweeps (see [Solvers and Design Decisions](solvers_and_design.md)).
+Geometry-aware point-Jacobi and local `u`/`v` tridiagonal line
+preconditioners are available. Distributed multigrid is not part of the
+current sharded FCI path; see
+[Solvers and Design Decisions](solvers_and_design.md).
 
 ## JAX Ecosystem Usage
 

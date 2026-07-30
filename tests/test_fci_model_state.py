@@ -9,7 +9,7 @@ import pytest
 from drbx.geometry import HaloLayout3D
 from drbx.native.fci_boundaries import LocalBoundaryFaceBC3D
 from drbx.native.fci_2_field_rhs import Fci2FieldState
-from drbx.native.fci_4_field_rhs import Fci4FieldState
+from drbx.native.fci_4_field_state import Fci4FieldState
 from drbx.native.fci_drb_EB_rhs import FciDrbEBState
 from drbx.native.fci_model import (
     FciFieldBundle,

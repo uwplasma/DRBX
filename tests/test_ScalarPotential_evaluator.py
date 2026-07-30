@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 from pathlib import Path
 from typing import Any
 
@@ -367,6 +368,39 @@ def test_cartesian_value_and_gradient(analytic_fit):
         evaluator.evaluate_cartesian(cartesian),
         atol=0.0,
         rtol=0.0,
+    )
+
+
+def test_value_only_path_skips_derivative_basis(monkeypatch, analytic_fit):
+    _, evaluator = analytic_fit
+    scalar_module = importlib.import_module(
+        "drbx.geometry.ScalarPotential_evaluator"
+    )
+    original = scalar_module._chebyshev_derivative_vander
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("value-only evaluation constructed derivative basis")
+
+    monkeypatch.setattr(
+        scalar_module, "_chebyshev_derivative_vander", fail_if_called
+    )
+    points = _random_cylindrical(AnalyticPotentialField(), 20)
+    evaluator.evaluate_cylindrical(points)
+    monkeypatch.setattr(
+        scalar_module, "_chebyshev_derivative_vander", original
+    )
+
+
+def test_combined_cartesian_value_and_gradient_matches_separate_calls(analytic_fit):
+    field, evaluator = analytic_fit
+    cylindrical = _random_cylindrical(field, 40)
+    cartesian = _to_cartesian(cylindrical)
+    value, gradient = evaluator.evaluate_and_gradient_cartesian(cartesian)
+    np.testing.assert_allclose(
+        value, evaluator.evaluate_cartesian(cartesian), atol=2e-12, rtol=2e-12
+    )
+    np.testing.assert_allclose(
+        gradient, evaluator.gradient_cartesian(cartesian), atol=2e-12, rtol=2e-12
     )
 
 

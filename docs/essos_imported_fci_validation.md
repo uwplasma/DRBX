@@ -20,7 +20,7 @@ direct-coil open-field maps must pass their own endpoint and connection-length
 gates before a movie can be promoted; VMEC maps are closed-field controls; and
 hybrid maps are the current bridge that combines smooth VMEC map coordinates
 with coil-derived endpoint masks. The convenience workflow
-`examples/geometry-3D/essos-field-lines/direct_coil_open_sol.py` records
+The retained ESSOS field-line import examples record
 that gate order in one script. The live FCI stage now also feeds
 `direct_coil_source_profile_gate`, a machine-readable JSON check on the exact
 target-label, heat-load, neutral-source, radial-profile, and source-balance
@@ -198,13 +198,13 @@ The published FCI validation figures and arrays are restored by
 script follows the same top-level-parameter style as the SIMSOPT examples:
 edit `MAP_SOURCES_TO_RUN`, `DRY_RUN`, `WRITE_DRY_RUN_ARTIFACTS`, grid size, and
 optional external input paths at the top of
-`examples/geometry-3D/essos-field-lines/imported_fci_campaign.py`, then run the
+the retained geometry-import campaign, then run the
 file. Regenerating the import from the external coil geometry is a developer
 workflow and requires the geometry source checkout:
 
 ```bash
 PYTHONPATH=src .venv/bin/python \
-  examples/geometry-3D/essos-field-lines/imported_fci_campaign.py
+  tests/test_vmec_extender_import.py
 ```
 
 By default the script performs a safe dry run for `coil`. Set
@@ -262,7 +262,7 @@ The hybrid open-SOL promotion path has a single workflow ledger:
 
 ```bash
 PYTHONPATH=src .venv/bin/python \
-  examples/geometry-3D/essos-field-lines/hybrid_open_sol.py
+  tests/test_validation_vmec_extender_edge_field_campaign.py
 ```
 
 The default run is self-contained and writes a dry-run contract under

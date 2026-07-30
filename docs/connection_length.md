@@ -142,9 +142,8 @@ has three map-source semantics:
   the current bridge for open-field SOL closure tests on a smooth
   non-axisymmetric interpolation map.
 
-The imported validation campaign in
-[`src/drbx/validation/essos_imported_fci_campaign.py`](../src/drbx/validation/essos_imported_fci_campaign.py)
-checks the connection-length arrays before they are used for physics claims.
+The retained geometry-import tests check the connection-length arrays before
+they are used for physics claims.
 `build_essos_imported_fci_map_diagnostics(...)` verifies finite and
 nonnegative values, records radial means, and computes single-grid neighbor
 jump diagnostics. `build_essos_imported_connection_length_refinement_diagnostics(...)`

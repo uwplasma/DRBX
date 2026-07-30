@@ -59,12 +59,12 @@ scale it lets a fixed-step run reach a statistically steady saturated state.
 
 **Module:** [`native/fci_2_field_rhs.py`](../src/drbx/native/fci_2_field_rhs.py) —
 the smallest 3-D model on the flux-coordinate-independent (FCI) operator
-stack; also the model used by the multi-device `shard_map` lane.
+stack; its RHS is evaluated locally inside the multi-device `shard_map` lane.
 
 Evolved fields are the density \(n\) and the parallel velocity
 \(V_\parallel\), with the potential given by the Boltzmann-like closure
 \(\phi = \ln(n / n_0)\) against a stored background \(n_0\). As assembled in
-`compute_2field_rhs`:
+`compute_local_2field_rhs`:
 
 $$
 \begin{aligned}
@@ -89,16 +89,15 @@ field-aligned gradient \(b^i \partial_i\) (`grad_parallel_op_direct`).
   (`BoundaryFaceBC3D`, Dirichlet/Neumann masks per face) and optional
   cut-wall payloads; periodic axes default `(False, True, True)`; physical
   sides close with one-sided stencils.
-- **Gates:** `tests/test_mms_slab_2_field.py`,
-  `tests/test_mms_shifted_torus_2_field.py` (manufactured solutions),
+- **Gates:** `tests/test_mms_shifted_torus_2_field.py` (manufactured solutions),
   `tests/test_fci_sharded_2field.py` (sharded step bit-exact vs single
   device).
 
 ## FCI 4-field interchange model
 
-**Module:** [`native/fci_4_field_rhs.py`](../src/drbx/native/fci_4_field_rhs.py) —
-density, vorticity, and both parallel velocities, with the potential obtained
-by inverting the perpendicular Laplacian every RK4 stage.
+The former global four-field RHS (density, vorticity, and both parallel
+velocities) is retired and is not a supported model or analysis entry point.
+The supported seven-field path is the shard-local full-EB RHS described below.
 
 As assembled in `_assemble_4field_non_diffusive_rhs` (Poisson bracket +
 curvature + parallel coupling contributions):
@@ -126,7 +125,7 @@ $$
 -\nabla_\perp \cdot \left( \nabla_\perp \phi \right) = -\,\omega ,
 $$
 
-solved with the solvax GMRES `PerpLaplacianInverseSolver` (tolerance,
+solved with SOLVAX FGMRES through `LocalPerpLaplacianInverseSolver` (tolerance,
 iteration, and restart limits are model parameters:
 `phi_inversion_tol/maxiter/restart` in `Fci4FieldRhsParameters`). The
 free-decay and blob variants (`Fci4FieldFreeDecayParameters`,
@@ -142,28 +141,30 @@ free-decay and blob variants (`Fci4FieldFreeDecayParameters`,
   (homogeneous Neumann) closures in the shipped stellarator turbulence
   examples; on limiter-open geometry the Bohm sheath sink is applied on the
   target endpoint cells (see the open-SOL closure below).
-- **Gates:** `tests/test_mms_shifted_torus_4_field.py`,
-  `tests/test_shifted_torus_4_field_free_decay.py`,
-  `tests/test_shifted_torus_4_field_blob.py`,
-  `tests/test_stellarator_turbulence.py`,
-  `tests/test_multigrid_preconditioner.py` (phi-inversion preconditioning).
+- **Legacy global gates:** the former global shifted-torus four-field MMS,
+  free-decay, and blob tests are retired. Do not use them as validation or
+  analysis entry points.
 - Tutorial: [Stellarator FCI turbulence](tutorial_stellarator_fci.md).
 
 ## Electrostatic/electromagnetic drift-reduced Braginskii RHS
 
 **Modules:**
 [`native/fci_drb_EB_rhs.py`](../src/drbx/native/fci_drb_EB_rhs.py)
-(electrostatic Boussinesq scaffold with state
+(shard-local electrostatic Boussinesq model with state
 \(n, \phi, T_e, T_i, V_i, V_e, \omega\)) and
-[`native/fci_drb_rhs.py`](../src/drbx/native/fci_drb_rhs.py)
-(the compact combined differentiable RHS threading the sheath, neutral, and
-vorticity closures into one PyTree). The general drift-reduced Braginskii
+the local state/configuration types retained for model setup. The general
+drift-reduced Braginskii
 moment structure (continuity, parallel momentum, pressure with
 \(q_\parallel \approx -\kappa_\parallel \nabla_\parallel T\), and the
 polarization/vorticity closure) is documented with literature anchors in
-[Physics Models](physics_models.md). Gates:
-`tests/test_mms_shifted_torus_EB.py`, `tests/test_shifted_torus_EB_blob.py`,
-`tests/test_fci_differentiable.py`.
+[Physics Models](physics_models.md). The full-EB spatial and time-integration
+gate is `tests/test_mms_shifted_torus_EB_sharded.py`; the retained
+`FciGeometry3D` object is used only to stage host geometry before lowering to
+the shard-local representation. The supported reduced-model port is the
+sharded two-field gate `tests/test_fci_sharded_2field.py`, with its measured
+strong-scaling benchmark documented in
+`docs/performance_and_differentiability.md` and reproduced by
+`examples/benchmarks/fci_sharded_strong_scaling.py`.
 
 ## SOL flux tube with Bohm sheath boundaries
 
@@ -297,12 +298,9 @@ regime and the target ion flux **rolls over**.
   (3-D FCI coupling), `tests/test_detachment_control.py` (autodiff through
   the stiff solve). Page: [Neutrals and Recycling](neutrals_recycling.md).
 
-The compact 3-D neutral reaction-diffusion component used by the combined FCI
-RHS lives in [`native/fci_neutral.py`](../src/drbx/native/fci_neutral.py)
-(sources \(S_{\mathrm{iz}} = k_{\mathrm{iz}} n_n n_e \sqrt{T_e}\),
-\(S_{\mathrm{rec}} = k_{\mathrm{rec}} n_i n_e / \sqrt{T_e}\),
-\(S_{\mathrm{cx}} = k_{\mathrm{cx}} n_n n_i \sqrt{T_n + T_i}\) plus neutral
-diffusion), with conservation gated in `tests/test_fci_neutrals_3d.py`.
+The compact 3-D neutral reaction-diffusion lane is not part of the current
+sharded FCI runtime. Supported FCI experiments evolve the local plasma state
+and closures in the shard-local EB RHS.
 
 ## The linearized-DRB engine
 

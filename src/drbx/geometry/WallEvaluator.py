@@ -118,26 +118,31 @@ class WallEvaluator:
     @property
     def interpolation(self): return self._interpolation
 
-    def _values(self, phi, theta):
+    def _values(self, phi, theta, *, derivatives=True):
         ph, th = np.broadcast_arrays(np.asarray(phi, float), np.asarray(theta, float))
         x = np.mod(ph - self._phi[0], self._period) + self._phi[0]
         u = np.mod(th, 2*np.pi)
-        vals=[]; dth=[]; dph=[]
+        vals=[]
         for k in range(2):
             spline = self._interpolation[k]
             vals.append(spline.ev(x.ravel(), u.ravel()).reshape(u.shape))
+        if not derivatives:
+            return vals[0], vals[1]
+        dth=[]; dph=[]
+        for k in range(2):
+            spline = self._interpolation[k]
             dth.append(spline.ev(x.ravel(), u.ravel(), dx=0, dy=1).reshape(u.shape))
             dph.append(spline.ev(x.ravel(), u.ravel(), dx=1, dy=0).reshape(u.shape))
         return vals[0], vals[1], dth[0], dth[1], dph[0], dph[1]
 
     def evaluate(self, phi, theta, *, derivatives=False):
-        v = self._values(phi, theta)
+        v = self._values(phi, theta, derivatives=derivatives)
         return v if derivatives else (v[0], v[1])
 
     evaluate_rz = evaluate
 
     def cylindrical(self, phi, theta):
-        radius, height = self._values(phi, theta)[:2]
+        radius, height = self._values(phi, theta, derivatives=False)
         wrapped_phi, _ = np.broadcast_arrays(np.asarray(phi, float), np.asarray(theta, float))
         return np.stack((radius, wrapped_phi, height), axis=-1)
 
@@ -155,7 +160,7 @@ class WallEvaluator:
         return dtheta, dphi
 
     def cartesian(self, phi, theta):
-        radius, height = self._values(phi, theta)[:2]
+        radius, height = self._values(phi, theta, derivatives=False)
         query_phi, _ = np.broadcast_arrays(np.asarray(phi, float), np.asarray(theta, float))
         return np.stack(
             (radius * np.cos(query_phi), radius * np.sin(query_phi), height),
@@ -168,10 +173,11 @@ class WallEvaluator:
         """Return the periodic R/Z centerline, averaged over the wall contour."""
         ph = np.asarray(phi, float)
         theta = np.linspace(0.0, 2.0*np.pi, int(ntheta), endpoint=False)
-        r, z, _, _, dr, dz = self._values(ph[..., None], theta)
+        values = self._values(ph[..., None], theta, derivatives=derivatives)
+        r, z = values[:2]
         out = (np.mean(r, axis=-1), np.mean(z, axis=-1))
         if derivatives:
-            out += (np.mean(dr, axis=-1), np.mean(dz, axis=-1))
+            out += (np.mean(values[4], axis=-1), np.mean(values[5], axis=-1))
         return out
 
     def reference_axis(self, phi):

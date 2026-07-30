@@ -163,7 +163,7 @@ Common Python entry points:
 | `run_input_case` | [`src/drbx/native/deck_runner.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/native/deck_runner.py) | Run a TOML deck and return structured native output |
 | `load_run_config` | [`src/drbx/runtime/run_config.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/runtime/run_config.py) | Parse runtime configuration |
 | `write_run_outputs` and output helpers | [`src/drbx/runtime/output.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/runtime/output.py) | Write summary, arrays, restart, and run-log artifacts |
-| `compute_fci_drb_rhs` | [`src/drbx/native/fci_drb_rhs.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/native/fci_drb_rhs.py) | Evaluate compact 3D FCI DRB RHS terms |
+| `compute_local_2field_rhs` | [`src/drbx/native/fci_2_field_rhs.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/native/fci_2_field_rhs.py) | Evaluate the local two-field FCI RHS inside a shard kernel |
 | `build_*_campaign` functions | [`src/drbx/validation`](https://github.com/uwplasma/drbx/tree/main/src/drbx/validation) | Generate validation reports, figures, and publication artifacts |
 
 ## Output Artifacts
@@ -241,5 +241,5 @@ For implementation details, use:
 | CLI parsing and command dispatch | [`src/drbx/cli.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/cli.py) |
 | Runtime state and output writing | [`src/drbx/runtime`](https://github.com/uwplasma/drbx/tree/main/src/drbx/runtime) |
 | Native run orchestration | [`src/drbx/native/deck_runner.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/native/deck_runner.py) |
-| 3D FCI geometry and RHS terms | [`src/drbx/native/fci.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/native/fci.py), [`src/drbx/native/fci_drb_rhs.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/native/fci_drb_rhs.py) |
+| 3D FCI geometry and local RHS terms | [`src/drbx/geometry/fci_geometry.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/geometry/fci_geometry.py), [`src/drbx/native/fci_2_field_rhs.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/native/fci_2_field_rhs.py), [`src/drbx/native/fci_drb_EB_rhs.py`](https://github.com/uwplasma/drbx/blob/main/src/drbx/native/fci_drb_EB_rhs.py) |
 | Validation campaigns and plotting | [`src/drbx/validation`](https://github.com/uwplasma/drbx/tree/main/src/drbx/validation) |

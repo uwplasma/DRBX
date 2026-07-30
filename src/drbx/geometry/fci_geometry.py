@@ -1625,6 +1625,228 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
     def regular_face(self) -> LocalRegularFaceGeometry3D:
         return self.regular_face_geometry
 
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalCurvatureFaceCoefficients3D(_DataclassPyTreeMixin):
+    """Owned-face coefficients for a compatible conservative curvature flux.
+
+    ``x``, ``y``, and ``z`` store ``Q^alpha = J K^alpha`` on the corresponding
+    owned faces, where ``K = 0.5 curl(b/B)`` and the curl is formed from shared
+    edge values.  Consequently the matching incidence divergence of these
+    coefficients satisfies ``div_h(curl_h(A)) == 0`` to roundoff.
+    """
+
+    layout: HaloLayout3D
+    x: jnp.ndarray
+    y: jnp.ndarray
+    z: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("layout must be a HaloLayout3D instance")
+        for axis, name in enumerate(("x", "y", "z")):
+            value = _require_float_shape(
+                getattr(self, name),
+                self.layout.face_control_shape(axis),
+                f"LocalCurvatureFaceCoefficients3D.{name}",
+            )
+            object.__setattr__(self, name, value)
+
+    @property
+    def axes(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        return self.x, self.y, self.z
+
+
+def build_local_curvature_face_coefficients(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    b_floor: float = 1.0e-30,
+) -> LocalCurvatureFaceCoefficients3D:
+    """Precompute shared-face ``J K^alpha`` coefficients for conservative C.
+
+    The cell-halo covariant one-form ``A_alpha=(b/B)_alpha`` is averaged
+    symmetrically to each edge, then differentiated with the incidence curl.
+    At a true physical boundary, where cell geometry halos can be zero, the
+    affected edge values are replaced by tangential averages of the valid
+    boundary-face one-form.  Multiple physical faces meeting at a corner are
+    averaged symmetrically.  All Q faces are then differentiated from this
+    single patched edge set, so discrete div(curl) remains roundoff-small.
+    """
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "build_local_curvature_face_coefficients requires LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError(
+            "build_local_curvature_face_coefficients requires LocalDomain3D, "
+            f"got {type(domain).__name__}"
+        )
+    if geometry.layout != domain.layout:
+        raise ValueError("geometry and domain must share the same HaloLayout3D")
+    h = int(geometry.layout.halo_width)
+    if h < 1:
+        raise ValueError("local curvature face coefficients require at least one geometry halo cell")
+    b_floor = float(b_floor)
+    if b_floor <= 0.0:
+        raise ValueError(f"b_floor must be positive, got {b_floor}")
+
+    b = jnp.asarray(geometry.cell_bfield.B_contra_halo, dtype=jnp.float64)
+    bmag = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag_halo, dtype=jnp.float64), b_floor)
+    A = jnp.einsum(
+        "...ij,...j->...i",
+        jnp.asarray(geometry.cell_metric.g_cov, dtype=jnp.float64),
+        b / bmag[..., None],
+    ) / bmag[..., None]
+    Ax, Ay, Az = A[..., 0], A[..., 1], A[..., 2]
+
+    # Write the four terms explicitly: this keeps the edge indexing clear and
+    # avoids any stencil helper whose boundary convention could differ.
+    def _edge_average_xy(values: jnp.ndarray) -> jnp.ndarray:
+        p = jnp.pad(values, ((1, 1), (1, 1), (0, 0)), mode="edge")
+        return 0.25 * (p[:-1, :-1] + p[1:, :-1] + p[:-1, 1:] + p[1:, 1:])
+
+    def _edge_average_xz(values: jnp.ndarray) -> jnp.ndarray:
+        p = jnp.pad(values, ((1, 1), (0, 0), (1, 1)), mode="edge")
+        return 0.25 * (p[:-1, :, :-1] + p[1:, :, :-1] + p[:-1, :, 1:] + p[1:, :, 1:])
+
+    def _edge_average_yz(values: jnp.ndarray) -> jnp.ndarray:
+        p = jnp.pad(values, ((0, 0), (1, 1), (1, 1)), mode="edge")
+        return 0.25 * (p[:, :-1, :-1] + p[:, 1:, :-1] + p[:, :-1, 1:] + p[:, 1:, 1:])
+
+    Az_xy = _edge_average_xy(Az)
+    Ay_xz = _edge_average_xz(Ay)
+    Ax_yz = _edge_average_yz(Ax)
+
+    sx = geometry.grid.x.faces_owned[1:] - geometry.grid.x.faces_owned[:-1]
+    sy = geometry.grid.y.faces_owned[1:] - geometry.grid.y.faces_owned[:-1]
+    sz = geometry.grid.z.faces_owned[1:] - geometry.grid.z.faces_owned[:-1]
+    nx, ny, nz = geometry.layout.owned_shape
+    ix = slice(h, h + nx)
+    iy = slice(h, h + ny)
+    iz = slice(h, h + nz)
+    ix_face = slice(h, h + nx + 1)
+    iy_face = slice(h, h + ny + 1)
+    iz_face = slice(h, h + nz + 1)
+
+    def _face_covariant_one_form(metric: LocalMetricGeometry, bfield: LocalBFieldGeometry) -> jnp.ndarray:
+        face_b = jnp.asarray(bfield.B_contra_halo, dtype=jnp.float64)
+        face_bmag = jnp.maximum(jnp.asarray(bfield.Bmag_halo, dtype=jnp.float64), b_floor)
+        return jnp.einsum(
+            "...ij,...j->...i",
+            jnp.asarray(metric.g_cov, dtype=jnp.float64),
+            face_b / face_bmag[..., None],
+        ) / face_bmag[..., None]
+
+    face_Ax = _face_covariant_one_form(geometry.face_metric.x, geometry.face_bfield.x)
+    face_Ay = _face_covariant_one_form(geometry.face_metric.y, geometry.face_bfield.y)
+    face_Az = _face_covariant_one_form(geometry.face_metric.z, geometry.face_bfield.z)
+
+    def _average_one(values: jnp.ndarray, axis: int) -> jnp.ndarray:
+        pad = [(0, 0)] * values.ndim
+        pad[axis] = (1, 1)
+        padded = jnp.pad(values, pad, mode="edge")
+        first = [slice(None)] * values.ndim
+        second = [slice(None)] * values.ndim
+        first[axis] = slice(0, values.shape[axis] + 1)
+        second[axis] = slice(1, values.shape[axis] + 2)
+        return 0.5 * (padded[tuple(first)] + padded[tuple(second)])
+
+    def _patch_edges(
+        edge: jnp.ndarray,
+        edge_slices: tuple[slice, slice, slice],
+        candidates: tuple[tuple[bool | jnp.ndarray, int, int, jnp.ndarray], ...],
+    ) -> jnp.ndarray:
+        owned = edge[edge_slices]
+        numerator = jnp.zeros_like(owned)
+        weight = jnp.zeros(owned.shape, dtype=jnp.float64)
+        for active, axis, side, value in candidates:
+            location = [slice(None)] * 3
+            location[axis] = 0 if side == 0 else -1
+            location_mask = jnp.zeros(owned.shape, dtype=jnp.float64).at[tuple(location)].set(1.0)
+            value_full = jnp.zeros_like(owned).at[tuple(location)].set(
+                jnp.asarray(value, dtype=jnp.float64)
+            )
+            active_weight = jnp.asarray(active, dtype=jnp.float64)
+            numerator = numerator + active_weight * location_mask * value_full
+            weight = weight + active_weight * location_mask
+        patched = jnp.where(
+            weight > 0.0,
+            numerator / jnp.maximum(weight, 1.0),
+            owned,
+        )
+        return edge.at[edge_slices].set(patched)
+
+    # Use only owned tangential boundary-face data.  This is important because
+    # physical cell/face halos may intentionally be zero; shard-interface
+    # halos are never selected by these runtime physical-side masks.
+    x_lower = domain.runtime_has_physical_lower(0)
+    x_upper = domain.runtime_has_physical_upper(0)
+    y_lower = domain.runtime_has_physical_lower(1)
+    y_upper = domain.runtime_has_physical_upper(1)
+    z_lower = domain.runtime_has_physical_lower(2)
+    z_upper = domain.runtime_has_physical_upper(2)
+    x_boundary_planes = (
+        (x_lower, 0, face_Ax[h, iy, iz]),
+        (x_upper, 1, face_Ax[h + nx, iy, iz]),
+    )
+    y_boundary_planes = (
+        (y_lower, 0, face_Ay[ix, h, iz]),
+        (y_upper, 1, face_Ay[ix, h + ny, iz]),
+    )
+    z_boundary_planes = (
+        (z_lower, 0, face_Az[ix, iy, h]),
+        (z_upper, 1, face_Az[ix, iy, h + nz]),
+    )
+
+    Az_xy = _patch_edges(
+        Az_xy,
+        (ix_face, iy_face, iz),
+        tuple(
+            [(active, 0, side, _average_one(plane[..., 2], 0)) for active, side, plane in x_boundary_planes]
+            + [(active, 1, side, _average_one(plane[..., 2], 0)) for active, side, plane in y_boundary_planes]
+        ),
+    )
+    Ay_xz = _patch_edges(
+        Ay_xz,
+        (ix_face, iy, iz_face),
+        tuple(
+            [(active, 0, side, _average_one(plane[..., 1], 1)) for active, side, plane in x_boundary_planes]
+            + [(active, 2, side, _average_one(plane[..., 1], 0)) for active, side, plane in z_boundary_planes]
+        ),
+    )
+    Ax_yz = _patch_edges(
+        Ax_yz,
+        (ix, iy_face, iz_face),
+        tuple(
+            [(active, 1, side, _average_one(plane[..., 0], 1)) for active, side, plane in y_boundary_planes]
+            + [(active, 2, side, _average_one(plane[..., 0], 1)) for active, side, plane in z_boundary_planes]
+        ),
+    )
+
+    qx = 0.5 * (
+        (Az_xy[ix_face, slice(h + 1, h + ny + 1), iz]
+         - Az_xy[ix_face, slice(h, h + ny), iz]) / sy[None, :, None]
+        - (Ay_xz[ix_face, iy, slice(h + 1, h + nz + 1)]
+           - Ay_xz[ix_face, iy, slice(h, h + nz)]) / sz[None, None, :]
+    )
+    qy = 0.5 * (
+        (Ax_yz[ix, iy_face, slice(h + 1, h + nz + 1)]
+         - Ax_yz[ix, iy_face, slice(h, h + nz)]) / sz[None, None, :]
+        - (Az_xy[slice(h + 1, h + nx + 1), iy_face, iz]
+           - Az_xy[slice(h, h + nx), iy_face, iz]) / sx[:, None, None]
+    )
+    qz = 0.5 * (
+        (Ay_xz[slice(h + 1, h + nx + 1), iy, iz_face]
+         - Ay_xz[slice(h, h + nx), iy, iz_face]) / sx[:, None, None]
+        - (Ax_yz[ix, slice(h + 1, h + ny + 1), iz_face]
+           - Ax_yz[ix, slice(h, h + ny), iz_face]) / sy[None, :, None]
+    )
+    return LocalCurvatureFaceCoefficients3D(layout=geometry.layout, x=qx, y=qy, z=qz)
+
 NeighborIndex3D = tuple[int, int, int]
 OptionalNeighborIndex3D = NeighborIndex3D | None
 
