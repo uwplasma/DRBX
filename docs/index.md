@@ -48,7 +48,7 @@ then plotting):
 PYTHONPATH=src python examples/tokamak/drift_wave_turbulence.py
 PYTHONPATH=src python examples/sol/open_sol_flux_tube.py
 PYTHONPATH=src python examples/benchmarks/b6_detachment_rollover.py
-PYTHONPATH=src python examples/stellarator/stellarator_turbulence.py
+See [Examples](examples.md) for the current local/sharded FCI validation commands.
 ```
 
 Or start with the narrative walkthroughs in the **Tutorials** section:

@@ -1,11 +1,15 @@
+"""Shard-compatible DRBX adapter for SOLVAX FGMRES."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Callable
 
 import jax
 import jax.numpy as jnp
 from jax import lax
+from solvax.krylov import gmres as solvax_gmres
 
 from ..geometry import (
     LocalDomain3D,
@@ -22,8 +26,8 @@ def _as_bool(value: object) -> bool:
 
 @_pytree_base
 @dataclass(frozen=True)
-class SpmdGmresConfig:
-    """Static configuration for native SPMD GMRES.
+class SolvaxGmresConfig:
+    """Static configuration for shard-compatible SOLVAX FGMRES.
 
     The config is a PyTree with static auxiliary data so ``restart`` and
     ``maxiter`` can be used for fixed-size allocations inside ``shard_map`` and
@@ -34,33 +38,40 @@ class SpmdGmresConfig:
     atol: float = 1.0e-6
     maxiter: int = 50
     restart: int = 50
-    stagnation_iters: int = 20
     acceptance_tol: float | None = None
     acceptance_atol: float | None = None
     project_mean_zero: bool = False
     regularization_epsilon: float = 0.0
-    check_finite: bool = True
+    preconditioner: str = "none"
 
     def __post_init__(self) -> None:
         if int(self.maxiter) <= 0:
-            raise ValueError("SpmdGmresConfig.maxiter must be positive")
+            raise ValueError("SolvaxGmresConfig.maxiter must be positive")
         if int(self.restart) <= 0:
-            raise ValueError("SpmdGmresConfig.restart must be positive")
-        if int(self.stagnation_iters) < 0:
-            raise ValueError("SpmdGmresConfig.stagnation_iters must be non-negative")
+            raise ValueError("SolvaxGmresConfig.restart must be positive")
         if float(self.tol) < 0.0 or float(self.atol) < 0.0:
-            raise ValueError("SpmdGmresConfig tolerances must be non-negative")
+            raise ValueError("SolvaxGmresConfig tolerances must be non-negative")
         acceptance_tol = self.tol if self.acceptance_tol is None else self.acceptance_tol
         acceptance_atol = self.atol if self.acceptance_atol is None else self.acceptance_atol
         if float(acceptance_tol) < 0.0 or float(acceptance_atol) < 0.0:
-            raise ValueError("SpmdGmresConfig acceptance tolerances must be non-negative")
+            raise ValueError("SolvaxGmresConfig acceptance tolerances must be non-negative")
         if float(self.regularization_epsilon) < 0.0:
-            raise ValueError("SpmdGmresConfig.regularization_epsilon must be non-negative")
+            raise ValueError("SolvaxGmresConfig.regularization_epsilon must be non-negative")
+        if self.preconditioner not in (
+            "none",
+            "jacobi",
+            "line-u",
+            "line-v",
+            "line-uv",
+        ):
+            raise ValueError(
+                "SolvaxGmresConfig.preconditioner must be one of "
+                "'none', 'jacobi', 'line-u', 'line-v', or 'line-uv'"
+            )
         object.__setattr__(self, "tol", float(self.tol))
         object.__setattr__(self, "atol", float(self.atol))
         object.__setattr__(self, "maxiter", int(self.maxiter))
         object.__setattr__(self, "restart", int(self.restart))
-        object.__setattr__(self, "stagnation_iters", int(self.stagnation_iters))
         object.__setattr__(self, "acceptance_tol", float(acceptance_tol))
         object.__setattr__(self, "acceptance_atol", float(acceptance_atol))
         object.__setattr__(self, "project_mean_zero", _as_bool(self.project_mean_zero))
@@ -69,7 +80,7 @@ class SpmdGmresConfig:
             "regularization_epsilon",
             float(self.regularization_epsilon),
         )
-        object.__setattr__(self, "check_finite", _as_bool(self.check_finite))
+        object.__setattr__(self, "preconditioner", str(self.preconditioner))
 
     def tree_flatten(self):
         return (), (
@@ -77,12 +88,11 @@ class SpmdGmresConfig:
             self.atol,
             self.maxiter,
             self.restart,
-            self.stagnation_iters,
             self.acceptance_tol,
             self.acceptance_atol,
             self.project_mean_zero,
             self.regularization_epsilon,
-            self.check_finite,
+            self.preconditioner,
         )
 
     @classmethod
@@ -93,31 +103,29 @@ class SpmdGmresConfig:
             atol,
             maxiter,
             restart,
-            stagnation_iters,
             acceptance_tol,
             acceptance_atol,
             project_mean_zero,
             regularization_epsilon,
-            check_finite,
+            preconditioner,
         ) = aux_data
         return cls(
             tol=tol,
             atol=atol,
             maxiter=maxiter,
             restart=restart,
-            stagnation_iters=stagnation_iters,
             acceptance_tol=acceptance_tol,
             acceptance_atol=acceptance_atol,
             project_mean_zero=project_mean_zero,
             regularization_epsilon=regularization_epsilon,
-            check_finite=check_finite,
+            preconditioner=preconditioner,
         )
 
 
 @_pytree_base
 @dataclass(frozen=True)
-class SpmdGmresInfo:
-    """Array-valued diagnostics returned by native SPMD GMRES."""
+class SolvaxGmresInfo:
+    """Array-valued diagnostics returned by shard-compatible SOLVAX FGMRES."""
 
     num_steps: jnp.ndarray
     converged: jnp.ndarray
@@ -311,35 +319,22 @@ def _spmd_all_finite(
     )
 
 
-def _gmres_least_squares_solution(
-    H: jnp.ndarray,
-    beta: jnp.ndarray,
-    step_index: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Solve the small replicated least-squares problem for one GMRES step."""
-
-    restart = int(H.shape[1])
-    rows = jnp.arange(restart + 1)
-    cols = jnp.arange(restart)
-    active_rows = rows <= (step_index + 1)
-    active_cols = cols <= step_index
-    H_active = jnp.where(active_rows[:, None] & active_cols[None, :], H, 0.0)
-    target = jnp.zeros((restart + 1,), dtype=H.dtype).at[0].set(beta)
-    y = jnp.linalg.lstsq(H_active, target, rcond=None)[0]
-    residual = jnp.linalg.norm(target - H_active @ y)
-    return y, residual
-
-
-def spmd_gmres_solve(
+def solvax_gmres_solve(
     apply_A: Callable[[jnp.ndarray], jnp.ndarray],
     rhs_owned: jnp.ndarray,
     guess_owned: jnp.ndarray,
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
-    config: SpmdGmresConfig = SpmdGmresConfig(),
+    config: SolvaxGmresConfig = SolvaxGmresConfig(),
     active_cell_mask: jnp.ndarray | None = None,
-) -> tuple[jnp.ndarray, SpmdGmresInfo]:
-    """Solve ``A x = rhs`` with restarted GMRES inside an SPMD transform."""
+    preconditioner: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+) -> tuple[jnp.ndarray, SolvaxGmresInfo]:
+    """Solve ``A x = rhs`` with SOLVAX FGMRES inside an SPMD transform.
+
+    SOLVAX's default inner product is local to one shard.  The custom inner
+    product below retains DRBX's global owned-cell norm by reducing every
+    Arnoldi product over the configured ``shard_map`` mesh axes.
+    """
 
     if not isinstance(geometry, LocalFciGeometry3D):
         raise TypeError("geometry must be a LocalFciGeometry3D instance")
@@ -347,8 +342,8 @@ def spmd_gmres_solve(
         raise TypeError("domain must be a LocalDomain3D instance")
     if domain.layout != geometry.layout:
         raise ValueError("domain and geometry must share the same HaloLayout3D")
-    if not isinstance(config, SpmdGmresConfig):
-        raise TypeError("config must be a SpmdGmresConfig instance")
+    if not isinstance(config, SolvaxGmresConfig):
+        raise TypeError("config must be a SolvaxGmresConfig instance")
 
     rhs = jnp.asarray(rhs_owned, dtype=jnp.float64)
     guess = jnp.asarray(guess_owned, dtype=jnp.float64)
@@ -377,10 +372,13 @@ def spmd_gmres_solve(
     projected_rhs_mean = _spmd_weighted_mean(rhs, geometry, domain, active_mask)
     projected_rhs_l2 = _spmd_weighted_l2(rhs, geometry, domain, active_mask)
 
-    restart = int(config.restart)
     maxiter = int(config.maxiter)
-    stagnation_iters = int(config.stagnation_iters)
-    shape = geometry.owned_shape
+    requested_restart = min(int(config.restart), maxiter)
+    # SOLVAX limits work by complete restart cycles.  Use the requested cycle
+    # size when it divides maxiter; otherwise reduce it to the largest exact
+    # common cycle size so the configured maximum iteration count is honored.
+    restart = math.gcd(requested_restart, maxiter)
+    max_restarts = maxiter // restart
     dtype = rhs.dtype
 
     rhs_l2 = _spmd_norm(rhs, geometry, domain, active_mask)
@@ -393,220 +391,70 @@ def spmd_gmres_solve(
         jnp.asarray(config.acceptance_tol, dtype=dtype) * rhs_l2,
     )
 
-    x0 = guess
-    r0 = _mask_inactive_owned(rhs - masked_apply_A(x0), active_mask)
-    beta0 = _spmd_norm(r0, geometry, domain, active_mask)
-    initial_residual = beta0
-    initial_converged = beta0 <= threshold
-    initial_failed = (
-        (~jnp.isfinite(beta0))
-        | (~rhs_is_finite)
-        | (~guess_is_finite)
+    initial_residual = _spmd_norm(
+        rhs - masked_apply_A(guess),
+        geometry,
+        domain,
+        active_mask,
     )
-    initial_failed = jnp.where(config.check_finite, initial_failed, False)
 
-    def _outer_cond(carry):
-        (
-            _x,
-            _residual,
-            steps,
-            converged,
-            failed,
-            _stale_count,
-        ) = carry
-        return (steps < maxiter) & (~converged) & (~failed)
-
-    def _outer_body(carry):
-        (
-            x_base,
-            residual,
-            steps,
-            converged,
-            failed,
-            stale_count,
-        ) = carry
-
-        r = _mask_inactive_owned(rhs - masked_apply_A(x_base), active_mask)
-        beta = _spmd_norm(r, geometry, domain, active_mask)
-        safe_beta = jnp.maximum(beta, 1.0e-30)
-        v0 = jnp.where(beta > 0.0, r / safe_beta, jnp.zeros_like(r))
-        V = jnp.zeros((restart + 1,) + shape, dtype=dtype)
-        V = V.at[0].set(v0)
-        H = jnp.zeros((restart + 1, restart), dtype=dtype)
-        x_current = x_base
-        residual_current = beta
-        converged_current = converged | (beta <= threshold)
-        failed_current = failed | (~jnp.isfinite(beta))
-        remaining = maxiter - steps
-        inner_limit = jnp.minimum(restart, remaining)
-
-        def _inner_cond(inner_carry):
-            (
-                _V,
-                _H,
-                _x_current,
-                _residual_current,
-                converged_current,
-                failed_current,
-                _stale_count,
-                steps_done,
-                j,
-            ) = inner_carry
-            return (
-                (j < restart)
-                & (steps_done < inner_limit)
-                & (~converged_current)
-                & (~failed_current)
-            )
-
-        def _inner_body(inner_carry):
-            (
-                V,
-                H,
-                x_current,
-                residual_current,
-                converged_current,
-                failed_current,
-                stale_count,
-                steps_done,
-                j,
-            ) = inner_carry
-
-            vj = V[j]
-            w0 = masked_apply_A(vj)
-
-            def _orthogonalize(i, orth_carry):
-                w, H = orth_carry
-                vi = V[i]
-                hij_raw = _spmd_dot(w, vi, geometry, domain, active_mask)
-                hij = jnp.where(i <= j, hij_raw, 0.0)
-                w = _mask_inactive_owned(w - hij * vi, active_mask)
-                H = H.at[i, j].set(hij)
-                return w, H
-
-            w, H = lax.fori_loop(0, restart, _orthogonalize, (w0, H))
-            h_next_raw = _spmd_norm(w, geometry, domain, active_mask)
-            H = H.at[j + 1, j].set(h_next_raw)
-            v_next = jnp.where(
-                h_next_raw > 1.0e-30,
-                w / jnp.maximum(h_next_raw, 1.0e-30),
-                jnp.zeros_like(w),
-            )
-            V = V.at[j + 1].set(v_next)
-
-            y, residual_estimate = _gmres_least_squares_solution(H, beta, j)
-            candidate = _mask_inactive_owned(
-                x_base + jnp.tensordot(y, V[:-1], axes=((0,), (0,))),
-                active_mask,
-            )
-            residual_next = residual_estimate
-            improved = residual_next < residual_current * (1.0 - 1.0e-12)
-            stale_next = jnp.where(improved, 0, stale_count + 1)
-            converged_next = converged_current | (residual_next <= threshold)
-            stagnated = (
-                (stagnation_iters > 0)
-                & (stale_next >= stagnation_iters)
-                & (residual_next > acceptance_threshold)
-            )
-            finite_ok = jnp.isfinite(residual_next) & _spmd_all_finite(
-                candidate,
-                domain,
-                active_mask,
-            )
-            finite_failed = failed_current | (~finite_ok)
-            finite_failed = jnp.where(config.check_finite, finite_failed, failed_current)
-            failed_next = finite_failed | stagnated
-            return (
-                V,
-                H,
-                candidate,
-                residual_next,
-                converged_next,
-                failed_next,
-                stale_next,
-                steps_done + jnp.asarray(1, dtype=jnp.int32),
-                j + jnp.asarray(1, dtype=jnp.int32),
-            )
-
-        (
-            _V,
-            _H,
-            x_current,
-            residual_current,
-            converged_current,
-            failed_current,
-            stale_count,
-            steps_done,
-            _j,
-        ) = lax.while_loop(
-            _inner_cond,
-            _inner_body,
-            (
-                V,
-                H,
-                x_current,
-                residual_current,
-                converged_current,
-                failed_current,
-                stale_count,
-                jnp.asarray(0, dtype=jnp.int32),
-                jnp.asarray(0, dtype=jnp.int32),
-            ),
-        )
-
-        true_residual = _spmd_norm(
-            rhs - masked_apply_A(x_current),
+    def global_inner_product(
+        left: jnp.ndarray,
+        right: jnp.ndarray,
+    ) -> jnp.ndarray:
+        return _spmd_dot(
+            left,
+            right,
             geometry,
             domain,
             active_mask,
         )
-        converged_current = true_residual <= threshold
-        finite_failed = failed_current | (~jnp.isfinite(true_residual))
-        failed_current = jnp.where(config.check_finite, finite_failed, failed_current)
-        return (
-            x_current,
-            true_residual,
-            steps + steps_done,
-            converged_current,
-            failed_current,
-            stale_count,
-        )
 
-    (
-        phi,
-        final_residual,
-        num_steps,
-        converged,
-        failed,
-        _stale_count,
-    ) = lax.while_loop(
-        _outer_cond,
-        _outer_body,
-        (
-            x0,
-            beta0,
-            jnp.asarray(0, dtype=jnp.int32),
-            initial_converged,
-            initial_failed,
-            jnp.asarray(0, dtype=jnp.int32),
-        ),
+    effective_preconditioner = preconditioner
+    if effective_preconditioner is not None:
+        user_preconditioner = effective_preconditioner
+
+        def effective_preconditioner(values: jnp.ndarray) -> jnp.ndarray:
+            return _mask_inactive_owned(
+                user_preconditioner(_mask_inactive_owned(values, active_mask)),
+                active_mask,
+            )
+
+    result = solvax_gmres(
+        masked_apply_A,
+        rhs,
+        x0=guess,
+        precond=effective_preconditioner,
+        inner_product=global_inner_product,
+        restart=restart,
+        rtol=float(config.tol),
+        atol=float(config.atol),
+        max_restarts=max_restarts,
     )
-
+    phi = _mask_inactive_owned(result.x, active_mask)
     if config.project_mean_zero:
         phi = _spmd_remove_weighted_mean(phi, geometry, domain, active_mask)
-        final_residual = _spmd_norm(
-            rhs - masked_apply_A(phi),
-            geometry,
-            domain,
-            active_mask,
-        )
-    phi = _mask_inactive_owned(phi, active_mask)
+    final_residual = _spmd_norm(
+        rhs - masked_apply_A(phi),
+        geometry,
+        domain,
+        active_mask,
+    )
     phi_is_finite = _spmd_all_finite(phi, domain, active_mask)
-    accepted = converged | (final_residual <= acceptance_threshold)
-    failed = failed | (~accepted)
-    failed = failed | jnp.where(config.check_finite, ~phi_is_finite, False)
-    info = SpmdGmresInfo(
-        num_steps=num_steps,
+    finite_failed = (
+        (~jnp.isfinite(initial_residual))
+        | (~jnp.isfinite(final_residual))
+        | (~rhs_is_finite)
+        | (~guess_is_finite)
+        | (~phi_is_finite)
+    )
+    strict_converged = (~finite_failed) & (final_residual <= threshold)
+    accepted = (~finite_failed) & (
+        strict_converged | (final_residual <= acceptance_threshold)
+    )
+    failed = ~accepted
+    info = SolvaxGmresInfo(
+        num_steps=jnp.asarray(result.iterations, dtype=jnp.int32),
         converged=accepted,
         failed=failed,
         initial_residual_l2=initial_residual,
@@ -622,8 +470,8 @@ def spmd_gmres_solve(
     return phi, info
 
 __all__ = [
-    "SpmdGmresConfig",
-    "SpmdGmresInfo",
+    "SolvaxGmresConfig",
+    "SolvaxGmresInfo",
     "_local_cell_volume_weights",
     "_mesh_axis_names",
     "_spmd_dot",
@@ -631,5 +479,5 @@ __all__ = [
     "_spmd_remove_weighted_mean",
     "_spmd_sum",
     "_spmd_weighted_mean",
-    "spmd_gmres_solve",
+    "solvax_gmres_solve",
 ]

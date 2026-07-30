@@ -25,9 +25,13 @@ if str(_REPO_ROOT) not in sys.path:
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
-from analyze_EB_density import _load_eb_blob_step_history, _resolve_step_dump_dir  # noqa: E402
-from test_mms_shifted_torus_4_field import alpha_value as _ALPHA_VALUE, r0 as _R0, sigma as _SIGMA  # noqa: E402
-from test_shifted_torus_EB_blob import _build_eb_blob_geometry, _eb_blob_artifact_stem, _load_eb_blob_history  # noqa: E402
+from eb_blob_analysis_helpers import _load_eb_blob_step_history, _resolve_step_dump_dir  # noqa: E402
+from shifted_torus_4field_mms_helpers import (  # noqa: E402
+    alpha_value as _ALPHA_VALUE,
+    r0 as _R0,
+    sigma as _SIGMA,
+)
+from eb_blob_analysis_helpers import _build_eb_blob_geometry, _eb_blob_artifact_stem, _load_eb_blob_history  # noqa: E402
 
 
 DEFAULT_FRAME_STRIDE = 4

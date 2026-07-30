@@ -22,7 +22,7 @@ from drbx.geometry import (
     build_local_conservative_stencil_from_field,
     build_local_stencil_from_field,
 )
-from drbx.native import Fci4FieldRhsParameters, Fci4FieldState, SpmdGmresConfig
+from drbx.native import Fci4FieldRhsParameters, Fci4FieldState, SolvaxGmresConfig
 from drbx.native.fci_boundaries import (
     LocalBoundaryFaceBC3D,
     LocalCellGradient3D,
@@ -95,7 +95,7 @@ class LocalShiftedTorus4FieldCutWallRhs:
     parameters: Fci4FieldRhsParameters
     curvature_coefficients_owned: jnp.ndarray
     face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
-    gmres_config: SpmdGmresConfig
+    gmres_config: SolvaxGmresConfig
     global_shape: tuple[int, int, int]
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D
 
@@ -501,13 +501,12 @@ def _make_parameters(rho_star_value: float) -> Fci4FieldRhsParameters:
     )
 
 
-def _make_gmres_config(parameters: Fci4FieldRhsParameters) -> SpmdGmresConfig:
-    return SpmdGmresConfig(
+def _make_gmres_config(parameters: Fci4FieldRhsParameters) -> SolvaxGmresConfig:
+    return SolvaxGmresConfig(
         tol=float(parameters.phi_inversion_tol),
         atol=float(parameters.phi_inversion_tol),
         maxiter=int(parameters.phi_inversion_maxiter),
         restart=int(parameters.phi_inversion_restart),
-        stagnation_iters=0,
         acceptance_tol=float(parameters.phi_inversion_tol),
         acceptance_atol=float(parameters.phi_inversion_tol),
         regularization_epsilon=float(parameters.phi_inversion_regularization),

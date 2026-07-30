@@ -26,14 +26,15 @@ Documentation: [drbx.readthedocs.io](https://drbx.readthedocs.io/en/latest/).
 
 ## Stellarator turbulence in three dimensions
 
-Four-field drift-reduced turbulence on a rotating-ellipse stellarator — a torus
+Shard-local full-EB drift-reduced turbulence on a rotating-ellipse stellarator — a torus
 whose elliptical cross-section rotates with the toroidal angle. The cutaway
 shows the density fluctuations on a flux surface and through the interior;
 every frame is a `jit`-compiled, differentiable JAX step:
 
 ![Stellarator turbulence in 3D](docs/media/stellarator_3d_turbulence.gif)
 
-*Reproduce with [`examples/stellarator/stellarator_3d_render.py`](examples/stellarator/stellarator_3d_render.py).*
+The rendered figure is retained as historical media; current runs use the
+sharded FCI drivers documented in [Stellarator examples](docs/stellarator_examples.md).
 
 The same geometry supports closed and open field lines: core field lines (blue)
 stay on flux surfaces, while beyond a toroidal limiter the scrape-off-layer
@@ -42,7 +43,8 @@ plasma:
 
 ![Closed and open field lines in 3D](docs/media/stellarator_3d_field_lines.png)
 
-*Reproduce with [`examples/stellarator/stellarator_3d_render.py`](examples/stellarator/stellarator_3d_render.py).*
+The rendered figure is retained as historical media; the former renderer is
+not a current reproduction command.
 
 ## Install
 
@@ -93,7 +95,8 @@ because the flux surfaces rotate:
 
 ![Stellarator SOL turbulence, open](docs/media/stellarator_turbulence_open.gif)
 
-*Reproduce with [`examples/stellarator/stellarator_turbulence.py`](examples/stellarator/stellarator_turbulence.py).*
+These historical renders are retained as media; the current stellarator
+runtime is the local-operator, multi-device `shard_map` path described below.
 
 **Island divertor.** A sheared rotational transform with resonant perturbations
 forms island chains and a stochastic edge. The open scrape-off layer emerges
@@ -102,7 +105,8 @@ connection-length region, and the turbulence drains through it:
 
 ![Island divertor](docs/media/island_divertor.png)
 
-*Reproduce with [`examples/stellarator/island_divertor.py`](examples/stellarator/island_divertor.py).*
+The image is retained as historical media; the deleted island-divertor driver
+is not part of the current reproduction surface.
 
 **Imported fields: real coils and VMEC equilibria.** The same closed/open
 field-line machinery runs on imported fields: the vacuum Biot-Savart field of
@@ -119,7 +123,8 @@ in the island-divertor sense:
 
 *Reproduce with [`examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py`](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) (left) and [`examples/geometry-3D/vmex/closed_open_field_lines.py`](examples/geometry-3D/vmex/closed_open_field_lines.py) (right).*
 
-And the turbulence runs on that same imported field: a four-field interchange
+And the turbulence runs on that same imported field: a shard-local full-EB
+interchange
 simulation on the Landreman-Paul VMEC equilibrium (real metric, `|B|`, and
 surface-preserving parallel maps; recovered iota ~ 0.42) with a limiter opening
 a scrape-off layer outside the last closed surface — the closed core is
@@ -127,7 +132,8 @@ retained while the open SOL drains through the Bohm sheath:
 
 ![Landreman-Paul turbulence, closed core and open SOL](docs/media/landreman_paul_turbulence.png)
 
-*Reproduce with [`examples/stellarator/landreman_paul_turbulence.py`](examples/stellarator/landreman_paul_turbulence.py).*
+The imported-equilibrium image is retained as historical media; the former
+turbulence driver is not a current reproduction command.
 
 **Neutrals and detachment.** The open SOL flux tube reaches the two-point Bohm
 steady state; the hermes-3 neutral model (packaged AMJUEL atomic rates, target
@@ -280,7 +286,7 @@ Flagship simulations, by geometry:
 | | Turbulence flagship | Geometry |
 |---|---|---|
 | **Tokamak** | [drift-wave turbulence](examples/tokamak/drift_wave_turbulence.py) (Hasegawa-Wakatani; linear phase B2-verified, differentiable) + [inverse design](examples/tokamak/drift_wave_inverse_design.py) | periodic flux tube |
-| **Stellarator** | [turbulence on closed + open field lines](examples/stellarator/stellarator_turbulence.py) (four-field, limiter SOL, movies) + [Landreman-Paul turbulence](examples/stellarator/landreman_paul_turbulence.py) (four-field on the imported LP VMEC equilibrium, closed core + sheath-drained SOL) + [3D renders](examples/stellarator/stellarator_3d_render.py) (cutaway turbulence movie, field-line topology) + [island divertor](examples/stellarator/island_divertor.py) (B8: Poincare, connection lengths, emergent open SOL) + [rotating-ellipse FCI](examples/stellarator/rotating_ellipse_fci.py) (parallel-operator convergence) + [seeded filament](examples/stellarator/rotating_ellipse_filament.py) + [differentiable FCI drift-reduced model](examples/stellarator/fci_differentiable.py) | rotating ellipse (closed core + limiter SOL) + shifted-torus helical + imported [ESSOS/VMEC](examples/geometry-3D/) |
+| **Stellarator** | shifted-torus and imported-equilibrium geometry diagnostics; local/sharded FCI MMS and two-field examples | shifted-torus helical + imported [ESSOS/VMEC](examples/geometry-3D/) |
 | **Coils (vacuum)** | [Landreman-Paul closed + open field lines](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) (ESSOS Biot-Savart, Poincare classification) | imported coil field |
 | **VMEC equilibria** | [closed field lines from a wout file](examples/geometry-3D/vmex/closed_field_lines.py) (VMEX import; traced rotational transform matches the equilibrium `iotaf` profile to ~1e-6) + [closed + open field lines](examples/geometry-3D/vmex/closed_open_field_lines.py) (coil field with the VMEC last closed flux surface overlaid) | imported VMEC equilibrium (Landreman-Paul precise QA) |
 | **SOL (open)** | [open SOL flux tube](examples/sol/open_sol_flux_tube.py) (parallel transport to Bohm-sheath targets; two-point steady state) + [recycling SOL](examples/sol/recycling_sol.py) (neutrals, ionization/recombination, detachment onset) | open slab flux tube |
@@ -318,7 +324,7 @@ stays small.
 ## Geometry and parallelization
 
 The FCI operator and domain-decomposition stack (`FciGeometry3D`,
-`fci_operators`, halo exchange) was contributed by **Aiken Xie** in
+the local FCI operators and halo exchange) was contributed by **Aiken Xie** in
 [PR #3](https://github.com/uwplasma/drbx/pull/3) and is incorporated here.
 Built on it, the drift-reduced two-field step runs across multiple devices with
 `shard_map`: the domain is decomposed into halo-exchanged shards and the sharded

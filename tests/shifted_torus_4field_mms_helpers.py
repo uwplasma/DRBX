@@ -25,7 +25,7 @@ class _HelperBundle:
 
 
 def Fci4FieldState(*args, **kwargs):
-    from drbx.native.fci_4_field_rhs import Fci4FieldState as _Fci4FieldState
+    from drbx.native.fci_4_field_state import Fci4FieldState as _Fci4FieldState
 
     return _Fci4FieldState(*args, **kwargs)
 
@@ -431,35 +431,6 @@ def _shifted_torus_phi_t(geometry: FciGeometry3D, time: float) -> jnp.ndarray:
     return -float(A_phi) * float(Omega) * f_phi * jnp.cos(float(M_phi) * theta_shift) * jnp.sin(float(N_phi) * zeta) * st
 
 
-def _dirichlet_x_boundary_face_bc_from_values(
-    lower_value: jnp.ndarray,
-    upper_value: jnp.ndarray,
-    geometry: FciGeometry3D,
-) -> BoundaryFaceBC3D:
-    from drbx.geometry.fci_geometry import RegularFaceGeometry3D
-    from drbx.native.fci_boundaries import BC_DIRICHLET, BoundaryFaceBC3D
-
-    regular_face_geometry = RegularFaceGeometry3D.unit(geometry)
-    lower = jnp.asarray(lower_value, dtype=jnp.float64)
-    upper = jnp.asarray(upper_value, dtype=jnp.float64)
-    return BoundaryFaceBC3D(
-        kind_x=jnp.zeros_like(regular_face_geometry.x_area, dtype=jnp.int32).at[0].set(BC_DIRICHLET).at[-1].set(BC_DIRICHLET),
-        kind_y=jnp.zeros_like(regular_face_geometry.y_area, dtype=jnp.int32),
-        kind_z=jnp.zeros_like(regular_face_geometry.z_area, dtype=jnp.int32),
-        value_x=jnp.zeros_like(regular_face_geometry.x_area, dtype=jnp.float64).at[0].set(lower).at[-1].set(upper),
-        value_y=jnp.zeros_like(regular_face_geometry.y_area, dtype=jnp.float64),
-        value_z=jnp.zeros_like(regular_face_geometry.z_area, dtype=jnp.float64),
-        mask_x=jnp.zeros_like(regular_face_geometry.x_open_mask, dtype=bool).at[0].set(True).at[-1].set(True),
-        mask_y=jnp.zeros_like(regular_face_geometry.y_open_mask, dtype=bool),
-        mask_z=jnp.zeros_like(regular_face_geometry.z_open_mask, dtype=bool),
-    )
-
-
-def _dirichlet_x_boundary_face_bc(field: jnp.ndarray, geometry: FciGeometry3D) -> BoundaryFaceBC3D:
-    values = jnp.asarray(field, dtype=jnp.float64)
-    return _dirichlet_x_boundary_face_bc_from_values(values[0], values[-1], geometry)
-
-
 def _shifted_torus_density(geometry: FciGeometry3D, time: float) -> jnp.ndarray:
     x, theta_shift, _, zeta = _shifted_torus_coordinates(geometry)
     _, f_n, _, _ = _shifted_torus_envelopes(geometry)
@@ -554,94 +525,6 @@ def _shifted_torus_omega_and_derivatives(geometry: FciGeometry3D, time: float) -
         grads[1].reshape(geometry.shape),
         grads[2].reshape(geometry.shape),
         grads[3].reshape(geometry.shape),
-    )
-
-
-def _shifted_torus_x_face_coordinates(geometry: FciGeometry3D) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    from drbx.geometry.fci_geometry import logical_grid_from_axis_vectors
-
-    logical_grid = logical_grid_from_axis_vectors(
-        jnp.asarray([geometry.grid.x.faces[0], geometry.grid.x.faces[-1]], dtype=jnp.float64),
-        geometry.grid.y.centers,
-        geometry.grid.z.centers,
-    )
-    x = jnp.asarray(logical_grid[..., 0], dtype=jnp.float64)
-    theta = jnp.asarray(logical_grid[..., 1], dtype=jnp.float64)
-    zeta = jnp.asarray(logical_grid[..., 2], dtype=jnp.float64)
-    x_mid = 0.5 * (float(x_min) + float(x_max))
-    theta_shift = theta + float(sigma) * (x - x_mid)
-    return x, theta_shift, theta, zeta
-
-
-def _split_lower_upper_face_values(values: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-    face_values = jnp.asarray(values, dtype=jnp.float64)
-    return face_values[0], face_values[-1]
-
-
-def _shifted_torus_phi_x_face_values(geometry: FciGeometry3D, time: float) -> tuple[jnp.ndarray, jnp.ndarray]:
-    x, theta_shift, _, zeta = _shifted_torus_x_face_coordinates(geometry)
-    xi = x - float(x_min)
-    kx = jnp.pi / (float(x_max) - float(x_min))
-    f_phi = 1.0 + float(a_phi) * jnp.cos(kx * xi)
-    ct = jnp.cos(float(Omega) * time)
-    values = float(A_phi) * f_phi * jnp.cos(float(M_phi) * theta_shift) * jnp.sin(float(N_phi) * zeta) * ct
-    return _split_lower_upper_face_values(values)
-
-
-def _shifted_torus_density_x_face_values(geometry: FciGeometry3D, time: float) -> tuple[jnp.ndarray, jnp.ndarray]:
-    x, theta_shift, _, zeta = _shifted_torus_x_face_coordinates(geometry)
-    xi = x - float(x_min)
-    kx = jnp.pi / (float(x_max) - float(x_min))
-    f_n = 1.0 + float(a_n) * jnp.sin(kx * xi)
-    st = jnp.sin(float(Omega) * time)
-    values = float(n0) + float(A_n) * f_n * jnp.sin(float(M_n) * theta_shift) * jnp.sin(float(N_n) * zeta) * st
-    return _split_lower_upper_face_values(values)
-
-
-def _shifted_torus_omega_x_face_values(geometry: FciGeometry3D, time: float) -> tuple[jnp.ndarray, jnp.ndarray]:
-    x, _, theta, zeta = _shifted_torus_x_face_coordinates(geometry)
-    flat_coords = jnp.stack([x.ravel(), theta.ravel(), zeta.ravel()], axis=-1)
-    values = jax.vmap(
-        lambda coord: _shifted_torus_omega_scalar(coord[0], coord[1], coord[2], time)
-    )(flat_coords)
-    return _split_lower_upper_face_values(values.reshape((2,) + geometry.shape[1:]))
-
-
-def _shifted_torus_v_ion_parallel_x_face_values(geometry: FciGeometry3D, time: float) -> tuple[jnp.ndarray, jnp.ndarray]:
-    x, theta_shift, _, zeta = _shifted_torus_x_face_coordinates(geometry)
-    xi = x - float(x_min)
-    kx = jnp.pi / (float(x_max) - float(x_min))
-    f_i = 1.0 + float(a_i) * jnp.sin(2.0 * kx * xi)
-    st = jnp.sin(float(Omega) * time)
-    values = float(A_i) * f_i * jnp.cos(float(M_i) * theta_shift) * jnp.sin(float(N_i) * zeta) * st
-    return _split_lower_upper_face_values(values)
-
-
-def _shifted_torus_v_electron_parallel_x_face_values(geometry: FciGeometry3D, time: float) -> tuple[jnp.ndarray, jnp.ndarray]:
-    x, theta_shift, _, zeta = _shifted_torus_x_face_coordinates(geometry)
-    xi = x - float(x_min)
-    kx = jnp.pi / (float(x_max) - float(x_min))
-    f_e = 1.0 + float(a_e) * jnp.cos(2.0 * kx * xi)
-    ct = jnp.cos(float(Omega) * time)
-    values = float(A_e) * f_e * jnp.sin(float(M_e) * theta_shift) * jnp.cos(float(N_e) * zeta) * ct
-    return _split_lower_upper_face_values(values)
-
-
-def _shifted_torus_exact_x_face_bcs(
-    geometry: FciGeometry3D,
-    time: float,
-) -> tuple[BoundaryFaceBC3D, BoundaryFaceBC3D, BoundaryFaceBC3D, BoundaryFaceBC3D, BoundaryFaceBC3D]:
-    phi_lower, phi_upper = _shifted_torus_phi_x_face_values(geometry, time)
-    density_lower, density_upper = _shifted_torus_density_x_face_values(geometry, time)
-    omega_lower, omega_upper = _shifted_torus_omega_x_face_values(geometry, time)
-    v_ion_lower, v_ion_upper = _shifted_torus_v_ion_parallel_x_face_values(geometry, time)
-    v_electron_lower, v_electron_upper = _shifted_torus_v_electron_parallel_x_face_values(geometry, time)
-    return (
-        _dirichlet_x_boundary_face_bc_from_values(phi_lower, phi_upper, geometry),
-        _dirichlet_x_boundary_face_bc_from_values(density_lower, density_upper, geometry),
-        _dirichlet_x_boundary_face_bc_from_values(omega_lower, omega_upper, geometry),
-        _dirichlet_x_boundary_face_bc_from_values(v_ion_lower, v_ion_upper, geometry),
-        _dirichlet_x_boundary_face_bc_from_values(v_electron_lower, v_electron_upper, geometry),
     )
 
 
@@ -744,48 +627,6 @@ def _shifted_torus_v_electron_parallel_derivatives(geometry: FciGeometry3D, time
     v_parallel_zeta = -float(A_e) * float(N_e) * f_e * sin_e * sin_zeta * cos_time
     v_parallel_t = -float(A_e) * float(Omega) * f_e * sin_e * cos_zeta * sin_time
     return v_parallel, v_parallel_x, v_parallel_theta, v_parallel_zeta, v_parallel_t
-
-
-def _build_dirichlet_boundary_condition_builder(field_name: str):
-    def build(
-        state: jnp.ndarray,
-        geometry: FciGeometry3D,
-        periodic_axes: tuple[bool | None, bool | None, bool | None] | None,
-        cut_wall_geometry: CutWallGeometry3D | None,
-        cut_wall_bc: CutWallBC3D | None,
-    ) -> tuple[BoundaryFaceBC3D, CutWallBC3D]:
-        from drbx.geometry.fci_geometry import RegularFaceGeometry3D
-        from drbx.native.fci_boundaries import BC_DIRICHLET, BoundaryFaceBC3D, CutWallBC3D
-
-        del cut_wall_geometry
-        regular_face_geometry = RegularFaceGeometry3D.unit(geometry)
-        values = jnp.asarray(getattr(state, field_name, state), dtype=jnp.float64)
-        face_bc = BoundaryFaceBC3D(
-            kind_x=jnp.zeros_like(regular_face_geometry.x_area, dtype=jnp.int32).at[0].set(BC_DIRICHLET).at[-1].set(BC_DIRICHLET),
-            kind_y=jnp.zeros_like(regular_face_geometry.y_area, dtype=jnp.int32),
-            kind_z=jnp.zeros_like(regular_face_geometry.z_area, dtype=jnp.int32),
-            value_x=jnp.zeros_like(regular_face_geometry.x_area, dtype=jnp.float64).at[0].set(values[0]).at[-1].set(values[-1]),
-            value_y=jnp.zeros_like(regular_face_geometry.y_area, dtype=jnp.float64),
-            value_z=jnp.zeros_like(regular_face_geometry.z_area, dtype=jnp.float64),
-            mask_x=jnp.zeros_like(regular_face_geometry.x_open_mask, dtype=bool).at[0].set(True).at[-1].set(True),
-            mask_y=jnp.zeros_like(regular_face_geometry.y_open_mask, dtype=bool),
-            mask_z=jnp.zeros_like(regular_face_geometry.z_open_mask, dtype=bool),
-        )
-        if periodic_axes is not None and bool(periodic_axes[0]):
-            face_bc = BoundaryFaceBC3D.empty(regular_face_geometry)
-        return face_bc, cut_wall_bc or CutWallBC3D.empty()
-
-    return build
-
-
-def _homogeneous_boundary_face_bc(face_bc: BoundaryFaceBC3D) -> BoundaryFaceBC3D:
-    """Keep regular-face BC kinds/masks, but zero values for correction solves."""
-
-    return face_bc.replace(
-        value_x=jnp.zeros_like(face_bc.value_x, dtype=jnp.float64),
-        value_y=jnp.zeros_like(face_bc.value_y, dtype=jnp.float64),
-        value_z=jnp.zeros_like(face_bc.value_z, dtype=jnp.float64),
-    )
 
 
 def _shifted_torus_exact_state(
@@ -1791,8 +1632,6 @@ __all__ = [
     '_shifted_torus_phi',
     '_shifted_torus_phi_scalar',
     '_shifted_torus_phi_t',
-    '_dirichlet_x_boundary_face_bc_from_values',
-    '_dirichlet_x_boundary_face_bc',
     '_shifted_torus_density',
     '_shifted_torus_density_t',
     '_shifted_torus_v_electron_parallel',
@@ -1801,22 +1640,12 @@ __all__ = [
     '_shifted_torus_omega',
     '_shifted_torus_omega_t',
     '_shifted_torus_omega_and_derivatives',
-    '_shifted_torus_x_face_coordinates',
-    '_split_lower_upper_face_values',
-    '_shifted_torus_phi_x_face_values',
-    '_shifted_torus_density_x_face_values',
-    '_shifted_torus_omega_x_face_values',
-    '_shifted_torus_v_ion_parallel_x_face_values',
-    '_shifted_torus_v_electron_parallel_x_face_values',
-    '_shifted_torus_exact_x_face_bcs',
     '_shifted_torus_v_ion_parallel',
     '_shifted_torus_v_ion_parallel_t',
     '_shifted_torus_phi_derivatives',
     '_shifted_torus_density_derivatives',
     '_shifted_torus_v_ion_parallel_derivatives',
     '_shifted_torus_v_electron_parallel_derivatives',
-    '_build_dirichlet_boundary_condition_builder',
-    '_homogeneous_boundary_face_bc',
     '_shifted_torus_exact_state',
     '_shifted_torus_exact_time_derivative_state',
     '_continuous_4field_rhs_from_exact_state',

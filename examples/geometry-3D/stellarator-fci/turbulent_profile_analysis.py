@@ -1,7 +1,7 @@
-"""Radial profile analysis of the saved nonlinear stellarator SOL history.
+"""Radial profile analysis of a saved stellarator SOL history.
 
 The script post-processes the compressed history NPZ written by
-``nonlinear_turbulence.py`` (it does not rerun the simulation): it rebuilds the
+retained history artifact (it does not rerun the simulation): it rebuilds the
 matching synthetic stellarator geometry, bins the final/time-mean/RMS
 fluctuation fields into radial profiles, forms curvature-weighted transport and
 connection-length-weighted amplitude proxies, and traces the nonlinear energy
@@ -10,13 +10,13 @@ figure ``stellarator_nonlinear_turbulence_profiles.png`` next to the input NPZ
 under ``docs/data/stellarator_fci_example_artifacts/nonlinear_turbulence``
 (relative to the current working directory).
 
-Requires the ``stellarator_nonlinear_turbulence.npz`` artifact: if it is
-missing the script prints how to generate it and exits. The geometry
-PARAMETERS below must match the ones used by ``nonlinear_turbulence.py``.
+Requires the retained ``stellarator_nonlinear_turbulence.npz`` artifact. Supply
+that NPZ at the documented output path before running this analysis; it does
+not launch a simulation example. The geometry parameters below must match the
+artifact.
 
 Run from the repository root:
 
-    PYTHONPATH=src python examples/geometry-3D/stellarator-fci/nonlinear_turbulence.py
     PYTHONPATH=src python examples/geometry-3D/stellarator-fci/turbulent_profile_analysis.py
 """
 
@@ -61,8 +61,7 @@ def _radial_bin_average(values: np.ndarray, radial: np.ndarray, edges: np.ndarra
 
 if not ARRAYS_PATH.exists():
     print(f"Missing required artifact: {ARRAYS_PATH}")
-    print("This analysis post-processes the nonlinear SOL history; generate it first with")
-    print("  PYTHONPATH=src python examples/geometry-3D/stellarator-fci/nonlinear_turbulence.py")
+    print("Supply the retained stellarator_nonlinear_turbulence.npz artifact at that path first.")
     raise SystemExit(1)
 
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)

@@ -55,17 +55,11 @@ The first native non-axisymmetric field-line-map validation lane is now also
 in tree:
 
 - [src/drbx/geometry/stellarator.py](../src/drbx/geometry/stellarator.py)
-- [src/drbx/native/fci.py](../src/drbx/native/fci.py)
+- [src/drbx/geometry/fci_geometry.py](../src/drbx/geometry/fci_geometry.py)
 - [src/drbx/native/fci_sheath_recycling.py](../src/drbx/native/fci_sheath_recycling.py)
-- [src/drbx/native/fci_neutral.py](../src/drbx/native/fci_neutral.py)
-- [src/drbx/native/fci_vorticity.py](../src/drbx/native/fci_vorticity.py)
-- [src/drbx/native/fci_drb_rhs.py](../src/drbx/native/fci_drb_rhs.py)
+- local shard-map RHS and closure modules under `src/drbx/native/`
 - [src/drbx/validation/stellarator_fci_geometry_campaign.py](../src/drbx/validation/stellarator_fci_geometry_campaign.py)
-- [src/drbx/validation/stellarator_fci_operator_campaign.py](../src/drbx/validation/stellarator_fci_operator_campaign.py)
 - [src/drbx/validation/stellarator_sheath_recycling_campaign.py](../src/drbx/validation/stellarator_sheath_recycling_campaign.py)
-- [src/drbx/validation/stellarator_neutral_physics_campaign.py](../src/drbx/validation/stellarator_neutral_physics_campaign.py)
-- [src/drbx/validation/stellarator_vorticity_campaign.py](../src/drbx/validation/stellarator_vorticity_campaign.py)
-- [src/drbx/validation/stellarator_sol_showcase.py](../src/drbx/validation/stellarator_sol_showcase.py)
 - [docs/stellarator_fci_validation.md](stellarator_fci_validation.md)
 
 That lane is the first actual native non-axisymmetric execution path in this

@@ -144,7 +144,7 @@ MODEL_FAMILIES = (
         boundary_choices=("open field-line endpoints", "periodic toroidal/field-line maps", "geometry-driven target masks"),
         starting_points=(
             "examples/geometry-3D/stellarator-fci/geometry_plotting.py",
-            "examples/geometry-3D/stellarator-fci/nonlinear_turbulence.py",
+            "examples/geometry-3D/stellarator-fci/turbulent_profile_analysis.py",
             "examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py",
         ),
         caution="Expect higher setup cost; start with release-backed examples before regenerating external geometry.",

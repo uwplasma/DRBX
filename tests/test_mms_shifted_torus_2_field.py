@@ -8,16 +8,25 @@ import numpy as np
 
 from drbx.geometry import (
     FciGeometry3D,
-    LocalStencilBuilder,
-    RegularFaceGeometry3D,
-    build_curvature_coefficients,
-    build_local_stencil_from_field,
+    StencilBuilderContext,
+    build_local_curvature_coefficients,
+    build_local_direct_stencil_one_sided_physical_from_halo,
     build_shifted_torus_geometry,
     logical_grid_from_axis_vectors,
 )
-from drbx.native import rk4_step, sum_stage_outputs
-from drbx.native.fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldState, compute_2field_rhs
-from drbx.native.fci_boundaries import BC_DIRICHLET, BoundaryConditionBuilder, BoundaryFaceBC3D, CutWallBC3D, CutWallGeometry3D
+from drbx.native import (
+    Fci2FieldRhsParameters,
+    Fci2FieldState,
+    HaloExchange3D,
+    LocalPeriodicTopologyRule3D,
+    TopologyHaloFiller3D,
+    assemble_local_fci_geometry,
+    build_local_fci_geometries,
+    compute_local_2field_rhs,
+    inject_owned_field_to_halo,
+    make_shard_mesh,
+)
+from jax.sharding import NamedSharding, PartitionSpec as P
 
 
 A = 0.1
@@ -88,51 +97,6 @@ def _shifted_torus_exact_state(geometry: FciGeometry3D, time: float) -> Fci2Fiel
         density=_shifted_torus_density(geometry, time),
         v_parallel=_shifted_torus_v_parallel(geometry, time),
         density_background=_shifted_torus_background_density(geometry),
-    )
-
-
-def _shifted_torus_dirichlet_boundary_condition_builder(field_name: str):
-    def build(
-        state: jnp.ndarray,
-        geometry: FciGeometry3D,
-        periodic_axes: tuple[bool | None, bool | None, bool | None] | None,
-        cut_wall_geometry: CutWallGeometry3D | None,
-        cut_wall_bc: CutWallBC3D | None,
-    ) -> tuple[BoundaryFaceBC3D, CutWallBC3D]:
-        del periodic_axes, cut_wall_geometry
-        regular_face_geometry = RegularFaceGeometry3D.unit(geometry)
-        values = jnp.asarray(getattr(state, field_name, state), dtype=jnp.float64)
-        face_bc = BoundaryFaceBC3D(
-            kind_x=jnp.zeros_like(regular_face_geometry.x_area, dtype=jnp.int32).at[0].set(BC_DIRICHLET).at[-1].set(BC_DIRICHLET),
-            kind_y=jnp.zeros_like(regular_face_geometry.y_area, dtype=jnp.int32),
-            kind_z=jnp.zeros_like(regular_face_geometry.z_area, dtype=jnp.int32),
-            value_x=jnp.zeros_like(regular_face_geometry.x_area, dtype=jnp.float64).at[0].set(values[0]).at[-1].set(values[-1]),
-            value_y=jnp.zeros_like(regular_face_geometry.y_area, dtype=jnp.float64),
-            value_z=jnp.zeros_like(regular_face_geometry.z_area, dtype=jnp.float64),
-            mask_x=jnp.zeros_like(regular_face_geometry.x_open_mask, dtype=bool).at[0].set(True).at[-1].set(True),
-            mask_y=jnp.zeros_like(regular_face_geometry.y_open_mask, dtype=bool),
-            mask_z=jnp.zeros_like(regular_face_geometry.z_open_mask, dtype=bool),
-        )
-        return face_bc, cut_wall_bc or CutWallBC3D.empty()
-
-    return build
-
-
-def _apply_dirichlet_face_bcs_to_state(
-    state: Fci2FieldState,
-    density_face_bc: BoundaryFaceBC3D,
-    v_parallel_face_bc: BoundaryFaceBC3D,
-) -> Fci2FieldState:
-    density = jnp.asarray(state.density, dtype=jnp.float64)
-    v_parallel = jnp.asarray(state.v_parallel, dtype=jnp.float64)
-    density = density.at[0, :, :].set(jnp.asarray(density_face_bc.value_x[0], dtype=jnp.float64))
-    density = density.at[-1, :, :].set(jnp.asarray(density_face_bc.value_x[-1], dtype=jnp.float64))
-    v_parallel = v_parallel.at[0, :, :].set(jnp.asarray(v_parallel_face_bc.value_x[0], dtype=jnp.float64))
-    v_parallel = v_parallel.at[-1, :, :].set(jnp.asarray(v_parallel_face_bc.value_x[-1], dtype=jnp.float64))
-    return Fci2FieldState(
-        density=density,
-        v_parallel=v_parallel,
-        density_background=state.density_background,
     )
 
 
@@ -309,177 +273,100 @@ def _shifted_torus_v_parallel_source(geometry: FciGeometry3D, time: float, *, pa
     return v_parallel_t + (1.0 / (rho_star_value * bmag)) * poisson
 
 
-def shifted_torus_2field_rk4(
-    state: Fci2FieldState,
-    *,
-    geometry: FciGeometry3D,
-    time: float,
-    timestep: float,
-    parameters: Fci2FieldRhsParameters,
-    curvature_coefficients: jnp.ndarray,
-    stencil_builder: LocalStencilBuilder,
-    density_bc_builder: BoundaryConditionBuilder[tuple[BoundaryFaceBC3D, CutWallBC3D]],
-    phi_bc_builder: BoundaryConditionBuilder[tuple[BoundaryFaceBC3D, CutWallBC3D]],
-    v_parallel_bc_builder: BoundaryConditionBuilder[tuple[BoundaryFaceBC3D, CutWallBC3D]],
-) -> tuple[Fci2FieldState, jnp.ndarray]:
-    """Advance the shifted-torus two-field MMS state by one RK4 step."""
-
-    empty_cut_wall_geometry = CutWallGeometry3D.empty()
-    def _rhs_fn(
-        current_state: Fci2FieldState,
-        stage_time: float | jax.Array,
-        carry: None,
-    ) -> tuple[Fci2FieldState, None, jnp.ndarray]:
-        del carry
-        boundary_start = time_module.perf_counter()
-        exact_state = _shifted_torus_exact_state(geometry, float(stage_time))
-        density_face_bc, density_cut_wall_bc = density_bc_builder(
-            exact_state.density,
-            geometry,
-            (False, True, True),
-            empty_cut_wall_geometry,
-            CutWallBC3D.empty(),
-        )
-        phi_face_bc, phi_cut_wall_bc = phi_bc_builder(
-            _shifted_torus_phi(geometry, float(stage_time)),
-            geometry,
-            (False, True, True),
-            empty_cut_wall_geometry,
-            CutWallBC3D.empty(),
-        )
-        v_parallel_face_bc, v_parallel_cut_wall_bc = v_parallel_bc_builder(
-            exact_state.v_parallel,
-            geometry,
-            (False, True, True),
-            empty_cut_wall_geometry,
-            CutWallBC3D.empty(),
-        )
-        stage_state = _apply_dirichlet_face_bcs_to_state(current_state, density_face_bc, v_parallel_face_bc)
-        jax.block_until_ready(stage_state.density)
-        boundary_time = time_module.perf_counter() - boundary_start
-        rhs_result, timings = compute_2field_rhs(
-            stage_state,
-            with_diagnostics=True,
-            geometry=geometry,
-            stencil_builder=stencil_builder,
-            parameters=parameters,
-            curvature_coefficients=curvature_coefficients,
-            periodic_axes=(False, True, True),
-            density_face_bc=density_face_bc,
-            phi_face_bc=phi_face_bc,
-            v_parallel_face_bc=v_parallel_face_bc,
-            density_cut_wall_geometry=empty_cut_wall_geometry,
-            density_cut_wall_bc=density_cut_wall_bc,
-            phi_cut_wall_geometry=empty_cut_wall_geometry,
-            phi_cut_wall_bc=phi_cut_wall_bc,
-            v_parallel_cut_wall_geometry=empty_cut_wall_geometry,
-            v_parallel_cut_wall_bc=v_parallel_cut_wall_bc,
-            density_source=_shifted_torus_density_source(geometry, float(stage_time), parameters=parameters),
-            v_parallel_source=_shifted_torus_v_parallel_source(geometry, float(stage_time), parameters=parameters),
-        )
-        stage_timings = jnp.asarray([boundary_time, timings[0], timings[1]], dtype=jnp.float64)
-        return rhs_result.rhs, None, stage_timings
-
-    step_result = rk4_step(state, time=time, timestep=timestep, rhs_fn=_rhs_fn, carry=None)
-    next_state = step_result.state
-    final_boundary_start = time_module.perf_counter()
-    exact_final = _shifted_torus_exact_state(geometry, time + timestep)
-    final_density_face_bc, _ = density_bc_builder(
-        exact_final.density,
-        geometry,
-        (False, True, True),
-        empty_cut_wall_geometry,
-        CutWallBC3D.empty(),
-    )
-    final_v_parallel_face_bc, _ = v_parallel_bc_builder(
-        exact_final.v_parallel,
-        geometry,
-        (False, True, True),
-        empty_cut_wall_geometry,
-        CutWallBC3D.empty(),
-    )
-    next_state = _apply_dirichlet_face_bcs_to_state(next_state, final_density_face_bc, final_v_parallel_face_bc)
-    jax.block_until_ready(next_state.density)
-    final_boundary_time = time_module.perf_counter() - final_boundary_start
-    step_timings = sum_stage_outputs(step_result.stage_aux)
-    step_timings = step_timings.at[0].add(final_boundary_time)
-    return next_state, step_timings
-
-
 def simulate_mms_2field_shifted_torus(
     geometry: FciGeometry3D,
     *,
     timestep: float | None = None,
     final_time: float = tf,
     rho_star_value: float = rho_star,
+    shard_counts: tuple[int, int, int] = (1, 1, 1),
 ) -> tuple[Fci2FieldState, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Evolve the shifted-torus MMS system and return the final state plus stacked history."""
+    """Evolve the shifted-torus MMS system entirely through local ``shard_map``."""
 
     parameters = Fci2FieldRhsParameters(rho_star=rho_star_value)
-    stencil_builder = LocalStencilBuilder(build_local_stencil_from_field.build_fn)
-    density_bc_builder = BoundaryConditionBuilder(_shifted_torus_dirichlet_boundary_condition_builder("density"))
-    phi_bc_builder = BoundaryConditionBuilder(_shifted_torus_dirichlet_boundary_condition_builder("phi"))
-    v_parallel_bc_builder = BoundaryConditionBuilder(_shifted_torus_dirichlet_boundary_condition_builder("v_parallel"))
     dt = float(final_time) / float(num_steps) if timestep is None else float(timestep)
     steps = int(round(float(final_time) / dt))
     dt = float(final_time) / float(steps)
-    curvature_start = time_module.perf_counter()
-    curvature_coefficients = build_curvature_coefficients(geometry, periodic_axes=(False, True, True))
-    curvature_build_time = time_module.perf_counter() - curvature_start
+    mesh = make_shard_mesh(shard_counts)
+    local_bundle = build_local_fci_geometries(
+        geometry, shard_counts, halo_width=1, periodic_axes=(False, True, True)
+    )
+    partition = P("x", "y", "z")
+    sharding = NamedSharding(mesh, partition)
+    cell_fields = jax.device_put(local_bundle.cell_fields, sharding)
+
+    def _curvature(cell_fields_owned):
+        local_geometry = assemble_local_fci_geometry(local_bundle, cell_fields_owned)
+        return build_local_curvature_coefficients(
+            local_geometry, local_bundle.domain,
+            periodic_axes=(False, True, True),
+            axis_regular_axes=(False, False, False),
+        )
+
+    curvature = jax.jit(jax.shard_map(
+        _curvature, mesh=mesh, in_specs=partition, out_specs=partition, check_vma=False
+    ))(cell_fields)
+
+    def _step_kernel(density, velocity, background, c0, v0, c1, v1, c2, v2, c3, v3, cell_fields_owned, curvature_owned):
+        local_geometry = assemble_local_fci_geometry(local_bundle, cell_fields_owned)
+        context = StencilBuilderContext(layout=local_bundle.domain.layout, domain=local_bundle.domain)
+        exchange = HaloExchange3D()
+        topology = TopologyHaloFiller3D(rules=(LocalPeriodicTopologyRule3D(),))
+
+        def stencil(field, _geometry):
+            halo = inject_owned_field_to_halo(jnp.asarray(field, dtype=jnp.float64), local_bundle.domain.layout)
+            halo = topology(exchange(halo, local_bundle.domain), local_bundle.domain)
+            return build_local_direct_stencil_one_sided_physical_from_halo(halo, local_geometry, context)
+
+        def rhs(current, density_source, velocity_source):
+            result = compute_local_2field_rhs(
+                current, geometry=local_geometry, stencil_builder=stencil,
+                parameters=parameters, curvature_coefficients=curvature_owned,
+                density_source=density_source, v_parallel_source=velocity_source,
+            )
+            return result.rhs
+
+        current = Fci2FieldState(density, velocity, background)
+        k1 = rhs(current, c0, v0)
+        k2 = rhs(Fci2FieldState(density + 0.5 * dt * k1.density, velocity + 0.5 * dt * k1.v_parallel, background), c1, v1)
+        k3 = rhs(Fci2FieldState(density + 0.5 * dt * k2.density, velocity + 0.5 * dt * k2.v_parallel, background), c2, v2)
+        k4 = rhs(Fci2FieldState(density + dt * k3.density, velocity + dt * k3.v_parallel, background), c3, v3)
+        return (
+            density + dt * (k1.density + 2.0 * k2.density + 2.0 * k3.density + k4.density) / 6.0,
+            velocity + dt * (k1.v_parallel + 2.0 * k2.v_parallel + 2.0 * k3.v_parallel + k4.v_parallel) / 6.0,
+            background,
+        )
+
+    kernel = jax.jit(jax.shard_map(
+        _step_kernel, mesh=mesh, in_specs=(partition,) * 13, out_specs=(partition,) * 3, check_vma=False
+    ))
+
+    def step(state, time_value):
+        source_times = (time_value, time_value + 0.5 * dt, time_value + 0.5 * dt, time_value + dt)
+        sources = []
+        for stage_time in source_times:
+            sources.extend((
+                jax.device_put(_shifted_torus_density_source(geometry, stage_time, parameters=parameters), sharding),
+                jax.device_put(_shifted_torus_v_parallel_source(geometry, stage_time, parameters=parameters), sharding),
+            ))
+        fields = tuple(jax.device_put(jnp.asarray(getattr(state, name), dtype=jnp.float64), sharding) for name in ("density", "v_parallel", "density_background"))
+        result = kernel(*fields, *sources, cell_fields, curvature)
+        return Fci2FieldState(*[jax.block_until_ready(value) for value in result])
+
     initial_exact = _shifted_torus_exact_state(geometry, 0.0)
-    initial_density_bc, _ = density_bc_builder(
-        initial_exact.density,
-        geometry,
-        (False, True, True),
-        CutWallGeometry3D.empty(),
-        CutWallBC3D.empty(),
-    )
-    initial_v_parallel_bc, _ = v_parallel_bc_builder(
-        initial_exact.v_parallel,
-        geometry,
-        (False, True, True),
-        CutWallGeometry3D.empty(),
-        CutWallBC3D.empty(),
-    )
-    initial_state = _apply_dirichlet_face_bcs_to_state(initial_exact, initial_density_bc, initial_v_parallel_bc)
-    state = initial_state
+    state = initial_exact
     time_value = 0.0
     times: list[float] = [0.0]
-    density_history: list[jnp.ndarray] = [jnp.asarray(initial_state.density, dtype=jnp.float32)]
-    v_parallel_history: list[jnp.ndarray] = [jnp.asarray(initial_state.v_parallel, dtype=jnp.float32)]
-    timing_history: list[jnp.ndarray] = []
+    density_history: list[jnp.ndarray] = [jnp.asarray(state.density, dtype=jnp.float32)]
+    v_parallel_history: list[jnp.ndarray] = [jnp.asarray(state.v_parallel, dtype=jnp.float32)]
 
     for _ in range(steps):
-        state, step_timings = shifted_torus_2field_rk4(
-            state,
-            geometry=geometry,
-            time=time_value,
-            timestep=dt,
-            parameters=parameters,
-            curvature_coefficients=curvature_coefficients,
-            stencil_builder=stencil_builder,
-            density_bc_builder=density_bc_builder,
-            phi_bc_builder=phi_bc_builder,
-            v_parallel_bc_builder=v_parallel_bc_builder,
-        )
+        state = step(state, time_value)
         time_value += dt
         times.append(time_value)
         density_history.append(jnp.asarray(state.density, dtype=jnp.float32))
         v_parallel_history.append(jnp.asarray(state.v_parallel, dtype=jnp.float32))
-        timing_history.append(step_timings)
-
-    if timing_history:
-        timing_array = np.asarray(timing_history, dtype=np.float64)
-        mean_boundary_time = float(np.mean(timing_array[:, 0]))
-        mean_stencil_time = float(np.mean(timing_array[:, 1]))
-        mean_operator_time = float(np.mean(timing_array[:, 2]))
-        print(f"shifted_torus_2field curvature coefficient build time: {curvature_build_time:.6e} s")
-        print(
-            "shifted_torus_2field mean timings per RK step: "
-            f"boundary={mean_boundary_time:.6e} s, "
-            f"stencil={mean_stencil_time:.6e} s, "
-            f"operator={mean_operator_time:.6e} s"
-        )
+    print(f"shifted_torus_2field local shard_map complete: shards={tuple(shard_counts)}, steps={steps}")
 
     return (
         state,
@@ -651,8 +538,13 @@ def _save_shifted_torus_movie(
 
 
 if __name__ == "__main__":
+    import argparse
     import matplotlib.pyplot as plt
 
+    parser = argparse.ArgumentParser(description="Shifted-torus two-field local-shard MMS convergence")
+    parser.add_argument("--shard-counts", type=int, nargs=3, default=(1, 1, 1))
+    args = parser.parse_args()
+    shard_counts = tuple(int(value) for value in args.shard_counts)
     resolutions = np.asarray([30, 60,120], dtype=np.int64)
     successful_resolutions: list[int] = []
     l2_errors: list[float] = []
@@ -676,6 +568,7 @@ if __name__ == "__main__":
                 final_time=tf,
                 timestep=dt,
                 rho_star_value=rho_star,
+                shard_counts=shard_counts,
             )
             elapsed = time_module.perf_counter() - start
             mean_error, _, max_error = _combined_error_statistics(final_state, geometry, tf)

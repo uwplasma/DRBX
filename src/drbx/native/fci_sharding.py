@@ -16,10 +16,8 @@ extends them from operator-level tests to a full two-field RHS + RK4 step:
   two-field model where every stage prepares state halos (exchange plus
   periodic topology fill) before evaluating the RHS on local geometry.
 
-The reduced two-field direct stencil path closes physical sides with
-one-sided derivative stencils and consumes no face-BC payload, matching the
-global single-device path exactly; ``boundary_conditions`` entries are
-forwarded verbatim to :func:`compute_2field_rhs` for both paths.
+The reduced two-field local stencil path closes physical sides with one-sided
+derivative stencils and consumes no face-BC payload.
 """
 
 from __future__ import annotations
@@ -54,10 +52,14 @@ from ..geometry import (
     SIDE_SIMPLE_PERIODIC,
     ShardSpec3D,
     StencilBuilderContext,
-    build_curvature_coefficients,
+    build_local_curvature_coefficients,
     build_local_direct_stencil_one_sided_physical_from_halo,
 )
-from .fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldState, compute_2field_rhs
+from .fci_2_field_rhs import (
+    Fci2FieldRhsParameters,
+    Fci2FieldState,
+    compute_local_2field_rhs,
+)
 from .fci_halo import HaloExchange3D, LocalPeriodicTopologyRule3D, TopologyHaloFiller3D
 from .fci_model import inject_owned_field_to_halo, inject_owned_vector_field_to_halo
 from .fci_time_integrator import Rk4Stepper
@@ -420,7 +422,7 @@ def assemble_local_fci_geometry(
         regular_face_geometry=regular,
         cell_volume_geometry=LocalCellVolumeGeometry3D(
             layout=layout,
-            volume=jnp.ones(layout.owned_shape),
+            volume=jnp.asarray(cell_metric.J_owned, dtype=jnp.float64),
             volume_fraction=jnp.ones(layout.owned_shape),
         ),
     )
@@ -432,9 +434,7 @@ def _make_prepared_local_stencil_builder(
 ) -> Callable[..., object]:
     """Wrap halo preparation plus the one-sided physical local stencil build.
 
-    The returned builder follows the ``compute_2field_rhs`` stencil-builder
-    call convention ``(field, geometry, periodic_axes=..., face_bc=..., ...)``
-    but receives shard-owned fields: it injects them into halo arrays,
+    The returned builder receives shard-owned fields, injects them into halo arrays,
     exchanges shard-interface halos, topology-fills undecomposed periodic
     sides, and closes physical side planes with one-sided derivative
     stencils. Like the global direct path, it consumes no face-BC payload.
@@ -446,14 +446,7 @@ def _make_prepared_local_stencil_builder(
     def _build(
         field_owned: jnp.ndarray,
         geometry: LocalFciGeometry3D,
-        _context: object | None = None,
-        face_bc: object | None = None,
-        cut_wall_geometry: object | None = None,
-        cut_wall_bc: object | None = None,
-        *,
-        periodic_axes: object | None = None,
     ):
-        del _context, face_bc, cut_wall_geometry, cut_wall_bc, periodic_axes
         field_halo = inject_owned_field_to_halo(
             jnp.asarray(field_owned, dtype=jnp.float64),
             domain.layout,
@@ -466,9 +459,6 @@ def _make_prepared_local_stencil_builder(
             context,
         )
 
-    # The prepared builder intentionally follows the current RHS-facing
-    # keyword contract.  Wrapping it in the legacy three-argument
-    # ``LocalStencilBuilder`` adapter would discard those boundary arguments.
     return _build
 
 
@@ -500,19 +490,17 @@ def make_sharded_2field_step(
     four stage RHS evaluations prepares fresh state halos (exchange plus
     periodic topology fill) before building stencils.
 
-    ``boundary_conditions`` maps field names (``"density"``, ``"phi"``,
-    ``"v_parallel"``) to face-BC payloads forwarded to
-    :func:`compute_2field_rhs`; the two-field direct stencil path consumes no
-    face-BC payload, so ``None`` matches the single-device behavior.
+    The local direct stencil path uses its regular one-sided physical closure.
+    Field-specific boundary payloads are not supported by this reduced model.
     """
 
     shard_counts = tuple(int(value) for value in shard_counts)
     boundary_conditions = dict(boundary_conditions or {})
-    known_fields = ("density", "phi", "v_parallel")
-    unknown = sorted(set(boundary_conditions) - set(known_fields))
-    if unknown:
-        raise ValueError(f"boundary_conditions has unknown fields {unknown}; expected {known_fields}")
-    face_bcs = {name: boundary_conditions.get(name) for name in known_fields}
+    if boundary_conditions:
+        raise ValueError(
+            "the local two-field path uses one-sided physical stencils and "
+            "does not accept field-specific boundary_conditions"
+        )
 
     mesh = make_shard_mesh(shard_counts)
     sharded_geometry = build_local_fci_geometries(geometry, shard_counts, halo_width=halo_width)
@@ -520,15 +508,33 @@ def make_sharded_2field_step(
     partition_spec = P(*_MESH_AXIS_NAMES)
     state_sharding = NamedSharding(mesh, partition_spec)
 
-    curvature_coefficients = build_curvature_coefficients(
-        geometry,
-        periodic_axes=domain.periodic_axes,
-    )
-    curvature_sharded = jax.device_put(curvature_coefficients, state_sharding)
     cell_fields_sharded = jax.device_put(sharded_geometry.cell_fields, state_sharding)
+    curvature_sharded = jax.jit(
+        jax.shard_map(
+            lambda cell_fields_owned: build_local_curvature_coefficients(
+                assemble_local_fci_geometry(
+                    sharded_geometry,
+                    cell_fields_owned,
+                ),
+                domain,
+                periodic_axes=domain.periodic_axes,
+                axis_regular_axes=(False, False, False),
+            ),
+            mesh=mesh,
+            in_specs=partition_spec,
+            out_specs=partition_spec,
+            check_vma=False,
+        )
+    )(cell_fields_sharded)
     timestep = jnp.asarray(dt, dtype=jnp.float64)
 
-    def _kernel(density, v_parallel, density_background, curvature_owned, cell_fields_owned):
+    def _kernel(
+        density,
+        v_parallel,
+        density_background,
+        curvature_owned,
+        cell_fields_owned,
+    ):
         local_geometry = assemble_local_fci_geometry(sharded_geometry, cell_fields_owned)
         context = StencilBuilderContext(layout=domain.layout, domain=domain)
         stencil_builder = _make_prepared_local_stencil_builder(domain, context)
@@ -540,15 +546,12 @@ def make_sharded_2field_step(
 
         def _rhs_fn(stage_state, stage_time, carry):
             del stage_time
-            result, _timings = compute_2field_rhs(
+            result = compute_local_2field_rhs(
                 stage_state,
                 geometry=local_geometry,
                 stencil_builder=stencil_builder,
                 parameters=parameters,
                 curvature_coefficients=curvature_owned,
-                density_face_bc=face_bcs["density"],
-                phi_face_bc=face_bcs["phi"],
-                v_parallel_face_bc=face_bcs["v_parallel"],
             )
             return result.rhs, carry, None
 

@@ -36,16 +36,13 @@ inputs, outputs, source modules, tests, and documentation page, see
 
 ![Open SOL flux tube](media/open_sol_flux_tube.png)
 
-## Stellarator (3D FCI, closed and open)
+## Stellarator (3D FCI, local and sharded)
 
 | Example | What it teaches |
 | --- | --- |
-| [`examples/stellarator/rotating_ellipse_fci.py`](../examples/stellarator/rotating_ellipse_fci.py) | Rotating-ellipse geometry with autodiff metric; second-order FCI parallel-operator convergence. [Tutorial](tutorial_stellarator_fci.md). |
-| [`examples/stellarator/stellarator_turbulence.py`](../examples/stellarator/stellarator_turbulence.py) | 4-field interchange turbulence, closed vs limiter-open, with cross-section movies and sheath drainage. |
-| [`examples/stellarator/island_divertor.py`](../examples/stellarator/island_divertor.py) | Resonant island chain and an emergent stochastic SOL. |
-| [`examples/stellarator/rotating_ellipse_filament.py`](../examples/stellarator/rotating_ellipse_filament.py) | Blob/filament dynamics on the rotating ellipse. |
-| [`examples/stellarator/stellarator_3d_render.py`](../examples/stellarator/stellarator_3d_render.py) | 3D rendering of turbulence on traced flux surfaces. |
-| [`examples/stellarator/fci_differentiable.py`](../examples/stellarator/fci_differentiable.py) | Gradients through the FCI geometry and reduced dynamics ([details](stellarator_fci_differentiable.md)). |
+| `tests/test_fci_sharded_2field.py` | Multi-device two-field FCI step using local operators and `jax.shard_map`. |
+| `tests/test_mms_shifted_torus_EB_sharded.py` | Full-EB shifted-torus MMS using local operators and shard-local RK4. |
+| `examples/benchmarks/fci_sharded_strong_scaling.py` | Strong-scaling measurements for the sharded FCI path. |
 
 ![Stellarator turbulence summary](media/stellarator_turbulence_summary.png)
 
@@ -94,19 +91,11 @@ mode against release-backed arrays.
 | Example | What it teaches |
 | --- | --- |
 | [`stellarator-fci/geometry_plotting.py`](../examples/geometry-3D/stellarator-fci/geometry_plotting.py) | Synthetic non-axisymmetric geometry, metric, connection-length, and curvature maps ([guide](stellarator_examples.md)). |
-| [`stellarator-fci/linear_mode.py`](../examples/geometry-3D/stellarator-fci/linear_mode.py) | Linear FCI mode history and snapshots. |
-| [`stellarator-fci/vorticity_bracket.py`](../examples/geometry-3D/stellarator-fci/vorticity_bracket.py) | Nonlinear coupling through the vorticity/potential solve and the logical E x B bracket. |
-| [`stellarator-fci/nonlinear_turbulence.py`](../examples/geometry-3D/stellarator-fci/nonlinear_turbulence.py) | Compact nonlinear reduced SOL history, diagnostics, 3D poster, GIF movie. |
 | [`stellarator-fci/turbulent_profile_analysis.py`](../examples/geometry-3D/stellarator-fci/turbulent_profile_analysis.py) | Radial fluctuation, RMS, transport-proxy, and energy-trace analysis. |
-| [`stellarator-fci/validation_campaign.py`](../examples/geometry-3D/stellarator-fci/validation_campaign.py) | Full promoted synthetic stellarator FCI validation bundle. |
 | [`essos-field-lines/closed_open_vacuum_poincare.py`](../examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) | Closed vs open vacuum field lines from ESSOS coils: Poincare sections and connection lengths. |
 | [`essos-field-lines/landreman_paul_qa_import.py`](../examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | External QA field-line import into portable arrays ([page](essos_fieldline_import.md)). |
-| [`essos-field-lines/direct_coil_open_sol.py`](../examples/geometry-3D/essos-field-lines/direct_coil_open_sol.py) | Direct-coil open-SOL promotion workflow (dry-run contract by default). |
-| [`essos-field-lines/hybrid_open_sol.py`](../examples/geometry-3D/essos-field-lines/hybrid_open_sol.py) | Hybrid VMEC/coil open-SOL promotion workflow. |
-| [`essos-field-lines/vmec_closed_field.py`](../examples/geometry-3D/essos-field-lines/vmec_closed_field.py) | VMEC closed-field control with opt-in live periodic FCI gates. |
 | [`vmex/closed_field_lines.py`](../examples/geometry-3D/vmex/closed_field_lines.py) | VMEX equilibrium import: surface fields, JAX field-line tracing, traced iota matching the wout `iotaf` profile to ~1e-6. |
 | [`vmex/closed_open_field_lines.py`](../examples/geometry-3D/vmex/closed_open_field_lines.py) | ESSOS coil field with the VMEX LCFS overlay: closed core vs open SOL in one picture. |
-| [`vmec-extender/imported_field.py`](../examples/geometry-3D/vmec-extender/imported_field.py) | VMEC-extender field-grid import and compact SOL verification gate ([page](vmec_extender_edge_fields.md)). |
 
 ![Closed vs open vacuum Poincare](media/closed_open_vacuum_poincare.png)
 

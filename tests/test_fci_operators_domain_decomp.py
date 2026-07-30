@@ -90,16 +90,18 @@ from drbx.native.fci_halo import (
     RemoteFciDependencyExchange,
     TopologyHaloFiller3D,
 )
-from drbx.native.fci_gmres import SpmdGmresConfig
+from drbx.native.fci_gmres import SolvaxGmresConfig
 from drbx.native.fci_model import FciFieldBundle, FciModelState
 from drbx.native.fci_operators import (
     LocalPerpLaplacianInverseSolver,
     local_curvature_op,
     local_conservative_parallel_flux_div_op,
+    local_grad_parallel_op_conservative,
     local_grad_parallel_op_direct,
     local_grad_parallel_op_fci,
     local_grad_perp_op_direct,
     local_parallel_flux_div_op,
+    local_parallel_div_b_op,
     local_parallel_laplacian_conservative_op,
     local_parallel_laplacian_direct_op,
     local_perp_laplacian_conservative_op,
@@ -2571,7 +2573,7 @@ def run_shard_map_phi_reconstruction_case(
     topology_filler = TopologyHaloFiller3D(
         rules=(LocalPeriodicTopologyRule3D(),),
     )
-    gmres_config = SpmdGmresConfig(
+    gmres_config = SolvaxGmresConfig(
         tol=1.0e-10,
         atol=1.0e-10,
         maxiter=100,
@@ -2936,6 +2938,48 @@ def test_single_shard_shifted_torus_parallel_flux_div_fci() -> None:
     )
     assert result["error_l2"] < 1.5e-1
     assert result["error_linf"] < 1.5e-1
+
+
+def test_local_conservative_parallel_gradient_annihilates_constant() -> None:
+    """The compatible div(f b) - f div(b) gradient is zero for constant f."""
+
+    shape = (8, 12, 10)
+    halo_width = 2
+    domain = _build_domain(shape, halo_width)
+    geometry = _build_local_geometry(
+        shape,
+        halo_width,
+        global_shape=shape,
+    )
+    # A constant field remains one through halo exchange and all regular
+    # periodic/physical ghost closures, so construct that halo directly. This
+    # keeps the regression outside shard_map while exercising the operators.
+    field_halo = jnp.ones(geometry.halo_shape, dtype=jnp.float64)
+    context = StencilBuilderContext(layout=geometry.layout, domain=domain)
+    field_stencil = build_local_conservative_stencil_from_field(
+        field_halo,
+        geometry,
+        context,
+    )
+    div_b = local_parallel_div_b_op(
+        field_stencil,
+        geometry,
+        domain,
+    )
+
+    compatible_gradient = local_grad_parallel_op_conservative(
+        field_stencil,
+        geometry,
+        domain,
+        div_b=div_b,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(compatible_gradient),
+        np.zeros(shape),
+        rtol=0.0,
+        atol=1.0e-12,
+    )
 
 
 def test_local_parallel_flux_div_cut_wall_bc_modes() -> None:

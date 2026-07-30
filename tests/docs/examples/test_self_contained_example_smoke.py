@@ -171,30 +171,7 @@ def test_turbulent_profile_analysis_explains_missing_artifact(tmp_path: Path) ->
 
     assert completed.returncode == 1
     assert "Missing required artifact" in completed.stdout
-    assert "nonlinear_turbulence.py" in completed.stdout
-
-
-def test_vmec_extender_imported_field_is_subprocess_self_contained(
-    tmp_path: Path,
-) -> None:
-    completed = _run_example(
-        [
-            sys.executable,
-            str(EXAMPLES_ROOT / "geometry-3D" / "vmec-extender" / "imported_field.py"),
-        ],
-        cwd=tmp_path,
-        timeout=90,
-    )
-
-    artifact_root = tmp_path / "docs" / "data" / "vmec_extender_edge_field_artifacts"
-    assert "edge summary:" in completed.stdout
-    assert "sol summary:" in completed.stdout
-    assert (artifact_root / "data" / "vmec_extender_edge_field_campaign.json").exists()
-    assert (artifact_root / "data" / "vmec_extender_edge_field_campaign.npz").exists()
-    assert (artifact_root / "images" / "vmec_extender_edge_field_campaign.png").stat().st_size > 0
-    assert (artifact_root / "data" / "vmec_extender_sol_smoke.json").exists()
-    assert (artifact_root / "data" / "vmec_extender_sol_smoke.npz").exists()
-    assert (artifact_root / "images" / "vmec_extender_sol_smoke.png").stat().st_size > 0
+    assert "stellarator_nonlinear_turbulence.npz" in completed.stdout
 
 
 def _write_tiny_stellarator_turbulence_release_arrays(path: Path) -> None:

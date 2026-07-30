@@ -55,7 +55,12 @@ class BFieldEvaluator(ABC):
     @property
     @abstractmethod
     def currents(self) -> np.ndarray:
-        """Return the coil-group multipliers used to assemble the field."""
+        """Return the coil-group weights used to assemble the field.
+
+        For scaled (``S``) MAKEGRID data these are currents in amperes. For
+        raw (``R``) data these are dimensionless multipliers of the currents
+        already included in the stored component arrays.
+        """
 
     @abstractmethod
     def evaluate_cylindrical(self, points_rphiz: Any) -> np.ndarray:
@@ -338,11 +343,18 @@ def bfield_evaluator_from_makegrid(
 
     ``B = sum(currents[group] * B_group)``.
 
-    Explicit ``currents`` take precedence.  If omitted, a finite
-    ``raw_coil_cur`` vector with the correct length is used; if that variable
-    is absent, unit multipliers are used.  Callers should pass the physical
-    current configuration explicitly when ``raw_coil_cur`` is only generator
-    metadata or a sign convention.
+    The meaning of ``currents`` follows MAKEGRID's ``mgrid_mode``:
+
+    - scaled (``S``): the stored group fields are unit-current responses, so
+      ``currents`` are coil-group currents in amperes. If omitted,
+      ``raw_coil_cur`` is used when available.
+    - raw (``R``): the stored group fields already include the currents from
+      the coils file, so ``currents`` are dimensionless multipliers. If
+      omitted, every multiplier is one.
+
+    Files without ``mgrid_mode`` are treated as scaled, matching historical
+    MAKEGRID behavior. ``raw_coil_cur`` is generator metadata in raw mode and
+    is never applied to the stored field a second time.
 
     Arrays are read and accumulated one component/group at a time, so all
     source coil-group arrays are never retained simultaneously.
@@ -358,6 +370,7 @@ def bfield_evaluator_from_makegrid(
         nz = _scalar_int(dataset, "jz")
         nphi = _scalar_int(dataset, "kp")
         group_count = _scalar_int(dataset, "nextcur")
+        mgrid_mode = _makegrid_mode(dataset)
 
         R = _coordinate_axis(
             dataset,
@@ -392,7 +405,9 @@ def bfield_evaluator_from_makegrid(
 
         if currents is None:
             raw_currents = _optional_vector(dataset, "raw_coil_cur")
-            if (
+            if mgrid_mode == "R":
+                current_array = np.ones(group_count, dtype=np.float64)
+            elif (
                 raw_currents is not None
                 and raw_currents.size == group_count
                 and np.all(np.isfinite(raw_currents))
@@ -495,6 +510,28 @@ def _optional_vector(dataset: Dataset, name: str) -> np.ndarray | None:
         return None
     value = np.asarray(dataset.variables[name][:], dtype=np.float64).reshape(-1)
     return value if value.size else None
+
+
+def _makegrid_mode(dataset: Dataset) -> str:
+    """Return ``S`` or ``R``, defaulting legacy files to scaled mode."""
+
+    if "mgrid_mode" in dataset.variables:
+        value = np.asarray(dataset.variables["mgrid_mode"][:])
+    elif "mgrid_mode" in dataset.ncattrs():
+        value = np.asarray(getattr(dataset, "mgrid_mode"))
+    else:
+        return "S"
+
+    if value.dtype.kind == "S":
+        text = b"".join(value.reshape(-1).tolist()).decode("ascii")
+    elif value.dtype.kind == "U":
+        text = "".join(value.reshape(-1).tolist())
+    else:
+        raise ValueError("MAKEGRID mgrid_mode must be the character 'S' or 'R'")
+    mode = text.strip().upper()
+    if mode not in {"S", "R"}:
+        raise ValueError("MAKEGRID mgrid_mode must be the character 'S' or 'R'")
+    return mode
 
 
 def _component(

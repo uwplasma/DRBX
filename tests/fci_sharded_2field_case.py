@@ -13,6 +13,8 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 for _path in (str(_REPO_ROOT / "src"), str(_REPO_ROOT)):
     if _path not in sys.path:
@@ -20,29 +22,22 @@ for _path in (str(_REPO_ROOT / "src"), str(_REPO_ROOT)):
 
 import jax.numpy as jnp
 
-from drbx.geometry import build_curvature_coefficients
+from drbx.geometry import FciGeometry3D, build_shifted_torus_geometry
 from drbx.native import (
     Fci2FieldRhsParameters,
     Fci2FieldState,
-    compute_2field_rhs,
     make_sharded_2field_step,
-    rk4_step,
 )
-from tests.test_mms_shifted_torus_2_field import (
-    build_shifted_torus_2field_geometry,
-    x_max,
-    x_min,
-)
-
-
 RHO_STAR = 1.0
-PERIODIC_AXES = (False, True, True)
+ONE_SHARD_COUNTS = (1, 1, 1)
+X_MIN = 0.15
+X_MAX = 1.0
 
 
-def build_case_geometry(shape: tuple[int, int, int]):
-    """Reuse the shifted-torus geometry builder from the two-field MMS tests."""
+def build_case_geometry(shape: tuple[int, int, int]) -> FciGeometry3D:
+    """Build the host-side shifted-torus geometry for local staging."""
 
-    return build_shifted_torus_2field_geometry(shape)
+    return build_shifted_torus_geometry(shape)
 
 
 def build_initial_state(geometry) -> Fci2FieldState:
@@ -51,7 +46,7 @@ def build_initial_state(geometry) -> Fci2FieldState:
     x = geometry.grid.x.centers[:, None, None]
     theta = geometry.grid.y.centers[None, :, None]
     zeta = geometry.grid.z.centers[None, None, :]
-    envelope = jnp.sin(jnp.pi * (x - float(x_min)) / (float(x_max) - float(x_min)))
+    envelope = jnp.sin(jnp.pi * (x - X_MIN) / (X_MAX - X_MIN))
     density = 1.0 + 0.05 * envelope * jnp.cos(2.0 * theta) * jnp.sin(zeta)
     v_parallel = 0.02 * envelope * jnp.sin(theta) * jnp.cos(2.0 * zeta)
     shape = geometry.shape
@@ -62,36 +57,6 @@ def build_initial_state(geometry) -> Fci2FieldState:
     )
 
 
-def run_direct_steps(
-    geometry,
-    state: Fci2FieldState,
-    *,
-    dt: float,
-    steps: int,
-) -> Fci2FieldState:
-    """Advance the unsharded global-geometry two-field model by RK4 steps."""
-
-    parameters = Fci2FieldRhsParameters(rho_star=RHO_STAR)
-    curvature_coefficients = build_curvature_coefficients(geometry, periodic_axes=PERIODIC_AXES)
-
-    def _rhs_fn(stage_state, stage_time, carry):
-        del stage_time
-        result, _timings = compute_2field_rhs(
-            stage_state,
-            geometry=geometry,
-            parameters=parameters,
-            curvature_coefficients=curvature_coefficients,
-            density_face_bc=None,
-            phi_face_bc=None,
-            v_parallel_face_bc=None,
-        )
-        return result.rhs, carry, None
-
-    for _ in range(steps):
-        state = rk4_step(state, time=0.0, timestep=dt, rhs_fn=_rhs_fn, carry=None).state
-    return state
-
-
 def run_sharded_steps(
     geometry,
     state: Fci2FieldState,
@@ -100,7 +65,7 @@ def run_sharded_steps(
     steps: int,
     shard_counts: tuple[int, int, int],
 ) -> Fci2FieldState:
-    """Advance the same model through the sharded shard_map RK4 step."""
+    """Advance the two-field model through the local sharded RK4 step."""
 
     parameters = Fci2FieldRhsParameters(rho_star=RHO_STAR)
     step_fn, _info = make_sharded_2field_step(
@@ -116,9 +81,13 @@ def run_sharded_steps(
 
 
 def max_state_difference(lhs: Fci2FieldState, rhs: Fci2FieldState) -> float:
+    lhs_density = np.asarray(lhs.density)
+    rhs_density = np.asarray(rhs.density)
+    lhs_v_parallel = np.asarray(lhs.v_parallel)
+    rhs_v_parallel = np.asarray(rhs.v_parallel)
     return max(
-        float(jnp.max(jnp.abs(jnp.asarray(lhs.density) - jnp.asarray(rhs.density)))),
-        float(jnp.max(jnp.abs(jnp.asarray(lhs.v_parallel) - jnp.asarray(rhs.v_parallel)))),
+        float(np.max(np.abs(lhs_density - rhs_density))),
+        float(np.max(np.abs(lhs_v_parallel - rhs_v_parallel))),
     )
 
 
@@ -128,11 +97,17 @@ def run_equivalence_case(
     shard_counts: tuple[int, int, int],
     steps: int,
     dt: float,
-) -> dict[str, float]:
+) -> dict[str, object]:
     geometry = build_case_geometry(shape)
     initial_state = build_initial_state(geometry)
-    direct_state = run_direct_steps(geometry, initial_state, dt=dt, steps=steps)
-    sharded_state = run_sharded_steps(
+    one_shard_state = run_sharded_steps(
+        geometry,
+        initial_state,
+        dt=dt,
+        steps=steps,
+        shard_counts=ONE_SHARD_COUNTS,
+    )
+    multi_shard_state = run_sharded_steps(
         geometry,
         initial_state,
         dt=dt,
@@ -140,8 +115,11 @@ def run_equivalence_case(
         shard_counts=shard_counts,
     )
     return {
-        "max_abs_diff": max_state_difference(direct_state, sharded_state),
-        "direct_density_max": float(jnp.max(jnp.abs(direct_state.density))),
+        "max_abs_diff": max_state_difference(one_shard_state, multi_shard_state),
+        "one_shard_density_max": float(jnp.max(jnp.abs(one_shard_state.density))),
+        "multi_shard_density_max": float(jnp.max(jnp.abs(multi_shard_state.density))),
+        "one_shard_counts": list(ONE_SHARD_COUNTS),
+        "multi_shard_counts": list(shard_counts),
     }
 
 

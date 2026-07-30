@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, TypeVar
+from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -12,9 +12,7 @@ from ..geometry.fci_geometry import (
     LocalDomain3D,
     LocalFciGeometry3D,
     HaloLayout3D,
-    RegularFaceGeometry3D,
     LocalRegularFaceGeometry3D,
-    CellVolumeGeometry3D,
     LocalCellVolumeGeometry3D,
     LocalControlVolumeCellGeometry3D,
 )
@@ -30,17 +28,15 @@ from .fci_helpers import (
     _as_face_flux_array,
     _as_float64_array,
     _as_int_face_array,
-    _as_int_stencil_array,
     _as_wall_face_array,
-    _as_weight_stencil_array,
-    _axis_regular_lower_x_face,
-    _normalize_axis_flags,
     _local_cell_halo_array,
     _as_local_wall_array,
     _as_local_wall_int_array,
     _as_local_wall_bool_array,
     _as_local_wall_stencil_index_array,
     _as_local_wall_stencil_weight_array,
+    _axis_regular_lower_x_face,
+    _normalize_axis_flags,
 )
 
 
@@ -63,9 +59,6 @@ CV_RECONSTRUCTION_EQUATION_NONE = 0
 CV_RECONSTRUCTION_EQUATION_CELL = 1
 CV_RECONSTRUCTION_EQUATION_DIRICHLET = 2
 CV_RECONSTRUCTION_EQUATION_REMOTE_CELL = 3
-
-
-BoundaryPayloadT = TypeVar("BoundaryPayloadT")
 
 
 @_pytree_base
@@ -333,136 +326,13 @@ class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
 
 
 
-@_pytree_base
-@dataclass(frozen=True)
-class CoordinateFaceValueReconstructor3D:
-    """Dense coordinate-face value reconstructor for cell-centered fields."""
-
-    def extrapolate(
-        self,
-        field: jnp.ndarray,
-        geometry: FciGeometry3D,
-        periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-        axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        values = _as_float64_array(field, "CoordinateFaceValueReconstructor3D.field")
-        if values.shape != geometry.shape:
-            raise ValueError(f"field must have shape {geometry.shape}, got {values.shape}")
-        periodic_axes = _normalize_axis_flags(periodic_axes, "periodic_axes")
-        axis_regular_axes = _normalize_axis_flags(axis_regular_axes, "axis_regular_axes")
-        if any(periodic and axis_regular for periodic, axis_regular in zip(periodic_axes, axis_regular_axes)):
-            raise ValueError(
-                "periodic_axes and axis_regular_axes cannot both be True on the same axis; "
-                f"got periodic_axes={periodic_axes}, axis_regular_axes={axis_regular_axes}"
-            )
-        if axis_regular_axes[1] or axis_regular_axes[2]:
-            raise ValueError(
-                "axis_regular_axes currently only supports the lower x axis; "
-                f"got axis_regular_axes={axis_regular_axes}"
-            )
-
-        x_faces = jnp.empty((values.shape[0] + 1, values.shape[1], values.shape[2]), dtype=jnp.float64)
-        y_faces = jnp.empty((values.shape[0], values.shape[1] + 1, values.shape[2]), dtype=jnp.float64)
-        z_faces = jnp.empty((values.shape[0], values.shape[1], values.shape[2] + 1), dtype=jnp.float64)
-
-        x_faces = x_faces.at[1:-1].set(0.5 * (values[:-1] + values[1:]))
-        if periodic_axes[0]:
-            x_periodic = 0.5 * (values[0] + values[-1])
-            x_faces = x_faces.at[0].set(x_periodic)
-            x_faces = x_faces.at[-1].set(x_periodic)
-        elif axis_regular_axes[0]:
-            x_faces = x_faces.at[0].set(_axis_regular_lower_x_face(values))
-            x_faces = x_faces.at[-1].set(values[-1])
-        else:
-            x_faces = x_faces.at[0].set(values[0])
-            x_faces = x_faces.at[-1].set(values[-1])
-
-        y_faces = y_faces.at[:, 1:-1, :].set(0.5 * (values[:, :-1, :] + values[:, 1:, :]))
-        if periodic_axes[1]:
-            y_periodic = 0.5 * (values[:, 0, :] + values[:, -1, :])
-            y_faces = y_faces.at[:, 0, :].set(y_periodic)
-            y_faces = y_faces.at[:, -1, :].set(y_periodic)
-        else:
-            y_faces = y_faces.at[:, 0, :].set(values[:, 0, :])
-            y_faces = y_faces.at[:, -1, :].set(values[:, -1, :])
-
-        z_faces = z_faces.at[:, :, 1:-1].set(0.5 * (values[:, :, :-1] + values[:, :, 1:]))
-        if periodic_axes[2]:
-            z_periodic = 0.5 * (values[:, :, 0] + values[:, :, -1])
-            z_faces = z_faces.at[:, :, 0].set(z_periodic)
-            z_faces = z_faces.at[:, :, -1].set(z_periodic)
-        else:
-            z_faces = z_faces.at[:, :, 0].set(values[:, :, 0])
-            z_faces = z_faces.at[:, :, -1].set(values[:, :, -1])
-        return x_faces, y_faces, z_faces
-
-    def extrapolate_neumann(
-        self,
-        field: jnp.ndarray,
-        geometry: FciGeometry3D,
-        normal_derivative: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-        periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-        axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        values = _as_float64_array(field, "CoordinateFaceValueReconstructor3D.field")
-        if values.shape != geometry.shape:
-            raise ValueError(f"field must have shape {geometry.shape}, got {values.shape}")
-        periodic_axes = _normalize_axis_flags(periodic_axes, "periodic_axes")
-        axis_regular_axes = _normalize_axis_flags(axis_regular_axes, "axis_regular_axes")
-        if any(periodic and axis_regular for periodic, axis_regular in zip(periodic_axes, axis_regular_axes)):
-            raise ValueError(
-                "periodic_axes and axis_regular_axes cannot both be True on the same axis; "
-                f"got periodic_axes={periodic_axes}, axis_regular_axes={axis_regular_axes}"
-            )
-        if axis_regular_axes[1] or axis_regular_axes[2]:
-            raise ValueError(
-                "axis_regular_axes currently only supports the lower x axis; "
-                f"got axis_regular_axes={axis_regular_axes}"
-            )
-        # normal_derivative is interpreted as the outward-pointing normal derivative
-        # on the nonperiodic boundary faces. The lower x face is topological when
-        # axis_regular_axes[0] is True, so it is left untouched.
-        gx, gy, gz = _as_coordinate_face_tuple(
-            normal_derivative,
-            geometry,
-            "CoordinateFaceValueReconstructor3D.normal_derivative",
-        )
-        x_faces, y_faces, z_faces = self.extrapolate(
-            values,
-            geometry,
-            periodic_axes=periodic_axes,
-            axis_regular_axes=axis_regular_axes,
-        )
-        dx = jnp.asarray(geometry.spacing.dx, dtype=jnp.float64)
-        dy = jnp.asarray(geometry.spacing.dy, dtype=jnp.float64)
-        dz = jnp.asarray(geometry.spacing.dz, dtype=jnp.float64)
-
-        if not periodic_axes[0] and not axis_regular_axes[0]:
-            x_faces = x_faces.at[0].set(values[0] + 0.5 * dx[0] * gx[0])
-            x_faces = x_faces.at[-1].set(values[-1] + 0.5 * dx[-1] * gx[-1])
-        elif not periodic_axes[0]:
-            x_faces = x_faces.at[-1].set(values[-1] + 0.5 * dx[-1] * gx[-1])
-        if not periodic_axes[1]:
-            y_faces = y_faces.at[:, 0, :].set(values[:, 0, :] + 0.5 * dy[:, 0, :] * gy[:, 0, :])
-            y_faces = y_faces.at[:, -1, :].set(values[:, -1, :] + 0.5 * dy[:, -1, :] * gy[:, -1, :])
-        if not periodic_axes[2]:
-            z_faces = z_faces.at[:, :, 0].set(values[:, :, 0] + 0.5 * dz[:, :, 0] * gz[:, :, 0])
-            z_faces = z_faces.at[:, :, -1].set(values[:, :, -1] + 0.5 * dz[:, :, -1] * gz[:, :, -1])
-        return x_faces, y_faces, z_faces
-
-    def tree_flatten(self):
-        return (), None
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls()
-
-
 def _local_coordinate_face_values_from_halo(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
     layout: HaloLayout3D,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Reconstruct local coordinate-face values from a complete halo field."""
+
     values = _as_float64_array(field_halo, "LocalCoordinateFaceValueReconstructor3D.field_halo")
     if values.shape != layout.cell_halo_shape:
         raise ValueError(
@@ -476,7 +346,6 @@ def _local_coordinate_face_values_from_halo(
 
     h = layout.halo_width
     nx, ny, nz = layout.owned_shape
-
     x_faces = 0.5 * (
         values[h - 1 : h + nx, h : h + ny, h : h + nz]
         + values[h : h + nx + 1, h : h + ny, h : h + nz]
@@ -673,6 +542,39 @@ def _local_coordinate_side_values_from_array(
     )
 
 
+def _coordinate_normal_derivative_weights_from_geometry(
+    geometry: FciGeometry3D,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Build host-side wall-normal weights from retained FciGeometry3D."""
+
+    if min(geometry.shape) < 3:
+        raise ValueError(
+            "coordinate normal derivative reconstruction requires at least three cells "
+            f"along every axis, got {geometry.shape}"
+        )
+
+    def side_weights(a, b, c):
+        nodes = jnp.asarray((0.0, a, b, c), dtype=jnp.float64)
+        vandermonde = jnp.stack((nodes**0, nodes, nodes**2, nodes**3), axis=0)
+        d1 = -jnp.linalg.solve(
+            vandermonde, jnp.asarray((0.0, 1.0, 0.0, 0.0), dtype=jnp.float64)
+        )
+        d2 = jnp.linalg.solve(
+            vandermonde, jnp.asarray((0.0, 0.0, 2.0, 0.0), dtype=jnp.float64)
+        )
+        return d1, d2
+
+    def axis_weights(axis_grid):
+        lower = tuple(axis_grid.centers[i] - axis_grid.faces[0] for i in range(3))
+        upper = tuple(axis_grid.faces[-1] - axis_grid.centers[-1 - i] for i in range(3))
+        lower_d1, lower_d2 = side_weights(*lower)
+        upper_d1, upper_d2 = side_weights(*upper)
+        return jnp.stack((lower_d1, upper_d1)), jnp.stack((lower_d2, upper_d2))
+
+    d1, d2 = zip(*(axis_weights(axis) for axis in (geometry.grid.x, geometry.grid.y, geometry.grid.z)))
+    return jnp.stack(d1), jnp.stack(d2)
+
+
 @_pytree_base
 @dataclass(frozen=True)
 class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
@@ -711,8 +613,8 @@ class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
 
     @classmethod
     def from_geometry(cls, geometry: FciGeometry3D) -> "LocalCoordinateNormalDerivativeConstructor3D":
-        base = CoordinateNormalDerivativeConstructor3D.from_geometry(geometry)
-        return cls(dnormal_weights=base.dnormal_weights, d2normal_weights=base.d2normal_weights)
+        dnormal_weights, d2normal_weights = _coordinate_normal_derivative_weights_from_geometry(geometry)
+        return cls(dnormal_weights=dnormal_weights, d2normal_weights=d2normal_weights)
 
     def _wall_side_derivatives(
         self,
@@ -832,428 +734,6 @@ class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
 
     def tree_flatten(self):
         return ((self.dnormal_weights, self.d2normal_weights), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class CoordinateNormalDerivativeConstructor3D:
-    """Dense coordinate-boundary normal derivative constructor.
-
-    The stored weights have shape ``(3, 2, 4)``:
-    axis 0 is x/y/z, axis 1 is lower/upper wall, and axis 2 multiplies
-    ``(wall_value, first interior cell, second interior cell, third interior cell)``.
-    These weights are the coordinate-face analogue of the cut-wall least-squares
-    weights below: construction is geometry-dependent, application is just a
-    linear combination of wall and cell-centered values.
-
-    Sign convention:
-        dnormal_from_wall_value(...) returns the outward normal derivative
-        d/dn, not the inward coordinate derivative d/ds. The weight factory
-        applies the sign flip once during construction so callers can use the
-        physical outward-normal convention directly.
-    """
-
-    dnormal_weights: jnp.ndarray  # (axis=3, side=2, wall+3 interior nodes=4)
-    d2normal_weights: jnp.ndarray  # (axis=3, side=2, wall+3 interior nodes=4)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "dnormal_weights",
-            _as_coordinate_derivative_weight_array(
-                self.dnormal_weights,
-                "CoordinateNormalDerivativeConstructor3D.dnormal_weights",
-            ),
-        )
-        object.__setattr__(
-            self,
-            "d2normal_weights",
-            _as_coordinate_derivative_weight_array(
-                self.d2normal_weights,
-                "CoordinateNormalDerivativeConstructor3D.d2normal_weights",
-            ),
-        )
-
-    @classmethod
-    def from_geometry(cls, geometry: FciGeometry3D) -> "CoordinateNormalDerivativeConstructor3D":
-        """Build second-order wall-normal derivative weights from grid geometry."""
-
-        if geometry.shape[0] < 3 or geometry.shape[1] < 3 or geometry.shape[2] < 3:
-            raise ValueError(
-                "CoordinateNormalDerivativeConstructor3D.from_geometry requires at least "
-                f"three cells along every axis, got {geometry.shape}"
-            )
-
-        def _weights_for_side(a, b, c):
-            nodes = jnp.asarray((0.0, a, b, c), dtype=jnp.float64)
-            vandermonde = jnp.stack((nodes**0, nodes, nodes**2, nodes**3), axis=0)
-            # Local coordinate s points inward from the wall towards computational domain. 
-            #The returned first-derivative weights are already converted to the outward
-            # normal convention pointing away from the computational domain, 
-            #so d/dn = -d/ds is baked in once here.
-            d1_weights = -jnp.linalg.solve(
-                vandermonde,
-                jnp.asarray((0.0, 1.0, 0.0, 0.0), dtype=jnp.float64),
-            )
-            # The second normal derivative has no sign flip:
-            # d2/dn2 = d2/ds2.
-            d2_weights = jnp.linalg.solve(
-                vandermonde,
-                jnp.asarray((0.0, 0.0, 2.0, 0.0), dtype=jnp.float64),
-            )
-            return d1_weights, d2_weights
-
-        def _axis_weights(axis_grid):
-            lower_a = jnp.asarray(axis_grid.centers[0] - axis_grid.faces[0], dtype=jnp.float64)
-            lower_b = jnp.asarray(axis_grid.centers[1] - axis_grid.faces[0], dtype=jnp.float64)
-            lower_c = jnp.asarray(axis_grid.centers[2] - axis_grid.faces[0], dtype=jnp.float64)
-            upper_a = jnp.asarray(axis_grid.faces[-1] - axis_grid.centers[-1], dtype=jnp.float64)
-            upper_b = jnp.asarray(axis_grid.faces[-1] - axis_grid.centers[-2], dtype=jnp.float64)
-            upper_c = jnp.asarray(axis_grid.faces[-1] - axis_grid.centers[-3], dtype=jnp.float64)
-            lower_d1, lower_d2 = _weights_for_side(lower_a, lower_b, lower_c)
-            upper_d1, upper_d2 = _weights_for_side(upper_a, upper_b, upper_c)
-            return jnp.stack((lower_d1, upper_d1), axis=0), jnp.stack((lower_d2, upper_d2), axis=0)
-
-        x_d1, x_d2 = _axis_weights(geometry.grid.x)
-        y_d1, y_d2 = _axis_weights(geometry.grid.y)
-        z_d1, z_d2 = _axis_weights(geometry.grid.z)
-        return cls(
-            dnormal_weights=jnp.stack((x_d1, y_d1, z_d1), axis=0),
-            d2normal_weights=jnp.stack((x_d2, y_d2, z_d2), axis=0),
-        )
-
-    def dnormal_from_wall_value(
-        self,
-        field: jnp.ndarray,
-        wall_value: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-        geometry: FciGeometry3D,
-        periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-        axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        dnormal, _d2normal = self.normal_derivatives_from_wall_value(
-            field,
-            wall_value,
-            geometry,
-            periodic_axes=periodic_axes,
-            axis_regular_axes=axis_regular_axes,
-        )
-        return dnormal
-
-    def d2normal_from_wall_value(
-        self,
-        field: jnp.ndarray,
-        wall_value: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-        geometry: FciGeometry3D,
-        periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-        axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        _dnormal, d2normal = self.normal_derivatives_from_wall_value(
-            field,
-            wall_value,
-            geometry,
-            periodic_axes=periodic_axes,
-            axis_regular_axes=axis_regular_axes,
-        )
-        return d2normal
-
-    def normal_derivatives_from_wall_value(
-        self,
-        field: jnp.ndarray,
-        wall_value: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-        geometry: FciGeometry3D,
-        periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-        axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
-    ) -> tuple[
-        tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-        tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-    ]:
-        values = _as_float64_array(field, "CoordinateNormalDerivativeConstructor3D.field")
-        if values.shape != geometry.shape:
-            raise ValueError(f"field must have shape {geometry.shape}, got {values.shape}")
-        periodic_axes = _normalize_axis_flags(periodic_axes, "periodic_axes")
-        axis_regular_axes = _normalize_axis_flags(axis_regular_axes, "axis_regular_axes")
-        if any(periodic and axis_regular for periodic, axis_regular in zip(periodic_axes, axis_regular_axes)):
-            raise ValueError(
-                "periodic_axes and axis_regular_axes cannot both be True on the same axis; "
-                f"got periodic_axes={periodic_axes}, axis_regular_axes={axis_regular_axes}"
-            )
-        if axis_regular_axes[1] or axis_regular_axes[2]:
-            raise ValueError(
-                "axis_regular_axes currently only supports the lower x axis; "
-                f"got axis_regular_axes={axis_regular_axes}"
-            )
-        fw_x, fw_y, fw_z = _as_coordinate_face_tuple(
-            wall_value,
-            geometry,
-            "CoordinateNormalDerivativeConstructor3D.wall_value",
-        )
-        if axis_regular_axes[0]:
-            fw_x = fw_x.at[0].set(_axis_regular_lower_x_face(values))
-
-        dfn_x = jnp.zeros_like(fw_x, dtype=jnp.float64)
-        dfn_y = jnp.zeros_like(fw_y, dtype=jnp.float64)
-        dfn_z = jnp.zeros_like(fw_z, dtype=jnp.float64)
-        d2fn_x = jnp.zeros_like(fw_x, dtype=jnp.float64)
-        d2fn_y = jnp.zeros_like(fw_y, dtype=jnp.float64)
-        d2fn_z = jnp.zeros_like(fw_z, dtype=jnp.float64)
-
-        def _apply_weights(weights, f_wall, f0, f1, f2):
-            return weights[0] * f_wall + weights[1] * f0 + weights[2] * f1 + weights[3] * f2
-
-        def _wall_derivatives(axis: int, side: int, f_wall, f0, f1, f2):
-            dnormal = _apply_weights(self.dnormal_weights[axis, side], f_wall, f0, f1, f2)
-            d2normal = _apply_weights(self.d2normal_weights[axis, side], f_wall, f0, f1, f2)
-            return dnormal, d2normal
-
-        if not periodic_axes[0]:
-            if values.shape[0] < 3:
-                raise ValueError("x-normal derivative reconstruction requires at least three x cells")
-            lower_dfn, lower_d2fn = _wall_derivatives(0, 0, fw_x[0], values[0], values[1], values[2])
-            upper_dfn, upper_d2fn = _wall_derivatives(0, 1, fw_x[-1], values[-1], values[-2], values[-3])
-            dfn_x = dfn_x.at[0].set(lower_dfn)
-            dfn_x = dfn_x.at[-1].set(upper_dfn)
-            d2fn_x = d2fn_x.at[0].set(lower_d2fn)
-            d2fn_x = d2fn_x.at[-1].set(upper_d2fn)
-
-        if not periodic_axes[1]:
-            if values.shape[1] < 3:
-                raise ValueError("y-normal derivative reconstruction requires at least three y cells")
-            lower_dfn, lower_d2fn = _wall_derivatives(1, 0, fw_y[:, 0, :], values[:, 0, :], values[:, 1, :], values[:, 2, :])
-            upper_dfn, upper_d2fn = _wall_derivatives(1, 1, fw_y[:, -1, :], values[:, -1, :], values[:, -2, :], values[:, -3, :])
-            dfn_y = dfn_y.at[:, 0, :].set(lower_dfn)
-            dfn_y = dfn_y.at[:, -1, :].set(upper_dfn)
-            d2fn_y = d2fn_y.at[:, 0, :].set(lower_d2fn)
-            d2fn_y = d2fn_y.at[:, -1, :].set(upper_d2fn)
-
-        if not periodic_axes[2]:
-            if values.shape[2] < 3:
-                raise ValueError("z-normal derivative reconstruction requires at least three z cells")
-            lower_dfn, lower_d2fn = _wall_derivatives(2, 0, fw_z[:, :, 0], values[:, :, 0], values[:, :, 1], values[:, :, 2])
-            upper_dfn, upper_d2fn = _wall_derivatives(2, 1, fw_z[:, :, -1], values[:, :, -1], values[:, :, -2], values[:, :, -3])
-            dfn_z = dfn_z.at[:, :, 0].set(lower_dfn)
-            dfn_z = dfn_z.at[:, :, -1].set(upper_dfn)
-            d2fn_z = d2fn_z.at[:, :, 0].set(lower_d2fn)
-            d2fn_z = d2fn_z.at[:, :, -1].set(upper_d2fn)
-
-        return (dfn_x, dfn_y, dfn_z), (d2fn_x, d2fn_y, d2fn_z)
-
-    def tree_flatten(self):
-        return ((self.dnormal_weights, self.d2normal_weights), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class CutWallValueReconstructor3D:
-    """Batched cut-wall value reconstructor for cell-centered fields."""
-
-    cut_wall_geometry: "CutWallGeometry3D"  # geometry describing the cut-wall faces
-    neighbor_i: jnp.ndarray  # (n_wall_faces, n_stencil)
-    neighbor_j: jnp.ndarray  # (n_wall_faces, n_stencil)
-    neighbor_k: jnp.ndarray  # (n_wall_faces, n_stencil)
-    weights: jnp.ndarray  # (n_wall_faces, n_stencil)
-    bc_coeff: jnp.ndarray | None = None  # (n_wall_faces,) or None for pure extrapolation
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.cut_wall_geometry, CutWallGeometry3D):
-            raise TypeError("CutWallValueReconstructor3D.cut_wall_geometry must be a CutWallGeometry3D")
-        neighbor_i = _as_int_stencil_array(self.neighbor_i, "CutWallValueReconstructor3D.neighbor_i")
-        neighbor_j = _as_int_stencil_array(self.neighbor_j, "CutWallValueReconstructor3D.neighbor_j")
-        neighbor_k = _as_int_stencil_array(self.neighbor_k, "CutWallValueReconstructor3D.neighbor_k")
-        weights = _as_weight_stencil_array(self.weights, "CutWallValueReconstructor3D.weights")
-        if neighbor_i.shape != neighbor_j.shape or neighbor_i.shape != neighbor_k.shape or neighbor_i.shape != weights.shape:
-            raise ValueError("cut-wall neighbor and weight arrays must all have the same shape")
-        if neighbor_i.shape[0] != self.cut_wall_geometry.n_wall_faces:
-            raise ValueError(
-                "cut-wall neighbor arrays must have one row per cut-wall face; "
-                f"got {neighbor_i.shape[0]} rows and {self.cut_wall_geometry.n_wall_faces} faces"
-            )
-        object.__setattr__(self, "neighbor_i", neighbor_i)
-        object.__setattr__(self, "neighbor_j", neighbor_j)
-        object.__setattr__(self, "neighbor_k", neighbor_k)
-        object.__setattr__(self, "weights", weights)
-        if self.bc_coeff is not None:
-            bc_coeff = _as_wall_face_array(
-                self.bc_coeff,
-                self.cut_wall_geometry.n_wall_faces,
-                "CutWallValueReconstructor3D.bc_coeff",
-            )
-            object.__setattr__(self, "bc_coeff", bc_coeff)
-
-    @property
-    def n_wall_faces(self) -> int:
-        return self.cut_wall_geometry.n_wall_faces
-
-    def extrapolate(self, field: jnp.ndarray) -> jnp.ndarray:
-        values = _as_float64_array(field, "CutWallValueReconstructor3D.field")
-        gathered = values[self.neighbor_i, self.neighbor_j, self.neighbor_k]
-        return jnp.sum(self.weights * gathered, axis=1)
-
-    def extrapolate_neumann(
-        self,
-        field: jnp.ndarray,
-        normal_derivative: jnp.ndarray | float = 0.0,
-    ) -> jnp.ndarray:
-        if self.bc_coeff is None:
-            raise ValueError("CutWallValueReconstructor3D.extrapolate_neumann requires bc_coeff")
-        base_value = self.extrapolate(field)
-        bc_value = _as_wall_face_array(
-            normal_derivative,
-            self.cut_wall_geometry.n_wall_faces,
-            "CutWallValueReconstructor3D.normal_derivative",
-        )
-        return base_value + self.bc_coeff * bc_value
-
-    def tree_flatten(self):
-        children = [self.cut_wall_geometry, self.neighbor_i, self.neighbor_j, self.neighbor_k, self.weights]
-        aux = self.bc_coeff is None
-        if self.bc_coeff is not None:
-            children.append(self.bc_coeff)
-        return tuple(children), aux
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        bc_coeff_is_none = aux_data
-        if bc_coeff_is_none:
-            cut_wall_geometry, neighbor_i, neighbor_j, neighbor_k, weights = children
-            return cls(cut_wall_geometry, neighbor_i, neighbor_j, neighbor_k, weights, None)
-        cut_wall_geometry, neighbor_i, neighbor_j, neighbor_k, weights, bc_coeff = children
-        return cls(cut_wall_geometry, neighbor_i, neighbor_j, neighbor_k, weights, bc_coeff)
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class CutWallNormalDerivativeConstructor3D:
-    """Batched cut-wall normal derivative constructor for cell-centered fields.
-
-    Sign convention:
-        dnormal_from_wall_value(...) returns the outward normal derivative
-        d/dn, not the inward coordinate derivative d/ds. Any cut-wall
-        weight construction should therefore encode the outward normal sign
-        convention in the weights provided here.
-    """
-
-    cut_wall_geometry: "CutWallGeometry3D"
-    neighbor_i: jnp.ndarray  # (n_wall_faces, n_stencil)
-    neighbor_j: jnp.ndarray  # (n_wall_faces, n_stencil)
-    neighbor_k: jnp.ndarray  # (n_wall_faces, n_stencil)
-    weights_dnormal: jnp.ndarray  # (n_wall_faces, n_stencil)
-    weights_d2normal: jnp.ndarray  # (n_wall_faces, n_stencil)
-    wall_coeff_dnormal: jnp.ndarray  # (n_wall_faces,)
-    wall_coeff_d2normal: jnp.ndarray  # (n_wall_faces,)
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.cut_wall_geometry, CutWallGeometry3D):
-            raise TypeError("CutWallNormalDerivativeConstructor3D.cut_wall_geometry must be a CutWallGeometry3D")
-        neighbor_i = _as_int_stencil_array(self.neighbor_i, "CutWallNormalDerivativeConstructor3D.neighbor_i")
-        neighbor_j = _as_int_stencil_array(self.neighbor_j, "CutWallNormalDerivativeConstructor3D.neighbor_j")
-        neighbor_k = _as_int_stencil_array(self.neighbor_k, "CutWallNormalDerivativeConstructor3D.neighbor_k")
-        weights_dnormal = _as_weight_stencil_array(
-            self.weights_dnormal,
-            "CutWallNormalDerivativeConstructor3D.weights_dnormal",
-        )
-        weights_d2normal = _as_weight_stencil_array(
-            self.weights_d2normal,
-            "CutWallNormalDerivativeConstructor3D.weights_d2normal",
-        )
-        expected_shape = neighbor_i.shape
-        for name, value in (
-            ("neighbor_j", neighbor_j),
-            ("neighbor_k", neighbor_k),
-            ("weights_dnormal", weights_dnormal),
-            ("weights_d2normal", weights_d2normal),
-        ):
-            if value.shape != expected_shape:
-                raise ValueError(
-                    "cut-wall normal derivative neighbor and weight arrays must all have "
-                    f"shape {expected_shape}; {name} has shape {value.shape}"
-                )
-        if expected_shape[0] != self.cut_wall_geometry.n_wall_faces:
-            raise ValueError(
-                "cut-wall normal derivative arrays must have one row per cut-wall face; "
-                f"got {expected_shape[0]} rows and {self.cut_wall_geometry.n_wall_faces} faces"
-            )
-        wall_coeff_dnormal = _as_wall_face_array(
-            self.wall_coeff_dnormal,
-            self.cut_wall_geometry.n_wall_faces,
-            "CutWallNormalDerivativeConstructor3D.wall_coeff_dnormal",
-        )
-        wall_coeff_d2normal = _as_wall_face_array(
-            self.wall_coeff_d2normal,
-            self.cut_wall_geometry.n_wall_faces,
-            "CutWallNormalDerivativeConstructor3D.wall_coeff_d2normal",
-        )
-        object.__setattr__(self, "neighbor_i", neighbor_i)
-        object.__setattr__(self, "neighbor_j", neighbor_j)
-        object.__setattr__(self, "neighbor_k", neighbor_k)
-        object.__setattr__(self, "weights_dnormal", weights_dnormal)
-        object.__setattr__(self, "weights_d2normal", weights_d2normal)
-        object.__setattr__(self, "wall_coeff_dnormal", wall_coeff_dnormal)
-        object.__setattr__(self, "wall_coeff_d2normal", wall_coeff_d2normal)
-
-    @property
-    def n_wall_faces(self) -> int:
-        return self.cut_wall_geometry.n_wall_faces
-
-    def dnormal_from_wall_value(
-        self,
-        field: jnp.ndarray,
-        wall_value: jnp.ndarray,
-    ) -> jnp.ndarray:
-        values = _as_float64_array(field, "CutWallNormalDerivativeConstructor3D.field")
-        wall = _as_wall_face_array(
-            wall_value,
-            self.cut_wall_geometry.n_wall_faces,
-            "CutWallNormalDerivativeConstructor3D.wall_value",
-        )
-        gathered = values[self.neighbor_i, self.neighbor_j, self.neighbor_k]
-        return jnp.sum(self.weights_dnormal * gathered, axis=1) + self.wall_coeff_dnormal * wall
-
-    def d2normal_from_wall_value(
-        self,
-        field: jnp.ndarray,
-        wall_value: jnp.ndarray,
-    ) -> jnp.ndarray:
-        values = _as_float64_array(field, "CutWallNormalDerivativeConstructor3D.field")
-        wall = _as_wall_face_array(
-            wall_value,
-            self.cut_wall_geometry.n_wall_faces,
-            "CutWallNormalDerivativeConstructor3D.wall_value",
-        )
-        gathered = values[self.neighbor_i, self.neighbor_j, self.neighbor_k]
-        return jnp.sum(self.weights_d2normal * gathered, axis=1) + self.wall_coeff_d2normal * wall
-
-    def normal_derivatives_from_wall_value(
-        self,
-        field: jnp.ndarray,
-        wall_value: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        return (
-            self.dnormal_from_wall_value(field, wall_value),
-            self.d2normal_from_wall_value(field, wall_value),
-        )
-
-    def tree_flatten(self):
-        return (
-            (
-                self.cut_wall_geometry,
-                self.neighbor_i,
-                self.neighbor_j,
-                self.neighbor_k,
-                self.weights_dnormal,
-                self.weights_d2normal,
-                self.wall_coeff_dnormal,
-                self.wall_coeff_d2normal,
-            ),
-            None,
-        )
 
     @classmethod
     def tree_unflatten(cls, _aux_data, children):
@@ -1613,110 +1093,6 @@ class FaceFluxStencil3D:
 
 @_pytree_base
 @dataclass(frozen=True)
-class BoundaryFaceBC3D:
-    """Dense face-grid boundary-condition data for regular coordinate faces."""
-
-    kind_x: jnp.ndarray  # (nx + 1, ny, nz)
-    kind_y: jnp.ndarray  # (nx, ny + 1, nz)
-    kind_z: jnp.ndarray  # (nx, ny, nz + 1)
-    value_x: jnp.ndarray  # (nx + 1, ny, nz)
-    value_y: jnp.ndarray  # (nx, ny + 1, nz)
-    value_z: jnp.ndarray  # (nx, ny, nz + 1)
-    mask_x: jnp.ndarray  # (nx + 1, ny, nz)
-    mask_y: jnp.ndarray  # (nx, ny + 1, nz)
-    mask_z: jnp.ndarray  # (nx, ny, nz + 1)
-
-    def __post_init__(self) -> None:
-        kind_x = _as_int_face_array(self.kind_x, "BoundaryFaceBC3D.kind_x")
-        kind_y = _as_int_face_array(self.kind_y, "BoundaryFaceBC3D.kind_y")
-        kind_z = _as_int_face_array(self.kind_z, "BoundaryFaceBC3D.kind_z")
-        value_x = _as_face_flux_array(self.value_x, "BoundaryFaceBC3D.value_x")
-        value_y = _as_face_flux_array(self.value_y, "BoundaryFaceBC3D.value_y")
-        value_z = _as_face_flux_array(self.value_z, "BoundaryFaceBC3D.value_z")
-        mask_x = _as_bool_face_array(self.mask_x, "BoundaryFaceBC3D.mask_x")
-        mask_y = _as_bool_face_array(self.mask_y, "BoundaryFaceBC3D.mask_y")
-        mask_z = _as_bool_face_array(self.mask_z, "BoundaryFaceBC3D.mask_z")
-        if kind_x.shape != value_x.shape or kind_x.shape != mask_x.shape:
-            raise ValueError("BoundaryFaceBC3D.x arrays must all have the same shape")
-        if kind_y.shape != value_y.shape or kind_y.shape != mask_y.shape:
-            raise ValueError("BoundaryFaceBC3D.y arrays must all have the same shape")
-        if kind_z.shape != value_z.shape or kind_z.shape != mask_z.shape:
-            raise ValueError("BoundaryFaceBC3D.z arrays must all have the same shape")
-        object.__setattr__(self, "kind_x", kind_x)
-        object.__setattr__(self, "kind_y", kind_y)
-        object.__setattr__(self, "kind_z", kind_z)
-        object.__setattr__(self, "value_x", value_x)
-        object.__setattr__(self, "value_y", value_y)
-        object.__setattr__(self, "value_z", value_z)
-        object.__setattr__(self, "mask_x", mask_x)
-        object.__setattr__(self, "mask_y", mask_y)
-        object.__setattr__(self, "mask_z", mask_z)
-
-    @classmethod
-    def empty(cls, geometry: RegularFaceGeometry3D) -> "BoundaryFaceBC3D":
-        return cls(
-            kind_x=jnp.zeros_like(geometry.x_area, dtype=jnp.int32),
-            kind_y=jnp.zeros_like(geometry.y_area, dtype=jnp.int32),
-            kind_z=jnp.zeros_like(geometry.z_area, dtype=jnp.int32),
-            value_x=jnp.zeros_like(geometry.x_area, dtype=jnp.float64),
-            value_y=jnp.zeros_like(geometry.y_area, dtype=jnp.float64),
-            value_z=jnp.zeros_like(geometry.z_area, dtype=jnp.float64),
-            mask_x=jnp.zeros_like(geometry.x_open_mask, dtype=bool),
-            mask_y=jnp.zeros_like(geometry.y_open_mask, dtype=bool),
-            mask_z=jnp.zeros_like(geometry.z_open_mask, dtype=bool),
-        )
-
-    def tree_flatten(self):
-        return (
-            (
-                self.kind_x,
-                self.kind_y,
-                self.kind_z,
-                self.value_x,
-                self.value_y,
-                self.value_z,
-                self.mask_x,
-                self.mask_y,
-                self.mask_z,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-    def replace(self, **updates: object) -> "BoundaryFaceBC3D":
-        allowed = {
-            "kind_x",
-            "kind_y",
-            "kind_z",
-            "value_x",
-            "value_y",
-            "value_z",
-            "mask_x",
-            "mask_y",
-            "mask_z",
-        }
-        unknown = set(updates) - allowed
-        if unknown:
-            names = ", ".join(sorted(unknown))
-            raise ValueError(f"Unknown BoundaryFaceBC3D field(s): {names}")
-        return BoundaryFaceBC3D(
-            kind_x=updates.get("kind_x", self.kind_x),
-            kind_y=updates.get("kind_y", self.kind_y),
-            kind_z=updates.get("kind_z", self.kind_z),
-            value_x=updates.get("value_x", self.value_x),
-            value_y=updates.get("value_y", self.value_y),
-            value_z=updates.get("value_z", self.value_z),
-            mask_x=updates.get("mask_x", self.mask_x),
-            mask_y=updates.get("mask_y", self.mask_y),
-            mask_z=updates.get("mask_z", self.mask_z),
-        )
-
-
-@_pytree_base
-@dataclass(frozen=True)
 class LocalBoundaryFaceBC3D(_DataclassPyTreeMixin):
     """
     Local physical regular-coordinate face boundary-condition payload.
@@ -1857,194 +1233,6 @@ class LocalBoundaryFaceBC3D(_DataclassPyTreeMixin):
             mask_z=mask_z,
             layout=layout,
         )
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class BoundaryConditionBuilder(Generic[BoundaryPayloadT]):
-    """Callable adapter that delegates boundary-payload construction to an injected function."""
-
-    build_fn: Callable[
-        [
-            Any,
-            "FciGeometry3D",
-            tuple[bool | None, bool | None, bool | None] | None,
-            "CutWallGeometry3D | None",
-            "CutWallBC3D | None",
-        ],
-        BoundaryPayloadT,
-    ]
-
-    def __call__(
-        self,
-        state: Any,
-        geometry: "FciGeometry3D",
-        periodic_axes: tuple[bool | None, bool | None, bool | None] | None,
-        cut_wall_geometry: "CutWallGeometry3D | None",
-        cut_wall_bc: "CutWallBC3D | None",
-    ) -> BoundaryPayloadT:
-        return self.build_fn(state, geometry, periodic_axes, cut_wall_geometry, cut_wall_bc)
-
-    def tree_flatten(self):
-        return (), self.build_fn
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(aux_data)
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class CutWallGeometry3D:
-    """Geometry and metric data for true non-coordinate cut-wall faces."""
-
-    owner_i: jnp.ndarray
-    owner_j: jnp.ndarray
-    owner_k: jnp.ndarray
-    center: jnp.ndarray  # (n_wall_faces, 3)
-    normal_contra: jnp.ndarray  # (n_wall_faces, 3), outward normal from the computational domain
-    area_covector: jnp.ndarray  # (n_wall_faces, 3), outward-oriented area covector
-    distance: jnp.ndarray  # (n_wall_faces,)
-    J: jnp.ndarray  # (n_wall_faces,)
-    g_contra: jnp.ndarray  # (n_wall_faces, 3, 3)
-    g_cov: jnp.ndarray  # (n_wall_faces, 3, 3)
-    B_contra: jnp.ndarray  # (n_wall_faces, 3)
-    Bmag: jnp.ndarray  # (n_wall_faces,)
-    sign: jnp.ndarray  # (n_wall_faces,), orientation sign relative to the owner cell / outward domain normal
-
-    def __post_init__(self) -> None:
-        owner_i = jnp.asarray(self.owner_i, dtype=jnp.int32)
-        owner_j = jnp.asarray(self.owner_j, dtype=jnp.int32)
-        owner_k = jnp.asarray(self.owner_k, dtype=jnp.int32)
-        center = jnp.asarray(self.center, dtype=jnp.float64)
-        normal_contra = jnp.asarray(self.normal_contra, dtype=jnp.float64)
-        area_covector = jnp.asarray(self.area_covector, dtype=jnp.float64)
-        distance = jnp.asarray(self.distance, dtype=jnp.float64)
-        J = jnp.asarray(self.J, dtype=jnp.float64)
-        g_contra = jnp.asarray(self.g_contra, dtype=jnp.float64)
-        g_cov = jnp.asarray(self.g_cov, dtype=jnp.float64)
-        B_contra = jnp.asarray(self.B_contra, dtype=jnp.float64)
-        Bmag = jnp.asarray(self.Bmag, dtype=jnp.float64)
-        sign = jnp.asarray(self.sign, dtype=jnp.float64)
-        shape = owner_i.shape
-        for name, value in (
-            ("owner_j", owner_j),
-            ("owner_k", owner_k),
-            ("center", center),
-            ("normal_contra", normal_contra),
-            ("area_covector", area_covector),
-            ("distance", distance),
-            ("J", J),
-            ("g_contra", g_contra),
-            ("g_cov", g_cov),
-            ("B_contra", B_contra),
-            ("Bmag", Bmag),
-            ("sign", sign),
-        ):
-            if name in {"center", "normal_contra", "area_covector", "B_contra"}:
-                expected = shape + (3,)
-            elif name in {"g_contra", "g_cov"}:
-                expected = shape + (3, 3)
-            else:
-                expected = shape
-            if value.shape != expected:
-                raise ValueError(f"CutWallGeometry3D.{name} must have shape {expected}, got {value.shape}")
-        object.__setattr__(self, "owner_i", owner_i)
-        object.__setattr__(self, "owner_j", owner_j)
-        object.__setattr__(self, "owner_k", owner_k)
-        object.__setattr__(self, "center", center)
-        object.__setattr__(self, "normal_contra", normal_contra)
-        object.__setattr__(self, "area_covector", area_covector)
-        object.__setattr__(self, "distance", distance)
-        object.__setattr__(self, "J", J)
-        object.__setattr__(self, "g_contra", g_contra)
-        object.__setattr__(self, "g_cov", g_cov)
-        object.__setattr__(self, "B_contra", B_contra)
-        object.__setattr__(self, "Bmag", Bmag)
-        object.__setattr__(self, "sign", sign)
-
-    @property
-    def n_wall_faces(self) -> int:
-        return int(self.owner_i.size)
-
-    @classmethod
-    def empty(cls) -> "CutWallGeometry3D":
-        return cls(
-            owner_i=jnp.zeros((0,), dtype=jnp.int32),
-            owner_j=jnp.zeros((0,), dtype=jnp.int32),
-            owner_k=jnp.zeros((0,), dtype=jnp.int32),
-            center=jnp.zeros((0, 3), dtype=jnp.float64),
-            normal_contra=jnp.zeros((0, 3), dtype=jnp.float64),
-            area_covector=jnp.zeros((0, 3), dtype=jnp.float64),
-            distance=jnp.zeros((0,), dtype=jnp.float64),
-            J=jnp.zeros((0,), dtype=jnp.float64),
-            g_contra=jnp.zeros((0, 3, 3), dtype=jnp.float64),
-            g_cov=jnp.zeros((0, 3, 3), dtype=jnp.float64),
-            B_contra=jnp.zeros((0, 3), dtype=jnp.float64),
-            Bmag=jnp.zeros((0,), dtype=jnp.float64),
-            sign=jnp.zeros((0,), dtype=jnp.float64),
-        )
-
-    def tree_flatten(self):
-        return (
-            (
-                self.owner_i,
-                self.owner_j,
-                self.owner_k,
-                self.center,
-                self.normal_contra,
-                self.area_covector,
-                self.distance,
-                self.J,
-                self.g_contra,
-                self.g_cov,
-                self.B_contra,
-                self.Bmag,
-                self.sign,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class CutWallBC3D:
-    """Future embedded-wall boundary data."""
-
-    kind: jnp.ndarray  # (n_cut_faces,)
-    value: jnp.ndarray  # (n_cut_faces,)
-
-    def __post_init__(self) -> None:
-        kind = jnp.asarray(self.kind, dtype=jnp.int32)
-        value = jnp.asarray(self.value, dtype=jnp.float64)
-        if kind.ndim != 1 or value.ndim != 1:
-            raise ValueError("CutWallBC3D fields must be one-dimensional")
-        if kind.shape != value.shape:
-            raise ValueError(f"CutWallBC3D.kind and value must have the same shape, got {kind.shape} and {value.shape}")
-        object.__setattr__(self, "kind", kind)
-        object.__setattr__(self, "value", value)
-
-    @property
-    def n_wall_faces(self) -> int:
-        return int(self.kind.size)
-
-    @classmethod
-    def empty(cls) -> "CutWallBC3D":
-        return cls(
-            kind=jnp.zeros((0,), dtype=jnp.int32),
-            value=jnp.zeros((0,), dtype=jnp.float64),
-        )
-
-    def tree_flatten(self):
-        return ((self.kind, self.value), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
 
 
 @_pytree_base
@@ -4682,9 +3870,9 @@ class LocalControlVolumeFluxStencil3D:
     """Local control-volume flux payload consumed by conservative divergence."""
 
     regular_flux: FaceFluxStencil3D
-    regular_face_geometry: RegularFaceGeometry3D | LocalRegularFaceGeometry3D
-    cell_volume: CellVolumeGeometry3D | LocalCellVolumeGeometry3D
-    cut_wall_geometry: "CutWallGeometry3D | LocalCutWallGeometry3D | None" = None
+    regular_face_geometry: LocalRegularFaceGeometry3D
+    cell_volume: LocalCellVolumeGeometry3D
+    cut_wall_geometry: "LocalCutWallGeometry3D | None" = None
     cut_wall_flux: jnp.ndarray | None = None
     regular_face_contribution_rows: LocalRegularFaceContributionRows3D | None = None
     regular_face_contribution_flux: jnp.ndarray | None = None
@@ -4692,32 +3880,22 @@ class LocalControlVolumeFluxStencil3D:
     def __post_init__(self) -> None:
         if not isinstance(self.regular_flux, FaceFluxStencil3D):
             raise TypeError("LocalControlVolumeFluxStencil3D.regular_flux must be a FaceFluxStencil3D")
-        if not isinstance(
-            self.regular_face_geometry,
-            (RegularFaceGeometry3D, LocalRegularFaceGeometry3D),
-        ):
+        if not isinstance(self.regular_face_geometry, LocalRegularFaceGeometry3D):
             raise TypeError(
                 "LocalControlVolumeFluxStencil3D.regular_face_geometry must be a "
-                "RegularFaceGeometry3D or LocalRegularFaceGeometry3D"
+                "LocalRegularFaceGeometry3D"
             )
-        if not isinstance(
-            self.cell_volume,
-            (CellVolumeGeometry3D, LocalCellVolumeGeometry3D),
-        ):
+        if not isinstance(self.cell_volume, LocalCellVolumeGeometry3D):
             raise TypeError(
                 "LocalControlVolumeFluxStencil3D.cell_volume must be a "
-                "CellVolumeGeometry3D or LocalCellVolumeGeometry3D"
+                "LocalCellVolumeGeometry3D"
             )
         cell_shape = self.cell_volume.shape
         if self.regular_flux.shape != cell_shape:
             raise ValueError(
                 f"regular_flux.shape must match cell_volume.shape, got {self.regular_flux.shape} and {cell_shape}"
             )
-        regular_cell_shape = (
-            self.regular_face_geometry.local_owned_shape
-            if isinstance(self.regular_face_geometry, LocalRegularFaceGeometry3D)
-            else self.regular_face_geometry.shape
-        )
+        regular_cell_shape = self.regular_face_geometry.local_owned_shape
         if regular_cell_shape != cell_shape:
             raise ValueError(
                 "regular_face_geometry cell shape must match cell_volume.shape, "
@@ -4769,11 +3947,11 @@ class LocalControlVolumeFluxStencil3D:
 
         if not isinstance(
             self.cut_wall_geometry,
-            (CutWallGeometry3D, LocalCutWallGeometry3D),
+            (LocalCutWallGeometry3D,),
         ):
             raise TypeError(
                 "LocalControlVolumeFluxStencil3D.cut_wall_geometry must be a "
-                "CutWallGeometry3D or LocalCutWallGeometry3D"
+                "LocalCutWallGeometry3D"
             )
         if self.cut_wall_flux is None:
             cut_wall_flux = jnp.zeros((self.cut_wall_geometry.n_wall_faces,), dtype=jnp.float64)
@@ -4886,17 +4064,8 @@ __all__ = [
     "BC_NONE",
     "BC_NORMALFLUX",
     "BC_NOFLUX",
-    "BoundaryConditionBuilder",
-    "BoundaryFaceBC3D",
-    "CellVolumeGeometry3D",
-    "CoordinateFaceValueReconstructor3D",
-    "CoordinateNormalDerivativeConstructor3D",
     "FaceGradientStencil3D",
     "ConservativeStencil3D",
-    "CutWallBC3D",
-    "CutWallGeometry3D",
-    "CutWallNormalDerivativeConstructor3D",
-    "CutWallValueReconstructor3D",
     "FaceFluxStencil3D",
     "LocalBoundaryConditionBuilder",
     "LocalBoundaryData3D",
@@ -4915,5 +4084,4 @@ __all__ = [
     "LocalCellGradient3D",
     "LocalStencil1D",
     "LocalStencil3D",
-    "RegularFaceGeometry3D",
 ]

@@ -60,6 +60,15 @@ def _component_in_phizr_order(
     return data
 
 
+def _mgrid_mode(dataset: Dataset) -> str:
+    if "mgrid_mode" not in dataset.variables:
+        return "S"
+    values = np.asarray(dataset.variables["mgrid_mode"][:])
+    if values.dtype.kind == "S":
+        return b"".join(values.reshape(-1).tolist()).decode("ascii").strip().upper()
+    return "".join(values.reshape(-1).tolist()).strip().upper()
+
+
 def _reference(path: Path, currents: np.ndarray | None = None) -> dict[str, object]:
     """Read and assemble MAKEGRID samples independently of the evaluator."""
 
@@ -96,7 +105,9 @@ def _reference(path: Path, currents: np.ndarray | None = None) -> dict[str, obje
             and f"bz_{match.group(1)}" in dataset.variables
         )
         if currents is None:
-            if "raw_coil_cur" in dataset.variables:
+            if _mgrid_mode(dataset) == "R":
+                weights = np.ones(len(groups), dtype=np.float64)
+            elif "raw_coil_cur" in dataset.variables:
                 weights = np.asarray(
                     dataset.variables["raw_coil_cur"][:], dtype=np.float64
                 ).reshape(-1)
@@ -140,7 +151,9 @@ def _to_cartesian(points_rphiz: np.ndarray) -> np.ndarray:
     return np.stack((R * np.cos(phi), R * np.sin(phi), Z), axis=-1)
 
 
-def _write_synthetic(path: Path) -> dict[str, object]:
+def _write_synthetic(
+    path: Path, *, mgrid_mode: str | None = None
+) -> dict[str, object]:
     R = np.linspace(1.3, 2.1, 7)
     Z = np.linspace(-0.55, 0.55, 8)
     nfp = 2
@@ -171,6 +184,8 @@ def _write_synthetic(path: Path) -> dict[str, object]:
             ("external_coils", 2),
         ):
             dataset.createDimension(name, size)
+        if mgrid_mode is not None:
+            dataset.createDimension("dim_00001", 1)
         for name, dtype, value in (
             ("ir", "i4", len(R)),
             ("jz", "i4", len(Z)),
@@ -188,6 +203,10 @@ def _write_synthetic(path: Path) -> dict[str, object]:
         dataset.createVariable(
             "raw_coil_cur", "f8", ("external_coils",)
         )[:] = [1.5, -0.75]
+        if mgrid_mode is not None:
+            dataset.createVariable("mgrid_mode", "S1", ("dim_00001",))[:] = [
+                mgrid_mode
+            ]
         for group, fields in ((1, group_1), (2, group_2)):
             for component, values in zip(("br", "bp", "bz"), fields):
                 variable = dataset.createVariable(
@@ -234,6 +253,37 @@ def test_default_currents_come_from_makegrid(synthetic_makegrid):
     np.testing.assert_allclose(
         evaluator.evaluate_cylindrical(_cylindrical_grid_points(reference)),
         _expected_field(reference),
+        atol=3e-7,
+        rtol=3e-7,
+    )
+
+
+def test_raw_mode_does_not_apply_raw_currents_twice(tmp_path):
+    path = tmp_path / "synthetic_raw.mgrid.nc"
+    reference = _write_synthetic(path, mgrid_mode="R")
+    evaluator = bfield_evaluator_from_makegrid(path)
+    expected = _reference(path, np.ones(2, dtype=np.float64))
+
+    np.testing.assert_allclose(evaluator.currents, np.ones(2))
+    np.testing.assert_allclose(
+        evaluator.evaluate_cylindrical(_cylindrical_grid_points(reference)),
+        _expected_field(expected),
+        atol=3e-7,
+        rtol=3e-7,
+    )
+
+
+def test_raw_mode_accepts_explicit_dimensionless_multipliers(tmp_path):
+    path = tmp_path / "synthetic_raw.mgrid.nc"
+    reference = _write_synthetic(path, mgrid_mode="R")
+    multipliers = np.array([2.0, 0.0])
+    evaluator = bfield_evaluator_from_makegrid(path, currents=multipliers)
+    expected = _reference(path, multipliers)
+
+    np.testing.assert_allclose(evaluator.currents, multipliers)
+    np.testing.assert_allclose(
+        evaluator.evaluate_cylindrical(_cylindrical_grid_points(reference)),
+        _expected_field(expected),
         atol=3e-7,
         rtol=3e-7,
     )

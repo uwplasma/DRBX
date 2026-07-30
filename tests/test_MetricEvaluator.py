@@ -12,6 +12,7 @@ from drbx.geometry.MetricEvaluator import (
     build_metric_evaluator,
     build_wall_fitted_initial_mesh,
 )
+from drbx.geometry import MetricQualityLocation, MetricQualityRegion
 from drbx.geometry.ScalarPotential_evaluator import scalar_potential_evaluator_from_bfield
 from drbx.geometry.WallEvaluator import WallEvaluator
 
@@ -62,6 +63,36 @@ def make_evaluator(nu=9, nv=8, neta=16):
     return MetricEvaluator(u, v, eta, positions, nfp=3)
 
 
+def make_cylindrical_evaluator(u=None, v=None, eta=None):
+    u = np.linspace(0.0, 1.0, 6) if u is None else np.asarray(u, dtype=float)
+    v = np.linspace(0.0, 1.0, 5) if v is None else np.asarray(v, dtype=float)
+    eta = (
+        np.arange(8, dtype=float) * (2.0 * np.pi / 8.0)
+        if eta is None else np.asarray(eta, dtype=float)
+    )
+    ug, vg, eg = np.meshgrid(u, v, eta, indexing="ij")
+    radius = 3.0 + 0.1 * ug + 0.4 * vg
+    height = 0.5 * ug + 0.2 * vg
+    positions = np.stack(
+        (radius * np.cos(eg), radius * np.sin(eg), height), axis=-1
+    )
+    return MetricEvaluator(u, v, eta, positions, period=2.0 * np.pi)
+
+
+class CylindricalToroidalField:
+    def __init__(self, tilt=0.0):
+        self.tilt = float(tilt)
+
+    def evaluate_cartesian(self, points):
+        points = np.asarray(points, dtype=float)
+        radius = np.hypot(points[..., 0], points[..., 1])
+        ephi = np.stack(
+            (-points[..., 1] / radius, points[..., 0] / radius, np.zeros_like(radius)),
+            axis=-1,
+        )
+        return ephi + self.tilt * np.array([0.0, 0.0, 1.0])
+
+
 def test_position_and_jacobian_match_analytic_map():
     evaluator = make_evaluator()
     rng = np.random.default_rng(1234)
@@ -91,6 +122,24 @@ def test_quasiperiodicity_and_batch_shapes():
     np.testing.assert_allclose(xp, x @ rot.T, atol=3e-11)
     assert x.shape == (2, 2, 3)
     assert evaluator.jacobian_matrix(q).shape == (2, 2, 3, 3)
+
+
+def test_position_uses_value_only_channel_path(monkeypatch):
+    evaluator = make_evaluator()
+    derivative_orders = []
+    for channel in evaluator._channels:
+        original = channel.evaluate_prepared
+
+        def recording_evaluate(
+            prepared, du=0, dv=0, deta=0, *, _original=original
+        ):
+            derivative_orders.append((du, dv, deta))
+            return _original(prepared, du=du, dv=dv, deta=deta)
+
+        monkeypatch.setattr(channel, "evaluate_prepared", recording_evaluate)
+
+    evaluator.position(np.array([[0.2, 0.4, 0.1], [0.7, 0.8, 0.3]]))
+    assert derivative_orders == [(0, 0, 0)] * 3
 
 
 def test_field_transformation_and_reconstruction():
@@ -132,6 +181,85 @@ def test_finite_volume_sampling_helpers_exclude_square_corners():
     )
     assert np.all(evaluator.sample_cell_centers().valid)
     assert np.all(evaluator.sample_open_boundary_faces().valid)
+
+
+def test_quality_report_combines_cells_and_open_faces():
+    evaluator = make_evaluator()
+    report = evaluator.quality_report()
+    expected_count = (
+        evaluator.cell_center_logical_points().reshape(-1, 3).shape[0]
+        + evaluator.open_boundary_face_center_logical_points().shape[0]
+    )
+    assert report.sample_count == expected_count
+    assert report.valid_fraction == 1.0
+    assert 0.0 < report.raw_J_min <= report.raw_J_p01 <= report.raw_J_median <= report.raw_J_max
+    assert 0.0 < report.raw_J_min_over_median <= 1.0
+    assert 0.0 < report.scaled_J_min <= report.scaled_J_p01 <= 1.0
+    assert 1.0 <= report.mapping_condition_median <= report.mapping_condition_p95 <= report.mapping_condition_max
+    assert np.isfinite(report.max_neighbor_log_J_jump)
+    assert report.inverse_residual_max < 1e-10
+    summary = report.summary("synthetic")
+    assert summary.startswith("synthetic: ")
+    assert "samples=" in summary
+    assert "scaled_J=" in summary
+    assert "cond(F)=" in summary
+    assert "max_dlogJ=" in summary
+
+
+def test_quality_report_has_region_and_location_diagnostics():
+    evaluator = make_evaluator()
+    report = evaluator.quality_report()
+    labels = [region.label for region in report.regions]
+    assert labels == ["cell_center", "u_min_face", "u_max_face", "v_min_face", "v_max_face"]
+    expected_counts = [
+        (evaluator.u.size - 1) * (evaluator.v.size - 1) * evaluator.eta.size,
+        (evaluator.v.size - 1) * evaluator.eta.size,
+        (evaluator.v.size - 1) * evaluator.eta.size,
+        (evaluator.u.size - 1) * evaluator.eta.size,
+        (evaluator.u.size - 1) * evaluator.eta.size,
+    ]
+    assert [region.sample_count for region in report.regions] == expected_counts
+    assert all(0.0 <= region.valid_fraction <= 1.0 for region in report.regions)
+    assert all(region.scaled_J_min > 0.0 for region in report.regions)
+    assert all(region.mapping_condition_max >= 1.0 for region in report.regions)
+    for extremum in (report.worst_scaled_jacobian, report.worst_mapping_condition):
+        assert extremum is not None
+        assert extremum.region in labels
+        assert len(extremum.logical) == 3
+        assert len(extremum.cartesian) == 3
+        assert np.all(np.isfinite(extremum.logical))
+        assert np.all(np.isfinite(extremum.cartesian))
+    assert report.max_neighbor_log_J_jump_axis in {"u", "v", "eta", "eta (periodic seam)"}
+    assert len(report.max_neighbor_log_J_jump_endpoint_a) == 3
+    assert len(report.max_neighbor_log_J_jump_endpoint_b) == 3
+    if report.max_neighbor_log_J_jump_axis == "eta (periodic seam)":
+        assert report.max_neighbor_log_J_jump_endpoint_b[2] > evaluator.period
+    detail = report.detailed_summary("synthetic detail")
+    assert detail.startswith("synthetic detail:\n")
+    assert "cell_center:" in detail
+    assert "u_min_face:" in detail
+    assert "worst_scaled_J:" in detail
+    assert "worst_cond(F):" in detail
+    assert "q_a=" in detail and "q_b=" in detail
+
+
+def test_quality_region_and_location_types_are_package_exports():
+    assert MetricQualityRegion.__name__ == "MetricQualityRegion"
+    assert MetricQualityLocation.__name__ == "MetricQualityLocation"
+
+
+def test_quality_report_diagnostics_survive_inverted_map():
+    evaluator = make_evaluator()
+    u = evaluator.u
+    v = evaluator.v
+    eta = evaluator.eta
+    ug, vg, eg = np.meshgrid(u, v, eta, indexing="ij")
+    R, Z, delta = analytic_map(ug, vg, eg)
+    positions = np.stack((R * np.cos(eg + delta), R * np.sin(eg + delta), -Z), axis=-1)
+    inverted = MetricEvaluator(evaluator.u, evaluator.v, evaluator.eta, positions, nfp=3)
+    report = inverted.quality_report()
+    assert report.valid_fraction < 1.0
+    assert report.detailed_summary("inverted")
 
 
 def test_large_structured_sampling_is_chunked():
@@ -370,6 +498,22 @@ def test_wall_fitted_initial_mesh_has_harmonic_interior_and_rotational_seam():
         np.testing.assert_allclose(positions[..., k, :], positions[..., 0, :] @ rotation.T, atol=2.0e-12)
 
 
+def test_wall_fitted_initial_mesh_factorizes_harmonic_operator_once(monkeypatch):
+    metric_module = importlib.import_module("drbx.geometry.MetricEvaluator")
+    original_splu = metric_module.splu
+    calls = []
+
+    def recording_splu(*args, **kwargs):
+        calls.append(args[0].shape)
+        return original_splu(*args, **kwargs)
+
+    monkeypatch.setattr(metric_module, "splu", recording_splu)
+    build_wall_fitted_initial_mesh(
+        SyntheticEtaEvaluator(), SyntheticWallEvaluator(), (9, 8, 12)
+    )
+    assert calls == [((9 - 2) * (8 - 2),) * 2]
+
+
 def test_wall_fitted_mesh_preserves_poloidal_phase_when_shape_extrema_move():
     wall = PhaseStableShapeWallEvaluator()
     eta_evaluator = SyntheticEtaEvaluator()
@@ -452,6 +596,46 @@ def test_metric_spline_degree_is_configurable(degree):
     assert np.all(evaluator.evaluate(np.array([[0.37, 0.43, 0.21]])).valid)
 
 
+@pytest.mark.parametrize("degree", [1, 2, 3])
+def test_fitted_metric_evaluator_cache_roundtrip_skips_refit(degree, monkeypatch):
+    base = make_evaluator()
+    nodes = np.stack(
+        np.meshgrid(base.u, base.v, base.eta, indexing="ij"),
+        axis=-1,
+    )
+    evaluator = MetricEvaluator(
+        base.u,
+        base.v,
+        base.eta,
+        base.position(nodes),
+        nfp=base.nfp,
+        metric_spline_degree=degree,
+    )
+    payload = evaluator.to_cache_payload(prefix="metric_")
+    metric_module = importlib.import_module("drbx.geometry.MetricEvaluator")
+    monkeypatch.setattr(
+        metric_module,
+        "RectBivariateSpline",
+        lambda *args, **kwargs: pytest.fail("cache restore must not refit splines"),
+    )
+    restored = MetricEvaluator.from_cache_payload(payload, prefix="metric_")
+    rng = np.random.default_rng(8675309)
+    query = np.column_stack(
+        (
+            rng.random(17),
+            rng.random(17),
+            rng.random(17) * evaluator.period,
+        )
+    )
+    np.testing.assert_array_equal(restored.position(query), evaluator.position(query))
+    np.testing.assert_array_equal(
+        restored.jacobian_matrix(query),
+        evaluator.jacobian_matrix(query),
+    )
+    assert restored.nfp == evaluator.nfp
+    assert restored.metric_spline_degree == evaluator.metric_spline_degree
+
+
 @pytest.mark.parametrize("bad_degree", [0, 4, 1.5, True, "2"])
 def test_metric_spline_degree_rejects_invalid_values(bad_degree):
     base = make_evaluator()
@@ -520,6 +704,10 @@ def plot_constant_eta_mesh(
     surface_nv: int = 40,
     show_mesh_nodes: bool = True,
     show: bool = False,
+    _figure=None,
+    _scene_name: str = "scene",
+    _show_legend: bool = True,
+    _write_html: bool = True,
 ):
     """Save a self-contained Plotly view of fitted constant-eta mesh planes.
 
@@ -584,7 +772,7 @@ def plot_constant_eta_mesh(
     uu = np.linspace(metric_evaluator.u[0], metric_evaluator.u[-1], surface_nu)
     vv = np.linspace(metric_evaluator.v[0], metric_evaluator.v[-1], surface_nv)
     U, V = np.meshgrid(uu, vv, indexing="ij")
-    figure = go.Figure()
+    figure = go.Figure() if _figure is None else _figure
 
     for plane_number, eta_index in enumerate(eta_indices):
         target = float(metric_evaluator.eta[eta_index])
@@ -607,15 +795,16 @@ def plot_constant_eta_mesh(
                 surfacecolor=np.full_like(U, plane_number, dtype=float),
                 cmin=0.0,
                 cmax=max(1.0, surface_count - 1),
-                showscale=plane_number == 0,
+                showscale=_show_legend and plane_number == 0,
                 colorbar=dict(title=dict(text="stored eta plane index")),
                 name=f"eta={target:.5f}",
-                showlegend=True,
+                showlegend=_show_legend,
                 hovertemplate=(
                     "eta=%{customdata[0]:.6f} rad"
                     "<br>x=%{x:.6f} m<br>y=%{y:.6f} m<br>z=%{z:.6f} m"
                     "<br>eta residual=%{customdata[1]:.3e} rad<extra></extra>"
                 ),
+                scene=_scene_name,
             )
         )
 
@@ -675,7 +864,9 @@ def plot_constant_eta_mesh(
                 x=u_lines[:, 0], y=u_lines[:, 1], z=u_lines[:, 2],
                 mode="lines", line=dict(color="black", width=2),
                 customdata=u_residual[:, None], name="u mesh lines",
-                legendgroup=f"mesh-{plane_number}", showlegend=plane_number == 0,
+                legendgroup=f"mesh-{plane_number}",
+                showlegend=_show_legend and plane_number == 0,
+                scene=_scene_name,
                 hovertemplate="eta residual=%{customdata[0]:.3e} rad<extra></extra>",
             )
         )
@@ -684,7 +875,9 @@ def plot_constant_eta_mesh(
                 x=v_lines[:, 0], y=v_lines[:, 1], z=v_lines[:, 2],
                 mode="lines", line=dict(color="black", width=2),
                 customdata=v_residual[:, None], name="v mesh lines",
-                legendgroup=f"mesh-{plane_number}", showlegend=plane_number == 0,
+                legendgroup=f"mesh-{plane_number}",
+                showlegend=_show_legend and plane_number == 0,
+                scene=_scene_name,
                 hovertemplate="eta residual=%{customdata[0]:.3e} rad<extra></extra>",
             )
         )
@@ -701,7 +894,9 @@ def plot_constant_eta_mesh(
                     x=nodes[..., 0].ravel(), y=nodes[..., 1].ravel(), z=nodes[..., 2].ravel(),
                     mode="markers", marker=dict(size=2.5, color="black"),
                     customdata=node_residual.ravel()[:, None], name="solved mesh nodes",
-                    legendgroup=f"mesh-{plane_number}", showlegend=plane_number == 0,
+                    legendgroup=f"mesh-{plane_number}",
+                    showlegend=_show_legend and plane_number == 0,
+                    scene=_scene_name,
                     hovertemplate="eta residual=%{customdata[0]:.3e} rad<extra></extra>",
                 )
             )
@@ -727,7 +922,8 @@ def plot_constant_eta_mesh(
                     customdata=wall_residual[:, None],
                     name="HSX vessel boundary",
                     legendgroup="wall",
-                    showlegend=plane_number == 0,
+                    showlegend=_show_legend and plane_number == 0,
+                    scene=_scene_name,
                     hovertemplate=(
                         "vessel boundary"
                         "<br>eta residual=%{customdata[0]:.3e} rad<extra></extra>"
@@ -735,13 +931,323 @@ def plot_constant_eta_mesh(
                 )
             )
 
+    if _write_html:
+        figure.update_layout(
+            title=f"{surface_count} constant eta planes with fitted D2 mesh",
+            scene=dict(
+                xaxis_title="x [m]", yaxis_title="y [m]", zaxis_title="z [m]",
+                aspectmode="data", camera=dict(eye=dict(x=1.55, y=-1.55, z=1.15)),
+            ),
+            legend=dict(title="Constant eta surfaces / mesh"),
+            margin=dict(l=0, r=0, b=0, t=55),
+        )
+        filename.parent.mkdir(parents=True, exist_ok=True)
+        figure.write_html(str(filename), include_plotlyjs=True, full_html=True, auto_open=False)
+        if show:
+            figure.show()
+    return figure
+
+
+def plot_constant_eta_mesh_comparison(
+    pre_relaxation_evaluator: MetricEvaluator,
+    final_evaluator: MetricEvaluator,
+    filename: str | Path,
+    *,
+    eta_evaluator=None,
+    wall_evaluator=None,
+    wall_points: int = 256,
+    surface_count: int = 8,
+    surface_nu: int = 40,
+    surface_nv: int = 40,
+    show: bool = False,
+):
+    """Write side-by-side pre/post-relaxation constant-eta mesh views."""
+
+    import plotly.graph_objects as go
+
+    if not isinstance(pre_relaxation_evaluator, MetricEvaluator):
+        raise TypeError("pre_relaxation_evaluator must be a MetricEvaluator")
+    if not isinstance(final_evaluator, MetricEvaluator):
+        raise TypeError("final_evaluator must be a MetricEvaluator")
+    if not np.isclose(pre_relaxation_evaluator.period, final_evaluator.period):
+        raise ValueError("comparison evaluators must have the same period")
+    figure = go.Figure()
+    plot_constant_eta_mesh(
+        pre_relaxation_evaluator,
+        filename,
+        eta_evaluator=eta_evaluator,
+        wall_evaluator=wall_evaluator,
+        wall_points=wall_points,
+        surface_count=surface_count,
+        surface_nu=surface_nu,
+        surface_nv=surface_nv,
+        _figure=figure,
+        _scene_name="scene",
+        _write_html=False,
+    )
+    plot_constant_eta_mesh(
+        final_evaluator,
+        filename,
+        eta_evaluator=eta_evaluator,
+        wall_evaluator=wall_evaluator,
+        wall_points=wall_points,
+        surface_count=surface_count,
+        surface_nu=surface_nu,
+        surface_nv=surface_nv,
+        _figure=figure,
+        _scene_name="scene2",
+        _show_legend=False,
+        _write_html=False,
+    )
+    coordinate_values = [[], [], []]
+    for trace in figure.data:
+        for index, coordinate in enumerate((trace.x, trace.y, trace.z)):
+            values = np.asarray(coordinate, dtype=float).ravel()
+            finite = values[np.isfinite(values)]
+            if finite.size:
+                coordinate_values[index].append(finite)
+
+    def padded_range(values):
+        combined = np.concatenate(values)
+        lower = float(np.min(combined))
+        upper = float(np.max(combined))
+        span = max(upper - lower, np.finfo(float).eps)
+        padding = 0.02 * span
+        return [lower - padding, upper + padding]
+
+    x_range, y_range, z_range = [padded_range(values) for values in coordinate_values]
+    scene_layout = dict(
+        domain=dict(x=[0.0, 0.47]),
+        xaxis=dict(title="x [m]", range=x_range),
+        yaxis=dict(title="y [m]", range=y_range),
+        zaxis=dict(title="z [m]", range=z_range),
+        aspectmode="data",
+        camera=dict(eye=dict(x=1.55, y=-1.55, z=1.15)),
+    )
+    scene2_layout = dict(
+        domain=dict(x=[0.53, 1.0]),
+        xaxis=dict(title="x [m]", range=list(x_range)),
+        yaxis=dict(title="y [m]", range=list(y_range)),
+        zaxis=dict(title="z [m]", range=list(z_range)),
+        aspectmode="data",
+        camera=dict(eye=dict(x=1.55, y=-1.55, z=1.15)),
+    )
     figure.update_layout(
-        title=f"{surface_count} constant eta planes with fitted D2 mesh",
-        scene=dict(
-            xaxis_title="x [m]", yaxis_title="y [m]", zaxis_title="z [m]",
-            aspectmode="data", camera=dict(eye=dict(x=1.55, y=-1.55, z=1.15)),
-        ),
+        title=f"{surface_count} constant eta planes: pre- and post-MMPDE",
+        scene=scene_layout,
+        scene2=scene2_layout,
+        annotations=[
+            dict(text="Pre-relaxation mesh", x=0.225, y=1.02, xref="paper", yref="paper", showarrow=False),
+            dict(text="MMPDE-relaxed metric", x=0.775, y=1.02, xref="paper", yref="paper", showarrow=False),
+        ],
         legend=dict(title="Constant eta surfaces / mesh"),
+        margin=dict(l=0, r=0, b=0, t=75),
+        width=1400,
+    )
+    filename = Path(filename)
+    filename.parent.mkdir(parents=True, exist_ok=True)
+    figure.write_html(str(filename), include_plotlyjs=True, full_html=True, auto_open=False)
+    if show:
+        figure.show()
+    return figure
+
+
+def compute_epsilon_plane_diagnostic(metric_evaluator, bfield_evaluator):
+    """Measure alignment of B with the actual fitted constant-eta planes.
+
+    The plane normal is computed from the fitted map, ``grad(eta) = A^{-T}e3``;
+    this intentionally does not use the scalar-potential gradient.
+    """
+    if not isinstance(metric_evaluator, MetricEvaluator):
+        raise TypeError("metric_evaluator must be a MetricEvaluator")
+    u_widths = np.diff(metric_evaluator.u)
+    v_widths = np.diff(metric_evaluator.v)
+    eta_widths = np.full(
+        metric_evaluator.eta.size,
+        metric_evaluator.period / metric_evaluator.eta.size,
+        dtype=float,
+    )
+    u_centers = metric_evaluator.u[:-1] + 0.5 * u_widths
+    v_centers = metric_evaluator.v[:-1] + 0.5 * v_widths
+    eta_centers = metric_evaluator.eta + 0.5 * eta_widths
+    logical = np.stack(
+        np.meshgrid(u_centers, v_centers, eta_centers, indexing="ij"), axis=-1
+    )
+    metric = metric_evaluator.evaluate(logical, reject_nonpositive_J=False)
+    A = np.asarray(metric.jacobian_matrix, dtype=float)
+    position = np.asarray(metric.position, dtype=float)
+    B = np.asarray(bfield_evaluator.evaluate_cartesian(position), dtype=float)
+    if B.shape != position.shape:
+        raise ValueError("bfield_evaluator must return B with position.shape")
+    if not np.all(np.isfinite(A)) or not np.all(np.isfinite(B)):
+        raise ValueError("epsilon_plane inputs contain nonfinite values")
+    e3 = np.zeros(A.shape[:-1], dtype=float)
+    e3[..., 2] = 1.0
+    grad_eta = np.linalg.solve(
+        np.swapaxes(A, -1, -2), e3[..., None]
+    )[..., 0]
+    B_norm = np.linalg.norm(B, axis=-1)
+    normal_norm = np.linalg.norm(grad_eta, axis=-1)
+    if (
+        not np.all(np.isfinite(A))
+        or not np.all(np.isfinite(grad_eta))
+        or np.any(B_norm <= 0.0)
+        or np.any(normal_norm <= 0.0)
+    ):
+        raise ValueError("epsilon_plane requires finite A, B, and nonzero normals")
+    epsilon = np.linalg.norm(np.cross(B, grad_eta), axis=-1) / (B_norm * normal_norm)
+    epsilon = np.clip(epsilon, 0.0, 1.0)
+    angles = np.degrees(np.arcsin(epsilon))
+    area = np.linalg.norm(np.cross(A[..., :, 0], A[..., :, 1]), axis=-1)
+    if np.any(~np.isfinite(area)) or np.any(area <= 0.0):
+        raise ValueError("epsilon_plane requires positive finite plane areas")
+    cell_weight = (
+        u_widths[:, None, None]
+        * v_widths[None, :, None]
+        * eta_widths[None, None, :]
+    )
+    area_weight = area * u_widths[:, None, None] * v_widths[None, :, None]
+    signed_J = np.asarray(metric.signed_J, dtype=float)
+    volume_weight = signed_J * cell_weight
+    if np.any(~np.isfinite(volume_weight)) or np.any(volume_weight <= 0.0):
+        raise ValueError("epsilon_plane requires positive finite signed cell volumes")
+
+    def weighted_rms(values, weights):
+        return float(np.sqrt(np.sum(weights * values**2) / np.sum(weights)))
+
+    plane_rms = np.sqrt(
+        np.sum(area_weight * epsilon**2, axis=(0, 1))
+        / np.sum(area_weight, axis=(0, 1))
+    )
+    return {
+        "logical_points": logical,
+        "eta_centers": eta_centers,
+        "epsilon": epsilon,
+        "angle_degrees": angles,
+        "area": area,
+        "area_weight": area_weight,
+        "volume_weight": volume_weight,
+        "plane_rms": np.asarray(plane_rms, dtype=float),
+        "domain_rms": weighted_rms(epsilon, volume_weight),
+        "pointwise_rms": float(np.sqrt(np.mean(epsilon**2))),
+        "pointwise_max": float(np.max(epsilon)),
+        "angle_rms_degrees": weighted_rms(angles, volume_weight),
+        "angle_max_degrees": float(np.max(angles)),
+    }
+
+
+def _print_epsilon_plane_diagnostic(label, diagnostic):
+    plane_values = ", ".join(
+        f"eta={eta:.6e}:{rms:.6e}"
+        for eta, rms in zip(diagnostic["eta_centers"], diagnostic["plane_rms"])
+    )
+    print(
+        f"epsilon_plane ({label}): "
+        f"plane_rms=[{plane_values}], "
+        f"domain_rms={diagnostic['domain_rms']:.6e}, "
+        f"pointwise_rms={diagnostic['pointwise_rms']:.6e}, "
+        f"max={diagnostic['pointwise_max']:.6e}, "
+        f"angle_rms={diagnostic['angle_rms_degrees']:.6e} deg, "
+        f"angle_max={diagnostic['angle_max_degrees']:.6e} deg"
+    )
+
+
+def _epsilon_plot_filename(output):
+    output = Path(output)
+    if output.suffix.lower() != ".html":
+        raise ValueError("epsilon_plane output filename must end in .html")
+    return output.with_name(f"{output.stem}_epsilon_plane{output.suffix}")
+
+
+def plot_epsilon_plane(
+    metric_evaluator,
+    bfield_evaluator,
+    filename,
+    *,
+    surface_count=8,
+    surface_nu=24,
+    surface_nv=24,
+    show=False,
+):
+    """Write epsilon_plane surfaces for selected stored eta planes."""
+    import plotly.graph_objects as go
+
+    if surface_count < 1 or surface_count > metric_evaluator.eta.size:
+        raise ValueError("surface_count must be between 1 and the stored eta count")
+    if surface_nu < 2 or surface_nv < 2:
+        raise ValueError("surface_nu and surface_nv must be at least 2")
+    filename = Path(filename)
+    if filename.suffix.lower() != ".html":
+        raise ValueError("interactive Plotly output filename must end in .html")
+    eta_indices = np.floor(
+        np.arange(surface_count) * metric_evaluator.eta.size / surface_count
+    ).astype(int)
+    # Move only the chart endpoints inward by one representable float. This
+    # avoids square corners while retaining essentially the full wall extent.
+    uu = np.linspace(metric_evaluator.u[0], metric_evaluator.u[-1], surface_nu)
+    vv = np.linspace(metric_evaluator.v[0], metric_evaluator.v[-1], surface_nv)
+    uu[[0, -1]] = [
+        np.nextafter(metric_evaluator.u[0], metric_evaluator.u[-1]),
+        np.nextafter(metric_evaluator.u[-1], metric_evaluator.u[0]),
+    ]
+    vv[[0, -1]] = [
+        np.nextafter(metric_evaluator.v[0], metric_evaluator.v[-1]),
+        np.nextafter(metric_evaluator.v[-1], metric_evaluator.v[0]),
+    ]
+    U, V = np.meshgrid(uu, vv, indexing="ij")
+    surfaces = []
+    for eta_index in eta_indices:
+        target = float(metric_evaluator.eta[eta_index])
+        logical = np.stack((U, V, np.full_like(U, target)), axis=-1)
+        metric = metric_evaluator.evaluate(logical, reject_nonpositive_J=False)
+        A = metric.jacobian_matrix
+        xyz = metric.position
+        B = np.asarray(bfield_evaluator.evaluate_cartesian(xyz), dtype=float)
+        if B.shape != xyz.shape:
+            raise ValueError("bfield_evaluator must return B with position.shape")
+        if not np.all(np.isfinite(A)) or not np.all(np.isfinite(B)):
+            raise ValueError("epsilon_plane plot encountered nonfinite A or B")
+        e3 = np.zeros(A.shape[:-1], dtype=float)
+        e3[..., 2] = 1.0
+        normal = np.linalg.solve(
+            np.swapaxes(A, -1, -2), e3[..., None]
+        )[..., 0]
+        B_norm = np.linalg.norm(B, axis=-1)
+        normal_norm = np.linalg.norm(normal, axis=-1)
+        if (
+            B.shape != xyz.shape
+            or not np.all(np.isfinite(A))
+            or not np.all(np.isfinite(B))
+            or not np.all(np.isfinite(normal))
+            or np.any(B_norm <= 0.0)
+            or np.any(normal_norm <= 0.0)
+        ):
+            raise ValueError("epsilon_plane plot encountered invalid A, B, or normal")
+        epsilon = np.linalg.norm(np.cross(B, normal), axis=-1) / (B_norm * normal_norm)
+        angle = np.degrees(np.arcsin(np.clip(epsilon, -1.0, 1.0)))
+        surfaces.append((target, xyz, epsilon, angle))
+    plotted_values = np.concatenate([epsilon.ravel() for _, _, epsilon, _ in surfaces])
+    cmax = max(float(np.percentile(plotted_values, 95.0)), np.finfo(float).eps)
+    figure = go.Figure()
+    for plane_number, (target, xyz, epsilon, angle) in enumerate(surfaces):
+        customdata = np.stack((epsilon, angle), axis=-1)
+        figure.add_trace(
+            go.Surface(
+                x=xyz[..., 0], y=xyz[..., 1], z=xyz[..., 2],
+                surfacecolor=epsilon, cmin=0.0, cmax=cmax,
+                colorscale="Viridis", showscale=plane_number == 0,
+                colorbar=dict(title="epsilon_plane") if plane_number == 0 else None,
+                customdata=customdata, name=f"eta={target:.5f}",
+                hovertemplate=(
+                    "eta=%{text:.6f} rad<br>epsilon=%{customdata[0]:.6e}"
+                    "<br>angle=%{customdata[1]:.6f} deg<extra></extra>"
+                ),
+                text=np.full(epsilon.shape, target),
+            )
+        )
+    figure.update_layout(
+        title=f"epsilon_plane on {surface_count} constant eta planes",
+        scene=dict(xaxis_title="x [m]", yaxis_title="y [m]", zaxis_title="z [m]", aspectmode="data"),
         margin=dict(l=0, r=0, b=0, t=55),
     )
     filename.parent.mkdir(parents=True, exist_ok=True)
@@ -847,6 +1353,166 @@ def test_constant_eta_mesh_plot_overlays_wall(tmp_path):
     assert all(len(trace.x) == 40 for trace in wall_traces)
 
 
+def test_constant_eta_mesh_comparison_routes_pre_and_post_samples_to_two_scenes(tmp_path):
+    u = np.linspace(0.0, 1.0, 6)
+    v = np.linspace(0.0, 1.0, 5)
+    eta = np.arange(8) * (2.0 * np.pi / 8)
+    ug, vg, eg = np.meshgrid(u, v, eta, indexing="ij")
+    base_positions = np.stack(
+        ((3.0 + 0.5 * vg) * np.cos(eg), (3.0 + 0.5 * vg) * np.sin(eg), ug), axis=-1
+    )
+    relaxed_positions = base_positions.copy()
+    relaxed_positions[2:-2, 2:-2, :, 2] += 0.08
+    pre = MetricEvaluator(u, v, eta, base_positions, period=2.0 * np.pi)
+    post = MetricEvaluator(u, v, eta, relaxed_positions, period=2.0 * np.pi)
+    figure = plot_constant_eta_mesh_comparison(
+        pre,
+        post,
+        tmp_path / "comparison.html",
+        surface_count=4,
+        surface_nu=7,
+        surface_nv=6,
+    )
+    assert figure.layout.scene is not None
+    assert figure.layout.scene2 is not None
+    assert figure.layout.scene.domain.x[1] < figure.layout.scene2.domain.x[0]
+    assert figure.layout.scene.xaxis.range == figure.layout.scene2.xaxis.range
+    assert figure.layout.scene.yaxis.range == figure.layout.scene2.yaxis.range
+    assert figure.layout.scene.zaxis.range == figure.layout.scene2.zaxis.range
+    assert figure.layout.scene.zaxis.range != figure.layout.scene.xaxis.range
+    assert {trace.scene for trace in figure.data} == {"scene", "scene2"}
+    pre_surfaces = [trace for trace in figure.data if trace.type == "surface" and trace.scene == "scene"]
+    post_surfaces = [trace for trace in figure.data if trace.type == "surface" and trace.scene == "scene2"]
+    assert len(pre_surfaces) == len(post_surfaces) == 4
+    assert any(not np.allclose(pre_trace.z, post_trace.z) for pre_trace, post_trace in zip(pre_surfaces, post_surfaces))
+    pre_nodes = [trace for trace in figure.data if trace.name == "solved mesh nodes" and trace.scene == "scene"]
+    post_nodes = [trace for trace in figure.data if trace.name == "solved mesh nodes" and trace.scene == "scene2"]
+    assert len(pre_nodes) == len(post_nodes) == 4
+    assert not np.allclose(pre_nodes[0].z, post_nodes[0].z)
+
+
+def test_epsilon_plane_exactly_aligned_synthetic_field_is_near_zero():
+    evaluator = make_cylindrical_evaluator()
+    diagnostic = compute_epsilon_plane_diagnostic(
+        evaluator, CylindricalToroidalField()
+    )
+    assert diagnostic["epsilon"].shape == (
+        evaluator.u.size - 1, evaluator.v.size - 1, evaluator.eta.size
+    )
+    np.testing.assert_allclose(diagnostic["epsilon"], 0.0, atol=2.0e-12)
+    assert diagnostic["domain_rms"] < 2.0e-12
+    assert diagnostic["pointwise_max"] < 2.0e-12
+
+
+def test_epsilon_plane_controlled_tilt_matches_known_value():
+    evaluator = make_cylindrical_evaluator()
+    tilt = 0.4
+    diagnostic = compute_epsilon_plane_diagnostic(
+        evaluator, CylindricalToroidalField(tilt)
+    )
+    expected = tilt / np.sqrt(1.0 + tilt**2)
+    np.testing.assert_allclose(diagnostic["epsilon"], expected, atol=2.0e-11)
+    np.testing.assert_allclose(diagnostic["plane_rms"], expected, atol=2.0e-11)
+    np.testing.assert_allclose(diagnostic["domain_rms"], expected, atol=2.0e-11)
+    np.testing.assert_allclose(diagnostic["pointwise_rms"], expected, atol=2.0e-11)
+    np.testing.assert_allclose(
+        diagnostic["angle_max_degrees"], np.degrees(np.arctan(tilt)), atol=2.0e-10
+    )
+
+
+def test_epsilon_plane_nonuniform_cell_sampling_weights_are_finite():
+    evaluator = make_cylindrical_evaluator(
+        u=[0.0, 0.1, 0.6, 1.0],
+        v=[0.0, 0.25, 1.0],
+        eta=np.arange(8) * (2.0 * np.pi / 8.0),
+    )
+    diagnostic = compute_epsilon_plane_diagnostic(
+        evaluator, CylindricalToroidalField(0.2)
+    )
+    assert diagnostic["plane_rms"].shape == (evaluator.eta.size,)
+    for key in ("domain_rms", "pointwise_rms", "pointwise_max", "angle_rms_degrees", "angle_max_degrees"):
+        assert np.isfinite(diagnostic[key])
+    assert np.all(np.isfinite(diagnostic["area_weight"]))
+    assert np.all(np.isfinite(diagnostic["volume_weight"]))
+    assert np.all(diagnostic["area_weight"] > 0.0)
+    assert np.all(diagnostic["volume_weight"] > 0.0)
+
+
+def test_epsilon_plane_rejects_negative_signed_jacobian():
+    evaluator = make_cylindrical_evaluator()
+    positions = evaluator.position(
+        np.stack(np.meshgrid(evaluator.u, evaluator.v, evaluator.eta, indexing="ij"), axis=-1)
+    )
+    inverted = MetricEvaluator(
+        evaluator.u,
+        evaluator.v,
+        evaluator.eta,
+        positions[..., [0, 1, 2]] * np.array([1.0, 1.0, -1.0]),
+        period=evaluator.period,
+    )
+    with pytest.raises(ValueError, match="signed cell volumes"):
+        compute_epsilon_plane_diagnostic(inverted, CylindricalToroidalField())
+
+
+def test_epsilon_plane_plot_smoke_and_derived_filename(tmp_path):
+    evaluator = make_cylindrical_evaluator()
+    output = tmp_path / "hsx_QHS.html"
+    epsilon_output = _epsilon_plot_filename(output)
+    assert epsilon_output.name == "hsx_QHS_epsilon_plane.html"
+    figure = plot_epsilon_plane(
+        evaluator,
+        CylindricalToroidalField(0.25),
+        epsilon_output,
+        surface_count=3,
+        surface_nu=7,
+        surface_nv=6,
+    )
+    assert epsilon_output.is_file()
+    assert "Plotly.newPlot" in epsilon_output.read_text()
+    surfaces = [trace for trace in figure.data if trace.type == "surface"]
+    assert len(surfaces) == 3
+    assert all(np.asarray(trace.surfacecolor).shape == (7, 6) for trace in surfaces)
+    assert all(trace.cmin == 0.0 for trace in surfaces)
+    assert all(trace.cmax == surfaces[0].cmax for trace in surfaces)
+    assert "epsilon" in surfaces[0].hovertemplate
+    assert "angle" in surfaces[0].hovertemplate
+
+
+def test_epsilon_plane_plot_uses_global_p95_without_clipping_surface_values(tmp_path):
+    evaluator = make_cylindrical_evaluator()
+
+    class OutlierField(CylindricalToroidalField):
+        def evaluate_cartesian(self, points):
+            points = np.asarray(points, dtype=float)
+            radius = np.hypot(points[..., 0], points[..., 1])
+            ephi = np.stack(
+                (-points[..., 1] / radius, points[..., 0] / radius, np.zeros_like(radius)),
+                axis=-1,
+            )
+            tilt = np.where(points[..., 2] > 0.68, 10.0, 0.1)
+            return ephi + tilt[..., None] * np.array([0.0, 0.0, 1.0])
+
+    output = tmp_path / "p95_epsilon.html"
+    figure = plot_epsilon_plane(
+        evaluator,
+        OutlierField(),
+        output,
+        surface_count=3,
+        surface_nu=7,
+        surface_nv=6,
+    )
+    surfaces = [trace for trace in figure.data if trace.type == "surface"]
+    values = np.concatenate([np.asarray(trace.surfacecolor).ravel() for trace in surfaces])
+    expected_cmax = max(float(np.percentile(values, 95.0)), np.finfo(float).eps)
+    assert all(trace.cmax == expected_cmax for trace in surfaces)
+    assert np.any(values > expected_cmax)
+    hover_values = np.concatenate(
+        [np.asarray(trace.customdata)[..., 0].ravel() for trace in surfaces]
+    )
+    np.testing.assert_allclose(np.sort(hover_values), np.sort(values))
+    assert np.max(hover_values) > expected_cmax
+
+
 def _padded_clipped_bounds(values, domain, fraction=0.02):
     """Pad raw wall extrema, clip to the B-field box, and stay interior."""
 
@@ -862,10 +1528,54 @@ def _padded_clipped_bounds(values, domain, fraction=0.02):
     return lower, upper
 
 
+def _print_mmpde_objective_components(result):
+    """Print raw initial/final objective components when histories exist."""
+
+    histories = getattr(result, "component_energy_history", None) or {}
+    names = (
+        "dirichlet",
+        "alignment",
+        "equidistribution",
+        "jacobian_barrier",
+        "volume_smoothness",
+        "total",
+    )
+    parts = []
+    for name in names:
+        values = histories.get(name)
+        if values is None:
+            continue
+        values = np.asarray(values, dtype=float).reshape(-1)
+        if values.size:
+            parts.append(f"{name}={values[0]:.6e}->{values[-1]:.6e}")
+    if parts:
+        print("MMPDE objective components: " + ", ".join(parts))
+
+
+def test_mmpde_objective_component_print_is_concise_and_backward_compatible(capsys):
+    result = type("Result", (), {
+        "component_energy_history": {
+            "dirichlet": np.array([1.0, 0.8]),
+            "alignment": np.array([2.0, 1.5]),
+            "total": np.array([3.0, 2.3]),
+        }
+    })()
+    _print_mmpde_objective_components(result)
+    output = capsys.readouterr().out
+    assert output == (
+        "MMPDE objective components: dirichlet=1.000000e+00->8.000000e-01, "
+        "alignment=2.000000e+00->1.500000e+00, total=3.000000e+00->2.300000e+00\n"
+    )
+    _print_mmpde_objective_components(type("LegacyResult", (), {})())
+    _print_mmpde_objective_components(type("EmptyResult", (), {"component_energy_history": {}})())
+    assert capsys.readouterr().out == ""
+
+
 def build_hsx_metric_plot(
     makegrid_path,
     vessel_path,
     *,
+    currents=None,
     radial_degree=3,
     vertical_degree=3,
     toroidal_modes=2,
@@ -885,7 +1595,9 @@ def build_hsx_metric_plot(
 ):
     """Build a wall-fitted HSX metric evaluator and Plotly view."""
 
-    bfield = bfield_evaluator_from_makegrid(makegrid_path, method="cubic")
+    bfield = bfield_evaluator_from_makegrid(
+        makegrid_path, currents=currents, method="cubic"
+    )
     wall = WallEvaluator.from_file(vessel_path)
     if wall.nfp != bfield.nfp:
         raise ValueError("MAKEGRID and vessel field-period counts disagree")
@@ -918,15 +1630,35 @@ def build_hsx_metric_plot(
         reference_axis=wall.reference_axis,
     )
     metric_module = importlib.import_module("drbx.geometry.MetricEvaluator")
+    initial_positions = build_wall_fitted_initial_mesh(
+        eta_evaluator,
+        wall,
+        mesh_shape,
+    )
+    unrelaxed_evaluator = build_metric_evaluator(
+        eta_evaluator,
+        initial_positions,
+        options=metric_module.MMPDEOptions(max_iterations=0),
+        metric_spline_degree=metric_spline_degree,
+    )
+    projected_initial = unrelaxed_evaluator.mmpde_result.positions
     metric_evaluator = build_metric_evaluator(
         eta_evaluator,
-        wall_evaluator=wall,
-        mesh_shape=mesh_shape,
+        projected_initial,
         options=metric_module.MMPDEOptions(max_iterations=int(mmpde_iterations)),
         metric_spline_degree=metric_spline_degree,
     )
-    fit_diagnostics = dict(eta_evaluator.diagnostics)
+    unrelaxed_quality = unrelaxed_evaluator.quality_report()
+    relaxed_quality = metric_evaluator.quality_report()
+    print(unrelaxed_quality.summary("Metric quality (unrelaxed)"))
+    print(unrelaxed_quality.detailed_summary("Metric quality details (unrelaxed)"))
+    print(relaxed_quality.summary("Metric quality (relaxed)"))
+    print(relaxed_quality.detailed_summary("Metric quality details (relaxed)"))
     solve = metric_evaluator.mmpde_result
+    if solve is None:
+        raise RuntimeError("build_metric_evaluator did not return an MMPDE result")
+    _print_mmpde_objective_components(solve)
+    fit_diagnostics = dict(eta_evaluator.diagnostics)
     u_centers = 0.5 * (
         metric_evaluator.u[:-1] + metric_evaluator.u[1:]
     )
@@ -978,7 +1710,14 @@ def build_hsx_metric_plot(
         f" eta_residual_max={np.max(np.abs(eta_residual)):.6e},"
         f" |B|=[{np.min(magnetic.magnitude):.6e}, {np.max(magnetic.magnitude):.6e}] T"
     )
-    plot_constant_eta_mesh(
+    unrelaxed_epsilon = compute_epsilon_plane_diagnostic(
+        unrelaxed_evaluator, bfield
+    )
+    relaxed_epsilon = compute_epsilon_plane_diagnostic(metric_evaluator, bfield)
+    _print_epsilon_plane_diagnostic("unrelaxed", unrelaxed_epsilon)
+    _print_epsilon_plane_diagnostic("relaxed", relaxed_epsilon)
+    plot_constant_eta_mesh_comparison(
+        unrelaxed_evaluator,
         metric_evaluator,
         output,
         eta_evaluator=eta_evaluator,
@@ -990,6 +1729,17 @@ def build_hsx_metric_plot(
         show=show,
     )
     print(f"Interactive mesh plot: {Path(output).resolve()}")
+    epsilon_output = _epsilon_plot_filename(output)
+    plot_epsilon_plane(
+        metric_evaluator,
+        bfield,
+        epsilon_output,
+        surface_count=min(plot_surfaces, metric_evaluator.eta.size),
+        surface_nu=plot_nu,
+        surface_nv=plot_nv,
+        show=show,
+    )
+    print(f"Interactive epsilon_plane plot: {epsilon_output.resolve()}")
     return metric_evaluator
 
 
@@ -1008,6 +1758,15 @@ def _hsx_cli(argv=None):
     parser = argparse.ArgumentParser(description="Build an interactive HSX metric evaluator plot")
     parser.add_argument("mgrid", type=Path)
     parser.add_argument("vessel", type=Path)
+    parser.add_argument(
+        "--currents",
+        nargs="+",
+        type=float,
+        help=(
+            "coil-group currents for scaled mgrid data, or dimensionless "
+            "multipliers for raw mgrid data"
+        ),
+    )
     parser.add_argument("--radial-degree", type=int, default=3)
     parser.add_argument("--vertical-degree", type=int, default=3)
     parser.add_argument("--toroidal-modes", type=int, default=2)
@@ -1030,6 +1789,7 @@ def _hsx_cli(argv=None):
     build_hsx_metric_plot(
         args.mgrid,
         args.vessel,
+        currents=args.currents,
         radial_degree=args.radial_degree,
         vertical_degree=args.vertical_degree,
         toroidal_modes=args.toroidal_modes,
@@ -1061,6 +1821,9 @@ def test_hsx_cli_exposes_plot_sampling_controls(monkeypatch):
         [
             "mgrid.nc",
             "vessel.txt",
+            "--currents",
+            "2.0",
+            "0.0",
             "--plot-surfaces",
             "5",
             "--plot-nu",
@@ -1073,6 +1836,7 @@ def test_hsx_cli_exposes_plot_sampling_controls(monkeypatch):
     ) == 0
     assert len(calls) == 1
     _, kwargs = calls[0]
+    assert kwargs["currents"] == [2.0, 0.0]
     assert kwargs["plot_surfaces"] == 5
     assert kwargs["plot_nu"] == 31
     assert kwargs["plot_nv"] == 29

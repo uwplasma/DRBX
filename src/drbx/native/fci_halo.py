@@ -8,6 +8,7 @@ be represented. Those operations belong to later field-preparer stages.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import jax
 import jax.numpy as jnp
@@ -1676,6 +1677,12 @@ class PhysicalGhostCellFiller3D(_DataclassPyTreeMixin):
         object.__setattr__(self, "neumann_lower", neumann_lower)
         object.__setattr__(self, "neumann_upper", neumann_upper)
 
+    @property
+    def requires_topology_prefill(self) -> bool:
+        """Whether tangential derivatives require populated topology halos."""
+
+        return False
+
     def __call__(
         self,
         field_halo: jnp.ndarray,
@@ -1804,6 +1811,348 @@ class PhysicalGhostCellFiller3D(_DataclassPyTreeMixin):
     @classmethod
     def tree_unflatten(cls, _aux_data, children):
         return cls(*children)
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class MetricAwarePhysicalGhostCellFiller3D(PhysicalGhostCellFiller3D):
+    """Fill Neumann ghosts using the physical wall normal.
+
+    ``LocalBoundaryFaceBC3D`` Neumann values are interpreted as outward
+    physical-normal derivatives.  At a coordinate face ``q^a = const`` the
+    logical normal derivative is reconstructed from
+
+    ``sign * g^{a b} partial_b(f) / sqrt(g^{aa}) = d(f)/dn``.
+
+    Tangential derivatives use centered logical differences, with one-sided
+    differences where the tangential coordinate is itself physical.  At an
+    intersection of physical x/y Neumann faces, the two normal equations are
+    solved together for ``partial_x(f)`` and ``partial_y(f)``.  Dirichlet
+    ghosts retain the ordinary caller-provided reconstruction weights.
+    """
+
+    geometry: LocalFciGeometry3D
+    metric_floor: float = 1.0e-30
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not isinstance(self.geometry, LocalFciGeometry3D):
+            raise TypeError("geometry must be a LocalFciGeometry3D")
+        metric_floor = float(self.metric_floor)
+        if not math.isfinite(metric_floor) or metric_floor <= 0.0:
+            raise ValueError("metric_floor must be positive and finite")
+        object.__setattr__(self, "metric_floor", metric_floor)
+
+    @property
+    def requires_topology_prefill(self) -> bool:
+        """Tangential derivatives require periodic/shard halos first."""
+
+        return True
+
+    @staticmethod
+    def _axis_grid(geometry: LocalFciGeometry3D, axis: int):
+        return (geometry.grid.x, geometry.grid.y, geometry.grid.z)[axis]
+
+    @staticmethod
+    def _owned_axis_slice(axis: int, value: object, ndim: int = 3):
+        index: list[object] = [slice(None)] * ndim
+        index[axis] = value
+        return tuple(index)
+
+    def _owned_coordinate_derivative(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        axis: int,
+    ) -> jnp.ndarray:
+        """Differentiate on owned cells, using physical one-sided endpoints."""
+
+        layout = domain.layout
+        h = int(layout.halo_width)
+        n = int(layout.owned_shape[axis])
+        owned = layout.owned_slices_cell
+        center = jnp.asarray(field_halo[owned], dtype=jnp.float64)
+        if n == 1:
+            return jnp.zeros_like(center)
+
+        minus_index = list(owned)
+        center_index = list(owned)
+        plus_index = list(owned)
+        minus_index[axis] = slice(h - 1, h + n - 1)
+        center_index[axis] = slice(h, h + n)
+        plus_index[axis] = slice(h + 1, h + n + 1)
+        minus = jnp.asarray(field_halo[tuple(minus_index)], dtype=jnp.float64)
+        plus = jnp.asarray(field_halo[tuple(plus_index)], dtype=jnp.float64)
+
+        coordinates = jnp.asarray(
+            self._axis_grid(self.geometry, axis).centers_halo,
+            dtype=jnp.float64,
+        )
+        centers = coordinates[h : h + n]
+        dx_minus = centers - coordinates[h - 1 : h + n - 1]
+        dx_plus = coordinates[h + 1 : h + n + 1] - centers
+        denom = jnp.maximum(
+            dx_minus * dx_plus * (dx_minus + dx_plus),
+            self.metric_floor,
+        )
+        w_minus = -(dx_plus * dx_plus) / denom
+        w_center = (dx_plus * dx_plus - dx_minus * dx_minus) / denom
+        w_plus = (dx_minus * dx_minus) / denom
+        broadcast = [1, 1, 1]
+        broadcast[axis] = n
+        derivative = (
+            w_minus.reshape(broadcast) * minus
+            + w_center.reshape(broadcast) * center
+            + w_plus.reshape(broadcast) * plus
+        )
+
+        lower = (
+            center[self._owned_axis_slice(axis, 1)]
+            - center[self._owned_axis_slice(axis, 0)]
+        ) / jnp.maximum(centers[1] - centers[0], self.metric_floor)
+        upper = (
+            center[self._owned_axis_slice(axis, -1)]
+            - center[self._owned_axis_slice(axis, -2)]
+        ) / jnp.maximum(centers[-1] - centers[-2], self.metric_floor)
+        lower_index = self._owned_axis_slice(axis, 0)
+        upper_index = self._owned_axis_slice(axis, -1)
+        derivative = derivative.at[lower_index].set(
+            jnp.where(
+                domain.runtime_has_physical_lower(axis),
+                lower,
+                derivative[lower_index],
+            )
+        )
+        derivative = derivative.at[upper_index].set(
+            jnp.where(
+                domain.runtime_has_physical_upper(axis),
+                upper,
+                derivative[upper_index],
+            )
+        )
+        return derivative
+
+    def _face_metric_plane(
+        self,
+        domain: LocalDomain3D,
+        axis: int,
+        side: str,
+    ) -> jnp.ndarray:
+        layout = domain.layout
+        h = int(layout.halo_width)
+        index: list[object] = [
+            slice(h, h + n) for n in layout.owned_shape
+        ]
+        index[axis] = h if side == "lower" else h + layout.owned_shape[axis]
+        return jnp.asarray(
+            self.geometry.face_metric.axes[axis].g_contra[tuple(index)],
+            dtype=jnp.float64,
+        )
+
+    def _boundary_cell_plane(
+        self,
+        values_owned: jnp.ndarray,
+        axis: int,
+        side: str,
+    ) -> jnp.ndarray:
+        index = self._owned_axis_slice(axis, 0 if side == "lower" else -1)
+        return values_owned[index]
+
+    def _coupled_xy_corner_derivatives(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        face_bc: LocalBoundaryFaceBC3D,
+        x_side: str,
+        y_side: str,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Solve both physical-normal equations on one x/y corner line."""
+
+        x_index = 0 if x_side == "lower" else -1
+        y_index = 0 if y_side == "lower" else -1
+        sign_x = -1.0 if x_side == "lower" else 1.0
+        sign_y = -1.0 if y_side == "lower" else 1.0
+        x_metric = self._face_metric_plane(domain, 0, x_side)[y_index]
+        y_metric = self._face_metric_plane(domain, 1, y_side)[x_index]
+        deta_owned = self._owned_coordinate_derivative(field_halo, domain, 2)
+        deta = deta_owned[x_index, y_index, :]
+
+        x_kind, x_value, x_mask = self._bc_plane(face_bc, 0, x_side)
+        y_kind, y_value, y_mask = self._bc_plane(face_bc, 1, y_side)
+        x_value = x_value[y_index]
+        y_value = y_value[x_index]
+        active = (
+            domain.runtime_has_physical_lower(0)
+            if x_side == "lower"
+            else domain.runtime_has_physical_upper(0)
+        ) & (
+            domain.runtime_has_physical_lower(1)
+            if y_side == "lower"
+            else domain.runtime_has_physical_upper(1)
+        )
+        active = (
+            active
+            & x_mask[y_index]
+            & y_mask[x_index]
+            & (x_kind[y_index] == BC_NEUMANN)
+            & (y_kind[x_index] == BC_NEUMANN)
+        )
+
+        a = x_metric[..., 0, 0]
+        b = x_metric[..., 0, 1]
+        c = y_metric[..., 1, 0]
+        d = y_metric[..., 1, 1]
+        rhs_x = (
+            sign_x * x_value * jnp.sqrt(jnp.maximum(a, self.metric_floor))
+            - x_metric[..., 0, 2] * deta
+        )
+        rhs_y = (
+            sign_y * y_value * jnp.sqrt(jnp.maximum(d, self.metric_floor))
+            - y_metric[..., 1, 2] * deta
+        )
+        determinant = a * d - b * c
+        determinant_floor = self.metric_floor * jnp.maximum(
+            jnp.abs(a * d) + jnp.abs(b * c),
+            1.0,
+        )
+        safe_determinant = jnp.where(
+            jnp.abs(determinant) >= determinant_floor,
+            determinant,
+            jnp.where(determinant < 0.0, -determinant_floor, determinant_floor),
+        )
+        dx = (rhs_x * d - b * rhs_y) / safe_determinant
+        dy = (a * rhs_y - c * rhs_x) / safe_determinant
+        return dx, dy, active
+
+    def _metric_neumann_ghost(
+        self,
+        field_halo: jnp.ndarray,
+        domain: LocalDomain3D,
+        face_bc: LocalBoundaryFaceBC3D,
+        axis: int,
+        side: str,
+        value: jnp.ndarray,
+    ) -> jnp.ndarray:
+        metric = self._face_metric_plane(domain, axis, side)
+        owned = jnp.asarray(field_halo[domain.layout.owned_slices_cell], dtype=jnp.float64)
+        center = self._boundary_cell_plane(owned, axis, side)
+        sign = -1.0 if side == "lower" else 1.0
+        gaa = metric[..., axis, axis]
+        rhs = sign * value * jnp.sqrt(jnp.maximum(gaa, self.metric_floor))
+        for tangent_axis in range(3):
+            if tangent_axis == axis:
+                continue
+            tangent = self._owned_coordinate_derivative(
+                field_halo,
+                domain,
+                tangent_axis,
+            )
+            tangent_plane = self._boundary_cell_plane(tangent, axis, side)
+            rhs = rhs - metric[..., axis, tangent_axis] * tangent_plane
+        normal_derivative = rhs / jnp.maximum(gaa, self.metric_floor)
+
+        # At HSX logical corners both physical normal equations are active and
+        # strongly coupled. Patch the endpoint normal derivatives with their
+        # simultaneous solution instead of using two independent estimates.
+        if axis == 0:
+            for y_side in ("lower", "upper"):
+                dx, _dy, active = self._coupled_xy_corner_derivatives(
+                    field_halo, domain, face_bc, side, y_side
+                )
+                y_index = 0 if y_side == "lower" else -1
+                normal_derivative = normal_derivative.at[y_index].set(
+                    jnp.where(active, dx, normal_derivative[y_index])
+                )
+        elif axis == 1:
+            for x_side in ("lower", "upper"):
+                _dx, dy, active = self._coupled_xy_corner_derivatives(
+                    field_halo, domain, face_bc, x_side, side
+                )
+                x_index = 0 if x_side == "lower" else -1
+                normal_derivative = normal_derivative.at[x_index].set(
+                    jnp.where(active, dy, normal_derivative[x_index])
+                )
+
+        h = int(domain.layout.halo_width)
+        n = int(domain.layout.owned_shape[axis])
+        coordinates = jnp.asarray(
+            self._axis_grid(self.geometry, axis).centers_halo,
+            dtype=jnp.float64,
+        )
+        if side == "lower":
+            center_coordinate = coordinates[h]
+            ghost_coordinates = coordinates[h - 1 :: -1][:h]
+            distances = center_coordinate - ghost_coordinates
+            direction = -1.0
+        else:
+            center_coordinate = coordinates[h + n - 1]
+            ghost_coordinates = coordinates[h + n : h + n + h]
+            distances = ghost_coordinates - center_coordinate
+            direction = 1.0
+        return (
+            center[None, ...]
+            + direction
+            * distances.reshape((h,) + (1,) * center.ndim)
+            * normal_derivative[None, ...]
+        )
+
+    def _fill_axis_side(self, field_halo, domain, face_bc, axis, side):
+        if side == "lower":
+            side_active = domain.runtime_has_physical_lower(axis)
+        elif side == "upper":
+            side_active = domain.runtime_has_physical_upper(axis)
+        else:
+            raise ValueError(f"side must be 'lower' or 'upper', got {side!r}")
+
+        kind, value, mask = self._bc_plane(face_bc, axis, side)
+        old = self._ghost_slab(field_halo, domain.layout, axis, side)
+        owned = self._owned_stencil(
+            field_halo,
+            domain.layout,
+            axis,
+            side,
+            self.dirichlet[axis].stencil_width,
+        )
+        dghost = self._apply(self.dirichlet[axis], owned, value)
+        nghost = self._metric_neumann_ghost(
+            field_halo,
+            domain,
+            face_bc,
+            axis,
+            side,
+            value,
+        )
+        active_mask = side_active & mask
+        new = jnp.where(
+            (active_mask & (kind == BC_DIRICHLET))[None, ...],
+            dghost,
+            old,
+        )
+        new = jnp.where(
+            (active_mask & (kind == BC_NEUMANN))[None, ...],
+            nghost,
+            new,
+        )
+        return self._set_ghost_slab(field_halo, new, domain.layout, axis, side)
+
+    def tree_flatten(self):
+        return (
+            self.dirichlet,
+            self.neumann_lower,
+            self.neumann_upper,
+            self.geometry,
+        ), self.metric_floor
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        dirichlet, neumann_lower, neumann_upper, geometry = children
+        return cls(
+            dirichlet=dirichlet,
+            neumann_lower=neumann_lower,
+            neumann_upper=neumann_upper,
+            geometry=geometry,
+            metric_floor=aux_data,
+        )
 
 
 @_pytree_base
@@ -2076,7 +2425,10 @@ class LocalHaloClosure3D(_DataclassPyTreeMixin):
         domain: LocalDomain3D,
         face_bc: LocalBoundaryFaceBC3D | None,
     ) -> jnp.ndarray:
-        result = self.face_closure(field_halo, domain, face_bc)
+        result = field_halo
+        if self.physical_ghost_filler.requires_topology_prefill:
+            result = self.topology_closure(result, domain)
+        result = self.face_closure(result, domain, face_bc)
         result = self.topology_closure(result, domain)
         return self.corner_closure(result, domain, face_bc)
 

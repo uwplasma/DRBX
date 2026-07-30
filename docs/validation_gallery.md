@@ -23,9 +23,9 @@ related JAX solver papers).
 | `Fluid 1D MMS Convergence` | `native-validated` | Manufactured-solution observed orders on the promoted 1D fluid lane. |
 | `Open SOL Two-Point Steady State` | `native-validated` | Mach 1 targets, half-upstream target density, roundoff-closed sheath accounting. |
 | `Recycling / Detachment SOL` | `native-validated` | Neutral cushion, detachment onset, SD1D target-flux rollover, differentiable control. |
-| `Rotating-Ellipse FCI` | `genuinely non-axisymmetric gate` | Autodiff metric; order-2 direct and traced parallel gradients; shape-differentiable. |
-| `Stellarator Turbulence (closed/open)` | `native_operational` | 4-field interchange with limiter SOL drainage on the rotating ellipse. |
-| `Stellarator FCI Validation` | `native non-axisymmetric gate` | Full-metric, field-line-map, operator, sheath/recycling, neutral, vorticity campaigns. |
+| `Sharded FCI (two-field + full-EB)` | `sharded gates` | Ported two-field step is bit-exact across shard layouts; full-EB MMS covers the shard-local RHS and time integration. |
+| `Stellarator Turbulence (closed/open)` | `native_operational` | Supported turbulence artifacts are documented through the sharded full-EB path. |
+| `Stellarator FCI Validation` | `sharded non-axisymmetric gates` | Full-EB geometry staging, field-line maps, operator, sheath/recycling, neutral, and vorticity campaigns. |
 | `VMEC-Extender Edge Field Import` | `self-contained synthetic imported-field gate` | Field-grid import, FCI maps, compact SOL smoke coupling on synthetic NetCDF fixtures. |
 | `ESSOS / VMEX Imports` | `external geometry import gate` | Coil-field tracing, Poincare extraction, VMEC surface registration, traced-iota verification. |
 | `Autodiff Diffusion Sensitivity / UQ / Inverse Design` | `differentiable validation` | Gradients vs finite differences, covariance pushforward vs Monte Carlo, gradient-based recovery. |
@@ -73,34 +73,29 @@ detachment control. Gates: `tests/test_open_field_line_sol.py`,
 [Open-Field-Line SOL](open_field_line_sol.md),
 [Neutrals and Recycling](neutrals_recycling.md).
 
-## Rotating-Ellipse FCI
+## Sharded FCI gates
 
-![Rotating-ellipse FCI](media/rotating_ellipse_fci.png)
-
-The classical rotating-ellipse (`l = 2`) stellarator — the canonical minimal
-non-axisymmetric field. Its metric is built by automatic differentiation of
-the analytic embedding (exact, and differentiable with respect to the shape),
-and the FCI parallel gradient converges at second order for both the direct
-and the traced-field-line operator. Gate:
-`tests/test_rotating_ellipse_fci.py`; page:
-[Rotating-Ellipse FCI](rotating_ellipse_fci.md). Regenerate:
-
-```bash
-PYTHONPATH=src python examples/stellarator/rotating_ellipse_fci.py
-```
+The supported reduced-model gate is the ported sharded two-field check,
+`tests/test_fci_sharded_2field.py`, which is bit-exact against the
+single-device step. The supported seven-field gate is
+`tests/test_mms_shifted_torus_EB_sharded.py`, which exercises the full-EB RHS
+and time integration after lowering geometry to shards. The corresponding
+strong-scaling benchmark is
+`examples/benchmarks/fci_sharded_strong_scaling.py`.
 
 ## Stellarator Turbulence And Geometry
 
 ![Stellarator turbulence summary](media/stellarator_turbulence_summary.png)
 
-![Island divertor](media/island_divertor.png)
+![Historical island-divertor media](media/island_divertor.png)
 
 ![Stellarator FCI geometry campaign](media/stellarator_fci_geometry_campaign.png)
 
 ![Stellarator SOL showcase poster](media/stellarator_sol_showcase_poster.png)
 
 The 4-field closed-vs-limiter-open comparison
-(`examples/stellarator/stellarator_turbulence.py`), the island-divertor
+the historical rotating-ellipse and island-divertor drivers, which are no
+longer reproduction commands; the
 stochastic SOL, and the synthetic stellarator FCI validation campaign
 (geometry/metric checks with inverse residual ~1.44e-14, operator MMS
 convergence with observed orders ~1.9, sheath/recycling and neutral balances
