@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import reduce
-from typing import Callable, Generic, TypeVar
+from math import sqrt
+from typing import Any, Callable, Generic, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -13,6 +14,31 @@ from .fci_model import FciModelState
 StateT = TypeVar("StateT", bound=FciModelState)
 CarryT = TypeVar("CarryT")
 AuxT = TypeVar("AuxT")
+ImplicitAuxT = TypeVar("ImplicitAuxT")
+
+
+# ARKODE_ARK2_ERK_3_1_2 / ARKODE_ARK2_DIRK_3_1_2.  Keep the
+# coefficients here, rather than hidden in the stage code, so an IMEX caller
+# can audit exactly which additive Runge--Kutta pair is in use.
+_SQRT2 = sqrt(2.0)
+ARK2_GAMMA = 1.0 - 1.0 / _SQRT2
+ARK2_C = (0.0, 2.0 - _SQRT2, 1.0)
+ARK2_EXPLICIT_A = (
+    (0.0, 0.0, 0.0),
+    (2.0 - _SQRT2, 0.0, 0.0),
+    (1.0 - (3.0 + 2.0 * _SQRT2) / 6.0, (3.0 + 2.0 * _SQRT2) / 6.0, 0.0),
+)
+ARK2_IMPLICIT_A = (
+    (0.0, 0.0, 0.0),
+    (ARK2_GAMMA, ARK2_GAMMA, 0.0),
+    (1.0 / (2.0 * _SQRT2), 1.0 / (2.0 * _SQRT2), ARK2_GAMMA),
+)
+ARK2_B = (1.0 / (2.0 * _SQRT2), 1.0 / (2.0 * _SQRT2), ARK2_GAMMA)
+ARK2_B_EMBEDDED = (
+    (4.0 - _SQRT2) / 8.0,
+    (4.0 - _SQRT2) / 8.0,
+    1.0 / (2.0 * _SQRT2),
+)
 
 
 @jax.tree_util.register_pytree_node_class
@@ -156,6 +182,288 @@ def rk4_step(
     )
 
 
+def _assert_tree_compatible(reference: Any, value: Any, *, name: str) -> None:
+    """Validate an additive-RK operand without requiring an FCI state type.
+
+    The IMEX core is deliberately usable by small scalar/PyTree problems as
+    well as ``FciModelState`` subclasses.  FCI states retain their stricter
+    named-field checks; generic PyTrees must at least preserve tree structure
+    and leaf shapes.
+    """
+
+    if isinstance(reference, FciModelState):
+        _assert_rhs_compatible(reference, value)
+        return
+    reference_def = jax.tree_util.tree_structure(reference)
+    value_def = jax.tree_util.tree_structure(value)
+    if reference_def != value_def:
+        raise TypeError(f"{name} must have the same PyTree structure as state")
+    for reference_leaf, value_leaf in zip(
+        jax.tree_util.tree_leaves(reference),
+        jax.tree_util.tree_leaves(value),
+    ):
+        if jnp.asarray(reference_leaf).shape != jnp.asarray(value_leaf).shape:
+            raise ValueError(
+                f"{name} leaf shape must match state; got "
+                f"{jnp.asarray(value_leaf).shape}, expected "
+                f"{jnp.asarray(reference_leaf).shape}"
+            )
+
+
+def _tree_axpy(state: StateT, rhs: StateT, *, scale: float | jax.Array) -> StateT:
+    """Return ``state + scale * rhs`` for FCI states or generic PyTrees."""
+
+    if isinstance(state, FciModelState):
+        return state.axpy(rhs, scale=scale)
+    return jax.tree_util.tree_map(lambda lhs, value: lhs + scale * value, state, rhs)
+
+
+def _tree_linear_combination(
+    reference: StateT,
+    terms: tuple[tuple[float | jax.Array, StateT], ...],
+    *,
+    scale: float | jax.Array,
+) -> StateT:
+    """Return ``reference + scale * sum(coeff * term)`` for a shared PyTree."""
+
+    result = reference
+    for coefficient, term in terms:
+        if coefficient != 0.0:
+            result = _tree_axpy(result, term, scale=scale * coefficient)
+    return result
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class Ark2ImexStepResult(Generic[StateT, CarryT, AuxT, ImplicitAuxT]):
+    """Result of one ARK2(3,1,2) additive IMEX advance.
+
+    ``state`` is the second-order solution and ``embedded_state`` is the
+    first-order embedded estimate.  The difference is available to a driver
+    that later adds adaptive timestep control.  This stepper itself has no
+    acceptance/rejection policy and is intentionally fixed-step.
+    """
+
+    state: StateT
+    embedded_state: StateT
+    carry: CarryT
+    stage_states: tuple[StateT, StateT, StateT]
+    explicit_stage_aux: tuple[AuxT, AuxT, AuxT]
+    implicit_stage_aux: tuple[ImplicitAuxT, ImplicitAuxT, ImplicitAuxT]
+    solve_stage_aux: tuple[ImplicitAuxT | None, ImplicitAuxT, ImplicitAuxT]
+
+    def tree_flatten(self):
+        stage_1, stage_2, stage_3 = self.stage_states
+        explicit_1, explicit_2, explicit_3 = self.explicit_stage_aux
+        implicit_1, implicit_2, implicit_3 = self.implicit_stage_aux
+        solve_1, solve_2, solve_3 = self.solve_stage_aux
+        return (
+            self.state,
+            self.embedded_state,
+            self.carry,
+            stage_1,
+            stage_2,
+            stage_3,
+            explicit_1,
+            explicit_2,
+            explicit_3,
+            implicit_1,
+            implicit_2,
+            implicit_3,
+            solve_1,
+            solve_2,
+            solve_3,
+        ), None
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        (
+            state,
+            embedded_state,
+            carry,
+            stage_1,
+            stage_2,
+            stage_3,
+            explicit_1,
+            explicit_2,
+            explicit_3,
+            implicit_1,
+            implicit_2,
+            implicit_3,
+            solve_1,
+            solve_2,
+            solve_3,
+        ) = children
+        return cls(
+            state=state,
+            embedded_state=embedded_state,
+            carry=carry,
+            stage_states=(stage_1, stage_2, stage_3),
+            explicit_stage_aux=(explicit_1, explicit_2, explicit_3),
+            implicit_stage_aux=(implicit_1, implicit_2, implicit_3),
+            solve_stage_aux=(solve_1, solve_2, solve_3),
+        )
+
+
+@dataclass(frozen=True)
+class Ark2ImexStepper(Generic[StateT, CarryT, AuxT, ImplicitAuxT]):
+    """Fixed-step ARKODE ARK2(3,1,2) additive IMEX stepper.
+
+    The caller supplies additive explicit/implicit RHS functions and an
+    implicit stage solve.  At implicit stages the solve callback receives the
+    already assembled predictor and ``gamma * timestep`` and must return the
+    converged stage state together with its implicit RHS.  It can therefore
+    use a matrix-free Newton--Krylov solve, an analytic solve, or a model
+    specific algebraic constraint without coupling those choices to this
+    tableau implementation.
+
+    ``implicit_rhs_fn`` is evaluated only at stage one, whose DIRK diagonal is
+    zero.  Stages two and three obtain their implicit RHS from
+    ``implicit_stage_solve_fn`` so the residual is evaluated only by the
+    nonlinear solver.
+    """
+
+    explicit_rhs_fn: Callable[
+        [StateT, float | jax.Array, CarryT], tuple[StateT, CarryT, AuxT]
+    ]
+    implicit_rhs_fn: Callable[
+        [StateT, float | jax.Array, CarryT], tuple[StateT, CarryT, ImplicitAuxT]
+    ]
+    implicit_stage_solve_fn: Callable[
+        [StateT, float | jax.Array, float | jax.Array, CarryT],
+        tuple[StateT, StateT, CarryT, ImplicitAuxT],
+    ]
+
+    def __post_init__(self) -> None:
+        if not callable(self.explicit_rhs_fn):
+            raise TypeError("explicit_rhs_fn must be callable")
+        if not callable(self.implicit_rhs_fn):
+            raise TypeError("implicit_rhs_fn must be callable")
+        if not callable(self.implicit_stage_solve_fn):
+            raise TypeError("implicit_stage_solve_fn must be callable")
+
+    def __call__(
+        self,
+        state: StateT,
+        *,
+        time: float | jax.Array,
+        timestep: float | jax.Array,
+        carry: CarryT,
+    ) -> Ark2ImexStepResult[StateT, CarryT, AuxT, ImplicitAuxT]:
+        # Stage 1: both ARK tables have a zero first row.
+        stage_1 = state
+        explicit_1, carry_1, explicit_aux_1 = self.explicit_rhs_fn(
+            stage_1, time + ARK2_C[0] * timestep, carry
+        )
+        _assert_tree_compatible(state, explicit_1, name="explicit_rhs_fn result")
+        implicit_1, carry_2, implicit_aux_1 = self.implicit_rhs_fn(
+            stage_1, time + ARK2_C[0] * timestep, carry_1
+        )
+        _assert_tree_compatible(state, implicit_1, name="implicit_rhs_fn result")
+
+        predictor_2 = _tree_linear_combination(
+            state,
+            (
+                (ARK2_EXPLICIT_A[1][0], explicit_1),
+                (ARK2_IMPLICIT_A[1][0], implicit_1),
+            ),
+            scale=timestep,
+        )
+        stage_2, implicit_2, carry_3, solve_aux_2 = self.implicit_stage_solve_fn(
+            predictor_2,
+            time + ARK2_C[1] * timestep,
+            ARK2_IMPLICIT_A[1][1] * timestep,
+            carry_2,
+        )
+        _assert_tree_compatible(state, stage_2, name="implicit stage state")
+        _assert_tree_compatible(state, implicit_2, name="implicit stage RHS")
+        explicit_2, carry_4, explicit_aux_2 = self.explicit_rhs_fn(
+            stage_2, time + ARK2_C[1] * timestep, carry_3
+        )
+        _assert_tree_compatible(state, explicit_2, name="explicit_rhs_fn result")
+
+        predictor_3 = _tree_linear_combination(
+            state,
+            (
+                (ARK2_EXPLICIT_A[2][0], explicit_1),
+                (ARK2_EXPLICIT_A[2][1], explicit_2),
+                (ARK2_IMPLICIT_A[2][0], implicit_1),
+                (ARK2_IMPLICIT_A[2][1], implicit_2),
+            ),
+            scale=timestep,
+        )
+        stage_3, implicit_3, carry_5, solve_aux_3 = self.implicit_stage_solve_fn(
+            predictor_3,
+            time + ARK2_C[2] * timestep,
+            ARK2_IMPLICIT_A[2][2] * timestep,
+            carry_4,
+        )
+        _assert_tree_compatible(state, stage_3, name="implicit stage state")
+        _assert_tree_compatible(state, implicit_3, name="implicit stage RHS")
+        explicit_3, carry_6, explicit_aux_3 = self.explicit_rhs_fn(
+            stage_3, time + ARK2_C[2] * timestep, carry_5
+        )
+        _assert_tree_compatible(state, explicit_3, name="explicit_rhs_fn result")
+
+        stages_explicit = (explicit_1, explicit_2, explicit_3)
+        stages_implicit = (implicit_1, implicit_2, implicit_3)
+        weighted_terms = tuple(
+            (ARK2_B[index], stages_explicit[index])
+            for index in range(3)
+        ) + tuple(
+            (ARK2_B[index], stages_implicit[index])
+            for index in range(3)
+        )
+        next_state = _tree_linear_combination(state, weighted_terms, scale=timestep)
+        embedded_terms = tuple(
+            (ARK2_B_EMBEDDED[index], stages_explicit[index])
+            for index in range(3)
+        ) + tuple(
+            (ARK2_B_EMBEDDED[index], stages_implicit[index])
+            for index in range(3)
+        )
+        embedded_state = _tree_linear_combination(
+            state,
+            embedded_terms,
+            scale=timestep,
+        )
+        return Ark2ImexStepResult(
+            state=next_state,
+            embedded_state=embedded_state,
+            carry=carry_6,
+            stage_states=(stage_1, stage_2, stage_3),
+            explicit_stage_aux=(explicit_aux_1, explicit_aux_2, explicit_aux_3),
+            implicit_stage_aux=(implicit_aux_1, solve_aux_2, solve_aux_3),
+            solve_stage_aux=(None, solve_aux_2, solve_aux_3),
+        )
+
+
+def ark2_imex_step(
+    state: StateT,
+    *,
+    time: float | jax.Array,
+    timestep: float | jax.Array,
+    explicit_rhs_fn: Callable[
+        [StateT, float | jax.Array, CarryT], tuple[StateT, CarryT, AuxT]
+    ],
+    implicit_rhs_fn: Callable[
+        [StateT, float | jax.Array, CarryT], tuple[StateT, CarryT, ImplicitAuxT]
+    ],
+    implicit_stage_solve_fn: Callable[
+        [StateT, float | jax.Array, float | jax.Array, CarryT],
+        tuple[StateT, StateT, CarryT, ImplicitAuxT],
+    ],
+    carry: CarryT,
+) -> Ark2ImexStepResult[StateT, CarryT, AuxT, ImplicitAuxT]:
+    """Functional compatibility wrapper for :class:`Ark2ImexStepper`."""
+
+    return Ark2ImexStepper(
+        explicit_rhs_fn=explicit_rhs_fn,
+        implicit_rhs_fn=implicit_rhs_fn,
+        implicit_stage_solve_fn=implicit_stage_solve_fn,
+    )(state, time=time, timestep=timestep, carry=carry)
+
+
 def sum_stage_outputs(stage_outputs: tuple[AuxT, AuxT, AuxT, AuxT]) -> AuxT:
     """Reduce four stage payloads by addition.
 
@@ -170,4 +478,18 @@ def sum_stage_outputs(stage_outputs: tuple[AuxT, AuxT, AuxT, AuxT]) -> AuxT:
     return reduce(_add, stage_outputs[1:], stage_outputs[0])
 
 
-__all__ = ["Rk4StepResult", "Rk4Stepper", "rk4_step", "sum_stage_outputs"]
+__all__ = [
+    "ARK2_B",
+    "ARK2_B_EMBEDDED",
+    "ARK2_C",
+    "ARK2_EXPLICIT_A",
+    "ARK2_GAMMA",
+    "ARK2_IMPLICIT_A",
+    "Ark2ImexStepResult",
+    "Ark2ImexStepper",
+    "Rk4StepResult",
+    "Rk4Stepper",
+    "ark2_imex_step",
+    "rk4_step",
+    "sum_stage_outputs",
+]

@@ -7001,14 +7001,20 @@ def _principal_perp_laplacian_bands(
     return diagonal, tuple(lower_bands), tuple(upper_bands)
 
 
-def _build_solvax_perp_laplacian_preconditioner(
+def build_solvax_perp_laplacian_preconditioner(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
     face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
     face_bc: LocalBoundaryFaceBC3D,
     config: SolvaxGmresConfig,
 ) -> Callable[[jnp.ndarray], jnp.ndarray] | None:
-    """Build the configured local right preconditioner for SOLVAX FGMRES."""
+    """Build the configured local right preconditioner for SOLVAX FGMRES.
+
+    This returns a fixed-cost local approximation to the inverse of the
+    positive operator ``-L_perp``.  It intentionally does *not* invoke an
+    inner Krylov solve, so it is safe to reuse as a block inside a larger
+    matrix-free Newton--FGMRES preconditioner.
+    """
 
     kind = config.preconditioner
     if kind == "none":
@@ -7356,7 +7362,7 @@ class LocalPerpLaplacianInverseSolver:
                 b_floor=self.b_floor,
                 axis_regular_axes=self.axis_regular_axes,
             )
-        preconditioner = _build_solvax_perp_laplacian_preconditioner(
+        preconditioner = build_solvax_perp_laplacian_preconditioner(
             self.geometry,
             self.domain,
             preconditioner_projectors,

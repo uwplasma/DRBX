@@ -9,8 +9,8 @@ by tensor-product splines in the two disk coordinates.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Mapping
 
 import numpy as np
 from scipy.interpolate import BSpline, RectBivariateSpline
@@ -75,6 +75,13 @@ class MetricQualityRegion:
     valid_fraction: float
     scaled_J_min: float
     mapping_condition_max: float
+    scaled_J_p01: float = float("nan")
+    mapping_condition_p95: float = float("nan")
+    stretch_p95: float = float("nan")
+    stretch_max: float = float("nan")
+    volume_p01_over_median: float = float("nan")
+    volume_p99_over_p01: float = float("nan")
+    nonpositive_J_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -85,6 +92,23 @@ class MetricQualityLocation:
     region: str
     logical: tuple[float, float, float]
     cartesian: tuple[float, float, float]
+    cell_index: tuple[int, int, int] | None = None
+
+
+@dataclass(frozen=True)
+class MetricQualityJumpLocation:
+    """Location of a directional neighbour-coefficient jump."""
+
+    value: float
+    direction: str
+    logical_a: tuple[float, float, float]
+    logical_b: tuple[float, float, float]
+    cartesian_a: tuple[float, float, float]
+    cartesian_b: tuple[float, float, float]
+    cell_index_a: tuple[int, int, int]
+    cell_index_b: tuple[int, int, int]
+    region_a: str = "unknown"
+    region_b: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -115,18 +139,98 @@ class MetricQualityReport:
     max_neighbor_log_J_jump_axis: str = "none"
     max_neighbor_log_J_jump_endpoint_a: tuple[float, float, float] = (float("nan"),) * 3
     max_neighbor_log_J_jump_endpoint_b: tuple[float, float, float] = (float("nan"),) * 3
+    points_per_cell: int = 1
+    cell_count: int = 0
+    gauss_order: int = 1
+    quadrature_sample_count: int = 0
+    face_sample_count: int = 0
+    nonpositive_J_count: int = 0
+    nonpositive_J_fraction: float = float("nan")
+    face_nonpositive_J_count: int = 0
+    face_valid_fraction: float = float("nan")
+    raw_volume_min: float = float("nan")
+    volume_min_over_median: float = float("nan")
+    volume_p01_over_median: float = float("nan")
+    volume_p05_over_median: float = float("nan")
+    volume_p95_over_median: float = float("nan")
+    volume_p99_over_median: float = float("nan")
+    volume_p99_over_p01: float = float("nan")
+    volume_coefficient_of_variation: float = float("nan")
+    scaled_J_p05: float = float("nan")
+    scaled_J_median: float = float("nan")
+    mapping_condition_p99: float = float("nan")
+    stretch_median: float = float("nan")
+    stretch_p95: float = float("nan")
+    stretch_p99: float = float("nan")
+    stretch_max: float = float("nan")
+    inverse_residual_p99: float = float("nan")
+    angle_cosines: Mapping[str, tuple[float, float]] = field(default_factory=dict)
+    directional_log_volume_jumps: Mapping[str, tuple[float, float]] = field(default_factory=dict)
+    directional_K_jumps: Mapping[str, tuple[float, float]] = field(default_factory=dict)
+    eta_constraint_residuals: Mapping[str, float] = field(default_factory=dict)
+    periodic_seam_residuals: Mapping[str, float] = field(default_factory=dict)
+    representation_metadata: Mapping[str, Any] = field(default_factory=dict)
+    mmpde_metadata: Mapping[str, Any] = field(default_factory=dict)
+    worst_jacobian: MetricQualityLocation | None = None
+    worst_volume: MetricQualityLocation | None = None
+    worst_stretch: MetricQualityLocation | None = None
+    worst_angle_cosine: MetricQualityLocation | None = None
+    worst_eta_constraint: MetricQualityLocation | None = None
+    worst_volume_jump: MetricQualityJumpLocation | None = None
+    worst_K_jump: MetricQualityJumpLocation | None = None
+
+    @property
+    def volume_min(self) -> float:
+        """Raw minimum signed physical cell-volume measure."""
+
+        return self.raw_volume_min
+
+    @property
+    def positive_J_fraction(self) -> float:
+        """Fraction of interior quadrature samples with finite positive J."""
+
+        return self.valid_fraction
+
+    @property
+    def metadata(self) -> Mapping[str, Any]:
+        """Backward-friendly short alias for :attr:`representation_metadata`."""
+        return self.representation_metadata
+
+    @property
+    def eta_constraint(self) -> Mapping[str, float]:
+        """Short alias for eta-surface residual statistics."""
+        return self.eta_constraint_residuals
+
+    @property
+    def periodic_seam(self) -> Mapping[str, float]:
+        """Short alias for periodic seam residual statistics."""
+        return self.periodic_seam_residuals
+
+    @property
+    def directional_log_J_jumps(self) -> Mapping[str, tuple[float, float]]:
+        """Legacy-named alias for cell-volume log-jump diagnostics.
+
+        The old report called this quantity ``log_J`` because it sampled raw
+        Jacobians at centres.  The expanded report intentionally compares the
+        physical cell-volume measure ``J Δu Δv Δη`` instead.
+        """
+        return self.directional_log_volume_jumps
 
     def summary(self, label: str | None = None) -> str:
         prefix = f"{label}: " if label else ""
         return (
-            f"{prefix}samples={self.sample_count}, valid={self.valid_fraction:.3f}, "
+            f"{prefix}samples={self.sample_count} (quad={self.quadrature_sample_count}, "
+            f"face={self.face_sample_count}, per_cell={self.points_per_cell}), "
+            f"valid={self.valid_fraction:.3f}, "
             f"J=[{self.raw_J_min:.6e}, {self.raw_J_max:.6e}], "
             f"J_p01={self.raw_J_p01:.6e}, J_med={self.raw_J_median:.6e}, "
             f"J_min/med={self.raw_J_min_over_median:.6e}, "
-            f"scaled_J=[{self.scaled_J_min:.6e}, p01={self.scaled_J_p01:.6e}], "
-            f"cond(F)=[med={self.mapping_condition_median:.6e}, "
-            f"p95={self.mapping_condition_p95:.6e}, max={self.mapping_condition_max:.6e}], "
-            f"max_dlogJ={self.max_neighbor_log_J_jump:.6e}, "
+            f"scaled_J=[{self.scaled_J_min:.6e}, p01={self.scaled_J_p01:.6e}, "
+            f"p05={self.scaled_J_p05:.6e}], "
+            f"cond(H)=[med={self.mapping_condition_median:.6e}, "
+            f"p95={self.mapping_condition_p95:.6e}, p99={self.mapping_condition_p99:.6e}, "
+            f"max={self.mapping_condition_max:.6e}], "
+            f"max_dlogV={self.max_neighbor_log_J_jump:.6e}, "
             f"inverse_residual_max={self.inverse_residual_max:.6e}"
         )
 
@@ -138,12 +242,63 @@ class MetricQualityReport:
         """
         prefix = f"{label}:\n" if label else ""
         lines = [prefix.rstrip("\n")] if prefix else []
+        metadata = self.representation_metadata
+        lines.extend((
+            "  Representation:",
+            f"    mesh shape={metadata.get('mesh_shape', 'unknown')}, "
+            f"cell counts={metadata.get('cell_counts', 'unknown')}, "
+            f"evaluator cells={metadata.get('evaluator_cell_counts', 'unknown')}, "
+            f"spline=(u:{metadata.get('spline_degree_u', 'unknown')}, "
+            f"v:{metadata.get('spline_degree_v', 'unknown')}), "
+            f"eta={metadata.get('eta_representation', 'unknown')}, "
+            f"MMPDE fit scale={metadata.get('mmpde_fit_scale', float('nan'))}",
+            "  Sampling:",
+            f"    cells={self.cell_count}, Gauss order={self.gauss_order}, "
+            f"points/cell={self.points_per_cell}, quadrature={self.quadrature_sample_count}, "
+            f"wall faces={self.face_sample_count}, total={self.sample_count}, "
+            f"nonpositive interior J={self.nonpositive_J_count} "
+            f"({self.nonpositive_J_fraction:.6e}), "
+            f"nonpositive wall-face J={self.face_nonpositive_J_count}",
+            "  Validity:",
+            f"    J_min={self.raw_J_min:.6e}, valid fraction={self.valid_fraction:.6e}, "
+            f"wall-face valid fraction={self.face_valid_fraction:.6e}, "
+            f"inverse-metric residual p99/max={self.inverse_residual_p99:.6e}/"
+            f"{self.inverse_residual_max:.6e}",
+            "  Volume:",
+            f"    raw min={self.raw_volume_min:.6e}, "
+            f"min/med={self.volume_min_over_median:.6e}, "
+            f"p01/med={self.volume_p01_over_median:.6e}, "
+            f"p05/med={self.volume_p05_over_median:.6e}, p95/med={self.volume_p95_over_median:.6e}, "
+            f"p99/med={self.volume_p99_over_median:.6e}, p99/p01={self.volume_p99_over_p01:.6e}, "
+            f"cv={self.volume_coefficient_of_variation:.6e}",
+            "  Shape:",
+            f"    scaled J=min {self.scaled_J_min:.6e}, p01 {self.scaled_J_p01:.6e}, "
+            f"p05 {self.scaled_J_p05:.6e}, median {self.scaled_J_median:.6e}",
+            f"    cond(H)=median {self.mapping_condition_median:.6e}, p95 {self.mapping_condition_p95:.6e}, "
+            f"p99 {self.mapping_condition_p99:.6e}, max {self.mapping_condition_max:.6e}",
+            f"    stretch=median {self.stretch_median:.6e}, p95 {self.stretch_p95:.6e}, "
+            f"p99 {self.stretch_p99:.6e}, max {self.stretch_max:.6e}",
+        ))
+        for name, (p95, maximum) in self.angle_cosines.items():
+            lines.append(f"    |cos({name})|=p95 {p95:.6e}, max {maximum:.6e}")
+        lines.append("  Smoothness:")
+        for direction in sorted(set(self.directional_log_volume_jumps) | set(self.directional_K_jumps)):
+            dv = self.directional_log_volume_jumps.get(direction, (float("nan"), float("nan")))
+            dk = self.directional_K_jumps.get(direction, (float("nan"), float("nan")))
+            lines.append(f"    {direction}: dlog(V) p95/max={dv[0]:.6e}/{dv[1]:.6e}, "
+                         f"dK p95/max={dk[0]:.6e}/{dk[1]:.6e}")
+        lines.append("  Regions:")
         for region in self.regions:
             lines.append(
                 f"  {region.label}: samples={region.sample_count}, "
+                f"nonpositive_J={region.nonpositive_J_count}, "
                 f"valid={region.valid_fraction:.3f}, "
                 f"scaled_J_min={region.scaled_J_min:.6e}, "
-                f"cond(F)_max={region.mapping_condition_max:.6e}"
+                f"scaled_J_p01={region.scaled_J_p01:.6e}, "
+                f"cond(H)_p95/max={region.mapping_condition_p95:.6e}/{region.mapping_condition_max:.6e}, "
+                f"stretch_p95/max={region.stretch_p95:.6e}/{region.stretch_max:.6e}, "
+                f"V_p01/med={region.volume_p01_over_median:.6e}, "
+                f"V_p99/p01={region.volume_p99_over_p01:.6e}"
             )
 
         def location_line(name: str, location: MetricQualityLocation | None) -> str:
@@ -151,16 +306,49 @@ class MetricQualityReport:
                 return f"  {name}: value=nan, region=none, q=(nan, nan, nan), x=(nan, nan, nan)"
             q = ", ".join(f"{value:.6e}" for value in location.logical)
             x = ", ".join(f"{value:.6e}" for value in location.cartesian)
-            return f"  {name}: value={location.value:.6e}, region={location.region}, q=({q}), x=({x})"
+            return (
+                f"  {name}: value={location.value:.6e}, "
+                f"cell={location.cell_index}, region={location.region}, "
+                f"q=({q}), x=({x})"
+            )
 
+        lines.append("  Constraints:")
+        if self.eta_constraint_residuals:
+            lines.append("    eta residual: " + ", ".join(
+                f"{key}={value:.6e}" for key, value in self.eta_constraint_residuals.items()))
+        if self.periodic_seam_residuals:
+            lines.append("    periodic seam: " + ", ".join(
+                f"{key}={value:.6e}" for key, value in self.periodic_seam_residuals.items()))
+        lines.append("  Worst locations:")
+        lines.append(location_line("worst_J", self.worst_jacobian))
+        lines.append(location_line("worst_volume", self.worst_volume))
         lines.append(location_line("worst_scaled_J", self.worst_scaled_jacobian))
-        lines.append(location_line("worst_cond(F)", self.worst_mapping_condition))
+        lines.append(location_line("worst_cond(H)", self.worst_mapping_condition))
+        lines.append(location_line("worst_stretch", self.worst_stretch))
+        lines.append(location_line("worst_angle", self.worst_angle_cosine))
+        lines.append(location_line("worst_eta_residual", self.worst_eta_constraint))
         a = ", ".join(f"{value:.6e}" for value in self.max_neighbor_log_J_jump_endpoint_a)
         b = ", ".join(f"{value:.6e}" for value in self.max_neighbor_log_J_jump_endpoint_b)
         lines.append(
-            f"  max_dlogJ: value={self.max_neighbor_log_J_jump:.6e}, "
+            f"  max_dlogV: value={self.max_neighbor_log_J_jump:.6e}, "
             f"axis={self.max_neighbor_log_J_jump_axis}, q_a=({a}), q_b=({b})"
         )
+        for name, jump in (("worst_volume_jump", self.worst_volume_jump), ("worst_K_jump", self.worst_K_jump)):
+            if jump is not None:
+                qa = ", ".join(f"{value:.6e}" for value in jump.logical_a)
+                qb = ", ".join(f"{value:.6e}" for value in jump.logical_b)
+                xa = ", ".join(f"{value:.6e}" for value in jump.cartesian_a)
+                xb = ", ".join(f"{value:.6e}" for value in jump.cartesian_b)
+                lines.append(
+                    f"  {name}: value={jump.value:.6e}, direction={jump.direction}, "
+                    f"cells={jump.cell_index_a}->{jump.cell_index_b}, "
+                    f"regions={jump.region_a}->{jump.region_b}, "
+                    f"q_a=({qa}), q_b=({qb}), x_a=({xa}), x_b=({xb})"
+                )
+        if self.mmpde_metadata:
+            lines.append("  Optimization:")
+            lines.append("    " + ", ".join(
+                f"{key}={value}" for key, value in self.mmpde_metadata.items()))
         return "\n".join(lines)
 
 
@@ -811,203 +999,523 @@ class MetricEvaluator:
             reject_nonpositive_J=reject_nonpositive_J,
         )
 
-    def quality_report(self) -> MetricQualityReport:
-        """Return descriptive quality diagnostics at cells and open faces.
+    def quality_report(
+        self,
+        *,
+        eta_evaluator: Any | None = None,
+        gauss_order: int = 2,
+        logical_cell_counts: tuple[int, int, int] | None = None,
+    ) -> MetricQualityReport:
+        """Return cell-resolved quality diagnostics for the fitted metric map.
 
-        Cell-scaled quantities use the local logical widths so that cell
-        aspect and spacing are reflected in the shape diagnostics.  The
-        calculation uses a pseudoinverse for singular samples to keep
-        diagnostics available for invalid trial meshes instead of raising on
-        a nonpositive Jacobian.
+        ``gauss_order`` is deliberately restricted to 2 or 3.  Two points in
+        every logical direction is the normal benchmark mode; three is a more
+        expensive validation mode for detecting spline-cell defects missed by
+        centre samples.  Open wall-face centres are retained as supplemental
+        samples, but volume/shape region statistics use quadrature points.
+
+        ``logical_cell_counts`` optionally selects the uniform logical grid
+        whose cell quality is being assessed.  This is useful when the
+        evaluator's stored MMPDE node grid differs from the final PDE grid:
+        the evaluator remains the source of the spline/Fourier map, while the
+        report samples the requested computational cells.  If omitted, the
+        evaluator's own node axes are used for backwards compatibility.
         """
-        cell_points = self.cell_center_logical_points()
-        face_points = self.open_boundary_face_center_logical_points()
-        cell_points_flat = cell_points.reshape(-1, 3)
-        all_points = np.concatenate((cell_points_flat, face_points), axis=0)
-        all_positions, all_A = self._position_and_jacobian(all_points)
-        raw_J = np.linalg.det(all_A)
+        if gauss_order not in (2, 3):
+            raise ValueError("gauss_order must be 2 or 3")
+        if logical_cell_counts is not None:
+            try:
+                requested_counts = tuple(int(value) for value in logical_cell_counts)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    "logical_cell_counts must contain three positive integers"
+                ) from error
+            if len(requested_counts) != 3 or any(value < 1 for value in requested_counts):
+                raise ValueError(
+                    "logical_cell_counts must contain three positive integers"
+                )
+        else:
+            requested_counts = None
+        if eta_evaluator is not None:
+            eta_period = getattr(eta_evaluator, "period", None)
+            if eta_period is None or not np.isfinite(eta_period) or eta_period <= 0.0:
+                raise ValueError("eta_evaluator must provide a positive finite period")
+            if not np.isclose(float(eta_period), self._period, rtol=2e-7, atol=2e-10):
+                raise ValueError("eta_evaluator period is inconsistent with the metric period")
+        nodes = (
+            np.array((-1.0, 1.0), dtype=float) / np.sqrt(3.0)
+            if gauss_order == 2 else np.array((-np.sqrt(3.0 / 5.0), 0.0, np.sqrt(3.0 / 5.0)))
+        )
+        if requested_counts is None:
+            u_edges = np.asarray(self._u, dtype=float)
+            v_edges = np.asarray(self._v, dtype=float)
+            eta_edges = np.concatenate(
+                (np.asarray(self._eta, dtype=float),
+                 [float(self._eta[0]) + self._period])
+            )
+        else:
+            nu, nv, neta = requested_counts
+            u_edges = np.linspace(self._u[0], self._u[-1], nu + 1)
+            v_edges = np.linspace(self._v[0], self._v[-1], nv + 1)
+            eta_edges = (
+                float(self._eta[0])
+                + np.arange(neta + 1, dtype=float) * self._period / neta
+            )
+        du, dv, deta = np.diff(u_edges), np.diff(v_edges), np.diff(eta_edges)
+        uc = 0.5 * (u_edges[:-1] + u_edges[1:])
+        vc = 0.5 * (v_edges[:-1] + v_edges[1:])
+        ec = 0.5 * (eta_edges[:-1] + eta_edges[1:])
+        offsets = np.stack(np.meshgrid(nodes, nodes, nodes, indexing="ij"), axis=-1).reshape(-1, 3)
+        points_by_cell = np.empty((uc.size, vc.size, ec.size, offsets.shape[0], 3), dtype=float)
+        points_by_cell[..., 0] = uc[:, None, None, None] + 0.5 * du[:, None, None, None] * offsets[None, None, None, :, 0]
+        points_by_cell[..., 1] = vc[None, :, None, None] + 0.5 * dv[None, :, None, None] * offsets[None, None, None, :, 1]
+        points_by_cell[..., 2] = (
+            ec[None, None, :, None]
+            + 0.5 * deta[None, None, :, None] * offsets[None, None, None, :, 2]
+        )
+        quadrature_points = points_by_cell.reshape(-1, 3)
+        face_points = np.concatenate(
+            (
+                np.stack(
+                    np.meshgrid([u_edges[0]], vc, ec, indexing="ij"),
+                    axis=-1,
+                ).reshape(-1, 3),
+                np.stack(
+                    np.meshgrid([u_edges[-1]], vc, ec, indexing="ij"),
+                    axis=-1,
+                ).reshape(-1, 3),
+                np.stack(
+                    np.meshgrid(uc, [v_edges[0]], ec, indexing="ij"),
+                    axis=-1,
+                ).reshape(-1, 3),
+                np.stack(
+                    np.meshgrid(uc, [v_edges[-1]], ec, indexing="ij"),
+                    axis=-1,
+                ).reshape(-1, 3),
+            ),
+            axis=0,
+        )
+        all_points = np.concatenate((quadrature_points, face_points), axis=0)
 
         def local_width(axis: np.ndarray, values: np.ndarray) -> np.ndarray:
-            indices = np.searchsorted(axis, values, side="right") - 1
-            indices = np.clip(indices, 0, axis.size - 2)
+            indices = np.clip(np.searchsorted(axis, values, side="right") - 1, 0, axis.size - 2)
             return axis[indices + 1] - axis[indices]
 
-        widths = np.stack(
-            (
-                local_width(self._u, all_points[:, 0]),
-                local_width(self._v, all_points[:, 1]),
-                np.full(all_points.shape[0], self._period / self._eta.size),
-            ),
-            axis=1,
+        # A 64^3 benchmark has more than two million quadrature samples.
+        # Retain scalar diagnostics, but process Jacobian matrices in chunks
+        # so the report does not transiently hold several multi-hundred-MiB
+        # arrays of positions, F, H, metrics, and singular vectors at once.
+        sample_count = all_points.shape[0]
+        raw_J = np.empty(sample_count, dtype=float)
+        determinant_H = np.empty(sample_count, dtype=float)
+        scaled_J = np.empty(sample_count, dtype=float)
+        condition = np.empty(sample_count, dtype=float)
+        stretch = np.empty(sample_count, dtype=float)
+        angle_cosines = {name: np.empty(sample_count, dtype=float) for name in ("uv", "ueta", "veta")}
+        inverse_residual = np.empty(sample_count, dtype=float)
+        eta_absolute = np.empty(quadrature_points.shape[0], dtype=float) if eta_evaluator is not None else None
+        chunk_size = 131_072
+        for start in range(0, sample_count, chunk_size):
+            stop = min(start + chunk_size, sample_count)
+            points = all_points[start:stop]
+            positions, A = self._position_and_jacobian(points)
+            widths = np.stack((local_width(u_edges, points[:, 0]), local_width(v_edges, points[:, 1]), np.full(points.shape[0], deta[0])), axis=1)
+            H = A * widths[:, None, :]
+            singular_values = np.linalg.svd(H, compute_uv=False)
+            lengths = np.linalg.norm(H, axis=1)
+            raw_J[start:stop] = np.linalg.det(A)
+            determinant_H[start:stop] = np.linalg.det(H)
+            denominator = np.prod(lengths, axis=1)
+            scaled_J[start:stop] = np.nan
+            np.divide(determinant_H[start:stop], denominator, out=scaled_J[start:stop], where=denominator > 0.0)
+            condition[start:stop] = np.inf
+            np.divide(singular_values[:, 0], singular_values[:, -1], out=condition[start:stop], where=singular_values[:, -1] > 0.0)
+            stretch[start:stop] = np.inf
+            np.divide(np.max(lengths, axis=1), np.min(lengths, axis=1), out=stretch[start:stop], where=np.min(lengths, axis=1) > 0.0)
+            angle_cosines["uv"][start:stop] = np.abs(np.sum(H[:, :, 0] * H[:, :, 1], axis=1)) / np.maximum(lengths[:, 0] * lengths[:, 1], np.finfo(float).tiny)
+            angle_cosines["ueta"][start:stop] = np.abs(np.sum(H[:, :, 0] * H[:, :, 2], axis=1)) / np.maximum(lengths[:, 0] * lengths[:, 2], np.finfo(float).tiny)
+            angle_cosines["veta"][start:stop] = np.abs(np.sum(H[:, :, 1] * H[:, :, 2], axis=1)) / np.maximum(lengths[:, 1] * lengths[:, 2], np.finfo(float).tiny)
+            metric = np.einsum("...ki,...kj->...ij", A, A)
+            inverse = np.linalg.pinv(metric)
+            inverse_residual[start:stop] = np.max(np.abs(metric @ inverse - np.eye(3)), axis=(-2, -1))
+            if eta_absolute is not None and start < quadrature_points.shape[0]:
+                eta_stop = min(stop, quadrature_points.shape[0])
+                try:
+                    eta_values = np.asarray(eta_evaluator.evaluate_cartesian(positions[:eta_stop - start], wrapped=False), dtype=float)
+                except TypeError:
+                    eta_values = np.asarray(eta_evaluator.evaluate_cartesian(positions[:eta_stop - start]), dtype=float)
+                expected_shape = (eta_stop - start,)
+                if eta_values.shape != expected_shape:
+                    raise ValueError(
+                        "eta_evaluator must return one value per Cartesian point"
+                    )
+                if not np.all(np.isfinite(eta_values)):
+                    raise ValueError("eta_evaluator returned nonfinite values")
+                eta_residual = (eta_values - quadrature_points[start:eta_stop, 2] + 0.5 * self._period) % self._period - 0.5 * self._period
+                eta_absolute[start:eta_stop] = np.abs(eta_residual)
+        quadrature_count = quadrature_points.shape[0]
+        quadrature = slice(0, quadrature_count)
+        face_slice = slice(quadrature_count, sample_count)
+        quadrature_valid = (
+            np.isfinite(raw_J[quadrature]) & (raw_J[quadrature] > 0.0)
         )
-        scaled_A = all_A * widths[:, None, :]
-        singular_values = np.linalg.svd(scaled_A, compute_uv=False)
-        column_norms = np.linalg.norm(scaled_A, axis=1)
-        denominator = np.prod(column_norms, axis=1)
-        scaled_J = np.full(raw_J.shape, np.nan, dtype=float)
-        np.divide(np.linalg.det(scaled_A), denominator, out=scaled_J, where=denominator > 0)
-        condition = np.full(raw_J.shape, np.inf, dtype=float)
-        positive_sigma = singular_values[:, -1] > 0
-        np.divide(
-            singular_values[:, 0],
-            singular_values[:, -1],
-            out=condition,
-            where=positive_sigma,
+        face_valid = (
+            np.isfinite(raw_J[face_slice]) & (raw_J[face_slice] > 0.0)
         )
-        valid = np.isfinite(raw_J) & (raw_J > 0)
+        cell_shape = (uc.size, vc.size, ec.size)
+        q_per_cell = offsets.shape[0]
+        cell_indices = np.stack(np.meshgrid(np.arange(uc.size), np.arange(vc.size), np.arange(ec.size), indexing="ij"), axis=-1).reshape(-1, 3)
+        sample_cell_indices = np.repeat(cell_indices, q_per_cell, axis=0)
 
-        def finite_stat(values: np.ndarray, reducer: str) -> float:
-            finite = values[np.isfinite(values)]
-            if finite.size == 0:
+        def finite(values: np.ndarray) -> np.ndarray:
+            return np.asarray(values)[np.isfinite(values)]
+
+        def stat(values: np.ndarray, kind: str, percentile: float | None = None) -> float:
+            raw_values = np.asarray(values).reshape(-1)
+            non_nan = raw_values[~np.isnan(raw_values)]
+            if non_nan.size == 0:
                 return float("nan")
-            if reducer == "min":
-                return float(np.min(finite))
-            if reducer == "max":
-                return float(np.max(finite))
-            if reducer == "median":
-                return float(np.median(finite))
-            return float(np.percentile(finite, 1.0))
+            # Preserve infinities for extrema so a singular mapping remains
+            # visible instead of being silently omitted from the report.
+            if kind == "min": return float(np.min(non_nan))
+            if kind == "max": return float(np.max(non_nan))
+            values = finite(non_nan)
+            if values.size == 0:
+                return float("nan")
+            if kind == "median": return float(np.median(values))
+            if kind == "mean": return float(np.mean(values))
+            if kind == "std": return float(np.std(values))
+            return float(np.percentile(values, float(percentile)))
 
-        raw_median = finite_stat(raw_J, "median")
-        min_over_median = (
-            float(np.min(raw_J[np.isfinite(raw_J)]) / raw_median)
-            if np.isfinite(raw_median) and raw_median != 0 and np.any(np.isfinite(raw_J))
-            else float("nan")
-        )
+        # Face centres are supplemental validity samples.  They must not bias
+        # global cell volume, shape, stretch, or condition distributions.
+        raw_median = stat(raw_J[quadrature], "median")
+        volume_median = stat(determinant_H[quadrature], "median")
+        volume_p01 = stat(determinant_H[quadrature], "percentile", 1.0)
+        def ratio(numerator: float, denominator: float) -> float:
+            return float(numerator / denominator) if np.isfinite(numerator) and np.isfinite(denominator) and denominator != 0.0 else float("nan")
 
-        cell_count = cell_points_flat.shape[0]
-        cell_J = raw_J[:cell_count].reshape(cell_points.shape[:-1])
-        if np.all(np.isfinite(cell_J)) and np.all(cell_J > 0):
-            log_J = np.log(cell_J)
-            neighbor_candidates: list[tuple[float, str, np.ndarray, np.ndarray]] = []
+        def region_name(cell: tuple[int, int, int]) -> str:
+            i, j, _ = cell
+            if i in (0, cell_shape[0] - 1) and j in (0, cell_shape[1] - 1): return "corner_adjacent"
+            if i == 0: return "u_min_adjacent"
+            if i == cell_shape[0] - 1: return "u_max_adjacent"
+            if j == 0: return "v_min_adjacent"
+            if j == cell_shape[1] - 1: return "v_max_adjacent"
+            return "core"
 
-            def add_neighbors(axis: int, label: str) -> None:
-                if log_J.shape[axis] <= 1:
-                    return
-                differences = np.abs(np.diff(log_J, axis=axis))
-                index = np.unravel_index(int(np.argmax(differences)), differences.shape)
-                q_a_index = list(index)
-                q_b_index = list(index)
-                q_b_index[axis] += 1
-                q_a = cell_points[tuple(q_a_index)]
-                q_b = cell_points[tuple(q_b_index)]
-                neighbor_candidates.append((float(differences[index]), label, q_a, q_b))
+        def location(index: int, value: float) -> MetricQualityLocation | None:
+            if index < 0 or index >= quadrature_count: return None
+            cell = tuple(int(x) for x in sample_cell_indices[index])
+            position = self._position_only(all_points[index])
+            return MetricQualityLocation(float(value), region_name(cell), tuple(float(x) for x in all_points[index]), tuple(float(x) for x in position), cell)
 
-            add_neighbors(0, "u")
-            add_neighbors(1, "v")
-            if log_J.shape[2] > 1:
-                differences = np.abs(log_J - np.roll(log_J, -1, axis=2))
-                index = np.unravel_index(int(np.argmax(differences)), differences.shape)
-                q_a = cell_points[index]
-                q_b_index = list(index)
-                q_b_index[2] = (q_b_index[2] + 1) % log_J.shape[2]
-                q_b = cell_points[tuple(q_b_index)]
-                seam = index[2] == log_J.shape[2] - 1
-                if seam:
-                    q_b = q_b.copy()
-                    q_b[2] += self._period
-                neighbor_candidates.append((
-                    float(differences[index]),
-                    "eta (periodic seam)" if seam else "eta",
-                    q_a,
-                    q_b,
-                ))
-            if neighbor_candidates:
-                max_jump, jump_axis, jump_a, jump_b = max(neighbor_candidates, key=lambda item: item[0])
-            else:
-                max_jump, jump_axis = 0.0, "none"
-                jump_a = jump_b = np.full(3, np.nan)
-        else:
-            max_jump, jump_axis = float("inf"), "none (nonpositive or nonfinite J)"
-            jump_a = jump_b = np.full(3, np.nan)
+        def extreme(values: np.ndarray, want_min: bool) -> MetricQualityLocation | None:
+            candidates = np.flatnonzero(np.isfinite(values[:quadrature_count]))
+            if not candidates.size: return None
+            local = values[candidates]
+            index = int(candidates[np.argmin(local) if want_min else np.argmax(local)])
+            return location(index, values[index])
 
-        g_cov = np.einsum("...ki,...kj->...ij", all_A, all_A)
-        inverse_residual_max = 0.0
-        for metric in g_cov.reshape(-1, 3, 3):
-            if np.all(np.isfinite(metric)):
-                inverse = np.linalg.pinv(metric)
-                residual = np.max(np.abs(metric @ inverse - np.eye(3)))
-                inverse_residual_max = max(inverse_residual_max, float(residual))
-            else:
-                inverse_residual_max = float("inf")
-                break
-
-        u_face_count = (self._v.size - 1) * self._eta.size
-        v_face_count = (self._u.size - 1) * self._eta.size
-        u_min_start = cell_count
-        u_max_start = u_min_start + u_face_count
-        v_min_start = u_max_start + u_face_count
-        v_max_start = v_min_start + v_face_count
-        region_slices = (
-            ("cell_center", slice(0, cell_count)),
-            ("u_min_face", slice(u_min_start, u_max_start)),
-            ("u_max_face", slice(u_max_start, v_min_start)),
-            ("v_min_face", slice(v_min_start, v_max_start)),
-            ("v_max_face", slice(v_max_start, raw_J.size)),
-        )
-
-        def location(index: int, value: float, region: str) -> MetricQualityLocation:
-            return MetricQualityLocation(
-                value=float(value),
-                region=region,
-                logical=tuple(float(item) for item in all_points[index]),
-                cartesian=tuple(float(item) for item in all_positions[index]),
-            )
-
-        def extremum(which: str) -> MetricQualityLocation | None:
-            values = scaled_J if which == "scaled_J" else condition
-            candidates = np.where(~np.isnan(values))[0]
-            if not candidates.size:
-                return None
-            index = int(candidates[np.argmin(values[candidates]) if which == "scaled_J" else np.argmax(values[candidates])])
-            region = next(label for label, bounds in region_slices if bounds.start <= index < bounds.stop)
-            return location(index, values[index], region)
-
-        regions = []
-        for label, bounds in region_slices:
-            region_J = raw_J[bounds]
-            region_scaled = scaled_J[bounds]
-            region_condition = condition[bounds]
-            region_valid = np.isfinite(region_J) & (region_J > 0)
-            finite_scaled = region_scaled[np.isfinite(region_scaled)]
-            condition_candidates = region_condition[~np.isnan(region_condition)]
+        regions: list[MetricQualityRegion] = []
+        all_cells = sample_cell_indices
+        region_masks = {
+            "all": np.ones(quadrature_count, dtype=bool),
+            "core": (all_cells[:, 0] > 0) & (all_cells[:, 0] < cell_shape[0] - 1) & (all_cells[:, 1] > 0) & (all_cells[:, 1] < cell_shape[1] - 1),
+            "wall_adjacent": (all_cells[:, 0] == 0) | (all_cells[:, 0] == cell_shape[0] - 1) | (all_cells[:, 1] == 0) | (all_cells[:, 1] == cell_shape[1] - 1),
+            "u_min_adjacent": all_cells[:, 0] == 0,
+            "u_max_adjacent": all_cells[:, 0] == cell_shape[0] - 1,
+            "v_min_adjacent": all_cells[:, 1] == 0,
+            "v_max_adjacent": all_cells[:, 1] == cell_shape[1] - 1,
+            "corner_adjacent": ((all_cells[:, 0] == 0) | (all_cells[:, 0] == cell_shape[0] - 1)) & ((all_cells[:, 1] == 0) | (all_cells[:, 1] == cell_shape[1] - 1)),
+        }
+        for label, mask in region_masks.items():
+            values = determinant_H[:quadrature_count][mask]
+            median = stat(values, "median")
             regions.append(MetricQualityRegion(
-                label=label,
-                sample_count=int(region_J.size),
-                valid_fraction=float(np.mean(region_valid)) if region_J.size else float("nan"),
-                scaled_J_min=float(np.min(finite_scaled)) if finite_scaled.size else float("nan"),
-                mapping_condition_max=(
-                    float(np.max(condition_candidates))
-                    if condition_candidates.size else float("nan")
-                ),
+                label, int(np.count_nonzero(mask)),
+                float(np.mean(quadrature_valid[mask])) if np.any(mask) else float("nan"),
+                stat(scaled_J[:quadrature_count][mask], "min"), stat(condition[:quadrature_count][mask], "max"),
+                stat(scaled_J[:quadrature_count][mask], "percentile", 1.0), stat(condition[:quadrature_count][mask], "percentile", 95.0),
+                stat(stretch[:quadrature_count][mask], "percentile", 95.0), stat(stretch[:quadrature_count][mask], "max"),
+                ratio(stat(values, "percentile", 1.0), median), ratio(stat(values, "percentile", 99.0), stat(values, "percentile", 1.0)),
+                int(np.count_nonzero(~quadrature_valid[mask])),
             ))
 
+        # Cell representatives provide compact, direction-labelled smoothness
+        # diagnostics without mixing arbitrary Gauss-point neighbours.
+        centers = np.stack(np.meshgrid(uc, vc, ec, indexing="ij"), axis=-1)
+        center_positions, center_A = self._position_and_jacobian(centers.reshape(-1, 3))
+        center_A = center_A.reshape(cell_shape + (3, 3))
+        center_J = np.linalg.det(center_A)
+        center_volume = center_J * du[:, None, None] * dv[None, :, None] * deta[None, None, :]
+        center_gcontra = np.linalg.pinv(np.einsum("...ki,...kj->...ij", center_A, center_A))
+        K = center_J[..., None, None] * center_gcontra
+        directional_log_volume_jumps: dict[str, tuple[float, float]] = {}
+        directional_K_jumps: dict[str, tuple[float, float]] = {}
+        jump_records: list[tuple[float, str, tuple[int, int, int], tuple[int, int, int], np.ndarray, np.ndarray, str]] = []
+
+        def directional(axis: int, label: str, seam: bool = False) -> None:
+            if seam:
+                a_vol, b_vol = center_volume.take(-1, axis=axis), center_volume.take(0, axis=axis)
+                a_K, b_K = K.take(-1, axis=axis), K.take(0, axis=axis)
+            else:
+                a_vol = np.take(center_volume, np.arange(center_volume.shape[axis] - 1), axis=axis)
+                b_vol = np.take(center_volume, np.arange(1, center_volume.shape[axis]), axis=axis)
+                a_K = np.take(K, np.arange(K.shape[axis] - 1), axis=axis)
+                b_K = np.take(K, np.arange(1, K.shape[axis]), axis=axis)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                dvol = np.abs(np.log(b_vol) - np.log(a_vol))
+            knorm_a, knorm_b = np.linalg.norm(a_K, axis=(-2, -1)), np.linalg.norm(b_K, axis=(-2, -1))
+            dK = np.linalg.norm(b_K - a_K, axis=(-2, -1)) / (0.5 * (knorm_a + knorm_b) + np.finfo(float).eps)
+            directional_log_volume_jumps[label] = (stat(dvol, "percentile", 95.0), stat(dvol, "max"))
+            directional_K_jumps[label] = (stat(dK, "percentile", 95.0), stat(dK, "max"))
+            if np.any(np.isfinite(dvol)):
+                local_index = tuple(int(value) for value in np.unravel_index(np.nanargmax(dvol), dvol.shape))
+                if seam:
+                    ia = (local_index[0], local_index[1], cell_shape[2] - 1)
+                    ib = (local_index[0], local_index[1], 0)
+                else:
+                    ia = local_index
+                    ib_list = list(local_index)
+                    ib_list[axis] += 1
+                    ib = tuple(ib_list)
+                qa, qb = centers[ia], centers[ib]
+                if seam: qb = qb.copy(); qb[2] += self._period
+                jump_records.append((float(dvol[local_index]), label, ia, ib, qa, qb, "volume"))
+            if np.any(np.isfinite(dK)):
+                local_index = tuple(int(value) for value in np.unravel_index(np.nanargmax(dK), dK.shape))
+                if seam:
+                    ia = (local_index[0], local_index[1], cell_shape[2] - 1)
+                    ib = (local_index[0], local_index[1], 0)
+                else:
+                    ia = local_index
+                    ib_list = list(local_index)
+                    ib_list[axis] += 1
+                    ib = tuple(ib_list)
+                qa, qb = centers[ia], centers[ib]
+                if seam: qb = qb.copy(); qb[2] += self._period
+                jump_records.append((float(dK[local_index]), label, ia, ib, qa, qb, "K"))
+
+        directional(0, "u"); directional(1, "v")
+        if cell_shape[2] > 1:
+            directional(2, "eta")
+            directional(2, "eta_seam", seam=True)
+
+        def jump_location(kind: str) -> MetricQualityJumpLocation | None:
+            candidates = [record for record in jump_records if record[-1] == kind]
+            if not candidates: return None
+            value, direction, ia, ib, qa, qb, _ = max(candidates, key=lambda record: record[0])
+            xa = self._position_only(qa); xb = self._position_only(qb)
+            return MetricQualityJumpLocation(
+                value,
+                direction,
+                tuple(float(x) for x in qa),
+                tuple(float(x) for x in qb),
+                tuple(float(x) for x in xa),
+                tuple(float(x) for x in xb),
+                ia,
+                ib,
+                region_name(ia),
+                region_name(ib),
+            )
+
+        inverse_residual_max = stat(np.asarray(inverse_residual), "max")
+
+        eta_stats: dict[str, float] = {}
+        eta_location: MetricQualityLocation | None = None
+        if eta_absolute is not None:
+            absolute = eta_absolute
+            eta_stats = {"median": stat(absolute, "median"), "p95": stat(absolute, "percentile", 95.0), "p99": stat(absolute, "percentile", 99.0), "max": stat(absolute, "max")}
+            eta_location = extreme(absolute, False)
+
+        u_seam = (uc[:, None] + 0.5 * du[:, None] * nodes[None, :]).reshape(-1)
+        v_seam = (vc[:, None] + 0.5 * dv[:, None] * nodes[None, :]).reshape(-1)
+        uv_seam = np.stack(np.meshgrid(u_seam, v_seam, indexing="ij"), axis=-1).reshape(-1, 2)
+        q0 = np.column_stack((uv_seam, np.full(uv_seam.shape[0], eta_edges[0])))
+        q1 = q0.copy(); q1[:, 2] += self._period
+        x0, A0 = self._position_and_jacobian(q0); x1, A1 = self._position_and_jacobian(q1)
+        rotation = np.array(((np.cos(self._period), -np.sin(self._period), 0.0), (np.sin(self._period), np.cos(self._period), 0.0), (0.0, 0.0, 1.0)))
+        x0r, A0r = x0 @ rotation.T, np.einsum("ij,...jk->...ik", rotation, A0)
+        G0, G1 = np.einsum("...ki,...kj->...ij", A0, A0), np.einsum("...ki,...kj->...ij", A1, A1)
+        seam_residuals = {
+            "position": float(np.max(np.linalg.norm(x1 - x0r, axis=1) / np.maximum(np.linalg.norm(x0r, axis=1), np.finfo(float).eps))),
+            "jacobian_matrix": float(np.max(np.linalg.norm(A1 - A0r, axis=(1, 2)) / np.maximum(np.linalg.norm(A0r, axis=(1, 2)), np.finfo(float).eps))),
+            "metric_tensor": float(np.max(np.linalg.norm(G1 - G0, axis=(1, 2)) / np.maximum(np.linalg.norm(G0, axis=(1, 2)), np.finfo(float).eps))),
+            "J": float(np.max(np.abs(np.linalg.det(A1) - np.linalg.det(A0)) / np.maximum(np.abs(np.linalg.det(A0)), np.finfo(float).eps))),
+        }
+        result = self._mmpde_result
+        mmpde_metadata: dict[str, Any] = {}
+        if result is not None:
+            energy = np.asarray(result.energy_history, dtype=float)
+            minimum_jacobian = np.asarray(
+                result.minimum_jacobian_history, dtype=float
+            )
+            initial_energy = float(energy[0]) if energy.size else float("nan")
+            final_energy = float(energy[-1]) if energy.size else float("nan")
+            mmpde_metadata = {
+                "converged": bool(result.converged),
+                "iterations": int(result.iterations),
+                "initial_energy": initial_energy,
+                "final_energy": final_energy,
+                "final_over_initial_energy": ratio(final_energy, initial_energy),
+                "final_max_nodal_update": float(result.max_free_node_update),
+                "initial_minimum_discrete_J": (
+                    float(minimum_jacobian[0])
+                    if minimum_jacobian.size else float("nan")
+                ),
+                "final_minimum_discrete_J": (
+                    float(minimum_jacobian[-1])
+                    if minimum_jacobian.size else float("nan")
+                ),
+            }
+            for name, history in result.component_energy_history.items():
+                history = np.asarray(history, dtype=float)
+                mmpde_metadata[f"{name}_final_over_initial"] = (
+                    ratio(float(history[-1]), float(history[0]))
+                    if history.size else float("nan")
+                )
+
+        worst_volume_jump = jump_location("volume")
+        worst_K_jump = jump_location("K")
+        legacy_jump_axis = (
+            "eta (periodic seam)"
+            if worst_volume_jump is not None and worst_volume_jump.direction == "eta_seam"
+            else worst_volume_jump.direction if worst_volume_jump is not None else "none"
+        )
+        legacy_jump_a = (
+            worst_volume_jump.logical_a if worst_volume_jump is not None else (float("nan"),) * 3
+        )
+        legacy_jump_b = (
+            worst_volume_jump.logical_b if worst_volume_jump is not None else (float("nan"),) * 3
+        )
+        worst_angle_name, worst_angle_values = max(
+            angle_cosines.items(),
+            key=lambda item: stat(item[1][quadrature], "max"),
+        )
+        worst_angle = extreme(worst_angle_values, False)
+        if worst_angle is not None:
+            worst_angle = MetricQualityLocation(
+                worst_angle.value,
+                f"{worst_angle.region}:{worst_angle_name}",
+                worst_angle.logical,
+                worst_angle.cartesian,
+                worst_angle.cell_index,
+            )
+        q_raw_J = raw_J[quadrature]
+        q_volume = determinant_H[quadrature]
+        q_scaled_J = scaled_J[quadrature]
+        q_condition = condition[quadrature]
+        q_stretch = stretch[quadrature]
+        q_inverse_residual = inverse_residual[quadrature]
+        cell_count = int(np.prod(cell_shape))
         return MetricQualityReport(
-            sample_count=int(raw_J.size),
-            valid_fraction=float(np.mean(valid)) if raw_J.size else float("nan"),
-            raw_J_min=finite_stat(raw_J, "min"),
-            raw_J_p01=finite_stat(raw_J, "p01"),
+            sample_count=int(all_points.shape[0]),
+            valid_fraction=float(np.mean(quadrature_valid)),
+            raw_J_min=stat(q_raw_J, "min"),
+            raw_J_p01=stat(q_raw_J, "percentile", 1.0),
             raw_J_median=raw_median,
-            raw_J_max=finite_stat(raw_J, "max"),
-            raw_J_min_over_median=min_over_median,
-            scaled_J_min=finite_stat(scaled_J, "min"),
-            scaled_J_p01=finite_stat(scaled_J, "p01"),
-            mapping_condition_median=finite_stat(condition, "median"),
-            mapping_condition_p95=(
-                float(np.percentile(condition[np.isfinite(condition)], 95.0))
-                if np.any(np.isfinite(condition)) else float("inf")
+            raw_J_max=stat(q_raw_J, "max"),
+            raw_J_min_over_median=ratio(stat(q_raw_J, "min"), raw_median),
+            scaled_J_min=stat(q_scaled_J, "min"),
+            scaled_J_p01=stat(q_scaled_J, "percentile", 1.0),
+            mapping_condition_median=stat(q_condition, "median"),
+            mapping_condition_p95=stat(q_condition, "percentile", 95.0),
+            mapping_condition_max=stat(q_condition, "max"),
+            max_neighbor_log_J_jump=max(
+                (values[1] for values in directional_log_volume_jumps.values()),
+                default=float("nan"),
             ),
-            mapping_condition_max=(
-                float(np.max(condition)) if condition.size else float("nan")
+            inverse_residual_max=stat(q_inverse_residual, "max"),
+            inverse_residual_p99=stat(
+                q_inverse_residual, "percentile", 99.0
             ),
-            max_neighbor_log_J_jump=max_jump,
-            inverse_residual_max=float(inverse_residual_max),
             regions=tuple(regions),
-            worst_scaled_jacobian=extremum("scaled_J"),
-            worst_mapping_condition=extremum("condition"),
-            max_neighbor_log_J_jump_axis=jump_axis,
-            max_neighbor_log_J_jump_endpoint_a=tuple(float(item) for item in jump_a),
-            max_neighbor_log_J_jump_endpoint_b=tuple(float(item) for item in jump_b),
+            worst_scaled_jacobian=extreme(q_scaled_J, True),
+            worst_mapping_condition=extreme(q_condition, False),
+            max_neighbor_log_J_jump_axis=legacy_jump_axis,
+            max_neighbor_log_J_jump_endpoint_a=legacy_jump_a,
+            max_neighbor_log_J_jump_endpoint_b=legacy_jump_b,
+            points_per_cell=q_per_cell,
+            cell_count=cell_count,
+            gauss_order=int(gauss_order),
+            quadrature_sample_count=quadrature_count,
+            face_sample_count=int(face_points.shape[0]),
+            nonpositive_J_count=int(np.count_nonzero(~quadrature_valid)),
+            nonpositive_J_fraction=float(np.mean(~quadrature_valid)),
+            face_nonpositive_J_count=int(np.count_nonzero(~face_valid)),
+            face_valid_fraction=(
+                float(np.mean(face_valid)) if face_valid.size else float("nan")
+            ),
+            raw_volume_min=stat(q_volume, "min"),
+            volume_min_over_median=ratio(stat(q_volume, "min"), volume_median),
+            volume_p01_over_median=ratio(volume_p01, volume_median),
+            volume_p05_over_median=ratio(
+                stat(q_volume, "percentile", 5.0), volume_median
+            ),
+            volume_p95_over_median=ratio(
+                stat(q_volume, "percentile", 95.0), volume_median
+            ),
+            volume_p99_over_median=ratio(
+                stat(q_volume, "percentile", 99.0), volume_median
+            ),
+            volume_p99_over_p01=ratio(
+                stat(q_volume, "percentile", 99.0), volume_p01
+            ),
+            volume_coefficient_of_variation=ratio(
+                stat(q_volume, "std"), stat(q_volume, "mean")
+            ),
+            scaled_J_p05=stat(q_scaled_J, "percentile", 5.0),
+            scaled_J_median=stat(q_scaled_J, "median"),
+            mapping_condition_p99=stat(q_condition, "percentile", 99.0),
+            stretch_median=stat(q_stretch, "median"),
+            stretch_p95=stat(q_stretch, "percentile", 95.0),
+            stretch_p99=stat(q_stretch, "percentile", 99.0),
+            stretch_max=stat(q_stretch, "max"),
+            angle_cosines={
+                name: (
+                    stat(values[quadrature], "percentile", 95.0),
+                    stat(values[quadrature], "max"),
+                )
+                for name, values in angle_cosines.items()
+            },
+            directional_log_volume_jumps=directional_log_volume_jumps,
+            directional_K_jumps=directional_K_jumps,
+            eta_constraint_residuals=eta_stats,
+            periodic_seam_residuals=seam_residuals,
+            representation_metadata={
+                "mesh_shape": (
+                    int(self._u.size), int(self._v.size), int(self._eta.size)
+                ),
+                "cell_counts": cell_shape,
+                "evaluator_cell_counts": (
+                    int(self._u.size - 1),
+                    int(self._v.size - 1),
+                    int(self._eta.size),
+                ),
+                "quality_cell_counts": cell_shape,
+                "cell_count": cell_count,
+                "spline_degree_u": int(
+                    self._channels[0]._spline_degree_u or 1
+                ),
+                "spline_degree_v": int(
+                    self._channels[0]._spline_degree_v or 1
+                ),
+                "eta_representation": (
+                    f"Fourier({self._channels[0]._modes.size} coefficients)"
+                ),
+                "mmpde_fit_scale": float(self._mmpde_fit_scale),
+                "gauss_order": int(gauss_order),
+                "total_quality_samples": int(all_points.shape[0]),
+            },
+            mmpde_metadata=mmpde_metadata,
+            worst_jacobian=extreme(q_raw_J, True),
+            worst_volume=extreme(q_volume, True),
+            worst_stretch=extreme(q_stretch, False),
+            worst_angle_cosine=worst_angle,
+            worst_eta_constraint=eta_location,
+            worst_volume_jump=worst_volume_jump,
+            worst_K_jump=worst_K_jump,
         )
 
     def evaluate_magnetic_field(self, logical_points: Any, bfield_evaluator: Any, *, reject_nonpositive_J: bool = True) -> MagneticFieldEvaluation:
@@ -1483,6 +1991,7 @@ __all__ = [
     "MagneticFieldEvaluation",
     "MetricEvaluation",
     "MetricQualityLocation",
+    "MetricQualityJumpLocation",
     "MetricQualityRegion",
     "MetricQualityReport",
     "MetricEvaluator",

@@ -55,6 +55,97 @@ def test_ti_curvature_contribution_is_whole_equation_gated():
         )
 
 
+def test_curvature_scale_is_static_finite_nonnegative_and_scales_each_assembly():
+    import math
+
+    import jax.numpy as jnp
+    import pytest
+
+    from drbx.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
+
+    source = RHS_PATH.read_text()
+    rhs_tree = _tree(RHS_PATH)
+    rhs_class = next(
+        node
+        for node in ast.walk(rhs_tree)
+        if isinstance(node, ast.ClassDef) and node.name == "LocalFciDrbEBRhs"
+    )
+    scale_field = next(
+        node
+        for node in rhs_class.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "curvature_scale"
+    )
+    assert isinstance(scale_field.value, ast.Constant)
+    assert scale_field.value.value == 1.0
+
+    post_init = _function(rhs_tree, "__post_init__")
+    post_init_source = ast.get_source_segment(source, post_init)
+    assert post_init_source is not None
+    assert "math.isfinite" in post_init_source
+    assert "curvature_scale < 0.0" in post_init_source
+
+    evaluate = _function(rhs_tree, "evaluate_stage")
+    evaluate_source = ast.get_source_segment(source, evaluate)
+    assert evaluate_source is not None
+    for name in (
+        "curvature_density_contribution",
+        "curvature_Te_contribution",
+        "curvature_Ti_contribution",
+        "curvature_vorticity_contribution",
+    ):
+        assert evaluate_source.count(name + " =") >= 1
+    # The four assembled equation contributions each apply the static scale;
+    # the disabled branches remain explicit zeros.
+    assert evaluate_source.count("self.curvature_scale") == 5
+    assert "if self.curvature_scheme == \"disabled\"" in evaluate_source
+
+    def make_disabled(scale):
+        return LocalFciDrbEBRhs(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            curvature_scheme="disabled",
+            curvature_scale=scale,
+        )
+
+    for scale in (0.0, 0.25, 1.0):
+        rhs = make_disabled(scale)
+        assert rhs.curvature_scale == scale
+        contribution = jnp.asarray([2.0, -4.0])
+        scaled = rhs.curvature_scale * contribution
+        assert jnp.allclose(scaled, scale * contribution)
+
+    for invalid in (-1.0, math.inf, math.nan, True):
+        with pytest.raises(ValueError, match="curvature_scale"):
+            make_disabled(invalid)
+
+
+def test_curvature_scale_does_not_appear_in_noncurvature_rhs_terms():
+    source = RHS_PATH.read_text()
+    evaluate_source = ast.get_source_segment(
+        source,
+        _function(_tree(RHS_PATH), "evaluate_stage"),
+    )
+    assert evaluate_source is not None
+    for start, end in (
+        ("density_rhs =", "Te_rhs ="),
+        ("Te_rhs =", "Ti_rhs ="),
+        ("Ti_rhs =", "Vi_rhs ="),
+        ("Ve_rhs =", "vorticity_rhs ="),
+    ):
+        rhs_block = evaluate_source.split(start, 1)[1].split(end, 1)[0]
+        assert "self.curvature_scale" not in rhs_block
+
+
 def test_tracked_rk4_uses_three_output_specs_and_scalar_diagnostic_halo():
     rhs_tree = _tree(RHS_PATH)
     diagnostic = _function(

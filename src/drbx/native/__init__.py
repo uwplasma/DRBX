@@ -93,7 +93,21 @@ from .fci_model import (
     update_halo_owned_slice,
     update_state_halo_owned_slices,
 )
-from .fci_time_integrator import Rk4StepResult, Rk4Stepper, rk4_step, sum_stage_outputs
+from .fci_time_integrator import (
+    ARK2_B,
+    ARK2_B_EMBEDDED,
+    ARK2_C,
+    ARK2_EXPLICIT_A,
+    ARK2_GAMMA,
+    ARK2_IMPLICIT_A,
+    Ark2ImexStepResult,
+    Ark2ImexStepper,
+    Rk4StepResult,
+    Rk4Stepper,
+    ark2_imex_step,
+    rk4_step,
+    sum_stage_outputs,
+)
 from .fci_operators import (
     build_local_control_volume_field_closure,
     build_local_control_volume_polynomial_from_field,
@@ -157,11 +171,15 @@ from .fci_2_field_rhs import (
 )
 from .fci_drb_EB_rhs import (
     FciDrbEBRhsParameters,
+    FciDrbEBImplicitState,
     FciDrbEBState,
     LocalFciDrbEBFaceBCBundle,
     LocalFciDrbEBRhs,
+    build_eb_imex_acoustic_line_uv_preconditioner,
+    build_eb_imex_phi_line_u_preconditioner,
     prepare_local_fci_drb_eb_state,
 )
+from .fci_newton import SolvaxNewtonConfig, SolvaxNewtonInfo, solvax_newton_solve
 from .fci_4_field_state import (
     Fci4FieldBlobParameters,
     Fci4FieldFreeDecayParameters,
@@ -234,8 +252,17 @@ __all__ = [
     "PolarAxisRegularScalarRule3D",
     "PolarAxisRegularVectorRule3D",
     "make_default_topology_halo_filler_3d",
+    "ARK2_B",
+    "ARK2_B_EMBEDDED",
+    "ARK2_C",
+    "ARK2_EXPLICIT_A",
+    "ARK2_GAMMA",
+    "ARK2_IMPLICIT_A",
+    "Ark2ImexStepResult",
+    "Ark2ImexStepper",
     "Rk4StepResult",
     "Rk4Stepper",
+    "ark2_imex_step",
     "rk4_step",
     "sum_stage_outputs",
     "Fci2FieldRhsParameters",
@@ -243,10 +270,16 @@ __all__ = [
     "Fci2FieldState",
     "compute_local_2field_rhs",
     "FciDrbEBRhsParameters",
+    "FciDrbEBImplicitState",
     "FciDrbEBState",
     "LocalFciDrbEBFaceBCBundle",
     "LocalFciDrbEBRhs",
+    "build_eb_imex_acoustic_line_uv_preconditioner",
+    "build_eb_imex_phi_line_u_preconditioner",
     "prepare_local_fci_drb_eb_state",
+    "SolvaxNewtonConfig",
+    "SolvaxNewtonInfo",
+    "solvax_newton_solve",
     "Fci4FieldRhsParameters",
     "Fci4FieldRhsResult",
     "Fci4FieldState",
