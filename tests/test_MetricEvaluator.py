@@ -12,7 +12,12 @@ from drbx.geometry.MetricEvaluator import (
     build_metric_evaluator,
     build_wall_fitted_initial_mesh,
 )
-from drbx.geometry import MetricQualityLocation, MetricQualityRegion
+from drbx.geometry import (
+    MetricQualityJumpLocation,
+    MetricQualityLocation,
+    MetricQualityRegion,
+    MMPDEResult,
+)
 from drbx.geometry.ScalarPotential_evaluator import scalar_potential_evaluator_from_bfield
 from drbx.geometry.WallEvaluator import WallEvaluator
 
@@ -186,11 +191,18 @@ def test_finite_volume_sampling_helpers_exclude_square_corners():
 def test_quality_report_combines_cells_and_open_faces():
     evaluator = make_evaluator()
     report = evaluator.quality_report()
-    expected_count = (
-        evaluator.cell_center_logical_points().reshape(-1, 3).shape[0]
-        + evaluator.open_boundary_face_center_logical_points().shape[0]
+    cell_count = (
+        (evaluator.u.size - 1)
+        * (evaluator.v.size - 1)
+        * evaluator.eta.size
     )
+    expected_count = 8 * cell_count + evaluator.open_boundary_face_center_logical_points().shape[0]
     assert report.sample_count == expected_count
+    assert report.points_per_cell == 8
+    assert report.quadrature_sample_count == 8 * cell_count
+    assert report.face_sample_count == evaluator.open_boundary_face_center_logical_points().shape[0]
+    assert report.nonpositive_J_count == 0
+    assert report.nonpositive_J_fraction == 0.0
     assert report.valid_fraction == 1.0
     assert 0.0 < report.raw_J_min <= report.raw_J_p01 <= report.raw_J_median <= report.raw_J_max
     assert 0.0 < report.raw_J_min_over_median <= 1.0
@@ -202,26 +214,63 @@ def test_quality_report_combines_cells_and_open_faces():
     assert summary.startswith("synthetic: ")
     assert "samples=" in summary
     assert "scaled_J=" in summary
-    assert "cond(F)=" in summary
-    assert "max_dlogJ=" in summary
+    assert "cond(H)=" in summary
+    assert "max_dlogV=" in summary
+
+
+def test_quality_report_can_sample_a_grid_different_from_evaluator_nodes():
+    evaluator = make_evaluator(nu=7, nv=6, neta=10)
+    requested_counts = (9, 8, 14)
+    report = evaluator.quality_report(logical_cell_counts=requested_counts)
+
+    assert report.cell_count == int(np.prod(requested_counts))
+    assert report.quadrature_sample_count == report.points_per_cell * report.cell_count
+    assert report.representation_metadata["mesh_shape"] == (7, 6, 10)
+    assert report.representation_metadata["evaluator_cell_counts"] == (6, 5, 10)
+    assert report.representation_metadata["quality_cell_counts"] == requested_counts
 
 
 def test_quality_report_has_region_and_location_diagnostics():
     evaluator = make_evaluator()
     report = evaluator.quality_report()
     labels = [region.label for region in report.regions]
-    assert labels == ["cell_center", "u_min_face", "u_max_face", "v_min_face", "v_max_face"]
-    expected_counts = [
-        (evaluator.u.size - 1) * (evaluator.v.size - 1) * evaluator.eta.size,
-        (evaluator.v.size - 1) * evaluator.eta.size,
-        (evaluator.v.size - 1) * evaluator.eta.size,
-        (evaluator.u.size - 1) * evaluator.eta.size,
-        (evaluator.u.size - 1) * evaluator.eta.size,
+    assert labels == [
+        "all",
+        "core",
+        "wall_adjacent",
+        "u_min_adjacent",
+        "u_max_adjacent",
+        "v_min_adjacent",
+        "v_max_adjacent",
+        "corner_adjacent",
     ]
-    assert [region.sample_count for region in report.regions] == expected_counts
+    regions = {region.label: region for region in report.regions}
+    nu = evaluator.u.size - 1
+    nv = evaluator.v.size - 1
+    neta = evaluator.eta.size
+    q = report.points_per_cell
+    assert regions["all"].sample_count == nu * nv * neta * q
+    assert regions["core"].sample_count == (nu - 2) * (nv - 2) * neta * q
+    assert regions["wall_adjacent"].sample_count == (
+        nu * nv - (nu - 2) * (nv - 2)
+    ) * neta * q
+    assert regions["u_min_adjacent"].sample_count == nv * neta * q
+    assert regions["u_max_adjacent"].sample_count == nv * neta * q
+    assert regions["v_min_adjacent"].sample_count == nu * neta * q
+    assert regions["v_max_adjacent"].sample_count == nu * neta * q
+    assert regions["corner_adjacent"].sample_count == 4 * neta * q
     assert all(0.0 <= region.valid_fraction <= 1.0 for region in report.regions)
+    assert all(region.nonpositive_J_count == 0 for region in report.regions)
     assert all(region.scaled_J_min > 0.0 for region in report.regions)
     assert all(region.mapping_condition_max >= 1.0 for region in report.regions)
+    assert all(region.scaled_J_p01 >= region.scaled_J_min for region in report.regions)
+    assert all(
+        region.mapping_condition_max >= region.mapping_condition_p95 >= 1.0
+        for region in report.regions
+    )
+    assert all(region.stretch_max >= region.stretch_p95 >= 1.0 for region in report.regions)
+    assert all(region.volume_p01_over_median > 0.0 for region in report.regions)
+    assert all(region.volume_p99_over_p01 >= 1.0 for region in report.regions)
     for extremum in (report.worst_scaled_jacobian, report.worst_mapping_condition):
         assert extremum is not None
         assert extremum.region in labels
@@ -236,16 +285,17 @@ def test_quality_report_has_region_and_location_diagnostics():
         assert report.max_neighbor_log_J_jump_endpoint_b[2] > evaluator.period
     detail = report.detailed_summary("synthetic detail")
     assert detail.startswith("synthetic detail:\n")
-    assert "cell_center:" in detail
-    assert "u_min_face:" in detail
+    assert "all:" in detail
+    assert "u_min_adjacent:" in detail
     assert "worst_scaled_J:" in detail
-    assert "worst_cond(F):" in detail
+    assert "worst_cond(H):" in detail
     assert "q_a=" in detail and "q_b=" in detail
 
 
 def test_quality_region_and_location_types_are_package_exports():
     assert MetricQualityRegion.__name__ == "MetricQualityRegion"
     assert MetricQualityLocation.__name__ == "MetricQualityLocation"
+    assert MetricQualityJumpLocation.__name__ == "MetricQualityJumpLocation"
 
 
 def test_quality_report_diagnostics_survive_inverted_map():
@@ -259,7 +309,243 @@ def test_quality_report_diagnostics_survive_inverted_map():
     inverted = MetricEvaluator(evaluator.u, evaluator.v, evaluator.eta, positions, nfp=3)
     report = inverted.quality_report()
     assert report.valid_fraction < 1.0
+    assert report.nonpositive_J_count > 0
+    assert report.nonpositive_J_fraction > 0.0
     assert report.detailed_summary("inverted")
+
+
+def test_quality_report_gauss_points_detect_interior_defect_missed_by_centers(
+    monkeypatch,
+):
+    evaluator = make_cylindrical_evaluator()
+    original = evaluator._position_and_jacobian
+    target_u = 0.5 * (
+        evaluator.u[0]
+        + evaluator.u[1]
+        - (evaluator.u[1] - evaluator.u[0]) / np.sqrt(3.0)
+    )
+
+    def defective_jacobian(points):
+        position, jacobian = original(points)
+        logical = np.asarray(points, dtype=float)
+        jacobian = jacobian.copy()
+        defect = np.isclose(logical[..., 0], target_u, rtol=0.0, atol=1e-13)
+        jacobian[..., :, 0] *= np.where(defect, -1.0, 1.0)[..., None]
+        return position, jacobian
+
+    monkeypatch.setattr(evaluator, "_position_and_jacobian", defective_jacobian)
+    assert np.all(evaluator.sample_cell_centers(reject_nonpositive_J=False).valid)
+
+    report = evaluator.quality_report(gauss_order=2)
+    assert report.nonpositive_J_count > 0
+    assert report.valid_fraction < 1.0
+    assert report.worst_jacobian is not None
+    assert report.worst_jacobian.value < 0.0
+
+
+def test_quality_report_keeps_wall_face_validity_separate(monkeypatch):
+    evaluator = make_cylindrical_evaluator()
+    original = evaluator._position_and_jacobian
+
+    def defective_wall_jacobian(points):
+        position, jacobian = original(points)
+        logical = np.asarray(points, dtype=float)
+        jacobian = jacobian.copy()
+        defect = np.isclose(logical[..., 0], 0.0, rtol=0.0, atol=1e-14)
+        jacobian[..., :, 0] *= np.where(defect, -1.0, 1.0)[..., None]
+        return position, jacobian
+
+    monkeypatch.setattr(
+        evaluator, "_position_and_jacobian", defective_wall_jacobian
+    )
+    report = evaluator.quality_report()
+    assert report.valid_fraction == 1.0
+    assert report.nonpositive_J_count == 0
+    assert report.face_nonpositive_J_count > 0
+    assert report.face_valid_fraction < 1.0
+
+
+def test_quality_report_gauss_order_controls_interior_sampling():
+    evaluator = make_evaluator(nu=5, nv=4, neta=8)
+    cells = (evaluator.u.size - 1) * (evaluator.v.size - 1) * evaluator.eta.size
+    faces = evaluator.open_boundary_face_center_logical_points().shape[0]
+
+    default = evaluator.quality_report()
+    high_resolution = evaluator.quality_report(gauss_order=3)
+
+    assert default.points_per_cell == 2**3
+    assert default.quadrature_sample_count == cells * 2**3
+    assert default.sample_count == cells * 2**3 + faces
+    assert high_resolution.points_per_cell == 3**3
+    assert high_resolution.quadrature_sample_count == cells * 3**3
+    assert high_resolution.sample_count == cells * 3**3 + faces
+    assert high_resolution.face_sample_count == default.face_sample_count == faces
+    assert default.representation_metadata["gauss_order"] == 2
+    assert high_resolution.representation_metadata["gauss_order"] == 3
+
+    with pytest.raises(ValueError, match="gauss"):
+        evaluator.quality_report(gauss_order=1)
+
+
+def test_quality_report_expanded_H_shape_and_volume_statistics_are_ordered():
+    evaluator = make_cylindrical_evaluator(
+        u=np.array([0.0, 0.08, 0.35, 1.0]),
+        v=np.array([0.0, 0.2, 0.55, 1.0]),
+    )
+    report = evaluator.quality_report(gauss_order=3)
+
+    assert report.raw_volume_min > 0.0
+    assert 0.0 < report.volume_min_over_median <= report.volume_p01_over_median
+    assert report.volume_p01_over_median <= report.volume_p05_over_median <= 1.0
+    assert 1.0 <= report.volume_p95_over_median <= report.volume_p99_over_median
+    assert report.volume_p99_over_p01 >= 1.0
+    assert report.volume_coefficient_of_variation >= 0.0
+    assert 0.0 < report.scaled_J_min <= report.scaled_J_p01
+    assert report.scaled_J_p01 <= report.scaled_J_p05 <= report.scaled_J_median <= 1.0
+    assert 1.0 <= report.mapping_condition_median <= report.mapping_condition_p95
+    assert report.mapping_condition_p95 <= report.mapping_condition_p99 <= report.mapping_condition_max
+    assert 1.0 <= report.stretch_median <= report.stretch_p95
+    assert report.stretch_p95 <= report.stretch_p99 <= report.stretch_max
+
+    assert set(report.angle_cosines) == {"uv", "ueta", "veta"}
+    for p95, maximum in report.angle_cosines.values():
+        assert 0.0 <= p95 <= maximum <= 1.0
+
+    for extremum in (
+        report.worst_jacobian,
+        report.worst_volume,
+        report.worst_scaled_jacobian,
+        report.worst_mapping_condition,
+        report.worst_stretch,
+        report.worst_angle_cosine,
+    ):
+        assert extremum is not None
+        assert extremum.cell_index is not None
+        assert len(extremum.cell_index) == 3
+        assert np.all(np.isfinite(extremum.logical))
+        assert np.all(np.isfinite(extremum.cartesian))
+
+    metadata = report.representation_metadata
+    assert tuple(metadata["mesh_shape"]) == (
+        evaluator.u.size,
+        evaluator.v.size,
+        evaluator.eta.size,
+    )
+    assert tuple(metadata["cell_counts"]) == (
+        evaluator.u.size - 1,
+        evaluator.v.size - 1,
+        evaluator.eta.size,
+    )
+
+
+def test_quality_report_directional_smoothness_includes_periodic_seam():
+    report = make_evaluator(nu=6, nv=5, neta=12).quality_report()
+    expected = {"u", "v", "eta", "eta_seam"}
+    assert set(report.directional_log_volume_jumps) == expected
+    assert set(report.directional_K_jumps) == expected
+    for diagnostics in (
+        report.directional_log_volume_jumps,
+        report.directional_K_jumps,
+    ):
+        for p95, maximum in diagnostics.values():
+            assert np.isfinite(p95)
+            assert np.isfinite(maximum)
+            assert 0.0 <= p95 <= maximum
+    assert report.worst_volume_jump is not None
+    assert report.worst_K_jump is not None
+    for jump in (report.worst_volume_jump, report.worst_K_jump):
+        assert jump.direction in expected
+        assert len(jump.cell_index_a) == len(jump.cell_index_b) == 3
+        assert jump.region_a != "unknown"
+        assert jump.region_b != "unknown"
+        assert np.all(np.isfinite(jump.logical_a))
+        assert np.all(np.isfinite(jump.logical_b))
+
+
+class _CylindricalEtaEvaluator:
+    period = 2.0 * np.pi
+    nfp = 1
+
+    def __init__(self, offset=0.0):
+        self.offset = float(offset)
+
+    def evaluate_cartesian(self, points, *, wrapped=True):
+        points = np.asarray(points, dtype=float)
+        eta = np.arctan2(points[..., 1], points[..., 0]) + self.offset
+        return np.mod(eta, self.period) if wrapped else eta
+
+
+def test_quality_report_eta_constraint_and_periodic_seam_checks():
+    evaluator = make_cylindrical_evaluator()
+    exact = evaluator.quality_report(eta_evaluator=_CylindricalEtaEvaluator())
+
+    assert set(exact.eta_constraint_residuals) >= {"median", "p95", "p99", "max"}
+    assert exact.eta_constraint_residuals["max"] < 1e-10
+    assert exact.worst_eta_constraint is not None
+    assert set(exact.periodic_seam_residuals) == {
+        "position",
+        "jacobian_matrix",
+        "metric_tensor",
+        "J",
+    }
+    assert max(exact.periodic_seam_residuals.values()) < 1e-9
+
+    offset = 2.5e-3
+    shifted = evaluator.quality_report(
+        eta_evaluator=_CylindricalEtaEvaluator(offset=offset)
+    )
+    assert shifted.eta_constraint_residuals["median"] == pytest.approx(offset, abs=1e-10)
+    assert shifted.eta_constraint_residuals["max"] == pytest.approx(offset, abs=1e-10)
+    assert shifted.worst_eta_constraint is not None
+    assert shifted.worst_eta_constraint.value == pytest.approx(offset, abs=1e-10)
+
+
+def test_quality_report_validates_eta_evaluator_output():
+    evaluator = make_cylindrical_evaluator()
+
+    class BadShape(_CylindricalEtaEvaluator):
+        def evaluate_cartesian(self, points, *, wrapped=True):
+            return 0.0
+
+    class Nonfinite(_CylindricalEtaEvaluator):
+        def evaluate_cartesian(self, points, *, wrapped=True):
+            return np.full(np.asarray(points).shape[:-1], np.nan)
+
+    with pytest.raises(ValueError, match="one value"):
+        evaluator.quality_report(eta_evaluator=BadShape())
+    with pytest.raises(ValueError, match="nonfinite"):
+        evaluator.quality_report(eta_evaluator=Nonfinite())
+
+
+def test_quality_report_includes_mmpde_optimization_metadata():
+    evaluator = make_cylindrical_evaluator()
+    evaluator._mmpde_result = MMPDEResult(
+        positions=np.empty((0, 3)),
+        converged=False,
+        iterations=2,
+        energy_history=np.array([10.0, 6.0, 5.0]),
+        residual_history=np.array([2.0e-2, 7.0e-3]),
+        minimum_jacobian_history=np.array([0.2, 0.3, 0.4]),
+        component_energy_history={
+            "alignment": np.array([4.0, 2.0]),
+            "volume_smoothness": np.array([3.0, 1.5]),
+        },
+    )
+    evaluator._mmpde_fit_scale = 0.75
+
+    report = evaluator.quality_report()
+    metadata = report.mmpde_metadata
+    assert metadata["converged"] is False
+    assert metadata["iterations"] == 2
+    assert metadata["initial_energy"] == 10.0
+    assert metadata["final_energy"] == 5.0
+    assert metadata["final_over_initial_energy"] == 0.5
+    assert metadata["final_max_nodal_update"] == 7.0e-3
+    assert metadata["initial_minimum_discrete_J"] == 0.2
+    assert metadata["final_minimum_discrete_J"] == 0.4
+    assert metadata["alignment_final_over_initial"] == 0.5
+    assert report.representation_metadata["mmpde_fit_scale"] == 0.75
+    assert "Optimization:" in report.detailed_summary()
 
 
 def test_large_structured_sampling_is_chunked():

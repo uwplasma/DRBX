@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import math
 from typing import Callable
 
 import jax
@@ -30,6 +31,7 @@ from .fci_halo import (
 )
 from .fci_operators import (
     LocalPerpLaplacianInverseSolver,
+    build_solvax_perp_laplacian_preconditioner,
     local_curvature_op,
     local_grad_parallel_op_direct,
     local_grad_parallel_op_conservative,
@@ -58,6 +60,239 @@ class FciDrbEBState(FciModelState):
     Vi: jax.Array
     Ve: jax.Array
     vorticity: jax.Array
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class FciDrbEBImplicitState(FciModelState):
+    """The five algebraic/differential unknowns of an EB IMEX stage.
+
+    ``Ti`` and ``Vi`` deliberately do not appear here: the first ARK split
+    keeps ion parallel dynamics explicit, so their stage values are known
+    while the electron/acoustic--polarization block is solved implicitly.
+    The field order is stable and is suitable for ``jax.linearize`` and
+    sharded matrix-free Newton--Krylov methods.
+    """
+
+    density: jax.Array
+    phi: jax.Array
+    Te: jax.Array
+    Ve: jax.Array
+    vorticity: jax.Array
+
+
+def implicit_state_from_eb_state(state: FciDrbEBState) -> FciDrbEBImplicitState:
+    """Extract the implicit ARK stage variables from a full EB state."""
+
+    return FciDrbEBImplicitState(
+        density=state.density,
+        phi=state.phi,
+        Te=state.Te,
+        Ve=state.Ve,
+        vorticity=state.vorticity,
+    )
+
+
+def eb_state_with_implicit_state(
+    known_explicit_state: FciDrbEBState,
+    implicit_state: FciDrbEBImplicitState,
+) -> FciDrbEBState:
+    """Merge IMEX unknowns with the stage-known explicit ion fields."""
+
+    return known_explicit_state.replace(
+        density=implicit_state.density,
+        phi=implicit_state.phi,
+        Te=implicit_state.Te,
+        Ve=implicit_state.Ve,
+        vorticity=implicit_state.vorticity,
+    )
+
+
+def build_eb_imex_phi_line_u_preconditioner(
+    model: "LocalFciDrbEBRhs",
+    dt_gamma: float | jax.Array,
+    *,
+    reference_state: FciDrbEBState | None = None,
+) -> Callable[[FciDrbEBImplicitState], FciDrbEBImplicitState]:
+    """Build a cheap coupled-IMEX right preconditioner.
+
+    The current first block approximation leaves the differential
+    ``(n, Te, Ve, omega)`` leaves untouched and applies the established local
+    line-u approximation to the algebraic polarization block.  The Newton
+    driver scales that row as ``dt_gamma * (-L_perp(phi) + ...)``; hence the
+    returned phi correction is ``P_A^-1(r_phi / dt_gamma)`` for
+    ``A = -L_perp``.  No nested converged phi solve is performed.
+
+    ``reference_state`` is only used to obtain the phi face kind/mask.  The
+    production phi boundary is homogeneous Dirichlet, but accepting it makes
+    this helper safe for state-dependent boundary builders as well.
+    """
+
+    if not isinstance(model, LocalFciDrbEBRhs):
+        raise TypeError("model must be a LocalFciDrbEBRhs instance")
+    if reference_state is None:
+        zeros = jnp.zeros(model.geometry.owned_shape, dtype=jnp.float64)
+        reference_state = FciDrbEBState(
+            density=zeros,
+            phi=zeros,
+            Te=zeros,
+            Ti=zeros,
+            Vi=zeros,
+            Ve=zeros,
+            vorticity=zeros,
+        )
+    if not isinstance(reference_state, FciDrbEBState):
+        raise TypeError("reference_state must be an FciDrbEBState or None")
+    face_bc = model._face_bcs(reference_state).phi
+    config = replace(model.gmres_config, preconditioner="line-u")
+    scalar_preconditioner = build_solvax_perp_laplacian_preconditioner(
+        model.geometry,
+        model.domain,
+        model.face_projectors,
+        face_bc,
+        config,
+    )
+    if scalar_preconditioner is None:  # Defensive: line-u is always nonempty.
+        raise RuntimeError("failed to construct line-u perpendicular preconditioner")
+    dt_gamma = jnp.asarray(dt_gamma, dtype=jnp.float64)
+    active = jnp.asarray(model.geometry.active_cell_mask_owned, dtype=bool)
+
+    def preconditioner(
+        residual: FciDrbEBImplicitState,
+    ) -> FciDrbEBImplicitState:
+        if not isinstance(residual, FciDrbEBImplicitState):
+            raise TypeError("residual must be an FciDrbEBImplicitState")
+        phi = scalar_preconditioner(residual.phi / dt_gamma)
+        # Preserve inactive entries exactly: they are not part of the Newton
+        # owned-vector norm and should never receive a line-solver update.
+        phi = jnp.where(active, phi, residual.phi)
+        return residual.replace(phi=phi)
+
+    return preconditioner
+
+
+def build_eb_imex_acoustic_line_uv_preconditioner(
+    model: "LocalFciDrbEBRhs",
+    dt_gamma: float | jax.Array,
+    *,
+    reference_state: FciDrbEBState | None = None,
+) -> Callable[[FciDrbEBImplicitState], FciDrbEBImplicitState]:
+    """Build a fixed-cost right preconditioner for an IMEX electron block.
+
+    This is deliberately a *single-sweep* block-triangular approximation to
+    the frozen Newton matrix, not an inner iterative solve.  Its ordering is
+
+    1. apply a local ``line-uv`` approximation to the polarization block;
+    2. take one frozen-coefficient electron-acoustic response sweep for
+       ``(n, Te, Ve, omega)``; and
+    3. back-substitute ``omega`` into the algebraic phi row.
+
+    The frozen response is evaluated with a JVP of the production implicit
+    operator.  Consequently the approximation contains the same local
+    parallel D/G operators, thermodynamic coefficients, collisions, and
+    parallel diffusion as the stage Jacobian, while avoiding any nested
+    Krylov or nonlinear solve.  The only solve is the fixed-cost line-uv
+    factor already used as a scalar perpendicular-Laplacian preconditioner.
+
+    The Newton driver scales the algebraic row by ``dt_gamma``.  For a right
+    hand side ``r`` that row is therefore
+
+        dt_gamma * (A dphi + domega) = r_phi,
+
+    where ``A = -L_perp``.  Both phi applications below use
+    ``P_A^-1(r_phi / dt_gamma - domega)``.  This keeps the block scaling
+    consistent with :func:`build_eb_imex_phi_line_u_preconditioner`.
+    """
+
+    if not isinstance(model, LocalFciDrbEBRhs):
+        raise TypeError("model must be a LocalFciDrbEBRhs instance")
+    if reference_state is None:
+        zeros = jnp.zeros(model.geometry.owned_shape, dtype=jnp.float64)
+        reference_state = FciDrbEBState(
+            density=zeros,
+            phi=zeros,
+            Te=zeros,
+            Ti=zeros,
+            Vi=zeros,
+            Ve=zeros,
+            vorticity=zeros,
+        )
+    if not isinstance(reference_state, FciDrbEBState):
+        raise TypeError("reference_state must be an FciDrbEBState or None")
+
+    face_bc = model._face_bcs(reference_state).phi
+    scalar_config = replace(model.gmres_config, preconditioner="line-uv")
+    scalar_preconditioner = build_solvax_perp_laplacian_preconditioner(
+        model.geometry,
+        model.domain,
+        model.face_projectors,
+        face_bc,
+        scalar_config,
+    )
+    if scalar_preconditioner is None:  # Defensive: line-uv is nonempty.
+        raise RuntimeError("failed to construct line-uv perpendicular preconditioner")
+
+    dt_gamma = jnp.asarray(dt_gamma, dtype=jnp.float64)
+    active = jnp.asarray(model.geometry.active_cell_mask_owned, dtype=bool)
+    frozen_implicit = implicit_state_from_eb_state(reference_state)
+
+    def frozen_implicit_rhs(
+        implicit_state: FciDrbEBImplicitState,
+    ) -> FciDrbEBImplicitState:
+        stage = eb_state_with_implicit_state(reference_state, implicit_state)
+        return model.evaluate_implicit_rhs(stage, phi_owned=implicit_state.phi)
+
+    def phi_back_substitution(
+        phi_rhs: jax.Array,
+        vorticity_correction: jax.Array,
+    ) -> jax.Array:
+        phi = scalar_preconditioner(
+            phi_rhs / dt_gamma - vorticity_correction
+        )
+        return jnp.where(active, phi, phi_rhs)
+
+    def preconditioner(
+        residual: FciDrbEBImplicitState,
+    ) -> FciDrbEBImplicitState:
+        if not isinstance(residual, FciDrbEBImplicitState):
+            raise TypeError("residual must be an FciDrbEBImplicitState")
+
+        # First solve the algebraic block using the identity approximation to
+        # the omega differential block.  The following JVP is one frozen
+        # electron-acoustic/electrostatic forward sweep.
+        initial = residual.replace(
+            phi=phi_back_substitution(residual.phi, residual.vorticity)
+        )
+        _, response = jax.jvp(
+            frozen_implicit_rhs,
+            (frozen_implicit,),
+            (initial,),
+        )
+        corrected = FciDrbEBImplicitState(
+            density=residual.density + dt_gamma * response.density,
+            phi=residual.phi,
+            Te=residual.Te + dt_gamma * response.Te,
+            Ve=residual.Ve + dt_gamma * response.Ve,
+            vorticity=residual.vorticity + dt_gamma * response.vorticity,
+        )
+        # Back-substitute the current-divergence response into the
+        # polarization relation.  Masking also ensures inactive local cells
+        # remain invisible to the global Newton norm.
+        corrected = corrected.replace(
+            phi=phi_back_substitution(
+                residual.phi,
+                corrected.vorticity,
+            )
+        )
+        return FciDrbEBImplicitState(
+            density=_mask_inactive_owned(corrected.density, model.geometry),
+            phi=_mask_inactive_owned(corrected.phi, model.geometry),
+            Te=_mask_inactive_owned(corrected.Te, model.geometry),
+            Ve=_mask_inactive_owned(corrected.Ve, model.geometry),
+            vorticity=_mask_inactive_owned(corrected.vorticity, model.geometry),
+        )
+
+    return preconditioner
 
 
 def _mask_local_eb_state_inactive(
@@ -590,8 +825,22 @@ class LocalFciDrbEBRhs:
     # term.  ``product`` preserves the original Ti*C(Ti) discretization;
     # ``flux`` uses the analytically equivalent -(5*tau/(3B))*C(Ti**2).
     ion_temperature_curvature_self_form: str = "product"
+    # Static experiment control for scaling all assembled curvature terms.
+    # Keeping this as a Python scalar makes it part of the jitted model
+    # configuration rather than a run-time array-valued switch.
+    curvature_scale: float = 1.0
 
     def __post_init__(self) -> None:
+        if isinstance(self.curvature_scale, bool):
+            raise ValueError("curvature_scale must be a finite nonnegative scalar")
+        try:
+            curvature_scale = float(self.curvature_scale)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "curvature_scale must be a finite nonnegative scalar"
+            ) from exc
+        if not math.isfinite(curvature_scale) or curvature_scale < 0.0:
+            raise ValueError("curvature_scale must be a finite nonnegative scalar")
         if self.curvature_scheme not in ("direct", "conservative", "disabled"):
             raise ValueError(
                 "curvature_scheme must be 'direct', 'conservative', or "
@@ -973,13 +1222,298 @@ class LocalFciDrbEBRhs:
             return_diagnostics=return_diagnostics,
         )
 
-    def evaluate_stage(
+    def polarization_residual(
+        self,
+        state_owned: FciDrbEBState,
+        *,
+        phi_owned: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        """Return the algebraic Boussinesq-polarization residual.
+
+        The production phi solve uses ``-L_perp(phi) = tau*L_perp(Ti)-omega``.
+        Keeping this residual in the RHS module makes the sign convention
+        shared by the explicit RK4 and the future monolithic IMEX stages.
+        ``Ti`` is stage-known in the initial IMEX partition.
+        """
+
+        face_bc = self._face_bcs(state_owned)
+        state_halo = prepare_local_fci_drb_eb_state(
+            state_owned,
+            self.domain,
+            face_bc=face_bc,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+            physical_ghost_filler=self.physical_ghost_filler,
+        )
+        if phi_owned is None:
+            phi_owned = state_owned.phi
+        phi_owned = _mask_inactive_owned(
+            jnp.asarray(phi_owned, dtype=jnp.float64), self.geometry
+        )
+        phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
+        context = StencilBuilderContext(layout=self.domain.layout, domain=self.domain)
+        phi_conservative = build_local_conservative_stencil_from_field(
+            phi_halo, self.geometry, context
+        )
+        ti_conservative = build_local_conservative_stencil_from_field(
+            state_halo.Ti, self.geometry, context
+        )
+        phi_laplacian = local_perp_laplacian_conservative_op(
+            phi_conservative,
+            self.geometry,
+            self.domain,
+            face_projectors=self.face_projectors,
+            face_bc=face_bc.phi,
+            regular_face_geometry=self.geometry.regular_face_geometry,
+            axis_regular_axes=self.axis_regular_axes,
+        )
+        ti_laplacian = local_perp_laplacian_conservative_op(
+            ti_conservative,
+            self.geometry,
+            self.domain,
+            face_projectors=self.face_projectors,
+            face_bc=face_bc.Ti,
+            regular_face_geometry=self.geometry.regular_face_geometry,
+            axis_regular_axes=self.axis_regular_axes,
+        )
+        return _mask_inactive_owned(
+            -phi_laplacian
+            - jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_laplacian
+            + jnp.asarray(state_owned.vorticity, dtype=jnp.float64),
+            self.geometry,
+        )
+
+    def evaluate_implicit_rhs(
+        self,
+        state_owned: FciDrbEBState,
+        *,
+        phi_owned: jnp.ndarray | None = None,
+    ) -> FciDrbEBImplicitState:
+        """Evaluate the stiff electron/acoustic part of the EB RHS.
+
+        The complement is intentionally left in :meth:`evaluate_explicit_rhs`:
+        curvature, Poisson brackets, perpendicular transport, ion dynamics,
+        and both ion/electron self-advection.  The returned ``phi`` entry is
+        zero because phi is constrained by :meth:`polarization_residual`, not
+        evolved by an ODE.
+
+        This is an exact term-level partition of :meth:`evaluate_stage` when
+        the supplied potential is consistent with ``state_owned``.  Parallel
+        diffusion/viscosity and electron collisions are included here so an
+        enabled stiff coefficient is not accidentally left explicit.
+        """
+
+        face_bc = self._face_bcs(state_owned)
+        state_halo_without_phi = prepare_local_fci_drb_eb_state(
+            state_owned,
+            self.domain,
+            face_bc=face_bc,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+            physical_ghost_filler=self.physical_ghost_filler,
+        )
+        if phi_owned is None:
+            phi_owned = state_owned.phi
+        phi_owned = _mask_inactive_owned(
+            jnp.asarray(phi_owned, dtype=jnp.float64), self.geometry
+        )
+        phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
+        state_halo = state_halo_without_phi.replace(phi=phi_halo)
+        context = StencilBuilderContext(layout=self.domain.layout, domain=self.domain)
+
+        density_flux = state_halo.density * state_halo.Ve
+        current = state_halo.density * (state_halo.Vi - state_halo.Ve)
+        electron_pressure = state_halo.density * state_halo.Te
+        density_flux_stencil = build_local_conservative_stencil_from_field(
+            density_flux, self.geometry, context
+        )
+        current_stencil = build_local_conservative_stencil_from_field(
+            current, self.geometry, context
+        )
+        Te_stencil = build_local_conservative_stencil_from_field(
+            state_halo.Te, self.geometry, context
+        )
+        phi_stencil = build_local_conservative_stencil_from_field(
+            state_halo.phi, self.geometry, context
+        )
+        Pe_stencil = build_local_conservative_stencil_from_field(
+            electron_pressure, self.geometry, context
+        )
+        Ve_stencil = build_local_conservative_stencil_from_field(
+            state_halo.Ve, self.geometry, context
+        )
+        unit_stencil = build_local_conservative_stencil_from_field(
+            jnp.ones_like(state_halo.density, dtype=jnp.float64),
+            self.geometry,
+            context,
+        )
+        operator_kwargs = dict(
+            regular_face_geometry=self.geometry.regular_face_geometry,
+            axis_regular_axes=self.axis_regular_axes,
+        )
+        parallel_div_b = local_parallel_div_b_op(
+            unit_stencil, self.geometry, self.domain, **operator_kwargs
+        )
+        density_flux_div = local_parallel_flux_div_op(
+            density_flux_stencil, self.geometry, self.domain, **operator_kwargs
+        )
+        current_flux_div = local_parallel_flux_div_op(
+            current_stencil, self.geometry, self.domain, **operator_kwargs
+        )
+        Ve_flux_div = local_parallel_flux_div_op(
+            Ve_stencil, self.geometry, self.domain, **operator_kwargs
+        )
+        grad_Te = local_grad_parallel_op_conservative(
+            Te_stencil, self.geometry, self.domain, div_b=parallel_div_b, **operator_kwargs
+        )
+        grad_phi = local_grad_parallel_op_conservative(
+            phi_stencil, self.geometry, self.domain, div_b=parallel_div_b, **operator_kwargs
+        )
+        grad_Pe = local_grad_parallel_op_conservative(
+            Pe_stencil, self.geometry, self.domain, div_b=parallel_div_b, **operator_kwargs
+        )
+
+        owned = self.domain.layout.owned_slices_cell
+        density = jnp.asarray(state_halo.density[owned], dtype=jnp.float64)
+        Te = jnp.asarray(state_halo.Te[owned], dtype=jnp.float64)
+        Vi = jnp.asarray(state_halo.Vi[owned], dtype=jnp.float64)
+        Ve = jnp.asarray(state_halo.Ve[owned], dtype=jnp.float64)
+        density_safe = jnp.maximum(density, 1.0e-30)
+        bmag = jnp.maximum(
+            jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
+            1.0e-30,
+        )
+        mi_over_me = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
+        Ve_nu = jnp.asarray(self.parameters.Ve_nu, dtype=jnp.float64)
+        current_owned = density * (Vi - Ve)
+
+        density_parallel_diff = self._field_parallel_diffusion(
+            state_halo.density, face_bc.density, self.parameters.density_D_parallel
+        )
+        Te_parallel_diff = self._field_parallel_diffusion(
+            state_halo.Te, face_bc.Te, self.parameters.electron_temperature_chi_parallel
+        )
+        Ve_parallel_diff = self._field_parallel_diffusion(
+            state_halo.Ve, face_bc.Ve, self.parameters.Ve_parallel_viscosity
+        )
+        vorticity_parallel_diff = self._field_parallel_diffusion(
+            state_halo.vorticity, face_bc.vorticity, self.parameters.vorticity_D_parallel
+        )
+        return _mask_local_eb_state_inactive(
+            FciDrbEBImplicitState(
+                density=-density_flux_div + density_parallel_diff,
+                phi=jnp.zeros_like(phi_owned),
+                Te=(
+                    -Ve * grad_Te
+                    + (2.0 * Te / (3.0 * density_safe))
+                    * (0.71 * current_flux_div - density * Ve_flux_div)
+                    + Te_parallel_diff
+                ),
+                Ve=(
+                    mi_over_me * Ve_nu * current_owned
+                    + mi_over_me * grad_phi
+                    - mi_over_me * grad_Pe / density_safe
+                    - 0.71 * mi_over_me * grad_Te
+                    + Ve_parallel_diff
+                ),
+                vorticity=(
+                    (bmag * bmag / density_safe) * current_flux_div
+                    + vorticity_parallel_diff
+                ),
+            ),
+            self.geometry,
+        )
+
+    def evaluate_imex_rhs(
+        self,
+        state_owned: FciDrbEBState,
+        source_owned: FciDrbEBState | None = None,
+        *,
+        phi_owned: jnp.ndarray | None = None,
+    ) -> tuple[FciDrbEBState, FciDrbEBImplicitState]:
+        """Return the explicit and implicit RHS terms for one consistent state.
+
+        This intentionally derives the complement from the production full
+        RHS.  It is more work than a hand-maintained duplicate expression but
+        makes the additive-split invariant robust while the IMEX path is being
+        introduced.  A future fused stage evaluator can share the intermediate
+        stencils without changing this public contract.  IMEX steppers should
+        call this paired method rather than the two individual evaluators so
+        the full production RHS is formed only once per explicit stage.
+        """
+
+        if phi_owned is None:
+            phi_owned = state_owned.phi
+        full = self.evaluate_stage(
+            state_owned, source_owned, phi_owned=phi_owned
+        )
+        implicit = self.evaluate_implicit_rhs(state_owned, phi_owned=phi_owned)
+        explicit = _mask_local_eb_state_inactive(
+            FciDrbEBState(
+                density=full.density - implicit.density,
+                phi=jnp.zeros_like(phi_owned),
+                Te=full.Te - implicit.Te,
+                Ti=full.Ti,
+                Vi=full.Vi,
+                Ve=full.Ve - implicit.Ve,
+                vorticity=full.vorticity - implicit.vorticity,
+            ),
+            self.geometry,
+        )
+        return explicit, implicit
+
+    def evaluate_explicit_rhs(
         self,
         state_owned: FciDrbEBState,
         source_owned: FciDrbEBState | None = None,
         *,
         phi_owned: jnp.ndarray | None = None,
     ) -> FciDrbEBState:
+        """Evaluate the nonstiff complement of :meth:`evaluate_implicit_rhs`."""
+
+        explicit, _ = self.evaluate_imex_rhs(
+            state_owned, source_owned, phi_owned=phi_owned
+        )
+        return explicit
+
+    def implicit_stage_residual(
+        self,
+        implicit_stage: FciDrbEBImplicitState,
+        implicit_predictor: FciDrbEBImplicitState,
+        known_explicit_state: FciDrbEBState,
+        *,
+        dt_gamma: float | jnp.ndarray,
+    ) -> FciDrbEBImplicitState:
+        """Return the five-field DIRK stage residual for a monolithic IMEX solve.
+
+        ``known_explicit_state`` supplies the already explicit ARK stage values
+        of ``Ti`` and ``Vi``.  The returned phi component is algebraic; it is
+        deliberately not multiplied by ``dt_gamma``.
+        """
+
+        stage = eb_state_with_implicit_state(known_explicit_state, implicit_stage)
+        implicit_rhs = self.evaluate_implicit_rhs(stage, phi_owned=implicit_stage.phi)
+        dt_gamma = jnp.asarray(dt_gamma, dtype=jnp.float64)
+        return _mask_local_eb_state_inactive(
+            FciDrbEBImplicitState(
+                density=implicit_stage.density - implicit_predictor.density - dt_gamma * implicit_rhs.density,
+                phi=self.polarization_residual(stage, phi_owned=implicit_stage.phi),
+                Te=implicit_stage.Te - implicit_predictor.Te - dt_gamma * implicit_rhs.Te,
+                Ve=implicit_stage.Ve - implicit_predictor.Ve - dt_gamma * implicit_rhs.Ve,
+                vorticity=implicit_stage.vorticity - implicit_predictor.vorticity - dt_gamma * implicit_rhs.vorticity,
+            ),
+            self.geometry,
+        )
+
+    def evaluate_stage(
+        self,
+        state_owned: FciDrbEBState,
+        source_owned: FciDrbEBState | None = None,
+        *,
+        phi_owned: jnp.ndarray | None = None,
+        return_term_diagnostics: bool = False,
+        return_term_fields: bool = False,
+    ) -> FciDrbEBState | tuple[FciDrbEBState, jnp.ndarray]:
         """Evaluate one EB RHS stage.
 
         When ``phi_owned`` is supplied it must be the potential reconstructed
@@ -987,7 +1521,25 @@ class LocalFciDrbEBRhs:
         time integrator already carries a consistent diagnostic potential.
         The default preserves the standalone behavior and reconstructs
         ``phi`` internally.
+
+        ``return_term_fields=True`` returns the full stacked eight-term
+        electron-velocity RHS array instead of its maxima.  It is intended
+        for postmortem localization and cannot be combined with
+        ``return_term_diagnostics``.
+
+        With ``return_term_diagnostics=True``, also return the local maximum
+        absolute value of the electron-velocity RHS terms in this fixed order:
+        Poisson bracket, parallel self-advection, collisional force,
+        electrostatic force, electron-pressure force, thermal force,
+        perpendicular diffusion, and parallel viscosity.  This diagnostic
+        mode is intended for postmortem analysis and does not alter the normal
+        compiled time-integration path.
         """
+
+        if return_term_diagnostics and return_term_fields:
+            raise ValueError(
+                "return_term_diagnostics and return_term_fields are mutually exclusive"
+            )
 
         if source_owned is None:
             source_owned = FciDrbEBState(
@@ -1461,12 +2013,15 @@ class LocalFciDrbEBRhs:
         )
 
         curvature_density_contribution = (
-            (2.0 / bmag) * (curvature_Pe - density * curvature_phi)
+            self.curvature_scale
+            * (2.0 / bmag)
+            * (curvature_Pe - density * curvature_phi)
             if "density" in self.curvature_equations
             else jnp.zeros_like(density)
         )
         curvature_Te_contribution = (
-            (4.0 * Te / (3.0 * bmag))
+            self.curvature_scale
+            * (4.0 * Te / (3.0 * bmag))
             * (curvature_Pe / density_safe + 2.5 * curvature_Te - curvature_phi)
             if "Te" in self.curvature_equations
             else jnp.zeros_like(Te)
@@ -1474,13 +2029,17 @@ class LocalFciDrbEBRhs:
         if "Ti" in self.curvature_equations:
             if self.ion_temperature_curvature_self_form == "flux":
                 curvature_Ti_contribution = (
-                    (4.0 * Ti / (3.0 * bmag))
-                    * (curvature_Pe / density_safe - curvature_phi)
-                    - (5.0 * tau / (3.0 * bmag)) * curvature_Ti_self
+                    self.curvature_scale
+                    * (
+                        (4.0 * Ti / (3.0 * bmag))
+                        * (curvature_Pe / density_safe - curvature_phi)
+                        - (5.0 * tau / (3.0 * bmag)) * curvature_Ti_self
+                    )
                 )
             else:
                 curvature_Ti_contribution = (
-                    (4.0 * Ti / (3.0 * bmag))
+                    self.curvature_scale
+                    * (4.0 * Ti / (3.0 * bmag))
                     * (
                         curvature_Pe / density_safe
                         - 2.5 * tau * curvature_Ti
@@ -1490,7 +2049,9 @@ class LocalFciDrbEBRhs:
         else:
             curvature_Ti_contribution = jnp.zeros_like(Ti)
         curvature_vorticity_contribution = (
-            (2.0 * bmag / density_safe) * curvature_pressure
+            self.curvature_scale
+            * (2.0 * bmag / density_safe)
+            * curvature_pressure
             if "vorticity" in self.curvature_equations
             else jnp.zeros_like(density)
         )
@@ -1527,16 +2088,19 @@ class LocalFciDrbEBRhs:
             + Vi_diff
             + Vi_parallel_diff
         )
+        Ve_poisson_term = -(poisson_Ve / (rho_star * bmag))
+        Ve_self_advection_term = -Ve * grad_parallel_Ve
+        Ve_collision_term = mi_over_me * Ve_nu * current
+        Ve_electrostatic_term = mi_over_me * grad_parallel_phi
+        Ve_pressure_term = -mi_over_me * grad_parallel_Pe / density_safe
+        Ve_thermal_force_term = -0.71 * mi_over_me * grad_parallel_Te
         Ve_rhs = (
-            -(poisson_Ve / (rho_star * bmag))
-            - Ve * grad_parallel_Ve
-            + mi_over_me
-            * (
-                Ve_nu * current
-                + grad_parallel_phi
-                - grad_parallel_Pe / density_safe
-                - 0.71 * grad_parallel_Te
-            )
+            Ve_poisson_term
+            + Ve_self_advection_term
+            + Ve_collision_term
+            + Ve_electrostatic_term
+            + Ve_pressure_term
+            + Ve_thermal_force_term
             + Ve_diff
             + Ve_parallel_diff
         )
@@ -1548,7 +2112,7 @@ class LocalFciDrbEBRhs:
             + vorticity_diff
             + vorticity_parallel_diff
         )
-        return _mask_local_eb_state_inactive(FciDrbEBState(
+        result = _mask_local_eb_state_inactive(FciDrbEBState(
             density=density_rhs + source_owned.density,
             phi=jnp.zeros_like(phi_owned),
             Te=Te_rhs + source_owned.Te,
@@ -1557,3 +2121,24 @@ class LocalFciDrbEBRhs:
             Ve=Ve_rhs + source_owned.Ve,
             vorticity=vorticity_rhs + source_owned.vorticity,
         ), self.geometry)
+        if return_term_diagnostics or return_term_fields:
+            Ve_terms = jnp.stack(
+                (
+                    Ve_poisson_term,
+                    Ve_self_advection_term,
+                    Ve_collision_term,
+                    Ve_electrostatic_term,
+                    Ve_pressure_term,
+                    Ve_thermal_force_term,
+                    Ve_diff,
+                    Ve_parallel_diff,
+                ),
+                axis=0,
+            )
+            if return_term_fields:
+                return result, Ve_terms
+            return result, jnp.max(
+                jnp.abs(Ve_terms),
+                axis=tuple(range(1, Ve_terms.ndim)),
+            )
+        return result

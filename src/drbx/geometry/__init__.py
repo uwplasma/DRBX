@@ -71,6 +71,7 @@ from .solve_MMPDE import MMPDEOptions, MMPDEResult, solve_mmpde
 from .MetricEvaluator import (
     MagneticFieldEvaluation,
     MetricEvaluation,
+    MetricQualityJumpLocation,
     MetricQualityLocation,
     MetricQualityRegion,
     MetricQualityReport,
@@ -257,6 +258,7 @@ __all__ += [
     "MagneticFieldEvaluation",
     "MetricEvaluation",
     "MetricEvaluator",
+    "MetricQualityJumpLocation",
     "MetricQualityLocation",
     "MetricQualityRegion",
     "MetricQualityReport",
