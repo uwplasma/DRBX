@@ -93,6 +93,7 @@ N_FLOOR = 0.05
 SEED, AMP = 7, 0.05
 MODES = ((2, 1), (3, 1), (4, 2), (5, 2))
 
+LABEL = os.environ.get("DRBX_ISLAND_LABEL", "island_tokamak")
 OUT = Path("output/island_tokamak")
 OUT.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
@@ -206,7 +207,7 @@ def fused_step(current, guess):
 
 
 frames = {k: [] for k in ("profile", "energy", "flux_profile", "wall_loss",
-                          "sheath_loss", "times")}
+                          "sheath_loss", "times", "slice_density", "slice_phi")}
 snap = {}
 print(f"stepping {N_STEPS} flux-driven steps (dt={DT}, D_perp={DENS_DIFF}, "
       f"island eps={EPS}) ...")
@@ -218,6 +219,8 @@ for step in range(1, N_STEPS + 1):
         vr = -(np.roll(p, -1, axis=1) - np.roll(p, 1, axis=1)) / (2 * DTHETA)
         nt = d - d.mean(axis=(1, 2), keepdims=True)
         frames["profile"].append(d.mean(axis=(1, 2)))
+        frames["slice_density"].append(d[:, :, 0])      # zeta = 0 cross-section
+        frames["slice_phi"].append(p[:, :, 0])
         frames["flux_profile"].append(np.mean(nt * vr, axis=(1, 2)).astype(np.float32))
         frames["energy"].append(float(np.mean(nonaxi(d) ** 2)))
         frames["sheath_loss"].append(float(sheath_total))
@@ -250,8 +253,8 @@ print(f"balance: sinks/source = {balance['sinks_over_source']:.2f}")
 print(f"island flattening: |grad n| inside / outside = {flattening:.2f} "
       f"(< 1 means the chain flattens the profile)")
 
-np.savez_compressed(OUT / "island_tokamak.npz",
+np.savez_compressed(OUT / f"{LABEL}.npz",
                     **{k: np.asarray(v) for k, v in frames.items()},
                     **snap, x=x, xn=xn)
-(OUT / "island_tokamak_balance.json").write_text(json.dumps(balance, indent=1))
-print(f"wrote {OUT}/island_tokamak.npz and island_tokamak_balance.json")
+(OUT / f"{LABEL}_balance.json").write_text(json.dumps(balance, indent=1))
+print(f"wrote {OUT}/{LABEL}.npz and {LABEL}_balance.json")

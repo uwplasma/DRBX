@@ -104,6 +104,41 @@ connection-length region, and the turbulence drains through it:
 
 *Reproduce with [`examples/stellarator/island_divertor.py`](examples/stellarator/island_divertor.py).*
 
+**Tokamak with an internal island chain: source-driven profile evolution.**
+A tokamak-like rotational transform crossing `iota = 1/2` with a single
+`(m, n) = (2, 1)` resonant perturbation opens an internal island chain. The
+traced Poincare sections reproduce the textbook magnetic-island structure
+quantitatively: the analytic pendulum-model separatrix lies on the traced
+chains, and the measured island width follows `W = 4 sqrt(eps / (m |iota'|))`
+(Wesson, *Tokamaks*; White, *The Theory of Toroidally Confined Plasmas*) to
+~1% across nearly two decades in perturbation amplitude, up to the saturation
+where the island fills the sheared-iota window:
+
+![Island chain Poincare sections and width scaling](docs/media/island_tokamak_poincare.png)
+
+On this geometry the four-field model evolves the profiles *flux-driven*, the
+same convention the production edge codes use for saturated turbulence
+(GBS: Giacomin et al., JCP 463, 111294, 2022; GRILLIX: Zholobenko et al.,
+NF 61, 116015, 2021; TOKAM3X: Tamain et al., JCP 321, 606, 2016): a
+Gaussian-in-radius particle source shell is the only drive, a wall buffer is
+the sink, and the density profile is emergent — no Dirichlet clamping
+anywhere. The particle balance settles into a quasi-steady state within a
+few transit times, and the density visibly organizes on the island phase:
+the cross-section develops lobes locked to the X-point columns of the
+separatrix. The whole time step (RK4 advance, source, sinks, filters) compiles
+to a single XLA program, which is what makes hour-scale profile-evolution
+runs practical on one 16 GB GPU (a raw Python composition of the same step
+costs ~50x more in dispatch overhead):
+
+![Source-driven evolution across the island chain](docs/media/island_tokamak_evolution.png)
+
+![Density cross-section evolution](docs/media/island_tokamak_evolution.gif)
+
+*Reproduce with [`examples/island_tokamak_profiles.py`](examples/island_tokamak_profiles.py)
+(laptop smoke test in ~1 minute; production `48x96x32` in ~1 h) and render the
+figures/movie with [`examples/island_tokamak_figure.py`](examples/island_tokamak_figure.py).*
+
+
 **Imported fields: real coils and VMEC equilibria.** The same closed/open
 field-line machinery runs on imported fields: the vacuum Biot-Savart field of
 the Landreman-Paul quasi-axisymmetric coil set (via ESSOS) shows nested closed
