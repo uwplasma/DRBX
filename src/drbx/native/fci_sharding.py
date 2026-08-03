@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -49,7 +50,6 @@ from ..geometry import (
     LocalMetricGeometry,
     LocalRegularFaceGeometry3D,
     LocalSpacing3D,
-    LocalStencilBuilder,
     SIDE_PHYSICAL,
     SIDE_SIMPLE_PERIODIC,
     ShardSpec3D,
@@ -60,7 +60,7 @@ from ..geometry import (
 from .fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldState, compute_2field_rhs
 from .fci_halo import HaloExchange3D, LocalPeriodicTopologyRule3D, TopologyHaloFiller3D
 from .fci_model import inject_owned_field_to_halo, inject_owned_vector_field_to_halo
-from .fci_time_integrator import rk4_step
+from .fci_time_integrator import Rk4Stepper
 
 
 _MESH_AXIS_NAMES = ("x", "y", "z")
@@ -429,7 +429,7 @@ def assemble_local_fci_geometry(
 def _make_prepared_local_stencil_builder(
     domain: LocalDomain3D,
     context: StencilBuilderContext,
-) -> LocalStencilBuilder:
+) -> Callable[..., object]:
     """Wrap halo preparation plus the one-sided physical local stencil build.
 
     The returned builder follows the ``compute_2field_rhs`` stencil-builder
@@ -466,7 +466,10 @@ def _make_prepared_local_stencil_builder(
             context,
         )
 
-    return LocalStencilBuilder(_build)
+    # The prepared builder intentionally follows the current RHS-facing
+    # keyword contract.  Wrapping it in the legacy three-argument
+    # ``LocalStencilBuilder`` adapter would discard those boundary arguments.
+    return _build
 
 
 @dataclass(frozen=True)
@@ -549,7 +552,12 @@ def make_sharded_2field_step(
             )
             return result.rhs, carry, None
 
-        step = rk4_step(state, time=0.0, timestep=timestep, rhs_fn=_rhs_fn, carry=None)
+        step = Rk4Stepper(_rhs_fn)(
+            state,
+            time=0.0,
+            timestep=timestep,
+            carry=None,
+        )
         next_state = step.state
         return next_state.density, next_state.v_parallel, next_state.density_background
 
