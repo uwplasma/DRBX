@@ -104,177 +104,23 @@ connection-length region, and the turbulence drains through it:
 
 *Reproduce with [`examples/stellarator/island_divertor.py`](examples/stellarator/island_divertor.py).*
 
-**Tokamak with an internal island chain: source-driven profile evolution.**
-A tokamak-like rotational transform crossing `iota = 1/2` with a single
-`(m, n) = (2, 1)` resonant perturbation opens an internal island chain. The
-traced Poincare sections reproduce the textbook magnetic-island structure
-quantitatively: the analytic pendulum-model separatrix lies on the traced
-chains, and the measured island width follows `W = 4 sqrt(eps / (m |iota'|))`
-(Wesson, *Tokamaks*; White, *The Theory of Toroidally Confined Plasmas*) to
-~1% across nearly two decades in perturbation amplitude, up to the saturation
-where the island fills the sheared-iota window:
+**Tokamak with an internal island chain.** A `(2, 1)` resonance at the
+`q = 2` surface opens an island chain; the four-field model then evolves the
+density flux-driven — source shell in, wall buffer out, nothing clamped. The
+traced islands match the pendulum width `W = 4 sqrt(eps/(m |iota'|))` to ~1%,
+and the density locks onto the island phase, with lobes at the X-point
+columns. Production `48x96x32` runs take ~1 h on one 16 GB GPU (the whole
+step is a single XLA program):
 
-![Island chain Poincare sections and width scaling](docs/media/island_tokamak_poincare.png)
+![Tokamak island chain in 3-D](docs/media/island_tokamak_3d.png)
 
-On this geometry the four-field model evolves the profiles *flux-driven*, the
-same convention the production edge codes use for saturated turbulence
-(GBS: Giacomin et al., JCP 463, 111294, 2022; GRILLIX: Zholobenko et al.,
-NF 61, 116015, 2021; TOKAM3X: Tamain et al., JCP 321, 606, 2016): a
-Gaussian-in-radius particle source shell is the only drive, a wall buffer is
-the sink, and the density profile is emergent — no Dirichlet clamping
-anywhere. The particle balance settles into a quasi-steady state within a
-few transit times, and the density visibly organizes on the island phase:
-the cross-section develops lobes locked to the X-point columns of the
-separatrix. The whole time step (RK4 advance, source, sinks, filters) compiles
-to a single XLA program, which is what makes hour-scale profile-evolution
-runs practical on one 16 GB GPU (a raw Python composition of the same step
-costs ~50x more in dispatch overhead):
-
-![Source-driven evolution across the island chain](docs/media/island_tokamak_evolution.png)
-
-![Density cross-section evolution](docs/media/island_tokamak_evolution.gif)
-
-*Reproduce with [`examples/island_tokamak_profiles.py`](examples/island_tokamak_profiles.py)
-(laptop smoke test in ~1 minute; production `48x96x32` in ~1 h) and render the
-figures/movie with [`examples/island_tokamak_figure.py`](examples/island_tokamak_figure.py).*
-
-
-**Imported fields: real coils and VMEC equilibria.** The same closed/open
-field-line machinery runs on imported fields: the vacuum Biot-Savart field of
-the Landreman-Paul quasi-axisymmetric coil set (via ESSOS) shows nested closed
-surfaces inside a chaotic open edge, and a VMEC equilibrium (via VMEX)
-provides closed surfaces whose traced rotational transform matches the
-equilibrium's `iotaf` profile to ~1e-6 — with the open field lines confined to
-the thin island/stochastic layer just beyond the last closed vacuum surface,
-in the island-divertor sense:
-
-| Coil field (closed core, open edge) | VMEC equilibrium + coil-field SOL |
+| Poincare sections + width scaling | evolution summary |
 |---|---|
-| ![Landreman-Paul coils Poincare](docs/media/closed_open_vacuum_poincare.png) | ![VMEC closed and open field lines](docs/media/vmex_closed_open_field_lines.png) |
+| ![Poincare and width](docs/media/island_tokamak_poincare.png) | ![Evolution](docs/media/island_tokamak_evolution.png) |
 
-*Reproduce with [`examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py`](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) (left) and [`examples/geometry-3D/vmex/closed_open_field_lines.py`](examples/geometry-3D/vmex/closed_open_field_lines.py) (right).*
-
-And the turbulence runs on that same imported field: a four-field interchange
-simulation on the Landreman-Paul VMEC equilibrium (real metric, `|B|`, and
-surface-preserving parallel maps; recovered iota ~ 0.42) with a limiter opening
-a scrape-off layer outside the last closed surface — the closed core is
-retained while the open SOL drains through the Bohm sheath:
-
-![Landreman-Paul turbulence, closed core and open SOL](docs/media/landreman_paul_turbulence.png)
-
-*Reproduce with [`examples/stellarator/landreman_paul_turbulence.py`](examples/stellarator/landreman_paul_turbulence.py).*
-
-**Neutrals and detachment.** The open SOL flux tube reaches the two-point Bohm
-steady state; the hermes-3 neutral model (packaged AMJUEL atomic rates, target
-recycling) builds the neutral cushion; and with an evolved temperature the SOL
-detaches — the target cools through 1 eV and the target ion flux rolls over
-(the SD1D benchmark):
-
-| Open SOL flux tube | Recycling SOL with neutrals |
-|---|---|
-| ![Open SOL flux tube](docs/media/open_sol_flux_tube.png) | ![Recycling SOL](docs/media/recycling_sol.png) |
-
-*Reproduce with [`examples/sol/open_sol_flux_tube.py`](examples/sol/open_sol_flux_tube.py) (left) and [`examples/sol/recycling_sol.py`](examples/sol/recycling_sol.py) (right).*
-
-![Detachment rollover](docs/media/b6_detachment.png)
-
-*Reproduce with [`examples/benchmarks/b6_detachment_rollover.py`](examples/benchmarks/b6_detachment_rollover.py).*
-
-## Gradient-based optimization through the physics
-
-Because the solver is differentiable end to end, control and design problems
-become gradient computations. Example: **detachment control** — find the
-upstream density that places the divertor target exactly at the 1 eV
-detachment threshold (Dudson et al., PPCF 61, 065008; Body et al., NME 41,
-101819). The sensitivity `dTe_target/dn_up` is computed by forward-mode
-autodiff **through the entire 20,000-step stiff SOL solve**, and a trust-region
-Newton iteration walks down the detachment cliff to the threshold:
-
-![Detachment control](docs/media/detachment_control.png)
-
-*Reproduce with [`examples/autodiff/detachment_control.py`](examples/autodiff/detachment_control.py).*
-
-A second example: **turbulence optimization** — find the adiabaticity (the
-parallel electron conductivity) at which saturated drift-wave transport drops
-to a quarter of its hydrodynamic-regime level, the classic
-hydrodynamic-to-adiabatic transition of Hasegawa-Wakatani turbulence (Camargo,
-Biskamp & Scott, *Phys. Plasmas* 2, 48 (1995)). A damped Newton iteration on
-the adiabaticity, with forward-mode gradients through the saturated turbulence,
-converges in 7 iterations; an independent long run verifies a 3.96x flux
-reduction against the 4x target. Left column: the initial hydrodynamic state;
-right column: the optimized adiabatic state:
-
-![Hasegawa-Wakatani optimization](docs/media/hasegawa_wakatani_optimization.png)
-
-*Reproduce with [`examples/tokamak/hasegawa_wakatani_optimization.py`](examples/tokamak/hasegawa_wakatani_optimization.py).*
-
-The same machinery recovers a transport-drive parameter by gradient descent
-through nonlinear drift-wave turbulence
-([inverse design](examples/tokamak/drift_wave_inverse_design.py)), and the
-[differentiation-methods example](examples/autodiff/differentiation_methods.py)
-measures which method is cheapest (forward mode for a few parameters, ~2x a
-forward run; reverse mode for parameter fields; checkpointing when memory-bound).
-
-## Performance and parallel execution
-
-Single-CPU turbulence throughput is about 2 million cell-updates per second in
-float64, and one gradient through a 200-step rollout costs 2-3x a forward run.
-The full four-field FCI step — four RHS evaluations, each with a GMRES
-potential inversion — compiles as a single `jit` program with no host
-synchronization inside, which roughly halves the stellarator-turbulence
-step time on one CPU
-([details](docs/performance_and_differentiability.md)):
-
-| Turbulence performance | Cost of each differentiation method |
-|---|---|
-| ![Performance](docs/media/performance.png) | ![Differentiation methods](docs/media/differentiation_methods.png) |
-
-*Reproduce with [`examples/benchmarks/performance_benchmark.py`](examples/benchmarks/performance_benchmark.py) (left) and [`examples/autodiff/differentiation_methods.py`](examples/autodiff/differentiation_methods.py) (right).*
-
-The FCI stack runs across devices with `shard_map`: the sharded step is
-bit-exact against single-device execution (checksums identical at every device
-count), and on a 36-core host with one core per shard a 1.05M-cell step reaches
-a 4.5x speedup at 16 shards, while one NVIDIA A4000 GPU runs the same step ~21x
-faster than a single CPU shard. Both ratios are modest precisely because the
-single-device kernel is now fast — the solvax GMRES potential solve and the
-sync-free RHS cut the per-step baseline sharply, so there is simply less work
-left to parallelize
-([demo](examples/benchmarks/fci_sharded_strong_scaling.py)):
-
-![Strong scaling](docs/media/strong_scaling.png)
-
-*Reproduce with [`examples/benchmarks/fci_sharded_strong_scaling.py`](examples/benchmarks/fci_sharded_strong_scaling.py).*
-
-## Hasegawa-Wakatani benchmark
-
-The standard two-field drift-wave turbulence benchmark: grown from noise
-through the linear instability (growth rate verified against the analytic
-dispersion relation to ~1e-14) into nonlinear E×B transport. Detailed
-verification figures — dispersion scans, MMS convergence orders, and
-gradient-vs-finite-difference checks — are in the
-[documentation](https://drbx.readthedocs.io/en/latest/):
-
-![Drift-wave turbulence](docs/media/drift_wave_turbulence.gif)
-
-*Reproduce with [`examples/tokamak/drift_wave_turbulence.py`](examples/tokamak/drift_wave_turbulence.py).*
-
-## Reproducing the figures and movies
-
-Every figure and movie above states the script that generates it. Each is a
-flat pedagogical file in [`examples/`](examples/): all parameters at the top
-with comments, explicit model/geometry/boundary-condition setup through the
-public API, progress printed while it runs, plot written at the end. The
-embedded copies live compressed in `docs/media/`; the scripts regenerate
-full-quality versions under `output/`.
-
-## What it does
-
-| Capability | What ships |
-|---|---|
-| **Turbulence models** | Hasegawa-Wakatani drift-wave (pseudo-spectral, differentiable); FCI 2-field, 4-field interchange (density/vorticity/parallel flows), and electromagnetic drift-reduced stacks with curvature and vorticity/potential closures |
-| **Geometry** | Rotating-ellipse stellarator (closed core + optional limiter SOL), island-divertor field (emergent stochastic SOL), shifted-torus helical flux tube, open slab SOL, imported ESSOS coil / VMEC / hybrid equilibria — metrics by autodiff of analytic embeddings |
-| **Field-line topology** | Closed and open field lines; FCI traced field-line maps; multi-transit connection-length tracing; Bohm sheath + target recycling closure on open endpoints |
-| **Neutrals (hermes-3 model)** | Packaged AMJUEL ionization/recombination + charge-exchange rates (no external database); Galilean-invariant plasma-neutral coupling; recycling SOL and a self-consistent detaching SOL (implicit Spitzer conduction, self-limiting radiation, SD1D rollover) |
+*Reproduce with [`examples/island_tokamak_profiles.py`](examples/island_tokamak_profiles.py);
+figures/movies via [`examples/island_tokamak_figure.py`](examples/island_tokamak_figure.py).
+Full write-up (verification, literature table, knobs): [docs/island_tokamak.md](docs/island_tokamak.md).*
 | **Linear solver** | `drbx.linear` linearizes any model about an equilibrium; drift-wave, shear-Alfven, and interchange dispersion reproduced to machine precision |
 | **Differentiability** | `jit`/`grad`/`vmap` through every model — sensitivity, uncertainty propagation, inverse design, detachment control; forward/reverse/checkpointed methods measured and gated to agree |
 | **Parallelism** | Multi-device `shard_map` FCI stepping (bit-exact vs single device) with halo exchange; CPU strong scaling demonstrated, GPU-ready |

@@ -219,8 +219,11 @@ for step in range(1, N_STEPS + 1):
         vr = -(np.roll(p, -1, axis=1) - np.roll(p, 1, axis=1)) / (2 * DTHETA)
         nt = d - d.mean(axis=(1, 2), keepdims=True)
         frames["profile"].append(d.mean(axis=(1, 2)))
-        frames["slice_density"].append(d[:, :, 0])      # zeta = 0 cross-section
-        frames["slice_phi"].append(p[:, :, 0])
+        # four toroidal cross-sections (zeta = 0, pi/2, pi, 3pi/2) for the
+        # 3-D rendering of the evolving state
+        zi = [0, d.shape[2] // 4, d.shape[2] // 2, 3 * d.shape[2] // 4]
+        frames["slice_density"].append(d[:, :, zi])
+        frames["slice_phi"].append(p[:, :, zi])
         frames["flux_profile"].append(np.mean(nt * vr, axis=(1, 2)).astype(np.float32))
         frames["energy"].append(float(np.mean(nonaxi(d) ** 2)))
         frames["sheath_loss"].append(float(sheath_total))
