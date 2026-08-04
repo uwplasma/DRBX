@@ -220,10 +220,167 @@ def fig_evolution(npz_path):
     print(f"movie written ({len(frames)} frames)")
 
 
+
+# --- 3-D rendering -----------------------------------------------------------
+R0_TORUS, ELONG = 3.0, 1.35
+
+
+def to_xyz(x, th, z):
+    """(x, theta, zeta) -> cartesian on the elongated torus."""
+    R = R0_TORUS + x * np.cos(th)
+    return R * np.cos(z), R * np.sin(z), ELONG * x * np.sin(th)
+
+
+def line3d(x0, th0, eps, transits=40, steps_per=180):
+    """Continuous 3-D field line (not the Poincare subsample)."""
+    h = 2.0 * np.pi / steps_per
+    x, th, z = x0, th0, 0.0
+    pts = []
+    for _ in range(transits * steps_per):
+        def rhs(x_, th_, z_):
+            return eps * np.sin(M_RES * th_ - N_RES * z_), iota(x_)
+        k1 = rhs(x, th, z)
+        k2 = rhs(x + 0.5 * h * k1[0], th + 0.5 * h * k1[1], z + 0.5 * h)
+        k3 = rhs(x + 0.5 * h * k2[0], th + 0.5 * h * k2[1], z + 0.5 * h)
+        k4 = rhs(x + h * k3[0], th + h * k3[1], z + h)
+        x += h / 6.0 * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
+        th += h / 6.0 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
+        z += h
+        pts.append((x, th, z))
+    a = np.asarray(pts)
+    return to_xyz(a[:, 0], a[:, 1], a[:, 2])
+
+
+def _annulus(ax, dens2d, xn, zeta, cmap, norm_):
+    """Poloidal cross-section ring at toroidal angle zeta, colored by density."""
+    x_phys = X_MIN + xn * (X_MAX - X_MIN)
+    th = np.linspace(0, 2 * np.pi, dens2d.shape[1] + 1)
+    Xg, THg = np.meshgrid(x_phys, th, indexing="ij")
+    dens = np.concatenate([dens2d, dens2d[:, :1]], axis=1)
+    R = R0_TORUS + Xg * np.cos(THg)
+    Xc = R * np.cos(zeta); Yc = R * np.sin(zeta); Zc = ELONG * Xg * np.sin(THg)
+    ax.plot_surface(Xc, Yc, Zc, facecolors=cmap(norm_(dens)), shade=False,
+                    rstride=1, cstride=1, antialiased=False, alpha=0.95)
+
+
+def fig_3d(npz_path, eps_run=0.03):
+    """3-D view: island field lines + density cross-section + q profile."""
+    from matplotlib import cm, colors, gridspec
+
+    d = np.load(npz_path)
+    xn = np.asarray(d["xn"])
+    dens3 = np.asarray(d["density"])          # final full 3-D snapshot
+
+    fig = plt.figure(figsize=(12.5, 5.6))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[2.1, 1.0], figure=fig)
+    ax = fig.add_subplot(gs[0], projection="3d")
+
+    cmap = cm.inferno
+    norm_ = colors.Normalize(*np.percentile(dens3, [2, 98]))
+    _annulus(ax, dens3[:, :, 0], xn, 0.0, cmap, norm_)
+    _annulus(ax, dens3[:, :, dens3.shape[2] // 2], xn, np.pi, cmap, norm_)
+
+    # confined surfaces inside and outside the chain
+    for x0 in (0.35, 0.90):
+        X, Y, Z = line3d(x0, 0.3, eps_run, transits=9)
+        ax.plot(X, Y, Z, color="#4c72b0", lw=0.6, alpha=0.55)
+    # the island: separatrix (red) and a core line inside one island tube
+    X, Y, Z = line3d(X_RES + 1e-3, np.pi / M_RES, eps_run, transits=14)
+    ax.plot(X, Y, Z, color="#d62728", lw=0.9, alpha=0.95)
+    X, Y, Z = line3d(X_RES + 0.05, 0.0, eps_run, transits=14)
+    ax.plot(X, Y, Z, color="#ff7f0e", lw=1.0, alpha=0.95)
+
+    lim = (R0_TORUS + X_MAX) * 0.72
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+    ax.set_zlim(-ELONG * X_MAX * 1.1, ELONG * X_MAX * 1.1)
+    ax.set_box_aspect((1, 1, 0.42))
+    ax.set_axis_off()
+    ax.view_init(elev=26, azim=-68)
+    ax.set_title("blue: confined surfaces   red: island separatrix   "
+                 "orange: island core\n"
+                 "cross-sections colored by the final density", fontsize=9.5)
+
+    b = fig.add_subplot(gs[1])
+    xg = np.linspace(X_MIN, X_MAX, 200)
+    b.plot((xg - X_MIN) / (X_MAX - X_MIN), 1.0 / iota(xg), lw=2, color="#4c72b0")
+    b.axhline(2.0, color="#d62728", ls="--", lw=1.2)
+    xres_n = (X_RES - X_MIN) / (X_MAX - X_MIN)
+    b.plot([xres_n], [2.0], "o", color="#d62728", ms=9)
+    b.annotate("(2,1) island chain", (xres_n + 0.04, 2.005),
+               color="#d62728", fontsize=9.5, va="bottom")
+    b.set_xlabel(r"$x_n$"); b.set_ylabel(r"safety factor $q = 1/\iota$")
+    b.set_title("q profile crossing the rational surface", fontsize=10)
+    b.grid(alpha=0.3)
+
+    fig.suptitle("The tokamak with an internal (2,1) island chain",
+                 fontweight="bold", fontsize=12.5)
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.savefig(MEDIA / "island_tokamak_3d.png", dpi=150)
+    print("3-D figure written")
+
+
+def fig_movie3d(npz_path, eps_run=0.03):
+    """3-D movie: four rotating-frame cross-section rings + island lines."""
+    from matplotlib import cm, colors
+
+    try:
+        import imageio.v2 as imageio
+    except ImportError:
+        print("imageio missing -- cannot build the 3-D movie")
+        return
+    d = np.load(npz_path)
+    xn = np.asarray(d["xn"]); times = np.asarray(d["times"])
+    sl = np.asarray(d["slice_density"])           # (t, nx, ny, 4)
+    if sl.ndim != 4:
+        print("npz lacks 4-plane slices -- rerun island_tokamak_profiles.py")
+        return
+    zetas = (0.0, np.pi / 2, np.pi, 3 * np.pi / 2)
+    cmap = cm.inferno
+    norm_ = colors.Normalize(*np.percentile(sl[len(sl) // 4:], [2, 98]))
+
+    # static geometry context, computed once
+    lines = []
+    for x0 in (0.35, 0.90):
+        lines.append((line3d(x0, 0.3, eps_run, transits=9), "#4c72b0", 0.5, 0.4))
+    lines.append((line3d(X_RES + 1e-3, np.pi / M_RES, eps_run, transits=14),
+                  "#d62728", 0.8, 0.8))
+    lines.append((line3d(X_RES + 0.05, 0.0, eps_run, transits=14),
+                  "#ff7f0e", 0.9, 0.85))
+
+    frames = []
+    step = max(1, len(sl) // 100)
+    for i in range(0, len(sl), step):
+        fig = plt.figure(figsize=(6.4, 5.2))
+        ax = fig.add_subplot(projection="3d")
+        for (X, Y, Z), col, lw, al in lines:
+            ax.plot(X, Y, Z, color=col, lw=lw, alpha=al)
+        for k, z in enumerate(zetas):
+            _annulus(ax, sl[i][:, :, k], xn, z, cmap, norm_)
+        lim = (R0_TORUS + X_MAX) * 0.72
+        ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+        ax.set_zlim(-ELONG * X_MAX * 1.1, ELONG * X_MAX * 1.1)
+        ax.set_box_aspect((1, 1, 0.42))
+        ax.set_axis_off()
+        ax.view_init(elev=26, azim=-68)
+        ax.set_title(rf"source-driven density on the island tokamak"
+                     rf"   $t$ = {times[i]:.1f} $a/c_s$", fontsize=9.5)
+        fig.tight_layout(pad=0.4)
+        fig.canvas.draw()
+        frames.append(np.asarray(fig.canvas.buffer_rgba())[:, :, :3].copy())
+        plt.close(fig)
+    imageio.mimsave(MEDIA / "island_tokamak_3d.gif", frames, fps=12, loop=0)
+    print(f"3-D movie written ({len(frames)} frames)")
+
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "poincare"
     if mode == "poincare":
         fig_poincare()
+    elif mode == "3d":
+        fig_3d(sys.argv[2] if len(sys.argv) > 2 else
+               "output/island_tokamak/island_media.npz")
+    elif mode == "movie3d":
+        fig_movie3d(sys.argv[2] if len(sys.argv) > 2 else
+                    "output/island_tokamak/island_3d.npz")
     else:
         fig_evolution(sys.argv[2] if len(sys.argv) > 2 else
                       "output/island_tokamak/island_media.npz")

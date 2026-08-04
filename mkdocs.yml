@@ -47,6 +47,7 @@ nav:
       - Solvers And Design: solvers_and_design.md
       - Physics Models: physics_models.md
       - Equation To Code Map: equation_to_code_map.md
+      - Tokamak Island Chain: island_tokamak.md
       - Code Structure: code_structure.md
       - Performance And Differentiability: performance_and_differentiability.md
       - Autodiff And Scaling Examples: autodiff_and_scaling_examples.md
