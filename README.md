@@ -114,6 +114,8 @@ step is a single XLA program):
 
 ![Tokamak island chain in 3-D](docs/media/island_tokamak_3d.png)
 
+![Density evolution on the island tokamak](docs/media/island_tokamak_3d.gif)
+
 | Poincare sections + width scaling | evolution summary |
 |---|---|
 | ![Poincare and width](docs/media/island_tokamak_poincare.png) | ![Evolution](docs/media/island_tokamak_evolution.png) |
