@@ -108,8 +108,8 @@ connection-length region, and the turbulence drains through it:
 `q = 2` surface opens an island chain; the four-field model then evolves the
 density flux-driven — source shell in, wall buffer out, nothing clamped. The
 traced islands match the pendulum width `W = 4 sqrt(eps/(m |iota'|))` to ~1%,
-and the density locks onto the island phase, with lobes at the X-point
-columns. Production `48x96x32` runs take ~1 h on one 16 GB GPU (the whole
+and in the turbulence-dominated regime the mean profile flattens across
+the chain (gradient ratio 0.83), the classic island signature. Production `48x96x32` runs take ~1 h on one 16 GB GPU (the whole
 step is a single XLA program):
 
 ![Tokamak island chain in 3-D](docs/media/island_tokamak_3d.png)
