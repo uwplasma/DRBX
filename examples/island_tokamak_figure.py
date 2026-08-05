@@ -133,6 +133,8 @@ def fig_evolution(npz_path):
     xn = np.asarray(d["xn"]); times = np.asarray(d["times"])
     prof = np.asarray(d["profile"])
     sl_n = np.asarray(d["slice_density"])
+    if sl_n.ndim == 4:                       # four-plane format: take zeta = 0
+        sl_n = sl_n[:, :, :, 0]
     sinks = np.asarray(d["sheath_loss"]) + np.asarray(d["wall_loss"])
     theta = np.linspace(0, 2 * np.pi, sl_n.shape[2], endpoint=False)
 

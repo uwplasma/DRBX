@@ -78,22 +78,22 @@ of the same operations costs ~50x more in dispatch overhead.
 | Pendulum island width `W = 4 sqrt(eps/(m iota'))` (Wesson; White) | recovered to ~1% rms |
 | Flux-driven saturation convention (GBS / GRILLIX / TOKAM3X) | reproduced on an island geometry |
 | Density lobes locked to the island X-point phase | emergent in this model |
-| Mean-profile flattening across the island (Fitzpatrick, PoP 2, 825, 1995: requires the parallel channel to beat perpendicular transport over the island width) | *not* in the default run — see below |
+| Mean-profile flattening across the island (Fitzpatrick, PoP 2, 825, 1995) | recovered in the turbulence-dominated regime: gradient ratio inside/outside = 0.83 at `48x96x32` (0.73 in the resolution pilot) |
 | End-to-end differentiability of the island-tokamak state | new; no production DRB code offers it |
 
 The classic island signature — the mean profile flattening across the
-separatrix — is gated here by the parallel-flow friction `mu`
-(`DRBX_ISLAND_MU`). The default `mu = 8` keeps the drift-acoustic channel
-firmly damped: the balance is steady, but the parallel equilibration that
-flattens the island is throttled and the measured gradient ratio
-inside/outside the island band stays at ~1.3–1.4. At `mu = 0.5` the channel
-is under-damped at these parameters and the run goes unstable. This is the
-Fitzpatrick critical-width physics in numerical form: flattening requires
-effective parallel transport to win over perpendicular transport across the
-island, and the damped-parallel regime sits below that transition. Mapping
-the intermediate-`mu` regime — where the island response emerges with the
-acoustic channel still under control — is the experiment this example sets
-up.
+separatrix — appears once the transport across the island is
+turbulence-dominated. In the weakly-driven collisional regime
+(`S0 = 2.5`, `D = 0.04`) the state is laminar and the gradient ratio
+inside/outside the island band sits at 1.3–1.4: no flattening, consistent
+with Fitzpatrick's criterion (PoP 2, 825, 1995) that flattening requires
+transport along/around the island to beat the cross-island transport.
+Raising the drive and cutting the collisional diffusion
+(`S0 = 24`, `D = 0.005`, `HYPER = 0.3`) makes the state turbulent
+(fluctuation energy ~2) and the profile flattens across the chain — the
+gradient ratio drops to 0.83 at production resolution. The escalation
+ladder from laminar to flattened (fluctuation energy 0.004 → 0.03 → 0.2 →
+1.5 as the drive doubles) is reproducible with the env knobs alone.
 
 ## Reproducing
 
@@ -104,8 +104,9 @@ DRBX_ISLAND_SHAPE=16,32,12 DRBX_ISLAND_STEPS=400 \
 
 # GPU production (fp32; fp64 runs at 1/64 rate on consumer GPUs)
 DRBX_PRECISION=float32 DRBX_ISLAND_SHAPE=48,96,32 \
-  DRBX_ISLAND_DT=2.5e-4 DRBX_ISLAND_STEPS=80000 DRBX_ISLAND_EPS=0.03 \
-  DRBX_ISLAND_S0=2.5 python examples/island_tokamak_profiles.py
+  DRBX_ISLAND_DT=2.5e-4 DRBX_ISLAND_STEPS=24000 DRBX_ISLAND_EPS=0.03 \
+  DRBX_ISLAND_S0=24 DRBX_ISLAND_D=0.005 DRBX_ISLAND_HYPER=0.3 \
+  python examples/island_tokamak_profiles.py
 
 # figures and movies
 python examples/island_tokamak_figure.py poincare

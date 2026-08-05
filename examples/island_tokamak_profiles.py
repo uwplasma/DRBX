@@ -21,15 +21,13 @@ flux-driven:
   (48x96x32, fp32, ~1 h on a 16 GB GPU).
 
 The classic island observable -- mean-profile flattening across the chain
-as parallel transport short-circuits the radial gradient inside the
-separatrix -- is controlled here by the parallel-flow friction ``mu``
-(``DRBX_ISLAND_MU``): the default ``mu = 8`` keeps the drift-acoustic
-channel firmly damped (steady balance, but the parallel equilibration that
-flattens the island is throttled; measured gradient ratio inside/outside
-~1.3-1.4), while ``mu = 0.5`` under-damps it at these parameters (the run
-goes unstable). Mapping the intermediate regime -- where the island
-response emerges with the acoustic channel still under control -- is the
-intended experiment this example sets up.
+-- appears once cross-island transport is turbulence-dominated: at the
+default weak drive the state is laminar and the profile does NOT flatten
+(gradient ratio inside/outside ~1.3), while ``S0 = 24, D = 0.005,
+HYPER = 0.3`` gives a turbulent state (fluctuation energy ~2) whose profile
+flattens across the separatrix (ratio ~0.8). The parallel-flow friction
+``mu`` (``DRBX_ISLAND_MU``) stays at 8 in both regimes; lowering it far
+(0.5) under-damps the drift-acoustic channel and the run goes unstable.
 
 The whole step -- the RK4 advance of ``four_field_rk4_step`` plus source,
 wall sink, and hyperviscosity -- is compiled as ONE XLA program, which is
@@ -88,7 +86,7 @@ OMEGA_DIFF = 0.15
 # equilibration that flattens density along the island flux surfaces --
 # use small values when the island response is the observable.
 FRICTION_MU = float(os.environ.get("DRBX_ISLAND_MU", "8.0"))
-NU_HYPER = 1.5
+NU_HYPER = float(os.environ.get("DRBX_ISLAND_HYPER", "1.5"))
 N_FLOOR = 0.05
 SEED, AMP = 7, 0.05
 MODES = ((2, 1), (3, 1), (4, 2), (5, 2))
