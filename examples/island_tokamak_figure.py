@@ -1,26 +1,35 @@
 """Figures for the tokamak island-chain example.
 
-Two standalone deliverables:
+Four modes:
 
-1. ``poincare`` (default, no data needed): Poincare sections of the reduced
-   island field at three perturbation amplitudes, with the measured island
-   width tested against the pendulum-model prediction
+* ``poincare`` (default, no data needed): Poincare sections of the reduced
+  island field at three perturbation amplitudes, with the measured island
+  width tested against the pendulum-model prediction
 
-       W = 4 sqrt(eps / (m |iota'|))
+      W = 4 sqrt(eps / (m |iota'|))
 
-   (the standard magnetic-island width, e.g. J. Wesson, *Tokamaks*, ch. 7;
-   R. B. White, *The Theory of Toroidally Confined Plasmas*). This is the
-   geometry-verification anchor: the traced chains must reproduce both the
-   resonance location iota = n/m and the sqrt(eps) width scaling.
+  (the standard magnetic-island width, e.g. J. Wesson, *Tokamaks*, ch. 7;
+  R. B. White, *The Theory of Toroidally Confined Plasmas*). This is the
+  geometry-verification anchor: the traced chains must reproduce both the
+  resonance location iota = n/m and the sqrt(eps) width scaling.
 
-2. ``evolution`` (needs the production npz from
-   ``island_tokamak_profiles.py``): the profile-evolution summary -- density
-   cross-section with the analytic separatrix overlaid, the space-time map
-   of the mean profile, the particle-balance trace -- plus an animated GIF
-   of the zeta = 0 density cross-section (the movie for the README).
+* ``evolution`` (needs the production npz from
+  ``island_tokamak_profiles.py``): the profile-evolution summary -- density
+  cross-section with the analytic separatrix overlaid, the space-time map
+  of the mean profile, the particle-balance trace -- plus an animated GIF
+  of the zeta = 0 density cross-section.
+
+* ``3d``: static 3-D snapshot -- island field lines, density rings, and the
+  q = 1/iota profile.
+
+* ``dashboard``: the README movie. Top row: the animated 3-D state inside a
+  low-opacity plasma-boundary surface, the safety-factor profile, and the
+  (R, Z) Poincare section at a single toroidal angle. Bottom row: the
+  evolving mean profile, the evolving turbulent radial particle flux, and
+  the fluctuation-energy / sinks-over-source time traces with a cursor.
 
     python examples/island_tokamak_figure.py poincare
-    python examples/island_tokamak_figure.py evolution output/island_tokamak/island_media.npz
+    python examples/island_tokamak_figure.py dashboard output/island_tokamak/island_tokamak.npz
 """
 
 from __future__ import annotations
@@ -320,58 +329,172 @@ def fig_3d(npz_path, eps_run=0.03):
     fig.savefig(MEDIA / "island_tokamak_3d.png", dpi=150)
     print("3-D figure written")
 
+def fig_dashboard(npz_path, eps_run=0.03):
+    """The README movie: 3-D view + geometry context + evolving diagnostics.
 
-def fig_movie3d(npz_path, eps_run=0.03):
-    """3-D movie: four rotating-frame cross-section rings + island lines."""
-    from matplotlib import cm, colors
+    Row 1: the animated 3-D state (field lines, density cross-section rings,
+    and a low-opacity plasma-boundary surface), the safety-factor profile,
+    and the (R, Z) Poincare section at a single toroidal angle extending a
+    little beyond the plasma boundary so the island structure is visible.
+    Row 2, the standard flux-driven diagnostics (GBS / TOKAM3X practice):
+    the evolving mean profile against the initial one with the island band
+    marked, the evolving turbulent radial particle-flux profile, and the
+    time traces (fluctuation energy, sinks/source) with a time cursor.
+    """
+    import json as _json
+
+    from matplotlib import cm, colors, gridspec
 
     try:
         import imageio.v2 as imageio
     except ImportError:
-        print("imageio missing -- cannot build the 3-D movie")
+        print("imageio missing -- cannot build the dashboard movie")
         return
     d = np.load(npz_path)
     xn = np.asarray(d["xn"]); times = np.asarray(d["times"])
-    sl = np.asarray(d["slice_density"])           # (t, nx, ny, 4)
+    prof = np.asarray(d["profile"])
+    flux = np.asarray(d["flux_profile"])
+    energy = np.asarray(d["energy"])
+    sinks = np.asarray(d["sheath_loss"]) + np.asarray(d["wall_loss"])
+    sl = np.asarray(d["slice_density"])
     if sl.ndim != 4:
-        print("npz lacks 4-plane slices -- rerun island_tokamak_profiles.py")
-        return
+        print("npz lacks 4-plane slices"); return
+    bal = Path(str(npz_path).replace(".npz", "_balance.json"))
+    src_norm = None
+    if bal.exists():
+        rec = _json.loads(bal.read_text())
+        src_norm = sinks[-len(sinks) // 4:].mean() / max(
+            rec.get("sinks_over_source", 1.0), 1e-30)
+    sinks_n = sinks / src_norm if src_norm else sinks / max(sinks.max(), 1e-30)
+
     zetas = (0.0, np.pi / 2, np.pi, 3 * np.pi / 2)
     cmap = cm.inferno
     norm_ = colors.Normalize(*np.percentile(sl[len(sl) // 4:], [2, 98]))
+    xres_n = (X_RES - X_MIN) / (X_MAX - X_MIN)
+    # at this amplitude the island fills most of the radius (see the
+    # Poincare panel), so mark only the resonant surface, not a band
 
-    # static geometry context, computed once
+    def island_band(ax_):
+        ax_.axvline(xres_n, color="#d62728", ls="--", lw=1.0, alpha=0.75)
+        ax_.set_xlim(0.0, 1.0)
+
+    # static geometry, computed once ---------------------------------------
     lines = []
     for x0 in (0.35, 0.90):
-        lines.append((line3d(x0, 0.3, eps_run, transits=9), "#4c72b0", 0.5, 0.4))
+        lines.append((line3d(x0, 0.3, eps_run, transits=9), "#4c72b0", 0.6, 0.5))
     lines.append((line3d(X_RES + 1e-3, np.pi / M_RES, eps_run, transits=14),
-                  "#d62728", 0.8, 0.8))
+                  "#d62728", 0.9, 0.9))
     lines.append((line3d(X_RES + 0.05, 0.0, eps_run, transits=14),
-                  "#ff7f0e", 0.9, 0.85))
+                  "#ff7f0e", 1.0, 0.9))
+    # low-opacity plasma-boundary surface at x = X_MAX
+    thb = np.linspace(0, 2 * np.pi, 40)
+    zb = np.linspace(0, 2 * np.pi, 80)
+    THB, ZB = np.meshgrid(thb, zb, indexing="ij")
+    RB = R0_TORUS + X_MAX * np.cos(THB)
+    BX, BY, BZ = RB * np.cos(ZB), RB * np.sin(ZB), ELONG * X_MAX * np.sin(THB)
+
+    # (R, Z) Poincare at zeta = 0, extending past the boundary
+    rng = np.random.default_rng(3)
+    pr, pz = [], []
+    for x0 in np.linspace(X_MIN + 0.03, X_MAX + 0.12, 30):
+        px, pth = trace_full(x0, rng.uniform(0, 2 * np.pi), eps_run, transits=250)
+        pr.append(R0_TORUS + px * np.cos(pth))
+        pz.append(ELONG * px * np.sin(pth))
+    pr = np.concatenate(pr); pz = np.concatenate(pz)
+    thc = np.linspace(0, 2 * np.pi, 200)
 
     frames = []
     step = max(1, len(sl) // 100)
     for i in range(0, len(sl), step):
-        fig = plt.figure(figsize=(6.4, 5.2))
-        ax = fig.add_subplot(projection="3d")
+        fig = plt.figure(figsize=(12.6, 7.6))
+        gs = gridspec.GridSpec(2, 3, figure=fig, height_ratios=[1.25, 1.0],
+                               width_ratios=[1.25, 1.0, 1.0],
+                               hspace=0.34, wspace=0.30,
+                               left=0.055, right=0.985, top=0.90, bottom=0.08)
+        fig.suptitle("Source-driven turbulence on a tokamak with a (2,1) "
+                     f"island chain      $t$ = {times[i]:.1f} $a/c_s$",
+                     fontsize=12, fontweight="bold")
+
+        ax = fig.add_subplot(gs[0, 0], projection="3d")
         for (X, Y, Z), col, lw, al in lines:
             ax.plot(X, Y, Z, color=col, lw=lw, alpha=al)
         for k, z in enumerate(zetas):
             _annulus(ax, sl[i][:, :, k], xn, z, cmap, norm_)
+        ax.plot_surface(BX, BY, BZ, color="#7799bb", alpha=0.07,
+                        linewidth=0, antialiased=False, shade=False)
         lim = (R0_TORUS + X_MAX) * 0.72
         ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
         ax.set_zlim(-ELONG * X_MAX * 1.1, ELONG * X_MAX * 1.1)
-        ax.set_box_aspect((1, 1, 0.42))
-        ax.set_axis_off()
+        ax.set_box_aspect((1, 1, 0.42)); ax.set_axis_off()
         ax.view_init(elev=26, azim=-68)
-        ax.set_title(rf"source-driven density on the island tokamak"
-                     rf"   $t$ = {times[i]:.1f} $a/c_s$", fontsize=9.5)
-        fig.tight_layout(pad=0.4)
+        ax.set_title("density cross-sections, island field lines,\n"
+                     "plasma boundary", fontsize=9)
+
+        b = fig.add_subplot(gs[0, 1])
+        xg = np.linspace(X_MIN, X_MAX, 200)
+        b.plot((xg - X_MIN) / (X_MAX - X_MIN), 1.0 / iota(xg), lw=2,
+               color="#4c72b0")
+        b.axhline(2.0, color="#d62728", ls="--", lw=1.1)
+        b.plot([xres_n], [2.0], "o", color="#d62728", ms=8)
+        b.annotate("(2,1) island", (xres_n + 0.05, 2.005), color="#d62728",
+                   fontsize=8.5, va="bottom")
+        b.set_xlabel(r"$x_n$", fontsize=9)
+        b.set_ylabel(r"safety factor $q$", fontsize=9)
+        b.set_title("q profile", fontsize=9)
+        b.tick_params(labelsize=8); b.grid(alpha=0.3)
+
+        c = fig.add_subplot(gs[0, 2])
+        c.plot(pr, pz, ".", ms=0.5, color="#1f77b4", alpha=0.55)
+        c.plot(R0_TORUS + X_MAX * np.cos(thc), ELONG * X_MAX * np.sin(thc),
+               color="k", lw=1.4, alpha=0.75)
+        c.plot(R0_TORUS + X_MIN * np.cos(thc), ELONG * X_MIN * np.sin(thc),
+               color="k", lw=0.8, ls=":", alpha=0.6)
+        c.set_aspect("equal")
+        c.set_xlabel(r"$R$", fontsize=9); c.set_ylabel(r"$Z$", fontsize=9)
+        c.set_title(r"Poincare section at $\phi = 0$"
+                    "\n(solid: plasma boundary)", fontsize=9)
+        c.tick_params(labelsize=8)
+
+        e = fig.add_subplot(gs[1, 0])
+        e.plot(xn, prof[0], color="gray", ls="--", lw=1.2, label="initial")
+        e.plot(xn, prof[i], color="#1f77b4", lw=2, label="now")
+        island_band(e)
+        e.set_ylim(0, max(prof.max() * 1.05, 1e-3))
+        e.set_xlabel(r"$x_n$", fontsize=9)
+        e.set_ylabel(r"$\langle n \rangle$", fontsize=9)
+        e.set_title("mean density profile (dashed: resonant surface)",
+                    fontsize=9)
+        e.legend(fontsize=7.5, loc="upper right")
+        e.tick_params(labelsize=8); e.grid(alpha=0.3)
+
+        f = fig.add_subplot(gs[1, 1])
+        f.plot(xn, flux[i], color="#6a0dad", lw=1.8)
+        island_band(f)
+        fmax = np.percentile(np.abs(flux[len(flux) // 4:]), 99.5)
+        f.set_ylim(-0.25 * fmax, 1.1 * fmax)
+        f.axhline(0, color="k", lw=0.6)
+        f.set_xlabel(r"$x_n$", fontsize=9)
+        f.set_ylabel(r"$\Gamma_r = \langle \tilde n\, \tilde v_r \rangle$",
+                     fontsize=9)
+        f.set_title("turbulent radial particle flux", fontsize=9)
+        f.tick_params(labelsize=8); f.grid(alpha=0.3)
+
+        g = fig.add_subplot(gs[1, 2])
+        g.plot(times, energy, color="#1f77b4", lw=1.5,
+               label=r"fluctuation energy $\langle \tilde n^2 \rangle$")
+        g.plot(times, sinks_n, color="#2ca02c", lw=1.5, label="sinks / source")
+        g.axvline(times[i], color="k", lw=1.0)
+        g.set_xlabel(r"$t\,[a/c_s]$", fontsize=9)
+        g.set_title("time traces", fontsize=9)
+        g.legend(fontsize=7.5, loc="center right")
+        g.tick_params(labelsize=8); g.grid(alpha=0.3)
+
         fig.canvas.draw()
         frames.append(np.asarray(fig.canvas.buffer_rgba())[:, :, :3].copy())
         plt.close(fig)
-    imageio.mimsave(MEDIA / "island_tokamak_3d.gif", frames, fps=12, loop=0)
-    print(f"3-D movie written ({len(frames)} frames)")
+    imageio.mimsave(MEDIA / "island_tokamak_3d.gif", frames, fps=10, loop=0)
+    print(f"dashboard movie written ({len(frames)} frames)")
+
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "poincare"
@@ -380,9 +503,9 @@ if __name__ == "__main__":
     elif mode == "3d":
         fig_3d(sys.argv[2] if len(sys.argv) > 2 else
                "output/island_tokamak/island_media.npz")
-    elif mode == "movie3d":
-        fig_movie3d(sys.argv[2] if len(sys.argv) > 2 else
-                    "output/island_tokamak/island_3d.npz")
+    elif mode == "dashboard":
+        fig_dashboard(sys.argv[2] if len(sys.argv) > 2 else
+                      "output/island_tokamak/island_turb.npz")
     else:
         fig_evolution(sys.argv[2] if len(sys.argv) > 2 else
                       "output/island_tokamak/island_media.npz")

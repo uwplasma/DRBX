@@ -55,6 +55,23 @@ Zholobenko et al., NF 61, 116015, 2021; TOKAM3X: Tamain et al., JCP 321,
   sink;
 * **no Dirichlet clamping anywhere** — the profile is emergent.
 
+![Turbulence dashboard movie](media/island_tokamak_3d.gif)
+
+The dashboard movie pairs the animated state with its context. Top row: the
+3-D density cross-sections and island field lines inside a low-opacity
+plasma-boundary surface; the safety-factor profile with the `q = 2` crossing
+that seeds the chain; and the Poincare section of the magnetic field at a
+single toroidal angle, extending a little beyond the plasma boundary so the
+full island structure is visible. Bottom row, the standard flux-driven
+diagnostics the production edge codes report for saturated states (mean
+profile, radial turbulent flux, and the source/sink time traces — the same
+trio as, e.g., GBS in Giacomin et al., JCP 463, 111294, 2022 and TOKAM3X in
+Tamain et al., JCP 321, 606, 2016): the evolving flux-surface-averaged
+density against the initial profile with the resonant surface marked, the
+evolving turbulent radial particle-flux profile
+`Gamma_r = <n~ v~_r>`, and the fluctuation-energy and sinks/source
+traces with a time cursor.
+
 ![Evolution summary](media/island_tokamak_evolution.png)
 
 ![2-D cross-section movie](media/island_tokamak_evolution.gif)
@@ -112,7 +129,7 @@ DRBX_PRECISION=float32 DRBX_ISLAND_SHAPE=48,96,32 \
 python examples/island_tokamak_figure.py poincare
 python examples/island_tokamak_figure.py 3d output/island_tokamak/island_tokamak.npz
 python examples/island_tokamak_figure.py evolution output/island_tokamak/island_tokamak.npz
-python examples/island_tokamak_figure.py movie3d output/island_tokamak/island_tokamak.npz
+python examples/island_tokamak_figure.py dashboard output/island_tokamak/island_tokamak.npz
 ```
 
 Every physics knob is env-overridable: island amplitude (`DRBX_ISLAND_EPS`),

@@ -109,16 +109,16 @@ connection-length region, and the turbulence drains through it:
 density flux-driven — source shell in, wall buffer out, nothing clamped. The
 traced islands match the pendulum width `W = 4 sqrt(eps/(m |iota'|))` to ~1%,
 and in the turbulence-dominated regime the mean profile flattens across
-the chain (gradient ratio 0.83), the classic island signature. Production `48x96x32` runs take ~1 h on one 16 GB GPU (the whole
-step is a single XLA program):
+the chain (gradient ratio 0.83), the classic island signature. Top row:
+the 3-D state inside the transparent plasma boundary, the `q` profile, and
+the Poincare section at fixed toroidal angle; bottom row: the evolving mean
+profile, turbulent radial particle flux, and time traces. Production
+`48x96x32` runs take ~1 h on one 16 GB GPU (the whole step is a single XLA
+program):
 
-![Tokamak island chain in 3-D](docs/media/island_tokamak_3d.png)
+![Island-tokamak turbulence dashboard](docs/media/island_tokamak_3d.gif)
 
-![Density evolution on the island tokamak](docs/media/island_tokamak_3d.gif)
-
-| Poincare sections + width scaling | evolution summary |
-|---|---|
-| ![Poincare and width](docs/media/island_tokamak_poincare.png) | ![Evolution](docs/media/island_tokamak_evolution.png) |
+![Source-driven evolution summary](docs/media/island_tokamak_evolution.png)
 
 *Reproduce with [`examples/island_tokamak_profiles.py`](examples/island_tokamak_profiles.py);
 figures/movies via [`examples/island_tokamak_figure.py`](examples/island_tokamak_figure.py).
