@@ -23,11 +23,7 @@ def _function(tree: ast.Module, name: str) -> ast.FunctionDef:
 
 def test_ti_curvature_contribution_is_whole_equation_gated():
     tree = _tree(RHS_PATH)
-    method = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "evaluate_stage"
-    )
+    method = _function(tree, "_curvature_rhs_contributions")
 
     gated_assignments = []
 
@@ -86,7 +82,7 @@ def test_curvature_scale_is_static_finite_nonnegative_and_scales_each_assembly()
     assert "math.isfinite" in post_init_source
     assert "curvature_scale < 0.0" in post_init_source
 
-    evaluate = _function(rhs_tree, "evaluate_stage")
+    evaluate = _function(rhs_tree, "_curvature_rhs_contributions")
     evaluate_source = ast.get_source_segment(source, evaluate)
     assert evaluate_source is not None
     for name in (
@@ -275,16 +271,16 @@ def test_full_eb_conservative_curvature_exposes_upwind_equilibrium_mode():
     assert '"upwind-equilibrium"' in rhs_source
     assert '"neumann"' not in rhs_source
     assert "_characteristic_projectors_background" in rhs_source
-    evaluate = _function(rhs_tree, "evaluate_stage")
+    evaluate = _function(rhs_tree, "_curvature_rhs_contributions")
     evaluate_source = ast.get_source_segment(rhs_source, evaluate)
     assert evaluate_source is not None
     assert evaluate_source.count("self._conservative_curvature(") >= 2
     for field in (
         "curvature_Pe = self._conservative_curvature(",
         "curvature_pressure = curvature(",
-        "curvature_phi = curvature(phi_conservative_stencil, face_bc.phi if phi_wall_bc is None else phi_wall_bc)",
-        "curvature_Te = curvature(Te_conservative_stencil, face_bc.Te if Te_wall_bc is None else Te_wall_bc)",
-        "curvature_Ti = curvature(Ti_conservative_stencil, face_bc.Ti if Ti_wall_bc is None else Ti_wall_bc)",
+        "curvature_phi = curvature(\n                phi_conservative_stencil",
+        "curvature_Te = curvature(\n                Te_conservative_stencil",
+        "curvature_Ti = curvature(\n                Ti_conservative_stencil",
     ):
         assert field in evaluate_source
 

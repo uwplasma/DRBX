@@ -33,6 +33,7 @@ from .fci_boundaries import (
     BC_DIRICHLET,
     BC_NEUMANN,
     LocalBoundaryFaceBC3D,
+    build_local_boundary_face_trace_from_halo,
     LocalBoundaryConditionBuilder,
     LocalBoundaryData3D,
     LocalBoundaryRemoteDependencyTable,
@@ -76,6 +77,56 @@ def _trailing_slices(ndim: int) -> tuple[slice, ...]:
     if ndim < 3:
         raise ValueError(f"a halo field must have at least three axes, got ndim={ndim}")
     return (slice(None),) * (ndim - 3)
+
+
+def _distributed_half_turn(
+    source,
+    *,
+    axis_name: str,
+    shard_count: int,
+    shard_shift: int,
+    local_shift: int,
+    axis: int,
+):
+    """Assemble a distributed periodic half-turn from one or two shards.
+
+    ``source`` is the radial source slab on the current shard.  ``shard_shift``
+    is expressed in source-shard units: target shard ``t`` reads source shard
+    ``t + shard_shift``.  A positive ``local_shift`` means that target local
+    cell ``j`` reads source cell ``j + local_shift``.  When that read crosses a
+    shard boundary, the first and second source shards are exchanged
+    separately and concatenated.  This is the distributed equivalent of
+    ``roll(..., -local_shift)``.
+    """
+
+    local_shift = int(local_shift)
+    whole_shards, remainder = divmod(local_shift, int(source.shape[axis]))
+    base_shift = int(shard_shift) + whole_shards
+
+    def exchange(shift):
+        shift %= int(shard_count)
+        return lax.ppermute(
+            source,
+            axis_name=axis_name,
+            perm=[
+                (source_id, (source_id - shift) % int(shard_count))
+                for source_id in range(int(shard_count))
+            ],
+        )
+
+    first = exchange(base_shift)
+    if remainder == 0:
+        return first
+
+    second = exchange(base_shift + 1)
+    first_slices = [slice(None)] * first.ndim
+    second_slices = [slice(None)] * second.ndim
+    first_slices[axis] = slice(remainder, None)
+    second_slices[axis] = slice(None, remainder)
+    return jnp.concatenate(
+        (first[tuple(first_slices)], second[tuple(second_slices)]),
+        axis=axis,
+    )
 
 
 def accumulate_halo_contributions_to_owned(
@@ -1262,18 +1313,17 @@ class PolarAxisRegularScalarRule3D(_DataclassPyTreeMixin):
     def _fill_distributed_angle(self, field_halo, domain, *, side, shard_shift, local_shift):
         count = int(domain.shard_spec.shard_counts[self.angle_axis])
         source = self._radial_mirror_source(field_halo, domain, side=side)
-        shift = int(shard_shift) % count
-        received = lax.ppermute(
+        # The helper preserves the scalar rule's source-shard convention and
+        # assembles the second source shard when the local half-turn has a
+        # nonzero remainder.
+        return _distributed_half_turn(
             source,
             axis_name=self.angle_axis_name,
-            perm=[
-                (source_id, (source_id - shift) % count)
-                for source_id in range(count)
-            ],
+            shard_count=count,
+            shard_shift=int(shard_shift),
+            local_shift=int(local_shift),
+            axis=1,
         )
-        if int(local_shift) != 0:
-            received = jnp.roll(received, shift=-int(local_shift), axis=1)
-        return received
 
     def tree_flatten(self):
         return (), (
@@ -1295,19 +1345,25 @@ class PolarAxisRegularScalarRule3D(_DataclassPyTreeMixin):
 @_pytree_base
 @dataclass(frozen=True)
 class PolarAxisRegularVectorRule3D(_DataclassPyTreeMixin):
-    """Fill polar/axis-regularity halos for contravariant 3-vectors.
+    """Fill polar/axis-regularity halos for transformed component bundles.
 
-    The first three axes of ``field_halo`` are spatial and the final axis has
-    length three. The rule performs the same radial mirror, angular shift, and
-    optional inter-shard permutation as the scalar polar rule, then applies
-    ``component_transform``:
+    The first three axes of ``field_halo`` are spatial and the final axis is a
+    component axis. The rule performs the same radial mirror, angular shift,
+    and optional inter-shard permutation as the scalar polar rule, then
+    applies a square ``component_transform``:
 
         ``V_target^i = T^i_j V_source^j``
 
-    For contravariant logical components, ``T`` should be the Jacobian of the
-    target logical coordinates with respect to the source logical coordinates.
-    A constant ``(3, 3)`` transform is supported, as is a transform whose
-    leading spatial dimensions broadcast to the target slab.
+    For a three-component contravariant logical vector, ``T`` should be the
+    Jacobian of the target logical coordinates with respect to the source
+    logical coordinates. A constant square transform is supported, as is a
+    transform whose leading spatial dimensions broadcast to the target slab.
+
+    For example, the projected flux used by the perpendicular Laplacian is
+    ``F^i = J P^{ij} df_j``.  This is a contravariant *vector density*, so it
+    needs the density transform ``diag(+1, -1, -1)`` in the ordinary
+    ``(r, theta, z)`` polar convention; it must not use the ordinary vector
+    transform ``diag(-1, +1, +1)``.
 
     This rule is intentionally separate from
     :class:`PolarAxisRegularScalarRule3D`; applying scalar polar regularity to
@@ -1349,10 +1405,13 @@ class PolarAxisRegularVectorRule3D(_DataclassPyTreeMixin):
             self.component_transform,
             dtype=jnp.float64,
         )
-        if component_transform.ndim < 2 or component_transform.shape[-2:] != (3, 3):
+        if (
+            component_transform.ndim < 2
+            or component_transform.shape[-2] != component_transform.shape[-1]
+        ):
             raise ValueError(
-                "component_transform must have shape (3, 3) or a leading-spatial "
-                f"shape ending in (3, 3), got {component_transform.shape}"
+                "component_transform must be square on its final two axes, "
+                f"got {component_transform.shape}"
             )
 
         halo_width = None if self.halo_width is None else int(self.halo_width)
@@ -1378,10 +1437,11 @@ class PolarAxisRegularVectorRule3D(_DataclassPyTreeMixin):
             )
 
         field_halo = _validate_halo_spatial_prefix(field_halo, domain)
-        if field_halo.ndim != 4 or field_halo.shape[-1] != 3:
+        component_count = int(self.component_transform.shape[-1])
+        if field_halo.ndim != 4 or field_halo.shape[-1] != component_count:
             raise ValueError(
                 "PolarAxisRegularVectorRule3D requires a field with shape "
-                "cell_halo_shape + (3,), "
+                f"cell_halo_shape + ({component_count},), "
                 f"got {field_halo.shape}"
             )
 
@@ -1476,19 +1536,18 @@ class PolarAxisRegularVectorRule3D(_DataclassPyTreeMixin):
         recv = field_halo[source_index]
 
         if angle_count > 1:
-            recv = lax.ppermute(
+            recv = _distributed_half_turn(
                 recv,
                 axis_name=self.mesh_axis_name,
-                perm=[
-                    (
-                        source,
-                        (source + self.source_shard_offset) % angle_count,
-                    )
-                    for source in range(angle_count)
-                ],
+                shard_count=angle_count,
+                # The legacy vector constructor stores the ppermute
+                # destination offset, whereas the helper stores the source
+                # offset received by each target shard.
+                shard_shift=-self.source_shard_offset,
+                local_shift=self.local_shift_cells,
+                axis=angular_axis,
             )
-
-        if self.local_shift_cells:
+        elif self.local_shift_cells:
             recv = jnp.roll(
                 recv,
                 shift=-self.local_shift_cells,
@@ -1501,7 +1560,10 @@ class PolarAxisRegularVectorRule3D(_DataclassPyTreeMixin):
         recv = jnp.flip(recv, axis=axis)
 
         transform = jnp.asarray(self.component_transform, dtype=field_halo.dtype)
-        target_transform_shape = recv.shape[:-1] + (3, 3)
+        target_transform_shape = recv.shape[:-1] + (
+            component_count,
+            component_count,
+        )
         try:
             transform = jnp.broadcast_to(transform, target_transform_shape)
         except ValueError as exc:
@@ -2080,21 +2142,15 @@ class MetricAwarePhysicalGhostCellFiller3D(PhysicalGhostCellFiller3D):
             dtype=jnp.float64,
         )
         if side == "lower":
-            center_coordinate = coordinates[h]
             ghost_coordinates = coordinates[h - 1 :: -1][:h]
-            distances = center_coordinate - ghost_coordinates
-            direction = -1.0
+            owner_coordinates = coordinates[h : h + h]
+            owner = jnp.moveaxis(owned, axis, 0)[:h]
         else:
-            center_coordinate = coordinates[h + n - 1]
             ghost_coordinates = coordinates[h + n : h + n + h]
-            distances = ghost_coordinates - center_coordinate
-            direction = 1.0
-        return (
-            center[None, ...]
-            + direction
-            * distances.reshape((h,) + (1,) * center.ndim)
-            * normal_derivative[None, ...]
-        )
+            owner_coordinates = coordinates[h + n - h : h + n][::-1]
+            owner = jnp.flip(jnp.moveaxis(owned, axis, 0), axis=0)[:h]
+        distances = ghost_coordinates - owner_coordinates
+        return owner + distances.reshape((h,) + (1,) * center.ndim) * normal_derivative[None, ...]
 
     def _fill_axis_side(self, field_halo, domain, face_bc, axis, side):
         if side == "lower":

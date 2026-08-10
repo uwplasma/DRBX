@@ -11,7 +11,7 @@ import jax.numpy as jnp
 from .fci_model import FciModelState
 
 
-StateT = TypeVar("StateT", bound=FciModelState)
+StateT = TypeVar("StateT")
 CarryT = TypeVar("CarryT")
 AuxT = TypeVar("AuxT")
 ImplicitAuxT = TypeVar("ImplicitAuxT")
@@ -231,6 +231,207 @@ def _tree_linear_combination(
         if coefficient != 0.0:
             result = _tree_axpy(result, term, scale=scale * coefficient)
     return result
+
+
+def _tree_bdf2_predictor(
+    state_nm1: StateT,
+    state_n: StateT,
+    explicit_rhs_nm1: StateT,
+    explicit_rhs_n: StateT,
+    *,
+    timestep: float | jax.Array,
+) -> StateT:
+    """Assemble the constant-step IMEX-BDF2 explicit predictor."""
+
+    alpha = (2.0 / 3.0) * timestep
+    predictor = _tree_axpy(state_n, state_nm1, scale=-1.0 / 3.0)
+    predictor = _tree_axpy(predictor, state_n, scale=1.0 / 3.0)
+    predictor = _tree_axpy(predictor, explicit_rhs_n, scale=2.0 * alpha)
+    return _tree_axpy(predictor, explicit_rhs_nm1, scale=-alpha)
+
+
+def _tree_extrapolate(state_nm1: StateT, state_n: StateT) -> StateT:
+    """Return the second-order state extrapolation ``2 U_n - U_nm1``."""
+
+    return _tree_axpy(_tree_axpy(state_n, state_nm1, scale=-1.0), state_n, scale=1.0)
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class ImexBdf2StepResult(Generic[StateT, CarryT, AuxT, ImplicitAuxT]):
+    """Result of one fixed-timestep IMEX-BDF2/SBDF2 advance.
+
+    ``predictor`` is the BDF2/explicit value on the right-hand side of the
+    implicit solve.  ``extrapolated_state`` is ``2 U_n - U_{n-1}``, retained
+    for initial guesses and algebraic fields.  ``explicit_rhs`` is evaluated
+    at the accepted new state and is therefore ready to become the newest
+    explicit-RHS history value.
+    """
+
+    state: StateT
+    explicit_rhs: StateT
+    predictor: StateT
+    extrapolated_state: StateT
+    carry: CarryT
+    implicit_solve_aux: ImplicitAuxT
+    explicit_rhs_aux: AuxT
+
+    def tree_flatten(self):
+        return (
+            self.state,
+            self.explicit_rhs,
+            self.predictor,
+            self.extrapolated_state,
+            self.carry,
+            self.implicit_solve_aux,
+            self.explicit_rhs_aux,
+        ), None
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        (
+            state,
+            explicit_rhs,
+            predictor,
+            extrapolated_state,
+            carry,
+            implicit_solve_aux,
+            explicit_rhs_aux,
+        ) = children
+        return cls(
+            state=state,
+            explicit_rhs=explicit_rhs,
+            predictor=predictor,
+            extrapolated_state=extrapolated_state,
+            carry=carry,
+            implicit_solve_aux=implicit_solve_aux,
+            explicit_rhs_aux=explicit_rhs_aux,
+        )
+
+
+@dataclass(frozen=True)
+class ImexBdf2Stepper(Generic[StateT, CarryT, AuxT, ImplicitAuxT]):
+    """Model-agnostic fixed-step IMEX-BDF2/SBDF2 core.
+
+    The implicit callback receives ``(predictor, extrapolated_state,
+    next_time, alpha, carry)`` and returns ``(accepted_state, carry, aux)``.
+    Here ``alpha = 2 * timestep / 3``.  The explicit callback is evaluated
+    exactly once, at the accepted state, and returns the explicit RHS history
+    value for the next BDF2 step.
+
+    This core does not perform startup, adaptive timestepping, rejection, or
+    model-specific algebraic reconstruction.  Those policies belong to the
+    caller or a higher-level driver.
+    """
+
+    explicit_rhs_fn: Callable[
+        [StateT, float | jax.Array, CarryT], tuple[StateT, CarryT, AuxT]
+    ]
+    implicit_solve_fn: Callable[
+        [StateT, StateT, float | jax.Array, float | jax.Array, CarryT],
+        tuple[StateT, CarryT, ImplicitAuxT],
+    ]
+
+    def __post_init__(self) -> None:
+        if not callable(self.explicit_rhs_fn):
+            raise TypeError("explicit_rhs_fn must be callable")
+        if not callable(self.implicit_solve_fn):
+            raise TypeError("implicit_solve_fn must be callable")
+
+    def __call__(
+        self,
+        state_nm1: StateT,
+        state_n: StateT,
+        explicit_rhs_nm1: StateT,
+        explicit_rhs_n: StateT,
+        *,
+        time: float | jax.Array,
+        timestep: float | jax.Array,
+        carry: CarryT,
+    ) -> ImexBdf2StepResult[StateT, CarryT, AuxT, ImplicitAuxT]:
+        _assert_tree_compatible(state_n, state_nm1, name="state_nm1")
+        _assert_tree_compatible(
+            state_n, explicit_rhs_nm1, name="explicit_rhs_nm1"
+        )
+        _assert_tree_compatible(state_n, explicit_rhs_n, name="explicit_rhs_n")
+
+        predictor = _tree_bdf2_predictor(
+            state_nm1,
+            state_n,
+            explicit_rhs_nm1,
+            explicit_rhs_n,
+            timestep=timestep,
+        )
+        extrapolated_state = _tree_extrapolate(state_nm1, state_n)
+        next_time = time + timestep
+        alpha = (2.0 / 3.0) * timestep
+
+        accepted_state, solve_carry, implicit_solve_aux = self.implicit_solve_fn(
+            predictor,
+            extrapolated_state,
+            next_time,
+            alpha,
+            carry,
+        )
+        _assert_tree_compatible(state_n, accepted_state, name="implicit solve state")
+
+        explicit_rhs, next_carry, explicit_rhs_aux = self.explicit_rhs_fn(
+            accepted_state,
+            next_time,
+            solve_carry,
+        )
+        _assert_tree_compatible(
+            state_n, explicit_rhs, name="explicit_rhs_fn result"
+        )
+        return ImexBdf2StepResult(
+            state=accepted_state,
+            explicit_rhs=explicit_rhs,
+            predictor=predictor,
+            extrapolated_state=extrapolated_state,
+            carry=next_carry,
+            implicit_solve_aux=implicit_solve_aux,
+            explicit_rhs_aux=explicit_rhs_aux,
+        )
+
+
+def imex_bdf2_step(
+    state_nm1: StateT,
+    state_n: StateT,
+    explicit_rhs_nm1: StateT,
+    explicit_rhs_n: StateT,
+    *,
+    time: float | jax.Array,
+    timestep: float | jax.Array,
+    explicit_rhs_fn: Callable[
+        [StateT, float | jax.Array, CarryT], tuple[StateT, CarryT, AuxT]
+    ],
+    implicit_solve_fn: Callable[
+        [StateT, StateT, float | jax.Array, float | jax.Array, CarryT],
+        tuple[StateT, CarryT, ImplicitAuxT],
+    ],
+    carry: CarryT,
+) -> ImexBdf2StepResult[StateT, CarryT, AuxT, ImplicitAuxT]:
+    """Functional wrapper for :class:`ImexBdf2Stepper`."""
+
+    return ImexBdf2Stepper(
+        explicit_rhs_fn=explicit_rhs_fn,
+        implicit_solve_fn=implicit_solve_fn,
+    )(
+        state_nm1,
+        state_n,
+        explicit_rhs_nm1,
+        explicit_rhs_n,
+        time=time,
+        timestep=timestep,
+        carry=carry,
+    )
+
+
+# Naming aliases keep the method discoverable beside ``Ark2ImexStepper`` and
+# also expose the natural ``imex_bdf2_*`` spelling used in documentation.
+Bdf2ImexStepResult = ImexBdf2StepResult
+Bdf2ImexStepper = ImexBdf2Stepper
+bdf2_imex_step = imex_bdf2_step
 
 
 @jax.tree_util.register_pytree_node_class
@@ -487,9 +688,15 @@ __all__ = [
     "ARK2_IMPLICIT_A",
     "Ark2ImexStepResult",
     "Ark2ImexStepper",
+    "Bdf2ImexStepResult",
+    "Bdf2ImexStepper",
+    "ImexBdf2StepResult",
+    "ImexBdf2Stepper",
     "Rk4StepResult",
     "Rk4Stepper",
     "ark2_imex_step",
+    "bdf2_imex_step",
+    "imex_bdf2_step",
     "rk4_step",
     "sum_stage_outputs",
 ]

@@ -84,6 +84,36 @@ def make_cylindrical_evaluator(u=None, v=None, eta=None):
     return MetricEvaluator(u, v, eta, positions, period=2.0 * np.pi)
 
 
+def make_axis_regular_toroidal_evaluator(nu=7, ntheta=12, neta=10):
+    """Return an analytic circular torus using the collapsed-axis topology."""
+
+    u = np.linspace(0.0, 1.0, nu)
+    theta = 2.0 * np.pi * np.arange(ntheta) / ntheta
+    eta = 2.0 * np.pi * np.arange(neta) / neta
+    ug, tg, eg = np.meshgrid(u, theta, eta, indexing="ij")
+    minor_radius = 0.5
+    radius = 3.0 + minor_radius * ug * np.cos(tg)
+    positions = np.stack(
+        (
+            radius * np.cos(eg),
+            radius * np.sin(eg),
+            -minor_radius * ug * np.sin(tg),
+        ),
+        axis=-1,
+    )
+    return MetricEvaluator(
+        u,
+        theta,
+        eta,
+        positions,
+        period=2.0 * np.pi,
+        topology="toroidal",
+        radial_degree=3,
+        poloidal_modes=1,
+        toroidal_modes=0,
+    )
+
+
 class CylindricalToroidalField:
     def __init__(self, tilt=0.0):
         self.tilt = float(tilt)
@@ -998,7 +1028,9 @@ def plot_constant_eta_mesh(
     """Save a self-contained Plotly view of fitted constant-eta mesh planes.
 
     The displayed planes are selected from the evaluator's stored eta nodes,
-    so every wireframe node lies on the corresponding solved MMPDE plane.
+    so every wireframe node lies on the corresponding fitted plane.  Square
+    topology uses its nonperiodic ``v`` chart; toroidal topology closes the
+    periodic ``theta`` direction explicitly in the rendered wireframe.
     ``eta_evaluator`` is optional; when supplied, its periodic residual is
     included in mesh hover data as ``eta residual [rad]``. When both
     ``eta_evaluator`` and ``wall_evaluator`` are supplied, the corresponding
@@ -1056,7 +1088,14 @@ def plot_constant_eta_mesh(
         return residual
 
     uu = np.linspace(metric_evaluator.u[0], metric_evaluator.u[-1], surface_nu)
-    vv = np.linspace(metric_evaluator.v[0], metric_evaluator.v[-1], surface_nv)
+    if metric_evaluator.topology == "toroidal":
+        # The stored theta nodes are endpoint-exclusive.  Add one plotting
+        # sample at theta0 + 2*pi so each poloidal ring closes visually.
+        vv = metric_evaluator.v[0] + (
+            2.0 * np.pi * np.arange(surface_nv + 1) / surface_nv
+        )
+    else:
+        vv = np.linspace(metric_evaluator.v[0], metric_evaluator.v[-1], surface_nv)
     U, V = np.meshgrid(uu, vv, indexing="ij")
     figure = go.Figure() if _figure is None else _figure
 
@@ -1160,7 +1199,12 @@ def plot_constant_eta_mesh(
             go.Scatter3d(
                 x=v_lines[:, 0], y=v_lines[:, 1], z=v_lines[:, 2],
                 mode="lines", line=dict(color="black", width=2),
-                customdata=v_residual[:, None], name="v mesh lines",
+                customdata=v_residual[:, None],
+                name=(
+                    "theta mesh lines"
+                    if metric_evaluator.topology == "toroidal"
+                    else "v mesh lines"
+                ),
                 legendgroup=f"mesh-{plane_number}",
                 showlegend=_show_legend and plane_number == 0,
                 scene=_scene_name,
@@ -1347,14 +1391,22 @@ def compute_epsilon_plane_diagnostic(metric_evaluator, bfield_evaluator):
     if not isinstance(metric_evaluator, MetricEvaluator):
         raise TypeError("metric_evaluator must be a MetricEvaluator")
     u_widths = np.diff(metric_evaluator.u)
-    v_widths = np.diff(metric_evaluator.v)
+    if metric_evaluator.topology == "toroidal":
+        v_widths = np.full(
+            metric_evaluator.v.size,
+            2.0 * np.pi / metric_evaluator.v.size,
+            dtype=float,
+        )
+        v_centers = metric_evaluator.v + 0.5 * v_widths
+    else:
+        v_widths = np.diff(metric_evaluator.v)
+        v_centers = metric_evaluator.v[:-1] + 0.5 * v_widths
     eta_widths = np.full(
         metric_evaluator.eta.size,
         metric_evaluator.period / metric_evaluator.eta.size,
         dtype=float,
     )
     u_centers = metric_evaluator.u[:-1] + 0.5 * u_widths
-    v_centers = metric_evaluator.v[:-1] + 0.5 * v_widths
     eta_centers = metric_evaluator.eta + 0.5 * eta_widths
     logical = np.stack(
         np.meshgrid(u_centers, v_centers, eta_centers, indexing="ij"), axis=-1
@@ -1468,18 +1520,26 @@ def plot_epsilon_plane(
     eta_indices = np.floor(
         np.arange(surface_count) * metric_evaluator.eta.size / surface_count
     ).astype(int)
-    # Move only the chart endpoints inward by one representable float. This
-    # avoids square corners while retaining essentially the full wall extent.
+    # Keep ordinary metric evaluations off the collapsed toroidal axis.  The
+    # periodic theta chart gets one duplicate plotting endpoint to close each
+    # rendered surface; square topology retains its historical inset corners.
     uu = np.linspace(metric_evaluator.u[0], metric_evaluator.u[-1], surface_nu)
-    vv = np.linspace(metric_evaluator.v[0], metric_evaluator.v[-1], surface_nv)
-    uu[[0, -1]] = [
-        np.nextafter(metric_evaluator.u[0], metric_evaluator.u[-1]),
-        np.nextafter(metric_evaluator.u[-1], metric_evaluator.u[0]),
-    ]
-    vv[[0, -1]] = [
-        np.nextafter(metric_evaluator.v[0], metric_evaluator.v[-1]),
-        np.nextafter(metric_evaluator.v[-1], metric_evaluator.v[0]),
-    ]
+    if metric_evaluator.topology == "toroidal":
+        radial_span = metric_evaluator.u[-1] - metric_evaluator.u[0]
+        uu[0] = metric_evaluator.u[0] + 1.0e-7 * radial_span
+        vv = metric_evaluator.v[0] + (
+            2.0 * np.pi * np.arange(surface_nv + 1) / surface_nv
+        )
+    else:
+        vv = np.linspace(metric_evaluator.v[0], metric_evaluator.v[-1], surface_nv)
+        uu[[0, -1]] = [
+            np.nextafter(metric_evaluator.u[0], metric_evaluator.u[-1]),
+            np.nextafter(metric_evaluator.u[-1], metric_evaluator.u[0]),
+        ]
+        vv[[0, -1]] = [
+            np.nextafter(metric_evaluator.v[0], metric_evaluator.v[-1]),
+            np.nextafter(metric_evaluator.v[-1], metric_evaluator.v[0]),
+        ]
     U, V = np.meshgrid(uu, vv, indexing="ij")
     surfaces = []
     for eta_index in eta_indices:
@@ -1639,6 +1699,32 @@ def test_constant_eta_mesh_plot_overlays_wall(tmp_path):
     assert all(len(trace.x) == 40 for trace in wall_traces)
 
 
+def test_constant_eta_mesh_plot_closes_toroidal_theta_seam(tmp_path):
+    evaluator = make_axis_regular_toroidal_evaluator()
+    output = tmp_path / "toroidal_mesh.html"
+    figure = plot_constant_eta_mesh(
+        evaluator,
+        output,
+        eta_evaluator=SyntheticEtaEvaluator(),
+        surface_count=2,
+        surface_nu=7,
+        surface_nv=9,
+    )
+    assert output.is_file()
+    surfaces = [trace for trace in figure.data if trace.type == "surface"]
+    assert len(surfaces) == 2
+    assert all(np.asarray(trace.x).shape == (7, 10) for trace in surfaces)
+    for trace in surfaces:
+        np.testing.assert_allclose(
+            np.stack((trace.x[:, 0], trace.y[:, 0], trace.z[:, 0]), axis=-1),
+            np.stack((trace.x[:, -1], trace.y[:, -1], trace.z[:, -1]), axis=-1),
+            atol=2.0e-12,
+        )
+    assert len(
+        [trace for trace in figure.data if trace.name == "theta mesh lines"]
+    ) == 2
+
+
 def test_constant_eta_mesh_comparison_routes_pre_and_post_samples_to_two_scenes(tmp_path):
     u = np.linspace(0.0, 1.0, 6)
     v = np.linspace(0.0, 1.0, 5)
@@ -1706,6 +1792,19 @@ def test_epsilon_plane_controlled_tilt_matches_known_value():
     )
 
 
+def test_epsilon_plane_uses_periodic_toroidal_theta_cells():
+    evaluator = make_axis_regular_toroidal_evaluator()
+    diagnostic = compute_epsilon_plane_diagnostic(
+        evaluator, CylindricalToroidalField()
+    )
+    assert diagnostic["epsilon"].shape == (
+        evaluator.u.size - 1,
+        evaluator.v.size,
+        evaluator.eta.size,
+    )
+    np.testing.assert_allclose(diagnostic["epsilon"], 0.0, atol=2.0e-11)
+
+
 def test_epsilon_plane_nonuniform_cell_sampling_weights_are_finite():
     evaluator = make_cylindrical_evaluator(
         u=[0.0, 0.1, 0.6, 1.0],
@@ -1762,6 +1861,28 @@ def test_epsilon_plane_plot_smoke_and_derived_filename(tmp_path):
     assert all(trace.cmax == surfaces[0].cmax for trace in surfaces)
     assert "epsilon" in surfaces[0].hovertemplate
     assert "angle" in surfaces[0].hovertemplate
+
+
+def test_epsilon_plane_plot_closes_toroidal_theta_seam(tmp_path):
+    evaluator = make_axis_regular_toroidal_evaluator()
+    output = tmp_path / "toroidal_epsilon.html"
+    figure = plot_epsilon_plane(
+        evaluator,
+        CylindricalToroidalField(0.25),
+        output,
+        surface_count=2,
+        surface_nu=7,
+        surface_nv=9,
+    )
+    surfaces = [trace for trace in figure.data if trace.type == "surface"]
+    assert len(surfaces) == 2
+    assert all(np.asarray(trace.surfacecolor).shape == (7, 10) for trace in surfaces)
+    for trace in surfaces:
+        np.testing.assert_allclose(
+            np.stack((trace.x[:, 0], trace.y[:, 0], trace.z[:, 0]), axis=-1),
+            np.stack((trace.x[:, -1], trace.y[:, -1], trace.z[:, -1]), axis=-1),
+            atol=2.0e-12,
+        )
 
 
 def test_epsilon_plane_plot_uses_global_p95_without_clipping_surface_values(tmp_path):
@@ -1868,9 +1989,14 @@ def build_hsx_metric_plot(
     sample_shape=(8, 9, 8),
     R_bounds=None,
     Z_bounds=None,
+    topology="square",
     mesh_shape=(8, 16, 8),
     mmpde_iterations=0,
     metric_spline_degree=1,
+    metric_radial_degree=17,
+    metric_poloidal_modes=15,
+    metric_toroidal_modes=16,
+    eta_projection_iterations=0,
     axis_core_radius=0.03,
     plot_surfaces=8,
     plot_nu=24,
@@ -1879,7 +2005,16 @@ def build_hsx_metric_plot(
     output="hsx_metric_mesh.html",
     show=False,
 ):
-    """Build a wall-fitted HSX metric evaluator and Plotly view."""
+    """Build a square- or toroidal-topology HSX metric and Plotly view."""
+
+    topology = str(topology).lower()
+    if topology not in {"square", "toroidal"}:
+        raise ValueError("topology must be 'square' or 'toroidal'")
+    if topology == "toroidal" and int(mmpde_iterations) != 0:
+        raise ValueError(
+            "mmpde_iterations belongs to square topology; toroidal topology "
+            "uses the axis-regular Fourier-Zernike fit"
+        )
 
     bfield = bfield_evaluator_from_makegrid(
         makegrid_path, currents=currents, method="cubic"
@@ -1915,54 +2050,63 @@ def build_hsx_metric_plot(
         mask=fit_mask,
         reference_axis=wall.reference_axis,
     )
-    metric_module = importlib.import_module("drbx.geometry.MetricEvaluator")
-    initial_positions = build_wall_fitted_initial_mesh(
-        eta_evaluator,
-        wall,
-        mesh_shape,
-    )
-    unrelaxed_evaluator = build_metric_evaluator(
-        eta_evaluator,
-        initial_positions,
-        options=metric_module.MMPDEOptions(max_iterations=0),
-        metric_spline_degree=metric_spline_degree,
-    )
-    projected_initial = unrelaxed_evaluator.mmpde_result.positions
-    metric_evaluator = build_metric_evaluator(
-        eta_evaluator,
-        projected_initial,
-        options=metric_module.MMPDEOptions(max_iterations=int(mmpde_iterations)),
-        metric_spline_degree=metric_spline_degree,
-    )
-    unrelaxed_quality = unrelaxed_evaluator.quality_report()
-    relaxed_quality = metric_evaluator.quality_report()
-    print(unrelaxed_quality.summary("Metric quality (unrelaxed)"))
-    print(unrelaxed_quality.detailed_summary("Metric quality details (unrelaxed)"))
-    print(relaxed_quality.summary("Metric quality (relaxed)"))
-    print(relaxed_quality.detailed_summary("Metric quality details (relaxed)"))
-    solve = metric_evaluator.mmpde_result
-    if solve is None:
-        raise RuntimeError("build_metric_evaluator did not return an MMPDE result")
-    _print_mmpde_objective_components(solve)
+    unrelaxed_evaluator = None
+    solve = None
+    if topology == "square":
+        metric_module = importlib.import_module("drbx.geometry.MetricEvaluator")
+        initial_positions = build_wall_fitted_initial_mesh(
+            eta_evaluator,
+            wall,
+            mesh_shape,
+        )
+        unrelaxed_evaluator = build_metric_evaluator(
+            eta_evaluator,
+            initial_positions,
+            options=metric_module.MMPDEOptions(max_iterations=0),
+            metric_spline_degree=metric_spline_degree,
+        )
+        projected_initial = unrelaxed_evaluator.mmpde_result.positions
+        metric_evaluator = build_metric_evaluator(
+            eta_evaluator,
+            projected_initial,
+            options=metric_module.MMPDEOptions(
+                max_iterations=int(mmpde_iterations)
+            ),
+            metric_spline_degree=metric_spline_degree,
+        )
+        unrelaxed_quality = unrelaxed_evaluator.quality_report()
+        relaxed_quality = metric_evaluator.quality_report()
+        print(unrelaxed_quality.summary("Metric quality (unrelaxed)"))
+        print(
+            unrelaxed_quality.detailed_summary(
+                "Metric quality details (unrelaxed)"
+            )
+        )
+        print(relaxed_quality.summary("Metric quality (relaxed)"))
+        print(
+            relaxed_quality.detailed_summary(
+                "Metric quality details (relaxed)"
+            )
+        )
+        solve = metric_evaluator.mmpde_result
+        if solve is None:
+            raise RuntimeError(
+                "build_metric_evaluator did not return an MMPDE result"
+            )
+        _print_mmpde_objective_components(solve)
+    else:
+        metric_evaluator = build_metric_evaluator(
+            eta_evaluator,
+            topology="toroidal",
+            wall_evaluator=wall,
+            mesh_shape=tuple(mesh_shape),
+            radial_degree=int(metric_radial_degree),
+            poloidal_modes=metric_poloidal_modes,
+            toroidal_modes=metric_toroidal_modes,
+            projection_iterations=int(eta_projection_iterations),
+        )
     fit_diagnostics = dict(eta_evaluator.diagnostics)
-    u_centers = 0.5 * (
-        metric_evaluator.u[:-1] + metric_evaluator.u[1:]
-    )
-    v_centers = 0.5 * (
-        metric_evaluator.v[:-1] + metric_evaluator.v[1:]
-    )
-    eta_centers = metric_evaluator.eta + 0.5 * (
-        metric_evaluator.period / metric_evaluator.eta.size
-    )
-    logical_grid = np.stack(
-        np.meshgrid(
-            u_centers,
-            v_centers,
-            eta_centers,
-            indexing="ij",
-        ),
-        axis=-1,
-    )
+    logical_grid = metric_evaluator.cell_center_logical_points()
     metric = metric_evaluator.evaluate(
         logical_grid, reject_nonpositive_J=False
     )
@@ -1983,12 +2127,37 @@ def build_hsx_metric_plot(
         f" max_abs={fit_diagnostics.get('max_absolute_error', float('nan')):.6e} T,"
         f" condition={fit_diagnostics.get('condition_number', float('nan')):.6e}"
     )
-    print(
-        "MMPDE solve:"
-        f" converged={solve.converged}, iterations={solve.iterations},"
-        f" final_update={solve.max_free_node_update:.6e},"
-        f" accepted_fit_scale={metric_evaluator.mmpde_fit_scale:.6e}"
-    )
+    if topology == "square":
+        print(
+            "MMPDE solve:"
+            f" converged={solve.converged}, iterations={solve.iterations},"
+            f" final_update={solve.max_free_node_update:.6e},"
+            f" accepted_fit_scale={metric_evaluator.mmpde_fit_scale:.6e}"
+        )
+    else:
+        axis_regular_grid = np.stack(
+            np.meshgrid(
+                np.concatenate(([0.0], 0.5 * (
+                    metric_evaluator.u[:-1] + metric_evaluator.u[1:]
+                ))),
+                metric_evaluator.v + np.pi / metric_evaluator.v.size,
+                metric_evaluator.eta
+                + 0.5 * metric_evaluator.period / metric_evaluator.eta.size,
+                indexing="ij",
+            ),
+            axis=-1,
+        )
+        regularized = metric_evaluator.evaluate_regularized(axis_regular_grid)
+        print(
+            "Toroidal Fourier-Zernike fit:"
+            f" radial_degree={metric_evaluator.radial_degree},"
+            f" poloidal_modes={metric_evaluator.poloidal_modes},"
+            f" toroidal_modes={metric_evaluator.toroidal_modes},"
+            f" J_reg=[{np.min(regularized.J_reg):.6e},"
+            f" {np.max(regularized.J_reg):.6e}],"
+            f" condition_max={np.max(regularized.condition_number):.6e},"
+            f" axis_valid={bool(np.all(regularized.valid[0]))}"
+        )
     print(
         "Metric cell centers:"
         f" J=[{np.min(metric.signed_J):.6e}, {np.max(metric.signed_J):.6e}],"
@@ -1996,24 +2165,40 @@ def build_hsx_metric_plot(
         f" eta_residual_max={np.max(np.abs(eta_residual)):.6e},"
         f" |B|=[{np.min(magnetic.magnitude):.6e}, {np.max(magnetic.magnitude):.6e}] T"
     )
-    unrelaxed_epsilon = compute_epsilon_plane_diagnostic(
-        unrelaxed_evaluator, bfield
+    epsilon_diagnostic = compute_epsilon_plane_diagnostic(
+        metric_evaluator, bfield
     )
-    relaxed_epsilon = compute_epsilon_plane_diagnostic(metric_evaluator, bfield)
-    _print_epsilon_plane_diagnostic("unrelaxed", unrelaxed_epsilon)
-    _print_epsilon_plane_diagnostic("relaxed", relaxed_epsilon)
-    plot_constant_eta_mesh_comparison(
-        unrelaxed_evaluator,
-        metric_evaluator,
-        output,
-        eta_evaluator=eta_evaluator,
-        wall_evaluator=wall,
-        surface_count=min(plot_surfaces, metric_evaluator.eta.size),
-        surface_nu=plot_nu,
-        surface_nv=plot_nv,
-        wall_points=plot_wall_points,
-        show=show,
-    )
+    if topology == "square":
+        unrelaxed_epsilon = compute_epsilon_plane_diagnostic(
+            unrelaxed_evaluator, bfield
+        )
+        _print_epsilon_plane_diagnostic("unrelaxed", unrelaxed_epsilon)
+        _print_epsilon_plane_diagnostic("relaxed", epsilon_diagnostic)
+        plot_constant_eta_mesh_comparison(
+            unrelaxed_evaluator,
+            metric_evaluator,
+            output,
+            eta_evaluator=eta_evaluator,
+            wall_evaluator=wall,
+            surface_count=min(plot_surfaces, metric_evaluator.eta.size),
+            surface_nu=plot_nu,
+            surface_nv=plot_nv,
+            wall_points=plot_wall_points,
+            show=show,
+        )
+    else:
+        _print_epsilon_plane_diagnostic("toroidal", epsilon_diagnostic)
+        plot_constant_eta_mesh(
+            metric_evaluator,
+            output,
+            eta_evaluator=eta_evaluator,
+            wall_evaluator=wall,
+            surface_count=min(plot_surfaces, metric_evaluator.eta.size),
+            surface_nu=plot_nu,
+            surface_nv=plot_nv,
+            wall_points=plot_wall_points,
+            show=show,
+        )
     print(f"Interactive mesh plot: {Path(output).resolve()}")
     epsilon_output = _epsilon_plot_filename(output)
     plot_epsilon_plane(
@@ -2041,7 +2226,9 @@ def test_real_hsx_metric_plot_if_input_files_exist(tmp_path):
 
 
 def _hsx_cli(argv=None):
-    parser = argparse.ArgumentParser(description="Build an interactive HSX metric evaluator plot")
+    parser = argparse.ArgumentParser(
+        description="Build an interactive square- or toroidal-topology HSX metric plot"
+    )
     parser.add_argument("mgrid", type=Path)
     parser.add_argument("vessel", type=Path)
     parser.add_argument(
@@ -2059,10 +2246,46 @@ def _hsx_cli(argv=None):
     parser.add_argument("--sample-shape", nargs=3, type=int, default=(8, 9, 8), metavar=("NR", "NPHI", "NZ"))
     parser.add_argument("--R-bounds", nargs=2, type=float, metavar=("MIN", "MAX"))
     parser.add_argument("--Z-bounds", nargs=2, type=float, metavar=("MIN", "MAX"))
-    parser.add_argument("--mesh-shape", nargs=3, type=int, default=(8, 16, 8), metavar=("NU", "NV", "NETA"))
-    parser.add_argument("--mmpde-iterations", type=int, default=0)
     parser.add_argument(
-        "--metric-spline-degree", type=int, choices=(1, 2, 3), default=1
+        "--topology", choices=("square", "toroidal"), default="square"
+    )
+    parser.add_argument(
+        "--mesh-shape", nargs=3, type=int, default=(8, 16, 8),
+        metavar=("NU", "NV_OR_NTHETA", "NETA")
+    )
+    parser.add_argument(
+        "--mmpde-iterations", type=int, default=0,
+        help="square topology only"
+    )
+    parser.add_argument(
+        "--metric-spline-degree", type=int, choices=(1, 2, 3), default=1,
+        help="square topology only"
+    )
+    parser.add_argument(
+        "--metric-radial-degree", type=int, default=17,
+        help=(
+            "Fourier-Zernike radial degree for toroidal topology "
+            "(default: 17)"
+        ),
+    )
+    parser.add_argument(
+        "--metric-poloidal-modes", type=int, default=15,
+        help=(
+            "maximum retained poloidal Fourier mode index for toroidal "
+            "topology, not a mode count (default: 15)"
+        ),
+    )
+    parser.add_argument(
+        "--metric-toroidal-modes", type=int, default=16,
+        help=(
+            "maximum retained eta/toroidal Fourier mode index for toroidal "
+            "topology, not a mode count; n=16 retains all modes on a "
+            "32-plane eta grid (default: 16)"
+        ),
+    )
+    parser.add_argument(
+        "--eta-projection-iterations", type=int, default=0,
+        help="interior eta projection passes for toroidal topology"
     )
     parser.add_argument("--axis-core-radius", type=float, default=0.03)
     parser.add_argument("--plot-surfaces", type=int, default=8)
@@ -2082,9 +2305,14 @@ def _hsx_cli(argv=None):
         sample_shape=tuple(args.sample_shape),
         R_bounds=None if args.R_bounds is None else tuple(args.R_bounds),
         Z_bounds=None if args.Z_bounds is None else tuple(args.Z_bounds),
+        topology=args.topology,
         mesh_shape=tuple(args.mesh_shape),
         mmpde_iterations=args.mmpde_iterations,
         metric_spline_degree=args.metric_spline_degree,
+        metric_radial_degree=args.metric_radial_degree,
+        metric_poloidal_modes=args.metric_poloidal_modes,
+        metric_toroidal_modes=args.metric_toroidal_modes,
+        eta_projection_iterations=args.eta_projection_iterations,
         axis_core_radius=args.axis_core_radius,
         plot_surfaces=args.plot_surfaces,
         plot_nu=args.plot_nu,
@@ -2110,6 +2338,16 @@ def test_hsx_cli_exposes_plot_sampling_controls(monkeypatch):
             "--currents",
             "2.0",
             "0.0",
+            "--topology",
+            "toroidal",
+            "--metric-radial-degree",
+            "3",
+            "--metric-poloidal-modes",
+            "2",
+            "--metric-toroidal-modes",
+            "4",
+            "--eta-projection-iterations",
+            "2",
             "--plot-surfaces",
             "5",
             "--plot-nu",
@@ -2123,10 +2361,30 @@ def test_hsx_cli_exposes_plot_sampling_controls(monkeypatch):
     assert len(calls) == 1
     _, kwargs = calls[0]
     assert kwargs["currents"] == [2.0, 0.0]
+    assert kwargs["topology"] == "toroidal"
+    assert kwargs["metric_radial_degree"] == 3
+    assert kwargs["metric_poloidal_modes"] == 2
+    assert kwargs["metric_toroidal_modes"] == 4
+    assert kwargs["eta_projection_iterations"] == 2
     assert kwargs["plot_surfaces"] == 5
     assert kwargs["plot_nu"] == 31
     assert kwargs["plot_nv"] == 29
     assert kwargs["plot_wall_points"] == 180
+
+
+def test_hsx_cli_uses_high_order_toroidal_defaults(monkeypatch):
+    calls = []
+
+    def record_call(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    monkeypatch.setitem(globals(), "build_hsx_metric_plot", record_call)
+    assert _hsx_cli(["mgrid.nc", "vessel.txt"]) == 0
+    assert len(calls) == 1
+    _, kwargs = calls[0]
+    assert kwargs["metric_radial_degree"] == 17
+    assert kwargs["metric_poloidal_modes"] == 15
+    assert kwargs["metric_toroidal_modes"] == 16
 
 
 if __name__ == "__main__":

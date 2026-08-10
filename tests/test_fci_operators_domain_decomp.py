@@ -72,6 +72,7 @@ from drbx.native.fci_boundaries import (
     BC_NOFLUX,
     BC_NORMALFLUX,
     ConservativeStencil3D,
+    CoordinateFaceValues3D,
     FaceGradientStencil3D,
     LocalBoundaryConditionBuilder,
     LocalBoundaryData3D,
@@ -1149,7 +1150,7 @@ def test_build_local_curvature_coefficients_rejects_layout_mismatch() -> None:
         raise AssertionError("expected layout mismatch to raise")
 
 
-def test_build_local_curvature_coefficients_rejects_axis_regular_axes() -> None:
+def test_build_local_curvature_coefficients_accepts_axis_regular_axes() -> None:
     shape = (4, 4, 4)
     halo_width = 2
     geometry = _build_local_geometry(
@@ -1162,16 +1163,13 @@ def test_build_local_curvature_coefficients_rejects_axis_regular_axes() -> None:
         mesh_axis_names=(None, None, None),
     )
 
-    try:
-        build_local_curvature_coefficients(
-            geometry,
-            domain,
-            axis_regular_axes=(True, False, False),
-        )
-    except NotImplementedError as exc:
-        assert "axis_regular_axes" in str(exc)
-    else:
-        raise AssertionError("expected axis_regular_axes to raise")
+    coefficients = build_local_curvature_coefficients(
+        geometry,
+        domain,
+        axis_regular_axes=(True, False, False),
+    )
+    assert coefficients.shape == shape + (3,)
+    assert jnp.all(jnp.isfinite(coefficients))
 
 
 def _mms_parallel_field(
@@ -3005,6 +3003,11 @@ def test_local_parallel_flux_div_cut_wall_bc_modes() -> None:
         x=stencil_1d,
         y=stencil_1d,
         z=stencil_1d,
+        face_values=CoordinateFaceValues3D(
+            x=jnp.full((2, 1, 1), 2.0, dtype=jnp.float64),
+            y=jnp.full((1, 2, 1), 2.0, dtype=jnp.float64),
+            z=jnp.full((1, 1, 2), 2.0, dtype=jnp.float64),
+        ),
         face_grad=FaceGradientStencil3D(
             x=jnp.zeros((2, 1, 1, 3), dtype=jnp.float64),
             y=jnp.zeros((1, 2, 1, 3), dtype=jnp.float64),

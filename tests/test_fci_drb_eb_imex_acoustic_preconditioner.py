@@ -2,7 +2,7 @@
 
 These intentionally test only the right-preconditioner contract.  In
 particular, a preconditioner is not expected to be an accurate inverse of the
-full nonlinear five-field stage Jacobian on every mapped geometry.  The tests
+full nonlinear six-field stage Jacobian on every mapped geometry.  The tests
 therefore require a finite, shape-preserving sharded map which makes genuine
 electron-acoustic corrections and handles the driver-scaled algebraic phi row
 correctly.  Newton convergence is covered separately by the production smoke
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from dataclasses import replace
 
 import jax
 import jax.numpy as jnp
@@ -128,24 +129,28 @@ def test_acoustic_preconditioner_is_jittable_coupled_and_homogeneous() -> None:
     def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, local_cell_fields):
         geometry = assemble_local_fci_geometry(local, local_cell_fields)
         rhs = _build_rhs(context, local, geometry)
+        known = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
         # Smooth but fully coupled deterministic residual.  The phi leaf is
         # already in the driver convention: dt_gamma * R_phi.
         value = FciDrbEBImplicitState(
             density=0.17 * jnp.sin(1.3 * density + 0.2 * Te),
             phi=dt_gamma * (0.31 * jnp.cos(1.7 * phi + 0.1 * vorticity)),
             Te=-0.11 * jnp.cos(0.9 * Te - 0.3 * density),
+            Ti=0.08 * jnp.sin(0.8 * Ti + 0.2 * density),
             Ve=0.23 * jnp.sin(1.1 * Ve + 0.4 * Te),
             vorticity=-0.19 * jnp.sin(0.7 * vorticity + 0.2 * phi),
         )
         acoustic = build_eb_imex_acoustic_line_uv_preconditioner(
-            rhs, dt_gamma
+            rhs, dt_gamma, reference_state=known
         )(value)
-        phi_only = build_eb_imex_phi_line_u_preconditioner(rhs, dt_gamma)(value)
+        phi_only = build_eb_imex_phi_line_u_preconditioner(
+            rhs, dt_gamma, reference_state=known
+        )(value)
         zero = FciDrbEBImplicitState(*(
-            jnp.zeros_like(density) for _ in range(5)
+            jnp.zeros_like(density) for _ in range(6)
         ))
         homogeneous = build_eb_imex_acoustic_line_uv_preconditioner(
-            rhs, dt_gamma
+            rhs, dt_gamma, reference_state=known
         )(zero)
         active = geometry.active_cell_mask_owned
 
@@ -164,12 +169,14 @@ def test_acoustic_preconditioner_is_jittable_coupled_and_homogeneous() -> None:
             shapes_match = shapes_match & jnp.asarray(out.shape == inp.shape)
         correction = jnp.stack((
             norm_sq(acoustic.density - value.density),
+            norm_sq(acoustic.Ti - value.Ti),
             norm_sq(acoustic.Te - value.Te),
             norm_sq(acoustic.Ve - value.Ve),
             norm_sq(acoustic.vorticity - value.vorticity),
         ))
         phi_identity = jnp.stack((
             norm_sq(phi_only.density - value.density),
+            norm_sq(phi_only.Ti - value.Ti),
             norm_sq(phi_only.Te - value.Te),
             norm_sq(phi_only.Ve - value.Ve),
             norm_sq(phi_only.vorticity - value.vorticity),
@@ -226,6 +233,7 @@ def test_acoustic_preconditioner_respects_phi_row_scaling_and_jvp_smoke() -> Non
             density=0.03 * jnp.sin(density + 0.3),
             phi=0.02 * jnp.cos(phi - 0.1),
             Te=-0.025 * jnp.sin(Te + 0.4),
+            Ti=0.021 * jnp.cos(Ti + 0.1),
             Ve=0.035 * jnp.cos(Ve - 0.2),
             vorticity=0.015 * jnp.sin(vorticity + 0.5),
         )
@@ -238,7 +246,9 @@ def test_acoustic_preconditioner_respects_phi_row_scaling_and_jvp_smoke() -> Non
             return raw.replace(phi=dt * raw.phi)
 
         _, residual = jax.jvp(scaled_stage_residual, (z,), (direction,))
-        acoustic = build_eb_imex_acoustic_line_uv_preconditioner(rhs, dt)(residual)
+        acoustic = build_eb_imex_acoustic_line_uv_preconditioner(
+            rhs, dt, reference_state=known
+        )(residual)
         # Use a pure algebraic-row sample for the scaling check.  The acoustic
         # response/back-substitution is deliberately dt dependent, so this is
         # a consistency check (finite, nonzero, leading inverse-dt behavior),
@@ -246,11 +256,16 @@ def test_acoustic_preconditioner_respects_phi_row_scaling_and_jvp_smoke() -> Non
         phi_row = residual.replace(
             density=jnp.zeros_like(residual.density),
             Te=jnp.zeros_like(residual.Te),
+            Ti=jnp.zeros_like(residual.Ti),
             Ve=jnp.zeros_like(residual.Ve),
             vorticity=jnp.zeros_like(residual.vorticity),
         )
-        phi_coarse = build_eb_imex_acoustic_line_uv_preconditioner(rhs, 2.0 * dt)(phi_row)
-        phi_fine = build_eb_imex_acoustic_line_uv_preconditioner(rhs, dt)(phi_row)
+        phi_coarse = build_eb_imex_acoustic_line_uv_preconditioner(
+            rhs, 2.0 * dt, reference_state=known
+        )(phi_row)
+        phi_fine = build_eb_imex_acoustic_line_uv_preconditioner(
+            rhs, dt, reference_state=known
+        )(phi_row)
         active = geometry.active_cell_mask_owned
 
         def norm_sq(state):
@@ -293,3 +308,70 @@ def test_acoustic_preconditioner_respects_phi_row_scaling_and_jvp_smoke() -> Non
     # pure driver-scaled algebraic residual.  The response sweep/backsolve is
     # approximate, so the exact factor two is intentionally not required.
     assert scale_ratio > 1.2, scale_ratio
+
+
+def test_acoustic_preconditioner_frozen_jvp_responds_to_curvature_scale() -> None:
+    """The frozen exact-JVP action includes implicit curvature response.
+
+    This is a behavioral guard for the curvature-implicit BDF2 preconditioner:
+    changing ``curvature_scale`` must change its fixed-cost acoustic action.
+    It uses the same reference stage for both operators and performs no nested
+    Krylov solve.
+    """
+
+    context, mesh, local, partition, fields, cell_fields = _context_and_sharded_inputs()
+
+    def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, local_cell_fields):
+        geometry = assemble_local_fci_geometry(local, local_cell_fields)
+        rhs = _build_rhs(context, local, geometry)
+        known = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
+        residual = FciDrbEBImplicitState(
+            density=0.07 * jnp.sin(1.1 * density + 0.2 * Te),
+            phi=0.003 * jnp.cos(phi + 0.1 * vorticity),
+            Te=-0.05 * jnp.cos(0.8 * Te - 0.3 * density),
+            Ti=0.04 * jnp.sin(0.7 * Ti + 0.2 * density),
+            Ve=0.09 * jnp.sin(0.7 * Ve + 0.2 * Te),
+            vorticity=0.06 * jnp.cos(0.9 * vorticity + 0.1 * phi),
+        )
+        dt = jnp.asarray(1.0e-3, dtype=jnp.float64)
+        curved = build_eb_imex_acoustic_line_uv_preconditioner(
+            rhs, dt, reference_state=known
+        )(residual)
+        uncurved_rhs = replace(rhs, curvature_scale=0.0)
+        uncurved = build_eb_imex_acoustic_line_uv_preconditioner(
+            uncurved_rhs, dt, reference_state=known
+        )(residual)
+        active = geometry.active_cell_mask_owned
+        difference = jnp.asarray(0.0, dtype=jnp.float64)
+        curved_norm = jnp.asarray(0.0, dtype=jnp.float64)
+        for curved_field, uncurved_field in zip(
+            curved.field_values(), uncurved.field_values(), strict=True
+        ):
+            difference = difference + jnp.sum(
+                jnp.where(active, (curved_field - uncurved_field) ** 2, 0.0)
+            )
+            curved_norm = curved_norm + jnp.sum(
+                jnp.where(active, curved_field**2, 0.0)
+            )
+        return lax.psum(difference, ("x", "y", "z")), lax.psum(
+            curved_norm, ("x", "y", "z")
+        )
+
+    compiled = jax.jit(jax.shard_map(
+        kernel,
+        mesh=mesh,
+        in_specs=(partition,) * 8,
+        out_specs=(P(), P()),
+        check_vma=False,
+    ))
+    difference, curved_norm = jax.block_until_ready(
+        compiled(*fields, cell_fields)
+    )
+    difference = float(np.asarray(difference))
+    curved_norm = float(np.asarray(curved_norm))
+    assert np.isfinite(difference)
+    assert np.isfinite(curved_norm)
+    assert difference > 1.0e-24 * max(curved_norm, 1.0), (
+        difference,
+        curved_norm,
+    )

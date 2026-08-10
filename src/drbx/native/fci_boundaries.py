@@ -15,6 +15,7 @@ from ..geometry.fci_geometry import (
     LocalRegularFaceGeometry3D,
     LocalCellVolumeGeometry3D,
     LocalControlVolumeCellGeometry3D,
+    SIDE_PHYSICAL,
 )
 from .fci_model import (
     FciFieldBundle,
@@ -979,18 +980,77 @@ class FaceGradientStencil3D:
 
 @_pytree_base
 @dataclass(frozen=True)
+class CoordinateFaceValues3D:
+    """Scalar values on the three coordinate-face grids.
+
+    The arrays form one coherent staggered grid for an owned cell shape:
+    ``x`` has one extra face in its first coordinate, ``y`` in its second,
+    and ``z`` in its third.
+    """
+
+    x: jnp.ndarray
+    y: jnp.ndarray
+    z: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        x = _as_float64_array(self.x, "CoordinateFaceValues3D.x")
+        y = _as_float64_array(self.y, "CoordinateFaceValues3D.y")
+        z = _as_float64_array(self.z, "CoordinateFaceValues3D.z")
+
+        cell_shape = (int(x.shape[0] - 1), int(y.shape[1] - 1), int(z.shape[2] - 1))
+        if any(size <= 0 for size in cell_shape):
+            raise ValueError(
+                "CoordinateFaceValues3D requires positive cell dimensions; "
+                f"got x={x.shape}, y={y.shape}, z={z.shape}"
+            )
+        expected_x = (cell_shape[0] + 1, cell_shape[1], cell_shape[2])
+        expected_y = (cell_shape[0], cell_shape[1] + 1, cell_shape[2])
+        expected_z = (cell_shape[0], cell_shape[1], cell_shape[2] + 1)
+        if x.shape != expected_x or y.shape != expected_y or z.shape != expected_z:
+            raise ValueError(
+                "CoordinateFaceValues3D arrays must form one coherent face-grid layout; "
+                f"expected x={expected_x}, y={expected_y}, z={expected_z}, got "
+                f"x={x.shape}, y={y.shape}, z={z.shape}"
+            )
+
+        object.__setattr__(self, "x", x)
+        object.__setattr__(self, "y", y)
+        object.__setattr__(self, "z", z)
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        """Return the owned-cell shape represented by the face grids."""
+
+        return (
+            int(self.x.shape[0] - 1),
+            int(self.y.shape[1] - 1),
+            int(self.z.shape[2] - 1),
+        )
+
+    def tree_flatten(self):
+        return ((self.x, self.y, self.z), None)
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        return cls(*children)
+
+
+@_pytree_base
+@dataclass(frozen=True)
 class ConservativeStencil3D:
     """Nested 3D stencil for conservative operators.
 
     This is intentionally separate from ``LocalStencil3D`` so conservative
     flux assembly cannot accidentally inherit embedded-wall reconstruction
-    semantics. The payload is still cell-centered reconstruction data, but the
-    meaning is restricted to regular control-volume flux construction.
+    semantics. ``face_values`` stores the scalar values already reconstructed
+    on the coordinate faces; the meaning remains restricted to regular
+    control-volume flux construction.
     """
 
     x: LocalStencil1D
     y: LocalStencil1D
     z: LocalStencil1D
+    face_values: CoordinateFaceValues3D
     face_grad: FaceGradientStencil3D
 
     def __post_init__(self) -> None:
@@ -1000,12 +1060,21 @@ class ConservativeStencil3D:
             raise TypeError("ConservativeStencil3D.y must be a LocalStencil1D")
         if not isinstance(self.z, LocalStencil1D):
             raise TypeError("ConservativeStencil3D.z must be a LocalStencil1D")
+        if not isinstance(self.face_values, CoordinateFaceValues3D):
+            raise TypeError(
+                "ConservativeStencil3D.face_values must be a CoordinateFaceValues3D"
+            )
         if not isinstance(self.face_grad, FaceGradientStencil3D):
             raise TypeError("ConservativeStencil3D.face_grad must be a FaceGradientStencil3D")
         if self.x.shape != self.y.shape or self.x.shape != self.z.shape:
             raise ValueError(
                 "ConservativeStencil3D axis stencils must all have the same shape; "
                 f"got x={self.x.shape}, y={self.y.shape}, z={self.z.shape}"
+            )
+        if self.face_values.shape != self.x.shape:
+            raise ValueError(
+                "ConservativeStencil3D.face_values must match the axis-stencil cell shape; "
+                f"got face_values={self.face_values.shape}, expected {self.x.shape}"
             )
         expected_x = (self.x.shape[0] + 1, self.x.shape[1], self.x.shape[2])
         expected_y = (self.x.shape[0], self.x.shape[1] + 1, self.x.shape[2])
@@ -1030,7 +1099,7 @@ class ConservativeStencil3D:
     def replace(self, **updates: object) -> "ConservativeStencil3D":
         """Return a new stencil with one or more fields replaced."""
 
-        allowed = {"x", "y", "z", "face_grad"}
+        allowed = {"x", "y", "z", "face_values", "face_grad"}
         unknown = set(updates) - allowed
         if unknown:
             names = ", ".join(sorted(unknown))
@@ -1038,7 +1107,7 @@ class ConservativeStencil3D:
         return dataclass_replace_conservative(self, **updates)
 
     def tree_flatten(self):
-        return ((self.x, self.y, self.z, self.face_grad), None)
+        return ((self.x, self.y, self.z, self.face_values, self.face_grad), None)
 
     @classmethod
     def tree_unflatten(cls, _aux_data, children):
@@ -1233,6 +1302,257 @@ class LocalBoundaryFaceBC3D(_DataclassPyTreeMixin):
             mask_z=mask_z,
             layout=layout,
         )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalBoundaryFaceTrace3D(_DataclassPyTreeMixin):
+    """Numerical scalar traces on regular coordinate faces.
+
+    This is deliberately separate from :class:`LocalBoundaryFaceBC3D`:
+    ``LocalBoundaryFaceBC3D`` describes the physics condition, whereas this
+    payload contains the scalar value that a particular first-order operator
+    should use at a coordinate face.  Inactive entries are always zero.
+    """
+
+    value_x: jnp.ndarray
+    value_y: jnp.ndarray
+    value_z: jnp.ndarray
+    mask_x: jnp.ndarray
+    mask_y: jnp.ndarray
+    mask_z: jnp.ndarray
+    layout: HaloLayout3D
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("layout must be a HaloLayout3D instance")
+        expected = tuple(self.layout.face_control_shape(axis) for axis in range(3))
+        values = tuple(
+            jnp.asarray(value, dtype=jnp.float64)
+            for value in (self.value_x, self.value_y, self.value_z)
+        )
+        masks = tuple(
+            jnp.asarray(mask, dtype=bool)
+            for mask in (self.mask_x, self.mask_y, self.mask_z)
+        )
+        for axis, (value, mask, shape) in enumerate(zip(values, masks, expected)):
+            if value.shape != shape:
+                raise ValueError(
+                    f"LocalBoundaryFaceTrace3D.value_{'xyz'[axis]} must have "
+                    f"shape {shape}, got {value.shape}"
+                )
+            if mask.shape != shape:
+                raise ValueError(
+                    f"LocalBoundaryFaceTrace3D.mask_{'xyz'[axis]} must have "
+                    f"shape {shape}, got {mask.shape}"
+                )
+            values = values[:axis] + (jnp.where(mask, value, 0.0),) + values[axis + 1 :]
+        object.__setattr__(self, "value_x", values[0])
+        object.__setattr__(self, "value_y", values[1])
+        object.__setattr__(self, "value_z", values[2])
+        object.__setattr__(self, "mask_x", masks[0])
+        object.__setattr__(self, "mask_y", masks[1])
+        object.__setattr__(self, "mask_z", masks[2])
+
+    @classmethod
+    def empty(cls, layout: HaloLayout3D) -> "LocalBoundaryFaceTrace3D":
+        shapes = tuple(layout.face_control_shape(axis) for axis in range(3))
+        return cls(
+            value_x=jnp.zeros(shapes[0], dtype=jnp.float64),
+            value_y=jnp.zeros(shapes[1], dtype=jnp.float64),
+            value_z=jnp.zeros(shapes[2], dtype=jnp.float64),
+            mask_x=jnp.zeros(shapes[0], dtype=bool),
+            mask_y=jnp.zeros(shapes[1], dtype=bool),
+            mask_z=jnp.zeros(shapes[2], dtype=bool),
+            layout=layout,
+        )
+
+    def tree_flatten(self):
+        return (
+            self.value_x,
+            self.value_y,
+            self.value_z,
+            self.mask_x,
+            self.mask_y,
+            self.mask_z,
+        ), self.layout
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children, layout=aux_data)
+
+
+def _lagrange_face_trace_from_halo(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    layout: HaloLayout3D,
+    axis: int,
+    side: str,
+) -> jnp.ndarray:
+    """Interpolate a scalar halo field at one coordinate wall face."""
+
+    h = int(layout.halo_width)
+    n = int(layout.owned_shape[axis])
+    grid = (geometry.grid.x, geometry.grid.y, geometry.grid.z)[axis]
+    coordinates = jnp.asarray(grid.centers_halo, dtype=jnp.float64)
+    faces = jnp.asarray(grid.faces_halo, dtype=jnp.float64)
+    if side == "lower":
+        sample_indices = tuple(range(0, 2 * h))
+        target = faces[h]
+    else:
+        sample_indices = tuple(range(h + n - h, h + n + h))
+        target = faces[h + n]
+
+    # Advanced indexing is intentionally avoided: all slice bounds remain
+    # static under jit, and the sample dimension is moved to the front.
+    if side == "lower":
+        raw = field_halo[tuple(
+            (slice(0, 2 * h) if a == axis else slice(h, h + extent))
+            for a, extent in enumerate(layout.owned_shape)
+        )]
+    else:
+        raw = field_halo[tuple(
+            (slice(h + n - h, h + n + h) if a == axis else slice(h, h + extent))
+            for a, extent in enumerate(layout.owned_shape)
+        )]
+    samples = jnp.moveaxis(raw, axis, 0)
+    nodes = coordinates[jnp.asarray(sample_indices, dtype=jnp.int32)]
+    weights = jnp.ones((2 * h,), dtype=jnp.float64)
+    for j in range(2 * h):
+        for k in range(2 * h):
+            if j != k:
+                weights = weights.at[j].set(
+                    weights[j] * (target - nodes[k]) / (nodes[j] - nodes[k])
+                )
+    return jnp.tensordot(weights, samples, axes=((0,), (0,)))
+
+
+def build_local_boundary_face_trace_from_halo(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    face_bc: LocalBoundaryFaceBC3D,
+) -> LocalBoundaryFaceTrace3D:
+    """Build scalar physical-face traces from a halo-filled field.
+
+    Dirichlet traces use the prescribed face value.  Neumann traces use a
+    Lagrange interpolation through all ``h`` exterior ghost centers and all
+    ``h`` inward owned centers at the actual wall-face coordinate.  Only
+    runtime-owned physical faces are activated; topology and axis-regular
+    faces remain inactive.
+    """
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError("geometry must be a LocalFciGeometry3D")
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError("domain must be a LocalDomain3D")
+    if geometry.layout != domain.layout:
+        raise ValueError("geometry and domain must share the same HaloLayout3D")
+    if not isinstance(face_bc, LocalBoundaryFaceBC3D):
+        raise TypeError("face_bc must be a LocalBoundaryFaceBC3D")
+    if face_bc.layout != domain.layout:
+        raise ValueError("face_bc and domain must share the same HaloLayout3D")
+    layout = domain.layout
+    h = int(layout.halo_width)
+    if h <= 0:
+        raise ValueError("boundary face traces require a positive halo width")
+    field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
+    if field_halo.shape != layout.cell_halo_shape:
+        raise ValueError(
+            "field_halo must have shape "
+            f"{layout.cell_halo_shape}, got {field_halo.shape}"
+        )
+
+    result = LocalBoundaryFaceTrace3D.empty(layout)
+    for axis in range(3):
+        for side in ("lower", "upper"):
+            if axis == 0:
+                kind = face_bc.kind_x[0 if side == "lower" else -1]
+                prescribed = face_bc.value_x[0 if side == "lower" else -1]
+                physics_mask = face_bc.mask_x[0 if side == "lower" else -1]
+            elif axis == 1:
+                index = 0 if side == "lower" else -1
+                kind = face_bc.kind_y[:, index, :]
+                prescribed = face_bc.value_y[:, index, :]
+                physics_mask = face_bc.mask_y[:, index, :]
+            else:
+                index = 0 if side == "lower" else -1
+                kind = face_bc.kind_z[:, :, index]
+                prescribed = face_bc.value_z[:, :, index]
+                physics_mask = face_bc.mask_z[:, :, index]
+            physical = (
+                domain.runtime_has_physical_lower(axis)
+                if side == "lower"
+                else domain.runtime_has_physical_upper(axis)
+            )
+            active = physical & physics_mask & (
+                (kind == BC_DIRICHLET) | (kind == BC_NEUMANN)
+            )
+            side_kind = (
+                domain.shard_spec.lower_side_kind(axis)
+                if side == "lower"
+                else domain.shard_spec.upper_side_kind(axis)
+            )
+            neumann_candidate = physical & physics_mask & (kind == BC_NEUMANN)
+            if side_kind != SIDE_PHYSICAL:
+                may_need_interpolation = False
+            else:
+                try:
+                    may_need_interpolation = bool(jnp.any(neumann_candidate))
+                except jax.errors.TracerBoolConversionError:
+                    # A dynamically supplied BC mask/kind cannot be inspected
+                    # while tracing.  Conservatively require the interpolation
+                    # stencil on a statically physical side.
+                    may_need_interpolation = True
+            if may_need_interpolation:
+                if int(layout.owned_shape[axis]) < h:
+                    raise ValueError(
+                        "Neumann boundary face interpolation requires the "
+                        "owned extent on its axis to be at least the halo "
+                        f"width; axis={axis}, owned_extent="
+                        f"{layout.owned_shape[axis]}, halo_width={h}"
+                    )
+                interpolated = _lagrange_face_trace_from_halo(
+                    field_halo, geometry, layout, axis, side
+                )
+            else:
+                interpolated = jnp.zeros_like(prescribed)
+            values = jnp.where(kind == BC_DIRICHLET, prescribed, interpolated)
+            values = jnp.where(active, values, 0.0)
+            if axis == 0:
+                face_index = 0 if side == "lower" else -1
+                result = LocalBoundaryFaceTrace3D(
+                    result.value_x.at[face_index].set(values),
+                    result.value_y,
+                    result.value_z,
+                    result.mask_x.at[face_index].set(active),
+                    result.mask_y,
+                    result.mask_z,
+                    layout,
+                )
+            elif axis == 1:
+                face_index = 0 if side == "lower" else -1
+                result = LocalBoundaryFaceTrace3D(
+                    result.value_x,
+                    result.value_y.at[:, face_index, :].set(values),
+                    result.value_z,
+                    result.mask_x,
+                    result.mask_y.at[:, face_index, :].set(active),
+                    result.mask_z,
+                    layout,
+                )
+            else:
+                face_index = 0 if side == "lower" else -1
+                result = LocalBoundaryFaceTrace3D(
+                    result.value_x,
+                    result.value_y,
+                    result.value_z.at[:, :, face_index].set(values),
+                    result.mask_x,
+                    result.mask_y,
+                    result.mask_z.at[:, :, face_index].set(active),
+                    layout,
+                )
+    return result
 
 
 @_pytree_base
@@ -4054,6 +4374,7 @@ def dataclass_replace_conservative(
         x=updates.get("x", instance.x),
         y=updates.get("y", instance.y),
         z=updates.get("z", instance.z),
+        face_values=updates.get("face_values", instance.face_values),
         face_grad=updates.get("face_grad", instance.face_grad),
     )
 
@@ -4064,12 +4385,15 @@ __all__ = [
     "BC_NONE",
     "BC_NORMALFLUX",
     "BC_NOFLUX",
+    "CoordinateFaceValues3D",
     "FaceGradientStencil3D",
     "ConservativeStencil3D",
     "FaceFluxStencil3D",
     "LocalBoundaryConditionBuilder",
     "LocalBoundaryData3D",
     "LocalBoundaryFaceBC3D",
+    "LocalBoundaryFaceTrace3D",
+    "build_local_boundary_face_trace_from_halo",
     "LocalBoundaryPreparation3D",
     "LocalBoundaryRemoteDependencyTable",
     "LocalCoordinateFaceValueReconstructor3D",
