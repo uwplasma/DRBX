@@ -29,7 +29,7 @@ def _full(scale: float = 1.0) -> FciDrbEBState:
 
 
 def _implicit(scale: float = 1.0) -> FciDrbEBImplicitState:
-    values = [jnp.full((2, 2, 2), scale * (index + 1), dtype=jnp.float64) for index in range(5)]
+    values = [jnp.full((2, 2, 2), scale * (index + 1), dtype=jnp.float64) for index in range(6)]
     return FciDrbEBImplicitState(*values)
 
 
@@ -38,11 +38,16 @@ def test_implicit_state_round_trip_is_a_jax_pytree() -> None:
     implicit = implicit_state_from_eb_state(state)
     merged = eb_state_with_implicit_state(state, implicit)
     leaves, structure = jax.tree_util.tree_flatten(implicit)
-    assert len(leaves) == 5
-    assert structure.num_leaves == 5
-    for name in ("density", "phi", "Te", "Ve", "vorticity"):
+    assert len(leaves) == 6
+    assert structure.num_leaves == 6
+    expected_order = ("density", "phi", "Te", "Ti", "Ve", "vorticity")
+    expected_values = (1, 2, 3, 4, 6, 7)
+    for index, (name, value) in enumerate(zip(expected_order, expected_values)):
+        np.testing.assert_array_equal(
+            leaves[index],
+            jnp.full((2, 2, 2), value, dtype=jnp.float64),
+        )
         np.testing.assert_array_equal(getattr(merged, name), getattr(state, name))
-    np.testing.assert_array_equal(merged.Ti, state.Ti)
     np.testing.assert_array_equal(merged.Vi, state.Vi)
 
 
@@ -76,9 +81,9 @@ def test_explicit_complement_preserves_the_additive_split(monkeypatch) -> None:
     explicit = fake.evaluate_explicit_rhs(state, source, phi_owned=state.phi)
     np.testing.assert_allclose(explicit.density + implicit.density, full_rhs.density)
     np.testing.assert_allclose(explicit.Te + implicit.Te, full_rhs.Te)
+    np.testing.assert_allclose(explicit.Ti + implicit.Ti, full_rhs.Ti)
     np.testing.assert_allclose(explicit.Ve + implicit.Ve, full_rhs.Ve)
     np.testing.assert_allclose(explicit.vorticity + implicit.vorticity, full_rhs.vorticity)
-    np.testing.assert_allclose(explicit.Ti, full_rhs.Ti)
     np.testing.assert_allclose(explicit.Vi, full_rhs.Vi)
 
 
@@ -111,6 +116,10 @@ def test_dirk_stage_residual_has_unscaled_algebraic_phi_row(monkeypatch) -> None
     np.testing.assert_allclose(
         residual.density,
         stage.density - predictor.density - 0.125 * implicit_rhs.density,
+    )
+    np.testing.assert_allclose(
+        residual.Ti,
+        stage.Ti - predictor.Ti - 0.125 * implicit_rhs.Ti,
     )
     np.testing.assert_allclose(residual.phi, algebraic)
     np.testing.assert_allclose(

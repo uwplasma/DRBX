@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from functools import lru_cache
 from typing import Callable
+import numpy as np
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -1626,6 +1627,1276 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
         return self.regular_face_geometry
 
 
+def _cartesian_axis_core_basis(x: np.ndarray, y: np.ndarray, degree: int) -> np.ndarray:
+    """Evaluate the triangular Cartesian monomial basis through ``degree``."""
+
+    columns = []
+    for total_degree in range(int(degree) + 1):
+        for x_degree in range(total_degree, -1, -1):
+            y_degree = total_degree - x_degree
+            columns.append(np.asarray(x) ** x_degree * np.asarray(y) ** y_degree)
+    return np.stack(columns, axis=-1)
+
+
+def _cartesian_axis_core_basis_gradients(
+    x: np.ndarray,
+    y: np.ndarray,
+    degree: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Evaluate Cartesian derivatives of the triangular monomial basis."""
+
+    x_columns = []
+    y_columns = []
+    for total_degree in range(int(degree) + 1):
+        for x_degree in range(total_degree, -1, -1):
+            y_degree = total_degree - x_degree
+            x_columns.append(
+                x_degree * np.asarray(x) ** (x_degree - 1) * np.asarray(y) ** y_degree
+                if x_degree
+                else np.zeros_like(x, dtype=np.float64)
+            )
+            y_columns.append(
+                y_degree * np.asarray(x) ** x_degree * np.asarray(y) ** (y_degree - 1)
+                if y_degree
+                else np.zeros_like(y, dtype=np.float64)
+            )
+    return np.stack(x_columns, axis=-1), np.stack(y_columns, axis=-1)
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class AxisCoreFaceReconstruction3D(_DataclassPyTreeMixin):
+    """Cartesian axis-core face value and gradient reconstruction.
+
+    The payload contains precomputed observation-to-Cartesian-coefficient
+    least-squares weights, point-value targets, and logical-gradient targets.
+    Runtime use is therefore ``observations -> Cartesian coefficients -> face
+    targets``; no field-dependent solve or grid-scale Fourier transform is
+    performed. Coordinates are normalized logical radius and periodic angle,
+    and the observations are cell-center values while targets are x-, y-, and
+    z-face centers, matching the conservative operator semantics.
+    """
+
+    layout: HaloLayout3D
+    global_shape: tuple[int, int, int]
+    observation_to_coefficient_weights: jnp.ndarray
+    coefficient_to_observation_basis: jnp.ndarray
+    x_face_target_basis: jnp.ndarray
+    y_face_target_basis: jnp.ndarray
+    x_face_u_gradient_target_basis: jnp.ndarray
+    x_face_theta_gradient_target_basis: jnp.ndarray
+    y_face_u_gradient_target_basis: jnp.ndarray
+    y_face_theta_gradient_target_basis: jnp.ndarray
+    z_face_target_basis: jnp.ndarray
+    z_face_u_gradient_target_basis: jnp.ndarray
+    z_face_theta_gradient_target_basis: jnp.ndarray
+    polynomial_degree: int
+    radial_ring_count: int
+    x_face_count: int
+    y_radial_count: int
+    z_radial_count: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("layout must be a HaloLayout3D instance")
+        global_shape = tuple(int(value) for value in self.global_shape)
+        if len(global_shape) != 3 or any(value <= 0 for value in global_shape):
+            raise ValueError(f"global_shape must contain three positive sizes, got {global_shape}")
+        degree = int(self.polynomial_degree)
+        rings = int(self.radial_ring_count)
+        x_count = int(self.x_face_count)
+        y_count = int(self.y_radial_count)
+        z_count = int(self.z_radial_count)
+        if degree < 0 or rings < 1 or x_count < 1 or y_count < 1 or z_count < 1:
+            raise ValueError("axis-core reconstruction metadata has invalid non-positive values")
+        coefficient_count = (degree + 1) * (degree + 2) // 2
+        global_theta = global_shape[1]
+        weights = jnp.asarray(self.observation_to_coefficient_weights, dtype=jnp.float64)
+        observation_basis = jnp.asarray(
+            self.coefficient_to_observation_basis,
+            dtype=jnp.float64,
+        )
+        x_basis = jnp.asarray(self.x_face_target_basis, dtype=jnp.float64)
+        y_basis = jnp.asarray(self.y_face_target_basis, dtype=jnp.float64)
+        x_u_basis = jnp.asarray(
+            self.x_face_u_gradient_target_basis, dtype=jnp.float64
+        )
+        x_theta_basis = jnp.asarray(
+            self.x_face_theta_gradient_target_basis, dtype=jnp.float64
+        )
+        y_u_basis = jnp.asarray(
+            self.y_face_u_gradient_target_basis, dtype=jnp.float64
+        )
+        y_theta_basis = jnp.asarray(
+            self.y_face_theta_gradient_target_basis, dtype=jnp.float64
+        )
+        z_basis = jnp.asarray(self.z_face_target_basis, dtype=jnp.float64)
+        z_u_basis = jnp.asarray(
+            self.z_face_u_gradient_target_basis, dtype=jnp.float64
+        )
+        z_theta_basis = jnp.asarray(
+            self.z_face_theta_gradient_target_basis, dtype=jnp.float64
+        )
+        expected_weights = (coefficient_count, rings * global_theta)
+        expected_x = (x_count, global_theta, coefficient_count)
+        expected_y = (y_count, global_theta + 1, coefficient_count)
+        expected_z = (z_count, global_theta, coefficient_count)
+        if weights.shape != expected_weights:
+            raise ValueError(
+                "observation_to_coefficient_weights must have shape "
+                f"{expected_weights}, got {weights.shape}"
+            )
+        if observation_basis.shape != (expected_weights[1], expected_weights[0]):
+            raise ValueError(
+                "coefficient_to_observation_basis must have shape "
+                f"{(expected_weights[1], expected_weights[0])}, got "
+                f"{observation_basis.shape}"
+            )
+        if x_basis.shape != expected_x:
+            raise ValueError(f"x_face_target_basis must have shape {expected_x}, got {x_basis.shape}")
+        if y_basis.shape != expected_y:
+            raise ValueError(f"y_face_target_basis must have shape {expected_y}, got {y_basis.shape}")
+        for name, value in (
+            ("x_face_u_gradient_target_basis", x_u_basis),
+            ("x_face_theta_gradient_target_basis", x_theta_basis),
+        ):
+            if value.shape != expected_x:
+                raise ValueError(
+                    f"{name} must have shape {expected_x}, got {value.shape}"
+                )
+        for name, value in (
+            ("y_face_u_gradient_target_basis", y_u_basis),
+            ("y_face_theta_gradient_target_basis", y_theta_basis),
+        ):
+            if value.shape != expected_y:
+                raise ValueError(
+                    f"{name} must have shape {expected_y}, got {value.shape}"
+                )
+        for name, value in (
+            ("z_face_target_basis", z_basis),
+            ("z_face_u_gradient_target_basis", z_u_basis),
+            ("z_face_theta_gradient_target_basis", z_theta_basis),
+        ):
+            if value.shape != expected_z:
+                raise ValueError(
+                    f"{name} must have shape {expected_z}, got {value.shape}"
+                )
+        if rings > self.layout.owned_shape[0]:
+            raise ValueError("radial_ring_count cannot exceed the local owned radial extent")
+        if x_count > self.layout.owned_shape[0] + 1:
+            raise ValueError("x_face_count exceeds the local x-face extent")
+        if y_count > self.layout.owned_shape[0]:
+            raise ValueError("y_radial_count exceeds the local radial cell extent")
+        if z_count > self.layout.owned_shape[0]:
+            raise ValueError("z_radial_count exceeds the local radial cell extent")
+        object.__setattr__(self, "global_shape", global_shape)
+        object.__setattr__(self, "polynomial_degree", degree)
+        object.__setattr__(self, "radial_ring_count", rings)
+        object.__setattr__(self, "x_face_count", x_count)
+        object.__setattr__(self, "y_radial_count", y_count)
+        object.__setattr__(self, "z_radial_count", z_count)
+        object.__setattr__(self, "observation_to_coefficient_weights", weights)
+        object.__setattr__(
+            self,
+            "coefficient_to_observation_basis",
+            observation_basis,
+        )
+        object.__setattr__(self, "x_face_target_basis", x_basis)
+        object.__setattr__(self, "y_face_target_basis", y_basis)
+        object.__setattr__(self, "x_face_u_gradient_target_basis", x_u_basis)
+        object.__setattr__(
+            self, "x_face_theta_gradient_target_basis", x_theta_basis
+        )
+        object.__setattr__(self, "y_face_u_gradient_target_basis", y_u_basis)
+        object.__setattr__(
+            self, "y_face_theta_gradient_target_basis", y_theta_basis
+        )
+        object.__setattr__(self, "z_face_target_basis", z_basis)
+        object.__setattr__(self, "z_face_u_gradient_target_basis", z_u_basis)
+        object.__setattr__(
+            self, "z_face_theta_gradient_target_basis", z_theta_basis
+        )
+
+    def tree_flatten(self):
+        children = (
+            self.layout,
+            self.observation_to_coefficient_weights,
+            self.coefficient_to_observation_basis,
+            self.x_face_target_basis,
+            self.y_face_target_basis,
+            self.x_face_u_gradient_target_basis,
+            self.x_face_theta_gradient_target_basis,
+            self.y_face_u_gradient_target_basis,
+            self.y_face_theta_gradient_target_basis,
+            self.z_face_target_basis,
+            self.z_face_u_gradient_target_basis,
+            self.z_face_theta_gradient_target_basis,
+        )
+        metadata = (
+            self.global_shape,
+            self.polynomial_degree,
+            self.radial_ring_count,
+            self.x_face_count,
+            self.y_radial_count,
+            self.z_radial_count,
+        )
+        return children, metadata
+
+    @classmethod
+    def tree_unflatten(cls, metadata, children):
+        global_shape, degree, rings, x_count, y_count, z_count = metadata
+        (
+            layout,
+            weights,
+            observation_basis,
+            x_basis,
+            y_basis,
+            x_u_basis,
+            x_theta_basis,
+            y_u_basis,
+            y_theta_basis,
+            z_basis,
+            z_u_basis,
+            z_theta_basis,
+        ) = children
+        return cls(
+            layout=layout,
+            global_shape=global_shape,
+            observation_to_coefficient_weights=weights,
+            coefficient_to_observation_basis=observation_basis,
+            x_face_target_basis=x_basis,
+            y_face_target_basis=y_basis,
+            x_face_u_gradient_target_basis=x_u_basis,
+            x_face_theta_gradient_target_basis=x_theta_basis,
+            y_face_u_gradient_target_basis=y_u_basis,
+            y_face_theta_gradient_target_basis=y_theta_basis,
+            z_face_target_basis=z_basis,
+            z_face_u_gradient_target_basis=z_u_basis,
+            z_face_theta_gradient_target_basis=z_theta_basis,
+            polynomial_degree=degree,
+            radial_ring_count=rings,
+            x_face_count=x_count,
+            y_radial_count=y_count,
+            z_radial_count=z_count,
+        )
+
+    def apply(
+        self,
+        face_values,
+        field_halo: jnp.ndarray,
+        domain: "LocalDomain3D",
+    ):
+        """Fill lower-axis x/y/z faces, with theta-shard coefficient summation."""
+
+        if domain.layout != self.layout:
+            raise ValueError("axis-core reconstruction and domain must share the same layout")
+        if tuple(domain.shard_spec.global_shape) != self.global_shape:
+            raise ValueError("axis-core reconstruction and domain must share the same global shape")
+        h = self.layout.halo_width
+        nx, ny, nz = self.layout.owned_shape
+        field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
+        if field_halo.shape != self.layout.cell_halo_shape:
+            raise ValueError(
+                "field_halo must match the axis-core reconstruction layout; "
+                f"got {field_halo.shape}, expected {self.layout.cell_halo_shape}"
+            )
+
+        theta_shards = int(domain.shard_spec.shard_counts[1])
+        theta_axis_name = domain.mesh_axis_names[1]
+        if theta_shards > 1 and theta_axis_name is None:
+            raise ValueError("theta-sharded axis-core reconstruction requires a named theta mesh axis")
+        theta_shard = domain.runtime_shard_id(1)
+        local_observation_count = self.radial_ring_count * ny
+        local_weights = lax.dynamic_slice_in_dim(
+            self.observation_to_coefficient_weights,
+            theta_shard * local_observation_count,
+            local_observation_count,
+            axis=1,
+        )
+        # Storage is coefficient x (theta-major, ring-minor), matching the
+        # observations formed by transpose((ring, theta, z)) -> (theta, ring, z).
+        observations = field_halo[
+            h : h + self.radial_ring_count,
+            h : h + ny,
+            h : h + nz,
+        ]
+        observations = jnp.transpose(observations, (1, 0, 2)).reshape(
+            local_observation_count,
+            nz,
+        )
+        coefficients = jnp.einsum(
+            "po,oz->pz",
+            local_weights,
+            observations,
+        )
+        if theta_shards > 1:
+            coefficients = lax.psum(coefficients, axis_name=theta_axis_name)
+
+        local_theta_start = theta_shard * ny
+        x_basis = lax.dynamic_slice_in_dim(
+            self.x_face_target_basis,
+            local_theta_start,
+            ny,
+            axis=1,
+        )
+        y_basis = lax.dynamic_slice_in_dim(
+            self.y_face_target_basis,
+            local_theta_start,
+            ny + 1,
+            axis=1,
+        )
+        z_basis = lax.dynamic_slice_in_dim(
+            self.z_face_target_basis,
+            local_theta_start,
+            ny,
+            axis=1,
+        )
+        x_reconstructed = jnp.einsum("rtp,pz->rtz", x_basis, coefficients)
+        y_reconstructed = jnp.einsum("rtp,pz->rtz", y_basis, coefficients)
+
+        # Fit each owned z face from collocated face observations.  Forming
+        # those observations from the already-closed halo handles both the
+        # periodic seam and z-shard interfaces without wrapping inside a
+        # shard.  This is the face-value analogue of the eta target used by
+        # the gradient reconstruction below.
+        z_face_observations = 0.5 * (
+            field_halo[
+                h : h + self.radial_ring_count,
+                h : h + ny,
+                h - 1 : h + nz,
+            ]
+            + field_halo[
+                h : h + self.radial_ring_count,
+                h : h + ny,
+                h : h + nz + 1,
+            ]
+        )
+        z_face_observations = jnp.transpose(
+            z_face_observations, (1, 0, 2)
+        ).reshape(local_observation_count, nz + 1)
+        z_face_coefficients = jnp.einsum(
+            "po,oz->pz",
+            local_weights,
+            z_face_observations,
+        )
+        if theta_shards > 1:
+            z_face_coefficients = lax.psum(
+                z_face_coefficients, axis_name=theta_axis_name
+            )
+        z_reconstructed = jnp.einsum(
+            "rtp,pz->rtz", z_basis, z_face_coefficients
+        )
+        axis_owner = domain.runtime_has_axis_regular_lower(0)
+        x = face_values.x.at[: self.x_face_count, :, :].set(
+            jnp.where(axis_owner, x_reconstructed, face_values.x[: self.x_face_count, :, :])
+        )
+        y = face_values.y.at[: self.y_radial_count, :, :].set(
+            jnp.where(axis_owner, y_reconstructed, face_values.y[: self.y_radial_count, :, :])
+        )
+        z = face_values.z.at[: self.z_radial_count, :, :].set(
+            jnp.where(
+                axis_owner,
+                z_reconstructed,
+                face_values.z[: self.z_radial_count, :, :],
+            )
+        )
+        CoordinateFaceValues3D = _coordinate_face_values_type()
+        return CoordinateFaceValues3D(x=x, y=y, z=z)
+
+    def apply_gradients(
+        self,
+        face_values,
+        face_grad,
+        field_halo: jnp.ndarray,
+        geometry: "LocalFciGeometry3D",
+        domain: "LocalDomain3D",
+    ):
+        """Fill logical face gradients from the same Cartesian core fit.
+
+        Cartesian polynomial derivatives are evaluated directly at x-, y-,
+        and z-face centers and transformed to logical ``(u, theta)``
+        derivatives.  The eta derivative is reconstructed as a scalar target:
+        at x/y faces from cell-centered eta derivatives and at z faces from
+        the ordinary normal face derivative.  This keeps every component on
+        the face family where the compatible flux consumes it.
+        """
+
+        _, FaceGradientStencil3D, _, _ = _stencil_types()
+        if domain.layout != self.layout or geometry.layout != self.layout:
+            raise ValueError(
+                "axis-core face-gradient reconstruction, geometry, and domain "
+                "must share the same layout"
+            )
+        if tuple(domain.shard_spec.global_shape) != self.global_shape:
+            raise ValueError(
+                "axis-core face-gradient reconstruction and domain must share "
+                "the same global shape"
+            )
+        field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
+        if field_halo.shape != self.layout.cell_halo_shape:
+            raise ValueError(
+                "field_halo must match the axis-core reconstruction layout; "
+                f"got {field_halo.shape}, expected {self.layout.cell_halo_shape}"
+            )
+        expected_face_shapes = tuple(
+            self.layout.face_control_shape(axis) + (3,) for axis in range(3)
+        )
+        direct_axes = tuple(
+            jnp.asarray(value, dtype=jnp.float64)
+            for value in (face_grad.x, face_grad.y, face_grad.z)
+        )
+        for name, value, expected in zip(
+            ("x", "y", "z"), direct_axes, expected_face_shapes
+        ):
+            if value.shape != expected:
+                raise ValueError(
+                    f"face_grad.{name} must have shape {expected}, got {value.shape}"
+                )
+
+        theta_shards = int(domain.shard_spec.shard_counts[1])
+        theta_axis_name = domain.mesh_axis_names[1]
+        if theta_shards > 1 and theta_axis_name is None:
+            raise ValueError(
+                "theta-sharded axis-core reconstruction requires a named theta mesh axis"
+            )
+        theta_shard = domain.runtime_shard_id(1)
+        h = self.layout.halo_width
+        _nx, ny, nz = self.layout.owned_shape
+        local_observation_count = self.radial_ring_count * ny
+        local_weights = lax.dynamic_slice_in_dim(
+            self.observation_to_coefficient_weights,
+            theta_shard * local_observation_count,
+            local_observation_count,
+            axis=1,
+        )
+
+        def fit(observations: jnp.ndarray) -> jnp.ndarray:
+            observations = jnp.asarray(observations, dtype=jnp.float64)
+            expected_prefix = (self.radial_ring_count, ny)
+            if observations.shape[:2] != expected_prefix:
+                raise ValueError(
+                    "axis-core face-gradient observations must begin with "
+                    f"{expected_prefix}, got {observations.shape}"
+                )
+            target_extent = observations.shape[2]
+            flattened = jnp.transpose(observations, (1, 0, 2)).reshape(
+                local_observation_count,
+                target_extent,
+            )
+            coefficients = jnp.einsum("po,oz->pz", local_weights, flattened)
+            if theta_shards > 1:
+                coefficients = lax.psum(
+                    coefficients,
+                    axis_name=theta_axis_name,
+                )
+            return coefficients
+
+        cell_observations_halo = field_halo[
+            h : h + self.radial_ring_count,
+            h : h + ny,
+            :,
+        ]
+        coefficient_halo = fit(cell_observations_halo)
+        coefficients = coefficient_halo[:, h : h + nz]
+
+        eta_stencil = _local_axis_stencil_from_halo(
+            field_halo,
+            geometry,
+            axis=2,
+        )
+        eta_minus_weight = eta_stencil.derivative_minus_weight[0, 0, :]
+        eta_center_weight = eta_stencil.derivative_center_weight[0, 0, :]
+        eta_plus_weight = eta_stencil.derivative_plus_weight[0, 0, :]
+        eta_coefficients = (
+            coefficient_halo[:, h - 1 : h + nz - 1]
+            * eta_minus_weight[None, :]
+            + coefficient_halo[:, h : h + nz]
+            * eta_center_weight[None, :]
+            + coefficient_halo[:, h + 1 : h + nz + 1]
+            * eta_plus_weight[None, :]
+        )
+        lower_z_coefficients = coefficient_halo[:, h - 1 : h + nz]
+        upper_z_coefficients = coefficient_halo[:, h : h + nz + 1]
+        z_coefficients = 0.5 * (
+            lower_z_coefficients + upper_z_coefficients
+        )
+        z_centers_halo = jnp.asarray(
+            geometry.grid.z.centers_halo,
+            dtype=jnp.float64,
+        )
+        z_center_distance = (
+            z_centers_halo[h : h + nz + 1]
+            - z_centers_halo[h - 1 : h + nz]
+        )
+        z_eta_coefficients = (
+            upper_z_coefficients - lower_z_coefficients
+        ) / jnp.maximum(
+            z_center_distance[None, :],
+            1.0e-30,
+        )
+
+        local_theta_start = theta_shard * ny
+
+        def local_basis(value: jnp.ndarray, *, y_faces: bool = False) -> jnp.ndarray:
+            return lax.dynamic_slice_in_dim(
+                value,
+                local_theta_start,
+                ny + 1 if y_faces else ny,
+                axis=1,
+            )
+
+        x_u = local_basis(self.x_face_u_gradient_target_basis)
+        x_theta = local_basis(self.x_face_theta_gradient_target_basis)
+        x_value = local_basis(self.x_face_target_basis)
+        y_u = local_basis(self.y_face_u_gradient_target_basis, y_faces=True)
+        y_theta = local_basis(
+            self.y_face_theta_gradient_target_basis,
+            y_faces=True,
+        )
+        y_value = local_basis(self.y_face_target_basis, y_faces=True)
+        z_u = local_basis(self.z_face_u_gradient_target_basis)
+        z_theta = local_basis(self.z_face_theta_gradient_target_basis)
+        z_value = local_basis(self.z_face_target_basis)
+
+        x_reconstructed = jnp.stack(
+            (
+                jnp.einsum("rtp,pz->rtz", x_u, coefficients),
+                jnp.einsum("rtp,pz->rtz", x_theta, coefficients),
+                jnp.einsum("rtp,pz->rtz", x_value, eta_coefficients),
+            ),
+            axis=-1,
+        )
+        y_reconstructed = jnp.stack(
+            (
+                jnp.einsum("rtp,pz->rtz", y_u, coefficients),
+                jnp.einsum("rtp,pz->rtz", y_theta, coefficients),
+                jnp.einsum("rtp,pz->rtz", y_value, eta_coefficients),
+            ),
+            axis=-1,
+        )
+        z_reconstructed = jnp.stack(
+            (
+                jnp.einsum("rtp,pz->rtz", z_u, z_coefficients),
+                jnp.einsum("rtp,pz->rtz", z_theta, z_coefficients),
+                jnp.einsum("rtp,pz->rtz", z_value, z_eta_coefficients),
+            ),
+            axis=-1,
+        )
+
+        axis_owner = domain.runtime_has_axis_regular_lower(0)
+        x = direct_axes[0].at[: self.x_face_count].set(
+            jnp.where(
+                axis_owner,
+                x_reconstructed,
+                direct_axes[0][: self.x_face_count],
+            )
+        )
+        y = direct_axes[1].at[: self.y_radial_count].set(
+            jnp.where(
+                axis_owner,
+                y_reconstructed,
+                direct_axes[1][: self.y_radial_count],
+            )
+        )
+        z = direct_axes[2].at[: self.z_radial_count].set(
+            jnp.where(
+                axis_owner,
+                z_reconstructed,
+                direct_axes[2][: self.z_radial_count],
+            )
+        )
+        return FaceGradientStencil3D(x=x, y=y, z=z)
+
+
+@lru_cache(maxsize=32)
+def _axis_core_face_reconstruction_matrices(
+    global_nx: int,
+    global_ny: int,
+    local_nx: int,
+    requested_degree: int,
+    requested_rings: int,
+    requested_x_face_count: int = 3,
+    requested_y_radial_count: int = 2,
+    requested_z_radial_count: int = 2,
+):
+    """Cache the shape-dependent NumPy fit and target matrices."""
+
+    selected = None
+    for degree in range(requested_degree, -1, -1):
+        for rings in range(requested_rings, 0, -1):
+            theta = 2.0 * np.pi * np.arange(global_ny, dtype=np.float64) / float(global_ny)
+            radius = (np.arange(rings, dtype=np.float64) + 0.5) / float(global_nx)
+            theta_grid, radius_grid = np.meshgrid(theta, radius, indexing="ij")
+            observations_basis = _cartesian_axis_core_basis(
+                radius_grid * np.cos(theta_grid),
+                radius_grid * np.sin(theta_grid),
+                degree,
+            )
+            # The basis is naturally generated as (theta, ring, coefficient),
+            # while rank and pinv require a conventional 2-D design matrix.
+            # C-order flattening is intentional: runtime ``transpose`` below
+            # produces observations in this same theta-major/ring-minor order.
+            design_matrix = observations_basis.reshape(
+                global_ny * rings,
+                observations_basis.shape[-1],
+            )
+            coefficient_count = design_matrix.shape[-1]
+            if np.linalg.matrix_rank(design_matrix) == coefficient_count:
+                selected = (degree, rings, design_matrix)
+                break
+        if selected is not None:
+            break
+    if selected is None:
+        raise ValueError("could not construct a full-rank Cartesian axis-core fit")
+    degree, rings, observations_basis = selected
+    coefficient_weights = np.linalg.pinv(observations_basis)
+
+    x_face_count = min(int(requested_x_face_count), local_nx + 1)
+    y_radial_count = min(int(requested_y_radial_count), local_nx)
+    theta = 2.0 * np.pi * np.arange(global_ny, dtype=np.float64) / float(global_ny)
+    x_radius = np.arange(x_face_count, dtype=np.float64) / float(global_nx)
+    x_theta, x_radius_grid = np.meshgrid(theta, x_radius, indexing="ij")
+    x_basis = _cartesian_axis_core_basis(
+        x_radius_grid * np.cos(x_theta),
+        x_radius_grid * np.sin(x_theta),
+        degree,
+    ).transpose(1, 0, 2)
+    x_dx, x_dy = _cartesian_axis_core_basis_gradients(
+        x_radius_grid * np.cos(x_theta),
+        x_radius_grid * np.sin(x_theta),
+        degree,
+    )
+    x_dx = x_dx.transpose(1, 0, 2)
+    x_dy = x_dy.transpose(1, 0, 2)
+    x_cos = np.cos(theta)[None, :, None]
+    x_sin = np.sin(theta)[None, :, None]
+    x_r = x_radius[:, None, None]
+    x_u_basis = x_cos * x_dx + x_sin * x_dy
+    x_theta_basis = -x_r * x_sin * x_dx + x_r * x_cos * x_dy
+    # Cell observations and x-face targets use the cell-center chart
+    # theta_j = j*dtheta.  A y face lies halfway between neighboring theta
+    # centers, so its point target is theta_{j-1/2}; the j=0 and j=N values
+    # are the periodic endpoint copies of that same face.
+    y_theta = 2.0 * np.pi * (
+        np.arange(global_ny + 1, dtype=np.float64) - 0.5
+    ) / float(global_ny)
+    y_radius = (np.arange(y_radial_count, dtype=np.float64) + 0.5) / float(global_nx)
+    y_theta_grid, y_radius_grid = np.meshgrid(y_theta, y_radius, indexing="ij")
+    y_basis = _cartesian_axis_core_basis(
+        y_radius_grid * np.cos(y_theta_grid),
+        y_radius_grid * np.sin(y_theta_grid),
+        degree,
+    ).transpose(1, 0, 2)
+    y_dx, y_dy = _cartesian_axis_core_basis_gradients(
+        y_radius_grid * np.cos(y_theta_grid),
+        y_radius_grid * np.sin(y_theta_grid),
+        degree,
+    )
+    y_dx = y_dx.transpose(1, 0, 2)
+    y_dy = y_dy.transpose(1, 0, 2)
+    y_cos = np.cos(y_theta)[None, :, None]
+    y_sin = np.sin(y_theta)[None, :, None]
+    y_r = y_radius[:, None, None]
+    y_u_basis = y_cos * y_dx + y_sin * y_dy
+    y_theta_basis = -y_r * y_sin * y_dx + y_r * y_cos * y_dy
+
+    z_radial_count = min(int(requested_z_radial_count), local_nx)
+    z_radius = (
+        np.arange(z_radial_count, dtype=np.float64) + 0.5
+    ) / float(global_nx)
+    z_theta_grid, z_radius_grid = np.meshgrid(
+        theta,
+        z_radius,
+        indexing="ij",
+    )
+    z_x = z_radius_grid * np.cos(z_theta_grid)
+    z_y = z_radius_grid * np.sin(z_theta_grid)
+    z_basis = _cartesian_axis_core_basis(z_x, z_y, degree).transpose(1, 0, 2)
+    z_dx, z_dy = _cartesian_axis_core_basis_gradients(z_x, z_y, degree)
+    z_dx = z_dx.transpose(1, 0, 2)
+    z_dy = z_dy.transpose(1, 0, 2)
+    z_cos = np.cos(theta)[None, :, None]
+    z_sin = np.sin(theta)[None, :, None]
+    z_r = z_radius[:, None, None]
+    z_u_basis = z_cos * z_dx + z_sin * z_dy
+    z_theta_basis = -z_r * z_sin * z_dx + z_r * z_cos * z_dy
+    return (
+        degree,
+        rings,
+        coefficient_weights,
+        observations_basis,
+        x_basis,
+        y_basis,
+        x_u_basis,
+        x_theta_basis,
+        y_u_basis,
+        y_theta_basis,
+        z_basis,
+        z_u_basis,
+        z_theta_basis,
+    )
+
+
+def build_axis_core_face_reconstruction(
+    layout: HaloLayout3D,
+    domain: "LocalDomain3D",
+    *,
+    polynomial_degree: int = 3,
+    radial_ring_count: int = 3,
+) -> AxisCoreFaceReconstruction3D:
+    """Build static Cartesian observation-to-face weights for an axis core."""
+
+    if not isinstance(layout, HaloLayout3D):
+        raise TypeError("layout must be a HaloLayout3D instance")
+    if domain.layout != layout:
+        raise ValueError("domain and layout must match")
+    global_shape = tuple(int(value) for value in domain.shard_spec.global_shape)
+    global_nx, global_ny, _ = global_shape
+    local_nx = int(layout.owned_shape[0])
+    requested_degree = min(3, int(polynomial_degree))
+    requested_rings = min(3, int(radial_ring_count), local_nx)
+    if requested_degree < 0 or requested_rings < 1:
+        raise ValueError("polynomial_degree must be non-negative and radial_ring_count positive")
+
+    (
+        degree,
+        rings,
+        coefficient_weights,
+        observation_basis,
+        x_basis,
+        y_basis,
+        x_u_basis,
+        x_theta_basis,
+        y_u_basis,
+        y_theta_basis,
+        z_basis,
+        z_u_basis,
+        z_theta_basis,
+    ) = (
+        _axis_core_face_reconstruction_matrices(
+            global_nx,
+            global_ny,
+            local_nx,
+            requested_degree,
+            requested_rings,
+        )
+    )
+    x_face_count = min(3, local_nx + 1)
+    y_radial_count = min(2, local_nx)
+    z_radial_count = min(2, local_nx)
+    return AxisCoreFaceReconstruction3D(
+        layout=layout,
+        global_shape=global_shape,
+        observation_to_coefficient_weights=jnp.asarray(coefficient_weights),
+        coefficient_to_observation_basis=jnp.asarray(observation_basis),
+        x_face_target_basis=jnp.asarray(x_basis),
+        y_face_target_basis=jnp.asarray(y_basis),
+        x_face_u_gradient_target_basis=jnp.asarray(x_u_basis),
+        x_face_theta_gradient_target_basis=jnp.asarray(x_theta_basis),
+        y_face_u_gradient_target_basis=jnp.asarray(y_u_basis),
+        y_face_theta_gradient_target_basis=jnp.asarray(y_theta_basis),
+        z_face_target_basis=jnp.asarray(z_basis),
+        z_face_u_gradient_target_basis=jnp.asarray(z_u_basis),
+        z_face_theta_gradient_target_basis=jnp.asarray(z_theta_basis),
+        polynomial_degree=degree,
+        radial_ring_count=rings,
+        x_face_count=x_face_count,
+        y_radial_count=y_radial_count,
+        z_radial_count=z_radial_count,
+    )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class AxisCoreFaceGradientReconstruction3D(_DataclassPyTreeMixin):
+    """Static Cartesian-core reconstruction policy for logical face gradients.
+
+    ``reconstruction`` owns the precomputed observation-to-coefficient weights
+    and Cartesian derivative target functionals.  This small wrapper keeps the
+    older :class:`AxisCoreFaceReconstruction3D` face-value API intact while
+    making the gradient policy explicit in ``StencilBuilderContext``.
+    """
+
+    reconstruction: AxisCoreFaceReconstruction3D
+    observation_ring_count: int
+    target_ring_count: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.reconstruction, AxisCoreFaceReconstruction3D):
+            raise TypeError("reconstruction must be an AxisCoreFaceReconstruction3D instance")
+        observations = int(self.observation_ring_count)
+        targets = int(self.target_ring_count)
+        if observations != self.reconstruction.radial_ring_count:
+            raise ValueError(
+                "observation_ring_count must match the precomputed face-gradient payload"
+            )
+        if targets < 1:
+            raise ValueError("target_ring_count must be positive")
+        if self.reconstruction.x_face_count != min(targets + 1, self.reconstruction.layout.owned_shape[0] + 1):
+            raise ValueError("face-gradient x-face coverage must be target_ring_count + 1")
+        if self.reconstruction.y_radial_count != min(targets, self.reconstruction.layout.owned_shape[0]):
+            raise ValueError("face-gradient y-face coverage must equal target_ring_count")
+        if self.reconstruction.z_radial_count != min(targets, self.reconstruction.layout.owned_shape[0]):
+            raise ValueError("face-gradient z-face coverage must equal target_ring_count")
+        object.__setattr__(self, "observation_ring_count", observations)
+        object.__setattr__(self, "target_ring_count", targets)
+
+    @property
+    def layout(self):
+        return self.reconstruction.layout
+
+    @property
+    def global_shape(self):
+        return self.reconstruction.global_shape
+
+    @property
+    def polynomial_degree(self):
+        return self.reconstruction.polynomial_degree
+
+    @property
+    def observation_to_coefficient_weights(self):
+        return self.reconstruction.observation_to_coefficient_weights
+
+    @property
+    def coefficient_to_observation_basis(self):
+        return self.reconstruction.coefficient_to_observation_basis
+
+    @property
+    def radial_ring_count(self):
+        """Compatibility alias for the observation-ring count."""
+        return self.observation_ring_count
+
+    @property
+    def x_face_u_gradient_target_basis(self):
+        return self.reconstruction.x_face_u_gradient_target_basis
+
+    @property
+    def x_face_theta_gradient_target_basis(self):
+        return self.reconstruction.x_face_theta_gradient_target_basis
+
+    @property
+    def y_face_u_gradient_target_basis(self):
+        return self.reconstruction.y_face_u_gradient_target_basis
+
+    @property
+    def y_face_theta_gradient_target_basis(self):
+        return self.reconstruction.y_face_theta_gradient_target_basis
+
+    @property
+    def z_face_u_gradient_target_basis(self):
+        return self.reconstruction.z_face_u_gradient_target_basis
+
+    @property
+    def z_face_theta_gradient_target_basis(self):
+        return self.reconstruction.z_face_theta_gradient_target_basis
+
+    @property
+    def x_face_count(self):
+        return self.reconstruction.x_face_count
+
+    @property
+    def y_radial_count(self):
+        return self.reconstruction.y_radial_count
+
+    @property
+    def z_radial_count(self):
+        return self.reconstruction.z_radial_count
+
+    def tree_flatten(self):
+        return (self.reconstruction,), (self.observation_ring_count, self.target_ring_count)
+
+    @classmethod
+    def tree_unflatten(cls, metadata, children):
+        observations, targets = metadata
+        return cls(children[0], observations, targets)
+
+    def apply(self, face_grad, face_values, field_halo, geometry, domain):
+        """Patch the owned lower-axis face gradients and preserve other faces."""
+
+        return self.reconstruction.apply_gradients(
+            face_values,
+            face_grad,
+            field_halo,
+            geometry,
+            domain,
+        )
+
+
+def build_axis_core_face_gradient_reconstruction(
+    layout: HaloLayout3D,
+    domain: "LocalDomain3D",
+    *,
+    polynomial_degree: int = 3,
+    observation_ring_count: int = 6,
+    target_ring_count: int = 3,
+) -> AxisCoreFaceGradientReconstruction3D:
+    """Build static Cartesian target functionals for all three face families."""
+
+    if not isinstance(layout, HaloLayout3D):
+        raise TypeError("layout must be a HaloLayout3D instance")
+    if domain.layout != layout:
+        raise ValueError("domain and layout must match")
+    if int(polynomial_degree) < 0:
+        raise ValueError("polynomial_degree must be non-negative")
+    if int(observation_ring_count) < 1 or int(target_ring_count) < 1:
+        raise ValueError("observation_ring_count and target_ring_count must be positive")
+    if int(target_ring_count) > int(observation_ring_count):
+        raise ValueError("target_ring_count must not exceed observation_ring_count")
+    global_nx, global_ny, _ = tuple(int(value) for value in domain.shard_spec.global_shape)
+    local_nx = int(layout.owned_shape[0])
+    target_count = min(int(target_ring_count), local_nx)
+    degree, rings, *matrices = _axis_core_face_reconstruction_matrices(
+        global_nx,
+        global_ny,
+        local_nx,
+        int(polynomial_degree),
+        int(observation_ring_count),
+        target_count + 1,
+        target_count,
+        target_count,
+    )
+    return AxisCoreFaceGradientReconstruction3D(
+        reconstruction=AxisCoreFaceReconstruction3D(
+            layout=layout,
+            global_shape=tuple(int(value) for value in domain.shard_spec.global_shape),
+            observation_to_coefficient_weights=jnp.asarray(matrices[0]),
+            coefficient_to_observation_basis=jnp.asarray(matrices[1]),
+            x_face_target_basis=jnp.asarray(matrices[2]),
+            y_face_target_basis=jnp.asarray(matrices[3]),
+            x_face_u_gradient_target_basis=jnp.asarray(matrices[4]),
+            x_face_theta_gradient_target_basis=jnp.asarray(matrices[5]),
+            y_face_u_gradient_target_basis=jnp.asarray(matrices[6]),
+            y_face_theta_gradient_target_basis=jnp.asarray(matrices[7]),
+            z_face_target_basis=jnp.asarray(matrices[8]),
+            z_face_u_gradient_target_basis=jnp.asarray(matrices[9]),
+            z_face_theta_gradient_target_basis=jnp.asarray(matrices[10]),
+            polynomial_degree=degree,
+            radial_ring_count=rings,
+            x_face_count=target_count + 1,
+            y_radial_count=target_count,
+            z_radial_count=target_count,
+        ),
+        observation_ring_count=rings,
+        target_ring_count=target_count,
+    )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class AxisCoreCellGradientReconstruction3D(_DataclassPyTreeMixin):
+    """Static Cartesian polynomial reconstruction of axis-core cell gradients.
+
+    The fit weights map the lower-axis observation rings to Cartesian
+    coefficients.  The three target functionals are logical ``u`` and
+    ``theta`` derivatives transformed from the Cartesian basis on the host,
+    and the value functional applied to an ordinary centered logical-eta
+    derivative.  All field-dependent work at runtime is matrix multiplication;
+    in particular, no solve, coordinate construction, or Fourier transform is
+    used.
+    """
+
+    layout: HaloLayout3D
+    global_shape: tuple[int, int, int]
+    observation_to_coefficient_weights: jnp.ndarray
+    u_gradient_target_basis: jnp.ndarray
+    theta_gradient_target_basis: jnp.ndarray
+    eta_value_target_basis: jnp.ndarray
+    polynomial_degree: int
+    observation_ring_count: int
+    target_ring_count: int
+    normalized_design_condition_number: float
+
+    @property
+    def radial_ring_count(self) -> int:
+        """Backward-compatible name for the patched target-ring count."""
+
+        return self.target_ring_count
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("layout must be a HaloLayout3D instance")
+        global_shape = tuple(int(value) for value in self.global_shape)
+        if len(global_shape) != 3 or any(value <= 0 for value in global_shape):
+            raise ValueError(f"global_shape must contain three positive sizes, got {global_shape}")
+        degree = int(self.polynomial_degree)
+        observation_rings = int(self.observation_ring_count)
+        target_rings = int(self.target_ring_count)
+        condition_number = float(self.normalized_design_condition_number)
+        if degree < 0 or observation_rings < 1 or target_rings < 1:
+            raise ValueError("axis-core cell-gradient metadata has invalid values")
+        if not np.isfinite(condition_number) or condition_number <= 0.0:
+            raise ValueError(
+                "normalized_design_condition_number must be finite and positive"
+            )
+        coefficient_count = (degree + 1) * (degree + 2) // 2
+        theta_count = global_shape[1]
+        expected_weights = (coefficient_count, observation_rings * theta_count)
+        expected_targets = (target_rings, theta_count, coefficient_count)
+        weights = jnp.asarray(self.observation_to_coefficient_weights, dtype=jnp.float64)
+        u_basis = jnp.asarray(self.u_gradient_target_basis, dtype=jnp.float64)
+        theta_basis = jnp.asarray(
+            self.theta_gradient_target_basis,
+            dtype=jnp.float64,
+        )
+        eta_basis = jnp.asarray(self.eta_value_target_basis, dtype=jnp.float64)
+        if weights.shape != expected_weights:
+            raise ValueError(
+                "observation_to_coefficient_weights must have shape "
+                f"{expected_weights}, got {weights.shape}"
+            )
+        for name, value in (
+            ("u_gradient_target_basis", u_basis),
+            ("theta_gradient_target_basis", theta_basis),
+            ("eta_value_target_basis", eta_basis),
+        ):
+            if value.shape != expected_targets:
+                raise ValueError(f"{name} must have shape {expected_targets}, got {value.shape}")
+        if (
+            observation_rings > self.layout.owned_shape[0]
+            or target_rings > self.layout.owned_shape[0]
+        ):
+            raise ValueError("axis-core cell-gradient ring count exceeds the local radial extent")
+        object.__setattr__(self, "global_shape", global_shape)
+        object.__setattr__(self, "polynomial_degree", degree)
+        object.__setattr__(self, "observation_ring_count", observation_rings)
+        object.__setattr__(self, "target_ring_count", target_rings)
+        object.__setattr__(self, "normalized_design_condition_number", condition_number)
+        object.__setattr__(self, "observation_to_coefficient_weights", weights)
+        object.__setattr__(self, "u_gradient_target_basis", u_basis)
+        object.__setattr__(self, "theta_gradient_target_basis", theta_basis)
+        object.__setattr__(self, "eta_value_target_basis", eta_basis)
+
+    def tree_flatten(self):
+        return (
+            (
+                self.layout,
+                self.observation_to_coefficient_weights,
+                self.u_gradient_target_basis,
+                self.theta_gradient_target_basis,
+                self.eta_value_target_basis,
+            ),
+            (
+                self.global_shape,
+                self.polynomial_degree,
+                self.observation_ring_count,
+                self.target_ring_count,
+                self.normalized_design_condition_number,
+            ),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, metadata, children):
+        global_shape, degree, observation_rings, target_rings, condition_number = metadata
+        layout, weights, u_basis, theta_basis, eta_basis = children
+        return cls(
+            layout=layout,
+            global_shape=global_shape,
+            observation_to_coefficient_weights=weights,
+            u_gradient_target_basis=u_basis,
+            theta_gradient_target_basis=theta_basis,
+            eta_value_target_basis=eta_basis,
+            polynomial_degree=degree,
+            observation_ring_count=observation_rings,
+            target_ring_count=target_rings,
+            normalized_design_condition_number=condition_number,
+        )
+
+    def apply(self, field_halo, direct_gradient, domain: "LocalDomain3D"):
+        LocalCellGradient3D = _local_cell_gradient_type()
+        if domain.layout != self.layout:
+            raise ValueError("axis-core cell-gradient reconstruction and domain must share the same layout")
+        if tuple(domain.shard_spec.global_shape) != self.global_shape:
+            raise ValueError(
+                "axis-core cell-gradient reconstruction and domain must share the same global shape"
+            )
+        field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
+        if field_halo.shape != self.layout.cell_halo_shape:
+            raise ValueError("field_halo must match the axis-core reconstruction layout")
+        gradient = jnp.asarray(direct_gradient.gradient, dtype=jnp.float64)
+        if gradient.shape != self.layout.owned_shape + (3,):
+            raise ValueError("direct_gradient must have the local owned-cell gradient shape")
+        theta_shards = int(domain.shard_spec.shard_counts[1])
+        theta_axis_name = domain.mesh_axis_names[1]
+        if theta_shards > 1 and theta_axis_name is None:
+            raise ValueError("theta-sharded axis-core reconstruction requires a named theta mesh axis")
+        theta_shard = domain.runtime_shard_id(1)
+        nx, ny, nz = self.layout.owned_shape
+        local_observation_count = self.observation_ring_count * ny
+        local_weights = lax.dynamic_slice_in_dim(
+            self.observation_to_coefficient_weights,
+            theta_shard * local_observation_count,
+            local_observation_count,
+            axis=1,
+        )
+        h = self.layout.halo_width
+        observations = field_halo[h:h + self.observation_ring_count, h:h + ny, h:h + nz]
+        observations = jnp.transpose(observations, (1, 0, 2)).reshape(local_observation_count, nz)
+        coefficients = jnp.einsum("po,oz->pz", local_weights, observations)
+        eta_observations = gradient[:self.observation_ring_count, :, :, 2]
+        eta_observations = jnp.transpose(eta_observations, (1, 0, 2)).reshape(local_observation_count, nz)
+        eta_coefficients = jnp.einsum("po,oz->pz", local_weights, eta_observations)
+        if theta_shards > 1:
+            coefficients = lax.psum(coefficients, axis_name=theta_axis_name)
+            eta_coefficients = lax.psum(eta_coefficients, axis_name=theta_axis_name)
+        local_theta_start = theta_shard * ny
+        target_slice = (local_theta_start, ny)
+        u_basis = lax.dynamic_slice_in_dim(
+            self.u_gradient_target_basis,
+            *target_slice,
+            axis=1,
+        )
+        theta_basis = lax.dynamic_slice_in_dim(
+            self.theta_gradient_target_basis,
+            *target_slice,
+            axis=1,
+        )
+        eta_basis = lax.dynamic_slice_in_dim(
+            self.eta_value_target_basis,
+            *target_slice,
+            axis=1,
+        )
+        du = jnp.einsum("rtp,pz->rtz", u_basis, coefficients)
+        dtheta = jnp.einsum("rtp,pz->rtz", theta_basis, coefficients)
+        deta = jnp.einsum("rtp,pz->rtz", eta_basis, eta_coefficients)
+        reconstructed = jnp.stack((du, dtheta, deta), axis=-1)
+        patch = jnp.zeros(gradient.shape[:-1], dtype=bool)
+        patch = patch.at[:self.target_ring_count, :, :].set(True)
+        axis_owner = domain.runtime_has_axis_regular_lower(0)
+        patch = patch & axis_owner
+        gradient = gradient.at[:self.target_ring_count].set(
+            jnp.where(axis_owner, reconstructed, gradient[:self.target_ring_count])
+        )
+        return LocalCellGradient3D(
+            gradient=gradient,
+            valid=direct_gradient.valid,
+            reconstruction_mask=patch,
+        )
+
+
+@lru_cache(maxsize=32)
+def _axis_core_cell_gradient_reconstruction_matrices(global_nx, global_ny, local_nx, requested_degree, requested_observation_rings, requested_target_rings):
+    selected = None
+    max_rings = min(int(requested_observation_rings), int(local_nx))
+    theta = 2.0 * np.pi * np.arange(global_ny, dtype=np.float64) / float(global_ny)
+    for rings in range(max_rings, 0, -1):
+        radius = (np.arange(rings, dtype=np.float64) + 0.5) / float(global_nx)
+        theta_grid, radius_grid = np.meshgrid(theta, radius, indexing="ij")
+        for degree in range(int(requested_degree), -1, -1):
+            observations_basis = _cartesian_axis_core_basis(
+                radius_grid * np.cos(theta_grid), radius_grid * np.sin(theta_grid), degree)
+            design = observations_basis.reshape(global_ny * rings, -1)
+            column_scales = np.linalg.norm(design, axis=0)
+            if np.all(column_scales > 0.0):
+                normalized_design = design / column_scales[None, :]
+            else:
+                normalized_design = None
+            if normalized_design is not None and np.linalg.matrix_rank(
+                normalized_design
+            ) == design.shape[1]:
+                normalized_pinv = np.linalg.pinv(normalized_design)
+                coefficient_weights = normalized_pinv / column_scales[:, None]
+                condition_number = np.linalg.cond(normalized_design)
+                if np.isfinite(condition_number):
+                    selected = (degree, rings, coefficient_weights, condition_number)
+                break
+        if selected is not None:
+            break
+    if selected is None:
+        raise ValueError("could not construct a full-rank Cartesian axis-core cell-gradient fit")
+    degree, rings, weights, condition_number = selected
+    target_rings = min(int(requested_target_rings), int(local_nx))
+    target_radius = (np.arange(target_rings, dtype=np.float64) + 0.5) / float(global_nx)
+    target_theta, target_radius_grid = np.meshgrid(theta, target_radius, indexing="ij")
+    points = _cartesian_axis_core_basis(
+        target_radius_grid * np.cos(target_theta),
+        target_radius_grid * np.sin(target_theta),
+        degree,
+    )
+    points = points.transpose(1, 0, 2)
+    # Derivatives are evaluated directly from monomial exponents to avoid any
+    # runtime symbolic work; the explicit loops also preserve basis ordering.
+    x = np.zeros_like(points)
+    y = np.zeros_like(points)
+    column = 0
+    # Keep all target functionals in (target-ring, theta, coefficient) order.
+    xx = (target_radius_grid * np.cos(target_theta)).transpose(1, 0)
+    yy = (target_radius_grid * np.sin(target_theta)).transpose(1, 0)
+    for total_degree in range(degree + 1):
+        for x_degree in range(total_degree, -1, -1):
+            y_degree = total_degree - x_degree
+            x[..., column] = (
+                x_degree * xx ** (x_degree - 1) * yy ** y_degree
+                if x_degree else 0.0
+            )
+            y[..., column] = (
+                y_degree * xx ** x_degree * yy ** (y_degree - 1)
+                if y_degree else 0.0
+            )
+            column += 1
+    target_cos = np.cos(theta)[None, :, None]
+    target_sin = np.sin(theta)[None, :, None]
+    target_r = target_radius[:, None, None]
+    u_gradient_basis = target_cos * x + target_sin * y
+    theta_gradient_basis = (
+        -target_r * target_sin * x
+        + target_r * target_cos * y
+    )
+    return (
+        degree,
+        rings,
+        target_rings,
+        weights,
+        u_gradient_basis,
+        theta_gradient_basis,
+        points,
+        condition_number,
+    )
+
+
+def build_axis_core_cell_gradient_reconstruction(
+    layout,
+    domain,
+    polynomial_degree=3,
+    observation_ring_count=6,
+    target_ring_count=3,
+):
+    if not isinstance(layout, HaloLayout3D):
+        raise TypeError("layout must be a HaloLayout3D instance")
+    if domain.layout != layout:
+        raise ValueError("domain and layout must match")
+    global_nx, global_ny, _ = tuple(int(value) for value in domain.shard_spec.global_shape)
+    if int(polynomial_degree) < 0 or int(observation_ring_count) < 1 or int(target_ring_count) < 1:
+        raise ValueError("polynomial_degree must be non-negative and ring counts positive")
+    degree, rings, targets, weights, u, theta, values, condition_number = (
+        _axis_core_cell_gradient_reconstruction_matrices(
+            global_nx,
+            global_ny,
+            layout.owned_shape[0],
+            int(polynomial_degree),
+            int(observation_ring_count),
+            int(target_ring_count),
+        )
+    )
+    return AxisCoreCellGradientReconstruction3D(
+        layout=layout,
+        global_shape=tuple(int(value) for value in domain.shard_spec.global_shape),
+        observation_to_coefficient_weights=jnp.asarray(weights),
+        u_gradient_target_basis=jnp.asarray(u),
+        theta_gradient_target_basis=jnp.asarray(theta),
+        eta_value_target_basis=jnp.asarray(values),
+        polynomial_degree=degree,
+        observation_ring_count=rings,
+        target_ring_count=targets,
+        normalized_design_condition_number=condition_number,
+    )
+
+
+@lru_cache(maxsize=1)
+def _local_cell_gradient_type():
+    from ..native.fci_boundaries import LocalCellGradient3D
+    return LocalCellGradient3D
+
+
 @_pytree_base
 @dataclass(frozen=True)
 class LocalCurvatureFaceCoefficients3D(_DataclassPyTreeMixin):
@@ -1673,6 +2944,10 @@ def build_local_curvature_face_coefficients(
     boundary-face one-form.  Multiple physical faces meeting at a corner are
     averaged symmetrically.  All Q faces are then differentiated from this
     single patched edge set, so discrete div(curl) remains roundoff-small.
+    At a collapsed lower-x polar axis, the edge one-form is projected onto
+    its smooth axis trace before taking the curl: ``A_theta=0`` and
+    ``A_zeta`` is independent of theta.  Consequently the radial curl flux is
+    zero at the axis without modifying any completed face flux afterward.
     """
 
     if not isinstance(geometry, LocalFciGeometry3D):
@@ -1687,6 +2962,26 @@ def build_local_curvature_face_coefficients(
         )
     if geometry.layout != domain.layout:
         raise ValueError("geometry and domain must share the same HaloLayout3D")
+    if domain.axis_regular_axes[1] or domain.axis_regular_axes[2]:
+        raise NotImplementedError(
+            "curvature face coefficients only support a lower-x regular axis; "
+            f"got axis_regular_axes={domain.axis_regular_axes}"
+        )
+    if domain.axis_regular_axes[0]:
+        global_theta = int(domain.shard_spec.global_shape[1])
+        local_theta = int(geometry.layout.owned_shape[1])
+        theta_shards = int(domain.shard_spec.shard_counts[1])
+        if global_theta != local_theta * theta_shards:
+            raise ValueError(
+                "axis-regular curvature requires equal theta sharding; "
+                f"got global={global_theta}, local={local_theta}, "
+                f"shards={theta_shards}"
+            )
+        if theta_shards > 1 and domain.mesh_axis_names[1] is None:
+            raise ValueError(
+                "axis-regular curvature requires a theta mesh axis name when "
+                "theta is sharded"
+            )
     h = int(geometry.layout.halo_width)
     if h < 1:
         raise ValueError("local curvature face coefficients require at least one geometry halo cell")
@@ -1826,6 +3121,34 @@ def build_local_curvature_face_coefficients(
             + [(active, 2, side, _average_one(plane[..., 0], 1)) for active, side, plane in z_boundary_planes]
         ),
     )
+
+    if domain.axis_regular_axes[0]:
+        # A smooth one-form in polar coordinates has A_theta=O(rho), while
+        # its passive/toroidal component has one theta-independent value on
+        # the collapsed axis.  Enforce those statements on the *edge
+        # potential* so the incidence curl simultaneously has Q^rho=0 on the
+        # axis and div_h(Q)=0.  Patching Q^rho after this point would destroy
+        # the latter identity.
+        axis_owner = domain.runtime_has_axis_regular_lower(0)
+        local_axis_Az = Az_xy[h, slice(h, h + ny), iz]
+        axis_Az_sum = jnp.sum(local_axis_Az, axis=0)
+        theta_shards = int(domain.shard_spec.shard_counts[1])
+        if theta_shards > 1:
+            axis_Az_sum = lax.psum(
+                axis_Az_sum,
+                axis_name=domain.mesh_axis_names[1],
+            )
+        axis_Az_mean = axis_Az_sum / float(domain.shard_spec.global_shape[1])
+        regular_Az = jnp.broadcast_to(axis_Az_mean[None, :], (ny + 1, nz))
+        old_Az = Az_xy[h, iy_face, iz]
+        Az_xy = Az_xy.at[h, iy_face, iz].set(
+            jnp.where(axis_owner, regular_Az, old_Az)
+        )
+
+        old_Ay = Ay_xz[h, iy, iz_face]
+        Ay_xz = Ay_xz.at[h, iy, iz_face].set(
+            jnp.where(axis_owner, jnp.zeros_like(old_Ay), old_Ay)
+        )
 
     qx = 0.5 * (
         (Az_xy[ix_face, slice(h + 1, h + ny + 1), iz]
@@ -2312,6 +3635,9 @@ class StencilBuilderContext(_DataclassPyTreeMixin):
     ) = None
     cut_wall_values: jnp.ndarray | None = None
     cut_wall_stencil_remote_values: jnp.ndarray | None = None
+    axis_core_face_reconstruction: AxisCoreFaceReconstruction3D | None = None
+    axis_core_face_gradient_reconstruction: AxisCoreFaceGradientReconstruction3D | None = None
+    axis_core_cell_gradient_reconstruction: AxisCoreCellGradientReconstruction3D | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -2326,6 +3652,100 @@ class StencilBuilderContext(_DataclassPyTreeMixin):
                 "StencilBuilderContext.cut_wall_stencil_dependencies must share "
                 "the same layout"
             )
+        reconstruction = self.axis_core_face_reconstruction
+        if reconstruction is not None and reconstruction.layout != self.layout:
+            raise ValueError(
+                "StencilBuilderContext.axis_core_face_reconstruction must share "
+                "the same layout"
+            )
+        cell_reconstruction = self.axis_core_cell_gradient_reconstruction
+        if cell_reconstruction is not None and cell_reconstruction.layout != self.layout:
+            raise ValueError(
+                "StencilBuilderContext.axis_core_cell_gradient_reconstruction must share "
+                "the same layout"
+            )
+        face_gradient_reconstruction = self.axis_core_face_gradient_reconstruction
+        if (
+            face_gradient_reconstruction is not None
+            and face_gradient_reconstruction.layout != self.layout
+        ):
+            raise ValueError(
+                "StencilBuilderContext.axis_core_face_gradient_reconstruction must share "
+                "the same layout"
+            )
+        if self.domain is not None:
+            if reconstruction is not None and reconstruction.global_shape != tuple(
+                self.domain.shard_spec.global_shape
+            ):
+                raise ValueError(
+                    "StencilBuilderContext.axis_core_face_reconstruction must share "
+                    "the domain global shape"
+                )
+            if self.domain.axis_regular_axes[0] and reconstruction is None:
+                reconstruction = build_axis_core_face_reconstruction(
+                    self.layout,
+                    self.domain,
+                )
+                object.__setattr__(self, "axis_core_face_reconstruction", reconstruction)
+            if cell_reconstruction is not None and cell_reconstruction.global_shape != tuple(
+                self.domain.shard_spec.global_shape
+            ):
+                raise ValueError(
+                    "StencilBuilderContext.axis_core_cell_gradient_reconstruction must share "
+                    "the domain global shape"
+                )
+            if self.domain.axis_regular_axes[0] and cell_reconstruction is None:
+                cell_reconstruction = build_axis_core_cell_gradient_reconstruction(
+                    self.layout, self.domain,
+                )
+                object.__setattr__(self, "axis_core_cell_gradient_reconstruction", cell_reconstruction)
+            if (
+                face_gradient_reconstruction is not None
+                and face_gradient_reconstruction.global_shape != tuple(
+                    self.domain.shard_spec.global_shape
+                )
+            ):
+                raise ValueError(
+                    "StencilBuilderContext.axis_core_face_gradient_reconstruction must share "
+                    "the domain global shape"
+                )
+            if self.domain.axis_regular_axes[0] and face_gradient_reconstruction is None:
+                if cell_reconstruction is None:
+                    raise RuntimeError(
+                        "axis-core face-gradient reconstruction requires a cell-gradient policy"
+                    )
+                face_gradient_reconstruction = build_axis_core_face_gradient_reconstruction(
+                    self.layout,
+                    self.domain,
+                    polynomial_degree=cell_reconstruction.polynomial_degree,
+                    observation_ring_count=cell_reconstruction.observation_ring_count,
+                    target_ring_count=cell_reconstruction.target_ring_count,
+                )
+                object.__setattr__(
+                    self,
+                    "axis_core_face_gradient_reconstruction",
+                    face_gradient_reconstruction,
+                )
+
+    def tree_flatten(self):
+        children = (
+            self.layout,
+            self.domain,
+            self.cut_wall_geometry,
+            self.cut_wall_bc,
+            self.cut_wall_value_reconstructor,
+            self.cut_wall_stencil_dependencies,
+            self.cut_wall_values,
+            self.cut_wall_stencil_remote_values,
+            self.axis_core_face_reconstruction,
+            self.axis_core_face_gradient_reconstruction,
+            self.axis_core_cell_gradient_reconstruction,
+        )
+        return children, None
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        return cls(*children)
 
 
 # Backward-compatible aliases. Both historical context names now refer to the
@@ -4282,6 +5702,13 @@ def _stencil_types():
     return ConservativeStencil3D, FaceGradientStencil3D, LocalStencil1D, LocalStencil3D
 
 
+@lru_cache(maxsize=1)
+def _coordinate_face_values_type():
+    from ..native.fci_boundaries import CoordinateFaceValues3D
+
+    return CoordinateFaceValues3D
+
+
 def _shift_owned_slices(layout: HaloLayout3D, axis: int, offset: int) -> tuple[slice, slice, slice]:
     h = layout.halo_width
     nx, ny, nz = layout.owned_shape
@@ -4339,6 +5766,52 @@ def _local_axis_stencil_from_halo(
         dx_plus = jnp.broadcast_to(upper_width_1d[None, None, :], owned_shape)
 
     return LocalStencil1D(center=center, minus=minus, plus=plus, dx_min=dx_min, dx_plus=dx_plus)
+
+
+def _coordinate_face_values_from_stencils(
+    coordinate_stencil: "LocalStencil3D",
+):
+    """Materialize the ordinary centered scalar value on every shared face."""
+
+    CoordinateFaceValues3D = _coordinate_face_values_type()
+
+    def _axis_faces(stencil, axis: int):
+        center = jnp.asarray(stencil.center, dtype=jnp.float64)
+        minus = jnp.asarray(stencil.minus, dtype=jnp.float64)
+        plus = jnp.asarray(stencil.plus, dtype=jnp.float64)
+        lower = 0.5 * (
+            center[_local_axis_plane_slice(axis, 0)]
+            + minus[_local_axis_plane_slice(axis, 0)]
+        )
+        return jnp.concatenate(
+            (jnp.expand_dims(lower, axis=axis), 0.5 * (center + plus)),
+            axis=axis,
+        )
+
+    return CoordinateFaceValues3D(
+        x=_axis_faces(coordinate_stencil.x, 0),
+        y=_axis_faces(coordinate_stencil.y, 1),
+        z=_axis_faces(coordinate_stencil.z, 2),
+    )
+
+
+def _build_local_coordinate_face_values(
+    coordinate_stencil: "LocalStencil3D",
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    context: StencilBuilderContext,
+):
+    face_values = _coordinate_face_values_from_stencils(coordinate_stencil)
+    domain = context.domain
+    reconstruction = context.axis_core_face_reconstruction
+    if domain is not None and domain.axis_regular_axes[0]:
+        if reconstruction is None:
+            reconstruction = build_axis_core_face_reconstruction(
+                geometry.layout,
+                domain,
+            )
+        face_values = reconstruction.apply(face_values, field_halo, domain)
+    return face_values
 
 
 def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) -> jnp.ndarray:
@@ -4465,10 +5938,17 @@ def _global_axis_stencil_from_field(
 
         return LocalStencil1D(center=values, minus=minus, plus=plus, dx_min=dx_min, dx_plus=dx_plus)
 
-    return ConservativeStencil3D(
+    _, _, _, LocalStencil3D = _stencil_types()
+    coordinate_stencil = LocalStencil3D(
         x=_axis_stencil(0, geometry.grid.x, periodic_axes[0]),
         y=_axis_stencil(1, geometry.grid.y, periodic_axes[1]),
         z=_axis_stencil(2, geometry.grid.z, periodic_axes[2]),
+    )
+    return ConservativeStencil3D(
+        x=coordinate_stencil.x,
+        y=coordinate_stencil.y,
+        z=coordinate_stencil.z,
+        face_values=_coordinate_face_values_from_stencils(coordinate_stencil),
         face_grad=FaceGradientStencil3D(
             x=_face_gradient_for_axis(0),
             y=_face_gradient_for_axis(1),
@@ -4546,15 +6026,38 @@ def _build_conservative_stencil_from_field(
             dtype=field_halo.dtype,
         )
 
+    face_values = _build_local_coordinate_face_values(
+        coordinate_stencil,
+        field_halo,
+        geometry,
+        context,
+    )
+    face_grad = _build_local_face_gradient_from_halo(
+        field_halo,
+        geometry,
+        context.domain,
+    )
+    if context.domain.axis_regular_axes[0]:
+        reconstruction = context.axis_core_face_gradient_reconstruction
+        if reconstruction is None:
+            raise RuntimeError(
+                "axis-regular conservative stencils require an axis-core face-gradient "
+                "reconstruction payload"
+            )
+        face_grad = reconstruction.apply(
+            face_grad,
+            face_values,
+            field_halo,
+            geometry,
+            context.domain,
+        )
+
     return ConservativeStencil3D(
         x=coordinate_stencil.x,
         y=coordinate_stencil.y,
         z=coordinate_stencil.z,
-        face_grad=_build_local_face_gradient_from_halo(
-            field_halo,
-            geometry,
-            context.domain,
-        ),
+        face_values=face_values,
+        face_grad=face_grad,
     )
 
 
@@ -4877,6 +6380,55 @@ class LocalStencilBuilder(_DataclassPyTreeMixin):
 
 
 build_local_stencil_from_field = LocalStencilBuilder(_build_local_stencil_from_field)
+
+
+def build_local_cell_gradient_from_field(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    context: StencilBuilderContext,
+):
+    """Build an owned-cell logical gradient, patching only the axis owner rings."""
+
+    LocalCellGradient3D = _local_cell_gradient_type()
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError("geometry must be a LocalFciGeometry3D instance")
+    if not isinstance(context, StencilBuilderContext):
+        raise TypeError("context must be a StencilBuilderContext instance")
+    if context.layout != geometry.layout:
+        raise ValueError("geometry and context must share the same HaloLayout3D")
+    field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
+    if field_halo.shape != geometry.halo_shape:
+        raise ValueError(
+            "field_halo must match geometry.halo_shape; "
+            f"got {field_halo.shape}, expected {geometry.halo_shape}"
+        )
+    direct = build_local_stencil_from_field(field_halo, geometry, context)
+
+    def _ordinary_derivative(axis_stencil):
+        return (
+            axis_stencil.derivative_minus_weight * axis_stencil.minus
+            + axis_stencil.derivative_center_weight * axis_stencil.center
+            + axis_stencil.derivative_plus_weight * axis_stencil.plus
+        )
+
+    gradient = jnp.stack(
+        (_ordinary_derivative(direct.x), _ordinary_derivative(direct.y), _ordinary_derivative(direct.z)),
+        axis=-1,
+    )
+    direct_gradient = LocalCellGradient3D(
+        gradient=gradient,
+        valid=jnp.ones(geometry.owned_shape, dtype=bool),
+        reconstruction_mask=jnp.zeros(geometry.owned_shape, dtype=bool),
+    )
+    reconstruction = context.axis_core_cell_gradient_reconstruction
+    if reconstruction is None:
+        return direct_gradient
+    if context.domain is None:
+        raise ValueError(
+            "context.domain is required when an axis-core cell-gradient "
+            "reconstruction payload is supplied"
+        )
+    return reconstruction.apply(field_halo, direct_gradient, context.domain)
 
 
 def _normalize_remote_receive_values(
@@ -6037,16 +7589,41 @@ def build_local_curvature_coefficients(
         raise ValueError(f"periodic_axes must have length 3, got {periodic_axes}")
     if len(axis_regular_axes) != 3:
         raise ValueError(f"axis_regular_axes must have length 3, got {axis_regular_axes}")
-    if any(axis_regular_axes):
-        raise NotImplementedError(
-            "build_local_curvature_coefficients does not yet support "
-            f"axis_regular_axes={axis_regular_axes}"
-        )
     if any(periodic and axis_regular for periodic, axis_regular in zip(periodic_axes, axis_regular_axes)):
         raise ValueError(
             "periodic_axes and axis_regular_axes cannot both be True on the same axis; "
             f"got periodic_axes={periodic_axes}, axis_regular_axes={axis_regular_axes}"
         )
+    if axis_regular_axes[1] or axis_regular_axes[2]:
+        raise NotImplementedError(
+            "axis_regular_axes currently only supports the lower x axis for curvature coefficients; "
+            f"got axis_regular_axes={axis_regular_axes}"
+        )
+    if axis_regular_axes[0]:
+        global_poloidal_count = int(domain.shard_spec.global_shape[1])
+        if global_poloidal_count % 2:
+            raise ValueError(
+                "axis-regular lower-x curvature coefficients require an even global poloidal grid"
+            )
+        poloidal_shard_count = int(domain.shard_spec.shard_counts[1])
+        local_poloidal_count = int(geometry.layout.owned_shape[1])
+        if global_poloidal_count != poloidal_shard_count * local_poloidal_count:
+            raise ValueError(
+                "axis-regular local curvature coefficients require equal poloidal sharding; "
+                f"got global_count={global_poloidal_count}, "
+                f"shard_count={poloidal_shard_count}, "
+                f"local_count={local_poloidal_count}"
+            )
+        if poloidal_shard_count > 1 and domain.mesh_axis_names[1] is None:
+            raise ValueError(
+                "axis-regular local curvature coefficients require a theta mesh axis name "
+                "when the poloidal axis is sharded"
+            )
+    do_axis_lower = (
+        domain.runtime_has_axis_regular_lower(0)
+        if axis_regular_axes[0]
+        else jnp.asarray(False)
+    )
 
     h = int(geometry.layout.halo_width)
     if h < 1:
@@ -6084,6 +7661,42 @@ def build_local_curvature_coefficients(
         c_center = (dx_plus * dx_plus - dx_min * dx_min) / denom
         c_plus = dx_min * dx_min / denom
         return c_minus * minus + c_center * center + c_plus * plus
+
+    def _distributed_scalar_half_turn(source: jnp.ndarray) -> jnp.ndarray:
+        """Assemble theta+pi data from one or two equal theta shards."""
+
+        global_count = int(domain.shard_spec.global_shape[1])
+        local_count = int(geometry.layout.owned_shape[1])
+        shard_count = int(domain.shard_spec.shard_counts[1])
+        shard_shift, local_shift = divmod(global_count // 2, local_count)
+        if shard_count == 1:
+            return jnp.roll(source, shift=-local_shift, axis=0)
+
+        axis_name = domain.mesh_axis_names[1]
+        if axis_name is None:
+            raise ValueError(
+                "distributed scalar half-turn requires a theta mesh axis name"
+            )
+
+        def _exchange(shift: int) -> jnp.ndarray:
+            shift %= shard_count
+            return lax.ppermute(
+                source,
+                axis_name=axis_name,
+                perm=[
+                    (source_id, (source_id - shift) % shard_count)
+                    for source_id in range(shard_count)
+                ],
+            )
+
+        first = _exchange(shard_shift)
+        if local_shift == 0:
+            return first
+        second = _exchange(shard_shift + 1)
+        return jnp.concatenate(
+            (first[local_shift:], second[:local_shift]),
+            axis=0,
+        )
 
     def _patch_physical_faces(
         deriv_halo_interior: jnp.ndarray,
@@ -6131,6 +7744,10 @@ def build_local_curvature_coefficients(
         lower_plane = _axis_index_nd(axis, 0, deriv_halo_interior.ndim)
         upper_plane = _axis_index_nd(axis, -1, deriv_halo_interior.ndim)
         do_lower = domain.runtime_has_physical_lower(axis)
+        if axis == 0 and axis_regular_axes[0]:
+            # The collapsed lower radial face is a polar coordinate seam, not
+            # a physical wall. Its ghost is supplied by the half-turn below.
+            do_lower = jnp.logical_and(do_lower, jnp.logical_not(do_axis_lower))
         do_upper = domain.runtime_has_physical_upper(axis)
 
         deriv_halo_interior = deriv_halo_interior.at[lower_plane].set(
@@ -6148,12 +7765,29 @@ def build_local_curvature_coefficients(
         axis: int,
         lower_face_value: jnp.ndarray,
         upper_face_value: jnp.ndarray,
+        axis_regular_lower: bool = False,
+        assemble_axis_half_turn: bool = False,
     ) -> jnp.ndarray:
         if values_halo.shape[axis] < geometry.layout.owned_shape[axis] + 2:
             raise ValueError("local curvature coefficient construction requires halo values")
 
+        derivative_values = values_halo
+        if axis == 0 and assemble_axis_half_turn:
+            # At rho=0, (rho,theta) and (-rho,theta+pi) are the same point.
+            # Only the owned y/z portion is needed by the owned x derivative;
+            # this avoids assuming that halo corners have already been filled.
+            n_y, n_z = geometry.layout.owned_shape[1:]
+            first_owned = values_halo[h, h : h + n_y, h : h + n_z]
+            # Every theta shard in every radial group executes the collective.
+            # Runtime radial ownership controls only the subsequent write.
+            lower_ghost = _distributed_scalar_half_turn(first_owned)
+            original_ghost = values_halo[h - 1, h : h + n_y, h : h + n_z]
+            derivative_values = values_halo.at[
+                h - 1, h : h + n_y, h : h + n_z
+            ].set(jnp.where(axis_regular_lower, lower_ghost, original_ghost))
+
         deriv_halo_interior = _local_centered_derivative(
-            values_halo,
+            derivative_values,
             spacing_halo,
             axis=axis,
         )
@@ -6166,7 +7800,7 @@ def build_local_curvature_coefficients(
         grid_axis = (geometry.grid.x, geometry.grid.y, geometry.grid.z)[axis]
         return _patch_physical_faces(
             owned,
-            values_halo,
+            derivative_values,
             axis=axis,
             lower_face_value=lower_face_value,
             upper_face_value=upper_face_value,
@@ -6248,7 +7882,168 @@ def build_local_curvature_coefficients(
     coefficient = bmag_owned / (
         2.0 * jnp.maximum(jnp.asarray(metric.J_owned, dtype=jnp.float64), float(jacobian_floor))
     )
-    return coefficient[..., None] * curl
+    curvature_coefficients = coefficient[..., None] * curl
+
+    if axis_regular_axes[0]:
+        # The ordinary logical curl is not regular at the polar coordinate
+        # singularity. Recompute the first owned radial ring in Cartesian
+        # components, where the one-form is smooth, then transform the result
+        # back to the (rho, theta, zeta) coordinate basis.
+        rho = jnp.asarray(geometry.grid.x.centers, dtype=jnp.float64)
+        theta = jnp.asarray(geometry.grid.y.centers, dtype=jnp.float64)
+        rho_safe = jnp.maximum(rho, 1.0e-30)
+        cos_theta = jnp.cos(theta)[None, :, None]
+        sin_theta = jnp.sin(theta)[None, :, None]
+
+        A_rho = covariant_field[..., 0]
+        A_theta = covariant_field[..., 1]
+        A_zeta = covariant_field[..., 2]
+        A_X = A_rho * cos_theta - A_theta * sin_theta / rho_safe[:, None, None]
+        A_Y = A_rho * sin_theta + A_theta * cos_theta / rho_safe[:, None, None]
+        A_Z = A_zeta
+
+        nx, ny, nz = geometry.layout.owned_shape
+        owned_x = slice(h, h + nx)
+        owned_y = slice(h, h + ny)
+        owned_z = slice(h, h + nz)
+
+        x_upper_face = h + nx
+        x_face_rho = jnp.asarray(geometry.grid.x.faces[x_upper_face], dtype=jnp.float64)
+        x_face_rho_safe = jnp.maximum(x_face_rho, 1.0e-30)
+        x_face_cos = jnp.cos(theta[owned_y])[:, None]
+        x_face_sin = jnp.sin(theta[owned_y])[:, None]
+        x_face_cov = face_covariant_x[x_upper_face, owned_y, owned_z]
+        x_upper_A_X = x_face_cov[..., 0] * x_face_cos - x_face_cov[..., 1] * x_face_sin / x_face_rho_safe
+        x_upper_A_Y = x_face_cov[..., 0] * x_face_sin + x_face_cov[..., 1] * x_face_cos / x_face_rho_safe
+        x_upper_A_Z = x_face_cov[..., 2]
+
+        dA_X_drho = _owned_derivative(
+            A_X,
+            geometry.spacing.dx_halo,
+            axis=0,
+            lower_face_value=jnp.zeros((ny, nz), dtype=jnp.float64),
+            upper_face_value=x_upper_A_X,
+            axis_regular_lower=do_axis_lower,
+            assemble_axis_half_turn=True,
+        )
+        dA_Y_drho = _owned_derivative(
+            A_Y,
+            geometry.spacing.dx_halo,
+            axis=0,
+            lower_face_value=jnp.zeros((ny, nz), dtype=jnp.float64),
+            upper_face_value=x_upper_A_Y,
+            axis_regular_lower=do_axis_lower,
+            assemble_axis_half_turn=True,
+        )
+        dA_Z_drho = _owned_derivative(
+            A_Z,
+            geometry.spacing.dx_halo,
+            axis=0,
+            lower_face_value=jnp.zeros((ny, nz), dtype=jnp.float64),
+            upper_face_value=x_upper_A_Z,
+            axis_regular_lower=do_axis_lower,
+            assemble_axis_half_turn=True,
+        )
+
+        def _face_cartesian_values(face_cov, face_index, angle, face_axis):
+            rho_safe_face = rho[owned_x, None]
+            c = jnp.cos(angle)
+            s = jnp.sin(angle)
+            if jnp.ndim(c) == 1:
+                c = c[None, :]
+                s = s[None, :]
+            if face_axis == 1:
+                values = face_cov[owned_x, face_index, owned_z]
+            else:
+                values = face_cov[owned_x, owned_y, face_index]
+            return (
+                values[..., 0] * c - values[..., 1] * s / rho_safe_face,
+                values[..., 0] * s + values[..., 1] * c / rho_safe_face,
+                values[..., 2],
+            )
+
+        y_lower = _face_cartesian_values(
+            face_covariant_y, h, geometry.grid.y.faces[h], 1
+        )
+        y_upper = _face_cartesian_values(
+            face_covariant_y, h + ny, geometry.grid.y.faces[h + ny], 1
+        )
+        dA_X_dtheta = _owned_derivative(
+            A_X, geometry.spacing.dy_halo, axis=1,
+            lower_face_value=y_lower[0], upper_face_value=y_upper[0]
+        )
+        dA_Y_dtheta = _owned_derivative(
+            A_Y, geometry.spacing.dy_halo, axis=1,
+            lower_face_value=y_lower[1], upper_face_value=y_upper[1]
+        )
+        dA_Z_dtheta = _owned_derivative(
+            A_Z, geometry.spacing.dy_halo, axis=1,
+            lower_face_value=y_lower[2], upper_face_value=y_upper[2]
+        )
+
+        z_lower = _face_cartesian_values(
+            face_covariant_z, h, theta[owned_y], 2
+        )
+        z_upper = _face_cartesian_values(
+            face_covariant_z, h + nz, theta[owned_y], 2
+        )
+        dA_X_dzeta = _owned_derivative(
+            A_X, geometry.spacing.dz_halo, axis=2,
+            lower_face_value=z_lower[0], upper_face_value=z_upper[0]
+        )
+        dA_Y_dzeta = _owned_derivative(
+            A_Y, geometry.spacing.dz_halo, axis=2,
+            lower_face_value=z_lower[1], upper_face_value=z_upper[1]
+        )
+        dA_Z_dzeta = _owned_derivative(
+            A_Z, geometry.spacing.dz_halo, axis=2,
+            lower_face_value=z_lower[2], upper_face_value=z_upper[2]
+        )
+
+        rho_owned = rho[owned_x, None, None]
+        theta_owned = theta[None, owned_y, None]
+        cos_owned = jnp.cos(theta_owned)
+        sin_owned = jnp.sin(theta_owned)
+        inv_rho = 1.0 / jnp.maximum(rho_owned, 1.0e-30)
+        dA_X_dY = sin_owned * dA_X_drho + cos_owned * inv_rho * dA_X_dtheta
+        dA_Y_dX = cos_owned * dA_Y_drho - sin_owned * inv_rho * dA_Y_dtheta
+        dA_Z_dX = cos_owned * dA_Z_drho - sin_owned * inv_rho * dA_Z_dtheta
+        dA_Z_dY = sin_owned * dA_Z_drho + cos_owned * inv_rho * dA_Z_dtheta
+        cartesian_curl = jnp.stack(
+            (
+                dA_Z_dY - dA_Y_dzeta,
+                dA_X_dzeta - dA_Z_dX,
+                dA_Y_dX - dA_X_dY,
+            ),
+            axis=-1,
+        )
+        rho_owned_safe = jnp.maximum(rho_owned, 1.0e-30)
+        cartesian_coefficient = (
+            bmag_owned * rho_owned_safe
+            / (
+                2.0
+                * jnp.maximum(
+                    jnp.asarray(metric.J_owned, dtype=jnp.float64),
+                    float(jacobian_floor),
+                )
+            )
+        )
+        C_X = cartesian_coefficient * cartesian_curl[..., 0]
+        C_Y = cartesian_coefficient * cartesian_curl[..., 1]
+        C_Z = cartesian_coefficient * cartesian_curl[..., 2]
+        regular = jnp.stack(
+            (
+                C_X * cos_owned + C_Y * sin_owned,
+                (-C_X * sin_owned + C_Y * cos_owned) / rho_owned_safe,
+                C_Z,
+            ),
+            axis=-1,
+        )
+        curvature_coefficients = curvature_coefficients.at[0].set(
+            jnp.where(do_axis_lower, regular[0], curvature_coefficients[0])
+        )
+
+    return curvature_coefficients
 
 
 def _physical_domain_valid_mask(
@@ -6583,6 +8378,7 @@ def build_fci_maps_from_b_contravariant(
     *,
     substeps: int = 4,
     periodic_axes: tuple[bool, bool, bool] = (False, True, True),
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
     min_abs_bz: float = 1.0e-30,
     boundary_value: float = jnp.nan,
 ) -> dict[str, jnp.ndarray]:
@@ -6597,11 +8393,18 @@ def build_fci_maps_from_b_contravariant(
           target plane if no boundary hit,
           boundary hit point if boundary=True.
 
+    ``axis_regular_axes`` enables the polar/toroidal lower-radial topology.
+    The currently supported case is ``axis_regular_axes[0]`` with periodic
+    theta and eta: a trial point crossing the lower x face is reflected to
+    ``x -> 2*x_axis - x`` and its theta coordinate is advanced by pi.  The
+    lower radial face is therefore not a physical boundary; the upper radial
+    face remains physical.
+
     For jitting:
 
         build_maps_jit = jax.jit(
             build_fci_maps_from_b_contravariant,
-            static_argnames=("substeps", "periodic_axes"),
+            static_argnames=("substeps", "periodic_axes", "axis_regular_axes"),
         )
     """
 
@@ -6633,6 +8436,26 @@ def build_fci_maps_from_b_contravariant(
     periodic_x = bool(periodic_axes[0])
     periodic_y = bool(periodic_axes[1])
     periodic_z = bool(periodic_axes[2])
+    axis_regular_axes = tuple(bool(v) for v in axis_regular_axes)
+    if len(axis_regular_axes) != 3:
+        raise ValueError(f"axis_regular_axes must have length 3, got {axis_regular_axes}")
+    if axis_regular_axes[1] or axis_regular_axes[2]:
+        raise ValueError(
+            "FCI axis regularity currently supports only the lower-radial x axis; "
+            f"got axis_regular_axes={axis_regular_axes}"
+        )
+    if axis_regular_axes[0]:
+        if periodic_x:
+            raise ValueError("the axis-regular radial axis cannot also be periodic")
+        if not periodic_y:
+            raise ValueError("axis-regular radial tracing requires periodic theta")
+        if not periodic_z:
+            raise ValueError("axis-regular radial tracing requires periodic eta")
+        if abs(float(grid.x.faces[0])) > 1.0e-12:
+            raise ValueError(
+                "axis-regular radial tracing requires the lower x face to be x=0; "
+                f"got {float(grid.x.faces[0])}"
+            )
 
     min_bz = jnp.asarray(min_abs_bz, dtype=jnp.float64)
 
@@ -6651,6 +8474,18 @@ def build_fci_maps_from_b_contravariant(
             ),
             axis=-1,
         )
+
+    def _axis_regularize_points(points: jnp.ndarray) -> jnp.ndarray:
+        """Apply the signed-radius polar identification to trial points."""
+
+        if not axis_regular_axes[0]:
+            return _wrap_points(points)
+
+        x = points[..., 0]
+        crossed_axis = x < grid.x.faces[0]
+        reflected_x = jnp.where(crossed_axis, 2.0 * grid.x.faces[0] - x, x)
+        reflected_theta = jnp.where(crossed_axis, points[..., 1] + jnp.pi, points[..., 1])
+        return _wrap_points(jnp.stack((reflected_x, reflected_theta, points[..., 2]), axis=-1))
 
     def _plane_step_jit(k: jnp.ndarray, direction: int) -> jnp.ndarray:
         """Signed z step from plane k to neighboring plane."""
@@ -6684,6 +8519,11 @@ def build_fci_maps_from_b_contravariant(
         return jnp.where(k > 0, interior_step, boundary_step)
 
     def _interp_B(points: jnp.ndarray) -> jnp.ndarray:
+        points = _axis_regularize_points(points)
+        sample_x = points[..., 0] if periodic_x else jnp.clip(points[..., 0], grid.x.faces[0], grid.x.faces[-1])
+        sample_y = points[..., 1] if periodic_y else jnp.clip(points[..., 1], grid.y.faces[0], grid.y.faces[-1])
+        sample_z = points[..., 2] if periodic_z else jnp.clip(points[..., 2], grid.z.faces[0], grid.z.faces[-1])
+        points = _wrap_points(jnp.stack((sample_x, sample_y, sample_z), axis=-1))
         return _interpolate_B_contravariant_cell_centered(
             grid,
             B_contra_cell,
@@ -6693,6 +8533,11 @@ def build_fci_maps_from_b_contravariant(
         )
 
     def _interp_Bmag(points: jnp.ndarray) -> jnp.ndarray:
+        points = _axis_regularize_points(points)
+        sample_x = points[..., 0] if periodic_x else jnp.clip(points[..., 0], grid.x.faces[0], grid.x.faces[-1])
+        sample_y = points[..., 1] if periodic_y else jnp.clip(points[..., 1], grid.y.faces[0], grid.y.faces[-1])
+        sample_z = points[..., 2] if periodic_z else jnp.clip(points[..., 2], grid.z.faces[0], grid.z.faces[-1])
+        points = _wrap_points(jnp.stack((sample_x, sample_y, sample_z), axis=-1))
         return _interpolate_scalar_cell_centered(
             Bmag_cell,
             points[..., 0],
@@ -6711,7 +8556,7 @@ def build_fci_maps_from_b_contravariant(
         )
 
     def _rhs(points: jnp.ndarray) -> jnp.ndarray:
-        b = _interp_B(points)
+        b = _interp_B(_axis_regularize_points(points))
         bz = _safe_bz(b[..., 2])
         return jnp.stack(
             (
@@ -6723,11 +8568,46 @@ def build_fci_maps_from_b_contravariant(
         )
 
     def _rk4_batch(points: jnp.ndarray, h: jnp.ndarray) -> jnp.ndarray:
+        h = jnp.asarray(h, dtype=jnp.float64)
+        h_points = h if h.ndim == 0 else h[..., None]
         k1 = _rhs(points)
-        k2 = _rhs(points + 0.5 * h * k1)
-        k3 = _rhs(points + 0.5 * h * k2)
-        k4 = _rhs(points + h * k3)
-        return points + (h / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        k2 = _rhs(points + 0.5 * h_points * k1)
+        k3 = _rhs(points + 0.5 * h_points * k2)
+        k4 = _rhs(points + h_points * k3)
+        return points + (h_points / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+    def _advance_batch_with_axis_event(points: jnp.ndarray, h: jnp.ndarray) -> jnp.ndarray:
+        """Advance one substep, splitting once at a lower-axis crossing."""
+
+        initial_rhs = _rhs(points)
+        trial = _rk4_batch(points, h)
+        if not axis_regular_axes[0]:
+            return trial
+
+        finite_trial = jnp.all(jnp.isfinite(trial), axis=-1)
+        h_points = jnp.asarray(h, dtype=jnp.float64)
+        if h_points.ndim == 0:
+            h_points = jnp.broadcast_to(h_points, (points.shape[0],))
+        euler_trial = points + h_points[:, None] * initial_rhs
+        euler_crossed = euler_trial[:, 0] < grid.x.faces[0]
+        rk_crossed = finite_trial & (trial[:, 0] < grid.x.faces[0])
+        crossed = euler_crossed | rk_crossed
+        event_trial = jnp.where(euler_crossed[:, None], euler_trial, trial)
+        denominator = jnp.where(
+            jnp.abs(event_trial[:, 0] - points[:, 0]) < 1.0e-300,
+            1.0,
+            event_trial[:, 0] - points[:, 0],
+        )
+        fraction = jnp.clip((grid.x.faces[0] - points[:, 0]) / denominator, 0.0, 1.0)
+        axis_state = points + fraction[:, None] * (event_trial - points)
+        axis_state = axis_state.at[:, 0].set(grid.x.faces[0])
+        # The remaining part of this substep is on the reflected polar
+        # branch. Apply the topology identification once at the event; the
+        # subsequent RK stages then see the correct theta branch.
+        axis_state = axis_state.at[:, 1].add(jnp.where(crossed, jnp.pi, 0.0))
+        axis_state = _axis_regularize_points(axis_state)
+        remaining_trial = _rk4_batch(axis_state, h * (1.0 - fraction))
+        return jnp.where(crossed[:, None], remaining_trial, trial)
 
     def _speed(sampled_b: jnp.ndarray, sampled_bmag: jnp.ndarray) -> jnp.ndarray:
         bz = _safe_bz(sampled_b[..., 2])
@@ -6739,6 +8619,7 @@ def build_fci_maps_from_b_contravariant(
         lower: jnp.ndarray,
         upper: jnp.ndarray,
         periodic: bool,
+        axis_regular: bool = False,
     ) -> jnp.ndarray:
         """Fraction along old->new where a nonperiodic axis hits a boundary.
 
@@ -6751,7 +8632,7 @@ def build_fci_maps_from_b_contravariant(
         denom = new - old
         safe_denom = jnp.where(jnp.abs(denom) < 1.0e-300, 1.0, denom)
 
-        crosses_lower = new < lower
+        crosses_lower = jnp.where(axis_regular, jnp.zeros_like(new, dtype=bool), new < lower)
         crosses_upper = new > upper
 
         t_lower = (lower - old) / safe_denom
@@ -6781,6 +8662,7 @@ def build_fci_maps_from_b_contravariant(
             grid.x.faces[0],
             grid.x.faces[-1],
             periodic_x,
+            axis_regular_axes[0],
         )
         ty = _axis_crossing_fraction(
             old_state[:, 1],
@@ -6823,16 +8705,23 @@ def build_fci_maps_from_b_contravariant(
 
         def substep_body(carry, _):
             state, length, alive, boundary = carry
+            state = _axis_regularize_points(state)
 
             b0 = _interp_B(state)
             bmag0 = _interp_Bmag(state)
             speed0 = _speed(b0, bmag0)
 
+            # The RK stages are sampled on the reflected branch by
+            # ``_axis_regularize_points``. Reflect the completed endpoint
+            # below after the step; splitting the step at an approximate Euler
+            # event can apply the theta identification twice for fields that
+            # are only cell-wise regularized.
             raw_next_state = _rk4_batch(state, step_size)
             finite_next = jnp.all(jnp.isfinite(raw_next_state), axis=-1)
 
             # For nonfinite results, keep the old state to avoid NaN pollution.
             next_state_finite = jnp.where(finite_next[:, None], raw_next_state, state)
+            next_state_finite = _axis_regularize_points(next_state_finite)
 
             valid_next = _physical_domain_valid_mask(
                 grid,
@@ -6991,6 +8880,500 @@ def build_fci_maps_from_b_contravariant(
         "backward_boundary": _planes_to_grid(backward_boundary_k),
         "dz": _planes_to_grid(dz_k),
     }
+
+
+def trace_fci_eta_plane_from_cell_centers(
+    grid: CellCenteredGrid3D,
+    B_contra_cell: jnp.ndarray,
+    Bmag_cell: jnp.ndarray,
+    *,
+    eta_index: int,
+    direction: int,
+    substeps: int = 4,
+    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    min_abs_bz: float = 1.0e-30,
+    boundary_value: float = jnp.nan,
+) -> dict[str, jnp.ndarray]:
+    """Return one mapped eta-plane trace from every cell center.
+
+    ``direction`` must be ``+1`` or ``-1`` and selects the forward or
+    backward neighboring eta-plane trace.  The returned ``x_index`` and
+    ``y_index`` arrays are fractional cell-centered indices for linear
+    (second-order) endpoint interpolation.  Endpoint coordinates and
+    connection lengths are retained for both interior and physical-wall
+    traces; ``boundary`` identifies the latter.
+
+    This convenience API intentionally delegates to
+    :func:`build_fci_maps_from_b_contravariant`, so its axis, periodic seam,
+    boundary-hit, and interpolation semantics cannot diverge from the full
+    map builder.  The full builder is still the preferred path when maps for
+    every eta plane are required.
+    """
+
+    if int(direction) not in (-1, 1):
+        raise ValueError(f"direction must be +1 or -1, got {direction}")
+    eta_index = int(eta_index)
+    if eta_index < 0 or eta_index >= grid.z.n:
+        raise ValueError(f"eta_index must be in [0, {grid.z.n}), got {eta_index}")
+
+    maps = build_fci_maps_from_b_contravariant(
+        grid,
+        B_contra_cell,
+        Bmag_cell,
+        substeps=substeps,
+        periodic_axes=periodic_axes,
+        axis_regular_axes=axis_regular_axes,
+        min_abs_bz=min_abs_bz,
+        boundary_value=boundary_value,
+    )
+    prefix = "forward" if int(direction) > 0 else "backward"
+    return {
+        "x_index": maps[f"{prefix}_x"][..., eta_index],
+        "y_index": maps[f"{prefix}_y"][..., eta_index],
+        "endpoint_x": maps[f"{prefix}_endpoint_x"][..., eta_index],
+        "endpoint_y": maps[f"{prefix}_endpoint_y"][..., eta_index],
+        "endpoint_z": maps[f"{prefix}_endpoint_z"][..., eta_index],
+        "length": maps[f"{prefix}_length"][..., eta_index],
+        "boundary": maps[f"{prefix}_boundary"][..., eta_index],
+        "eta_index": jnp.asarray(eta_index, dtype=jnp.int32),
+        "direction": jnp.asarray(int(direction), dtype=jnp.int32),
+    }
+
+def _callback_fci_field_values(
+    field_evaluator: Callable[[np.ndarray], object],
+    points: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Normalize callback results to ``(B_contravariant, Bmag)`` arrays."""
+
+    result = field_evaluator(np.asarray(points, dtype=np.float64))
+    if hasattr(result, "B_contravariant") and hasattr(result, "magnitude"):
+        b_contra = result.B_contravariant
+        bmag = result.magnitude
+    elif isinstance(result, dict) and "B_contravariant" in result and "magnitude" in result:
+        b_contra = result["B_contravariant"]
+        bmag = result["magnitude"]
+    elif isinstance(result, (tuple, list)) and len(result) == 2:
+        b_contra, bmag = result
+    else:
+        raise TypeError(
+            "field_evaluator must return MagneticFieldEvaluation, a "
+            "{'B_contravariant', 'magnitude'} mapping, or (B_contravariant, Bmag)"
+        )
+
+    b_contra = np.asarray(b_contra, dtype=np.float64)
+    bmag = np.asarray(bmag, dtype=np.float64)
+    expected_b = (points.shape[0], 3)
+    if b_contra.shape != expected_b:
+        raise ValueError(
+            f"field_evaluator B_contravariant must have shape {expected_b}, got {b_contra.shape}"
+        )
+    if bmag.shape not in ((points.shape[0],), (points.shape[0], 1)):
+        raise ValueError(
+            f"field_evaluator Bmag must have shape {(points.shape[0],)}, got {bmag.shape}"
+        )
+    bmag = bmag.reshape(points.shape[0])
+    if not np.all(np.isfinite(b_contra)) or not np.all(np.isfinite(bmag)):
+        raise ValueError("field_evaluator returned non-finite magnetic-field values")
+    return b_contra, bmag
+
+
+def build_fci_maps_from_callbacks(
+    grid: CellCenteredGrid3D,
+    field_evaluator: Callable[[np.ndarray], object],
+    *,
+    substeps: int = 4,
+    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    min_abs_bz: float = 1.0e-30,
+    endpoint_interpolation_order: int = 2,
+) -> dict[str, jnp.ndarray]:
+    """Build FCI maps by evaluating the magnetic field at arbitrary points.
+
+    ``field_evaluator`` receives an ``(n, 3)`` NumPy array and returns either
+    a ``MagneticFieldEvaluation``-like object with ``B_contravariant`` and
+    ``magnitude`` attributes, a mapping with those keys, or a two-tuple
+    ``(B_contravariant, Bmag)``.  This is the callback path intended for an
+    HSX ``MetricEvaluator`` adapter, and avoids sampling the evaluator onto a
+    materialized cell-centered magnetic-field array first.
+
+    Endpoint indices are fractional cell-centered indices and therefore use
+    bilinear, second-order endpoint interpolation.  Physical boundary hit
+    coordinates and connection lengths are retained.  With
+    ``axis_regular_axes[0]``, lower-radial crossings continue at reflected
+    radius and ``theta + pi``; the upper radial face remains physical.
+    """
+
+    if int(substeps) < 1:
+        raise ValueError(f"substeps must be >= 1, got {substeps}")
+    if int(endpoint_interpolation_order) != 2:
+        raise ValueError(
+            "only second-order endpoint interpolation is currently supported; "
+            f"got {endpoint_interpolation_order}"
+        )
+    if len(periodic_axes) != 3 or len(axis_regular_axes) != 3:
+        raise ValueError("periodic_axes and axis_regular_axes must have length 3")
+    periodic_axes = tuple(bool(value) for value in periodic_axes)
+    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
+    if any(axis_regular_axes[1:]):
+        raise ValueError(
+            "FCI axis regularity currently supports only the lower-radial x axis; "
+            f"got axis_regular_axes={axis_regular_axes}"
+        )
+    axis_regular_x = axis_regular_axes[0]
+    if axis_regular_x and (periodic_axes[0] or not periodic_axes[1] or not periodic_axes[2]):
+        raise ValueError(
+            "lower-radial axis regularity requires x nonperiodic and y/z periodic; "
+            f"got periodic_axes={periodic_axes}"
+        )
+    nx, ny, nz = grid.shape
+    x_axis = np.asarray(grid.x.centers, dtype=np.float64)
+    y_axis = np.asarray(grid.y.centers, dtype=np.float64)
+    z_axis = np.asarray(grid.z.centers, dtype=np.float64)
+    x_lower, x_upper = float(grid.x.faces[0]), float(grid.x.faces[-1])
+    y_lower, y_upper = float(grid.y.faces[0]), float(grid.y.faces[-1])
+    z_lower, z_upper = float(grid.z.faces[0]), float(grid.z.faces[-1])
+    y_period = y_upper - y_lower
+    z_period = z_upper - z_lower
+    if axis_regular_x and abs(x_lower) > 1.0e-12:
+        raise ValueError(
+            "lower-radial axis regularity requires the lower x face to be x=0; "
+            f"got {x_lower}"
+        )
+
+    def wrap_points(points: np.ndarray) -> np.ndarray:
+        result = np.asarray(points, dtype=np.float64).copy()
+        for axis, lower, upper, periodic in (
+            (0, x_lower, x_upper, periodic_axes[0]),
+            (1, y_lower, y_upper, periodic_axes[1]),
+            (2, z_lower, z_upper, periodic_axes[2]),
+        ):
+            if periodic:
+                result[:, axis] = np.mod(result[:, axis] - lower, upper - lower) + lower
+        return result
+
+    def regularize_points(points: np.ndarray, *, shift_theta: bool = True) -> np.ndarray:
+        result = np.asarray(points, dtype=np.float64).copy()
+        if axis_regular_x:
+            crossed_axis = result[:, 0] < x_lower
+            result[crossed_axis, 0] = 2.0 * x_lower - result[crossed_axis, 0]
+            if shift_theta:
+                result[crossed_axis, 1] += 0.5 * y_period
+        return wrap_points(result)
+
+    def signed_wrap_points(points: np.ndarray) -> np.ndarray:
+        """Wrap periodic coordinates while retaining signed radius."""
+
+        result = np.asarray(points, dtype=np.float64).copy()
+        for axis, lower, upper, periodic in (
+            (1, y_lower, y_upper, periodic_axes[1]),
+            (2, z_lower, z_upper, periodic_axes[2]),
+        ):
+            if periodic:
+                result[:, axis] = np.mod(
+                    result[:, axis] - lower, upper - lower
+                ) + lower
+        return result
+
+    def callback_sample(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        # Integrate through the polar axis in a signed-radius chart.  On the
+        # negative branch the same physical point is (|u|, theta+pi), while
+        # the signed radial contravariant component changes sign.  This keeps
+        # every RK stage on one smooth chart and avoids detecting an axis
+        # crossing from a step endpoint after intermediate stages have
+        # already crossed it.
+        signed_points = signed_wrap_points(points)
+        sample_points = signed_points.copy()
+        negative_branch = axis_regular_x & (sample_points[:, 0] < x_lower)
+        if axis_regular_x:
+            sample_points[:, 0] = np.abs(sample_points[:, 0] - x_lower) + x_lower
+            sample_points[negative_branch, 1] += 0.5 * y_period
+            sample_points = wrap_points(sample_points)
+            # Avoid asking a singular coordinate Jacobian for a value exactly
+            # at u=0; the axis-regular fit supplies the smooth one-sided limit.
+            axis_epsilon = max(1.0e-12, 1.0e-8 * abs(float(grid.x.widths[0])))
+            sample_points[:, 0] = np.maximum(sample_points[:, 0], axis_epsilon)
+        # A zero-width ghost/leg fill keeps RK stages inside the callback's
+        # valid domain. The actual wall endpoint is still found geometrically.
+        for axis, lower, upper, periodic in (
+            (0, x_lower, x_upper, periodic_axes[0]),
+            (1, y_lower, y_upper, periodic_axes[1]),
+            (2, z_lower, z_upper, periodic_axes[2]),
+        ):
+            if not periodic:
+                sample_points[:, axis] = np.clip(sample_points[:, axis], lower, upper)
+        b, bmag = _callback_fci_field_values(field_evaluator, sample_points)
+        if axis_regular_x:
+            b = np.array(b, copy=True)
+            b[negative_branch, 0] *= -1.0
+        return b, bmag
+
+    def rhs(points: np.ndarray) -> np.ndarray:
+        b, _ = callback_sample(points)
+        bz = b[:, 2].copy()
+        small = np.abs(bz) < float(min_abs_bz)
+        bz[small] = np.where(bz[small] < 0.0, -float(min_abs_bz), float(min_abs_bz))
+        return np.column_stack((b[:, 0] / bz, b[:, 1] / bz, np.ones(points.shape[0])))
+
+    def speed(points: np.ndarray) -> np.ndarray:
+        b, bmag = callback_sample(points)
+        bz = b[:, 2].copy()
+        small = np.abs(bz) < float(min_abs_bz)
+        bz[small] = np.where(bz[small] < 0.0, -float(min_abs_bz), float(min_abs_bz))
+        return bmag / np.maximum(np.abs(bz), 1.0e-30)
+
+    def valid(points: np.ndarray) -> np.ndarray:
+        points = np.asarray(points, dtype=np.float64)
+        result = np.isfinite(points).all(axis=1)
+        for axis, lower, upper, periodic in (
+            (0, x_lower, x_upper, periodic_axes[0]),
+            (1, y_lower, y_upper, periodic_axes[1]),
+            (2, z_lower, z_upper, periodic_axes[2]),
+        ):
+            if not periodic:
+                if axis == 0 and axis_regular_x:
+                    result &= np.abs(points[:, axis] - lower) <= (upper - lower)
+                else:
+                    result &= (points[:, axis] >= lower) & (points[:, axis] <= upper)
+        return result
+
+    def boundary_hit(old: np.ndarray, new: np.ndarray, valid_new: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        fractions = np.full(old.shape[0], np.inf, dtype=np.float64)
+        for axis, lower, upper, periodic, ignore_lower in (
+            (0, x_lower, x_upper, periodic_axes[0], axis_regular_x),
+            (1, y_lower, y_upper, periodic_axes[1], False),
+            (2, z_lower, z_upper, periodic_axes[2], False),
+        ):
+            if periodic:
+                continue
+            delta = new[:, axis] - old[:, axis]
+            safe_delta = np.where(np.abs(delta) < 1.0e-300, 1.0, delta)
+            candidate = np.full(old.shape[0], np.inf, dtype=np.float64)
+            if axis == 0 and axis_regular_x:
+                candidate = np.where(
+                    new[:, axis] < (2.0 * lower - upper),
+                    ((2.0 * lower - upper) - old[:, axis]) / safe_delta,
+                    candidate,
+                )
+            elif not ignore_lower:
+                candidate = np.where(new[:, axis] < lower, (lower - old[:, axis]) / safe_delta, candidate)
+            candidate = np.minimum(candidate, np.where(new[:, axis] > upper, (upper - old[:, axis]) / safe_delta, np.inf))
+            candidate = np.where((candidate >= 0.0) & (candidate <= 1.0), candidate, np.inf)
+            fractions = np.minimum(fractions, candidate)
+        has_hit = (~valid_new) & np.isfinite(fractions)
+        fraction = np.where(has_hit, fractions, 1.0)
+        hit = old + fraction[:, None] * (new - old)
+        for axis, lower, upper, periodic in (
+            (0, x_lower, x_upper, periodic_axes[0]),
+            (1, y_lower, y_upper, periodic_axes[1]),
+            (2, z_lower, z_upper, periodic_axes[2]),
+        ):
+            if not periodic:
+                hit[:, axis] = np.clip(
+                    hit[:, axis],
+                    2.0 * lower - upper if axis == 0 and axis_regular_x else lower,
+                    upper,
+                )
+        return signed_wrap_points(hit), fraction
+
+    def trace(seed_points: np.ndarray, step: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        state = signed_wrap_points(seed_points)
+        lengths = np.zeros(state.shape[0], dtype=np.float64)
+        alive = np.ones(state.shape[0], dtype=bool)
+        boundary = np.zeros(state.shape[0], dtype=bool)
+        h = float(step) / int(substeps)
+
+        def rk4_step(
+            points: np.ndarray,
+            step_values: np.ndarray | float,
+        ) -> np.ndarray:
+            step_values = np.asarray(step_values, dtype=np.float64)
+            step_points = step_values if step_values.ndim == 0 else step_values[:, None]
+            k1 = rhs(points)
+            k2 = rhs(signed_wrap_points(points + 0.5 * step_points * k1))
+            k3 = rhs(signed_wrap_points(points + 0.5 * step_points * k2))
+            k4 = rhs(signed_wrap_points(points + step_points * k3))
+            return points + (step_points / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+        for _ in range(int(substeps)):
+            b0_speed = speed(state)
+            raw_next = rk4_step(state, h)
+            finite_next = np.isfinite(raw_next).all(axis=1)
+            next_state = signed_wrap_points(
+                np.where(finite_next[:, None], raw_next, state)
+            )
+            valid_next = valid(next_state)
+            active_full = alive & finite_next & valid_next
+            active_exit = alive & finite_next & (~valid_next)
+            hit_state, fraction = boundary_hit(state, next_state, valid_next)
+            b1_speed = speed(next_state)
+            hit_speed = speed(hit_state)
+            lengths += np.where(active_full, 0.5 * abs(h) * (b0_speed + b1_speed), 0.0)
+            lengths += np.where(active_exit, 0.5 * abs(h) * fraction * (b0_speed + hit_speed), 0.0)
+            state = np.where(active_full[:, None], next_state, state)
+            state = np.where(active_exit[:, None], hit_state, state)
+            state = signed_wrap_points(state)
+            boundary |= active_exit | (alive & ~finite_next)
+            alive &= finite_next & valid_next
+        return regularize_points(state), lengths, boundary
+
+    def plane_step(index: int, direction: int) -> float:
+        if nz < 2:
+            return float(direction)
+        if direction > 0:
+            if index < nz - 1:
+                return float(z_axis[index + 1] - z_axis[index])
+            return float((z_axis[0] + z_period) - z_axis[-1]) if periodic_axes[2] else float(z_axis[-1] - z_axis[-2])
+        if index > 0:
+            return float(-(z_axis[index] - z_axis[index - 1]))
+        return float((z_axis[-1] - z_period) - z_axis[0]) if periodic_axes[2] else float(-(z_axis[1] - z_axis[0]))
+
+    def fractional_index(
+        axis: np.ndarray,
+        values: np.ndarray,
+        periodic: bool,
+        faces: np.ndarray | None = None,
+    ) -> np.ndarray:
+        if axis.size < 2:
+            return np.zeros_like(values, dtype=np.float64)
+        if periodic:
+            spacing = axis[1] - axis[0]
+            period = (axis[-1] - axis[0]) + spacing
+            wrapped = np.mod(values - axis[0], period) + axis[0]
+            upper = np.searchsorted(axis, wrapped, side="right")
+            lower = np.clip(upper - 1, 0, axis.size - 1)
+            upper_index = (lower + 1) % axis.size
+            upper_coord = np.where(lower == axis.size - 1, axis[0] + period, axis[upper_index])
+            weight = np.clip((wrapped - axis[lower]) / (upper_coord - axis[lower]), 0.0, 1.0)
+            return lower.astype(np.float64) + weight
+        if faces is None:
+            raise ValueError("faces are required for nonperiodic cell-centered indices")
+
+        upper = np.searchsorted(axis, values, side="right")
+        interior_lower = np.clip(upper - 1, 0, axis.size - 2)
+        interior_weight = (values - axis[interior_lower]) / (
+            axis[interior_lower + 1] - axis[interior_lower]
+        )
+        interior_index = interior_lower.astype(np.float64) + np.clip(interior_weight, 0.0, 1.0)
+
+        lower_ghost = 2.0 * float(faces[0]) - axis[0]
+        lower_weight = (values - lower_ghost) / (axis[0] - lower_ghost)
+        lower_index = -1.0 + lower_weight
+
+        upper_ghost = 2.0 * float(faces[-1]) - axis[-1]
+        upper_weight = (values - axis[-1]) / (upper_ghost - axis[-1])
+        upper_index = float(axis.size - 1) + upper_weight
+
+        result = np.where(values < axis[0], lower_index, interior_index)
+        result = np.where(values > axis[-1], upper_index, result)
+        # Physical endpoints are at most one half-cell outside the center
+        # range. Keeping this explicit makes the lowering contract clear.
+        return np.clip(result, -0.5, float(axis.size) - 0.5)
+
+    float_output_names = (
+        "forward_x", "forward_y", "backward_x", "backward_y",
+        "forward_endpoint_x", "forward_endpoint_y", "forward_endpoint_z",
+        "backward_endpoint_x", "backward_endpoint_y", "backward_endpoint_z",
+        "forward_length", "backward_length", "dz",
+    )
+    bool_output_names = ("forward_boundary", "backward_boundary")
+    outputs = {
+        name: np.empty((nx, ny, nz), dtype=np.float64)
+        for name in float_output_names
+    }
+    outputs.update({
+        name: np.empty((nx, ny, nz), dtype=bool)
+        for name in bool_output_names
+    })
+    xx, yy = np.meshgrid(x_axis, y_axis, indexing="ij")
+    seeds_xy = np.column_stack((xx.reshape(-1), yy.reshape(-1)))
+
+    # Group planes with the same signed eta step. Uniform periodic eta has
+    # exactly one group, so every RK4 callback sees all nx*ny*nz seeds in one
+    # batch. Nonuniform eta only pays once per distinct step size.
+    def step_groups(direction: int) -> list[tuple[float, list[int]]]:
+        grouped: dict[float, list[int]] = {}
+        for index in range(nz):
+            step = plane_step(index, direction)
+            key = round(float(step), 14)
+            grouped.setdefault(key, []).append(index)
+        return [(key, indices) for key, indices in grouped.items()]
+
+    def fill_direction(direction: int) -> None:
+        prefix = "forward" if direction > 0 else "backward"
+        for step, indices in step_groups(direction):
+            seed_batches = []
+            for index in indices:
+                seed_batches.append(
+                    np.column_stack((seeds_xy, np.full(seeds_xy.shape[0], z_axis[index])))
+                )
+            seeds = np.concatenate(seed_batches, axis=0)
+            traced, lengths, boundaries = trace(seeds, step)
+            for local_index, index in enumerate(indices):
+                begin = local_index * seeds_xy.shape[0]
+                end = begin + seeds_xy.shape[0]
+                endpoint = traced[begin:end]
+                outputs[f"{prefix}_x"][:, :, index] = fractional_index(
+                    x_axis, endpoint[:, 0], periodic_axes[0], np.asarray(grid.x.faces)
+                ).reshape(nx, ny)
+                outputs[f"{prefix}_y"][:, :, index] = fractional_index(
+                    y_axis, endpoint[:, 1], periodic_axes[1], np.asarray(grid.y.faces)
+                ).reshape(nx, ny)
+                outputs[f"{prefix}_endpoint_x"][:, :, index] = endpoint[:, 0].reshape(nx, ny)
+                outputs[f"{prefix}_endpoint_y"][:, :, index] = endpoint[:, 1].reshape(nx, ny)
+                outputs[f"{prefix}_endpoint_z"][:, :, index] = endpoint[:, 2].reshape(nx, ny)
+                outputs[f"{prefix}_length"][:, :, index] = lengths[begin:end].reshape(nx, ny)
+                outputs[f"{prefix}_boundary"][:, :, index] = boundaries[begin:end].reshape(nx, ny)
+
+    fill_direction(+1)
+    fill_direction(-1)
+    for index in range(nz):
+        outputs["dz"][:, :, index] = abs(plane_step(index, +1))
+
+    return {name: jnp.asarray(values) for name, values in outputs.items()}
+
+
+def trace_fci_eta_plane_from_callbacks(
+    grid: CellCenteredGrid3D,
+    field_evaluator: Callable[[np.ndarray], object],
+    *,
+    eta_index: int,
+    direction: int,
+    substeps: int = 4,
+    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    min_abs_bz: float = 1.0e-30,
+    endpoint_interpolation_order: int = 2,
+) -> dict[str, jnp.ndarray]:
+    """Trace one eta plane using an arbitrary magnetic-field callback."""
+
+    if int(direction) not in (-1, 1):
+        raise ValueError(f"direction must be +1 or -1, got {direction}")
+    eta_index = int(eta_index)
+    if eta_index < 0 or eta_index >= grid.z.n:
+        raise ValueError(f"eta_index must be in [0, {grid.z.n}), got {eta_index}")
+    maps = build_fci_maps_from_callbacks(
+        grid,
+        field_evaluator,
+        substeps=substeps,
+        periodic_axes=periodic_axes,
+        axis_regular_axes=axis_regular_axes,
+        min_abs_bz=min_abs_bz,
+        endpoint_interpolation_order=endpoint_interpolation_order,
+    )
+    prefix = "forward" if int(direction) > 0 else "backward"
+    return {
+        "x_index": maps[f"{prefix}_x"][..., eta_index],
+        "y_index": maps[f"{prefix}_y"][..., eta_index],
+        "endpoint_x": maps[f"{prefix}_endpoint_x"][..., eta_index],
+        "endpoint_y": maps[f"{prefix}_endpoint_y"][..., eta_index],
+        "endpoint_z": maps[f"{prefix}_endpoint_z"][..., eta_index],
+        "length": maps[f"{prefix}_length"][..., eta_index],
+        "boundary": maps[f"{prefix}_boundary"][..., eta_index],
+        "eta_index": jnp.asarray(eta_index, dtype=jnp.int32),
+        "direction": jnp.asarray(int(direction), dtype=jnp.int32),
+    }
+
 
 def _bracket_axis(
     axis: jnp.ndarray,

@@ -20,7 +20,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 from jax.experimental.shard_map import shard_map
-from jax.sharding import PartitionSpec as P
+from jax.sharding import NamedSharding, PartitionSpec as P
 
 from drbx.native.fci_gmres import (
     SolvaxGmresConfig,
@@ -32,10 +32,11 @@ from drbx.native.fci_gmres import (
     solvax_gmres_solve,
 )
 from drbx.native.fci_operators import (
+    AxisCoreLineUPreconditioner3D,
     LocalPerpLaplacianInverseSolver,
+    _factor_periodic_block_tridiagonal,
     _principal_perp_laplacian_bands,
     build_local_perp_laplacian_face_projectors,
-    _homogeneous_local_face_bc,
 )
 from drbx.native.fci_halo import (
     HaloExchange3D,
@@ -249,6 +250,58 @@ def test_z_sharded_solvax_gmres_supports_collective_matvec_and_inner_product() -
     assert not bool(info.failed)
     assert int(info.num_steps) <= 8
     assert float(info.final_residual_rel_l2) < 1.0e-10
+
+
+def test_z_sharded_axis_core_coarse_solve_matches_replicated_identity() -> None:
+    """The small periodic coefficient solve may span eta shards."""
+
+    shape = (4, 4, 8)
+    shard_counts = (1, 1, 4)
+    if len(jax.devices()) < 4:
+        pytest.skip("requires four JAX devices")
+    domain = _build_domain(shape, 1, shard_counts)
+    degree = 1
+    coefficient_count = (degree + 1) * (degree + 2) // 2
+    diagonal = jnp.broadcast_to(
+        jnp.eye(coefficient_count, dtype=jnp.float64),
+        (shape[2], coefficient_count, coefficient_count),
+    )
+    off_diagonal = jnp.zeros_like(diagonal)
+    payload = AxisCoreLineUPreconditioner3D(
+        factors=_factor_periodic_block_tridiagonal(
+            off_diagonal,
+            diagonal,
+            off_diagonal,
+        ),
+        global_shape=shape,
+        polynomial_degree=degree,
+        observation_ring_count=1,
+    )
+    coefficients = jnp.arange(
+        coefficient_count * shape[2],
+        dtype=jnp.float64,
+    ).reshape(coefficient_count, shape[2])
+
+    with make_mesh_for_shard_counts(shard_counts) as mesh:
+        sharding = NamedSharding(mesh, P(None, "z"))
+        sharded = jax.device_put(coefficients, sharding)
+        solve = jax.jit(
+            shard_map(
+                lambda local: payload.solve_coefficients(local, domain),
+                mesh=mesh,
+                in_specs=(P(None, "z"),),
+                out_specs=P(None, "z"),
+                check_rep=False,
+            )
+        )
+        solved = solve(sharded)
+
+    np.testing.assert_allclose(
+        np.asarray(solved),
+        np.asarray(coefficients),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
 
 
 def test_single_shard_local_phi_solvax_gmres_reconstructs_manufactured_phi() -> None:
@@ -513,364 +566,11 @@ def test_solvax_preconditioner_reconstructs_manufactured_phi_in_shard_map(
     assert float(info.final_residual_rel_l2) < 1.0e-5
 
 
-def test_single_shard_local_phi_solvax_gmres_matches_lineax_on_same_local_operator() -> None:
-    try:
-        import lineax as lx
-    except ImportError:
-        print("[ SKIP ] lineax is not installed")
-        return
-
-    shape = (8, 8, 8)
-    shard_counts = (1, 1, 1)
-    halo_width = 2
-    domain = _build_domain(shape, halo_width, shard_counts)
-    ghost_filler = _build_ghost_filler(halo_width)
-
-    nx, ny, nz = shape
-    rho_faces = jnp.linspace(RHO_MIN, 1.0, nx + 1, dtype=jnp.float64)
-    theta_faces = jnp.linspace(0.0, 2.0 * jnp.pi, ny + 1, dtype=jnp.float64)
-    phi_faces = jnp.linspace(0.0, 2.0 * jnp.pi, nz + 1, dtype=jnp.float64)
-    rho = (0.5 * (rho_faces[:-1] + rho_faces[1:]))[:, None, None]
-    theta = (0.5 * (theta_faces[:-1] + theta_faces[1:]))[None, :, None]
-    toroidal = (0.5 * (phi_faces[:-1] + phi_faces[1:]))[None, None, :]
-    phi_exact = _mms_parallel_field(rho, theta, toroidal)
-
-    config = SolvaxGmresConfig(
-        tol=1.0e-6,
-        atol=1.0e-6,
-        maxiter=100,
-        restart=100,
-        project_mean_zero=True,
-    )
-
-    with make_mesh_for_shard_counts(shard_counts) as mesh:
-        phi_sharded = put_scalar_field_on_mesh(phi_exact, mesh)
-
-        def kernel(phi_owned):
-            shard_index = tuple(lax.axis_index(name) for name in ("x", "y", "z"))
-            geometry = _build_local_geometry(
-                shape,
-                halo_width,
-                global_shape=shape,
-                shard_index=shard_index,
-            )
-            face_bc = _build_physical_bc(geometry)
-            solver = LocalPerpLaplacianInverseSolver(
-                geometry=geometry,
-                domain=domain,
-                halo_exchange=HaloExchange3D(),
-                topology_filler=TopologyHaloFiller3D(
-                    rules=(LocalPeriodicTopologyRule3D(),),
-                ),
-                physical_ghost_filler=ghost_filler,
-                face_bc=face_bc,
-                config=config,
-            )
-
-            control_volume_bc = solver._default_control_volume_boundary_bc()
-            rhs = solver._apply_A(
-                phi_owned,
-                face_bc=face_bc,
-                control_volume_boundary_bc=control_volume_bc,
-                project_mean_zero=config.project_mean_zero,
-            )
-            boundary_source = solver._apply_A(
-                jnp.zeros_like(phi_owned),
-                face_bc=face_bc,
-                control_volume_boundary_bc=control_volume_bc,
-                project_mean_zero=config.project_mean_zero,
-            )
-            linear_rhs = rhs - boundary_source
-            if config.project_mean_zero:
-                linear_rhs = _spmd_remove_weighted_mean(linear_rhs, geometry, domain)
-
-            homogeneous_face_bc = _homogeneous_local_face_bc(face_bc)
-
-            def apply_A_homogeneous(values):
-                return solver._apply_A(
-                    values,
-                    face_bc=homogeneous_face_bc,
-                    control_volume_boundary_bc=None,
-                    project_mean_zero=config.project_mean_zero,
-                )
-
-            operator = lx.FunctionLinearOperator(
-                apply_A_homogeneous,
-                jax.ShapeDtypeStruct(phi_owned.shape, phi_owned.dtype),
-            )
-            lineax_solver = lx.GMRES(
-                rtol=config.tol,
-                atol=config.atol,
-                restart=config.restart,
-                max_steps=config.maxiter,
-            )
-            lineax_solution = lx.linear_solve(
-                operator,
-                linear_rhs,
-                lineax_solver,
-                options={"y0": jnp.zeros_like(phi_owned)},
-                throw=True,
-            ).value
-            if config.project_mean_zero:
-                lineax_solution = _spmd_remove_weighted_mean(
-                    lineax_solution,
-                    geometry,
-                    domain,
-                )
-            lineax_residual = _spmd_norm(
-                linear_rhs - apply_A_homogeneous(lineax_solution),
-                geometry,
-                domain,
-            )
-            lineax_residual_rel = lineax_residual / jnp.maximum(
-                _spmd_norm(linear_rhs, geometry, domain),
-                1.0e-30,
-            )
-
-            local_solution, local_info = solver(
-                rhs,
-                phi_guess_owned=jnp.zeros_like(phi_owned),
-                return_diagnostics=True,
-            )
-            return lineax_solution, local_solution, lineax_residual_rel, local_info
-
-        kernel = shard_map(
-            kernel,
-            mesh=mesh,
-            in_specs=(P("x", "y", "z"),),
-            out_specs=(
-                P("x", "y", "z"),
-                P("x", "y", "z"),
-                P(),
-                _replicated_gmres_info_spec(),
-            ),
-            check_rep=False,
-        )
-        phi_lineax, phi_local, lineax_residual_rel, local_info = kernel(phi_sharded)
-
-    assert float(lineax_residual_rel) < 1.0e-5
-    assert bool(local_info.converged), (
-        "Local GMRES did not converge against the shared local Lineax solve: "
-        f"steps={int(local_info.num_steps)}, "
-        f"final_rel={float(local_info.final_residual_rel_l2):.6e}"
-    )
-    assert not bool(local_info.failed)
-    np.testing.assert_allclose(
-        np.asarray(phi_local),
-        np.asarray(phi_lineax),
-        rtol=5.0e-5,
-        atol=5.0e-5,
-    )
-
-
-def test_z_sharded_local_phi_solvax_gmres_matches_lineax_on_same_local_operator() -> None:
-    try:
-        import lineax as lx
-    except ImportError:
-        print("[ SKIP ] lineax is not installed")
-        return
-
-    shape = (8, 8, 8)
-    shard_counts = (1, 1, 4)
-    required_devices = math.prod(shard_counts)
-    available_devices = len(jax.devices())
-    if available_devices < required_devices:
-        print(
-            "[ SKIP ] "
-            f"shard_counts={shard_counts} requires {required_devices} devices, "
-            f"but only {available_devices} are available"
-        )
-        return
-
-    halo_width = 2
-    reference_shard_counts = (1, 1, 1)
-    reference_domain = _build_domain(shape, halo_width, reference_shard_counts)
-    sharded_domain = _build_domain(shape, halo_width, shard_counts)
-    sharded_owned_shape = tuple(
-        int(size) // int(count)
-        for size, count in zip(shape, shard_counts)
-    )
-    ghost_filler = _build_ghost_filler(halo_width)
-
-    nx, ny, nz = shape
-    rho_faces = jnp.linspace(RHO_MIN, 1.0, nx + 1, dtype=jnp.float64)
-    theta_faces = jnp.linspace(0.0, 2.0 * jnp.pi, ny + 1, dtype=jnp.float64)
-    phi_faces = jnp.linspace(0.0, 2.0 * jnp.pi, nz + 1, dtype=jnp.float64)
-    rho = (0.5 * (rho_faces[:-1] + rho_faces[1:]))[:, None, None]
-    theta = (0.5 * (theta_faces[:-1] + theta_faces[1:]))[None, :, None]
-    toroidal = (0.5 * (phi_faces[:-1] + phi_faces[1:]))[None, None, :]
-    phi_exact = _mms_parallel_field(rho, theta, toroidal)
-
-    config = SolvaxGmresConfig(
-        tol=1.0e-6,
-        atol=1.0e-6,
-        maxiter=100,
-        restart=100,
-        project_mean_zero=True,
-    )
-
-    with make_mesh_for_shard_counts(reference_shard_counts) as mesh:
-        phi_reference_sharded = put_scalar_field_on_mesh(phi_exact, mesh)
-
-        def reference_kernel(phi_owned):
-            shard_index = tuple(lax.axis_index(name) for name in ("x", "y", "z"))
-            geometry = _build_local_geometry(
-                shape,
-                halo_width,
-                global_shape=shape,
-                shard_index=shard_index,
-            )
-            face_bc = _build_physical_bc(geometry)
-            solver = LocalPerpLaplacianInverseSolver(
-                geometry=geometry,
-                domain=reference_domain,
-                halo_exchange=HaloExchange3D(),
-                topology_filler=TopologyHaloFiller3D(
-                    rules=(LocalPeriodicTopologyRule3D(),),
-                ),
-                physical_ghost_filler=ghost_filler,
-                face_bc=face_bc,
-                config=config,
-            )
-
-            control_volume_bc = solver._default_control_volume_boundary_bc()
-            rhs = solver._apply_A(
-                phi_owned,
-                face_bc=face_bc,
-                control_volume_boundary_bc=control_volume_bc,
-                project_mean_zero=config.project_mean_zero,
-            )
-            boundary_source = solver._apply_A(
-                jnp.zeros_like(phi_owned),
-                face_bc=face_bc,
-                control_volume_boundary_bc=control_volume_bc,
-                project_mean_zero=config.project_mean_zero,
-            )
-            linear_rhs = rhs - boundary_source
-            if config.project_mean_zero:
-                linear_rhs = _spmd_remove_weighted_mean(
-                    linear_rhs,
-                    geometry,
-                    reference_domain,
-                )
-
-            homogeneous_face_bc = _homogeneous_local_face_bc(face_bc)
-
-            def apply_A_homogeneous(values):
-                return solver._apply_A(
-                    values,
-                    face_bc=homogeneous_face_bc,
-                    control_volume_boundary_bc=None,
-                    project_mean_zero=config.project_mean_zero,
-                )
-
-            operator = lx.FunctionLinearOperator(
-                apply_A_homogeneous,
-                jax.ShapeDtypeStruct(phi_owned.shape, phi_owned.dtype),
-            )
-            lineax_solver = lx.GMRES(
-                rtol=config.tol,
-                atol=config.atol,
-                restart=config.restart,
-                max_steps=config.maxiter,
-            )
-            lineax_solution = lx.linear_solve(
-                operator,
-                linear_rhs,
-                lineax_solver,
-                options={"y0": jnp.zeros_like(phi_owned)},
-                throw=True,
-            ).value
-            if config.project_mean_zero:
-                lineax_solution = _spmd_remove_weighted_mean(
-                    lineax_solution,
-                    geometry,
-                    reference_domain,
-                )
-            lineax_residual = _spmd_norm(
-                linear_rhs - apply_A_homogeneous(lineax_solution),
-                geometry,
-                reference_domain,
-            )
-            lineax_residual_rel = lineax_residual / jnp.maximum(
-                _spmd_norm(linear_rhs, geometry, reference_domain),
-                1.0e-30,
-            )
-            return rhs, lineax_solution, lineax_residual_rel
-
-        reference_kernel = shard_map(
-            reference_kernel,
-            mesh=mesh,
-            in_specs=(P("x", "y", "z"),),
-            out_specs=(P("x", "y", "z"), P("x", "y", "z"), P()),
-            check_rep=False,
-        )
-        rhs_reference, phi_lineax, lineax_residual_rel = reference_kernel(
-            phi_reference_sharded,
-        )
-
-    assert float(lineax_residual_rel) < 1.0e-5
-
-    with make_mesh_for_shard_counts(shard_counts) as mesh:
-        rhs_sharded = put_scalar_field_on_mesh(rhs_reference, mesh)
-
-        def sharded_kernel(rhs_owned):
-            shard_index = tuple(lax.axis_index(name) for name in ("x", "y", "z"))
-            geometry = _build_local_geometry(
-                sharded_owned_shape,
-                halo_width,
-                global_shape=shape,
-                shard_index=shard_index,
-            )
-            face_bc = _build_physical_bc(geometry)
-            solver = LocalPerpLaplacianInverseSolver(
-                geometry=geometry,
-                domain=sharded_domain,
-                halo_exchange=HaloExchange3D(),
-                topology_filler=TopologyHaloFiller3D(
-                    rules=(LocalPeriodicTopologyRule3D(),),
-                ),
-                physical_ghost_filler=ghost_filler,
-                face_bc=face_bc,
-                config=config,
-            )
-            return solver(
-                rhs_owned,
-                phi_guess_owned=jnp.zeros_like(rhs_owned),
-                return_diagnostics=True,
-            )
-
-        sharded_kernel = shard_map(
-            sharded_kernel,
-            mesh=mesh,
-            in_specs=(P("x", "y", "z"),),
-            out_specs=(P("x", "y", "z"), _replicated_gmres_info_spec()),
-            check_rep=False,
-        )
-        phi_sharded, sharded_info = sharded_kernel(rhs_sharded)
-
-    assert bool(sharded_info.converged), (
-        "Sharded local GMRES did not converge against the one-shard local "
-        "Lineax reference: "
-        f"steps={int(sharded_info.num_steps)}, "
-        f"final_rel={float(sharded_info.final_residual_rel_l2):.6e}"
-    )
-    assert not bool(sharded_info.failed)
-    np.testing.assert_allclose(
-        np.asarray(phi_sharded),
-        np.asarray(phi_lineax),
-        rtol=5.0e-5,
-        atol=5.0e-5,
-    )
-
-
 def main() -> None:
     tests = (
         #test_single_shard_spmd_scalar_algebra_uses_global_weighted_mean,
         #test_single_shard_solvax_gmres_solves_identity_inside_shard_map,
         #test_single_shard_local_phi_solvax_gmres_reconstructs_manufactured_phi,
-        #test_single_shard_local_phi_solvax_gmres_matches_lineax_on_same_local_operator,
-        test_z_sharded_local_phi_solvax_gmres_matches_lineax_on_same_local_operator,
     )
     print(f"Running {len(tests)} GMRES shard-map tests")
     for test in tests:

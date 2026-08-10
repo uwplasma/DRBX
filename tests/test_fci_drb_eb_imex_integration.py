@@ -137,6 +137,7 @@ def test_implicit_stage_residual_jvp_matches_centered_difference() -> None:
         predictor = z.replace(
             density=z.density * 0.999,
             Te=z.Te * 1.001,
+            Ti=z.Ti * 0.999,
             Ve=z.Ve + 0.003,
             vorticity=z.vorticity * 0.998,
             phi=z.phi * 1.002,
@@ -145,6 +146,7 @@ def test_implicit_stage_residual_jvp_matches_centered_difference() -> None:
             density=0.03 * jnp.sin(density),
             phi=0.01 * jnp.cos(phi),
             Te=0.02 * jnp.sin(Te),
+            Ti=0.017 * jnp.cos(Ti + 0.2),
             Ve=0.02 * jnp.cos(Ve),
             vorticity=0.01 * jnp.sin(vorticity + 0.4),
         )
@@ -175,19 +177,19 @@ def test_implicit_stage_residual_jvp_matches_centered_difference() -> None:
     assert error / reference < 2.0e-5, (error, reference)
 
 
-def test_implicit_state_keeps_ion_stage_fields_out_of_newton_unknown() -> None:
-    """Ti/Vi stay stage-known and the implicit state has exactly five leaves."""
+def test_implicit_state_contains_ti_but_keeps_vi_out_of_newton_unknown() -> None:
+    """Ti is implicit while Vi remains the sole stage-known ion field."""
 
     full = FciDrbEBState(*(
         jnp.full((2, 2, 2), float(index + 1), dtype=jnp.float64)
         for index in range(7)
     ))
     z = implicit_state_from_eb_state(full)
-    changed = z.replace(density=z.density + 2.0, Te=z.Te - 0.25, Ve=z.Ve + 3.0)
+    changed = z.replace(density=z.density + 2.0, Te=z.Te - 0.25, Ti=z.Ti + 0.5, Ve=z.Ve + 3.0)
     merged = eb_state_with_implicit_state(full, changed)
-    assert z.field_names() == ("density", "phi", "Te", "Ve", "vorticity")
-    assert len(jax.tree_util.tree_leaves(z)) == 5
-    np.testing.assert_array_equal(merged.Ti, full.Ti)
+    assert z.field_names() == ("density", "phi", "Te", "Ti", "Ve", "vorticity")
+    assert len(jax.tree_util.tree_leaves(z)) == 6
+    np.testing.assert_array_equal(merged.Ti, changed.Ti)
     np.testing.assert_array_equal(merged.Vi, full.Vi)
     np.testing.assert_array_equal(merged.density, changed.density)
     np.testing.assert_array_equal(merged.Te, changed.Te)

@@ -3,7 +3,8 @@
 The preconditioner is intentionally tested as a *right* preconditioner for
 the driver-scaled algebraic row.  Consequently its phi input is
 ``dt_gamma * R_phi`` and its phi output approximates the corresponding
-potential increment.  The other four IMEX leaves are identity mapped.
+potential increment.  The other five IMEX leaves, including the ordinary
+differential ``Ti`` leaf, are identity mapped.
 """
 
 from __future__ import annotations
@@ -139,6 +140,7 @@ def test_phi_line_u_preconditioner_reduces_scaled_polarization_residual() -> Non
             density=0.25 + density,
             phi=scaled_rhs_phi,
             Te=0.5 + Te,
+            Ti=0.75 + Ti,
             Ve=-0.75 + Ve,
             vorticity=1.25 + vorticity,
         )
@@ -159,6 +161,7 @@ def test_phi_line_u_preconditioner_reduces_scaled_polarization_residual() -> Non
         unchanged = jnp.stack((
             jnp.max(jnp.abs(corrected.density - residual.density)),
             jnp.max(jnp.abs(corrected.Te - residual.Te)),
+            jnp.max(jnp.abs(corrected.Ti - residual.Ti)),
             jnp.max(jnp.abs(corrected.Ve - residual.Ve)),
             jnp.max(jnp.abs(corrected.vorticity - residual.vorticity)),
         ))
@@ -178,7 +181,7 @@ def test_phi_line_u_preconditioner_reduces_scaled_polarization_residual() -> Non
     # A line-u solve is deliberately approximate because mixed and v bands
     # are dropped, but it should still provide a meaningful residual decrease.
     assert defect_l2 / initial_l2 < 0.8, (initial_l2, defect_l2)
-    np.testing.assert_array_equal(unchanged, np.zeros(4))
+    np.testing.assert_array_equal(unchanged, np.zeros(5))
 
 
 def test_phi_line_u_preconditioner_has_inverse_dt_gamma_scaling() -> None:
@@ -195,6 +198,7 @@ def test_phi_line_u_preconditioner_has_inverse_dt_gamma_scaling() -> None:
             density=density,
             phi=0.2 + jnp.sin(1.7 * phi),
             Te=Te,
+            Ti=Ti,
             Ve=Ve,
             vorticity=vorticity,
         )
@@ -213,6 +217,7 @@ def test_phi_line_u_preconditioner_has_inverse_dt_gamma_scaling() -> None:
         unchanged = jnp.stack((
             jnp.max(jnp.abs(fine.density - value.density)),
             jnp.max(jnp.abs(fine.Te - value.Te)),
+            jnp.max(jnp.abs(fine.Ti - value.Ti)),
             jnp.max(jnp.abs(fine.Ve - value.Ve)),
             jnp.max(jnp.abs(fine.vorticity - value.vorticity)),
         ))
@@ -229,4 +234,4 @@ def test_phi_line_u_preconditioner_has_inverse_dt_gamma_scaling() -> None:
     scale_error, reference = np.asarray(scales)
     unchanged = np.asarray(unchanged)
     assert scale_error / reference < 2.0e-13, (scale_error, reference)
-    np.testing.assert_array_equal(unchanged, np.zeros(4))
+    np.testing.assert_array_equal(unchanged, np.zeros(5))

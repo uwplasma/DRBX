@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Callable
+from typing import Callable, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -18,6 +18,8 @@ from ..geometry import (
 
 
 _pytree_base = jax.tree_util.register_pytree_node_class
+
+PyTree = TypeVar("PyTree")
 
 
 def _as_bool(value: object) -> bool:
@@ -61,12 +63,14 @@ class SolvaxGmresConfig:
             "none",
             "jacobi",
             "line-u",
+            "axis-core-line-u",
             "line-v",
             "line-uv",
         ):
             raise ValueError(
                 "SolvaxGmresConfig.preconditioner must be one of "
-                "'none', 'jacobi', 'line-u', 'line-v', or 'line-uv'"
+                "'none', 'jacobi', 'line-u', 'axis-core-line-u', "
+                "'line-v', or 'line-uv'"
             )
         object.__setattr__(self, "tol", float(self.tol))
         object.__setattr__(self, "atol", float(self.atol))
@@ -469,6 +473,99 @@ def solvax_gmres_solve(
     )
     return phi, info
 
+
+def solvax_gmres_pytree_solve(
+    apply_A: Callable[[PyTree], PyTree],
+    rhs: PyTree,
+    guess: PyTree,
+    config: SolvaxGmresConfig,
+    *,
+    inner_product: Callable[[PyTree, PyTree], jnp.ndarray],
+    norm: Callable[[PyTree], jnp.ndarray],
+    all_finite: Callable[[PyTree], jnp.ndarray] | None = None,
+    preconditioner: Callable[[PyTree], PyTree] | None = None,
+) -> tuple[PyTree, SolvaxGmresInfo]:
+    """Solve a fixed-shape PyTree system with the shard-compatible FGMRES.
+
+    This is the generic counterpart of :func:`solvax_gmres_solve`.  The
+    caller owns the inner product and norm, which is necessary for reduced
+    spaces whose coefficient block has a non-Euclidean metric.  SOLVAX
+    already operates on PyTrees; this adapter supplies the same diagnostics
+    and acceptance semantics as the full owned-array wrapper.
+    """
+
+    if not isinstance(config, SolvaxGmresConfig):
+        raise TypeError("config must be a SolvaxGmresConfig instance")
+    rhs_is_finite = (
+        jnp.asarray(True)
+        if all_finite is None
+        else jnp.asarray(all_finite(rhs))
+    )
+    guess_is_finite = (
+        jnp.asarray(True)
+        if all_finite is None
+        else jnp.asarray(all_finite(guess))
+    )
+    rhs_l2 = norm(rhs)
+    initial_residual = norm(jax.tree_util.tree_map(lambda r, x: r - x, rhs, apply_A(guess)))
+    requested_restart = min(int(config.restart), int(config.maxiter))
+    restart = math.gcd(requested_restart, int(config.maxiter))
+    max_restarts = int(config.maxiter) // restart
+    result = solvax_gmres(
+        apply_A,
+        rhs,
+        x0=guess,
+        precond=preconditioner,
+        inner_product=inner_product,
+        restart=restart,
+        rtol=float(config.tol),
+        atol=float(config.atol),
+        max_restarts=max_restarts,
+    )
+    solution = result.x
+    final_residual = norm(
+        jax.tree_util.tree_map(lambda r, x: r - x, rhs, apply_A(solution))
+    )
+    phi_is_finite = (
+        jnp.asarray(True)
+        if all_finite is None
+        else jnp.asarray(all_finite(solution))
+    )
+    finite_failed = (
+        (~jnp.isfinite(initial_residual))
+        | (~jnp.isfinite(final_residual))
+        | (~rhs_is_finite)
+        | (~guess_is_finite)
+        | (~phi_is_finite)
+    )
+    threshold = jnp.maximum(
+        jnp.asarray(config.atol, dtype=rhs_l2.dtype),
+        jnp.asarray(config.tol, dtype=rhs_l2.dtype) * rhs_l2,
+    )
+    acceptance_threshold = jnp.maximum(
+        jnp.asarray(config.acceptance_atol, dtype=rhs_l2.dtype),
+        jnp.asarray(config.acceptance_tol, dtype=rhs_l2.dtype) * rhs_l2,
+    )
+    strict_converged = (~finite_failed) & (final_residual <= threshold)
+    accepted = (~finite_failed) & (
+        strict_converged | (final_residual <= acceptance_threshold)
+    )
+    info = SolvaxGmresInfo(
+        num_steps=jnp.asarray(result.iterations, dtype=jnp.int32),
+        converged=accepted,
+        failed=~accepted,
+        initial_residual_l2=initial_residual,
+        final_residual_l2=final_residual,
+        final_residual_rel_l2=final_residual / jnp.maximum(rhs_l2, 1.0e-30),
+        rhs_l2=rhs_l2,
+        projected_rhs_mean=jnp.asarray(0.0, dtype=rhs_l2.dtype),
+        projected_rhs_l2=rhs_l2,
+        phi_is_finite=phi_is_finite,
+        rhs_is_finite=rhs_is_finite,
+        guess_is_finite=guess_is_finite,
+    )
+    return solution, info
+
 __all__ = [
     "SolvaxGmresConfig",
     "SolvaxGmresInfo",
@@ -480,4 +577,5 @@ __all__ = [
     "_spmd_sum",
     "_spmd_weighted_mean",
     "solvax_gmres_solve",
+    "solvax_gmres_pytree_solve",
 ]

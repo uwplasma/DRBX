@@ -71,13 +71,20 @@ from .solve_MMPDE import MMPDEOptions, MMPDEResult, solve_mmpde
 from .MetricEvaluator import (
     MagneticFieldEvaluation,
     MetricEvaluation,
+    RegularizedMetricEvaluation,
     MetricQualityJumpLocation,
     MetricQualityLocation,
     MetricQualityRegion,
     MetricQualityReport,
     MetricEvaluator,
+    ToroidalQualityReport,
+    align_wall_curves,
+    axis_regular_initializer,
     build_metric_evaluator,
     build_wall_fitted_initial_mesh,
+    evaluate_toroidal_quality,
+    project_interior_eta,
+    resample_periodic_curve,
 )
 from .WallEvaluator import WallEvaluator, parse_kisslinger
 
@@ -101,6 +108,13 @@ __all__ = [
     "build_metric_report",
     "build_metric_evaluator",
     "build_wall_fitted_initial_mesh",
+    "evaluate_toroidal_quality",
+    "ToroidalQualityReport",
+    "RegularizedMetricEvaluation",
+    "align_wall_curves",
+    "axis_regular_initializer",
+    "project_interior_eta",
+    "resample_periodic_curve",
     "WallEvaluator",
     "parse_kisslinger",
     "IslandDivertorField",
@@ -144,6 +158,9 @@ __all__ = [
 
 # --- FCI stack incorporated from PR #3 (Aiken Xie, branch 3D_fci) ---
 from .fci_geometry import (
+    AxisCoreFaceReconstruction3D,
+    AxisCoreFaceGradientReconstruction3D,
+    AxisCoreCellGradientReconstruction3D,
     BFieldGeometry,
     CellCenteredGrid3D,
     CellVolumeGeometry3D,
@@ -189,11 +206,17 @@ from .fci_geometry import (
     LocalSpacing3D,
     Spacing3D,
     build_fci_maps_from_b_contravariant,
+    build_fci_maps_from_callbacks,
+    trace_fci_eta_plane_from_callbacks,
     build_curvature_coefficients,
     build_conservative_stencil_from_field,
     build_local_conservative_stencil_from_field,
+    build_axis_core_face_reconstruction,
+    build_axis_core_face_gradient_reconstruction,
+    build_axis_core_cell_gradient_reconstruction,
     build_local_direct_stencil_one_sided_physical_from_halo,
     build_local_stencil_from_field,
+    build_local_cell_gradient_from_field,
     logical_grid_from_axis_vectors,
 )
 
@@ -222,6 +245,9 @@ from .fci_geometry import (
 )
 
 __all__ += [
+    "AxisCoreFaceReconstruction3D",
+    "AxisCoreFaceGradientReconstruction3D",
+    "AxisCoreCellGradientReconstruction3D",
     "LocalAggregateCellGeometry3D",
     "LocalCellAgglomeration3D",
     "LocalControlVolumeCellGeometry3D",
@@ -238,6 +264,9 @@ __all__ += [
     "build_local_curvature_face_coefficients",
     "LocalCurvatureFaceCoefficients3D",
     "build_local_fci_stencil_from_field",
+    "build_axis_core_cell_gradient_reconstruction",
+    "build_axis_core_face_gradient_reconstruction",
+    "build_local_cell_gradient_from_field",
     "interpolate_B_contravariant",
     "logical_b_contravariant_from_geometry",
     "logical_b_contravariant_from_traced_maps",
@@ -315,7 +344,10 @@ __all__ += [
     "build_conservative_stencil_from_field",
     "build_curvature_coefficients",
     "build_fci_maps_from_b_contravariant",
+    "build_fci_maps_from_callbacks",
+    "trace_fci_eta_plane_from_callbacks",
     "build_local_conservative_stencil_from_field",
+    "build_axis_core_face_reconstruction",
     "build_local_direct_stencil_one_sided_physical_from_halo",
     "build_local_stencil_from_field",
     "logical_grid_from_axis_vectors",
