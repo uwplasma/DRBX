@@ -8706,6 +8706,11 @@ class AxisCoreReducedSpace3D:
     def compatible_residual(self, residual: jnp.ndarray) -> jnp.ndarray:
         return self.prolong(self.restrict(residual))
 
+    def project(self, full_owned: jnp.ndarray) -> jnp.ndarray:
+        """Project a materialized scalar field into the regular reduced space."""
+
+        return self.compatible_residual(full_owned)
+
     def residual_diagnostics(self, residual: jnp.ndarray) -> "AxisCoreReducedResidualInfo":
         compatible = self.compatible_residual(residual)
         incompatible = jnp.asarray(residual) - compatible

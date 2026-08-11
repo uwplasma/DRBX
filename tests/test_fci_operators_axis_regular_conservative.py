@@ -32,10 +32,12 @@ from drbx.geometry import (  # noqa: E402
 try:  # Added by the forthcoming face-gradient production implementation.
     from drbx.geometry import (  # noqa: E402
         AxisCoreFaceGradientReconstruction3D,
+        build_axis_core_cell_gradient_reconstruction,
         build_axis_core_face_gradient_reconstruction,
     )
 except ImportError:  # pragma: no cover - expected before that API lands.
     AxisCoreFaceGradientReconstruction3D = None
+    build_axis_core_cell_gradient_reconstruction = None
     build_axis_core_face_gradient_reconstruction = None
 
 from drbx.native.fci_operators import (  # noqa: E402
@@ -120,6 +122,29 @@ def _face_gradient_api_available():
 def _require_face_gradient_api():
     if not _face_gradient_api_available():
         pytest.skip("Cartesian axis-core face-gradient API is not installed")
+
+
+def test_axis_core_reconstruction_clamps_observations_to_small_radial_domain():
+    _require_face_gradient_api()
+    geometry, domain, context, *_ = polar_fixture((4, 16, 8))
+    del geometry, context
+    cell = build_axis_core_cell_gradient_reconstruction(
+        domain.layout,
+        domain,
+        polynomial_degree=3,
+        observation_ring_count=6,
+        target_ring_count=3,
+    )
+    face = build_axis_core_face_gradient_reconstruction(
+        domain.layout,
+        domain,
+        polynomial_degree=3,
+        observation_ring_count=6,
+        target_ring_count=3,
+    )
+    assert cell.observation_ring_count <= 4
+    assert face.observation_ring_count <= 4
+    assert face.target_ring_count <= face.observation_ring_count
 
 
 def _face_gradient_context(context, *, degree=3):

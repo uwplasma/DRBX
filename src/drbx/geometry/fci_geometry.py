@@ -2544,13 +2544,18 @@ def build_axis_core_face_gradient_reconstruction(
         raise ValueError("target_ring_count must not exceed observation_ring_count")
     global_nx, global_ny, _ = tuple(int(value) for value in domain.shard_spec.global_shape)
     local_nx = int(layout.owned_shape[0])
-    target_count = min(int(target_ring_count), local_nx)
+    # Small synthetic domains (and local radial shards) may contain fewer
+    # cells than the production default observation stencil.  Clamp the
+    # effective policy before building the cached matrices; the matrix helper
+    # still performs its degree/rank fallback afterwards.
+    effective_observation_count = min(int(observation_ring_count), local_nx)
+    target_count = min(int(target_ring_count), effective_observation_count)
     degree, rings, *matrices = _axis_core_face_reconstruction_matrices(
         global_nx,
         global_ny,
         local_nx,
         int(polynomial_degree),
-        int(observation_ring_count),
+        effective_observation_count,
         target_count + 1,
         target_count,
         target_count,
@@ -2867,14 +2872,16 @@ def build_axis_core_cell_gradient_reconstruction(
     global_nx, global_ny, _ = tuple(int(value) for value in domain.shard_spec.global_shape)
     if int(polynomial_degree) < 0 or int(observation_ring_count) < 1 or int(target_ring_count) < 1:
         raise ValueError("polynomial_degree must be non-negative and ring counts positive")
+    effective_observation_count = min(int(observation_ring_count), int(layout.owned_shape[0]))
+    effective_target_count = min(int(target_ring_count), effective_observation_count)
     degree, rings, targets, weights, u, theta, values, condition_number = (
         _axis_core_cell_gradient_reconstruction_matrices(
             global_nx,
             global_ny,
             layout.owned_shape[0],
             int(polynomial_degree),
-            int(observation_ring_count),
-            int(target_ring_count),
+            effective_observation_count,
+            effective_target_count,
         )
     )
     return AxisCoreCellGradientReconstruction3D(
