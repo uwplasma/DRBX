@@ -27,6 +27,7 @@ from drbx.native.fci_operators import (
     LocalPerpLaplacianInverseSolver,
     build_axis_core_reduced_space,
 )
+from drbx.native.fci_drb_EB_rhs import FciDrbEBState, project_axis_core_state
 from drbx.native.fci_sharding import make_shard_mesh
 
 
@@ -80,6 +81,48 @@ def test_cartesian_polynomials_are_exact_and_m4_is_not_representable():
     residual = space.full_norm(nonregular - projected)
     assert residual > 1.0e-4 * space.full_norm(nonregular)
     del domain, reconstruction
+
+
+def test_projector_preserves_weighted_integral_outer_values_and_polynomials():
+    geometry, _domain, _context, _exchange, _scalar, space = _space((8, 16, 8))
+    field = jnp.sin(jnp.arange(jnp.prod(jnp.asarray(geometry.owned_shape)), dtype=jnp.float64)).reshape(
+        geometry.owned_shape
+    )
+    projected = space.project(field)
+    ones = jnp.ones(geometry.owned_shape, dtype=jnp.float64)
+    assert jnp.abs(
+        space.full_inner_product(ones, projected)
+        - space.full_inner_product(ones, field)
+    ) < 2.0e-10
+    assert jnp.array_equal(projected[space.core_ring_count :], field[space.core_ring_count :])
+
+    coefficients = jnp.cos(
+        jnp.arange(space.coefficient_count * geometry.owned_shape[2], dtype=jnp.float64)
+    ).reshape(space.coefficient_count, geometry.owned_shape[2])
+    polynomial = space.prolong(
+        AxisCoreReducedVector3D(
+            coefficients,
+            jnp.zeros(space.outer_shape, dtype=jnp.float64),
+        )
+    )
+    assert jnp.max(jnp.abs(space.project(polynomial) - polynomial)) < 2.0e-11
+
+
+def test_state_projector_full_grid_is_identity_and_phi_is_not_a_leaf():
+    geometry, _domain, _context, _exchange, _scalar, space = _space((8, 16, 8))
+    zeros = jnp.zeros(geometry.owned_shape, dtype=jnp.float64)
+    state = FciDrbEBState(
+        density=zeros,
+        phi=jnp.full_like(zeros, 3.0),
+        Te=zeros,
+        Ti=zeros,
+        Vi=zeros,
+        Ve=zeros,
+        vorticity=zeros,
+    )
+    assert project_axis_core_state(state, None, "full-grid") is state
+    projected = project_axis_core_state(state, space, "galerkin")
+    assert jnp.array_equal(projected.phi, state.phi)
 
 
 def test_reduced_manufactured_phi_solve_converges():

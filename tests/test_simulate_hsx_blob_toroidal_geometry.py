@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ast
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -847,6 +848,27 @@ def test_odd_global_ntheta_is_rejected(monkeypatch, tmp_path):
             **_geometry_kwargs(tmp_path, resolution=(4, 7, 12))
         )
     assert not spy
+
+
+def test_axis_core_state_space_cli_defaults_and_rk_wiring():
+    args = hsx._build_parser().parse_args([])
+    assert args.axis_core_state_space == "full-grid"
+    args = hsx._build_parser().parse_args(["--axis-core-state-space", "galerkin"])
+    assert args.axis_core_state_space == "galerkin"
+
+    tree = ast.parse(Path(hsx.__file__).read_text())
+    source = Path(hsx.__file__).read_text()
+    assert "rhs = model.project_galerkin_state(rhs)" in source
+    assert "project_initial_state" in source
+    assert "axis_core_state_space='galerkin'" in source
+    run_full = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "run_full_eb"
+    )
+    assert any(
+        isinstance(node, ast.Name) and node.id == "axis_core_state_space"
+        for node in ast.walk(run_full)
+    )
 
 
 def test_full_torus_neta_divisibility_is_retained(monkeypatch, tmp_path):

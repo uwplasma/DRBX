@@ -17,9 +17,11 @@ if str(TESTS) not in sys.path:
 from axis_regular_operator_support import polar_fixture, scalar_field_halo  # noqa: E402
 from drbx.geometry import build_local_conservative_stencil_from_field  # noqa: E402
 from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
+    FciDrbEBState,
     FciDrbEBRhsParameters,
     LocalFciDrbEBRhs,
 )
+from drbx.native.fci_gmres import SolvaxGmresConfig  # noqa: E402
 
 
 def _expected_gradient(geometry, family: str) -> jnp.ndarray:
@@ -61,7 +63,9 @@ def _production_disabled_rhs(
     axis_core_gradient_polynomial_degree=3,
     axis_core_gradient_observation_ring_count=6,
     axis_core_gradient_target_ring_count=3,
+    axis_core_state_space="full-grid",
 ):
+    galerkin = axis_core_state_space == "galerkin"
     return LocalFciDrbEBRhs(
         geometry=geometry,
         domain=domain,
@@ -71,15 +75,57 @@ def _production_disabled_rhs(
         parameters=FciDrbEBRhsParameters(),
         curvature_coefficients_owned=None,
         face_projectors=(None, None, None),
-        gmres_config=None,
+        gmres_config=(SolvaxGmresConfig(maxiter=2) if galerkin else None),
         face_bc_builder=lambda *_args: None,
         diffusion_only=True,
         axis_regular_axes=(True, False, False),
         curvature_scheme="disabled",
+        phi_solver_space=("axis-core-reduced" if galerkin else "full-grid"),
+        axis_core_state_space=axis_core_state_space,
         axis_core_gradient_polynomial_degree=axis_core_gradient_polynomial_degree,
         axis_core_gradient_observation_ring_count=axis_core_gradient_observation_ring_count,
         axis_core_gradient_target_ring_count=axis_core_gradient_target_ring_count,
     )
+
+
+def test_galerkin_state_projection_preserves_phi_and_rk_subspace():
+    geometry, domain, _context, halo_exchange, topology_filler, *_ = polar_fixture(
+        shape=(8, 16, 8)
+    )
+    model = _production_disabled_rhs(
+        geometry,
+        domain,
+        halo_exchange,
+        topology_filler,
+        axis_core_state_space="galerkin",
+    )
+    theta = 2.0 * jnp.pi * jnp.arange(geometry.owned_shape[1]) / geometry.owned_shape[1]
+    m6 = jnp.broadcast_to(jnp.cos(6.0 * theta)[None, :, None], geometry.owned_shape)
+    phi = jnp.full(geometry.owned_shape, 7.0)
+    state = FciDrbEBState(
+        density=m6,
+        phi=phi,
+        Te=2.0 * m6,
+        Ti=3.0 * m6,
+        Vi=4.0 * m6,
+        Ve=5.0 * m6,
+        vorticity=6.0 * m6,
+    )
+    projected = model.project_galerkin_state(state)
+    assert jnp.array_equal(projected.phi, phi)
+    for name in ("density", "Te", "Ti", "Vi", "Ve", "vorticity"):
+        value = getattr(projected, name)
+        assert jnp.max(jnp.abs(value[:3])) < 1.0e-10
+        assert jnp.max(
+            jnp.abs(value - getattr(model.project_galerkin_state(projected), name))
+        ) < 1.0e-10
+
+    # This is the RK invariant: a projected complete RHS increment keeps the
+    # updated differential state in the same range(P), without touching phi.
+    regular_state = model.project_galerkin_state(state)
+    updated = regular_state.axpy(projected, scale=0.125)
+    updated_projected = model.project_galerkin_state(updated)
+    assert jnp.max(jnp.abs(updated.density - updated_projected.density)) < 1.0e-10
 
 
 def test_rhs_axis_core_face_gradient_policy_is_propagated_and_applied():

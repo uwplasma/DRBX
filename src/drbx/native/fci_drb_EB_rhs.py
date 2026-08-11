@@ -79,6 +79,29 @@ class FciDrbEBState(FciModelState):
     vorticity: jax.Array
 
 
+def project_axis_core_state(
+    state: FciDrbEBState,
+    space: AxisCoreReducedSpace3D | None,
+    state_space: str,
+) -> FciDrbEBState:
+    """Project the six differential leaves while preserving the phi leaf."""
+
+    if state_space == "full-grid":
+        return state
+    if state_space != "galerkin":
+        raise ValueError(f"unknown axis-core state space {state_space!r}")
+    if space is None:
+        raise ValueError("Galerkin axis-core state projection requires a reduced space")
+    return state.replace(
+        density=space.project(state.density),
+        Te=space.project(state.Te),
+        Ti=space.project(state.Ti),
+        Vi=space.project(state.Vi),
+        Ve=space.project(state.Ve),
+        vorticity=space.project(state.vorticity),
+    )
+
+
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class FciDrbEBImplicitState(FciModelState):
@@ -1143,6 +1166,7 @@ class LocalFciDrbEBRhs:
     axis_core_line_u_preconditioner: AxisCoreLineUPreconditioner3D | None = None
     phi_solver_space: str = "full-grid"
     axis_core_reduced_space: AxisCoreReducedSpace3D | None = None
+    axis_core_state_space: str = "full-grid"
 
     @property
     def neumann_normal_scheme(self) -> str:
@@ -1187,6 +1211,19 @@ class LocalFciDrbEBRhs:
             raise ValueError(
                 "phi_solver_space must be 'full-grid' or 'axis-core-reduced', "
                 f"got {self.phi_solver_space!r}"
+            )
+        if self.axis_core_state_space not in ("full-grid", "galerkin"):
+            raise ValueError(
+                "axis_core_state_space must be 'full-grid' or 'galerkin', got "
+                f"{self.axis_core_state_space!r}"
+            )
+        if (
+            self.axis_core_state_space == "galerkin"
+            and self.phi_solver_space != "axis-core-reduced"
+        ):
+            raise ValueError(
+                "axis_core_state_space='galerkin' requires "
+                "phi_solver_space='axis-core-reduced'"
             )
         if self.axis_core_reduced_space is not None and not isinstance(
             self.axis_core_reduced_space, AxisCoreReducedSpace3D
@@ -1431,6 +1468,16 @@ class LocalFciDrbEBRhs:
             self.geometry,
             self.domain,
         )
+
+    def project_galerkin_state(self, state: FciDrbEBState) -> FciDrbEBState:
+        """Project the six evolved scalar leaves, leaving ``phi`` untouched."""
+
+        space = (
+            None
+            if self.axis_core_state_space == "full-grid"
+            else self.build_axis_core_reduced_phi_space()
+        )
+        return project_axis_core_state(state, space, self.axis_core_state_space)
 
     def _stencil_builder_context(self) -> StencilBuilderContext:
         if not self.domain.axis_regular_axes[0]:
