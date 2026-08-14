@@ -63,14 +63,12 @@ class SolvaxGmresConfig:
             "none",
             "jacobi",
             "line-u",
-            "axis-core-line-u",
             "line-v",
             "line-uv",
         ):
             raise ValueError(
                 "SolvaxGmresConfig.preconditioner must be one of "
-                "'none', 'jacobi', 'line-u', 'axis-core-line-u', "
-                "'line-v', or 'line-uv'"
+                "'none', 'jacobi', 'line-u', 'line-v', or 'line-uv'"
             )
         object.__setattr__(self, "tol", float(self.tol))
         object.__setattr__(self, "atol", float(self.atol))
@@ -239,13 +237,32 @@ def _spmd_dot(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
     active_cell_mask: jnp.ndarray | None = None,
+    volume_weights: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
-    """Unweighted global dot product over owned-local vector shards."""
+    """Global dot product over owned-local vector shards.
 
-    del geometry
+    ``volume_weights=None`` deliberately retains the historical Euclidean
+    product.  Supplied weights are the unnormalised control-volume measure.
+    """
+
     x = _mask_inactive_owned(x, active_cell_mask)
     y = _mask_inactive_owned(y, active_cell_mask)
-    return _spmd_sum(jnp.sum(x * y), domain)
+    if volume_weights is None:
+        integrand = x * y
+    else:
+        weights = jnp.asarray(volume_weights, dtype=jnp.float64)
+        if weights.shape != geometry.owned_shape:
+            raise ValueError(
+                "volume_weights must have shape "
+                f"{geometry.owned_shape}, got {weights.shape}"
+            )
+        weights = jnp.where(
+            active_cell_mask if active_cell_mask is not None else True,
+            weights,
+            0.0,
+        )
+        integrand = weights * x * y
+    return _spmd_sum(jnp.sum(integrand), domain)
 
 
 def _spmd_norm(
@@ -253,11 +270,39 @@ def _spmd_norm(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
     active_cell_mask: jnp.ndarray | None = None,
+    volume_weights: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
-    """Unweighted global L2 norm over owned-local vector shards."""
+    """Global Krylov norm over owned-local vector shards."""
 
     return jnp.sqrt(
-        jnp.maximum(_spmd_dot(x, x, geometry, domain, active_cell_mask), 0.0)
+        jnp.maximum(
+            _spmd_dot(
+                x, x, geometry, domain, active_cell_mask, volume_weights
+            ),
+            0.0,
+        )
+    )
+
+
+def _spmd_volume_weights_valid(
+    volume_weights: jnp.ndarray | None,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    active_cell_mask: jnp.ndarray | None,
+) -> jnp.ndarray:
+    """JAX-safe validity predicate for the supplied Krylov measure."""
+
+    if volume_weights is None:
+        return jnp.asarray(True)
+    weights = jnp.asarray(volume_weights, dtype=jnp.float64)
+    active = (
+        jnp.ones(geometry.owned_shape, dtype=bool)
+        if active_cell_mask is None
+        else active_cell_mask
+    )
+    local = jnp.all((~active) | (jnp.isfinite(weights) & (weights > 0.0)))
+    return _spmd_sum(local.astype(jnp.int32), domain) == _spmd_sum(
+        jnp.asarray(1, dtype=jnp.int32), domain
     )
 
 
@@ -266,11 +311,21 @@ def _spmd_weighted_mean(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
     active_cell_mask: jnp.ndarray | None = None,
+    volume_weights: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Weighted global mean over owned-local cells."""
 
     values = _mask_inactive_owned(field, active_cell_mask)
-    weights = _local_cell_volume_weights(geometry)
+    weights = (
+        _local_cell_volume_weights(geometry)
+        if volume_weights is None
+        else jnp.asarray(volume_weights, dtype=jnp.float64)
+    )
+    if weights.shape != geometry.owned_shape:
+        raise ValueError(
+            "volume_weights must have shape "
+            f"{geometry.owned_shape}, got {weights.shape}"
+        )
     if active_cell_mask is not None:
         weights = jnp.where(active_cell_mask, weights, 0.0)
     numerator = _spmd_sum(jnp.sum(weights * values), domain)
@@ -283,11 +338,21 @@ def _spmd_weighted_l2(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
     active_cell_mask: jnp.ndarray | None = None,
+    volume_weights: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Weighted global RMS norm over owned-local cells."""
 
     values = _mask_inactive_owned(field, active_cell_mask)
-    weights = _local_cell_volume_weights(geometry)
+    weights = (
+        _local_cell_volume_weights(geometry)
+        if volume_weights is None
+        else jnp.asarray(volume_weights, dtype=jnp.float64)
+    )
+    if weights.shape != geometry.owned_shape:
+        raise ValueError(
+            "volume_weights must have shape "
+            f"{geometry.owned_shape}, got {weights.shape}"
+        )
     if active_cell_mask is not None:
         weights = jnp.where(active_cell_mask, weights, 0.0)
     numerator = _spmd_sum(jnp.sum(weights * values * values), domain)
@@ -300,11 +365,14 @@ def _spmd_remove_weighted_mean(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
     active_cell_mask: jnp.ndarray | None = None,
+    volume_weights: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Remove the global weighted mean from an owned-local field."""
 
     values = _mask_inactive_owned(field, active_cell_mask)
-    result = values - _spmd_weighted_mean(values, geometry, domain, active_cell_mask)
+    result = values - _spmd_weighted_mean(
+        values, geometry, domain, active_cell_mask, volume_weights
+    )
     return _mask_inactive_owned(result, active_cell_mask)
 
 
@@ -332,6 +400,7 @@ def solvax_gmres_solve(
     config: SolvaxGmresConfig = SolvaxGmresConfig(),
     active_cell_mask: jnp.ndarray | None = None,
     preconditioner: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+    volume_weights: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, SolvaxGmresInfo]:
     """Solve ``A x = rhs`` with SOLVAX FGMRES inside an SPMD transform.
 
@@ -359,6 +428,16 @@ def solvax_gmres_solve(
         )
 
     active_mask = _normalize_active_cell_mask(active_cell_mask, geometry)
+    if volume_weights is not None:
+        volume_weights = jnp.asarray(volume_weights, dtype=jnp.float64)
+        if volume_weights.shape != geometry.owned_shape:
+            raise ValueError(
+                "volume_weights must have shape "
+                f"{geometry.owned_shape}, got {volume_weights.shape}"
+            )
+    volume_weights_valid = _spmd_volume_weights_valid(
+        volume_weights, geometry, domain, active_mask
+    )
     rhs_is_finite = _spmd_all_finite(rhs, domain, active_mask)
     guess_is_finite = _spmd_all_finite(guess, domain, active_mask)
     rhs = _mask_inactive_owned(rhs, active_mask)
@@ -371,10 +450,18 @@ def solvax_gmres_solve(
         )
 
     if config.project_mean_zero:
-        rhs = _spmd_remove_weighted_mean(rhs, geometry, domain, active_mask)
-        guess = _spmd_remove_weighted_mean(guess, geometry, domain, active_mask)
-    projected_rhs_mean = _spmd_weighted_mean(rhs, geometry, domain, active_mask)
-    projected_rhs_l2 = _spmd_weighted_l2(rhs, geometry, domain, active_mask)
+        rhs = _spmd_remove_weighted_mean(
+            rhs, geometry, domain, active_mask, volume_weights
+        )
+        guess = _spmd_remove_weighted_mean(
+            guess, geometry, domain, active_mask, volume_weights
+        )
+    projected_rhs_mean = _spmd_weighted_mean(
+        rhs, geometry, domain, active_mask, volume_weights
+    )
+    projected_rhs_l2 = _spmd_weighted_l2(
+        rhs, geometry, domain, active_mask, volume_weights
+    )
 
     maxiter = int(config.maxiter)
     requested_restart = min(int(config.restart), maxiter)
@@ -385,7 +472,7 @@ def solvax_gmres_solve(
     max_restarts = maxiter // restart
     dtype = rhs.dtype
 
-    rhs_l2 = _spmd_norm(rhs, geometry, domain, active_mask)
+    rhs_l2 = _spmd_norm(rhs, geometry, domain, active_mask, volume_weights)
     threshold = jnp.maximum(
         jnp.asarray(config.atol, dtype=dtype),
         jnp.asarray(config.tol, dtype=dtype) * rhs_l2,
@@ -400,6 +487,7 @@ def solvax_gmres_solve(
         geometry,
         domain,
         active_mask,
+        volume_weights,
     )
 
     def global_inner_product(
@@ -412,6 +500,7 @@ def solvax_gmres_solve(
             geometry,
             domain,
             active_mask,
+            volume_weights,
         )
 
     effective_preconditioner = preconditioner
@@ -437,12 +526,15 @@ def solvax_gmres_solve(
     )
     phi = _mask_inactive_owned(result.x, active_mask)
     if config.project_mean_zero:
-        phi = _spmd_remove_weighted_mean(phi, geometry, domain, active_mask)
+        phi = _spmd_remove_weighted_mean(
+            phi, geometry, domain, active_mask, volume_weights
+        )
     final_residual = _spmd_norm(
         rhs - masked_apply_A(phi),
         geometry,
         domain,
         active_mask,
+        volume_weights,
     )
     phi_is_finite = _spmd_all_finite(phi, domain, active_mask)
     finite_failed = (
@@ -451,6 +543,7 @@ def solvax_gmres_solve(
         | (~rhs_is_finite)
         | (~guess_is_finite)
         | (~phi_is_finite)
+        | (~volume_weights_valid)
     )
     strict_converged = (~finite_failed) & (final_residual <= threshold)
     accepted = (~finite_failed) & (

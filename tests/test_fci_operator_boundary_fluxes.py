@@ -25,9 +25,6 @@ from drbx.native.fci_operators import (  # noqa: E402
     local_parallel_div_b_op,
     local_parallel_flux_div_op,
 )
-from test_fci_operators_axis_regular_conservative import (  # noqa: E402
-    _constant_coefficients,
-)
 from test_fci_geometry_axis_regular_curvature import _build_polar_geometry  # noqa: E402
 from axis_regular_operator_support import scalar_field_halo  # noqa: E402
 
@@ -48,6 +45,15 @@ def _fixture():
 
     return geometry, domain, build_local_conservative_stencil_from_field(
         field, geometry, context
+    )
+
+
+def _constant_coefficients(geometry, *, value):
+    return LocalCurvatureFaceCoefficients3D(
+        layout=geometry.layout,
+        x=jnp.full(geometry.layout.face_control_shape(0), value),
+        y=jnp.full(geometry.layout.face_control_shape(1), value),
+        z=jnp.full(geometry.layout.face_control_shape(2), value),
     )
 
 

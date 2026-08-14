@@ -20,7 +20,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 from jax.experimental.shard_map import shard_map
-from jax.sharding import NamedSharding, PartitionSpec as P
+from jax.sharding import PartitionSpec as P
 
 from drbx.native.fci_gmres import (
     SolvaxGmresConfig,
@@ -32,9 +32,7 @@ from drbx.native.fci_gmres import (
     solvax_gmres_solve,
 )
 from drbx.native.fci_operators import (
-    AxisCoreLineUPreconditioner3D,
     LocalPerpLaplacianInverseSolver,
-    _factor_periodic_block_tridiagonal,
     _principal_perp_laplacian_bands,
     build_local_perp_laplacian_face_projectors,
 )
@@ -250,58 +248,6 @@ def test_z_sharded_solvax_gmres_supports_collective_matvec_and_inner_product() -
     assert not bool(info.failed)
     assert int(info.num_steps) <= 8
     assert float(info.final_residual_rel_l2) < 1.0e-10
-
-
-def test_z_sharded_axis_core_coarse_solve_matches_replicated_identity() -> None:
-    """The small periodic coefficient solve may span eta shards."""
-
-    shape = (4, 4, 8)
-    shard_counts = (1, 1, 4)
-    if len(jax.devices()) < 4:
-        pytest.skip("requires four JAX devices")
-    domain = _build_domain(shape, 1, shard_counts)
-    degree = 1
-    coefficient_count = (degree + 1) * (degree + 2) // 2
-    diagonal = jnp.broadcast_to(
-        jnp.eye(coefficient_count, dtype=jnp.float64),
-        (shape[2], coefficient_count, coefficient_count),
-    )
-    off_diagonal = jnp.zeros_like(diagonal)
-    payload = AxisCoreLineUPreconditioner3D(
-        factors=_factor_periodic_block_tridiagonal(
-            off_diagonal,
-            diagonal,
-            off_diagonal,
-        ),
-        global_shape=shape,
-        polynomial_degree=degree,
-        observation_ring_count=1,
-    )
-    coefficients = jnp.arange(
-        coefficient_count * shape[2],
-        dtype=jnp.float64,
-    ).reshape(coefficient_count, shape[2])
-
-    with make_mesh_for_shard_counts(shard_counts) as mesh:
-        sharding = NamedSharding(mesh, P(None, "z"))
-        sharded = jax.device_put(coefficients, sharding)
-        solve = jax.jit(
-            shard_map(
-                lambda local: payload.solve_coefficients(local, domain),
-                mesh=mesh,
-                in_specs=(P(None, "z"),),
-                out_specs=P(None, "z"),
-                check_rep=False,
-            )
-        )
-        solved = solve(sharded)
-
-    np.testing.assert_allclose(
-        np.asarray(solved),
-        np.asarray(coefficients),
-        rtol=1.0e-12,
-        atol=1.0e-12,
-    )
 
 
 def test_single_shard_local_phi_solvax_gmres_reconstructs_manufactured_phi() -> None:

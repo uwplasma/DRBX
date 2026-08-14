@@ -276,11 +276,16 @@ def test_full_eb_conservative_curvature_exposes_upwind_equilibrium_mode():
     assert evaluate_source is not None
     assert evaluate_source.count("self._conservative_curvature(") >= 2
     for field in (
-        "curvature_Pe = self._conservative_curvature(",
+        "curvature_Pe = central_curvature(",
+        "curvature_Pe = curvature(",
+        "curvature_pressure = central_curvature(",
         "curvature_pressure = curvature(",
-        "curvature_phi = curvature(\n                phi_conservative_stencil",
-        "curvature_Te = curvature(\n                Te_conservative_stencil",
-        "curvature_Ti = curvature(\n                Ti_conservative_stencil",
+        "curvature_phi = central_curvature(",
+        "curvature_phi = curvature(",
+        "curvature_Te = central_curvature(",
+        "curvature_Te = curvature(",
+        "curvature_Ti = central_curvature(",
+        "curvature_Ti = curvature(",
     ):
         assert field in evaluate_source
 

@@ -42,6 +42,32 @@ def _driver_module():
     return module
 
 
+def _install_toroidal_rlp_mocks(monkeypatch, hsx):
+    topology = SimpleNamespace(
+        is_active_owner=np.ones((4, 8, 12), dtype=bool),
+        is_merge_source=np.zeros((4, 8, 12), dtype=bool),
+    )
+    host = SimpleNamespace(
+        angular_group_size=np.asarray((8, 4, 2, 1)),
+        topology=topology,
+    )
+    native = SimpleNamespace(
+        irregular_faces=SimpleNamespace(max_rows=0, max_patches=4)
+    )
+    monkeypatch.setattr(
+        hsx,
+        "build_metric_aware_polar_angular_agglomeration_geometry",
+        lambda *_a, **_k: (host, 0.5),
+    )
+    monkeypatch.setattr(
+        hsx, "assemble_single_device_local_fci_geometry", lambda *_a, **_k: object()
+    )
+    monkeypatch.setattr(
+        hsx, "lower_polar_angular_agglomeration_geometry", lambda *_a, **_k: native
+    )
+    return host, native
+
+
 def test_parser_exposes_coordinate_default_and_fci_trace_controls():
     hsx = _driver_module()
     parser = hsx._build_parser()
@@ -75,7 +101,6 @@ def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
     run = _function(tree, "run_full_eb")
     kernel_names = {
         "precompute_wall_projectors",
-        "precompute_axis_core_line_u",
         "reconstruct_initial_phi",
         "full_rk4_advance",
         "full_ark2_imex_advance",
@@ -151,13 +176,15 @@ def test_geometry_only_fci_requests_map_generation_and_records_substeps(
     vessel.write_bytes(b"synthetic")
     global_calls = []
     lowering_calls = []
+    metric_evaluator = object()
+    _install_toroidal_rlp_mocks(monkeypatch, hsx)
 
     monkeypatch.setattr(hsx, "make_shard_mesh", lambda *_: object())
     monkeypatch.setattr(
         hsx,
         "build_hsx_fci_geometry",
         lambda **kwargs: global_calls.append(kwargs)
-        or (object(), np.zeros((4, 8, 12, 3)), 2, None),
+        or (object(), np.zeros((4, 8, 12, 3)), 2, None, metric_evaluator),
     )
     monkeypatch.setattr(
         hsx,
@@ -165,6 +192,8 @@ def test_geometry_only_fci_requests_map_generation_and_records_substeps(
         lambda *args, **kwargs: lowering_calls.append((args, kwargs))
         or SimpleNamespace(
             global_shape=(4, 8, 12),
+            shard_counts=(1, 1, 1),
+            cell_fields=object(),
             maps_valid=True,
             map_fields=np.zeros((4, 8, 12, 8)),
             domain=SimpleNamespace(
@@ -212,16 +241,18 @@ def test_fci_main_passes_scheme_and_metadata_to_run(monkeypatch, tmp_path):
     makegrid.write_bytes(b"synthetic")
     vessel.write_bytes(b"synthetic")
     monkeypatch.setattr(hsx, "make_shard_mesh", lambda *_: object())
+    _install_toroidal_rlp_mocks(monkeypatch, hsx)
     monkeypatch.setattr(
         hsx,
         "build_hsx_fci_geometry",
-        lambda **kwargs: (object(), np.zeros((4, 8, 12, 3)), 2, None),
+        lambda **kwargs: (object(), np.zeros((4, 8, 12, 3)), 2, None, object()),
     )
     sharded = SimpleNamespace(
         global_shape=(4, 8, 12),
         shard_counts=(1, 1, 1),
         maps_valid=True,
         map_fields=np.zeros((4, 8, 12, 8)),
+        cell_fields=object(),
         domain=SimpleNamespace(
             layout=SimpleNamespace(
                 owned_shape=(4, 8, 12), cell_halo_shape=(6, 10, 14)
@@ -232,6 +263,8 @@ def test_fci_main_passes_scheme_and_metadata_to_run(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(hsx, "build_local_fci_geometries", lambda *_a, **_k: sharded)
     monkeypatch.setattr(hsx, "build_initial_state", lambda *_a, **_k: object())
+    monkeypatch.setattr(hsx, "_aggregate_initial_owner_state", lambda state, _host: state)
+    monkeypatch.setattr(hsx, "_assert_owner_sparse", lambda *_a, **_k: None)
     calls = []
     monkeypatch.setattr(hsx, "run_full_eb", lambda *args, **kwargs: calls.append(kwargs))
 

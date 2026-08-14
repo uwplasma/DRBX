@@ -29,32 +29,84 @@ CUBIC_MONOMIAL_EXPONENTS: tuple[tuple[int, int, int], ...] = tuple(
 )
 
 
-def cubic_monomial_basis(points: np.ndarray) -> np.ndarray:
-    """Evaluate the 20 monomials through total degree three at points."""
+def monomial_exponents(
+    total_degree: int | None = None,
+    *,
+    exponents: tuple[tuple[int, int, int], ...] | list[tuple[int, int, int]] | None = None,
+) -> tuple[tuple[int, int, int], ...]:
+    """Return a validated, ordered set of three-coordinate exponents.
+
+    ``total_degree`` selects all monomials through that degree using the
+    historical ordering.  ``exponents`` permits a caller to select an
+    arbitrary subset, which is useful for regular charts whose reconstruction
+    basis is deliberately smaller than the full cubic basis.
+    """
+    if exponents is not None:
+        if total_degree is not None:
+            raise ValueError("provide either total_degree or exponents, not both")
+        selected = tuple(tuple(int(power) for power in item) for item in exponents)
+    else:
+        if total_degree is None:
+            total_degree = 3
+        total_degree = int(total_degree)
+        if total_degree not in (0, 1, 2, 3):
+            raise ValueError("total_degree must be between zero and three")
+        selected = tuple(
+            power for power in CUBIC_MONOMIAL_EXPONENTS
+            if sum(power) <= total_degree
+        )
+    if not selected:
+        raise ValueError("at least one monomial exponent is required")
+    if len(set(selected)) != len(selected):
+        raise ValueError("monomial exponents must be unique")
+    for power in selected:
+        if len(power) != 3 or any(item < 0 for item in power):
+            raise ValueError("monomial exponents must be three nonnegative integers")
+        if sum(power) > 3:
+            raise ValueError("moments through third order support degree at most three")
+    return selected
+
+
+def monomial_basis(
+    points: np.ndarray,
+    *,
+    total_degree: int | None = None,
+    exponents: tuple[tuple[int, int, int], ...] | list[tuple[int, int, int]] | None = None,
+) -> np.ndarray:
+    """Evaluate selected monomials at three-coordinate points."""
 
     points = np.asarray(points, dtype=np.float64)
     if points.shape[-1:] != (3,):
         raise ValueError("points must have a trailing logical-coordinate axis")
+    selected = monomial_exponents(total_degree, exponents=exponents)
     return np.stack(
         [
-            points[..., 0] ** power[0]
-            * points[..., 1] ** power[1]
-            * points[..., 2] ** power[2]
-            for power in CUBIC_MONOMIAL_EXPONENTS
+            np.prod(
+                [points[..., axis] ** power[axis] for axis in range(3)], axis=0
+            )
+            for power in selected
         ],
         axis=-1,
     )
 
 
-def cubic_control_volume_average_basis(
+def cubic_monomial_basis(points: np.ndarray) -> np.ndarray:
+    """Evaluate the 20 monomials through total degree three at points."""
+
+    return monomial_basis(points, exponents=CUBIC_MONOMIAL_EXPONENTS)
+
+
+def control_volume_average_basis(
     centroid: np.ndarray,
     second_moment: np.ndarray,
     third_moment: np.ndarray,
     *,
     origin: np.ndarray | None = None,
     scale: np.ndarray | float = 1.0,
+    total_degree: int | None = None,
+    exponents: tuple[tuple[int, int, int], ...] | list[tuple[int, int, int]] | None = None,
 ) -> np.ndarray:
-    """Return exact cubic basis averages from central control-volume moments.
+    """Return exact selected monomial averages from central moments.
 
     Coordinates are translated by ``origin`` and scaled componentwise before
     evaluating the basis.  This is the common moment row used by cell-average
@@ -68,6 +120,7 @@ def cubic_control_volume_average_basis(
         raise ValueError("centroid, second_moment, and third_moment need 3D trailing shapes")
     if centroid.shape[:-1] != second.shape[:-2] or centroid.shape[:-1] != third.shape[:-3]:
         raise ValueError("control-volume moment batch shapes must match")
+    selected = monomial_exponents(total_degree, exponents=exponents)
     origin_value = np.zeros((3,), dtype=np.float64) if origin is None else np.asarray(origin, dtype=np.float64)
     scale_value = np.asarray(scale, dtype=np.float64)
     if origin_value.shape != (3,):
@@ -87,8 +140,8 @@ def cubic_control_volume_average_basis(
         * displacement[..., None, :, None]
         * displacement[..., None, None, :]
     )
-    result = np.empty(centroid.shape[:-1] + (20,), dtype=np.float64)
-    for column, power in enumerate(CUBIC_MONOMIAL_EXPONENTS):
+    result = np.empty(centroid.shape[:-1] + (len(selected),), dtype=np.float64)
+    for column, power in enumerate(selected):
         degree = sum(power)
         if degree == 0:
             value = np.ones(centroid.shape[:-1], dtype=np.float64)
@@ -104,6 +157,26 @@ def cubic_control_volume_average_basis(
         denominator = np.prod(scale_value ** np.asarray(power, dtype=np.float64))
         result[..., column] = value / denominator
     return result
+
+
+def cubic_control_volume_average_basis(
+    centroid: np.ndarray,
+    second_moment: np.ndarray,
+    third_moment: np.ndarray,
+    *,
+    origin: np.ndarray | None = None,
+    scale: np.ndarray | float = 1.0,
+) -> np.ndarray:
+    """Return exact cubic basis averages from central control-volume moments."""
+
+    return control_volume_average_basis(
+        centroid,
+        second_moment,
+        third_moment,
+        origin=origin,
+        scale=scale,
+        exponents=CUBIC_MONOMIAL_EXPONENTS,
+    )
 
 
 def cubic_dense_face_targets(
@@ -141,7 +214,7 @@ def cubic_dense_face_targets(
     return scalar @ basis, gradient @ basis
 
 
-def cubic_projected_face_flux_target(
+def projected_face_flux_target(
     points: np.ndarray,
     jacobian: np.ndarray,
     area_covector_weight: np.ndarray,
@@ -150,11 +223,17 @@ def cubic_projected_face_flux_target(
     *,
     origin: np.ndarray,
     scale: np.ndarray | float,
+    dchi_dxi: np.ndarray | None = None,
+    total_degree: int | None = None,
+    exponents: tuple[tuple[int, int, int], ...] | list[tuple[int, int, int]] | None = None,
 ) -> np.ndarray:
-    """Return the direct cubic target for the projected face-flux oracle.
+    """Return direct projected-flux targets for selected chart monomials.
 
     This is the compact-face runtime expression:
-    ``J * a_weight^T P grad_x(phi)`` summed over active quadrature points.
+    ``J * a_weight^T P grad_xi(phi)`` summed over active quadrature points.
+    The polynomial is expressed in ``chi=(x,y,eta_tilde)`` while all area
+    and projector data remain in logical coordinates.  ``dchi_dxi`` supplies
+    the chart Jacobian and applies ``grad_xi = dchi_dxi.T @ grad_chi``.
     ``area_covector_weight`` already contains the two-dimensional Gauss weight;
     ``J`` is intentionally multiplied separately here (never double counted).
     """
@@ -165,12 +244,18 @@ def cubic_projected_face_flux_target(
     active = np.asarray(active, dtype=bool)
     origin = np.asarray(origin, dtype=np.float64)
     scale = np.asarray(scale, dtype=np.float64)
+    if dchi_dxi is None:
+        chart_jacobian = np.broadcast_to(np.eye(3), points.shape[:-1] + (3, 3))
+    else:
+        chart_jacobian = np.asarray(dchi_dxi, dtype=np.float64)
+    selected = monomial_exponents(total_degree, exponents=exponents)
     if scale.ndim == 0:
         scale = np.full((3,), float(scale))
     if (
         points.shape[-1:] != (3,)
         or area.shape != points.shape
         or projector.shape != points.shape[:-1] + (3, 3)
+        or chart_jacobian.shape != points.shape[:-1] + (3, 3)
         or jacobian.shape != active.shape
         or jacobian.shape != points.shape[:-1]
     ):
@@ -182,29 +267,54 @@ def cubic_projected_face_flux_target(
         or np.any(scale <= 0)
     ):
         raise ValueError("origin and positive componentwise scale are required")
-    if any(np.any(~np.isfinite(x)) for x in (points, jacobian, area, projector, origin)):
+    if any(np.any(~np.isfinite(x)) for x in (points, jacobian, area, projector, chart_jacobian, origin)):
         raise ValueError("projected face target inputs must be finite")
     xi = (points - origin) / scale
-    target = np.zeros((20,), dtype=np.float64)
-    for column, power in enumerate(CUBIC_MONOMIAL_EXPONENTS):
-        grad = np.zeros_like(points)
+    target = np.zeros((len(selected),), dtype=np.float64)
+    for column, power in enumerate(selected):
+        grad_chi = np.zeros_like(points)
         for axis in range(3):
             if power[axis]:
                 reduced = list(power)
                 reduced[axis] -= 1
-                grad[..., axis] = (
+                grad_chi[..., axis] = (
                     power[axis]
                     * np.prod(
                         [xi[..., q] ** reduced[q] for q in range(3)], axis=0,
                     )
                     / scale[axis]
                 )
+        grad = np.einsum("...ji,...j->...i", chart_jacobian, grad_chi)
         integrand = jacobian * np.einsum("...i,...ij,...j->...", area, projector, grad)
         target[column] = np.sum(np.where(active, integrand, 0.0))
     return target
 
 
-def cubic_parallel_face_flux_target(
+def cubic_projected_face_flux_target(
+    points: np.ndarray,
+    jacobian: np.ndarray,
+    area_covector_weight: np.ndarray,
+    projector: np.ndarray,
+    active: np.ndarray,
+    *,
+    origin: np.ndarray,
+    scale: np.ndarray | float,
+) -> np.ndarray:
+    """Return the legacy cubic projected face-flux target."""
+
+    return projected_face_flux_target(
+        points,
+        jacobian,
+        area_covector_weight,
+        projector,
+        active,
+        origin=origin,
+        scale=scale,
+        exponents=CUBIC_MONOMIAL_EXPONENTS,
+    )
+
+
+def parallel_face_flux_target(
     points: np.ndarray,
     jacobian: np.ndarray,
     area_covector_weight: np.ndarray,
@@ -215,8 +325,10 @@ def cubic_parallel_face_flux_target(
     origin: np.ndarray,
     scale: np.ndarray | float,
     b_floor: float = 1.0e-30,
+    total_degree: int | None = None,
+    exponents: tuple[tuple[int, int, int], ...] | list[tuple[int, int, int]] | None = None,
 ) -> np.ndarray:
-    """Return the direct cubic target for the conservative parallel flux.
+    """Return direct parallel-flux targets for selected chart monomials.
 
     The target follows the runtime face quadrature exactly: for each cubic
     monomial ``phi``, sum ``J * dot(a_weight, B_contra / max(Bmag, b_floor))
@@ -259,11 +371,11 @@ def cubic_parallel_face_flux_target(
     flux_scale = jacobian * np.einsum(
         "...i,...i->...", area, b_contra / np.maximum(bmag, b_floor)[..., None],
     )
-    basis = cubic_monomial_basis(xi)
+    basis = monomial_basis(xi, total_degree=total_degree, exponents=exponents)
     return np.sum(np.where(active[..., None], flux_scale[..., None] * basis, 0.0), axis=tuple(range(active.ndim)))
 
 
-def cubic_parallel_gradient_face_flux_target(
+def cubic_parallel_face_flux_target(
     points: np.ndarray,
     jacobian: np.ndarray,
     area_covector_weight: np.ndarray,
@@ -275,7 +387,31 @@ def cubic_parallel_gradient_face_flux_target(
     scale: np.ndarray | float,
     b_floor: float = 1.0e-30,
 ) -> np.ndarray:
-    """Return the cubic target for ``J a^T P_parallel grad(phi)``.
+    """Return the legacy cubic parallel-flux target."""
+
+    return parallel_face_flux_target(
+        points, jacobian, area_covector_weight, B_contra, Bmag, active,
+        origin=origin, scale=scale, b_floor=b_floor,
+        exponents=CUBIC_MONOMIAL_EXPONENTS,
+    )
+
+
+def parallel_gradient_face_flux_target(
+    points: np.ndarray,
+    jacobian: np.ndarray,
+    area_covector_weight: np.ndarray,
+    B_contra: np.ndarray,
+    Bmag: np.ndarray,
+    active: np.ndarray,
+    *,
+    origin: np.ndarray,
+    scale: np.ndarray | float,
+    b_floor: float = 1.0e-30,
+    dchi_dxi: np.ndarray | None = None,
+    total_degree: int | None = None,
+    exponents: tuple[tuple[int, int, int], ...] | list[tuple[int, int, int]] | None = None,
+) -> np.ndarray:
+    """Return targets for ``J a^T P_parallel grad_xi(phi)``.
 
     This is the direct face functional required by the conservative parallel
     Laplacian.  It is intentionally distinct from ``cubic_parallel_face_flux_target``,
@@ -292,7 +428,7 @@ def cubic_parallel_gradient_face_flux_target(
         raise ValueError("parallel-gradient face target magnetic inputs must be finite")
     b = b_contra / np.maximum(bmag, b_floor)[..., None]
     projector = np.einsum("...i,...j->...ij", b, b)
-    return cubic_projected_face_flux_target(
+    return projected_face_flux_target(
         points,
         jacobian,
         area_covector_weight,
@@ -300,7 +436,104 @@ def cubic_parallel_gradient_face_flux_target(
         active,
         origin=origin,
         scale=scale,
+        dchi_dxi=dchi_dxi,
+        total_degree=total_degree,
+        exponents=exponents,
     )
+
+
+def cubic_parallel_gradient_face_flux_target(
+    points: np.ndarray,
+    jacobian: np.ndarray,
+    area_covector_weight: np.ndarray,
+    B_contra: np.ndarray,
+    Bmag: np.ndarray,
+    active: np.ndarray,
+    *,
+    origin: np.ndarray,
+    scale: np.ndarray | float,
+    b_floor: float = 1.0e-30,
+) -> np.ndarray:
+    """Return the legacy cubic parallel-gradient target."""
+
+    return parallel_gradient_face_flux_target(
+        points, jacobian, area_covector_weight, B_contra, Bmag, active,
+        origin=origin, scale=scale, b_floor=b_floor,
+        exponents=CUBIC_MONOMIAL_EXPONENTS,
+    )
+
+
+def monomial_value_target(
+    points: np.ndarray,
+    *,
+    origin: np.ndarray,
+    scale: np.ndarray | float,
+    total_degree: int | None = None,
+    exponents: tuple[tuple[int, int, int], ...] | list[tuple[int, int, int]] | None = None,
+) -> np.ndarray:
+    """Evaluate selected chart monomials at quadrature points."""
+
+    points = np.asarray(points, dtype=np.float64)
+    origin = np.asarray(origin, dtype=np.float64)
+    scale = np.asarray(scale, dtype=np.float64)
+    if points.shape[-1:] != (3,) or origin.shape != (3,):
+        raise ValueError("points and origin must have trailing/shape (3,)")
+    if scale.ndim == 0:
+        scale = np.full((3,), float(scale))
+    if scale.shape != (3,) or np.any(~np.isfinite(scale)) or np.any(scale <= 0.0):
+        raise ValueError("scale must be one positive scalar or three positive values")
+    if np.any(~np.isfinite(points)) or np.any(~np.isfinite(origin)):
+        raise ValueError("value-target inputs must be finite")
+    return monomial_basis(
+        (points - origin) / scale,
+        total_degree=total_degree,
+        exponents=exponents,
+    )
+
+
+def monomial_logical_gradient_target(
+    points: np.ndarray,
+    *,
+    origin: np.ndarray,
+    scale: np.ndarray | float,
+    dchi_dxi: np.ndarray | None = None,
+    total_degree: int | None = None,
+    exponents: tuple[tuple[int, int, int], ...] | list[tuple[int, int, int]] | None = None,
+) -> np.ndarray:
+    """Evaluate logical gradients of selected chart monomials.
+
+    The returned array has shape ``points.shape[:-1] + (3, n_basis)``.
+    ``dchi_dxi`` is the pointwise chart Jacobian with rows ``chi`` and
+    columns logical ``xi``; therefore the chain rule is its transpose.
+    """
+
+    points = np.asarray(points, dtype=np.float64)
+    origin = np.asarray(origin, dtype=np.float64)
+    scale = np.asarray(scale, dtype=np.float64)
+    if scale.ndim == 0:
+        scale = np.full((3,), float(scale))
+    if points.shape[-1:] != (3,) or origin.shape != (3,) or scale.shape != (3,):
+        raise ValueError("points, origin, and scale must have shape (...,3), (3,), (3,)")
+    if dchi_dxi is None:
+        chart_jacobian = np.broadcast_to(np.eye(3), points.shape[:-1] + (3, 3))
+    else:
+        chart_jacobian = np.asarray(dchi_dxi, dtype=np.float64)
+    if chart_jacobian.shape != points.shape[:-1] + (3, 3):
+        raise ValueError("dchi_dxi must have shape points.shape[:-1] + (3,3)")
+    xi = (points - origin) / scale
+    selected = monomial_exponents(total_degree, exponents=exponents)
+    gradient_chi = np.zeros(points.shape[:-1] + (3, len(selected)), dtype=np.float64)
+    for column, power in enumerate(selected):
+        for axis in range(3):
+            if power[axis]:
+                reduced = list(power)
+                reduced[axis] -= 1
+                gradient_chi[..., axis, column] = (
+                    power[axis]
+                    * np.prod([xi[..., q] ** reduced[q] for q in range(3)], axis=0)
+                    / scale[axis]
+                )
+    return np.einsum("...ji,...jn->...in", chart_jacobian, gradient_chi)
 
 
 @dataclass(frozen=True)
@@ -325,6 +558,7 @@ class LocalMomentFittedFaceFunctional3D:
     normalized_projected_weight_norm: float | None = None
     normalized_parallel_weight_norm: float | None = None
     normalized_parallel_gradient_weight_norm: float | None = None
+    polynomial_exponents: tuple[tuple[int, int, int], ...] | None = None
 
     def __post_init__(self) -> None:
         kind = np.asarray(self.equation_kind, dtype=np.int32).reshape((-1,))
@@ -375,6 +609,14 @@ class LocalMomentFittedFaceFunctional3D:
         object.__setattr__(
             self, "parallel_gradient_flux_weights", parallel_gradient
         )
+        exponents = (
+            tuple(tuple(int(value) for value in power) for power in self.polynomial_exponents)
+            if self.polynomial_exponents is not None
+            else None
+        )
+        if exponents is not None:
+            monomial_exponents(exponents=exponents)
+        object.__setattr__(self, "polynomial_exponents", exponents)
         object.__setattr__(
             self, "normalized_projected_weight_norm",
             float(np.linalg.norm(projected)) if self.normalized_projected_weight_norm is None
@@ -427,6 +669,7 @@ class LocalMomentFittedFaceFunctionals3D:
     normalized_projected_weight_norm: np.ndarray
     normalized_parallel_weight_norm: np.ndarray
     normalized_parallel_gradient_weight_norm: np.ndarray
+    polynomial_exponents: tuple[tuple[int, int, int], ...] | None = None
 
     def __post_init__(self) -> None:
         face_id = np.asarray(self.face_id, dtype=np.int64).reshape((-1,))
@@ -465,6 +708,13 @@ class LocalMomentFittedFaceFunctionals3D:
             raise ValueError("packed face signs must be either -1 or +1")
         if np.any(active & (reference < 0)):
             raise ValueError("active functional observations need nonnegative references")
+        exponents = (
+            tuple(tuple(int(value) for value in power) for power in self.polynomial_exponents)
+            if self.polynomial_exponents is not None
+            else None
+        )
+        if exponents is not None:
+            monomial_exponents(exponents=exponents)
         object.__setattr__(self, "face_id", face_id)
         object.__setattr__(self, "face_sign", face_sign)
         object.__setattr__(self, "equation_kind", kind)
@@ -475,6 +725,7 @@ class LocalMomentFittedFaceFunctionals3D:
         object.__setattr__(self, "projected_flux_weights", projected)
         object.__setattr__(self, "parallel_flux_weights", parallel)
         object.__setattr__(self, "parallel_gradient_flux_weights", parallel_gradient)
+        object.__setattr__(self, "polynomial_exponents", exponents)
         object.__setattr__(self, "rank", rank)
         object.__setattr__(self, "condition_number", condition)
         object.__setattr__(self, "reproduction_residual", residual)
@@ -517,10 +768,14 @@ def pack_local_face_functionals(
             normalized_projected_weight_norm=np.zeros((0,), dtype=np.float64),
             normalized_parallel_weight_norm=np.zeros((0,), dtype=np.float64),
             normalized_parallel_gradient_weight_norm=np.zeros((0,), dtype=np.float64),
+            polynomial_exponents=None,
         )
     count = functionals[0].equation_kind.size
     if any(item.equation_kind.size != count for item in functionals):
         raise ValueError("packed face functionals require one observation capacity")
+    exponents = functionals[0].polynomial_exponents
+    if any(item.polynomial_exponents != exponents for item in functionals[1:]):
+        raise ValueError("packed face functionals require one shared polynomial basis")
     return LocalMomentFittedFaceFunctionals3D(
         face_id=np.asarray([item.face_id for item in functionals]),
         face_sign=np.asarray([item.face_sign for item in functionals]),
@@ -543,6 +798,7 @@ def pack_local_face_functionals(
         normalized_parallel_gradient_weight_norm=np.asarray(
             [item.normalized_parallel_gradient_weight_norm for item in functionals]
         ),
+        polynomial_exponents=exponents,
     )
 
 
@@ -600,6 +856,7 @@ def precompute_local_face_functional(
     parallel_gradient_flux_target: np.ndarray | None = None,
     observation_weight: np.ndarray | None = None,
     requested_order: int = 3,
+    exponents: tuple[tuple[int, int, int], ...] | list[tuple[int, int, int]] | None = None,
     svd_cutoff: float = 1.0e-12,
     condition_limit: float = 1.0e6,
     max_derivative_l1: float = 100.0,
@@ -620,37 +877,43 @@ def precompute_local_face_functional(
     products; no owner-centered virtual average is materialized.
     """
 
-    if int(requested_order) != 3:
-        raise ValueError("only the 20-term cubic compact functional is supported")
+    selected = monomial_exponents(
+        None if exponents is not None else int(requested_order),
+        exponents=exponents,
+    )
+    basis_size = len(selected)
     matrix = np.asarray(observation_matrix, dtype=np.float64)
     kind = np.asarray(equation_kind, dtype=np.int32).reshape((-1,))
     reference = np.asarray(sample_reference, dtype=np.int64).reshape((-1,))
     value_target = np.asarray(value_target, dtype=np.float64).reshape((-1,))
     gradient_target = np.asarray(gradient_target, dtype=np.float64)
-    if matrix.ndim != 2 or matrix.shape != (kind.size, 20):
-        raise ValueError("cubic observation_matrix must have shape (observations, 20)")
+    if matrix.ndim != 2 or matrix.shape != (kind.size, basis_size):
+        raise ValueError(
+            "observation_matrix must have shape "
+            f"(observations, {basis_size}) for the selected basis"
+        )
     if np.any(~np.isfinite(matrix)) or np.any(~np.isfinite(value_target)) or np.any(~np.isfinite(gradient_target)):
         raise ValueError("face-functional matrix and targets must be finite")
-    if reference.size != kind.size or value_target.shape != (20,):
-        raise ValueError("face-functional targets must align with the cubic basis")
-    if gradient_target.shape != (3, 20):
-        raise ValueError("gradient_target must have shape (3, 20)")
-    projected_target = np.zeros((20,), dtype=np.float64) if projected_flux_target is None else np.asarray(projected_flux_target, dtype=np.float64).reshape((-1,))
-    if projected_target.shape != (20,) or np.any(~np.isfinite(projected_target)):
-        raise ValueError("projected_flux_target must have shape (20,) and be finite")
-    parallel_target = np.zeros((20,), dtype=np.float64) if parallel_flux_target is None else np.asarray(parallel_flux_target, dtype=np.float64).reshape((-1,))
-    if parallel_target.shape != (20,) or np.any(~np.isfinite(parallel_target)):
-        raise ValueError("parallel_flux_target must have shape (20,) and be finite")
+    if reference.size != kind.size or value_target.shape != (basis_size,):
+        raise ValueError("face-functional targets must align with the selected basis")
+    if gradient_target.shape != (3, basis_size):
+        raise ValueError(f"gradient_target must have shape (3, {basis_size})")
+    projected_target = np.zeros((basis_size,), dtype=np.float64) if projected_flux_target is None else np.asarray(projected_flux_target, dtype=np.float64).reshape((-1,))
+    if projected_target.shape != (basis_size,) or np.any(~np.isfinite(projected_target)):
+        raise ValueError("projected_flux_target has the wrong selected-basis shape or is nonfinite")
+    parallel_target = np.zeros((basis_size,), dtype=np.float64) if parallel_flux_target is None else np.asarray(parallel_flux_target, dtype=np.float64).reshape((-1,))
+    if parallel_target.shape != (basis_size,) or np.any(~np.isfinite(parallel_target)):
+        raise ValueError("parallel_flux_target has the wrong selected-basis shape or is nonfinite")
     parallel_gradient_target = (
-        np.zeros((20,), dtype=np.float64)
+        np.zeros((basis_size,), dtype=np.float64)
         if parallel_gradient_flux_target is None
         else np.asarray(parallel_gradient_flux_target, dtype=np.float64).reshape((-1,))
     )
-    if parallel_gradient_target.shape != (20,) or np.any(
+    if parallel_gradient_target.shape != (basis_size,) or np.any(
         ~np.isfinite(parallel_gradient_target)
     ):
         raise ValueError(
-            "parallel_gradient_flux_target must have shape (20,) and be finite"
+            "parallel_gradient_flux_target has the wrong selected-basis shape or is nonfinite"
         )
     if observation_weight is None:
         weight = np.ones((kind.size,), dtype=np.float64)
@@ -666,14 +929,14 @@ def precompute_local_face_functional(
     tolerance = float(svd_cutoff) * singular[0] if singular.size else np.inf
     rank = int(np.sum(singular > tolerance))
     condition = (
-        float(singular[0] / singular[19]) if rank >= 20 else np.inf
+        float(singular[0] / singular[basis_size - 1]) if rank >= basis_size else np.inf
     )
-    if rank < 20 or condition > float(condition_limit):
+    if rank < basis_size or condition > float(condition_limit):
         raise ValueError(
-            f"cubic face functional is rank deficient/ill conditioned: "
+            f"face functional is rank deficient/ill conditioned: "
             f"rank={rank}, condition={condition:.3e}"
         )
-    inverse = (vh[:20].T / singular[:20]) @ u[:, :20].T
+    inverse = (vh[:basis_size].T / singular[:basis_size]) @ u[:, :basis_size].T
     weighted_value_weights = value_target @ inverse
     weighted_gradient_weights = gradient_target @ inverse
     weighted_projected_weights = projected_target @ inverse
@@ -725,7 +988,7 @@ def precompute_local_face_functional(
         / parallel_gradient_target_norm
     )
     if not np.isfinite(reproduction) or reproduction > 1.0e-10:
-        raise ValueError(f"cubic face functional reproduction failed: {reproduction:.3e}")
+        raise ValueError(f"face functional reproduction failed: {reproduction:.3e}")
     if derivative_l1 > float(max_derivative_l1):
         raise ValueError(
             f"cubic face functional derivative norm {derivative_l1:.3e} exceeds limit"
@@ -768,7 +1031,7 @@ def precompute_local_face_functional(
         active=np.ones((kind.size,), dtype=bool),
         value_weights=value_weights,
         gradient_weights=gradient_weights,
-        polynomial_order=3,
+        polynomial_order=max(sum(power) for power in selected),
         rank=rank,
         condition_number=condition,
         reproduction_residual=reproduction,
@@ -784,6 +1047,7 @@ def precompute_local_face_functional(
         normalized_projected_weight_norm=projected_norm,
         normalized_parallel_weight_norm=parallel_norm,
         normalized_parallel_gradient_weight_norm=parallel_gradient_norm,
+        polynomial_exponents=selected,
     )
 
 
@@ -912,6 +1176,14 @@ def evaluate_local_parallel_gradient_face_flux(
 
 __all__ = [
     "CUBIC_MONOMIAL_EXPONENTS",
+    "monomial_exponents",
+    "monomial_basis",
+    "control_volume_average_basis",
+    "monomial_value_target",
+    "monomial_logical_gradient_target",
+    "projected_face_flux_target",
+    "parallel_face_flux_target",
+    "parallel_gradient_face_flux_target",
     "cubic_control_volume_average_basis",
     "cubic_dense_face_targets",
     "cubic_projected_face_flux_target",
