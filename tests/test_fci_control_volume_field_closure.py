@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from types import SimpleNamespace
 
 import jax
@@ -30,6 +31,7 @@ from drbx.native.fci_boundaries import (
 from drbx.native import fci_operators
 from drbx.native.fci_operators import (
     build_local_control_volume_field_closure,
+    local_perp_laplacian_conservative_op,
     local_parallel_laplacian_conservative_op,
     replace_local_control_volume_projected_flux_with_owner_polynomials,
 )
@@ -384,6 +386,71 @@ def test_direct_face_closure_eager_jit_and_pytree() -> None:
     assert bool(eager.valid[0])
     doubled = jax.tree.map(lambda value: value * 2 if jnp.issubdtype(jnp.asarray(value).dtype, jnp.inexact) else value, eager)
     np.testing.assert_allclose(doubled.parallel_flux, [150.0])
+
+
+def test_direct_face_value_and_logical_gradient_recovery() -> None:
+    layout, geometry = _geometry()
+    rows = geometry.face_functionals
+    value_weights = jnp.zeros_like(rows.value_weights)
+    value_weights = value_weights.at[0, 0, 0, :].set(jnp.array([1.0, 1.0, 1.0]))
+    gradient_weights = jnp.zeros_like(rows.logical_gradient_weights)
+    gradient_weights = gradient_weights.at[0, 0, 0, 0, :].set(jnp.array([1.0, 2.0, 3.0]))
+    gradient_weights = gradient_weights.at[0, 0, 0, 1, :].set(jnp.array([0.0, 1.0, 0.0]))
+    rows = dataclasses.replace(
+        rows, value_weights=value_weights, logical_gradient_weights=gradient_weights
+    )
+    object.__setattr__(geometry, "face_functionals", rows)
+    closure = build_local_control_volume_field_closure(_field(layout), geometry, _bc())
+    np.testing.assert_allclose(closure.face_value[0, 0, 0], 14.0)
+    np.testing.assert_allclose(closure.face_gradient[0, 0, 0], [33.0, 5.0, 0.0])
+    assert bool(closure.face_value_valid[0, 0, 0])
+    assert bool(closure.face_gradient_valid[0, 0, 0])
+    assert not bool(jnp.any(closure.face_value_valid[0, 0, 1:]))
+    assert not bool(jnp.any(closure.face_gradient_valid[0, 0, 1:]))
+    assert not bool(jnp.any(closure.face_value_valid[0, 1:]))
+    assert np.isnan(np.asarray(closure.face_value)[0, 0, 1:]).all()
+    assert np.isnan(np.asarray(closure.face_gradient)[0, 0, 1:]).all()
+    compiled = jax.jit(
+        lambda value: build_local_control_volume_field_closure(value, geometry, _bc())
+    )(_field(layout))
+    np.testing.assert_allclose(compiled.face_value, closure.face_value, equal_nan=True)
+    leaves, treedef = jax.tree_util.tree_flatten(closure)
+    restored = jax.tree_util.tree_unflatten(treedef, leaves)
+    np.testing.assert_allclose(restored.face_gradient, closure.face_gradient, equal_nan=True)
+    np.testing.assert_array_equal(restored.face_value_valid, closure.face_value_valid)
+
+
+def test_prescribed_flux_rows_do_not_invent_scalar_traces() -> None:
+    layout, geometry = _geometry(neighbor=False)
+    closure = build_local_control_volume_field_closure(
+        _field(layout), geometry, _bc(BC_NORMALFLUX, 7.0)
+    )
+    assert bool(closure.valid[0])
+    assert not bool(closure.face_value_valid[0, 0, 0])
+    assert np.isnan(np.asarray(closure.face_value)[0, 0, 0])
+
+
+def test_perpendicular_cv_path_uses_direct_flux_without_polynomial(monkeypatch):
+    closure = LocalControlVolumeFieldClosure3D(
+        projected_flux=jnp.array([13.0]),
+        parallel_flux=jnp.array([17.0]),
+        parallel_gradient_flux=jnp.array([19.0]),
+        valid=jnp.array([True]), active=jnp.array([True]), max_rows=1,
+    )
+    geometry = object.__new__(LocalEmbeddedControlVolumeGeometry3D)
+    object.__setattr__(geometry, "regular_faces", object())
+    object.__setattr__(geometry, "regular_boundary_closure", None)
+    stencil = SimpleNamespace(
+        regular_flux=SimpleNamespace(x=jnp.array(1.0), y=jnp.array(2.0), z=jnp.array(3.0))
+    )
+    monkeypatch.setattr(fci_operators, "build_local_perp_laplacian_stencil", lambda *a, **k: stencil)
+    monkeypatch.setattr(fci_operators, "_require_local_control_volume_field_closure", lambda c, g: c)
+    monkeypatch.setattr(fci_operators, "_local_control_volume_integrated_divergence", lambda regular, irregular, *a, **k: irregular)
+    result = local_perp_laplacian_conservative_op(
+        object(), object(), object(), face_projectors=(jnp.array(0.0),) * 3,
+        control_volume_geometry=geometry, field_closure=closure,
+    )
+    np.testing.assert_allclose(result, [13.0])
 
 
 def test_direct_face_closure_gathers_remote_dirichlet_observation(

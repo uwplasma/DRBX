@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Callable
 
 import jax
@@ -926,6 +927,44 @@ def assemble_local_fci_geometry(
     )
 
 
+def assemble_single_device_local_fci_geometry(
+    sharded_geometry: ShardedFciGeometry3D,
+    cell_fields_owned: jnp.ndarray | None = None,
+    map_fields_owned: jnp.ndarray | None = None,
+) -> LocalFciGeometry3D:
+    """Assemble a one-device local geometry outside ``shard_map``.
+
+    This is the strict host-preprocessing counterpart of
+    :func:`assemble_local_fci_geometry`.  It accepts only a geometry built
+    with exactly one shard in every logical direction and reuses the same
+    numerical assembly routine after replacing only the execution metadata
+    with an undecomposed domain.  Consequently every runtime shard id is the
+    static integer zero, while periodic and lower-axis-regular topology
+    handling remains identical to the normal shard-map path.
+    """
+    if not isinstance(sharded_geometry, ShardedFciGeometry3D):
+        raise TypeError(
+            "sharded_geometry must be a ShardedFciGeometry3D instance, "
+            f"got {type(sharded_geometry).__name__}"
+        )
+    if sharded_geometry.shard_counts != (1, 1, 1):
+        raise ValueError(
+            "assemble_single_device_local_fci_geometry requires shard_counts "
+            f"exactly (1, 1, 1), got {sharded_geometry.shard_counts}"
+        )
+    if cell_fields_owned is None:
+        cell_fields_owned = sharded_geometry.cell_fields
+    if map_fields_owned is None and sharded_geometry.maps_valid:
+        map_fields_owned = sharded_geometry.map_fields
+    host_domain = replace(sharded_geometry.domain, mesh_axis_names=(None, None, None))
+    host_geometry = replace(sharded_geometry, domain=host_domain)
+    return assemble_local_fci_geometry(
+        host_geometry,
+        cell_fields_owned,
+        map_fields_owned,
+    )
+
+
 def _make_prepared_local_stencil_builder(
     domain: LocalDomain3D,
     context: StencilBuilderContext,
@@ -1114,6 +1153,7 @@ __all__ = [
     "Sharded2FieldStepInfo",
     "ShardedFciGeometry3D",
     "assemble_local_fci_geometry",
+    "assemble_single_device_local_fci_geometry",
     "build_local_fci_geometries",
     "make_shard_mesh",
     "make_sharded_2field_step",

@@ -1925,6 +1925,12 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
     # A nonnegative ID identifies a canonical global logical face.  Cut-wall
     # surface rows deliberately retain -1 because they are not grid faces.
     global_face_id: jnp.ndarray | None = None
+    # Optional logical control-face identity used by topology-aware compilers.
+    # Inactive rows are canonicalized to -1 in all four fields.
+    logical_axis: jnp.ndarray | None = None
+    logical_face_i: jnp.ndarray | None = None
+    logical_face_j: jnp.ndarray | None = None
+    logical_face_k: jnp.ndarray | None = None
     # Step 2A metadata for the eventual reverse residual exchange.  These are
     # intentionally distinct from ``remote_halo_*``: the latter address field
     # samples, whereas these address the plus residual destination.
@@ -1998,6 +2004,26 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             jnp.full(row_shape, -1, dtype=jnp.int32)
             if self.global_face_id is None else self.global_face_id,
             "LocalControlVolumeFaceRows3D.global_face_id",
+        )
+        logical_axis = _row_int(
+            jnp.full(row_shape, -1, dtype=jnp.int32)
+            if self.logical_axis is None else self.logical_axis,
+            "LocalControlVolumeFaceRows3D.logical_axis",
+        )
+        logical_face_i = _row_int(
+            jnp.full(row_shape, -1, dtype=jnp.int32)
+            if self.logical_face_i is None else self.logical_face_i,
+            "LocalControlVolumeFaceRows3D.logical_face_i",
+        )
+        logical_face_j = _row_int(
+            jnp.full(row_shape, -1, dtype=jnp.int32)
+            if self.logical_face_j is None else self.logical_face_j,
+            "LocalControlVolumeFaceRows3D.logical_face_j",
+        )
+        logical_face_k = _row_int(
+            jnp.full(row_shape, -1, dtype=jnp.int32)
+            if self.logical_face_k is None else self.logical_face_k,
+            "LocalControlVolumeFaceRows3D.logical_face_k",
         )
         has_remote_residual = jnp.asarray(
             jnp.zeros(row_shape, dtype=bool)
@@ -2187,6 +2213,26 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             & (remote_residual_halo_j >= 0) & (remote_residual_halo_j < hy)
             & (remote_residual_halo_k >= 0) & (remote_residual_halo_k < hz)
         )
+        logical_face_bounds = jnp.asarray(
+            (
+                self.layout.face_control_shape(0),
+                self.layout.face_control_shape(1),
+                self.layout.face_control_shape(2),
+            ),
+            dtype=jnp.int32,
+        )
+        logical_axis_valid = (logical_axis >= 0) & (logical_axis <= 2)
+        logical_face_indices = jnp.stack(
+            (logical_face_i, logical_face_j, logical_face_k), axis=-1
+        )
+        logical_face_in_bounds = (
+            jnp.all(logical_face_indices >= 0, axis=-1)
+            & jnp.all(
+                logical_face_indices
+                < logical_face_bounds[jnp.clip(logical_axis, 0, 2)],
+                axis=-1,
+            )
+        )
         valid_owners = (~active) | (
             minus_in_bounds
             & ((~has_plus_owner) | plus_in_bounds)
@@ -2206,9 +2252,19 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             )
             & ~(has_plus_owner & has_remote_owner)
         )
+        logical_identity_absent = (
+            (logical_axis < 0)
+            & (logical_face_i < 0)
+            & (logical_face_j < 0)
+            & (logical_face_k < 0)
+        )
+        valid_logical_faces = (~active) | logical_identity_absent | (
+            logical_axis_valid & logical_face_in_bounds
+        )
         try:
             all_valid_kind = bool(jnp.all(valid_kind))
             all_valid_owners = bool(jnp.all(valid_owners))
+            all_valid_logical_faces = bool(jnp.all(valid_logical_faces))
             finite_active_geometry = bool(
                 jnp.all(
                     (~(active[:, None, None] & patch_active[:, :, None]))
@@ -2236,12 +2292,18 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
         except jax.errors.TracerBoolConversionError:
             all_valid_kind = True
             all_valid_owners = True
+            all_valid_logical_faces = True
             finite_active_geometry = True
             finite_remote_geometry = True
         if not all_valid_kind:
             raise ValueError("active control-volume face rows have an invalid kind")
         if not all_valid_owners:
             raise ValueError("active control-volume face owners must be local")
+        if not all_valid_logical_faces:
+            raise ValueError(
+                "active logical control-volume faces must have an axis in 0..2 "
+                "and indices within the corresponding local control-face bounds"
+            )
         if not finite_active_geometry:
             raise ValueError("active control-volume face quadrature must be finite")
         if not finite_remote_geometry:
@@ -2260,6 +2322,10 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
         object.__setattr__(self, "plus_owner_k", jnp.where(active, plus_owner_k, 0))
         object.__setattr__(self, "has_plus_owner", active & has_plus_owner)
         object.__setattr__(self, "global_face_id", jnp.where(active, global_face_id, -1))
+        object.__setattr__(self, "logical_axis", jnp.where(active, logical_axis, -1))
+        object.__setattr__(self, "logical_face_i", jnp.where(active, logical_face_i, -1))
+        object.__setattr__(self, "logical_face_j", jnp.where(active, logical_face_j, -1))
+        object.__setattr__(self, "logical_face_k", jnp.where(active, logical_face_k, -1))
         object.__setattr__(
             self,
             "has_remote_owner",
@@ -2414,6 +2480,10 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             remote_second_moment=jnp.zeros(row + (3, 3), dtype=jnp.float64),
             remote_third_moment=jnp.zeros(row + (3, 3, 3), dtype=jnp.float64),
             global_face_id=jnp.full(row, -1, dtype=jnp.int64),
+            logical_axis=jnp.full(row, -1, dtype=jnp.int32),
+            logical_face_i=jnp.full(row, -1, dtype=jnp.int32),
+            logical_face_j=jnp.full(row, -1, dtype=jnp.int32),
+            logical_face_k=jnp.full(row, -1, dtype=jnp.int32),
             has_remote_residual=jnp.zeros(row, dtype=bool),
             remote_residual_halo_i=jnp.zeros(row, dtype=jnp.int32),
             remote_residual_halo_j=jnp.zeros(row, dtype=jnp.int32),
@@ -2449,6 +2519,10 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
                 self.remote_second_moment,
                 self.remote_third_moment,
                 self.global_face_id,
+                self.logical_axis,
+                self.logical_face_i,
+                self.logical_face_j,
+                self.logical_face_k,
                 self.has_remote_residual,
                 self.remote_residual_halo_i,
                 self.remote_residual_halo_j,
@@ -2487,6 +2561,10 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             "remote_second_moment",
             "remote_third_moment",
             "global_face_id",
+            "logical_axis",
+            "logical_face_i",
+            "logical_face_j",
+            "logical_face_k",
             "has_remote_residual",
             "remote_residual_halo_i",
             "remote_residual_halo_j",
@@ -2541,16 +2619,23 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
     max_rows: int
     max_equations: int
     boundary_source_shard: jnp.ndarray | None = None
+    max_patches: int = 4
+    value_weights: jnp.ndarray | None = None
+    logical_gradient_weights: jnp.ndarray | None = None
+    polynomial_basis_size: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
             raise TypeError("LocalMomentFittedFaceRows3D.layout must be a HaloLayout3D")
         max_rows = int(self.max_rows)
         max_equations = int(self.max_equations)
-        if max_rows < 0 or max_equations < 1:
+        max_patches = int(self.max_patches)
+        if max_rows < 0 or max_equations < 1 or max_patches < 1:
             raise ValueError("face-functional sizes must be non-negative/positive")
         row_shape = (max_rows,)
         observation_shape = (max_rows, max_equations)
+        value_weight_shape = (max_rows, max_patches, 4, max_equations)
+        gradient_weight_shape = (max_rows, max_patches, 4, 3, max_equations)
 
         def _row(value, dtype, name):
             array = jnp.asarray(value, dtype=dtype)
@@ -2605,8 +2690,41 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             jnp.float64,
             "parallel_gradient_flux_weights",
         )
+        if self.value_weights is None:
+            value_weights = jnp.zeros(value_weight_shape, dtype=jnp.float64)
+        else:
+            value_weights = jnp.asarray(self.value_weights, dtype=jnp.float64)
+            if value_weights.shape != value_weight_shape:
+                raise ValueError(
+                    f"value_weights must have shape {value_weight_shape}, got {value_weights.shape}"
+                )
+        if self.logical_gradient_weights is None:
+            logical_gradient_weights = jnp.zeros(
+                gradient_weight_shape, dtype=jnp.float64
+            )
+        else:
+            logical_gradient_weights = jnp.asarray(
+                self.logical_gradient_weights, dtype=jnp.float64
+            )
+            if logical_gradient_weights.shape != gradient_weight_shape:
+                raise ValueError(
+                    "logical_gradient_weights must have shape "
+                    f"{gradient_weight_shape}, got {logical_gradient_weights.shape}"
+                )
         polynomial_order = _row(self.polynomial_order, jnp.int32, "polynomial_order")
         rank = _row(self.rank, jnp.int32, "rank")
+        active = _row(self.active, bool, "active")
+        if self.polynomial_basis_size is None:
+            polynomial_basis_size = jnp.where(
+                polynomial_order == 1,
+                4,
+                jnp.where(polynomial_order == 2, 10, 20),
+            )
+        else:
+            polynomial_basis_size = _row(
+                self.polynomial_basis_size, jnp.int32, "polynomial_basis_size"
+            )
+        polynomial_basis_size = jnp.where(active, polynomial_basis_size, 0)
         condition_number = _row(self.condition_number, jnp.float64, "condition_number")
         reproduction_residual = _row(
             self.reproduction_residual, jnp.float64, "reproduction_residual"
@@ -2626,8 +2744,6 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             jnp.float64,
             "normalized_parallel_gradient_weight_norm",
         )
-        active = _row(self.active, bool, "active")
-
         nx, ny, nz = self.layout.owned_shape
         hx, hy, hz = self.layout.cell_halo_shape
         owned_in_bounds = (
@@ -2667,6 +2783,13 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
                 )
             )
         )
+        # The logical-gradient reconstruction carries an additional component
+        # axis.  Reduce that axis before combining its finiteness mask with the
+        # scalar face-value mask; otherwise even empty (zero-row) instances
+        # attempt to broadcast incompatible shapes.
+        logical_gradient_finite = jnp.all(
+            jnp.isfinite(logical_gradient_weights), axis=3
+        )
         finite_active = (
             jnp.isfinite(condition_number)
             & jnp.isfinite(reproduction_residual)
@@ -2685,12 +2808,21 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
                 ),
                 axis=1,
             )
+            & jnp.all(
+                (~active[:, None, None, None]) | jnp.isfinite(value_weights),
+                axis=(1, 2, 3),
+            )
+            & jnp.all(
+                (~active[:, None, None, None]) | logical_gradient_finite,
+                axis=(1, 2, 3),
+            )
         )
         try:
             valid = bool(
                 jnp.all(valid_observation)
-                & jnp.all((~active) | (polynomial_order == 3))
-                & jnp.all((~active) | (rank >= 20))
+                & jnp.all((~active) | ((polynomial_order >= 1) & (polynomial_order <= 3)))
+                & jnp.all((~active) | (polynomial_basis_size >= 1))
+                & jnp.all((~active) | (rank >= polynomial_basis_size))
                 & jnp.all((~active) | finite_active)
                 & jnp.all((~active) | jnp.any(observation_active, axis=1))
                 & jnp.all((~active) | (functional_face_id != -1))
@@ -2699,8 +2831,8 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             valid = True
         if not valid:
             raise ValueError(
-                "active cubic face-functionals require valid observations, "
-                "finite diagnostics, and rank at least 20"
+                "active face-functionals require polynomial order 1-3, valid "
+                "observations, finite diagnostics, and rank at least basis size"
             )
 
         active_observation = active[:, None] & observation_active
@@ -2731,8 +2863,19 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             "parallel_gradient_flux_weights",
             jnp.where(active_observation, parallel_gradient_flux_weights, 0.0),
         )
+        object.__setattr__(
+            self,
+            "value_weights",
+            jnp.where(active[:, None, None, None], value_weights, 0.0),
+        )
+        object.__setattr__(
+            self,
+            "logical_gradient_weights",
+            jnp.where(active[:, None, None, None, None], logical_gradient_weights, 0.0),
+        )
         object.__setattr__(self, "polynomial_order", jnp.where(active, polynomial_order, 0))
         object.__setattr__(self, "rank", jnp.where(active, rank, 0))
+        object.__setattr__(self, "polynomial_basis_size", polynomial_basis_size)
         object.__setattr__(self, "condition_number", jnp.where(active, condition_number, jnp.inf))
         object.__setattr__(self, "reproduction_residual", jnp.where(active, reproduction_residual, 0.0))
         object.__setattr__(self, "normalized_projected_weight_norm", jnp.where(active, projected_norm, 0.0))
@@ -2745,6 +2888,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
         object.__setattr__(self, "active", active)
         object.__setattr__(self, "max_rows", max_rows)
         object.__setattr__(self, "max_equations", max_equations)
+        object.__setattr__(self, "max_patches", max_patches)
 
     @classmethod
     def empty(
@@ -2772,8 +2916,15 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             parallel_gradient_flux_weights=jnp.zeros(
                 observations, dtype=jnp.float64
             ),
+            value_weights=jnp.zeros(
+                (max_rows, 4, 4, max_equations), dtype=jnp.float64
+            ),
+            logical_gradient_weights=jnp.zeros(
+                (max_rows, 4, 4, 3, max_equations), dtype=jnp.float64
+            ),
             polynomial_order=jnp.zeros(row, dtype=jnp.int32),
             rank=jnp.zeros(row, dtype=jnp.int32),
+            polynomial_basis_size=jnp.zeros(row, dtype=jnp.int32),
             condition_number=jnp.full(row, jnp.inf, dtype=jnp.float64),
             reproduction_residual=jnp.zeros(row, dtype=jnp.float64),
             normalized_projected_weight_norm=jnp.zeros(row, dtype=jnp.float64),
@@ -2784,6 +2935,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             active=jnp.zeros(row, dtype=bool),
             max_rows=max_rows,
             max_equations=max_equations,
+            max_patches=4,
         )
 
     def tree_flatten(self):
@@ -2791,22 +2943,24 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             "functional_face_id", "observation_kind", "owned_i", "owned_j", "owned_k",
             "halo_i", "halo_j", "halo_k", "boundary_face_row", "boundary_patch",
             "boundary_quadrature", "boundary_source_shard", "observation_active", "projected_flux_weights",
-            "parallel_flux_weights", "polynomial_order", "rank", "condition_number",
+            "parallel_flux_weights", "value_weights", "logical_gradient_weights",
+            "polynomial_order", "rank", "polynomial_basis_size", "condition_number",
             "parallel_gradient_flux_weights",
             "reproduction_residual", "normalized_projected_weight_norm",
             "normalized_parallel_weight_norm",
             "normalized_parallel_gradient_weight_norm", "active",
         )
-        return (tuple(getattr(self, name) for name in names), (self.layout, self.max_rows, self.max_equations))
+        return (tuple(getattr(self, name) for name in names), (self.layout, self.max_rows, self.max_equations, self.max_patches))
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        layout, max_rows, max_equations = aux_data
+        layout, max_rows, max_equations, max_patches = aux_data
         names = (
             "functional_face_id", "observation_kind", "owned_i", "owned_j", "owned_k",
             "halo_i", "halo_j", "halo_k", "boundary_face_row", "boundary_patch",
             "boundary_quadrature", "boundary_source_shard", "observation_active", "projected_flux_weights",
-            "parallel_flux_weights", "polynomial_order", "rank", "condition_number",
+            "parallel_flux_weights", "value_weights", "logical_gradient_weights",
+            "polynomial_order", "rank", "polynomial_basis_size", "condition_number",
             "parallel_gradient_flux_weights",
             "reproduction_residual", "normalized_projected_weight_norm",
             "normalized_parallel_weight_norm",
@@ -2816,6 +2970,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
         object.__setattr__(instance, "layout", layout)
         object.__setattr__(instance, "max_rows", max_rows)
         object.__setattr__(instance, "max_equations", max_equations)
+        object.__setattr__(instance, "max_patches", max_patches)
         for name, value in zip(names, children):
             object.__setattr__(instance, name, value)
         return instance
@@ -2832,6 +2987,14 @@ class LocalControlVolumeFieldClosure3D(_DataclassPyTreeMixin):
     valid: jnp.ndarray
     active: jnp.ndarray
     max_rows: int
+    # Infer this from supplied trace arrays; four is retained only for the
+    # legacy empty/default representation. The final axis is always the four
+    # quadrature points per patch.
+    max_patches: int | None = None
+    face_value: jnp.ndarray | None = None
+    face_gradient: jnp.ndarray | None = None
+    face_value_valid: jnp.ndarray | None = None
+    face_gradient_valid: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         max_rows = int(self.max_rows)
@@ -2843,7 +3006,25 @@ class LocalControlVolumeFieldClosure3D(_DataclassPyTreeMixin):
         parallel_gradient_flux = jnp.asarray(
             self.parallel_gradient_flux, dtype=jnp.float64
         )
+        supplied_trace = next((value for value in (
+            self.face_value, self.face_gradient, self.face_value_valid,
+            self.face_gradient_valid) if value is not None), None)
+        if supplied_trace is None:
+            max_patches = 4 if self.max_patches is None else int(self.max_patches)
+        else:
+            supplied_shape = jnp.asarray(supplied_trace).shape
+            if len(supplied_shape) < 3:
+                raise ValueError("field-closure trace arrays must include row, patch, and quadrature axes")
+            inferred = int(supplied_shape[1])
+            max_patches = inferred if self.max_patches is None else int(self.max_patches)
+        if max_patches < 1:
+            raise ValueError("LocalControlVolumeFieldClosure3D.max_patches must be positive")
+        patch_shape = (max_rows, max_patches, 4)
+        face_value = jnp.zeros(patch_shape, dtype=jnp.float64) if self.face_value is None else jnp.asarray(self.face_value, dtype=jnp.float64)
+        face_gradient = jnp.zeros(patch_shape + (3,), dtype=jnp.float64) if self.face_gradient is None else jnp.asarray(self.face_gradient, dtype=jnp.float64)
         valid = jnp.asarray(self.valid, dtype=bool)
+        face_value_valid = jnp.zeros(patch_shape, dtype=bool) if self.face_value_valid is None else jnp.asarray(self.face_value_valid, dtype=bool)
+        face_gradient_valid = jnp.zeros(patch_shape, dtype=bool) if self.face_gradient_valid is None else jnp.asarray(self.face_gradient_valid, dtype=bool)
         active = jnp.asarray(self.active, dtype=bool)
         for name, value in (
             ("projected_flux", projected_flux), ("parallel_flux", parallel_flux),
@@ -2852,6 +3033,12 @@ class LocalControlVolumeFieldClosure3D(_DataclassPyTreeMixin):
         ):
             if value.shape != shape:
                 raise ValueError(f"LocalControlVolumeFieldClosure3D.{name} must have shape {shape}, got {value.shape}")
+        if face_value.shape != patch_shape:
+            raise ValueError(f"face_value must have shape {patch_shape}, got {face_value.shape}")
+        if face_gradient.shape != patch_shape + (3,):
+            raise ValueError(f"face_gradient must have shape {patch_shape + (3,)}, got {face_gradient.shape}")
+        if face_value_valid.shape != patch_shape or face_gradient_valid.shape != patch_shape:
+            raise ValueError(f"face trace validity masks must have shape {patch_shape}")
         try:
             finite = bool(
                 jnp.all(
@@ -2860,6 +3047,8 @@ class LocalControlVolumeFieldClosure3D(_DataclassPyTreeMixin):
                         jnp.isfinite(projected_flux)
                         & jnp.isfinite(parallel_flux)
                         & jnp.isfinite(parallel_gradient_flux)
+                        & jnp.all(jnp.where(face_value_valid, jnp.isfinite(face_value), True), axis=(1, 2))
+                        & jnp.all(jnp.where(face_gradient_valid[..., None], jnp.isfinite(face_gradient), True), axis=(1, 2, 3))
                     )
                 )
             )
@@ -2876,19 +3065,30 @@ class LocalControlVolumeFieldClosure3D(_DataclassPyTreeMixin):
             "parallel_gradient_flux",
             jnp.where(active, jnp.where(valid, parallel_gradient_flux, jnp.nan), 0.0),
         )
+        object.__setattr__(self, "face_value", jnp.where(face_value_valid, face_value, jnp.nan))
+        object.__setattr__(self, "face_gradient", jnp.where(face_gradient_valid[..., None], face_gradient, jnp.nan))
         object.__setattr__(self, "valid", active & valid)
+        object.__setattr__(self, "face_value_valid", active[:, None, None] & face_value_valid)
+        object.__setattr__(self, "face_gradient_valid", active[:, None, None] & face_gradient_valid)
         object.__setattr__(self, "active", active)
         object.__setattr__(self, "max_rows", max_rows)
+        object.__setattr__(self, "max_patches", max_patches)
 
     @classmethod
-    def empty(cls, *, max_rows: int = 0) -> "LocalControlVolumeFieldClosure3D":
+    def empty(cls, *, max_rows: int = 0, max_patches: int = 4) -> "LocalControlVolumeFieldClosure3D":
+        max_patches = int(max_patches)
         return cls(
             projected_flux=jnp.zeros((max_rows,), dtype=jnp.float64),
             parallel_flux=jnp.zeros((max_rows,), dtype=jnp.float64),
             parallel_gradient_flux=jnp.zeros((max_rows,), dtype=jnp.float64),
+            face_value=jnp.zeros((max_rows, max_patches, 4), dtype=jnp.float64),
+            face_gradient=jnp.zeros((max_rows, max_patches, 4, 3), dtype=jnp.float64),
             valid=jnp.zeros((max_rows,), dtype=bool),
+            face_value_valid=jnp.zeros((max_rows, max_patches, 4), dtype=bool),
+            face_gradient_valid=jnp.zeros((max_rows, max_patches, 4), dtype=bool),
             active=jnp.zeros((max_rows,), dtype=bool),
             max_rows=max_rows,
+            max_patches=max_patches,
         )
 
     def tree_flatten(self):
@@ -2897,22 +3097,32 @@ class LocalControlVolumeFieldClosure3D(_DataclassPyTreeMixin):
                 self.projected_flux,
                 self.parallel_flux,
                 self.parallel_gradient_flux,
+                self.face_value,
+                self.face_gradient,
                 self.valid,
+                self.face_value_valid,
+                self.face_gradient_valid,
                 self.active,
             ),
-            self.max_rows,
+            (self.max_rows, self.max_patches),
         )
 
     @classmethod
-    def tree_unflatten(cls, max_rows, children):
-        projected_flux, parallel_flux, parallel_gradient_flux, valid, active = children
+    def tree_unflatten(cls, aux_data, children):
+        max_rows, max_patches = aux_data
+        projected_flux, parallel_flux, parallel_gradient_flux, face_value, face_gradient, valid, face_value_valid, face_gradient_valid, active = children
         return cls(
             projected_flux=projected_flux,
             parallel_flux=parallel_flux,
             parallel_gradient_flux=parallel_gradient_flux,
+            face_value=face_value,
+            face_gradient=face_gradient,
             valid=valid,
+            face_value_valid=face_value_valid,
+            face_gradient_valid=face_gradient_valid,
             active=active,
             max_rows=max_rows,
+            max_patches=max_patches,
         )
 
 
@@ -3631,6 +3841,8 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
     regular_boundary_closure: (
         LocalRegularBoundaryMomentClosure3D | None
     ) = None
+    # Optional static radius-dependent angular agglomeration profile.
+    angular_group_sizes: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.cells, LocalControlVolumeCellGeometry3D):
@@ -3641,6 +3853,35 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
             raise TypeError("irregular_faces must be LocalControlVolumeFaceRows3D")
         if not isinstance(self.reconstruction, LocalMomentReconstruction3D):
             raise TypeError("reconstruction must be LocalMomentReconstruction3D")
+        angular_group_sizes = self.angular_group_sizes
+        if angular_group_sizes is not None:
+            profile = tuple(int(value) for value in angular_group_sizes)
+            nx, ny, _ = self.cells.shape
+            if len(profile) != nx:
+                raise ValueError(
+                    "angular_group_sizes must have one entry per radial ring"
+                )
+            if not profile or profile[0] != ny:
+                raise ValueError(
+                    "angular_group_sizes[0] must equal the angular cell count"
+                )
+            for ring, value in enumerate(profile):
+                if value <= 0 or ny % value:
+                    raise ValueError(
+                        "angular_group_sizes must contain positive divisors of "
+                        "the angular cell count"
+                    )
+                if ring and value > profile[ring - 1]:
+                    raise ValueError(
+                        "angular_group_sizes must be non-increasing with radius"
+                    )
+                if ring and profile[ring - 1] % value:
+                    raise ValueError(
+                        "each outer angular group size must divide the immediately "
+                        "inner group size"
+                    )
+            angular_group_sizes = profile
+        object.__setattr__(self, "angular_group_sizes", angular_group_sizes)
         layout = self.cells.layout
         for name, other_layout in (
             ("regular_faces", self.regular_faces.layout),
@@ -3800,6 +4041,10 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
     def has_centroid_operator_geometry(self) -> bool:
         return self.centroid_J is not None
 
+    @property
+    def has_angular_agglomeration(self) -> bool:
+        return self.angular_group_sizes is not None
+
     def tree_flatten(self):
         return (
             (
@@ -3815,11 +4060,11 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                 self.centroid_curvature,
                 self.regular_boundary_closure,
             ),
-            None,
+            self.angular_group_sizes,
         )
 
     @classmethod
-    def tree_unflatten(cls, _aux_data, children):
+    def tree_unflatten(cls, aux_data, children):
         names = (
             "cells",
             "regular_faces",
@@ -3836,6 +4081,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
         instance = object.__new__(cls)
         for name, value in zip(names, children):
             object.__setattr__(instance, name, value)
+        object.__setattr__(instance, "angular_group_sizes", aux_data)
         return instance
 
 

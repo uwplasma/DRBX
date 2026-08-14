@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import math
-import operator
 from typing import Callable
 
 import jax
@@ -14,8 +13,6 @@ from ..geometry import (
     LocalFciGeometry3D,
     SIDE_PHYSICAL,
     StencilBuilderContext,
-    build_axis_core_cell_gradient_reconstruction,
-    build_axis_core_face_gradient_reconstruction,
     build_local_conservative_stencil_from_field,
     build_local_cell_gradient_from_field,
 )
@@ -27,6 +24,8 @@ from .fci_boundaries import (
     ConservativeStencil3D,
     LocalBoundaryFaceBC3D,
     LocalBoundaryFaceTrace3D,
+    LocalControlVolumeBoundaryBC3D,
+    LocalEmbeddedControlVolumeGeometry3D,
 )
 from .fci_halo import (
     build_local_boundary_face_trace_from_halo,
@@ -38,12 +37,7 @@ from .fci_halo import (
     RemoteFciDependencyExchange,
 )
 from .fci_operators import (
-    AxisCoreLineUPreconditioner3D,
-    AxisCoreReducedSolveInfo,
-    AxisCoreReducedSpace3D,
     LocalPerpLaplacianInverseSolver,
-    build_axis_core_line_u_preconditioner,
-    build_axis_core_reduced_space,
     build_solvax_perp_laplacian_preconditioner,
     local_curvature_op_from_gradient,
     local_grad_parallel_op_direct,
@@ -59,6 +53,11 @@ from .fci_operators import (
     local_curvature_conservative_op,
     local_poisson_bracket_compatible_flux_op,
     local_poisson_bracket_op_from_gradients,
+    build_local_control_volume_field_closure,
+    linear_combination_local_control_volume_closures,
+    product_local_control_volume_closures,
+    expand_local_control_volume_owner_field,
+    aggregate_local_control_volume_average,
     _mask_inactive_owned,
     _mask_state_inactive_owned,
 )
@@ -77,29 +76,6 @@ class FciDrbEBState(FciModelState):
     Vi: jax.Array
     Ve: jax.Array
     vorticity: jax.Array
-
-
-def project_axis_core_state(
-    state: FciDrbEBState,
-    space: AxisCoreReducedSpace3D | None,
-    state_space: str,
-) -> FciDrbEBState:
-    """Project the six differential leaves while preserving the phi leaf."""
-
-    if state_space == "full-grid":
-        return state
-    if state_space != "galerkin":
-        raise ValueError(f"unknown axis-core state space {state_space!r}")
-    if space is None:
-        raise ValueError("Galerkin axis-core state projection requires a reduced space")
-    return state.replace(
-        density=space.project(state.density),
-        Te=space.project(state.Te),
-        Ti=space.project(state.Ti),
-        Vi=space.project(state.Vi),
-        Ve=space.project(state.Ve),
-        vorticity=space.project(state.vorticity),
-    )
 
 
 @jax.tree_util.register_pytree_node_class
@@ -1121,6 +1097,8 @@ class LocalFciDrbEBRhs:
     face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
     gmres_config: SolvaxGmresConfig
     face_bc_builder: LocalFciDrbEBFaceBCBuilder
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None
+    control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None = None
     diffusion_only: bool = False
     # Static diagnostic mode: retain only the production parallel subsystem
     # in the returned RHS while still reconstructing phi normally.
@@ -1149,11 +1127,6 @@ class LocalFciDrbEBRhs:
     # Keeping this as a Python scalar makes it part of the jitted model
     # configuration rather than a run-time array-valued switch.
     curvature_scale: float = 1.0
-    # Static axis-core cell-gradient reconstruction policy.  These defaults
-    # match the geometry builder's existing radial-axis defaults.
-    axis_core_gradient_polynomial_degree: int = 3
-    axis_core_gradient_observation_ring_count: int = 6
-    axis_core_gradient_target_ring_count: int = 3
     # Experimental selectable discretization for E x B advection.  The
     # compatible-flux path returns the already-B-divided bracket and uses
     # shared conservative face data; ``direct`` preserves the established
@@ -1163,10 +1136,6 @@ class LocalFciDrbEBRhs:
     # Python option so JIT compilation cannot silently mix coordinate and FCI
     # discretizations within one compiled RHS.
     parallel_operator_scheme: str = "coordinate"
-    axis_core_line_u_preconditioner: AxisCoreLineUPreconditioner3D | None = None
-    phi_solver_space: str = "full-grid"
-    axis_core_reduced_space: AxisCoreReducedSpace3D | None = None
-    axis_core_state_space: str = "full-grid"
 
     @property
     def neumann_normal_scheme(self) -> str:
@@ -1182,6 +1151,42 @@ class LocalFciDrbEBRhs:
         )
 
     def __post_init__(self) -> None:
+        has_cv = self.control_volume_geometry is not None
+        if has_cv != (self.control_volume_boundary_bc is not None):
+            raise ValueError(
+                "control_volume_geometry and control_volume_boundary_bc must "
+                "be supplied together; RLP mode has no fallback"
+            )
+        if has_cv:
+            if not isinstance(self.control_volume_geometry, LocalEmbeddedControlVolumeGeometry3D):
+                raise TypeError("control_volume_geometry must be LocalEmbeddedControlVolumeGeometry3D")
+            if not isinstance(self.control_volume_boundary_bc, LocalControlVolumeBoundaryBC3D):
+                raise TypeError("control_volume_boundary_bc must be LocalControlVolumeBoundaryBC3D")
+            if self.control_volume_geometry.layout != self.geometry.layout:
+                raise ValueError("control_volume_geometry must share geometry.layout")
+            if self.control_volume_geometry.layout != self.domain.layout:
+                raise ValueError("control_volume_geometry must share domain.layout")
+            if self.control_volume_boundary_bc.max_rows != self.control_volume_geometry.irregular_faces.max_rows:
+                raise ValueError("control-volume boundary rows do not match geometry")
+            if self.control_volume_boundary_bc.max_patches != self.control_volume_geometry.irregular_faces.max_patches:
+                raise ValueError("control-volume boundary patches do not match geometry")
+            if not self.control_volume_geometry.has_angular_agglomeration:
+                raise ValueError(
+                    "the five-field control-volume path requires the production "
+                    "angular-agglomeration topology"
+                )
+            if not self.domain.axis_regular_axes[0] or not self.axis_regular_axes[0]:
+                raise ValueError("angular RLP requires lower-radial axis regularity")
+            if self.poisson_bracket_scheme != "compatible-flux":
+                raise ValueError(
+                    "angular RLP requires poisson_bracket_scheme='compatible-flux'"
+                )
+            if self.curvature_scheme == "direct":
+                raise ValueError(
+                    "angular RLP requires conservative curvature or disabled curvature"
+                )
+            if any(int(count) != 1 for count in self.domain.shard_spec.shard_counts):
+                raise ValueError("angular RLP currently requires a single local domain")
         if self.parallel_operator_scheme not in ("coordinate", "fci"):
             raise ValueError(
                 "parallel_operator_scheme must be 'coordinate' or 'fci', got "
@@ -1207,113 +1212,6 @@ class LocalFciDrbEBRhs:
                         f"parallel_operator_scheme='fci' requires a nonempty "
                         f"{direction_name} local map table"
                     )
-        if self.phi_solver_space not in ("full-grid", "axis-core-reduced"):
-            raise ValueError(
-                "phi_solver_space must be 'full-grid' or 'axis-core-reduced', "
-                f"got {self.phi_solver_space!r}"
-            )
-        if self.axis_core_state_space not in ("full-grid", "galerkin"):
-            raise ValueError(
-                "axis_core_state_space must be 'full-grid' or 'galerkin', got "
-                f"{self.axis_core_state_space!r}"
-            )
-        if (
-            self.axis_core_state_space == "galerkin"
-            and self.phi_solver_space != "axis-core-reduced"
-        ):
-            raise ValueError(
-                "axis_core_state_space='galerkin' requires "
-                "phi_solver_space='axis-core-reduced'"
-            )
-        if self.axis_core_reduced_space is not None and not isinstance(
-            self.axis_core_reduced_space, AxisCoreReducedSpace3D
-        ):
-            raise TypeError(
-                "axis_core_reduced_space must be an AxisCoreReducedSpace3D or None"
-            )
-        if self.phi_solver_space == "axis-core-reduced":
-            if not self.domain.axis_regular_axes[0] or not self.axis_regular_axes[0]:
-                raise ValueError(
-                    "phi_solver_space='axis-core-reduced' requires lower radial "
-                    "axis regularity in both domain.axis_regular_axes and "
-                    "axis_regular_axes"
-                )
-            if not isinstance(self.gmres_config, SolvaxGmresConfig):
-                raise TypeError(
-                    "axis-core-reduced phi solving requires a SolvaxGmresConfig"
-                )
-            if self.gmres_config.preconditioner not in ("none", "line-u"):
-                raise ValueError(
-                    "axis-core-reduced phi solving supports only GMRES "
-                    "preconditioner='none' or 'line-u'; got "
-                    f"{self.gmres_config.preconditioner!r}"
-                )
-        elif self.axis_core_reduced_space is not None:
-            raise ValueError(
-                "axis_core_reduced_space may only be supplied when "
-                "phi_solver_space='axis-core-reduced'"
-            )
-        if self.axis_core_line_u_preconditioner is not None and not isinstance(
-            self.axis_core_line_u_preconditioner,
-            AxisCoreLineUPreconditioner3D,
-        ):
-            raise TypeError(
-                "axis_core_line_u_preconditioner must be an "
-                "AxisCoreLineUPreconditioner3D or None"
-            )
-        if self.poisson_bracket_scheme not in ("direct", "compatible-flux"):
-            raise ValueError(
-                "poisson_bracket_scheme must be 'direct' or "
-                f"'compatible-flux', got {self.poisson_bracket_scheme!r}"
-            )
-        try:
-            axis_core_gradient_polynomial_degree = operator.index(
-                self.axis_core_gradient_polynomial_degree
-            )
-            axis_core_gradient_observation_ring_count = operator.index(
-                self.axis_core_gradient_observation_ring_count
-            )
-            axis_core_gradient_target_ring_count = operator.index(
-                self.axis_core_gradient_target_ring_count
-            )
-        except TypeError as exc:
-            raise ValueError(
-                "axis-core gradient degree and ring counts must be integers"
-            ) from exc
-        if axis_core_gradient_polynomial_degree < 0:
-            raise ValueError(
-                "axis_core_gradient_polynomial_degree must be non-negative"
-            )
-        if (
-            axis_core_gradient_observation_ring_count < 1
-            or axis_core_gradient_target_ring_count < 1
-        ):
-            raise ValueError(
-                "axis-core gradient ring counts must be positive"
-            )
-        if (
-            axis_core_gradient_target_ring_count
-            > axis_core_gradient_observation_ring_count
-        ):
-            raise ValueError(
-                "axis_core_gradient_target_ring_count must not exceed "
-                "axis_core_gradient_observation_ring_count"
-            )
-        object.__setattr__(
-            self,
-            "axis_core_gradient_polynomial_degree",
-            axis_core_gradient_polynomial_degree,
-        )
-        object.__setattr__(
-            self,
-            "axis_core_gradient_observation_ring_count",
-            axis_core_gradient_observation_ring_count,
-        )
-        object.__setattr__(
-            self,
-            "axis_core_gradient_target_ring_count",
-            axis_core_gradient_target_ring_count,
-        )
         if isinstance(self.curvature_scale, bool):
             raise ValueError("curvature_scale must be a finite nonnegative scalar")
         try:
@@ -1400,166 +1298,15 @@ class LocalFciDrbEBRhs:
                 "curvature scheme"
             )
 
-    def build_axis_core_reduced_phi_space(self) -> AxisCoreReducedSpace3D:
-        """Build or validate the Cartesian-core reduced phi space."""
-
-        if self.phi_solver_space != "axis-core-reduced":
-            raise ValueError(
-                "build_axis_core_reduced_phi_space requires "
-                "phi_solver_space='axis-core-reduced'"
-            )
-        if not self.domain.axis_regular_axes[0] or not self.axis_regular_axes[0]:
-            raise ValueError(
-                "axis-core-reduced phi space requires lower radial axis regularity"
-            )
-        context = self._stencil_builder_context()
-        reconstruction = context.axis_core_face_gradient_reconstruction
-        if reconstruction is None:
-            raise RuntimeError(
-                "axis-core-reduced phi space requires face-gradient reconstruction"
-            )
-        payload = self.axis_core_reduced_space
-        if payload is not None:
-            if payload.geometry.layout != self.geometry.layout:
-                raise ValueError(
-                    "axis_core_reduced_space geometry layout does not match RHS"
-                )
-            if payload.geometry.owned_shape != self.geometry.owned_shape:
-                raise ValueError(
-                    "axis_core_reduced_space geometry shape does not match RHS"
-                )
-            if payload.domain.layout != self.domain.layout:
-                raise ValueError(
-                    "axis_core_reduced_space domain layout does not match RHS"
-                )
-            if (
-                payload.domain.shard_spec != self.domain.shard_spec
-                or payload.domain.mesh_axis_names != self.domain.mesh_axis_names
-            ):
-                raise ValueError(
-                    "axis_core_reduced_space domain sharding metadata does not "
-                    "match RHS"
-                )
-            payload_reconstruction = payload.reconstruction
-            if payload_reconstruction.layout != reconstruction.layout:
-                raise ValueError(
-                    "axis_core_reduced_space reconstruction layout does not match RHS"
-                )
-            if payload_reconstruction.global_shape != reconstruction.global_shape:
-                raise ValueError(
-                    "axis_core_reduced_space reconstruction global shape does not "
-                    "match RHS"
-                )
-            if (
-                payload_reconstruction.polynomial_degree
-                != reconstruction.polynomial_degree
-                or payload_reconstruction.observation_ring_count
-                != reconstruction.observation_ring_count
-                or payload_reconstruction.target_ring_count
-                != reconstruction.target_ring_count
-            ):
-                raise ValueError(
-                    "axis_core_reduced_space reconstruction degree/rings do not "
-                    "match RHS axis-core gradient context"
-                )
-            return payload
-        return build_axis_core_reduced_space(
-            reconstruction,
-            self.geometry,
-            self.domain,
-        )
-
     def project_galerkin_state(self, state: FciDrbEBState) -> FciDrbEBState:
-        """Project the six evolved scalar leaves, leaving ``phi`` untouched."""
+        """Return the canonical owner-space state."""
 
-        space = (
-            None
-            if self.axis_core_state_space == "full-grid"
-            else self.build_axis_core_reduced_phi_space()
-        )
-        return project_axis_core_state(state, space, self.axis_core_state_space)
+        return self._owner_state(state)
 
     def _stencil_builder_context(self) -> StencilBuilderContext:
-        if not self.domain.axis_regular_axes[0]:
-            return StencilBuilderContext(
-                layout=self.domain.layout,
-                domain=self.domain,
-            )
-        cell_reconstruction = build_axis_core_cell_gradient_reconstruction(
-            self.domain.layout,
-            self.domain,
-            polynomial_degree=self.axis_core_gradient_polynomial_degree,
-            observation_ring_count=self.axis_core_gradient_observation_ring_count,
-            target_ring_count=self.axis_core_gradient_target_ring_count,
-        )
-        face_gradient_reconstruction = build_axis_core_face_gradient_reconstruction(
-            self.domain.layout,
-            self.domain,
-            polynomial_degree=self.axis_core_gradient_polynomial_degree,
-            observation_ring_count=self.axis_core_gradient_observation_ring_count,
-            target_ring_count=self.axis_core_gradient_target_ring_count,
-        )
         return StencilBuilderContext(
             layout=self.domain.layout,
             domain=self.domain,
-            # Compatible conservative gradients consume materialized face
-            # values through div(f b) - f div(b).  Reuse the face-gradient
-            # policy's value targets so both paths protect exactly the same
-            # configured radial cells.  Letting the context install its
-            # smaller legacy face-value default leaves the outer target ring
-            # as a direct polar row.
-            axis_core_face_reconstruction=face_gradient_reconstruction.reconstruction,
-            axis_core_face_gradient_reconstruction=face_gradient_reconstruction,
-            axis_core_cell_gradient_reconstruction=cell_reconstruction,
-        )
-
-    def build_axis_core_line_u_phi_preconditioner(
-        self,
-        phi_face_bc: LocalBoundaryFaceBC3D,
-    ) -> AxisCoreLineUPreconditioner3D:
-        """Precompute the invariant Cartesian coefficient solve for phi."""
-
-        if not self.domain.axis_regular_axes[0]:
-            raise ValueError(
-                "axis-core-line-u requires a lower radial polar axis"
-            )
-        context = self._stencil_builder_context()
-        reconstruction = context.axis_core_face_gradient_reconstruction
-        if reconstruction is None:
-            raise RuntimeError("axis-core face-gradient reconstruction is missing")
-        homogeneous_face_bc = replace(
-            phi_face_bc,
-            value_x=jnp.zeros_like(phi_face_bc.value_x),
-            value_y=jnp.zeros_like(phi_face_bc.value_y),
-            value_z=jnp.zeros_like(phi_face_bc.value_z),
-        )
-        solver = LocalPerpLaplacianInverseSolver(
-            geometry=self.geometry,
-            domain=self.domain,
-            stencil_builder=build_local_conservative_stencil_from_field,
-            stencil_builder_context=context,
-            halo_exchange=self.halo_exchange,
-            topology_filler=self.topology_filler,
-            physical_ghost_filler=self.physical_ghost_filler,
-            face_projectors=self.face_projectors,
-            face_bc=homogeneous_face_bc,
-            axis_regular_axes=self.axis_regular_axes,
-            neumann_normal_scheme=self.neumann_normal_scheme,
-            config=self.gmres_config,
-        )
-
-        def apply_A(values: jnp.ndarray) -> jnp.ndarray:
-            return solver._apply_A(
-                values,
-                face_bc=homogeneous_face_bc,
-                control_volume_boundary_bc=None,
-                project_mean_zero=bool(self.gmres_config.project_mean_zero),
-            )
-
-        return build_axis_core_line_u_preconditioner(
-            apply_A,
-            reconstruction,
-            self.domain,
         )
 
     def _poisson_bracket_over_B(
@@ -1571,6 +1318,10 @@ class LocalFciDrbEBRhs:
         *,
         f_boundary_trace: LocalBoundaryFaceTrace3D | None = None,
         g_boundary_trace: LocalBoundaryFaceTrace3D | None = None,
+        f_field_halo: jnp.ndarray | None = None,
+        g_field_halo: jnp.ndarray | None = None,
+        f_field_closure=None,
+        g_field_closure=None,
     ) -> jnp.ndarray:
         """Evaluate the selected Poisson bracket with the RHS ``1/B`` included.
 
@@ -1588,6 +1339,24 @@ class LocalFciDrbEBRhs:
                 axis_regular_axes=self.axis_regular_axes,
                 f_boundary_trace=f_boundary_trace,
                 g_boundary_trace=g_boundary_trace,
+                control_volume_geometry=(
+                    self.control_volume_geometry
+                    if self._uses_compact_face_operators else None
+                ),
+                f_field_closure=(
+                    f_field_closure
+                    if f_field_closure is not None
+                    else self._cv_closure(f_field_halo, None)
+                    if self._uses_compact_face_operators
+                    else None
+                ),
+                g_field_closure=(
+                    g_field_closure
+                    if g_field_closure is not None
+                    else self._cv_closure(g_field_halo, None)
+                    if self._uses_compact_face_operators
+                    else None
+                ),
             )
         bmag = jnp.maximum(
             jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
@@ -1612,8 +1381,15 @@ class LocalFciDrbEBRhs:
         values_owned: jnp.ndarray,
         face_bc: LocalBoundaryFaceBC3D,
     ) -> jnp.ndarray:
+        values_owned = self._owner_field(values_owned)
+        if self.control_volume_geometry is not None:
+            values_storage = expand_local_control_volume_owner_field(
+                values_owned, self.control_volume_geometry.cells
+            )
+        else:
+            values_storage = values_owned
         field_halo = inject_owned_field_to_halo(
-            values_owned,
+            values_storage,
             self.domain.layout,
         )
         return LocalHaloClosure3D(
@@ -1621,6 +1397,140 @@ class LocalFciDrbEBRhs:
             halo_exchange=self.halo_exchange,
             topology_filler=self.topology_filler,
         )(field_halo, self.domain, face_bc)
+
+    def _prepare_state_halo(self, state_owned, face_bc):
+        state_owned = self._owner_state(state_owned)
+        if self.control_volume_geometry is None:
+            return prepare_local_fci_drb_eb_state(
+                state_owned, self.domain, face_bc=face_bc,
+                halo_exchange=self.halo_exchange,
+                topology_filler=self.topology_filler,
+                physical_ghost_filler=self.physical_ghost_filler,
+            )
+        return state_owned.replace(
+            density=self._prepare_scalar_halo(state_owned.density, face_bc.density),
+            phi=self._prepare_scalar_halo(state_owned.phi, face_bc.phi),
+            Te=self._prepare_scalar_halo(state_owned.Te, face_bc.Te),
+            Ti=self._prepare_scalar_halo(state_owned.Ti, face_bc.Ti),
+            Vi=self._prepare_scalar_halo(state_owned.Vi, face_bc.Vi),
+            Ve=self._prepare_scalar_halo(state_owned.Ve, face_bc.Ve),
+            vorticity=self._prepare_scalar_halo(state_owned.vorticity, face_bc.vorticity),
+        )
+
+    def _owner_field(self, values: jnp.ndarray) -> jnp.ndarray:
+        """Return an owner-only field; merged aliases are never evolved."""
+        values = jnp.asarray(values, dtype=jnp.float64)
+        if self.control_volume_geometry is None:
+            return values
+        cells = self.control_volume_geometry.cells
+        return jnp.where(cells.is_active_owner, values, 0.0)
+
+    def _owner_state(self, state: FciDrbEBState) -> FciDrbEBState:
+        if self.control_volume_geometry is None:
+            return state
+        return state.replace(
+            density=self._owner_field(state.density),
+            phi=self._owner_field(state.phi),
+            Te=self._owner_field(state.Te),
+            Ti=self._owner_field(state.Ti),
+            Vi=self._owner_field(state.Vi),
+            Ve=self._owner_field(state.Ve),
+            vorticity=self._owner_field(state.vorticity),
+        )
+
+    def _owner_result(self, result: jnp.ndarray) -> jnp.ndarray:
+        return self._owner_field(result)
+
+    def _cv_closure(self, field_halo: jnp.ndarray, face_bc: LocalBoundaryFaceBC3D):
+        if not self._uses_compact_face_operators:
+            return None
+        cvbc = self.control_volume_boundary_bc
+        if cvbc is None:
+            raise RuntimeError("missing compact control-volume boundary data")
+        return build_local_control_volume_field_closure(
+            field_halo, self.control_volume_geometry, cvbc, domain=self.domain
+        )
+
+    def _primitive_cv_closures(
+        self,
+        state_halo: FciDrbEBState,
+        names: tuple[str, ...] | None = None,
+    ) -> dict[str, object]:
+        """Build selected primitive compact-face traces once for one RHS stage."""
+        if not self._uses_compact_face_operators:
+            return {}
+        if names is None:
+            names = ("density", "Te", "Ti", "Vi", "Ve", "phi", "vorticity")
+        allowed = frozenset(("density", "Te", "Ti", "Vi", "Ve", "phi", "vorticity"))
+        if len(set(names)) != len(names) or any(name not in allowed for name in names):
+            raise ValueError("primitive closure names must be unique primitive state fields")
+        return {
+            name: self._cv_closure(getattr(state_halo, name), None)
+            for name in names
+        }
+
+    def _cv_linear_combination(self, left, right, *, a=1.0, b=1.0):
+        if not self._uses_compact_face_operators:
+            return None
+        return linear_combination_local_control_volume_closures(left, right, a=a, b=b)
+
+    def _cv_product(self, left, right):
+        if not self._uses_compact_face_operators:
+            return None
+        return product_local_control_volume_closures(
+            left, right, self.control_volume_geometry
+        )
+
+    def _cv_operator_args(self, field_halo: jnp.ndarray, face_bc=None, *, field_closure=None) -> dict:
+        if not self._uses_compact_face_operators:
+            return {}
+        if field_halo is None or not hasattr(field_halo, "shape"):
+            raise ValueError("compact control-volume operators require the source field halo")
+        return {
+            "control_volume_geometry": self.control_volume_geometry,
+            "field_closure": (
+                self._cv_closure(field_halo, face_bc)
+                if field_closure is None else field_closure
+            ),
+        }
+
+    @property
+    def _uses_compact_face_operators(self) -> bool:
+        """Compact pole-face operators are not part of the production path."""
+
+        return False
+
+    @property
+    def _uses_projected_fine_grid(self) -> bool:
+        return self.control_volume_geometry is not None
+
+    def _restrict_fine_field(self, value: jnp.ndarray) -> jnp.ndarray:
+        """Apply R to a completed fine-grid scalar operator result."""
+
+        if not self._uses_projected_fine_grid:
+            return value
+        if self.control_volume_geometry is None:
+            raise RuntimeError("projected-fine-grid mode is missing control-volume geometry")
+        return aggregate_local_control_volume_average(
+            value,
+            self.control_volume_geometry.cells,
+            self.domain,
+        )
+
+    def _restrict_fine_state(self, state: FciDrbEBState) -> FciDrbEBState:
+        """Restrict every assembled fine-grid RHS leaf to owner space."""
+
+        if not self._uses_projected_fine_grid:
+            return state
+        return state.replace(
+            density=self._restrict_fine_field(state.density),
+            phi=self._restrict_fine_field(state.phi),
+            Te=self._restrict_fine_field(state.Te),
+            Ti=self._restrict_fine_field(state.Ti),
+            Vi=self._restrict_fine_field(state.Vi),
+            Ve=self._restrict_fine_field(state.Ve),
+            vorticity=self._restrict_fine_field(state.vorticity),
+        )
 
     def _prepare_phi_halo(
         self,
@@ -1635,6 +1545,8 @@ class LocalFciDrbEBRhs:
         scalar_face_bc: LocalBoundaryFaceBC3D | None = None,
         *,
         boundary_trace: LocalBoundaryFaceTrace3D | None = None,
+        field_halo: jnp.ndarray | None = None,
+        field_closure=None,
     ) -> jnp.ndarray:
         """Evaluate centered curvature, optionally with wall-only coupled traces."""
 
@@ -1651,6 +1563,9 @@ class LocalFciDrbEBRhs:
             face_bc=scalar_face_bc,
             boundary_trace=boundary_trace,
             axis_regular_axes=self.axis_regular_axes,
+            **self._cv_operator_args(
+                field_halo, scalar_face_bc, field_closure=field_closure
+            ),
         )
 
     def _curvature_rhs_contributions(
@@ -1679,6 +1594,7 @@ class LocalFciDrbEBRhs:
         Te_conservative_stencil,
         Ti_conservative_stencil,
         vorticity_conservative_stencil,
+        primitive_cv_closures: dict[str, object] | None = None,
     ):
         """Assemble the production curvature contribution for each equation.
 
@@ -1698,6 +1614,25 @@ class LocalFciDrbEBRhs:
             curvature_Ti_self = jnp.zeros_like(density)
         elif self.curvature_scheme == "conservative":
             assert self.curvature_face_coefficients is not None
+            primitive = (
+                primitive_cv_closures
+                if primitive_cv_closures is not None
+                else self._primitive_cv_closures(
+                    state_halo, names=("density", "Te", "Ti")
+                )
+            )
+            Pe_compact_closure = self._cv_product(
+                primitive.get("density"), primitive.get("Te")
+            ) if primitive else None
+            pressure_temperature = self._cv_linear_combination(
+                primitive.get("Te"), primitive.get("Ti"), b=tau
+            ) if primitive else None
+            pressure_compact_closure = self._cv_product(
+                primitive.get("density"), pressure_temperature
+            ) if primitive else None
+            Ti_squared_compact_closure = self._cv_product(
+                primitive.get("Ti"), primitive.get("Ti")
+            ) if primitive else None
             characteristic_bcs = None
             if self.curvature_inflow_closure == "upwind-equilibrium":
                 characteristic_bcs = self._upwind_equilibrium_boundary_face_bcs(
@@ -1735,58 +1670,79 @@ class LocalFciDrbEBRhs:
                 ) = (None, None, None, None, None)
                 phi_wall_bc = None
 
-            def curvature(conservative_stencil, scalar_face_bc):
+            def curvature(conservative_stencil, scalar_face_bc, field_halo, *, field_closure=None):
+                closure_kwargs = (
+                    {"field_closure": field_closure}
+                    if self._uses_compact_face_operators
+                    else {}
+                )
                 return self._conservative_curvature(
                     conservative_stencil,
                     scalar_face_bc,
+                    field_halo=field_halo,
+                    **closure_kwargs,
                 )
 
-            def central_curvature(conservative_stencil, trace):
+            def central_curvature(conservative_stencil, trace, field_halo, *, field_closure=None):
+                closure_kwargs = (
+                    {"field_closure": field_closure}
+                    if self._uses_compact_face_operators
+                    else {}
+                )
                 return self._conservative_curvature(
                     conservative_stencil,
                     boundary_trace=trace,
+                    field_halo=field_halo,
+                    **closure_kwargs,
                 )
 
             if Pe_wall_bc is None:
-                curvature_Pe = self._conservative_curvature(
-                    Pe_conservative_stencil,
-                    boundary_trace=operator_boundary.Pe,
+                curvature_Pe = central_curvature(
+                    Pe_conservative_stencil, operator_boundary.Pe,
+                    state_halo.density * state_halo.Te,
+                    field_closure=Pe_compact_closure,
                 )
             else:
-                curvature_Pe = self._conservative_curvature(
-                    Pe_conservative_stencil, Pe_wall_bc
+                curvature_Pe = curvature(
+                    Pe_conservative_stencil, Pe_wall_bc,
+                    state_halo.density * state_halo.Te,
+                    field_closure=Pe_compact_closure,
                 )
             if pressure_wall_bc is None:
                 curvature_pressure = central_curvature(
-                    pressure_conservative_stencil, operator_boundary.pressure
+                    pressure_conservative_stencil, operator_boundary.pressure,
+                    state_halo.density * state_halo.Te + self.parameters.tau * state_halo.density * state_halo.Ti,
+                    field_closure=pressure_compact_closure,
                 )
             else:
                 curvature_pressure = curvature(
-                    pressure_conservative_stencil, pressure_wall_bc
+                    pressure_conservative_stencil, pressure_wall_bc,
+                    state_halo.density * state_halo.Te + self.parameters.tau * state_halo.density * state_halo.Ti,
+                    field_closure=pressure_compact_closure,
                 )
             if phi_wall_bc is None:
                 curvature_phi = central_curvature(
-                    phi_conservative_stencil, operator_boundary.phi
+                    phi_conservative_stencil, operator_boundary.phi, state_halo.phi
                 )
             else:
                 curvature_phi = curvature(
-                phi_conservative_stencil, phi_wall_bc
+                phi_conservative_stencil, phi_wall_bc, state_halo.phi
                 )
             if Te_wall_bc is None:
                 curvature_Te = central_curvature(
-                    Te_conservative_stencil, operator_boundary.Te
+                    Te_conservative_stencil, operator_boundary.Te, state_halo.Te
                 )
             else:
                 curvature_Te = curvature(
-                Te_conservative_stencil, Te_wall_bc
+                Te_conservative_stencil, Te_wall_bc, state_halo.Te
                 )
             if Ti_wall_bc is None:
                 curvature_Ti = central_curvature(
-                    Ti_conservative_stencil, operator_boundary.Ti
+                    Ti_conservative_stencil, operator_boundary.Ti, state_halo.Ti
                 )
             else:
                 curvature_Ti = curvature(
-                Ti_conservative_stencil, Ti_wall_bc
+                Ti_conservative_stencil, Ti_wall_bc, state_halo.Ti
                 )
             if self.ion_temperature_curvature_self_form == "flux":
                 Ti_squared_conservative_stencil = (
@@ -1797,11 +1753,16 @@ class LocalFciDrbEBRhs:
                     )
                 )
                 curvature_Ti_self = (
-                    curvature(Ti_squared_conservative_stencil, Ti2_wall_bc)
+                    curvature(
+                        Ti_squared_conservative_stencil, Ti2_wall_bc,
+                        state_halo.Ti * state_halo.Ti,
+                        field_closure=Ti_squared_compact_closure,
+                    )
                     if Ti2_wall_bc is not None else
                     central_curvature(
                         Ti_squared_conservative_stencil,
-                        operator_boundary.Ti_squared,
+                        operator_boundary.Ti_squared, state_halo.Ti * state_halo.Ti,
+                        field_closure=Ti_squared_compact_closure,
                     )
                 )
             else:
@@ -1936,6 +1897,8 @@ class LocalFciDrbEBRhs:
     def ion_temperature_curvature_chain_rule_diagnostics(
         self,
         state_owned: FciDrbEBState,
+        *,
+        primitive_cv_closures: dict[str, object] | None = None,
     ) -> jnp.ndarray:
         """Return max-abs product, flux, and chain-rule-defect Ti terms.
 
@@ -1984,6 +1947,14 @@ class LocalFciDrbEBRhs:
         )
         ti_face_for_curvature = None
         ti_squared_face_for_curvature = None
+        primitive = (
+            primitive_cv_closures
+            if primitive_cv_closures is not None
+            else self._primitive_cv_closures(state_halo, names=("Ti",))
+        )
+        ti_squared_compact_closure = self._cv_product(
+            primitive.get("Ti"), primitive.get("Ti")
+        ) if primitive else None
         if self.curvature_inflow_closure == "upwind-equilibrium":
             density_halo = self._prepare_scalar_halo(state_owned.density, face_bc.density)
             te_halo = self._prepare_scalar_halo(state_owned.Te, face_bc.Te)
@@ -2001,17 +1972,23 @@ class LocalFciDrbEBRhs:
             ti_squared_face_for_curvature = characteristic_bcs[5]
         if self.curvature_inflow_closure == "upwind-equilibrium":
             ti_curvature = self._conservative_curvature(
-                ti_stencil, ti_face_for_curvature
+                ti_stencil, ti_face_for_curvature, field_halo=ti_halo,
+                field_closure=primitive.get("Ti") if primitive else None,
             )
             ti_squared_curvature = self._conservative_curvature(
-                ti_squared_stencil, ti_squared_face_for_curvature
+                ti_squared_stencil, ti_squared_face_for_curvature,
+                field_halo=ti_halo * ti_halo,
+                field_closure=ti_squared_compact_closure,
             )
         else:
             ti_curvature = self._conservative_curvature(
-                ti_stencil, boundary_trace=operator_boundary.Ti
+                ti_stencil, boundary_trace=operator_boundary.Ti, field_halo=ti_halo,
+                field_closure=primitive.get("Ti") if primitive else None,
             )
             ti_squared_curvature = self._conservative_curvature(
-                ti_squared_stencil, boundary_trace=operator_boundary.Ti_squared
+                ti_squared_stencil, boundary_trace=operator_boundary.Ti_squared,
+                field_halo=ti_halo * ti_halo,
+                field_closure=ti_squared_compact_closure,
             )
         owned = self.domain.layout.owned_slices_cell
         ti = jnp.asarray(ti_halo[owned], dtype=jnp.float64)
@@ -2037,6 +2014,8 @@ class LocalFciDrbEBRhs:
         field_halo: jnp.ndarray,
         face_bc: LocalBoundaryFaceBC3D,
         coefficient: float,
+        *,
+        field_closure=None,
     ) -> jnp.ndarray:
         if float(coefficient) == 0.0:
             return jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
@@ -2055,6 +2034,9 @@ class LocalFciDrbEBRhs:
             regular_face_geometry=self.geometry.regular_face_geometry,
             axis_regular_axes=self.axis_regular_axes,
             neumann_normal_scheme=self.neumann_normal_scheme,
+            **self._cv_operator_args(
+                field_halo, face_bc, field_closure=field_closure
+            ),
         )
 
     def _field_parallel_diffusion(
@@ -2062,6 +2044,8 @@ class LocalFciDrbEBRhs:
         field_halo: jnp.ndarray,
         face_bc: LocalBoundaryFaceBC3D,
         coefficient: float,
+        *,
+        field_closure=None,
     ) -> jnp.ndarray:
         if float(coefficient) == 0.0:
             return jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
@@ -2079,6 +2063,9 @@ class LocalFciDrbEBRhs:
             regular_face_geometry=self.geometry.regular_face_geometry,
             axis_regular_axes=self.axis_regular_axes,
             neumann_normal_scheme=self.neumann_normal_scheme,
+            **self._cv_operator_args(
+                field_halo, face_bc, field_closure=field_closure
+            ),
         )
 
     def _fci_remote_values(
@@ -2263,13 +2250,16 @@ class LocalFciDrbEBRhs:
 
         def q_div(name: str) -> jnp.ndarray:
             q_halo, forward, backward = q_data[name]
-            return local_parallel_q_flux_div_fci_op(
+            value = local_parallel_q_flux_div_fci_op(
                 q_halo,
                 self.geometry,
                 context=context,
                 forward_remote_q_values=forward,
                 backward_remote_q_values=backward,
             )
+            return (aggregate_local_control_volume_average(
+                value, self.control_volume_geometry.cells, self.domain
+            ) if self._uses_compact_face_operators else value)
 
         div_b = local_parallel_div_b_fci_from_q_op(
             inverse_b_halo,
@@ -2278,10 +2268,14 @@ class LocalFciDrbEBRhs:
             forward_remote_q_values=inverse_b_forward,
             backward_remote_q_values=inverse_b_backward,
         )
+        if self._uses_compact_face_operators:
+            div_b = aggregate_local_control_volume_average(
+                div_b, self.control_volume_geometry.cells, self.domain
+            )
 
         def grad(name: str) -> jnp.ndarray:
             q_halo, forward, backward = q_data[name]
-            return local_grad_parallel_op_fci_compatible_from_q(
+            value = local_grad_parallel_op_fci_compatible_from_q(
                 q_halo,
                 self.geometry,
                 context=context,
@@ -2290,6 +2284,9 @@ class LocalFciDrbEBRhs:
                 forward_remote_q_values=forward,
                 backward_remote_q_values=backward,
             )
+            return (aggregate_local_control_volume_average(
+                value, self.control_volume_geometry.cells, self.domain
+            ) if self._uses_compact_face_operators else value)
 
         result = {
             "parallel_div_b": div_b,
@@ -2325,7 +2322,7 @@ class LocalFciDrbEBRhs:
             field_remote = self._fci_remote_values(fields[name], context)
             diffusivity_halo = jnp.ones_like(fields[name], dtype=jnp.float64)
             diffusivity_remote = self._fci_remote_values(diffusivity_halo, context)
-            result[f"{name}_parallel_diff"] = jnp.asarray(
+            value = jnp.asarray(
                 coefficient, dtype=jnp.float64
             ) * local_parallel_diffusion_fci_op(
                 fields[name],
@@ -2339,6 +2336,11 @@ class LocalFciDrbEBRhs:
                 backward_remote_diffusivity_values=diffusivity_remote[1],
                 forward_remote_inverse_b_values=inverse_b_forward,
                 backward_remote_inverse_b_values=inverse_b_backward,
+            )
+            result[f"{name}_parallel_diff"] = (
+                aggregate_local_control_volume_average(
+                    value, self.control_volume_geometry.cells, self.domain
+                ) if self._uses_compact_face_operators else value
             )
         return result
 
@@ -2490,71 +2492,101 @@ class LocalFciDrbEBRhs:
         Pe_stencil: ConservativeStencil3D,
         pressure_stencil: ConservativeStencil3D,
         vorticity_stencil: ConservativeStencil3D,
+        primitive_cv_closures: dict[str, object] | None = None,
     ) -> dict[str, jnp.ndarray]:
         """Evaluate the pre-existing coordinate parallel stage operators."""
 
         operator_kwargs = dict(
             regular_face_geometry=self.geometry.regular_face_geometry,
             axis_regular_axes=self.axis_regular_axes,
+            control_volume_geometry=(
+                self.control_volume_geometry
+                if self._uses_compact_face_operators else None
+            ),
         )
+        primitive = (
+            primitive_cv_closures
+            if primitive_cv_closures is not None
+            else self._primitive_cv_closures(state_halo)
+        )
+        density_flux_closure = self._cv_product(primitive.get("density"), primitive.get("Ve")) if primitive else None
+        velocity_difference = self._cv_linear_combination(primitive.get("Vi"), primitive.get("Ve"), b=-1.0) if primitive else None
+        current_closure = self._cv_product(primitive.get("density"), velocity_difference) if primitive else None
+        pressure_temperature = self._cv_linear_combination(primitive.get("Te"), primitive.get("Ti"), b=self.parameters.tau) if primitive else None
+        Pe_closure = self._cv_product(primitive.get("density"), primitive.get("Te")) if primitive else None
+        pressure_closure = self._cv_product(primitive.get("density"), pressure_temperature) if primitive else None
         density_flux_div = local_parallel_flux_div_op(
             density_flux_stencil, self.geometry, self.domain,
-            boundary_trace=parallel_boundary.density_flux, **operator_kwargs
+            boundary_trace=parallel_boundary.density_flux,
+            field_closure=density_flux_closure, **operator_kwargs
         )
         current_flux_div = local_parallel_flux_div_op(
             current_stencil, self.geometry, self.domain,
-            boundary_trace=parallel_boundary.current, **operator_kwargs
+            boundary_trace=parallel_boundary.current,
+            field_closure=current_closure, **operator_kwargs
         )
         vorticity_current_flux_div = local_parallel_flux_div_op(
             current_stencil, self.geometry, self.domain,
-            boundary_trace=operator_boundary.current, **operator_kwargs
+            boundary_trace=operator_boundary.current,
+            field_closure=current_closure, **operator_kwargs
         )
         Vi_stencil = build_local_conservative_stencil_from_field(
             state_halo.Vi, self.geometry, context
         )
         parallel_Vi_flux_div = local_parallel_flux_div_op(
             Vi_stencil, self.geometry, self.domain,
-            boundary_trace=parallel_boundary.Vi, **operator_kwargs
+            boundary_trace=parallel_boundary.Vi,
+            field_closure=primitive.get("Vi"), **operator_kwargs
         )
         Ve_flux_div = local_parallel_flux_div_op(
             Ve_stencil, self.geometry, self.domain,
-            boundary_trace=parallel_boundary.Ve, **operator_kwargs
+            boundary_trace=parallel_boundary.Ve,
+            field_closure=primitive.get("Ve"), **operator_kwargs
         )
         grad_Te = local_grad_parallel_op_conservative(
             Te_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.Te, **operator_kwargs
+            boundary_trace=parallel_boundary.Te,
+            field_closure=primitive.get("Te"), **operator_kwargs
         )
         grad_Ti = local_grad_parallel_op_conservative(
             Ti_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.Ti, **operator_kwargs
+            boundary_trace=parallel_boundary.Ti,
+            field_closure=primitive.get("Ti"), **operator_kwargs
         )
         grad_Ve = local_grad_parallel_op_conservative(
             Ve_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.Ve, **operator_kwargs
+            boundary_trace=parallel_boundary.Ve,
+            field_closure=primitive.get("Ve"), **operator_kwargs
         )
         grad_Vi = local_grad_parallel_op_conservative(
             Vi_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.Vi, **operator_kwargs
+            boundary_trace=parallel_boundary.Vi,
+            field_closure=primitive.get("Vi"), **operator_kwargs
         )
         grad_phi = local_grad_parallel_op_conservative(
             phi_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=operator_boundary.phi, **operator_kwargs
+            boundary_trace=operator_boundary.phi,
+            field_closure=primitive.get("phi"), **operator_kwargs
         )
         grad_Pe = local_grad_parallel_op_conservative(
             Pe_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.Pe, **operator_kwargs
+            boundary_trace=parallel_boundary.Pe,
+            field_closure=Pe_closure, **operator_kwargs
         )
         grad_pressure = local_grad_parallel_op_conservative(
             pressure_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.pressure, **operator_kwargs
+            boundary_trace=parallel_boundary.pressure,
+            field_closure=pressure_closure, **operator_kwargs
         )
         grad_current = local_grad_parallel_op_conservative(
             current_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.current, **operator_kwargs
+            boundary_trace=parallel_boundary.current,
+            field_closure=current_closure, **operator_kwargs
         )
         grad_vorticity = local_grad_parallel_op_conservative(
             vorticity_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=operator_boundary.vorticity, **operator_kwargs
+            boundary_trace=operator_boundary.vorticity,
+            field_closure=primitive.get("vorticity"), **operator_kwargs
         )
         return {
             "parallel_div_b": parallel_div_b,
@@ -2581,7 +2613,8 @@ class LocalFciDrbEBRhs:
         face_bc: LocalFciDrbEBFaceBCBundle,
         *,
         return_diagnostics: bool = False,
-    ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo | AxisCoreReducedSolveInfo]:
+        ti_field_closure=None,
+    ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
         context = self._stencil_builder_context()
         ti_conservative = build_local_conservative_stencil_from_field(
             state_halo.Ti,
@@ -2597,7 +2630,11 @@ class LocalFciDrbEBRhs:
             regular_face_geometry=self.geometry.regular_face_geometry,
             axis_regular_axes=self.axis_regular_axes,
             neumann_normal_scheme=self.neumann_normal_scheme,
+            **self._cv_operator_args(
+                state_halo.Ti, face_bc.Ti, field_closure=ti_field_closure
+            ),
         )
+        ti_laplacian = self._restrict_fine_field(ti_laplacian)
         owned = self.domain.layout.owned_slices_cell
         phi_rhs = (
             jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_laplacian
@@ -2607,9 +2644,10 @@ class LocalFciDrbEBRhs:
         solver = LocalPerpLaplacianInverseSolver(
             geometry=self.geometry,
             domain=self.domain,
+            control_volume_geometry=self.control_volume_geometry,
+            control_volume_boundary_bc=self.control_volume_boundary_bc,
             stencil_builder=build_local_conservative_stencil_from_field,
             stencil_builder_context=context,
-            axis_core_line_u_preconditioner=self.axis_core_line_u_preconditioner,
             halo_exchange=self.halo_exchange,
             topology_filler=self.topology_filler,
             physical_ghost_filler=self.physical_ghost_filler,
@@ -2619,17 +2657,18 @@ class LocalFciDrbEBRhs:
             neumann_normal_scheme=self.neumann_normal_scheme,
             config=self.gmres_config,
         )
-        if self.phi_solver_space == "axis-core-reduced":
-            reduced_space = self.build_axis_core_reduced_phi_space()
-            phi_result = solver.solve_axis_core_reduced(
+        if self.control_volume_geometry is not None:
+            # Pole-CV has a distinct owner-space unknown topology.  Keep this
+            # route explicit so it cannot accidentally fall through the
+            # ordinary solver's backwards-compatible __call__ entry point.
+            phi_result = solver.solve_rlp_owner(
                 phi_rhs,
                 guess_owned=state_owned.phi,
                 phi_lift_owned=phi_lift,
-                space=reduced_space,
                 return_diagnostics=return_diagnostics,
             )
         else:
-            phi_result = solver(
+            phi_result = solver.solve_full_grid(
                 phi_rhs,
                 guess_owned=state_owned.phi,
                 phi_lift_owned=phi_lift,
@@ -2637,8 +2676,8 @@ class LocalFciDrbEBRhs:
             )
         if return_diagnostics:
             phi_owned, info = phi_result
-            return _mask_inactive_owned(phi_owned, self.geometry), info
-        return _mask_inactive_owned(phi_result, self.geometry)
+            return self._owner_result(_mask_inactive_owned(phi_owned, self.geometry)), info
+        return self._owner_result(_mask_inactive_owned(phi_result, self.geometry))
 
     def reconstruct_phi(
         self,
@@ -2647,14 +2686,7 @@ class LocalFciDrbEBRhs:
         return_diagnostics: bool = False,
     ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
         face_bc = self._face_bcs(state_owned)
-        state_halo = prepare_local_fci_drb_eb_state(
-            state_owned,
-            self.domain,
-            face_bc=face_bc,
-            halo_exchange=self.halo_exchange,
-            topology_filler=self.topology_filler,
-            physical_ghost_filler=self.physical_ghost_filler,
-        )
+        state_halo = self._prepare_state_halo(state_owned, face_bc)
         return self._reconstruct_phi_from_prepared(
             state_owned,
             state_halo,
@@ -2679,14 +2711,7 @@ class LocalFciDrbEBRhs:
         """
 
         face_bc = self._face_bcs(state_owned)
-        state_halo = prepare_local_fci_drb_eb_state(
-            state_owned,
-            self.domain,
-            face_bc=face_bc,
-            halo_exchange=self.halo_exchange,
-            topology_filler=self.topology_filler,
-            physical_ghost_filler=self.physical_ghost_filler,
-        )
+        state_halo = self._prepare_state_halo(state_owned, face_bc)
         if phi_owned is None:
             phi_owned = state_owned.phi
         phi_owned = _mask_inactive_owned(
@@ -2709,6 +2734,7 @@ class LocalFciDrbEBRhs:
             regular_face_geometry=self.geometry.regular_face_geometry,
             axis_regular_axes=self.axis_regular_axes,
             neumann_normal_scheme=self.neumann_normal_scheme,
+            **self._cv_operator_args(phi_halo, face_bc.phi),
         )
         ti_laplacian = local_perp_laplacian_conservative_op(
             ti_conservative,
@@ -2719,7 +2745,10 @@ class LocalFciDrbEBRhs:
             regular_face_geometry=self.geometry.regular_face_geometry,
             axis_regular_axes=self.axis_regular_axes,
             neumann_normal_scheme=self.neumann_normal_scheme,
+            **self._cv_operator_args(state_halo.Ti, face_bc.Ti),
         )
+        phi_laplacian = self._restrict_fine_field(phi_laplacian)
+        ti_laplacian = self._restrict_fine_field(ti_laplacian)
         return _mask_inactive_owned(
             -phi_laplacian
             - jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_laplacian
@@ -2755,14 +2784,7 @@ class LocalFciDrbEBRhs:
         """
 
         face_bc = self._face_bcs(state_owned)
-        state_halo_without_phi = prepare_local_fci_drb_eb_state(
-            state_owned,
-            self.domain,
-            face_bc=face_bc,
-            halo_exchange=self.halo_exchange,
-            topology_filler=self.topology_filler,
-            physical_ghost_filler=self.physical_ghost_filler,
-        )
+        state_halo_without_phi = self._prepare_state_halo(state_owned, face_bc)
         if phi_owned is None:
             phi_owned = state_owned.phi
         phi_owned = _mask_inactive_owned(
@@ -2770,6 +2792,7 @@ class LocalFciDrbEBRhs:
         )
         phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
         state_halo = state_halo_without_phi.replace(phi=phi_halo)
+        primitive_cv_closures = self._primitive_cv_closures(state_halo)
         operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
             state_halo, self.geometry, self.domain, face_bc, tau=self.parameters.tau
         )
@@ -2869,6 +2892,13 @@ class LocalFciDrbEBRhs:
             state_halo.vorticity, self.geometry, context
         )
         if self.parallel_operator_scheme == "coordinate":
+            primitive = primitive_cv_closures
+            density_flux_closure = self._cv_product(primitive.get("density"), primitive.get("Ve")) if primitive else None
+            velocity_difference = self._cv_linear_combination(primitive.get("Vi"), primitive.get("Ve"), b=-1.0) if primitive else None
+            current_closure = self._cv_product(primitive.get("density"), velocity_difference) if primitive else None
+            pressure_temperature = self._cv_linear_combination(primitive.get("Te"), primitive.get("Ti"), b=self.parameters.tau) if primitive else None
+            Pe_closure = self._cv_product(primitive.get("density"), primitive.get("Te")) if primitive else None
+            pressure_closure = self._cv_product(primitive.get("density"), pressure_temperature) if primitive else None
             unit_stencil = build_local_conservative_stencil_from_field(
                 jnp.ones_like(state_halo.density, dtype=jnp.float64),
                 self.geometry,
@@ -2877,52 +2907,68 @@ class LocalFciDrbEBRhs:
             operator_kwargs = dict(
                 regular_face_geometry=self.geometry.regular_face_geometry,
                 axis_regular_axes=self.axis_regular_axes,
+                control_volume_geometry=(
+                    self.control_volume_geometry
+                    if self._uses_compact_face_operators else None
+                ),
             )
             parallel_div_b = local_parallel_div_b_op(
-                unit_stencil, self.geometry, self.domain, **operator_kwargs
+                unit_stencil, self.geometry, self.domain,
+                field_closure=self._cv_closure(jnp.ones_like(state_halo.density), None),
+                **operator_kwargs
             )
             density_flux_div = local_parallel_flux_div_op(
                 density_flux_stencil, self.geometry, self.domain,
-                boundary_trace=parallel_boundary.density_flux, **operator_kwargs
+                boundary_trace=parallel_boundary.density_flux,
+                field_closure=density_flux_closure, **operator_kwargs
             )
             current_flux_div = local_parallel_flux_div_op(
                 current_stencil, self.geometry, self.domain,
-                boundary_trace=parallel_boundary.current, **operator_kwargs
+                boundary_trace=parallel_boundary.current,
+                field_closure=current_closure, **operator_kwargs
             )
             vorticity_current_flux_div = local_parallel_flux_div_op(
                 current_stencil, self.geometry, self.domain,
-                boundary_trace=operator_boundary.current, **operator_kwargs
+                boundary_trace=operator_boundary.current,
+                field_closure=current_closure, **operator_kwargs
             )
             Vi_stencil = build_local_conservative_stencil_from_field(
                 state_halo.Vi, self.geometry, context
             )
             parallel_Vi_flux_div = local_parallel_flux_div_op(
                 Vi_stencil, self.geometry, self.domain,
-                boundary_trace=parallel_boundary.Vi, **operator_kwargs
+                boundary_trace=parallel_boundary.Vi,
+                field_closure=primitive.get("Vi"), **operator_kwargs
             )
             Ve_flux_div = local_parallel_flux_div_op(
                 Ve_stencil, self.geometry, self.domain,
-                boundary_trace=parallel_boundary.Ve, **operator_kwargs
+                boundary_trace=parallel_boundary.Ve,
+                field_closure=primitive.get("Ve"), **operator_kwargs
             )
             grad_Te = local_grad_parallel_op_conservative(
                 Te_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-                boundary_trace=parallel_boundary.Te, **operator_kwargs
+                boundary_trace=parallel_boundary.Te,
+                field_closure=primitive.get("Te"), **operator_kwargs
             )
             grad_Ti = local_grad_parallel_op_conservative(
                 Ti_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-                boundary_trace=parallel_boundary.Ti, **operator_kwargs
+                boundary_trace=parallel_boundary.Ti,
+                field_closure=primitive.get("Ti"), **operator_kwargs
             )
             grad_phi = local_grad_parallel_op_conservative(
                 phi_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-                boundary_trace=operator_boundary.phi, **operator_kwargs
+                boundary_trace=operator_boundary.phi,
+                field_closure=primitive.get("phi"), **operator_kwargs
             )
             grad_Pe = local_grad_parallel_op_conservative(
                 Pe_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-                boundary_trace=parallel_boundary.Pe, **operator_kwargs
+                boundary_trace=parallel_boundary.Pe,
+                field_closure=Pe_closure, **operator_kwargs
             )
             grad_Ve = local_grad_parallel_op_conservative(
                 Ve_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-                boundary_trace=parallel_boundary.Ve, **operator_kwargs
+                boundary_trace=parallel_boundary.Ve,
+                field_closure=primitive.get("Ve"), **operator_kwargs
             )
         else:
             parallel_div_b = fci_parallel_terms["parallel_div_b"]
@@ -2960,6 +3006,9 @@ class LocalFciDrbEBRhs:
             density_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.density,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.density,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("density"),
         )
         poisson_Te = self._poisson_bracket_over_B(
             phi_gradient,
@@ -2968,6 +3017,9 @@ class LocalFciDrbEBRhs:
             Te_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Te,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.Te,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("Te"),
         )
         poisson_Ti = self._poisson_bracket_over_B(
             phi_gradient,
@@ -2976,6 +3028,9 @@ class LocalFciDrbEBRhs:
             Ti_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Ti,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.Ti,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("Ti"),
         )
         poisson_Ve = self._poisson_bracket_over_B(
             phi_gradient,
@@ -2984,6 +3039,9 @@ class LocalFciDrbEBRhs:
             Ve_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Ve,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.Ve,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("Ve"),
         )
         poisson_vorticity = self._poisson_bracket_over_B(
             phi_gradient,
@@ -2992,23 +3050,31 @@ class LocalFciDrbEBRhs:
             vorticity_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.vorticity,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.vorticity,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("vorticity"),
         )
 
         if self.parallel_operator_scheme == "coordinate":
             density_parallel_diff = self._field_parallel_diffusion(
-                state_halo.density, face_bc.density, self.parameters.density_D_parallel
+                state_halo.density, face_bc.density, self.parameters.density_D_parallel,
+                field_closure=primitive_cv_closures.get("density"),
             )
             Te_parallel_diff = self._field_parallel_diffusion(
-                state_halo.Te, face_bc.Te, self.parameters.electron_temperature_chi_parallel
+                state_halo.Te, face_bc.Te, self.parameters.electron_temperature_chi_parallel,
+                field_closure=primitive_cv_closures.get("Te"),
             )
             Ti_parallel_diff = self._field_parallel_diffusion(
-                state_halo.Ti, face_bc.Ti, self.parameters.ion_temperature_chi_parallel
+                state_halo.Ti, face_bc.Ti, self.parameters.ion_temperature_chi_parallel,
+                field_closure=primitive_cv_closures.get("Ti"),
             )
             Ve_parallel_diff = self._field_parallel_diffusion(
-                state_halo.Ve, face_bc.Ve, self.parameters.Ve_parallel_viscosity
+                state_halo.Ve, face_bc.Ve, self.parameters.Ve_parallel_viscosity,
+                field_closure=primitive_cv_closures.get("Ve"),
             )
             vorticity_parallel_diff = self._field_parallel_diffusion(
-                state_halo.vorticity, face_bc.vorticity, self.parameters.vorticity_D_parallel
+                state_halo.vorticity, face_bc.vorticity, self.parameters.vorticity_D_parallel,
+                field_closure=primitive_cv_closures.get("vorticity"),
             )
         else:
             density_parallel_diff = fci_parallel_terms["density_parallel_diff"]
@@ -3049,14 +3115,14 @@ class LocalFciDrbEBRhs:
                 Te_conservative_stencil=Te_conservative_stencil,
                 Ti_conservative_stencil=Ti_conservative_stencil,
                 vorticity_conservative_stencil=vorticity_conservative_stencil,
+                primitive_cv_closures=primitive_cv_closures,
             )
         else:
             curvature_density_contribution = jnp.zeros_like(density)
             curvature_Te_contribution = jnp.zeros_like(Te)
             curvature_Ti_contribution = jnp.zeros_like(Ti)
             curvature_vorticity_contribution = jnp.zeros_like(density)
-        return _mask_local_eb_state_inactive(
-            FciDrbEBImplicitState(
+        implicit_result = FciDrbEBImplicitState(
                 density=(
                     -(poisson_density / rho_star)
                     - density_flux_div
@@ -3095,9 +3161,12 @@ class LocalFciDrbEBRhs:
                     + curvature_vorticity_contribution
                     + vorticity_parallel_diff
                 ),
-            ),
+            )
+        implicit_result = self._restrict_fine_state(implicit_result)
+        return self._owner_state(_mask_local_eb_state_inactive(
+            implicit_result,
             self.geometry,
-        )
+        ))
 
     def evaluate_imex_rhs(
         self,
@@ -3228,21 +3297,22 @@ class LocalFciDrbEBRhs:
                 Ve=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
                 vorticity=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
             )
-        source_owned = _mask_local_eb_state_inactive(source_owned, self.geometry)
-        face_bc = self._face_bcs(state_owned)
-        state_halo_without_phi = prepare_local_fci_drb_eb_state(
-            state_owned,
-            self.domain,
-            face_bc=face_bc,
-            halo_exchange=self.halo_exchange,
-            topology_filler=self.topology_filler,
-            physical_ghost_filler=self.physical_ghost_filler,
+        source_owned = self._owner_state(
+            _mask_local_eb_state_inactive(source_owned, self.geometry)
         )
+        face_bc = self._face_bcs(state_owned)
+        state_halo_without_phi = self._prepare_state_halo(state_owned, face_bc)
+        primitive_cv_closures = None
         if phi_owned is None:
+            primitive_cv_closures = self._primitive_cv_closures(
+                state_halo_without_phi,
+                names=("density", "Te", "Ti", "Vi", "Ve", "vorticity"),
+            )
             phi_owned = self._reconstruct_phi_from_prepared(
                 state_owned,
                 state_halo_without_phi,
                 face_bc,
+                ti_field_closure=primitive_cv_closures.get("Ti"),
             )
         else:
             phi_owned = jnp.asarray(phi_owned, dtype=jnp.float64)
@@ -3254,6 +3324,13 @@ class LocalFciDrbEBRhs:
             phi_owned = _mask_inactive_owned(phi_owned, self.geometry)
         phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
         state_halo = state_halo_without_phi.replace(phi=phi_halo)
+        if primitive_cv_closures is None:
+            primitive_cv_closures = self._primitive_cv_closures(state_halo)
+        else:
+            primitive_cv_closures = {
+                **primitive_cv_closures,
+                **self._primitive_cv_closures(state_halo, names=("phi",)),
+            }
         operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
             state_halo, self.geometry, self.domain, face_bc, tau=self.parameters.tau
         )
@@ -3392,6 +3469,11 @@ class LocalFciDrbEBRhs:
                 self.domain,
                 regular_face_geometry=self.geometry.regular_face_geometry,
                 axis_regular_axes=self.axis_regular_axes,
+                control_volume_geometry=(
+                    self.control_volume_geometry
+                    if self._uses_compact_face_operators else None
+                ),
+                field_closure=self._cv_closure(jnp.ones_like(state_halo.density), None),
             )
         else:
             parallel_div_b = fci_parallel_terms["parallel_div_b"]
@@ -3417,62 +3499,74 @@ class LocalFciDrbEBRhs:
             state_halo.density,
             face_bc.density,
             self.parameters.density_D_perp,
+            field_closure=primitive_cv_closures.get("density"),
         )
         Te_diff = self._field_perp_diffusion(
             state_halo.Te,
             face_bc.Te,
             self.parameters.electron_temperature_D_perp,
+            field_closure=primitive_cv_closures.get("Te"),
         )
         Ti_diff = self._field_perp_diffusion(
             state_halo.Ti,
             face_bc.Ti,
             self.parameters.ion_temperature_D_perp,
+            field_closure=primitive_cv_closures.get("Ti"),
         )
         Vi_diff = self._field_perp_diffusion(
             state_halo.Vi,
             face_bc.Vi,
             self.parameters.Vi_D_perp,
+            field_closure=primitive_cv_closures.get("Vi"),
         )
         Ve_diff = self._field_perp_diffusion(
             state_halo.Ve,
             face_bc.Ve,
             self.parameters.Ve_D_perp,
+            field_closure=primitive_cv_closures.get("Ve"),
         )
         vorticity_diff = self._field_perp_diffusion(
             state_halo.vorticity,
             face_bc.vorticity,
             self.parameters.vorticity_D_perp,
+            field_closure=primitive_cv_closures.get("vorticity"),
         )
         if self.parallel_operator_scheme == "coordinate":
             density_parallel_diff = self._field_parallel_diffusion(
                 state_halo.density,
                 face_bc.density,
                 self.parameters.density_D_parallel,
+                field_closure=primitive_cv_closures.get("density"),
             )
             Te_parallel_diff = self._field_parallel_diffusion(
                 state_halo.Te,
                 face_bc.Te,
                 self.parameters.electron_temperature_chi_parallel,
+                field_closure=primitive_cv_closures.get("Te"),
             )
             Ti_parallel_diff = self._field_parallel_diffusion(
                 state_halo.Ti,
                 face_bc.Ti,
                 self.parameters.ion_temperature_chi_parallel,
+                field_closure=primitive_cv_closures.get("Ti"),
             )
             Vi_parallel_diff = self._field_parallel_diffusion(
                 state_halo.Vi,
                 face_bc.Vi,
                 self.parameters.Vi_parallel_viscosity,
+                field_closure=primitive_cv_closures.get("Vi"),
             )
             Ve_parallel_diff = self._field_parallel_diffusion(
                 state_halo.Ve,
                 face_bc.Ve,
                 self.parameters.Ve_parallel_viscosity,
+                field_closure=primitive_cv_closures.get("Ve"),
             )
             vorticity_parallel_diff = self._field_parallel_diffusion(
                 state_halo.vorticity,
                 face_bc.vorticity,
                 self.parameters.vorticity_D_parallel,
+                field_closure=primitive_cv_closures.get("vorticity"),
             )
         else:
             density_parallel_diff = fci_parallel_terms["density_parallel_diff"]
@@ -3500,6 +3594,9 @@ class LocalFciDrbEBRhs:
             density_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.density,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.density,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("density"),
         )
         poisson_Te = self._poisson_bracket_over_B(
             phi_gradient,
@@ -3508,6 +3605,9 @@ class LocalFciDrbEBRhs:
             Te_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Te,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.Te,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("Te"),
         )
         poisson_Ti = self._poisson_bracket_over_B(
             phi_gradient,
@@ -3516,6 +3616,9 @@ class LocalFciDrbEBRhs:
             Ti_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Ti,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.Ti,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("Ti"),
         )
         poisson_Vi = self._poisson_bracket_over_B(
             phi_gradient,
@@ -3524,6 +3627,9 @@ class LocalFciDrbEBRhs:
             Vi_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Vi,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.Vi,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("Vi"),
         )
         poisson_Ve = self._poisson_bracket_over_B(
             phi_gradient,
@@ -3532,6 +3638,9 @@ class LocalFciDrbEBRhs:
             Ve_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Ve,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.Ve,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("Ve"),
         )
         poisson_vorticity = self._poisson_bracket_over_B(
             phi_gradient,
@@ -3540,6 +3649,9 @@ class LocalFciDrbEBRhs:
             vorticity_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.vorticity,
+            f_field_halo=state_halo.phi, g_field_halo=state_halo.vorticity,
+            f_field_closure=primitive_cv_closures.get("phi"),
+            g_field_closure=primitive_cv_closures.get("vorticity"),
         )
 
         if self.parallel_operator_scheme == "coordinate":
@@ -3559,6 +3671,7 @@ class LocalFciDrbEBRhs:
                 Pe_stencil=Pe_conservative_stencil,
                 pressure_stencil=pressure_conservative_stencil,
                 vorticity_stencil=vorticity_conservative_stencil,
+                primitive_cv_closures=primitive_cv_closures,
             )
         else:
             stage_parallel_terms = fci_parallel_terms
@@ -3608,6 +3721,7 @@ class LocalFciDrbEBRhs:
             Te_conservative_stencil=Te_conservative_stencil,
             Ti_conservative_stencil=Ti_conservative_stencil,
             vorticity_conservative_stencil=vorticity_conservative_stencil,
+            primitive_cv_closures=primitive_cv_closures,
         )
 
         density_rhs = (
@@ -3719,7 +3833,7 @@ class LocalFciDrbEBRhs:
                 * vorticity_current_flux_divergence
                 + vorticity_parallel_diff
             )
-            result = _mask_local_eb_state_inactive(FciDrbEBState(
+            result = self._restrict_fine_state(FciDrbEBState(
                 density=density_rhs,
                 phi=jnp.zeros_like(phi_owned),
                 Te=Te_rhs,
@@ -3727,7 +3841,10 @@ class LocalFciDrbEBRhs:
                 Vi=Vi_rhs,
                 Ve=Ve_rhs,
                 vorticity=vorticity_rhs,
-            ), self.geometry)
+            ))
+            result = self._owner_state(_mask_local_eb_state_inactive(
+                result, self.geometry
+            ))
             if return_term_diagnostics or return_term_fields:
                 Ve_terms = jnp.stack(
                     (
@@ -3742,6 +3859,11 @@ class LocalFciDrbEBRhs:
                     ),
                     axis=0,
                 )
+                if self._uses_projected_fine_grid:
+                    Ve_terms = jnp.stack(
+                        tuple(self._restrict_fine_field(term) for term in Ve_terms),
+                        axis=0,
+                    )
                 if return_term_fields:
                     return result, Ve_terms
                 return result, jnp.max(
@@ -3749,15 +3871,28 @@ class LocalFciDrbEBRhs:
                     axis=tuple(range(1, Ve_terms.ndim)),
                 )
             return result
-        result = _mask_local_eb_state_inactive(FciDrbEBState(
-            density=density_rhs + source_owned.density,
+        assembled = self._restrict_fine_state(FciDrbEBState(
+            density=density_rhs,
             phi=jnp.zeros_like(phi_owned),
-            Te=Te_rhs + source_owned.Te,
-            Ti=Ti_rhs + source_owned.Ti,
-            Vi=Vi_rhs + source_owned.Vi,
-            Ve=Ve_rhs + source_owned.Ve,
-            vorticity=vorticity_rhs + source_owned.vorticity,
-        ), self.geometry)
+            Te=Te_rhs,
+            Ti=Ti_rhs,
+            Vi=Vi_rhs,
+            Ve=Ve_rhs,
+            vorticity=vorticity_rhs,
+        ))
+        # Sources are owner-space data.  Add them after RLP so their
+        # amplitudes are not volume-diluted by fine storage aliases.
+        result = self._owner_state(_mask_local_eb_state_inactive(
+            assembled.replace(
+                density=assembled.density + source_owned.density,
+                Te=assembled.Te + source_owned.Te,
+                Ti=assembled.Ti + source_owned.Ti,
+                Vi=assembled.Vi + source_owned.Vi,
+                Ve=assembled.Ve + source_owned.Ve,
+                vorticity=assembled.vorticity + source_owned.vorticity,
+            ),
+            self.geometry,
+        ))
         if return_term_diagnostics or return_term_fields:
             Ve_terms = jnp.stack(
                 (
@@ -3772,6 +3907,11 @@ class LocalFciDrbEBRhs:
                 ),
                 axis=0,
             )
+            if self._uses_projected_fine_grid:
+                Ve_terms = jnp.stack(
+                    tuple(self._restrict_fine_field(term) for term in Ve_terms),
+                    axis=0,
+                )
             if return_term_fields:
                 return result, Ve_terms
             return result, jnp.max(

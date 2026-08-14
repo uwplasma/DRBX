@@ -158,9 +158,6 @@ __all__ = [
 
 # --- FCI stack incorporated from PR #3 (Aiken Xie, branch 3D_fci) ---
 from .fci_geometry import (
-    AxisCoreFaceReconstruction3D,
-    AxisCoreFaceGradientReconstruction3D,
-    AxisCoreCellGradientReconstruction3D,
     BFieldGeometry,
     CellCenteredGrid3D,
     CellVolumeGeometry3D,
@@ -207,17 +204,16 @@ from .fci_geometry import (
     Spacing3D,
     build_fci_maps_from_b_contravariant,
     build_fci_maps_from_callbacks,
+    build_metric_aware_polar_angular_agglomeration_geometry,
     trace_fci_eta_plane_from_callbacks,
     build_curvature_coefficients,
     build_conservative_stencil_from_field,
     build_local_conservative_stencil_from_field,
-    build_axis_core_face_reconstruction,
-    build_axis_core_face_gradient_reconstruction,
-    build_axis_core_cell_gradient_reconstruction,
     build_local_direct_stencil_one_sided_physical_from_halo,
     build_local_stencil_from_field,
     build_local_cell_gradient_from_field,
     logical_grid_from_axis_vectors,
+    metric_aware_angular_group_profile,
 )
 
 # Embedded-control-volume additions used by the cut-wall FCI stack.  Keep
@@ -245,9 +241,6 @@ from .fci_geometry import (
 )
 
 __all__ += [
-    "AxisCoreFaceReconstruction3D",
-    "AxisCoreFaceGradientReconstruction3D",
-    "AxisCoreCellGradientReconstruction3D",
     "LocalAggregateCellGeometry3D",
     "LocalCellAgglomeration3D",
     "LocalControlVolumeCellGeometry3D",
@@ -264,12 +257,12 @@ __all__ += [
     "build_local_curvature_face_coefficients",
     "LocalCurvatureFaceCoefficients3D",
     "build_local_fci_stencil_from_field",
-    "build_axis_core_cell_gradient_reconstruction",
-    "build_axis_core_face_gradient_reconstruction",
+    "build_metric_aware_polar_angular_agglomeration_geometry",
     "build_local_cell_gradient_from_field",
     "interpolate_B_contravariant",
     "logical_b_contravariant_from_geometry",
     "logical_b_contravariant_from_traced_maps",
+    "metric_aware_angular_group_profile",
 ]
 __all__ += [
     "BFieldEvaluator",
@@ -347,7 +340,6 @@ __all__ += [
     "build_fci_maps_from_callbacks",
     "trace_fci_eta_plane_from_callbacks",
     "build_local_conservative_stencil_from_field",
-    "build_axis_core_face_reconstruction",
     "build_local_direct_stencil_one_sided_physical_from_halo",
     "build_local_stencil_from_field",
     "logical_grid_from_axis_vectors",
