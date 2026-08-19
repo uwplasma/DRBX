@@ -3843,6 +3843,10 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
     ) = None
     # Optional static radius-dependent angular agglomeration profile.
     angular_group_sizes: tuple[int, ...] | None = None
+    # Static owner-topology tag.  ``embedded`` is the ordinary cut-cell
+    # control-volume geometry; projected owner topologies opt in explicitly.
+    # Keep ``angular_group_sizes`` as a backwards-compatible angular marker.
+    agglomeration_kind: str = "embedded"
 
     def __post_init__(self) -> None:
         if not isinstance(self.cells, LocalControlVolumeCellGeometry3D):
@@ -3854,6 +3858,26 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
         if not isinstance(self.reconstruction, LocalMomentReconstruction3D):
             raise TypeError("reconstruction must be LocalMomentReconstruction3D")
         angular_group_sizes = self.angular_group_sizes
+        agglomeration_kind = str(self.agglomeration_kind)
+        if agglomeration_kind not in ("embedded", "angular", "corner-edge"):
+            raise ValueError(
+                "agglomeration_kind must be 'embedded', 'angular', or "
+                f"'corner-edge', got {agglomeration_kind!r}"
+            )
+        if angular_group_sizes is not None:
+            if agglomeration_kind == "embedded":
+                # Existing callers identified angular RLP solely by this
+                # profile.  Preserve that construction contract.
+                agglomeration_kind = "angular"
+            elif agglomeration_kind != "angular":
+                raise ValueError(
+                    "angular_group_sizes is only valid for "
+                    "agglomeration_kind='angular'"
+                )
+        elif agglomeration_kind == "angular":
+            raise ValueError(
+                "agglomeration_kind='angular' requires angular_group_sizes"
+            )
         if angular_group_sizes is not None:
             profile = tuple(int(value) for value in angular_group_sizes)
             nx, ny, _ = self.cells.shape
@@ -3882,6 +3906,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                     )
             angular_group_sizes = profile
         object.__setattr__(self, "angular_group_sizes", angular_group_sizes)
+        object.__setattr__(self, "agglomeration_kind", agglomeration_kind)
         layout = self.cells.layout
         for name, other_layout in (
             ("regular_faces", self.regular_faces.layout),
@@ -4043,7 +4068,12 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
 
     @property
     def has_angular_agglomeration(self) -> bool:
-        return self.angular_group_sizes is not None
+        return self.agglomeration_kind == "angular"
+
+    @property
+    def has_projected_owner_agglomeration(self) -> bool:
+        """Whether state lives on an owner space projected to fine cells."""
+        return self.agglomeration_kind in ("angular", "corner-edge")
 
     def tree_flatten(self):
         return (
@@ -4060,7 +4090,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                 self.centroid_curvature,
                 self.regular_boundary_closure,
             ),
-            self.angular_group_sizes,
+            (self.angular_group_sizes, self.agglomeration_kind),
         )
 
     @classmethod
@@ -4081,7 +4111,20 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
         instance = object.__new__(cls)
         for name, value in zip(names, children):
             object.__setattr__(instance, name, value)
-        object.__setattr__(instance, "angular_group_sizes", aux_data)
+        # Accept the pre-tag aux form for cached/serialized older pytrees.
+        if (
+            isinstance(aux_data, tuple)
+            and len(aux_data) == 2
+            and isinstance(aux_data[1], str)
+        ):
+            angular_group_sizes, agglomeration_kind = aux_data
+        else:
+            angular_group_sizes = aux_data
+            agglomeration_kind = (
+                "angular" if angular_group_sizes is not None else "embedded"
+            )
+        object.__setattr__(instance, "angular_group_sizes", angular_group_sizes)
+        object.__setattr__(instance, "agglomeration_kind", agglomeration_kind)
         return instance
 
 

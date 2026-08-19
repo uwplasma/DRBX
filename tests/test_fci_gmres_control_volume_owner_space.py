@@ -19,7 +19,11 @@ from drbx.native.fci_boundaries import (
     LocalMomentReconstruction3D,
 )
 from drbx.geometry import LocalControlVolumeCellGeometry3D, StencilBuilderContext
-from drbx.native.fci_operators import LocalPerpLaplacianInverseSolver
+from drbx.native.fci_operators import (
+    LocalPerpLaplacianInverseSolver,
+    build_local_perp_laplacian_face_projectors,
+    build_solvax_perp_laplacian_preconditioner,
+)
 from drbx.native.fci_gmres import (
     SolvaxGmresConfig,
     _spmd_dot,
@@ -52,11 +56,16 @@ def test_inactive_zero_weight_alias_is_ignored_by_weighted_krylov_norm():
     x = jnp.ones(geometry.owned_shape, dtype=jnp.float64).at[0, 1, 0].set(1.0e12)
 
     assert jnp.allclose(_spmd_norm(x, geometry, domain, active, weights), jnp.sqrt(47.0))
-from drbx.native.fci_operators import LocalPerpLaplacianInverseSolver
 from drbx.native.fci_boundaries import LocalBoundaryFaceBC3D
 
 
-def _merged_control_volume(geometry, *, source=(0, 1, 0), owner=(0, 0, 0)):
+def _merged_control_volume(
+    geometry,
+    *,
+    source=(0, 1, 0),
+    owner=(0, 0, 0),
+    agglomeration_kind="embedded",
+):
     cells = LocalControlVolumeCellGeometry3D.identity(
         geometry.layout,
         volume=jnp.ones(geometry.owned_shape, dtype=jnp.float64),
@@ -81,6 +90,7 @@ def _merged_control_volume(geometry, *, source=(0, 1, 0), owner=(0, 0, 0)):
         irregular_faces=LocalControlVolumeFaceRows3D.empty(geometry.layout),
         reconstruction=LocalMomentReconstruction3D.empty(geometry.layout),
         face_functionals=LocalMomentFittedFaceRows3D.empty(geometry.layout),
+        agglomeration_kind=agglomeration_kind,
     )
 
 
@@ -138,7 +148,9 @@ def test_inverse_solver_cv_path_masks_source_slots_in_operator_and_solution():
     geometry, domain, _context, _coordinates, exchange, scalar, _vector, _flux = (
         polar_fixture(shape=(3, 4, 4))
     )
-    cv_geometry = _merged_control_volume(geometry)
+    cv_geometry = _merged_control_volume(
+        geometry, agglomeration_kind="corner-edge"
+    )
     boundary_bc = LocalControlVolumeBoundaryBC3D.empty()
     face_bc = LocalBoundaryFaceBC3D.empty(geometry.layout)
     direct_polar_context = StencilBuilderContext(
@@ -153,7 +165,7 @@ def test_inverse_solver_cv_path_masks_source_slots_in_operator_and_solution():
         halo_exchange=exchange,
         topology_filler=scalar,
         face_bc=face_bc,
-        axis_regular_axes=(True, False, False),
+        axis_regular_axes=(False, False, False),
         stencil_builder_context=direct_polar_context,
         config=SolvaxGmresConfig(
             maxiter=12,
@@ -190,3 +202,40 @@ def test_inverse_solver_cv_path_masks_source_slots_in_operator_and_solution():
         guess_owned=field,
     )
     assert float(solution[source]) == 0.0
+
+
+def test_corner_edge_line_u_projects_through_fine_members_and_masks_aliases():
+    geometry, domain, *_ = polar_fixture(shape=(3, 4, 4))
+    source = (0, 1, 0)
+    cv_geometry = _merged_control_volume(
+        geometry,
+        source=source,
+        owner=(0, 0, 0),
+        agglomeration_kind="corner-edge",
+    )
+    face_bc = LocalBoundaryFaceBC3D.empty(geometry.layout)
+    projectors = build_local_perp_laplacian_face_projectors(
+        geometry,
+        domain,
+        axis_regular_axes=(False, False, False),
+    )
+    preconditioner = build_solvax_perp_laplacian_preconditioner(
+        geometry,
+        domain,
+        projectors,
+        face_bc,
+        SolvaxGmresConfig(
+            regularization_epsilon=1.0e-3,
+            preconditioner="line-u",
+        ),
+        control_volume_geometry=cv_geometry,
+    )
+    residual = jnp.arange(
+        1,
+        1 + int(jnp.prod(jnp.asarray(geometry.owned_shape))),
+        dtype=jnp.float64,
+    ).reshape(geometry.owned_shape)
+    correction = preconditioner(residual)
+    assert bool(jnp.all(jnp.isfinite(correction)))
+    assert float(correction[source]) == 0.0
+    assert bool(jnp.any(jnp.abs(correction) > 0.0))

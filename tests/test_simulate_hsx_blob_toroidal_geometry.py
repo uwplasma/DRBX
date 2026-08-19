@@ -47,10 +47,30 @@ def test_composite_even_ntheta_is_accepted_by_parser():
     assert args.resolution == [8, 48, 16]
 
 
+def test_production_driver_rejects_radial_and_poloidal_sharding():
+    for shard_counts in ((2, 1, 1), (1, 2, 1)):
+        with pytest.raises(SystemExit) as error:
+            hsx.main(
+                (
+                    "--shard-counts",
+                    *(str(value) for value in shard_counts),
+                )
+            )
+        assert error.value.code == 2
+
+
+def test_parser_exposes_eta_sharding_without_a_topology_specific_option():
+    args = hsx._build_parser().parse_args(
+        ("--shard-counts", "1", "1", "2")
+    )
+    assert args.shard_counts == [1, 1, 2]
+
+
 def test_toroidal_production_requirements_are_explicit_in_main_source():
     source = open(hsx.__file__, encoding="utf-8").read()
     main = source[source.index("def main("):]
     assert 'args.topology == "toroidal"' in main
     assert "build_metric_aware_polar_angular_agglomeration_geometry" in main
-    assert "lower_polar_angular_agglomeration_geometry" in main
+    assert "build_sharded_polar_angular_agglomeration_payload" in main
+    assert "lower_polar_angular_agglomeration_geometry" not in main
     assert "lower_pole_control_volume_geometry(" not in main

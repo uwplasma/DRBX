@@ -3610,11 +3610,15 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
         # deterministic identity is the flattened active-owner index.  Do not
         # default this to zero: doing so aliases every untouched cell into one
         # fictitious aggregate as soon as callers inspect this metadata.
-        default_aggregate_id = jnp.ravel_multi_index(
-            (owner_i, owner_j, owner_k), shape,
-        ).astype(jnp.int64)
+        aggregate_id_source = (
+            jnp.ravel_multi_index(
+                (owner_i, owner_j, owner_k), shape,
+            ).astype(jnp.int64)
+            if self.aggregate_id is None
+            else self.aggregate_id
+        )
         aggregate_id = _require_shape(
-            default_aggregate_id if self.aggregate_id is None else self.aggregate_id,
+            aggregate_id_source,
             shape,
             "LocalControlVolumeCellGeometry3D.aggregate_id",
         ).astype(jnp.int64)

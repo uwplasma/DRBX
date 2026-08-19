@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from ..geometry import (
+    FCI_DEP_PHYSICAL_BOUNDARY,
     LocalCurvatureFaceCoefficients3D,
     LocalDomain3D,
     LocalFciGeometry3D,
@@ -15,6 +16,7 @@ from ..geometry import (
     StencilBuilderContext,
     build_local_conservative_stencil_from_field,
     build_local_cell_gradient_from_field,
+    build_local_fci_stencil_from_field,
 )
 from .fci_model import FciModelState
 from .fci_model import inject_owned_field_to_halo, inject_owned_state_to_halo
@@ -432,6 +434,109 @@ def parallel_characteristic_matrix(
     matrix = matrix.at[..., 4, 1].set(1.71 * mu)
     matrix = matrix.at[..., 4, 4].set(Ve)
     return matrix
+
+
+def parallel_characteristic_split_matrices(
+    matrix: jnp.ndarray,
+    *,
+    eigenvalue_tolerance: float = 1.0e-10,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Split the five-field principal matrix into right/left-going parts.
+
+    Returns ``(A_plus, A_minus, P_plus, P_minus)``.  The nonsymmetric
+    eigensystem is frozen, as it is for the characteristic wall closure, while
+    multiplication by the live principal matrix remains differentiable.  The
+    zero-speed subspace belongs to neither directional operator.
+    """
+
+    matrix = jnp.asarray(matrix, dtype=jnp.float64)
+    frozen_matrix = jax.lax.stop_gradient(matrix)
+    eigenvalues, eigenvectors = jnp.linalg.eig(frozen_matrix)
+    eigenvalues = jnp.real(eigenvalues)
+    inverse = jnp.linalg.inv(eigenvectors)
+
+    def projector(select: jnp.ndarray) -> jnp.ndarray:
+        value = jnp.einsum(
+            "...ik,...k,...kj->...ij",
+            eigenvectors,
+            select.astype(jnp.float64),
+            inverse,
+        )
+        return jax.lax.stop_gradient(jnp.real(value))
+
+    tolerance = jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)
+    p_plus = projector(eigenvalues > tolerance)
+    p_minus = projector(eigenvalues < -tolerance)
+    a_plus = jnp.einsum("...ij,...jk->...ik", matrix, p_plus)
+    a_minus = jnp.einsum("...ij,...jk->...ik", matrix, p_minus)
+    return a_plus, a_minus, p_plus, p_minus
+
+
+def target_local_characteristic_upwind_correction(
+    center: jnp.ndarray,
+    minus: jnp.ndarray,
+    plus: jnp.ndarray,
+    dx_minus: jnp.ndarray,
+    dx_plus: jnp.ndarray,
+    centered_gradient: jnp.ndarray,
+    matrix: jnp.ndarray,
+    backward_wall: jnp.ndarray,
+    forward_wall: jnp.ndarray,
+    *,
+    equilibrium: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Return the RHS correction for wall-terminating target-local FCI legs.
+
+    Ordinary rows return zero.  On a row with a physical endpoint, this
+    replaces the existing centered principal contribution ``-A d_parallel U``
+    by ``-(A+ delta- + A- delta+)``.  At a physical endpoint, incoming
+    characteristic perturbations are set to zero about ``equilibrium`` while
+    outgoing and stationary perturbations retain the target-cell state.
+    """
+
+    center = jnp.asarray(center, dtype=jnp.float64)
+    minus = jnp.asarray(minus, dtype=jnp.float64)
+    plus = jnp.asarray(plus, dtype=jnp.float64)
+    centered_gradient = jnp.asarray(centered_gradient, dtype=jnp.float64)
+    matrix = jnp.asarray(matrix, dtype=jnp.float64)
+    backward_wall = jnp.asarray(backward_wall, dtype=bool)
+    forward_wall = jnp.asarray(forward_wall, dtype=bool)
+    if equilibrium is None:
+        equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0), dtype=jnp.float64)
+    else:
+        equilibrium = jnp.asarray(equilibrium, dtype=jnp.float64)
+
+    a_plus, a_minus, p_plus, p_minus = parallel_characteristic_split_matrices(
+        matrix
+    )
+    perturbation = center - equilibrium
+    # At the backward wall, lambda>0 modes enter the domain.  At the forward
+    # wall, lambda<0 modes enter it.
+    backward_state = equilibrium + perturbation - _apply_projector(
+        p_plus, perturbation
+    )
+    forward_state = equilibrium + perturbation - _apply_projector(
+        p_minus, perturbation
+    )
+    minus = jnp.where(backward_wall[..., None], backward_state, minus)
+    plus = jnp.where(forward_wall[..., None], forward_state, plus)
+
+    delta_minus = (center - minus) / jnp.maximum(
+        jnp.asarray(dx_minus, dtype=jnp.float64)[..., None], 1.0e-30
+    )
+    delta_plus = (plus - center) / jnp.maximum(
+        jnp.asarray(dx_plus, dtype=jnp.float64)[..., None], 1.0e-30
+    )
+    centered_principal = _apply_projector(matrix, centered_gradient)
+    upwind_principal = _apply_projector(a_plus, delta_minus) + _apply_projector(
+        a_minus, delta_plus
+    )
+    wall_row = backward_wall | forward_wall
+    return jnp.where(
+        wall_row[..., None],
+        centered_principal - upwind_principal,
+        0.0,
+    )
 
 
 def parallel_incoming_projector(
@@ -1136,6 +1241,10 @@ class LocalFciDrbEBRhs:
     # Python option so JIT compilation cannot silently mix coordinate and FCI
     # discretizations within one compiled RHS.
     parallel_operator_scheme: str = "coordinate"
+    # Optional FCI-only closure for a target row whose mapped forward or
+    # backward leg terminates at the physical vessel wall.  Interior rows keep
+    # the compatible centered FCI operator.
+    fci_parallel_leg_scheme: str = "centered"
 
     @property
     def neumann_normal_scheme(self) -> str:
@@ -1170,27 +1279,65 @@ class LocalFciDrbEBRhs:
                 raise ValueError("control-volume boundary rows do not match geometry")
             if self.control_volume_boundary_bc.max_patches != self.control_volume_geometry.irregular_faces.max_patches:
                 raise ValueError("control-volume boundary patches do not match geometry")
-            if not self.control_volume_geometry.has_angular_agglomeration:
+            if not self.control_volume_geometry.has_projected_owner_agglomeration:
                 raise ValueError(
-                    "the five-field control-volume path requires the production "
-                    "angular-agglomeration topology"
+                    "the five-field control-volume path requires a projected "
+                    "owner agglomeration topology"
                 )
-            if not self.domain.axis_regular_axes[0] or not self.axis_regular_axes[0]:
+            if (
+                self.control_volume_geometry.has_angular_agglomeration
+                and (
+                    not self.domain.axis_regular_axes[0]
+                    or not self.axis_regular_axes[0]
+                )
+            ):
                 raise ValueError("angular RLP requires lower-radial axis regularity")
             if self.poisson_bracket_scheme != "compatible-flux":
                 raise ValueError(
-                    "angular RLP requires poisson_bracket_scheme='compatible-flux'"
+                    "projected-owner RLP requires "
+                    "poisson_bracket_scheme='compatible-flux'"
                 )
             if self.curvature_scheme == "direct":
                 raise ValueError(
-                    "angular RLP requires conservative curvature or disabled curvature"
+                    "projected-owner RLP requires conservative curvature or "
+                    "disabled curvature"
                 )
-            if any(int(count) != 1 for count in self.domain.shard_spec.shard_counts):
-                raise ValueError("angular RLP currently requires a single local domain")
+            shard_counts = tuple(
+                int(count) for count in self.domain.shard_spec.shard_counts
+            )
+            if shard_counts[0] != 1 or shard_counts[1] != 1:
+                raise ValueError(
+                    "projected-owner RLP supports eta-only decomposition; radial and "
+                    "poloidal shard counts must both be one"
+                )
         if self.parallel_operator_scheme not in ("coordinate", "fci"):
             raise ValueError(
                 "parallel_operator_scheme must be 'coordinate' or 'fci', got "
                 f"{self.parallel_operator_scheme!r}"
+            )
+        if self.fci_parallel_leg_scheme not in (
+            "centered",
+            "boundary-characteristic-upwind",
+        ):
+            raise ValueError(
+                "fci_parallel_leg_scheme must be 'centered' or "
+                "'boundary-characteristic-upwind', got "
+                f"{self.fci_parallel_leg_scheme!r}"
+            )
+        if (
+            self.parallel_operator_scheme != "fci"
+            and self.fci_parallel_leg_scheme != "centered"
+        ):
+            raise ValueError(
+                "fci_parallel_leg_scheme requires parallel_operator_scheme='fci'"
+            )
+        if (
+            self.fci_parallel_leg_scheme == "boundary-characteristic-upwind"
+            and self.parallel_inflow_closure != "equilibrium-characteristic"
+        ):
+            raise ValueError(
+                "boundary-characteristic-upwind FCI legs require "
+                "parallel_inflow_closure='equilibrium-characteristic'"
             )
         if self.parallel_operator_scheme == "fci":
             maps = self.geometry.maps
@@ -2288,6 +2435,84 @@ class LocalFciDrbEBRhs:
                 value, self.control_volume_geometry.cells, self.domain
             ) if self._uses_compact_face_operators else value)
 
+        gradient_values = {
+            name: grad(name)
+            for name in (
+                "density",
+                "Te",
+                "Ti",
+                "Vi",
+                "Ve",
+                "phi",
+                "Pe",
+                "pressure",
+                "current",
+                "vorticity",
+            )
+        }
+
+        material_upwind_correction = jnp.zeros(
+            self.geometry.owned_shape + (5,), dtype=jnp.float64
+        )
+        if self.fci_parallel_leg_scheme == "boundary-characteristic-upwind":
+            primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
+            primitive_stencils = []
+            for name in primitive_names:
+                field_halo, forward_remote, backward_remote = self._fci_prepare_q(
+                    fields[name][owned], traces[name], context
+                )
+                primitive_stencils.append(
+                    build_local_fci_stencil_from_field(
+                        field_halo,
+                        self.geometry,
+                        context,
+                        forward_remote_values=forward_remote,
+                        backward_remote_values=backward_remote,
+                    )
+                )
+            center = jnp.stack(
+                tuple(stencil.center for stencil in primitive_stencils), axis=-1
+            )
+            minus = jnp.stack(
+                tuple(stencil.minus for stencil in primitive_stencils), axis=-1
+            )
+            plus = jnp.stack(
+                tuple(stencil.plus for stencil in primitive_stencils), axis=-1
+            )
+            centered_gradient = jnp.stack(
+                tuple(gradient_values[name] for name in primitive_names), axis=-1
+            )
+            matrix = parallel_characteristic_matrix(
+                center[..., 0],
+                center[..., 1],
+                center[..., 2],
+                center[..., 3],
+                center[..., 4],
+                self.parameters.tau,
+                self.parameters.mi_over_me,
+            )
+            backward_wall = (
+                self.geometry.maps.backward.endpoint_kind
+                == FCI_DEP_PHYSICAL_BOUNDARY
+            )
+            forward_wall = (
+                self.geometry.maps.forward.endpoint_kind
+                == FCI_DEP_PHYSICAL_BOUNDARY
+            )
+            material_upwind_correction = (
+                target_local_characteristic_upwind_correction(
+                    center,
+                    minus,
+                    plus,
+                    primitive_stencils[0].dx_min,
+                    primitive_stencils[0].dx_plus,
+                    centered_gradient,
+                    matrix,
+                    backward_wall,
+                    forward_wall,
+                )
+            )
+
         result = {
             "parallel_div_b": div_b,
             "density_flux_div": q_div("density_flux"),
@@ -2295,15 +2520,17 @@ class LocalFciDrbEBRhs:
             "vorticity_current_flux_div": q_div("vorticity_current"),
             "parallel_Vi_flux_div": q_div("Vi"),
             "Ve_flux_div": q_div("Ve"),
-            "grad_Te": grad("Te"),
-            "grad_Ti": grad("Ti"),
-            "grad_Ve": grad("Ve"),
-            "grad_Vi": grad("Vi"),
-            "grad_phi": grad("phi"),
-            "grad_Pe": grad("Pe"),
-            "grad_pressure": grad("pressure"),
-            "grad_current": grad("current"),
-            "grad_vorticity": grad("vorticity"),
+            "grad_density": gradient_values["density"],
+            "grad_Te": gradient_values["Te"],
+            "grad_Ti": gradient_values["Ti"],
+            "grad_Ve": gradient_values["Ve"],
+            "grad_Vi": gradient_values["Vi"],
+            "grad_phi": gradient_values["phi"],
+            "grad_Pe": gradient_values["Pe"],
+            "grad_pressure": gradient_values["pressure"],
+            "grad_current": gradient_values["current"],
+            "grad_vorticity": gradient_values["vorticity"],
+            "material_upwind_correction": material_upwind_correction,
         }
 
         for name, coefficient in (
@@ -2982,6 +3209,11 @@ class LocalFciDrbEBRhs:
             grad_phi = fci_parallel_terms["grad_phi"]
             grad_Pe = fci_parallel_terms["grad_Pe"]
             grad_Ve = fci_parallel_terms["grad_Ve"]
+        material_upwind_correction = (
+            fci_parallel_terms["material_upwind_correction"]
+            if fci_parallel_terms is not None
+            else jnp.zeros(self.geometry.owned_shape + (5,), dtype=jnp.float64)
+        )
         owned = self.domain.layout.owned_slices_cell
         density = jnp.asarray(state_halo.density[owned], dtype=jnp.float64)
         Te = jnp.asarray(state_halo.Te[owned], dtype=jnp.float64)
@@ -3128,6 +3360,7 @@ class LocalFciDrbEBRhs:
                     - density_flux_div
                     + curvature_density_contribution
                     + density_parallel_diff
+                    + material_upwind_correction[..., 0]
                 ),
                 phi=jnp.zeros_like(phi_owned),
                 Te=(
@@ -3137,6 +3370,7 @@ class LocalFciDrbEBRhs:
                     + (2.0 * Te / (3.0 * density_safe))
                     * (0.71 * current_flux_div - density * Ve_flux_div)
                     + Te_parallel_diff
+                    + material_upwind_correction[..., 1]
                 ),
                 Ti=(
                     -(poisson_Ti / rho_star)
@@ -3145,6 +3379,7 @@ class LocalFciDrbEBRhs:
                     + (2.0 * Ti / (3.0 * density_safe))
                     * (current_flux_div - density * parallel_Vi_flux_div)
                     + Ti_parallel_diff
+                    + material_upwind_correction[..., 2]
                 ),
                 Ve=(
                     -(poisson_Ve / rho_star)
@@ -3154,6 +3389,7 @@ class LocalFciDrbEBRhs:
                     - mi_over_me * grad_Pe / density_safe
                     - 0.71 * mi_over_me * grad_Te
                     + Ve_parallel_diff
+                    + material_upwind_correction[..., 4]
                 ),
                 vorticity=(
                     -(poisson_vorticity / rho_star)
@@ -3691,6 +3927,10 @@ class LocalFciDrbEBRhs:
         grad_parallel_pressure = stage_parallel_terms["grad_pressure"]
         grad_parallel_current = stage_parallel_terms["grad_current"]
         grad_parallel_vorticity = stage_parallel_terms["grad_vorticity"]
+        material_upwind_correction = stage_parallel_terms.get(
+            "material_upwind_correction",
+            jnp.zeros(self.geometry.owned_shape + (5,), dtype=jnp.float64),
+        )
 
         (
             curvature_density_contribution,
@@ -3730,6 +3970,7 @@ class LocalFciDrbEBRhs:
             + curvature_density_contribution
             + density_diff
             + density_parallel_diff
+            + material_upwind_correction[..., 0]
         )
         Te_rhs = (
             -(poisson_Te / rho_star)
@@ -3739,6 +3980,7 @@ class LocalFciDrbEBRhs:
             * (0.71 * parallel_current_flux_divergence - density * parallel_Ve_flux_divergence)
             + Te_diff
             + Te_parallel_diff
+            + material_upwind_correction[..., 1]
         )
         Ti_rhs = (
             -(poisson_Ti / rho_star)
@@ -3748,6 +3990,7 @@ class LocalFciDrbEBRhs:
             * (parallel_current_flux_divergence - density * parallel_Vi_flux_divergence)
             + Ti_diff
             + Ti_parallel_diff
+            + material_upwind_correction[..., 2]
         )
         Vi_rhs = (
             -(poisson_Vi / rho_star)
@@ -3755,6 +3998,7 @@ class LocalFciDrbEBRhs:
             - grad_parallel_pressure / density_safe
             + Vi_diff
             + Vi_parallel_diff
+            + material_upwind_correction[..., 3]
         )
         Ve_poisson_term = -(poisson_Ve / rho_star)
         Ve_self_advection_term = -Ve * grad_parallel_Ve
@@ -3762,6 +4006,7 @@ class LocalFciDrbEBRhs:
         Ve_electrostatic_term = mi_over_me * grad_parallel_phi
         Ve_pressure_term = -mi_over_me * grad_parallel_Pe / density_safe
         Ve_thermal_force_term = -0.71 * mi_over_me * grad_parallel_Te
+        Ve_characteristic_upwind_term = material_upwind_correction[..., 4]
         Ve_rhs = (
             Ve_poisson_term
             + Ve_self_advection_term
@@ -3771,6 +4016,7 @@ class LocalFciDrbEBRhs:
             + Ve_thermal_force_term
             + Ve_diff
             + Ve_parallel_diff
+            + Ve_characteristic_upwind_term
         )
         vorticity_rhs = (
             -(poisson_vorticity / rho_star)
@@ -3795,6 +4041,7 @@ class LocalFciDrbEBRhs:
             density_rhs = (
                 -parallel_density_flux_divergence
                 + density_parallel_diff
+                + material_upwind_correction[..., 0]
             )
             Te_rhs = (
                 -Ve * grad_parallel_Te
@@ -3804,6 +4051,7 @@ class LocalFciDrbEBRhs:
                     - density * parallel_Ve_flux_divergence
                 )
                 + Te_parallel_diff
+                + material_upwind_correction[..., 1]
             )
             Ti_rhs = (
                 -Vi * grad_parallel_Ti
@@ -3813,11 +4061,13 @@ class LocalFciDrbEBRhs:
                     - density * parallel_Vi_flux_divergence
                 )
                 + Ti_parallel_diff
+                + material_upwind_correction[..., 2]
             )
             Vi_rhs = (
                 -Vi * grad_parallel_Vi
                 - grad_parallel_pressure / density_safe
                 + Vi_parallel_diff
+                + material_upwind_correction[..., 3]
             )
             Ve_rhs = (
                 Ve_self_advection_term
@@ -3826,6 +4076,7 @@ class LocalFciDrbEBRhs:
                 + Ve_pressure_term
                 + Ve_thermal_force_term
                 + Ve_parallel_diff
+                + Ve_characteristic_upwind_term
             )
             vorticity_rhs = (
                 -Vi * grad_parallel_vorticity
@@ -3856,6 +4107,7 @@ class LocalFciDrbEBRhs:
                         Ve_thermal_force_term,
                         jnp.zeros_like(Ve),
                         Ve_parallel_diff,
+                        Ve_characteristic_upwind_term,
                     ),
                     axis=0,
                 )
@@ -3904,6 +4156,7 @@ class LocalFciDrbEBRhs:
                     Ve_thermal_force_term,
                     Ve_diff,
                     Ve_parallel_diff,
+                    Ve_characteristic_upwind_term,
                 ),
                 axis=0,
             )

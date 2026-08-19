@@ -12,7 +12,7 @@ MAKEGRID + vessel
   -> magnetic, eta, wall, and metric evaluators
   -> global FciGeometry3D sampled on the PDE grid
   -> optional traced forward/backward FCI maps
-  -> ShardedFciGeometry3D and local halo topology
+  -> ShardedFciGeometry3D and local halo topology (eta-only production sharding)
   -> automatic angular RLP geometry for toroidal topology
   -> LocalFciDrbEBRhs
   -> RK4, ARK2 IMEX, or SBDF2 IMEX advance
@@ -83,19 +83,38 @@ the interior discretization or the angular-RLP axis treatment.
 
 ## Toroidal production contract
 
-Selecting `--topology toroidal` requires:
+The production driver uses eta-only sharding for every topology. The valid
+decomposition is:
+
+```text
+--shard-counts 1 1 Seta
+```
+
+where `Seta >= 1` and the eta resolution is divisible by `Seta`. Radial and
+poloidal (`x` and `theta`) coordinates are not sharded. This is a production
+contract, not merely a current test limitation.
+
+Selecting `--topology toroidal` additionally requires:
 
 - an explicit `--metric-mesh-shape`;
 - even `Ntheta`;
-- one device/subdomain (`--shard-counts 1 1 1`);
 - compatible-flux Poisson bracket;
 - conservative curvature;
 - `none` or `line-u` phi preconditioning.
 
-The driver automatically creates the metric-aware angular owner profile. It
-does not expose a user-selectable axis treatment, core polynomial degree,
-observation/target rings, fixed-ring topology, compact angular operator, or
-alternate phi state space.
+The driver automatically creates the metric-aware angular owner profile. In
+toroidal RLP, each owner aggregate is confined to a single eta plane, so the
+owner prolongation and physical-volume restriction remain local on an eta
+shard. Global reductions for owner-space means, compatibility, norms, and
+GMRES residuals still span all eta shards. The `line-u` preconditioner keeps
+local radial trees; its eta-face diagonal assembly includes contributions from
+both faces of every local eta slab, including the faces at slab interfaces.
+
+There is no x/theta RLP decomposition and no fallback to a single-device
+geometry, a full-grid toroidal phi solve, fixed-ring topology, compact angular
+faces, or a Cartesian core. The driver does not expose a user-selectable axis
+treatment, core polynomial degree, observation/target rings, fixed-ring
+topology, compact angular operator, or alternate phi state space.
 
 See [Axis-regular angular RLP](axis_regular_angular_rlp.md) for the owner
 operator and solver details.
@@ -134,6 +153,9 @@ owner values to all fine cells so visualization receives a complete field.
   wall hits and axis crossings.
 - Do not add a second toroidal state representation or silent fallback around
   owner-space RLP.
+- New production sharding paths must preserve the eta-only contract. Any
+  communication required by a new operator must be explicit; P/R cannot be
+  made nonlocal by splitting x or theta.
 
 ## Validation
 
