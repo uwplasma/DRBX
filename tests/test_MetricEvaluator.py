@@ -13,10 +13,13 @@ from drbx.geometry.MetricEvaluator import (
     build_wall_fitted_initial_mesh,
 )
 from drbx.geometry import (
+    CellCenteredGrid3D,
+    Grid1D,
     MetricQualityJumpLocation,
     MetricQualityLocation,
     MetricQualityRegion,
     MMPDEResult,
+    metric_aware_angular_group_profile,
 )
 from drbx.geometry.ScalarPotential_evaluator import scalar_potential_evaluator_from_bfield
 from drbx.geometry.WallEvaluator import WallEvaluator
@@ -1603,6 +1606,255 @@ def plot_epsilon_plane(
     return figure
 
 
+def plot_angular_agglomeration(
+    metric_evaluator,
+    mesh_shape,
+    filename,
+    *,
+    show=False,
+):
+    """Write one physical eta-plane view of toroidal angular agglomeration.
+
+    ``mesh_shape`` is interpreted as the fitted ``(NU, NTHETA, NETA)``
+    resolution.  The angular profile is selected with the same metric-aware
+    routine used by ``simulate_hsx_blob.py``.  Angular agglomeration is
+    independent of eta, so this diagnostic intentionally renders only the
+    evaluator's first stored eta plane.
+    """
+
+    import plotly.graph_objects as go
+
+    if not isinstance(metric_evaluator, MetricEvaluator):
+        raise TypeError("metric_evaluator must be a MetricEvaluator")
+    if metric_evaluator.topology != "toroidal":
+        raise ValueError("angular agglomeration plotting requires toroidal topology")
+    try:
+        nu, ntheta, neta = (int(value) for value in mesh_shape)
+    except (TypeError, ValueError) as error:
+        raise ValueError("mesh_shape must contain (NU, NTHETA, NETA)") from error
+    if (nu, ntheta, neta) != tuple(mesh_shape) or min(nu, ntheta, neta) < 1:
+        raise ValueError("mesh_shape must contain three positive integers")
+    filename = Path(filename)
+    if filename.suffix.lower() != ".html":
+        raise ValueError("interactive Plotly output filename must end in .html")
+
+    u_faces = np.linspace(
+        metric_evaluator.u[0], metric_evaluator.u[-1], nu + 1
+    )
+    theta_faces = metric_evaluator.v[0] + (
+        2.0 * np.pi * np.arange(ntheta + 1) / ntheta
+    )
+    eta_faces = metric_evaluator.eta[0] + (
+        metric_evaluator.period * np.arange(neta + 1) / neta
+    )
+
+    def grid_axis(faces):
+        faces = np.asarray(faces, dtype=float)
+        return Grid1D(
+            centers=0.5 * (faces[:-1] + faces[1:]),
+            faces=faces,
+        )
+
+    fitted_grid = CellCenteredGrid3D(
+        x=grid_axis(u_faces),
+        y=grid_axis(theta_faces),
+        z=grid_axis(eta_faces),
+    )
+    profile, safety_ratio = metric_aware_angular_group_profile(
+        type("FittedGeometry", (), {"grid": fitted_grid})(),
+        metric_evaluator,
+    )
+    profile = np.asarray(profile, dtype=np.int32)
+    target_eta = float(metric_evaluator.eta[0])
+
+    def position(u, theta):
+        u = np.asarray(u, dtype=float)
+        theta = np.asarray(theta, dtype=float)
+        logical = np.stack(
+            np.broadcast_arrays(u, theta, np.asarray(target_eta)), axis=-1
+        )
+        return np.asarray(metric_evaluator.position(logical), dtype=float)
+
+    def separated_lines(lines):
+        if not lines:
+            return np.empty((0, 3), dtype=float)
+        separator = np.full((1, 3), np.nan)
+        return np.concatenate(
+            [np.concatenate((line, separator), axis=0) for line in lines],
+            axis=0,
+        )
+
+    figure = go.Figure()
+    for ring, group_size in enumerate(profile):
+        U, Theta = np.meshgrid(
+            u_faces[ring : ring + 2], theta_faces, indexing="ij"
+        )
+        xyz = position(U, Theta)
+        owner_count = ntheta // int(group_size)
+        customdata = np.empty(xyz.shape[:-1] + (3,), dtype=float)
+        customdata[..., 0] = ring
+        customdata[..., 1] = int(group_size)
+        customdata[..., 2] = owner_count
+        figure.add_trace(
+            go.Surface(
+                x=xyz[..., 0],
+                y=xyz[..., 1],
+                z=xyz[..., 2],
+                surfacecolor=np.full(xyz.shape[:-1], int(group_size), dtype=float),
+                customdata=customdata,
+                cmin=1,
+                cmax=ntheta,
+                colorscale="Turbo",
+                showscale=ring == 0,
+                colorbar=(
+                    dict(title="fine theta cells<br>per owner")
+                    if ring == 0
+                    else None
+                ),
+                opacity=0.72,
+                name=f"ring {ring}: q={int(group_size)}",
+                showlegend=False,
+                hovertemplate=(
+                    "radial ring=%{customdata[0]:.0f}"
+                    "<br>group size q=%{customdata[1]:.0f} fine cells"
+                    "<br>angular owners=%{customdata[2]:.0f}"
+                    "<br>x=%{x:.6f} m<br>y=%{y:.6f} m<br>z=%{z:.6f} m"
+                    "<extra></extra>"
+                ),
+            )
+        )
+
+    fine_angular_lines = separated_lines(
+        [
+            position(u_faces, np.full_like(u_faces, theta))
+            for theta in theta_faces[:-1]
+        ]
+    )
+    radial_ring_lines = separated_lines(
+        [
+            position(np.full_like(theta_faces, u), theta_faces)
+            for u in u_faces
+        ]
+    )
+    aggregate_angular_lines = []
+    owner_u = []
+    owner_theta = []
+    owner_ring = []
+    owner_group_size = []
+    for ring, group_size in enumerate(profile):
+        group_size = int(group_size)
+        for start in range(0, ntheta, group_size):
+            theta = theta_faces[start]
+            aggregate_angular_lines.append(
+                position(
+                    u_faces[ring : ring + 2],
+                    np.full(2, theta, dtype=float),
+                )
+            )
+            owner_u.append(0.5 * (u_faces[ring] + u_faces[ring + 1]))
+            owner_theta.append(
+                theta_faces[0]
+                + 2.0 * np.pi * (start + 0.5 * group_size) / ntheta
+            )
+            owner_ring.append(ring)
+            owner_group_size.append(group_size)
+
+    figure.add_trace(
+        go.Scatter3d(
+            x=fine_angular_lines[:, 0],
+            y=fine_angular_lines[:, 1],
+            z=fine_angular_lines[:, 2],
+            mode="lines",
+            line=dict(color="rgba(80,80,80,0.38)", width=1),
+            name="fine theta-cell edges",
+            hoverinfo="skip",
+        )
+    )
+    figure.add_trace(
+        go.Scatter3d(
+            x=radial_ring_lines[:, 0],
+            y=radial_ring_lines[:, 1],
+            z=radial_ring_lines[:, 2],
+            mode="lines",
+            line=dict(color="black", width=2),
+            name="radial ring edges",
+            hoverinfo="skip",
+        )
+    )
+    aggregate_lines = separated_lines(aggregate_angular_lines)
+    figure.add_trace(
+        go.Scatter3d(
+            x=aggregate_lines[:, 0],
+            y=aggregate_lines[:, 1],
+            z=aggregate_lines[:, 2],
+            mode="lines",
+            line=dict(color="crimson", width=5),
+            name="agglomerated owner edges",
+            hoverinfo="skip",
+        )
+    )
+    owner_xyz = position(np.asarray(owner_u), np.asarray(owner_theta))
+    owner_customdata = np.stack(
+        (
+            np.asarray(owner_ring, dtype=float),
+            np.asarray(owner_group_size, dtype=float),
+            ntheta / np.asarray(owner_group_size, dtype=float),
+        ),
+        axis=-1,
+    )
+    figure.add_trace(
+        go.Scatter3d(
+            x=owner_xyz[:, 0],
+            y=owner_xyz[:, 1],
+            z=owner_xyz[:, 2],
+            mode="markers",
+            marker=dict(
+                size=4,
+                color=np.asarray(owner_group_size, dtype=float),
+                cmin=1,
+                cmax=ntheta,
+                colorscale="Turbo",
+                showscale=False,
+                line=dict(color="black", width=0.5),
+            ),
+            customdata=owner_customdata,
+            name="active angular owners",
+            hovertemplate=(
+                "radial ring=%{customdata[0]:.0f}"
+                "<br>group size q=%{customdata[1]:.0f} fine cells"
+                "<br>owners on ring=%{customdata[2]:.0f}<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        title=(
+            f"Metric-aware angular agglomeration at eta={target_eta:.6f} rad "
+            f"(minimum width ratio={safety_ratio:.4g})"
+        ),
+        scene=dict(
+            xaxis_title="x [m]",
+            yaxis_title="y [m]",
+            zaxis_title="z [m]",
+            aspectmode="data",
+        ),
+        legend=dict(title="Fitted-grid structure"),
+        margin=dict(l=0, r=0, b=0, t=60),
+        meta=dict(
+            mesh_shape=[nu, ntheta, neta],
+            eta_plane=target_eta,
+            angular_group_size=profile.tolist(),
+            minimum_width_ratio=float(safety_ratio),
+        ),
+    )
+    filename.parent.mkdir(parents=True, exist_ok=True)
+    figure.write_html(
+        str(filename), include_plotlyjs=True, full_html=True, auto_open=False
+    )
+    if show:
+        figure.show()
+    return figure
+
+
 def test_constant_eta_mesh_plot_smoke_and_alignment(tmp_path):
     u = np.linspace(0.0, 1.0, 7)
     v = np.linspace(0.0, 1.0, 6)
@@ -1920,6 +2172,36 @@ def test_epsilon_plane_plot_uses_global_p95_without_clipping_surface_values(tmp_
     assert np.max(hover_values) > expected_cmax
 
 
+def test_angular_agglomeration_plot_uses_fitted_shape_and_one_eta_plane(tmp_path):
+    evaluator = make_axis_regular_toroidal_evaluator()
+    output = tmp_path / "angular_agglomeration.html"
+    figure = plot_angular_agglomeration(
+        evaluator,
+        (4, 8, 4),
+        output,
+    )
+    assert output.is_file()
+    assert "Plotly.newPlot" in output.read_text()
+    assert figure.layout.meta["mesh_shape"] == [4, 8, 4]
+    assert figure.layout.meta["eta_plane"] == pytest.approx(evaluator.eta[0])
+    profile = np.asarray(figure.layout.meta["angular_group_size"], dtype=int)
+    assert profile.shape == (4,)
+    assert profile[0] == 8
+    assert np.all(8 % profile == 0)
+    surfaces = [trace for trace in figure.data if trace.type == "surface"]
+    assert len(surfaces) == 4
+    assert all(np.asarray(trace.x).shape == (2, 9) for trace in surfaces)
+
+
+def test_angular_agglomeration_plot_rejects_square_topology(tmp_path):
+    with pytest.raises(ValueError, match="requires toroidal topology"):
+        plot_angular_agglomeration(
+            make_cylindrical_evaluator(),
+            (4, 8, 4),
+            tmp_path / "invalid.html",
+        )
+
+
 def _padded_clipped_bounds(values, domain, fraction=0.02):
     """Pad raw wall extrema, clip to the B-field box, and stay interior."""
 
@@ -2002,6 +2284,7 @@ def build_hsx_metric_plot(
     plot_nu=24,
     plot_nv=24,
     plot_wall_points=256,
+    angular_agglomeration_plot=None,
     output="hsx_metric_mesh.html",
     show=False,
 ):
@@ -2014,6 +2297,10 @@ def build_hsx_metric_plot(
         raise ValueError(
             "mmpde_iterations belongs to square topology; toroidal topology "
             "uses the axis-regular Fourier-Zernike fit"
+        )
+    if angular_agglomeration_plot is not None and topology != "toroidal":
+        raise ValueError(
+            "angular_agglomeration_plot is only valid for toroidal topology"
         )
 
     bfield = bfield_evaluator_from_makegrid(
@@ -2174,31 +2461,19 @@ def build_hsx_metric_plot(
         )
         _print_epsilon_plane_diagnostic("unrelaxed", unrelaxed_epsilon)
         _print_epsilon_plane_diagnostic("relaxed", epsilon_diagnostic)
-        plot_constant_eta_mesh_comparison(
-            unrelaxed_evaluator,
-            metric_evaluator,
-            output,
-            eta_evaluator=eta_evaluator,
-            wall_evaluator=wall,
-            surface_count=min(plot_surfaces, metric_evaluator.eta.size),
-            surface_nu=plot_nu,
-            surface_nv=plot_nv,
-            wall_points=plot_wall_points,
-            show=show,
-        )
     else:
         _print_epsilon_plane_diagnostic("toroidal", epsilon_diagnostic)
-        plot_constant_eta_mesh(
-            metric_evaluator,
-            output,
-            eta_evaluator=eta_evaluator,
-            wall_evaluator=wall,
-            surface_count=min(plot_surfaces, metric_evaluator.eta.size),
-            surface_nu=plot_nu,
-            surface_nv=plot_nv,
-            wall_points=plot_wall_points,
-            show=show,
-        )
+    plot_constant_eta_mesh(
+        metric_evaluator,
+        output,
+        eta_evaluator=eta_evaluator,
+        wall_evaluator=wall,
+        surface_count=min(plot_surfaces, metric_evaluator.eta.size),
+        surface_nu=plot_nu,
+        surface_nv=plot_nv,
+        wall_points=plot_wall_points,
+        show=show,
+    )
     print(f"Interactive mesh plot: {Path(output).resolve()}")
     epsilon_output = _epsilon_plot_filename(output)
     plot_epsilon_plane(
@@ -2211,6 +2486,17 @@ def build_hsx_metric_plot(
         show=show,
     )
     print(f"Interactive epsilon_plane plot: {epsilon_output.resolve()}")
+    if angular_agglomeration_plot is not None:
+        plot_angular_agglomeration(
+            metric_evaluator,
+            tuple(mesh_shape),
+            angular_agglomeration_plot,
+            show=show,
+        )
+        print(
+            "Interactive angular agglomeration plot: "
+            f"{Path(angular_agglomeration_plot).resolve()}"
+        )
     return metric_evaluator
 
 
@@ -2292,9 +2578,21 @@ def _hsx_cli(argv=None):
     parser.add_argument("--plot-nu", type=int, default=24)
     parser.add_argument("--plot-nv", type=int, default=24)
     parser.add_argument("--plot-wall-points", type=int, default=256)
+    parser.add_argument(
+        "--angular-agglomeration-plot",
+        type=Path,
+        help=(
+            "write a one-eta-plane Plotly view of metric-aware angular "
+            "agglomeration; toroidal topology only"
+        ),
+    )
     parser.add_argument("--output", type=Path, default=Path("hsx_metric_mesh.html"))
     parser.add_argument("--show", action="store_true")
     args = parser.parse_args(argv)
+    if args.angular_agglomeration_plot is not None and args.topology != "toroidal":
+        parser.error(
+            "--angular-agglomeration-plot is only valid with --topology toroidal"
+        )
     build_hsx_metric_plot(
         args.mgrid,
         args.vessel,
@@ -2318,6 +2616,7 @@ def _hsx_cli(argv=None):
         plot_nu=args.plot_nu,
         plot_nv=args.plot_nv,
         plot_wall_points=args.plot_wall_points,
+        angular_agglomeration_plot=args.angular_agglomeration_plot,
         output=args.output,
         show=args.show,
     )
@@ -2356,6 +2655,8 @@ def test_hsx_cli_exposes_plot_sampling_controls(monkeypatch):
             "29",
             "--plot-wall-points",
             "180",
+            "--angular-agglomeration-plot",
+            "angular.html",
         ]
     ) == 0
     assert len(calls) == 1
@@ -2370,6 +2671,22 @@ def test_hsx_cli_exposes_plot_sampling_controls(monkeypatch):
     assert kwargs["plot_nu"] == 31
     assert kwargs["plot_nv"] == 29
     assert kwargs["plot_wall_points"] == 180
+    assert kwargs["angular_agglomeration_plot"] == Path("angular.html")
+
+
+def test_hsx_cli_rejects_angular_agglomeration_plot_for_square_topology():
+    with pytest.raises(SystemExit) as error:
+        _hsx_cli(
+            [
+                "mgrid.nc",
+                "vessel.txt",
+                "--topology",
+                "square",
+                "--angular-agglomeration-plot",
+                "angular.html",
+            ]
+        )
+    assert error.value.code == 2
 
 
 def test_hsx_cli_uses_high_order_toroidal_defaults(monkeypatch):

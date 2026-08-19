@@ -39,7 +39,7 @@ def _active_rows(logical=(2, 1, 2, 1)):
     )
 
 
-def _embedded(profile=None):
+def _embedded(profile=None, *, agglomeration_kind="embedded"):
     layout = HaloLayout3D((3, 4, 2), 1)
     cells = LocalControlVolumeCellGeometry3D.identity(
         layout,
@@ -65,6 +65,7 @@ def _embedded(profile=None):
         reconstruction=LocalMomentReconstruction3D.empty(layout),
         face_functionals=LocalMomentFittedFaceRows3D.empty(layout),
         angular_group_sizes=profile,
+        agglomeration_kind=agglomeration_kind,
     )
 
 
@@ -116,3 +117,34 @@ def test_generic_geometry_has_no_angular_profile_and_roundtrips():
     leaves, aux = jax.tree_util.tree_flatten(geometry)
     restored = jax.tree_util.tree_unflatten(aux, leaves)
     assert restored.angular_group_sizes is None
+
+
+def test_corner_edge_tag_is_projected_owner_topology_and_roundtrips():
+    geometry = _embedded(agglomeration_kind="corner-edge")
+    assert not geometry.has_angular_agglomeration
+    assert geometry.has_projected_owner_agglomeration
+    leaves, aux = jax.tree_util.tree_flatten(geometry)
+    restored = jax.tree_util.tree_unflatten(aux, leaves)
+    assert restored.agglomeration_kind == "corner-edge"
+    assert restored.has_projected_owner_agglomeration
+
+
+def test_angular_profile_infers_legacy_angular_tag():
+    geometry = _embedded((4, 2, 1))
+    assert geometry.agglomeration_kind == "angular"
+    assert geometry.has_projected_owner_agglomeration
+
+
+def test_legacy_two_ring_pytree_aux_is_not_mistaken_for_tagged_aux():
+    geometry = _embedded((4, 2, 2))
+    children, _ = geometry.tree_flatten()
+    restored = LocalEmbeddedControlVolumeGeometry3D.tree_unflatten(
+        (4, 2), children
+    )
+    assert restored.angular_group_sizes == (4, 2)
+    assert restored.agglomeration_kind == "angular"
+
+
+def test_corner_edge_rejects_angular_profile():
+    with pytest.raises(ValueError, match="only valid"):
+        _embedded((4, 2, 1), agglomeration_kind="corner-edge")

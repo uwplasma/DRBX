@@ -92,7 +92,17 @@ def test_fci_model_construction_is_safe_inside_shard_map() -> None:
     assert float(compiled(*fields, cell_fields)) == 1.0
 
 
-def test_fci_full_and_implicit_smoke_on_tiny_shifted_torus() -> None:
+@pytest.mark.parametrize(
+    ("leg_scheme", "inflow_closure"),
+    (
+        ("centered", "central"),
+        ("boundary-characteristic-upwind", "equilibrium-characteristic"),
+    ),
+)
+def test_fci_full_and_implicit_smoke_on_tiny_shifted_torus(
+    leg_scheme,
+    inflow_closure,
+) -> None:
     """Exercise both RHS paths with real retained maps and endpoint exchange."""
 
     context, mesh, local, partition, fields, _cell_fields = (
@@ -125,6 +135,8 @@ def test_fci_full_and_implicit_smoke_on_tiny_shifted_torus() -> None:
         rhs = replace(
             _build_rhs(context, local, geometry),
             parallel_operator_scheme="fci",
+            fci_parallel_leg_scheme=leg_scheme,
+            parallel_inflow_closure=inflow_closure,
             parameters=replace(
                 context.parameters,
                 density_D_parallel=1.0e-3,

@@ -8677,12 +8677,38 @@ def _validate_concrete_angular_agglomeration_tree_assembly(
     active: jnp.ndarray,
 ) -> None:
     """Validate the concrete nested owner tree before entering JAX tracing."""
-    payload = (diagonal, child_edge, parent_i, parent_j, parent_k, active)
-    if any(isinstance(value, jax.core.Tracer) for value in payload):
-        return
     profile = control_volume_geometry.angular_group_sizes
     if profile is None:
         raise ValueError("angular-agglomeration tree requires angular_group_sizes")
+
+    # The topology/profile is static, but the lowered owner payload can be a
+    # dynamic shard_map argument.  Keep the cheap structural checks available
+    # while tracing and defer only host-side NumPy/value/SPD checks.
+    diagonal_shape = tuple(int(value) for value in diagonal.shape)
+    if len(diagonal_shape) != 3:
+        raise ValueError(
+            "angular tree diagonal must be three-dimensional, "
+            f"got shape={diagonal.shape}"
+        )
+    nx, ny, _nz = diagonal_shape
+    q = tuple(int(value) for value in profile)
+    if len(q) != nx or q[0] != ny:
+        raise ValueError("angular group profile must have q[0] == ny and one entry per ring")
+    for ring, value in enumerate(q):
+        if value <= 0 or ny % value:
+            raise ValueError("angular group profile must contain positive divisors of ny")
+        if ring and (value > q[ring - 1] or q[ring - 1] % value):
+            raise ValueError("angular group profile must be concretely nested and non-increasing")
+
+    payload = (diagonal, child_edge, parent_i, parent_j, parent_k, active)
+    cv_payload = (
+        control_volume_geometry.cells.owner_i,
+        control_volume_geometry.cells.owner_j,
+        control_volume_geometry.cells.owner_k,
+        control_volume_geometry.cells.aggregate_volume,
+    )
+    if any(isinstance(value, jax.core.Tracer) for value in (*payload, *cv_payload)):
+        return
     try:
         diag = np.asarray(diagonal, dtype=np.float64)
         edge = np.asarray(child_edge, dtype=np.float64)
@@ -8696,14 +8722,6 @@ def _validate_concrete_angular_agglomeration_tree_assembly(
     except (jax.errors.TracerArrayConversionError, jax.errors.ConcretizationTypeError):
         return
     nx, ny, nz = diag.shape
-    q = tuple(int(value) for value in profile)
-    if len(q) != nx or q[0] != ny:
-        raise ValueError("angular group profile must have q[0] == ny and one entry per ring")
-    for ring, value in enumerate(q):
-        if value <= 0 or ny % value:
-            raise ValueError("angular group profile must contain positive divisors of ny")
-        if ring and (value > q[ring - 1] or q[ring - 1] % value):
-            raise ValueError("angular group profile must be concretely nested and non-increasing")
     expected_active = np.zeros((nx, ny, nz), dtype=bool)
     for i, value in enumerate(q):
         expected_active[i, ::value, :] = True
@@ -8785,8 +8803,12 @@ def _assemble_angular_agglomeration_tree_principal_coefficients(
     the ordinary fine-grid faces.  Theta and eta owner couplings remain in
     the diagonal but are deliberately omitted from this line-u graph.
     """
-    if tuple(int(v) for v in domain.shard_spec.shard_counts) != (1, 1, 1):
-        raise ValueError("angular-agglomeration line-u requires a single device")
+    shard_counts = tuple(int(v) for v in domain.shard_spec.shard_counts)
+    if shard_counts[0] != 1 or shard_counts[1] != 1:
+        raise ValueError(
+            "angular-agglomeration line-u supports eta-only sharding; "
+            f"got shard_counts={shard_counts}"
+        )
     if not control_volume_geometry.has_angular_agglomeration:
         raise ValueError("angular-agglomeration tree requires an angular group profile")
     cells = control_volume_geometry.cells
@@ -8950,24 +8972,51 @@ def _assemble_angular_agglomeration_tree_principal_coefficients(
             diagonal, jnp.asarray(Ty[:, j, :], dtype=jnp.float64), left, right
         )
 
-    # Likewise retain one representative of every periodic eta face.
+    # Eta is the only decomposed direction supported by this path.  A local
+    # eta slab is not periodic: when it has a neighboring slab, both of its
+    # local endpoint faces contribute to the diagonal of the adjacent local
+    # owner, while their off-diagonal entries are handled by the distributed
+    # operator.  On one device the final face is the duplicate periodic
+    # representative of face zero, so retain the old one-face-per-edge loop.
     fine_i_z = jnp.broadcast_to(jnp.arange(nx)[:, None], (nx, ny))
     fine_j_z = jnp.broadcast_to(jnp.arange(ny)[None, :], (nx, ny))
-    for k in range(nz):
-        left_k = (k - 1) % nz
-        left = (
-            owner_i[fine_i_z, fine_j_z, left_k],
-            owner_j[fine_i_z, fine_j_z, left_k],
-            owner_k[fine_i_z, fine_j_z, left_k],
-        )
-        right = (
-            owner_i[fine_i_z, fine_j_z, k],
-            owner_j[fine_i_z, fine_j_z, k],
-            owner_k[fine_i_z, fine_j_z, k],
-        )
-        diagonal, _ = add_owner_edge(
-            diagonal, jnp.asarray(Tz[:, :, k], dtype=jnp.float64), left, right
-        )
+    if shard_counts[2] == 1:
+        for k in range(nz):
+            left_k = (k - 1) % nz
+            left = (
+                owner_i[fine_i_z, fine_j_z, left_k],
+                owner_j[fine_i_z, fine_j_z, left_k],
+                owner_k[fine_i_z, fine_j_z, left_k],
+            )
+            right = (
+                owner_i[fine_i_z, fine_j_z, k],
+                owner_j[fine_i_z, fine_j_z, k],
+                owner_k[fine_i_z, fine_j_z, k],
+            )
+            diagonal, _ = add_owner_edge(
+                diagonal, jnp.asarray(Tz[:, :, k], dtype=jnp.float64), left, right
+            )
+    else:
+        # Every owned eta face is included.  At k=0 only the right local
+        # cell exists; at k=nz only the left local cell exists.  Thus a
+        # cross-shard face contributes its conductance to this shard's
+        # endpoint diagonal without manufacturing a local periodic edge.
+        for k in range(nz + 1):
+            conductance = jnp.asarray(Tz[:, :, k], dtype=jnp.float64)
+            if k > 0:
+                left = (
+                    owner_i[fine_i_z, fine_j_z, k - 1],
+                    owner_j[fine_i_z, fine_j_z, k - 1],
+                    owner_k[fine_i_z, fine_j_z, k - 1],
+                )
+                diagonal = diagonal.at[left].add(conductance)
+            if k < nz:
+                right = (
+                    owner_i[fine_i_z, fine_j_z, k],
+                    owner_j[fine_i_z, fine_j_z, k],
+                    owner_k[fine_i_z, fine_j_z, k],
+                )
+                diagonal = diagonal.at[right].add(conductance)
 
     diagonal = jnp.where(active, diagonal, 0.0)
     child_edge = jnp.where(active, child_edge, 0.0)
@@ -9005,8 +9054,12 @@ def _build_angular_agglomeration_line_u_preconditioner(
     ] | None = None,
 ) -> Callable[[jnp.ndarray], jnp.ndarray]:
     """Build the exact per-eta nested radial-tree line-u solve."""
-    if tuple(int(v) for v in domain.shard_spec.shard_counts) != (1, 1, 1):
-        raise ValueError("angular-agglomeration line-u requires a single device")
+    shard_counts = tuple(int(v) for v in domain.shard_spec.shard_counts)
+    if shard_counts[0] != 1 or shard_counts[1] != 1:
+        raise ValueError(
+            "angular-agglomeration line-u supports eta-only sharding; "
+            f"got shard_counts={shard_counts}"
+        )
     if principal_coefficients is None:
         principal_coefficients = _assemble_angular_agglomeration_tree_principal_coefficients(
             geometry, domain, face_projectors, face_bc, config,
@@ -9057,6 +9110,64 @@ def _build_angular_agglomeration_line_u_preconditioner(
     return solve
 
 
+def _build_projected_owner_line_u_preconditioner(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    face_bc: LocalBoundaryFaceBC3D,
+    config: SolvaxGmresConfig,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    """Build a fine-line/prolong/restrict preconditioner for plane-local owners.
+
+    Corner/edge aggregates do not form the nested radial tree used by the
+    angular RLP preconditioner.  Use the ordinary fine-grid line-u inverse as
+    an approximation, prolonging each owner residual to its members and
+    volume-averaging the resulting correction back to owner space.  The
+    production operator remains the exact projected control-volume operator.
+    """
+    shard_counts = tuple(int(v) for v in domain.shard_spec.shard_counts)
+    if shard_counts[0] != 1 or shard_counts[1] != 1:
+        raise ValueError(
+            "projected-owner line-u supports eta-only sharding; "
+            f"got shard_counts={shard_counts}"
+        )
+    cells = control_volume_geometry.cells
+    owner_i = jnp.asarray(cells.owner_i, dtype=jnp.int32)
+    owner_j = jnp.asarray(cells.owner_j, dtype=jnp.int32)
+    owner_k = jnp.asarray(cells.owner_k, dtype=jnp.int32)
+    active = jnp.asarray(cells.is_active_owner, dtype=bool)
+    raw_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64)
+    aggregate_volume = jnp.asarray(cells.aggregate_volume, dtype=jnp.float64)
+    diagonal, lower, upper = _principal_perp_laplacian_bands(
+        geometry,
+        domain,
+        face_projectors,
+        face_bc,
+        regularization_epsilon=config.regularization_epsilon,
+    )
+    fine_line_solve = solvax_line_preconditioner(
+        diagonal,
+        ((0, lower[0], upper[0]),),
+    )
+
+    def solve(residual: jnp.ndarray) -> jnp.ndarray:
+        residual = jnp.asarray(residual, dtype=jnp.float64)
+        if residual.shape != geometry.owned_shape:
+            raise ValueError(
+                "projected-owner residual must match geometry.owned_shape"
+            )
+        prolonged = residual[owner_i, owner_j, owner_k]
+        fine_correction = fine_line_solve(prolonged)
+        restricted = jnp.zeros_like(residual).at[
+            owner_i, owner_j, owner_k
+        ].add(raw_volume * fine_correction)
+        owner_correction = restricted / jnp.maximum(aggregate_volume, 1.0e-30)
+        return jnp.where(active, owner_correction, 0.0)
+
+    return solve
+
+
 def build_solvax_perp_laplacian_preconditioner(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
@@ -9081,18 +9192,27 @@ def build_solvax_perp_laplacian_preconditioner(
             raise ValueError(
                 "RLP control-volume preconditioning supports only 'none' or 'line-u'"
             )
-        if not bool(getattr(control_volume_geometry, "has_angular_agglomeration", False)):
-            raise ValueError(
-                "control-volume line-u preconditioning requires the production "
-                "angular-agglomeration owner topology"
+        if bool(getattr(control_volume_geometry, "has_angular_agglomeration", False)):
+            return _build_angular_agglomeration_line_u_preconditioner(
+                geometry,
+                domain,
+                face_projectors,
+                face_bc,
+                config,
+                control_volume_geometry,
             )
-        return _build_angular_agglomeration_line_u_preconditioner(
-            geometry,
-            domain,
-            face_projectors,
-            face_bc,
-            config,
-            control_volume_geometry,
+        if bool(getattr(control_volume_geometry, "has_projected_owner_agglomeration", False)):
+            return _build_projected_owner_line_u_preconditioner(
+                geometry,
+                domain,
+                face_projectors,
+                face_bc,
+                config,
+                control_volume_geometry,
+            )
+        raise ValueError(
+            "control-volume line-u preconditioning requires a projected-owner "
+            "agglomeration topology"
         )
     diagonal, lower, upper = _principal_perp_laplacian_bands(
         geometry,
@@ -9415,15 +9535,22 @@ class LocalPerpLaplacianInverseSolver:
         lift_owned: jnp.ndarray | None = None,
         return_diagnostics: bool = False,
     ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
-        """Solve the production angular-RLP owner-space system explicitly."""
+        """Solve a projected-owner-space system explicitly.
+
+        Angular RLP additionally requires lower-radial axis regularity;
+        corner-edge owner agglomeration uses the ordinary square topology.
+        """
         if self.control_volume_geometry is None or self.control_volume_boundary_bc is None:
             raise ValueError(
                 "solve_rlp_owner requires control_volume_geometry and "
                 "control_volume_boundary_bc"
             )
-        if self.axis_regular_axes[0] is not True:
+        if (
+            self.control_volume_geometry.has_angular_agglomeration
+            and self.axis_regular_axes[0] is not True
+        ):
             raise ValueError(
-                "solve_rlp_owner requires axis_regular_axes[0]=True"
+                "angular solve_rlp_owner requires axis_regular_axes[0]=True"
             )
         context = self.stencil_builder_context
         if context is None:
@@ -9476,8 +9603,13 @@ class LocalPerpLaplacianInverseSolver:
         if solve_mode == "rlp-owner":
             if self.control_volume_geometry is None or self.control_volume_boundary_bc is None:
                 raise ValueError("rlp-owner mode requires control-volume geometry and BC")
-            if self.axis_regular_axes[0] is not True:
-                raise ValueError("rlp-owner mode requires axis_regular_axes[0]=True")
+            if (
+                self.control_volume_geometry.has_angular_agglomeration
+                and self.axis_regular_axes[0] is not True
+            ):
+                raise ValueError(
+                    "angular rlp-owner mode requires axis_regular_axes[0]=True"
+                )
             context = self.stencil_builder_context
             if context is None:
                 raise ValueError("rlp-owner mode requires an explicit stencil context")

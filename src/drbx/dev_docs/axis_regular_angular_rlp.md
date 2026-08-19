@@ -65,7 +65,10 @@ lowering intentionally has:
 - no moment-fitted face functionals;
 - no Cartesian core reconstruction.
 
-RLP currently requires one local domain/device for toroidal simulations.
+The native payload is shardable in eta. Each eta shard reconstructs the same
+radial/theta owner profile locally and receives only its local raw and
+aggregate physical-volume fields; moment arrays are not communicated because
+the projected fine-grid RLP path does not consume them.
 
 ## Prolongation and restriction
 
@@ -111,6 +114,23 @@ seven-field state, the required axis behavior is:
 There is no polynomial near-axis reconstruction, mode projection, compact
 axis face fit, or separately evolved core state.
 
+### Eta-only decomposition
+
+Production RLP is decomposed only in `eta` (the third logical axis). The
+production contract is
+
+```text
+--shard-counts 1 1 Seta
+```
+
+for every topology, including square topology. `x`/radial and `theta`
+remain replicated within each device. Toroidal RLP is compatible with this
+decomposition because an angular owner aggregate changes only radial and
+theta membership: each aggregate is confined to one eta plane and therefore
+cannot cross an eta shard boundary. No x/theta RLP decomposition is
+supported, and there is no fallback to a different state representation or
+single-device path when the contract is violated.
+
 The production Poisson bracket uses shared compatible face fluxes and the
 production curvature path is conservative. Physical-wall traces are applied
 only at `u=1`; the axis never receives a physical-wall closure.
@@ -132,25 +152,35 @@ the preconditioner.
 
 ## Driver contract
 
-For `simulate_hsx_blob.py --topology toroidal`, the driver automatically:
+For `simulate_hsx_blob.py`, the driver automatically:
 
 1. builds the continuous toroidal metric;
 2. selects and caches the angular profile;
-3. lowers one RLP geometry;
-4. volume-averages the initial state into owners;
-5. evolves owner-only state;
-6. materializes fine-grid fields only for operators and output.
+3. builds the host owner/volume geometry;
+4. shards the two-volume-field payload and assembles eta-local RLP geometry
+   inside each compiled kernel;
+5. volume-averages the initial state into owners;
+6. evolves owner-only state;
+7. materializes fine-grid fields only for operators and output.
 
-The current toroidal requirements are:
+The production sharding requirement for all topologies is:
 
-- `--shard-counts 1 1 1`;
+- `--shard-counts 1 1 Seta`, with `Seta >= 1` and `Neta` divisible by
+  `Seta`;
+
+The current toroidal operator requirements are:
 - `--poisson-bracket-scheme compatible-flux`;
 - `--curvature-scheme conservative`;
 - `--gmres-preconditioner none` or `line-u`.
 
-Coordinate and traced-FCI parallel operator families remain selectable. There
-is no fallback to full-grid toroidal phi, fixed-ring topology, compact angular
-faces, or a Cartesian core.
+Coordinate and traced-FCI parallel operator families remain selectable. P/R
+are local because an owner aggregate is eta-plane confined. Global means,
+norms, compatibility projections, and GMRES convergence reductions still
+use cross-device reductions over the eta (`z`) axis. The line-u preconditioner
+contains local radial trees; its eta-face diagonal contributions include both
+sides of a local slab, including faces incident on a slab interface. There is
+no x/theta RLP decomposition and no fallback to full-grid toroidal phi,
+fixed-ring topology, compact angular faces, or a Cartesian core.
 
 ## Validation
 

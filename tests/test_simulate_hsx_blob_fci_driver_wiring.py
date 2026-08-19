@@ -51,21 +51,19 @@ def _install_toroidal_rlp_mocks(monkeypatch, hsx):
         angular_group_size=np.asarray((8, 4, 2, 1)),
         topology=topology,
     )
-    native = SimpleNamespace(
-        irregular_faces=SimpleNamespace(max_rows=0, max_patches=4)
-    )
+    descriptor = object()
+    fields = np.zeros((4, 8, 12, hsx.RLP_PACKED_FIELD_COUNT))
     monkeypatch.setattr(
         hsx,
         "build_metric_aware_polar_angular_agglomeration_geometry",
         lambda *_a, **_k: (host, 0.5),
     )
     monkeypatch.setattr(
-        hsx, "assemble_single_device_local_fci_geometry", lambda *_a, **_k: object()
+        hsx,
+        "build_sharded_polar_angular_agglomeration_payload",
+        lambda *_a, **_k: (descriptor, fields),
     )
-    monkeypatch.setattr(
-        hsx, "lower_polar_angular_agglomeration_geometry", lambda *_a, **_k: native
-    )
-    return host, native
+    return host, descriptor
 
 
 def test_parser_exposes_coordinate_default_and_fci_trace_controls():
@@ -73,6 +71,7 @@ def test_parser_exposes_coordinate_default_and_fci_trace_controls():
     parser = hsx._build_parser()
     args = parser.parse_args([])
     assert args.parallel_operator_scheme == "coordinate"
+    assert args.fci_parallel_leg_scheme == "centered"
     assert args.fci_trace_substeps == 4
 
     scheme_action = next(
@@ -81,6 +80,12 @@ def test_parser_exposes_coordinate_default_and_fci_trace_controls():
         if "--parallel-operator-scheme" in action.option_strings
     )
     assert scheme_action.choices == ("coordinate", "fci")
+    leg_action = next(
+        action
+        for action in parser._actions
+        if "--fci-parallel-leg-scheme" in action.option_strings
+    )
+    assert leg_action.choices == ("centered", "boundary-characteristic-upwind")
     trace_action = next(
         action
         for action in parser._actions
@@ -124,6 +129,8 @@ def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
             )
         }
         assert "map_fields_owned" in arguments, name
+        if name != "precompute_wall_projectors":
+            assert "control_volume_fields_owned" in arguments, name
         source = ast.get_source_segment(DRIVER_PATH.read_text(), kernel)
         assert source is not None
 
@@ -212,6 +219,10 @@ def test_geometry_only_fci_requests_map_generation_and_records_substeps(
             "toroidal",
             "--parallel-operator-scheme",
             "fci",
+            "--fci-parallel-leg-scheme",
+            "boundary-characteristic-upwind",
+            "--parallel-inflow-closure",
+            "equilibrium-characteristic",
             "--fci-trace-substeps",
             "7",
             "--geometry-only",
@@ -274,6 +285,10 @@ def test_fci_main_passes_scheme_and_metadata_to_run(monkeypatch, tmp_path):
             "toroidal",
             "--parallel-operator-scheme",
             "fci",
+            "--fci-parallel-leg-scheme",
+            "boundary-characteristic-upwind",
+            "--parallel-inflow-closure",
+            "equilibrium-characteristic",
             "--fci-trace-substeps",
             "6",
             "--makegrid",
@@ -296,5 +311,12 @@ def test_fci_main_passes_scheme_and_metadata_to_run(monkeypatch, tmp_path):
     )
     assert calls
     assert calls[0]["parallel_operator_scheme"] == "fci"
+    assert calls[0]["fci_parallel_leg_scheme"] == "boundary-characteristic-upwind"
     assert calls[0]["run_metadata"]["parallel_operator_scheme"] == "fci"
+    assert (
+        calls[0]["run_metadata"]["fci_parallel_leg_scheme"]
+        == "boundary-characteristic-upwind"
+    )
     assert calls[0]["run_metadata"]["fci_trace_substeps"] == 6
+    assert calls[0]["control_volume_descriptor"] is not None
+    assert calls[0]["control_volume_fields_host"].shape == (4, 8, 12, 2)
