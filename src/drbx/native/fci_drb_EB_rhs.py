@@ -2566,6 +2566,60 @@ class LocalFciDrbEBRhs:
             backward_remote_values=backward,
         )
 
+    def _cell_force_lanes_to_outgoing_face_mass_adjoint(
+        self,
+        values_owned: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+        context: StencilBuilderContext,
+    ) -> jnp.ndarray:
+        """Lift leading center-force lanes with one common f2c transpose.
+
+        This is used for the perpendicular Poisson/diffusion diagnostics of
+        one velocity species.  The returned lanes are ``P_e L R_c`` values;
+        their sum is the total perpendicular force.  The scalar lift remains
+        the path for parallel viscosity, where no lane batching is needed.
+        """
+
+        values = jnp.asarray(values_owned, dtype=jnp.float64)
+        if values.ndim != 4 or values.shape[1:] != self.geometry.owned_shape:
+            raise ValueError("values_owned must have shape (lane,) + owned_shape")
+        if (
+            self.parallel_velocity_layout == "fci-staggered"
+            and self.control_volume_geometry is not None
+            and self.control_volume_geometry.has_angular_agglomeration
+            and self.outgoing_face_topology is not None
+        ):
+            transfer = build_local_fci_face_galerkin_transfer(
+                self.control_volume_geometry.cells, self.outgoing_face_topology
+            )
+            homogeneous_bc = replace(
+                face_bc,
+                value_x=jnp.zeros_like(face_bc.value_x),
+                value_y=jnp.zeros_like(face_bc.value_y),
+                value_z=jnp.zeros_like(face_bc.value_z),
+            )
+
+            def homogeneous_f2c(face_values_fine: jnp.ndarray) -> jnp.ndarray:
+                halo = self._prepare_fine_storage_halo(
+                    face_values_fine, homogeneous_bc
+                )
+                forward, backward = self._fci_remote_values(halo, context)
+                return local_outgoing_face_to_center_average_fci_op(
+                    halo, self.geometry, context=context,
+                    forward_remote_values=forward,
+                    backward_remote_values=backward,
+                )
+
+            owner_force = jax.vmap(transfer.cell_restrict)(values)
+            owner_face = transfer.cell_to_face_mass_adjoint_lift_batched(
+                owner_force, homogeneous_f2c
+            )
+            return jax.vmap(transfer.face_prolong)(owner_face)
+
+        return jax.vmap(
+            lambda value: self._center_owned_to_outgoing_face(value, face_bc, context)
+        )(values)
+
     def _fci_prepare_q(
         self,
         q_owned: jnp.ndarray,
@@ -4642,26 +4696,18 @@ class LocalFciDrbEBRhs:
         Ve_poisson_term = -(poisson_Ve / rho_star)
         Ve_perpendicular_rhs = Ve_poisson_term + Ve_diff
         if self.parallel_velocity_layout == "fci-staggered":
-            # Only the perpendicular center terms cross back to face storage.
-            # Parallel terms below already live on outgoing source edges.
-            Vi_perpendicular_rhs = self._cell_force_to_outgoing_face_mass_adjoint(
-                Vi_perpendicular_rhs, face_bc.Vi, context
+            # Only the centered perpendicular terms cross back to face
+            # storage.  Batch each species' diagnostic lanes so the shared
+            # homogeneous f2c transpose is traced once; total is their lane
+            # sum.  Parallel terms below already live on source edges.
+            Vi_poisson_term, Vi_diff_term = self._cell_force_lanes_to_outgoing_face_mass_adjoint(
+                jnp.stack((-(poisson_Vi / rho_star), Vi_diff)), face_bc.Vi, context
             )
-            Ve_perpendicular_rhs = self._cell_force_to_outgoing_face_mass_adjoint(
-                Ve_perpendicular_rhs, face_bc.Ve, context
+            Ve_poisson_term, Ve_diff_term = self._cell_force_lanes_to_outgoing_face_mass_adjoint(
+                jnp.stack((Ve_poisson_term, Ve_diff)), face_bc.Ve, context
             )
-            Ve_poisson_term = self._cell_force_to_outgoing_face_mass_adjoint(
-                Ve_poisson_term, face_bc.Ve, context
-            )
-            Vi_poisson_term = self._cell_force_to_outgoing_face_mass_adjoint(
-                -(poisson_Vi / rho_star), face_bc.Vi, context
-            )
-            Vi_diff_term = self._cell_force_to_outgoing_face_mass_adjoint(
-                Vi_diff, face_bc.Vi, context
-            )
-            Ve_diff_term = self._cell_force_to_outgoing_face_mass_adjoint(
-                Ve_diff, face_bc.Ve, context
-            )
+            Vi_perpendicular_rhs = Vi_poisson_term + Vi_diff_term
+            Ve_perpendicular_rhs = Ve_poisson_term + Ve_diff_term
         else:
             Vi_poisson_term = -(poisson_Vi / rho_star)
             Vi_diff_term = Vi_diff

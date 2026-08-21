@@ -291,6 +291,45 @@ def test_mass_adjoint_lift_is_jittable():
     assert np.all(np.isfinite(np.asarray(lifted)))
 
 
+def test_batched_mass_adjoint_lift_equals_scalar_lanes_and_preserves_term_sum():
+    """Batching only re-associates the two diagnostic force lanes."""
+
+    transfer = _transfer()
+    lanes = jnp.array([
+        [[[-0.4], [19.0], [1.7], [-8.0]]],
+        [[[2.3], [-11.0], [-0.8], [7.0]]],
+    ])
+    batched = transfer.cell_to_face_mass_adjoint_lift_batched(
+        lanes, _fine_face_to_center
+    )
+    scalar = jnp.stack([
+        transfer.cell_to_face_mass_adjoint_lift(lane, _fine_face_to_center)
+        for lane in lanes
+    ])
+    np.testing.assert_allclose(np.asarray(batched), np.asarray(scalar), atol=2e-12)
+    np.testing.assert_allclose(
+        np.asarray(jnp.sum(batched, axis=0)),
+        np.asarray(transfer.cell_to_face_mass_adjoint_lift(
+            jnp.sum(lanes, axis=0), _fine_face_to_center
+        )),
+        atol=2e-12,
+    )
+    assert np.all(np.asarray(batched)[:, ~np.asarray(transfer.active_face_owner)] == 0.0)
+
+
+def test_batched_mass_adjoint_lift_is_jittable():
+    transfer = _transfer()
+
+    @jax.jit
+    def apply(lanes):
+        return transfer.cell_to_face_mass_adjoint_lift_batched(
+            lanes, _fine_face_to_center
+        )
+
+    lifted = apply(jnp.arange(8.0).reshape((2, 1, 4, 1)))
+    assert np.all(np.isfinite(np.asarray(lifted)))
+
+
 @pytest.mark.skipif(jax.local_device_count() < 4, reason="requires four JAX devices")
 def test_mass_adjoint_lift_transposes_a_four_device_collective_callback():
     """Cover a remote-like primitive in the callback's transpose path."""

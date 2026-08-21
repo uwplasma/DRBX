@@ -172,6 +172,42 @@ class LocalFciFaceGalerkinTransfer:
         )
         return jnp.where(self.active_face_owner, result, 0.0)
 
+    def cell_to_face_mass_adjoint_lift_batched(
+        self,
+        cell_values_owner: jnp.ndarray,
+        homogeneous_fine_face_to_center: FineFaceToCenter,
+    ) -> jnp.ndarray:
+        """Vectorize ``L=M_e^-1 A^T M_c`` over leading force lanes.
+
+        The leading axis labels independent force terms.  ``A^T`` is formed
+        once for the common homogeneous f2c reconstruction and then vmapped,
+        rather than tracing one transpose per diagnostic term.  This is only
+        a compile-graph reduction: each returned lane is exactly the scalar
+        :meth:`cell_to_face_mass_adjoint_lift` result.
+        """
+
+        cell_values = jnp.asarray(cell_values_owner, dtype=jnp.float64)
+        if cell_values.ndim != len(self.cells.shape) + 1 or cell_values.shape[1:] != self.cells.shape:
+            raise ValueError(
+                "cell_values_owner must have shape (lane,) + cells.shape"
+            )
+        cell_values = jnp.where(self.active_owner[None, ...], cell_values, 0.0)
+        zero_face = jnp.zeros(self.cells.shape, dtype=cell_values.dtype)
+
+        def reconstruction(face_values: jnp.ndarray) -> jnp.ndarray:
+            return self.face_to_cell_reconstruction(
+                face_values, homogeneous_fine_face_to_center
+            )
+
+        adjoint = jax.linear_transpose(reconstruction, zero_face)
+        lifted = jax.vmap(
+            lambda values: adjoint(self.cell_mass * values)[0]
+        )(cell_values)
+        result = lifted / jnp.maximum(
+            self.face_topology.aggregate_measure[None, ...], 1.0e-30
+        )
+        return jnp.where(self.active_face_owner[None, ...], result, 0.0)
+
     def _restrict_cell(self, fine_values: jnp.ndarray) -> jnp.ndarray:
         self._check_owner_local()
         values = jnp.asarray(fine_values, dtype=jnp.float64)
