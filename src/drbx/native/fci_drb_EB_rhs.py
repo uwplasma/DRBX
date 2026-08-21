@@ -1696,24 +1696,6 @@ class LocalFciDrbEBRhs:
             self._project_fine_center_to_cell_rlp(values_fine), face_bc
         )
 
-    def _project_face_force_to_cell_rlp(self, force_face: jnp.ndarray) -> jnp.ndarray:
-        """Project a completed staggered momentum force into ``P_c R_c``.
-
-        The force is indexed by outgoing source rows but is a source-cell
-        quantity once all of its factors have been assembled.  In angular RLP
-        this prevents endpoint-support subfaces within one cell aggregate from
-        injecting an unresolved theta mode into the final face restriction.
-        Scalar equations and support-resolved G/D/flux paths do not use this.
-        """
-
-        if (
-            self.parallel_velocity_layout != "fci-staggered"
-            or self.control_volume_geometry is None
-            or not self.control_volume_geometry.has_angular_agglomeration
-        ):
-            return force_face
-        return self._project_fine_center_to_cell_rlp(force_face)
-
     def _prepare_face_halo(
         self,
         values_owned: jnp.ndarray,
@@ -2514,7 +2496,65 @@ class LocalFciDrbEBRhs:
         face_bc: LocalBoundaryFaceBC3D,
         context: StencilBuilderContext,
     ) -> jnp.ndarray:
-        """Map a centered fine result to owned outgoing FCI source edges."""
+        """Interpolate a centered value to owned outgoing FCI source edges."""
+
+        centered_halo = self._prepare_fine_storage_halo(values_owned, face_bc)
+        forward, backward = self._fci_remote_values(centered_halo, context)
+        return local_center_to_outgoing_face_average_fci_op(
+            centered_halo, self.geometry, context=context,
+            forward_remote_values=forward, backward_remote_values=backward,
+        )
+
+    def _cell_force_to_outgoing_face_mass_adjoint(
+        self,
+        values_owned: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+        context: StencilBuilderContext,
+    ) -> jnp.ndarray:
+        """Map a centered force to outgoing FCI source edges.
+
+        Angular-RLP staggered forces use the geometric mass-adjoint lift of
+        the homogeneous mapped f2c reconstruction.  Production uses the
+        linear zero-Neumann velocity closure; affine traces must not enter
+        this transpose path.
+        """
+
+        if (
+            self.parallel_velocity_layout == "fci-staggered"
+            and self.control_volume_geometry is not None
+            and self.control_volume_geometry.has_angular_agglomeration
+            and self.outgoing_face_topology is not None
+        ):
+            transfer = build_local_fci_face_galerkin_transfer(
+                self.control_volume_geometry.cells, self.outgoing_face_topology
+            )
+            # ``f2c`` is used under ``linear_transpose`` below.  Preserve the
+            # boundary type/masks but remove prescribed data, so it is exactly
+            # the homogeneous linear reconstruction.  In particular, an
+            # affine physical-wall trace can never be transposed as a force.
+            homogeneous_bc = replace(
+                face_bc,
+                value_x=jnp.zeros_like(face_bc.value_x),
+                value_y=jnp.zeros_like(face_bc.value_y),
+                value_z=jnp.zeros_like(face_bc.value_z),
+            )
+
+            def homogeneous_f2c(face_values_fine: jnp.ndarray) -> jnp.ndarray:
+                halo = self._prepare_fine_storage_halo(
+                    face_values_fine, homogeneous_bc
+                )
+                forward, backward = self._fci_remote_values(halo, context)
+                return local_outgoing_face_to_center_average_fci_op(
+                    halo, self.geometry, context=context,
+                    forward_remote_values=forward,
+                    backward_remote_values=backward,
+                )
+
+            owner_force = transfer.cell_restrict(values_owned)
+            owner_face = transfer.cell_to_face_mass_adjoint_lift(
+                owner_force, homogeneous_f2c
+            )
+            return transfer.face_prolong(owner_face)
 
         centered_halo = self._prepare_fine_storage_halo(values_owned, face_bc)
         forward, backward = self._fci_remote_values(centered_halo, context)
@@ -2979,6 +3019,7 @@ class LocalFciDrbEBRhs:
             vorticity_product_halo = self._prepare_fine_storage_halo(
                 Vi_face_halo[owned] * g(state_halo.vorticity), face_bc.vorticity
             )
+
             result.update({
                 "density_flux_div": flux_div(nVe_face_halo),
                 "current_flux_div": flux_div(j_face_halo),
@@ -3040,7 +3081,7 @@ class LocalFciDrbEBRhs:
                         gradient_halo
                     )
                 if name in ("Vi", "Ve"):
-                    value = self._center_owned_to_outgoing_face(
+                    value = self._cell_force_to_outgoing_face_mass_adjoint(
                         value, diffusion_bcs[name], context
                     )
                 result[f"{name}_parallel_diff"] = value
@@ -4390,10 +4431,10 @@ class LocalFciDrbEBRhs:
                 phi=jnp.zeros_like(phi_owned),
                 Te=Te_diff + Te_parallel_diff,
                 Ti=Ti_diff + Ti_parallel_diff,
-                Vi=((self._center_owned_to_outgoing_face(Vi_diff, face_bc.Vi, context)
+                Vi=((self._cell_force_to_outgoing_face_mass_adjoint(Vi_diff, face_bc.Vi, context)
                      if self.parallel_velocity_layout == "fci-staggered" else Vi_diff)
                     + Vi_parallel_diff),
-                Ve=((self._center_owned_to_outgoing_face(Ve_diff, face_bc.Ve, context)
+                Ve=((self._cell_force_to_outgoing_face_mass_adjoint(Ve_diff, face_bc.Ve, context)
                      if self.parallel_velocity_layout == "fci-staggered" else Ve_diff)
                     + Ve_parallel_diff),
                 vorticity=vorticity_diff + vorticity_parallel_diff,
@@ -4534,27 +4575,6 @@ class LocalFciDrbEBRhs:
         Ve_electrostatic_term = mi_over_me * grad_parallel_phi
         Ve_pressure_term = -mi_over_me * grad_parallel_Pe / n_face_safe
         Ve_thermal_force_term = -0.71 * mi_over_me * grad_parallel_Te
-        if self.parallel_velocity_layout == "fci-staggered":
-            # These are completed source-cell momentum forces.  Project each
-            # term independently so RHS-term diagnostics retain the physical
-            # decomposition while no angular cell aggregate receives a
-            # support-subface force difference.
-            Vi_pressure_term = self._project_face_force_to_cell_rlp(
-                Vi_pressure_term
-            )
-            Ve_collision_term = self._project_face_force_to_cell_rlp(
-                Ve_collision_term
-            )
-            Ve_electrostatic_term = self._project_face_force_to_cell_rlp(
-                Ve_electrostatic_term
-            )
-            Ve_pressure_term = self._project_face_force_to_cell_rlp(
-                Ve_pressure_term
-            )
-            Ve_thermal_force_term = self._project_face_force_to_cell_rlp(
-                Ve_thermal_force_term
-            )
-
         (
             curvature_density_contribution,
             curvature_Te_contribution,
@@ -4624,22 +4644,22 @@ class LocalFciDrbEBRhs:
         if self.parallel_velocity_layout == "fci-staggered":
             # Only the perpendicular center terms cross back to face storage.
             # Parallel terms below already live on outgoing source edges.
-            Vi_perpendicular_rhs = self._center_owned_to_outgoing_face(
+            Vi_perpendicular_rhs = self._cell_force_to_outgoing_face_mass_adjoint(
                 Vi_perpendicular_rhs, face_bc.Vi, context
             )
-            Ve_perpendicular_rhs = self._center_owned_to_outgoing_face(
+            Ve_perpendicular_rhs = self._cell_force_to_outgoing_face_mass_adjoint(
                 Ve_perpendicular_rhs, face_bc.Ve, context
             )
-            Ve_poisson_term = self._center_owned_to_outgoing_face(
+            Ve_poisson_term = self._cell_force_to_outgoing_face_mass_adjoint(
                 Ve_poisson_term, face_bc.Ve, context
             )
-            Vi_poisson_term = self._center_owned_to_outgoing_face(
+            Vi_poisson_term = self._cell_force_to_outgoing_face_mass_adjoint(
                 -(poisson_Vi / rho_star), face_bc.Vi, context
             )
-            Vi_diff_term = self._center_owned_to_outgoing_face(
+            Vi_diff_term = self._cell_force_to_outgoing_face_mass_adjoint(
                 Vi_diff, face_bc.Vi, context
             )
-            Ve_diff_term = self._center_owned_to_outgoing_face(
+            Ve_diff_term = self._cell_force_to_outgoing_face_mass_adjoint(
                 Ve_diff, face_bc.Ve, context
             )
         else:

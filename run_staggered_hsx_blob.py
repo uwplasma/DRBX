@@ -16,9 +16,35 @@ import os
 from pathlib import Path
 import sys
 
+import numpy as np
+
 
 WORKTREE = Path(__file__).resolve().parent
 SHARED_DRIVER = WORKTREE.parent / "simulate_hsx_blob.py"
+
+
+def _vi_near_band_report(vi_terms: np.ndarray, vi_state: np.ndarray, near_start: int) -> dict[str, object]:
+    """Return unnormalized-RFFT near-band energies and state inner products."""
+
+    terms = np.asarray(vi_terms, dtype=np.float64)
+    state = np.asarray(vi_state, dtype=np.float64)
+    if terms.ndim != 4 or state.shape != terms.shape[1:]:
+        raise ValueError("Vi terms must be (term, radial, theta, eta) and match state")
+    term_spectrum = np.fft.rfft(terms, axis=2)[:, :, near_start:, :]
+    state_spectrum = np.fft.rfft(state, axis=1)[:, near_start:, :]
+    term_energy = np.sum(np.abs(term_spectrum) ** 2, axis=(1, 2, 3))
+    term_inner = np.sum(term_spectrum * np.conj(state_spectrum)[None], axis=(1, 2, 3))
+    sum_spectrum = np.sum(term_spectrum, axis=0)
+    sum_energy = np.sum(np.abs(sum_spectrum) ** 2)
+    sum_inner = np.sum(sum_spectrum * np.conj(state_spectrum))
+    pair = lambda value: {"real": float(np.real(value)), "imag": float(np.imag(value))}
+    return {
+        "rfft_normalization": "numpy-unnormalized",
+        "term_near_band_energy": [float(value) for value in term_energy],
+        "term_near_band_inner_product_with_saved_Vi": [pair(value) for value in term_inner],
+        "sum_term_near_band_energy": float(sum_energy),
+        "sum_term_near_band_inner_product_with_saved_Vi": pair(sum_inner),
+    }
 
 
 def _transform_shared_driver_source(source: str) -> str:
@@ -387,6 +413,74 @@ def _transform_shared_driver_source(source: str) -> str:
             "    phi_start = time.perf_counter()\n",
         ),
         (
+            "    startup_advance = None\n"
+            "    compiled_explicit_rhs = None\n",
+            "    rhs_term_history_path = os.environ.get(\"DRBX_RHS_TERM_HISTORY\")\n"
+            "    if rhs_term_history_path is not None:\n"
+            "        if outgoing_face_topology_host is None or owner_host_geometry is None:\n"
+            "            raise ValueError(\"RHS term history diagnostics require staggered cell and face topology\")\n"
+            "        frame_text = os.environ.get(\"DRBX_RHS_TERM_FRAMES\", \"\")\n"
+            "        frames = tuple(int(value) for value in frame_text.split(\",\") if value)\n"
+            "        output_text = os.environ.get(\"DRBX_RHS_TERM_OUTPUT\")\n"
+            "        if not frames or output_text is None:\n"
+            "            raise ValueError(\"RHS term history diagnostic requires frames and output\")\n"
+            "        with np.load(rhs_term_history_path, allow_pickle=False) as history:\n"
+            "            frame_count = int(history[\"Vi\"].shape[0])\n"
+            "            history_times = np.asarray(history[\"times\"], dtype=np.float64)\n"
+            "            if any(frame < 0 or frame >= frame_count for frame in frames):\n"
+            "                raise ValueError(f\"RHS term frame outside [0, {frame_count})\")\n"
+            "            saved_states = []\n"
+            "            saved_materialized_vi = []\n"
+            "            face_owner = tuple(np.asarray(outgoing_face_topology_host[name], dtype=np.int32) for name in (\"edge_owner_i\", \"edge_owner_j\", \"edge_owner_k\"))\n"
+            "            face_active_owner = np.asarray(outgoing_face_topology_host[\"is_active_owner\"], dtype=bool)\n"
+            "            for frame in frames:\n"
+            "                raw = FciDrbEBState(**{name: jnp.asarray(history[name][frame], dtype=jnp.float64) for name in (\"density\", \"phi\", \"Te\", \"Ti\", \"Vi\", \"Ve\", \"vorticity\")})\n"
+            "                recovered = _aggregate_initial_owner_state(raw, owner_host_geometry)\n"
+            "                recovered = recovered.replace(\n"
+            "                    Vi=jnp.asarray(np.where(face_active_owner, np.asarray(raw.Vi)[face_owner], 0.0)),\n"
+            "                    Ve=jnp.asarray(np.where(face_active_owner, np.asarray(raw.Ve)[face_owner], 0.0)),\n"
+            "                )\n"
+            "                saved_states.append(recovered)\n"
+            "                saved_materialized_vi.append(np.asarray(raw.Vi, dtype=np.float64))\n"
+            "        def materialize_rhs_term_fields(local_state, cell_fields_owned, map_fields_owned, control_volume_fields_owned, local_wall_projectors):\n"
+            "            model = build_local_model(cell_fields_owned, map_fields_owned, control_volume_fields_owned, local_wall_projectors)\n"
+            "            _, terms = model.evaluate_stage(local_state, phi_owned=local_state.phi, return_rhs_term_fields=True)\n"
+            "            cells = model.control_volume_geometry.cells\n"
+            "            materialized = jax.vmap(jax.vmap(lambda value: expand_local_control_volume_owner_field(value, cells)))(terms)\n"
+            "            vi_face_terms = jax.vmap(lambda value: prolong_local_outgoing_fci_face_owner_field(value, model.outgoing_face_topology))(terms[3])\n"
+            "            ve_face_terms = jax.vmap(lambda value: prolong_local_outgoing_fci_face_owner_field(value, model.outgoing_face_topology))(terms[4])\n"
+            "            return materialized.at[3].set(vi_face_terms).at[4].set(ve_face_terms)\n"
+            "        rhs_term_materializer = jax.jit(jax.shard_map(\n"
+            "            materialize_rhs_term_fields, mesh=mesh,\n"
+            "            in_specs=(state_spec, geometry_spec, geometry_spec, geometry_spec, wall_projector_specs),\n"
+            "            out_specs=P(None, None, \"x\", \"y\", \"z\"), check_vma=False,\n"
+            "        ))\n"
+            "        vi_names = RHS_TERM_NAMES[3]\n"
+            "        report_frames = []\n"
+            "        near_start = int(np.ceil(0.75 * (sharded_geometry.global_shape[1] // 2)))\n"
+            "        for frame, recovered, saved_vi in zip(frames, saved_states, saved_materialized_vi, strict=True):\n"
+            "            sharded = recovered.map_fields(lambda value: jax.device_put(jnp.asarray(value, dtype=jnp.float64), state_sharding))\n"
+            "            terms = np.asarray(rhs_term_materializer(sharded, cell_fields, map_fields, control_volume_fields, wall_projectors), dtype=np.float64)\n"
+            "            vi_terms = terms[3, :len(vi_names)]\n"
+            "            spectral = _vi_near_band_report(vi_terms, saved_vi, near_start)\n"
+            "            report_frames.append({\n"
+            "                \"frame\": int(frame), \"time\": float(history_times[frame]),\n"
+            "                \"Vi_theta_near_band_start\": near_start,\n"
+            "                \"Vi_term_near_band_energy\": {name: value for name, value in zip(vi_names, spectral[\"term_near_band_energy\"], strict=True)},\n"
+            "                \"Vi_term_near_band_inner_product_with_saved_Vi\": {name: value for name, value in zip(vi_names, spectral[\"term_near_band_inner_product_with_saved_Vi\"], strict=True)},\n"
+            "                \"Vi_sum_term_near_band_energy\": spectral[\"sum_term_near_band_energy\"],\n"
+            "                \"Vi_sum_term_near_band_inner_product_with_saved_Vi\": spectral[\"sum_term_near_band_inner_product_with_saved_Vi\"],\n"
+            "                \"rfft_normalization\": spectral[\"rfft_normalization\"],\n"
+            "            })\n"
+            "        output = Path(output_text)\n"
+            "        output.parent.mkdir(parents=True, exist_ok=True)\n"
+            "        output.write_text(json.dumps({\"history\": rhs_term_history_path, \"frames\": report_frames, \"field\": \"Vi\", \"term_names\": list(vi_names)}, indent=2, sort_keys=True) + \"\\n\", encoding=\"utf-8\")\n"
+            "        print(f\"[rhs-term-history] wrote {output}\", flush=True)\n"
+            "        return state\n"
+            "    startup_advance = None\n"
+            "    compiled_explicit_rhs = None\n",
+        ),
+        (
             '            "parallel_operator_scheme": str(args.parallel_operator_scheme),',
             '            "parallel_operator_scheme": str(args.parallel_operator_scheme),\n'
             '            "parallel_velocity_layout": os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT", "cell-centered"),\n'
@@ -394,7 +488,8 @@ def _transform_shared_driver_source(source: str) -> str:
             '            "face_owner_layout": (None if staggered_face_provenance is None else staggered_face_provenance["face_basis_policy"]),\n'
             '            "outgoing_edge_mass_convention": "raw-fluid-cell-volume" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,\n'
             '            "cell_velocity_projection": "PcRc-after-face-to-center" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,\n'
-            '            "stiff_momentum_force_projection": "source-cell-PcRc-before-face-Re" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,\n'
+            '            "face_native_parallel_forces": "direct-Gc-and-compatible-Dc" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,\n'
+            '            "center_force_to_face_transfer": "Pe-L-Rc-mass-adjoint-f2c" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,\n'
             '            "initial_velocity_projection": "center-to-outgoing-face-Re" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,\n'
             '            **({} if staggered_face_provenance is None else staggered_face_provenance),\n'
             '            "perpendicular_velocity_geometry": "face-to-center-perpendicular-center-to-face",',
@@ -478,6 +573,9 @@ def main() -> None:
         choices=("cell-centered", "fci-staggered"),
         default="cell-centered",
     )
+    parser.add_argument("--rhs-term-history", type=Path)
+    parser.add_argument("--rhs-term-frames", default="100,180,225")
+    parser.add_argument("--rhs-term-output", type=Path)
     args, remaining = parser.parse_known_args(sys.argv[1:])
 
     def option_value(option: str) -> str | None:
@@ -507,6 +605,20 @@ def main() -> None:
                 "fci-staggered restart is disabled until face-basis-aware restart "
                 "fingerprints and Vi/Ve face reaggregation are implemented; run fresh"
             )
+    if args.rhs_term_history is not None:
+        if args.parallel_velocity_layout != "fci-staggered":
+            raise SystemExit("--rhs-term-history requires --parallel-velocity-layout fci-staggered")
+        if args.rhs_term_output is None:
+            raise SystemExit("--rhs-term-history requires --rhs-term-output")
+        try:
+            frames = tuple(int(item) for item in args.rhs_term_frames.split(",") if item)
+        except ValueError as error:
+            raise SystemExit("--rhs-term-frames must be comma-separated integers") from error
+        if not frames or any(frame < 0 for frame in frames):
+            raise SystemExit("--rhs-term-frames must contain nonnegative frame indices")
+        os.environ["DRBX_RHS_TERM_HISTORY"] = str(args.rhs_term_history)
+        os.environ["DRBX_RHS_TERM_FRAMES"] = ",".join(str(frame) for frame in frames)
+        os.environ["DRBX_RHS_TERM_OUTPUT"] = str(args.rhs_term_output)
     os.environ["DRBX_PARALLEL_VELOCITY_LAYOUT"] = args.parallel_velocity_layout
     print(
         "[staggered launcher] parallel_velocity_layout="
@@ -519,7 +631,11 @@ def main() -> None:
     if str(WORKTREE / "src") not in sys.path:
         sys.path.insert(0, str(WORKTREE / "src"))
     sys.argv = [str(SHARED_DRIVER), *remaining]
-    namespace = {"__name__": "__main__", "__file__": str(SHARED_DRIVER)}
+    namespace = {
+        "__name__": "__main__",
+        "__file__": str(SHARED_DRIVER),
+        "_vi_near_band_report": _vi_near_band_report,
+    }
     exec(compile(source, str(SHARED_DRIVER), "exec"), namespace)
 
 

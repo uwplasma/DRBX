@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 import sys
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -26,7 +28,10 @@ from axis_regular_operator_support import polar_fixture
 from test_fci_projected_fine_grid_control_volume import _host, _build_physical_ghost_filler
 from drbx.native.fci_boundaries import BC_NEUMANN, LocalBoundaryFaceBC3D
 from drbx.native.fci_model import inject_owned_field_to_halo
-from drbx.native.fci_operators import local_center_to_outgoing_face_grad_parallel_fci_op
+from drbx.native.fci_operators import (
+    local_center_to_outgoing_face_grad_parallel_fci_op,
+    local_outgoing_face_to_center_average_fci_op,
+)
 
 
 def _cells():
@@ -63,6 +68,18 @@ def _fine_gradient(values):
         (0.0, -1.0, 0.2, 0.8),
         (0.4, 0.0, -1.0, 0.6),
         (0.9, 0.1, 0.0, -1.0),
+    ))
+    return (matrix @ values.reshape((-1,))).reshape(values.shape)
+
+
+def _fine_face_to_center(values):
+    """A constant-preserving mapped face-to-centre reconstruction."""
+
+    matrix = jnp.array((
+        (0.75, 0.25, 0.0, 0.0),
+        (0.0, 0.6, 0.4, 0.0),
+        (0.2, 0.0, 0.5, 0.3),
+        (0.1, 0.0, 0.0, 0.9),
     ))
     return (matrix @ values.reshape((-1,))).reshape(values.shape)
 
@@ -192,6 +209,116 @@ def test_galerkin_pair_is_jittable():
     gradient, divergence = apply(u, q)
     assert np.all(np.isfinite(np.asarray(gradient)))
     assert np.all(np.isfinite(np.asarray(divergence)))
+
+
+def test_face_to_cell_reconstruction_and_mass_adjoint_lift_virtual_work():
+    """``L`` is exactly the ``M_e/M_c`` adjoint of the actual callback map."""
+
+    transfer = _transfer()
+    face = jnp.array([[[1.25], [-9.0], [-0.75], [4.0]]])
+    cell_force = jnp.array([[[2.0], [19.0], [-3.0], [11.0]]])
+    reconstructed = transfer.face_to_cell_reconstruction(
+        face, _fine_face_to_center
+    )
+    lifted = transfer.cell_to_face_mass_adjoint_lift(
+        cell_force, _fine_face_to_center
+    )
+    left = jnp.sum(transfer.cell_mass * reconstructed * cell_force)
+    right = jnp.sum(transfer.face_topology.aggregate_measure * face * lifted)
+    np.testing.assert_allclose(np.asarray(left), np.asarray(right), atol=2e-12)
+
+    # Inputs at aliases cannot affect either operator, and aliases never
+    # become stored face degrees of freedom.
+    alias_face = face.at[0, 2, 0].set(1.0e6).at[0, 3, 0].set(-1.0e6)
+    alias_cell = cell_force.at[0, 1, 0].set(1.0e6).at[0, 3, 0].set(-1.0e6)
+    np.testing.assert_allclose(
+        np.asarray(transfer.face_to_cell_reconstruction(alias_face, _fine_face_to_center)),
+        np.asarray(reconstructed), atol=2e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(transfer.cell_to_face_mass_adjoint_lift(alias_cell, _fine_face_to_center)),
+        np.asarray(lifted), atol=2e-12,
+    )
+    assert np.all(np.asarray(lifted)[~np.asarray(transfer.active_face_owner)] == 0.0)
+
+
+def test_mass_adjoint_lift_preserves_constants_and_la_is_me_symmetric_positive():
+    transfer = _transfer()
+    one_face = transfer.active_face_owner.astype(jnp.float64)
+    reconstructed = transfer.face_to_cell_reconstruction(
+        one_face, _fine_face_to_center
+    )
+    np.testing.assert_allclose(
+        np.asarray(reconstructed), np.asarray(transfer.active_owner), atol=2e-12
+    )
+
+    def la(face):
+        return transfer.cell_to_face_mass_adjoint_lift(
+            transfer.face_to_cell_reconstruction(face, _fine_face_to_center),
+            _fine_face_to_center,
+        )
+
+    q = jnp.array([[[1.3], [-4.0], [-0.2], [3.0]]])
+    r = jnp.array([[[-0.4], [8.0], [2.1], [-7.0]]])
+    me = transfer.face_topology.aggregate_measure
+    q_la_r = jnp.sum(me * q * la(r))
+    r_la_q = jnp.sum(me * r * la(q))
+    aq = transfer.face_to_cell_reconstruction(q, _fine_face_to_center)
+    ar = transfer.face_to_cell_reconstruction(r, _fine_face_to_center)
+    np.testing.assert_allclose(np.asarray(q_la_r), np.asarray(r_la_q), atol=2e-12)
+    np.testing.assert_allclose(
+        np.asarray(q_la_r), np.asarray(jnp.sum(transfer.cell_mass * aq * ar)),
+        atol=2e-12,
+    )
+    assert float(jnp.sum(me * q * la(q))) >= -2e-12
+
+
+def test_mass_adjoint_lift_is_jittable():
+    transfer = _transfer()
+
+    @jax.jit
+    def apply(face, cell):
+        return (
+            transfer.face_to_cell_reconstruction(face, _fine_face_to_center),
+            transfer.cell_to_face_mass_adjoint_lift(cell, _fine_face_to_center),
+        )
+
+    reconstructed, lifted = apply(
+        jnp.arange(4.0).reshape((1, 4, 1)),
+        -jnp.arange(4.0).reshape((1, 4, 1)),
+    )
+    assert np.all(np.isfinite(np.asarray(reconstructed)))
+    assert np.all(np.isfinite(np.asarray(lifted)))
+
+
+@pytest.mark.skipif(jax.local_device_count() < 4, reason="requires four JAX devices")
+def test_mass_adjoint_lift_transposes_a_four_device_collective_callback():
+    """Cover a remote-like primitive in the callback's transpose path."""
+
+    transfer = _transfer()
+    devices = jax.local_devices()[:4]
+    permutation = tuple((index, (index + 1) % 4) for index in range(4))
+
+    @partial(jax.pmap, axis_name="eta", devices=devices)
+    def apply(face, cell):
+        def remote_face_to_center(fine_face):
+            remote = jax.lax.ppermute(fine_face, "eta", permutation)
+            return 0.5 * (fine_face + remote)
+
+        reconstructed = transfer.face_to_cell_reconstruction(
+            face, remote_face_to_center
+        )
+        lifted = transfer.cell_to_face_mass_adjoint_lift(
+            cell, remote_face_to_center
+        )
+        return reconstructed, lifted
+
+    face = jnp.arange(16.0).reshape((4, 1, 4, 1)) / 7.0
+    cell = -jnp.arange(16.0).reshape((4, 1, 4, 1)) / 9.0
+    reconstructed, lifted = apply(face, cell)
+    left = jnp.sum(transfer.cell_mass * reconstructed * cell)
+    right = jnp.sum(transfer.face_topology.aggregate_measure * face * lifted)
+    np.testing.assert_allclose(np.asarray(left), np.asarray(right), atol=2e-12)
 
 
 def test_split_endpoint_support_face_space_preserves_two_values_and_adjoint_pair():
@@ -337,8 +464,8 @@ def test_real_mapped_angular_rlp_core_is_weighted_adjoint_without_legacy_diverge
     )
 
 
-def test_stiff_face_force_projection_is_cell_rlp_constant_preserving_and_sparse():
-    """Completed momentum forces cannot retain angular subcell differences."""
+def test_actual_mapped_mass_adjoint_force_lift_has_virtual_work_and_owner_layout():
+    """The RHS lift is ``P_e L R_c`` for the homogeneous mapped f2c map."""
 
     geometry, domain, _context, _coordinates, _exchange, _topology_filler, _vector, _flux = (
         polar_fixture(shape=(3, 8, 4), halo_width=1)
@@ -351,31 +478,75 @@ def test_stiff_face_force_projection_is_cell_rlp_constant_preserving_and_sparse(
     )
     transfer = build_local_fci_face_galerkin_transfer(control_volumes.cells, topology)
     rhs = object.__new__(LocalFciDrbEBRhs)
+    object.__setattr__(rhs, "geometry", geometry)
     object.__setattr__(rhs, "domain", domain)
+    object.__setattr__(rhs, "halo_exchange", HaloExchange3D())
+    object.__setattr__(rhs, "topology_filler", _topology_filler)
+    object.__setattr__(rhs, "physical_ghost_filler", _build_physical_ghost_filler(geometry.layout))
     object.__setattr__(rhs, "control_volume_geometry", control_volumes)
+    object.__setattr__(rhs, "outgoing_face_topology", topology)
     object.__setattr__(rhs, "parallel_velocity_layout", "fci-staggered")
-
-    cells = control_volumes.cells
-    owner = np.asarray(cells.is_active_owner)
-    oi, oj, ok = (np.asarray(cells.owner_i), np.asarray(cells.owner_j), np.asarray(cells.owner_k))
-    owner_index = tuple(np.argwhere(owner)[0])
-    members = np.argwhere((oi == owner_index[0]) & (oj == owner_index[1]) & (ok == owner_index[2]))
-    assert len(members) >= 2
-    force = jnp.zeros(geometry.owned_shape)
-    first, second = map(tuple, members[:2])
-    force = force.at[first].set(2.0).at[second].set(10.0)
-
-    projected = rhs._project_face_force_to_cell_rlp(force)
-    expected = transfer.cell_prolong(transfer.cell_restrict(force))
-    np.testing.assert_allclose(np.asarray(projected), np.asarray(expected), atol=2e-12)
-    same_owner = (oi == owner_index[0]) & (oj == owner_index[1]) & (ok == owner_index[2])
-    np.testing.assert_allclose(
-        np.asarray(projected[same_owner]),
-        np.asarray(projected[first]), atol=2e-12,
+    face_bc = LocalBoundaryFaceBC3D.empty(geometry.layout)
+    face_bc = replace(
+        face_bc,
+        kind_x=face_bc.kind_x.at[0].set(BC_NEUMANN),
+        value_x=face_bc.value_x.at[0].set(7.0),
+        mask_x=face_bc.mask_x.at[0].set(True),
     )
-    np.testing.assert_allclose(
-        np.asarray(rhs._project_face_force_to_cell_rlp(jnp.ones_like(force))),
-        np.ones(geometry.owned_shape), atol=2e-12,
+    context = StencilBuilderContext(layout=geometry.layout, domain=domain)
+    rng = np.random.default_rng(29)
+    force = jnp.asarray(rng.normal(size=geometry.owned_shape))
+    q_owner = jnp.asarray(rng.normal(size=geometry.owned_shape)) * transfer.active_face_owner
+
+    lifted = rhs._cell_force_to_outgoing_face_mass_adjoint(force, face_bc, context)
+    homogeneous_bc = replace(
+        face_bc,
+        value_x=jnp.zeros_like(face_bc.value_x),
+        value_y=jnp.zeros_like(face_bc.value_y),
+        value_z=jnp.zeros_like(face_bc.value_z),
     )
-    restricted = transfer.cell_restrict(force)
-    np.testing.assert_array_equal(np.asarray(restricted)[~owner], 0.0)
+
+    def homogeneous_f2c(face_values_fine):
+        halo = rhs._prepare_fine_storage_halo(face_values_fine, homogeneous_bc)
+        forward, backward = rhs._fci_remote_values(halo, context)
+        return local_outgoing_face_to_center_average_fci_op(
+            halo, geometry, context=context,
+            forward_remote_values=forward, backward_remote_values=backward,
+        )
+
+    expected_owner = transfer.cell_to_face_mass_adjoint_lift(
+        transfer.cell_restrict(force), homogeneous_f2c
+    )
+    expected = transfer.face_prolong(expected_owner)
+    np.testing.assert_allclose(np.asarray(lifted), np.asarray(expected), atol=3e-11)
+    np.testing.assert_array_equal(
+        np.asarray(lifted)[~np.asarray(topology.edge_active)], 0.0
+    )
+    owner_lifted = transfer.face_restrict(lifted)
+    np.testing.assert_array_equal(
+        np.asarray(owner_lifted)[~np.asarray(topology.is_active_owner)], 0.0
+    )
+    lhs = jnp.sum(topology.aggregate_measure * expected_owner * q_owner)
+    rhs_inner = jnp.sum(
+        transfer.cell_mass * transfer.cell_restrict(force)
+        * transfer.face_to_cell_reconstruction(q_owner, homogeneous_f2c)
+    )
+    np.testing.assert_allclose(np.asarray(lhs), np.asarray(rhs_inner), atol=3e-11)
+
+    # Term diagnostics restrict only once at assembly.  The linear lift may
+    # therefore be applied to the perpendicular Poisson/diffusion pieces
+    # separately without changing their final owner-space sum.
+    force_a = 0.35 * force
+    force_b = force - force_a
+    sum_owner = transfer.face_restrict(
+        rhs._cell_force_to_outgoing_face_mass_adjoint(force_a + force_b, face_bc, context)
+    )
+    term_owner = (
+        transfer.face_restrict(
+            rhs._cell_force_to_outgoing_face_mass_adjoint(force_a, face_bc, context)
+        )
+        + transfer.face_restrict(
+            rhs._cell_force_to_outgoing_face_mass_adjoint(force_b, face_bc, context)
+        )
+    )
+    np.testing.assert_allclose(np.asarray(sum_owner), np.asarray(term_owner), atol=3e-11)
