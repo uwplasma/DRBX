@@ -24,6 +24,7 @@ from .fci_operators import (
 
 
 FineGradient = Callable[[jnp.ndarray], jnp.ndarray]
+FineFaceToCenter = Callable[[jnp.ndarray], jnp.ndarray]
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,72 @@ class LocalFciFaceGalerkinTransfer:
 
         return restrict_local_outgoing_fci_face_field(fine_values, self.face_topology)
 
+    def face_to_cell_reconstruction(
+        self,
+        face_values_owner: jnp.ndarray,
+        homogeneous_fine_face_to_center: FineFaceToCenter,
+    ) -> jnp.ndarray:
+        """Return ``A=R_c C_f2c P_e`` in local owner spaces.
+
+        ``homogeneous_fine_face_to_center`` is the complete *linear* outgoing
+        face-to-centre reconstruction on fine storage.  In production it must
+        include the mapped FCI interpolation, leg weights, and any required
+        remote values.  Affine boundary traces must be split from that
+        callback before calling this method, so that its transpose has the
+        intended virtual-work meaning.
+        """
+
+        face_values = jnp.asarray(face_values_owner, dtype=jnp.float64)
+        if face_values.shape != self.cells.shape:
+            raise ValueError("face_values_owner must match cells.shape")
+        fine_center = jnp.asarray(
+            homogeneous_fine_face_to_center(self.face_prolong(face_values)),
+            dtype=jnp.float64,
+        )
+        if fine_center.shape != self.cells.shape:
+            raise ValueError(
+                "homogeneous_fine_face_to_center must return cells.shape"
+            )
+        return self.cell_restrict(fine_center)
+
+    def cell_to_face_mass_adjoint_lift(
+        self,
+        cell_values_owner: jnp.ndarray,
+        homogeneous_fine_face_to_center: FineFaceToCenter,
+    ) -> jnp.ndarray:
+        """Return the geometric mass-adjoint face lift ``L=M_e^-1 A^T M_c``.
+
+        Here ``A`` is :meth:`face_to_cell_reconstruction`.  Consequently the
+        returned owner field satisfies
+
+        ``<A v, r>_Mc = <v, L r>_Me``.
+
+        Both inputs and outputs are explicitly owner-masked: aliases never
+        store degrees of freedom.  This is a transfer API only; it does not
+        modify the compatible ``G_c/D_c`` pair.  A density-weighted momentum
+        lift, if selected by the model, requires corresponding supplied
+        density masses rather than this geometric one.
+        """
+
+        cell_values = jnp.asarray(cell_values_owner, dtype=jnp.float64)
+        if cell_values.shape != self.cells.shape:
+            raise ValueError("cell_values_owner must match cells.shape")
+        cell_values = jnp.where(self.active_owner, cell_values, 0.0)
+        zero_face = jnp.zeros(self.cells.shape, dtype=cell_values.dtype)
+
+        def reconstruction(face_values: jnp.ndarray) -> jnp.ndarray:
+            return self.face_to_cell_reconstruction(
+                face_values, homogeneous_fine_face_to_center
+            )
+
+        adjoint = jax.linear_transpose(reconstruction, zero_face)(
+            self.cell_mass * cell_values
+        )[0]
+        result = adjoint / jnp.maximum(
+            self.face_topology.aggregate_measure, 1.0e-30
+        )
+        return jnp.where(self.active_face_owner, result, 0.0)
+
     def _restrict_cell(self, fine_values: jnp.ndarray) -> jnp.ndarray:
         self._check_owner_local()
         values = jnp.asarray(fine_values, dtype=jnp.float64)
@@ -184,6 +251,7 @@ def build_local_fci_face_galerkin_transfer(
 
 __all__ = [
     "FineGradient",
+    "FineFaceToCenter",
     "LocalFciFaceGalerkinTransfer",
     "build_local_fci_face_galerkin_transfer",
 ]

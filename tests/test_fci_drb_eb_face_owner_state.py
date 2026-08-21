@@ -117,9 +117,10 @@ def test_staggered_perpendicular_and_source_paths_keep_one_face_transfer():
     parallel_source = inspect.getsource(LocalFciDrbEBRhs._fci_parallel_terms)
     assert "Vi_center_halo = self._prepare_cell_rlp_halo_from_fine(" in parallel_source
     assert "Ve_center_halo = self._prepare_cell_rlp_halo_from_fine(" in parallel_source
-    assert source.count("self._project_face_force_to_cell_rlp(") == 5
-    assert "Vi_perpendicular_rhs = self._center_owned_to_outgoing_face(" in source
-    assert "Ve_perpendicular_rhs = self._center_owned_to_outgoing_face(" in source
+    assert "self._project_face_force_to_cell_rlp(" not in source
+    assert "Vi_perpendicular_rhs = self._cell_force_to_outgoing_face_mass_adjoint(" in source
+    assert "Ve_perpendicular_rhs = self._cell_force_to_outgoing_face_mass_adjoint(" in source
+    assert "value = self._cell_force_to_outgoing_face_mass_adjoint(" in parallel_source
     assert source.count("assembled = self._restrict_fine_state(") == 1
     # Vi/Ve sources are not interpreted as stale face-owner slots: they are
     # taken from the cell-owned input and reach face storage through c2f/R_e.
