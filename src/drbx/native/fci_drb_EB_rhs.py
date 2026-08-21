@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import math
+import os
 from typing import Callable
 
 import jax
@@ -51,6 +52,13 @@ from .fci_operators import (
     local_parallel_div_b_fci_from_q_op,
     local_grad_parallel_op_fci_compatible_from_q,
     local_parallel_diffusion_fci_op,
+    local_center_to_outgoing_face_average_fci_op,
+    local_outgoing_face_to_center_average_fci_op,
+    local_center_to_outgoing_face_grad_parallel_fci_op,
+    local_outgoing_face_to_center_div_parallel_fci_op,
+    LocalOutgoingFciFaceTopology3D,
+    prolong_local_outgoing_fci_face_owner_field,
+    restrict_local_outgoing_fci_face_field,
     local_perp_laplacian_conservative_op,
     local_curvature_conservative_op,
     local_poisson_bracket_compatible_flux_op,
@@ -64,6 +72,7 @@ from .fci_operators import (
     _mask_state_inactive_owned,
 )
 from .fci_gmres import SolvaxGmresConfig, SolvaxGmresInfo
+from .fci_face_galerkin import build_local_fci_face_galerkin_transfer
 
 
 @jax.tree_util.register_pytree_node_class
@@ -78,6 +87,71 @@ class FciDrbEBState(FciModelState):
     Vi: jax.Array
     Ve: jax.Array
     vorticity: jax.Array
+
+
+RHS_TERM_FIELD_NAMES = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")
+RHS_TERM_NAMES = (
+    (
+        "poisson_bracket",
+        "parallel_density_flux_divergence",
+        "curvature",
+        "perpendicular_diffusion",
+        "parallel_diffusion",
+        "characteristic_leg_upwind",
+        "source",
+    ),
+    (
+        "poisson_bracket",
+        "parallel_advection",
+        "curvature",
+        "parallel_compression",
+        "perpendicular_diffusion",
+        "parallel_diffusion",
+        "characteristic_leg_upwind",
+        "source",
+    ),
+    (
+        "poisson_bracket",
+        "parallel_advection",
+        "curvature",
+        "parallel_compression",
+        "perpendicular_diffusion",
+        "parallel_diffusion",
+        "characteristic_leg_upwind",
+        "source",
+    ),
+    (
+        "poisson_bracket",
+        "parallel_self_advection",
+        "parallel_pressure",
+        "perpendicular_diffusion",
+        "parallel_diffusion",
+        "characteristic_leg_upwind",
+        "source",
+    ),
+    (
+        "poisson_bracket",
+        "parallel_self_advection",
+        "collision",
+        "electrostatic",
+        "electron_pressure",
+        "thermal_force",
+        "perpendicular_diffusion",
+        "parallel_diffusion",
+        "characteristic_leg_upwind",
+        "source",
+    ),
+    (
+        "poisson_bracket",
+        "parallel_advection",
+        "parallel_current",
+        "curvature",
+        "perpendicular_diffusion",
+        "parallel_diffusion",
+        "source",
+    ),
+)
+RHS_TERM_SLOT_COUNT = max(len(names) for names in RHS_TERM_NAMES)
 
 
 @jax.tree_util.register_pytree_node_class
@@ -1204,6 +1278,11 @@ class LocalFciDrbEBRhs:
     face_bc_builder: LocalFciDrbEBFaceBCBuilder
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None
     control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None = None
+    # Outgoing FCI source-edge ownership is independent of the cell-owner
+    # topology used by angular RLP.  It is required when Vi/Ve are evolved in
+    # ``fci-staggered`` storage, while the other five state leaves remain in
+    # cell-owner storage.
+    outgoing_face_topology: LocalOutgoingFciFaceTopology3D | None = None
     diffusion_only: bool = False
     # Static diagnostic mode: retain only the production parallel subsystem
     # in the returned RHS while still reconstructing phi normally.
@@ -1241,6 +1320,15 @@ class LocalFciDrbEBRhs:
     # Python option so JIT compilation cannot silently mix coordinate and FCI
     # discretizations within one compiled RHS.
     parallel_operator_scheme: str = "coordinate"
+    # Experimental FCI-only storage/layout selection.  In ``fci-staggered``
+    # Vi and Ve retain the cell array shape but their values live on outgoing
+    # mapped FCI faces (the source-edge convention).  Perpendicular operators
+    # deliberately remain source-plane/cell anchored in this first version.
+    parallel_velocity_layout: str = field(
+        default_factory=lambda: os.environ.get(
+            "DRBX_PARALLEL_VELOCITY_LAYOUT", "cell-centered"
+        )
+    )
     # Optional FCI-only closure for a target row whose mapped forward or
     # backward leg terminates at the physical vessel wall.  Interior rows keep
     # the compatible centered FCI operator.
@@ -1314,6 +1402,40 @@ class LocalFciDrbEBRhs:
             raise ValueError(
                 "parallel_operator_scheme must be 'coordinate' or 'fci', got "
                 f"{self.parallel_operator_scheme!r}"
+            )
+        if self.parallel_velocity_layout not in ("cell-centered", "fci-staggered"):
+            raise ValueError(
+                "parallel_velocity_layout must be 'cell-centered' or "
+                f"'fci-staggered', got {self.parallel_velocity_layout!r}"
+            )
+        if self.outgoing_face_topology is not None:
+            if not isinstance(self.outgoing_face_topology, LocalOutgoingFciFaceTopology3D):
+                raise TypeError("outgoing_face_topology must be LocalOutgoingFciFaceTopology3D or None")
+            if self.outgoing_face_topology.layout != self.domain.layout:
+                raise ValueError("outgoing_face_topology must share domain.layout")
+        if (
+            self.parallel_velocity_layout == "fci-staggered"
+            and self.outgoing_face_topology is None
+        ):
+            raise ValueError(
+                "parallel_velocity_layout='fci-staggered' requires "
+                "outgoing_face_topology"
+            )
+        if (
+            self.parallel_velocity_layout == "fci-staggered"
+            and self.parallel_operator_scheme != "fci"
+        ):
+            raise ValueError(
+                "parallel_velocity_layout='fci-staggered' requires "
+                "parallel_operator_scheme='fci'"
+            )
+        if (
+            self.parallel_velocity_layout == "fci-staggered"
+            and self.fci_parallel_leg_scheme != "centered"
+        ):
+            raise ValueError(
+                "parallel_velocity_layout='fci-staggered' currently requires "
+                "fci_parallel_leg_scheme='centered'"
             )
         if self.fci_parallel_leg_scheme not in (
             "centered",
@@ -1545,9 +1667,103 @@ class LocalFciDrbEBRhs:
             topology_filler=self.topology_filler,
         )(field_halo, self.domain, face_bc)
 
+    def _project_fine_center_to_cell_rlp(self, values_fine: jnp.ndarray) -> jnp.ndarray:
+        """Return ``P_c R_c`` of a fine source-cell field.
+
+        Outgoing-face velocity storage has more endpoint-support degrees of
+        freedom than the angular cell RLP space.  Any quantity that is about
+        to enter a cell-centred (perpendicular or cell-gradient) operator
+        must first discard that unresolved source-subface component.  This is
+        deliberately a cell projection, not an ``R_e/P_e`` face filter.
+        """
+
+        values = jnp.asarray(values_fine, dtype=jnp.float64)
+        if self.control_volume_geometry is None:
+            return values
+        owners = self._owner_field(self._restrict_fine_field(values))
+        return expand_local_control_volume_owner_field(
+            owners, self.control_volume_geometry.cells
+        )
+
+    def _prepare_cell_rlp_halo_from_fine(
+        self,
+        values_fine: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        """Project a fine centre field with ``P_cR_c`` and close its halo."""
+
+        return self._prepare_fine_storage_halo(
+            self._project_fine_center_to_cell_rlp(values_fine), face_bc
+        )
+
+    def _project_face_force_to_cell_rlp(self, force_face: jnp.ndarray) -> jnp.ndarray:
+        """Project a completed staggered momentum force into ``P_c R_c``.
+
+        The force is indexed by outgoing source rows but is a source-cell
+        quantity once all of its factors have been assembled.  In angular RLP
+        this prevents endpoint-support subfaces within one cell aggregate from
+        injecting an unresolved theta mode into the final face restriction.
+        Scalar equations and support-resolved G/D/flux paths do not use this.
+        """
+
+        if (
+            self.parallel_velocity_layout != "fci-staggered"
+            or self.control_volume_geometry is None
+            or not self.control_volume_geometry.has_angular_agglomeration
+        ):
+            return force_face
+        return self._project_fine_center_to_cell_rlp(force_face)
+
+    def _prepare_face_halo(
+        self,
+        values_owned: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        """Prolong outgoing-edge owners, then apply the ordinary field halo closure.
+
+        The array shape deliberately remains cell-shaped: an entry represents
+        the outgoing mapped FCI edge owned by that source-cell slot.  Only the
+        ownership/prolongation is different in this integration slice; the
+        existing parallel and perpendicular operators keep their current
+        semantics.
+        """
+
+        topology = self.outgoing_face_topology
+        if topology is None:
+            raise RuntimeError("missing outgoing_face_topology for face storage")
+        owners = self._owner_face_field(values_owned)
+        fine = prolong_local_outgoing_fci_face_owner_field(owners, topology)
+        field_halo = inject_owned_field_to_halo(fine, self.domain.layout)
+        return LocalHaloClosure3D(
+            physical_ghost_filler=self.physical_ghost_filler,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+        )(field_halo, self.domain, face_bc)
+
+    def _prepare_fine_storage_halo(
+        self,
+        values_fine_owned: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        """Close a fine-grid derived field without RLP owner projection.
+
+        Staggered source-edge products are fine storage values even when the
+        primary state uses projected owners, so routing them through
+        :meth:`_prepare_scalar_halo` would incorrectly collapse aliases.
+        """
+        field_halo = inject_owned_field_to_halo(values_fine_owned, self.domain.layout)
+        return LocalHaloClosure3D(
+            physical_ghost_filler=self.physical_ghost_filler,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+        )(field_halo, self.domain, face_bc)
+
     def _prepare_state_halo(self, state_owned, face_bc):
         state_owned = self._owner_state(state_owned)
-        if self.control_volume_geometry is None:
+        if (
+            self.control_volume_geometry is None
+            and self.parallel_velocity_layout != "fci-staggered"
+        ):
             return prepare_local_fci_drb_eb_state(
                 state_owned, self.domain, face_bc=face_bc,
                 halo_exchange=self.halo_exchange,
@@ -1559,29 +1775,49 @@ class LocalFciDrbEBRhs:
             phi=self._prepare_scalar_halo(state_owned.phi, face_bc.phi),
             Te=self._prepare_scalar_halo(state_owned.Te, face_bc.Te),
             Ti=self._prepare_scalar_halo(state_owned.Ti, face_bc.Ti),
-            Vi=self._prepare_scalar_halo(state_owned.Vi, face_bc.Vi),
-            Ve=self._prepare_scalar_halo(state_owned.Ve, face_bc.Ve),
+            Vi=(self._prepare_face_halo(state_owned.Vi, face_bc.Vi)
+                if self.parallel_velocity_layout == "fci-staggered"
+                else self._prepare_scalar_halo(state_owned.Vi, face_bc.Vi)),
+            Ve=(self._prepare_face_halo(state_owned.Ve, face_bc.Ve)
+                if self.parallel_velocity_layout == "fci-staggered"
+                else self._prepare_scalar_halo(state_owned.Ve, face_bc.Ve)),
             vorticity=self._prepare_scalar_halo(state_owned.vorticity, face_bc.vorticity),
         )
 
     def _owner_field(self, values: jnp.ndarray) -> jnp.ndarray:
-        """Return an owner-only field; merged aliases are never evolved."""
+        """Return a cell-owner field; merged cell aliases are never evolved."""
         values = jnp.asarray(values, dtype=jnp.float64)
         if self.control_volume_geometry is None:
             return values
         cells = self.control_volume_geometry.cells
         return jnp.where(cells.is_active_owner, values, 0.0)
 
+    def _owner_face_field(self, values: jnp.ndarray) -> jnp.ndarray:
+        """Return an owner-only outgoing-FCI-face field."""
+
+        values = jnp.asarray(values, dtype=jnp.float64)
+        topology = self.outgoing_face_topology
+        if topology is None:
+            return values
+        return jnp.where(topology.is_active_owner, values, 0.0)
+
     def _owner_state(self, state: FciDrbEBState) -> FciDrbEBState:
-        if self.control_volume_geometry is None:
+        if (
+            self.control_volume_geometry is None
+            and self.parallel_velocity_layout != "fci-staggered"
+        ):
             return state
         return state.replace(
             density=self._owner_field(state.density),
             phi=self._owner_field(state.phi),
             Te=self._owner_field(state.Te),
             Ti=self._owner_field(state.Ti),
-            Vi=self._owner_field(state.Vi),
-            Ve=self._owner_field(state.Ve),
+            Vi=(self._owner_face_field(state.Vi)
+                if self.parallel_velocity_layout == "fci-staggered"
+                else self._owner_field(state.Vi)),
+            Ve=(self._owner_face_field(state.Ve)
+                if self.parallel_velocity_layout == "fci-staggered"
+                else self._owner_field(state.Ve)),
             vorticity=self._owner_field(state.vorticity),
         )
 
@@ -1664,18 +1900,30 @@ class LocalFciDrbEBRhs:
             self.domain,
         )
 
+    def _restrict_fine_face_field(self, value: jnp.ndarray) -> jnp.ndarray:
+        """Apply R_e to a completed fine outgoing-edge result."""
+
+        topology = self.outgoing_face_topology
+        if topology is None:
+            return value
+        return restrict_local_outgoing_fci_face_field(value, topology)
+
     def _restrict_fine_state(self, state: FciDrbEBState) -> FciDrbEBState:
         """Restrict every assembled fine-grid RHS leaf to owner space."""
 
-        if not self._uses_projected_fine_grid:
+        if not self._uses_projected_fine_grid and self.parallel_velocity_layout != "fci-staggered":
             return state
         return state.replace(
             density=self._restrict_fine_field(state.density),
             phi=self._restrict_fine_field(state.phi),
             Te=self._restrict_fine_field(state.Te),
             Ti=self._restrict_fine_field(state.Ti),
-            Vi=self._restrict_fine_field(state.Vi),
-            Ve=self._restrict_fine_field(state.Ve),
+            Vi=(self._restrict_fine_face_field(state.Vi)
+                if self.parallel_velocity_layout == "fci-staggered"
+                else self._restrict_fine_field(state.Vi)),
+            Ve=(self._restrict_fine_face_field(state.Ve)
+                if self.parallel_velocity_layout == "fci-staggered"
+                else self._restrict_fine_field(state.Ve)),
             vorticity=self._restrict_fine_field(state.vorticity),
         )
 
@@ -2071,8 +2319,12 @@ class LocalFciDrbEBRhs:
             phi=self._prepare_scalar_halo(state_owned.phi, face_bc.phi),
             Te=self._prepare_scalar_halo(state_owned.Te, face_bc.Te),
             Ti=self._prepare_scalar_halo(state_owned.Ti, face_bc.Ti),
-            Vi=self._prepare_scalar_halo(state_owned.Vi, face_bc.Vi),
-            Ve=self._prepare_scalar_halo(state_owned.Ve, face_bc.Ve),
+            Vi=(self._prepare_face_halo(state_owned.Vi, face_bc.Vi)
+                if self.parallel_velocity_layout == "fci-staggered"
+                else self._prepare_scalar_halo(state_owned.Vi, face_bc.Vi)),
+            Ve=(self._prepare_face_halo(state_owned.Ve, face_bc.Ve)
+                if self.parallel_velocity_layout == "fci-staggered"
+                else self._prepare_scalar_halo(state_owned.Ve, face_bc.Ve)),
             vorticity=self._prepare_scalar_halo(
                 state_owned.vorticity, face_bc.vorticity
             ),
@@ -2238,6 +2490,42 @@ class LocalFciDrbEBRhs:
             ),
         )
 
+    def _outgoing_face_to_center_halo(
+        self,
+        face_halo: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+        context: StencilBuilderContext,
+    ) -> jnp.ndarray:
+        """Reconstruct outgoing FCI-edge storage to a closed centered halo."""
+
+        forward, backward = self._fci_remote_values(face_halo, context)
+        centered = local_outgoing_face_to_center_average_fci_op(
+            face_halo,
+            self.geometry,
+            context=context,
+            forward_remote_values=forward,
+            backward_remote_values=backward,
+        )
+        return self._prepare_cell_rlp_halo_from_fine(centered, face_bc)
+
+    def _center_owned_to_outgoing_face(
+        self,
+        values_owned: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+        context: StencilBuilderContext,
+    ) -> jnp.ndarray:
+        """Map a centered fine result to owned outgoing FCI source edges."""
+
+        centered_halo = self._prepare_fine_storage_halo(values_owned, face_bc)
+        forward, backward = self._fci_remote_values(centered_halo, context)
+        return local_center_to_outgoing_face_average_fci_op(
+            centered_halo,
+            self.geometry,
+            context=context,
+            forward_remote_values=forward,
+            backward_remote_values=backward,
+        )
+
     def _fci_prepare_q(
         self,
         q_owned: jnp.ndarray,
@@ -2339,6 +2627,52 @@ class LocalFciDrbEBRhs:
             layout=self.domain.layout,
         )
         return self._fci_prepare_q(1.0 / B_owned, trace, context)
+
+    def _fci_face_galerkin_core(
+        self,
+        context: StencilBuilderContext,
+        homogeneous_face_bc: LocalBoundaryFaceBC3D,
+    ):
+        """Return the angular-RLP transfer and its homogeneous mapped ``G_f``.
+
+        Kept narrow so it can be tested independently of nonlinear RHS terms.
+        The closure is suitable for ``jax.linear_transpose``: it contains
+        only owner prolongation, halo/topology exchange, forward map exchange,
+        and homogeneous endpoint interpolation.
+        """
+
+        if self.control_volume_geometry is None or self.outgoing_face_topology is None:
+            raise RuntimeError("angular face Galerkin core requires cell and face topology")
+        transfer = build_local_fci_face_galerkin_transfer(
+            self.control_volume_geometry.cells, self.outgoing_face_topology,
+        )
+
+        def fine_forward_gradient(values_fine: jnp.ndarray) -> jnp.ndarray:
+            halo = inject_owned_field_to_halo(values_fine, self.domain.layout)
+            # This is the linear, homogeneous boundary part of the operator.
+            # In particular zero-Neumann must copy the interior value rather
+            # than leave a zero ghost, so constants remain in the nullspace.
+            halo = LocalHaloClosure3D(
+                physical_ghost_filler=self.physical_ghost_filler,
+                halo_exchange=self.halo_exchange,
+                topology_filler=self.topology_filler,
+            )(halo, self.domain, homogeneous_face_bc)
+            forward = RemoteFciDependencyExchange()(
+                field_halo=halo, direction=self.geometry.maps.forward,
+                context=context, cut_wall_bc=None,
+            )
+            backward_size = (
+                0 if self.geometry.maps.backward.remote is None
+                else self.geometry.maps.backward.remote.max_receive_values
+            )
+            stencil = build_local_fci_stencil_from_field(
+                halo, self.geometry, context,
+                forward_remote_values=forward,
+                backward_remote_values=jnp.zeros((backward_size,), dtype=halo.dtype),
+            )
+            return (stencil.plus - stencil.center) / jnp.maximum(stencil.dx_plus, 1.0e-30)
+
+        return transfer, fine_forward_gradient
 
     def _fci_parallel_terms(
         self,
@@ -2532,6 +2866,185 @@ class LocalFciDrbEBRhs:
             "grad_vorticity": gradient_values["vorticity"],
             "material_upwind_correction": material_upwind_correction,
         }
+        if self.parallel_velocity_layout == "fci-staggered":
+            # Vi/Ve are source-edge values.  Center flux divergences retain
+            # the established FCI identity div(F b)=B D(F/B). ``B_face`` is
+            # the reciprocal of the mapped average of 1/B (a harmonic
+            # outgoing-edge B), so a uniform B reduces exactly to bare D.
+            # Direct forward-edge G(f) is already the physical derivative at
+            # that edge and is intentionally left unmodified here.
+            def remote(field_halo: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+                return self._fci_remote_values(field_halo, context)
+
+            def c2f(field_halo: jnp.ndarray) -> jnp.ndarray:
+                forward, backward = remote(field_halo)
+                return local_center_to_outgoing_face_average_fci_op(
+                    field_halo, self.geometry, context=context,
+                    forward_remote_values=forward, backward_remote_values=backward,
+                )
+
+            use_face_galerkin = (
+                self.control_volume_geometry is not None
+                and self.control_volume_geometry.has_angular_agglomeration
+                and self.outgoing_face_topology is not None
+            )
+
+            face_galerkin, homogeneous_fine_forward_gradient = (
+                self._fci_face_galerkin_core(context, face_bc.density)
+                if use_face_galerkin else (None, None)
+            )
+
+            def g(field_halo: jnp.ndarray) -> jnp.ndarray:
+                if face_galerkin is not None:
+                    # Keep the field's actual prepared wall trace.  Only D
+                    # uses the homogeneous core; this is R_e G_actual P_c.
+                    forward, backward = remote(field_halo)
+                    fine_gradient = local_center_to_outgoing_face_grad_parallel_fci_op(
+                        field_halo, self.geometry, context=context,
+                        forward_remote_values=forward, backward_remote_values=backward,
+                    )
+                    owner_gradient = face_galerkin.face_restrict(fine_gradient)
+                    return face_galerkin.face_prolong(owner_gradient)
+                forward, backward = remote(field_halo)
+                return local_center_to_outgoing_face_grad_parallel_fci_op(
+                    field_halo, self.geometry, context=context,
+                    forward_remote_values=forward, backward_remote_values=backward,
+                )
+
+            def d(face_halo: jnp.ndarray) -> jnp.ndarray:
+                if face_galerkin is not None:
+                    owner_face = face_galerkin.face_restrict(face_halo[owned])
+                    owner_div = face_galerkin.coarse_divergence(
+                        owner_face, homogeneous_fine_forward_gradient,
+                    )
+                    # The surrounding staggered RHS still completes its
+                    # ordinary projected-fine-grid restriction, so return a
+                    # fine storage representation exactly once here.
+                    return face_galerkin.cell_prolong(owner_div)
+                forward, backward = remote(face_halo)
+                return local_outgoing_face_to_center_div_parallel_fci_op(
+                    face_halo, self.geometry, context=context,
+                    forward_remote_values=forward, backward_remote_values=backward,
+                )
+
+            def f2c(face_halo: jnp.ndarray) -> jnp.ndarray:
+                forward, backward = remote(face_halo)
+                return local_outgoing_face_to_center_average_fci_op(
+                    face_halo, self.geometry, context=context,
+                    forward_remote_values=forward, backward_remote_values=backward,
+                )
+
+            inverse_b_face = local_center_to_outgoing_face_average_fci_op(
+                inverse_b_halo, self.geometry, context=context,
+                forward_remote_values=inverse_b_forward,
+                backward_remote_values=inverse_b_backward,
+            )
+            inverse_b_face_bc = _dirichlet_face_bc_from_values(
+                tuple(
+                    1.0 / jnp.maximum(
+                        jnp.asarray(face.Bmag_owned, dtype=jnp.float64), 1.0e-30
+                    )
+                    for face in self.geometry.face_bfield.axes
+                ),
+                self.domain.layout,
+                (face_bc.phi.mask_x, face_bc.phi.mask_y, face_bc.phi.mask_z),
+            )
+            inverse_b_face_halo = self._prepare_fine_storage_halo(
+                inverse_b_face, inverse_b_face_bc
+            )
+            B_center = jnp.maximum(
+                jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
+                1.0e-30,
+            )
+            def flux_div(face_flux_halo: jnp.ndarray) -> jnp.ndarray:
+                return B_center * d(face_flux_halo * inverse_b_face_halo)
+
+            n_face = c2f(state_halo.density)
+            n_face_halo = self._prepare_fine_storage_halo(n_face, face_bc.density)
+            Vi_face_halo, Ve_face_halo = state_halo.Vi, state_halo.Ve
+            nVe_face_halo = n_face_halo * Ve_face_halo
+            j_face_halo = n_face_halo * (Vi_face_halo - Ve_face_halo)
+            Vi_center = f2c(Vi_face_halo)
+            Ve_center = f2c(Ve_face_halo)
+            # Velocity gradients and parallel diffusion are cell-centred.
+            # Remove source-subface modes before either enters the compatible
+            # G/D pair.
+            Vi_center_halo = self._prepare_cell_rlp_halo_from_fine(
+                Vi_center, face_bc.Vi
+            )
+            Ve_center_halo = self._prepare_cell_rlp_halo_from_fine(
+                Ve_center, face_bc.Ve
+            )
+            current_face_halo = j_face_halo
+            vorticity_product_halo = self._prepare_fine_storage_halo(
+                Vi_face_halo[owned] * g(state_halo.vorticity), face_bc.vorticity
+            )
+            result.update({
+                "density_flux_div": flux_div(nVe_face_halo),
+                "current_flux_div": flux_div(j_face_halo),
+                "vorticity_current_flux_div": flux_div(current_face_halo),
+                "parallel_Vi_flux_div": flux_div(Vi_face_halo),
+                "Ve_flux_div": flux_div(Ve_face_halo),
+                "grad_Te": g(state_halo.Te), "grad_Ti": g(state_halo.Ti),
+                "grad_Vi": g(Vi_center_halo), "grad_Ve": g(Ve_center_halo),
+                "grad_phi": g(state_halo.phi), "grad_Pe": g(fields["Pe"]),
+                "grad_pressure": g(fields["pressure"]),
+                "grad_current": g(self._prepare_fine_storage_halo(f2c(j_face_halo), face_bc.Ve)),
+                "grad_vorticity": g(state_halo.vorticity),
+                "staggered_n_face": n_face,
+                "staggered_Vi_face": Vi_face_halo[owned],
+                "staggered_Ve_face": Ve_face_halo[owned],
+                "staggered_j_face": j_face_halo[owned],
+                "staggered_Te_advection": f2c(self._prepare_fine_storage_halo(Ve_face_halo[owned] * g(state_halo.Te), face_bc.Te)),
+                "staggered_Ti_advection": f2c(self._prepare_fine_storage_halo(Vi_face_halo[owned] * g(state_halo.Ti), face_bc.Ti)),
+                "staggered_vorticity_advection": f2c(vorticity_product_halo),
+            })
+
+        # In staggered mode the first-order face pair above is the compatible
+        # parallel operator.  Keep every diffusion operand on that pair rather
+        # than feeding the legacy cell-centred diffusion result into a face
+        # RHS slot.  Vi/Ve first reconstruct to centres, apply B D(B^-1 G),
+        # then return to outgoing-edge storage.
+        if self.parallel_velocity_layout == "fci-staggered":
+            diffusion_halos = {
+                "density": state_halo.density,
+                "Te": state_halo.Te,
+                "Ti": state_halo.Ti,
+                "Vi": Vi_center_halo,
+                "Ve": Ve_center_halo,
+                "vorticity": state_halo.vorticity,
+            }
+            diffusion_bcs = {
+                "density": face_bc.density,
+                "Te": face_bc.Te,
+                "Ti": face_bc.Ti,
+                "Vi": face_bc.Vi,
+                "Ve": face_bc.Ve,
+                "vorticity": face_bc.vorticity,
+            }
+            for name, coefficient in (
+                ("density", self.parameters.density_D_parallel),
+                ("Te", self.parameters.electron_temperature_chi_parallel),
+                ("Ti", self.parameters.ion_temperature_chi_parallel),
+                ("Vi", self.parameters.Vi_parallel_viscosity),
+                ("Ve", self.parameters.Ve_parallel_viscosity),
+                ("vorticity", self.parameters.vorticity_D_parallel),
+            ):
+                if float(coefficient) == 0.0:
+                    value = jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
+                else:
+                    gradient_halo = self._prepare_fine_storage_halo(
+                        g(diffusion_halos[name]), diffusion_bcs[name]
+                    )
+                    value = jnp.asarray(coefficient, dtype=jnp.float64) * flux_div(
+                        gradient_halo
+                    )
+                if name in ("Vi", "Ve"):
+                    value = self._center_owned_to_outgoing_face(
+                        value, diffusion_bcs[name], context
+                    )
+                result[f"{name}_parallel_diff"] = value
+            return result
 
         for name, coefficient in (
             ("density", self.parameters.density_D_parallel),
@@ -3009,6 +3522,12 @@ class LocalFciDrbEBRhs:
         diagnostics and alternative approximate operators; production
         residuals and the current frozen-JVP preconditioner use the default.
         """
+        if self.parallel_velocity_layout == "fci-staggered":
+            raise ValueError(
+                "parallel_velocity_layout='fci-staggered' is currently "
+                "supported only by the explicit RK4 path; IMEX splitting "
+                "does not yet preserve source-edge velocity locations"
+            )
 
         face_bc = self._face_bcs(state_owned)
         state_halo_without_phi = self._prepare_state_halo(state_owned, face_bc)
@@ -3495,6 +4014,7 @@ class LocalFciDrbEBRhs:
         phi_owned: jnp.ndarray | None = None,
         return_term_diagnostics: bool = False,
         return_term_fields: bool = False,
+        return_rhs_term_fields: bool = False,
     ) -> FciDrbEBState | tuple[FciDrbEBState, jnp.ndarray]:
         """Evaluate one EB RHS stage.
 
@@ -3516,11 +4036,24 @@ class LocalFciDrbEBRhs:
         perpendicular diffusion, and parallel viscosity.  This diagnostic
         mode is intended for postmortem analysis and does not alter the normal
         compiled time-integration path.
+
+        ``return_rhs_term_fields=True`` returns a padded array with shape
+        ``(6, RHS_TERM_SLOT_COUNT, *owned_shape)``.  The field and term order
+        is defined by ``RHS_TERM_FIELD_NAMES`` and ``RHS_TERM_NAMES``.  This
+        all-equation diagnostic is mutually exclusive with the two legacy
+        electron-velocity diagnostic modes.
         """
 
-        if return_term_diagnostics and return_term_fields:
+        if sum(
+            bool(value)
+            for value in (
+                return_term_diagnostics,
+                return_term_fields,
+                return_rhs_term_fields,
+            )
+        ) > 1:
             raise ValueError(
-                "return_term_diagnostics and return_term_fields are mutually exclusive"
+                "RHS term diagnostic return modes are mutually exclusive"
             )
 
         if source_owned is None:
@@ -3533,10 +4066,26 @@ class LocalFciDrbEBRhs:
                 Ve=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
                 vorticity=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
             )
-        source_owned = self._owner_state(
-            _mask_local_eb_state_inactive(source_owned, self.geometry)
-        )
+        source_input = _mask_local_eb_state_inactive(source_owned, self.geometry)
+        source_owned = self._owner_state(source_input)
         face_bc = self._face_bcs(state_owned)
+        if self.parallel_velocity_layout == "fci-staggered":
+            # User/model sources are center-owned fields.  Project them to
+            # fine outgoing edges first, then R_e into the velocity storage.
+            source_owned = source_owned.replace(
+                Vi=self._owner_face_field(self._restrict_fine_face_field(
+                    self._center_owned_to_outgoing_face(
+                        self._owner_field(source_input.Vi), face_bc.Vi,
+                        self._stencil_builder_context(),
+                    )
+                )),
+                Ve=self._owner_face_field(self._restrict_fine_face_field(
+                    self._center_owned_to_outgoing_face(
+                        self._owner_field(source_input.Ve), face_bc.Ve,
+                        self._stencil_builder_context(),
+                    )
+                )),
+            )
         state_halo_without_phi = self._prepare_state_halo(state_owned, face_bc)
         primitive_cv_closures = None
         if phi_owned is None:
@@ -3586,6 +4135,25 @@ class LocalFciDrbEBRhs:
             if self.parallel_operator_scheme == "fci"
             else None
         )
+        if self.parallel_velocity_layout == "fci-staggered":
+            # Perpendicular physics is center-located.  The primary Vi/Ve
+            # state remains expanded outgoing-edge storage for the parallel
+            # subsystem, but its cell gradients/stencils/diffusion see the
+            # leg-length-weighted f2c reconstruction with real remote reads.
+            Vi_perp_halo = self._outgoing_face_to_center_halo(
+                state_halo.Vi, face_bc.Vi, context
+            )
+            Ve_perp_halo = self._outgoing_face_to_center_halo(
+                state_halo.Ve, face_bc.Ve, context
+            )
+            perpendicular_operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
+                state_halo.replace(Vi=Vi_perp_halo, Ve=Ve_perp_halo),
+                self.geometry, self.domain, face_bc, tau=self.parameters.tau,
+            )
+        else:
+            Vi_perp_halo = state_halo.Vi
+            Ve_perp_halo = state_halo.Ve
+            perpendicular_operator_boundary = operator_boundary
         # These state halos have already been closed with each field's
         # physical face BC.  Preserve those ghost values in the cell
         # gradients.  The one-sided physical builder is for
@@ -3595,8 +4163,8 @@ class LocalFciDrbEBRhs:
         density_gradient = build_gradient(state_halo.density, self.geometry, context)
         Te_gradient = build_gradient(state_halo.Te, self.geometry, context)
         Ti_gradient = build_gradient(state_halo.Ti, self.geometry, context)
-        Vi_gradient = build_gradient(state_halo.Vi, self.geometry, context)
-        Ve_gradient = build_gradient(state_halo.Ve, self.geometry, context)
+        Vi_gradient = build_gradient(Vi_perp_halo, self.geometry, context)
+        Ve_gradient = build_gradient(Ve_perp_halo, self.geometry, context)
         vorticity_gradient = build_gradient(state_halo.vorticity, self.geometry, context)
         phi_gradient = build_gradient(state_halo.phi, self.geometry, context)
 
@@ -3621,12 +4189,12 @@ class LocalFciDrbEBRhs:
         )
 
         Ve_conservative_stencil = build_local_conservative_stencil_from_field(
-            state_halo.Ve,
+            Ve_perp_halo,
             self.geometry,
             context,
         )
         Vi_conservative_stencil = build_local_conservative_stencil_from_field(
-            state_halo.Vi,
+            Vi_perp_halo,
             self.geometry,
             context,
         )
@@ -3635,8 +4203,8 @@ class LocalFciDrbEBRhs:
             Pe_halo
             + self.parameters.tau * state_halo.density * state_halo.Ti
         )
-        current_halo = state_halo.density * (state_halo.Vi - state_halo.Ve)
-        density_flux_halo = state_halo.density * state_halo.Ve
+        current_halo = state_halo.density * (Vi_perp_halo - Ve_perp_halo)
+        density_flux_halo = state_halo.density * Ve_perp_halo
 
         if self.curvature_scheme == "direct":
             Pe_gradient = build_gradient(Pe_halo, self.geometry, context)
@@ -3718,8 +4286,8 @@ class LocalFciDrbEBRhs:
         density = jnp.asarray(state_halo.density[owned], dtype=jnp.float64)
         Te = jnp.asarray(state_halo.Te[owned], dtype=jnp.float64)
         Ti = jnp.asarray(state_halo.Ti[owned], dtype=jnp.float64)
-        Vi = jnp.asarray(state_halo.Vi[owned], dtype=jnp.float64)
-        Ve = jnp.asarray(state_halo.Ve[owned], dtype=jnp.float64)
+        Vi = jnp.asarray(Vi_perp_halo[owned], dtype=jnp.float64)
+        Ve = jnp.asarray(Ve_perp_halo[owned], dtype=jnp.float64)
         density_safe = jnp.maximum(density, 1.0e-30)
         bmag = jnp.maximum(
             jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
@@ -3750,13 +4318,13 @@ class LocalFciDrbEBRhs:
             field_closure=primitive_cv_closures.get("Ti"),
         )
         Vi_diff = self._field_perp_diffusion(
-            state_halo.Vi,
+            Vi_perp_halo,
             face_bc.Vi,
             self.parameters.Vi_D_perp,
             field_closure=primitive_cv_closures.get("Vi"),
         )
         Ve_diff = self._field_perp_diffusion(
-            state_halo.Ve,
+            Ve_perp_halo,
             face_bc.Ve,
             self.parameters.Ve_D_perp,
             field_closure=primitive_cv_closures.get("Ve"),
@@ -3813,15 +4381,28 @@ class LocalFciDrbEBRhs:
             vorticity_parallel_diff = fci_parallel_terms["vorticity_parallel_diff"]
 
         if bool(self.diffusion_only):
-            return _mask_local_eb_state_inactive(FciDrbEBState(
+            if return_rhs_term_fields:
+                raise ValueError(
+                    "return_rhs_term_fields is not supported with diffusion_only"
+                )
+            diffusion_result = FciDrbEBState(
                 density=density_diff,
                 phi=jnp.zeros_like(phi_owned),
                 Te=Te_diff + Te_parallel_diff,
                 Ti=Ti_diff + Ti_parallel_diff,
-                Vi=Vi_diff + Vi_parallel_diff,
-                Ve=Ve_diff + Ve_parallel_diff,
+                Vi=((self._center_owned_to_outgoing_face(Vi_diff, face_bc.Vi, context)
+                     if self.parallel_velocity_layout == "fci-staggered" else Vi_diff)
+                    + Vi_parallel_diff),
+                Ve=((self._center_owned_to_outgoing_face(Ve_diff, face_bc.Ve, context)
+                     if self.parallel_velocity_layout == "fci-staggered" else Ve_diff)
+                    + Ve_parallel_diff),
                 vorticity=vorticity_diff + vorticity_parallel_diff,
-            ), self.geometry)
+            )
+            if self.parallel_velocity_layout == "fci-staggered":
+                return self._owner_state(_mask_local_eb_state_inactive(
+                    self._restrict_fine_state(diffusion_result), self.geometry
+                ))
+            return _mask_local_eb_state_inactive(diffusion_result, self.geometry)
 
         poisson_density = self._poisson_bracket_over_B(
             phi_gradient,
@@ -3862,8 +4443,8 @@ class LocalFciDrbEBRhs:
             phi_conservative_stencil,
             Vi_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
-            g_boundary_trace=operator_boundary.Vi,
-            f_field_halo=state_halo.phi, g_field_halo=state_halo.Vi,
+            g_boundary_trace=perpendicular_operator_boundary.Vi,
+            f_field_halo=state_halo.phi, g_field_halo=Vi_perp_halo,
             f_field_closure=primitive_cv_closures.get("phi"),
             g_field_closure=primitive_cv_closures.get("Vi"),
         )
@@ -3873,8 +4454,8 @@ class LocalFciDrbEBRhs:
             phi_conservative_stencil,
             Ve_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
-            g_boundary_trace=operator_boundary.Ve,
-            f_field_halo=state_halo.phi, g_field_halo=state_halo.Ve,
+            g_boundary_trace=perpendicular_operator_boundary.Ve,
+            f_field_halo=state_halo.phi, g_field_halo=Ve_perp_halo,
             f_field_closure=primitive_cv_closures.get("phi"),
             g_field_closure=primitive_cv_closures.get("Ve"),
         )
@@ -3931,6 +4512,48 @@ class LocalFciDrbEBRhs:
             "material_upwind_correction",
             jnp.zeros(self.geometry.owned_shape + (5,), dtype=jnp.float64),
         )
+        if self.parallel_velocity_layout == "fci-staggered":
+            n_face_safe = jnp.maximum(stage_parallel_terms["staggered_n_face"], 1.0e-30)
+            Vi_parallel_value = stage_parallel_terms["staggered_Vi_face"]
+            Ve_parallel_value = stage_parallel_terms["staggered_Ve_face"]
+            current_parallel_value = stage_parallel_terms["staggered_j_face"]
+            Te_parallel_advection = -stage_parallel_terms["staggered_Te_advection"]
+            Ti_parallel_advection = -stage_parallel_terms["staggered_Ti_advection"]
+            vorticity_parallel_advection = -stage_parallel_terms["staggered_vorticity_advection"]
+        else:
+            n_face_safe = density_safe
+            Vi_parallel_value, Ve_parallel_value = Vi, Ve
+            current_parallel_value = density * (Vi - Ve)
+            Te_parallel_advection = -Ve * grad_parallel_Te
+            Ti_parallel_advection = -Vi * grad_parallel_Ti
+            vorticity_parallel_advection = -Vi * grad_parallel_vorticity
+        Vi_self_advection_term = -Vi_parallel_value * grad_parallel_Vi
+        Vi_pressure_term = -grad_parallel_pressure / n_face_safe
+        Ve_self_advection_term = -Ve_parallel_value * grad_parallel_Ve
+        Ve_collision_term = mi_over_me * Ve_nu * current_parallel_value
+        Ve_electrostatic_term = mi_over_me * grad_parallel_phi
+        Ve_pressure_term = -mi_over_me * grad_parallel_Pe / n_face_safe
+        Ve_thermal_force_term = -0.71 * mi_over_me * grad_parallel_Te
+        if self.parallel_velocity_layout == "fci-staggered":
+            # These are completed source-cell momentum forces.  Project each
+            # term independently so RHS-term diagnostics retain the physical
+            # decomposition while no angular cell aggregate receives a
+            # support-subface force difference.
+            Vi_pressure_term = self._project_face_force_to_cell_rlp(
+                Vi_pressure_term
+            )
+            Ve_collision_term = self._project_face_force_to_cell_rlp(
+                Ve_collision_term
+            )
+            Ve_electrostatic_term = self._project_face_force_to_cell_rlp(
+                Ve_electrostatic_term
+            )
+            Ve_pressure_term = self._project_face_force_to_cell_rlp(
+                Ve_pressure_term
+            )
+            Ve_thermal_force_term = self._project_face_force_to_cell_rlp(
+                Ve_thermal_force_term
+            )
 
         (
             curvature_density_contribution,
@@ -3974,7 +4597,7 @@ class LocalFciDrbEBRhs:
         )
         Te_rhs = (
             -(poisson_Te / rho_star)
-            - Ve * grad_parallel_Te
+            + Te_parallel_advection
             + curvature_Te_contribution
             + (2.0 * Te / (3.0 * density_safe))
             * (0.71 * parallel_current_flux_divergence - density * parallel_Ve_flux_divergence)
@@ -3984,7 +4607,7 @@ class LocalFciDrbEBRhs:
         )
         Ti_rhs = (
             -(poisson_Ti / rho_star)
-            - Vi * grad_parallel_Ti
+            + Ti_parallel_advection
             + curvature_Ti_contribution
             + (2.0 * Ti / (3.0 * density_safe))
             * (parallel_current_flux_divergence - density * parallel_Vi_flux_divergence)
@@ -3992,40 +4615,191 @@ class LocalFciDrbEBRhs:
             + Ti_parallel_diff
             + material_upwind_correction[..., 2]
         )
-        Vi_rhs = (
+        Vi_perpendicular_rhs = (
             -(poisson_Vi / rho_star)
-            - Vi * grad_parallel_Vi
-            - grad_parallel_pressure / density_safe
             + Vi_diff
+        )
+        Ve_poisson_term = -(poisson_Ve / rho_star)
+        Ve_perpendicular_rhs = Ve_poisson_term + Ve_diff
+        if self.parallel_velocity_layout == "fci-staggered":
+            # Only the perpendicular center terms cross back to face storage.
+            # Parallel terms below already live on outgoing source edges.
+            Vi_perpendicular_rhs = self._center_owned_to_outgoing_face(
+                Vi_perpendicular_rhs, face_bc.Vi, context
+            )
+            Ve_perpendicular_rhs = self._center_owned_to_outgoing_face(
+                Ve_perpendicular_rhs, face_bc.Ve, context
+            )
+            Ve_poisson_term = self._center_owned_to_outgoing_face(
+                Ve_poisson_term, face_bc.Ve, context
+            )
+            Vi_poisson_term = self._center_owned_to_outgoing_face(
+                -(poisson_Vi / rho_star), face_bc.Vi, context
+            )
+            Vi_diff_term = self._center_owned_to_outgoing_face(
+                Vi_diff, face_bc.Vi, context
+            )
+            Ve_diff_term = self._center_owned_to_outgoing_face(
+                Ve_diff, face_bc.Ve, context
+            )
+        else:
+            Vi_poisson_term = -(poisson_Vi / rho_star)
+            Vi_diff_term = Vi_diff
+            Ve_diff_term = Ve_diff
+        Vi_rhs = (
+            Vi_perpendicular_rhs
+            + Vi_self_advection_term
+            + Vi_pressure_term
             + Vi_parallel_diff
             + material_upwind_correction[..., 3]
         )
-        Ve_poisson_term = -(poisson_Ve / rho_star)
-        Ve_self_advection_term = -Ve * grad_parallel_Ve
-        Ve_collision_term = mi_over_me * Ve_nu * current
-        Ve_electrostatic_term = mi_over_me * grad_parallel_phi
-        Ve_pressure_term = -mi_over_me * grad_parallel_Pe / density_safe
-        Ve_thermal_force_term = -0.71 * mi_over_me * grad_parallel_Te
         Ve_characteristic_upwind_term = material_upwind_correction[..., 4]
         Ve_rhs = (
-            Ve_poisson_term
+            Ve_perpendicular_rhs
             + Ve_self_advection_term
             + Ve_collision_term
             + Ve_electrostatic_term
             + Ve_pressure_term
             + Ve_thermal_force_term
-            + Ve_diff
             + Ve_parallel_diff
             + Ve_characteristic_upwind_term
         )
         vorticity_rhs = (
             -(poisson_vorticity / rho_star)
-            - Vi * grad_parallel_vorticity
+            + vorticity_parallel_advection
             + (bmag * bmag / density_safe) * vorticity_current_flux_divergence
             + curvature_vorticity_contribution
             + vorticity_diff
             + vorticity_parallel_diff
         )
+
+        zero_term = jnp.zeros_like(density)
+
+        def pack_rhs_terms(
+            fine_terms: tuple[jnp.ndarray, ...],
+            source_term: jnp.ndarray,
+            *,
+            face_owned: bool = False,
+        ) -> jnp.ndarray:
+            if face_owned:
+                owner_terms = [
+                    self._owner_face_field(self._restrict_fine_face_field(term))
+                    for term in fine_terms
+                ]
+                owner_terms.append(self._owner_face_field(source_term))
+            else:
+                owner_terms = [
+                    self._owner_field(
+                        _mask_inactive_owned(
+                            self._restrict_fine_field(term), self.geometry
+                        )
+                    )
+                    for term in fine_terms
+                ]
+                owner_terms.append(self._owner_field(source_term))
+            owner_zero = jnp.zeros_like(owner_terms[0])
+            owner_terms.extend(
+                owner_zero
+                for _ in range(RHS_TERM_SLOT_COUNT - len(owner_terms))
+            )
+            return jnp.stack(tuple(owner_terms), axis=0)
+
+        def all_rhs_term_fields(*, parallel_only: bool) -> jnp.ndarray:
+            nonparallel = (lambda term: zero_term if parallel_only else term)
+            density_terms = pack_rhs_terms(
+                (
+                    nonparallel(-(poisson_density / rho_star)),
+                    -parallel_density_flux_divergence,
+                    nonparallel(curvature_density_contribution),
+                    nonparallel(density_diff),
+                    density_parallel_diff,
+                    material_upwind_correction[..., 0],
+                ),
+                source_owned.density,
+            )
+            Te_terms = pack_rhs_terms(
+                (
+                    nonparallel(-(poisson_Te / rho_star)),
+                    Te_parallel_advection,
+                    nonparallel(curvature_Te_contribution),
+                    (2.0 * Te / (3.0 * density_safe))
+                    * (
+                        0.71 * parallel_current_flux_divergence
+                        - density * parallel_Ve_flux_divergence
+                    ),
+                    nonparallel(Te_diff),
+                    Te_parallel_diff,
+                    material_upwind_correction[..., 1],
+                ),
+                source_owned.Te,
+            )
+            Ti_terms = pack_rhs_terms(
+                (
+                    nonparallel(-(poisson_Ti / rho_star)),
+                    Ti_parallel_advection,
+                    nonparallel(curvature_Ti_contribution),
+                    (2.0 * Ti / (3.0 * density_safe))
+                    * (
+                        parallel_current_flux_divergence
+                        - density * parallel_Vi_flux_divergence
+                    ),
+                    nonparallel(Ti_diff),
+                    Ti_parallel_diff,
+                    material_upwind_correction[..., 2],
+                ),
+                source_owned.Ti,
+            )
+            Vi_terms = pack_rhs_terms(
+                (
+                    nonparallel(Vi_poisson_term),
+                    Vi_self_advection_term,
+                    Vi_pressure_term,
+                    nonparallel(Vi_diff_term),
+                    Vi_parallel_diff,
+                    material_upwind_correction[..., 3],
+                ),
+                source_owned.Vi,
+                face_owned=self.parallel_velocity_layout == "fci-staggered",
+            )
+            Ve_terms = pack_rhs_terms(
+                (
+                    nonparallel(Ve_poisson_term),
+                    Ve_self_advection_term,
+                    Ve_collision_term,
+                    Ve_electrostatic_term,
+                    Ve_pressure_term,
+                    Ve_thermal_force_term,
+                    nonparallel(Ve_diff_term),
+                    Ve_parallel_diff,
+                    Ve_characteristic_upwind_term,
+                ),
+                source_owned.Ve,
+                face_owned=self.parallel_velocity_layout == "fci-staggered",
+            )
+            vorticity_terms = pack_rhs_terms(
+                (
+                    nonparallel(-(poisson_vorticity / rho_star)),
+                    vorticity_parallel_advection,
+                    (bmag * bmag / density_safe)
+                    * vorticity_current_flux_divergence,
+                    nonparallel(curvature_vorticity_contribution),
+                    nonparallel(vorticity_diff),
+                    vorticity_parallel_diff,
+                ),
+                source_owned.vorticity,
+            )
+            return jnp.stack(
+                (
+                    density_terms,
+                    Te_terms,
+                    Ti_terms,
+                    Vi_terms,
+                    Ve_terms,
+                    vorticity_terms,
+                ),
+                axis=0,
+            )
+
         if self.parallel_subsystem_only:
             # The local_parallel_flux_div_op and
             # local_grad_parallel_op_conservative calls above use the
@@ -4044,7 +4818,7 @@ class LocalFciDrbEBRhs:
                 + material_upwind_correction[..., 0]
             )
             Te_rhs = (
-                -Ve * grad_parallel_Te
+                Te_parallel_advection
                 + (2.0 * Te / (3.0 * density_safe))
                 * (
                     0.71 * parallel_current_flux_divergence
@@ -4054,7 +4828,7 @@ class LocalFciDrbEBRhs:
                 + material_upwind_correction[..., 1]
             )
             Ti_rhs = (
-                -Vi * grad_parallel_Ti
+                Ti_parallel_advection
                 + (2.0 * Ti / (3.0 * density_safe))
                 * (
                     parallel_current_flux_divergence
@@ -4064,8 +4838,8 @@ class LocalFciDrbEBRhs:
                 + material_upwind_correction[..., 2]
             )
             Vi_rhs = (
-                -Vi * grad_parallel_Vi
-                - grad_parallel_pressure / density_safe
+                Vi_self_advection_term
+                + Vi_pressure_term
                 + Vi_parallel_diff
                 + material_upwind_correction[..., 3]
             )
@@ -4079,7 +4853,7 @@ class LocalFciDrbEBRhs:
                 + Ve_characteristic_upwind_term
             )
             vorticity_rhs = (
-                -Vi * grad_parallel_vorticity
+                vorticity_parallel_advection
                 + (bmag * bmag / density_safe)
                 * vorticity_current_flux_divergence
                 + vorticity_parallel_diff
@@ -4096,6 +4870,8 @@ class LocalFciDrbEBRhs:
             result = self._owner_state(_mask_local_eb_state_inactive(
                 result, self.geometry
             ))
+            if return_rhs_term_fields:
+                return result, all_rhs_term_fields(parallel_only=True)
             if return_term_diagnostics or return_term_fields:
                 Ve_terms = jnp.stack(
                     (
@@ -4111,7 +4887,12 @@ class LocalFciDrbEBRhs:
                     ),
                     axis=0,
                 )
-                if self._uses_projected_fine_grid:
+                if self.parallel_velocity_layout == "fci-staggered":
+                    Ve_terms = jnp.stack(
+                        tuple(self._restrict_fine_face_field(term) for term in Ve_terms),
+                        axis=0,
+                    )
+                elif self._uses_projected_fine_grid:
                     Ve_terms = jnp.stack(
                         tuple(self._restrict_fine_field(term) for term in Ve_terms),
                         axis=0,
@@ -4145,6 +4926,8 @@ class LocalFciDrbEBRhs:
             ),
             self.geometry,
         ))
+        if return_rhs_term_fields:
+            return result, all_rhs_term_fields(parallel_only=False)
         if return_term_diagnostics or return_term_fields:
             Ve_terms = jnp.stack(
                 (
@@ -4154,13 +4937,18 @@ class LocalFciDrbEBRhs:
                     Ve_electrostatic_term,
                     Ve_pressure_term,
                     Ve_thermal_force_term,
-                    Ve_diff,
+                    Ve_diff_term,
                     Ve_parallel_diff,
                     Ve_characteristic_upwind_term,
                 ),
                 axis=0,
             )
-            if self._uses_projected_fine_grid:
+            if self.parallel_velocity_layout == "fci-staggered":
+                Ve_terms = jnp.stack(
+                    tuple(self._restrict_fine_face_field(term) for term in Ve_terms),
+                    axis=0,
+                )
+            elif self._uses_projected_fine_grid:
                 Ve_terms = jnp.stack(
                     tuple(self._restrict_fine_field(term) for term in Ve_terms),
                     axis=0,

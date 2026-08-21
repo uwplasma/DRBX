@@ -17,7 +17,14 @@ if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
 from drbx.native import FciDrbEBState  # noqa: E402
+from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
+    RHS_TERM_FIELD_NAMES,
+    RHS_TERM_SLOT_COUNT,
+)
 from drbx.native.fci_sharding import assemble_local_fci_geometry  # noqa: E402
+from drbx.native.fci_operators import (  # noqa: E402
+    build_local_outgoing_fci_face_topology,
+)
 from test_fci_drb_eb_imex_integration import (  # noqa: E402
     _build_rhs,
     _context_and_sharded_inputs,
@@ -25,6 +32,41 @@ from test_fci_drb_eb_imex_integration import (  # noqa: E402
 from shifted_torus_4field_mms_helpers import (  # noqa: E402
     build_shifted_torus_4field_geometry,
 )
+
+
+def _identity_outgoing_face_topology(layout):
+    """Identity face ownership for the non-RLP staggered smoke fixture."""
+
+    ii, jj, kk = np.indices(layout.owned_shape, dtype=np.int32)
+    return build_local_outgoing_fci_face_topology(
+        layout,
+        edge_owner_i=ii,
+        edge_owner_j=jj,
+        edge_owner_k=kk,
+        edge_measure=np.ones(layout.owned_shape, dtype=np.float64),
+        edge_destination_i=ii,
+        edge_destination_j=jj,
+        edge_destination_k=kk,
+        edge_interpolation_provenance=np.zeros(layout.owned_shape + (1,)),
+    )
+
+
+def _paired_outgoing_face_topology(layout):
+    """Unequal-measure face ownership independent of cell ownership."""
+
+    ii, jj, kk = np.indices(layout.owned_shape, dtype=np.int32)
+    owner_j = jj - (jj % 2)
+    return build_local_outgoing_fci_face_topology(
+        layout,
+        edge_owner_i=ii,
+        edge_owner_j=owner_j,
+        edge_owner_k=kk,
+        edge_measure=1.0 + jj.astype(np.float64),
+        edge_destination_i=ii,
+        edge_destination_j=jj,
+        edge_destination_k=kk,
+        edge_interpolation_provenance=np.zeros(layout.owned_shape + (1,)),
+    )
 
 
 def test_coordinate_is_default_and_scheme_validation_is_static() -> None:
@@ -170,6 +212,170 @@ def test_fci_full_and_implicit_smoke_on_tiny_shifted_torus(
     )
     result = np.asarray(compiled(*fields, cell_fields, map_fields))
     assert np.all(np.isfinite(result)), result
+
+
+def test_fci_staggered_velocity_layout_runs_full_stage_and_rejects_imex() -> None:
+    context, mesh, local, partition, fields, _cell_fields = _context_and_sharded_inputs()
+    mapped_host = build_shifted_torus_4field_geometry(
+        context.geometry.shape, construct_fci_maps=True
+    )
+    mapped_geometry = replace(context.geometry, maps=mapped_host.maps)
+    from drbx.native.fci_sharding import build_local_fci_geometries  # noqa: E402
+
+    sharded = build_local_fci_geometries(
+        mapped_geometry, (1, 1, 1), halo_width=local.domain.layout.halo_width,
+        periodic_axes=(False, True, True),
+    )
+    face_topology = _identity_outgoing_face_topology(local.domain.layout)
+    maps = jax.device_put(sharded.map_fields, NamedSharding(mesh, partition))
+    packed = jax.device_put(sharded.cell_fields, NamedSharding(mesh, partition))
+
+    def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, cells, map_values):
+        geometry = assemble_local_fci_geometry(sharded, cells, map_values)
+        rhs = replace(
+            _build_rhs(context, local, geometry), parallel_operator_scheme="fci",
+            parallel_velocity_layout="fci-staggered",
+            outgoing_face_topology=face_topology,
+        )
+        stage = rhs.evaluate_stage(FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity), phi_owned=phi)
+        return jnp.stack((stage.density, stage.Te, stage.Ti, stage.Vi, stage.Ve), axis=0)
+
+    compiled = jax.jit(jax.shard_map(
+        kernel, mesh=mesh, in_specs=(partition,) * 9,
+        out_specs=P(None, "x", "y", "z"), check_vma=False,
+    ))
+    result = np.asarray(compiled(*fields, packed, maps))
+    assert np.all(np.isfinite(result))
+
+    def implicit_kernel(density, phi, Te, Ti, Vi, Ve, vorticity, cells, map_values):
+        geometry = assemble_local_fci_geometry(sharded, cells, map_values)
+        rhs = replace(
+            _build_rhs(context, local, geometry), parallel_operator_scheme="fci",
+            parallel_velocity_layout="fci-staggered",
+            outgoing_face_topology=face_topology,
+        )
+        return rhs.evaluate_implicit_rhs(
+            FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity), phi_owned=phi
+        ).Ve
+
+    compiled_implicit = jax.jit(jax.shard_map(
+        implicit_kernel, mesh=mesh, in_specs=(partition,) * 9,
+        out_specs=partition, check_vma=False,
+    ))
+    with pytest.raises(ValueError, match="explicit RK4"):
+        compiled_implicit(*fields, packed, maps)
+
+
+def test_staggered_parallel_viscosity_returns_face_owner_terms_that_sum() -> None:
+    """Vi/Ve viscosity follows the face-owner output and diagnostic contract."""
+
+    context, mesh, local, partition, fields, _cell_fields = _context_and_sharded_inputs()
+    mapped_host = build_shifted_torus_4field_geometry(
+        context.geometry.shape, construct_fci_maps=True
+    )
+    mapped_geometry = replace(context.geometry, maps=mapped_host.maps)
+    from drbx.native.fci_sharding import build_local_fci_geometries  # noqa: E402
+
+    sharded = build_local_fci_geometries(
+        mapped_geometry, (1, 1, 1), halo_width=local.domain.layout.halo_width,
+        periodic_axes=(False, True, True),
+    )
+    face_topology = _paired_outgoing_face_topology(local.domain.layout)
+    maps = jax.device_put(sharded.map_fields, NamedSharding(mesh, partition))
+    packed = jax.device_put(sharded.cell_fields, NamedSharding(mesh, partition))
+
+    def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, cells, map_values):
+        geometry = assemble_local_fci_geometry(sharded, cells, map_values)
+        rhs = replace(
+            _build_rhs(context, local, geometry), parallel_operator_scheme="fci",
+            parallel_velocity_layout="fci-staggered",
+            outgoing_face_topology=face_topology,
+            parameters=replace(
+                context.parameters, Vi_parallel_viscosity=2.0e-3,
+                Ve_parallel_viscosity=3.0e-3,
+            ),
+        )
+        stage, terms = rhs.evaluate_stage(
+            FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity),
+            phi_owned=phi, return_rhs_term_fields=True,
+        )
+        return jnp.stack((stage.Vi, stage.Ve), axis=0), terms[3:5]
+
+    compiled = jax.jit(jax.shard_map(
+        kernel, mesh=mesh, in_specs=(partition,) * 9,
+        out_specs=(P(None, "x", "y", "z"), P(None, None, "x", "y", "z")),
+        check_vma=False,
+    ))
+    stage, terms = (np.asarray(value) for value in compiled(*fields, packed, maps))
+    np.testing.assert_allclose(np.sum(terms, axis=1), stage, rtol=3e-12, atol=3e-12)
+    # Odd theta rows are aliases of the preceding source-face owner.
+    np.testing.assert_array_equal(stage[:, :, 1::2, :], 0.0)
+    assert np.max(np.abs(terms[:, 4])) > 0.0
+
+
+@pytest.mark.parametrize(
+    ("operator_scheme", "leg_scheme", "inflow_closure"),
+    (
+        ("coordinate", "centered", "equilibrium-characteristic"),
+        ("fci", "boundary-characteristic-upwind", "equilibrium-characteristic"),
+    ),
+)
+def test_all_equation_rhs_term_fields_sum_to_stage_rhs(
+    operator_scheme,
+    leg_scheme,
+    inflow_closure,
+) -> None:
+    context, mesh, local, partition, fields, _cell_fields = (
+        _context_and_sharded_inputs()
+    )
+    mapped_host = build_shifted_torus_4field_geometry(
+        context.geometry.shape, construct_fci_maps=True
+    )
+    mapped_geometry = replace(context.geometry, maps=mapped_host.maps)
+    from drbx.native.fci_sharding import build_local_fci_geometries  # noqa: E402
+
+    sharded = build_local_fci_geometries(
+        mapped_geometry,
+        (1, 1, 1),
+        halo_width=local.domain.layout.halo_width,
+        periodic_axes=(False, True, True),
+    )
+    map_fields = jax.device_put(sharded.map_fields, NamedSharding(mesh, partition))
+    cell_fields = jax.device_put(sharded.cell_fields, NamedSharding(mesh, partition))
+
+    def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, packed, maps):
+        geometry = assemble_local_fci_geometry(sharded, packed, maps)
+        rhs = replace(
+            _build_rhs(context, local, geometry),
+            parallel_operator_scheme=operator_scheme,
+            fci_parallel_leg_scheme=leg_scheme,
+            parallel_inflow_closure=inflow_closure,
+        )
+        state = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
+        stage, terms = rhs.evaluate_stage(
+            state,
+            phi_owned=phi,
+            return_rhs_term_fields=True,
+        )
+        expected = jnp.stack(
+            tuple(getattr(stage, name) for name in RHS_TERM_FIELD_NAMES), axis=0
+        )
+        return terms, expected
+
+    compiled = jax.jit(
+        jax.shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(partition,) * 9,
+            out_specs=(P(None, None, "x", "y", "z"), P(None, "x", "y", "z")),
+            check_vma=False,
+        )
+    )
+    terms, expected = tuple(
+        np.asarray(value) for value in compiled(*fields, cell_fields, map_fields)
+    )
+    assert terms.shape[:2] == (len(RHS_TERM_FIELD_NAMES), RHS_TERM_SLOT_COUNT)
+    np.testing.assert_allclose(np.sum(terms, axis=1), expected, rtol=2.0e-12, atol=2.0e-12)
 
 
 @pytest.mark.skipif(jax.device_count() < 2, reason="requires at least two devices")

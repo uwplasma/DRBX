@@ -453,6 +453,672 @@ def _build_mapped_stencil(
     )
 
 
+# =============================================================================
+# Experimental source-edge FCI staggering
+# =============================================================================
+
+# Face DOFs are split only by coarse endpoint support, never by interpolation
+# weights or leg length.  Bumping this value is an explicit basis change.
+OUTGOING_FCI_FACE_OWNERSHIP_POLICY = "coarse-endpoint-support-v1"
+OUTGOING_FCI_FACE_SUPPORT_WIDTH = 16
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalOutgoingFciFaceTopology3D:
+    """Owned representation of outgoing FCI source edges.
+
+    This is deliberately separate from control-volume cell ownership.  A
+    merged cell can have an outgoing field-line edge different from every
+    other member of its aggregate, so cell aliases are *not* face aliases.
+    ``edge_owner_*`` maps every active fine edge to one canonical face-storage
+    slot.  Production construction uses the source cell owner together with
+    endpoint kind and coarse destination support; the individual edge
+    destination/interpolation provenance remains fine geometry.  All
+    non-owner slots are representation aliases and carry zero in an
+    owner-space face field.
+
+    ``aggregate_measure`` is the sum of supplied fine-edge measures.  It is
+    the owner-space measure that makes the restriction below the weighted
+    adjoint of prolongation, and will also be the natural measure for a future
+    transpose divergence.
+    """
+
+    layout: HaloLayout3D
+    edge_owner_i: jnp.ndarray
+    edge_owner_j: jnp.ndarray
+    edge_owner_k: jnp.ndarray
+    is_active_owner: jnp.ndarray
+    edge_active: jnp.ndarray
+    edge_measure: jnp.ndarray
+    aggregate_measure: jnp.ndarray
+    edge_destination_i: jnp.ndarray
+    edge_destination_j: jnp.ndarray
+    edge_destination_k: jnp.ndarray
+    edge_interpolation_provenance: jnp.ndarray
+    edge_destination_support: jnp.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layout, HaloLayout3D):
+            raise TypeError("layout must be a HaloLayout3D")
+        shape = self.layout.owned_shape
+        arrays = {
+            "edge_owner_i": (self.edge_owner_i, jnp.int32),
+            "edge_owner_j": (self.edge_owner_j, jnp.int32),
+            "edge_owner_k": (self.edge_owner_k, jnp.int32),
+            "is_active_owner": (self.is_active_owner, bool),
+            "edge_active": (self.edge_active, bool),
+            "edge_measure": (self.edge_measure, jnp.float64),
+            "aggregate_measure": (self.aggregate_measure, jnp.float64),
+            "edge_destination_i": (self.edge_destination_i, jnp.int32),
+            "edge_destination_j": (self.edge_destination_j, jnp.int32),
+            "edge_destination_k": (self.edge_destination_k, jnp.int32),
+        }
+        normalized = {}
+        for name, (value, dtype) in arrays.items():
+            array = jnp.asarray(value, dtype=dtype)
+            if array.shape != shape:
+                raise ValueError(f"{name} must have shape {shape}, got {array.shape}")
+            normalized[name] = array
+            object.__setattr__(self, name, array)
+        provenance = jnp.asarray(self.edge_interpolation_provenance)
+        if provenance.shape[:3] != shape:
+            raise ValueError(
+                "edge_interpolation_provenance must begin with layout.owned_shape; "
+                f"got {provenance.shape}, expected {shape} + trailing provenance axes"
+            )
+        object.__setattr__(self, "edge_interpolation_provenance", provenance)
+        support = jnp.asarray(
+            jnp.full(shape + (OUTGOING_FCI_FACE_SUPPORT_WIDTH,), np.iinfo(np.int64).max, dtype=jnp.int64)
+            if self.edge_destination_support is None else self.edge_destination_support,
+            dtype=jnp.int64,
+        )
+        if support.shape != shape + (OUTGOING_FCI_FACE_SUPPORT_WIDTH,):
+            raise ValueError(
+                "edge_destination_support must have shape "
+                f"{shape + (OUTGOING_FCI_FACE_SUPPORT_WIDTH,)}, got {support.shape}"
+            )
+        object.__setattr__(self, "edge_destination_support", support)
+        owners_in_bounds = (
+            (normalized["edge_owner_i"] >= 0) & (normalized["edge_owner_i"] < shape[0])
+            & (normalized["edge_owner_j"] >= 0) & (normalized["edge_owner_j"] < shape[1])
+            & (normalized["edge_owner_k"] >= 0) & (normalized["edge_owner_k"] < shape[2])
+        )
+        try:
+            if not bool(jnp.all(owners_in_bounds)):
+                raise ValueError("edge owners must be local face-storage indices")
+            if not bool(jnp.all(~normalized["edge_active"] | (normalized["edge_measure"] > 0.0))):
+                raise ValueError("active outgoing edges need positive measures")
+            owner_at_edge = normalized["is_active_owner"][
+                normalized["edge_owner_i"], normalized["edge_owner_j"], normalized["edge_owner_k"]
+            ]
+            if not bool(jnp.all(~normalized["edge_active"] | owner_at_edge)):
+                raise ValueError("every active edge must map to an active face owner")
+            owners_are_direct = (
+                (normalized["edge_owner_i"][normalized["edge_owner_i"], normalized["edge_owner_j"], normalized["edge_owner_k"]] == normalized["edge_owner_i"])
+                & (normalized["edge_owner_j"][normalized["edge_owner_i"], normalized["edge_owner_j"], normalized["edge_owner_k"]] == normalized["edge_owner_j"])
+                & (normalized["edge_owner_k"][normalized["edge_owner_i"], normalized["edge_owner_j"], normalized["edge_owner_k"]] == normalized["edge_owner_k"])
+            )
+            if not bool(jnp.all(~normalized["edge_active"] | owners_are_direct)):
+                raise ValueError("outgoing face owner map must be direct/idempotent")
+            owner_measure = normalized["aggregate_measure"]
+            if not bool(jnp.all(~normalized["is_active_owner"] | (owner_measure > 0.0))):
+                raise ValueError("active face owners need positive aggregate measures")
+        except jax.errors.TracerBoolConversionError:
+            pass
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        return self.layout.owned_shape
+
+    @property
+    def ownership_policy(self) -> str:
+        """Stable name of the connectivity-resolved face-owner basis."""
+
+        return OUTGOING_FCI_FACE_OWNERSHIP_POLICY
+
+    def tree_flatten(self):
+        return (
+            (
+                self.edge_owner_i, self.edge_owner_j, self.edge_owner_k,
+                self.is_active_owner, self.edge_active, self.edge_measure,
+                self.aggregate_measure, self.edge_destination_i,
+                self.edge_destination_j, self.edge_destination_k,
+                self.edge_interpolation_provenance,
+                self.edge_destination_support,
+            ),
+            self.layout,
+        )
+
+    @classmethod
+    def tree_unflatten(cls, layout, children):
+        return cls(layout, *children)
+
+
+def build_local_outgoing_fci_face_topology(
+    layout: HaloLayout3D,
+    *,
+    edge_owner_i: np.ndarray,
+    edge_owner_j: np.ndarray,
+    edge_owner_k: np.ndarray,
+    edge_measure: np.ndarray,
+    edge_destination_i: np.ndarray,
+    edge_destination_j: np.ndarray,
+    edge_destination_k: np.ndarray,
+    edge_interpolation_provenance: np.ndarray,
+    edge_active: np.ndarray | None = None,
+) -> LocalOutgoingFciFaceTopology3D:
+    """Build deterministic local outgoing-FCI face ownership.
+
+    This host-side constructor accepts an explicit face-owner map (typically
+    the active cell-owner map) and retains endpoint/interpolation provenance
+    per fine edge.  It never concludes that aliases have identical outgoing
+    geometry: a later Galerkin gradient must still evaluate each fine edge
+    before this weighted restriction.  Owner indices are required to stay on
+    the source eta plane, which makes the storage topology eta-shard local.
+    """
+
+    if not isinstance(layout, HaloLayout3D):
+        raise TypeError("layout must be a HaloLayout3D")
+    shape = layout.owned_shape
+    measure = np.asarray(edge_measure, dtype=np.float64)
+    owner = tuple(np.asarray(value, dtype=np.int32) for value in (
+        edge_owner_i, edge_owner_j, edge_owner_k,
+    ))
+    destination = tuple(np.asarray(value, dtype=np.int32) for value in (
+        edge_destination_i, edge_destination_j, edge_destination_k,
+    ))
+    provenance = np.asarray(edge_interpolation_provenance)
+    active = np.ones(shape, dtype=bool) if edge_active is None else np.asarray(edge_active, dtype=bool)
+    if (measure.shape != shape or active.shape != shape
+            or any(value.shape != shape for value in destination)
+            or any(value.shape != shape for value in owner)):
+        raise ValueError("edge owner map, measure, active mask, and destinations must have layout.owned_shape")
+    if provenance.shape[:3] != shape:
+        raise ValueError("edge_interpolation_provenance must begin with layout.owned_shape")
+    if not np.all(np.isfinite(measure)) or np.any(active & (measure <= 0.0)):
+        raise ValueError("active outgoing edges require finite positive measures")
+
+    owner_in_bounds = all(np.all((value >= 0) & (value < shape[axis])) for axis, value in enumerate(owner))
+    if not owner_in_bounds:
+        raise ValueError("edge owners must be local face-storage indices")
+    if np.any(active & (owner[2] != np.indices(shape, dtype=np.int32)[2])):
+        raise ValueError("outgoing face ownership must remain eta-plane local")
+    owner_active = np.zeros(shape, dtype=bool)
+    aggregate_measure = np.zeros(shape, dtype=np.float64)
+    for index in zip(*np.nonzero(active)):
+        canonical = tuple(int(value[index]) for value in owner)
+        aggregate_measure[canonical] += measure[index]
+        owner_active[canonical] = True
+    return LocalOutgoingFciFaceTopology3D(
+        layout=layout,
+        edge_owner_i=jnp.asarray(owner[0]), edge_owner_j=jnp.asarray(owner[1]), edge_owner_k=jnp.asarray(owner[2]),
+        is_active_owner=jnp.asarray(owner_active), edge_active=jnp.asarray(active),
+        edge_measure=jnp.asarray(np.where(active, measure, 0.0)),
+        aggregate_measure=jnp.asarray(aggregate_measure),
+        edge_destination_i=jnp.asarray(destination[0]), edge_destination_j=jnp.asarray(destination[1]), edge_destination_k=jnp.asarray(destination[2]),
+        edge_interpolation_provenance=jnp.asarray(provenance),
+    )
+
+
+def build_local_outgoing_fci_face_topology_from_geometry(
+    cells: LocalControlVolumeCellGeometry3D,
+    fci_maps: LocalFciMaps3D,
+    *,
+    edge_measure: jnp.ndarray | None = None,
+    edge_active: jnp.ndarray | None = None,
+) -> LocalOutgoingFciFaceTopology3D:
+    """Build the production angular-RLP face space from cell owners and FCI maps.
+
+    Fine edges are grouped by source cell owner, endpoint kind, and their
+    sorted/deduplicated coarse destination-owner support (the stable
+    ``coarse-endpoint-support-v1`` policy).  The *fine* mapped-edge geometry
+    remains the supplied ``fci_maps.forward``;
+    each edge's endpoint kind and forward connection length are copied as
+    provenance so that a future ``G_f`` cannot mistake grouped storage for
+    identical field-line geometry.  For the full-leg gradient
+    ``G_f q=(q_+-q)/ell_+``, the default edge mass is the tube-volume
+    quadrature ``w_e=V_raw=A_perp*ell_+``.  Hence ``G_f.T W_e G_f`` integrates
+    the full fine-edge gradient before owner restriction, and owner measures
+    are sums of those volume weights.
+    """
+
+    if not isinstance(cells, LocalControlVolumeCellGeometry3D):
+        raise TypeError("cells must be LocalControlVolumeCellGeometry3D")
+    if not isinstance(fci_maps, LocalFciMaps3D):
+        raise TypeError("fci_maps must be LocalFciMaps3D")
+    if cells.layout != fci_maps.layout:
+        raise ValueError("cells and fci_maps must share a HaloLayout3D")
+    shape = cells.shape
+    valid = jnp.asarray(fci_maps.forward.target_valid, dtype=bool)
+    active = (
+        (jnp.asarray(cells.raw_volume, dtype=jnp.float64) > 0.0) & valid
+        if edge_active is None
+        else jnp.asarray(edge_active, dtype=bool)
+    )
+    if edge_measure is None:
+        if fci_maps.forward.connection_length is None:
+            raise ValueError(
+                "forward FCI map needs connection_length to record edge provenance"
+            )
+        length = jnp.asarray(fci_maps.forward.connection_length, dtype=jnp.float64)
+        if tuple(length.shape) != shape:
+            raise ValueError("forward FCI map needs connection_length for default edge measures")
+        try:
+            if bool(jnp.any(active & (~jnp.isfinite(length) | (length <= 0.0)))):
+                raise ValueError("active forward FCI edges need positive connection lengths")
+        except jax.errors.TracerBoolConversionError:
+            pass
+        measure = jnp.where(active, jnp.asarray(cells.raw_volume, dtype=jnp.float64), 0.0)
+    else:
+        measure = jnp.where(active, jnp.asarray(edge_measure, dtype=jnp.float64), 0.0)
+    # The FCI dependency tables are the complete endpoint interpolation
+    # provenance (including remote rows).  These dense fields record the
+    # endpoint class and leg length alongside the topology; do not collapse
+    # the dependency tables merely because face storage is agglomerated.
+    ii, jj, kk = jnp.indices(shape, dtype=jnp.int32)
+    provenance = jnp.stack((
+        jnp.asarray(fci_maps.forward.endpoint_kind, dtype=jnp.float64),
+        jnp.asarray(fci_maps.forward.connection_length, dtype=jnp.float64),
+    ), axis=-1)
+    owner_i = jnp.asarray(cells.owner_i, dtype=jnp.int32)
+    owner_j = jnp.asarray(cells.owner_j, dtype=jnp.int32)
+    owner_k = jnp.asarray(cells.owner_k, dtype=jnp.int32)
+    try:
+        if bool(jnp.any(active & (owner_k != kk))):
+            raise ValueError("outgoing face ownership must remain eta-plane local")
+    except jax.errors.TracerBoolConversionError:
+        pass
+    # Angular RLP aggregates are theta-only.  The compact 3-D face storage
+    # has one possible subface slot per fine theta source, so this restriction
+    # lets us find canonical slots by a bounded all-theta comparison instead
+    # of a non-JAX host dictionary.  Eta-only sharding preserves this shape.
+    try:
+        ii_check, _jj_check, kk_check = jnp.indices(shape, dtype=jnp.int32)
+        if bool(jnp.any(active & ((owner_i != ii_check) | (owner_k != kk_check)))):
+            raise ValueError(
+                "coarse-endpoint-support-v1 requires theta-only, eta-local "
+                "angular cell ownership"
+            )
+    except jax.errors.TracerBoolConversionError:
+        pass
+
+    # Build a fixed-width, sorted/deduplicated coarse destination-owner
+    # support signature for every fine forward row.  Production FCI lowering
+    # emits up to eight trilinear vertices per owned target, contiguous by
+    # target.  Small sparse tables (one dependency per listed target) also
+    # occur in axis/boundary fixtures, and are retained as a guarded format.
+    nrows = int(np.prod(shape))
+    max_vertices = 8
+    local = fci_maps.forward.local
+    remote = fci_maps.forward.remote
+    def table_format(table, name: str) -> tuple[int, bool]:
+        """Return vertices per target and whether ``table`` is sparse.
+
+        Sparse rows deliberately permit at most one listed vertex per target;
+        that makes their fixed signature placement traceable and unambiguous.
+        """
+
+        entries = table.max_entries
+        if entries == 0:
+            return 0, False
+        if entries % nrows == 0 and entries // nrows <= max_vertices:
+            return entries // nrows, False
+        if entries <= nrows:
+            target = jnp.asarray(table.target_flat, dtype=jnp.int32)
+            counts = jnp.zeros((nrows,), dtype=jnp.int32).at[
+                jnp.clip(target, 0, nrows - 1)
+            ].add(1)
+            try:
+                if (not bool(jnp.all((target >= 0) & (target < nrows)))
+                        or not bool(jnp.all(counts <= 1))):
+                    raise ValueError(
+                        f"{name} sparse FCI dependency rows need unique owned targets"
+                    )
+            except jax.errors.TracerBoolConversionError:
+                pass
+            return 1, True
+        raise ValueError(
+            f"coarse-endpoint-support-v1 requires {name} FCI rows to be "
+            "target-contiguous (at most eight vertices each), or sparse with "
+            "at most one row per target"
+        )
+
+    local_vertices, local_sparse = table_format(local, "local")
+    remote_vertices, remote_sparse = (
+        (0, False) if remote is None else table_format(remote, "remote")
+    )
+    expected_local_target = jnp.repeat(jnp.arange(nrows, dtype=jnp.int32), local_vertices)
+    expected_remote_target = jnp.repeat(jnp.arange(nrows, dtype=jnp.int32), remote_vertices)
+    try:
+        if (local.max_entries and not local_sparse
+                and not bool(jnp.all(local.target_flat == expected_local_target))):
+            raise ValueError("local FCI dependency rows must be target-contiguous")
+        if (remote is not None and remote.max_entries and not remote_sparse
+                and not bool(jnp.all(remote.target_flat == expected_remote_target))):
+            raise ValueError("remote FCI dependency rows must be target-contiguous")
+    except jax.errors.TracerBoolConversionError:
+        pass
+
+    sentinel = jnp.asarray(np.iinfo(np.int64).max, dtype=jnp.int64)
+    local_count = nrows
+    local_codes = jnp.full((nrows, max_vertices), sentinel, dtype=jnp.int64)
+    if local.max_entries:
+        # ``source_*`` are halo coordinates.  At the regular lower axis, a
+        # signed radial ghost -r-1 is the physical ring r; theta is already
+        # carried by the topology halo, then normalized periodically.
+        local_shape = ((local.max_entries,) if local_sparse else (nrows, local_vertices))
+        source_i = jnp.asarray(local.source_i, dtype=jnp.int32).reshape(local_shape)
+        source_j = jnp.asarray(local.source_j, dtype=jnp.int32).reshape(local_shape)
+        source_k = jnp.asarray(local.source_k, dtype=jnp.int32).reshape(local_shape)
+        radial = source_i - int(cells.layout.halo_width)
+        radial = jnp.where(radial < 0, -radial - 1, radial)
+        radial = jnp.clip(radial, 0, shape[0] - 1)
+        theta = jnp.mod(source_j - int(cells.layout.halo_width), shape[1])
+        eta = jnp.mod(source_k - int(cells.layout.halo_width), shape[2])
+        dest_i = owner_i[radial, theta, eta]
+        dest_j = owner_j[radial, theta, eta]
+        dest_k = owner_k[radial, theta, eta]
+        code = ((dest_i.astype(jnp.int64) * shape[1] + dest_j) * shape[2] + dest_k).astype(jnp.int64)
+        local_valid = (
+            jnp.asarray(local.active, dtype=bool).reshape(local_shape)
+            & (jnp.abs(jnp.asarray(local.weight, dtype=jnp.float64).reshape(local_shape)) > 0.0)
+        )
+        if local_sparse:
+            local_codes = local_codes.at[
+                jnp.asarray(local.target_flat, dtype=jnp.int32), 0
+            ].set(jnp.where(local_valid, code, sentinel))
+        else:
+            local_codes = local_codes.at[:, :local_vertices].set(
+                jnp.where(local_valid, code, sentinel)
+            )
+
+    remote_codes = jnp.full((nrows, max_vertices), sentinel, dtype=jnp.int64)
+    if remote is not None and remote.max_entries:
+        remote_shape = ((remote.max_entries,) if remote_sparse else (nrows, remote_vertices))
+        receive = jnp.asarray(remote.receive_slot, dtype=jnp.int32).reshape(remote_shape)
+        request_count = int(remote.max_receive_values)
+        if request_count < 1:
+            raise ValueError("active remote FCI dependency rows require request slots")
+        safe_receive = jnp.clip(receive, 0, request_count - 1)
+        request_i = jnp.asarray(remote.request_source_owner_local_i, dtype=jnp.int32)[safe_receive]
+        request_j = jnp.asarray(remote.request_source_owner_local_j, dtype=jnp.int32)[safe_receive]
+        request_k = jnp.asarray(remote.request_source_owner_local_k, dtype=jnp.int32)[safe_receive]
+        request_i = request_i - int(cells.layout.halo_width)
+        request_i = jnp.where(request_i < 0, -request_i - 1, request_i)
+        request_i = jnp.clip(request_i, 0, shape[0] - 1)
+        request_j = jnp.mod(request_j - int(cells.layout.halo_width), shape[1])
+        request_k = jnp.mod(request_k - int(cells.layout.halo_width), shape[2])
+        dest_i = owner_i[request_i, request_j, request_k]
+        dest_j = owner_j[request_i, request_j, request_k]
+        dest_k = owner_k[request_i, request_j, request_k]
+        local_owner_code = ((dest_i.astype(jnp.int64) * shape[1] + dest_j) * shape[2] + dest_k).astype(jnp.int64)
+        shard = jnp.asarray(remote.request_source_shard_linear, dtype=jnp.int64)[safe_receive]
+        # Keep remote destination owners distinct from local-shard owners.
+        code = local_count + shard * local_count + local_owner_code
+        remote_valid = (
+            jnp.asarray(remote.active, dtype=bool).reshape(remote_shape)
+            & (jnp.abs(jnp.asarray(remote.weight, dtype=jnp.float64).reshape(remote_shape)) > 0.0)
+            & jnp.asarray(remote.request_active, dtype=bool)[safe_receive]
+        )
+        if remote_sparse:
+            remote_codes = remote_codes.at[
+                jnp.asarray(remote.target_flat, dtype=jnp.int32), 0
+            ].set(jnp.where(remote_valid, code, sentinel))
+        else:
+            remote_codes = remote_codes.at[:, :remote_vertices].set(
+                jnp.where(remote_valid, code, sentinel)
+            )
+
+    support = jnp.concatenate((local_codes, remote_codes), axis=1)
+    support = jnp.sort(support, axis=1)
+    duplicate = jnp.concatenate(
+        (jnp.zeros((nrows, 1), dtype=bool), support[:, 1:] == support[:, :-1]), axis=1,
+    )
+    support = jnp.sort(jnp.where(duplicate, sentinel, support), axis=1)
+    support = support.reshape(shape + (OUTGOING_FCI_FACE_SUPPORT_WIDTH,))
+    endpoint_kind = jnp.asarray(fci_maps.forward.endpoint_kind, dtype=jnp.int32)
+
+    # Compare only theta candidates in each (u, eta) plane.  This is bounded
+    # by the angular resolution and returns the lexicographically first fine
+    # source row for every equal (cell owner, endpoint kind, support) key.
+    same_cell_owner = (
+        (owner_i[:, :, None, :] == owner_i[:, None, :, :])
+        & (owner_j[:, :, None, :] == owner_j[:, None, :, :])
+        & (owner_k[:, :, None, :] == owner_k[:, None, :, :])
+    )
+    same_endpoint = endpoint_kind[:, :, None, :] == endpoint_kind[:, None, :, :]
+    same_support = jnp.all(
+        support[:, :, None, :, :] == support[:, None, :, :, :], axis=-1,
+    )
+    candidate_active = active[:, None, :, :]
+    same_signature = same_cell_owner & same_endpoint & same_support & candidate_active
+    theta_candidates = jnp.arange(shape[1], dtype=jnp.int32)[None, None, :, None]
+    canonical_j = jnp.min(
+        jnp.where(same_signature, theta_candidates, shape[1]), axis=2,
+    ).astype(jnp.int32)
+    canonical_j = jnp.where(active, canonical_j, jj)
+    edge_owner_i = jnp.broadcast_to(jnp.arange(shape[0], dtype=jnp.int32)[:, None, None], shape)
+    edge_owner_k = jnp.broadcast_to(jnp.arange(shape[2], dtype=jnp.int32)[None, None, :], shape)
+    # All reductions are expressed as JAX scatter operations so this builder
+    # can execute inside the eta-sharded ``shard_map`` geometry assembly.
+    aggregate_measure = jnp.zeros(shape, dtype=jnp.float64).at[
+        edge_owner_i, canonical_j, edge_owner_k
+    ].add(measure)
+    is_active_owner = jnp.zeros(shape, dtype=bool).at[
+        edge_owner_i, canonical_j, edge_owner_k
+    ].max(active)
+    return LocalOutgoingFciFaceTopology3D(
+        layout=cells.layout,
+        edge_owner_i=edge_owner_i, edge_owner_j=canonical_j, edge_owner_k=edge_owner_k,
+        is_active_owner=is_active_owner, edge_active=active,
+        edge_measure=measure, aggregate_measure=aggregate_measure,
+        # These identify the fine source row; full endpoint interpolation is
+        # represented by fci_maps.forward.local/remote and is not lossy here.
+        edge_destination_i=ii, edge_destination_j=jj, edge_destination_k=kk,
+        edge_interpolation_provenance=provenance,
+        edge_destination_support=support,
+    )
+
+
+def prolong_local_outgoing_fci_face_owner_field(
+    values_owned: jnp.ndarray,
+    topology: LocalOutgoingFciFaceTopology3D,
+) -> jnp.ndarray:
+    """Prolong owner-space face values to every active fine outgoing edge."""
+
+    values = jnp.asarray(values_owned, dtype=jnp.float64)
+    if values.shape != topology.shape:
+        raise ValueError(f"values_owned must have shape {topology.shape}, got {values.shape}")
+    # Owner-space storage has no degree of freedom at aliases.  Masking here
+    # makes that contract explicit even if a caller supplies stale alias data.
+    values = jnp.where(topology.is_active_owner, values, 0.0)
+    fine = values[topology.edge_owner_i, topology.edge_owner_j, topology.edge_owner_k]
+    return jnp.where(topology.edge_active, fine, 0.0)
+
+
+def restrict_local_outgoing_fci_face_field(
+    values_fine: jnp.ndarray,
+    topology: LocalOutgoingFciFaceTopology3D,
+) -> jnp.ndarray:
+    """Measure-average fine outgoing-edge data into owner storage.
+
+    With ``W_e=diag(edge_measure)`` and
+    ``W_o=diag(aggregate_measure)``, this implements
+    ``R = W_o^-1 P^T W_e``.  Consequently ``P`` and ``R`` are adjoint under
+    the supplied fine-edge and aggregate-owner measures, and constants are
+    preserved exactly (up to floating point summation).
+    """
+
+    values = jnp.asarray(values_fine, dtype=jnp.float64)
+    if values.shape != topology.shape:
+        raise ValueError(f"values_fine must have shape {topology.shape}, got {values.shape}")
+    weighted = jnp.where(topology.edge_active, topology.edge_measure * values, 0.0)
+    summed = jnp.zeros(topology.shape, dtype=jnp.float64).at[
+        topology.edge_owner_i, topology.edge_owner_j, topology.edge_owner_k
+    ].add(weighted)
+    denominator = jnp.where(topology.is_active_owner, topology.aggregate_measure, 1.0)
+    return jnp.where(topology.is_active_owner, summed / denominator, 0.0)
+
+def _build_source_edge_fci_stencil(
+    field_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    fci_stencil_builder: LocalFciStencilBuilder,
+    forward_remote_values: jnp.ndarray | None,
+    backward_remote_values: jnp.ndarray | None,
+    cut_wall_values: jnp.ndarray | None,
+    forward_cut_wall_values: jnp.ndarray | None,
+    backward_cut_wall_values: jnp.ndarray | None,
+) -> LocalStencil1D:
+    """Build the full-leg mapped stencil used by source-edge primitives.
+
+    An outgoing source edge belongs to its owned source cell.  Consequently
+    ``stencil.plus`` is that edge's remote endpoint, while ``stencil.minus``
+    samples the incoming source edge.  Keeping this in one helper ensures the
+    four experimental staggered operations use precisely the same local,
+    remote, and directional-wall dependency plumbing as the scalar FCI
+    operators.
+    """
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "source-edge FCI operators require LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+    return _build_mapped_stencil(
+        field_halo_full,
+        geometry,
+        context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_values,
+        backward_remote_values=backward_remote_values,
+        cut_wall_values=cut_wall_values,
+        forward_cut_wall_values=forward_cut_wall_values,
+        backward_cut_wall_values=backward_cut_wall_values,
+    )
+
+
+def local_center_to_outgoing_face_average_fci_op(
+    center_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    fci_stencil_builder: LocalFciStencilBuilder = build_local_fci_stencil_from_field,
+    forward_remote_values: jnp.ndarray | None = None,
+    backward_remote_values: jnp.ndarray | None = None,
+    cut_wall_values: jnp.ndarray | None = None,
+    forward_cut_wall_values: jnp.ndarray | None = None,
+    backward_cut_wall_values: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Map a cell scalar to its owned outgoing FCI source edge.
+
+    The returned owned array is indexed by source cell and represents the
+    edge from that cell to its forward mapped endpoint: ``(f + f_plus) / 2``.
+    ``*_remote_values`` and directional wall payloads use the same compact
+    receive/value-slot contract as :func:`local_parallel_q_flux_div_fci_op`.
+    """
+
+    stencil = _build_source_edge_fci_stencil(
+        center_halo_full, geometry, context=context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_values,
+        backward_remote_values=backward_remote_values,
+        cut_wall_values=cut_wall_values,
+        forward_cut_wall_values=forward_cut_wall_values,
+        backward_cut_wall_values=backward_cut_wall_values,
+    )
+    return _mask_inactive_owned(0.5 * (stencil.center + stencil.plus), geometry)
+
+
+def local_outgoing_face_to_center_average_fci_op(
+    face_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    fci_stencil_builder: LocalFciStencilBuilder = build_local_fci_stencil_from_field,
+    forward_remote_values: jnp.ndarray | None = None,
+    backward_remote_values: jnp.ndarray | None = None,
+    cut_wall_values: jnp.ndarray | None = None,
+    forward_cut_wall_values: jnp.ndarray | None = None,
+    backward_cut_wall_values: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Interpolate owned outgoing FCI-edge data back to cell centers.
+
+    For unequal forward/backward leg lengths this is the linear interpolation
+    at the cell center, ``(dx_min*q_out + dx_plus*q_in)/(dx_min+dx_plus)``;
+    it reduces to the arithmetic average on uniform legs.
+    """
+
+    stencil = _build_source_edge_fci_stencil(
+        face_halo_full, geometry, context=context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_values,
+        backward_remote_values=backward_remote_values,
+        cut_wall_values=cut_wall_values,
+        forward_cut_wall_values=forward_cut_wall_values,
+        backward_cut_wall_values=backward_cut_wall_values,
+    )
+    denominator = jnp.maximum(stencil.dx_min + stencil.dx_plus, 1.0e-30)
+    value = (stencil.dx_min * stencil.center + stencil.dx_plus * stencil.minus) / denominator
+    return _mask_inactive_owned(value, geometry)
+
+
+def local_center_to_outgoing_face_grad_parallel_fci_op(
+    center_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    fci_stencil_builder: LocalFciStencilBuilder = build_local_fci_stencil_from_field,
+    forward_remote_values: jnp.ndarray | None = None,
+    backward_remote_values: jnp.ndarray | None = None,
+    cut_wall_values: jnp.ndarray | None = None,
+    forward_cut_wall_values: jnp.ndarray | None = None,
+    backward_cut_wall_values: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Compute the forward full-leg gradient on each owned FCI source edge."""
+
+    stencil = _build_source_edge_fci_stencil(
+        center_halo_full, geometry, context=context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_values,
+        backward_remote_values=backward_remote_values,
+        cut_wall_values=cut_wall_values,
+        forward_cut_wall_values=forward_cut_wall_values,
+        backward_cut_wall_values=backward_cut_wall_values,
+    )
+    value = (stencil.plus - stencil.center) / jnp.maximum(stencil.dx_plus, 1.0e-30)
+    return _mask_inactive_owned(value, geometry)
+
+
+def local_outgoing_face_to_center_div_parallel_fci_op(
+    face_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    fci_stencil_builder: LocalFciStencilBuilder = build_local_fci_stencil_from_field,
+    forward_remote_values: jnp.ndarray | None = None,
+    backward_remote_values: jnp.ndarray | None = None,
+    cut_wall_values: jnp.ndarray | None = None,
+    forward_cut_wall_values: jnp.ndarray | None = None,
+    backward_cut_wall_values: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Compute source-edge flux divergence at centers over the full FCI leg."""
+
+    stencil = _build_source_edge_fci_stencil(
+        face_halo_full, geometry, context=context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_values,
+        backward_remote_values=backward_remote_values,
+        cut_wall_values=cut_wall_values,
+        forward_cut_wall_values=forward_cut_wall_values,
+        backward_cut_wall_values=backward_cut_wall_values,
+    )
+    half_leg = jnp.maximum(0.5 * (stencil.dx_plus + stencil.dx_min), 1.0e-30)
+    value = (stencil.center - stencil.minus) / half_leg
+    return _mask_inactive_owned(value, geometry)
+
+
 def local_parallel_q_flux_div_fci_op(
     q_halo_full: jnp.ndarray,
     geometry: LocalFciGeometry3D,
