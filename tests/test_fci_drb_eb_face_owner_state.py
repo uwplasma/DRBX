@@ -118,8 +118,10 @@ def test_staggered_perpendicular_and_source_paths_keep_one_face_transfer():
     assert "Vi_center_halo = self._prepare_cell_rlp_halo_from_fine(" in parallel_source
     assert "Ve_center_halo = self._prepare_cell_rlp_halo_from_fine(" in parallel_source
     assert "self._project_face_force_to_cell_rlp(" not in source
-    assert "Vi_perpendicular_rhs = self._cell_force_to_outgoing_face_mass_adjoint(" in source
-    assert "Ve_perpendicular_rhs = self._cell_force_to_outgoing_face_mass_adjoint(" in source
+    assert "Vi_poisson_term, Vi_diff_term = self._cell_force_lanes_to_outgoing_face_mass_adjoint(" in source
+    assert "Ve_poisson_term, Ve_diff_term = self._cell_force_lanes_to_outgoing_face_mass_adjoint(" in source
+    assert "Vi_perpendicular_rhs = Vi_poisson_term + Vi_diff_term" in source
+    assert "Ve_perpendicular_rhs = Ve_poisson_term + Ve_diff_term" in source
     assert "value = self._cell_force_to_outgoing_face_mass_adjoint(" in parallel_source
     assert source.count("assembled = self._restrict_fine_state(") == 1
     # Vi/Ve sources are not interpreted as stale face-owner slots: they are
