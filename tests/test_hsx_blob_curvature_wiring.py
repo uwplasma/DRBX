@@ -52,12 +52,16 @@ def test_ti_curvature_contribution_is_whole_equation_gated():
 
 
 def test_curvature_scale_is_static_finite_nonnegative_and_scales_each_assembly():
+    import inspect
     import math
 
     import jax.numpy as jnp
     import pytest
 
-    from drbx.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
+    from drbx.native.fci_drb_EB_rhs import (
+        FciDrbEBRhsParameters,
+        LocalFciDrbEBRhs,
+    )
 
     source = RHS_PATH.read_text()
     rhs_tree = _tree(RHS_PATH)
@@ -92,9 +96,36 @@ def test_curvature_scale_is_static_finite_nonnegative_and_scales_each_assembly()
         "curvature_vorticity_contribution",
     ):
         assert evaluate_source.count(name + " =") >= 1
-    # The four assembled equation contributions each apply the static scale;
-    # the disabled branches remain explicit zeros.
-    assert evaluate_source.count("self.curvature_scale") == 5
+    # Every assembled equation has a branch whose expression consumes the
+    # static scale.  Check the assignment semantics rather than a raw source
+    # count, which changes as new conservative corrections are added.
+    scaled_targets = set()
+    for node in ast.walk(evaluate):
+        if not isinstance(node, ast.Assign):
+            continue
+        uses_scale = any(
+            isinstance(child, ast.Attribute)
+            and isinstance(child.value, ast.Name)
+            and child.value.id == "self"
+            and child.attr == "curvature_scale"
+            for child in ast.walk(node.value)
+        )
+        if uses_scale:
+            scaled_targets.update(
+                target.id
+                for target in node.targets
+                if isinstance(target, ast.Name)
+            )
+    assert {
+        "curvature_density_contribution",
+        "curvature_Te_contribution",
+        "curvature_Ti_contribution",
+        "curvature_vorticity_contribution",
+    } <= scaled_targets
+    third_order_source = inspect.getsource(
+        LocalFciDrbEBRhs._third_order_radial_characteristic_curvature_correction
+    )
+    assert "curvature_scale=self.curvature_scale" in third_order_source
     assert "if self.curvature_scheme == \"disabled\"" in evaluate_source
 
     def make_disabled(scale):
@@ -104,7 +135,7 @@ def test_curvature_scale_is_static_finite_nonnegative_and_scales_each_assembly()
             None,
             None,
             None,
-            None,
+            FciDrbEBRhsParameters(),
             None,
             None,
             None,
@@ -563,3 +594,98 @@ def test_background_characteristic_projectors_are_complete_and_invariant():
     np.testing.assert_allclose(
         np.asarray(stationary_zero), eye[None, ...], rtol=1e-11, atol=1e-11
     )
+
+
+def test_background_characteristic_decomposition_resolves_speeds_and_absolute_matrix():
+    import numpy as np
+    import jax
+    import jax.numpy as jnp
+
+    jax.config.update("jax_enable_x64", True)
+    from drbx.native.fci_drb_EB_rhs import (
+        _characteristic_projectors_background,
+        background_curvature_characteristic_absolute_matrix,
+        background_curvature_characteristic_decomposition,
+        background_curvature_characteristic_metric,
+        background_curvature_characteristic_penalty,
+    )
+
+    bmag = jnp.asarray([0.8, 1.1])
+    tau = 0.7
+    speeds, projectors = background_curvature_characteristic_decomposition(
+        bmag, tau
+    )
+    grouped_electron, grouped_ion, grouped_zero = (
+        _characteristic_projectors_background(bmag, tau)
+    )
+    absolute = np.asarray(
+        background_curvature_characteristic_absolute_matrix(bmag, tau)
+    )
+    metrics = np.asarray(background_curvature_characteristic_metric(bmag, tau))
+    penalties = np.asarray(background_curvature_characteristic_penalty(bmag, tau))
+    eye = np.eye(4)
+
+    for index, b in enumerate(np.asarray(bmag)):
+        matrix = np.array(
+            [
+                [2.0, 2.0, 0.0, 0.0],
+                [4.0 / 3.0, 14.0 / 3.0, 0.0, 0.0],
+                [4.0 / 3.0, 4.0 / 3.0, -10.0 * tau / 3.0, 0.0],
+                [
+                    2.0 * b * b * (1.0 + tau),
+                    2.0 * b * b,
+                    2.0 * tau * b * b,
+                    0.0,
+                ],
+            ]
+        )
+        local_speeds = np.asarray([speed[index] for speed in speeds])
+        local_projectors = [np.asarray(projector[index]) for projector in projectors]
+        np.testing.assert_allclose(sum(local_projectors), eye, rtol=2e-11, atol=2e-11)
+        np.testing.assert_allclose(
+            sum(speed * projector for speed, projector in zip(local_speeds, local_projectors)),
+            matrix,
+            rtol=2e-11,
+            atol=2e-11,
+        )
+        np.testing.assert_allclose(
+            sum(abs(speed) * projector for speed, projector in zip(local_speeds, local_projectors)),
+            absolute[index],
+            rtol=2e-11,
+            atol=2e-11,
+        )
+        np.testing.assert_allclose(
+            absolute[index] @ absolute[index], matrix @ matrix, rtol=3e-11, atol=3e-11
+        )
+        np.testing.assert_allclose(
+            metrics[index] @ matrix,
+            matrix.T @ metrics[index],
+            rtol=3e-11,
+            atol=3e-11,
+        )
+        np.testing.assert_allclose(
+            penalties[index],
+            metrics[index] @ absolute[index],
+            rtol=3e-11,
+            atol=3e-11,
+        )
+        np.testing.assert_allclose(
+            penalties[index], penalties[index].T, rtol=3e-11, atol=3e-11
+        )
+        assert np.min(np.linalg.eigvalsh(penalties[index])) >= -3.0e-11
+        for left, p_left in enumerate(local_projectors):
+            np.testing.assert_allclose(p_left @ p_left, p_left, rtol=2e-11, atol=2e-11)
+            for right, p_right in enumerate(local_projectors):
+                if left != right:
+                    np.testing.assert_allclose(
+                        p_left @ p_right, 0.0, rtol=2e-11, atol=2e-11
+                    )
+
+    np.testing.assert_allclose(
+        np.asarray(projectors[0] + projectors[1]),
+        np.asarray(grouped_electron),
+        rtol=2e-11,
+        atol=2e-11,
+    )
+    np.testing.assert_allclose(np.asarray(projectors[2]), np.asarray(grouped_ion))
+    np.testing.assert_allclose(np.asarray(projectors[3]), np.asarray(grouped_zero))

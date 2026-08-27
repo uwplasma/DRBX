@@ -58,6 +58,53 @@ def test_radius_dependent_profile_accepts_composite_ntheta():
     assert ratio >= 1.0
 
 
+def test_parser_exposes_metric_checked_diagnostic_angular_profile():
+    parser = driver._build_parser()
+    args = parser.parse_args(
+        [
+            "--topology",
+            "toroidal",
+            "--resolution",
+            "4",
+            "8",
+            "4",
+            "--angular-group-profile",
+            "8,4,2,1",
+        ]
+    )
+    assert args.angular_group_profile == "8,4,2,1"
+
+
+def test_main_rejects_angular_profile_outside_toroidal_topology():
+    with np.testing.assert_raises(SystemExit):
+        driver.main(["--angular-group-profile", "8,4,2,1,1,1,1,1"])
+
+
+def test_parser_exposes_manufactured_curvature_audit_output(tmp_path):
+    output = tmp_path / "manufactured_curvature.npz"
+    args = driver._build_parser().parse_args(
+        [
+            "--curvature-scheme",
+            "conservative",
+            "--curvature-manufactured-output",
+            str(output),
+        ]
+    )
+    assert args.curvature_manufactured_output == output
+
+
+def test_main_rejects_manufactured_audit_without_conservative_curvature(tmp_path):
+    with np.testing.assert_raises(SystemExit):
+        driver.main(
+            [
+                "--curvature-scheme",
+                "disabled",
+                "--curvature-manufactured-output",
+                str(tmp_path / "manufactured_curvature.npz"),
+            ]
+        )
+
+
 def test_angular_cache_roundtrip_contains_only_rlp_payload(tmp_path):
     geometry = _synthetic_geometry()
     host = build_polar_angular_agglomeration_geometry(

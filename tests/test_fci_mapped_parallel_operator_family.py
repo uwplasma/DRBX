@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 import jax.numpy as jnp
+import jax
 import numpy as np
 import pytest
 
@@ -20,26 +21,44 @@ if str(_TEST_PATH) not in sys.path:
 
 from drbx.geometry import (  # noqa: E402
     FCI_DEP_CUT_WALL,
+    FCI_DEP_PHYSICAL_BOUNDARY,
     HaloLayout3D,
     LocalFciDirectionMap,
     LocalFciLocalDependencyTable,
     LocalFciMaps3D,
+    LocalControlVolumeCellGeometry3D,
     StencilBuilderContext,
+    build_local_conservative_stencil_from_field,
 )
 from drbx.native.fci_operators import (  # noqa: E402
     local_center_to_outgoing_face_average_fci_op,
     local_center_to_outgoing_face_grad_parallel_fci_op,
     local_grad_parallel_op_fci_compatible_from_q,
+    local_grad_parallel_op_fci_compatible_from_q_components,
     local_outgoing_face_to_center_average_fci_op,
     local_outgoing_face_to_center_div_parallel_fci_op,
     local_parallel_diffusion_fci_op,
     local_parallel_div_b_fci_from_q_op,
     local_parallel_laplacian_fci_op,
     local_parallel_q_flux_div_fci_op,
+    local_perp_laplacian_conservative_op,
+    aggregate_local_control_volume_average,
+    expand_local_control_volume_owner_field,
 )
+from drbx.native.fci_boundaries import BC_NEUMANN, LocalBoundaryFaceBC3D  # noqa: E402
+from drbx.native.fci_halo import (  # noqa: E402
+    HaloExchange3D,
+    LocalPeriodicTopologyRule3D,
+    TopologyHaloFiller3D,
+    LocalHaloClosure3D,
+)
+from drbx.native.fci_model import inject_owned_field_to_halo  # noqa: E402
 
 from test_fci_operators_domain_decomp import (  # noqa: E402
     _build_local_geometry,
+    _build_domain,
+    _build_ghost_filler,
+    _prepare_scalar_field_halo,
     _single_fci_local_row,
 )
 
@@ -98,19 +117,19 @@ def _context(geometry):
     return StencilBuilderContext(layout=geometry.layout)
 
 
-def _periodic_source_edge_geometry(*, shifted: bool):
+def _periodic_source_edge_geometry(*, shifted: bool, nz: int = 4):
     """Small periodic straight/shifted source-edge FCI map with full legs."""
 
-    layout = HaloLayout3D((1, 4, 4), 1)
+    layout = HaloLayout3D((1, 4, nz), 1)
     ii, jj, kk = np.meshgrid(
-        np.arange(1), np.arange(4), np.arange(4), indexing="ij"
+        np.arange(1), np.arange(4), np.arange(nz), indexing="ij"
     )
     target = np.ravel_multi_index((ii.ravel(), jj.ravel(), kk.ravel()), layout.owned_shape)
     transverse_shift = 1 if shifted else 0
 
     def direction(sign: int):
         source_j = (jj.ravel() + sign * transverse_shift) % 4
-        source_k = (kk.ravel() + sign) % 4
+        source_k = (kk.ravel() + sign) % nz
         return LocalFciDirectionMap(
             layout=layout,
             local=LocalFciLocalDependencyTable(
@@ -278,6 +297,34 @@ def test_prepared_q_gradient_matches_analytic_unequal_leg_derivative():
         div_b=jnp.zeros(geometry.owned_shape),
     )
     assert np.allclose(gradient, 1.0)
+
+
+def test_compatible_gradient_components_reconstruct_production_gradient():
+    dm, dp = 1.0, 2.0
+    geometry = _geometry(dm=dm, dp=dp)
+    q_halo = jnp.zeros(geometry.halo_shape, dtype=jnp.float64)
+    q_halo = q_halo.at[0, 1, 1].set(-dm + dm * dm)
+    q_halo = q_halo.at[1, 1, 1].set(0.0)
+    q_halo = q_halo.at[2, 1, 1].set(dp + dp * dp)
+    inverse_b_halo = jnp.ones(geometry.halo_shape, dtype=jnp.float64)
+    components, endpoints = (
+        local_grad_parallel_op_fci_compatible_from_q_components(
+            q_halo,
+            inverse_b_halo,
+            geometry,
+            context=_context(geometry),
+            field_owned=jnp.zeros(geometry.owned_shape),
+        )
+    )
+    gradient = local_grad_parallel_op_fci_compatible_from_q(
+        q_halo,
+        geometry,
+        context=_context(geometry),
+        field_owned=jnp.zeros(geometry.owned_shape),
+        div_b=jnp.zeros(geometry.owned_shape),
+    )
+    np.testing.assert_allclose(np.sum(components, axis=0), gradient)
+    np.testing.assert_allclose(endpoints[:, 0, 0, 0], (0.0, 6.0))
 
 
 def test_mapped_laplacian_and_diffusion_are_quadratic_exact_on_unequal_legs():

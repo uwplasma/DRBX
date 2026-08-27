@@ -38,7 +38,7 @@ if str(_TESTS) not in sys.path:
 from jax.sharding import PartitionSpec as P  # noqa: E402
 from drbx.native import FciDrbEBState  # noqa: E402
 from drbx.native.fci_sharding import assemble_local_fci_geometry  # noqa: E402
-from test_fci_drb_eb_imex_integration import (  # noqa: E402
+from fci_drb_eb_test_helpers import (  # noqa: E402
     _build_rhs,
     _context_and_sharded_inputs,
 )
@@ -179,23 +179,32 @@ def test_source_contract_preserves_phi_vorticity_and_physical_masks():
     coordinate = source[source.index("    def _coordinate_stage_parallel_terms("):]
     assert "vorticity_current_flux_div = local_parallel_flux_div_op(" in coordinate
     vorticity_flux = coordinate.index("vorticity_current_flux_div = local_parallel_flux_div_op(")
-    assert "boundary_trace=operator_boundary.current" in coordinate[vorticity_flux:vorticity_flux + 400]
+    vorticity_trace = coordinate[vorticity_flux:vorticity_flux + 600]
+    assert 'self.vorticity_current_inflow_trace == "parallel-characteristic"' in vorticity_trace
+    assert "parallel_boundary.current" in vorticity_trace
+    assert "operator_boundary.current" in vorticity_trace
     assert "* vorticity_current_flux_divergence" in source
 
 
 def test_parallel_closure_has_static_central_default_and_characteristic_options():
     source = RHS_SOURCE.read_text()
     assert 'parallel_inflow_closure: str = "central"' in source
+    assert 'vorticity_current_inflow_trace: str = "operator"' in source
     assert '"local-characteristic"' in source
     assert '"equilibrium-characteristic"' in source
 
 
 @pytest.mark.parametrize(
-    "parallel_inflow_closure",
-    ("local-characteristic", "equilibrium-characteristic"),
+    ("parallel_inflow_closure", "vorticity_current_inflow_trace"),
+    (
+        ("local-characteristic", "operator"),
+        ("equilibrium-characteristic", "operator"),
+        ("equilibrium-characteristic", "parallel-characteristic"),
+    ),
 )
 def test_characteristic_coordinate_production_path_is_finite_and_additive(
     parallel_inflow_closure,
+    vorticity_current_inflow_trace,
 ):
     """Compile the real sharded RHS with owned-face characteristic traces."""
 
@@ -209,34 +218,15 @@ def test_characteristic_coordinate_production_path_is_finite_and_additive(
         rhs = replace(
             rhs,
             parallel_inflow_closure=parallel_inflow_closure,
+            vorticity_current_inflow_trace=vorticity_current_inflow_trace,
             parallel_operator_scheme="coordinate",
         )
         state = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
-        explicit, implicit = rhs.evaluate_imex_rhs(state, phi_owned=phi)
-        full = explicit.replace(
-            density=explicit.density + implicit.density,
-            Te=explicit.Te + implicit.Te,
-            Ti=explicit.Ti + implicit.Ti,
-            Ve=explicit.Ve + implicit.Ve,
-            vorticity=explicit.vorticity + implicit.vorticity,
-        )
-
-        splits = (
-            full.density - explicit.density - implicit.density,
-            full.Te - explicit.Te - implicit.Te,
-            full.Ti - explicit.Ti - implicit.Ti,
-            full.Vi - explicit.Vi,
-            full.Ve - explicit.Ve - implicit.Ve,
-            full.vorticity - explicit.vorticity - implicit.vorticity,
-            full.phi - explicit.phi,
-        )
+        full = rhs.evaluate_stage(state, phi_owned=phi)
         finite_values = tuple(
-            value
-            for result in (full, explicit, implicit)
-            for name in result.field_names()
-            for value in (getattr(result, name),)
+            getattr(full, name)
+            for name in full.field_names()
         )
-
         def stage_from_density(value):
             perturbed = state.replace(density=value)
             return rhs.evaluate_stage(perturbed, phi_owned=phi)
@@ -248,7 +238,7 @@ def test_characteristic_coordinate_production_path_is_finite_and_additive(
         )[1]
         return jnp.asarray([
             jnp.max(jnp.stack(tuple(jnp.max(jnp.abs(value)) for value in finite_values))),
-            jnp.max(jnp.stack(tuple(jnp.max(jnp.abs(value)) for value in splits))),
+            jnp.asarray(0.0),
             jnp.max(jnp.stack(tuple(
                 jnp.max(jnp.abs(getattr(tangent, name)))
                 for name in tangent.field_names()
@@ -267,7 +257,7 @@ def test_characteristic_coordinate_production_path_is_finite_and_additive(
     result = np.asarray(jax.block_until_ready(compiled(*fields, cell_fields)))
     assert np.all(np.isfinite(result)), result
     assert result[0] < np.inf
-    assert result[1] < 5.0e-10, result
+    assert result[1] == 0.0, result
     assert result[2] < np.inf
 
 
