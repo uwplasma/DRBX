@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Versioned launcher for the experimental source-edge FCI velocity layout.
+"""Versioned launcher for experimental and production FCI flux layouts.
 
 This leaves the shared HSX driver unmodified.  It loads that driver with this
-worktree's ``src`` tree, consumes the one experimental switch, and records the
-layout choice in the process environment consumed by ``LocalFciDrbEBRhs``.
+worktree's ``src`` tree, consumes the branch-specific switches, and records the
+selected layout and flux framework in the process environment consumed by
+``LocalFciDrbEBRhs``.
 Vi/Ve use outgoing FCI source edges under ``fci-staggered``; their
 perpendicular terms reconstruct face values at centers and project the result
-back to outgoing faces.
+back to outgoing faces.  ``--curvature-characteristic-axes`` is a separate
+diagnostic selector for the curvature face correction and is exported as
+``DRBX_CURVATURE_CHARACTERISTIC_AXES`` for the transformed shared driver.
 """
 
 from __future__ import annotations
@@ -52,19 +55,56 @@ def _transform_shared_driver_source(source: str) -> str:
 
     replacements = (
         (
-            'DRBX_SRC = SCRIPT_DIR / "DRBX" / "src"',
-            f"DRBX_SRC = Path({str(WORKTREE / 'src')!r})",
+            "from drbx.native.fci_drb_EB_rhs import (  # noqa: E402\n"
+            "    RHS_TERM_FIELD_NAMES,\n"
+            "    RHS_TERM_NAMES,\n"
+            "    UpwindEquilibriumWallProjectors,\n"
+            "    build_upwind_equilibrium_wall_projectors,\n"
+            "    parallel_characteristic_matrix,\n"
+            "    prepare_local_fci_drb_eb_state,\n"
+            ")",
+            "from drbx.native.fci_drb_EB_rhs import (  # noqa: E402\n"
+            "    RHS_TERM_FIELD_NAMES,\n"
+            "    RHS_TERM_NAMES,\n"
+            "    UpwindEquilibriumWallProjectors,\n"
+            "    build_upwind_equilibrium_wall_projectors,\n"
+            "    curvature_component_diagnostic_names,\n"
+            "    parallel_characteristic_matrix,\n"
+            "    prepare_local_fci_drb_eb_state,\n"
+            ")",
+        ),
+        (
+            'ELECTRON_FORCE_TERM_NAMES = (\n'
+            '    "parallel_self_advection", "collision", "electrostatic",\n'
+            '    "electron_pressure", "thermal_force", "characteristic_leg_upwind",\n'
+            ')',
+            'ELECTRON_FORCE_TERM_NAMES = (\n'
+            '    "parallel_self_advection", "collision", "electrostatic",\n'
+            '    "electron_pressure", "thermal_force", "characteristic_leg_upwind",\n'
+            '    "vorticity_current_flux_divergence",\n'
+            ')',
+        ),
+        (
+            '    if str(args.vorticity_current_inflow_trace) != "operator":\n'
+            '        raise ValueError("production-split forbids boundary-only current correction")',
+            '    if (\n'
+            '        str(args.vorticity_current_inflow_trace) != "operator"\n'
+            '        and args.rhs_replay_history is None\n'
+            '    ):\n'
+            '        raise ValueError("production-split forbids boundary-only current correction")',
         ),
         (
             "from drbx.native.fci_operators import (  # noqa: E402\n"
             "    build_local_perp_laplacian_face_projectors,\n"
             "    expand_local_control_volume_owner_field,\n"
+            "    local_curvature_conservative_components_op,\n"
             ")",
             "from drbx.native.fci_operators import (  # noqa: E402\n"
             "    OUTGOING_FCI_FACE_OWNERSHIP_POLICY,\n"
             "    build_local_outgoing_fci_face_topology_from_geometry,\n"
             "    build_local_perp_laplacian_face_projectors,\n"
             "    expand_local_control_volume_owner_field,\n"
+            "    local_curvature_conservative_components_op,\n"
             "    prolong_local_outgoing_fci_face_owner_field,\n"
             ")",
         ),
@@ -413,8 +453,7 @@ def _transform_shared_driver_source(source: str) -> str:
             "    phi_start = time.perf_counter()\n",
         ),
         (
-            "    startup_advance = None\n"
-            "    compiled_explicit_rhs = None\n",
+            "    phase_timer = _JittedPhaseTimer() if phase_timing else None\n",
             "    rhs_term_history_path = os.environ.get(\"DRBX_RHS_TERM_HISTORY\")\n"
             "    if rhs_term_history_path is not None:\n"
             "        if outgoing_face_topology_host is None or owner_host_geometry is None:\n"
@@ -477,13 +516,28 @@ def _transform_shared_driver_source(source: str) -> str:
             "        output.write_text(json.dumps({\"history\": rhs_term_history_path, \"frames\": report_frames, \"field\": \"Vi\", \"term_names\": list(vi_names)}, indent=2, sort_keys=True) + \"\\n\", encoding=\"utf-8\")\n"
             "        print(f\"[rhs-term-history] wrote {output}\", flush=True)\n"
             "        return state\n"
-            "    startup_advance = None\n"
-            "    compiled_explicit_rhs = None\n",
+            "    phase_timer = _JittedPhaseTimer() if phase_timing else None\n",
         ),
         (
             '            "parallel_operator_scheme": str(args.parallel_operator_scheme),',
             '            "parallel_operator_scheme": str(args.parallel_operator_scheme),\n'
             '            "parallel_velocity_layout": os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT", "cell-centered"),\n'
+            '            "parallel_flux_pairing": os.environ.get("DRBX_PARALLEL_FLUX_PAIRING", "legacy"),\n'
+            '            "parallel_boundary_pairing": os.environ.get("DRBX_PARALLEL_BOUNDARY_PAIRING", "legacy"),\n'
+            '            "curvature_wall_flux_closure": os.environ.get("DRBX_CURVATURE_WALL_FLUX_CLOSURE", str(args.curvature_inflow_closure)),\n'
+            '            "curvature_wall_flux_closure_source": "DRBX_CURVATURE_WALL_FLUX_CLOSURE",\n'
+            '            "parallel_material_wall_flux_closure": os.environ.get("DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE", str(args.parallel_inflow_closure)),\n'
+            '            "parallel_material_wall_flux_closure_source": "DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE",\n'
+            '            "curvature_characteristic_axes": os.environ.get("DRBX_CURVATURE_CHARACTERISTIC_AXES", "legacy"),\n'
+            '            "curvature_characteristic_axes_source": "run_staggered_hsx_blob.py:--curvature-characteristic-axes",\n'
+            '            "curvature_radial_characteristic_scheme": os.environ.get("DRBX_CURVATURE_RADIAL_CHARACTERISTIC_SCHEME", "legacy"),\n'
+            '            "curvature_radial_characteristic_scheme_source": "run_staggered_hsx_blob.py:--curvature-radial-characteristic-scheme",\n'
+            '            "curvature_poloidal_characteristic_scheme": os.environ.get("DRBX_CURVATURE_POLOIDAL_CHARACTERISTIC_SCHEME", "legacy"),\n'
+            '            "curvature_poloidal_characteristic_scheme_source": "run_staggered_hsx_blob.py:--curvature-poloidal-characteristic-scheme",\n'
+            '            "curvature_component_diagnostic_scheme": os.environ.get("DRBX_CURVATURE_COMPONENT_DIAGNOSTIC_SCHEME", "directional"),\n'
+            '            "curvature_component_diagnostic_scheme_source": "run_staggered_hsx_blob.py:--curvature-component-diagnostic-scheme",\n'
+            '            "poloidal_characteristic_penalty": (None if os.environ.get("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY") is None else float(os.environ["DRBX_POLOIDAL_CHARACTERISTIC_PENALTY"])),\n'
+            '            "poloidal_characteristic_penalty_source": os.environ.get("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE", "inherited-from-curvature-rlp-fine-glue-penalty"),\n'
             '            "field_locations": {"Vi": "fci-outgoing-face/source-edge" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else "cell-center", "Ve": "fci-outgoing-face/source-edge" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else "cell-center"},\n'
             '            "face_owner_layout": (None if staggered_face_provenance is None else staggered_face_provenance["face_basis_policy"]),\n'
             '            "outgoing_edge_mass_convention": "raw-fluid-cell-volume" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,\n'
@@ -493,6 +547,22 @@ def _transform_shared_driver_source(source: str) -> str:
             '            "initial_velocity_projection": "center-to-outgoing-face-Re" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,\n'
             '            **({} if staggered_face_provenance is None else staggered_face_provenance),\n'
             '            "perpendicular_velocity_geometry": "face-to-center-perpendicular-center-to-face",',
+        ),
+        (
+            '                "curvature_component_direction_names": ["u", "theta", "eta"],\n'
+            '                "electron_force_wall_audit": bool(',
+            '                "curvature_component_direction_names": list(curvature_component_diagnostic_names()),\n'
+            '                "electron_force_wall_audit": bool(',
+        ),
+        (
+            '            "curvature_component_direction_names_json": np.asarray(\n'
+            '                json.dumps(("u", "theta", "eta"))\n'
+            '            ),\n'
+            '            "polarization_term_names_json": np.asarray(',
+            '            "curvature_component_direction_names_json": np.asarray(\n'
+            '                json.dumps(curvature_component_diagnostic_names())\n'
+            '            ),\n'
+            '            "polarization_term_names_json": np.asarray(',
         ),
         (
             "    base_output_payload.update(_snapshot_metric_payload(global_geometry))\n",
@@ -512,12 +582,16 @@ def _transform_shared_driver_source(source: str) -> str:
             "                ).astype(np.float64)",
         ),
         (
-            "        run_metadata_json=np.asarray(json.dumps(metadata, sort_keys=True)),\n",
+            "        run_metadata_json=np.asarray(json.dumps(metadata, sort_keys=True)),\n"
+            "        **(\n"
+            "            {\n",
             "        run_metadata_json=np.asarray(json.dumps(metadata, sort_keys=True)),\n"
             "        **({\n"
             "            f\"face_topology_{name}\": np.asarray(value)\n"
             "            for name, value in outgoing_face_topology_host.items()\n"
-            "        } if outgoing_face_topology_host is not None else {}),\n",
+            "        } if outgoing_face_topology_host is not None else {}),\n"
+            "        **(\n"
+            "            {\n",
         ),
         (
             "            _assert_owner_sparse(state, owner_host_geometry)\n",
@@ -537,7 +611,7 @@ def _transform_shared_driver_source(source: str) -> str:
     )
     # Every stage/output diagnostic receives its locally built topology.  Keep
     # these exact call-site rewrites separate from the one-occurrence anchors:
-    # the shared driver intentionally invokes this helper in several RK/IMEX
+    # the shared driver intentionally invokes this helper in several RK4
     # branches.
     for field_name in ("stage", "next_state", "result.state", "local_state"):
         source = source.replace(
@@ -573,6 +647,84 @@ def main() -> None:
         choices=("cell-centered", "fci-staggered"),
         default="cell-centered",
     )
+    parser.add_argument(
+        "--parallel-flux-pairing",
+        choices=("legacy", "support-core"),
+        default="legacy",
+    )
+    parser.add_argument(
+        "--parallel-boundary-pairing",
+        choices=("legacy", "current-phi"),
+        default="current-phi",
+        help=(
+            "Boundary composition for support-core FCI fluxes. current-phi "
+            "includes physical wall rows in the Neumann-current divergence "
+            "and derives grad(phi) by weighted transpose; legacy is replay-only."
+        ),
+    )
+    parser.add_argument(
+        "--flux-framework",
+        choices=("legacy", "production-split"),
+        default="legacy",
+        help=(
+            "High-level flux wiring. 'legacy' preserves the existing split; "
+            "'production-split' enables the production curvature/parallel "
+            "path and its compatibility guards."
+        ),
+    )
+    parser.add_argument(
+        "--curvature-characteristic-axes",
+        choices=("legacy", "radial", "radial-poloidal"),
+        default="legacy",
+        help=(
+            "Diagnostic curvature characteristic correction axes. 'legacy' "
+            "leaves the established face flux untouched; 'radial' preserves "
+            "the existing radial-only correction; 'radial-poloidal' enables "
+            "the prototype correction on radial and poloidal faces."
+        ),
+    )
+    parser.add_argument(
+        "--curvature-radial-characteristic-scheme",
+        choices=("legacy", "third-order-upwind"),
+        default="legacy",
+        help=(
+            "Radial coupled-curvature characteristic scheme. 'legacy' "
+            "preserves the existing RLP/trace-transpose behavior; "
+            "'third-order-upwind' selects the canonical-strength third-order "
+            "characteristic face flux."
+        ),
+    )
+    parser.add_argument(
+        "--curvature-poloidal-characteristic-scheme",
+        choices=("legacy", "third-order-upwind"),
+        default="legacy",
+        help=(
+            "Poloidal coupled-curvature characteristic scheme. 'legacy' "
+            "preserves the existing selector-controlled behavior; "
+            "'third-order-upwind' enables the third-order poloidal flux and "
+            "requires the matching radial third-order scheme."
+        ),
+    )
+    parser.add_argument(
+        "--curvature-component-diagnostic-scheme",
+        choices=("directional", "centered-dissipation", "radial-provenance"),
+        default="directional",
+        help=(
+            "Analysis-only lane layout for frozen curvature RHS replay. "
+            "radial-provenance separates radial boundary, RLP transition, "
+            "ordinary interior, and within-cell contributions."
+        ),
+    )
+    parser.add_argument(
+        "--poloidal-characteristic-penalty",
+        type=float,
+        default=None,
+        help=(
+            "Nonnegative multiplier for the diagnostic ordinary poloidal "
+            "characteristic correction. If omitted, inherit "
+            "--curvature-rlp-fine-glue-penalty."
+        ),
+    )
     parser.add_argument("--rhs-term-history", type=Path)
     parser.add_argument("--rhs-term-frames", default="100,180,225")
     parser.add_argument("--rhs-term-output", type=Path)
@@ -585,6 +737,174 @@ def main() -> None:
         prefix = option + "="
         return next((value[len(prefix):] for value in remaining if value.startswith(prefix)), None)
 
+    def option_present(option: str) -> bool:
+        return option in remaining or any(value.startswith(option + "=") for value in remaining)
+
+    def option_values(option: str) -> tuple[str, ...]:
+        """Return all positional values following an option in shared argv."""
+
+        if option not in remaining:
+            value = option_value(option)
+            return () if value is None else (value,)
+        index = remaining.index(option) + 1
+        values: list[str] = []
+        while index < len(remaining) and not remaining[index].startswith("-"):
+            values.append(remaining[index])
+            index += 1
+        return tuple(values)
+
+    if args.flux_framework == "production-split":
+        if (option_value("--time-integrator") or "rk4") != "rk4":
+            raise SystemExit("production-split requires --time-integrator rk4")
+        if (option_value("--parallel-operator-scheme") or "coordinate") != "fci":
+            raise SystemExit("production-split requires --parallel-operator-scheme fci")
+        if args.parallel_velocity_layout != "cell-centered":
+            raise SystemExit("production-split requires cell-centered parallel velocities")
+        if args.parallel_flux_pairing != "support-core":
+            raise SystemExit("production-split requires --parallel-flux-pairing support-core")
+        if (
+            args.parallel_boundary_pairing != "current-phi"
+            and not option_present("--rhs-replay-history")
+        ):
+            raise SystemExit(
+                "production-split trajectories require "
+                "--parallel-boundary-pairing current-phi"
+            )
+        if (option_value("--curvature-scheme") or "conservative") != "conservative":
+            raise SystemExit("production-split requires conservative curvature")
+        if (option_value("--curvature-rlp-face-scheme") or "projected-fine") != "projected-fine":
+            raise SystemExit("production-split requires projected-fine owner geometry")
+        if (option_value("--poisson-bracket-scheme") or "compatible-flux") != "compatible-flux":
+            raise SystemExit("production-split requires --poisson-bracket-scheme compatible-flux")
+        equations = option_values("--curvature-equations") or ("density", "Te", "Ti", "vorticity")
+        if frozenset(equations) != frozenset(("density", "Te", "Ti", "vorticity")):
+            raise SystemExit("production-split requires all four curvature equations")
+        if args.curvature_characteristic_axes != "legacy":
+            raise SystemExit("production-split forbids legacy radial/poloidal characteristic selectors")
+        if args.curvature_radial_characteristic_scheme != "legacy":
+            raise SystemExit("production-split forbids legacy radial characteristic selectors")
+        if args.curvature_poloidal_characteristic_scheme != "legacy":
+            raise SystemExit("production-split forbids legacy poloidal characteristic selectors")
+        if option_present("--curvature-rlp-fine-glue-penalty") or option_present("--poloidal-characteristic-penalty"):
+            raise SystemExit("production-split forbids legacy characteristic penalty selectors")
+        for option, expected, label in (
+            ("--fci-parallel-leg-scheme", "centered", "boundary-only parallel material correction"),
+            ("--parallel-inflow-closure", "central", "boundary-only parallel material correction"),
+            ("--vorticity-current-inflow-trace", "operator", "boundary-only current correction"),
+            ("--curvature-inflow-closure", "central", "boundary-only curvature material correction"),
+        ):
+            if (option_value(option) or expected) != expected:
+                if (
+                    option == "--vorticity-current-inflow-trace"
+                    and option_present("--rhs-replay-history")
+                ):
+                    # A frozen-state replay may ablate the current wall trace;
+                    # an actual production trajectory may not select this
+                    # boundary-only correction.
+                    continue
+                raise SystemExit(f"production-split forbids {label} selector {option}")
+    if (
+        args.curvature_component_diagnostic_scheme != "directional"
+        and not option_present("--rhs-replay-history")
+    ):
+        raise SystemExit(
+            "non-directional curvature component diagnostics require "
+            "--rhs-replay-history"
+        )
+
+    if args.parallel_flux_pairing == "support-core":
+        if args.parallel_velocity_layout != "cell-centered":
+            raise SystemExit(
+                "support-core requires --parallel-velocity-layout cell-centered"
+            )
+        if option_value("--parallel-operator-scheme") != "fci":
+            raise SystemExit(
+                "support-core requires --parallel-operator-scheme fci"
+            )
+    if args.curvature_characteristic_axes == "radial-poloidal":
+        curvature_scheme = option_value("--curvature-scheme")
+        if curvature_scheme is not None and curvature_scheme != "conservative":
+            raise SystemExit(
+                "radial-poloidal curvature characteristics require "
+                "--curvature-scheme conservative"
+            )
+        face_scheme = option_value("--curvature-rlp-face-scheme")
+        if face_scheme not in (
+            "fine-glue-characteristic",
+            "fine-glue-characteristic-bulk",
+        ):
+            raise SystemExit(
+                "radial-poloidal curvature characteristics require "
+                "--curvature-rlp-face-scheme fine-glue-characteristic or "
+                "fine-glue-characteristic-bulk"
+            )
+    if args.curvature_radial_characteristic_scheme == "third-order-upwind":
+        curvature_scheme = option_value("--curvature-scheme")
+        if curvature_scheme != "conservative":
+            raise SystemExit(
+                "third-order-upwind radial curvature requires "
+                "--curvature-scheme conservative"
+            )
+        if option_value("--topology") != "toroidal":
+            raise SystemExit(
+                "third-order-upwind radial curvature requires "
+                "--topology toroidal for angular RLP/control-volume geometry"
+            )
+        if args.curvature_characteristic_axes != "legacy":
+            raise SystemExit(
+                "third-order-upwind radial curvature requires "
+                "--curvature-characteristic-axes legacy"
+            )
+        face_scheme = option_value("--curvature-rlp-face-scheme")
+        if face_scheme != "projected-fine":
+            raise SystemExit(
+                "third-order-upwind radial curvature requires "
+                "--curvature-rlp-face-scheme projected-fine (no legacy "
+                "trace-transpose correction)"
+            )
+    if (
+        args.curvature_poloidal_characteristic_scheme == "third-order-upwind"
+        and args.curvature_radial_characteristic_scheme != "third-order-upwind"
+    ):
+        raise SystemExit(
+            "third-order-upwind poloidal curvature requires "
+            "--curvature-radial-characteristic-scheme third-order-upwind"
+        )
+    radial_penalty_text = option_value("--curvature-rlp-fine-glue-penalty")
+    try:
+        radial_penalty = 1.0 if radial_penalty_text is None else float(radial_penalty_text)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(
+            "curvature-rlp-fine-glue-penalty must be finite and nonnegative"
+        ) from error
+    if not np.isfinite(radial_penalty) or radial_penalty < 0.0:
+        raise SystemExit(
+            "curvature-rlp-fine-glue-penalty must be finite and nonnegative"
+        )
+    env_poloidal_penalty = os.environ.get("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY")
+    if args.poloidal_characteristic_penalty is not None or env_poloidal_penalty is not None:
+        try:
+            poloidal_penalty = (
+                args.poloidal_characteristic_penalty
+                if args.poloidal_characteristic_penalty is not None
+                else float(env_poloidal_penalty)
+            )
+        except (TypeError, ValueError) as error:
+            raise SystemExit(
+                "poloidal-characteristic-penalty must be finite and nonnegative"
+            ) from error
+        if not np.isfinite(poloidal_penalty) or poloidal_penalty < 0.0:
+            raise SystemExit(
+                "poloidal-characteristic-penalty must be finite and nonnegative"
+            )
+        poloidal_penalty_source = (
+            "run_staggered_hsx_blob.py:--poloidal-characteristic-penalty"
+            if args.poloidal_characteristic_penalty is not None
+            else "environment:DRBX_POLOIDAL_CHARACTERISTIC_PENALTY"
+        )
+    else:
+        poloidal_penalty = radial_penalty
+        poloidal_penalty_source = "inherited-from-curvature-rlp-fine-glue-penalty"
     if args.parallel_velocity_layout == "fci-staggered":
         if option_value("--topology") != "toroidal":
             raise SystemExit(
@@ -620,11 +940,73 @@ def main() -> None:
         os.environ["DRBX_RHS_TERM_FRAMES"] = ",".join(str(frame) for frame in frames)
         os.environ["DRBX_RHS_TERM_OUTPUT"] = str(args.rhs_term_output)
     os.environ["DRBX_PARALLEL_VELOCITY_LAYOUT"] = args.parallel_velocity_layout
+    os.environ["DRBX_PARALLEL_FLUX_PAIRING"] = args.parallel_flux_pairing
+    os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] = (
+        args.parallel_boundary_pairing
+        if args.parallel_flux_pairing == "support-core"
+        else "legacy"
+    )
+    os.environ["DRBX_CURVATURE_CHARACTERISTIC_AXES"] = args.curvature_characteristic_axes
+    os.environ["DRBX_CURVATURE_RADIAL_CHARACTERISTIC_SCHEME"] = (
+        args.curvature_radial_characteristic_scheme
+    )
+    os.environ["DRBX_CURVATURE_POLOIDAL_CHARACTERISTIC_SCHEME"] = (
+        args.curvature_poloidal_characteristic_scheme
+    )
+    os.environ["DRBX_CURVATURE_COMPONENT_DIAGNOSTIC_SCHEME"] = (
+        args.curvature_component_diagnostic_scheme
+    )
+    os.environ["DRBX_FLUX_FRAMEWORK"] = args.flux_framework
+    if args.flux_framework == "production-split":
+        os.environ["DRBX_CURVATURE_SPLIT_SCHEME"] = "production-path"
+        os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] = "production-path"
+        os.environ["DRBX_CURVATURE_WALL_FLUX_CLOSURE"] = (
+            "equilibrium-exterior-osher"
+        )
+        os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] = (
+            "characteristic-projected-operator-trace-osher"
+        )
+    else:
+        os.environ.pop("DRBX_CURVATURE_SPLIT_SCHEME", None)
+        os.environ.pop("DRBX_PARALLEL_MATERIAL_SCHEME", None)
+        os.environ.pop("DRBX_CURVATURE_WALL_FLUX_CLOSURE", None)
+        os.environ.pop("DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE", None)
+    if args.flux_framework == "production-split":
+        # The production path has no legacy scalar characteristic penalty;
+        # prevent a stale inherited value from changing the selected method.
+        os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY", None)
+        os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE", None)
+    else:
+        os.environ["DRBX_POLOIDAL_CHARACTERISTIC_PENALTY"] = str(poloidal_penalty)
+        os.environ["DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE"] = poloidal_penalty_source
+    os.environ["DRBX_SOURCE_ROOT"] = str(WORKTREE / "src")
+    print(
+        "[staggered launcher] flux_framework="
+        f"{args.flux_framework}"
+        + (
+            "; curvature_split_scheme=production-path; "
+            "parallel_material_scheme=production-path; "
+            "curvature_wall_flux_closure=equilibrium-exterior-osher; "
+            "parallel_material_wall_flux_closure="
+            "characteristic-projected-operator-trace-osher"
+            if args.flux_framework == "production-split"
+            else ""
+        ),
+        flush=True,
+    )
     print(
         "[staggered launcher] parallel_velocity_layout="
         f"{args.parallel_velocity_layout}; Vi/Ve field locations="
         + ("fci-outgoing-face/source-edge" if args.parallel_velocity_layout == "fci-staggered" else "cell-center")
-        + "; perpendicular Vi/Ve operators=face-to-center-perpendicular-center-to-face",
+        + "; perpendicular Vi/Ve operators=face-to-center-perpendicular-center-to-face"
+        + f"; parallel_flux_pairing={args.parallel_flux_pairing}"
+        + "; parallel_boundary_pairing="
+        + os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"]
+        + f"; curvature_characteristic_axes={args.curvature_characteristic_axes}"
+        + f"; curvature_radial_characteristic_scheme={args.curvature_radial_characteristic_scheme}"
+        + f"; curvature_poloidal_characteristic_scheme={args.curvature_poloidal_characteristic_scheme}"
+        + f"; curvature_component_diagnostic_scheme={args.curvature_component_diagnostic_scheme}"
+        + f"; poloidal_characteristic_penalty={poloidal_penalty} ({poloidal_penalty_source})",
         flush=True,
     )
     source = _transform_shared_driver_source(SHARED_DRIVER.read_text())

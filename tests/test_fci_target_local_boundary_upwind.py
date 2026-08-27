@@ -14,6 +14,8 @@ if str(_TESTS) not in sys.path:
 from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
     parallel_characteristic_split_matrices,
     target_local_characteristic_upwind_correction,
+    target_local_characteristic_upwind_correction_components,
+    target_local_characteristic_upwind_principal_diagnostics,
 )
 
 
@@ -60,6 +62,78 @@ def test_backward_wall_uses_one_sided_characteristic_legs() -> None:
     corrected_rhs = -(_diagonal_matrix() @ gradient[0, 0, 0]) + correction[0, 0, 0]
     np.testing.assert_allclose(corrected_rhs, -expected_principal)
     assert equilibrium.shape == (5,)
+
+
+def test_directional_characteristic_components_reconstruct_correction() -> None:
+    center = jnp.asarray([2.0, 3.0, 5.0, 0.7, -0.2])[None, None, None, :]
+    minus = 0.8 * center
+    plus = 1.1 * center
+    gradient_components = jnp.asarray(
+        [
+            [0.1, -0.2, 0.3, -0.4, 0.5],
+            [0.01, 0.02, -0.03, 0.04, -0.05],
+            [0.2, -0.1, 0.25, -0.2, 0.15],
+        ]
+    )[None, None, None, ...]
+    matrix = _diagonal_matrix()[None, None, None, :, :]
+    backward_wall = jnp.ones((1, 1, 1), dtype=bool)
+    forward_wall = jnp.zeros((1, 1, 1), dtype=bool)
+    components = target_local_characteristic_upwind_correction_components(
+        center,
+        minus,
+        plus,
+        jnp.ones((1, 1, 1)),
+        2.0 * jnp.ones((1, 1, 1)),
+        gradient_components,
+        matrix,
+        backward_wall,
+        forward_wall,
+    )
+    total = target_local_characteristic_upwind_correction(
+        center,
+        minus,
+        plus,
+        jnp.ones((1, 1, 1)),
+        2.0 * jnp.ones((1, 1, 1)),
+        jnp.sum(gradient_components, axis=-2),
+        matrix,
+        backward_wall,
+        forward_wall,
+    )
+    np.testing.assert_allclose(np.sum(components, axis=-2), total)
+
+
+def test_principal_diagnostics_reconstruct_correction_and_used_endpoints() -> None:
+    center = jnp.asarray([2.0, 3.0, 5.0, 0.7, -0.2])[None, None, None, :]
+    minus = jnp.asarray([9.0, 8.0, 7.0, 6.0, 5.0])[None, None, None, :]
+    plus = jnp.asarray([2.5, 2.0, 5.5, 1.7, -1.2])[None, None, None, :]
+    gradient = jnp.asarray([0.3, -0.4, 0.5, -0.6, 0.7])[None, None, None, :]
+    matrix = _diagonal_matrix()[None, None, None, :, :]
+    backward_wall = jnp.ones((1, 1, 1), dtype=bool)
+    forward_wall = jnp.zeros((1, 1, 1), dtype=bool)
+    arguments = (
+        center,
+        minus,
+        plus,
+        jnp.ones((1, 1, 1)),
+        2.0 * jnp.ones((1, 1, 1)),
+        gradient,
+        matrix,
+        backward_wall,
+        forward_wall,
+    )
+    centered, upwind, endpoints = (
+        target_local_characteristic_upwind_principal_diagnostics(*arguments)
+    )
+    correction = target_local_characteristic_upwind_correction(*arguments)
+
+    np.testing.assert_allclose(centered - upwind, correction)
+    expected_backward = jnp.asarray(
+        [1.0, center[0, 0, 0, 1], center[0, 0, 0, 2], 0.0,
+         center[0, 0, 0, 4]]
+    )
+    np.testing.assert_allclose(endpoints[0, 0, 0, 0], expected_backward)
+    np.testing.assert_allclose(endpoints[0, 0, 0, 1], plus[0, 0, 0])
 
 
 def test_interior_row_is_unchanged_and_constant_equilibrium_is_exact() -> None:

@@ -19,13 +19,14 @@ if str(_TESTS) not in sys.path:
 from drbx.native import FciDrbEBState  # noqa: E402
 from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
     RHS_TERM_FIELD_NAMES,
+    RHS_TERM_NAMES,
     RHS_TERM_SLOT_COUNT,
 )
 from drbx.native.fci_sharding import assemble_local_fci_geometry  # noqa: E402
 from drbx.native.fci_operators import (  # noqa: E402
     build_local_outgoing_fci_face_topology,
 )
-from test_fci_drb_eb_imex_integration import (  # noqa: E402
+from fci_drb_eb_test_helpers import (  # noqa: E402
     _build_rhs,
     _context_and_sharded_inputs,
 )
@@ -135,15 +136,21 @@ def test_fci_model_construction_is_safe_inside_shard_map() -> None:
 
 
 @pytest.mark.parametrize(
-    ("leg_scheme", "inflow_closure"),
+    ("leg_scheme", "inflow_closure", "vorticity_current_trace"),
     (
-        ("centered", "central"),
-        ("boundary-characteristic-upwind", "equilibrium-characteristic"),
+        ("centered", "central", "operator"),
+        ("boundary-characteristic-upwind", "equilibrium-characteristic", "operator"),
+        (
+            "boundary-characteristic-upwind",
+            "equilibrium-characteristic",
+            "parallel-characteristic",
+        ),
     ),
 )
 def test_fci_full_and_implicit_smoke_on_tiny_shifted_torus(
     leg_scheme,
     inflow_closure,
+    vorticity_current_trace,
 ) -> None:
     """Exercise both RHS paths with real retained maps and endpoint exchange."""
 
@@ -179,6 +186,7 @@ def test_fci_full_and_implicit_smoke_on_tiny_shifted_torus(
             parallel_operator_scheme="fci",
             fci_parallel_leg_scheme=leg_scheme,
             parallel_inflow_closure=inflow_closure,
+            vorticity_current_inflow_trace=vorticity_current_trace,
             parameters=replace(
                 context.parameters,
                 density_D_parallel=1.0e-3,
@@ -191,13 +199,12 @@ def test_fci_full_and_implicit_smoke_on_tiny_shifted_torus(
         )
         state = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
         stage = rhs.evaluate_stage(state, phi_owned=phi)
-        implicit = rhs.evaluate_implicit_rhs(state, phi_owned=phi)
         return jnp.asarray(
             [
                 jnp.max(jnp.abs(stage.density)),
                 jnp.max(jnp.abs(stage.Ve)),
-                jnp.max(jnp.abs(implicit.Te)),
-                jnp.max(jnp.abs(implicit.Ve)),
+                jnp.max(jnp.abs(stage.Te)),
+                jnp.max(jnp.abs(stage.Vi)),
             ]
         )
 
@@ -214,7 +221,7 @@ def test_fci_full_and_implicit_smoke_on_tiny_shifted_torus(
     assert np.all(np.isfinite(result)), result
 
 
-def test_fci_staggered_velocity_layout_runs_full_stage_and_rejects_imex() -> None:
+def test_fci_staggered_velocity_layout_runs_full_stage() -> None:
     context, mesh, local, partition, fields, _cell_fields = _context_and_sharded_inputs()
     mapped_host = build_shifted_torus_4field_geometry(
         context.geometry.shape, construct_fci_maps=True
@@ -246,25 +253,6 @@ def test_fci_staggered_velocity_layout_runs_full_stage_and_rejects_imex() -> Non
     ))
     result = np.asarray(compiled(*fields, packed, maps))
     assert np.all(np.isfinite(result))
-
-    def implicit_kernel(density, phi, Te, Ti, Vi, Ve, vorticity, cells, map_values):
-        geometry = assemble_local_fci_geometry(sharded, cells, map_values)
-        rhs = replace(
-            _build_rhs(context, local, geometry), parallel_operator_scheme="fci",
-            parallel_velocity_layout="fci-staggered",
-            outgoing_face_topology=face_topology,
-        )
-        return rhs.evaluate_implicit_rhs(
-            FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity), phi_owned=phi
-        ).Ve
-
-    compiled_implicit = jax.jit(jax.shard_map(
-        implicit_kernel, mesh=mesh, in_specs=(partition,) * 9,
-        out_specs=partition, check_vma=False,
-    ))
-    with pytest.raises(ValueError, match="explicit RK4"):
-        compiled_implicit(*fields, packed, maps)
-
 
 def test_staggered_parallel_viscosity_returns_face_owner_terms_that_sum() -> None:
     """Vi/Ve viscosity follows the face-owner output and diagnostic contract."""
@@ -378,7 +366,77 @@ def test_all_equation_rhs_term_fields_sum_to_stage_rhs(
     np.testing.assert_allclose(np.sum(terms, axis=1), expected, rtol=2.0e-12, atol=2.0e-12)
 
 
-@pytest.mark.skipif(jax.device_count() < 2, reason="requires at least two devices")
+def test_directional_curvature_rhs_fields_close_to_curvature_term_lanes() -> None:
+    context, mesh, local, partition, fields, cell_fields = (
+        _context_and_sharded_inputs()
+    )
+
+    def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, packed):
+        from drbx.geometry import build_local_curvature_face_coefficients
+
+        geometry = assemble_local_fci_geometry(local, packed)
+        rhs = replace(
+            _build_rhs(context, local, geometry),
+            curvature_scheme="conservative",
+            curvature_face_coefficients=build_local_curvature_face_coefficients(
+                geometry, local.domain
+            ),
+        )
+        state = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
+        baseline = rhs.evaluate_stage(state, phi_owned=phi)
+        stage, terms, components = rhs.evaluate_stage(
+            state,
+            phi_owned=phi,
+            return_rhs_term_fields=True,
+            return_curvature_component_fields=True,
+        )
+        curvature_lanes = jnp.stack(
+            tuple(
+                terms[field_index, RHS_TERM_NAMES[field_index].index("curvature")]
+                for field_index in (0, 1, 2, 5)
+            ),
+            axis=0,
+        )
+        baseline_fields = jnp.stack(
+            tuple(getattr(baseline, name) for name in RHS_TERM_FIELD_NAMES), axis=0
+        )
+        diagnostic_fields = jnp.stack(
+            tuple(getattr(stage, name) for name in RHS_TERM_FIELD_NAMES), axis=0
+        )
+        return curvature_lanes, components, baseline_fields, diagnostic_fields
+
+    compiled = jax.jit(
+        jax.shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(partition,) * 8,
+            out_specs=(
+                P(None, "x", "y", "z"),
+                P(None, None, "x", "y", "z"),
+                P(None, "x", "y", "z"),
+                P(None, "x", "y", "z"),
+            ),
+            check_vma=False,
+        )
+    )
+    curvature_lanes, components, baseline_fields, diagnostic_fields = tuple(
+        np.asarray(value) for value in compiled(*fields, cell_fields)
+    )
+    assert components.shape[:2] == (4, 3)
+    np.testing.assert_allclose(
+        np.sum(components, axis=1),
+        curvature_lanes,
+        rtol=3.0e-12,
+        atol=3.0e-12,
+    )
+    np.testing.assert_allclose(
+        diagnostic_fields,
+        baseline_fields,
+        rtol=3.0e-12,
+        atol=3.0e-12,
+    )
+
+
 def test_fci_remote_exchange_smoke_on_two_shards() -> None:
     """Exercise the remote dependency path when a multi-device backend exists."""
 

@@ -15,7 +15,7 @@ MAKEGRID + vessel
   -> ShardedFciGeometry3D and local halo topology (eta-only production sharding)
   -> automatic angular RLP geometry for toroidal topology
   -> LocalFciDrbEBRhs
-  -> RK4, ARK2 IMEX, or SBDF2 IMEX advance
+  -> classical four-stage RK4 advance
   -> history and atomic snapshot NPZ files
 ```
 
@@ -123,14 +123,21 @@ operator and solver details.
 
 - `rk4` advances the complete explicit RHS and performs the algebraic phi
   inversion at each stage.
-- `ark2-imex` uses an ARK2 scheme with a Newton-FGMRES solve for the selected
-  stiff electron/acoustic-polarization block.
-- `imex-bdf2` uses one classical RK4 startup step, then fixed-step SBDF2 with
-  one Newton-FGMRES solve per step.
 
-The coupled Newton preconditioners are separate from the standalone phi
-preconditioner. Runtime diagnostics report nonlinear and GMRES convergence,
+The driver accepts only RK4. Runtime diagnostics report GMRES convergence,
 state ranges, positivity, optional term fields, and grid-scale indicators.
+
+The high-level `--flux-framework production-split` selector records and
+exports the production curvature and parallel-material wiring. The curvature
+block uses live-state Osher fluctuations on every active coordinate face and
+an equilibrium exterior state on physical coordinate boundaries. The
+parallel-material block uses live-state Osher fluctuations on ordinary and
+wall-ending FCI legs; at a wall it characteristic-projects the operator's
+primitive wall trace before evaluating the same path fluctuation used in the
+bulk. These effective wall closures are recorded separately from the bypassed
+legacy scalar closure selectors. The production framework requires the
+compatible FCI/owner-space contract described above; `legacy` remains the
+default for reproducibility of existing runs.
 
 ## Output and restart
 
@@ -168,5 +175,5 @@ owner values to all fine cells so visualization receives a complete field.
   cover operator-level wall traces.
 - [`tests/test_fci_drb_eb_parallel_operator_scheme.py`](../../../tests/test_fci_drb_eb_parallel_operator_scheme.py)
   covers coordinate/FCI selection.
-- [`tests/test_simulate_hsx_blob_imex_cli.py`](../../../tests/test_simulate_hsx_blob_imex_cli.py)
-  covers integrator and solver wiring.
+- [`tests/test_fci_time_integrator.py`](../../../tests/test_fci_time_integrator.py)
+  covers the RK4 integrator and stage-output reduction.

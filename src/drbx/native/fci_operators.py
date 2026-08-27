@@ -26,6 +26,7 @@ from ..geometry import (
     LocalFciDirectionMap,
     LocalFciGeometry3D,
     FCI_DEP_CUT_WALL,
+    FCI_DEP_FIELD_INTERIOR,
     FCI_DEP_INVALID,
     LocalCurvatureFaceCoefficients3D,
     LocalFciLocalDependencyTable,
@@ -56,6 +57,7 @@ from .fci_halo import (
     accumulate_halo_contributions_to_owned,
     LocalHaloClosure3D,
     PhysicalGhostCellFiller3D,
+    RemoteFciDependencyExchange,
     TopologyHaloFiller3D,
 )
 from .fci_gmres import (
@@ -107,6 +109,10 @@ from .fci_boundaries import (
     CV_RECONSTRUCTION_EQUATION_CELL,
     CV_RECONSTRUCTION_EQUATION_DIRICHLET,
     CV_RECONSTRUCTION_EQUATION_REMOTE_CELL,
+)
+from .fci_curvature_production_flux import (
+    curvature_osher_fluctuations,
+    reconstruct_third_order_face_states,
 )
 
 
@@ -1490,6 +1496,119 @@ def local_grad_parallel_op_fci_compatible_from_q(
         b_floor=b_floor,
     )
     return _mask_inactive_owned(div_fb - field_owned * div_b, geometry)
+
+
+def local_grad_parallel_op_fci_compatible_from_q_components(
+    q_halo_full: jnp.ndarray,
+    inverse_b_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    field_owned: jnp.ndarray,
+    forward_remote_q_values: jnp.ndarray | None = None,
+    backward_remote_q_values: jnp.ndarray | None = None,
+    forward_remote_inverse_b_values: jnp.ndarray | None = None,
+    backward_remote_inverse_b_values: jnp.ndarray | None = None,
+    fci_stencil_builder: LocalFciStencilBuilder = build_local_fci_stencil_from_field,
+    b_floor: float = 1.0e-30,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Split the compatible mapped gradient into its three stencil lanes.
+
+    The returned component order is ``(backward, center, forward)``.  Their
+    sum reconstructs :func:`local_grad_parallel_op_fci_compatible_from_q`
+    when the latter uses the same prepared ``q=f/B`` and ``q=1/B`` payloads.
+    The second return value contains the physical field reconstructed at the
+    backward and forward mapped endpoints.  This helper is diagnostic-only;
+    it deliberately reuses the production mapped-stencil builder so wall and
+    remote endpoint semantics cannot drift from the operator being audited.
+    """
+
+    q_halo_full = jnp.asarray(q_halo_full, dtype=jnp.float64)
+    inverse_b_halo_full = jnp.asarray(inverse_b_halo_full, dtype=jnp.float64)
+    field_owned = jnp.asarray(field_owned, dtype=jnp.float64)
+    if q_halo_full.shape != geometry.halo_shape:
+        raise ValueError(
+            "q_halo_full must match geometry.halo_shape; "
+            f"got {q_halo_full.shape}, expected {geometry.halo_shape}"
+        )
+    if inverse_b_halo_full.shape != geometry.halo_shape:
+        raise ValueError(
+            "inverse_b_halo_full must match geometry.halo_shape; "
+            f"got {inverse_b_halo_full.shape}, expected {geometry.halo_shape}"
+        )
+    if field_owned.shape != geometry.owned_shape:
+        raise ValueError(
+            f"field_owned must have shape {geometry.owned_shape}, "
+            f"got {field_owned.shape}"
+        )
+
+    q_stencil = _build_mapped_stencil(
+        q_halo_full,
+        geometry,
+        context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_q_values,
+        backward_remote_values=backward_remote_q_values,
+        cut_wall_values=None,
+        forward_cut_wall_values=None,
+        backward_cut_wall_values=None,
+    )
+    inverse_b_stencil = _build_mapped_stencil(
+        inverse_b_halo_full,
+        geometry,
+        context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_inverse_b_values,
+        backward_remote_values=backward_remote_inverse_b_values,
+        cut_wall_values=None,
+        forward_cut_wall_values=None,
+        backward_cut_wall_values=None,
+    )
+    Bmag_owned = jnp.maximum(
+        jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
+        float(b_floor),
+    )
+    q_values = (q_stencil.minus, q_stencil.center, q_stencil.plus)
+    inverse_b_values = (
+        inverse_b_stencil.minus,
+        inverse_b_stencil.center,
+        inverse_b_stencil.plus,
+    )
+    weights = (
+        q_stencil.derivative_minus_weight,
+        q_stencil.derivative_center_weight,
+        q_stencil.derivative_plus_weight,
+    )
+    components = jnp.stack(
+        tuple(
+            Bmag_owned
+            * jnp.asarray(weight, dtype=jnp.float64)
+            * (
+                jnp.asarray(q_value, dtype=jnp.float64)
+                - field_owned * jnp.asarray(inverse_b_value, dtype=jnp.float64)
+            )
+            for weight, q_value, inverse_b_value in zip(
+                weights, q_values, inverse_b_values, strict=True
+            )
+        ),
+        axis=0,
+    )
+    components = jax.vmap(lambda value: _mask_inactive_owned(value, geometry))(
+        components
+    )
+    endpoint_values = jnp.stack(
+        (
+            q_stencil.minus
+            / jnp.maximum(inverse_b_stencil.minus, float(b_floor)),
+            q_stencil.plus
+            / jnp.maximum(inverse_b_stencil.plus, float(b_floor)),
+        ),
+        axis=0,
+    )
+    endpoint_values = jax.vmap(
+        lambda value: _mask_inactive_owned(value, geometry)
+    )(endpoint_values)
+    return components, endpoint_values
 
 
 def _take_stencil_second_derivative(stencil: LocalStencil1D) -> jnp.ndarray:
@@ -3476,6 +3595,1548 @@ def _control_volume_compact_x_curvature_flux(
     return jnp.sum(q_integrated, axis=(1, 2))
 
 
+def _bound_groupwise_transition_trace_correction(
+    baseline_trace: jnp.ndarray,
+    fitted_trace: jnp.ndarray,
+    minus_value: jnp.ndarray,
+    plus_value: jnp.ndarray,
+    group_id: jnp.ndarray,
+    active: jnp.ndarray,
+    *,
+    num_groups: int,
+) -> jnp.ndarray:
+    """Bound a zero-mean trace correction with one alpha per coarse face.
+
+    ``minus_value`` and ``plus_value`` are the lower and upper admissible
+    envelope values for each transition row; their names retain the ordinary
+    two-owner face interpretation used by the robust baseline.
+    """
+
+    baseline = jnp.asarray(baseline_trace, dtype=jnp.float64)
+    fitted = jnp.asarray(fitted_trace, dtype=jnp.float64)
+    minus = jnp.asarray(minus_value, dtype=jnp.float64)
+    plus = jnp.asarray(plus_value, dtype=jnp.float64)
+    groups = jnp.asarray(group_id, dtype=jnp.int32)
+    use = jnp.asarray(active, dtype=bool)
+    lower = jnp.minimum(minus, plus)
+    upper = jnp.maximum(minus, plus)
+    correction = fitted - baseline
+    positive_limit = (upper - baseline) / jnp.maximum(correction, 1.0e-30)
+    negative_limit = (lower - baseline) / jnp.minimum(correction, -1.0e-30)
+    row_alpha = jnp.where(
+        correction > 0.0,
+        positive_limit,
+        jnp.where(correction < 0.0, negative_limit, 1.0),
+    )
+    row_alpha = jnp.where(use, jnp.clip(row_alpha, 0.0, 1.0), 1.0)
+    group_alpha = jnp.ones(int(num_groups), dtype=jnp.float64).at[groups].min(
+        row_alpha
+    )
+    limited = baseline + group_alpha[groups] * correction
+    return jnp.where(use, limited, baseline)
+
+
+def _constrain_groupwise_transition_flux_correction(
+    baseline_trace: jnp.ndarray,
+    fitted_trace: jnp.ndarray,
+    q_face: jnp.ndarray,
+    minus_value: jnp.ndarray,
+    plus_value: jnp.ndarray,
+    row_weight: jnp.ndarray,
+    group_id: jnp.ndarray,
+    active: jnp.ndarray,
+    *,
+    num_groups: int,
+) -> jnp.ndarray:
+    """Return a conservative, non-injective transition flux correction.
+
+    The moment fit supplies a scalar correction ``delta f`` but curvature
+    transports the metric flux ``Q^u delta f``.  First project that correction
+    so its weighted integral vanishes independently on every coarse radial
+    face.  Then add the smallest zero-mean jump flux which makes the group's
+    discrete face-power contribution non-positive:
+
+    ``sum w (f_minus-f_plus) delta F <= 0``.
+
+    The returned value is a *flux-density correction*, not a scalar trace.
+    Both constraints are therefore enforced on the quantity consumed by the
+    divergence, including sign changes or tangential variation in ``Q^u``.
+    """
+
+    baseline = jnp.asarray(baseline_trace, dtype=jnp.float64)
+    fitted = jnp.asarray(fitted_trace, dtype=jnp.float64)
+    q = jnp.asarray(q_face, dtype=jnp.float64)
+    minus = jnp.asarray(minus_value, dtype=jnp.float64)
+    plus = jnp.asarray(plus_value, dtype=jnp.float64)
+    weight = jnp.asarray(row_weight, dtype=jnp.float64)
+    groups = jnp.asarray(group_id, dtype=jnp.int32)
+    use = jnp.asarray(active, dtype=bool)
+    active_weight = jnp.where(use, jnp.maximum(weight, 0.0), 0.0)
+
+    raw_flux = jnp.where(use, q * (fitted - baseline), 0.0)
+    group_flux = jnp.zeros(int(num_groups), dtype=jnp.float64).at[groups].add(
+        active_weight * raw_flux
+    )
+    group_q2 = jnp.zeros(int(num_groups), dtype=jnp.float64).at[groups].add(
+        active_weight * q * q
+    )
+    # This is the minimum weighted-L2 scalar-trace change satisfying
+    # sum(w * delta F)=0: delta f <- delta f - lambda Q.
+    conservative_flux = raw_flux - q * q * (
+        group_flux[groups] / jnp.maximum(group_q2[groups], 1.0e-30)
+    )
+
+    jump = plus - minus
+    group_weight = jnp.zeros(int(num_groups), dtype=jnp.float64).at[groups].add(
+        active_weight
+    )
+    group_jump = jnp.zeros(int(num_groups), dtype=jnp.float64).at[groups].add(
+        active_weight * jump
+    )
+    centered_jump = jump - group_jump[groups] / jnp.maximum(
+        group_weight[groups], 1.0e-30
+    )
+    # With outward radial face orientation, the natural face power is
+    # (f_minus-f_plus)*delta_F = -jump*delta_F.
+    group_power = jnp.zeros(int(num_groups), dtype=jnp.float64).at[groups].add(
+        -active_weight * jump * conservative_flux
+    )
+    group_jump2 = jnp.zeros(int(num_groups), dtype=jnp.float64).at[groups].add(
+        active_weight * centered_jump * centered_jump
+    )
+    dissipation = jnp.maximum(group_power, 0.0) / jnp.maximum(
+        group_jump2, 1.0e-30
+    )
+    constrained_flux = conservative_flux + dissipation[groups] * centered_jump
+    return jnp.where(use, constrained_flux, 0.0)
+
+
+def _radial_fine_glue_sat_integrated_residual(
+    q_face: jnp.ndarray,
+    cell_value: jnp.ndarray,
+    radial_centers: jnp.ndarray,
+    radial_faces: jnp.ndarray,
+    transverse_area: jnp.ndarray,
+    angular_group_sizes: tuple[int, ...],
+    *,
+    penalty: float,
+    transition_face: int | None = None,
+) -> jnp.ndarray:
+    """Return ``(E_-^T-E_+^T) M delta_F`` on fine storage cells.
+
+    RLP prolongation already materializes both aggregate traces on every fine
+    radial subface.  The fine face grid is therefore the common glue grid and
+    no additional mortar geometry is needed.  ``E_-`` and ``E_+`` are linear
+    one-sided radial extrapolations to that grid.  At an angular-resolution
+    transition the fixed penalty flux is
+
+    ``delta F = 0.5 * penalty * abs(Q^u) * (E_+ f - E_- f)``.
+
+    The returned integrated residual is the exact algebraic transpose of both
+    trace maps, including their farther radial stencil cells.  Consequently
+
+    ``f^T residual = -0.5 sum(M * penalty * abs(Q^u) * jump**2) <= 0``.
+
+    ``transition_face`` is an optional one-based radial face index for
+    diagnostics.  When supplied, it must identify an existing angular-group
+    transition and only that transition contributes to the SAT.  The default
+    ``None`` retains every transition exactly as in the production path.
+
+    The innermost transition has only one physical radial cell on its minus
+    side.  Axis regularity supplies a zero radial slope there, so ``E_-`` is
+    the innermost aggregate value.  The outermost side is treated analogously
+    if a profile ever places a transition on the last interior face.
+    """
+
+    q = jnp.asarray(q_face, dtype=jnp.float64)
+    value = jnp.asarray(cell_value, dtype=jnp.float64)
+    centers = jnp.asarray(radial_centers, dtype=jnp.float64)
+    faces = jnp.asarray(radial_faces, dtype=jnp.float64)
+    area = jnp.asarray(transverse_area, dtype=jnp.float64)
+    expected_face_shape = (value.shape[0] + 1,) + value.shape[1:]
+    if q.shape != expected_face_shape:
+        raise ValueError(
+            "q_face must have cell_value.shape with one extra radial face, "
+            f"got {q.shape} versus {expected_face_shape}"
+        )
+    if area.shape != value.shape:
+        raise ValueError("transverse_area must have cell_value.shape")
+    if centers.shape != (value.shape[0],) or faces.shape != (value.shape[0] + 1,):
+        raise ValueError("radial centers/faces do not match cell_value")
+    profile = jnp.asarray(angular_group_sizes, dtype=jnp.int32)
+    if profile.shape != (value.shape[0],):
+        raise ValueError(
+            "angular_group_sizes must have one entry per radial cell"
+        )
+    penalty_value = float(penalty)
+    if not np.isfinite(penalty_value) or penalty_value < 0.0:
+        raise ValueError("fine-glue SAT penalty must be finite and nonnegative")
+
+    nx = value.shape[0]
+    if nx < 2:
+        return jnp.zeros_like(value)
+    selected_face = None
+    if transition_face is not None:
+        if isinstance(transition_face, bool):
+            raise ValueError("fine-glue transition face must be an integer index")
+        try:
+            selected_face = int(transition_face)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "fine-glue transition face must be an integer index"
+            ) from exc
+        if selected_face != transition_face:
+            raise ValueError("fine-glue transition face must be an integer index")
+        if not 0 < selected_face < nx:
+            raise ValueError(
+                f"fine-glue transition face must lie in [1, {nx - 1}], got "
+                f"{selected_face}"
+            )
+        static_profile = tuple(int(entry) for entry in angular_group_sizes)
+        if static_profile[selected_face - 1] == static_profile[selected_face]:
+            raise ValueError(
+                f"fine-glue transition face {selected_face} is not an angular "
+                "group transition"
+            )
+    transition = (profile[:-1] != profile[1:])[:, None, None]
+    if selected_face is not None:
+        transition = transition & (
+            jnp.arange(1, nx, dtype=jnp.int32) == selected_face
+        )[:, None, None]
+    face_position = faces[1:-1]
+
+    left_far_value = jnp.concatenate((value[:1], value[:-2]), axis=0)
+    left_far_center = jnp.concatenate((centers[:1], centers[:-2]), axis=0)
+    left_distance = centers[:-1] - left_far_center
+    left_ratio = jnp.where(
+        jnp.arange(nx - 1) == 0,
+        0.0,
+        (face_position - centers[:-1])
+        / jnp.maximum(left_distance, 1.0e-30),
+    )
+    left_trace = (
+        (1.0 + left_ratio[:, None, None]) * value[:-1]
+        - left_ratio[:, None, None] * left_far_value
+    )
+
+    right_far_value = jnp.concatenate((value[2:], value[-1:]), axis=0)
+    right_far_center = jnp.concatenate((centers[2:], centers[-1:]), axis=0)
+    right_distance = right_far_center - centers[1:]
+    right_ratio = jnp.where(
+        jnp.arange(nx - 1) == nx - 2,
+        0.0,
+        (centers[1:] - face_position)
+        / jnp.maximum(right_distance, 1.0e-30),
+    )
+    right_trace = (
+        (1.0 + right_ratio[:, None, None]) * value[1:]
+        - right_ratio[:, None, None] * right_far_value
+    )
+
+    face_area = 0.5 * (area[:-1] + area[1:])
+    jump = right_trace - left_trace
+    integrated_flux = jnp.where(
+        transition,
+        0.5
+        * penalty_value
+        * jnp.abs(q[1:-1])
+        * jump
+        * face_area,
+        0.0,
+    )
+
+    residual = jnp.zeros_like(value)
+    residual = residual.at[:-1].add(
+        (1.0 + left_ratio[:, None, None]) * integrated_flux
+    )
+    residual = residual.at[1:].add(
+        -(1.0 + right_ratio[:, None, None]) * integrated_flux
+    )
+    if nx > 2:
+        residual = residual.at[:-2].add(
+            -left_ratio[1:, None, None] * integrated_flux[1:]
+        )
+        residual = residual.at[2:].add(
+            right_ratio[:-1, None, None] * integrated_flux[:-1]
+        )
+    return residual
+
+
+def _radial_fine_glue_sat_owner_correction(
+    local: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    coefficients: LocalCurvatureFaceCoefficients3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    *,
+    penalty: float,
+    transition_face: int | None = None,
+) -> jnp.ndarray:
+    """Return the natural-norm owner SAT, materialized on fine storage."""
+
+    cells = control_volume_geometry.cells
+    value = jnp.asarray(local.x.center, dtype=jnp.float64)
+    transverse_area = (
+        jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
+        * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
+    )
+    fine_integrated = _radial_fine_glue_sat_integrated_residual(
+        coefficients.x,
+        value,
+        geometry.grid.x.centers_owned,
+        geometry.grid.x.faces_owned,
+        transverse_area,
+        control_volume_geometry.angular_group_sizes,
+        penalty=penalty,
+        transition_face=transition_face,
+    )
+    owner_integrated = jnp.zeros(cells.shape, dtype=jnp.float64).at[
+        cells.owner_i,
+        cells.owner_j,
+        cells.owner_k,
+    ].add(fine_integrated)
+    raw_natural_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64) / jnp.maximum(
+        jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
+        1.0e-30,
+    )
+    owner_natural_volume = jnp.zeros(cells.shape, dtype=jnp.float64).at[
+        cells.owner_i,
+        cells.owner_j,
+        cells.owner_k,
+    ].add(raw_natural_volume)
+    active = jnp.asarray(cells.is_active_owner, dtype=bool)
+    owner_correction = jnp.where(
+        active,
+        owner_integrated / jnp.maximum(owner_natural_volume, 1.0e-30),
+        0.0,
+    )
+    return expand_local_control_volume_owner_field(
+        owner_correction,
+        cells,
+    )
+
+
+def _radial_characteristic_fine_glue_integrated_residual(
+    q_face: jnp.ndarray,
+    cell_value: jnp.ndarray,
+    face_penalty: jnp.ndarray,
+    radial_centers: jnp.ndarray,
+    radial_faces: jnp.ndarray,
+    transverse_area: jnp.ndarray,
+    angular_group_sizes: tuple[int, ...],
+    *,
+    penalty: float,
+    transition_face: int | None = None,
+    include_ordinary_faces: bool = False,
+) -> jnp.ndarray:
+    """Return the exact trace-transpose residual for a coupled face penalty.
+
+    ``cell_value`` stores the coupled state in its final axis and
+    ``face_penalty`` stores one coupled block per interior radial fine
+    subface.  With ``jump=E_+q-E_-q`` the integrated covector flux is
+
+    ``0.5*penalty*abs(Q^u)*area*face_penalty@jump``.
+
+    The result has the same shape as ``cell_value`` and applies the exact
+    transpose of both one-sided extrapolation maps.  In the production path
+    ``face_penalty=|M|`` is generally nonsymmetric.  With a frozen background
+    symmetrizer ``H`` for which ``H@|M|`` is symmetric positive semidefinite,
+    its H-energy power is the negative face sum of
+    ``jump.T@H@face_penalty@jump``.
+
+    By default, the penalty is active only at angular-RLP transitions.  Set
+    ``include_ordinary_faces`` to apply the same coupled trace-transpose
+    penalty at every interior radial face.  The latter is the bulk
+    characteristic stabilization path, so a single-transition audit selector
+    is deliberately incompatible with it: every face must appear exactly
+    once.
+    """
+
+    q = jnp.asarray(q_face, dtype=jnp.float64)
+    value = jnp.asarray(cell_value, dtype=jnp.float64)
+    block = jnp.asarray(face_penalty, dtype=jnp.float64)
+    centers = jnp.asarray(radial_centers, dtype=jnp.float64)
+    faces = jnp.asarray(radial_faces, dtype=jnp.float64)
+    area = jnp.asarray(transverse_area, dtype=jnp.float64)
+    if value.ndim != 4:
+        raise ValueError("cell_value must have shape (nx, ny, nz, equations)")
+    equations = value.shape[-1]
+    expected_face_shape = value.shape[:3]
+    expected_q_shape = (expected_face_shape[0] + 1,) + expected_face_shape[1:]
+    expected_block_shape = (expected_face_shape[0] - 1,) + expected_face_shape[1:] + (
+        equations,
+        equations,
+    )
+    if q.shape != expected_q_shape:
+        raise ValueError(
+            f"q_face must have shape {expected_q_shape}, got {q.shape}"
+        )
+    if block.shape != expected_block_shape:
+        raise ValueError(
+            f"face_penalty must have shape {expected_block_shape}, got {block.shape}"
+        )
+    if area.shape != expected_face_shape:
+        raise ValueError("transverse_area must match cell_value spatial shape")
+    if centers.shape != (value.shape[0],) or faces.shape != (value.shape[0] + 1,):
+        raise ValueError("radial centers/faces do not match cell_value")
+    profile = jnp.asarray(angular_group_sizes, dtype=jnp.int32)
+    if profile.shape != (value.shape[0],):
+        raise ValueError("angular_group_sizes must have one entry per radial cell")
+    penalty_value = float(penalty)
+    if not np.isfinite(penalty_value) or penalty_value < 0.0:
+        raise ValueError("characteristic fine-glue penalty must be finite and nonnegative")
+    if not isinstance(include_ordinary_faces, (bool, np.bool_)):
+        raise ValueError("include_ordinary_faces must be a static boolean")
+
+    nx = value.shape[0]
+    if nx < 2:
+        return jnp.zeros_like(value)
+    selected_face = None
+    if transition_face is not None:
+        if include_ordinary_faces:
+            raise ValueError(
+                "bulk characteristic stabilization cannot select one "
+                "transition face"
+            )
+        if isinstance(transition_face, bool):
+            raise ValueError("fine-glue transition face must be an integer index")
+        try:
+            selected_face = int(transition_face)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("fine-glue transition face must be an integer index") from exc
+        if selected_face != transition_face:
+            raise ValueError("fine-glue transition face must be an integer index")
+        if not 0 < selected_face < nx:
+            raise ValueError(
+                f"fine-glue transition face must lie in [1, {nx - 1}], got "
+                f"{selected_face}"
+            )
+        static_profile = tuple(int(entry) for entry in angular_group_sizes)
+        if static_profile[selected_face - 1] == static_profile[selected_face]:
+            raise ValueError(
+                f"fine-glue transition face {selected_face} is not an angular "
+                "group transition"
+            )
+    active_faces = (
+        jnp.ones((nx - 1, 1, 1), dtype=bool)
+        if include_ordinary_faces
+        else (profile[:-1] != profile[1:])[:, None, None]
+    )
+    if selected_face is not None:
+        active_faces = active_faces & (
+            jnp.arange(1, nx, dtype=jnp.int32) == selected_face
+        )[:, None, None]
+
+    face_position = faces[1:-1]
+    left_far_value = jnp.concatenate((value[:1], value[:-2]), axis=0)
+    left_far_center = jnp.concatenate((centers[:1], centers[:-2]), axis=0)
+    left_distance = centers[:-1] - left_far_center
+    left_ratio = jnp.where(
+        jnp.arange(nx - 1) == 0,
+        0.0,
+        (face_position - centers[:-1]) / jnp.maximum(left_distance, 1.0e-30),
+    )
+    left_trace = (
+        (1.0 + left_ratio[:, None, None, None]) * value[:-1]
+        - left_ratio[:, None, None, None] * left_far_value
+    )
+
+    right_far_value = jnp.concatenate((value[2:], value[-1:]), axis=0)
+    right_far_center = jnp.concatenate((centers[2:], centers[-1:]), axis=0)
+    right_distance = right_far_center - centers[1:]
+    right_ratio = jnp.where(
+        jnp.arange(nx - 1) == nx - 2,
+        0.0,
+        (centers[1:] - face_position) / jnp.maximum(right_distance, 1.0e-30),
+    )
+    right_trace = (
+        (1.0 + right_ratio[:, None, None, None]) * value[1:]
+        - right_ratio[:, None, None, None] * right_far_value
+    )
+
+    jump = right_trace - left_trace
+    face_area = 0.5 * (area[:-1] + area[1:])
+    block_jump = jnp.einsum("...ij,...j->...i", block, jump)
+    integrated_flux = jnp.where(
+        active_faces[..., None],
+        0.5
+        * penalty_value
+        * jnp.abs(q[1:-1])[..., None]
+        * face_area[..., None]
+        * block_jump,
+        0.0,
+    )
+
+    residual = jnp.zeros_like(value)
+    residual = residual.at[:-1].add(
+        (1.0 + left_ratio[:, None, None, None]) * integrated_flux
+    )
+    residual = residual.at[1:].add(
+        -(1.0 + right_ratio[:, None, None, None]) * integrated_flux
+    )
+    if nx > 2:
+        residual = residual.at[:-2].add(
+            -left_ratio[1:, None, None, None] * integrated_flux[1:]
+        )
+        residual = residual.at[2:].add(
+            right_ratio[:-1, None, None, None] * integrated_flux[:-1]
+        )
+    return residual
+
+
+def _radial_characteristic_fine_glue_owner_correction(
+    q_face: jnp.ndarray,
+    cell_value: jnp.ndarray,
+    face_penalty: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    *,
+    penalty: float,
+    transition_face: int | None = None,
+    include_ordinary_faces: bool = False,
+) -> jnp.ndarray:
+    """Return the conservative owner-space coupled RLP correction.
+
+    The vector flux is scattered identically into each equation and divided
+    by the established aggregate natural volume.  Thus every equation retains
+    exact finite-volume conservation.  When ``face_penalty=|M|`` and the
+    background symmetrizer is frozen, the corresponding H-energy power is
+    non-positive because ``H|M|`` is symmetric positive semidefinite.
+    """
+
+    cells = control_volume_geometry.cells
+    value = jnp.asarray(cell_value, dtype=jnp.float64)
+    if value.shape != cells.shape + (4,):
+        raise ValueError("cell_value must have shape control-volume cells + (4,)")
+    transverse_area = (
+        jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
+        * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
+    )
+    fine_integrated = _radial_characteristic_fine_glue_integrated_residual(
+        q_face,
+        value,
+        face_penalty,
+        geometry.grid.x.centers_owned,
+        geometry.grid.x.faces_owned,
+        transverse_area,
+        control_volume_geometry.angular_group_sizes,
+        penalty=penalty,
+        transition_face=transition_face,
+        include_ordinary_faces=include_ordinary_faces,
+    )
+    owner_integrated = jnp.zeros(cells.shape + (4,), dtype=jnp.float64).at[
+        cells.owner_i, cells.owner_j, cells.owner_k
+    ].add(fine_integrated)
+    raw_natural_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64) / jnp.maximum(
+        jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), 1.0e-30
+    )
+    owner_natural_volume = jnp.zeros(cells.shape, dtype=jnp.float64).at[
+        cells.owner_i, cells.owner_j, cells.owner_k
+    ].add(raw_natural_volume)
+    active = jnp.asarray(cells.is_active_owner, dtype=bool)
+    owner_correction = jnp.where(
+        active[..., None],
+        owner_integrated / jnp.maximum(owner_natural_volume[..., None], 1.0e-30),
+        0.0,
+    )
+    try:
+        if bool(jnp.any(cells.owner_is_remote)):
+            raise ValueError(
+                "characteristic fine glue requires local angular RLP owners"
+            )
+    except jax.errors.TracerBoolConversionError:
+        pass
+    expanded = owner_correction[cells.owner_i, cells.owner_j, cells.owner_k]
+    return jnp.where(cells.raw_volume[..., None] > 0.0, expanded, 0.0)
+
+
+def _curvature_characteristic_principal_matrix(
+    state_face: jnp.ndarray,
+    bmag_face: jnp.ndarray,
+    tau: float | jnp.ndarray,
+) -> jnp.ndarray:
+    """Return the locally frozen four-field curvature principal matrix ``M``.
+
+    This is a quasilinear principal block used only by the characteristic
+    corrections.  In particular, ``M(U) @ U`` is not asserted to be an exact
+    nonlinear curvature flux; the production scalar conservative assembly
+    remains authoritative.
+    """
+
+    state = jnp.asarray(state_face, dtype=jnp.float64)
+    bmag = jnp.asarray(bmag_face, dtype=jnp.float64)
+    if state.ndim < 1 or state.shape[-1] != 4:
+        raise ValueError("state_face must have shape (..., 4)")
+    n, te, ti, _omega = jnp.moveaxis(state, -1, 0)
+    shape = jnp.broadcast_shapes(n.shape, bmag.shape, jnp.asarray(tau).shape)
+    n = jnp.broadcast_to(n, shape)
+    te = jnp.broadcast_to(te, shape)
+    ti = jnp.broadcast_to(ti, shape)
+    bmag = jnp.broadcast_to(bmag, shape)
+    tau = jnp.broadcast_to(jnp.asarray(tau, dtype=jnp.float64), shape)
+    n_safe = jnp.maximum(n, 1.0e-30)
+
+    matrix = jnp.zeros(shape + (4, 4), dtype=jnp.float64)
+    matrix = matrix.at[..., 0, 0].set(2.0 * te)
+    matrix = matrix.at[..., 0, 1].set(2.0 * n_safe)
+    matrix = matrix.at[..., 1, 0].set(4.0 * te * te / (3.0 * n_safe))
+    matrix = matrix.at[..., 1, 1].set(14.0 * te / 3.0)
+    matrix = matrix.at[..., 2, 0].set(4.0 * ti * te / (3.0 * n_safe))
+    matrix = matrix.at[..., 2, 1].set(4.0 * ti / 3.0)
+    matrix = matrix.at[..., 2, 2].set(-10.0 * tau * ti / 3.0)
+    bmag2 = bmag * bmag
+    matrix = matrix.at[..., 3, 0].set(
+        2.0 * bmag2 * (te + tau * ti) / n_safe
+    )
+    matrix = matrix.at[..., 3, 1].set(2.0 * bmag2)
+    matrix = matrix.at[..., 3, 2].set(2.0 * tau * bmag2)
+    return matrix
+
+
+def _curvature_characteristic_absolute_matrix(
+    state_face: jnp.ndarray,
+    bmag_face: jnp.ndarray,
+    tau: float | jnp.ndarray,
+) -> jnp.ndarray:
+    """Return the live analytic ``|M(U_f)|`` for radial curvature faces.
+
+    The four-by-four principal matrix is diagonalizable for positive ``n``,
+    ``Te``, ``Ti`` and ``tau``.  Its eigenvalues are
+    ``Te*(10 +/- 2*sqrt(10))/3``, ``-10*tau*Ti/3`` and zero.  This helper
+    exploits their physical signs: the two electron roots are positive, the
+    ion root ``mu_i`` is negative, and the stationary root is zero.  Hence
+    ``|M|=M-2*mu_i*P_i``, where only the ion Lagrange projector
+    ``P_i=((M-mu_+ I)(M-mu_- I)M) /``
+    ``(mu_i*(mu_i-mu_+)*(mu_i-mu_-))`` is needed.  The three fixed-size
+    products avoid a per-face eigensystem and the other three projectors, so
+    the helper remains JIT-safe and differentiable.  At ``n=Te=Ti=1`` it is
+    exactly the same spectral function as the established background
+    characteristic closure (with local face ``B`` in the vorticity row).
+    """
+
+    matrix = _curvature_characteristic_principal_matrix(state_face, bmag_face, tau)
+    shape = matrix.shape[:-2]
+    te = jnp.asarray(state_face, dtype=jnp.float64)[..., 1]
+    te = jnp.broadcast_to(te, shape)
+    ti = jnp.asarray(state_face, dtype=jnp.float64)[..., 2]
+    ti = jnp.broadcast_to(ti, shape)
+    tau = jnp.broadcast_to(jnp.asarray(tau, dtype=jnp.float64), shape)
+
+    mu_plus = te * (10.0 + 2.0 * jnp.sqrt(10.0)) / 3.0
+    mu_minus = te * (10.0 - 2.0 * jnp.sqrt(10.0)) / 3.0
+    mu_ion = -10.0 * tau * ti / 3.0
+    identity = jnp.broadcast_to(jnp.eye(4, dtype=jnp.float64), matrix.shape)
+    # In the physical regime the electron roots are positive, the ion root
+    # is negative, and the fourth root is zero.  Thus the absolute spectral
+    # function is ``|M| = M - 2*mu_ion*P_ion``.  Construct only that one
+    # projector (three fixed-size products) rather than all four projectors.
+    projector_ion = identity
+    for other_speed in (mu_plus, mu_minus, jnp.zeros_like(te)):
+        projector_ion = jnp.einsum(
+            "...ij,...jk->...ik",
+            projector_ion,
+            matrix - other_speed[..., None, None] * identity,
+        )
+    denominator = mu_ion * (mu_ion - mu_plus) * (mu_ion - mu_minus)
+    # The physical closure uses tau>0 and positive temperatures.  Keep a
+    # finite fallback for degenerate diagnostic states without changing the
+    # analytic expression away from those states.
+    denominator = jnp.where(
+        jnp.abs(denominator) > 1.0e-30,
+        denominator,
+        jnp.where(denominator >= 0.0, 1.0e-30, -1.0e-30),
+    )
+    projector_ion = projector_ion / denominator[..., None, None]
+    return matrix - 2.0 * mu_ion[..., None, None] * projector_ion
+
+
+def _radial_characteristic_third_order_owner_correction(
+    q_face: jnp.ndarray,
+    stencils: tuple[ConservativeStencil3D, ...],
+    geometry: LocalFciGeometry3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    *,
+    tau: float | jnp.ndarray,
+    curvature_scale: float = 1.0,
+) -> jnp.ndarray:
+    """Return the conservative radial third-order characteristic correction.
+
+    The existing nonlinear conservative scalar curvature assembly remains
+    authoritative.  This routine layers on a locally frozen quasilinear
+    principal correction: at each interior radial face it subtracts the
+    centered principal term formed with ``M(U_f)`` and adds its reconstructed
+    characteristic counterpart.  ``M(U_f) @ U`` is not asserted to be an
+    exact nonlinear physical flux.  In the constant-coefficient limit, the
+    resulting principal operator is canonical third-order characteristic
+    upwind.  Face states use the supplied filled-halo three-point stencil,
+
+    ``U_L=(-U_{i-1}+5U_i+2U_{i+1})/6`` and
+    ``U_R=(2U_i+5U_{i+1}-U_{i+2})/6``.
+
+    Only the two face-owner cells receive equal/opposite incidence scatter;
+    stencil support cells influence the flux but receive no direct scatter.
+    The resulting fine residual is then accumulated into RLP owners and
+    divided by their aggregate natural ``J/B`` volume.  Physical radial
+    boundary faces are untouched because only ``q_face[1:-1]`` is used.
+    """
+
+    if len(stencils) != 4:
+        raise ValueError("third-order curvature correction requires four coupled stencils")
+    cells = control_volume_geometry.cells
+    centers = jnp.stack(
+        tuple(jnp.asarray(stencil.x.center, dtype=jnp.float64) for stencil in stencils),
+        axis=-1,
+    )
+    minus = jnp.stack(
+        tuple(jnp.asarray(stencil.x.minus, dtype=jnp.float64) for stencil in stencils),
+        axis=-1,
+    )
+    plus = jnp.stack(
+        tuple(jnp.asarray(stencil.x.plus, dtype=jnp.float64) for stencil in stencils),
+        axis=-1,
+    )
+    if centers.ndim != 4 or centers.shape[-1] != 4:
+        raise ValueError("coupled radial stencils must have shape (nx, ny, nz, 4)")
+    if centers.shape != cells.shape + (4,):
+        raise ValueError(
+            "coupled radial stencils must match control-volume cell shape; "
+            f"got {centers.shape}, expected {cells.shape + (4,)}"
+        )
+    nx = centers.shape[0]
+    if nx < 2:
+        return jnp.zeros_like(centers)
+
+    q = jnp.asarray(q_face, dtype=jnp.float64)
+    expected_q_shape = (nx + 1,) + centers.shape[1:3]
+    if q.shape != expected_q_shape:
+        raise ValueError(f"q_face must have shape {expected_q_shape}, got {q.shape}")
+    bcell = jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64)
+    if bcell.shape != centers.shape[:3]:
+        raise ValueError("geometry Bmag_owned must match coupled stencil shape")
+
+    # Face i is between cells i and i+1.  The first and last interior faces
+    # use minus[0] and plus[-1], respectively, which are filled halo samples.
+    left_state = (
+        -minus[:-1] + 5.0 * centers[:-1] + 2.0 * plus[:-1]
+    ) / 6.0
+    right_state = (
+        2.0 * centers[:-1] + 5.0 * centers[1:] - plus[1:]
+    ) / 6.0
+    arithmetic_state = 0.5 * (centers[:-1] + centers[1:])
+    bface = 0.5 * (bcell[:-1] + bcell[1:])
+    q_interior = q[1:-1]
+    absolute = _curvature_characteristic_absolute_matrix(
+        arithmetic_state, bface, tau
+    )
+    # Freeze the quasilinear principal matrix at the arithmetic face state.
+    # This matrix defines only the high-order principal correction layered on
+    # the existing nonlinear scalar assembly; M(U_f) @ U is not treated as an
+    # exact nonlinear conservative physical flux.
+    matrix = _curvature_characteristic_principal_matrix(
+        arithmetic_state, bface, tau
+    )
+    mean_state = 0.5 * (left_state + right_state)
+    centered_state = arithmetic_state
+    upwind_flux = (
+        q_interior[..., None]
+        * jnp.einsum("...ij,...j->...i", matrix, mean_state)
+        + 0.5
+        * jnp.abs(q_interior)[..., None]
+        * jnp.einsum(
+            "...ij,...j->...i", absolute, right_state - left_state
+        )
+    )
+    centered_flux = q_interior[..., None] * jnp.einsum(
+        "...ij,...j->...i", matrix, centered_state
+    )
+    face_area = 0.5 * (
+        jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)[:-1]
+        * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)[:-1]
+        + jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)[1:]
+        * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)[1:]
+    )
+    scale = float(curvature_scale)
+    if not np.isfinite(scale) or scale < 0.0:
+        raise ValueError("curvature_scale must be finite and nonnegative")
+    integrated_flux = scale * face_area[..., None] * (upwind_flux - centered_flux)
+
+    fine_integrated = jnp.zeros_like(centers)
+    fine_integrated = fine_integrated.at[:-1].add(integrated_flux)
+    fine_integrated = fine_integrated.at[1:].add(-integrated_flux)
+    owner_integrated = jnp.zeros(cells.shape + (4,), dtype=jnp.float64).at[
+        cells.owner_i, cells.owner_j, cells.owner_k
+    ].add(fine_integrated)
+    raw_natural_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64) / jnp.maximum(
+        jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), 1.0e-30
+    )
+    owner_natural_volume = jnp.zeros(cells.shape, dtype=jnp.float64).at[
+        cells.owner_i, cells.owner_j, cells.owner_k
+    ].add(raw_natural_volume)
+    active = jnp.asarray(cells.is_active_owner, dtype=bool)
+    owner_correction = jnp.where(
+        active[..., None],
+        owner_integrated / jnp.maximum(owner_natural_volume[..., None], 1.0e-30),
+        0.0,
+    )
+    expanded = owner_correction[cells.owner_i, cells.owner_j, cells.owner_k]
+    return jnp.where(cells.raw_volume[..., None] > 0.0, expanded, 0.0)
+
+
+def _poloidal_characteristic_owner_correction(
+    q_face: jnp.ndarray,
+    stencils: tuple[ConservativeStencil3D, ...],
+    face_penalty: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    penalty: float,
+) -> jnp.ndarray:
+    """Return a periodic shared-face theta characteristic correction.
+
+    The correction is the exact transpose of a centered linear trace map on
+    the ordinary theta faces.  Angular RLP rings with ``q > 1`` and theta
+    shard seams are masked: their fine-cell traces are not aggregate-face
+    traces, and applying this diagnostic penalty there would silently violate
+    owner-space conservation.  The active ``q == 1`` rings remain ordinary
+    shared faces, so the residual is scattered into the aggregate owners and
+    divided by the natural ``J/B`` volume exactly as for the radial glue path.
+    """
+
+    if not stencils:
+        raise ValueError("poloidal characteristic correction needs at least one stencil")
+    value = jnp.stack(
+        tuple(jnp.asarray(stencil.y.center, dtype=jnp.float64) for stencil in stencils),
+        axis=-1,
+    )
+    q = jnp.asarray(q_face, dtype=jnp.float64)
+    block = jnp.asarray(face_penalty, dtype=jnp.float64)
+    cells = control_volume_geometry.cells
+    nx, ny, nz = value.shape[:3]
+    if q.shape != (nx, ny + 1, nz):
+        raise ValueError(f"q_face must have shape {(nx, ny + 1, nz)}, got {q.shape}")
+    if block.shape != (nx, ny + 1, nz, value.shape[-1], value.shape[-1]):
+        raise ValueError("poloidal face penalty has an incompatible shape")
+    if len(stencils) != 4:
+        raise ValueError("poloidal characteristic correction requires four coupled fields")
+    penalty_value = float(penalty)
+    if not np.isfinite(penalty_value) or penalty_value < 0.0:
+        raise ValueError("poloidal characteristic penalty must be finite and nonnegative")
+
+    slopes = jnp.stack(
+        tuple(
+            jnp.asarray(stencil.y.plus - stencil.y.minus, dtype=jnp.float64)
+            for stencil in stencils
+        ),
+        axis=-1,
+    )
+    # A theta-sharded local array cannot safely transpose the two-sided trace
+    # dependencies at its endpoint faces.  Reject that decomposition explicitly
+    # rather than silently dropping the periodic seam from the diagnostic.
+    if int(domain.shard_spec.shard_counts[1]) > 1:
+        raise NotImplementedError(
+            "poloidal characteristic diagnostic currently requires an unsharded theta axis"
+        )
+    # The final periodic face duplicates face zero; process each unique face
+    # once and scatter its two owner contributions cyclically.
+    left = jnp.roll(value, 1, axis=1)
+    right = value
+    left_slope = jnp.roll(slopes, 1, axis=1)
+    right_slope = slopes
+    q_active = q[:, :-1, :]
+    block_active = block[:, :-1, :, :, :]
+    # LocalSpacing3D stores owned spacings as full cell-shaped 3-D arrays;
+    # retain that shape before averaging the two cells adjacent to each theta
+    # face.  Broadcasting axis factors here would manufacture a rank-5 area
+    # and fail only once the diagnostic path is exercised on real geometry.
+    cell_area = jnp.asarray(
+        geometry.spacing.dx_owned * geometry.spacing.dz_owned,
+        dtype=jnp.float64,
+    )
+    face_area = 0.5 * (jnp.roll(cell_area, 1, axis=1) + cell_area)
+
+    jump = (
+        right - 0.25 * right_slope
+        - left - 0.25 * left_slope
+    )
+    # Activate only ordinary, unagglomerated radial rings.  For non-angular
+    # control volumes the mask is identically true.
+    if control_volume_geometry.angular_group_sizes is None:
+        ordinary_ring = jnp.ones((nx, 1, 1), dtype=bool)
+    else:
+        ordinary_ring = (
+            jnp.asarray(control_volume_geometry.angular_group_sizes, dtype=jnp.int32)
+            == 1
+        )[:, None, None]
+    integrated = jnp.where(
+        ordinary_ring[..., None],
+        0.5
+        * penalty_value
+        * jnp.abs(q_active)[..., None]
+        * face_area[..., None]
+        * jnp.einsum("...ij,...j->...i", block_active, jump),
+        0.0,
+    )
+    # For an unsharded periodic theta axis the six indexed scatters are fixed
+    # cyclic permutations.  This roll form is the same trace transpose:
+    # left-center, right-center, left-plus, left-minus, right-plus,
+    # right-minus, in that order.  It avoids six indexed scatter kernels while
+    # retaining the same accumulation order and coefficients.
+    residual = jnp.roll(integrated, -1, axis=1)
+    residual = residual - integrated
+    residual = residual + 0.25 * integrated
+    residual = residual - 0.25 * jnp.roll(integrated, -2, axis=1)
+    residual = residual + 0.25 * jnp.roll(integrated, 1, axis=1)
+    residual = residual - 0.25 * jnp.roll(integrated, -1, axis=1)
+
+    # Remote merged sources are not local owners.  Mask them before scatter;
+    # active local owners still receive every ordinary fine-face contribution.
+    residual = jnp.where(jnp.asarray(cells.owner_is_remote)[..., None], 0.0, residual)
+    owner_integrated = jnp.zeros_like(value).at[
+        cells.owner_i, cells.owner_j, cells.owner_k
+    ].add(residual)
+    raw_natural_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64) / jnp.maximum(
+        jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), 1.0e-30
+    )
+    owner_natural_volume = jnp.zeros((nx, ny, nz), dtype=jnp.float64).at[
+        cells.owner_i, cells.owner_j, cells.owner_k
+    ].add(raw_natural_volume)
+    owner_correction = jnp.where(
+        jnp.asarray(cells.is_active_owner)[..., None],
+        owner_integrated / jnp.maximum(owner_natural_volume[..., None], 1.0e-30),
+        0.0,
+    )
+    expanded = owner_correction[cells.owner_i, cells.owner_j, cells.owner_k]
+    return jnp.where(cells.raw_volume[..., None] > 0.0, expanded, 0.0)
+
+
+def _poloidal_characteristic_third_order_owner_correction(
+    q_face: jnp.ndarray,
+    stencils: tuple[ConservativeStencil3D, ...],
+    geometry: LocalFciGeometry3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    tau: float | jnp.ndarray,
+    curvature_scale: float = 1.0,
+) -> jnp.ndarray:
+    """Return the owner-space third-order characteristic theta correction.
+
+    The scalar conservative curvature operator remains the production flux;
+    this routine adds its locally frozen quasilinear principal correction.
+    ``M(U) @ U`` is therefore not treated as an exact nonlinear flux.  Each
+    angular ring is evaluated on its actual agglomerated owner lattice: for a
+    ring of group size ``q``, only faces ``f % q == 0`` are processed and the
+    adjacent owners are ``f-q`` and ``f`` (cyclically).
+    """
+
+    if len(stencils) != 4:
+        raise ValueError(
+            "third-order poloidal characteristic correction requires four "
+            "coupled stencils"
+        )
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError("domain must be LocalDomain3D")
+    if not domain.periodic_axes[1]:
+        raise ValueError(
+            "third-order poloidal characteristic correction requires periodic theta"
+        )
+    if int(domain.shard_spec.shard_counts[1]) != 1:
+        raise NotImplementedError(
+            "third-order poloidal characteristic correction requires an unsharded theta axis"
+        )
+
+    cells = control_volume_geometry.cells
+    centers = jnp.stack(
+        tuple(jnp.asarray(stencil.y.center, dtype=jnp.float64) for stencil in stencils),
+        axis=-1,
+    )
+    if centers.shape != cells.shape + (4,):
+        raise ValueError(
+            "coupled poloidal stencils must match control-volume cell shape; "
+            f"got {centers.shape}, expected {cells.shape + (4,)}"
+        )
+    nx, ny, nz = centers.shape[:3]
+    q_flux = jnp.asarray(q_face, dtype=jnp.float64)
+    if q_flux.shape != (nx, ny + 1, nz):
+        raise ValueError(
+            f"q_face must have shape {(nx, ny + 1, nz)}, got {q_flux.shape}"
+        )
+    try:
+        if bool(jnp.any(jnp.asarray(cells.owner_is_remote, dtype=bool))):
+            raise ValueError(
+                "third-order poloidal characteristic correction requires local angular owners"
+            )
+    except jax.errors.TracerBoolConversionError:
+        pass
+
+    profile = control_volume_geometry.angular_group_sizes
+    if profile is None:
+        profile = (1,) * nx
+    profile = tuple(int(value) for value in profile)
+    if len(profile) != nx:
+        raise ValueError("angular group profile must have one entry per radial ring")
+    if any(value <= 0 or ny % value for value in profile):
+        raise ValueError("angular group profile must contain positive divisors of ny")
+    scale = float(curvature_scale)
+    if not np.isfinite(scale) or scale < 0.0:
+        raise ValueError("curvature_scale must be finite and nonnegative")
+
+    # Build all four owner samples with one vectorized gather.  q is static
+    # topology data, but remains an array here so rings are not dynamically
+    # unrolled in Python.
+    q_group = jnp.asarray(profile, dtype=jnp.int32)[:, None, None]
+    face_index = jnp.arange(ny, dtype=jnp.int32)[None, :, None]
+    radial_index = jnp.broadcast_to(
+        jnp.arange(nx, dtype=jnp.int32)[:, None, None], (nx, ny, nz)
+    )
+    eta_index = jnp.broadcast_to(
+        jnp.arange(nz, dtype=jnp.int32)[None, None, :], (nx, ny, nz)
+    )
+
+    def gather(offset: int) -> jnp.ndarray:
+        index = jnp.mod(face_index - offset * q_group, ny)
+        index = jnp.broadcast_to(index, (nx, ny, nz))
+        return centers[radial_index, index, eta_index, :]
+
+    um2 = gather(2)
+    um1 = gather(1)
+    u0 = gather(0)
+    up1 = gather(-1)
+    u_left = (-um2 + 5.0 * um1 + 2.0 * u0) / 6.0
+    u_right = (2.0 * um1 + 5.0 * u0 - up1) / 6.0
+    u_center = 0.5 * (um1 + u0)
+    recon_mean = 0.5 * (u_left + u_right)
+
+    # y_face[f] is the face between owner f-q and owner f.  The final stored
+    # face duplicates f=0 and is deliberately omitted from this unique-face
+    # lattice.
+    q_unique = q_flux[:, :-1, :]
+    bmag_unique = jnp.asarray(
+        geometry.face_bfield.y.Bmag_owned[:, :-1, :], dtype=jnp.float64
+    )
+    matrix = _curvature_characteristic_principal_matrix(
+        u_center, bmag_unique, tau
+    )
+    absolute = _curvature_characteristic_absolute_matrix(
+        u_center, bmag_unique, tau
+    )
+    delta_flux = (
+        q_unique[..., None]
+        * jnp.einsum("...ij,...j->...i", matrix, recon_mean)
+        + 0.5
+        * jnp.abs(q_unique)[..., None]
+        * jnp.einsum("...ij,...j->...i", absolute, u_right - u_left)
+        - q_unique[..., None]
+        * jnp.einsum("...ij,...j->...i", matrix, u_center)
+    )
+
+    logical_area = _lift_cell_field_to_faces(
+        jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
+        * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64),
+        axis=1,
+        periodic=False,
+    )[:, :-1, :]
+    regular_faces = control_volume_geometry.regular_faces
+    open_measure = (
+        logical_area
+        * jnp.asarray(regular_faces.y_area[:, :-1, :], dtype=jnp.float64)
+        * jnp.asarray(regular_faces.y_area_fraction[:, :-1, :], dtype=jnp.float64)
+    )
+    open_mask = jnp.asarray(regular_faces.y_open_mask[:, :-1, :], dtype=bool)
+    active_face = (jnp.mod(face_index, q_group) == 0)
+    integrated = jnp.where(
+        (active_face & open_mask & (open_measure > 0.0))[..., None],
+        scale * delta_flux * open_measure[..., None],
+        0.0,
+    )
+
+    left_j = jnp.mod(face_index - q_group, ny)
+    right_j = face_index
+    same_owner = left_j == right_j
+    integrated = jnp.where(same_owner[..., None], 0.0, integrated)
+    owner_integrated = jnp.zeros(cells.shape + (4,), dtype=jnp.float64)
+    owner_i = jnp.broadcast_to(
+        jnp.arange(nx, dtype=jnp.int32)[:, None, None], (nx, ny, nz)
+    )
+    owner_k = jnp.broadcast_to(
+        jnp.arange(nz, dtype=jnp.int32)[None, None, :], (nx, ny, nz)
+    )
+    owner_integrated = owner_integrated.at[owner_i, left_j, owner_k].add(integrated)
+    owner_integrated = owner_integrated.at[owner_i, right_j, owner_k].add(-integrated)
+
+    raw_natural_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64) / jnp.maximum(
+        jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), 1.0e-30
+    )
+    owner_natural_volume = jnp.zeros(cells.shape, dtype=jnp.float64).at[
+        cells.owner_i, cells.owner_j, cells.owner_k
+    ].add(raw_natural_volume)
+    owner_correction = jnp.where(
+        jnp.asarray(cells.is_active_owner, dtype=bool)[..., None],
+        owner_integrated / jnp.maximum(owner_natural_volume[..., None], 1.0e-30),
+        0.0,
+    )
+    expanded = owner_correction[cells.owner_i, cells.owner_j, cells.owner_k]
+    return jnp.where(cells.raw_volume[..., None] > 0.0, expanded, 0.0)
+
+
+def _radial_curvature_principal_face_values(
+    centered_face: jnp.ndarray,
+    stencil: LocalStencil1D,
+    coefficient: jnp.ndarray,
+    *,
+    scheme: Literal["centered", "donor-cell"],
+) -> jnp.ndarray:
+    """Select the analysis-only interior radial curvature face state.
+
+    The donor-cell variant deliberately leaves the two domain-boundary faces
+    untouched.  Their already-patched Dirichlet or coupled characteristic
+    traces are part of the physical boundary closure, not the bulk principal
+    flux discriminator.  Only ordinary interior radial faces are replaced.
+    """
+
+    if scheme == "centered":
+        return centered_face
+    if scheme != "donor-cell":
+        raise ValueError(
+            "radial_principal_face_scheme must be 'centered' or "
+            f"'donor-cell', got {scheme!r}"
+        )
+    face = jnp.asarray(centered_face, dtype=jnp.float64)
+    center = jnp.asarray(stencil.center, dtype=jnp.float64)
+    q = jnp.asarray(coefficient, dtype=jnp.float64)
+    if face.shape != q.shape or face.shape[0] != center.shape[0] + 1:
+        raise ValueError(
+            "radial donor-cell face selection requires coefficient and face "
+            "shapes (nx + 1, ny, nz) matching the cell stencil"
+        )
+    donor = jnp.where(q[1:-1] >= 0.0, center[:-1], center[1:])
+    return face.at[1:-1].set(donor)
+
+
+def local_curvature_production_path_op(
+    stencils: tuple[ConservativeStencil3D, ConservativeStencil3D,
+                    ConservativeStencil3D, ConservativeStencil3D],
+    geometry: LocalFciGeometry3D,
+    coefficients: LocalCurvatureFaceCoefficients3D,
+    *,
+    tau: float | jnp.ndarray,
+    domain: LocalDomain3D | None = None,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
+    equilibrium: jnp.ndarray | None = None,
+    positivity_floor: float = 1.0e-12,
+    return_diagnostics: bool = False,
+) -> jnp.ndarray | tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+    """Apply the owner-face production curvature wave-propagation operator.
+
+    The four coupled variables are reconstructed on every active coordinate
+    face and advanced with fixed-Gauss Osher fluctuations.  Face contributions
+    are scattered with equal/opposite signs to the two actual aggregate
+    owners, then divided by the summed owner ``raw_volume/B`` measure.  This is
+    a wave-propagation update; it does not add a centered scalar operator or a
+    post-hoc penalty.  The first output is the full residual, while optional
+    diagnostics expose ``(u, theta, eta)`` residuals and face fallback masks.
+    """
+    if len(stencils) != 4:
+        raise ValueError("production curvature requires four coupled stencils")
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError("geometry must be LocalFciGeometry3D")
+    if not isinstance(coefficients, LocalCurvatureFaceCoefficients3D):
+        raise TypeError("coefficients must be LocalCurvatureFaceCoefficients3D")
+    centers = tuple(jnp.asarray(stencil.x.center, dtype=jnp.float64) for stencil in stencils)
+    if any(value.shape != geometry.owned_shape for value in centers):
+        raise ValueError("coupled curvature stencils must match geometry.owned_shape")
+    state = jnp.stack(centers, axis=-1)
+    if equilibrium is None:
+        equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
+    else:
+        equilibrium = jnp.asarray(equilibrium, dtype=jnp.float64)
+    if equilibrium.shape != (4,):
+        raise ValueError("equilibrium must have shape (4,)")
+    if not (np.isfinite(float(positivity_floor)) and float(positivity_floor) > 0.0):
+        raise ValueError("positivity_floor must be finite and positive")
+
+    cells = control_volume_geometry.cells if control_volume_geometry is not None else None
+    if cells is None:
+        ni, nj, nk = geometry.owned_shape
+        oi, oj, ok = jnp.meshgrid(
+            jnp.arange(ni, dtype=jnp.int32),
+            jnp.arange(nj, dtype=jnp.int32),
+            jnp.arange(nk, dtype=jnp.int32), indexing="ij",
+        )
+        owner_active = _active_cell_mask_owned(geometry)
+        bcell = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), 1.0e-30)
+        cell_volume = (
+            jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64)
+            * jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
+            * jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
+            * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
+            / bcell
+        )
+        owner_is_remote = jnp.zeros_like(owner_active)
+    else:
+        oi = jnp.asarray(cells.owner_i, dtype=jnp.int32)
+        oj = jnp.asarray(cells.owner_j, dtype=jnp.int32)
+        ok = jnp.asarray(cells.owner_k, dtype=jnp.int32)
+        owner_active = jnp.asarray(cells.is_active_owner, dtype=bool)
+        owner_is_remote = jnp.asarray(cells.owner_is_remote, dtype=bool)
+        cell_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64) / jnp.maximum(
+            jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), 1.0e-30
+        )
+    owner_volume = jnp.zeros(geometry.owned_shape, dtype=jnp.float64).at[oi, oj, ok].add(cell_volume)
+
+    if domain is None:
+        periodic = (False, False, False)
+    else:
+        periodic = tuple(bool(value) for value in domain.periodic_axes)
+    face_residuals = []
+    face_characteristic_dissipation_residuals = []
+    radial_provenance_residual = None
+    total_owner_integrated = jnp.zeros(
+        geometry.owned_shape + (4,), dtype=jnp.float64
+    )
+    fallback_masks = []
+    reconstruction_masks = []
+    dissipation_norms = []
+    axis_names = ("x", "y", "z")
+    face_bfields = (geometry.face_bfield.x, geometry.face_bfield.y, geometry.face_bfield.z)
+    for axis, (name, coefficient, bfield) in enumerate(zip(axis_names, coefficients.axes, face_bfields)):
+        moved = tuple(jnp.moveaxis(getattr(stencil, name).center, axis, 0) for stencil in stencils)
+        # The LocalStencil's minus/plus entries are already the mapped halo
+        # values, so they provide the support cells at an owned-domain edge.
+        minus_values = tuple(jnp.moveaxis(getattr(stencil, name).minus, axis, 0) for stencil in stencils)
+        plus_values = tuple(jnp.moveaxis(getattr(stencil, name).plus, axis, 0) for stencil in stencils)
+        c = jnp.stack(moved, axis=-1)
+        m = jnp.stack(minus_values, axis=-1)
+        p = jnp.stack(plus_values, axis=-1)
+        n = c.shape[0]
+        if n < 2:
+            interior_left = jnp.zeros((0,) + c.shape[1:], dtype=jnp.float64)
+            interior_right = interior_left
+            interior_fallback = jnp.zeros((0,) + c.shape[1:-1], dtype=bool)
+        else:
+            interior_left, interior_right, metadata = reconstruct_third_order_face_states(
+                m[:-1], c[:-1], c[1:], p[1:], positivity_floor=positivity_floor
+            )
+            interior_fallback = jnp.any(metadata.used_fallback, axis=-1)
+        is_periodic = periodic[axis]
+        if is_periodic:
+            lower_left, lower_right = m[:1], c[:1]
+            upper_left, upper_right = c[-1:], p[-1:]
+            lower_fallback = jnp.zeros(c.shape[1:-1], dtype=bool)
+            upper_fallback = jnp.zeros(c.shape[1:-1], dtype=bool)
+        elif axis == 0:
+            lower_left = jnp.broadcast_to(equilibrium, c[:1].shape)
+            lower_right = c[:1]
+            upper_left = c[-1:]
+            upper_right = jnp.broadcast_to(equilibrium, c[-1:].shape)
+            lower_fallback = jnp.zeros(c.shape[1:-1], dtype=bool)
+            upper_fallback = jnp.zeros(c.shape[1:-1], dtype=bool)
+        else:
+            # Non-periodic transverse boundaries are represented by the same
+            # equilibrium exterior convention as the radial wall closure.
+            lower_left = jnp.broadcast_to(equilibrium, c[:1].shape)
+            lower_right = c[:1]
+            upper_left = c[-1:]
+            upper_right = jnp.broadcast_to(equilibrium, c[-1:].shape)
+            lower_fallback = jnp.zeros(c.shape[1:-1], dtype=bool)
+            upper_fallback = jnp.zeros(c.shape[1:-1], dtype=bool)
+        left_face = jnp.concatenate((lower_left, interior_left, upper_left), axis=0)
+        right_face = jnp.concatenate((lower_right, interior_right, upper_right), axis=0)
+        recon_fallback = jnp.concatenate((lower_fallback[None], interior_fallback, upper_fallback[None]), axis=0)
+        # Work in an axis-first temporary layout.  This keeps the face index
+        # at zero for all three directions, while the owner coordinates below
+        # are explicitly mapped back to native (i,j,k) order.
+        qface = jnp.moveaxis(jnp.asarray(coefficient, dtype=jnp.float64), axis, 0)
+        bface = jnp.moveaxis(jnp.asarray(bfield.Bmag_owned, dtype=jnp.float64), axis, 0)
+        # Coefficients store Q=J*K and owner measures are raw_volume/B;
+        # the material matrix is the physical K-symbol, so use Q/B as its
+        # face normal to avoid inserting an extra B in the update.
+        qnormal = qface / jnp.maximum(jnp.abs(bface), 1.0e-30)
+        dplus, dminus, spectral_fallback = curvature_osher_fluctuations(
+            left_face, right_face, bface, tau, normal=qnormal,
+            positivity_floor=positivity_floor, return_fallback=True,
+        )
+        # Face areas are physical regular-face measures.  Use the control
+        # volume's fractions/open masks when available so merged owners see
+        # the same measures as the scalar conservative operator.
+        if control_volume_geometry is not None:
+            regular = control_volume_geometry.regular_faces
+            area = jnp.asarray(getattr(regular, f"{name}_area"), dtype=jnp.float64)
+            area = area * jnp.asarray(getattr(regular, f"{name}_area_fraction"), dtype=jnp.float64)
+            area = jnp.where(jnp.asarray(getattr(regular, f"{name}_open_mask"), dtype=bool), area, 0.0)
+            # ``regular_faces.*_area`` is a dimensionless open-face factor
+            # (one for an uncut coordinate face).  The physical transverse
+            # coordinate measure is supplied separately by the conservative
+            # control-volume divergence, via dy*dz, dx*dz, or dx*dy.  Keep
+            # the production wave-propagation path on the same measure so
+            # an angular owner topology cannot amplify every face by the
+            # inverse logical cell area.
+            logical_measure = (
+                jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
+                * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
+                if axis == 0 else
+                jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
+                * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
+                if axis == 1 else
+                jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
+                * jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
+            )
+            area = area * _lift_cell_field_to_faces(
+                logical_measure,
+                axis=axis,
+                periodic=False,
+            )
+            area = jnp.moveaxis(area, axis, 0)
+        else:
+            cell_area = (
+                jnp.asarray(geometry.spacing.dy_owned) * jnp.asarray(geometry.spacing.dz_owned)
+                if axis == 0 else
+                jnp.asarray(geometry.spacing.dx_owned) * jnp.asarray(geometry.spacing.dz_owned)
+                if axis == 1 else
+                jnp.asarray(geometry.spacing.dx_owned) * jnp.asarray(geometry.spacing.dy_owned)
+            )
+            cell_area = jnp.moveaxis(cell_area, axis, 0)
+            area = jnp.concatenate((cell_area[:1], 0.5 * (cell_area[:-1] + cell_area[1:]), cell_area[-1:]), axis=0)
+        face_shape = qface.shape
+        grid = jnp.indices(face_shape, dtype=jnp.int32)
+        face_index = grid[0]
+        # ``grid`` is axis-first; convert the two transverse coordinates back
+        # to native array order before gathering owner maps.
+        axis_coords = [grid[1], grid[2]]
+        native_face_coords = [None, None, None]
+        transverse_index = 0
+        for native_axis in range(3):
+            if native_axis == axis:
+                native_face_coords[native_axis] = face_index
+            else:
+                native_face_coords[native_axis] = axis_coords[transverse_index]
+                transverse_index += 1
+        left_axis = face_index - 1
+        right_axis = face_index
+        left_valid = jnp.ones(face_shape, dtype=bool)
+        right_valid = jnp.ones(face_shape, dtype=bool)
+        if is_periodic:
+            left_axis = jnp.mod(left_axis, n)
+            right_axis = jnp.mod(right_axis, n)
+            # Face n duplicates the lower periodic face and is not scattered.
+            duplicate = face_index == n
+            left_valid = left_valid & ~duplicate
+            right_valid = right_valid & ~duplicate
+        else:
+            left_valid = left_valid & (face_index > 0)
+            right_valid = right_valid & (face_index < n)
+            left_axis = jnp.clip(left_axis, 0, n - 1)
+            right_axis = jnp.clip(right_axis, 0, n - 1)
+        raw_left = list(native_face_coords)
+        raw_right = list(native_face_coords)
+        raw_left[axis] = left_axis
+        raw_right[axis] = right_axis
+        left_owner = (oi[tuple(raw_left)], oj[tuple(raw_left)], ok[tuple(raw_left)])
+        right_owner = (oi[tuple(raw_right)], oj[tuple(raw_right)], ok[tuple(raw_right)])
+        same_owner = (
+            left_valid & right_valid
+            & (left_owner[0] == right_owner[0])
+            & (left_owner[1] == right_owner[1])
+            & (left_owner[2] == right_owner[2])
+        )
+        left_remote = jnp.asarray(owner_is_remote)[tuple(raw_left)]
+        right_remote = jnp.asarray(owner_is_remote)[tuple(raw_right)]
+        valid_left = left_valid & ~same_owner & ~left_remote
+        valid_right = right_valid & ~same_owner & ~right_remote
+        integrated_plus = jnp.where(valid_right[..., None], -dplus * area[..., None], 0.0)
+        integrated_minus = jnp.where(valid_left[..., None], -dminus * area[..., None], 0.0)
+        owner_integrated = jnp.zeros(geometry.owned_shape + (4,), dtype=jnp.float64)
+        # D+ is right-going and updates the right owner; D- is left-going and
+        # updates the left owner.
+        owner_integrated = owner_integrated.at[left_owner].add(integrated_minus)
+        owner_integrated = owner_integrated.at[right_owner].add(integrated_plus)
+        radial_face_class_integrated = None
+        if return_diagnostics and axis == 0:
+            interior_face = (face_index > 0) & (face_index < n)
+            if control_volume_geometry is None:
+                transition_face = jnp.zeros_like(interior_face)
+            else:
+                group_sizes = jnp.asarray(
+                    control_volume_geometry.angular_group_sizes,
+                    dtype=jnp.int32,
+                )
+                left_group = group_sizes[jnp.clip(face_index - 1, 0, n - 1)]
+                right_group = group_sizes[jnp.clip(face_index, 0, n - 1)]
+                transition_face = interior_face & (left_group != right_group)
+            radial_face_class_masks = (
+                face_index == 0,
+                face_index == n,
+                transition_face,
+                interior_face & ~transition_face,
+            )
+            radial_face_class_integrated_list = []
+            for class_mask in radial_face_class_masks:
+                class_integrated = jnp.zeros(
+                    geometry.owned_shape + (4,), dtype=jnp.float64
+                )
+                class_integrated = class_integrated.at[left_owner].add(
+                    jnp.where(
+                        class_mask[..., None], integrated_minus, 0.0
+                    )
+                )
+                class_integrated = class_integrated.at[right_owner].add(
+                    jnp.where(
+                        class_mask[..., None], integrated_plus, 0.0
+                    )
+                )
+                radial_face_class_integrated_list.append(class_integrated)
+            radial_face_class_integrated = jnp.stack(
+                radial_face_class_integrated_list, axis=0
+            )
+        if return_diagnostics:
+            # D+ = (A + |A|)dq/2 and D- = (A - |A|)dq/2.  Therefore
+            # (D+ - D-)/2 is exactly the characteristic |A| jump action.
+            # Its conservative scatter is +|A|dq/2 to the left owner and
+            # -|A|dq/2 to the right owner.  The within-cell path fluctuation
+            # below contains D+ + D- = A dq and hence no dissipative part.
+            face_dissipation = 0.5 * (dplus - dminus)
+            dissipation_integrated = jnp.zeros(
+                geometry.owned_shape + (4,), dtype=jnp.float64
+            )
+            dissipation_integrated = dissipation_integrated.at[left_owner].add(
+                jnp.where(
+                    valid_left[..., None],
+                    face_dissipation * area[..., None],
+                    0.0,
+                )
+            )
+            dissipation_integrated = dissipation_integrated.at[right_owner].add(
+                jnp.where(
+                    valid_right[..., None],
+                    -face_dissipation * area[..., None],
+                    0.0,
+                )
+            )
+        # The interface fluctuations carry only the jump correction.  The
+        # smooth physical transport is the total within-cell fluctuation
+        # between the reconstructed left/right boundary states.
+        cell_left = right_face[:-1]
+        cell_right = left_face[1:]
+        cell_q = 0.5 * (qnormal[:-1] + qnormal[1:])
+        cell_b = jnp.moveaxis(jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), axis, 0)
+        cell_plus, cell_minus = curvature_osher_fluctuations(
+            cell_left, cell_right, cell_b, tau, normal=cell_q,
+            positivity_floor=positivity_floor,
+        )
+        cell_area = 0.5 * (area[:-1] + area[1:])
+        cell_raw_coords = [grid[d][:-1] for d in range(3)]
+        # Cell coordinates in this axis-first layout map back to native order.
+        cell_native_coords = [None, None, None]
+        transverse_index = 0
+        for native_axis in range(3):
+            if native_axis == axis:
+                cell_native_coords[native_axis] = grid[0][:-1]
+            else:
+                cell_native_coords[native_axis] = axis_coords[transverse_index][:-1]
+                transverse_index += 1
+        cell_owner = (
+            oi[tuple(cell_native_coords)], oj[tuple(cell_native_coords)],
+            ok[tuple(cell_native_coords)],
+        )
+        cell_remote = jnp.asarray(owner_is_remote)[tuple(cell_native_coords)]
+        total_integrated = jnp.where(
+            (~cell_remote)[..., None],
+            -(cell_plus + cell_minus) * cell_area[..., None],
+            0.0,
+        )
+        cell_path_integrated = jnp.zeros(
+            geometry.owned_shape + (4,), dtype=jnp.float64
+        ).at[cell_owner].add(total_integrated)
+        owner_integrated = owner_integrated + cell_path_integrated
+        if return_diagnostics:
+            owner_update = jnp.where(
+                owner_active[..., None],
+                owner_integrated / jnp.maximum(owner_volume[..., None], 1.0e-30),
+                0.0,
+            )
+            expanded = owner_update[oi, oj, ok]
+            expanded = jnp.where(cell_volume[..., None] > 0.0, expanded, 0.0)
+            face_residuals.append(expanded)
+            dissipation_update = jnp.where(
+                owner_active[..., None],
+                dissipation_integrated
+                / jnp.maximum(owner_volume[..., None], 1.0e-30),
+                0.0,
+            )
+            expanded_dissipation = dissipation_update[oi, oj, ok]
+            expanded_dissipation = jnp.where(
+                cell_volume[..., None] > 0.0,
+                expanded_dissipation,
+                0.0,
+            )
+            face_characteristic_dissipation_residuals.append(
+                expanded_dissipation
+            )
+            if axis == 0:
+                assert radial_face_class_integrated is not None
+                radial_integrated = jnp.concatenate(
+                    (
+                        radial_face_class_integrated,
+                        cell_path_integrated[None],
+                    ),
+                    axis=0,
+                )
+                radial_owner_update = jnp.where(
+                    owner_active[None, ..., None],
+                    radial_integrated
+                    / jnp.maximum(owner_volume[None, ..., None], 1.0e-30),
+                    0.0,
+                )
+                radial_provenance_residual = radial_owner_update[
+                    :, oi, oj, ok, :
+                ]
+                radial_provenance_residual = jnp.where(
+                    (cell_volume > 0.0)[None, ..., None],
+                    radial_provenance_residual,
+                    0.0,
+                )
+        else:
+            total_owner_integrated = total_owner_integrated + owner_integrated
+        valid_face = valid_left | valid_right
+        fallback_masks.append(jnp.where(valid_face, spectral_fallback, False))
+        reconstruction_masks.append(jnp.where(valid_face, recon_fallback, False))
+        # x/y/z face arrays can have different shapes on a shard; expose a
+        # scalar per direction so diagnostics remain stackable.
+        dissipation_norms.append(
+            jnp.sum(jnp.where(valid_face[..., None], area[..., None] * dplus * dplus, 0.0))
+        )
+    if not return_diagnostics:
+        owner_update = jnp.where(
+            owner_active[..., None],
+            total_owner_integrated
+            / jnp.maximum(owner_volume[..., None], 1.0e-30),
+            0.0,
+        )
+        result = owner_update[oi, oj, ok]
+        result = jnp.where(cell_volume[..., None] > 0.0, result, 0.0)
+        return result
+    directional = jnp.stack(face_residuals, axis=0)
+    directional_characteristic_dissipation = jnp.stack(
+        face_characteristic_dissipation_residuals, axis=0
+    )
+    assert radial_provenance_residual is not None
+    result = jnp.sum(directional, axis=0)
+    diagnostics = {
+        "directional_residual": directional,
+        "directional_centered_transfer": (
+            directional - directional_characteristic_dissipation
+        ),
+        "directional_characteristic_dissipation": (
+            directional_characteristic_dissipation
+        ),
+        "radial_provenance_residual": radial_provenance_residual,
+        "spectral_fallback": tuple(fallback_masks),
+        "reconstruction_fallback": tuple(reconstruction_masks),
+        "dissipation_norm": jnp.stack(dissipation_norms, axis=0),
+    }
+    return result, diagnostics
+
+
 def local_curvature_conservative_op(
     local: ConservativeStencil3D,
     geometry: LocalFciGeometry3D,
@@ -3486,6 +5147,13 @@ def local_curvature_conservative_op(
     boundary_trace: LocalBoundaryFaceTrace3D | None = None,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
     field_closure: LocalControlVolumeFieldClosure3D | None = None,
+    replace_regular_transition_traces: bool = False,
+    bound_regular_transition_trace_correction: bool = False,
+    constrain_regular_transition_flux_correction: bool = False,
+    use_fine_glue_transition_flux: bool = False,
+    fine_glue_penalty: float = 1.0,
+    fine_glue_transition_face: int | None = None,
+    radial_principal_face_scheme: Literal["centered", "donor-cell"] = "centered",
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
     jacobian_floor: float = 1.0e-30,
 ) -> jnp.ndarray:
@@ -3501,6 +5169,11 @@ def local_curvature_conservative_op(
     and does not apply normal-flux or no-flux boundary conditions: those BC
     kinds describe the physical scalar flux and are not curvature scalar
     values. Only Dirichlet scalar values are patched on boundary faces.
+
+    ``radial_principal_face_scheme='donor-cell'`` is an analysis-only causal
+    discriminator. It changes only ordinary interior radial face states;
+    poloidal/eta faces and physical boundary traces retain the production
+    centered treatment. The production default is exactly ``'centered'``.
     """
     if not isinstance(local, ConservativeStencil3D):
         raise TypeError(
@@ -3523,6 +5196,11 @@ def local_curvature_conservative_op(
         )
     if coefficients.layout != geometry.layout:
         raise ValueError("geometry and coefficients must share the same HaloLayout3D")
+    if radial_principal_face_scheme not in ("centered", "donor-cell"):
+        raise ValueError(
+            "radial_principal_face_scheme must be 'centered' or "
+            f"'donor-cell', got {radial_principal_face_scheme!r}"
+        )
     expected = tuple(geometry.layout.face_control_shape(axis=a) for a in range(3))
     for axis, name, value in zip((0, 1, 2), ("x", "y", "z"), (coefficients.x, coefficients.y, coefficients.z)):
         if jnp.asarray(value).shape != expected[axis]:
@@ -3537,7 +5215,6 @@ def local_curvature_conservative_op(
             raise TypeError("control_volume_geometry must be LocalEmbeddedControlVolumeGeometry3D")
         if control_volume_geometry.cells.layout != geometry.layout:
             raise ValueError("control-volume geometry must share geometry.layout")
-        closure = _require_local_control_volume_field_closure(field_closure, control_volume_geometry)
         face_bc = face_bc or LocalBoundaryFaceBC3D.empty(geometry.layout)
         if face_bc.layout != geometry.layout:
             raise ValueError("face_bc and geometry must share the same HaloLayout3D")
@@ -3561,6 +5238,262 @@ def local_curvature_conservative_op(
             x_face = _apply_local_face_trace(x_face, axis=0, trace_value=boundary_trace.value_x, trace_mask=boundary_trace.mask_x, axis_regular_axes=axis_regular_axes)
             y_face = _apply_local_face_trace(y_face, axis=1, trace_value=boundary_trace.value_y, trace_mask=boundary_trace.mask_y, axis_regular_axes=axis_regular_axes)
             z_face = _apply_local_face_trace(z_face, axis=2, trace_value=boundary_trace.value_z, trace_mask=boundary_trace.mask_z, axis_regular_axes=axis_regular_axes)
+        x_face = _radial_curvature_principal_face_values(
+            x_face,
+            local.x,
+            coefficients.x,
+            scheme=radial_principal_face_scheme,
+        )
+        if use_fine_glue_transition_flux:
+            if replace_regular_transition_traces:
+                raise ValueError(
+                    "fine-glue SAT and compact transition-trace replacement "
+                    "are mutually exclusive"
+                )
+            if not control_volume_geometry.has_angular_agglomeration:
+                raise ValueError(
+                    "fine-glue SAT requires angular RLP control-volume geometry"
+                )
+            fluxes = (
+                jnp.asarray(coefficients.x, dtype=jnp.float64) * x_face,
+                jnp.asarray(coefficients.y, dtype=jnp.float64) * y_face,
+                jnp.asarray(coefficients.z, dtype=jnp.float64) * z_face,
+            )
+            spacings = (
+                geometry.spacing.dx_owned,
+                geometry.spacing.dy_owned,
+                geometry.spacing.dz_owned,
+            )
+            divergence = sum(
+                (
+                    flux[_axis_slice_nd(axis, 1, None, flux.ndim)]
+                    - flux[_axis_slice_nd(axis, None, -1, flux.ndim)]
+                )
+                / jnp.maximum(
+                    jnp.asarray(spacing, dtype=jnp.float64),
+                    float(jacobian_floor),
+                )
+                for axis, (flux, spacing) in enumerate(zip(fluxes, spacings))
+            )
+            B = jnp.asarray(
+                geometry.cell_bfield.Bmag_owned, dtype=jnp.float64
+            )
+            J = jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64)
+            baseline = _mask_inactive_owned(
+                B * divergence / jnp.maximum(J, float(jacobian_floor)),
+                geometry,
+            )
+            sat = _radial_fine_glue_sat_owner_correction(
+                local,
+                geometry,
+                coefficients,
+                control_volume_geometry,
+                penalty=fine_glue_penalty,
+                transition_face=fine_glue_transition_face,
+            )
+            return _mask_inactive_owned(baseline + sat, geometry)
+        closure = _require_local_control_volume_field_closure(
+            field_closure, control_volume_geometry
+        )
+        if replace_regular_transition_traces:
+            faces = control_volume_geometry.irregular_faces
+            logical_axis = jnp.asarray(faces.logical_axis, dtype=jnp.int32)
+            try:
+                if bool(jnp.any(faces.active & (logical_axis != 0))):
+                    raise ValueError(
+                        "regular transition-trace replacement currently "
+                        "supports radial compact rows only"
+                    )
+            except jax.errors.TracerBoolConversionError:
+                pass
+            qactive = jnp.asarray(faces.quadrature_active, dtype=bool)
+            area = jnp.abs(
+                jnp.asarray(faces.area_covector_weight, dtype=jnp.float64)[
+                    ..., 0
+                ]
+            )
+            # The compact functional supplies a moment-fitted scalar trace;
+            # its coarse-face mean is constrained to the established trace
+            # below.
+            trace = jnp.asarray(closure.face_value, dtype=jnp.float64)
+            valid = jnp.asarray(closure.face_value_valid, dtype=bool)
+            weight = jnp.where(qactive, area, 0.0)
+            valid_row = jnp.all((~qactive) | valid, axis=(1, 2))
+            trace_average = jnp.sum(
+                jnp.where(qactive & valid, weight * trace, 0.0),
+                axis=(1, 2),
+            ) / jnp.maximum(jnp.sum(weight, axis=(1, 2)), 1.0e-30)
+            face_i = jnp.asarray(faces.logical_face_i, dtype=jnp.int32)
+            face_j = jnp.asarray(faces.logical_face_j, dtype=jnp.int32)
+            face_k = jnp.asarray(faces.logical_face_k, dtype=jnp.int32)
+            replace = jnp.asarray(faces.active, dtype=bool) & valid_row
+            old_trace = x_face[face_i, face_j, face_k]
+            # Preserve the zeroth tangential moment of every coarse radial
+            # face.  The fitted fluctuation is redistributed among its fine
+            # theta subfaces and the established group mean is added here.
+            q_profile = jnp.asarray(
+                control_volume_geometry.angular_group_sizes,
+                dtype=jnp.int32,
+            )
+            q_minus = q_profile[jnp.clip(face_i - 1, 0, q_profile.size - 1)]
+            q_plus = q_profile[jnp.clip(face_i, 0, q_profile.size - 1)]
+            q_coarse = jnp.maximum(q_minus, q_plus)
+            coarse_j = (face_j // jnp.maximum(q_coarse, 1)) * jnp.maximum(
+                q_coarse, 1
+            )
+            num_groups = int(np.prod(x_face.shape))
+            group_id = (face_i * x_face.shape[1] + coarse_j) * x_face.shape[2] + face_k
+            row_area = jnp.sum(weight, axis=(1, 2))
+            active_area = jnp.where(replace, row_area, 0.0)
+            group_area = jnp.zeros(num_groups, dtype=jnp.float64).at[group_id].add(
+                active_area
+            )
+            group_old = jnp.zeros(num_groups, dtype=jnp.float64).at[group_id].add(
+                active_area * old_trace
+            )
+            group_fit = jnp.zeros(num_groups, dtype=jnp.float64).at[group_id].add(
+                active_area * trace_average
+            )
+            group_baseline = (group_old - group_fit) / jnp.maximum(
+                group_area, 1.0e-30
+            )
+            trace_average = trace_average + jnp.where(
+                replace, group_baseline[group_id], 0.0
+            )
+            if (
+                bound_regular_transition_trace_correction
+                and constrain_regular_transition_flux_correction
+            ):
+                raise ValueError(
+                    "transition correction cannot be both trace-bounded and "
+                    "flux-constrained"
+                )
+            face_minus_value = None
+            face_plus_value = None
+            if (
+                bound_regular_transition_trace_correction
+                or constrain_regular_transition_flux_correction
+            ):
+                cell_value = jnp.asarray(local.x.center, dtype=jnp.float64)
+                face_minus_value = cell_value[
+                    jnp.asarray(faces.minus_owner_i, dtype=jnp.int32),
+                    jnp.asarray(faces.minus_owner_j, dtype=jnp.int32),
+                    jnp.asarray(faces.minus_owner_k, dtype=jnp.int32),
+                ]
+                face_plus_value = cell_value[
+                    jnp.asarray(faces.plus_owner_i, dtype=jnp.int32),
+                    jnp.asarray(faces.plus_owner_j, dtype=jnp.int32),
+                    jnp.asarray(faces.plus_owner_k, dtype=jnp.int32),
+                ]
+            if bound_regular_transition_trace_correction:
+                # Limit the conservative fitted *correction*, rather than the
+                # fitted trace itself.  One alpha is shared by every fine
+                # subface of a coarse radial face.  Since the correction above
+                # has zero area-weighted group mean, multiplying all of it by
+                # the same alpha preserves that mean exactly.
+                functional = control_volume_geometry.face_functionals
+                if functional is None:
+                    raise ValueError(
+                        "bounded transition traces require face functionals"
+                    )
+                observation_active = jnp.asarray(
+                    functional.observation_active, dtype=bool
+                )
+                observation_value = cell_value[
+                    jnp.asarray(functional.owned_i, dtype=jnp.int32),
+                    jnp.asarray(functional.owned_j, dtype=jnp.int32),
+                    jnp.asarray(functional.owned_k, dtype=jnp.int32),
+                ]
+                # A coarse angular owner is an average over several physical
+                # subfaces.  The two cross-face owner averages alone are too
+                # narrow an envelope for a smooth tangentially varying field.
+                # Use the local reconstruction stencil extrema, explicitly
+                # retaining both face owners, so limiting prevents a new local
+                # extremum without flattening resolved subface variation.
+                stencil_lower = jnp.min(
+                    jnp.where(observation_active, observation_value, jnp.inf),
+                    axis=1,
+                )
+                stencil_upper = jnp.max(
+                    jnp.where(observation_active, observation_value, -jnp.inf),
+                    axis=1,
+                )
+                lower_envelope = jnp.minimum(
+                    jnp.minimum(face_minus_value, face_plus_value),
+                    stencil_lower,
+                )
+                upper_envelope = jnp.maximum(
+                    jnp.maximum(face_minus_value, face_plus_value),
+                    stencil_upper,
+                )
+                trace_average = _bound_groupwise_transition_trace_correction(
+                    old_trace,
+                    trace_average,
+                    lower_envelope,
+                    upper_envelope,
+                    group_id,
+                    replace,
+                    num_groups=num_groups,
+                )
+            x_flux = jnp.asarray(coefficients.x, dtype=jnp.float64) * x_face
+            if constrain_regular_transition_flux_correction:
+                q_face = jnp.asarray(coefficients.x, dtype=jnp.float64)[
+                    face_i, face_j, face_k
+                ]
+                flux_correction = _constrain_groupwise_transition_flux_correction(
+                    old_trace,
+                    trace_average,
+                    q_face,
+                    face_minus_value,
+                    face_plus_value,
+                    row_area,
+                    group_id,
+                    replace,
+                    num_groups=num_groups,
+                )
+                old_flux = q_face * old_trace
+                replacement_flux = jnp.where(
+                    replace, old_flux + flux_correction, old_flux
+                )
+                x_flux = x_flux.at[face_i, face_j, face_k].set(
+                    replacement_flux
+                )
+            else:
+                # Inactive padded rows carry a harmless in-bounds logical
+                # index. Preserve the existing trace there so the scatter
+                # cannot alter an unrelated regular face.
+                replacement = jnp.where(replace, trace_average, old_trace)
+                x_face = x_face.at[face_i, face_j, face_k].set(replacement)
+                x_flux = jnp.asarray(coefficients.x, dtype=jnp.float64) * x_face
+            fluxes = (
+                x_flux,
+                jnp.asarray(coefficients.y, dtype=jnp.float64) * y_face,
+                jnp.asarray(coefficients.z, dtype=jnp.float64) * z_face,
+            )
+            spacings = (
+                geometry.spacing.dx_owned,
+                geometry.spacing.dy_owned,
+                geometry.spacing.dz_owned,
+            )
+            divergence = sum(
+                (
+                    flux[_axis_slice_nd(axis, 1, None, flux.ndim)]
+                    - flux[_axis_slice_nd(axis, None, -1, flux.ndim)]
+                )
+                / jnp.maximum(
+                    jnp.asarray(spacing, dtype=jnp.float64),
+                    float(jacobian_floor),
+                )
+                for axis, (flux, spacing) in enumerate(zip(fluxes, spacings))
+            )
+            B = jnp.asarray(
+                geometry.cell_bfield.Bmag_owned, dtype=jnp.float64
+            )
+            J = jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64)
+            return _mask_inactive_owned(
+                B * divergence / jnp.maximum(J, float(jacobian_floor)),
+                geometry,
+            )
         regular_flux = (
             jnp.asarray(coefficients.x) * x_face,
             jnp.asarray(coefficients.y) * y_face,
@@ -3630,6 +5563,12 @@ def local_curvature_conservative_op(
             z_face, axis=2, trace_value=boundary_trace.value_z,
             trace_mask=boundary_trace.mask_z, axis_regular_axes=axis_regular_axes,
         )
+    x_face = _radial_curvature_principal_face_values(
+        x_face,
+        local.x,
+        coefficients.x,
+        scheme=radial_principal_face_scheme,
+    )
 
     # Axis regularity is part of the coefficient complex: the geometry
     # builder supplies Q^rho=0 on a collapsed lower face while preserving
@@ -3651,6 +5590,52 @@ def local_curvature_conservative_op(
     J = jnp.maximum(jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64), float(jacobian_floor))
     B = jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64)
     return _mask_inactive_owned(B * divergence / J, geometry)
+
+
+def local_curvature_conservative_components_op(
+    local: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    coefficients: LocalCurvatureFaceCoefficients3D,
+    **kwargs,
+) -> jnp.ndarray:
+    """Return radial, poloidal, and toroidal curvature divergences.
+
+    The leading output axis is ``(u, theta, eta)``.  Each component is
+    evaluated by the unchanged production operator with the other two face
+    coefficient families set to zero.  This also assigns compact embedded
+    faces to their authoritative logical radial or theta direction.  The sum
+    therefore closes to :func:`local_curvature_conservative_op` to roundoff
+    without introducing an alternative diagnostic discretization.
+
+    This routine is intentionally diagnostic: it performs three operator
+    applications and should not replace the single production evaluation.
+    """
+
+    if not isinstance(coefficients, LocalCurvatureFaceCoefficients3D):
+        raise TypeError(
+            "coefficients must be LocalCurvatureFaceCoefficients3D, "
+            f"got {type(coefficients).__name__}"
+        )
+    zero_axes = tuple(jnp.zeros_like(value) for value in coefficients.axes)
+    components = []
+    for active_axis in range(3):
+        axes = list(zero_axes)
+        axes[active_axis] = coefficients.axes[active_axis]
+        directional_coefficients = LocalCurvatureFaceCoefficients3D(
+            layout=coefficients.layout,
+            x=axes[0],
+            y=axes[1],
+            z=axes[2],
+        )
+        components.append(
+            local_curvature_conservative_op(
+                local,
+                geometry,
+                directional_coefficients,
+                **kwargs,
+            )
+        )
+    return jnp.stack(tuple(components), axis=0)
 
 
 def _local_axis_upwind_face_values_from_stencil(
