@@ -1,14 +1,16 @@
 """Cheap tests for the matrix-free HSX curvature spectrum driver."""
 
 from pathlib import Path
+import os
 import sys
 
 WORKSPACE = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(WORKSPACE / "DRBX" / "src"))
+DRBX_SRC = Path(
+    os.environ.get("DRBX_SOURCE_ROOT", WORKSPACE / "DRBX" / "src")
+).expanduser().resolve()
+if str(DRBX_SRC) not in sys.path:
+    sys.path.insert(0, str(DRBX_SRC))
 sys.path.insert(0, str(WORKSPACE))
-for _module_name in list(sys.modules):
-    if _module_name == "drbx" or _module_name.startswith("drbx."):
-        del sys.modules[_module_name]
 
 import jax
 import jax.numpy as jnp
