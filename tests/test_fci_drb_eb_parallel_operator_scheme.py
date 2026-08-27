@@ -437,6 +437,7 @@ def test_directional_curvature_rhs_fields_close_to_curvature_term_lanes() -> Non
     )
 
 
+@pytest.mark.skipif(jax.device_count() < 2, reason="requires at least two devices")
 def test_fci_remote_exchange_smoke_on_two_shards() -> None:
     """Exercise the remote dependency path when a multi-device backend exists."""
 
