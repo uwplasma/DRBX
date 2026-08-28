@@ -111,7 +111,7 @@ from .fci_boundaries import (
     CV_RECONSTRUCTION_EQUATION_REMOTE_CELL,
 )
 from .fci_curvature_production_flux import (
-    curvature_osher_fluctuations,
+    curvature_face_linearized_fluctuations,
     reconstruct_third_order_face_states,
 )
 
@@ -4729,8 +4729,9 @@ def local_curvature_production_path_op(
     """Apply the owner-face production curvature wave-propagation operator.
 
     The four coupled variables are reconstructed on every active coordinate
-    face and advanced with fixed-Gauss Osher fluctuations.  Face contributions
-    are scattered with equal/opposite signs to the two actual aggregate
+    face and advanced with one canonical-face characteristic split.  Face
+    contributions are scattered
+    with equal/opposite signs to the two actual aggregate
     owners, then divided by the summed owner ``raw_volume/B`` measure.  This is
     a wave-propagation update; it does not add a centered scalar operator or a
     post-hoc penalty.  The first output is the full residual, while optional
@@ -4848,12 +4849,32 @@ def local_curvature_production_path_op(
         # are explicitly mapped back to native (i,j,k) order.
         qface = jnp.moveaxis(jnp.asarray(coefficient, dtype=jnp.float64), axis, 0)
         bface = jnp.moveaxis(jnp.asarray(bfield.Bmag_owned, dtype=jnp.float64), axis, 0)
+        # ``face_values`` is the canonical conservative face reconstruction,
+        # in native (i,j,k) face-grid order.  It supplies the material state
+        # at ordinary faces independently of the one-sided traces used for
+        # the jump.  A physical wall must not linearize against its exterior
+        # equilibrium; use the adjacent interior reconstructed trace there.
+        canonical_face_state = jnp.stack(
+            tuple(
+                jnp.moveaxis(
+                    jnp.asarray(getattr(stencil.face_values, name), dtype=jnp.float64),
+                    axis,
+                    0,
+                )
+                for stencil in stencils
+            ),
+            axis=-1,
+        )
+        face_state = canonical_face_state
+        if not is_periodic:
+            face_state = face_state.at[0].set(right_face[0])
+            face_state = face_state.at[-1].set(left_face[-1])
         # Coefficients store Q=J*K and owner measures are raw_volume/B;
         # the material matrix is the physical K-symbol, so use Q/B as its
         # face normal to avoid inserting an extra B in the update.
         qnormal = qface / jnp.maximum(jnp.abs(bface), 1.0e-30)
-        dplus, dminus, spectral_fallback = curvature_osher_fluctuations(
-            left_face, right_face, bface, tau, normal=qnormal,
+        dplus, dminus, spectral_fallback = curvature_face_linearized_fluctuations(
+            left_face, right_face, face_state, bface, tau, normal=qnormal,
             positivity_floor=positivity_floor, return_fallback=True,
         )
         # Face areas are physical regular-face measures.  Use the control
@@ -5019,8 +5040,9 @@ def local_curvature_production_path_op(
         cell_right = left_face[1:]
         cell_q = 0.5 * (qnormal[:-1] + qnormal[1:])
         cell_b = jnp.moveaxis(jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), axis, 0)
-        cell_plus, cell_minus = curvature_osher_fluctuations(
-            cell_left, cell_right, cell_b, tau, normal=cell_q,
+        cell_state = 0.5 * (cell_left + cell_right)
+        cell_plus, cell_minus = curvature_face_linearized_fluctuations(
+            cell_left, cell_right, cell_state, cell_b, tau, normal=cell_q,
             positivity_floor=positivity_floor,
         )
         cell_area = 0.5 * (area[:-1] + area[1:])

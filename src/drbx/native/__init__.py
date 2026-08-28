@@ -178,10 +178,10 @@ from .fci_drb_EB_rhs import (
     prepare_local_fci_drb_eb_state,
 )
 from .fci_parallel_production_flux import (
+    parallel_canonical_leg_face_state,
     parallel_characteristic_matrix,
     parallel_characteristic_projectors,
     parallel_characteristic_split,
-    parallel_path_fluctuations,
     parallel_target_row_material_residual,
 )
 from .fci_4_field_state import (
@@ -273,9 +273,9 @@ __all__ = [
     "build_local_fci_drb_eb_operator_boundary_bundle",
     "prepare_local_fci_drb_eb_state",
     "parallel_characteristic_matrix",
+    "parallel_canonical_leg_face_state",
     "parallel_characteristic_projectors",
     "parallel_characteristic_split",
-    "parallel_path_fluctuations",
     "parallel_target_row_material_residual",
     "Fci4FieldRhsParameters",
     "Fci4FieldRhsResult",

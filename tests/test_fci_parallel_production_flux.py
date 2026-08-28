@@ -14,8 +14,10 @@ from drbx.native.fci_parallel_production_flux import (
     parallel_characteristic_matrix,
     parallel_characteristic_projectors,
     parallel_characteristic_split,
-    parallel_path_fluctuations,
+    parallel_canonical_leg_face_state,
     parallel_production_principal_matrix,
+    parallel_short_wall_backward_euler,
+    parallel_short_wall_material_data,
     parallel_target_row_material_residual,
     parallel_wall_exterior_state,
     third_order_face_reconstruction,
@@ -83,62 +85,22 @@ def test_split_returns_projectors_and_reconstructs_directional_matrices():
     np.testing.assert_allclose(p_minus @ p_minus, p_minus, rtol=2e-9, atol=2e-9)
 
 
-def test_path_is_zero_for_constant_state_and_is_constant_path_consistent():
-    state = _state()
-    plus, minus = parallel_path_fluctuations(state, state, tau=4.0, mu=10.0)
-    np.testing.assert_allclose(plus, np.zeros(5), atol=2.0e-13)
-    np.testing.assert_allclose(minus, np.zeros(5), atol=2.0e-13)
-
-    left, right = state, state + jnp.asarray([0.1, -0.2, 0.3, 0.4, -0.5])
-    p1, m1 = parallel_path_fluctuations(left, right, tau=4.0, mu=10.0)
-    # A constant state at every quadrature point has exactly the same local
-    # split; this checks the path code against the characteristic action.
-    matrix = parallel_characteristic_matrix(*state, tau=4.0, mu=10.0)
-    ap, am, *_ = parallel_characteristic_split(matrix)
-    jump = right - left
-    # For a variable state the path integral is not the left-state matrix
-    # times the jump.  It does satisfy the exact quadrature identity used by
-    # the implementation: the two fluctuations sum to the integrated A dU.
-    reference = jnp.zeros(5)
-    nodes = (0.06943184420297371, 0.33000947820757187,
-             0.6699905217924281, 0.9305681557970262)
-    weights = (0.17392742256872692, 0.32607257743127307,
-               0.32607257743127307, 0.17392742256872692)
-    for s, weight in zip(nodes, weights):
-        q = jnp.concatenate((
-            jnp.exp((1.0 - s) * jnp.log(left[:3]) + s * jnp.log(right[:3])),
-            (1.0 - s) * left[3:] + s * right[3:],
-        ))
-        dq = jnp.concatenate((
-            q[:3] * (jnp.log(right[:3]) - jnp.log(left[:3])), jump[3:]
-        ))
-        reference = reference + weight * (parallel_characteristic_matrix(*q, tau=4.0, mu=10.0) @ dq)
-    np.testing.assert_allclose(p1 + m1, reference, rtol=2e-6, atol=2e-6)
-    assert bool(jnp.all(jnp.isfinite(ap @ jump)))
+def test_wall_incoming_projection_selects_modes_under_normal_reversal():
+    matrix = jnp.diag(jnp.asarray([1.0, -2.0, 0.0, 3.0, -4.0]))
+    owner = jnp.zeros(5)
+    candidate = jnp.ones(5)
+    forward = parallel_wall_exterior_state(owner, candidate, matrix, 1.0)
+    backward = parallel_wall_exterior_state(owner, candidate, matrix, -1.0)
+    np.testing.assert_allclose(forward, [0, 1, 0, 0, 1])
+    np.testing.assert_allclose(backward, [1, 0, 0, 1, 0])
 
 
-def test_direction_reversal_and_path_reversal_relations():
-    left = _state()
-    right = left + jnp.asarray([0.1, -0.2, 0.3, 0.4, -0.5])
-    p, m = parallel_path_fluctuations(left, right, tau=4.0, mu=10.0, normal=1.0)
-    pm, mm = parallel_path_fluctuations(left, right, tau=4.0, mu=10.0, normal=-1.0)
-    np.testing.assert_allclose(pm, -m, rtol=3e-6, atol=3e-6)
-    np.testing.assert_allclose(mm, -p, rtol=3e-6, atol=3e-6)
-    pr, mr = parallel_path_fluctuations(right, left, tau=4.0, mu=10.0, normal=1.0)
-    np.testing.assert_allclose(pr, -p, rtol=3e-6, atol=3e-6)
-    np.testing.assert_allclose(mr, -m, rtol=3e-6, atol=3e-6)
-
-
-def test_wall_as_exterior_is_same_api_and_incoming_projection_is_finite():
+def test_wall_incoming_projection_is_finite():
     owner = _state()
     wall = jnp.asarray([1.0, 1.1, 0.9, 0.0, 0.0])
     matrix = parallel_characteristic_matrix(*owner, tau=4.0, mu=10.0)
     exterior = parallel_wall_exterior_state(owner, wall, matrix, 1.0)
-    p1, m1 = parallel_path_fluctuations(owner, exterior, tau=4.0, mu=10.0)
-    p2, m2 = parallel_path_fluctuations(owner, exterior_state=exterior, tau=4.0, mu=10.0)
     np.testing.assert_allclose(exterior, np.asarray(exterior))
-    np.testing.assert_allclose(p1, p2)
-    np.testing.assert_allclose(m1, m2)
     assert bool(jnp.all(jnp.isfinite(exterior)))
 
 
@@ -153,12 +115,12 @@ def test_positivity_and_order_fallback_are_reported():
     assert states.shape == (2, 5)
     assert bool(jnp.any(fallback))
     assert bool(jnp.all(states[:, :3] > 0.0))
-    _p, _m, info = parallel_path_fluctuations(
+    face, face_fallback = parallel_canonical_leg_face_state(
         states[0], jnp.asarray([0.0, 1.0, 1.0, 0.0, 0.0]),
-        tau=1.0, mu=10.0, return_diagnostics=True,
+        return_fallback=True,
     )
-    assert bool(info["positivity_clipped"])
-    assert bool(jnp.all(jnp.isfinite(_p)))
+    assert bool(face_fallback)
+    assert bool(jnp.all(jnp.isfinite(face)))
 
 
 def test_spectral_admissibility_fallback_is_finite_and_jittable():
@@ -182,9 +144,20 @@ def test_target_row_sign_reduces_to_the_two_wave_propagation_terms():
     residual, info = parallel_target_row_material_residual(
         center, minus, plus, dxm, dxp, 4.0, 10.0, div_b=0.0
     )
-    db, _ = parallel_path_fluctuations(minus, center, 4.0, 10.0)
-    _, df = parallel_path_fluctuations(center, plus, 4.0, 10.0)
-    np.testing.assert_allclose(residual, -(db / dxm + df / dxp), rtol=3e-6, atol=3e-6)
+    back_face = parallel_canonical_leg_face_state(minus, center)
+    forward_face = parallel_canonical_leg_face_state(center, plus)
+    back_plus, _, _, _, back_valid = parallel_characteristic_split(
+        parallel_characteristic_matrix(*back_face, tau=4.0, mu=10.0)
+    )
+    _, forward_minus, _, _, forward_valid = parallel_characteristic_split(
+        parallel_characteristic_matrix(*forward_face, tau=4.0, mu=10.0)
+    )
+    expected = -(
+        back_plus @ (center - minus) / dxm
+        + forward_minus @ (plus - center) / dxp
+    )
+    np.testing.assert_allclose(residual, expected, rtol=2e-8, atol=2e-8)
+    assert bool(back_valid and forward_valid)
     assert bool(info["ordinary_row"])
 
 
@@ -207,21 +180,37 @@ def test_target_row_constant_state_has_exact_geometric_source():
     assert not bool(info["wall_row"])
 
 
-def test_wall_and_ordinary_rows_use_the_same_interface_path():
+def test_wall_projection_uses_interior_matrix_and_one_sided_path():
     center = _state()
     candidate = jnp.asarray([1.0, 1.1, 0.9, 0.0, 0.0])
     matrix = parallel_characteristic_matrix(*center, tau=4.0, mu=10.0)
     endpoint = parallel_wall_exterior_state(center, candidate, matrix, -1.0)
-    ordinary, _ = parallel_target_row_material_residual(
-        center, endpoint, center, 1.0, 1.0, 4.0, 10.0,
-        backward_wall=False, div_b=0.0,
-    )
     wall, wall_info = parallel_target_row_material_residual(
         center, center, center, 1.0, 1.0, 4.0, 10.0,
         backward_wall=True, backward_wall_state=candidate, div_b=0.0,
     )
-    np.testing.assert_allclose(wall, ordinary, rtol=3e-6, atol=3e-6)
+    _, _, _, incoming, valid = parallel_characteristic_split(matrix, normal=-1.0)
+    projected = center + incoming @ (candidate - center)
+    np.testing.assert_allclose(endpoint, projected, rtol=2e-8, atol=2e-8)
+    a_plus, _, _, _, _ = parallel_characteristic_split(matrix, normal=1.0)
+    expected = -a_plus @ (center - projected)
+    np.testing.assert_allclose(wall, expected, rtol=2e-8, atol=2e-8)
+    assert float(jnp.linalg.norm(wall)) > 1.0e-8
+    assert bool(valid)
     assert bool(wall_info["backward_wall"])
+
+
+def test_live_face_state_changes_the_material_action():
+    center = _state()
+    minus_a = center + jnp.asarray([-0.05, 0.01, 0.02, 0.0, 0.0])
+    minus_b = center + jnp.asarray([-0.45, 0.4, -0.3, 0.0, 0.0])
+    result_a, _ = parallel_target_row_material_residual(
+        center, minus_a, center, 1.0, 1.0, 4.0, 10.0, div_b=0.0
+    )
+    result_b, _ = parallel_target_row_material_residual(
+        center, minus_b, center, 1.0, 1.0, 4.0, 10.0, div_b=0.0
+    )
+    assert not np.allclose(result_a, result_b)
 
 
 def test_target_row_activates_all_rows_and_reverses_with_oriented_endpoints():
@@ -257,6 +246,90 @@ def test_target_row_is_jittable_in_batches_and_zero_for_constant_no_source():
     np.testing.assert_allclose(residual, np.zeros((3, 5)), atol=2.0e-12)
     assert residual.shape == (3, 5)
     assert bool(jnp.all(~info["fallback"]))
+
+
+def test_short_wall_selection_is_wall_only_and_returns_directional_jacobian():
+    center = _state()
+    candidate = jnp.asarray([1.1, 1.2, 0.9, 0.3, -0.1])
+    residual, jacobian, info = parallel_short_wall_material_data(
+        center, center, center, 0.01, 1.0, 4.0, 10.0,
+        selection_dt=0.02, cfl_limit=2.785,
+        backward_wall=True, forward_wall=False,
+        backward_wall_state=candidate,
+    )
+    assert bool(info["selected_backward_wall"])
+    assert not bool(info["selected_forward_wall"])
+    assert bool(info["selected_wall"])
+    matrix = parallel_characteristic_matrix(*center, tau=4.0, mu=10.0)
+    a_plus, _, _, _, valid = parallel_characteristic_split(matrix)
+    assert bool(valid)
+    np.testing.assert_allclose(jacobian, -a_plus / 0.01, rtol=2e-8, atol=2e-8)
+    expected, _ = parallel_target_row_material_residual(
+        center, center, center, 0.01, 1.0, 4.0, 10.0,
+        backward_wall=True, forward_wall_state=None,
+        backward_wall_state=candidate, div_b=0.0,
+        omit_forward_wall=True,
+    )
+    np.testing.assert_allclose(residual, expected, rtol=2e-8, atol=2e-8)
+
+
+def test_short_wall_backward_euler_matches_frozen_local_solve():
+    center = _state()
+    candidate = jnp.asarray([1.1, 1.2, 0.9, 0.3, -0.1])
+    dt = 0.02
+    updated, delta, info = parallel_short_wall_backward_euler(
+        center, center, center, 0.01, 1.0, 4.0, 10.0,
+        selection_dt=dt, solve_dt=dt, cfl_limit=2.785,
+        backward_wall=True, backward_wall_state=candidate,
+    )
+    assert bool(info["selected_wall"])
+    assert not bool(info["implicit_solve_fallback"])
+    expected_delta = np.linalg.solve(
+        np.eye(5) - dt * np.asarray(info["selected_jacobian"]),
+        dt * np.asarray(info["backward_residual"]),
+    )
+    np.testing.assert_allclose(delta, expected_delta, rtol=2e-9, atol=2e-9)
+    np.testing.assert_allclose(updated, np.asarray(center) + expected_delta)
+    assert bool(jnp.all(jnp.isfinite(updated)))
+
+
+def test_short_wall_ordinary_rows_are_zero_and_default_residual_is_unchanged():
+    center = _state()
+    minus = center + jnp.asarray([-0.1, 0.2, -0.1, 0.3, -0.2])
+    plus = center + jnp.asarray([0.2, -0.1, 0.3, -0.2, 0.1])
+    selected, jacobian, info = parallel_short_wall_material_data(
+        center, minus, plus, 1.0, 1.0, 4.0, 10.0,
+        selection_dt=0.001, cfl_limit=2.785,
+    )
+    np.testing.assert_allclose(selected, 0.0)
+    np.testing.assert_allclose(jacobian, 0.0)
+    assert not bool(info["selected_wall"])
+    default, _ = parallel_target_row_material_residual(
+        center, minus, plus, 1.0, 1.0, 4.0, 10.0, div_b=0.0,
+    )
+    explicit_default, _ = parallel_target_row_material_residual(
+        center, minus, plus, 1.0, 1.0, 4.0, 10.0, div_b=0.0,
+        omit_backward_wall=False, omit_forward_wall=False,
+    )
+    np.testing.assert_array_equal(default, explicit_default)
+
+
+def test_short_wall_batch_jit_and_selection_threshold():
+    center = jnp.broadcast_to(_state(), (2, 5))
+    candidate = center.at[0, 0].set(1.2)
+    dt = jnp.asarray([0.02, 0.000001])
+    run = jax.jit(parallel_short_wall_backward_euler)
+    updated, delta, info = run(
+        center, center, center, jnp.asarray([0.01, 0.01]),
+        jnp.ones(2), 4.0, 10.0, selection_dt=dt,
+        backward_wall=jnp.asarray([True, True]),
+        backward_wall_state=candidate,
+    )
+    assert updated.shape == (2, 5)
+    assert bool(info["selected_backward_wall"][0])
+    assert not bool(info["selected_backward_wall"][1])
+    np.testing.assert_allclose(delta[1], 0.0)
+    assert bool(jnp.all(jnp.isfinite(updated)))
 
 
 def test_completed_run_state_range_is_admissible_when_available():

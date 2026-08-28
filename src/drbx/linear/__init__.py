@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from .dispersion import (
     drift_wave_adiabatic_frequency,
+    full_drb_resistive_drift_wave_operator,
     interchange_growth_rate,
     interchange_operator,
     resistive_drift_wave_operator,
@@ -32,6 +33,7 @@ __all__ = [
     "shear_alfven_frequency",
     "resistive_drift_wave_operator",
     "drift_wave_adiabatic_frequency",
+    "full_drb_resistive_drift_wave_operator",
     "interchange_operator",
     "interchange_growth_rate",
 ]

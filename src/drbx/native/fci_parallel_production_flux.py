@@ -1,9 +1,9 @@
 """Production five-field parallel characteristic flux.
 
 This module is intentionally independent of the model RHS.  It contains the
-local material principal symbol and a mapped-leg-friendly Osher fluctuation
-that can be used for both ordinary FCI legs and legs whose exterior endpoint
-is a wall.  The state order throughout is ``(n, Te, Ti, Vi, Ve)``.
+local material principal symbol and the canonical-face characteristic update
+used for both ordinary FCI legs and legs whose exterior endpoint is a wall.
+The state order throughout is ``(n, Te, Ti, Vi, Ve)``.
 
 The polarization variable ``psi = phi + tau*Ti`` has already been eliminated
 from this material block.  Consequently the electron-velocity row contains
@@ -24,14 +24,6 @@ STATE_SIZE = 5
 _LOG_FLOOR = 1.0e-30
 _DEFAULT_EIG_TOL = 1.0e-10
 _DEFAULT_MAX_CONDITION = 1.0e10
-_GAUSS_NODES_4 = jnp.asarray(
-    (0.06943184420297371, 0.33000947820757187,
-     0.6699905217924281, 0.9305681557970262), dtype=jnp.float64
-)
-_GAUSS_WEIGHTS_4 = jnp.asarray(
-    (0.17392742256872692, 0.32607257743127307,
-     0.32607257743127307, 0.17392742256872692), dtype=jnp.float64
-)
 
 
 def _as_state(value: Any) -> jnp.ndarray:
@@ -399,47 +391,19 @@ def parallel_wall_exterior_state(
     """Project a candidate wall state onto outgoing owner/incoming candidate modes."""
 
     owner, candidate = _as_state(owner), _as_state(candidate)
-    plus, minus, _valid = parallel_characteristic_projectors(
+    _plus, minus, valid = parallel_characteristic_projectors(
         matrix, normal, eigenvalue_tolerance=eigenvalue_tolerance,
         max_condition=max_condition,
     )
-    normal = jnp.asarray(normal, dtype=jnp.float64)
-    incoming = jnp.where(normal[..., None, None] >= 0.0, minus, plus)
+    # The projectors are already oriented by the outward normal, so incoming
+    # modes are always the negative branch.  Selecting by the sign of the
+    # normal a second time reverses the backward-wall classification.
+    eye = jnp.broadcast_to(jnp.eye(STATE_SIZE, dtype=jnp.float64), matrix.shape)
+    incoming = jnp.where(valid[..., None, None], minus, 0.5 * eye)
     return owner + _matvec(incoming, candidate - owner)
 
 
 parallel_characteristic_wall_state = parallel_wall_exterior_state
-
-
-def _positive_path(
-    left: jnp.ndarray,
-    right: jnp.ndarray,
-    s: jnp.ndarray,
-    *,
-    positivity_floor: float,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Log-linear positive thermodynamic path and its tangent."""
-
-    default = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0), dtype=jnp.float64)
-    left_finite = jnp.all(jnp.isfinite(left), axis=-1)
-    right_finite = jnp.all(jnp.isfinite(right), axis=-1)
-    left = jnp.where(left_finite[..., None], left, default)
-    right = jnp.where(right_finite[..., None], right, default)
-    left_positive = jnp.maximum(left[..., :3], positivity_floor)
-    right_positive = jnp.maximum(right[..., :3], positivity_floor)
-    log_left = jnp.log(left_positive)
-    log_right = jnp.log(right_positive)
-    log_value = (1.0 - s) * log_left + s * log_right
-    positive = jnp.exp(log_value)
-    tangent_positive = positive * (log_right - log_left)
-    linear = (1.0 - s) * left[..., 3:] + s * right[..., 3:]
-    tangent_linear = right[..., 3:] - left[..., 3:]
-    clipped = (~left_finite) | (~right_finite) | (left_positive != left[..., :3]).any(axis=-1) | (right_positive != right[..., :3]).any(axis=-1)
-    return (
-        jnp.concatenate((positive, linear), axis=-1),
-        jnp.concatenate((tangent_positive, tangent_linear), axis=-1),
-        clipped,
-    )
 
 
 def third_order_face_reconstruction(
@@ -476,80 +440,290 @@ def third_order_face_reconstruction(
     return jnp.stack((left, right), axis=-2)
 
 
-def parallel_path_fluctuations(
+def _canonical_leg_face_state(
     left: jnp.ndarray,
-    right: jnp.ndarray | None = None,
-    tau: Any = 1.0,
-    mu: Any = 1836.0,
+    right: jnp.ndarray,
     *,
-    normal: Any = 1.0,
-    exterior_state: jnp.ndarray | None = None,
-    quadrature_order: int = 4,
-    positivity_floor: float = 1.0e-12,
-    eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
-    max_condition: float = _DEFAULT_MAX_CONDITION,
-    return_diagnostics: bool = False,
-) -> tuple[jnp.ndarray, jnp.ndarray] | tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
-    """Compute fixed-Gauss path-conservative Osher fluctuations.
+    positivity_floor: float,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Return the mapped-leg face state and a positivity/finiteness flag.
 
-    ``right`` is the ordinary mapped-leg endpoint.  For a wall leg callers may
-    pass the wall exterior as either ``right`` or ``exterior_state``; the two
-    forms are intentionally equivalent.  The positive log-linear path keeps
-    ``n, Te, Ti`` admissible, while velocities use a linear path.  The
-    characteristic split is canonical (one-half left/right fluctuation) and
-    has no tunable penalty coefficient.
+    Thermodynamic entries use a geometric mean so the face state remains
+    positive without introducing an arithmetic overshoot.  The velocity
+    entries use the centered arithmetic mean.  This is deliberately a
+    single face state; no quadrature samples or repeated state-dependent
+    eigendecompositions are taken.
     """
 
     left = _as_state(left)
-    if exterior_state is not None:
-        if right is not None:
-            raise ValueError("pass either right or exterior_state, not both")
-        right = exterior_state
-    if right is None:
-        raise ValueError("right or exterior_state is required")
     right = _as_state(right)
     left, right = jnp.broadcast_arrays(left, right)
-    if quadrature_order != 4:
-        raise ValueError("production path uses fixed four-point Gauss quadrature")
-    nodes, weights = _GAUSS_NODES_4, _GAUSS_WEIGHTS_4
-    normal = jnp.asarray(normal, dtype=jnp.float64)
-    path_fallback = jnp.any((left[..., :3] <= positivity_floor) | (right[..., :3] <= positivity_floor), axis=-1)
-    path_fallback = path_fallback | ~jnp.all(jnp.isfinite(left), axis=-1) | ~jnp.all(jnp.isfinite(right), axis=-1)
-    dplus = jnp.zeros_like(left)
-    dminus = jnp.zeros_like(left)
-    valid_all = jnp.ones(left.shape[:-1], dtype=bool)
-    for node, weight in zip(nodes, weights):
-        state, tangent, _clipped = _positive_path(left, right, node, positivity_floor=positivity_floor)
-        matrix = parallel_production_principal_matrix(
-            state[..., 0], state[..., 1], state[..., 2], state[..., 3], state[..., 4], tau, mu
-        )
-        plus_action, minus_action, valid = _characteristic_split_actions(
+    finite = jnp.all(jnp.isfinite(left), axis=-1) & jnp.all(
+        jnp.isfinite(right), axis=-1
+    )
+    left_thermo = jnp.maximum(left[..., :3], positivity_floor)
+    right_thermo = jnp.maximum(right[..., :3], positivity_floor)
+    clipped = (
+        ~finite
+        | jnp.any(left[..., :3] <= positivity_floor, axis=-1)
+        | jnp.any(right[..., :3] <= positivity_floor, axis=-1)
+    )
+    face = jnp.concatenate(
+        (
+            jnp.sqrt(left_thermo * right_thermo),
+            0.5 * (left[..., 3:] + right[..., 3:]),
+        ),
+        axis=-1,
+    )
+    default = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0), dtype=jnp.float64)
+    face = jnp.where(jnp.all(jnp.isfinite(face), axis=-1)[..., None], face, default)
+    return face, clipped
+
+
+def parallel_canonical_leg_face_state(
+    left: jnp.ndarray,
+    right: jnp.ndarray,
+    *,
+    positivity_floor: float = 1.0e-12,
+    return_fallback: bool = False,
+) -> jnp.ndarray | tuple[jnp.ndarray, jnp.ndarray]:
+    """Construct the single live characteristic state for a mapped leg.
+
+    ``n, Te, Ti`` are geometric means and ``Vi, Ve`` arithmetic means.  If
+    either endpoint is nonpositive/nonfinite the thermodynamic entries are
+    clipped to ``positivity_floor`` and, optionally, the fallback flag is
+    returned.
+    """
+
+    face, fallback = _canonical_leg_face_state(
+        left, right, positivity_floor=positivity_floor
+    )
+    return (face, fallback) if return_fallback else face
+
+
+def _live_characteristic_leg_action(
+    face_state: jnp.ndarray,
+    jump: jnp.ndarray,
+    tau: Any,
+    mu: Any,
+    normal: Any,
+    *,
+    branch: str,
+    eigenvalue_tolerance: float,
+    max_condition: float,
+    basis: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]
+        | None = None,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Apply one live-state characteristic branch to one mapped leg.
+
+    ``basis`` is optionally supplied when a wall projection and its
+    one-sided fluctuation share the same interior/owner matrix.  Ordinary
+    legs pass no basis and therefore perform exactly one eigendecomposition
+    at their canonical face state.
+    """
+
+    face_state = _as_state(face_state)
+    jump = _as_state(jump)
+    matrix = parallel_matrix_from_state(face_state, tau, mu)
+    if basis is None:
+        values, vectors, inverse, valid, alpha = _spectral_basis(
             matrix,
-            tangent,
-            normal,
             eigenvalue_tolerance=eigenvalue_tolerance,
             max_condition=max_condition,
         )
-        dplus = dplus + weight * plus_action
-        dminus = dminus + weight * minus_action
-        valid_all = valid_all & valid
-    # A nonpositive endpoint is replaced by the positive floor path; expose the
-    # event so production diagnostics can count it without making the kernel
-    # non-JIT-safe.  Spectral fallback is selected pointwise in the split.
-    fallback = path_fallback | ~valid_all
-    diagnostics = {
-        "fallback": fallback,
-        "spectral_fallback": ~valid_all,
-        "positivity_clipped": path_fallback,
-        "admissible": ~fallback,
+    else:
+        values, vectors, inverse, valid, alpha = basis
+    normal = jnp.asarray(normal, dtype=jnp.float64)
+    oriented_values = normal[..., None] * values
+    coefficients = _matvec(inverse, jump)
+    selected = (
+        jnp.where(oriented_values > eigenvalue_tolerance, oriented_values, 0.0)
+        if branch == "plus"
+        else jnp.where(oriented_values < -eigenvalue_tolerance, oriented_values, 0.0)
+    )
+    action = jnp.real(_matvec(vectors, selected * coefficients))
+    normal_matrix = normal[..., None, None] * matrix
+    safe_normal_matrix = jnp.where(jnp.isfinite(normal_matrix), normal_matrix, 0.0)
+    fallback_matrix = 0.5 * (
+        safe_normal_matrix
+        + (1.0 if branch == "plus" else -1.0)
+        * alpha[..., None, None]
+        * jnp.eye(STATE_SIZE, dtype=jnp.float64)
+    )
+    fallback_action = _matvec(fallback_matrix, jump)
+    tangent = jnp.abs(normal) <= eigenvalue_tolerance
+    action = jnp.where(valid[..., None], action, fallback_action)
+    action = jnp.where(tangent[..., None], 0.0, action)
+    return action, valid, values
+
+
+def _prepare_material_direction_inputs(
+    center: jnp.ndarray,
+    minus: jnp.ndarray,
+    plus: jnp.ndarray,
+    dx_minus: Any,
+    dx_plus: Any,
+    *,
+    backward_wall: Any,
+    forward_wall: Any,
+    backward_wall_state: jnp.ndarray | None,
+    forward_wall_state: jnp.ndarray | None,
+    equilibrium: jnp.ndarray | None,
+) -> tuple[jnp.ndarray, ...]:
+    """Broadcast the data shared by the explicit and short-wall paths."""
+
+    center, minus, plus = _as_state(center), _as_state(minus), _as_state(plus)
+    center, minus, plus = jnp.broadcast_arrays(center, minus, plus)
+    dx_minus = jnp.asarray(dx_minus, dtype=jnp.float64)
+    dx_plus = jnp.asarray(dx_plus, dtype=jnp.float64)
+    backward_wall = jnp.asarray(backward_wall, dtype=bool)
+    forward_wall = jnp.asarray(forward_wall, dtype=bool)
+    backward_wall, forward_wall, dx_minus, dx_plus = jnp.broadcast_arrays(
+        backward_wall, forward_wall, dx_minus, dx_plus
+    )
+    if equilibrium is None:
+        equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0), dtype=jnp.float64)
+    else:
+        equilibrium = _as_state(equilibrium)
+    equilibrium = jnp.broadcast_to(equilibrium, center.shape)
+    backward_candidate = equilibrium if backward_wall_state is None else _as_state(backward_wall_state)
+    forward_candidate = equilibrium if forward_wall_state is None else _as_state(forward_wall_state)
+    backward_candidate = jnp.broadcast_to(backward_candidate, center.shape)
+    forward_candidate = jnp.broadcast_to(forward_candidate, center.shape)
+    return (
+        center, minus, plus, dx_minus, dx_plus, backward_wall, forward_wall,
+        backward_candidate, forward_candidate,
+    )
+
+
+def _material_directional_data(
+    center: jnp.ndarray,
+    minus: jnp.ndarray,
+    plus: jnp.ndarray,
+    dx_minus: Any,
+    dx_plus: Any,
+    tau: Any,
+    mu: Any,
+    *,
+    backward_wall: Any = False,
+    forward_wall: Any = False,
+    backward_wall_state: jnp.ndarray | None = None,
+    forward_wall_state: jnp.ndarray | None = None,
+    equilibrium: jnp.ndarray | None = None,
+    positivity_floor: float = 1.0e-12,
+    eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
+    max_condition: float = _DEFAULT_MAX_CONDITION,
+) -> tuple[jnp.ndarray, ...]:
+    """Return both directional material actions and frozen local Jacobians.
+
+    This is the common face-state/wall-projection path used by the explicit
+    residual and the selected short-wall implicit diagnostic.  The returned
+    Jacobians are derivatives with respect to the owner ``center`` while the
+    neighboring and wall states, as well as the stopped-gradient eigensystem,
+    are frozen:
+
+    ``J_backward = -A_plus / dx_minus`` and
+    ``J_forward = +A_minus / dx_plus``.
+
+    The geometric ``div_b`` source is intentionally absent here.
+    """
+
+    (
+        center, minus, plus, dx_minus, dx_plus, backward_wall, forward_wall,
+        backward_candidate, forward_candidate,
+    ) = _prepare_material_direction_inputs(
+        center, minus, plus, dx_minus, dx_plus,
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=backward_wall_state,
+        forward_wall_state=forward_wall_state, equilibrium=equilibrium,
+    )
+
+    backward_face, backward_clipped = _canonical_leg_face_state(
+        minus, center, positivity_floor=positivity_floor
+    )
+    forward_face, forward_clipped = _canonical_leg_face_state(
+        center, plus, positivity_floor=positivity_floor
+    )
+    backward_face_used = jnp.where(backward_wall[..., None], center, backward_face)
+    forward_face_used = jnp.where(forward_wall[..., None], center, forward_face)
+    backward_basis = _spectral_basis(
+        parallel_matrix_from_state(backward_face_used, tau, mu),
+        eigenvalue_tolerance=eigenvalue_tolerance, max_condition=max_condition,
+    )
+    forward_basis = _spectral_basis(
+        parallel_matrix_from_state(forward_face_used, tau, mu),
+        eigenvalue_tolerance=eigenvalue_tolerance, max_condition=max_condition,
+    )
+    backward_values, backward_vectors, backward_inverse, backward_valid, backward_alpha = backward_basis
+    forward_values, forward_vectors, forward_inverse, forward_valid, forward_alpha = forward_basis
+    backward_wall_plus, _ = _projectors_from_basis(
+        backward_values, backward_vectors, backward_inverse, backward_valid, 1.0,
+        eigenvalue_tolerance=eigenvalue_tolerance,
+    )
+    _, forward_wall_minus = _projectors_from_basis(
+        forward_values, forward_vectors, forward_inverse, forward_valid, 1.0,
+        eigenvalue_tolerance=eigenvalue_tolerance,
+    )
+    eye = jnp.broadcast_to(jnp.eye(STATE_SIZE, dtype=jnp.float64), backward_basis[1].shape)
+    backward_wall_plus = jnp.where(
+        backward_valid[..., None, None], backward_wall_plus, 0.5 * eye
+    )
+    forward_wall_minus = jnp.where(
+        forward_valid[..., None, None], forward_wall_minus, 0.5 * eye
+    )
+    wall_minus = center + _matvec(backward_wall_plus, backward_candidate - center)
+    wall_plus = center + _matvec(forward_wall_minus, forward_candidate - center)
+    minus_used = jnp.where(backward_wall[..., None], wall_minus, minus)
+    plus_used = jnp.where(forward_wall[..., None], wall_plus, plus)
+
+    backward_action, backward_valid_live, _ = _live_characteristic_leg_action(
+        backward_face_used, center - minus_used, tau, mu, 1.0, branch="plus",
+        eigenvalue_tolerance=eigenvalue_tolerance, max_condition=max_condition,
+        basis=backward_basis,
+    )
+    forward_action, forward_valid_live, _ = _live_characteristic_leg_action(
+        forward_face_used, plus_used - center, tau, mu, 1.0, branch="minus",
+        eigenvalue_tolerance=eigenvalue_tolerance, max_condition=max_condition,
+        basis=forward_basis,
+    )
+
+    # Form the same split matrices as the live action, including the finite
+    # Rusanov fallback.  These matrices are frozen only through their
+    # eigensystem; the face matrix itself is evaluated at the current face.
+    backward_matrix = parallel_matrix_from_state(backward_face_used, tau, mu)
+    forward_matrix = parallel_matrix_from_state(forward_face_used, tau, mu)
+    backward_safe = jnp.where(jnp.isfinite(backward_matrix), backward_matrix, 0.0)
+    forward_safe = jnp.where(jnp.isfinite(forward_matrix), forward_matrix, 0.0)
+    backward_plus_matrix = jnp.where(
+        backward_valid[..., None, None],
+        jnp.einsum("...ij,...jk->...ik", backward_matrix, backward_wall_plus),
+        0.5 * (backward_safe + backward_alpha[..., None, None] * eye),
+    )
+    forward_minus_matrix = jnp.where(
+        forward_valid[..., None, None],
+        jnp.einsum("...ij,...jk->...ik", forward_matrix, forward_wall_minus),
+        0.5 * (forward_safe - forward_alpha[..., None, None] * eye),
+    )
+    dxm_safe = jnp.maximum(jnp.abs(dx_minus), _LOG_FLOOR)
+    dxp_safe = jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)
+    backward_jacobian = -backward_plus_matrix / dxm_safe[..., None, None]
+    forward_jacobian = forward_minus_matrix / dxp_safe[..., None, None]
+    info = {
+        "backward_wall": backward_wall,
+        "forward_wall": forward_wall,
+        "backward_clipped": backward_clipped,
+        "forward_clipped": forward_clipped,
+        "backward_valid": backward_valid_live,
+        "forward_valid": forward_valid_live,
+        "backward_alpha": backward_alpha,
+        "forward_alpha": forward_alpha,
+        "wall_row": backward_wall | forward_wall,
+        "ordinary_row": ~(backward_wall | forward_wall),
     }
-    if return_diagnostics:
-        return dplus, dminus, diagnostics
-    return dplus, dminus
-
-
-parallel_osher_fluctuations = parallel_path_fluctuations
-parallel_path_conservative_fluctuations = parallel_path_fluctuations
+    return (
+        center, backward_action, forward_action, backward_jacobian,
+        forward_jacobian, info,
+    )
 
 
 def parallel_target_row_material_residual(
@@ -567,11 +741,15 @@ def parallel_target_row_material_residual(
     forward_wall_state: jnp.ndarray | None = None,
     equilibrium: jnp.ndarray | None = None,
     div_b: Any = 0.0,
+    selection_dt: Any = 0.0,
+    cfl_limit: float = 2.785,
+    omit_backward_wall: Any = False,
+    omit_forward_wall: Any = False,
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
 ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
-    """Apply the first-order production material update to every mapped row.
+    """Apply the live-face production material update to every mapped row.
 
     The backward fluctuation is evaluated on the oriented path
     ``minus -> center`` and the forward fluctuation on ``center -> plus``:
@@ -583,86 +761,56 @@ def parallel_target_row_material_residual(
     rows simply use their supplied mapped endpoints.  This makes wall and bulk
     legs one operator with different endpoint data, rather than two numerical
     fluxes.  ``div_b`` supplies the exact geometric source omitted from the
-    frozen principal matrix.
+    frozen principal matrix.  If ``selection_dt`` is nonzero, the selected
+    physical-wall directions whose characteristic CFL exceeds ``cfl_limit``
+    are omitted from this explicit material contribution; the caller can add
+    them with :func:`parallel_short_wall_backward_euler`.  Each leg uses one
+    canonical face state and one live characteristic eigendecomposition.
     """
-
-    center, minus, plus = _as_state(center), _as_state(minus), _as_state(plus)
-    center, minus, plus = jnp.broadcast_arrays(center, minus, plus)
+    div_b = jnp.asarray(div_b, dtype=jnp.float64)
+    (
+        center, backward_action, forward_action, backward_jacobian,
+        forward_jacobian, directional,
+    ) = _material_directional_data(
+        center, minus, plus, dx_minus, dx_plus, tau, mu,
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=backward_wall_state,
+        forward_wall_state=forward_wall_state, equilibrium=equilibrium,
+        positivity_floor=positivity_floor,
+        eigenvalue_tolerance=eigenvalue_tolerance,
+        max_condition=max_condition,
+    )
+    backward_wall = directional["backward_wall"]
+    forward_wall = directional["forward_wall"]
     dx_minus = jnp.asarray(dx_minus, dtype=jnp.float64)
     dx_plus = jnp.asarray(dx_plus, dtype=jnp.float64)
-    div_b = jnp.asarray(div_b, dtype=jnp.float64)
-    backward_wall = jnp.asarray(backward_wall, dtype=bool)
-    forward_wall = jnp.asarray(forward_wall, dtype=bool)
-    backward_wall, forward_wall, dx_minus, dx_plus, div_b = jnp.broadcast_arrays(
-        backward_wall, forward_wall, dx_minus, dx_plus, div_b
+    dx_minus, dx_plus, div_b = jnp.broadcast_arrays(dx_minus, dx_plus, div_b)
+    selection_dt = jnp.asarray(selection_dt, dtype=jnp.float64)
+    selection_dt, dx_minus, dx_plus = jnp.broadcast_arrays(
+        selection_dt, dx_minus, dx_plus
     )
-
-    if equilibrium is None:
-        equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0), dtype=jnp.float64)
-    else:
-        equilibrium = _as_state(equilibrium)
-    equilibrium = jnp.broadcast_to(equilibrium, center.shape)
-    backward_candidate = equilibrium if backward_wall_state is None else _as_state(backward_wall_state)
-    forward_candidate = equilibrium if forward_wall_state is None else _as_state(forward_wall_state)
-    backward_candidate = jnp.broadcast_to(backward_candidate, center.shape)
-    forward_candidate = jnp.broadcast_to(forward_candidate, center.shape)
-
-    matrix = parallel_matrix_from_state(center, tau, mu)
-    center_values, center_vectors, center_inverse, center_valid, _center_alpha = (
-        _spectral_basis(
-            matrix,
-            eigenvalue_tolerance=eigenvalue_tolerance,
-            max_condition=max_condition,
-        )
+    dxm_safe = jnp.maximum(jnp.abs(dx_minus), _LOG_FLOOR)
+    dxp_safe = jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)
+    backward_cfl = jnp.abs(selection_dt) * directional["backward_alpha"] / dxm_safe
+    forward_cfl = jnp.abs(selection_dt) * directional["forward_alpha"] / dxp_safe
+    selected_backward = backward_wall & (backward_cfl > cfl_limit)
+    selected_forward = forward_wall & (forward_cfl > cfl_limit)
+    omit_backward = selected_backward | (
+        backward_wall & jnp.asarray(omit_backward_wall, dtype=bool)
     )
-    backward_plus, _backward_minus = _projectors_from_basis(
-        center_values,
-        center_vectors,
-        center_inverse,
-        center_valid,
-        -1.0,
-        eigenvalue_tolerance=eigenvalue_tolerance,
+    omit_forward = selected_forward | (
+        forward_wall & jnp.asarray(omit_forward_wall, dtype=bool)
     )
-    _forward_plus, forward_minus = _projectors_from_basis(
-        center_values,
-        center_vectors,
-        center_inverse,
-        center_valid,
-        1.0,
-        eigenvalue_tolerance=eigenvalue_tolerance,
-    )
-    # For the backward normal the incoming projector is P+(-A); for the
-    # forward normal it is P-(A).  Both are derived from the one center-state
-    # live eigensystem above rather than decomposing the same matrix four times.
-    wall_minus = center + _matvec(
-        backward_plus, backward_candidate - center
-    )
-    wall_plus = center + _matvec(
-        forward_minus, forward_candidate - center
-    )
-    backward_valid = center_valid
-    forward_valid = center_valid
-    minus_used = jnp.where(backward_wall[..., None], wall_minus, minus)
-    plus_used = jnp.where(forward_wall[..., None], wall_plus, plus)
-
-    # D_plus on the backward-oriented path and D_minus on the forward path
-    # are the two wave-propagation contributions at this target row.
-    dplus_backward, _dminus_backward, backward_info = parallel_path_fluctuations(
-        minus_used, center, tau, mu, normal=1.0,
-        positivity_floor=positivity_floor,
-        eigenvalue_tolerance=eigenvalue_tolerance,
-        max_condition=max_condition, return_diagnostics=True,
-    )
-    _dplus_forward, dminus_forward, forward_info = parallel_path_fluctuations(
-        center, plus_used, tau, mu, normal=1.0,
-        positivity_floor=positivity_floor,
-        eigenvalue_tolerance=eigenvalue_tolerance,
-        max_condition=max_condition, return_diagnostics=True,
-    )
+    backward_action = jnp.where(omit_backward[..., None], 0.0, backward_action)
+    forward_action = jnp.where(omit_forward[..., None], 0.0, forward_action)
     residual = -(
-        dplus_backward / jnp.maximum(jnp.abs(dx_minus), _LOG_FLOOR)[..., None]
-        + dminus_forward / jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)[..., None]
+        backward_action / jnp.maximum(jnp.abs(dx_minus), _LOG_FLOOR)[..., None]
+        + forward_action / jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)[..., None]
     )
+    backward_valid_live = directional["backward_valid"]
+    forward_valid_live = directional["forward_valid"]
+    backward_clipped = directional["backward_clipped"]
+    forward_clipped = directional["forward_clipped"]
 
     density, Te, Ti, Vi, Ve = [center[..., i] for i in range(STATE_SIZE)]
     current = density * (Vi - Ve)
@@ -683,13 +831,170 @@ def parallel_target_row_material_residual(
         "forward_wall": forward_wall,
         "wall_row": backward_wall | forward_wall,
         "ordinary_row": ~(backward_wall | forward_wall),
-        "spectral_fallback": backward_info["spectral_fallback"] | forward_info["spectral_fallback"],
-        "positivity_fallback": backward_info["positivity_clipped"] | forward_info["positivity_clipped"],
-        "wall_spectral_fallback": (~backward_valid & backward_wall) | (~forward_valid & forward_wall),
-        "fallback": backward_info["fallback"] | forward_info["fallback"] | ((~backward_valid & backward_wall) | (~forward_valid & forward_wall)),
-        "admissible": backward_info["admissible"] & forward_info["admissible"] & backward_valid & forward_valid,
+        "spectral_fallback": ~backward_valid_live | ~forward_valid_live,
+        "positivity_fallback": backward_clipped | forward_clipped,
+        "wall_spectral_fallback": (~backward_valid_live & backward_wall) | (~forward_valid_live & forward_wall),
+        "fallback": (~backward_valid_live | ~forward_valid_live) | backward_clipped | forward_clipped,
+        "admissible": backward_valid_live & forward_valid_live & ~backward_clipped & ~forward_clipped,
+        "omitted_backward_wall": omit_backward,
+        "omitted_forward_wall": omit_forward,
+        "backward_cfl": backward_cfl,
+        "forward_cfl": forward_cfl,
+        "selected_backward_wall": selected_backward,
+        "selected_forward_wall": selected_forward,
+        "selected_wall": selected_backward | selected_forward,
     }
     return residual, diagnostics
+
+
+def parallel_short_wall_material_data(
+    center: jnp.ndarray,
+    minus: jnp.ndarray,
+    plus: jnp.ndarray,
+    dx_minus: Any,
+    dx_plus: Any,
+    tau: Any,
+    mu: Any,
+    *,
+    selection_dt: Any,
+    cfl_limit: float = 2.785,
+    backward_wall: Any = False,
+    forward_wall: Any = False,
+    backward_wall_state: jnp.ndarray | None = None,
+    forward_wall_state: jnp.ndarray | None = None,
+    equilibrium: jnp.ndarray | None = None,
+    positivity_floor: float = 1.0e-12,
+    eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
+    max_condition: float = _DEFAULT_MAX_CONDITION,
+) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
+    """Return the selected short-wall material residual and frozen Jacobian.
+
+    A direction is selected only when it is a physical wall leg and
+    ``abs(selection_dt) * alpha / abs(dx) > cfl_limit``, where ``alpha`` is
+    the largest characteristic speed of that canonical face state.  The
+    returned ``residual`` is the sum of the selected backward and forward
+    directional residuals, and ``jacobian`` is the corresponding frozen
+    derivative with respect to the owner state.  No ``div_b`` source is
+    included.  Neighbor and wall states, face coefficients, and the live
+    eigensystem are all held fixed in this local linearization.
+
+    The directional signs are those of the explicit material update:
+
+    ``r_backward = (-A_plus/dx_minus) (center - wall_minus)``
+
+    ``r_forward = (+A_minus/dx_plus) (center - wall_plus)``.
+    """
+
+    (
+        center, backward_action, forward_action, backward_jacobian,
+        forward_jacobian, info,
+    ) = _material_directional_data(
+        center, minus, plus, dx_minus, dx_plus, tau, mu,
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=backward_wall_state,
+        forward_wall_state=forward_wall_state, equilibrium=equilibrium,
+        positivity_floor=positivity_floor,
+        eigenvalue_tolerance=eigenvalue_tolerance,
+        max_condition=max_condition,
+    )
+    dx_minus = jnp.asarray(dx_minus, dtype=jnp.float64)
+    dx_plus = jnp.asarray(dx_plus, dtype=jnp.float64)
+    dx_minus, dx_plus = jnp.broadcast_arrays(dx_minus, dx_plus)
+    dt = jnp.asarray(selection_dt, dtype=jnp.float64)
+    dt, dx_minus, dx_plus = jnp.broadcast_arrays(dt, dx_minus, dx_plus)
+    dxm_safe = jnp.maximum(jnp.abs(dx_minus), _LOG_FLOOR)
+    dxp_safe = jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)
+    backward_cfl = jnp.abs(dt) * info["backward_alpha"] / dxm_safe
+    forward_cfl = jnp.abs(dt) * info["forward_alpha"] / dxp_safe
+    selected_backward = info["backward_wall"] & (backward_cfl > cfl_limit)
+    selected_forward = info["forward_wall"] & (forward_cfl > cfl_limit)
+    backward_residual = -backward_action / dxm_safe[..., None]
+    forward_residual = -forward_action / dxp_safe[..., None]
+    selected_residual = (
+        jnp.where(selected_backward[..., None], backward_residual, 0.0)
+        + jnp.where(selected_forward[..., None], forward_residual, 0.0)
+    )
+    eye = jnp.broadcast_to(jnp.eye(STATE_SIZE, dtype=jnp.float64), backward_jacobian.shape)
+    selected_jacobian = (
+        jnp.where(selected_backward[..., None, None], backward_jacobian, 0.0)
+        + jnp.where(selected_forward[..., None, None], forward_jacobian, 0.0)
+    )
+    info = dict(info)
+    info.update({
+        "backward_cfl": backward_cfl,
+        "forward_cfl": forward_cfl,
+        "selected_backward_wall": selected_backward,
+        "selected_forward_wall": selected_forward,
+        "selected_wall": selected_backward | selected_forward,
+        "backward_residual": backward_residual,
+        "forward_residual": forward_residual,
+        "backward_jacobian": backward_jacobian,
+        "forward_jacobian": forward_jacobian,
+        "selected_jacobian": selected_jacobian,
+        "finite": jnp.all(jnp.isfinite(selected_residual), axis=-1)
+        & jnp.all(jnp.isfinite(selected_jacobian), axis=(-2, -1)),
+    })
+    return selected_residual, selected_jacobian, info
+
+
+def parallel_short_wall_backward_euler(
+    center: jnp.ndarray,
+    minus: jnp.ndarray,
+    plus: jnp.ndarray,
+    dx_minus: Any,
+    dx_plus: Any,
+    tau: Any,
+    mu: Any,
+    *,
+    selection_dt: Any,
+    solve_dt: Any | None = None,
+    cfl_limit: float = 2.785,
+    backward_wall: Any = False,
+    forward_wall: Any = False,
+    backward_wall_state: jnp.ndarray | None = None,
+    forward_wall_state: jnp.ndarray | None = None,
+    equilibrium: jnp.ndarray | None = None,
+    positivity_floor: float = 1.0e-12,
+    eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
+    max_condition: float = _DEFAULT_MAX_CONDITION,
+) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
+    """Apply one local backward-Euler increment to selected wall rows.
+
+    The update is ``delta = (I - solve_dt*J)^-1 (solve_dt*r_selected)`` and
+    ``updated = center + delta``.  Unselected rows therefore return zero
+    increments exactly.  If a frozen local solve is non-finite, its increment
+    is replaced by zero and ``implicit_solve_fallback`` reports that row.
+    """
+
+    if solve_dt is None:
+        solve_dt = selection_dt
+    selected_residual, selected_jacobian, info = parallel_short_wall_material_data(
+        center, minus, plus, dx_minus, dx_plus, tau, mu,
+        selection_dt=selection_dt, cfl_limit=cfl_limit,
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=backward_wall_state,
+        forward_wall_state=forward_wall_state, equilibrium=equilibrium,
+        positivity_floor=positivity_floor,
+        eigenvalue_tolerance=eigenvalue_tolerance,
+        max_condition=max_condition,
+    )
+    solve_dt = jnp.asarray(solve_dt, dtype=jnp.float64)
+    solve_dt = jnp.broadcast_to(solve_dt, selected_residual.shape[:-1])
+    eye = jnp.broadcast_to(
+        jnp.eye(STATE_SIZE, dtype=jnp.float64), selected_jacobian.shape
+    )
+    system = eye - solve_dt[..., None, None] * selected_jacobian
+    rhs = solve_dt[..., None] * selected_residual
+    # Explicitly add a singleton RHS dimension for JAX's batched solve API;
+    # newer JAX releases no longer infer a batched one-vector solve.
+    delta = jnp.linalg.solve(system, rhs[..., None])[..., 0]
+    solve_finite = jnp.all(jnp.isfinite(delta), axis=-1)
+    delta = jnp.where(solve_finite[..., None], delta, 0.0)
+    updated = center + delta
+    info = dict(info)
+    info["implicit_solve_fallback"] = ~solve_finite
+    info["implicit_finite"] = jnp.all(jnp.isfinite(updated), axis=-1)
+    return updated, delta, info
 
 
 __all__ = [
@@ -705,9 +1010,9 @@ __all__ = [
     "parallel_characteristic_absolute_matrix",
     "parallel_wall_exterior_state",
     "parallel_characteristic_wall_state",
+    "parallel_canonical_leg_face_state",
     "third_order_face_reconstruction",
-    "parallel_path_fluctuations",
-    "parallel_osher_fluctuations",
-    "parallel_path_conservative_fluctuations",
     "parallel_target_row_material_residual",
+    "parallel_short_wall_material_data",
+    "parallel_short_wall_backward_euler",
 ]

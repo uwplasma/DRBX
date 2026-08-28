@@ -21,6 +21,7 @@ from drbx.geometry import (
     build_local_curvature_face_coefficients,
 )
 from drbx.native.fci_boundaries import (
+    CoordinateFaceValues3D,
     LocalControlVolumeFaceRows3D,
     LocalEmbeddedControlVolumeGeometry3D,
     LocalMomentReconstruction3D,
@@ -227,6 +228,67 @@ def test_production_curvature_physical_wall_is_one_sided_and_finite():
     )
     assert result.shape == geometry.owned_shape + (4,)
     assert bool(jnp.all(jnp.isfinite(result)))
+
+
+def test_production_curvature_face_state_uses_canonical_faces_and_interior_wall_trace():
+    """The characteristic matrix sees ordinary face values, not wall exterior."""
+    geometry, domain, _stencil, coefficients = _operator_fixture()
+    layout = geometry.layout
+    context = StencilBuilderContext(layout=layout, domain=domain)
+    ii, jj, kk = jnp.meshgrid(
+        jnp.arange(layout.cell_halo_shape[0]),
+        jnp.arange(layout.cell_halo_shape[1]),
+        jnp.arange(layout.cell_halo_shape[2]),
+        indexing="ij",
+    )
+    fields = tuple(
+        build_local_conservative_stencil_from_field(
+            base + scale * (0.001 * ii**3 + 0.007 * ii**2 + 0.2 * ii + jnp.sin(0.6 * jj) - 0.3 * jnp.cos(0.4 * kk)),
+            geometry,
+            context,
+        )
+        for base, scale in ((1.0, 0.02), (1.0, 0.015), (1.0, 0.01), (0.0, 0.03))
+    )
+    baseline = local_curvature_production_path_op(
+        fields, geometry, coefficients, tau=0.7, domain=domain
+    )
+
+    # Change only ordinary radial canonical face values.  The one-sided
+    # reconstruction inputs stay untouched, so a response proves A is built
+    # from ConservativeStencil3D.face_values.
+    ordinary = []
+    wall_changed = []
+    for field_index, stencil in enumerate(fields):
+        face_values = stencil.face_values
+        x_changed = face_values.x
+        x_changed = x_changed.at[1:-1].add(0.25 * (field_index + 1))
+        ordinary.append(
+            stencil.replace(
+                face_values=CoordinateFaceValues3D(
+                    x=x_changed, y=face_values.y, z=face_values.z
+                )
+            )
+        )
+        # Wall canonical values are deliberately absurd.  They must not be
+        # used for A: physical wall A is linearized at the adjacent interior
+        # reconstructed trace.
+        x_wall = face_values.x.at[0].add(5.0 * (field_index + 1))
+        x_wall = x_wall.at[-1].add(7.0 * (field_index + 1))
+        wall_changed.append(
+            stencil.replace(
+                face_values=CoordinateFaceValues3D(
+                    x=x_wall, y=face_values.y, z=face_values.z
+                )
+            )
+        )
+    changed = local_curvature_production_path_op(
+        tuple(ordinary), geometry, coefficients, tau=0.7, domain=domain
+    )
+    assert float(jnp.linalg.norm(changed - baseline)) > 1.0e-10
+    wall_result = local_curvature_production_path_op(
+        tuple(wall_changed), geometry, coefficients, tau=0.7, domain=domain
+    )
+    np.testing.assert_allclose(wall_result, baseline, atol=2.0e-12, rtol=2.0e-12)
 
 
 def test_production_curvature_identity_control_volume_matches_no_cv_measure():

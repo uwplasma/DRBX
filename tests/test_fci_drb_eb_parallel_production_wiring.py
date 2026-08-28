@@ -71,6 +71,20 @@ def _mapped_fixture():
 def test_parallel_material_selector_is_environment_backed_and_legacy_default():
     assert 'DRBX_PARALLEL_MATERIAL_SCHEME", "legacy"' in SOURCE
     assert 'self.parallel_material_scheme not in ("legacy", "production-path")' in SOURCE
+    assert "DRBX_PRODUCTION_CHARACTERISTIC_SOLVER" not in SOURCE
+    assert "production_characteristic_solver" not in SOURCE
+
+
+def test_production_kernels_have_no_runtime_characteristic_selector():
+    curvature_start = SOURCE.index("material_result = local_curvature_production_path_op(")
+    curvature_end = SOURCE.index("        if return_directional_components:", curvature_start)
+    curvature_call = SOURCE[curvature_start:curvature_end]
+    parallel_start = SOURCE.index("parallel_target_row_material_residual(")
+    parallel_end = SOURCE.index("                )", parallel_start)
+    parallel_call = SOURCE[parallel_start:parallel_end]
+    assert "characteristic_solver=" not in curvature_call
+    assert "characteristic_solver=" not in parallel_call
+    assert "production_characteristic_solver" not in SOURCE
 
 
 def test_shared_builder_threads_production_selectors_explicitly():

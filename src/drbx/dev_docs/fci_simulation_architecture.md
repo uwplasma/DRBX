@@ -129,12 +129,13 @@ state ranges, positivity, optional term fields, and grid-scale indicators.
 
 The high-level `--flux-framework production-split` selector records and
 exports the production curvature and parallel-material wiring. The curvature
-block uses live-state Osher fluctuations on every active coordinate face and
-an equilibrium exterior state on physical coordinate boundaries. The
-parallel-material block uses live-state Osher fluctuations on ordinary and
-wall-ending FCI legs; at a wall it characteristic-projects the operator's
-primitive wall trace before evaluating the same path fluctuation used in the
-bulk. These effective wall closures are recorded separately from the bypassed
+block uses one live canonical-face characteristic matrix on every active
+coordinate face and an equilibrium exterior state on physical coordinate
+boundaries. The parallel-material block likewise uses one live canonical-face
+matrix on ordinary and wall-ending FCI legs; at a wall it characteristic-
+projects the operator's primitive wall trace with the same interior matrix
+used by the one-sided fluctuation. These effective wall closures are recorded
+separately from the bypassed
 legacy scalar closure selectors. The production framework requires the
 compatible FCI/owner-space contract described above; `legacy` remains the
 default for reproducibility of existing runs.

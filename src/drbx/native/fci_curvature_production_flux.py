@@ -5,7 +5,7 @@ small, pure-JAX pieces used by the owner-face production curvature operator:
 
 * the strict DAE-reduced four-field curvature symbol;
 * a robust characteristic absolute action;
-* a positivity-preserving path and fixed Gauss--Legendre Osher fluctuations;
+* a canonical-face live characteristic fluctuation;
 * first- and third-order face reconstruction with explicit fallback metadata.
 
 The state order throughout is ``(n, T_e, T_i, omega)``.  The strict symbol
@@ -17,12 +17,8 @@ it is not used by the production local characteristic flux.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
-from typing import NamedTuple
-
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 
 Array = jax.Array
@@ -229,177 +225,85 @@ def curvature_characteristic_metric(matrix: Array, **kwargs) -> Array:
     return jnp.where(valid[..., None, None], jnp.real(metric), identity)
 
 
-@lru_cache(maxsize=None)
-def _gauss_legendre(order: int) -> tuple[np.ndarray, np.ndarray]:
-    if order < 1:
-        raise ValueError("quadrature_order must be positive")
-    nodes, weights = np.polynomial.legendre.leggauss(order)
-    return ((nodes + 1.0) / 2.0).astype(np.float64), (weights / 2.0).astype(np.float64)
-
-
-def positive_state_path(
+def curvature_face_linearized_fluctuations(
     left: Array,
     right: Array,
-    *,
-    nodes: Array | None = None,
-    positivity_floor: float = 1.0e-12,
-) -> Array:
-    """Evaluate the log-linear admissible path between endpoint states.
-
-    The thermodynamic variables ``(n, Te, Ti)`` are interpolated in log space,
-    while ``omega`` is interpolated linearly.  Non-finite endpoints are
-    replaced by the unit equilibrium and non-positive thermodynamic endpoints
-    are floored; callers can use :func:`positive_state_path_with_tangent` to
-    observe whether this safeguard was needed.
-    """
-
-    left = _require_state(left, "left")
-    right = _require_state(right, "right")
-    shape = jnp.broadcast_shapes(left.shape[:-1], right.shape[:-1])
-    left = jnp.broadcast_to(left, shape + (STATE_SIZE,))
-    right = jnp.broadcast_to(right, shape + (STATE_SIZE,))
-    default = jnp.asarray((1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
-    left_finite = jnp.all(jnp.isfinite(left), axis=-1)
-    right_finite = jnp.all(jnp.isfinite(right), axis=-1)
-    left = jnp.where(left_finite[..., None], left, default)
-    right = jnp.where(right_finite[..., None], right, default)
-    left_positive = jnp.maximum(left[..., POSITIVE_COMPONENTS], positivity_floor)
-    right_positive = jnp.maximum(right[..., POSITIVE_COMPONENTS], positivity_floor)
-    log_left = jnp.log(left_positive)
-    log_right = jnp.log(right_positive)
-    if nodes is None:
-        nodes = jnp.asarray((0.5,), dtype=jnp.float64)
-    nodes = jnp.asarray(nodes, dtype=jnp.float64)
-    if nodes.ndim != 1:
-        raise ValueError("nodes must be one-dimensional")
-    node_shape = (1,) * len(shape) + (nodes.shape[0], 1)
-    nodes = nodes.reshape(node_shape)
-    log_value = (1.0 - nodes) * log_left[..., None, :] + nodes * log_right[..., None, :]
-    positive = jnp.exp(log_value)
-    linear = (1.0 - nodes) * left[..., None, 3:] + nodes * right[..., None, 3:]
-    return jnp.concatenate((positive, linear), axis=-1)
-
-
-def positive_state_path_with_tangent(
-    left: Array,
-    right: Array,
-    *,
-    nodes: Array | None = None,
-    positivity_floor: float = 1.0e-12,
-) -> tuple[Array, Array, Array]:
-    """Return log-linear path, path tangent, and positivity-safeguard mask.
-
-    The tangent is analytic with respect to the path parameter ``s``.  The
-    final mask has one value per batch entry and records endpoint clipping or
-    non-finite replacement.
-    """
-
-    left = _require_state(left, "left")
-    right = _require_state(right, "right")
-    shape = jnp.broadcast_shapes(left.shape[:-1], right.shape[:-1])
-    left = jnp.broadcast_to(left, shape + (STATE_SIZE,))
-    right = jnp.broadcast_to(right, shape + (STATE_SIZE,))
-    default = jnp.asarray((1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
-    left_finite = jnp.all(jnp.isfinite(left), axis=-1)
-    right_finite = jnp.all(jnp.isfinite(right), axis=-1)
-    left_clean = jnp.where(left_finite[..., None], left, default)
-    right_clean = jnp.where(right_finite[..., None], right, default)
-    left_positive = jnp.maximum(left_clean[..., POSITIVE_COMPONENTS], positivity_floor)
-    right_positive = jnp.maximum(right_clean[..., POSITIVE_COMPONENTS], positivity_floor)
-    log_left = jnp.log(left_positive)
-    log_right = jnp.log(right_positive)
-    if nodes is None:
-        nodes = jnp.asarray((0.5,), dtype=jnp.float64)
-    nodes = jnp.asarray(nodes, dtype=jnp.float64)
-    if nodes.ndim != 1:
-        raise ValueError("nodes must be one-dimensional")
-    node_shape = (1,) * len(shape) + (nodes.shape[0], 1)
-    nodes = nodes.reshape(node_shape)
-    positive = jnp.exp((1.0 - nodes) * log_left[..., None, :] + nodes * log_right[..., None, :])
-    tangent_positive = positive * (log_right - log_left)[..., None, :]
-    linear = (1.0 - nodes) * left_clean[..., None, 3:] + nodes * right_clean[..., None, 3:]
-    tangent_linear = jnp.broadcast_to(
-        (right_clean[..., 3:] - left_clean[..., 3:])[..., None, :],
-        shape + (nodes.shape[-2], 1),
-    )
-    path = jnp.concatenate((positive, linear), axis=-1)
-    tangent = jnp.concatenate((tangent_positive, tangent_linear), axis=-1)
-    clipped = (
-        (~left_finite)
-        | (~right_finite)
-        | jnp.any(left_positive != left_clean[..., POSITIVE_COMPONENTS], axis=-1)
-        | jnp.any(right_positive != right_clean[..., POSITIVE_COMPONENTS], axis=-1)
-    )
-    return path, tangent, clipped
-
-
-def curvature_osher_fluctuations(
-    left: Array,
-    right: Array,
+    face_state: Array,
     bmag: Array | float,
     tau: Array | float,
     *,
-    quadrature_order: int = 4,
-    positivity_floor: float = 1.0e-12,
     real_tolerance: float = 1.0e-10,
     max_condition: float = 1.0e8,
     normal: Array | float = 1.0,
+    positivity_floor: float = 1.0e-12,
     return_fallback: bool = False,
     return_diagnostics: bool = False,
-) -> tuple[Array, Array] | tuple[Array, Array, Array]:
-    """Return fixed-Gauss Osher directional curvature fluctuations.
+) -> tuple[Array, Array] | tuple[Array, Array, Array] | tuple[Array, Array, dict[str, Array]]:
+    """Return p=1 fluctuations using one frozen matrix at the face.
 
-    The return order is ``(right_going, left_going)`` = ``(D⁺, D⁻)``.  This
-    matches the parallel production module: reversing ``normal`` gives
-    ``D⁺(-n)=-D⁻(n)`` and ``D⁻(-n)=-D⁺(n)``, while reversing the endpoint path
-    negates each corresponding fluctuation.  The canonical p=1 split is
-    ``A±=(M±|M|)/2``; no tunable penalty is present.
+    ``left`` and ``right`` are the reconstructed traces that define the
+    jump.  ``face_state`` is deliberately a separate argument: production
+    assembly supplies the canonical conservative face value for ordinary
+    faces and the adjacent interior trace at a physical wall.  The strict
+    curvature matrix is evaluated once at that state, then split as
+    ``D+/- = (A dq +/- |A| dq)/2``.  Thus this is the face-linearized
+    production characteristic update with no quadrature points or endpoint
+    averaging in the runtime path.
+
+    The returned order is ``(right_going, left_going)`` = ``(D+, D-)``.
+    Non-finite or non-positive matrix states are sanitized for a finite
+    characteristic action and reported through the same fallback mask used by
+    the characteristic primitive.
     """
-
     left = _require_state(left, "left")
     right = _require_state(right, "right")
-    shape = jnp.broadcast_shapes(left.shape[:-1], right.shape[:-1], jnp.shape(jnp.asarray(bmag)))
+    face_state = _require_state(face_state, "face_state")
+    shape = jnp.broadcast_shapes(
+        left.shape[:-1], right.shape[:-1], face_state.shape[:-1],
+        jnp.shape(jnp.asarray(bmag)), jnp.shape(jnp.asarray(normal)),
+    )
     left = jnp.broadcast_to(left, shape + (STATE_SIZE,))
     right = jnp.broadcast_to(right, shape + (STATE_SIZE,))
+    face_state = jnp.broadcast_to(face_state, shape + (STATE_SIZE,))
     bmag = jnp.broadcast_to(jnp.asarray(bmag, dtype=jnp.float64), shape)
-    nodes, weights = _gauss_legendre(int(quadrature_order))
-    nodes = jnp.asarray(nodes)
-    weights = jnp.asarray(weights)
-    path, tangent, positivity_clipped = positive_state_path_with_tangent(
-        left, right, nodes=nodes, positivity_floor=positivity_floor
+    normal = jnp.broadcast_to(jnp.asarray(normal, dtype=jnp.float64), shape)
+
+    default = jnp.asarray((1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
+    finite = jnp.all(jnp.isfinite(face_state), axis=-1)
+    clean = jnp.where(finite[..., None], face_state, default)
+    positive = jnp.maximum(clean[..., POSITIVE_COMPONENTS], positivity_floor)
+    matrix_state = clean.at[..., POSITIVE_COMPONENTS].set(positive)
+    clipped = (
+        (~finite)
+        | jnp.any(positive != clean[..., POSITIVE_COMPONENTS], axis=-1)
+        | (~jnp.isfinite(bmag))
+        | (~jnp.isfinite(normal))
     )
-    normal = jnp.asarray(normal, dtype=jnp.float64)
-    normal = jnp.broadcast_to(normal, shape)
-    # The path node is an explicit trailing batch dimension before the
-    # matrix indices.  Expand face data along that node dimension so batched
-    # face arrays (including theta/eta faces) retain their native shape.
-    matrices = curvature_strict_principal_matrix(path, bmag[..., None], tau)
-    normal_matrices = normal[..., None, None, None] * matrices
-    action, fallback = curvature_characteristic_absolute_action(
-        normal_matrices,
-        tangent,
+    b_safe = jnp.where(jnp.isfinite(bmag), bmag, 1.0)
+    normal_safe = jnp.where(jnp.isfinite(normal), normal, 0.0)
+    matrix = curvature_strict_principal_matrix(matrix_state, b_safe, tau)
+    normal_matrix = normal_safe[..., None, None] * matrix
+    jump = right - left
+    absolute, spectral_fallback = curvature_characteristic_absolute_action(
+        normal_matrix,
+        jump,
         real_tolerance=real_tolerance,
         max_condition=max_condition,
         return_fallback=True,
     )
-    # ``M * path_tangent`` is the exact quasilinear path derivative action;
-    # |M| action is used only for the p=1 directional split.
-    mat_delta = jnp.einsum("...kij,...kj->...ki", normal_matrices, tangent)
-    plus = 0.5 * (mat_delta + action)
-    minus = 0.5 * (mat_delta - action)
-    right_fluctuation = jnp.sum(weights[..., None] * plus, axis=-2)
-    left_fluctuation = jnp.sum(weights[..., None] * minus, axis=-2)
-    spectral_fallback = jnp.any(fallback, axis=-1)
+    material = jnp.einsum("...ij,...j->...i", normal_matrix, jump)
+    right_fluctuation = 0.5 * (material + absolute)
+    left_fluctuation = 0.5 * (material - absolute)
+    fallback = clipped | spectral_fallback
     if return_diagnostics:
-        diagnostics = {
-            "fallback": positivity_clipped | spectral_fallback,
+        return right_fluctuation, left_fluctuation, {
+            "fallback": fallback,
             "spectral_fallback": spectral_fallback,
-            "positivity_clipped": positivity_clipped,
-            "admissible": ~(positivity_clipped | spectral_fallback),
+            "positivity_clipped": clipped,
+            "admissible": ~fallback,
         }
-        return right_fluctuation, left_fluctuation, diagnostics
     if return_fallback:
-        return right_fluctuation, left_fluctuation, positivity_clipped | spectral_fallback
+        return right_fluctuation, left_fluctuation, fallback
     return right_fluctuation, left_fluctuation
 
 
@@ -454,8 +358,7 @@ def reconstruct_third_order_face_states(
 
 # Descriptive aliases used by integration code and diagnostics.
 build_curvature_principal_matrix = curvature_principal_matrix
-build_positive_state_path = positive_state_path
-osher_curvature_fluctuations = curvature_osher_fluctuations
+face_linearized_curvature_fluctuations = curvature_face_linearized_fluctuations
 
 
 __all__ = [
@@ -465,11 +368,9 @@ __all__ = [
     "curvature_characteristic_absolute_action",
     "curvature_characteristic_absolute_matrix",
     "curvature_characteristic_metric",
-    "positive_state_path",
-    "curvature_osher_fluctuations",
+    "curvature_face_linearized_fluctuations",
     "reconstruct_first_order_face_states",
     "reconstruct_third_order_face_states",
     "build_curvature_principal_matrix",
-    "build_positive_state_path",
-    "osher_curvature_fluctuations",
+    "face_linearized_curvature_fluctuations",
 ]
