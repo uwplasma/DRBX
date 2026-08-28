@@ -524,6 +524,12 @@ def _transform_shared_driver_source(source: str) -> str:
             '            "parallel_velocity_layout": os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT", "cell-centered"),\n'
             '            "parallel_flux_pairing": os.environ.get("DRBX_PARALLEL_FLUX_PAIRING", "legacy"),\n'
             '            "parallel_boundary_pairing": os.environ.get("DRBX_PARALLEL_BOUNDARY_PAIRING", "legacy"),\n'
+            '            "parallel_short_leg_treatment": os.environ.get("DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"),\n'
+            '            "parallel_short_leg_treatment_source": "run_staggered_hsx_blob.py:--parallel-short-leg-treatment",\n'
+            '            "parallel_short_leg_cfl_limit": float(os.environ.get("DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT", "2.5")),\n'
+            '            "parallel_short_leg_cfl_limit_source": "run_staggered_hsx_blob.py:--parallel-short-leg-cfl-limit",\n'
+            '            "curvature_evolution_component": os.environ.get("DRBX_CURVATURE_EVOLUTION_COMPONENT", "full"),\n'
+            '            "curvature_evolution_component_source": "run_staggered_hsx_blob.py:--curvature-evolution-component",\n'
             '            "curvature_wall_flux_closure": os.environ.get("DRBX_CURVATURE_WALL_FLUX_CLOSURE", str(args.curvature_inflow_closure)),\n'
             '            "curvature_wall_flux_closure_source": "DRBX_CURVATURE_WALL_FLUX_CLOSURE",\n'
             '            "parallel_material_wall_flux_closure": os.environ.get("DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE", str(args.parallel_inflow_closure)),\n'
@@ -637,6 +643,96 @@ def _transform_shared_driver_source(source: str) -> str:
                 f"transformation anchor: {old[:72]!r}"
             )
         source = source.replace(old, new, 1)
+
+    # The short-leg prototype is deliberately an opt-in source transform.
+    # Keeping this branch out of the default path means the generated shared
+    # driver remains byte-for-byte equivalent for ordinary explicit runs.
+    if os.environ.get("DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit") == "local-backward-euler":
+        old = (
+            "    def evaluate_operators(\n"
+            "        stage_state: FciDrbEBState,\n"
+            "        phi: jax.Array,\n"
+            "        model: LocalFciDrbEBRhs,\n"
+            "    ) -> FciDrbEBState:\n"
+            "        with jax.named_scope(\"operators\"):\n"
+            "            rhs = model.evaluate_stage(stage_state, phi_owned=phi)\n"
+        )
+        new = (
+            "    def evaluate_operators(\n"
+            "        stage_state: FciDrbEBState,\n"
+            "        phi: jax.Array,\n"
+            "        model: LocalFciDrbEBRhs,\n"
+            "        *,\n"
+            "        short_leg_selection_dt: jax.Array | None = None,\n"
+            "    ) -> FciDrbEBState:\n"
+            "        with jax.named_scope(\"operators\"):\n"
+            "            rhs = model.evaluate_stage(\n"
+            "                stage_state,\n"
+            "                phi_owned=phi,\n"
+            "                short_leg_selection_dt=short_leg_selection_dt,\n"
+            "            )\n"
+        )
+        if source.count(old) != 1:
+            raise RuntimeError(
+                "shared driver no longer exposes the short-leg evaluate anchor"
+            )
+        source = source.replace(old, new, 1)
+
+        stage_calls = (
+            "k1 = evaluate_operators(current, current.phi, model)",
+            "k2 = evaluate_operators(stage_2, phi_2, model)",
+            "k3 = evaluate_operators(stage_3, phi_3, model)",
+            "k4 = evaluate_operators(stage_4, phi_4, model)",
+        )
+        for call in stage_calls:
+            if source.count(call) != 1:
+                raise RuntimeError(
+                    "shared driver no longer exposes all four short-leg RK4 stages"
+                )
+            source = source.replace(
+                call,
+                call[:-1] + ", short_leg_selection_dt=dt)",
+                1,
+            )
+
+        # Frozen-state RHS replay must expose the same explicit operator used
+        # by the four RK stages.  Otherwise a local-BE run would be diagnosed
+        # with the selected short-wall contribution silently put back in.
+        old = (
+            "            rhs, term_fields, curvature_component_fields = model.evaluate_stage(\n"
+            "                reconstructed,\n"
+            "                phi_owned=phi,\n"
+            "                return_rhs_term_fields=True,\n"
+        )
+        new = (
+            "            rhs, term_fields, curvature_component_fields = model.evaluate_stage(\n"
+            "                reconstructed,\n"
+            "                phi_owned=phi,\n"
+            "                short_leg_selection_dt=jnp.asarray(float(timestep), dtype=jnp.float64),\n"
+            "                return_rhs_term_fields=True,\n"
+        )
+        if source.count(old) != 1:
+            raise RuntimeError(
+                "shared driver no longer exposes the short-leg RHS replay anchor"
+            )
+        source = source.replace(old, new, 1)
+
+        old = (
+            "        next_state = current.axpy(weighted_rhs, scale=dt / 6.0)\n"
+            "        next_phi, gmres_info_next = reconstruct_stage_phi(next_state, model)\n"
+        )
+        new = (
+            "        next_state = current.axpy(weighted_rhs, scale=dt / 6.0)\n"
+            "        next_state = model.apply_short_leg_implicit_material_step(\n"
+            "            next_state, solve_dt=dt, selection_dt=dt\n"
+            "        )\n"
+            "        next_phi, gmres_info_next = reconstruct_stage_phi(next_state, model)\n"
+        )
+        if source.count(old) != 1:
+            raise RuntimeError(
+                "shared driver no longer exposes the post-RK4 short-leg insertion point"
+            )
+        source = source.replace(old, new, 1)
     return source
 
 
@@ -660,6 +756,35 @@ def main() -> None:
             "Boundary composition for support-core FCI fluxes. current-phi "
             "includes physical wall rows in the Neumann-current divergence "
             "and derives grad(phi) by weighted transpose; legacy is replay-only."
+        ),
+    )
+    parser.add_argument(
+        "--parallel-short-leg-treatment",
+        choices=("explicit", "local-backward-euler"),
+        default="explicit",
+        help=(
+            "Treatment of selected short FCI wall legs. The default explicit "
+            "path preserves the established RK4 update; local-backward-euler "
+            "applies an opt-in local BE material-block split."
+        ),
+    )
+    parser.add_argument(
+        "--parallel-short-leg-cfl-limit",
+        type=float,
+        default=2.5,
+        help=(
+            "CFL threshold used to select short FCI wall legs for the local "
+            "backward-Euler material split."
+        ),
+    )
+    parser.add_argument(
+        "--curvature-evolution-component",
+        choices=("full", "centered-only", "dissipation-only"),
+        default="full",
+        help=(
+            "Production curvature evolution selector. centered-only and "
+            "dissipation-only are diagnostic trajectories; both require "
+            "--flux-framework production-split."
         ),
     )
     parser.add_argument(
@@ -729,6 +854,25 @@ def main() -> None:
     parser.add_argument("--rhs-term-frames", default="100,180,225")
     parser.add_argument("--rhs-term-output", type=Path)
     args, remaining = parser.parse_known_args(sys.argv[1:])
+
+    if not np.isfinite(args.parallel_short_leg_cfl_limit) or args.parallel_short_leg_cfl_limit <= 0.0:
+        raise SystemExit("--parallel-short-leg-cfl-limit must be finite and positive")
+    if (
+        args.parallel_short_leg_treatment == "local-backward-euler"
+        and args.flux_framework != "production-split"
+    ):
+        raise SystemExit(
+            "--parallel-short-leg-treatment local-backward-euler requires "
+            "--flux-framework production-split"
+        )
+    if (
+        args.curvature_evolution_component != "full"
+        and args.flux_framework != "production-split"
+    ):
+        raise SystemExit(
+            "--curvature-evolution-component diagnostic selectors require "
+            "--flux-framework production-split"
+        )
 
     def option_value(option: str) -> str | None:
         if option in remaining:
@@ -946,6 +1090,11 @@ def main() -> None:
         if args.parallel_flux_pairing == "support-core"
         else "legacy"
     )
+    os.environ["DRBX_PARALLEL_SHORT_LEG_TREATMENT"] = args.parallel_short_leg_treatment
+    os.environ["DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT"] = str(
+        args.parallel_short_leg_cfl_limit
+    )
+    os.environ["DRBX_CURVATURE_EVOLUTION_COMPONENT"] = args.curvature_evolution_component
     os.environ["DRBX_CURVATURE_CHARACTERISTIC_AXES"] = args.curvature_characteristic_axes
     os.environ["DRBX_CURVATURE_RADIAL_CHARACTERISTIC_SCHEME"] = (
         args.curvature_radial_characteristic_scheme
@@ -961,10 +1110,10 @@ def main() -> None:
         os.environ["DRBX_CURVATURE_SPLIT_SCHEME"] = "production-path"
         os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] = "production-path"
         os.environ["DRBX_CURVATURE_WALL_FLUX_CLOSURE"] = (
-            "equilibrium-exterior-osher"
+            "equilibrium-exterior-canonical-face-state"
         )
         os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] = (
-            "characteristic-projected-operator-trace-osher"
+            "characteristic-projected-operator-trace-canonical-face-state"
         )
     else:
         os.environ.pop("DRBX_CURVATURE_SPLIT_SCHEME", None)
@@ -986,9 +1135,10 @@ def main() -> None:
         + (
             "; curvature_split_scheme=production-path; "
             "parallel_material_scheme=production-path; "
-            "curvature_wall_flux_closure=equilibrium-exterior-osher; "
+            "production_characteristic_solver=canonical-face-state; "
+            "curvature_wall_flux_closure=equilibrium-exterior-canonical-face-state; "
             "parallel_material_wall_flux_closure="
-            "characteristic-projected-operator-trace-osher"
+            "characteristic-projected-operator-trace-canonical-face-state"
             if args.flux_framework == "production-split"
             else ""
         ),
@@ -1002,6 +1152,9 @@ def main() -> None:
         + f"; parallel_flux_pairing={args.parallel_flux_pairing}"
         + "; parallel_boundary_pairing="
         + os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"]
+        + f"; parallel_short_leg_treatment={args.parallel_short_leg_treatment}"
+        + f"; parallel_short_leg_cfl_limit={args.parallel_short_leg_cfl_limit:g}"
+        + f"; curvature_evolution_component={args.curvature_evolution_component}"
         + f"; curvature_characteristic_axes={args.curvature_characteristic_axes}"
         + f"; curvature_radial_characteristic_scheme={args.curvature_radial_characteristic_scheme}"
         + f"; curvature_poloidal_characteristic_scheme={args.curvature_poloidal_characteristic_scheme}"

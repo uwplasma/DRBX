@@ -83,6 +83,7 @@ from .fci_gmres import SolvaxGmresConfig, SolvaxGmresInfo
 from .fci_face_galerkin import build_local_fci_face_galerkin_transfer
 from .fci_support_pair import build_weighted_negative_adjoint
 from .fci_parallel_production_flux import (
+    parallel_short_wall_backward_euler,
     parallel_target_row_material_residual,
 )
 
@@ -1413,6 +1414,16 @@ class LocalFciDrbEBRhs:
             "DRBX_CURVATURE_COMPONENT_DIAGNOSTIC_SCHEME", "directional"
         )
     )
+    # Production-curvature evolution ablation.  ``full`` preserves the
+    # established path and, importantly, does not request diagnostic lanes.
+    # The two non-default choices retain only the centered principal transfer
+    # (including the compatible nonlocal psi remainder) or only the
+    # characteristic jump dissipation.
+    curvature_evolution_component: str = field(
+        default_factory=lambda: os.environ.get(
+            "DRBX_CURVATURE_EVOLUTION_COMPONENT", "full"
+        )
+    )
     curvature_inflow_closure: str = "central"
     parallel_inflow_closure: str = "central"
     # Diagnostic/experimental trace selector for the parallel-current term in
@@ -1440,8 +1451,8 @@ class LocalFciDrbEBRhs:
     # configuration rather than a run-time array-valued switch.
     curvature_scale: float = 1.0
     # Complete five-field parallel material flux.  ``legacy`` preserves the
-    # existing mapped operators; ``production-path`` uses one characteristic
-    # path fluctuation on every ordinary and wall-ending FCI row.
+    # existing mapped operators; ``production-path`` uses one canonical-face
+    # characteristic fluctuation on every ordinary and wall-ending FCI row.
     parallel_material_scheme: str = field(
         default_factory=lambda: os.environ.get(
             "DRBX_PARALLEL_MATERIAL_SCHEME", "legacy"
@@ -1547,6 +1558,22 @@ class LocalFciDrbEBRhs:
     # backward leg terminates at the physical vessel wall.  Interior rows keep
     # the compatible centered FCI operator.
     fci_parallel_leg_scheme: str = "centered"
+    # Experimental treatment for the stiff material block on very short FCI
+    # wall legs.  The default is deliberately bit-for-bit explicit.  The
+    # local backward-Euler option is consumed by the time integrator through
+    # ``apply_short_leg_implicit_material_step``; ``evaluate_stage`` only
+    # removes the selected wall-leg contribution when a nonzero selection
+    # interval is supplied by that integrator.
+    parallel_short_leg_treatment: str = field(
+        default_factory=lambda: os.environ.get(
+            "DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"
+        )
+    )
+    parallel_short_leg_cfl_limit: float = field(
+        default_factory=lambda: float(
+            os.environ.get("DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT", "2.5")
+        )
+    )
 
     @property
     def neumann_normal_scheme(self) -> str:
@@ -1738,6 +1765,36 @@ class LocalFciDrbEBRhs:
             raise ValueError(
                 "fci_parallel_leg_scheme requires parallel_operator_scheme='fci'"
             )
+        if self.parallel_short_leg_treatment not in (
+            "explicit", "local-backward-euler"
+        ):
+            raise ValueError(
+                "parallel_short_leg_treatment must be 'explicit' or "
+                "'local-backward-euler', got "
+                f"{self.parallel_short_leg_treatment!r}"
+            )
+        if not math.isfinite(float(self.parallel_short_leg_cfl_limit)) or float(
+            self.parallel_short_leg_cfl_limit
+        ) <= 0.0:
+            raise ValueError(
+                "parallel_short_leg_cfl_limit must be a positive finite number"
+            )
+        if self.parallel_short_leg_treatment == "local-backward-euler":
+            if self.parallel_material_scheme != "production-path":
+                raise ValueError(
+                    "local-backward-euler short-leg treatment requires "
+                    "parallel_material_scheme='production-path'"
+                )
+            if self.parallel_operator_scheme != "fci":
+                raise ValueError(
+                    "local-backward-euler short-leg treatment requires "
+                    "parallel_operator_scheme='fci'"
+                )
+            if self.parallel_velocity_layout != "cell-centered":
+                raise ValueError(
+                    "local-backward-euler short-leg treatment requires "
+                    "parallel_velocity_layout='cell-centered'"
+                )
         if (
             self.fci_parallel_leg_scheme == "boundary-characteristic-upwind"
             and self.parallel_inflow_closure != "equilibrium-characteristic"
@@ -1796,6 +1853,23 @@ class LocalFciDrbEBRhs:
                 "curvature_component_diagnostic_scheme must be 'directional', "
                 "'centered-dissipation', or 'radial-provenance', got "
                 f"{self.curvature_component_diagnostic_scheme!r}"
+            )
+        if self.curvature_evolution_component not in (
+            "full", "centered-only", "dissipation-only"
+        ):
+            raise ValueError(
+                "curvature_evolution_component must be 'full', 'centered-only', "
+                "or 'dissipation-only', got "
+                f"{self.curvature_evolution_component!r}"
+            )
+        if (
+            self.curvature_evolution_component != "full"
+            and self.curvature_split_scheme != "production-path"
+        ):
+            raise ValueError(
+                "curvature_evolution_component='centered-only' or "
+                "'dissipation-only' requires "
+                "curvature_split_scheme='production-path'"
             )
         if (
             self.curvature_component_diagnostic_scheme
@@ -2844,6 +2918,10 @@ class LocalFciDrbEBRhs:
         is the compatible nonlocal-potential remainder, with coefficient
         vector ``(-2n, -4Te/3, -4Ti/3, 0)/B``.
         """
+        evolution_component = self.curvature_evolution_component
+        request_split_diagnostics = (
+            return_directional_components or evolution_component != "full"
+        )
         coupled = (
             density_conservative_stencil,
             Te_conservative_stencil,
@@ -2861,9 +2939,12 @@ class LocalFciDrbEBRhs:
                 (self.parameters.n0, self.parameters.Te0, self.parameters.Ti0, 0.0),
                 dtype=jnp.float64,
             ),
-            return_diagnostics=return_directional_components,
+            # Keep the production default on the original fast path.  The
+            # diagnostic lanes are only materialized for an explicit request
+            # or for one of the component-evolution ablations.
+            return_diagnostics=request_split_diagnostics,
         )
-        if return_directional_components:
+        if request_split_diagnostics:
             material, diagnostics = material_result
         else:
             material = material_result
@@ -2895,7 +2976,7 @@ class LocalFciDrbEBRhs:
         # Match the legacy selector semantics: curvature_scale multiplies the
         # complete production split, including the nonlocal psi remainder.
         result = self.curvature_scale * (material + remainder)
-        if not return_directional_components:
+        if not request_split_diagnostics:
             return tuple(jnp.moveaxis(result, -1, 0))
         assert diagnostics is not None
         psi_directional = self._conservative_curvature_components(
@@ -2909,7 +2990,16 @@ class LocalFciDrbEBRhs:
         # psi_directional is (3, nx, ny, nz); move the component axis to the
         # final position before adding the four-field material diagnostics.
         remainder_directional = jnp.moveaxis(remainder_directional, -2, 0)
-        if (
+        if evolution_component == "centered-only":
+            directional = self.curvature_scale * (
+                diagnostics["directional_centered_transfer"]
+                + remainder_directional
+            )
+        elif evolution_component == "dissipation-only":
+            directional = self.curvature_scale * diagnostics[
+                "directional_characteristic_dissipation"
+            ]
+        elif (
             self.curvature_component_diagnostic_scheme
             == "centered-dissipation"
         ):
@@ -2945,6 +3035,8 @@ class LocalFciDrbEBRhs:
             directional = self.curvature_scale * (
                 diagnostics["directional_residual"] + remainder_directional
             )
+        if not return_directional_components:
+            return tuple(jnp.moveaxis(jnp.sum(directional, axis=0), -1, 0))
         return tuple(jnp.moveaxis(directional, -1, 0))
 
     def _curvature_rhs_contributions(
@@ -4183,6 +4275,7 @@ class LocalFciDrbEBRhs:
         parallel_boundary: LocalFciDrbEBOperatorBoundaryBundle,
         context: StencilBuilderContext,
         return_electron_force_diagnostics: bool = False,
+        short_leg_selection_dt: Any = 0.0,
     ) -> dict[str, jnp.ndarray]:
         """Evaluate the mapped parallel operator family for one RHS state.
 
@@ -4653,6 +4746,10 @@ class LocalFciDrbEBRhs:
                     backward_wall_state=minus,
                     forward_wall_state=plus,
                     div_b=div_b_fine if self._uses_compact_face_operators else div_b,
+                    selection_dt=short_leg_selection_dt
+                    if self.parallel_short_leg_treatment == "local-backward-euler"
+                    else 0.0,
+                    cfl_limit=self.parallel_short_leg_cfl_limit,
                 )
             )
             if self._uses_compact_face_operators:
@@ -5560,6 +5657,140 @@ class LocalFciDrbEBRhs:
             endpoint_kinds,
         )
 
+    def apply_short_leg_implicit_material_step(
+        self,
+        state_owned: FciDrbEBState,
+        solve_dt: Any,
+        selection_dt: Any | None = None,
+        *,
+        phi_owned: jnp.ndarray | None = None,
+    ) -> FciDrbEBState:
+        """Apply a frozen local backward-Euler step to selected wall legs.
+
+        This is intentionally a narrow prototype operator.  It updates only
+        the five primitive material fields on rows whose physical wall leg
+        exceeds ``parallel_short_leg_cfl_limit`` when measured with
+        ``selection_dt``.  All mapped/bulk rows, the geometric ``div(b)``
+        source, polarization, and vorticity remain in the explicit RHS.  The
+        owner update is formed from the BE increment, so projected-fine/RLP
+        storage cannot accidentally average an already-updated state.
+        """
+        if self.parallel_short_leg_treatment != "local-backward-euler":
+            raise ValueError(
+                "apply_short_leg_implicit_material_step requires "
+                "parallel_short_leg_treatment='local-backward-euler'"
+            )
+        if self.parallel_material_scheme != "production-path" or self.parallel_operator_scheme != "fci":
+            raise ValueError(
+                "short-leg implicit material step requires the production FCI path"
+            )
+        if self.parallel_velocity_layout != "cell-centered":
+            raise ValueError(
+                "short-leg implicit material step requires cell-centered velocities"
+            )
+        solve_dt = jnp.asarray(solve_dt, dtype=jnp.float64)
+        if selection_dt is None:
+            selection_dt = solve_dt
+        selection_dt = jnp.asarray(selection_dt, dtype=jnp.float64)
+
+        state_owned = self._owner_state(state_owned)
+        face_bc = self._face_bcs(state_owned)
+        state_halo_without_phi = self._prepare_state_halo(state_owned, face_bc)
+        if phi_owned is None:
+            # The material wall block depends only on the five primitive
+            # traces.  Do not trigger a second elliptic solve when the caller
+            # is already carrying the diagnostic potential; phi is included
+            # below solely to build the common boundary bundle.
+            phi_owned = _mask_inactive_owned(state_owned.phi, self.geometry)
+        else:
+            phi_owned = _mask_inactive_owned(
+                jnp.asarray(phi_owned, dtype=jnp.float64), self.geometry
+            )
+        phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
+        state_halo = state_halo_without_phi.replace(phi=phi_halo)
+        operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
+            state_halo, self.geometry, self.domain, face_bc,
+            tau=self.parameters.tau,
+        )
+        parallel_boundary = self._parallel_operator_boundary(
+            state_halo=state_halo, operator_boundary=operator_boundary,
+        )
+        context = self._stencil_builder_context()
+        owned = self.domain.layout.owned_slices_cell
+        primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
+        primitive_stencils = []
+        fields = {
+            "density": state_halo.density,
+            "Te": state_halo.Te,
+            "Ti": state_halo.Ti,
+            "Vi": state_halo.Vi,
+            "Ve": state_halo.Ve,
+        }
+        traces = {
+            "density": parallel_boundary.density,
+            "Te": parallel_boundary.Te,
+            "Ti": parallel_boundary.Ti,
+            "Vi": parallel_boundary.Vi,
+            "Ve": parallel_boundary.Ve,
+        }
+        for name in primitive_names:
+            field_halo, forward_remote, backward_remote = self._fci_prepare_q(
+                fields[name][owned], traces[name], context
+            )
+            primitive_stencils.append(
+                build_local_fci_stencil_from_field(
+                    field_halo, self.geometry, context,
+                    forward_remote_values=forward_remote,
+                    backward_remote_values=backward_remote,
+                )
+            )
+        center = jnp.stack(tuple(s.center for s in primitive_stencils), axis=-1)
+        minus = jnp.stack(tuple(s.minus for s in primitive_stencils), axis=-1)
+        plus = jnp.stack(tuple(s.plus for s in primitive_stencils), axis=-1)
+        backward_wall = self.geometry.maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
+        forward_wall = self.geometry.maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
+        (
+            updated,
+            increment,
+            info,
+        ) = parallel_short_wall_backward_euler(
+            center, minus, plus,
+            primitive_stencils[0].dx_min,
+            primitive_stencils[0].dx_plus,
+            self.parameters.tau,
+            self.parameters.mi_over_me,
+            selection_dt=selection_dt,
+            solve_dt=solve_dt,
+            cfl_limit=self.parallel_short_leg_cfl_limit,
+            backward_wall=backward_wall,
+            forward_wall=forward_wall,
+            backward_wall_state=minus,
+            forward_wall_state=plus,
+        )
+
+        if self._uses_compact_face_operators:
+            increment_owner = jax.vmap(
+                lambda value: aggregate_local_control_volume_average(
+                    value, self.control_volume_geometry.cells, self.domain
+                )
+            )(jnp.moveaxis(increment, -1, 0))
+            increment_owner = jnp.moveaxis(increment_owner, 0, -1)
+        else:
+            increment_owner = increment
+        if self.control_volume_geometry is not None:
+            increment_owner = jnp.where(
+                self.control_volume_geometry.cells.is_active_owner[..., None],
+                increment_owner,
+                0.0,
+            )
+        return self._owner_state(state_owned.replace(
+            density=state_owned.density + increment_owner[..., 0],
+            Te=state_owned.Te + increment_owner[..., 1],
+            Ti=state_owned.Ti + increment_owner[..., 2],
+            Vi=state_owned.Vi + increment_owner[..., 3],
+            Ve=state_owned.Ve + increment_owner[..., 4],
+        ))
+
     def evaluate_stage(
         self,
         state_owned: FciDrbEBState,
@@ -5570,6 +5801,7 @@ class LocalFciDrbEBRhs:
         return_term_fields: bool = False,
         return_rhs_term_fields: bool = False,
         return_curvature_component_fields: bool = False,
+        short_leg_selection_dt: Any = 0.0,
     ) -> (
         FciDrbEBState
         | tuple[FciDrbEBState, jnp.ndarray]
@@ -5696,6 +5928,7 @@ class LocalFciDrbEBRhs:
                 operator_boundary=operator_boundary,
                 parallel_boundary=parallel_boundary,
                 context=context,
+                short_leg_selection_dt=short_leg_selection_dt,
             )
             if self.parallel_operator_scheme == "fci"
             else None

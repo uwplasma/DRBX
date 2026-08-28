@@ -61,6 +61,37 @@ def test_launcher_transformation_carries_actual_face_topology_to_output_and_diag
         for node in diagnostic_calls
     )
 
+
+def test_short_leg_local_backward_euler_transform_splits_all_four_rk4_stages(monkeypatch):
+    launcher = _launcher_module()
+    monkeypatch.setenv("DRBX_PARALLEL_SHORT_LEG_TREATMENT", "local-backward-euler")
+    transformed = launcher._transform_shared_driver_source(
+        launcher.SHARED_DRIVER.read_text(encoding="utf-8")
+    )
+    compile(transformed, str(launcher.SHARED_DRIVER), "exec")
+
+    assert transformed.count("short_leg_selection_dt=dt") == 4
+    assert transformed.count("model.apply_short_leg_implicit_material_step(") == 1
+    assert transformed.index("model.apply_short_leg_implicit_material_step(") < transformed.index(
+        "next_phi, gmres_info_next = reconstruct_stage_phi(next_state, model)"
+    )
+    assert "short_leg_selection_dt=short_leg_selection_dt" in transformed
+    assert (
+        "short_leg_selection_dt=jnp.asarray(float(timestep), dtype=jnp.float64)"
+        in transformed
+    )
+    assert "solve_dt=dt, selection_dt=dt" in transformed
+
+
+def test_short_leg_explicit_transform_preserves_default_rk4_source(monkeypatch):
+    launcher = _launcher_module()
+    monkeypatch.setenv("DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit")
+    transformed = launcher._transform_shared_driver_source(
+        launcher.SHARED_DRIVER.read_text(encoding="utf-8")
+    )
+    assert "short_leg_selection_dt" not in transformed
+    assert "apply_short_leg_implicit_material_step" not in transformed
+
 def test_staggered_initializer_preserves_centered_velocities_until_local_c2f_restriction():
     launcher = _launcher_module()
     transformed = launcher._transform_shared_driver_source(
@@ -122,6 +153,125 @@ def test_parallel_flux_pairing_is_launcher_controlled_and_recorded_in_metadata()
     assert '"parallel_boundary_pairing": os.environ.get("DRBX_PARALLEL_BOUNDARY_PAIRING", "legacy")' in source
 
 
+def test_short_leg_treatment_parser_exports_and_announces_local_backward_euler(
+    monkeypatch, capsys
+):
+    launcher = _launcher_module()
+    base = [
+        str(launcher.WORKTREE / "run_staggered_hsx_blob.py"),
+        "--flux-framework", "production-split",
+        "--parallel-flux-pairing", "support-core",
+        "--parallel-operator-scheme", "fci",
+        "--topology", "toroidal",
+        "--parallel-short-leg-treatment", "local-backward-euler",
+        "--parallel-short-leg-cfl-limit", "2.25",
+    ]
+    monkeypatch.setattr(
+        launcher,
+        "_transform_shared_driver_source",
+        lambda _: (
+            "import os\n"
+            'assert os.environ["DRBX_PARALLEL_SHORT_LEG_TREATMENT"] == "local-backward-euler"\n'
+            'assert os.environ["DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT"] == "2.25"\n'
+        ),
+    )
+    monkeypatch.setattr(sys, "argv", base)
+    launcher.main()
+    output = capsys.readouterr().out
+    assert "parallel_short_leg_treatment=local-backward-euler" in output
+    assert "parallel_short_leg_cfl_limit=2.25" in output
+
+
+def test_short_leg_local_backward_euler_requires_production_split(monkeypatch):
+    launcher = _launcher_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(launcher.WORKTREE / "run_staggered_hsx_blob.py"),
+            "--parallel-short-leg-treatment", "local-backward-euler",
+        ],
+    )
+    with pytest.raises(SystemExit, match="requires --flux-framework production-split"):
+        launcher.main()
+
+
+def test_short_leg_cfl_limit_must_be_positive_and_finite(monkeypatch):
+    launcher = _launcher_module()
+    for value in ("0", "-1", "nan", "inf"):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                str(launcher.WORKTREE / "run_staggered_hsx_blob.py"),
+                "--parallel-short-leg-cfl-limit", value,
+            ],
+        )
+        with pytest.raises(SystemExit, match="must be finite and positive"):
+            launcher.main()
+
+
+@pytest.mark.parametrize("component", ("full", "centered-only", "dissipation-only"))
+def test_curvature_evolution_component_is_exported_and_announced(
+    monkeypatch, capsys, component
+):
+    launcher = _launcher_module()
+    monkeypatch.setattr(
+        launcher,
+        "_transform_shared_driver_source",
+        lambda _: (
+            "import os\n"
+            f'assert os.environ["DRBX_CURVATURE_EVOLUTION_COMPONENT"] == "{component}"\n'
+        ),
+    )
+    arguments = [] if component == "full" else [
+        "--flux-framework", "production-split",
+        "--parallel-flux-pairing", "support-core",
+        "--parallel-operator-scheme", "fci",
+        "--topology", "toroidal",
+    ]
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(launcher.WORKTREE / "run_staggered_hsx_blob.py"),
+            "--curvature-evolution-component", component,
+            *arguments,
+        ],
+    )
+    launcher.main()
+    assert (
+        f"curvature_evolution_component={component}"
+        in capsys.readouterr().out
+    )
+
+
+def test_curvature_evolution_component_metadata_has_cli_provenance():
+    launcher = _launcher_module()
+    source = (Path(launcher.__file__).read_text(encoding="utf-8"))
+    transformed = launcher._transform_shared_driver_source(
+        launcher.SHARED_DRIVER.read_text(encoding="utf-8")
+    )
+    assert 'choices=("full", "centered-only", "dissipation-only")' in source
+    assert 'os.environ["DRBX_CURVATURE_EVOLUTION_COMPONENT"] = args.curvature_evolution_component' in source
+    assert '"curvature_evolution_component": os.environ.get("DRBX_CURVATURE_EVOLUTION_COMPONENT", "full")' in transformed
+    assert '"curvature_evolution_component_source": "run_staggered_hsx_blob.py:--curvature-evolution-component"' in transformed
+
+
+def test_curvature_evolution_diagnostic_selector_requires_production_split(monkeypatch):
+    launcher = _launcher_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(launcher.WORKTREE / "run_staggered_hsx_blob.py"),
+            "--curvature-evolution-component", "centered-only",
+        ],
+    )
+    with pytest.raises(SystemExit, match="require.*flux-framework production-split"):
+        launcher.main()
+
+
 def test_production_boundary_pairing_is_defaulted_exported_and_replay_ablatable(
     monkeypatch, capsys
 ):
@@ -179,6 +329,8 @@ def test_flux_framework_parser_and_production_environment_provenance(monkeypatch
     assert 'os.environ["DRBX_FLUX_FRAMEWORK"] = args.flux_framework' in source
     assert 'os.environ["DRBX_CURVATURE_SPLIT_SCHEME"] = "production-path"' in source
     assert 'os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] = "production-path"' in source
+    assert '"--production-characteristic-solver"' not in source
+    assert "DRBX_PRODUCTION_CHARACTERISTIC_SOLVER" not in source
     assert '"curvature_wall_flux_closure": os.environ.get(' in source
     assert '"parallel_material_wall_flux_closure": os.environ.get(' in source
 
@@ -190,8 +342,8 @@ def test_flux_framework_parser_and_production_environment_provenance(monkeypatch
             'assert os.environ["DRBX_FLUX_FRAMEWORK"] == "production-split"\n'
             'assert os.environ["DRBX_CURVATURE_SPLIT_SCHEME"] == "production-path"\n'
             'assert os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] == "production-path"\n'
-            'assert os.environ["DRBX_CURVATURE_WALL_FLUX_CLOSURE"] == "equilibrium-exterior-osher"\n'
-            'assert os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] == "characteristic-projected-operator-trace-osher"\n'
+            'assert os.environ["DRBX_CURVATURE_WALL_FLUX_CLOSURE"] == "equilibrium-exterior-canonical-face-state"\n'
+            'assert os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] == "characteristic-projected-operator-trace-canonical-face-state"\n'
         ),
     )
     monkeypatch.setattr(
@@ -208,10 +360,11 @@ def test_flux_framework_parser_and_production_environment_provenance(monkeypatch
     launcher.main()
     output = capsys.readouterr().out
     assert "flux_framework=production-split" in output
-    assert "curvature_wall_flux_closure=equilibrium-exterior-osher" in output
+    assert "production_characteristic_solver=canonical-face-state" in output
+    assert "curvature_wall_flux_closure=equilibrium-exterior-canonical-face-state" in output
     assert (
         "parallel_material_wall_flux_closure="
-        "characteristic-projected-operator-trace-osher"
+        "characteristic-projected-operator-trace-canonical-face-state"
     ) in output
 
 
@@ -230,6 +383,27 @@ def test_flux_framework_production_guard_rejects_legacy_pairing(monkeypatch):
     with pytest.raises(SystemExit, match="support-core"):
         launcher.main()
 
+
+def test_production_characteristic_solver_is_fixed(monkeypatch):
+    launcher = _launcher_module()
+    base = [
+        str(launcher.WORKTREE / "run_staggered_hsx_blob.py"),
+        "--flux-framework", "production-split",
+        "--parallel-flux-pairing", "support-core",
+        "--parallel-operator-scheme", "fci",
+        "--topology", "toroidal",
+    ]
+    monkeypatch.setattr(
+        launcher,
+        "_transform_shared_driver_source",
+        lambda _: (
+            "import os\n"
+            'assert "DRBX_PRODUCTION_CHARACTERISTIC_SOLVER" not in os.environ\n'
+            'assert os.environ["DRBX_CURVATURE_WALL_FLUX_CLOSURE"] == "equilibrium-exterior-canonical-face-state"\n'
+        ),
+    )
+    monkeypatch.setattr(sys, "argv", base)
+    launcher.main()
 
 def test_production_current_trace_ablation_is_replay_only(monkeypatch):
     launcher = _launcher_module()

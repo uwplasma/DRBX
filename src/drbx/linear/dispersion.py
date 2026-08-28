@@ -39,6 +39,7 @@ __all__ = [
     "drift_wave_adiabatic_frequency",
     "interchange_operator",
     "interchange_growth_rate",
+    "full_drb_resistive_drift_wave_operator",
 ]
 
 
@@ -136,3 +137,63 @@ def interchange_growth_rate(k_y, kperp2, gravity, gradient):
     kappa = jnp.asarray(gradient, dtype=jnp.float64)
     drive = g * kappa
     return jnp.where(drive > 0, jnp.sqrt(jnp.abs(drive)) * jnp.abs(k_y) / jnp.sqrt(kperp2), 0.0)
+
+
+def full_drb_resistive_drift_wave_operator(
+    k_y,
+    kperp2,
+    k_par,
+    rho_star,
+    B0,
+    gradient,
+    tau,
+    mu,
+    nu,
+):
+    """Continuous six-field electrostatic DRB slab operator.
+
+    The perturbation convention is
+    ``q ~ exp(lambda*t + i*k_y*y + i*k_par*z)`` with state order
+    ``q = (delta_n, delta_Te, delta_Ti, delta_Vi, delta_Ve, delta_omega)``.
+    It is derived directly from the continuous legacy EB equations on a flat,
+    constant-``B0`` slab about ``n0(x)=1+gradient*x``, ``Te0=Ti0=1`` and zero
+    flow.  The polarization closure is eliminated analytically using
+    ``delta_phi = -delta_omega/kperp2 - tau*delta_Ti``.  This sign follows the
+    Boussinesq balance ``L_perp(phi) = omega - tau*L_perp(Ti)`` and matches the
+    production residual ``-L_perp(phi) - tau*L_perp(Ti) + omega = 0``.
+
+    This routine intentionally has no dependency on the production spatial
+    discretization or RHS implementation so it can serve as an independent
+    linear-physics reference.
+    """
+
+    k_y = jnp.asarray(k_y, dtype=jnp.float64)
+    kperp2 = jnp.asarray(kperp2, dtype=jnp.float64)
+    k_par = jnp.asarray(k_par, dtype=jnp.float64)
+    rho_star = jnp.asarray(rho_star, dtype=jnp.float64)
+    b0 = jnp.asarray(B0, dtype=jnp.float64)
+    gradient = jnp.asarray(gradient, dtype=jnp.float64)
+    tau = jnp.asarray(tau, dtype=jnp.float64)
+    mu = jnp.asarray(mu, dtype=jnp.float64)
+    nu = jnp.asarray(nu, dtype=jnp.float64)
+    D = 1j * k_par
+    d = k_y * gradient / (rho_star * b0)
+    two_thirds = jnp.asarray(2.0 / 3.0, dtype=jnp.float64)
+    return jnp.array(
+        [
+            [0, 0, -1j * d * tau, 0, -D, -1j * d / kperp2],
+            [0, 0, 0, two_thirds * 0.71 * D, -two_thirds * 1.71 * D, 0],
+            [0, 0, 0, 0, -two_thirds * D, 0],
+            [-(1 + tau) * D, -D, -tau * D, 0, 0, 0],
+            [
+                -mu * D,
+                -mu * 1.71 * D,
+                -mu * tau * D,
+                mu * nu,
+                -mu * nu,
+                -mu * D / kperp2,
+            ],
+            [0, 0, 0, b0**2 * D, -b0**2 * D, 0],
+        ],
+        dtype=jnp.complex128,
+    )

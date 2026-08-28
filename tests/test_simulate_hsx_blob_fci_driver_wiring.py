@@ -82,6 +82,10 @@ def test_parser_exposes_coordinate_default_and_fci_trace_controls():
         action for action in parser._actions if "--flux-framework" in action.option_strings
     )
     assert framework_action.choices == ("legacy", "production-split")
+    assert not any(
+        "--production-characteristic-solver" in action.option_strings
+        for action in parser._actions
+    )
 
     scheme_action = next(
         action
@@ -326,6 +330,81 @@ def test_geometry_only_fci_requests_map_generation_and_records_substeps(
     assert lowering_calls
 
 
+def test_metric_context_reuses_continuous_evaluator_across_resolutions(monkeypatch):
+    """The explicit context path samples grids without refitting HSX metrics."""
+
+    hsx = _driver_module()
+    logical_u = np.linspace(0.0, 1.0, 5)
+    logical_theta = 2.0 * np.pi * np.arange(8) / 8.0
+    logical_eta = np.pi * np.arange(6) / 6.0
+
+    class FakeMetricEvaluator:
+        topology = "toroidal"
+        nfp = 2
+        period = np.pi
+        u = logical_u
+        v = logical_theta
+        eta = logical_eta
+
+        def evaluate(self, points, **_kwargs):
+            shape = np.asarray(points).shape[:-1]
+            tensor = np.broadcast_to(np.eye(3), shape + (3, 3)).copy()
+            tensor[..., 1, 1] = 1.2
+            tensor[..., 2, 2] = 1.4
+            return SimpleNamespace(
+                signed_J=np.ones(shape),
+                g_contra=tensor,
+                g_cov=tensor,
+                position=np.zeros(shape + (3,)),
+            )
+
+        def evaluate_magnetic_field(self, points, _bfield, **_kwargs):
+            shape = np.asarray(points).shape[:-1]
+            return SimpleNamespace(
+                B_contravariant=np.broadcast_to(
+                    np.asarray((1.0, 0.0, 0.1)), shape + (3,)
+                ).copy(),
+                magnitude=np.ones(shape),
+            )
+
+    class FakeBField:
+        nfp = 2
+
+    # The production class check remains meaningful while keeping this test
+    # independent of the expensive real HSX metric construction.
+    monkeypatch.setattr(hsx, "MetricEvaluator", FakeMetricEvaluator)
+    context = hsx.HSXMetricContext(FakeMetricEvaluator(), FakeBField(), 2)
+    refit_calls = []
+    monkeypatch.setattr(
+        hsx,
+        "build_hsx_metric_evaluator",
+        lambda **_kwargs: refit_calls.append(True),
+    )
+
+    common = dict(
+        makegrid_path=Path("/tmp/unused-makegrid"),
+        vessel_path=Path("/tmp/unused-vessel"),
+        fit_sample_shape=(4, 4, 4),
+        radial_degree=2,
+        vertical_degree=2,
+        toroidal_modes=2,
+        metric_spline_degree=3,
+        mmpde_iterations=0,
+        axis_core_radius=0.1,
+        reference_magnetic_field=1.0,
+        topology="toroidal",
+        metric_mesh_shape=(5, 8, 6),
+        metric_cache_dir=None,
+        metric_context=context,
+    )
+    for radial_cells in (4, 6, 8):
+        geometry, *_ = hsx.build_hsx_fci_geometry(
+            resolution=(radial_cells, 8, 12), **common
+        )
+        assert geometry.shape == (radial_cells, 8, 12)
+    assert not refit_calls
+
+
 @pytest.mark.parametrize(
     ("face_scheme", "audit_face"),
     (("fine-glue-characteristic", 1), ("fine-glue-characteristic-bulk", None)),
@@ -462,3 +541,7 @@ def test_production_split_metadata_contract_is_recorded():
     assert '"flux_framework_source": "DRBX_FLUX_FRAMEWORK"' in source
     assert '"curvature_split_scheme": os.environ.get("DRBX_CURVATURE_SPLIT_SCHEME")' in source
     assert '"parallel_material_scheme": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME")' in source
+    assert '"production_characteristic_solver": (' in source
+    assert '"canonical-face-state"' in source
+    assert '"fixed production method"' in source
+    assert "DRBX_PRODUCTION_CHARACTERISTIC_SOLVER" not in source
