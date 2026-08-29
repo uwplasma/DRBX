@@ -22,11 +22,13 @@ from drbx.geometry import (
 )
 from drbx.native.fci_boundaries import (
     CoordinateFaceValues3D,
+    LocalBoundaryFaceTrace3D,
     LocalControlVolumeFaceRows3D,
     LocalEmbeddedControlVolumeGeometry3D,
     LocalMomentReconstruction3D,
 )
 from drbx.native.fci_operators import (
+    _curvature_bc_characteristic_wall_states,
     _radial_characteristic_fine_glue_integrated_residual,
     _radial_fine_glue_sat_integrated_residual,
     _bound_groupwise_transition_trace_correction,
@@ -172,6 +174,123 @@ def _operator_fixture(shape=(3, 4, 5), halo_width=1):
     return geometry, domain, stencil, coefficients
 
 
+def _constant_radial_wall_trace(layout, value):
+    trace = LocalBoundaryFaceTrace3D.empty(layout)
+    value_x = trace.value_x.at[0].set(value).at[-1].set(value)
+    mask_x = trace.mask_x.at[0].set(True).at[-1].set(True)
+    return LocalBoundaryFaceTrace3D(
+        value_x=value_x,
+        value_y=trace.value_y,
+        value_z=trace.value_z,
+        mask_x=mask_x,
+        mask_y=trace.mask_y,
+        mask_z=trace.mask_z,
+        layout=layout,
+    )
+
+
+def test_bc_characteristic_wall_state_reflects_through_physical_trace():
+    interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
+    trace = jnp.asarray((1.2, 0.9, 1.1, 0.0), dtype=jnp.float64)
+    exterior, face, fallback = _curvature_bc_characteristic_wall_states(
+        interior, trace
+    )
+    np.testing.assert_allclose(
+        exterior, jnp.asarray((1.2, 0.9, 1.1, -0.2)), atol=0.0, rtol=0.0
+    )
+    np.testing.assert_allclose(0.5 * (interior + exterior), trace, atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(face, trace, atol=0.0, rtol=0.0)
+    assert not bool(fallback)
+
+
+def test_bc_characteristic_curvature_preserves_non_equilibrium_neumann_constant():
+    geometry, domain, _stencil, coefficients = _operator_fixture()
+    layout = geometry.layout
+    context = StencilBuilderContext(layout=layout, domain=domain)
+    state = (1.2, 0.9, 1.1, 0.0)
+    fields = tuple(
+        build_local_conservative_stencil_from_field(
+            jnp.full(layout.cell_halo_shape, value, dtype=jnp.float64),
+            geometry,
+            context,
+        )
+        for value in state
+    )
+    traces = tuple(_constant_radial_wall_trace(layout, value) for value in state)
+    result = local_curvature_production_path_op(
+        fields,
+        geometry,
+        coefficients,
+        tau=0.7,
+        domain=domain,
+        boundary_traces=traces,
+        wall_flux_closure=(
+            "bc-characteristic-operator-trace-canonical-face-state"
+        ),
+    )
+    np.testing.assert_allclose(result, 0.0, atol=2.0e-12, rtol=0.0)
+
+
+def test_bc_characteristic_curvature_applies_dirichlet_vorticity_only_at_wall():
+    geometry, domain, _stencil, coefficients = _operator_fixture((5, 3, 2))
+    layout = geometry.layout
+    context = StencilBuilderContext(layout=layout, domain=domain)
+    state = (1.2, 0.9, 1.1, 0.2)
+    wall = (1.2, 0.9, 1.1, 0.0)
+    fields = tuple(
+        build_local_conservative_stencil_from_field(
+            jnp.full(layout.cell_halo_shape, value, dtype=jnp.float64),
+            geometry,
+            context,
+        )
+        for value in state
+    )
+    traces = tuple(_constant_radial_wall_trace(layout, value) for value in wall)
+    result = local_curvature_production_path_op(
+        fields,
+        geometry,
+        coefficients,
+        tau=0.7,
+        domain=domain,
+        boundary_traces=traces,
+        wall_flux_closure=(
+            "bc-characteristic-operator-trace-canonical-face-state"
+        ),
+    )
+    assert float(jnp.linalg.norm(result[jnp.asarray((0, -1))])) > 0.0
+    np.testing.assert_allclose(result[1:-1], 0.0, atol=2.0e-12, rtol=0.0)
+
+
+def test_equilibrium_wall_default_ignores_supplied_bc_traces_bitwise():
+    geometry, domain, _stencil, coefficients = _operator_fixture()
+    layout = geometry.layout
+    context = StencilBuilderContext(layout=layout, domain=domain)
+    fields = tuple(
+        build_local_conservative_stencil_from_field(
+            jnp.full(layout.cell_halo_shape, value, dtype=jnp.float64),
+            geometry,
+            context,
+        )
+        for value in (1.2, 0.9, 1.1, 0.2)
+    )
+    traces = tuple(
+        _constant_radial_wall_trace(layout, value)
+        for value in (3.0, 4.0, 5.0, 6.0)
+    )
+    baseline = local_curvature_production_path_op(
+        fields, geometry, coefficients, tau=0.7, domain=domain
+    )
+    with_unused_traces = local_curvature_production_path_op(
+        fields,
+        geometry,
+        coefficients,
+        tau=0.7,
+        domain=domain,
+        boundary_traces=traces,
+    )
+    np.testing.assert_array_equal(with_unused_traces, baseline)
+
+
 def test_production_curvature_all_axes_has_directional_diagnostics_and_constant_null():
     """The owner-face path is active on x/y/z and preserves constants."""
     geometry, domain, _stencil, coefficients = _operator_fixture()
@@ -228,6 +347,88 @@ def test_production_curvature_physical_wall_is_one_sided_and_finite():
     )
     assert result.shape == geometry.owned_shape + (4,)
     assert bool(jnp.all(jnp.isfinite(result)))
+
+
+def test_production_curvature_upper_wall_ablation_removes_only_upper_face_lane():
+    geometry, domain, _stencil, coefficients = _operator_fixture()
+    layout = geometry.layout
+    context = StencilBuilderContext(layout=layout, domain=domain)
+    ii, jj, kk = jnp.meshgrid(
+        jnp.arange(layout.cell_halo_shape[0]),
+        jnp.arange(layout.cell_halo_shape[1]),
+        jnp.arange(layout.cell_halo_shape[2]),
+        indexing="ij",
+    )
+    fields = tuple(
+        build_local_conservative_stencil_from_field(
+            base + scale * (0.2 * ii + 0.03 * jj - 0.02 * kk),
+            geometry,
+            context,
+        )
+        for base, scale in (
+            (1.0, 0.02), (1.0, 0.015), (1.0, 0.01), (0.0, 0.03)
+        )
+    )
+    full, full_info = local_curvature_production_path_op(
+        fields, geometry, coefficients, tau=0.7, domain=domain,
+        return_diagnostics=True,
+    )
+    ablated, ablated_info = local_curvature_production_path_op(
+        fields, geometry, coefficients, tau=0.7, domain=domain,
+        radial_ablation="upper-physical-face", return_diagnostics=True,
+    )
+    full_radial = np.asarray(full_info["radial_provenance_residual"])
+    ablated_radial = np.asarray(ablated_info["radial_provenance_residual"])
+    np.testing.assert_allclose(ablated_radial[1], 0.0, atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(
+        ablated_radial[[0, 2, 3, 4]],
+        full_radial[[0, 2, 3, 4]],
+        atol=0.0,
+        rtol=0.0,
+    )
+    np.testing.assert_allclose(
+        np.asarray(ablated),
+        np.asarray(full) - full_radial[1],
+        atol=2.0e-12,
+        rtol=2.0e-12,
+    )
+
+
+def test_production_curvature_last_interior_ablation_preserves_wall_face():
+    geometry, domain, _stencil, coefficients = _operator_fixture((4, 3, 2))
+    layout = geometry.layout
+    context = StencilBuilderContext(layout=layout, domain=domain)
+    ii, jj, kk = jnp.meshgrid(
+        jnp.arange(layout.cell_halo_shape[0]),
+        jnp.arange(layout.cell_halo_shape[1]),
+        jnp.arange(layout.cell_halo_shape[2]),
+        indexing="ij",
+    )
+    fields = tuple(
+        build_local_conservative_stencil_from_field(
+            base + scale * (ii**2 + 0.1 * jj - 0.05 * kk),
+            geometry,
+            context,
+        )
+        for base, scale in (
+            (1.0, 0.01), (1.0, 0.008), (1.0, 0.006), (0.0, 0.012)
+        )
+    )
+    full, full_info = local_curvature_production_path_op(
+        fields, geometry, coefficients, tau=0.7, domain=domain,
+        return_diagnostics=True,
+    )
+    ablated, ablated_info = local_curvature_production_path_op(
+        fields, geometry, coefficients, tau=0.7, domain=domain,
+        radial_ablation="last-interior-face", return_diagnostics=True,
+    )
+    np.testing.assert_allclose(
+        np.asarray(ablated_info["radial_provenance_residual"])[1],
+        np.asarray(full_info["radial_provenance_residual"])[1],
+        atol=0.0,
+        rtol=0.0,
+    )
+    assert float(jnp.linalg.norm(ablated - full)) > 0.0
 
 
 def test_production_curvature_face_state_uses_canonical_faces_and_interior_wall_trace():
