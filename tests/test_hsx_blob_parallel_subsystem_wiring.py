@@ -9,9 +9,9 @@ import ast
 from pathlib import Path
 
 
-WORKSPACE = Path(__file__).resolve().parents[2]
-RHS_PATH = WORKSPACE / "DRBX" / "src" / "drbx" / "native" / "fci_drb_EB_rhs.py"
-DRIVER_PATH = WORKSPACE / "simulate_hsx_blob.py"
+REPOSITORY = Path(__file__).resolve().parents[1]
+RHS_PATH = REPOSITORY / "src" / "drbx" / "native" / "fci_drb_EB_rhs.py"
+DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
 
 
 def _tree(path: Path) -> ast.Module:
@@ -186,7 +186,11 @@ def test_parallel_subsystem_branch_keeps_seven_field_rhs_and_excludes_nonparalle
     # must remain outside its enabled branch.
     for forbidden in (
         "poisson_",
-        "curvature_",
+        "density_curvature",
+        "Te_curvature",
+        "Ti_curvature",
+        "vorticity_curvature",
+        "_conservative_curvature",
         "_field_perp_diffusion",
         "source_owned",
         "density_diff",

@@ -27,7 +27,7 @@ vessel file -> WallEvaluator ----------------------------+
 The main implementation is
 [`geometry/MetricEvaluator.py`](../geometry/MetricEvaluator.py). The HSX
 orchestration lives in
-[`simulate_hsx_blob.py`](../../../../simulate_hsx_blob.py).
+[`simulate_hsx_blob.py`](../../../simulate_hsx_blob.py).
 
 ## Shared input evaluators
 

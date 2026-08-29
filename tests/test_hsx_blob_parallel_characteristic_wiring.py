@@ -9,8 +9,8 @@ import ast
 from pathlib import Path
 
 
-WORKSPACE = Path(__file__).resolve().parents[2]
-DRIVER_PATH = WORKSPACE / "simulate_hsx_blob.py"
+REPOSITORY = Path(__file__).resolve().parents[1]
+DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
 
 
 def _tree() -> ast.Module:

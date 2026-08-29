@@ -38,7 +38,7 @@ from shifted_torus_4field_mms_helpers import (  # noqa: E402
 
 RHS = Path(__file__).resolve().parents[1] / "src" / "drbx" / "native" / "fci_drb_EB_rhs.py"
 SOURCE = RHS.read_text()
-SHARED_DRIVER = RHS.parents[4] / "simulate_hsx_blob.py"
+SHARED_DRIVER = RHS.parents[3] / "simulate_hsx_blob.py"
 
 
 def _mapped_fixture():

@@ -1,10 +1,11 @@
 """Production toroidal-topology driver contract."""
 
+from pathlib import Path
 import sys
 
 import pytest
 
-sys.path.insert(0, str(__file__.split("/DRBX/tests")[0]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import simulate_hsx_blob as hsx
 

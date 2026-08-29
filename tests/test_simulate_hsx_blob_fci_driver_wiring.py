@@ -17,8 +17,8 @@ import numpy as np
 import pytest
 
 
-WORKSPACE = Path(__file__).resolve().parents[2]
-DRIVER_PATH = WORKSPACE / "simulate_hsx_blob.py"
+REPOSITORY = Path(__file__).resolve().parents[1]
+DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
 
 
 def _tree() -> ast.Module:
@@ -510,19 +510,14 @@ def test_fci_main_passes_scheme_and_metadata_to_run(
     )
 
 
-def test_production_split_guard_requires_compatible_runtime(monkeypatch):
+def test_production_split_guard_requires_compatible_runtime():
     hsx = _driver_module()
     parser = hsx._build_parser()
-    monkeypatch.delenv("DRBX_FLUX_FRAMEWORK", raising=False)
-    monkeypatch.setenv("DRBX_PARALLEL_VELOCITY_LAYOUT", "cell-centered")
-    monkeypatch.setenv("DRBX_PARALLEL_FLUX_PAIRING", "support-core")
-    monkeypatch.delenv("DRBX_CURVATURE_CHARACTERISTIC_AXES", raising=False)
-    monkeypatch.delenv("DRBX_CURVATURE_RADIAL_CHARACTERISTIC_SCHEME", raising=False)
-    monkeypatch.delenv("DRBX_CURVATURE_POLOIDAL_CHARACTERISTIC_SCHEME", raising=False)
     args = parser.parse_args(
         [
             "--flux-framework", "production-split",
             "--parallel-operator-scheme", "fci",
+            "--parallel-flux-pairing", "support-core",
             "--curvature-scheme", "conservative",
             "--curvature-rlp-face-scheme", "projected-fine",
             "--poisson-bracket-scheme", "compatible-flux",
@@ -530,7 +525,14 @@ def test_production_split_guard_requires_compatible_runtime(monkeypatch):
     )
     hsx._validate_flux_framework(args)
 
-    monkeypatch.setenv("DRBX_PARALLEL_FLUX_PAIRING", "legacy")
+    args = parser.parse_args(
+        [
+            "--flux-framework", "production-split",
+            "--parallel-operator-scheme", "fci",
+            "--parallel-flux-pairing", "legacy",
+            "--curvature-rlp-face-scheme", "projected-fine",
+        ]
+    )
     with pytest.raises(ValueError, match="support-core"):
         hsx._validate_flux_framework(args)
 
@@ -538,7 +540,7 @@ def test_production_split_guard_requires_compatible_runtime(monkeypatch):
 def test_production_split_metadata_contract_is_recorded():
     source = DRIVER_PATH.read_text()
     assert '"flux_framework": str(args.flux_framework)' in source
-    assert '"flux_framework_source": "DRBX_FLUX_FRAMEWORK"' in source
+    assert '"flux_framework_source": "simulate_hsx_blob.py:--flux-framework"' in source
     assert '"curvature_split_scheme": os.environ.get("DRBX_CURVATURE_SPLIT_SCHEME")' in source
     assert '"parallel_material_scheme": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME")' in source
     assert '"production_characteristic_solver": (' in source
