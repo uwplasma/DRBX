@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import numpy as np
 
 
-DRIVER = Path(__file__).parents[2] / "simulate_hsx_blob.py"
+DRIVER = Path(__file__).parents[1] / "simulate_hsx_blob.py"
 
 
 def _source():

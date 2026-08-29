@@ -4,9 +4,9 @@ import ast
 from pathlib import Path
 
 
-WORKSPACE = Path(__file__).resolve().parents[2]
-RHS_PATH = WORKSPACE / "DRBX" / "src" / "drbx" / "native" / "fci_drb_EB_rhs.py"
-DRIVER_PATH = WORKSPACE / "simulate_hsx_blob.py"
+REPOSITORY = Path(__file__).resolve().parents[1]
+RHS_PATH = REPOSITORY / "src" / "drbx" / "native" / "fci_drb_EB_rhs.py"
+DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
 
 
 def _tree(path: Path) -> ast.Module:
@@ -254,9 +254,10 @@ def test_hsx_rk4_returns_replicated_solvax_diagnostics():
         _function(_tree(DRIVER_PATH), "run_full_eb"),
     )
     assert run_source is not None
-    assert "info.num_steps" in run_source
-    assert "info.final_residual_rel_l2" in run_source
-    assert "info.failed" in run_source
+    assert "_format_phi_solver_diagnostics(info)" in run_source
+    assert "info.num_steps" in source
+    assert "info.final_residual_rel_l2" in source
+    assert "info.failed" in source
     assert "gmres_info_2" in run_source
     assert "gmres_info_3" in run_source
     assert "gmres_info_4" in run_source
@@ -305,7 +306,9 @@ def test_full_eb_conservative_curvature_exposes_upwind_equilibrium_mode():
     evaluate = _function(rhs_tree, "_curvature_rhs_contributions")
     evaluate_source = ast.get_source_segment(rhs_source, evaluate)
     assert evaluate_source is not None
-    assert evaluate_source.count("self._conservative_curvature(") >= 2
+    assert "self._conservative_curvature_components" in evaluate_source
+    assert "else self._conservative_curvature" in evaluate_source
+    assert evaluate_source.count("conservative_operator(") >= 2
     for field in (
         "curvature_Pe = central_curvature(",
         "curvature_Pe = curvature(",

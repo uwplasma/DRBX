@@ -13,7 +13,7 @@ from drbx.native import FciDrbEBState
 from drbx.native.fci_boundaries import BC_DIRICHLET, BC_NEUMANN
 
 
-DRIVER = Path(__file__).parents[2] / "simulate_hsx_blob.py"
+DRIVER = Path(__file__).parents[1] / "simulate_hsx_blob.py"
 
 
 def _load_driver():

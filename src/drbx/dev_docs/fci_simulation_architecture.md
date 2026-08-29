@@ -1,6 +1,6 @@
 # FCI Simulation Architecture
 
-[`simulate_hsx_blob.py`](../../../../simulate_hsx_blob.py) constructs HSX
+[`simulate_hsx_blob.py`](../../../simulate_hsx_blob.py) constructs HSX
 geometry and advances the seven-field electrostatic Boussinesq model through
 the local/sharded FCI stack. This document records the currently selectable
 runtime architecture.

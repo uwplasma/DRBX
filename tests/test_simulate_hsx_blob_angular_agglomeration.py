@@ -1,11 +1,12 @@
 """Driver-level production angular-RLP tests."""
 
+from pathlib import Path
 import sys
 from types import SimpleNamespace
 
 import numpy as np
 
-sys.path.insert(0, str(__file__.split("/DRBX/tests")[0]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import simulate_hsx_blob as driver
 from drbx.geometry import fci_geometry
