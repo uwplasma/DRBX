@@ -4713,6 +4713,53 @@ def _radial_curvature_principal_face_values(
     return face.at[1:-1].set(donor)
 
 
+def _curvature_bc_characteristic_wall_states(
+    interior: jnp.ndarray,
+    boundary_trace: jnp.ndarray,
+    *,
+    positivity_floor: float = 1.0e-12,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Return the BC-derived exterior and canonical curvature wall states.
+
+    ``boundary_trace`` is the numerical primitive trace already constructed
+    from the model's physical BC and metric-aware ghost closure.  Reflecting
+    the adjacent interior state through that trace gives an exterior state
+    whose centered value is exactly the prescribed trace.  The production
+    fluctuation solver subsequently selects only the incoming characteristic
+    branch at a one-sided wall, so outgoing information remains the interior
+    state without requiring an equilibrium reference.
+
+    The thermodynamic components are required to stay positive.  An extreme
+    reflected value that violates positivity falls back componentwise to the
+    positive boundary trace; the returned boolean marks any such fallback.
+    """
+
+    interior = jnp.asarray(interior, dtype=jnp.float64)
+    boundary_trace = jnp.asarray(boundary_trace, dtype=jnp.float64)
+    interior, boundary_trace = jnp.broadcast_arrays(interior, boundary_trace)
+    if interior.shape[-1] != 4:
+        raise ValueError(
+            "curvature wall states require a trailing four-field dimension"
+        )
+    floor = jnp.asarray(positivity_floor, dtype=jnp.float64)
+    trace_finite = jnp.all(jnp.isfinite(boundary_trace), axis=-1)
+    trace_thermo_ok = jnp.all(boundary_trace[..., :3] > floor, axis=-1)
+    safe_trace = jnp.where(jnp.isfinite(boundary_trace), boundary_trace, interior)
+    safe_trace = safe_trace.at[..., :3].set(
+        jnp.maximum(safe_trace[..., :3], floor)
+    )
+    reflected = 2.0 * safe_trace - interior
+    reflected_thermo_ok = jnp.all(reflected[..., :3] > floor, axis=-1)
+    reflected_finite = jnp.all(jnp.isfinite(reflected), axis=-1)
+    admissible = (
+        trace_finite & trace_thermo_ok & reflected_finite & reflected_thermo_ok
+    )
+    fallback_exterior = safe_trace
+    exterior = jnp.where(admissible[..., None], reflected, fallback_exterior)
+    fallback = ~admissible
+    return exterior, safe_trace, fallback
+
+
 def local_curvature_production_path_op(
     stencils: tuple[ConservativeStencil3D, ConservativeStencil3D,
                     ConservativeStencil3D, ConservativeStencil3D],
@@ -4723,7 +4770,25 @@ def local_curvature_production_path_op(
     domain: LocalDomain3D | None = None,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
     equilibrium: jnp.ndarray | None = None,
+    boundary_traces: tuple[
+        LocalBoundaryFaceTrace3D,
+        LocalBoundaryFaceTrace3D,
+        LocalBoundaryFaceTrace3D,
+        LocalBoundaryFaceTrace3D,
+    ] | None = None,
+    wall_flux_closure: Literal[
+        "equilibrium-exterior-canonical-face-state",
+        "bc-characteristic-operator-trace-canonical-face-state",
+    ] = "equilibrium-exterior-canonical-face-state",
     positivity_floor: float = 1.0e-12,
+    radial_ablation: Literal[
+        "none",
+        "upper-physical-face",
+        "rlp-transition-faces",
+        "ordinary-interior-faces",
+        "last-interior-face",
+        "within-cell-path",
+    ] = "none",
     return_diagnostics: bool = False,
 ) -> jnp.ndarray | tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
     """Apply the owner-face production curvature wave-propagation operator.
@@ -4753,8 +4818,45 @@ def local_curvature_production_path_op(
         equilibrium = jnp.asarray(equilibrium, dtype=jnp.float64)
     if equilibrium.shape != (4,):
         raise ValueError("equilibrium must have shape (4,)")
+    valid_wall_flux_closures = (
+        "equilibrium-exterior-canonical-face-state",
+        "bc-characteristic-operator-trace-canonical-face-state",
+    )
+    if wall_flux_closure not in valid_wall_flux_closures:
+        raise ValueError(
+            "wall_flux_closure must be one of "
+            f"{valid_wall_flux_closures!r}, got {wall_flux_closure!r}"
+        )
+    if wall_flux_closure == "bc-characteristic-operator-trace-canonical-face-state":
+        if boundary_traces is None or len(boundary_traces) != 4:
+            raise ValueError(
+                "the BC-characteristic curvature wall closure requires four "
+                "primitive boundary traces"
+            )
+        for trace in boundary_traces:
+            if not isinstance(trace, LocalBoundaryFaceTrace3D):
+                raise TypeError(
+                    "curvature boundary traces must be LocalBoundaryFaceTrace3D"
+                )
+            if trace.layout != geometry.layout:
+                raise ValueError(
+                    "curvature boundary traces must share geometry.layout"
+                )
     if not (np.isfinite(float(positivity_floor)) and float(positivity_floor) > 0.0):
         raise ValueError("positivity_floor must be finite and positive")
+    valid_radial_ablations = (
+        "none",
+        "upper-physical-face",
+        "rlp-transition-faces",
+        "ordinary-interior-faces",
+        "last-interior-face",
+        "within-cell-path",
+    )
+    if radial_ablation not in valid_radial_ablations:
+        raise ValueError(
+            "radial_ablation must be one of "
+            f"{valid_radial_ablations!r}, got {radial_ablation!r}"
+        )
 
     cells = control_volume_geometry.cells if control_volume_geometry is not None else None
     if cells is None:
@@ -4809,6 +4911,36 @@ def local_curvature_production_path_op(
         c = jnp.stack(moved, axis=-1)
         m = jnp.stack(minus_values, axis=-1)
         p = jnp.stack(plus_values, axis=-1)
+        wall_trace_values = None
+        wall_trace_mask = None
+        if boundary_traces is not None:
+            wall_trace_values = jnp.stack(
+                tuple(
+                    jnp.moveaxis(
+                        jnp.asarray(
+                            getattr(trace, f"value_{name}"), dtype=jnp.float64
+                        ),
+                        axis,
+                        0,
+                    )
+                    for trace in boundary_traces
+                ),
+                axis=-1,
+            )
+            wall_trace_mask = jnp.all(
+                jnp.stack(
+                    tuple(
+                        jnp.moveaxis(
+                            jnp.asarray(getattr(trace, f"mask_{name}"), dtype=bool),
+                            axis,
+                            0,
+                        )
+                        for trace in boundary_traces
+                    ),
+                    axis=-1,
+                ),
+                axis=-1,
+            )
         n = c.shape[0]
         if n < 2:
             interior_left = jnp.zeros((0,) + c.shape[1:], dtype=jnp.float64)
@@ -4841,6 +4973,45 @@ def local_curvature_production_path_op(
             upper_right = jnp.broadcast_to(equilibrium, c[-1:].shape)
             lower_fallback = jnp.zeros(c.shape[1:-1], dtype=bool)
             upper_fallback = jnp.zeros(c.shape[1:-1], dtype=bool)
+        lower_wall_face_state = None
+        upper_wall_face_state = None
+        if (
+            not is_periodic
+            and wall_flux_closure
+            == "bc-characteristic-operator-trace-canonical-face-state"
+        ):
+            assert wall_trace_values is not None
+            assert wall_trace_mask is not None
+            lower_exterior, lower_bc_face, lower_bc_fallback = (
+                _curvature_bc_characteristic_wall_states(
+                    c[:1], wall_trace_values[:1], positivity_floor=positivity_floor
+                )
+            )
+            upper_exterior, upper_bc_face, upper_bc_fallback = (
+                _curvature_bc_characteristic_wall_states(
+                    c[-1:], wall_trace_values[-1:], positivity_floor=positivity_floor
+                )
+            )
+            lower_active = wall_trace_mask[:1]
+            upper_active = wall_trace_mask[-1:]
+            lower_left = jnp.where(
+                lower_active[..., None], lower_exterior, lower_left
+            )
+            upper_right = jnp.where(
+                upper_active[..., None], upper_exterior, upper_right
+            )
+            lower_wall_face_state = jnp.where(
+                lower_active[..., None], lower_bc_face, lower_right
+            )
+            upper_wall_face_state = jnp.where(
+                upper_active[..., None], upper_bc_face, upper_left
+            )
+            lower_fallback = lower_fallback | (
+                lower_active[0] & lower_bc_fallback[0]
+            )
+            upper_fallback = upper_fallback | (
+                upper_active[0] & upper_bc_fallback[0]
+            )
         left_face = jnp.concatenate((lower_left, interior_left, upper_left), axis=0)
         right_face = jnp.concatenate((lower_right, interior_right, upper_right), axis=0)
         recon_fallback = jnp.concatenate((lower_fallback[None], interior_fallback, upper_fallback[None]), axis=0)
@@ -4867,8 +5038,16 @@ def local_curvature_production_path_op(
         )
         face_state = canonical_face_state
         if not is_periodic:
-            face_state = face_state.at[0].set(right_face[0])
-            face_state = face_state.at[-1].set(left_face[-1])
+            face_state = face_state.at[0].set(
+                right_face[0]
+                if lower_wall_face_state is None
+                else lower_wall_face_state[0]
+            )
+            face_state = face_state.at[-1].set(
+                left_face[-1]
+                if upper_wall_face_state is None
+                else upper_wall_face_state[0]
+            )
         # Coefficients store Q=J*K and owner measures are raw_volume/B;
         # the material matrix is the physical K-symbol, so use Q/B as its
         # face normal to avoid inserting an extra B in the update.
@@ -4964,17 +5143,13 @@ def local_curvature_production_path_op(
         right_remote = jnp.asarray(owner_is_remote)[tuple(raw_right)]
         valid_left = left_valid & ~same_owner & ~left_remote
         valid_right = right_valid & ~same_owner & ~right_remote
-        integrated_plus = jnp.where(valid_right[..., None], -dplus * area[..., None], 0.0)
-        integrated_minus = jnp.where(valid_left[..., None], -dminus * area[..., None], 0.0)
-        owner_integrated = jnp.zeros(geometry.owned_shape + (4,), dtype=jnp.float64)
-        # D+ is right-going and updates the right owner; D- is left-going and
-        # updates the left owner.
-        owner_integrated = owner_integrated.at[left_owner].add(integrated_minus)
-        owner_integrated = owner_integrated.at[right_owner].add(integrated_plus)
-        radial_face_class_integrated = None
-        if return_diagnostics and axis == 0:
+        radial_face_class_masks = None
+        if axis == 0:
             interior_face = (face_index > 0) & (face_index < n)
-            if control_volume_geometry is None:
+            if (
+                control_volume_geometry is None
+                or control_volume_geometry.angular_group_sizes is None
+            ):
                 transition_face = jnp.zeros_like(interior_face)
             else:
                 group_sizes = jnp.asarray(
@@ -4984,12 +5159,35 @@ def local_curvature_production_path_op(
                 left_group = group_sizes[jnp.clip(face_index - 1, 0, n - 1)]
                 right_group = group_sizes[jnp.clip(face_index, 0, n - 1)]
                 transition_face = interior_face & (left_group != right_group)
+            ordinary_interior_face = interior_face & ~transition_face
             radial_face_class_masks = (
                 face_index == 0,
                 face_index == n,
                 transition_face,
-                interior_face & ~transition_face,
+                ordinary_interior_face,
             )
+            if radial_ablation == "upper-physical-face":
+                ablated_face = face_index == n
+            elif radial_ablation == "rlp-transition-faces":
+                ablated_face = transition_face
+            elif radial_ablation == "ordinary-interior-faces":
+                ablated_face = ordinary_interior_face
+            elif radial_ablation == "last-interior-face":
+                ablated_face = face_index == n - 1
+            else:
+                ablated_face = jnp.zeros_like(face_index, dtype=bool)
+            valid_left = valid_left & ~ablated_face
+            valid_right = valid_right & ~ablated_face
+        integrated_plus = jnp.where(valid_right[..., None], -dplus * area[..., None], 0.0)
+        integrated_minus = jnp.where(valid_left[..., None], -dminus * area[..., None], 0.0)
+        owner_integrated = jnp.zeros(geometry.owned_shape + (4,), dtype=jnp.float64)
+        # D+ is right-going and updates the right owner; D- is left-going and
+        # updates the left owner.
+        owner_integrated = owner_integrated.at[left_owner].add(integrated_minus)
+        owner_integrated = owner_integrated.at[right_owner].add(integrated_plus)
+        radial_face_class_integrated = None
+        if return_diagnostics and axis == 0:
+            assert radial_face_class_masks is not None
             radial_face_class_integrated_list = []
             for class_mask in radial_face_class_masks:
                 class_integrated = jnp.zeros(
@@ -5066,6 +5264,8 @@ def local_curvature_production_path_op(
             -(cell_plus + cell_minus) * cell_area[..., None],
             0.0,
         )
+        if axis == 0 and radial_ablation == "within-cell-path":
+            total_integrated = jnp.zeros_like(total_integrated)
         cell_path_integrated = jnp.zeros(
             geometry.owned_shape + (4,), dtype=jnp.float64
         ).at[cell_owner].add(total_integrated)

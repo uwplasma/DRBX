@@ -64,6 +64,16 @@ def test_parser_owns_production_and_sat_selectors():
         "current-phi",
         "characteristic-sat",
     )
+    curvature_wall_action = next(
+        action
+        for action in driver._build_parser()._actions
+        if action.dest == "curvature_wall_flux_closure"
+    )
+    assert curvature_wall_action.default == "equilibrium-exterior"
+    assert tuple(curvature_wall_action.choices) == (
+        "equilibrium-exterior",
+        "bc-characteristic",
+    )
 
 
 def test_fresh_production_trajectory_accepts_characteristic_sat():
@@ -108,6 +118,8 @@ def test_native_configuration_exports_short_leg_and_curvature_selectors():
         "local-backward-euler",
         "--parallel-short-leg-cfl-limit",
         "2.25",
+        "--curvature-radial-ablation",
+        "upper-physical-face",
     )
     driver._validate_flux_framework(args)
     driver._configure_runtime_selectors(args)
@@ -117,6 +129,35 @@ def test_native_configuration_exports_short_leg_and_curvature_selectors():
     assert driver.os.environ["DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT"] == "2.25"
     assert driver.os.environ["DRBX_CURVATURE_SPLIT_SCHEME"] == "production-path"
     assert driver.os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] == "production-path"
+    assert driver.os.environ["DRBX_CURVATURE_RADIAL_ABLATION"] == (
+        "upper-physical-face"
+    )
+
+
+def test_bc_characteristic_curvature_wall_closure_is_exported(monkeypatch):
+    driver = _driver_module()
+    monkeypatch.delenv("DRBX_CURVATURE_WALL_FLUX_CLOSURE", raising=False)
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--curvature-wall-flux-closure",
+        "bc-characteristic",
+    )
+    driver._validate_flux_framework(args)
+    driver._configure_runtime_selectors(args)
+    assert driver.os.environ["DRBX_CURVATURE_WALL_FLUX_CLOSURE"] == (
+        "bc-characteristic-operator-trace-canonical-face-state"
+    )
+
+
+def test_bc_characteristic_curvature_wall_closure_requires_production_split():
+    driver = _driver_module()
+    args = driver._build_parser().parse_args(
+        ("--curvature-wall-flux-closure", "bc-characteristic")
+    )
+    with pytest.raises(ValueError, match="requires --flux-framework production-split"):
+        driver._validate_flux_framework(args)
 
 
 def test_short_leg_split_is_native_to_compiled_rk4_source():
@@ -134,6 +175,8 @@ def test_run_metadata_attributes_selectors_to_canonical_driver():
         "parallel-short-leg-treatment",
         "parallel-short-leg-cfl-limit",
         "curvature-evolution-component",
+        "curvature-radial-ablation",
+        "curvature-wall-flux-closure",
         "curvature-characteristic-axes",
         "curvature-radial-characteristic-scheme",
         "curvature-poloidal-characteristic-scheme",

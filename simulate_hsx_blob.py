@@ -6331,6 +6331,19 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
             "--curvature-evolution-component diagnostic selectors require "
             "--flux-framework production-split"
         )
+    if args.curvature_radial_ablation != "none" and framework != "production-split":
+        raise ValueError(
+            "--curvature-radial-ablation requires "
+            "--flux-framework production-split"
+        )
+    if (
+        args.curvature_wall_flux_closure == "bc-characteristic"
+        and framework != "production-split"
+    ):
+        raise ValueError(
+            "--curvature-wall-flux-closure bc-characteristic requires "
+            "--flux-framework production-split"
+        )
     if args.parallel_flux_pairing == "support-core":
         if args.parallel_velocity_layout != "cell-centered":
             raise ValueError("support-core requires cell-centered parallel velocities")
@@ -6477,6 +6490,9 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
     os.environ["DRBX_CURVATURE_EVOLUTION_COMPONENT"] = str(
         args.curvature_evolution_component
     )
+    os.environ["DRBX_CURVATURE_RADIAL_ABLATION"] = str(
+        args.curvature_radial_ablation
+    )
     os.environ["DRBX_CURVATURE_CHARACTERISTIC_AXES"] = str(
         args.curvature_characteristic_axes
     )
@@ -6492,9 +6508,14 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
     if args.flux_framework == "production-split":
         os.environ["DRBX_CURVATURE_SPLIT_SCHEME"] = "production-path"
         os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] = "production-path"
-        os.environ["DRBX_CURVATURE_WALL_FLUX_CLOSURE"] = (
-            "equilibrium-exterior-canonical-face-state"
-        )
+        os.environ["DRBX_CURVATURE_WALL_FLUX_CLOSURE"] = {
+            "equilibrium-exterior": (
+                "equilibrium-exterior-canonical-face-state"
+            ),
+            "bc-characteristic": (
+                "bc-characteristic-operator-trace-canonical-face-state"
+            ),
+        }[str(args.curvature_wall_flux_closure)]
         os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] = (
             "characteristic-projected-operator-trace-canonical-face-state"
         )
@@ -6677,6 +6698,32 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("full", "centered-only", "dissipation-only"),
         default="full",
         help="Select all or one component of the production curvature flux.",
+    )
+    parser.add_argument(
+        "--curvature-wall-flux-closure",
+        choices=("equilibrium-exterior", "bc-characteristic"),
+        default="equilibrium-exterior",
+        help=(
+            "Physical-wall state for the production curvature flux.  "
+            "bc-characteristic derives incoming data from the primitive "
+            "operator boundary traces and requires no equilibrium reference."
+        ),
+    )
+    parser.add_argument(
+        "--curvature-radial-ablation",
+        choices=(
+            "none",
+            "upper-physical-face",
+            "rlp-transition-faces",
+            "ordinary-interior-faces",
+            "last-interior-face",
+            "within-cell-path",
+        ),
+        default="none",
+        help=(
+            "Analysis-only removal of one radial production-curvature "
+            "contribution; the default leaves the production RHS unchanged."
+        ),
     )
     parser.add_argument(
         "--curvature-characteristic-axes",
@@ -8085,7 +8132,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     print(
         f"[simulation] curvature scheme: {str(args.curvature_scheme)}; "
-        f"RLP faces: {str(args.curvature_rlp_face_scheme)}",
+        f"RLP faces: {str(args.curvature_rlp_face_scheme)}; wall closure: "
+        f"{str(args.curvature_wall_flux_closure)}",
         flush=True,
     )
     print(
@@ -8247,8 +8295,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             "parallel_short_leg_cfl_limit_source": "simulate_hsx_blob.py:--parallel-short-leg-cfl-limit",
             "curvature_evolution_component": os.environ.get("DRBX_CURVATURE_EVOLUTION_COMPONENT", "full"),
             "curvature_evolution_component_source": "simulate_hsx_blob.py:--curvature-evolution-component",
+            "curvature_radial_ablation": os.environ.get("DRBX_CURVATURE_RADIAL_ABLATION", "none"),
+            "curvature_radial_ablation_source": "simulate_hsx_blob.py:--curvature-radial-ablation",
             "curvature_wall_flux_closure": os.environ.get("DRBX_CURVATURE_WALL_FLUX_CLOSURE", str(args.curvature_inflow_closure)),
-            "curvature_wall_flux_closure_source": "DRBX_CURVATURE_WALL_FLUX_CLOSURE",
+            "curvature_wall_flux_closure_source": "simulate_hsx_blob.py:--curvature-wall-flux-closure",
             "parallel_material_wall_flux_closure": os.environ.get("DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE", str(args.parallel_inflow_closure)),
             "parallel_material_wall_flux_closure_source": "DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE",
             "curvature_characteristic_axes": os.environ.get("DRBX_CURVATURE_CHARACTERISTIC_AXES", "legacy"),

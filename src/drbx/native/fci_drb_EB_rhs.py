@@ -1426,6 +1426,22 @@ class LocalFciDrbEBRhs:
             "DRBX_CURVATURE_EVOLUTION_COMPONENT", "full"
         )
     )
+    # Physical-wall closure for the production four-field curvature split.
+    # The BC-characteristic path derives its exterior candidate from the
+    # primitive operator traces instead of a fixed equilibrium state.
+    curvature_wall_flux_closure: str = field(
+        default_factory=lambda: os.environ.get(
+            "DRBX_CURVATURE_WALL_FLUX_CLOSURE",
+            "equilibrium-exterior-canonical-face-state",
+        )
+    )
+    # Analysis-only removal of one radial production-curvature contribution.
+    # The default preserves the production operator bit for bit.
+    curvature_radial_ablation: str = field(
+        default_factory=lambda: os.environ.get(
+            "DRBX_CURVATURE_RADIAL_ABLATION", "none"
+        )
+    )
     curvature_inflow_closure: str = "central"
     parallel_inflow_closure: str = "central"
     # Diagnostic/experimental trace selector for the parallel-current term in
@@ -1882,6 +1898,43 @@ class LocalFciDrbEBRhs:
                 "curvature_evolution_component must be 'full', 'centered-only', "
                 "or 'dissipation-only', got "
                 f"{self.curvature_evolution_component!r}"
+            )
+        if self.curvature_wall_flux_closure not in (
+            "equilibrium-exterior-canonical-face-state",
+            "bc-characteristic-operator-trace-canonical-face-state",
+        ):
+            raise ValueError(
+                "curvature_wall_flux_closure has invalid value "
+                f"{self.curvature_wall_flux_closure!r}"
+            )
+        if (
+            self.curvature_wall_flux_closure
+            == "bc-characteristic-operator-trace-canonical-face-state"
+            and self.curvature_split_scheme != "production-path"
+        ):
+            raise ValueError(
+                "the BC-characteristic curvature wall closure requires "
+                "curvature_split_scheme='production-path'"
+            )
+        if self.curvature_radial_ablation not in (
+            "none",
+            "upper-physical-face",
+            "rlp-transition-faces",
+            "ordinary-interior-faces",
+            "last-interior-face",
+            "within-cell-path",
+        ):
+            raise ValueError(
+                "curvature_radial_ablation has invalid value "
+                f"{self.curvature_radial_ablation!r}"
+            )
+        if (
+            self.curvature_radial_ablation != "none"
+            and self.curvature_split_scheme != "production-path"
+        ):
+            raise ValueError(
+                "curvature radial ablations require "
+                "curvature_split_scheme='production-path'"
             )
         if (
             self.curvature_evolution_component != "full"
@@ -2960,6 +3013,14 @@ class LocalFciDrbEBRhs:
                 (self.parameters.n0, self.parameters.Te0, self.parameters.Ti0, 0.0),
                 dtype=jnp.float64,
             ),
+            boundary_traces=(
+                operator_boundary.density,
+                operator_boundary.Te,
+                operator_boundary.Ti,
+                operator_boundary.vorticity,
+            ),
+            wall_flux_closure=self.curvature_wall_flux_closure,
+            radial_ablation=self.curvature_radial_ablation,
             # Keep the production default on the original fast path.  The
             # diagnostic lanes are only materialized for an explicit request
             # or for one of the component-evolution ablations.
