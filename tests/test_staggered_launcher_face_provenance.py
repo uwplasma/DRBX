@@ -149,7 +149,7 @@ def test_parallel_flux_pairing_is_launcher_controlled_and_recorded_in_metadata()
     assert 'os.environ["DRBX_SOURCE_ROOT"] = str(WORKTREE / "src")' in source
     assert '"parallel_flux_pairing": os.environ.get("DRBX_PARALLEL_FLUX_PAIRING", "legacy")' in source
     assert 'parser.add_argument(\n        "--parallel-boundary-pairing",' in source
-    assert 'choices=("legacy", "current-phi")' in source
+    assert 'choices=("legacy", "current-phi", "characteristic-sat")' in source
     assert '"parallel_boundary_pairing": os.environ.get("DRBX_PARALLEL_BOUNDARY_PAIRING", "legacy")' in source
 
 
@@ -317,6 +317,62 @@ def test_production_boundary_pairing_is_defaulted_exported_and_replay_ablatable(
         ],
     )
     launcher.main()
+
+
+def test_characteristic_sat_boundary_pairing_is_replay_only_and_recorded(
+    monkeypatch, capsys
+):
+    launcher = _launcher_module()
+    base = [
+        str(launcher.WORKTREE / "run_staggered_hsx_blob.py"),
+        "--flux-framework", "production-split",
+        "--parallel-flux-pairing", "support-core",
+        "--parallel-operator-scheme", "fci",
+        "--topology", "toroidal",
+        "--parallel-boundary-pairing", "characteristic-sat",
+    ]
+    monkeypatch.setattr(
+        launcher,
+        "_transform_shared_driver_source",
+        lambda _: (
+            "import os\n"
+            'assert os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] == "characteristic-sat"\n'
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        base + ["--rhs-replay-history", "/tmp/frozen-history.npz"],
+    )
+    launcher.main()
+    assert "parallel_boundary_pairing=characteristic-sat" in capsys.readouterr().out
+
+    launcher_for_metadata = _launcher_module()
+    transformed = launcher_for_metadata._transform_shared_driver_source(
+        launcher_for_metadata.SHARED_DRIVER.read_text(encoding="utf-8")
+    )
+    assert '"parallel_boundary_pairing": os.environ.get("DRBX_PARALLEL_BOUNDARY_PAIRING", "legacy")' in transformed
+    assert '"parallel_boundary_pairing_source": "run_staggered_hsx_blob.py:--parallel-boundary-pairing"' in transformed
+
+
+def test_characteristic_sat_boundary_pairing_rejects_fresh_production_trajectory(
+    monkeypatch,
+):
+    launcher = _launcher_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(launcher.WORKTREE / "run_staggered_hsx_blob.py"),
+            "--flux-framework", "production-split",
+            "--parallel-flux-pairing", "support-core",
+            "--parallel-operator-scheme", "fci",
+            "--topology", "toroidal",
+            "--parallel-boundary-pairing", "characteristic-sat",
+        ],
+    )
+    with pytest.raises(SystemExit, match="characteristic-sat requires --rhs-replay-history"):
+        launcher.main()
 
 
 def test_flux_framework_parser_and_production_environment_provenance(monkeypatch, capsys):

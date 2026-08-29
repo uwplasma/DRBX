@@ -590,9 +590,23 @@ def _prepare_material_direction_inputs(
     forward_candidate = equilibrium if forward_wall_state is None else _as_state(forward_wall_state)
     backward_candidate = jnp.broadcast_to(backward_candidate, center.shape)
     forward_candidate = jnp.broadcast_to(forward_candidate, center.shape)
+    backward_candidate_fallback = ~jnp.all(jnp.isfinite(backward_candidate), axis=-1)
+    forward_candidate_fallback = ~jnp.all(jnp.isfinite(forward_candidate), axis=-1)
+    # A failed wall-trace reconstruction must not poison the local boundary
+    # solve.  Finite candidates are untouched bit-for-bit; only non-finite
+    # candidates use the supplied equilibrium fallback.
+    backward_candidate = jnp.where(
+        jnp.all(jnp.isfinite(backward_candidate), axis=-1)[..., None],
+        backward_candidate, equilibrium,
+    )
+    forward_candidate = jnp.where(
+        jnp.all(jnp.isfinite(forward_candidate), axis=-1)[..., None],
+        forward_candidate, equilibrium,
+    )
     return (
         center, minus, plus, dx_minus, dx_plus, backward_wall, forward_wall,
-        backward_candidate, forward_candidate,
+        backward_candidate, forward_candidate, backward_candidate_fallback,
+        forward_candidate_fallback,
     )
 
 
@@ -630,7 +644,8 @@ def _material_directional_data(
 
     (
         center, minus, plus, dx_minus, dx_plus, backward_wall, forward_wall,
-        backward_candidate, forward_candidate,
+        backward_candidate, forward_candidate, backward_candidate_fallback,
+        forward_candidate_fallback,
     ) = _prepare_material_direction_inputs(
         center, minus, plus, dx_minus, dx_plus,
         backward_wall=backward_wall, forward_wall=forward_wall,
@@ -713,10 +728,48 @@ def _material_directional_data(
         "forward_wall": forward_wall,
         "backward_clipped": backward_clipped,
         "forward_clipped": forward_clipped,
+        "backward_candidate_fallback": backward_candidate_fallback,
+        "forward_candidate_fallback": forward_candidate_fallback,
         "backward_valid": backward_valid_live,
         "forward_valid": forward_valid_live,
         "backward_alpha": backward_alpha,
         "forward_alpha": forward_alpha,
+        # These are the actual endpoint values consumed by the characteristic
+        # update.  For ordinary mapped legs they are exactly the supplied
+        # ``minus``/``plus`` states; only physical wall legs use the projected
+        # candidate values.
+        "backward_wall_projected_state": wall_minus,
+        "forward_wall_projected_state": wall_plus,
+        "backward_projected_state": minus_used,
+        "forward_projected_state": plus_used,
+        "backward_endpoint_state": minus_used,
+        "forward_endpoint_state": plus_used,
+        "backward_incoming_projector": backward_wall_plus,
+        "forward_incoming_projector": forward_wall_minus,
+        "backward_incoming_action": _matvec(
+            backward_wall_plus, backward_candidate - center
+        ),
+        "forward_incoming_action": _matvec(
+            forward_wall_minus, forward_candidate - center
+        ),
+        "backward_incoming_matrix": backward_plus_matrix,
+        "forward_incoming_matrix": forward_minus_matrix,
+        "backward_candidate_current": backward_candidate[..., 0]
+        * (backward_candidate[..., 3] - backward_candidate[..., 4]),
+        "forward_candidate_current": forward_candidate[..., 0]
+        * (forward_candidate[..., 3] - forward_candidate[..., 4]),
+        "backward_wall_projected_current": wall_minus[..., 0]
+        * (wall_minus[..., 3] - wall_minus[..., 4]),
+        "forward_wall_projected_current": wall_plus[..., 0]
+        * (wall_plus[..., 3] - wall_plus[..., 4]),
+        "backward_projected_current": minus_used[..., 0]
+        * (minus_used[..., 3] - minus_used[..., 4]),
+        "forward_projected_current": plus_used[..., 0]
+        * (plus_used[..., 3] - plus_used[..., 4]),
+        "backward_endpoint_current": minus_used[..., 0]
+        * (minus_used[..., 3] - minus_used[..., 4]),
+        "forward_endpoint_current": plus_used[..., 0]
+        * (plus_used[..., 3] - plus_used[..., 4]),
         "wall_row": backward_wall | forward_wall,
         "ordinary_row": ~(backward_wall | forward_wall),
     }
@@ -811,6 +864,8 @@ def parallel_target_row_material_residual(
     forward_valid_live = directional["forward_valid"]
     backward_clipped = directional["backward_clipped"]
     forward_clipped = directional["forward_clipped"]
+    backward_candidate_fallback = directional["backward_candidate_fallback"]
+    forward_candidate_fallback = directional["forward_candidate_fallback"]
 
     density, Te, Ti, Vi, Ve = [center[..., i] for i in range(STATE_SIZE)]
     current = density * (Vi - Ve)
@@ -834,8 +889,16 @@ def parallel_target_row_material_residual(
         "spectral_fallback": ~backward_valid_live | ~forward_valid_live,
         "positivity_fallback": backward_clipped | forward_clipped,
         "wall_spectral_fallback": (~backward_valid_live & backward_wall) | (~forward_valid_live & forward_wall),
-        "fallback": (~backward_valid_live | ~forward_valid_live) | backward_clipped | forward_clipped,
-        "admissible": backward_valid_live & forward_valid_live & ~backward_clipped & ~forward_clipped,
+        "fallback": (
+            (~backward_valid_live | ~forward_valid_live)
+            | backward_clipped | forward_clipped
+            | backward_candidate_fallback | forward_candidate_fallback
+        ),
+        "admissible": (
+            backward_valid_live & forward_valid_live
+            & ~backward_clipped & ~forward_clipped
+            & ~backward_candidate_fallback & ~forward_candidate_fallback
+        ),
         "omitted_backward_wall": omit_backward,
         "omitted_forward_wall": omit_forward,
         "backward_cfl": backward_cfl,
@@ -856,7 +919,7 @@ def parallel_short_wall_material_data(
     tau: Any,
     mu: Any,
     *,
-    selection_dt: Any,
+    selection_dt: Any = 0.0,
     cfl_limit: float = 2.785,
     backward_wall: Any = False,
     forward_wall: Any = False,
@@ -997,6 +1060,54 @@ def parallel_short_wall_backward_euler(
     return updated, delta, info
 
 
+def parallel_characteristic_wall_data(
+    center: jnp.ndarray,
+    minus: jnp.ndarray,
+    plus: jnp.ndarray,
+    dx_minus: Any,
+    dx_plus: Any,
+    tau: Any,
+    mu: Any,
+    *,
+    selection_dt: Any = 0.0,
+    cfl_limit: float = 2.785,
+    backward_wall: Any = False,
+    forward_wall: Any = False,
+    backward_wall_state: jnp.ndarray | None = None,
+    forward_wall_state: jnp.ndarray | None = None,
+    equilibrium: jnp.ndarray | None = None,
+    positivity_floor: float = 1.0e-12,
+    eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
+    max_condition: float = _DEFAULT_MAX_CONDITION,
+) -> dict[str, jnp.ndarray]:
+    """Return the complete projected wall data consumed by the material flux.
+
+    This boundary-facing view keeps the endpoint states and currents together
+    with the incoming projectors/actions, split matrices, validity flags, and
+    CFL diagnostics.  Ordinary rows expose their supplied mapped endpoints in
+    ``*_endpoint_state``; no equilibrium candidate is substituted there.
+    ``selected_residual`` and ``selected_jacobian`` are included for callers
+    implementing the short-leg local solve.  The function is a thin wrapper
+    around :func:`parallel_short_wall_material_data`, so it cannot drift from
+    the residual's wall closure.
+    """
+
+    selected_residual, selected_jacobian, info = parallel_short_wall_material_data(
+        center, minus, plus, dx_minus, dx_plus, tau, mu,
+        selection_dt=selection_dt, cfl_limit=cfl_limit,
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=backward_wall_state,
+        forward_wall_state=forward_wall_state, equilibrium=equilibrium,
+        positivity_floor=positivity_floor,
+        eigenvalue_tolerance=eigenvalue_tolerance,
+        max_condition=max_condition,
+    )
+    info = dict(info)
+    info["selected_residual"] = selected_residual
+    info["selected_jacobian"] = selected_jacobian
+    return info
+
+
 __all__ = [
     "STATE_SIZE",
     "parallel_production_principal_matrix",
@@ -1015,4 +1126,5 @@ __all__ = [
     "parallel_target_row_material_residual",
     "parallel_short_wall_material_data",
     "parallel_short_wall_backward_euler",
+    "parallel_characteristic_wall_data",
 ]

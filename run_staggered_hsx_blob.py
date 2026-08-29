@@ -524,6 +524,7 @@ def _transform_shared_driver_source(source: str) -> str:
             '            "parallel_velocity_layout": os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT", "cell-centered"),\n'
             '            "parallel_flux_pairing": os.environ.get("DRBX_PARALLEL_FLUX_PAIRING", "legacy"),\n'
             '            "parallel_boundary_pairing": os.environ.get("DRBX_PARALLEL_BOUNDARY_PAIRING", "legacy"),\n'
+            '            "parallel_boundary_pairing_source": "run_staggered_hsx_blob.py:--parallel-boundary-pairing",\n'
             '            "parallel_short_leg_treatment": os.environ.get("DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"),\n'
             '            "parallel_short_leg_treatment_source": "run_staggered_hsx_blob.py:--parallel-short-leg-treatment",\n'
             '            "parallel_short_leg_cfl_limit": float(os.environ.get("DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT", "2.5")),\n'
@@ -750,12 +751,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--parallel-boundary-pairing",
-        choices=("legacy", "current-phi"),
+        choices=("legacy", "current-phi", "characteristic-sat"),
         default="current-phi",
         help=(
             "Boundary composition for support-core FCI fluxes. current-phi "
             "includes physical wall rows in the Neumann-current divergence "
-            "and derives grad(phi) by weighted transpose; legacy is replay-only."
+            "and derives grad(phi) by weighted transpose; characteristic-sat "
+            "is available for frozen replay diagnostics; legacy is replay-only."
         ),
     )
     parser.add_argument(
@@ -906,6 +908,14 @@ def main() -> None:
             raise SystemExit("production-split requires cell-centered parallel velocities")
         if args.parallel_flux_pairing != "support-core":
             raise SystemExit("production-split requires --parallel-flux-pairing support-core")
+        if (
+            args.parallel_boundary_pairing == "characteristic-sat"
+            and not option_present("--rhs-replay-history")
+        ):
+            raise SystemExit(
+                "--parallel-boundary-pairing characteristic-sat requires "
+                "--rhs-replay-history; fresh trajectories are not enabled"
+            )
         if (
             args.parallel_boundary_pairing != "current-phi"
             and not option_present("--rhs-replay-history")
