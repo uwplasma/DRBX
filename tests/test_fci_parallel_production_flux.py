@@ -15,6 +15,7 @@ from drbx.native.fci_parallel_production_flux import (
     parallel_characteristic_projectors,
     parallel_characteristic_split,
     parallel_canonical_leg_face_state,
+    parallel_characteristic_wall_data,
     parallel_production_principal_matrix,
     parallel_short_wall_backward_euler,
     parallel_short_wall_material_data,
@@ -330,6 +331,64 @@ def test_short_wall_batch_jit_and_selection_threshold():
     assert not bool(info["selected_backward_wall"][1])
     np.testing.assert_allclose(delta[1], 0.0)
     assert bool(jnp.all(jnp.isfinite(updated)))
+
+
+def test_characteristic_wall_data_exposes_projected_state_and_current():
+    center = _state()
+    candidate = jnp.asarray([1.1, 1.2, 0.9, 0.3, -0.1])
+    info = parallel_characteristic_wall_data(
+        center, center, center, 0.01, 0.02, 4.0, 10.0,
+        selection_dt=0.0, backward_wall=True, forward_wall=True,
+        backward_wall_state=candidate, forward_wall_state=candidate,
+    )
+    backward_projected = np.asarray(info["backward_projected_state"])
+    forward_projected = np.asarray(info["forward_projected_state"])
+    np.testing.assert_allclose(
+        info["backward_projected_current"],
+        backward_projected[0] * (backward_projected[3] - backward_projected[4]),
+    )
+    np.testing.assert_allclose(
+        info["forward_projected_current"],
+        forward_projected[0] * (forward_projected[3] - forward_projected[4]),
+    )
+    np.testing.assert_allclose(
+        info["backward_endpoint_state"], backward_projected,
+    )
+    np.testing.assert_allclose(
+        info["forward_endpoint_state"], forward_projected,
+    )
+    assert bool(jnp.all(jnp.isfinite(info["backward_incoming_matrix"])))
+    assert bool(jnp.all(jnp.isfinite(info["forward_incoming_action"])))
+    assert float(info["backward_alpha"]) > 0.0
+    assert float(info["forward_alpha"]) > 0.0
+
+
+def test_characteristic_wall_data_keeps_ordinary_mapped_endpoints():
+    center = _state()
+    minus = center + jnp.asarray([-0.1, 0.2, -0.1, 0.3, -0.2])
+    plus = center + jnp.asarray([0.2, -0.1, 0.3, -0.2, 0.1])
+    info = parallel_characteristic_wall_data(
+        center, minus, plus, 2.0, 3.0, 4.0, 10.0, selection_dt=0.0,
+    )
+    np.testing.assert_array_equal(info["backward_endpoint_state"], minus)
+    np.testing.assert_array_equal(info["forward_endpoint_state"], plus)
+    assert not bool(info["backward_wall"])
+    assert not bool(info["forward_wall"])
+
+
+def test_characteristic_wall_data_finite_fallback_is_jittable_in_batch():
+    center = jnp.broadcast_to(_state(), (2, 5))
+    bad = center.at[1, 0].set(jnp.nan)
+    result = jax.jit(parallel_characteristic_wall_data)(
+        center, center, center, jnp.asarray([0.01, 0.01]),
+        jnp.asarray([0.02, 0.02]), 4.0, 10.0, selection_dt=0.01,
+        backward_wall=jnp.asarray([True, True]), backward_wall_state=bad,
+    )
+    info = result
+    assert bool(jnp.all(jnp.isfinite(info["selected_residual"])))
+    assert bool(jnp.all(jnp.isfinite(info["selected_jacobian"])))
+    assert bool(jnp.all(jnp.isfinite(info["backward_projected_state"])))
+    assert bool(jnp.any(info["backward_candidate_fallback"]))
 
 
 def test_completed_run_state_range_is_admissible_when_available():
