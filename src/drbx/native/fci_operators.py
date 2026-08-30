@@ -112,6 +112,7 @@ from .fci_boundaries import (
 )
 from .fci_curvature_production_flux import (
     curvature_face_linearized_fluctuations,
+    curvature_strict_principal_matrix,
     reconstruct_third_order_face_states,
 )
 
@@ -4716,22 +4717,46 @@ def _radial_curvature_principal_face_values(
 def _curvature_bc_characteristic_wall_states(
     interior: jnp.ndarray,
     boundary_trace: jnp.ndarray,
+    bmag: jnp.ndarray,
+    tau: float | jnp.ndarray,
+    normal: jnp.ndarray,
     *,
+    interior_on_right: bool,
     positivity_floor: float = 1.0e-12,
+    eigenvalue_tolerance: float = 1.0e-10,
+    max_condition: float = 1.0e8,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Return the BC-derived exterior and canonical curvature wall states.
+    """Solve copied-Neumann wall residuals for incoming curvature modes.
 
     ``boundary_trace`` is the numerical primitive trace already constructed
-    from the model's physical BC and metric-aware ghost closure.  It is used
-    directly as the exterior Riemann state and as the canonical state at which
-    the material matrix is evaluated.  The one-sided fluctuation split then
-    applies ``A_incoming (U_boundary - U_interior)`` exactly once.  Reflecting
-    through the trace would instead double that characteristic SAT penalty,
-    because the canonical face state is already supplied independently.
+    from the model's physical BC and metric-aware ghost closure.  In the HSX
+    wall model its thermodynamic entries are the existing homogeneous-Neumann
+    copy/extrapolation.  They are *constraints*, not a complete exterior
+    Riemann state: the outgoing and stationary characteristic content must
+    still come from ``interior``.
+
+    The strict curvature symbol has two electron-family modes, one ion-family
+    mode, and one stationary vorticity mode.  At a one-sided face either the
+    two electron modes or the one ion mode enter the domain.  The corresponding
+    physical residual rows are ``(n, Te)`` or ``Ti`` respectively.  Solving
+
+    ``S (P_out U_interior + P_in U_wall) = S U_trace``
+
+    determines only the incoming amplitudes.  This is the matrix-free form of
+    ``(B R_in) w_in = g - B R_out w_out``.  The vorticity Dirichlet condition
+    belongs to the stationary/elliptic closure and is deliberately not used
+    to over-constrain this propagating curvature block.
+
+    ``interior_on_right`` selects modes travelling to increasing coordinate
+    index at the lower wall and modes travelling to decreasing coordinate
+    index at the upper wall.  The characteristic matrix is frozen at the
+    sanitized operator trace, which remains the canonical face state used by
+    the fluctuation solver.
 
     The thermodynamic components are required to stay positive.  Non-finite
-    or non-positive trace values are sanitized from the adjacent interior
-    state; the returned boolean marks that fallback.
+    spectra, ill-conditioned residual solves, or inadmissible reconstructed
+    states fall back to the old incoming projection while still retaining the
+    interior outgoing modes.  The returned boolean marks that fallback.
     """
 
     interior = jnp.asarray(interior, dtype=jnp.float64)
@@ -4741,6 +4766,8 @@ def _curvature_bc_characteristic_wall_states(
         raise ValueError(
             "curvature wall states require a trailing four-field dimension"
         )
+    if not isinstance(interior_on_right, bool):
+        raise TypeError("interior_on_right must be bool")
     floor = jnp.asarray(positivity_floor, dtype=jnp.float64)
     trace_finite = jnp.all(jnp.isfinite(boundary_trace), axis=-1)
     trace_thermo_ok = jnp.all(boundary_trace[..., :3] > floor, axis=-1)
@@ -4748,9 +4775,112 @@ def _curvature_bc_characteristic_wall_states(
     safe_trace = safe_trace.at[..., :3].set(
         jnp.maximum(safe_trace[..., :3], floor)
     )
-    admissible = trace_finite & trace_thermo_ok
-    exterior = safe_trace
-    fallback = ~admissible
+    matrix = curvature_strict_principal_matrix(safe_trace, bmag, tau)
+    normal_matrix = jnp.asarray(normal, dtype=jnp.float64)[..., None, None] * matrix
+    frozen = jax.lax.stop_gradient(normal_matrix)
+    eigenvalues, eigenvectors = jnp.linalg.eig(frozen)
+    inverse = jnp.linalg.inv(eigenvectors)
+    real_values = jnp.real(eigenvalues)
+    imaginary = jnp.abs(jnp.imag(eigenvalues))
+    tolerance = jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)
+    incoming = (
+        real_values > tolerance
+        if interior_on_right
+        else real_values < -tolerance
+    )
+    projector = jnp.einsum(
+        "...ik,...k,...kj->...ij",
+        eigenvectors,
+        incoming.astype(jnp.float64),
+        inverse,
+    )
+    projector = jax.lax.stop_gradient(jnp.real(projector))
+
+    vector_norm = jnp.linalg.norm(eigenvectors, axis=(-2, -1))
+    inverse_norm = jnp.linalg.norm(inverse, axis=(-2, -1))
+    condition = vector_norm * inverse_norm
+    spectral_valid = (
+        jnp.all(jnp.isfinite(normal_matrix), axis=(-2, -1))
+        & jnp.all(
+            imaginary <= tolerance * (1.0 + jnp.abs(real_values)), axis=-1
+        )
+        & jnp.isfinite(condition)
+        & (condition <= jnp.asarray(max_condition, dtype=jnp.float64))
+    )
+
+    incoming_count = jnp.sum(incoming, axis=-1)
+    retained = interior - jnp.einsum("...ij,...j->...i", projector, interior)
+
+    # Electron-family inflow: enforce the copied/extrapolated n and Te rows.
+    electron_block = projector[..., :2, :2]
+    electron_rhs = safe_trace[..., :2] - retained[..., :2]
+    electron_active = incoming_count == 2
+    # Keep the inactive branch nonsingular because JAX evaluates both sides
+    # of the later selection in one batched program.
+    electron_system = electron_block + jnp.where(
+        electron_active[..., None, None],
+        0.0,
+        jnp.eye(2, dtype=jnp.float64),
+    )
+    electron_coefficients = jnp.linalg.solve(
+        electron_system, electron_rhs[..., None]
+    )[..., 0]
+    electron_correction = jnp.einsum(
+        "...ij,...j->...i", projector[..., :, :2], electron_coefficients
+    )
+    electron_state = retained + electron_correction
+    electron_valid = (
+        electron_active
+        & (jnp.abs(jnp.linalg.det(electron_block)) > 1.0e-14)
+        & jnp.all(jnp.isfinite(electron_coefficients), axis=-1)
+        & jnp.all(jnp.isfinite(electron_state), axis=-1)
+        & jnp.all(electron_state[..., :3] > floor, axis=-1)
+    )
+
+    # Ion-family inflow: enforce the copied/extrapolated Ti row.
+    ion_denominator = projector[..., 2, 2]
+    ion_safe_denominator = jnp.where(
+        jnp.abs(ion_denominator) > 1.0e-14, ion_denominator, 1.0
+    )
+    ion_coefficient = (
+        safe_trace[..., 2] - retained[..., 2]
+    ) / ion_safe_denominator
+    ion_state = retained + projector[..., :, 2] * ion_coefficient[..., None]
+    ion_valid = (
+        (incoming_count == 1)
+        & (jnp.abs(ion_denominator) > 1.0e-14)
+        & jnp.isfinite(ion_coefficient)
+        & jnp.all(jnp.isfinite(ion_state), axis=-1)
+        & jnp.all(ion_state[..., :3] > floor, axis=-1)
+    )
+
+    solved = jnp.where(
+        (incoming_count == 2)[..., None], electron_state, ion_state
+    )
+    solve_valid = spectral_valid & (
+        ((incoming_count == 2) & electron_valid)
+        | ((incoming_count == 1) & ion_valid)
+    )
+    # Tangential faces have no incoming curvature modes and need no wall lift.
+    tangent = incoming_count == 0
+    solved = jnp.where(tangent[..., None], interior, solved)
+    solve_valid = solve_valid | (spectral_valid & tangent)
+
+    # Retain the prior incoming projection as a finite safety path.  Unlike a
+    # complete ghost-state substitution, this fallback still cannot alter the
+    # outgoing characteristic content.
+    projected_candidate = interior + jnp.einsum(
+        "...ij,...j->...i", projector, safe_trace - interior
+    )
+    projected_valid = (
+        jnp.all(jnp.isfinite(projected_candidate), axis=-1)
+        & jnp.all(projected_candidate[..., :3] > floor, axis=-1)
+    )
+    finite_fallback = jnp.where(
+        projected_valid[..., None], projected_candidate, interior
+    )
+    exterior = jnp.where(solve_valid[..., None], solved, finite_fallback)
+    fallback = (~trace_finite) | (~trace_thermo_ok) | (~solve_valid)
     return exterior, safe_trace, fallback
 
 
@@ -4967,6 +5097,16 @@ def local_curvature_production_path_op(
             upper_right = jnp.broadcast_to(equilibrium, c[-1:].shape)
             lower_fallback = jnp.zeros(c.shape[1:-1], dtype=bool)
             upper_fallback = jnp.zeros(c.shape[1:-1], dtype=bool)
+        # Work in an axis-first temporary layout.  Besides the fluctuation
+        # update below, the physical face coefficient is needed here to decide
+        # which curvature modes enter at each one-sided wall.
+        qface = jnp.moveaxis(
+            jnp.asarray(coefficient, dtype=jnp.float64), axis, 0
+        )
+        bface = jnp.moveaxis(
+            jnp.asarray(bfield.Bmag_owned, dtype=jnp.float64), axis, 0
+        )
+        qnormal = qface / jnp.maximum(jnp.abs(bface), 1.0e-30)
         lower_wall_face_state = None
         upper_wall_face_state = None
         if (
@@ -4978,12 +5118,24 @@ def local_curvature_production_path_op(
             assert wall_trace_mask is not None
             lower_exterior, lower_bc_face, lower_bc_fallback = (
                 _curvature_bc_characteristic_wall_states(
-                    c[:1], wall_trace_values[:1], positivity_floor=positivity_floor
+                    c[:1],
+                    wall_trace_values[:1],
+                    bface[:1],
+                    tau,
+                    qnormal[:1],
+                    interior_on_right=True,
+                    positivity_floor=positivity_floor,
                 )
             )
             upper_exterior, upper_bc_face, upper_bc_fallback = (
                 _curvature_bc_characteristic_wall_states(
-                    c[-1:], wall_trace_values[-1:], positivity_floor=positivity_floor
+                    c[-1:],
+                    wall_trace_values[-1:],
+                    bface[-1:],
+                    tau,
+                    qnormal[-1:],
+                    interior_on_right=False,
+                    positivity_floor=positivity_floor,
                 )
             )
             lower_active = wall_trace_mask[:1]
@@ -5009,11 +5161,9 @@ def local_curvature_production_path_op(
         left_face = jnp.concatenate((lower_left, interior_left, upper_left), axis=0)
         right_face = jnp.concatenate((lower_right, interior_right, upper_right), axis=0)
         recon_fallback = jnp.concatenate((lower_fallback[None], interior_fallback, upper_fallback[None]), axis=0)
-        # Work in an axis-first temporary layout.  This keeps the face index
-        # at zero for all three directions, while the owner coordinates below
-        # are explicitly mapped back to native (i,j,k) order.
-        qface = jnp.moveaxis(jnp.asarray(coefficient, dtype=jnp.float64), axis, 0)
-        bface = jnp.moveaxis(jnp.asarray(bfield.Bmag_owned, dtype=jnp.float64), axis, 0)
+        # The axis-first layout keeps the face index at zero for all three
+        # directions, while owner coordinates below are explicitly mapped
+        # back to native (i,j,k) order.
         # ``face_values`` is the canonical conservative face reconstruction,
         # in native (i,j,k) face-grid order.  It supplies the material state
         # at ordinary faces independently of the one-sided traces used for
@@ -5045,7 +5195,6 @@ def local_curvature_production_path_op(
         # Coefficients store Q=J*K and owner measures are raw_volume/B;
         # the material matrix is the physical K-symbol, so use Q/B as its
         # face normal to avoid inserting an extra B in the update.
-        qnormal = qface / jnp.maximum(jnp.abs(bface), 1.0e-30)
         dplus, dminus, spectral_fallback = curvature_face_linearized_fluctuations(
             left_face, right_face, face_state, bface, tau, normal=qnormal,
             positivity_floor=positivity_floor, return_fallback=True,

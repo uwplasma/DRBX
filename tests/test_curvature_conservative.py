@@ -45,6 +45,7 @@ from drbx.native.fci_drb_EB_rhs import (
 )
 from drbx.native.fci_curvature_production_flux import (
     curvature_face_linearized_fluctuations,
+    curvature_strict_principal_matrix,
 )
 from test_fci_operators_domain_decomp import (
     _build_domain,
@@ -192,36 +193,129 @@ def _constant_radial_wall_trace(layout, value):
     )
 
 
-def test_bc_characteristic_wall_state_uses_physical_trace_once():
-    interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
-    trace = jnp.asarray((1.2, 0.9, 1.1, 0.0), dtype=jnp.float64)
-    exterior, face, fallback = _curvature_bc_characteristic_wall_states(
-        interior, trace
+def _curvature_projector(state, *, tau, normal, incoming_positive):
+    matrix = np.asarray(
+        normal * curvature_strict_principal_matrix(
+            jnp.asarray(state, dtype=jnp.float64),
+            jnp.asarray(1.0, dtype=jnp.float64),
+            tau,
+        )
     )
-    np.testing.assert_allclose(exterior, trace, atol=0.0, rtol=0.0)
+    eigenvalues, eigenvectors = np.linalg.eig(matrix)
+    inverse = np.linalg.inv(eigenvectors)
+    incoming = (
+        np.real(eigenvalues) > 1.0e-10
+        if incoming_positive
+        else np.real(eigenvalues) < -1.0e-10
+    )
+    return np.real(eigenvectors @ np.diag(incoming.astype(float)) @ inverse)
+
+
+def test_bc_characteristic_wall_state_solves_electron_neumann_rows():
+    interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
+    trace = jnp.asarray((1.15, 0.95, 1.05, 0.0), dtype=jnp.float64)
+    exterior, face, fallback = _curvature_bc_characteristic_wall_states(
+        interior,
+        trace,
+        jnp.asarray(1.0),
+        0.7,
+        jnp.asarray(1.0),
+        interior_on_right=True,
+    )
+    # Positive-normal lower-wall inflow consists of the two electron-family
+    # modes.  The copied/extrapolated density and Te residual rows are exact.
+    np.testing.assert_allclose(exterior[:2], trace[:2], atol=2.0e-13, rtol=0.0)
+    incoming = _curvature_projector(
+        trace, tau=0.7, normal=1.0, incoming_positive=True
+    )
+    outgoing = np.eye(4) - incoming
+    np.testing.assert_allclose(
+        outgoing @ np.asarray(exterior - interior),
+        np.zeros(4),
+        atol=3.0e-13,
+        rtol=0.0,
+    )
+    assert not np.allclose(np.asarray(exterior), np.asarray(trace))
     np.testing.assert_allclose(face, trace, atol=0.0, rtol=0.0)
     assert not bool(fallback)
 
 
-def test_bc_characteristic_wall_state_does_not_double_sat_fluctuation():
+def test_bc_characteristic_wall_state_solves_ion_neumann_row():
     interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
-    trace = jnp.asarray((1.2, 0.9, 1.1, 0.0), dtype=jnp.float64)
+    trace = jnp.asarray((1.15, 0.95, 1.05, 0.0), dtype=jnp.float64)
     exterior, face, _fallback = _curvature_bc_characteristic_wall_states(
-        interior, trace
+        interior,
+        trace,
+        jnp.asarray(1.0),
+        0.7,
+        jnp.asarray(1.0),
+        interior_on_right=False,
     )
-    direct = curvature_face_linearized_fluctuations(
-        interior, exterior, face, 1.0, 0.7
+    # Positive-normal upper-wall inflow is the single ion-family mode, so the
+    # copied/extrapolated Ti residual is the one imposed physical row.
+    np.testing.assert_allclose(exterior[2], trace[2], atol=2.0e-13, rtol=0.0)
+    incoming = _curvature_projector(
+        trace, tau=0.7, normal=1.0, incoming_positive=False
     )
-    reflected = curvature_face_linearized_fluctuations(
-        interior, 2.0 * trace - interior, face, 1.0, 0.7
+    outgoing = np.eye(4) - incoming
+    np.testing.assert_allclose(
+        outgoing @ np.asarray(exterior - interior),
+        np.zeros(4),
+        atol=3.0e-13,
+        rtol=0.0,
     )
-    for direct_branch, reflected_branch in zip(direct, reflected, strict=True):
-        np.testing.assert_allclose(
-            reflected_branch,
-            2.0 * direct_branch,
-            atol=2.0e-14,
-            rtol=2.0e-14,
-        )
+    assert not np.allclose(np.asarray(exterior), np.asarray(trace))
+    np.testing.assert_allclose(face, trace, atol=0.0, rtol=0.0)
+
+
+@pytest.mark.parametrize(
+    ("interior_on_right", "normal", "constrained_components"),
+    (
+        (True, -1.0, (2,)),
+        (False, -1.0, (0, 1)),
+    ),
+)
+def test_bc_characteristic_wall_state_reverses_mode_family_with_normal(
+    interior_on_right, normal, constrained_components
+):
+    interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
+    trace = jnp.asarray((1.15, 0.95, 1.05, 0.0), dtype=jnp.float64)
+    exterior, _face, fallback = _curvature_bc_characteristic_wall_states(
+        interior,
+        trace,
+        jnp.asarray(1.0),
+        0.7,
+        jnp.asarray(normal),
+        interior_on_right=interior_on_right,
+    )
+    np.testing.assert_allclose(
+        np.asarray(exterior)[list(constrained_components)],
+        np.asarray(trace)[list(constrained_components)],
+        atol=2.0e-13,
+        rtol=0.0,
+    )
+    assert not bool(fallback)
+
+
+def test_bc_characteristic_wall_state_is_jittable_and_tangent_is_owner():
+    interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
+    trace = jnp.asarray((1.15, 0.95, 1.05, 0.0), dtype=jnp.float64)
+
+    @jax.jit
+    def close(owner, candidate, normal):
+        return _curvature_bc_characteristic_wall_states(
+            owner,
+            candidate,
+            jnp.asarray(1.0),
+            0.7,
+            normal,
+            interior_on_right=True,
+        )[0]
+
+    np.testing.assert_allclose(
+        close(interior, trace, jnp.asarray(0.0)), interior, atol=0.0, rtol=0.0
+    )
+    assert bool(jnp.all(jnp.isfinite(close(interior, trace, jnp.asarray(1.0)))))
 
 
 def test_bc_characteristic_curvature_preserves_non_equilibrium_neumann_constant():
