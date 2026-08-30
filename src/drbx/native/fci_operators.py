@@ -73,6 +73,9 @@ from .fci_model import (
     inject_owned_field_to_halo,
     inject_owned_vector_field_to_halo,
 )
+from .characteristic_wall_residual import (
+    solve_incoming_characteristic_state,
+)
 from .fci_boundaries import (
     BC_DIRICHLET,
     BC_NEUMANN,
@@ -4737,26 +4740,21 @@ def _curvature_bc_characteristic_wall_states(
 
     The strict curvature symbol has two electron-family modes, one ion-family
     mode, and one stationary vorticity mode.  At a one-sided face either the
-    two electron modes or the one ion mode enter the domain.  The corresponding
-    physical residual rows are ``(n, Te)`` or ``Ti`` respectively.  Solving
-
-    ``S (P_out U_interior + P_in U_wall) = S U_trace``
-
-    determines only the incoming amplitudes.  This is the matrix-free form of
-    ``(B R_in) w_in = g - B R_out w_out``.  The vorticity Dirichlet condition
-    belongs to the stationary/elliptic closure and is deliberately not used
-    to over-constrain this propagating curvature block.
+    two electron modes or the one ion mode enter the domain.  All three
+    thermodynamic primitive residuals are reduced onto that complete incoming
+    subspace in one least-residual solve.  The vorticity Dirichlet condition
+    belongs to the stationary/elliptic closure and is deliberately excluded
+    from this propagating curvature block.
 
     ``interior_on_right`` selects modes travelling to increasing coordinate
     index at the lower wall and modes travelling to decreasing coordinate
-    index at the upper wall.  The characteristic matrix is frozen at the
-    sanitized operator trace, which remains the canonical face state used by
-    the fluctuation solver.
+    index at the upper wall.  The characteristic matrix is frozen at the raw
+    operator trace, which remains the canonical face state used by the
+    fluctuation solver.
 
-    The thermodynamic components are required to stay positive.  Non-finite
-    spectra, ill-conditioned residual solves, or inadmissible reconstructed
-    states fall back to the old incoming projection while still retaining the
-    interior outgoing modes.  The returned boolean marks that fallback.
+    No limiter or physical-state fallback is applied.  Non-finite spectra or
+    residual solves propagate non-finite wall states, and negative
+    thermodynamic results remain visible to the RK stage validity checks.
     """
 
     interior = jnp.asarray(interior, dtype=jnp.float64)
@@ -4771,11 +4769,10 @@ def _curvature_bc_characteristic_wall_states(
     floor = jnp.asarray(positivity_floor, dtype=jnp.float64)
     trace_finite = jnp.all(jnp.isfinite(boundary_trace), axis=-1)
     trace_thermo_ok = jnp.all(boundary_trace[..., :3] > floor, axis=-1)
-    safe_trace = jnp.where(jnp.isfinite(boundary_trace), boundary_trace, interior)
-    safe_trace = safe_trace.at[..., :3].set(
-        jnp.maximum(safe_trace[..., :3], floor)
-    )
-    matrix = curvature_strict_principal_matrix(safe_trace, bmag, tau)
+    # Do not sanitize a failed physical trace.  A non-finite or inadmissible
+    # trace must remain visible in the eigensystem/solve and ultimately fail
+    # the RK stage rather than selecting an interior or floored wall state.
+    matrix = curvature_strict_principal_matrix(boundary_trace, bmag, tau)
     normal_matrix = jnp.asarray(normal, dtype=jnp.float64)[..., None, None] * matrix
     frozen = jax.lax.stop_gradient(normal_matrix)
     eigenvalues, eigenvectors = jnp.linalg.eig(frozen)
@@ -4809,79 +4806,35 @@ def _curvature_bc_characteristic_wall_states(
     )
 
     incoming_count = jnp.sum(incoming, axis=-1)
-    retained = interior - jnp.einsum("...ij,...j->...i", projector, interior)
-
-    # Electron-family inflow: enforce the copied/extrapolated n and Te rows.
-    electron_block = projector[..., :2, :2]
-    electron_rhs = safe_trace[..., :2] - retained[..., :2]
-    electron_active = incoming_count == 2
-    # Keep the inactive branch nonsingular because JAX evaluates both sides
-    # of the later selection in one batched program.
-    electron_system = electron_block + jnp.where(
-        electron_active[..., None, None],
-        0.0,
-        jnp.eye(2, dtype=jnp.float64),
+    solved, residual_info = solve_incoming_characteristic_state(
+        interior,
+        boundary_trace,
+        projector,
+        incoming_basis=eigenvectors,
+        incoming_active=incoming,
+        # Vorticity is the stationary/elliptic field in this strict
+        # curvature block.  All three thermodynamic boundary equations are
+        # presented to the incoming solve; no electron/ion primitive rows are
+        # selected by hand.
+        residual_weights=jnp.asarray((1.0, 1.0, 1.0, 0.0)),
+        thermodynamic_components=3,
+        positivity_floor=positivity_floor,
+        spectral_valid=spectral_valid,
     )
-    electron_coefficients = jnp.linalg.solve(
-        electron_system, electron_rhs[..., None]
-    )[..., 0]
-    electron_correction = jnp.einsum(
-        "...ij,...j->...i", projector[..., :, :2], electron_coefficients
-    )
-    electron_state = retained + electron_correction
-    electron_valid = (
-        electron_active
-        & (jnp.abs(jnp.linalg.det(electron_block)) > 1.0e-14)
-        & jnp.all(jnp.isfinite(electron_coefficients), axis=-1)
-        & jnp.all(jnp.isfinite(electron_state), axis=-1)
-        & jnp.all(electron_state[..., :3] > floor, axis=-1)
-    )
-
-    # Ion-family inflow: enforce the copied/extrapolated Ti row.
-    ion_denominator = projector[..., 2, 2]
-    ion_safe_denominator = jnp.where(
-        jnp.abs(ion_denominator) > 1.0e-14, ion_denominator, 1.0
-    )
-    ion_coefficient = (
-        safe_trace[..., 2] - retained[..., 2]
-    ) / ion_safe_denominator
-    ion_state = retained + projector[..., :, 2] * ion_coefficient[..., None]
-    ion_valid = (
-        (incoming_count == 1)
-        & (jnp.abs(ion_denominator) > 1.0e-14)
-        & jnp.isfinite(ion_coefficient)
-        & jnp.all(jnp.isfinite(ion_state), axis=-1)
-        & jnp.all(ion_state[..., :3] > floor, axis=-1)
-    )
-
-    solved = jnp.where(
-        (incoming_count == 2)[..., None], electron_state, ion_state
-    )
-    solve_valid = spectral_valid & (
-        ((incoming_count == 2) & electron_valid)
-        | ((incoming_count == 1) & ion_valid)
-    )
+    solve_valid = residual_info["solve_valid"]
     # Tangential faces have no incoming curvature modes and need no wall lift.
-    tangent = incoming_count == 0
+    tangent = spectral_valid & (incoming_count == 0)
     solved = jnp.where(tangent[..., None], interior, solved)
-    solve_valid = solve_valid | (spectral_valid & tangent)
+    solve_valid = solve_valid | tangent
 
-    # Retain the prior incoming projection as a finite safety path.  Unlike a
-    # complete ghost-state substitution, this fallback still cannot alter the
-    # outgoing characteristic content.
-    projected_candidate = interior + jnp.einsum(
-        "...ij,...j->...i", projector, safe_trace - interior
+    exterior = solved
+    fallback = (
+        (~trace_finite)
+        | (~trace_thermo_ok)
+        | (~solve_valid)
+        | (~residual_info["thermodynamic_admissible"])
     )
-    projected_valid = (
-        jnp.all(jnp.isfinite(projected_candidate), axis=-1)
-        & jnp.all(projected_candidate[..., :3] > floor, axis=-1)
-    )
-    finite_fallback = jnp.where(
-        projected_valid[..., None], projected_candidate, interior
-    )
-    exterior = jnp.where(solve_valid[..., None], solved, finite_fallback)
-    fallback = (~trace_finite) | (~trace_thermo_ok) | (~solve_valid)
-    return exterior, safe_trace, fallback
+    return exterior, boundary_trace, fallback
 
 
 def local_curvature_production_path_op(

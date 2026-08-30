@@ -19,6 +19,10 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 
+from .characteristic_wall_residual import (
+    solve_incoming_characteristic_state,
+)
+
 
 STATE_SIZE = 5
 _LOG_FLOOR = 1.0e-30
@@ -592,17 +596,9 @@ def _prepare_material_direction_inputs(
     forward_candidate = jnp.broadcast_to(forward_candidate, center.shape)
     backward_candidate_fallback = ~jnp.all(jnp.isfinite(backward_candidate), axis=-1)
     forward_candidate_fallback = ~jnp.all(jnp.isfinite(forward_candidate), axis=-1)
-    # A failed wall-trace reconstruction must not poison the local boundary
-    # solve.  Finite candidates are untouched bit-for-bit; only non-finite
-    # candidates use the supplied equilibrium fallback.
-    backward_candidate = jnp.where(
-        jnp.all(jnp.isfinite(backward_candidate), axis=-1)[..., None],
-        backward_candidate, equilibrium,
-    )
-    forward_candidate = jnp.where(
-        jnp.all(jnp.isfinite(forward_candidate), axis=-1)[..., None],
-        forward_candidate, equilibrium,
-    )
+    # Do not silently substitute equilibrium for a failed physical trace.
+    # Non-finite candidates propagate through the wall solve and are caught by
+    # the stage validity checks; the flags remain available for diagnosis.
     return (
         center, minus, plus, dx_minus, dx_plus, backward_wall, forward_wall,
         backward_candidate, forward_candidate, backward_candidate_fallback,
@@ -686,8 +682,32 @@ def _material_directional_data(
     forward_wall_minus = jnp.where(
         forward_valid[..., None, None], forward_wall_minus, 0.5 * eye
     )
-    wall_minus = center + _matvec(backward_wall_plus, backward_candidate - center)
-    wall_plus = center + _matvec(forward_wall_minus, forward_candidate - center)
+    wall_minus, backward_wall_solve = solve_incoming_characteristic_state(
+        center,
+        backward_candidate,
+        backward_wall_plus,
+        incoming_basis=backward_vectors,
+        incoming_active=(
+            backward_values
+            > jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)
+        ),
+        thermodynamic_components=3,
+        positivity_floor=positivity_floor,
+        spectral_valid=backward_valid,
+    )
+    wall_plus, forward_wall_solve = solve_incoming_characteristic_state(
+        center,
+        forward_candidate,
+        forward_wall_minus,
+        incoming_basis=forward_vectors,
+        incoming_active=(
+            forward_values
+            < -jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)
+        ),
+        thermodynamic_components=3,
+        positivity_floor=positivity_floor,
+        spectral_valid=forward_valid,
+    )
     minus_used = jnp.where(backward_wall[..., None], wall_minus, minus)
     plus_used = jnp.where(forward_wall[..., None], wall_plus, plus)
 
@@ -769,6 +789,24 @@ def _material_directional_data(
         "forward_clipped": forward_clipped,
         "backward_candidate_fallback": backward_candidate_fallback,
         "forward_candidate_fallback": forward_candidate_fallback,
+        "backward_wall_solve_fallback": backward_wall_solve["fallback"],
+        "forward_wall_solve_fallback": forward_wall_solve["fallback"],
+        "backward_wall_thermodynamic_admissible": backward_wall_solve[
+            "thermodynamic_admissible"
+        ],
+        "forward_wall_thermodynamic_admissible": forward_wall_solve[
+            "thermodynamic_admissible"
+        ],
+        "backward_wall_positivity_limited": backward_wall_solve["positivity_limited"],
+        "forward_wall_positivity_limited": forward_wall_solve["positivity_limited"],
+        "backward_wall_residual_norm": backward_wall_solve["residual_norm"],
+        "forward_wall_residual_norm": forward_wall_solve["residual_norm"],
+        "backward_wall_relative_residual": backward_wall_solve["relative_residual"],
+        "forward_wall_relative_residual": forward_wall_solve["relative_residual"],
+        "backward_wall_correction_amplification": backward_wall_solve["correction_amplification"],
+        "forward_wall_correction_amplification": forward_wall_solve["correction_amplification"],
+        "backward_wall_incoming_rank": backward_wall_solve["incoming_rank"],
+        "forward_wall_incoming_rank": forward_wall_solve["incoming_rank"],
         "backward_valid": backward_valid_live,
         "forward_valid": forward_valid_live,
         "backward_alpha": backward_alpha,
@@ -856,11 +894,11 @@ def parallel_target_row_material_residual(
 
     ``residual = -(D_plus_backward / dx_minus + D_minus_forward / dx_plus)``.
 
-    A wall endpoint replaces the mapped endpoint by the same characteristic
-    exterior projection used by :func:`parallel_wall_exterior_state`; ordinary
-    rows simply use their supplied mapped endpoints.  This makes wall and bulk
-    legs one operator with different endpoint data, rather than two numerical
-    fluxes.  ``div_b`` supplies the exact geometric source omitted from the
+    A wall endpoint replaces the mapped endpoint by a primitive-boundary
+    residual solve over the complete incoming characteristic subspace;
+    ordinary rows simply use their supplied mapped endpoints.  This makes wall
+    and bulk legs one operator with different endpoint data, rather than two
+    numerical fluxes.  ``div_b`` supplies the exact geometric source omitted from the
     frozen principal matrix.  If ``selection_dt`` is nonzero, the selected
     physical-wall directions whose characteristic CFL exceeds ``cfl_limit``
     are omitted from this explicit material contribution; the caller can add
@@ -940,11 +978,43 @@ def parallel_target_row_material_residual(
             (~backward_valid_live | ~forward_valid_live)
             | backward_clipped | forward_clipped
             | backward_candidate_fallback | forward_candidate_fallback
+            | (
+                backward_wall
+                & directional["backward_wall_solve_fallback"]
+            )
+            | (
+                forward_wall
+                & directional["forward_wall_solve_fallback"]
+            )
+            | (
+                backward_wall
+                & ~directional["backward_wall_thermodynamic_admissible"]
+            )
+            | (
+                forward_wall
+                & ~directional["forward_wall_thermodynamic_admissible"]
+            )
         ),
         "admissible": (
             backward_valid_live & forward_valid_live
             & ~backward_clipped & ~forward_clipped
             & ~backward_candidate_fallback & ~forward_candidate_fallback
+            & ~(
+                backward_wall
+                & directional["backward_wall_solve_fallback"]
+            )
+            & ~(
+                forward_wall
+                & directional["forward_wall_solve_fallback"]
+            )
+            & ~(
+                backward_wall
+                & ~directional["backward_wall_thermodynamic_admissible"]
+            )
+            & ~(
+                forward_wall
+                & ~directional["forward_wall_thermodynamic_admissible"]
+            )
         ),
         "omitted_backward_wall": omit_backward,
         "omitted_forward_wall": omit_forward,
