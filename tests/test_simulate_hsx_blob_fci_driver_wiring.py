@@ -75,6 +75,7 @@ def test_parser_exposes_coordinate_default_and_fci_trace_controls():
     assert args.fci_parallel_leg_scheme == "centered"
     assert args.fci_trace_substeps == 4
     assert args.vorticity_current_inflow_trace == "operator"
+    assert args.gmres_residual_correction_steps == 1
     assert not args.rhs_replay_electron_force_wall_audit
     assert args.curvature_transition_audit_face is None
     assert args.flux_framework == "legacy"

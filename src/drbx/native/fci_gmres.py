@@ -45,6 +45,7 @@ class SolvaxGmresConfig:
     project_mean_zero: bool = False
     regularization_epsilon: float = 0.0
     preconditioner: str = "none"
+    residual_correction_steps: int = 0
 
     def __post_init__(self) -> None:
         if int(self.maxiter) <= 0:
@@ -59,6 +60,10 @@ class SolvaxGmresConfig:
             raise ValueError("SolvaxGmresConfig acceptance tolerances must be non-negative")
         if float(self.regularization_epsilon) < 0.0:
             raise ValueError("SolvaxGmresConfig.regularization_epsilon must be non-negative")
+        if int(self.residual_correction_steps) < 0:
+            raise ValueError(
+                "SolvaxGmresConfig.residual_correction_steps must be non-negative"
+            )
         if self.preconditioner not in (
             "none",
             "jacobi",
@@ -83,6 +88,11 @@ class SolvaxGmresConfig:
             float(self.regularization_epsilon),
         )
         object.__setattr__(self, "preconditioner", str(self.preconditioner))
+        object.__setattr__(
+            self,
+            "residual_correction_steps",
+            int(self.residual_correction_steps),
+        )
 
     def tree_flatten(self):
         return (), (
@@ -95,6 +105,7 @@ class SolvaxGmresConfig:
             self.project_mean_zero,
             self.regularization_epsilon,
             self.preconditioner,
+            self.residual_correction_steps,
         )
 
     @classmethod
@@ -110,6 +121,7 @@ class SolvaxGmresConfig:
             project_mean_zero,
             regularization_epsilon,
             preconditioner,
+            residual_correction_steps,
         ) = aux_data
         return cls(
             tol=tol,
@@ -121,6 +133,7 @@ class SolvaxGmresConfig:
             project_mean_zero=project_mean_zero,
             regularization_epsilon=regularization_epsilon,
             preconditioner=preconditioner,
+            residual_correction_steps=residual_correction_steps,
         )
 
 
@@ -536,6 +549,90 @@ def solvax_gmres_solve(
         active_mask,
         volume_weights,
     )
+    total_iterations = jnp.asarray(result.iterations, dtype=jnp.int32)
+
+    # A long flexible Arnoldi cycle can report a small projected residual
+    # while the independently recomputed physical residual remains above the
+    # configured acceptance floor.  Only in that otherwise-rejected case,
+    # solve the true residual equation from zero and add the correction.  This
+    # is reliable residual replacement/iterative refinement: it changes the
+    # linear solver trajectory, not the polarization operator or its target.
+    for _ in range(int(config.residual_correction_steps)):
+        needs_correction = (
+            jnp.isfinite(final_residual)
+            & rhs_is_finite
+            & guess_is_finite
+            & volume_weights_valid
+            & (final_residual > acceptance_threshold)
+        )
+
+        def correct(
+            operand: tuple[jnp.ndarray, jnp.ndarray],
+        ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+            current_phi, current_residual_norm = operand
+            correction_rhs = rhs - masked_apply_A(current_phi)
+            correction_result = solvax_gmres(
+                masked_apply_A,
+                correction_rhs,
+                x0=jnp.zeros_like(current_phi),
+                precond=effective_preconditioner,
+                inner_product=global_inner_product,
+                restart=restart,
+                rtol=float(config.tol),
+                atol=float(config.atol),
+                max_restarts=max_restarts,
+            )
+            candidate = _mask_inactive_owned(
+                current_phi + correction_result.x,
+                active_mask,
+            )
+            if config.project_mean_zero:
+                candidate = _spmd_remove_weighted_mean(
+                    candidate,
+                    geometry,
+                    domain,
+                    active_mask,
+                    volume_weights,
+                )
+            candidate_residual = _spmd_norm(
+                rhs - masked_apply_A(candidate),
+                geometry,
+                domain,
+                active_mask,
+                volume_weights,
+            )
+            improved = jnp.isfinite(candidate_residual) & (
+                candidate_residual < current_residual_norm
+            )
+            accepted_phi = jnp.where(improved, candidate, current_phi)
+            accepted_residual = jnp.where(
+                improved,
+                candidate_residual,
+                current_residual_norm,
+            )
+            return (
+                accepted_phi,
+                accepted_residual,
+                jnp.asarray(correction_result.iterations, dtype=jnp.int32),
+            )
+
+        def skip(
+            operand: tuple[jnp.ndarray, jnp.ndarray],
+        ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+            current_phi, current_residual_norm = operand
+            return (
+                current_phi,
+                current_residual_norm,
+                jnp.asarray(0, dtype=jnp.int32),
+            )
+
+        phi, final_residual, correction_iterations = lax.cond(
+            needs_correction,
+            correct,
+            skip,
+            (phi, final_residual),
+        )
+        total_iterations = total_iterations + correction_iterations
     phi_is_finite = _spmd_all_finite(phi, domain, active_mask)
     finite_failed = (
         (~jnp.isfinite(initial_residual))
@@ -551,7 +648,7 @@ def solvax_gmres_solve(
     )
     failed = ~accepted
     info = SolvaxGmresInfo(
-        num_steps=jnp.asarray(result.iterations, dtype=jnp.int32),
+        num_steps=total_iterations,
         converged=accepted,
         failed=failed,
         initial_residual_l2=initial_residual,
@@ -600,6 +697,14 @@ def solvax_gmres_pytree_solve(
         else jnp.asarray(all_finite(guess))
     )
     rhs_l2 = norm(rhs)
+    threshold = jnp.maximum(
+        jnp.asarray(config.atol, dtype=rhs_l2.dtype),
+        jnp.asarray(config.tol, dtype=rhs_l2.dtype) * rhs_l2,
+    )
+    acceptance_threshold = jnp.maximum(
+        jnp.asarray(config.acceptance_atol, dtype=rhs_l2.dtype),
+        jnp.asarray(config.acceptance_tol, dtype=rhs_l2.dtype) * rhs_l2,
+    )
     initial_residual = norm(jax.tree_util.tree_map(lambda r, x: r - x, rhs, apply_A(guess)))
     requested_restart = min(int(config.restart), int(config.maxiter))
     restart = math.gcd(requested_restart, int(config.maxiter))
@@ -619,6 +724,83 @@ def solvax_gmres_pytree_solve(
     final_residual = norm(
         jax.tree_util.tree_map(lambda r, x: r - x, rhs, apply_A(solution))
     )
+    total_iterations = jnp.asarray(result.iterations, dtype=jnp.int32)
+    for _ in range(int(config.residual_correction_steps)):
+        needs_correction = (
+            jnp.isfinite(final_residual)
+            & rhs_is_finite
+            & guess_is_finite
+            & (final_residual > acceptance_threshold)
+        )
+
+        def correct(operand):
+            current_solution, current_residual_norm = operand
+            correction_rhs = jax.tree_util.tree_map(
+                lambda r, x: r - x,
+                rhs,
+                apply_A(current_solution),
+            )
+            zero = jax.tree_util.tree_map(jnp.zeros_like, current_solution)
+            correction_result = solvax_gmres(
+                apply_A,
+                correction_rhs,
+                x0=zero,
+                precond=preconditioner,
+                inner_product=inner_product,
+                restart=restart,
+                rtol=float(config.tol),
+                atol=float(config.atol),
+                max_restarts=max_restarts,
+            )
+            candidate = jax.tree_util.tree_map(
+                lambda x, dx: x + dx,
+                current_solution,
+                correction_result.x,
+            )
+            candidate_residual = norm(
+                jax.tree_util.tree_map(
+                    lambda r, x: r - x,
+                    rhs,
+                    apply_A(candidate),
+                )
+            )
+            improved = jnp.isfinite(candidate_residual) & (
+                candidate_residual < current_residual_norm
+            )
+            accepted_solution = jax.tree_util.tree_map(
+                lambda candidate_leaf, current_leaf: jnp.where(
+                    improved,
+                    candidate_leaf,
+                    current_leaf,
+                ),
+                candidate,
+                current_solution,
+            )
+            return (
+                accepted_solution,
+                jnp.where(
+                    improved,
+                    candidate_residual,
+                    current_residual_norm,
+                ),
+                jnp.asarray(correction_result.iterations, dtype=jnp.int32),
+            )
+
+        def skip(operand):
+            current_solution, current_residual_norm = operand
+            return (
+                current_solution,
+                current_residual_norm,
+                jnp.asarray(0, dtype=jnp.int32),
+            )
+
+        solution, final_residual, correction_iterations = lax.cond(
+            needs_correction,
+            correct,
+            skip,
+            (solution, final_residual),
+        )
+        total_iterations = total_iterations + correction_iterations
     phi_is_finite = (
         jnp.asarray(True)
         if all_finite is None
@@ -631,20 +813,12 @@ def solvax_gmres_pytree_solve(
         | (~guess_is_finite)
         | (~phi_is_finite)
     )
-    threshold = jnp.maximum(
-        jnp.asarray(config.atol, dtype=rhs_l2.dtype),
-        jnp.asarray(config.tol, dtype=rhs_l2.dtype) * rhs_l2,
-    )
-    acceptance_threshold = jnp.maximum(
-        jnp.asarray(config.acceptance_atol, dtype=rhs_l2.dtype),
-        jnp.asarray(config.acceptance_tol, dtype=rhs_l2.dtype) * rhs_l2,
-    )
     strict_converged = (~finite_failed) & (final_residual <= threshold)
     accepted = (~finite_failed) & (
         strict_converged | (final_residual <= acceptance_threshold)
     )
     info = SolvaxGmresInfo(
-        num_steps=jnp.asarray(result.iterations, dtype=jnp.int32),
+        num_steps=total_iterations,
         converged=accepted,
         failed=~accepted,
         initial_residual_l2=initial_residual,

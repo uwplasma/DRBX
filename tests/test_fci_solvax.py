@@ -161,6 +161,114 @@ def test_single_shard_solvax_gmres_solves_identity_inside_shard_map() -> None:
     assert float(info.final_residual_l2) < 1.0e-10
 
 
+def test_true_residual_correction_restarts_from_the_recomputed_residual() -> None:
+    shape = (4, 3, 2)
+    shard_counts = (1, 1, 1)
+    halo_width = 1
+    domain = _build_domain(shape, halo_width, shard_counts)
+    rhs = jnp.ones(shape, dtype=jnp.float64)
+    coefficient = jnp.linspace(1.0, 4.0, math.prod(shape), dtype=jnp.float64).reshape(shape)
+    config = SolvaxGmresConfig(
+        tol=0.0,
+        atol=0.0,
+        acceptance_tol=0.0,
+        acceptance_atol=0.0,
+        maxiter=1,
+        restart=1,
+        residual_correction_steps=1,
+    )
+
+    with make_mesh_for_shard_counts(shard_counts) as mesh:
+        rhs_sharded = put_scalar_field_on_mesh(rhs, mesh)
+        coefficient_sharded = put_scalar_field_on_mesh(coefficient, mesh)
+
+        def kernel(rhs_owned, coefficient_owned):
+            shard_index = tuple(lax.axis_index(name) for name in ("x", "y", "z"))
+            geometry = _build_local_geometry(
+                shape,
+                halo_width,
+                global_shape=shape,
+                shard_index=shard_index,
+            )
+            return solvax_gmres_solve(
+                lambda values: coefficient_owned * values,
+                rhs_owned,
+                jnp.zeros_like(rhs_owned),
+                geometry,
+                domain,
+                config,
+            )
+
+        kernel = shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(P("x", "y", "z"), P("x", "y", "z")),
+            out_specs=(P("x", "y", "z"), _replicated_gmres_info_spec()),
+            check_rep=False,
+        )
+        _solution, info = kernel(rhs_sharded, coefficient_sharded)
+
+    assert int(info.num_steps) == 2
+    assert float(info.final_residual_l2) < float(info.initial_residual_l2)
+
+
+def test_z_sharded_true_residual_correction_uses_global_norm() -> None:
+    shape = (2, 2, 16)
+    shard_counts = (1, 1, 4)
+    if len(jax.devices()) < 4:
+        pytest.skip("requires four JAX devices")
+    owned_shape = (shape[0], shape[1], shape[2] // shard_counts[2])
+    halo_width = 1
+    domain = _build_domain(shape, halo_width, shard_counts)
+    rhs = jnp.ones(shape, dtype=jnp.float64)
+    coefficient = jnp.broadcast_to(
+        jnp.linspace(1.0, 4.0, shape[2], dtype=jnp.float64)[None, None, :],
+        shape,
+    )
+    config = SolvaxGmresConfig(
+        tol=0.0,
+        atol=0.0,
+        acceptance_tol=0.0,
+        acceptance_atol=0.0,
+        maxiter=1,
+        restart=1,
+        residual_correction_steps=1,
+    )
+
+    with make_mesh_for_shard_counts(shard_counts) as mesh:
+        rhs_sharded = put_scalar_field_on_mesh(rhs, mesh)
+        coefficient_sharded = put_scalar_field_on_mesh(coefficient, mesh)
+
+        def kernel(rhs_owned, coefficient_owned):
+            shard_index = tuple(lax.axis_index(name) for name in ("x", "y", "z"))
+            geometry = _build_local_geometry(
+                owned_shape,
+                halo_width,
+                global_shape=shape,
+                shard_index=shard_index,
+            )
+            return solvax_gmres_solve(
+                lambda values: coefficient_owned * values,
+                rhs_owned,
+                jnp.zeros_like(rhs_owned),
+                geometry,
+                domain,
+                config,
+            )
+
+        kernel = shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(P("x", "y", "z"), P("x", "y", "z")),
+            out_specs=(P("x", "y", "z"), _replicated_gmres_info_spec()),
+            check_rep=False,
+        )
+        _solution, info = kernel(rhs_sharded, coefficient_sharded)
+
+    assert int(info.num_steps) == 2
+    assert float(info.final_residual_l2) < float(info.initial_residual_l2)
+
+
 def test_z_sharded_solvax_gmres_supports_collective_matvec_and_inner_product() -> None:
     """FGMRES may communicate in both the operator and Arnoldi reductions."""
 
