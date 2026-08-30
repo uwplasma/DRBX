@@ -6003,19 +6003,34 @@ class LocalFciDrbEBRhs:
         selection_dt: Any | None = None,
         *,
         phi_owned: jnp.ndarray | None = None,
-    ) -> FciDrbEBState:
-        """Apply a frozen local backward-Euler step to selected wall legs.
+        return_increment: bool = False,
+    ) -> FciDrbEBState | tuple[FciDrbEBState, FciDrbEBState, dict[str, jnp.ndarray]]:
+        """Apply the complete selected-wall-leg backward-Euler stage.
 
-        This is intentionally a narrow prototype operator.  It updates only
-        the five primitive material fields on rows selected by
-        ``parallel_short_leg_selection``.  In the default ``cfl`` mode, a
-        physical wall leg is selected when it exceeds
+        The implicit residual contains both the five-field characteristic
+        material action and the matching ion-temperature force
+        ``mu*tau*grad_parallel(Ti)``.  That force is assembled by the
+        compatible production gradient outside the material flux, but it
+        cancels the Ti column of the centered electron material equation and
+        therefore must cross the explicit/implicit handoff with it.
+
+        ``mu*grad_parallel(phi)`` deliberately remains explicit together
+        with its weighted-adjoint current-divergence partner in the
+        vorticity equation.  Moving only the phi force into this local
+        five-field solve would create a second, global current/phi handoff
+        defect.  ``phi`` is still supplied so both paths use the same stage
+        boundary bundle, and the time integrator reconstructs it after the
+        local solve.
+
+        In the default ``cfl`` mode, a physical wall leg is selected when it exceeds
         ``parallel_short_leg_cfl_limit`` measured with ``selection_dt``;
         ``all-physical-walls`` selects every physical wall leg.  All
-        mapped/bulk rows, the geometric ``div(b)`` source, polarization, and
-        vorticity remain in the explicit RHS.  The owner update is formed from
-        the BE increment, so projected-fine/RLP storage cannot accidentally
-        average an already-updated state.
+        mapped/bulk rows, the geometric ``div(b)`` source, diffusion,
+        collisions, perpendicular physics, polarization, and vorticity remain
+        in the explicit RHS.  The fine-row increment is passed through the
+        same volume-weighted RLP restriction as an ordinary RHS contribution.
+        ``return_increment`` exposes that owner-space increment for an IMEX
+        stage without inferring it from the algebraic ``phi`` field.
         """
         if self.parallel_short_leg_treatment != "local-backward-euler":
             raise ValueError(
@@ -6058,6 +6073,22 @@ class LocalFciDrbEBRhs:
             state_halo=state_halo, operator_boundary=operator_boundary,
         )
         context = self._stencil_builder_context()
+        parallel_terms = self._fci_parallel_terms(
+            state_halo=state_halo,
+            face_bc=face_bc,
+            operator_boundary=operator_boundary,
+            parallel_boundary=parallel_boundary,
+            context=context,
+            short_leg_selection_dt=selection_dt,
+        )
+        coupled_force = (
+            self.parameters.mi_over_me
+            * self.parameters.tau
+            * parallel_terms["grad_Ti"]
+        )
+        coupled_residual = jnp.zeros(
+            self.geometry.owned_shape + (5,), dtype=jnp.float64
+        ).at[..., 4].set(coupled_force)
         owned = self.domain.layout.owned_slices_cell
         primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
         primitive_stencils = []
@@ -6112,13 +6143,12 @@ class LocalFciDrbEBRhs:
             parallel_characteristic_wall_law=(
                 self.parameters.parallel_characteristic_wall_law
             ),
+            coupled_residual=coupled_residual,
         )
 
-        if self._uses_compact_face_operators:
+        if self._uses_projected_fine_grid:
             increment_owner = jax.vmap(
-                lambda value: aggregate_local_control_volume_average(
-                    value, self.control_volume_geometry.cells, self.domain
-                )
+                self._restrict_fine_field
             )(jnp.moveaxis(increment, -1, 0))
             increment_owner = jnp.moveaxis(increment_owner, 0, -1)
         else:
@@ -6129,13 +6159,51 @@ class LocalFciDrbEBRhs:
                 increment_owner,
                 0.0,
             )
-        return self._owner_state(state_owned.replace(
+        updated_state = self._owner_state(state_owned.replace(
             density=state_owned.density + increment_owner[..., 0],
             Te=state_owned.Te + increment_owner[..., 1],
             Ti=state_owned.Ti + increment_owner[..., 2],
             Vi=state_owned.Vi + increment_owner[..., 3],
             Ve=state_owned.Ve + increment_owner[..., 4],
         ))
+        if not return_increment:
+            return updated_state
+        zero = jnp.zeros_like(state_owned.density)
+        increment_state = self._owner_state(FciDrbEBState(
+            density=increment_owner[..., 0],
+            phi=zero,
+            Te=increment_owner[..., 1],
+            Ti=increment_owner[..., 2],
+            Vi=increment_owner[..., 3],
+            Ve=increment_owner[..., 4],
+            vorticity=zero,
+        ))
+        info = dict(info)
+        info["selected_coupled_force"] = jnp.where(
+            info["selected_wall"], coupled_force, 0.0
+        )
+        complete_residual = jnp.moveaxis(
+            info["selected_complete_residual"], -1, 0
+        )
+        if self._uses_projected_fine_grid:
+            complete_residual = jax.vmap(self._restrict_fine_field)(
+                complete_residual
+            )
+        complete_residual_owner = jnp.moveaxis(complete_residual, 0, -1)
+        if self.control_volume_geometry is not None:
+            complete_residual_owner = jnp.where(
+                self.control_volume_geometry.cells.is_active_owner[..., None],
+                complete_residual_owner,
+                0.0,
+            )
+        else:
+            complete_residual_owner = jnp.where(
+                self.geometry.active_cell_mask_owned[..., None],
+                complete_residual_owner,
+                0.0,
+            )
+        info["selected_complete_residual_owner"] = complete_residual_owner
+        return updated_state, increment_state, info
 
     def evaluate_stage(
         self,
@@ -6690,11 +6758,32 @@ class LocalFciDrbEBRhs:
         Vi_pressure_term = -grad_parallel_pressure / n_face_safe
         Ve_self_advection_term = -Ve_parallel_value * grad_parallel_Ve
         Ve_collision_term = mi_over_me * Ve_nu * current_parallel_value
-        Ve_electrostatic_term = (
-            mi_over_me * (grad_parallel_phi + tau * grad_parallel_Ti)
+        Ve_phi_force_term = mi_over_me * grad_parallel_phi
+        Ve_Ti_force_complete_term = (
+            mi_over_me * tau * grad_parallel_Ti
             if production_parallel
-            else mi_over_me * grad_parallel_phi
+            else jnp.zeros_like(grad_parallel_phi)
         )
+        material_diagnostics = stage_parallel_terms.get(
+            "parallel_material_diagnostics", {}
+        )
+        selected_short_wall = material_diagnostics.get(
+            "selected_wall",
+            jnp.zeros(self.geometry.owned_shape, dtype=bool),
+        )
+        # The material Ti column and mu*tau*grad(Ti) are one principal
+        # balance.  Hand both to the same short-leg stage.  The phi force is
+        # not masked: it stays explicit with its weighted-adjoint
+        # current-divergence partner in the vorticity equation.
+        Ve_Ti_force_term = (
+            jnp.where(selected_short_wall, 0.0, Ve_Ti_force_complete_term)
+            if (
+                production_parallel
+                and self.parallel_short_leg_treatment == "local-backward-euler"
+            )
+            else Ve_Ti_force_complete_term
+        )
+        Ve_electrostatic_term = Ve_phi_force_term + Ve_Ti_force_term
         Ve_pressure_term = -mi_over_me * grad_parallel_Pe / n_face_safe
         Ve_thermal_force_term = -0.71 * mi_over_me * grad_parallel_Te
         curvature_outputs = self._curvature_rhs_contributions(

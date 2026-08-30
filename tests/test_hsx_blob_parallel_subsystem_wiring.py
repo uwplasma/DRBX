@@ -131,12 +131,12 @@ def test_cli_exposes_parallel_subsystem_only_as_opt_in_flag():
     assert "parallel_subsystem_only" in source
 
 
-def test_parallel_subsystem_mode_is_restricted_to_rk4():
+def test_parallel_subsystem_mode_uses_the_selected_supported_integrator():
     run = _function(_tree(DRIVER_PATH), "run_full_eb")
     source = _source(DRIVER_PATH, run)
     assert "parallel_subsystem_only" in source
-    assert "time_integrator != \"rk4\"" in source
-    assert "parallel_subsystem_only" in source[source.index("time_integrator != \"rk4\"") :]
+    assert 'time_integrator not in ("rk4", "imex-ssp222")' in source
+    assert "parallel_subsystem_only and time_integrator" not in source
 
 
 def test_enabled_branch_reuses_parallel_operators_and_wall_traces():

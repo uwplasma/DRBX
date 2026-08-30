@@ -80,7 +80,10 @@ def test_curvature_scale_is_static_finite_nonnegative_and_scales_each_assembly()
     assert isinstance(scale_field.value, ast.Constant)
     assert scale_field.value.value == 1.0
 
-    post_init = _function(rhs_tree, "__post_init__")
+    post_init = next(
+        node for node in rhs_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "__post_init__"
+    )
     post_init_source = ast.get_source_segment(source, post_init)
     assert post_init_source is not None
     assert "math.isfinite" in post_init_source
@@ -173,7 +176,7 @@ def test_curvature_scale_does_not_appear_in_noncurvature_rhs_terms():
         assert "self.curvature_scale" not in rhs_block
 
 
-def test_tracked_rk4_uses_three_output_specs_and_scalar_diagnostic_halo():
+def test_tracked_advance_uses_output_specs_and_scalar_diagnostic_halo():
     rhs_tree = _tree(RHS_PATH)
     diagnostic = _function(
         rhs_tree,
@@ -191,7 +194,7 @@ def test_tracked_rk4_uses_three_output_specs_and_scalar_diagnostic_halo():
         for node in ast.walk(run_full_eb)
         if isinstance(node, ast.Assign)
         and any(
-            isinstance(target, ast.Name) and target.id == "rk4_out_specs"
+                isinstance(target, ast.Name) and target.id == "advance_out_specs"
             for target in node.targets
         )
     )
@@ -207,17 +210,17 @@ def test_tracked_rk4_uses_three_output_specs_and_scalar_diagnostic_halo():
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "shard_map"
     ]
-    rk4_call = next(
+    advance_call = next(
         call
         for call in shard_map_calls
         if any(
             keyword.arg == "out_specs"
             and isinstance(keyword.value, ast.Name)
-            and keyword.value.id == "rk4_out_specs"
+                and keyword.value.id == "advance_out_specs"
             for keyword in call.keywords
         )
     )
-    assert rk4_call is not None
+    assert advance_call is not None
 
 
 def test_hsx_gmres_uses_tight_target_and_preserves_looser_acceptance():

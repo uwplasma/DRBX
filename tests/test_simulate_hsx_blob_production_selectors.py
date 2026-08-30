@@ -7,6 +7,9 @@ import ast
 from pathlib import Path
 import sys
 
+import jax
+import jax.numpy as jnp
+import numpy as np
 import pytest
 
 
@@ -221,6 +224,8 @@ def test_native_configuration_exports_short_leg_and_curvature_selectors():
         "characteristic-sat",
         "--parallel-short-leg-treatment",
         "local-backward-euler",
+        "--time-integrator",
+        "imex-ssp222",
         "--parallel-short-leg-cfl-limit",
         "2.25",
         "--curvature-radial-ablation",
@@ -256,6 +261,7 @@ def test_all_physical_walls_requires_absorbing_be_configuration(override):
         "--parallel-short-leg-treatment", "local-backward-euler",
         "--parallel-characteristic-wall-law", "energy-absorbing",
         "--parallel-boundary-pairing", "characteristic-sat",
+        "--time-integrator", "imex-ssp222",
         *override,
     )
     with pytest.raises(ValueError):
@@ -270,6 +276,7 @@ def test_all_physical_walls_exports_selection_without_inf_sentinel():
         "--parallel-short-leg-treatment", "local-backward-euler",
         "--parallel-characteristic-wall-law", "energy-absorbing",
         "--parallel-boundary-pairing", "characteristic-sat",
+        "--time-integrator", "imex-ssp222",
     )
     driver._validate_flux_framework(args)
     driver._configure_runtime_selectors(args)
@@ -307,12 +314,77 @@ def test_bc_characteristic_curvature_wall_closure_requires_production_split():
         driver._validate_flux_framework(args)
 
 
-def test_short_leg_split_is_native_to_compiled_rk4_source():
+def test_short_leg_split_is_native_to_compiled_imex_source():
     source = DRIVER.read_text(encoding="utf-8")
     assert "short_leg_selection_dt=(" in source
     assert "model.apply_short_leg_implicit_material_step(" in source
-    assert "solve_dt=dt" in source
+    assert "solve_dt=gamma_dt" in source
     assert "selection_dt=dt" in source
+    assert "full_imex_advance" in source
+    assert "IMEX_SSP222_GAMMA" in source
+
+
+def test_short_leg_handoff_rejects_poststep_rk4_and_requires_imex():
+    driver = _driver_module()
+    rk4 = _production_args(
+        driver,
+        "--parallel-boundary-pairing", "characteristic-sat",
+        "--parallel-short-leg-treatment", "local-backward-euler",
+    )
+    with pytest.raises(ValueError, match="imex-ssp222"):
+        driver._validate_flux_framework(rk4)
+
+    imex_without_split = _production_args(
+        driver,
+        "--parallel-boundary-pairing", "characteristic-sat",
+        "--time-integrator", "imex-ssp222",
+    )
+    with pytest.raises(ValueError, match="local-backward-euler"):
+        driver._validate_flux_framework(imex_without_split)
+
+
+def test_imex_ssp222_scalar_split_is_second_order_without_jit():
+    driver = _driver_module()
+    explicit_rate = -0.5
+    implicit_rate = -4.0
+
+    def advance(step_count: int) -> float:
+        value = jnp.asarray(1.0, dtype=jnp.float64)
+        dt = 0.5 / step_count
+
+        def explicit(y):
+            return explicit_rate * y
+
+        def implicit(base, stage_dt):
+            stage = base / (1.0 - stage_dt * implicit_rate)
+            return stage, implicit_rate * stage
+
+        with jax.disable_jit():
+            for _ in range(step_count):
+                value, _stages, _rates = driver._imex_ssp222_step(
+                    value, dt, explicit, implicit
+                )
+        return float(value)
+
+    exact = np.exp((explicit_rate + implicit_rate) * 0.5)
+    error_20 = abs(advance(20) - exact)
+    error_40 = abs(advance(40) - exact)
+    assert error_20 / error_40 > 3.5
+
+
+def test_frozen_rhs_replay_exposes_eager_no_outer_compile_mode():
+    driver = _driver_module()
+    parser = driver._build_parser()
+    args = parser.parse_args(())
+    assert args.rhs_replay_execution == "compiled"
+    action = next(
+        action for action in parser._actions
+        if action.dest == "rhs_replay_execution"
+    )
+    assert tuple(action.choices) == ("compiled", "eager")
+    source = DRIVER.read_text(encoding="utf-8")
+    assert "with jax.disable_jit(rhs_replay_execution == \"eager\")" in source
+    assert "else replay_sharded" in source
 
 
 def test_run_full_eb_reconstructs_phi_after_short_leg_implicit_step():
