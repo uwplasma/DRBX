@@ -43,6 +43,9 @@ from drbx.native.fci_drb_EB_rhs import (
     background_curvature_characteristic_absolute_matrix,
     background_curvature_characteristic_metric,
 )
+from drbx.native.fci_curvature_production_flux import (
+    curvature_face_linearized_fluctuations,
+)
 from test_fci_operators_domain_decomp import (
     _build_domain,
     _build_local_geometry,
@@ -189,18 +192,36 @@ def _constant_radial_wall_trace(layout, value):
     )
 
 
-def test_bc_characteristic_wall_state_reflects_through_physical_trace():
+def test_bc_characteristic_wall_state_uses_physical_trace_once():
     interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
     trace = jnp.asarray((1.2, 0.9, 1.1, 0.0), dtype=jnp.float64)
     exterior, face, fallback = _curvature_bc_characteristic_wall_states(
         interior, trace
     )
-    np.testing.assert_allclose(
-        exterior, jnp.asarray((1.2, 0.9, 1.1, -0.2)), atol=0.0, rtol=0.0
-    )
-    np.testing.assert_allclose(0.5 * (interior + exterior), trace, atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(exterior, trace, atol=0.0, rtol=0.0)
     np.testing.assert_allclose(face, trace, atol=0.0, rtol=0.0)
     assert not bool(fallback)
+
+
+def test_bc_characteristic_wall_state_does_not_double_sat_fluctuation():
+    interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
+    trace = jnp.asarray((1.2, 0.9, 1.1, 0.0), dtype=jnp.float64)
+    exterior, face, _fallback = _curvature_bc_characteristic_wall_states(
+        interior, trace
+    )
+    direct = curvature_face_linearized_fluctuations(
+        interior, exterior, face, 1.0, 0.7
+    )
+    reflected = curvature_face_linearized_fluctuations(
+        interior, 2.0 * trace - interior, face, 1.0, 0.7
+    )
+    for direct_branch, reflected_branch in zip(direct, reflected, strict=True):
+        np.testing.assert_allclose(
+            reflected_branch,
+            2.0 * direct_branch,
+            atol=2.0e-14,
+            rtol=2.0e-14,
+        )
 
 
 def test_bc_characteristic_curvature_preserves_non_equilibrium_neumann_constant():

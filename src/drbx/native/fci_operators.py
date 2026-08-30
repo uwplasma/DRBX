@@ -4722,16 +4722,16 @@ def _curvature_bc_characteristic_wall_states(
     """Return the BC-derived exterior and canonical curvature wall states.
 
     ``boundary_trace`` is the numerical primitive trace already constructed
-    from the model's physical BC and metric-aware ghost closure.  Reflecting
-    the adjacent interior state through that trace gives an exterior state
-    whose centered value is exactly the prescribed trace.  The production
-    fluctuation solver subsequently selects only the incoming characteristic
-    branch at a one-sided wall, so outgoing information remains the interior
-    state without requiring an equilibrium reference.
+    from the model's physical BC and metric-aware ghost closure.  It is used
+    directly as the exterior Riemann state and as the canonical state at which
+    the material matrix is evaluated.  The one-sided fluctuation split then
+    applies ``A_incoming (U_boundary - U_interior)`` exactly once.  Reflecting
+    through the trace would instead double that characteristic SAT penalty,
+    because the canonical face state is already supplied independently.
 
-    The thermodynamic components are required to stay positive.  An extreme
-    reflected value that violates positivity falls back componentwise to the
-    positive boundary trace; the returned boolean marks any such fallback.
+    The thermodynamic components are required to stay positive.  Non-finite
+    or non-positive trace values are sanitized from the adjacent interior
+    state; the returned boolean marks that fallback.
     """
 
     interior = jnp.asarray(interior, dtype=jnp.float64)
@@ -4748,14 +4748,8 @@ def _curvature_bc_characteristic_wall_states(
     safe_trace = safe_trace.at[..., :3].set(
         jnp.maximum(safe_trace[..., :3], floor)
     )
-    reflected = 2.0 * safe_trace - interior
-    reflected_thermo_ok = jnp.all(reflected[..., :3] > floor, axis=-1)
-    reflected_finite = jnp.all(jnp.isfinite(reflected), axis=-1)
-    admissible = (
-        trace_finite & trace_thermo_ok & reflected_finite & reflected_thermo_ok
-    )
-    fallback_exterior = safe_trace
-    exterior = jnp.where(admissible[..., None], reflected, fallback_exterior)
+    admissible = trace_finite & trace_thermo_ok
+    exterior = safe_trace
     fallback = ~admissible
     return exterior, safe_trace, fallback
 

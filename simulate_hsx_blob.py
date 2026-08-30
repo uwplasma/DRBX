@@ -2812,6 +2812,7 @@ def build_local_eb_model(
     gmres_max_iterations: int,
     gmres_restart: int = 100,
     gmres_preconditioner: str = "none",
+    gmres_residual_correction_steps: int = 0,
     curvature_scheme: str = "direct",
     curvature_scale: float = 1.0,
     curvature_rlp_face_scheme: str = "projected-fine",
@@ -2842,6 +2843,8 @@ def build_local_eb_model(
 ) -> LocalFciDrbEBRhs:
     if gmres_restart < 1:
         raise ValueError("gmres_restart must be positive")
+    if gmres_residual_correction_steps < 0:
+        raise ValueError("gmres_residual_correction_steps must be non-negative")
     if parallel_operator_scheme not in ("coordinate", "fci"):
         raise ValueError(
             "parallel_operator_scheme must be 'coordinate' or 'fci', got "
@@ -3065,6 +3068,7 @@ def build_local_eb_model(
                 parameters.phi_inversion_regularization
             ),
             preconditioner=str(gmres_preconditioner),
+            residual_correction_steps=int(gmres_residual_correction_steps),
         ),
         parallel_operator_scheme=str(parallel_operator_scheme),
         parallel_material_scheme=str(parallel_material_scheme),
@@ -3446,6 +3450,7 @@ def run_full_eb(
     gmres_max_iterations: int,
     gmres_restart: int = 100,
     gmres_preconditioner: str,
+    gmres_residual_correction_steps: int = 0,
     time_integrator: str,
     num_steps: int,
     timestep: float,
@@ -3709,6 +3714,9 @@ def run_full_eb(
             gmres_max_iterations=int(gmres_max_iterations),
             gmres_restart=int(gmres_restart),
             gmres_preconditioner=str(gmres_preconditioner),
+            gmres_residual_correction_steps=int(
+                gmres_residual_correction_steps
+            ),
             curvature_scheme=curvature_scheme,
             curvature_scale=float(curvature_scale),
             curvature_split_scheme=curvature_split_scheme,
@@ -4667,6 +4675,18 @@ def run_full_eb(
                 reconstructed,
                 phi_owned=phi,
             )
+            # Different curvature wall closures can leave the visible state
+            # almost unchanged while injecting a hard, grid-scale component
+            # into the next polarization solve.  Apply the exact production
+            # Ti Laplacian to the stage RHS so replay files expose the source
+            # tendency tau*Lperp(Ti_t)-omega_t directly.
+            rhs_polarization_terms = model.polarization_balance_terms(
+                rhs.replace(phi=jnp.zeros_like(rhs.phi)),
+                phi_owned=jnp.zeros_like(rhs.phi),
+            )
+            polarization_source_tendency = (
+                rhs_polarization_terms[1] + rhs_polarization_terms[2]
+            )
             state_fields = jnp.stack(
                 tuple(value for _name, value in reconstructed.field_items()),
                 axis=0,
@@ -4687,12 +4707,16 @@ def run_full_eb(
                     curvature_component_fields
                 )
                 polarization_terms = jax.vmap(prolong)(polarization_terms)
+                polarization_source_tendency = prolong(
+                    polarization_source_tendency
+                )
             base_outputs = (
                 state_fields,
                 rhs_fields,
                 term_fields,
                 curvature_component_fields,
                 polarization_terms,
+                polarization_source_tendency,
                 _format_phi_solver_diagnostics(info),
             )
             if not rhs_replay_electron_force_wall_audit:
@@ -4722,6 +4746,7 @@ def run_full_eb(
             P(None, None, "x", "y", "z"),
             P(None, None, "x", "y", "z"),
             P(None, "x", "y", "z"),
+            P("x", "y", "z"),
             replicated_spec,
         )
         if rhs_replay_electron_force_wall_audit:
@@ -4758,6 +4783,7 @@ def run_full_eb(
         replay_terms = []
         replay_curvature_components = []
         replay_polarization = []
+        replay_polarization_source_tendency = []
         replay_phi_diagnostics = []
         replay_electron_force_terms = []
         replay_electron_force_leg_terms = []
@@ -4803,9 +4829,10 @@ def run_full_eb(
                 terms,
                 curvature_components,
                 polarization,
+                polarization_source_tendency,
                 phi_diagnostics,
             ) = tuple(
-                np.asarray(value, dtype=np.float64) for value in outputs[:6]
+                np.asarray(value, dtype=np.float64) for value in outputs[:7]
             )
             if rhs_replay_electron_force_wall_audit:
                 (
@@ -4819,7 +4846,7 @@ def run_full_eb(
                     electron_force_characteristic_primitive_traces,
                     electron_force_endpoint_kinds,
                 ) = tuple(
-                    np.asarray(value, dtype=np.float64) for value in outputs[6:]
+                    np.asarray(value, dtype=np.float64) for value in outputs[7:]
                 )
                 replay_electron_force_terms.append(electron_force_terms)
                 replay_electron_force_leg_terms.append(electron_force_leg_terms)
@@ -4844,6 +4871,9 @@ def run_full_eb(
             replay_terms.append(terms)
             replay_curvature_components.append(curvature_components)
             replay_polarization.append(polarization)
+            replay_polarization_source_tendency.append(
+                polarization_source_tendency
+            )
             replay_phi_diagnostics.append(phi_diagnostics)
             print(
                 f"[rhs-replay] frame={frame} time={frame_time:.8e} "
@@ -4893,6 +4923,9 @@ def run_full_eb(
             "rhs_term_fields": np.stack(replay_terms),
             "curvature_component_fields": np.stack(replay_curvature_components),
             "polarization_terms": np.stack(replay_polarization),
+            "polarization_source_tendency": np.stack(
+                replay_polarization_source_tendency
+            ),
             "phi_solver_diagnostics": np.stack(replay_phi_diagnostics),
             "mass_weights": mass_weights,
             "field_names_json": np.asarray(
@@ -5477,6 +5510,11 @@ def run_full_eb(
                 control_volume_fields_owned,
                 local_wall_projectors,
             )
+            polarization_terms = model.polarization_balance_terms(
+                local_state,
+                phi_owned=local_state.phi,
+            )
+            polarization_residual = jnp.sum(polarization_terms, axis=0)
             diagnostic_local_state = diagnostic_state(local_state, model.control_volume_geometry, model.outgoing_face_topology)
             face_bc = model._face_bcs(local_state)
             state_halo = prepare_local_fci_drb_eb_state(
@@ -5595,13 +5633,18 @@ def run_full_eb(
                     phi_owned=local_state.phi,
                     return_term_fields=True,
                 )
-                return inspection_diagnostics, term_fields, wall_ghost_fields
-            return inspection_diagnostics, wall_ghost_fields
+                return (
+                    inspection_diagnostics,
+                    term_fields,
+                    wall_ghost_fields,
+                    polarization_residual,
+                )
+            return inspection_diagnostics, wall_ghost_fields, polarization_residual
 
         inspection_out_specs = (
-            (replicated_spec, term_spec, wall_spec)
+            (replicated_spec, term_spec, wall_spec, spatial_spec)
             if snapshot_term_fields
-            else (replicated_spec, wall_spec)
+            else (replicated_spec, wall_spec, spatial_spec)
         )
         inspection = jax.jit(
             jax.shard_map(
@@ -5807,6 +5850,7 @@ def run_full_eb(
         step: int,
         *,
         inspected: tuple[np.ndarray, ...] | None = None,
+        failure_reason: str | None = None,
     ) -> None:
         if inspected is None:
             inspected = inspect_host(state)
@@ -5835,6 +5879,7 @@ def run_full_eb(
                 "actual_time": actual_time,
                 "requested_time": requested_time,
                 "step": step,
+                "failure_reason": failure_reason,
                 "diagnostic_definition": (
                     "sum of squared three-point second differences; wall is "
                     f"within {wall_term_count} cells of runtime physical sides"
@@ -5843,13 +5888,26 @@ def run_full_eb(
         )
         if inspected is not None:
             if snapshot_term_fields:
-                diagnostic_values, term_fields, wall_ghost_fields = inspected
+                (
+                    diagnostic_values,
+                    term_fields,
+                    wall_ghost_fields,
+                    polarization_residual,
+                ) = inspected
                 payload["Ve_rhs_terms"] = _materialize_face_owner_array(
                     term_fields, outgoing_face_topology_host
                 ).astype(np.float64)
             else:
-                diagnostic_values, wall_ghost_fields = inspected
+                (
+                    diagnostic_values,
+                    wall_ghost_fields,
+                    polarization_residual,
+                ) = inspected
             payload["wall_ghost_states"] = wall_ghost_fields.astype(np.float64)
+            payload["polarization_residual"] = _materialize_owner_array(
+                np.asarray(polarization_residual, dtype=np.float64)[None, ...],
+                owner_host_geometry,
+            )[0]
             payload["grid_scale_diagnostics"] = diagnostic_values.astype(np.float64)
             high_pass_values = diagnostic_values[2:].reshape(7, 2)
             snapshot_metadata["grid_scale_diagnostics"] = {
@@ -5861,6 +5919,14 @@ def run_full_eb(
                         initial_state.field_names(), high_pass_values, strict=True
                     )
                 },
+            }
+            snapshot_metadata["polarization_residual"] = {
+                "maximum_absolute": float(
+                    np.max(np.abs(payload["polarization_residual"]))
+                ),
+                "root_mean_square": float(
+                    np.sqrt(np.mean(np.square(payload["polarization_residual"])))
+                ),
             }
             print(
                 "[snapshot] grid-scale: "
@@ -5876,15 +5942,27 @@ def run_full_eb(
                 flush=True,
             )
         payload["run_metadata_json"] = np.asarray(json.dumps(snapshot_metadata, sort_keys=True))
-        checkpoint_path = snapshot_root / (
-            f"{output_path.stem}.snapshot_t{_format_snapshot_time(requested_time)}.npz"
+        checkpoint_path = (
+            output_path.with_name(
+                f"{output_path.stem}.failure_step{int(step):06d}.npz"
+            )
+            if failure_reason is not None
+            else snapshot_root
+            / f"{output_path.stem}.snapshot_t{_format_snapshot_time(requested_time)}.npz"
         )
         _atomic_save_npz(checkpoint_path, **payload)
-        print(
-            f"[snapshot] saved requested t={requested_time:.6e}, "
-            f"actual t={actual_time:.6e}, step={step}: {checkpoint_path}",
-            flush=True,
-        )
+        if failure_reason is None:
+            print(
+                f"[snapshot] saved requested t={requested_time:.6e}, "
+                f"actual t={actual_time:.6e}, step={step}: {checkpoint_path}",
+                flush=True,
+            )
+        else:
+            print(
+                f"[failure-checkpoint] saved t={actual_time:.6e}, "
+                f"step={step}, reason={failure_reason}: {checkpoint_path}",
+                flush=True,
+            )
 
     initial_output_state = materialized_state(state)
     history: dict[str, list[np.ndarray]] = {
@@ -6035,6 +6113,12 @@ def run_full_eb(
                 field_names,
                 rk_stage_diagnostics_host,
             )
+            save_snapshot(
+                current_time,
+                current_time,
+                step,
+                failure_reason="invalid-rk4-stage",
+            )
             raise FloatingPointError(
                 f"invalid RK4 stage after step {step}"
             )
@@ -6056,6 +6140,12 @@ def run_full_eb(
                 flush=True,
             )
             _print_rk_stage_diagnostics(field_names, rk_stage_diagnostics_host)
+            save_snapshot(
+                current_time,
+                current_time,
+                step,
+                failure_reason="unaccepted-phi-inversion",
+            )
             raise FloatingPointError(
                 f"unaccepted phi inversion after step {step}"
             )
@@ -6069,6 +6159,12 @@ def run_full_eb(
                 flush=True,
             )
             _print_rk_stage_diagnostics(field_names, rk_stage_diagnostics_host)
+            save_snapshot(
+                current_time,
+                current_time,
+                step,
+                failure_reason="nonfinite-eb-state",
+            )
             raise FloatingPointError(f"nonfinite EB state after step {step}")
         if density_min <= 0.0 or temperature_min <= 0.0:
             print(
@@ -6077,6 +6173,12 @@ def run_full_eb(
                 flush=True,
             )
             _print_rk_stage_diagnostics(field_names, rk_stage_diagnostics_host)
+            save_snapshot(
+                current_time,
+                current_time,
+                step,
+                failure_reason="nonpositive-eb-state",
+            )
             raise FloatingPointError(
                 f"nonpositive density/temperature after step {step}: "
                 f"n_min={density_min:.6e}, T_min={temperature_min:.6e}"
@@ -7314,6 +7416,15 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--gmres-residual-correction-steps",
+        type=int,
+        default=1,
+        help=(
+            "Number of reliable true-residual correction solves attempted "
+            "only when the primary GMRES result would otherwise be rejected."
+        ),
+    )
+    parser.add_argument(
         "--no-phase-timing",
         action="store_true",
         help=(
@@ -7512,6 +7623,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--gmres-max-iterations must be positive")
     if args.gmres_restart < 1:
         parser.error("--gmres-restart must be positive")
+    if args.gmres_residual_correction_steps < 0:
+        parser.error("--gmres-residual-correction-steps must be nonnegative")
     if args.parallel_subsystem_only and args.time_integrator != "rk4":
         parser.error(
             "--parallel-subsystem-only is currently supported only with "
@@ -8209,6 +8322,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"acceptance={float(args.gmres_acceptance_tolerance):.3e}, "
         f"max_iterations={int(args.gmres_max_iterations)}, "
         f"restart={min(int(args.gmres_restart), int(args.gmres_max_iterations))}, "
+        f"residual_corrections={int(args.gmres_residual_correction_steps)}, "
         f"preconditioner={str(args.gmres_preconditioner)}, "
         + (
             "solver_space=owner-grid-RLP"
@@ -8235,6 +8349,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         gmres_max_iterations=int(args.gmres_max_iterations),
         gmres_restart=int(args.gmres_restart),
         gmres_preconditioner=str(args.gmres_preconditioner),
+        gmres_residual_correction_steps=int(
+            args.gmres_residual_correction_steps
+        ),
         parallel_operator_scheme=str(args.parallel_operator_scheme),
         fci_parallel_leg_scheme=str(args.fci_parallel_leg_scheme),
         time_integrator=str(args.time_integrator),
@@ -8299,6 +8416,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             "curvature_radial_ablation_source": "simulate_hsx_blob.py:--curvature-radial-ablation",
             "curvature_wall_flux_closure": os.environ.get("DRBX_CURVATURE_WALL_FLUX_CLOSURE", str(args.curvature_inflow_closure)),
             "curvature_wall_flux_closure_source": "simulate_hsx_blob.py:--curvature-wall-flux-closure",
+            "curvature_wall_characteristic_jump": (
+                "direct-boundary-minus-interior"
+                if args.curvature_wall_flux_closure == "bc-characteristic"
+                else "equilibrium-minus-interior"
+            ),
             "parallel_material_wall_flux_closure": os.environ.get("DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE", str(args.parallel_inflow_closure)),
             "parallel_material_wall_flux_closure_source": "DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE",
             "curvature_characteristic_axes": os.environ.get("DRBX_CURVATURE_CHARACTERISTIC_AXES", "legacy"),
@@ -8374,6 +8496,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
             "gmres_max_iterations": int(args.gmres_max_iterations),
             "gmres_restart": int(args.gmres_restart),
+            "gmres_residual_correction_steps": int(
+                args.gmres_residual_correction_steps
+            ),
             "gmres_preconditioner": str(args.gmres_preconditioner),
             "phi_solver_space": (
                 "owner-grid-RLP"
