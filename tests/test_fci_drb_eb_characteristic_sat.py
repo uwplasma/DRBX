@@ -23,7 +23,7 @@ from fci_drb_eb_test_helpers import _build_rhs, _context_and_sharded_inputs
 from test_fci_drb_eb_parallel_flux_pairing import _mapped_fixture
 
 
-def test_wall_data_current_is_taken_from_the_projected_endpoint_state():
+def test_wall_data_current_is_the_first_order_incoming_characteristic_current():
     center = jnp.asarray([[1.2, 1.1, 0.9, 0.25, -0.15]])
     minus = jnp.asarray([[1.0, 1.0, 1.0, 0.0, 0.0]])
     plus = jnp.asarray([[1.1, 0.95, 1.05, -0.1, 0.2]])
@@ -33,18 +33,31 @@ def test_wall_data_current_is_taken_from_the_projected_endpoint_state():
         backward_wall=jnp.asarray([True]), forward_wall=jnp.asarray([True]),
         backward_wall_state=minus, forward_wall_state=plus,
     )
-    np.testing.assert_allclose(
-        info["backward_wall_projected_current"],
-        info["backward_wall_projected_state"][..., 0]
-        * (info["backward_wall_projected_state"][..., 3]
-           - info["backward_wall_projected_state"][..., 4]),
-    )
-    np.testing.assert_allclose(
-        info["forward_wall_projected_current"],
-        info["forward_wall_projected_state"][..., 0]
-        * (info["forward_wall_projected_state"][..., 3]
-           - info["forward_wall_projected_state"][..., 4]),
-    )
+    center_current = center[..., 0] * (center[..., 3] - center[..., 4])
+    for direction in ("backward", "forward"):
+        projected = info[f"{direction}_wall_projected_state"]
+        delta = projected - center
+        expected = (
+            center_current
+            + (center[..., 3] - center[..., 4]) * delta[..., 0]
+            + center[..., 0] * (delta[..., 3] - delta[..., 4])
+        )
+        nonlinear = projected[..., 0] * (
+            projected[..., 3] - projected[..., 4]
+        )
+        quadratic = delta[..., 0] * (delta[..., 3] - delta[..., 4])
+        np.testing.assert_allclose(
+            info[f"{direction}_wall_characteristic_current"], expected,
+        )
+        np.testing.assert_allclose(
+            info[f"{direction}_wall_projected_current"], expected,
+        )
+        np.testing.assert_allclose(
+            info[f"{direction}_wall_projected_nonlinear_current"], nonlinear,
+        )
+        np.testing.assert_allclose(
+            info[f"{direction}_wall_current_quadratic_remainder"], quadratic,
+        )
     # The endpoint state is the projected wall state, not the unprojected
     # candidate supplied by the interpolation stencil.
     assert not np.allclose(
@@ -134,14 +147,14 @@ def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture():
             backward_remote_values=inverse_b_backward,
         )
         endpoint_values = terms["material_characteristic_endpoint_values"]
-        endpoint_currents = jnp.stack(
-            (
-                endpoint_values[..., 0, 0]
-                * (endpoint_values[..., 0, 3] - endpoint_values[..., 0, 4]),
-                endpoint_values[..., 1, 0]
-                * (endpoint_values[..., 1, 3] - endpoint_values[..., 1, 4]),
-            ),
-            axis=-1,
+        center_values = jnp.stack((density, Te, Ti, Vi, Ve), axis=-1)
+        endpoint_delta = endpoint_values - center_values[..., None, :]
+        center_current = density * (Vi - Ve)
+        endpoint_currents = (
+            center_current[..., None]
+            + (Vi - Ve)[..., None] * endpoint_delta[..., 0]
+            + density[..., None]
+            * (endpoint_delta[..., 3] - endpoint_delta[..., 4])
         )
         manual_q_stencil = replace(
             current_q_stencil,
@@ -241,7 +254,8 @@ def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture():
     assert ordinary_error < 2.0e-12
     # The MMS state can have a current which is already characteristic at
     # the synthetic wall rows, so its affine lift may vanish; the independent
-    # wall-data test above covers the non-equilibrium projected-current case.
+    # wall-data test above covers the non-equilibrium characteristic-current
+    # case.
     assert np.isfinite(affine_norm)
     assert material_sum_error < 2.0e-12
     assert manual_sat_error < 2.0e-12

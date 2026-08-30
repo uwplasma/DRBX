@@ -1558,8 +1558,9 @@ class LocalFciDrbEBRhs:
     # retains the former independent wall-row closures for replay ablation;
     # ``current-phi`` closes the composite current with zero Neumann data and
     # derives grad(phi) from its physical-volume weighted transpose.
-    # ``characteristic-sat`` uses production projected endpoint currents;
-    # its candidates must remain central here so they are not projected twice.
+    # ``characteristic-sat`` uses production first-order characteristic
+    # endpoint currents; its candidates must remain central here so they are
+    # not projected twice.
     parallel_boundary_pairing: str = field(
         default_factory=lambda: os.environ.get(
             "DRBX_PARALLEL_BOUNDARY_PAIRING", "current-phi"
@@ -4878,10 +4879,11 @@ class LocalFciDrbEBRhs:
                 == FCI_DEP_PHYSICAL_BOUNDARY
             )
             # Keep one canonical live eigensystem/endpoint projection for the
-            # material residual and the characteristic current closure.  In
-            # particular, do not reconstruct wall states here: the current
-            # used by the vorticity/phi pair must be exactly the current of
-            # the endpoint state consumed by the material update.
+            # material residual and the characteristic current closure.  The
+            # projected primitive vector is a first-order modal trace, so the
+            # current exported to the vorticity/phi pair is the corresponding
+            # first-order characteristic current, not a nonlinear product of
+            # projected primitive components.
             wall_data = None
             if self.parallel_boundary_pairing == "characteristic-sat" or (
                 return_electron_force_diagnostics
@@ -4913,8 +4915,8 @@ class LocalFciDrbEBRhs:
                         face_bc=face_bc,
                         context=context,
                         wall_endpoint_current_values=(
-                            wall_data["backward_wall_projected_current"],
-                            wall_data["forward_wall_projected_current"],
+                            wall_data["backward_wall_characteristic_current"],
+                            wall_data["forward_wall_characteristic_current"],
                         ),
                         build_adjoint=False,
                     )

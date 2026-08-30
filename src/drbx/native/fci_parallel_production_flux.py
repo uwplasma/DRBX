@@ -723,6 +723,45 @@ def _material_directional_data(
     dxp_safe = jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)
     backward_jacobian = -backward_plus_matrix / dxm_safe[..., None, None]
     forward_jacobian = forward_minus_matrix / dxp_safe[..., None, None]
+
+    # ``wall_minus``/``wall_plus`` are frozen, first-order characteristic
+    # traces, not nonlinear primitive states.  A composite quantity exported
+    # from this characteristic solve must therefore use the Jacobian of that
+    # quantity at the same canonical wall state.  Evaluating
+    # ``n * (Vi - Ve)`` on the projected components would add the uncontrolled
+    # quadratic product ``delta_n * (delta_Vi - delta_Ve)``.  This term can be
+    # enormous when a wall mismatch has large modal components even though
+    # the first-order characteristic current remains moderate.
+    center_current = center[..., 0] * (center[..., 3] - center[..., 4])
+
+    def linearized_current(endpoint: jnp.ndarray) -> jnp.ndarray:
+        delta = endpoint - center
+        return (
+            center_current
+            + (center[..., 3] - center[..., 4]) * delta[..., 0]
+            + center[..., 0] * (delta[..., 3] - delta[..., 4])
+        )
+
+    backward_wall_characteristic_current = linearized_current(wall_minus)
+    forward_wall_characteristic_current = linearized_current(wall_plus)
+    backward_wall_nonlinear_current = wall_minus[..., 0] * (
+        wall_minus[..., 3] - wall_minus[..., 4]
+    )
+    forward_wall_nonlinear_current = wall_plus[..., 0] * (
+        wall_plus[..., 3] - wall_plus[..., 4]
+    )
+    backward_ordinary_current = minus[..., 0] * (minus[..., 3] - minus[..., 4])
+    forward_ordinary_current = plus[..., 0] * (plus[..., 3] - plus[..., 4])
+    backward_endpoint_current = jnp.where(
+        backward_wall,
+        backward_wall_characteristic_current,
+        backward_ordinary_current,
+    )
+    forward_endpoint_current = jnp.where(
+        forward_wall,
+        forward_wall_characteristic_current,
+        forward_ordinary_current,
+    )
     info = {
         "backward_wall": backward_wall,
         "forward_wall": forward_wall,
@@ -758,18 +797,26 @@ def _material_directional_data(
         * (backward_candidate[..., 3] - backward_candidate[..., 4]),
         "forward_candidate_current": forward_candidate[..., 0]
         * (forward_candidate[..., 3] - forward_candidate[..., 4]),
-        "backward_wall_projected_current": wall_minus[..., 0]
-        * (wall_minus[..., 3] - wall_minus[..., 4]),
-        "forward_wall_projected_current": wall_plus[..., 0]
-        * (wall_plus[..., 3] - wall_plus[..., 4]),
-        "backward_projected_current": minus_used[..., 0]
-        * (minus_used[..., 3] - minus_used[..., 4]),
-        "forward_projected_current": plus_used[..., 0]
-        * (plus_used[..., 3] - plus_used[..., 4]),
-        "backward_endpoint_current": minus_used[..., 0]
-        * (minus_used[..., 3] - minus_used[..., 4]),
-        "forward_endpoint_current": plus_used[..., 0]
-        * (plus_used[..., 3] - plus_used[..., 4]),
+        # These are the first-order currents carried by the incoming wall
+        # characteristics.  Retain the old ``*_wall_projected_current`` names
+        # as aliases for callers, but make their now-correct linearized
+        # meaning explicit through the ``*_characteristic_current`` keys.
+        "backward_wall_characteristic_current": backward_wall_characteristic_current,
+        "forward_wall_characteristic_current": forward_wall_characteristic_current,
+        "backward_wall_projected_current": backward_wall_characteristic_current,
+        "forward_wall_projected_current": forward_wall_characteristic_current,
+        "backward_wall_projected_nonlinear_current": backward_wall_nonlinear_current,
+        "forward_wall_projected_nonlinear_current": forward_wall_nonlinear_current,
+        "backward_wall_current_quadratic_remainder": (
+            backward_wall_nonlinear_current - backward_wall_characteristic_current
+        ),
+        "forward_wall_current_quadratic_remainder": (
+            forward_wall_nonlinear_current - forward_wall_characteristic_current
+        ),
+        "backward_projected_current": backward_endpoint_current,
+        "forward_projected_current": forward_endpoint_current,
+        "backward_endpoint_current": backward_endpoint_current,
+        "forward_endpoint_current": forward_endpoint_current,
         "wall_row": backward_wall | forward_wall,
         "ordinary_row": ~(backward_wall | forward_wall),
     }
