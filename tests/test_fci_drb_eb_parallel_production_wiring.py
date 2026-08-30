@@ -317,11 +317,10 @@ def test_evaluate_stage_replaces_material_package_and_uses_psi_force():
     assert "production_material_residual = stage_parallel_terms.get(" in SOURCE
     for lane in range(5):
         assert f"production_material_residual[..., {lane}]" in SOURCE
-    assert "grad_parallel_phi + tau * grad_parallel_Ti" in SOURCE
-    # Formatting may split the conditional across lines; check both branches
-    # independently so this contract remains insensitive to wrapping.
-    assert "mi_over_me * (grad_parallel_phi + tau * grad_parallel_Ti)" in SOURCE
-    assert "else mi_over_me * grad_parallel_phi" in SOURCE
+    assert "Ve_phi_force_term = mi_over_me * grad_parallel_phi" in SOURCE
+    assert "mi_over_me * tau * grad_parallel_Ti" in SOURCE
+    assert "Ve_electrostatic_term = Ve_phi_force_term + Ve_Ti_force_term" in SOURCE
+    assert "jnp.where(selected_short_wall, 0.0, Ve_Ti_force_complete_term)" in SOURCE
 
     # The full RHS uses the coupled residual as the material contribution and
     # does not add the old characteristic correction in production mode.

@@ -682,7 +682,7 @@ def test_all_physical_walls_requires_energy_law_and_implicit_treatment(
         compiled(*fields, cell_fields)
 
 
-def test_all_physical_walls_be_updates_material_only_on_real_mapped_rhs():
+def test_all_physical_walls_be_updates_complete_local_block_on_real_mapped_rhs():
     context, mesh, local, partition, fields, cell_fields, map_fields, sharded = (
         _mapped_fixture()
     )
@@ -752,3 +752,111 @@ def test_all_physical_walls_be_updates_material_only_on_real_mapped_rhs():
     assert material_norm < np.inf
     assert phi_delta == 0.0
     assert vorticity_delta == 0.0
+
+
+@pytest.mark.slow
+def test_mapped_selected_row_partition_reconstructs_the_unsplit_rhs():
+    """The explicit and implicit handoff must lose or duplicate no RHS term."""
+
+    context, mesh, local, partition, fields, cell_fields, map_fields, sharded = (
+        _mapped_fixture()
+    )
+
+    def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, cells, maps):
+        # Exercise a nontrivial wall residual instead of the fixture's nearly
+        # homogeneous radial edge values.
+        density = density.at[0].add(2.0e-2).at[-1].add(-1.5e-2)
+        Ti = Ti.at[0].add(3.0e-2).at[-1].add(-2.0e-2)
+        Vi = Vi.at[0].add(2.5e-2).at[-1].add(-1.0e-2)
+        Ve = Ve.at[0].add(-2.0e-2).at[-1].add(1.5e-2)
+        geometry = assemble_local_fci_geometry(sharded, cells, maps)
+        backward_kind = jnp.zeros_like(
+            geometry.maps.backward.endpoint_kind
+        ).at[0].set(2)
+        forward_kind = jnp.zeros_like(
+            geometry.maps.forward.endpoint_kind
+        ).at[-1].set(2)
+        geometry = replace(
+            geometry,
+            maps=replace(
+                geometry.maps,
+                backward=replace(
+                    geometry.maps.backward, endpoint_kind=backward_kind
+                ),
+                forward=replace(
+                    geometry.maps.forward, endpoint_kind=forward_kind
+                ),
+            ),
+        )
+        base_context = replace(
+            context,
+            parameters=replace(
+                context.parameters,
+                parallel_characteristic_wall_law="primitive-least-residual",
+            ),
+        )
+        common = dict(
+            parallel_operator_scheme="fci",
+            parallel_material_scheme="production-path",
+            parallel_flux_pairing="support-core",
+            parallel_boundary_pairing="characteristic-sat",
+            parallel_short_leg_selection="cfl",
+            parallel_short_leg_cfl_limit=1.0e-12,
+        )
+        base = replace(
+            _build_rhs(base_context, local, geometry),
+            parameters=replace(
+                base_context.parameters,
+                parallel_characteristic_wall_law="energy-absorbing",
+            ),
+            **common,
+        )
+        unsplit = replace(base, parallel_short_leg_treatment="explicit")
+        split = replace(
+            base, parallel_short_leg_treatment="local-backward-euler"
+        )
+        state = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
+        full_rhs = unsplit.evaluate_stage(state, phi_owned=phi)
+        explicit_rhs = split.evaluate_stage(
+            state, phi_owned=phi, short_leg_selection_dt=1.0
+        )
+        _updated, _increment, info = split.apply_short_leg_implicit_material_step(
+            state,
+            solve_dt=1.0e-3,
+            selection_dt=1.0,
+            phi_owned=phi,
+            return_increment=True,
+        )
+        selected = info["selected_complete_residual_owner"]
+        recovered = explicit_rhs.replace(
+            density=explicit_rhs.density + selected[..., 0],
+            Te=explicit_rhs.Te + selected[..., 1],
+            Ti=explicit_rhs.Ti + selected[..., 2],
+            Vi=explicit_rhs.Vi + selected[..., 3],
+            Ve=explicit_rhs.Ve + selected[..., 4],
+        )
+        errors = jnp.stack(tuple(
+            jnp.max(jnp.abs(actual - expected))
+            for (_, actual), (_, expected) in zip(
+                recovered.field_items(), full_rhs.field_items(), strict=True
+            )
+        ))
+        selected_count = jnp.count_nonzero(info["selected_wall"])
+        selected_force = jnp.max(jnp.abs(info["selected_coupled_force"]))
+        return errors, selected_count, selected_force
+
+    compiled = jax.jit(
+        jax.shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(partition,) * 9,
+            out_specs=(P(), P(), P()),
+            check_vma=False,
+        )
+    )
+    errors, selected_count, selected_force = compiled(
+        *fields, cell_fields, map_fields
+    )
+    np.testing.assert_allclose(np.asarray(errors), 0.0, atol=2.0e-10)
+    assert int(np.asarray(selected_count)) > 0
+    assert float(np.asarray(selected_force)) > 0.0

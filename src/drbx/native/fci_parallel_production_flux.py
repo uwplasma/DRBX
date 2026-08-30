@@ -1336,16 +1336,25 @@ def parallel_short_wall_backward_euler(
     forward_wall_state: jnp.ndarray | None = None,
     equilibrium: jnp.ndarray | None = None,
     parallel_characteristic_wall_law: str = "primitive-least-residual",
+    coupled_residual: jnp.ndarray | None = None,
+    coupled_jacobian: jnp.ndarray | None = None,
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Apply one local backward-Euler increment to selected wall rows.
 
-    The update is ``delta = (I - solve_dt*J)^-1 (solve_dt*r_selected)`` and
-    ``updated = center + delta``.  Unselected rows therefore return zero
-    increments exactly.  If a frozen local solve is non-finite, its raw
-    non-finite increment is preserved in ``updated`` and
+    ``coupled_residual`` and ``coupled_jacobian`` let the caller hand off
+    terms that belong to the same selected-row principal balance but are
+    assembled outside the characteristic material operator.  They are
+    masked by ``selected_wall`` here, so an unselected row still returns an
+    exactly zero increment.  The complete update is
+
+    ``delta = (I - solve_dt*(J_material + J_coupled))^-1``
+    ``        * solve_dt*(r_material + r_coupled)``.
+
+    If a frozen local solve is non-finite, its raw non-finite increment is
+    preserved in ``updated`` and
     ``implicit_solve_fallback``/``implicit_finite`` report the failure; no
     silent zero fallback is applied.
     """
@@ -1364,6 +1373,35 @@ def parallel_short_wall_backward_euler(
         eigenvalue_tolerance=eigenvalue_tolerance,
         max_condition=max_condition,
     )
+    material_residual = selected_residual
+    material_jacobian = selected_jacobian
+    if coupled_residual is None:
+        coupled_residual = jnp.zeros_like(selected_residual)
+    else:
+        coupled_residual = jnp.asarray(coupled_residual, dtype=jnp.float64)
+        if coupled_residual.shape != selected_residual.shape:
+            raise ValueError(
+                "coupled_residual must have shape "
+                f"{selected_residual.shape}, got {coupled_residual.shape}"
+            )
+    if coupled_jacobian is None:
+        coupled_jacobian = jnp.zeros_like(selected_jacobian)
+    else:
+        coupled_jacobian = jnp.asarray(coupled_jacobian, dtype=jnp.float64)
+        if coupled_jacobian.shape != selected_jacobian.shape:
+            raise ValueError(
+                "coupled_jacobian must have shape "
+                f"{selected_jacobian.shape}, got {coupled_jacobian.shape}"
+            )
+    selected_wall = info["selected_wall"]
+    selected_coupled_residual = jnp.where(
+        selected_wall[..., None], coupled_residual, 0.0
+    )
+    selected_coupled_jacobian = jnp.where(
+        selected_wall[..., None, None], coupled_jacobian, 0.0
+    )
+    selected_residual = material_residual + selected_coupled_residual
+    selected_jacobian = material_jacobian + selected_coupled_jacobian
     solve_dt = jnp.asarray(solve_dt, dtype=jnp.float64)
     solve_dt = jnp.broadcast_to(solve_dt, selected_residual.shape[:-1])
     eye = jnp.broadcast_to(
@@ -1377,6 +1415,12 @@ def parallel_short_wall_backward_euler(
     solve_finite = jnp.all(jnp.isfinite(delta), axis=-1)
     updated = center + delta
     info = dict(info)
+    info["selected_material_residual"] = material_residual
+    info["selected_material_jacobian"] = material_jacobian
+    info["selected_coupled_residual"] = selected_coupled_residual
+    info["selected_coupled_jacobian"] = selected_coupled_jacobian
+    info["selected_complete_residual"] = selected_residual
+    info["selected_complete_jacobian"] = selected_jacobian
     info["implicit_solve_fallback"] = ~solve_finite
     info["implicit_finite"] = jnp.all(jnp.isfinite(updated), axis=-1)
     return updated, delta, info

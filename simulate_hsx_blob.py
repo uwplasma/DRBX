@@ -3106,11 +3106,11 @@ def build_local_eb_model(
 
 
 class _JittedPhaseTimer:
-    """Collect ordered host timestamps emitted by one compiled RK4 advance."""
+    """Collect ordered host timestamps emitted by one compiled advance."""
 
-    _EXPECTED_MARKERS = 8
-
-    def __init__(self) -> None:
+    def __init__(self, *, expected_markers: int = 8, label: str = "RK4") -> None:
+        self._expected_markers = int(expected_markers)
+        self._label = str(label)
         self._lock = threading.Lock()
         self._step_start: float | None = None
         self._last_marker: float | None = None
@@ -3150,10 +3150,10 @@ class _JittedPhaseTimer:
         with self._lock:
             if self._step_start is None:
                 raise RuntimeError("phase timer was not started")
-            if self._marker_count != self._EXPECTED_MARKERS:
+            if self._marker_count != self._expected_markers:
                 raise RuntimeError(
-                    "compiled RK4 timing markers were incomplete: "
-                    f"expected {self._EXPECTED_MARKERS}, got {self._marker_count}"
+                    f"compiled {self._label} timing markers were incomplete: "
+                    f"expected {self._expected_markers}, got {self._marker_count}"
                 )
             return self._operator_seconds, self._gmres_seconds
 
@@ -3162,6 +3162,59 @@ def _state_marker_dependencies(state: FciDrbEBState) -> tuple[jax.Array, ...]:
     """Return scalar dependencies that make a timing marker await every field."""
 
     return tuple(jnp.ravel(value)[0] for _, value in state.field_items())
+
+
+IMEX_SSP222_GAMMA = 1.0 - 1.0 / np.sqrt(2.0)
+
+
+def _tree_axpy(left, right, scale):
+    """Return ``left + scale*right`` for an array or matching PyTree."""
+
+    return jax.tree_util.tree_map(
+        lambda x, y: x + jnp.asarray(scale, dtype=jnp.float64) * y,
+        left,
+        right,
+    )
+
+
+def _imex_ssp222_step(current, dt, explicit_rhs, implicit_stage):
+    """Advance one additive IMEX-SSP2(2,2,2) step.
+
+    ``implicit_stage(base, stage_dt)`` returns both the solved stage and the
+    implicit rate represented by its increment.  Keeping the rate explicit
+    avoids differencing the diagnostic/algebraic ``phi`` leaf.  The method is
+    the two-stage L-stable SDIRK/SSP explicit pair with
+    ``gamma = 1 - 1/sqrt(2)``.
+    """
+
+    dt = jnp.asarray(dt, dtype=jnp.float64)
+    gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * dt
+
+    stage_1, implicit_1 = implicit_stage(current, gamma_dt)
+    explicit_1 = explicit_rhs(stage_1)
+
+    stage_2_base = _tree_axpy(current, explicit_1, dt)
+    stage_2_base = _tree_axpy(
+        stage_2_base,
+        implicit_1,
+        (1.0 - 2.0 * IMEX_SSP222_GAMMA) * dt,
+    )
+    stage_2, implicit_2 = implicit_stage(stage_2_base, gamma_dt)
+    explicit_2 = explicit_rhs(stage_2)
+
+    weighted_rate = jax.tree_util.tree_map(
+        lambda e1, e2, i1, i2: 0.5 * (e1 + e2 + i1 + i2),
+        explicit_1,
+        explicit_2,
+        implicit_1,
+        implicit_2,
+    )
+    next_state = _tree_axpy(current, weighted_rate, dt)
+    return (
+        next_state,
+        (stage_1, stage_2_base, stage_2),
+        (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
+    )
 
 
 def _progress_line(
@@ -3249,11 +3302,24 @@ def _format_phi_solver_diagnostics(
 def _print_rk_stage_diagnostics(
     field_names: Sequence[str],
     rk_stage_diagnostics: np.ndarray,
+    *,
+    integrator: str = "rk4",
 ) -> None:
-    """Print complete RK-stage state and RHS diagnostics for a failure path."""
+    """Print complete stage-state and rate diagnostics for a failure path."""
 
+    labels = (
+        ("current/k1", "stage2/k2", "stage3/k3", "stage4/k4", "next/weighted")
+        if integrator == "rk4"
+        else (
+            "current/implicit1",
+            "imex-stage1/explicit1",
+            "stage2-base/implicit2",
+            "imex-stage2/explicit2",
+            "next/weighted",
+        )
+    )
     for rk_name, rk_values in zip(
-        ("current/k1", "stage2/k2", "stage3/k3", "stage4/k4", "next/weighted"),
+        labels,
         np.asarray(rk_stage_diagnostics),
         strict=True,
     ):
@@ -3468,6 +3534,7 @@ def run_full_eb(
     rhs_replay_frames: tuple[int, ...] = (),
     rhs_replay_output: Path | None = None,
     rhs_replay_electron_force_wall_audit: bool = False,
+    rhs_replay_execution: str = "compiled",
     curvature_manufactured_output: Path | None = None,
     curvature_transition_audit_output: Path | None = None,
     run_metadata: dict[str, object] | None = None,
@@ -3504,7 +3571,7 @@ def run_full_eb(
     owner_host_geometry=None,
     outgoing_face_topology_host=None,
 ) -> FciDrbEBState:
-    """Advance the global seven-field EB state with classical RK4."""
+    """Advance the global seven-field EB state with RK4 or stage-wise IMEX."""
 
     shard_counts = tuple(int(value) for value in sharded_geometry.shard_counts)
     if shard_counts[0] != 1 or shard_counts[1] != 1:
@@ -3522,17 +3589,28 @@ def run_full_eb(
         )
     if int(control_volume_field_count) < 1:
         raise ValueError("control_volume_field_count must be positive")
-    if time_integrator != "rk4":
-        raise ValueError("time_integrator must be 'rk4'")
+    if time_integrator not in ("rk4", "imex-ssp222"):
+        raise ValueError("time_integrator must be 'rk4' or 'imex-ssp222'")
+    short_leg_treatment = os.environ.get(
+        "DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"
+    )
+    if short_leg_treatment == "local-backward-euler" and time_integrator != "imex-ssp222":
+        raise ValueError(
+            "local-backward-euler short legs require the stage-wise "
+            "time_integrator='imex-ssp222'; post-step RK4 splitting is not "
+            "a consistent handoff"
+        )
+    if time_integrator == "imex-ssp222" and short_leg_treatment != "local-backward-euler":
+        raise ValueError(
+            "time_integrator='imex-ssp222' currently requires "
+            "parallel_short_leg_treatment='local-backward-euler'"
+        )
     if gmres_restart < 1:
         raise ValueError("gmres_restart must be positive")
     if int(checkpoint_every) < 0:
         raise ValueError("checkpoint_every must be nonnegative")
-    if parallel_subsystem_only and time_integrator != "rk4":
-        raise ValueError(
-            "parallel_subsystem_only is currently supported only with "
-            "time_integrator='rk4'"
-        )
+    if rhs_replay_execution not in ("compiled", "eager"):
+        raise ValueError("rhs_replay_execution must be 'compiled' or 'eager'")
     if parallel_operator_scheme not in ("coordinate", "fci"):
         raise ValueError(
             "parallel_operator_scheme must be 'coordinate' or 'fci', got "
@@ -4765,20 +4843,23 @@ def run_full_eb(
                 P(None, "x", "y", "z"),
             )
 
-        replay = jax.jit(
-            jax.shard_map(
-                replay_rhs_terms,
-                mesh=mesh,
-                in_specs=(
-                    state_spec,
-                    geometry_spec,
-                    geometry_spec,
-                    geometry_spec,
-                    wall_projector_specs,
-                ),
-                out_specs=replay_out_specs,
-                check_vma=False,
-            )
+        replay_sharded = jax.shard_map(
+            replay_rhs_terms,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+                wall_projector_specs,
+            ),
+            out_specs=replay_out_specs,
+            check_vma=False,
+        )
+        replay = (
+            jax.jit(replay_sharded)
+            if rhs_replay_execution == "compiled"
+            else replay_sharded
         )
         replay_states = []
         replay_times = []
@@ -4797,9 +4878,14 @@ def run_full_eb(
         replay_electron_force_characteristic_principals = []
         replay_electron_force_characteristic_primitive_traces = []
         replay_electron_force_endpoint_kinds = []
+        replay_action = (
+            f"compiling on frame {rhs_replay_frames[0]}"
+            if rhs_replay_execution == "compiled"
+            else "running eagerly with outer jax.jit disabled"
+        )
         print(
-            f"[rhs-replay] compiling on frame {rhs_replay_frames[0]} and "
-            f"evaluating {len(rhs_replay_frames)} frozen states",
+            f"[rhs-replay] {replay_action} and evaluating "
+            f"{len(rhs_replay_frames)} frozen states",
             flush=True,
         )
         replay_start = time.perf_counter()
@@ -4818,13 +4904,14 @@ def run_full_eb(
                     jnp.asarray(value, dtype=jnp.float64), state_sharding
                 )
             )
-            outputs = replay(
-                sharded_state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                wall_projectors,
-            )
+            with jax.disable_jit(rhs_replay_execution == "eager"):
+                outputs = replay(
+                    sharded_state,
+                    cell_fields,
+                    map_fields,
+                    control_volume_fields,
+                    wall_projectors,
+                )
             jax.block_until_ready(outputs)
             (
                 state_values,
@@ -4896,6 +4983,7 @@ def run_full_eb(
                 "diagnostic": "frozen-state-spatial-rhs-replay",
                 "rhs_replay_history": str(rhs_replay_history),
                 "rhs_replay_frames": [int(value) for value in rhs_replay_frames],
+                "rhs_replay_execution": str(rhs_replay_execution),
                 "rhs_term_field_names": list(RHS_TERM_FIELD_NAMES),
                 "rhs_term_names": {
                     field: list(names)
@@ -5097,7 +5185,14 @@ def run_full_eb(
         output.write_text(json.dumps({"history": rhs_term_history_path, "frames": report_frames, "field": "Vi", "term_names": list(vi_names)}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(f"[rhs-term-history] wrote {output}", flush=True)
         return state
-    phase_timer = _JittedPhaseTimer() if phase_timing else None
+    phase_timer = (
+        _JittedPhaseTimer(
+            expected_markers=8 if time_integrator == "rk4" else 6,
+            label=time_integrator,
+        )
+        if phase_timing
+        else None
+    )
     operator_marker = None if phase_timer is None else phase_timer.mark_operator
     gmres_marker = None if phase_timer is None else phase_timer.mark_gmres
     dt = jnp.asarray(float(timestep), dtype=jnp.float64)
@@ -5150,6 +5245,99 @@ def run_full_eb(
         mark_operator(rhs)
         return rhs
 
+    def finalize_advance(
+        next_state: FciDrbEBState,
+        model: LocalFciDrbEBRhs,
+        stage_states: tuple[FciDrbEBState, ...],
+        stage_rates: tuple[FciDrbEBState, ...],
+        gmres_infos: tuple[jax.Array, ...],
+    ):
+        """Build the common fixed-shape diagnostics for either integrator."""
+
+        gmres_stage_diagnostics = jnp.stack(gmres_infos, axis=0)
+        gmres_iterations = jnp.mean(gmres_stage_diagnostics[:, 0])
+        diagnostic_states = tuple(
+            diagnostic_state(
+                stage,
+                model.control_volume_geometry,
+                model.outgoing_face_topology,
+            )
+            for stage in stage_states
+        )
+        state_mins = jnp.stack(tuple(
+            jnp.stack(tuple(jnp.min(value) for _, value in stage.field_items()))
+            for stage in diagnostic_states
+        ))
+        state_maxs = jnp.stack(tuple(
+            jnp.stack(tuple(jnp.max(value) for _, value in stage.field_items()))
+            for stage in diagnostic_states
+        ))
+        state_abs_maxs = jnp.stack(tuple(
+            jnp.stack(tuple(
+                jnp.max(jnp.abs(value)) for _, value in stage.field_items()
+            ))
+            for stage in diagnostic_states
+        ))
+        rhs_abs_maxs = jnp.stack(tuple(
+            jnp.stack(tuple(
+                jnp.max(jnp.abs(value)) for _, value in rhs.field_items()
+            ))
+            for rhs in stage_rates
+        ))
+        for mesh_axis_name in ("x", "y", "z"):
+            state_mins = jax.lax.pmin(state_mins, mesh_axis_name)
+            state_maxs = jax.lax.pmax(state_maxs, mesh_axis_name)
+            state_abs_maxs = jax.lax.pmax(state_abs_maxs, mesh_axis_name)
+            rhs_abs_maxs = jax.lax.pmax(rhs_abs_maxs, mesh_axis_name)
+        stage_diagnostics = jnp.stack(
+            (state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs), axis=-1
+        )
+
+        # Keep this a fixed-shape compiled payload.  Each reduction is local
+        # to the shard first and then made global over all three shard_map
+        # mesh axes.
+        field_values = tuple(
+            value
+            for _, value in diagnostic_state(
+                next_state,
+                model.control_volume_geometry,
+                model.outgoing_face_topology,
+            ).field_items()
+        )
+        field_mins = jnp.stack(tuple(jnp.min(value) for value in field_values))
+        field_maxs = jnp.stack(tuple(jnp.max(value) for value in field_values))
+        field_abs_maxs = jnp.stack(
+            tuple(jnp.max(jnp.abs(value)) for value in field_values)
+        )
+        for mesh_axis_name in ("x", "y", "z"):
+            field_mins = jax.lax.pmin(field_mins, mesh_axis_name)
+            field_maxs = jax.lax.pmax(field_maxs, mesh_axis_name)
+            field_abs_maxs = jax.lax.pmax(field_abs_maxs, mesh_axis_name)
+        diagnostics = jnp.stack((field_mins, field_maxs, field_abs_maxs), axis=1)
+        if track_curvature_chain_rule_defect:
+            curvature_diagnostics = (
+                model.ion_temperature_curvature_chain_rule_diagnostics(next_state)
+            )
+            for mesh_axis_name in ("x", "y", "z"):
+                curvature_diagnostics = jax.lax.pmax(
+                    curvature_diagnostics, mesh_axis_name
+                )
+            return (
+                next_state,
+                diagnostics,
+                curvature_diagnostics,
+                gmres_iterations,
+                gmres_stage_diagnostics,
+                stage_diagnostics,
+            )
+        return (
+            next_state,
+            diagnostics,
+            gmres_iterations,
+            gmres_stage_diagnostics,
+            stage_diagnostics,
+        )
+
     def full_rk4_advance(
         current: FciDrbEBState,
         cell_fields_owned: jax.Array,
@@ -5188,138 +5376,95 @@ def run_full_eb(
             scale=2.0,
         ).axpy(k4, scale=1.0)
         next_state = current.axpy(weighted_rhs, scale=dt / 6.0)
-        if (
-            os.environ.get("DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit")
-            == "local-backward-euler"
-        ):
-            next_state = model.apply_short_leg_implicit_material_step(
-                next_state,
-                solve_dt=dt,
-                selection_dt=dt,
-            )
         next_phi, gmres_info_next = reconstruct_stage_phi(next_state, model)
         next_state = next_state.replace(phi=next_phi)
-        gmres_stage_diagnostics = jnp.stack(
-            (
-                gmres_info_2,
-                gmres_info_3,
-                gmres_info_4,
-                gmres_info_next,
-            ),
-            axis=0,
-        )
-        gmres_iterations = jnp.mean(gmres_stage_diagnostics[:, 0])
-
-        rk_states = tuple(
-            diagnostic_state(stage, model.control_volume_geometry, model.outgoing_face_topology)
-            for stage in (current, stage_2, stage_3, stage_4, next_state)
-        )
-        rk_rhs_values = (k1, k2, k3, k4, weighted_rhs)
-        rk_state_mins = jnp.stack(
-            tuple(
-                jnp.stack(
-                    tuple(jnp.min(value) for _, value in stage.field_items())
-                )
-                for stage in rk_states
-            )
-        )
-        rk_state_maxs = jnp.stack(
-            tuple(
-                jnp.stack(
-                    tuple(jnp.max(value) for _, value in stage.field_items())
-                )
-                for stage in rk_states
-            )
-        )
-        rk_state_abs_maxs = jnp.stack(
-            tuple(
-                jnp.stack(
-                    tuple(
-                        jnp.max(jnp.abs(value))
-                        for _, value in stage.field_items()
-                    )
-                )
-                for stage in rk_states
-            )
-        )
-        rk_rhs_abs_maxs = jnp.stack(
-            tuple(
-                jnp.stack(
-                    tuple(
-                        jnp.max(jnp.abs(value))
-                        for _, value in rhs.field_items()
-                    )
-                )
-                for rhs in rk_rhs_values
-            )
-        )
-        for mesh_axis_name in ("x", "y", "z"):
-            rk_state_mins = jax.lax.pmin(rk_state_mins, mesh_axis_name)
-            rk_state_maxs = jax.lax.pmax(rk_state_maxs, mesh_axis_name)
-            rk_state_abs_maxs = jax.lax.pmax(
-                rk_state_abs_maxs,
-                mesh_axis_name,
-            )
-            rk_rhs_abs_maxs = jax.lax.pmax(
-                rk_rhs_abs_maxs,
-                mesh_axis_name,
-            )
-        rk_stage_diagnostics = jnp.stack(
-            (
-                rk_state_mins,
-                rk_state_maxs,
-                rk_state_abs_maxs,
-                rk_rhs_abs_maxs,
-            ),
-            axis=-1,
-        )
-
-        # Keep this a fixed-shape compiled payload.  Each reduction is local
-        # to the shard first and then made global over all three shard_map
-        # mesh axes.  The host only materializes the 7x3 result when it needs
-        # to print it or validate the positivity invariant.
-        field_values = tuple(
-            value
-            for _, value in diagnostic_state(next_state, model.control_volume_geometry, model.outgoing_face_topology).field_items()
-        )
-        field_mins = jnp.stack(tuple(jnp.min(value) for value in field_values))
-        field_maxs = jnp.stack(tuple(jnp.max(value) for value in field_values))
-        field_abs_maxs = jnp.stack(
-            tuple(jnp.max(jnp.abs(value)) for value in field_values)
-        )
-        for mesh_axis_name in ("x", "y", "z"):
-            field_mins = jax.lax.pmin(field_mins, mesh_axis_name)
-            field_maxs = jax.lax.pmax(field_maxs, mesh_axis_name)
-            field_abs_maxs = jax.lax.pmax(field_abs_maxs, mesh_axis_name)
-        diagnostics = jnp.stack((field_mins, field_maxs, field_abs_maxs), axis=1)
-        if track_curvature_chain_rule_defect:
-            curvature_diagnostics = (
-                model.ion_temperature_curvature_chain_rule_diagnostics(next_state)
-            )
-            for mesh_axis_name in ("x", "y", "z"):
-                curvature_diagnostics = jax.lax.pmax(
-                    curvature_diagnostics,
-                    mesh_axis_name,
-                )
-            return (
-                next_state,
-                diagnostics,
-                curvature_diagnostics,
-                gmres_iterations,
-                gmres_stage_diagnostics,
-                rk_stage_diagnostics,
-            )
-        return (
+        return finalize_advance(
             next_state,
-            diagnostics,
-            gmres_iterations,
-            gmres_stage_diagnostics,
-            rk_stage_diagnostics,
+            model,
+            (current, stage_2, stage_3, stage_4, next_state),
+            (k1, k2, k3, k4, weighted_rhs),
+            (gmres_info_2, gmres_info_3, gmres_info_4, gmres_info_next),
         )
 
+    def full_imex_advance(
+        current: FciDrbEBState,
+        cell_fields_owned: jax.Array,
+        map_fields_owned: jax.Array,
+        control_volume_fields_owned: jax.Array,
+        local_wall_projectors: UpwindEquilibriumWallProjectors | None,
+        current_time: jax.Array,
+    ):
+        """Advance with the complete short-wall residual at every IMEX stage."""
+
+        del current_time
+        model = build_local_model(
+            cell_fields_owned,
+            map_fields_owned,
+            control_volume_fields_owned,
+            local_wall_projectors,
+        )
+        gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * dt
+
+        def implicit_stage(base: FciDrbEBState):
+            updated, increment, _info = (
+                model.apply_short_leg_implicit_material_step(
+                    base,
+                    solve_dt=gamma_dt,
+                    selection_dt=dt,
+                    phi_owned=base.phi,
+                    return_increment=True,
+                )
+            )
+            stage_phi, phi_info = reconstruct_stage_phi(updated, model)
+            stage = updated.replace(phi=stage_phi)
+            implicit_rate = increment.map_fields(
+                lambda value: value / gamma_dt
+            )
+            return stage, implicit_rate, phi_info
+
+        # The persisted current state already carries its consistent algebraic
+        # potential.  Solve the complete selected-wall residual before the
+        # first explicit evaluation, not after a finished timestep.
+        stage_1, implicit_1, gmres_info_1 = implicit_stage(current)
+        explicit_1 = evaluate_operators(stage_1, stage_1.phi, model)
+
+        stage_2_base = current.axpy(explicit_1, scale=dt).axpy(
+            implicit_1,
+            scale=(1.0 - 2.0 * IMEX_SSP222_GAMMA) * dt,
+        )
+        stage_2_base_phi, gmres_info_2_base = reconstruct_stage_phi(
+            stage_2_base, model
+        )
+        stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
+        stage_2, implicit_2, gmres_info_2 = implicit_stage(stage_2_base)
+        explicit_2 = evaluate_operators(stage_2, stage_2.phi, model)
+
+        weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
+            implicit_1, scale=1.0
+        ).axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value)
+        next_state = current.axpy(weighted_rate, scale=dt)
+        next_phi, gmres_info_next = reconstruct_stage_phi(next_state, model)
+        next_state = next_state.replace(phi=next_phi)
+        return finalize_advance(
+            next_state,
+            model,
+            (current, stage_1, stage_2_base, stage_2, next_state),
+            (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
+            (gmres_info_1, gmres_info_2_base, gmres_info_2, gmres_info_next),
+        )
+
+    full_advance = (
+        full_rk4_advance if time_integrator == "rk4" else full_imex_advance
+    )
+    stage_description = (
+        "4 operator stages, 4 SOLVAX FGMRES solves"
+        if time_integrator == "rk4"
+        else "2 explicit operator stages, 2 complete short-wall solves, "
+        "4 SOLVAX FGMRES solves"
+    )
     print(
         "[simulation] lowering shard-local geometry and compiling one complete "
-        "shard_map RK4 advance (4 operator stages, 4 SOLVAX FGMRES solves)",
+        f"shard_map {time_integrator} advance ({stage_description})",
         flush=True,
     )
     if phase_timing:
@@ -5330,7 +5475,7 @@ def run_full_eb(
             flush=True,
         )
     compile_start = time.perf_counter()
-    rk4_out_specs = (
+    advance_out_specs = (
         (
             state_spec,
             replicated_spec,
@@ -5350,7 +5495,7 @@ def run_full_eb(
     )
     compiled_advance = jax.jit(
         jax.shard_map(
-            full_rk4_advance,
+            full_advance,
             mesh=mesh,
             in_specs=(
                 state_spec,
@@ -5360,7 +5505,7 @@ def run_full_eb(
                 wall_projector_specs,
                 replicated_spec,
             ),
-            out_specs=rk4_out_specs,
+            out_specs=advance_out_specs,
             check_vma=False,
         )
     ).lower(
@@ -5372,7 +5517,7 @@ def run_full_eb(
         jnp.asarray(start_time, dtype=jnp.float64),
     ).compile()
     print(
-        f"[simulation] compiled sharded RK4 advance in "
+        f"[simulation] compiled sharded {time_integrator} advance in "
         f"{time.perf_counter() - compile_start:.3f} s",
         flush=True,
     )
@@ -5811,6 +5956,7 @@ def run_full_eb(
             "snapshot_term_fields": bool(snapshot_term_fields),
             "checkpoint_every": int(checkpoint_every),
             "track_rhs_terms": bool(track_rhs_terms),
+            "rhs_replay_execution": str(rhs_replay_execution),
             "field_names": list(initial_state.field_names()),
             "ve_term_names": [
                 "poisson_bracket",
@@ -6123,7 +6269,7 @@ def run_full_eb(
         ):
             print(
                 f"[diagnostics] step={step} invalid "
-                "RK4 stage: "
+                f"{time_integrator} stage: "
                 f"finite={stage_finite}, n_min={stage_density_min:.6e}, "
                 f"Te_min={stage_Te_min:.6e}, Ti_min={stage_Ti_min:.6e}",
                 flush=True,
@@ -6131,15 +6277,16 @@ def run_full_eb(
             _print_rk_stage_diagnostics(
                 field_names,
                 rk_stage_diagnostics_host,
+                integrator=time_integrator,
             )
             save_snapshot(
                 current_time,
                 current_time,
                 step,
-                failure_reason="invalid-rk4-stage",
+                failure_reason=f"invalid-{time_integrator}-stage",
             )
             raise FloatingPointError(
-                f"invalid RK4 stage after step {step}"
+                f"invalid {time_integrator} stage after step {step}"
             )
         if gmres_failed_host:
             stage_text = ", ".join(
@@ -6148,7 +6295,11 @@ def run_full_eb(
                     f"relres={values[1]:.3e},accepted={bool(values[3] > 0.5)}"
                 )
                 for name, values in zip(
-                    ("rk2", "rk3", "rk4", "next"),
+                    (
+                        ("rk2", "rk3", "rk4", "next")
+                        if time_integrator == "rk4"
+                        else ("imex1", "stage2-base", "imex2", "next")
+                    ),
                     gmres_stage_diagnostics_host,
                     strict=True,
                 )
@@ -6158,7 +6309,11 @@ def run_full_eb(
                 f"{stage_text}; state={state_diagnostics}",
                 flush=True,
             )
-            _print_rk_stage_diagnostics(field_names, rk_stage_diagnostics_host)
+            _print_rk_stage_diagnostics(
+                field_names,
+                rk_stage_diagnostics_host,
+                integrator=time_integrator,
+            )
             save_snapshot(
                 current_time,
                 current_time,
@@ -6177,7 +6332,11 @@ def run_full_eb(
                 f"[diagnostics] step={step} nonfinite: {state_diagnostics}",
                 flush=True,
             )
-            _print_rk_stage_diagnostics(field_names, rk_stage_diagnostics_host)
+            _print_rk_stage_diagnostics(
+                field_names,
+                rk_stage_diagnostics_host,
+                integrator=time_integrator,
+            )
             save_snapshot(
                 current_time,
                 current_time,
@@ -6191,7 +6350,11 @@ def run_full_eb(
                 f"{state_diagnostics}",
                 flush=True,
             )
-            _print_rk_stage_diagnostics(field_names, rk_stage_diagnostics_host)
+            _print_rk_stage_diagnostics(
+                field_names,
+                rk_stage_diagnostics_host,
+                integrator=time_integrator,
+            )
             save_snapshot(
                 current_time,
                 current_time,
@@ -6435,7 +6598,7 @@ def run_full_eb(
             flush=True,
         )
     print(
-        "[simulation] average RK4 GMRES iterations: "
+        f"[simulation] average {time_integrator} GMRES iterations: "
         f"{accumulated_gmres_iterations / num_steps:.2f} "
         "(four solves per timestep)",
         flush=True,
@@ -6500,6 +6663,23 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
         raise ValueError(
             "--parallel-short-leg-treatment local-backward-euler requires "
             "--flux-framework production-split"
+        )
+    if (
+        args.parallel_short_leg_treatment == "local-backward-euler"
+        and args.time_integrator != "imex-ssp222"
+    ):
+        raise ValueError(
+            "--parallel-short-leg-treatment local-backward-euler requires "
+            "--time-integrator imex-ssp222 so the complete selected residual "
+            "is solved at every stage"
+        )
+    if (
+        args.time_integrator == "imex-ssp222"
+        and args.parallel_short_leg_treatment != "local-backward-euler"
+    ):
+        raise ValueError(
+            "--time-integrator imex-ssp222 currently requires "
+            "--parallel-short-leg-treatment local-backward-euler"
         )
     if args.curvature_evolution_component != "full" and framework != "production-split":
         raise ValueError(
@@ -6599,8 +6779,10 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
         return
     if framework != "production-split":
         raise ValueError(f"unsupported flux framework {framework!r}")
-    if args.time_integrator != "rk4":
-        raise ValueError("production-split requires --time-integrator rk4")
+    if args.time_integrator not in ("rk4", "imex-ssp222"):
+        raise ValueError(
+            "production-split requires --time-integrator rk4 or imex-ssp222"
+        )
     if args.parallel_operator_scheme != "fci":
         raise ValueError("production-split requires --parallel-operator-scheme fci")
     if args.parallel_velocity_layout != "cell-centered":
@@ -6923,7 +7105,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default="explicit",
         help=(
             "Treatment of selected short FCI wall legs. local-backward-euler "
-            "applies the opt-in material-block split after each RK4 step."
+            "hands the complete characteristic material plus "
+            "mu*tau*grad_parallel(Ti) row residual to every imex-ssp222 "
+            "stage; the weighted-adjoint current/phi pair stays explicit."
         ),
     )
     parser.add_argument(
@@ -6934,8 +7118,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "Select material wall legs for the local backward-Euler split. "
             "'cfl' preserves threshold selection; 'all-physical-walls' "
             "uses no CFL threshold and splits all physical wall material "
-            "legs to local backward Euler. Characteristic-SAT current/phi "
-            "remains explicit."
+            "legs to local backward Euler. The vorticity current-divergence "
+            "part of the characteristic-SAT pair remains explicit."
         ),
     )
     parser.add_argument(
@@ -7370,6 +7554,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="NPZ output for the frozen-state spatial RHS replay.",
     )
     parser.add_argument(
+        "--rhs-replay-execution",
+        choices=("compiled", "eager"),
+        default="compiled",
+        help=(
+            "Execution mode for frozen RHS replays. 'eager' disables the "
+            "outer jax.jit and avoids building the large fused replay "
+            "executable, although the JAX backend may still compile small "
+            "primitive kernels; use 'compiled' when replaying many frames."
+        ),
+    )
+    parser.add_argument(
         "--rhs-replay-electron-force-wall-audit",
         action="store_true",
         help=(
@@ -7522,9 +7717,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--electron-collision-frequency", type=float, default=0.0)
     parser.add_argument(
         "--time-integrator",
-        choices=("rk4",),
+        choices=("rk4", "imex-ssp222"),
         default="rk4",
-        help="Classical four-stage Runge--Kutta integrator.",
+        help=(
+            "Time integrator. Classical RK4 is used for fully explicit "
+            "configurations. 'imex-ssp222' is the stage-wise two-stage IMEX "
+            "method required by local backward-Euler short wall legs."
+        ),
     )
     parser.add_argument(
         "--flux-framework",
@@ -7789,11 +7988,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--gmres-restart must be positive")
     if args.gmres_residual_correction_steps < 0:
         parser.error("--gmres-residual-correction-steps must be nonnegative")
-    if args.parallel_subsystem_only and args.time_integrator != "rk4":
-        parser.error(
-            "--parallel-subsystem-only is currently supported only with "
-            "--time-integrator=rk4"
-        )
     if args.halo_width < 1:
         parser.error("--halo-width must be positive")
     if args.density_amplitude < 0.0:
@@ -7833,6 +8027,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error(
             "--rhs-replay-frames/--rhs-replay-output require --rhs-replay-history"
         )
+    if (
+        args.rhs_replay_history is None
+        and args.rhs_replay_execution != "compiled"
+    ):
+        parser.error("--rhs-replay-execution eager requires --rhs-replay-history")
     if (
         args.rhs_replay_electron_force_wall_audit
         and args.rhs_replay_history is None
@@ -8458,8 +8657,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(
         "[simulation] parallel short-leg selection: "
         f"{str(args.parallel_short_leg_selection)} "
-        "(all-physical-walls uses no CFL threshold; characteristic-SAT "
-        "current/phi remains explicit)",
+        "(all-physical-walls uses no CFL threshold; selected material and "
+        "electron Ti-force are one IMEX stage residual; current/phi stays "
+        "paired explicitly)",
         flush=True,
     )
     parallel_closure_description = {
@@ -8550,6 +8750,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         rhs_replay_electron_force_wall_audit=bool(
             args.rhs_replay_electron_force_wall_audit
         ),
+        rhs_replay_execution=str(args.rhs_replay_execution),
         curvature_manufactured_output=args.curvature_manufactured_output,
         curvature_transition_audit_output=args.curvature_transition_audit_output,
         run_metadata={
@@ -8593,6 +8794,22 @@ def main(argv: Sequence[str] | None = None) -> None:
             "parallel_short_leg_selection_source": "simulate_hsx_blob.py:--parallel-short-leg-selection",
             "parallel_short_leg_cfl_limit": float(os.environ.get("DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT", "2.5")),
             "parallel_short_leg_cfl_limit_source": "simulate_hsx_blob.py:--parallel-short-leg-cfl-limit",
+            "parallel_short_leg_implicit_terms": (
+                [
+                    "selected-characteristic-material-action",
+                    "selected-mu-tau-grad-parallel-Ti",
+                ]
+                if args.parallel_short_leg_treatment == "local-backward-euler"
+                else []
+            ),
+            "parallel_short_leg_explicit_energy_pair": (
+                "mu-grad-parallel-phi<->weighted-adjoint-current-divergence"
+            ),
+            "parallel_short_leg_time_handoff": (
+                "imex-ssp222-stage-wise"
+                if args.parallel_short_leg_treatment == "local-backward-euler"
+                else "none"
+            ),
             "curvature_evolution_component": os.environ.get("DRBX_CURVATURE_EVOLUTION_COMPONENT", "full"),
             "curvature_evolution_component_source": "simulate_hsx_blob.py:--curvature-evolution-component",
             "curvature_radial_ablation": os.environ.get("DRBX_CURVATURE_RADIAL_ABLATION", "none"),
@@ -8643,6 +8860,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 args.electron_collision_frequency
             ),
             "time_integrator": str(args.time_integrator),
+            "rhs_replay_execution": str(args.rhs_replay_execution),
             "flux_framework": str(args.flux_framework),
             "flux_framework_env": os.environ.get("DRBX_FLUX_FRAMEWORK", "legacy"),
             "flux_framework_source": "simulate_hsx_blob.py:--flux-framework",
