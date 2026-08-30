@@ -3459,6 +3459,7 @@ def run_full_eb(
     save_every: int,
     phase_timing: bool = True,
     diagnostic_every: int = 0,
+    checkpoint_every: int = 0,
     snapshot_times: tuple[float, ...] = (),
     snapshot_dir: Path | None = None,
     snapshot_term_fields: bool = False,
@@ -3525,6 +3526,8 @@ def run_full_eb(
         raise ValueError("time_integrator must be 'rk4'")
     if gmres_restart < 1:
         raise ValueError("gmres_restart must be positive")
+    if int(checkpoint_every) < 0:
+        raise ValueError("checkpoint_every must be nonnegative")
     if parallel_subsystem_only and time_integrator != "rk4":
         raise ValueError(
             "parallel_subsystem_only is currently supported only with "
@@ -5487,6 +5490,9 @@ def run_full_eb(
         jax.block_until_ready(result)
         return np.asarray(result, dtype=np.float64)
 
+    # Periodic checkpoints can be state-only.  Do not force compilation of
+    # the comparatively expensive spatial inspection path unless diagnostics
+    # or explicitly scheduled diagnostic snapshots already require it.
     inspection_enabled = bool(diagnostic_every > 0 or snapshot_times)
     inspection = None
     if inspection_enabled:
@@ -5803,6 +5809,7 @@ def run_full_eb(
             "curvature_scale": float(curvature_scale),
             "parallel_subsystem_only": bool(parallel_subsystem_only),
             "snapshot_term_fields": bool(snapshot_term_fields),
+            "checkpoint_every": int(checkpoint_every),
             "track_rhs_terms": bool(track_rhs_terms),
             "field_names": list(initial_state.field_names()),
             "ve_term_names": [
@@ -5851,6 +5858,7 @@ def run_full_eb(
         *,
         inspected: tuple[np.ndarray, ...] | None = None,
         failure_reason: str | None = None,
+        periodic_checkpoint: bool = False,
     ) -> None:
         if inspected is None:
             inspected = inspect_host(state)
@@ -5942,16 +5950,27 @@ def run_full_eb(
                 flush=True,
             )
         payload["run_metadata_json"] = np.asarray(json.dumps(snapshot_metadata, sort_keys=True))
-        checkpoint_path = (
-            output_path.with_name(
+        if failure_reason is not None:
+            checkpoint_path = output_path.with_name(
                 f"{output_path.stem}.failure_step{int(step):06d}.npz"
             )
-            if failure_reason is not None
-            else snapshot_root
-            / f"{output_path.stem}.snapshot_t{_format_snapshot_time(requested_time)}.npz"
-        )
+        elif periodic_checkpoint:
+            checkpoint_path = snapshot_root / (
+                f"{output_path.stem}.checkpoint_step{int(step):06d}.npz"
+            )
+        else:
+            checkpoint_path = snapshot_root / (
+                f"{output_path.stem}.snapshot_t"
+                f"{_format_snapshot_time(requested_time)}.npz"
+            )
         _atomic_save_npz(checkpoint_path, **payload)
-        if failure_reason is None:
+        if periodic_checkpoint:
+            print(
+                f"[checkpoint] saved t={actual_time:.6e}, step={step}: "
+                f"{checkpoint_path}",
+                flush=True,
+            )
+        elif failure_reason is None:
             print(
                 f"[snapshot] saved requested t={requested_time:.6e}, "
                 f"actual t={actual_time:.6e}, step={step}: {checkpoint_path}",
@@ -6190,9 +6209,13 @@ def run_full_eb(
             next_snapshot < len(snapshot_schedule)
             and snapshot_schedule[next_snapshot] <= current_time + 1.0e-14
         )
+        periodic_checkpoint_due = (
+            checkpoint_every > 0 and step % int(checkpoint_every) == 0
+        )
         if inspection_enabled and (
             (diagnostic_every > 0 and step % int(diagnostic_every) == 0)
             or snapshot_due
+            or periodic_checkpoint_due
         ):
             inspection_host = inspect_host(state)
         if diagnostic_every > 0 and step % int(diagnostic_every) == 0:
@@ -6233,6 +6256,14 @@ def run_full_eb(
                 inspected=inspection_host,
             )
             next_snapshot += 1
+        if periodic_checkpoint_due:
+            save_snapshot(
+                current_time,
+                current_time,
+                step,
+                inspected=inspection_host,
+                periodic_checkpoint=True,
+            )
         line = _progress_line(
             step=step,
             num_steps=int(num_steps),
@@ -7004,7 +7035,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Trace used by the parallel-current divergence in the vorticity "
             "equation. 'operator' preserves the production primitive trace; "
             "'parallel-characteristic' is a closure-consistency ablation that "
-            "reuses the projected material current trace."
+            "reuses the first-order characteristic material current trace."
         ),
     )
     parser.add_argument(
@@ -7125,6 +7156,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Number of equal RK4 steps used to reach --final-time.",
     )
     parser.add_argument("--save-every", type=int, default=1)
+    parser.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=0,
+        metavar="N",
+        help=(
+            "Write an atomic restartable checkpoint after every N completed "
+            "steps; 0 disables periodic checkpoints. Checkpoints are separate "
+            "step-indexed NPZ files and survive a later run failure."
+        ),
+    )
     parser.add_argument(
         "--snapshot-times",
         nargs="+",
@@ -7607,6 +7649,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--final-time must be positive")
     if args.save_every < 1:
         parser.error("--save-every must be positive")
+    if args.checkpoint_every < 0:
+        parser.error("--checkpoint-every must be nonnegative")
     if args.curvature_scale < 0.0:
         parser.error("--curvature-scale must be nonnegative")
     if any(float(value) < 0.0 for value in args.snapshot_times):
@@ -8362,6 +8406,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         save_every=int(args.save_every),
         phase_timing=not bool(args.no_phase_timing),
         diagnostic_every=int(args.diagnostic_every),
+        checkpoint_every=int(args.checkpoint_every),
         snapshot_times=tuple(float(value) for value in args.snapshot_times),
         snapshot_dir=args.snapshot_dir,
         snapshot_term_fields=bool(args.snapshot_term_fields),

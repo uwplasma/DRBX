@@ -76,6 +76,7 @@ def test_parser_exposes_coordinate_default_and_fci_trace_controls():
     assert args.fci_trace_substeps == 4
     assert args.vorticity_current_inflow_trace == "operator"
     assert args.gmres_residual_correction_steps == 1
+    assert args.checkpoint_every == 0
     assert not args.rhs_replay_electron_force_wall_audit
     assert args.curvature_transition_audit_face is None
     assert args.flux_framework == "legacy"
@@ -128,6 +129,51 @@ def test_parser_exposes_coordinate_default_and_fci_trace_controls():
     )
     assert "fine-glue-characteristic" in curvature_action.choices
     assert "fine-glue-characteristic-bulk" in curvature_action.choices
+
+
+def test_periodic_checkpoint_interval_is_validated_before_geometry():
+    hsx = _driver_module()
+    with pytest.raises(SystemExit) as error:
+        hsx.main(["--checkpoint-every", "-1"])
+    assert error.value.code == 2
+
+
+def test_periodic_checkpoint_is_step_indexed_and_plumbed_to_full_run():
+    source = DRIVER_PATH.read_text()
+    run = _function(_tree(), "run_full_eb")
+    argument_names = [argument.arg for argument in run.args.args]
+    argument_names.extend(argument.arg for argument in run.args.kwonlyargs)
+    assert "checkpoint_every" in argument_names
+    assert "checkpoint_step{int(step):06d}" in source
+    assert "checkpoint_every=int(args.checkpoint_every)" in source
+    assert "periodic_checkpoint=True" in source
+
+
+def test_periodic_checkpoint_payload_is_atomic_and_restartable(tmp_path):
+    hsx = _driver_module()
+    shape = (2, 3, 4)
+    fields = {
+        name: np.full(shape, index + 0.25, dtype=np.float64)
+        for index, name in enumerate(hsx.FciDrbEBState.__dataclass_fields__)
+    }
+    checkpoint = tmp_path / "run.checkpoint_step000025.npz"
+    hsx._atomic_save_npz(
+        checkpoint,
+        **fields,
+        time=np.asarray(0.0125, dtype=np.float64),
+        step=np.asarray(25, dtype=np.int64),
+    )
+    assert checkpoint.is_file()
+    assert not tuple(tmp_path.glob(f".{checkpoint.name}.*.npz"))
+
+    state, restart_time = hsx._load_restart_state(
+        checkpoint,
+        resolution=shape,
+        frame=-1,
+    )
+    assert restart_time == pytest.approx(0.0125)
+    for name, expected in fields.items():
+        np.testing.assert_array_equal(getattr(state, name), expected)
 
 
 def test_characteristic_fine_glue_requires_all_coupled_equations_before_geometry():
@@ -474,6 +520,8 @@ def test_fci_main_passes_scheme_and_metadata_to_run(
             "1",
             "--final-time",
             "1e-6",
+            "--checkpoint-every",
+            "17",
             "--curvature-scheme",
             "conservative",
             "--curvature-rlp-face-scheme",
@@ -501,6 +549,7 @@ def test_fci_main_passes_scheme_and_metadata_to_run(
     assert calls[0]["run_metadata"]["fci_trace_substeps"] == 6
     assert calls[0]["curvature_rlp_fine_glue_transition_face"] == audit_face
     assert calls[0]["curvature_rlp_face_scheme"] == face_scheme
+    assert calls[0]["checkpoint_every"] == 17
     assert calls[0]["run_metadata"]["curvature_transition_audit_face"] == audit_face
     assert calls[0]["control_volume_descriptor"] is not None
     assert calls[0]["control_volume_fields_host"].shape == (

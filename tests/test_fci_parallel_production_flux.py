@@ -333,7 +333,7 @@ def test_short_wall_batch_jit_and_selection_threshold():
     assert bool(jnp.all(jnp.isfinite(updated)))
 
 
-def test_characteristic_wall_data_exposes_projected_state_and_current():
+def test_characteristic_wall_data_exposes_projected_state_and_linearized_current():
     center = _state()
     candidate = jnp.asarray([1.1, 1.2, 0.9, 0.3, -0.1])
     info = parallel_characteristic_wall_data(
@@ -343,14 +343,21 @@ def test_characteristic_wall_data_exposes_projected_state_and_current():
     )
     backward_projected = np.asarray(info["backward_projected_state"])
     forward_projected = np.asarray(info["forward_projected_state"])
-    np.testing.assert_allclose(
-        info["backward_projected_current"],
-        backward_projected[0] * (backward_projected[3] - backward_projected[4]),
-    )
-    np.testing.assert_allclose(
-        info["forward_projected_current"],
-        forward_projected[0] * (forward_projected[3] - forward_projected[4]),
-    )
+    center_current = center[0] * (center[3] - center[4])
+    for direction, projected in (
+        ("backward", backward_projected),
+        ("forward", forward_projected),
+    ):
+        delta = projected - np.asarray(center)
+        expected = (
+            center_current
+            + (center[3] - center[4]) * delta[0]
+            + center[0] * (delta[3] - delta[4])
+        )
+        np.testing.assert_allclose(info[f"{direction}_projected_current"], expected)
+        np.testing.assert_allclose(
+            info[f"{direction}_wall_characteristic_current"], expected,
+        )
     np.testing.assert_allclose(
         info["backward_endpoint_state"], backward_projected,
     )
@@ -363,6 +370,59 @@ def test_characteristic_wall_data_exposes_projected_state_and_current():
     assert float(info["forward_alpha"]) > 0.0
 
 
+def test_characteristic_wall_current_removes_fatal_state_quadratic_product():
+    # Rounded values from the late 48^3 wall failure.  The incoming projection
+    # is large, but its first-order current is moderate; evaluating the
+    # nonlinear product on the projected components creates an O(10^3)
+    # current that was not present in the characteristic linearization.
+    center = jnp.asarray(
+        [0.3985, 0.63365, 2.65956, -0.26323, -69.8749],
+        dtype=jnp.float64,
+    )
+    candidate = jnp.asarray(
+        [1.31505, 1.05696, 0.94729, -0.08072, -17.5004],
+        dtype=jnp.float64,
+    )
+    info = parallel_characteristic_wall_data(
+        center, center, center, 0.0806799, 0.0378996, 1.0, 1836.0,
+        backward_wall=True, backward_wall_state=candidate,
+    )
+    characteristic = float(info["backward_wall_characteristic_current"])
+    nonlinear = float(info["backward_wall_projected_nonlinear_current"])
+    remainder = float(info["backward_wall_current_quadratic_remainder"])
+    assert abs(characteristic) < 100.0
+    assert abs(nonlinear) > 1000.0
+    assert abs(remainder) > 1000.0
+    assert nonlinear == pytest.approx(characteristic + remainder)
+
+
+def test_characteristic_wall_current_matches_nonlinear_current_to_first_order():
+    center = _state()
+    direction = jnp.asarray([0.2, -0.3, 0.1, 0.4, -0.25])
+
+    def error(scale):
+        candidate = center + scale * direction
+        info = parallel_characteristic_wall_data(
+            center, center, center, 1.0, 1.0, 4.0, 10.0,
+            backward_wall=True, backward_wall_state=candidate,
+        )
+        return abs(float(info["backward_wall_current_quadratic_remainder"]))
+
+    coarse = error(1.0e-3)
+    fine = error(5.0e-4)
+    same = parallel_characteristic_wall_data(
+        center, center, center, 1.0, 1.0, 4.0, 10.0,
+        backward_wall=True, backward_wall_state=center,
+    )
+    np.testing.assert_array_equal(
+        same["backward_wall_characteristic_current"],
+        center[0] * (center[3] - center[4]),
+    )
+    assert coarse > 0.0
+    # Halving a perturbation must quarter the omitted second-order product.
+    assert fine / coarse == pytest.approx(0.25, rel=5.0e-6, abs=1.0e-12)
+
+
 def test_characteristic_wall_data_keeps_ordinary_mapped_endpoints():
     center = _state()
     minus = center + jnp.asarray([-0.1, 0.2, -0.1, 0.3, -0.2])
@@ -372,6 +432,14 @@ def test_characteristic_wall_data_keeps_ordinary_mapped_endpoints():
     )
     np.testing.assert_array_equal(info["backward_endpoint_state"], minus)
     np.testing.assert_array_equal(info["forward_endpoint_state"], plus)
+    np.testing.assert_array_equal(
+        info["backward_endpoint_current"],
+        minus[0] * (minus[3] - minus[4]),
+    )
+    np.testing.assert_array_equal(
+        info["forward_endpoint_current"],
+        plus[0] * (plus[3] - plus[4]),
+    )
     assert not bool(info["backward_wall"])
     assert not bool(info["forward_wall"])
 
