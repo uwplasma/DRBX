@@ -211,7 +211,31 @@ def _curvature_projector(state, *, tau, normal, incoming_positive):
     return np.real(eigenvectors @ np.diag(incoming.astype(float)) @ inverse)
 
 
-def test_bc_characteristic_wall_state_solves_electron_neumann_rows():
+def _curvature_least_residual_state(
+    interior, trace, *, tau, normal, incoming_positive
+):
+    matrix = np.asarray(
+        normal * curvature_strict_principal_matrix(
+            jnp.asarray(trace, dtype=jnp.float64),
+            jnp.asarray(1.0, dtype=jnp.float64),
+            tau,
+        )
+    )
+    eigenvalues, eigenvectors = np.linalg.eig(matrix)
+    incoming = (
+        np.real(eigenvalues) > 1.0e-10
+        if incoming_positive
+        else np.real(eigenvalues) < -1.0e-10
+    )
+    basis = np.real(eigenvectors[:, incoming])
+    coefficients = np.linalg.lstsq(
+        basis[:3], np.asarray(trace)[:3] - np.asarray(interior)[:3],
+        rcond=None,
+    )[0]
+    return np.asarray(interior) + basis @ coefficients
+
+
+def test_bc_characteristic_wall_state_solves_full_thermodynamic_residual_on_electron_subspace():
     interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
     trace = jnp.asarray((1.15, 0.95, 1.05, 0.0), dtype=jnp.float64)
     exterior, face, fallback = _curvature_bc_characteristic_wall_states(
@@ -222,9 +246,13 @@ def test_bc_characteristic_wall_state_solves_electron_neumann_rows():
         jnp.asarray(1.0),
         interior_on_right=True,
     )
-    # Positive-normal lower-wall inflow consists of the two electron-family
-    # modes.  The copied/extrapolated density and Te residual rows are exact.
-    np.testing.assert_allclose(exterior[:2], trace[:2], atol=2.0e-13, rtol=0.0)
+    expected = _curvature_least_residual_state(
+        interior, trace, tau=0.7, normal=1.0, incoming_positive=True
+    )
+    np.testing.assert_allclose(exterior, expected, atol=3.0e-12, rtol=0.0)
+    assert np.linalg.norm(np.asarray(exterior[:3] - trace[:3])) < np.linalg.norm(
+        np.asarray(interior[:3] - trace[:3])
+    )
     incoming = _curvature_projector(
         trace, tau=0.7, normal=1.0, incoming_positive=True
     )
@@ -240,7 +268,7 @@ def test_bc_characteristic_wall_state_solves_electron_neumann_rows():
     assert not bool(fallback)
 
 
-def test_bc_characteristic_wall_state_solves_ion_neumann_row():
+def test_bc_characteristic_wall_state_solves_full_thermodynamic_residual_on_ion_subspace():
     interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
     trace = jnp.asarray((1.15, 0.95, 1.05, 0.0), dtype=jnp.float64)
     exterior, face, _fallback = _curvature_bc_characteristic_wall_states(
@@ -251,9 +279,13 @@ def test_bc_characteristic_wall_state_solves_ion_neumann_row():
         jnp.asarray(1.0),
         interior_on_right=False,
     )
-    # Positive-normal upper-wall inflow is the single ion-family mode, so the
-    # copied/extrapolated Ti residual is the one imposed physical row.
-    np.testing.assert_allclose(exterior[2], trace[2], atol=2.0e-13, rtol=0.0)
+    expected = _curvature_least_residual_state(
+        interior, trace, tau=0.7, normal=1.0, incoming_positive=False
+    )
+    np.testing.assert_allclose(exterior, expected, atol=3.0e-12, rtol=0.0)
+    assert np.linalg.norm(np.asarray(exterior[:3] - trace[:3])) < np.linalg.norm(
+        np.asarray(interior[:3] - trace[:3])
+    )
     incoming = _curvature_projector(
         trace, tau=0.7, normal=1.0, incoming_positive=False
     )
@@ -269,14 +301,14 @@ def test_bc_characteristic_wall_state_solves_ion_neumann_row():
 
 
 @pytest.mark.parametrize(
-    ("interior_on_right", "normal", "constrained_components"),
+    ("interior_on_right", "normal", "incoming_positive"),
     (
-        (True, -1.0, (2,)),
-        (False, -1.0, (0, 1)),
+        (True, -1.0, True),
+        (False, -1.0, False),
     ),
 )
 def test_bc_characteristic_wall_state_reverses_mode_family_with_normal(
-    interior_on_right, normal, constrained_components
+    interior_on_right, normal, incoming_positive
 ):
     interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
     trace = jnp.asarray((1.15, 0.95, 1.05, 0.0), dtype=jnp.float64)
@@ -288,12 +320,14 @@ def test_bc_characteristic_wall_state_reverses_mode_family_with_normal(
         jnp.asarray(normal),
         interior_on_right=interior_on_right,
     )
-    np.testing.assert_allclose(
-        np.asarray(exterior)[list(constrained_components)],
-        np.asarray(trace)[list(constrained_components)],
-        atol=2.0e-13,
-        rtol=0.0,
+    expected = _curvature_least_residual_state(
+        interior,
+        trace,
+        tau=0.7,
+        normal=normal,
+        incoming_positive=incoming_positive,
     )
+    np.testing.assert_allclose(exterior, expected, atol=3.0e-12, rtol=0.0)
     assert not bool(fallback)
 
 
@@ -316,6 +350,22 @@ def test_bc_characteristic_wall_state_is_jittable_and_tangent_is_owner():
         close(interior, trace, jnp.asarray(0.0)), interior, atol=0.0, rtol=0.0
     )
     assert bool(jnp.all(jnp.isfinite(close(interior, trace, jnp.asarray(1.0)))))
+
+
+def test_bc_characteristic_invalid_trace_propagates_without_owner_fallback():
+    interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
+    trace = jnp.asarray((jnp.nan, 0.95, 1.05, 0.0), dtype=jnp.float64)
+    exterior, face, invalid = _curvature_bc_characteristic_wall_states(
+        interior,
+        trace,
+        jnp.asarray(1.0),
+        0.7,
+        jnp.asarray(1.0),
+        interior_on_right=True,
+    )
+    assert bool(invalid)
+    assert not bool(jnp.all(jnp.isfinite(exterior)))
+    assert not bool(jnp.all(jnp.isfinite(face)))
 
 
 def test_bc_characteristic_curvature_preserves_non_equilibrium_neumann_constant():

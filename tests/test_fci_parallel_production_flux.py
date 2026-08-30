@@ -181,7 +181,7 @@ def test_target_row_constant_state_has_exact_geometric_source():
     assert not bool(info["wall_row"])
 
 
-def test_wall_projection_uses_interior_matrix_and_one_sided_path():
+def test_wall_residual_solve_uses_interior_matrix_and_one_sided_path():
     center = _state()
     candidate = jnp.asarray([1.0, 1.1, 0.9, 0.0, 0.0])
     matrix = parallel_characteristic_matrix(*center, tau=4.0, mu=10.0)
@@ -193,8 +193,20 @@ def test_wall_projection_uses_interior_matrix_and_one_sided_path():
     _, _, _, incoming, valid = parallel_characteristic_split(matrix, normal=-1.0)
     projected = center + incoming @ (candidate - center)
     np.testing.assert_allclose(endpoint, projected, rtol=2e-8, atol=2e-8)
+    data = parallel_characteristic_wall_data(
+        center, center, center, 1.0, 1.0, 4.0, 10.0,
+        backward_wall=True, backward_wall_state=candidate,
+    )
+    solved = data["backward_endpoint_state"]
+    np.testing.assert_allclose(
+        (np.eye(5) - np.asarray(incoming)) @ np.asarray(solved - center),
+        np.zeros(5), atol=2.0e-8, rtol=0.0,
+    )
+    assert np.linalg.norm(np.asarray(solved - candidate)) <= np.linalg.norm(
+        np.asarray(center - candidate)
+    ) + 1.0e-12
     a_plus, _, _, _, _ = parallel_characteristic_split(matrix, normal=1.0)
-    expected = -a_plus @ (center - projected)
+    expected = -a_plus @ (center - solved)
     np.testing.assert_allclose(wall, expected, rtol=2e-8, atol=2e-8)
     assert float(jnp.linalg.norm(wall)) > 1.0e-8
     assert bool(valid)
@@ -370,11 +382,11 @@ def test_characteristic_wall_data_exposes_projected_state_and_linearized_current
     assert float(info["forward_alpha"]) > 0.0
 
 
-def test_characteristic_wall_current_removes_fatal_state_quadratic_product():
-    # Rounded values from the late 48^3 wall failure.  The incoming projection
-    # is large, but its first-order current is moderate; evaluating the
-    # nonlinear product on the projected components creates an O(10^3)
-    # current that was not present in the characteristic linearization.
+def test_characteristic_wall_residual_solve_removes_fatal_projection_amplification():
+    # Rounded values from the late 48^3 wall failure.  The former oblique
+    # projection generated O(10^3) primitive/current artifacts.  The reduced
+    # residual solve stays in the incoming subspace without amplifying the
+    # primitive candidate mismatch.
     center = jnp.asarray(
         [0.3985, 0.63365, 2.65956, -0.26323, -69.8749],
         dtype=jnp.float64,
@@ -391,8 +403,10 @@ def test_characteristic_wall_current_removes_fatal_state_quadratic_product():
     nonlinear = float(info["backward_wall_projected_nonlinear_current"])
     remainder = float(info["backward_wall_current_quadratic_remainder"])
     assert abs(characteristic) < 100.0
-    assert abs(nonlinear) > 1000.0
-    assert abs(remainder) > 1000.0
+    assert abs(nonlinear) < 100.0
+    assert abs(remainder) < 100.0
+    assert float(info["backward_wall_correction_amplification"]) <= 1.0 + 1e-10
+    assert bool(jnp.all(info["backward_wall_projected_state"][:3] > 0.0))
     assert nonlinear == pytest.approx(characteristic + remainder)
 
 
@@ -444,7 +458,7 @@ def test_characteristic_wall_data_keeps_ordinary_mapped_endpoints():
     assert not bool(info["forward_wall"])
 
 
-def test_characteristic_wall_data_finite_fallback_is_jittable_in_batch():
+def test_characteristic_wall_data_invalid_candidate_is_reported_and_propagates():
     center = jnp.broadcast_to(_state(), (2, 5))
     bad = center.at[1, 0].set(jnp.nan)
     result = jax.jit(parallel_characteristic_wall_data)(
@@ -453,10 +467,40 @@ def test_characteristic_wall_data_finite_fallback_is_jittable_in_batch():
         backward_wall=jnp.asarray([True, True]), backward_wall_state=bad,
     )
     info = result
-    assert bool(jnp.all(jnp.isfinite(info["selected_residual"])))
-    assert bool(jnp.all(jnp.isfinite(info["selected_jacobian"])))
-    assert bool(jnp.all(jnp.isfinite(info["backward_projected_state"])))
-    assert bool(jnp.any(info["backward_candidate_fallback"]))
+    assert bool(jnp.all(jnp.isfinite(info["selected_residual"][0])))
+    assert bool(jnp.all(jnp.isfinite(info["selected_jacobian"][0])))
+    assert bool(jnp.all(jnp.isfinite(info["backward_projected_state"][0])))
+    assert bool(info["backward_candidate_fallback"][1])
+    assert bool(info["backward_wall_solve_fallback"][1])
+    assert not bool(jnp.all(jnp.isfinite(info["backward_projected_state"][1])))
+
+
+def test_failed_two_wall_hotspot_is_admissible_and_parallel_flux_is_restoring():
+    center = jnp.asarray(
+        [0.3644197911, 0.6428237257, 2.5541440404, -0.0804481294, -71.3303178127]
+    )
+    backward = jnp.asarray(
+        [1.25963548, 1.04422820, 0.97527152, -0.04519514, -17.86656166]
+    )
+    forward = jnp.asarray(
+        [0.64737824, 0.78424595, 1.86109526, -0.04614816, -47.15524079]
+    )
+    residual, info = parallel_target_row_material_residual(
+        center, backward, forward, 0.08067992, 0.03789958, 1.0, 1836.0,
+        backward_wall=True, forward_wall=True,
+        backward_wall_state=backward, forward_wall_state=forward,
+    )
+    wall = parallel_characteristic_wall_data(
+        center, backward, forward, 0.08067992, 0.03789958, 1.0, 1836.0,
+        backward_wall=True, forward_wall=True,
+        backward_wall_state=backward, forward_wall_state=forward,
+    )
+    assert bool(jnp.all(wall["backward_endpoint_state"][:3] > 0.0))
+    assert bool(jnp.all(wall["forward_endpoint_state"][:3] > 0.0))
+    assert abs(float(wall["backward_endpoint_state"][3])) < 100.0
+    assert abs(float(wall["forward_endpoint_state"][3])) < 100.0
+    assert float(center[4] * residual[4]) < 0.0
+    assert bool(info["admissible"])
 
 
 def test_completed_run_state_range_is_admissible_when_available():
