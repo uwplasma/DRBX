@@ -6447,6 +6447,48 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
     """Validate native production/diagnostic selectors before compilation."""
 
     framework = str(args.flux_framework)
+    if args.parallel_short_leg_selection == "all-physical-walls":
+        if args.parallel_short_leg_treatment != "local-backward-euler":
+            raise ValueError(
+                "all-physical-walls short-leg selection requires "
+                "--parallel-short-leg-treatment local-backward-euler"
+            )
+        if args.parallel_characteristic_wall_law != "energy-absorbing":
+            raise ValueError(
+                "all-physical-walls short-leg selection requires "
+                "--parallel-characteristic-wall-law energy-absorbing"
+            )
+        if args.parallel_velocity_layout != "cell-centered":
+            raise ValueError("all-physical-walls requires cell-centered parallel velocities")
+        if framework != "production-split" or args.parallel_operator_scheme != "fci":
+            raise ValueError("all-physical-walls requires production FCI configuration")
+        if args.parallel_flux_pairing != "support-core":
+            raise ValueError("all-physical-walls requires support-core pairing")
+        if args.parallel_boundary_pairing != "characteristic-sat":
+            raise ValueError("all-physical-walls requires characteristic-sat pairing")
+        if args.parallel_inflow_closure != "central":
+            raise ValueError("all-physical-walls requires central parallel inflow")
+    if args.parallel_characteristic_wall_law == "energy-absorbing":
+        if args.parallel_velocity_layout != "cell-centered":
+            raise ValueError(
+                "energy-absorbing parallel characteristic wall law requires "
+                "cell-centered parallel velocities"
+            )
+        if framework != "production-split":
+            raise ValueError(
+                "energy-absorbing parallel characteristic wall law requires "
+                "the production-path parallel material scheme"
+            )
+        if args.parallel_boundary_pairing != "characteristic-sat":
+            raise ValueError(
+                "energy-absorbing parallel characteristic wall law requires "
+                "characteristic-sat boundary pairing"
+            )
+        if args.parallel_inflow_closure != "central":
+            raise ValueError(
+                "energy-absorbing parallel characteristic wall law requires "
+                "central parallel inflow closure"
+            )
     if not np.isfinite(args.parallel_short_leg_cfl_limit) or (
         args.parallel_short_leg_cfl_limit <= 0.0
     ):
@@ -6607,6 +6649,7 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
     """Export native CLI selectors consumed by LocalFciDrbEBRhs factories."""
 
     os.environ["DRBX_FLUX_FRAMEWORK"] = str(args.flux_framework)
+    os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] = str(args.parallel_characteristic_wall_law)
     os.environ["DRBX_PARALLEL_VELOCITY_LAYOUT"] = str(args.parallel_velocity_layout)
     os.environ["DRBX_PARALLEL_FLUX_PAIRING"] = str(args.parallel_flux_pairing)
     os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] = (
@@ -6616,6 +6659,9 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
     )
     os.environ["DRBX_PARALLEL_SHORT_LEG_TREATMENT"] = str(
         args.parallel_short_leg_treatment
+    )
+    os.environ["DRBX_PARALLEL_SHORT_LEG_SELECTION"] = str(
+        args.parallel_short_leg_selection
     )
     os.environ["DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT"] = str(
         args.parallel_short_leg_cfl_limit
@@ -6650,7 +6696,9 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
             ),
         }[str(args.curvature_wall_flux_closure)]
         os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] = (
-            "characteristic-projected-operator-trace-canonical-face-state"
+            _parallel_characteristic_wall_metadata(
+                str(args.parallel_characteristic_wall_law)
+            )["parallel_material_wall_flux_closure"]
         )
         os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY", None)
         os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE", None)
@@ -6685,6 +6733,50 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
         os.environ["DRBX_RHS_TERM_HISTORY"] = str(args.rhs_term_history)
         os.environ["DRBX_RHS_TERM_FRAMES"] = ",".join(str(frame) for frame in frames)
         os.environ["DRBX_RHS_TERM_OUTPUT"] = str(args.rhs_term_output)
+
+
+def _parallel_characteristic_wall_metadata(wall_law: str) -> dict[str, object]:
+    """Describe the selected wall law without inheriting stale environment state."""
+
+    if wall_law == "primitive-least-residual":
+        return {
+            "parallel_material_wall_flux_closure": (
+                "characteristic-projected-operator-trace-canonical-face-state"
+            ),
+            "parallel_material_wall_flux_closure_source": (
+                "DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"
+            ),
+            "parallel_characteristic_wall_equilibrium_reference": None,
+            "parallel_characteristic_wall_equilibrium_reference_source": None,
+            "parallel_characteristic_wall_provenance": "primitive-least-residual",
+            "parallel_characteristic_wall_energy_normalizer": None,
+            "parallel_characteristic_wall_energy_normalizer_source": None,
+        }
+    if wall_law == "energy-absorbing":
+        return {
+            "parallel_material_wall_flux_closure": (
+                "maximally-dissipative-energy-absorbing-normalized-equilibrium"
+            ),
+            "parallel_material_wall_flux_closure_source": (
+                "simulate_hsx_blob.py:--parallel-characteristic-wall-law"
+            ),
+            "parallel_characteristic_wall_equilibrium_reference": [
+                1.0, 1.0, 1.0, 0.0, 0.0
+            ],
+            "parallel_characteristic_wall_equilibrium_reference_source": (
+                "normalized-equilibrium-contract"
+            ),
+            "parallel_characteristic_wall_provenance": (
+                "experimental-normalized-equilibrium-absorber"
+            ),
+            "parallel_characteristic_wall_energy_normalizer": (
+                "unit-modal-mathematical"
+            ),
+            "parallel_characteristic_wall_energy_normalizer_source": (
+                "characteristic-wall-residual.py:unit-modal-energy"
+            ),
+        }
+    raise ValueError(f"unknown parallel characteristic wall law: {wall_law!r}")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -6812,12 +6904,38 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--parallel-characteristic-wall-law",
+        choices=("primitive-least-residual", "energy-absorbing"),
+        default="primitive-least-residual",
+        help=(
+            "Characteristic parallel material wall law. "
+            "'primitive-least-residual' retains the primitive incoming "
+            "trace; 'energy-absorbing' selects the experimental mathematical "
+            "characteristic normalized-equilibrium absorber with unit modal "
+            "weights (reference "
+            "[1,1,1,0,0]) and requires the production-path cell-centered, "
+            "characteristic-SAT, central-inflow configuration."
+        ),
+    )
+    parser.add_argument(
         "--parallel-short-leg-treatment",
         choices=("explicit", "local-backward-euler"),
         default="explicit",
         help=(
             "Treatment of selected short FCI wall legs. local-backward-euler "
             "applies the opt-in material-block split after each RK4 step."
+        ),
+    )
+    parser.add_argument(
+        "--parallel-short-leg-selection",
+        choices=("cfl", "all-physical-walls"),
+        default="cfl",
+        help=(
+            "Select material wall legs for the local backward-Euler split. "
+            "'cfl' preserves threshold selection; 'all-physical-walls' "
+            "uses no CFL threshold and splits all physical wall material "
+            "legs to local backward Euler. Characteristic-SAT current/phi "
+            "remains explicit."
         ),
     )
     parser.add_argument(
@@ -7504,9 +7622,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"{args.flux_framework}; "
         f"parallel_velocity_layout={args.parallel_velocity_layout}; "
         f"parallel_flux_pairing={args.parallel_flux_pairing}; "
+        f"parallel_characteristic_wall_law={args.parallel_characteristic_wall_law}; "
         "parallel_boundary_pairing="
         f"{os.environ['DRBX_PARALLEL_BOUNDARY_PAIRING']}; "
         f"parallel_short_leg_treatment={args.parallel_short_leg_treatment}; "
+        f"parallel_short_leg_selection={args.parallel_short_leg_selection}; "
         f"curvature_evolution_component={args.curvature_evolution_component}",
         flush=True,
     )
@@ -8329,6 +8449,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"{str(args.parallel_velocity_wall_bc)}",
         flush=True,
     )
+    print(
+        "[simulation] parallel characteristic wall law: "
+        f"{str(args.parallel_characteristic_wall_law)} "
+        "(source=simulate_hsx_blob.py:--parallel-characteristic-wall-law)",
+        flush=True,
+    )
+    print(
+        "[simulation] parallel short-leg selection: "
+        f"{str(args.parallel_short_leg_selection)} "
+        "(all-physical-walls uses no CFL threshold; characteristic-SAT "
+        "current/phi remains explicit)",
+        flush=True,
+    )
     parallel_closure_description = {
         "central": "centered operator traces",
         "local-characteristic": (
@@ -8449,10 +8582,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             "parallel_operator_scheme": str(args.parallel_operator_scheme),
             "parallel_velocity_layout": os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT", "cell-centered"),
             "parallel_flux_pairing": os.environ.get("DRBX_PARALLEL_FLUX_PAIRING", "legacy"),
+            "parallel_characteristic_wall_law": str(args.parallel_characteristic_wall_law),
+            "parallel_characteristic_wall_law_env": os.environ.get("DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"),
+            "parallel_characteristic_wall_law_source": "simulate_hsx_blob.py:--parallel-characteristic-wall-law",
             "parallel_boundary_pairing": os.environ.get("DRBX_PARALLEL_BOUNDARY_PAIRING", "legacy"),
             "parallel_boundary_pairing_source": "simulate_hsx_blob.py:--parallel-boundary-pairing",
             "parallel_short_leg_treatment": os.environ.get("DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"),
             "parallel_short_leg_treatment_source": "simulate_hsx_blob.py:--parallel-short-leg-treatment",
+            "parallel_short_leg_selection": str(args.parallel_short_leg_selection),
+            "parallel_short_leg_selection_source": "simulate_hsx_blob.py:--parallel-short-leg-selection",
             "parallel_short_leg_cfl_limit": float(os.environ.get("DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT", "2.5")),
             "parallel_short_leg_cfl_limit_source": "simulate_hsx_blob.py:--parallel-short-leg-cfl-limit",
             "curvature_evolution_component": os.environ.get("DRBX_CURVATURE_EVOLUTION_COMPONENT", "full"),
@@ -8466,8 +8604,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if args.curvature_wall_flux_closure == "bc-characteristic"
                 else "equilibrium-minus-interior"
             ),
-            "parallel_material_wall_flux_closure": os.environ.get("DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE", str(args.parallel_inflow_closure)),
-            "parallel_material_wall_flux_closure_source": "DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE",
+            **_parallel_characteristic_wall_metadata(str(args.parallel_characteristic_wall_law)),
             "curvature_characteristic_axes": os.environ.get("DRBX_CURVATURE_CHARACTERISTIC_AXES", "legacy"),
             "curvature_characteristic_axes_source": "simulate_hsx_blob.py:--curvature-characteristic-axes",
             "curvature_radial_characteristic_scheme": os.environ.get("DRBX_CURVATURE_RADIAL_CHARACTERISTIC_SCHEME", "legacy"),

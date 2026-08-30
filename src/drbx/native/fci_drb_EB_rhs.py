@@ -1016,6 +1016,26 @@ class FciDrbEBRhsParameters:
     Vi_parallel_viscosity: float = 0.0
     vorticity_D_perp: float = 0.0
     vorticity_D_parallel: float = 0.0
+    # Characteristic physical-wall law for the production parallel material
+    # block.  The default retains the established primitive least-residual
+    # projection exactly; energy-absorbing closes incoming modes against the
+    # explicit equilibrium/reference state.
+    parallel_characteristic_wall_law: str = field(
+        default_factory=lambda: os.environ.get(
+            "DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW",
+            "primitive-least-residual",
+        )
+    )
+
+    def __post_init__(self):
+        if self.parallel_characteristic_wall_law not in (
+            "primitive-least-residual", "energy-absorbing"
+        ):
+            raise ValueError(
+                "parallel_characteristic_wall_law must be "
+                "'primitive-least-residual' or 'energy-absorbing', got "
+                f"{self.parallel_characteristic_wall_law!r}"
+            )
 
     def tree_flatten(self):
         return (
@@ -1044,7 +1064,7 @@ class FciDrbEBRhsParameters:
                 self.vorticity_D_perp,
                 self.vorticity_D_parallel,
             ),
-            None,
+            self.parallel_characteristic_wall_law,
         )
 
     @classmethod
@@ -1098,6 +1118,7 @@ class FciDrbEBRhsParameters:
             Vi_parallel_viscosity=Vi_parallel_viscosity,
             vorticity_D_perp=vorticity_D_perp,
             vorticity_D_parallel=vorticity_D_parallel,
+            parallel_characteristic_wall_law=_aux_data,
         )
 
 
@@ -1595,6 +1616,13 @@ class LocalFciDrbEBRhs:
             os.environ.get("DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT", "2.5")
         )
     )
+    # ``cfl`` preserves the existing short-leg choice; ``all-physical-walls``
+    # selects every physical wall leg for the energy-absorbing local BE path.
+    parallel_short_leg_selection: str = field(
+        default_factory=lambda: os.environ.get(
+            "DRBX_PARALLEL_SHORT_LEG_SELECTION", "cfl"
+        )
+    )
 
     @property
     def neumann_normal_scheme(self) -> str:
@@ -1707,6 +1735,28 @@ class LocalFciDrbEBRhs:
                 "'characteristic-sat', got "
                 f"{self.parallel_boundary_pairing!r}"
             )
+        wall_law = self.parameters.parallel_characteristic_wall_law
+        if wall_law not in ("primitive-least-residual", "energy-absorbing"):
+            raise ValueError(
+                "parallel_characteristic_wall_law must be "
+                "'primitive-least-residual' or 'energy-absorbing', got "
+                f"{wall_law!r}"
+            )
+        if wall_law == "energy-absorbing" and self.parallel_material_scheme != "production-path":
+            raise ValueError(
+                "parallel_characteristic_wall_law='energy-absorbing' requires "
+                "parallel_material_scheme='production-path'"
+            )
+        if wall_law == "energy-absorbing" and self.parallel_boundary_pairing != "characteristic-sat":
+            raise ValueError(
+                "parallel_characteristic_wall_law='energy-absorbing' requires "
+                "parallel_boundary_pairing='characteristic-sat'"
+            )
+        if wall_law == "energy-absorbing" and self.parallel_inflow_closure != "central":
+            raise ValueError(
+                "parallel_characteristic_wall_law='energy-absorbing' requires "
+                "parallel_inflow_closure='central'"
+            )
         if (
             self.parallel_boundary_pairing == "characteristic-sat"
             and (
@@ -1817,6 +1867,23 @@ class LocalFciDrbEBRhs:
             raise ValueError(
                 "parallel_short_leg_cfl_limit must be a positive finite number"
             )
+        if self.parallel_short_leg_selection not in ("cfl", "all-physical-walls"):
+            raise ValueError(
+                "parallel_short_leg_selection must be 'cfl' or "
+                "'all-physical-walls', got "
+                f"{self.parallel_short_leg_selection!r}"
+            )
+        if self.parallel_short_leg_selection == "all-physical-walls":
+            if self.parallel_short_leg_treatment != "local-backward-euler":
+                raise ValueError(
+                    "parallel_short_leg_selection='all-physical-walls' requires "
+                    "parallel_short_leg_treatment='local-backward-euler'"
+                )
+            if self.parameters.parallel_characteristic_wall_law != "energy-absorbing":
+                raise ValueError(
+                    "parallel_short_leg_selection='all-physical-walls' requires "
+                    "parallel_characteristic_wall_law='energy-absorbing'"
+                )
         if self.parallel_short_leg_treatment == "local-backward-euler":
             if self.parallel_material_scheme != "production-path":
                 raise ValueError(
@@ -4900,10 +4967,14 @@ class LocalFciDrbEBRhs:
                     if self.parallel_short_leg_treatment == "local-backward-euler"
                     else 0.0,
                     cfl_limit=self.parallel_short_leg_cfl_limit,
+                    parallel_short_leg_selection=self.parallel_short_leg_selection,
                     backward_wall=backward_wall,
                     forward_wall=forward_wall,
                     backward_wall_state=minus,
                     forward_wall_state=plus,
+                    parallel_characteristic_wall_law=(
+                        self.parameters.parallel_characteristic_wall_law
+                    ),
                 )
             if self.parallel_boundary_pairing == "characteristic-sat":
                 # The homogeneous pair is the weighted-adjoint operator used
@@ -4957,6 +5028,10 @@ class LocalFciDrbEBRhs:
                     if self.parallel_short_leg_treatment == "local-backward-euler"
                     else 0.0,
                     cfl_limit=self.parallel_short_leg_cfl_limit,
+                    parallel_short_leg_selection=self.parallel_short_leg_selection,
+                    parallel_characteristic_wall_law=(
+                        self.parameters.parallel_characteristic_wall_law
+                    ),
                 )
             )
             if return_electron_force_diagnostics and wall_data is not None:
@@ -5932,12 +6007,15 @@ class LocalFciDrbEBRhs:
         """Apply a frozen local backward-Euler step to selected wall legs.
 
         This is intentionally a narrow prototype operator.  It updates only
-        the five primitive material fields on rows whose physical wall leg
-        exceeds ``parallel_short_leg_cfl_limit`` when measured with
-        ``selection_dt``.  All mapped/bulk rows, the geometric ``div(b)``
-        source, polarization, and vorticity remain in the explicit RHS.  The
-        owner update is formed from the BE increment, so projected-fine/RLP
-        storage cannot accidentally average an already-updated state.
+        the five primitive material fields on rows selected by
+        ``parallel_short_leg_selection``.  In the default ``cfl`` mode, a
+        physical wall leg is selected when it exceeds
+        ``parallel_short_leg_cfl_limit`` measured with ``selection_dt``;
+        ``all-physical-walls`` selects every physical wall leg.  All
+        mapped/bulk rows, the geometric ``div(b)`` source, polarization, and
+        vorticity remain in the explicit RHS.  The owner update is formed from
+        the BE increment, so projected-fine/RLP storage cannot accidentally
+        average an already-updated state.
         """
         if self.parallel_short_leg_treatment != "local-backward-euler":
             raise ValueError(
@@ -6026,10 +6104,14 @@ class LocalFciDrbEBRhs:
             selection_dt=selection_dt,
             solve_dt=solve_dt,
             cfl_limit=self.parallel_short_leg_cfl_limit,
+            parallel_short_leg_selection=self.parallel_short_leg_selection,
             backward_wall=backward_wall,
             forward_wall=forward_wall,
             backward_wall_state=minus,
             forward_wall_state=plus,
+            parallel_characteristic_wall_law=(
+                self.parameters.parallel_characteristic_wall_law
+            ),
         )
 
         if self._uses_compact_face_operators:

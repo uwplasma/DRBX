@@ -345,6 +345,255 @@ def test_short_wall_batch_jit_and_selection_threshold():
     assert bool(jnp.all(jnp.isfinite(updated)))
 
 
+def _energy_wall_selection_batch():
+    equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0))
+    center = jnp.broadcast_to(
+        equilibrium + jnp.asarray((0.08, -0.02, 0.03, 0.0, 0.0)),
+        (4, 5),
+    )
+    minus = center + jnp.asarray((
+        (0.01, -0.01, 0.02, 0.03, -0.02),
+        (-0.02, 0.01, -0.01, -0.02, 0.03),
+        (0.03, 0.02, -0.02, 0.01, 0.02),
+        (-0.01, -0.02, 0.01, 0.02, -0.01),
+    ))
+    plus = center + jnp.asarray((
+        (-0.01, 0.02, -0.01, -0.02, 0.01),
+        (0.02, -0.01, 0.03, 0.01, -0.02),
+        (-0.03, 0.01, 0.02, -0.01, 0.03),
+        (0.01, 0.01, -0.02, 0.02, 0.01),
+    ))
+    backward_wall = jnp.asarray((True, False, True, False))
+    forward_wall = jnp.asarray((False, True, True, False))
+    return (
+        equilibrium, center, minus, plus,
+        jnp.asarray((1.0e-3, 100.0, 0.5, 2.0)),
+        jnp.asarray((100.0, 1.0e-3, 0.5, 2.0)),
+        backward_wall, forward_wall,
+    )
+
+
+def test_all_physical_wall_selection_ignores_cfl_and_keeps_ordinary_legs_off():
+    (
+        equilibrium, center, minus, plus, dx_minus, dx_plus,
+        backward_wall, forward_wall,
+    ) = _energy_wall_selection_batch()
+    selected, jacobian, info = parallel_short_wall_material_data(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0,
+        selection_dt=1.0e-6, cfl_limit=1.0e12,
+        parallel_short_leg_selection="all-physical-walls",
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    np.testing.assert_array_equal(info["selected_backward_wall"], backward_wall)
+    np.testing.assert_array_equal(info["selected_forward_wall"], forward_wall)
+    np.testing.assert_array_equal(
+        info["selected_wall"], backward_wall | forward_wall
+    )
+    assert not bool(info["selected_wall"][3])
+    assert bool(jnp.all(jnp.isfinite(selected)))
+    assert bool(jnp.all(jnp.isfinite(jacobian)))
+    for name, mask in (
+        ("backward_wall_thermodynamic_admissible", backward_wall),
+        ("forward_wall_thermodynamic_admissible", forward_wall),
+    ):
+        assert bool(jnp.all(info[name][mask]))
+
+
+def test_all_physical_wall_target_omits_exactly_selected_directional_actions():
+    (
+        equilibrium, center, minus, plus, dx_minus, dx_plus,
+        backward_wall, forward_wall,
+    ) = _energy_wall_selection_batch()
+    baseline, _ = parallel_target_row_material_residual(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0,
+        selection_dt=0.0, cfl_limit=1.0e12,
+        parallel_short_leg_selection="cfl",
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+        div_b=0.0,
+    )
+    filtered, filtered_info = parallel_target_row_material_residual(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0,
+        selection_dt=1.0e-6, cfl_limit=1.0e12,
+        parallel_short_leg_selection="all-physical-walls",
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+        div_b=0.0,
+    )
+    selected, _, selected_info = parallel_short_wall_material_data(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0,
+        selection_dt=1.0e-6, cfl_limit=1.0e12,
+        parallel_short_leg_selection="all-physical-walls",
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    np.testing.assert_allclose(baseline - filtered, selected, rtol=2e-10, atol=2e-11)
+    np.testing.assert_array_equal(filtered_info["omitted_backward_wall"], backward_wall)
+    np.testing.assert_array_equal(filtered_info["omitted_forward_wall"], forward_wall)
+    np.testing.assert_array_equal(
+        selected_info["selected_backward_wall"], backward_wall
+    )
+    np.testing.assert_array_equal(selected_info["selected_forward_wall"], forward_wall)
+    np.testing.assert_allclose(filtered[3], baseline[3], atol=2e-12)
+
+
+def test_all_physical_wall_backward_euler_includes_both_walls_once_on_long_legs():
+    (
+        equilibrium, center, minus, plus, dx_minus, dx_plus,
+        backward_wall, forward_wall,
+    ) = _energy_wall_selection_batch()
+    solve_dt = 1.0e-3
+    selected, _, selected_info = parallel_short_wall_material_data(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0,
+        selection_dt=1.0e-6, cfl_limit=1.0e12,
+        parallel_short_leg_selection="all-physical-walls",
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    updated, delta, info = parallel_short_wall_backward_euler(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0,
+        selection_dt=1.0e-6, solve_dt=solve_dt, cfl_limit=1.0e12,
+        parallel_short_leg_selection="all-physical-walls",
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    expected = np.linalg.solve(
+        np.eye(5)[None, :, :] - solve_dt * np.asarray(info["selected_jacobian"]),
+        solve_dt * np.asarray(selected)[..., None],
+    )[..., 0]
+    np.testing.assert_allclose(delta, expected, rtol=2e-9, atol=2e-11)
+    np.testing.assert_allclose(updated, np.asarray(center) + expected)
+    assert bool(jnp.all(jnp.isfinite(updated)))
+    assert bool(jnp.all(info["implicit_finite"]))
+    assert not bool(jnp.any(info["implicit_solve_fallback"]))
+    np.testing.assert_array_equal(
+        info["selected_backward_wall"], selected_info["selected_backward_wall"]
+    )
+    np.testing.assert_array_equal(
+        info["selected_forward_wall"], selected_info["selected_forward_wall"]
+    )
+    assert bool(jnp.all(info["backward_wall_thermodynamic_admissible"][backward_wall]))
+    assert bool(jnp.all(info["forward_wall_thermodynamic_admissible"][forward_wall]))
+
+
+def test_default_short_leg_selection_is_exactly_explicit_cfl():
+    (
+        equilibrium, center, minus, plus, dx_minus, dx_plus,
+        backward_wall, forward_wall,
+    ) = _energy_wall_selection_batch()
+    common = dict(
+        selection_dt=0.02, cfl_limit=2.785,
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    default_data = parallel_short_wall_material_data(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0, **common
+    )
+    explicit_data = parallel_short_wall_material_data(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0,
+        parallel_short_leg_selection="cfl", **common
+    )
+    for lhs, rhs in zip(default_data[:2], explicit_data[:2], strict=True):
+        np.testing.assert_array_equal(lhs, rhs)
+    assert default_data[2].keys() == explicit_data[2].keys()
+    for name in default_data[2]:
+        np.testing.assert_array_equal(default_data[2][name], explicit_data[2][name])
+
+    default_target = parallel_target_row_material_residual(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0, div_b=0.0, **common
+    )
+    explicit_target = parallel_target_row_material_residual(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0, div_b=0.0,
+        parallel_short_leg_selection="cfl", **common
+    )
+    np.testing.assert_array_equal(default_target[0], explicit_target[0])
+    assert default_target[1].keys() == explicit_target[1].keys()
+    for name in default_target[1]:
+        np.testing.assert_array_equal(default_target[1][name], explicit_target[1][name])
+
+    default_be = parallel_short_wall_backward_euler(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0,
+        solve_dt=0.02, **common
+    )
+    explicit_be = parallel_short_wall_backward_euler(
+        center, minus, plus, dx_minus, dx_plus, 4.0, 10.0,
+        solve_dt=0.02, parallel_short_leg_selection="cfl", **common
+    )
+    for lhs, rhs in zip(default_be[:2], explicit_be[:2], strict=True):
+        np.testing.assert_array_equal(lhs, rhs)
+    assert default_be[2].keys() == explicit_be[2].keys()
+    for name in default_be[2]:
+        np.testing.assert_array_equal(default_be[2][name], explicit_be[2][name])
+
+
+def test_short_leg_selection_rejects_unknown_selector_for_all_public_helpers():
+    center = _state()
+    with pytest.raises(ValueError, match="parallel_short_leg_selection"):
+        parallel_target_row_material_residual(
+            center, center, center, 1.0, 1.0, 4.0, 10.0,
+            parallel_short_leg_selection="invalid",
+        )
+    with pytest.raises(ValueError, match="parallel_short_leg_selection"):
+        parallel_short_wall_material_data(
+            center, center, center, 1.0, 1.0, 4.0, 10.0,
+            selection_dt=0.01, parallel_short_leg_selection="invalid",
+        )
+    with pytest.raises(ValueError, match="parallel_short_leg_selection"):
+        parallel_short_wall_backward_euler(
+            center, center, center, 1.0, 1.0, 4.0, 10.0,
+            selection_dt=0.01, solve_dt=0.01,
+            parallel_short_leg_selection="invalid",
+        )
+
+
+@pytest.mark.parametrize(
+    ("backward_wall", "forward_wall", "dx_minus", "dx_plus"),
+    (
+        (True, False, 0.01, 1.0),
+        (True, False, 1.0, 1.0),
+        (False, True, 1.0, 0.01),
+        (False, True, 1.0, 1.0),
+    ),
+)
+def test_all_physical_wall_selected_action_is_dissipative_for_short_and_long_legs(
+    backward_wall, forward_wall, dx_minus, dx_plus
+):
+    equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0))
+    center = equilibrium + jnp.asarray((0.08, -0.02, 0.03, 0.0, 0.0))
+    matrix = np.asarray(
+        parallel_characteristic_matrix(*center, tau=4.0, mu=10.0)
+    )
+    values, right = np.linalg.eig(matrix)
+    assert np.max(np.abs(np.imag(values))) < 1.0e-10
+    left = np.linalg.inv(np.real(right))
+    H = left.T @ left
+    selected, _, info = parallel_short_wall_material_data(
+        center, center, center, dx_minus, dx_plus, 4.0, 10.0,
+        selection_dt=1.0e-6, cfl_limit=1.0e12,
+        parallel_short_leg_selection="all-physical-walls",
+        backward_wall=backward_wall, forward_wall=forward_wall,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    assert bool(info["selected_wall"])
+    assert bool(jnp.all(jnp.isfinite(selected)))
+    perturbation = np.asarray(center - equilibrium)
+    selected = np.asarray(selected)
+    rate = float(perturbation @ H @ selected)
+    tolerance = 2.0e-10 * max(
+        1.0, np.linalg.norm(perturbation @ H) * np.linalg.norm(selected)
+    )
+    assert rate <= tolerance
+
+
 def test_characteristic_wall_data_exposes_projected_state_and_linearized_current():
     center = _state()
     candidate = jnp.asarray([1.1, 1.2, 0.9, 0.3, -0.1])
@@ -516,3 +765,318 @@ def test_completed_run_state_range_is_admissible_when_available():
     _plus, _minus, valid = parallel_characteristic_projectors(matrices)
     assert bool(jnp.all(values[:, :3] > 0.0))
     assert bool(jnp.all(valid))
+
+
+def test_energy_absorbing_wall_ignores_scalar_candidates_and_preserves_ordinary_endpoints():
+    center = _state()
+    equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0))
+    first = parallel_characteristic_wall_data(
+        center, center + 0.2, center - 0.1, 0.2, 0.3, 4.0, 10.0,
+        backward_wall=True, forward_wall=True,
+        backward_wall_state=jnp.asarray((9.0, 8.0, 7.0, 6.0, 5.0)),
+        forward_wall_state=jnp.asarray((-9.0, -8.0, -7.0, -6.0, -5.0)),
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    second = parallel_characteristic_wall_data(
+        center, center + 0.2, center - 0.1, 0.2, 0.3, 4.0, 10.0,
+        backward_wall=True, forward_wall=True,
+        backward_wall_state=jnp.full((5,), jnp.nan),
+        forward_wall_state=jnp.full((5,), jnp.nan),
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    for name in ("backward_endpoint_state", "forward_endpoint_state",
+                 "backward_wall_characteristic_current",
+                 "forward_wall_characteristic_current"):
+        np.testing.assert_allclose(first[name], second[name])
+    assert bool(jnp.all(~second["backward_candidate_fallback"]))
+    assert bool(jnp.all(~second["forward_candidate_fallback"]))
+
+    ordinary = parallel_characteristic_wall_data(
+        center, center + 0.2, center - 0.1, 0.2, 0.3, 4.0, 10.0,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    np.testing.assert_array_equal(ordinary["backward_endpoint_state"], center + 0.2)
+    np.testing.assert_array_equal(ordinary["forward_endpoint_state"], center - 0.1)
+
+
+def test_energy_absorbing_wall_is_jittable_and_invalid_selector_is_explicit():
+    center = jnp.broadcast_to(_state(), (2, 5))
+    run = jax.jit(
+        parallel_target_row_material_residual,
+        static_argnames=("parallel_characteristic_wall_law",),
+    )
+    residual, info = run(
+        center, center, center, jnp.asarray((0.2, 0.3)),
+        jnp.asarray((0.3, 0.2)), 4.0, 10.0,
+        backward_wall=jnp.asarray((True, False)),
+        forward_wall=jnp.asarray((True, True)),
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    assert residual.shape == (2, 5)
+    assert bool(jnp.all(jnp.isfinite(residual)))
+    with pytest.raises(ValueError, match="parallel_characteristic_wall_law"):
+        parallel_target_row_material_residual(
+            _state(), _state(), _state(), 0.2, 0.3, 4.0, 10.0,
+        parallel_characteristic_wall_law="bad-law",
+        )
+
+
+def test_default_wall_law_is_exactly_explicit_primitive_least_residual():
+    center = _state()
+    minus = center + jnp.asarray([-0.1, 0.2, -0.1, 0.3, -0.2])
+    plus = center + jnp.asarray([0.2, -0.1, 0.3, -0.2, 0.1])
+    kwargs = dict(
+        backward_wall=True,
+        forward_wall=True,
+        backward_wall_state=center + 0.1,
+        forward_wall_state=center - 0.15,
+        equilibrium=jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0)),
+        div_b=0.0,
+    )
+    default_residual, default_info = parallel_target_row_material_residual(
+        center, minus, plus, 0.2, 0.3, 4.0, 10.0, **kwargs
+    )
+    explicit_residual, explicit_info = parallel_target_row_material_residual(
+        center, minus, plus, 0.2, 0.3, 4.0, 10.0,
+        parallel_characteristic_wall_law="primitive-least-residual", **kwargs
+    )
+    np.testing.assert_array_equal(default_residual, explicit_residual)
+    assert default_info.keys() == explicit_info.keys()
+    for name in default_info:
+        np.testing.assert_array_equal(default_info[name], explicit_info[name])
+
+
+def test_energy_absorbing_omitted_reference_is_normalized_equilibrium():
+    center = _state()
+    equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0))
+    kwargs = dict(
+        backward_wall=True,
+        forward_wall=True,
+        backward_wall_state=jnp.full((5,), jnp.nan),
+        forward_wall_state=jnp.full((5,), jnp.nan),
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    omitted = parallel_characteristic_wall_data(
+        center, center, center, 1.0, 1.0, 4.0, 10.0, **kwargs
+    )
+    explicit = parallel_characteristic_wall_data(
+        center, center, center, 1.0, 1.0, 4.0, 10.0,
+        equilibrium=equilibrium, **kwargs
+    )
+    for name in (
+        "backward_endpoint_state", "forward_endpoint_state",
+        "backward_wall_characteristic_current", "forward_wall_characteristic_current",
+    ):
+        np.testing.assert_array_equal(omitted[name], explicit[name])
+
+
+@pytest.mark.parametrize(
+    ("backward_wall", "forward_wall"),
+    ((True, False), (False, True), (True, True)),
+)
+def test_energy_absorbing_wall_residual_is_dissipative_in_live_modal_energy(
+    backward_wall, forward_wall
+):
+    equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0))
+    center = equilibrium + jnp.asarray((0.08, -0.02, 0.03, 0.0, 0.0))
+    matrix = np.asarray(
+        parallel_characteristic_matrix(*center, tau=4.0, mu=10.0)
+    )
+    eigenvalues, right = np.linalg.eig(matrix)
+    assert np.max(np.abs(np.imag(eigenvalues))) < 1.0e-10
+    right = np.real(right)
+    left = np.linalg.inv(right)
+    H = left.T @ left
+    assert np.all(np.linalg.eigvalsh(H) > 0.0)
+    np.testing.assert_allclose(H @ matrix, (H @ matrix).T, atol=2.0e-10, rtol=2.0e-10)
+
+    residual, info = parallel_target_row_material_residual(
+        center, center, center, 1.0, 1.0, 4.0, 10.0,
+        backward_wall=backward_wall,
+        forward_wall=forward_wall,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+        div_b=0.0,
+    )
+    perturbation = np.asarray(center - equilibrium)
+    residual = np.asarray(residual)
+    rate = float(perturbation @ H @ residual)
+    tolerance = 2.0e-10 * max(1.0, np.linalg.norm(perturbation @ H) * np.linalg.norm(residual))
+    assert rate <= tolerance
+    assert bool(info["admissible"])
+
+    # The lower and upper physical boundaries retain only outward modes, so
+    # their oriented modal boundary powers cannot be negative.
+    wall_info = parallel_characteristic_wall_data(
+        center, center, center, 1.0, 1.0, 4.0, 10.0,
+        backward_wall=backward_wall,
+        forward_wall=forward_wall,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    if backward_wall:
+        assert float(wall_info["backward_wall_boundary_power_after"]) >= -tolerance
+    if forward_wall:
+        assert float(wall_info["forward_wall_boundary_power_after"]) >= -tolerance
+
+
+@pytest.mark.parametrize(("direction", "normal"), (("backward", -1.0), ("forward", 1.0)))
+def test_energy_absorbing_endpoint_preserves_outgoing_and_stationary_amplitudes(
+    direction, normal
+):
+    equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0))
+    center = equilibrium + jnp.asarray((0.08, -0.02, 0.03, 0.0, 0.0))
+    matrix = np.asarray(
+        parallel_characteristic_matrix(*center, tau=4.0, mu=10.0)
+    )
+    values, right = np.linalg.eig(matrix)
+    values = np.real(values)
+    left = np.linalg.inv(np.real(right))
+    wall_info = parallel_characteristic_wall_data(
+        center, center, center, 1.0, 1.0, 4.0, 10.0,
+        backward_wall=direction == "backward",
+        forward_wall=direction == "forward",
+        backward_wall_state=jnp.full((5,), jnp.nan),
+        forward_wall_state=jnp.full((5,), jnp.nan),
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    before = left @ (np.asarray(center) - np.asarray(equilibrium))
+    after = left @ np.asarray(wall_info[f"{direction}_endpoint_state"] - equilibrium)
+    incoming = normal * values < -1.0e-10
+    np.testing.assert_allclose(after[incoming], 0.0, atol=2.0e-9, rtol=0.0)
+    np.testing.assert_allclose(after[~incoming], before[~incoming], atol=2.0e-9, rtol=2.0e-9)
+    assert bool(wall_info[f"{direction}_candidate_ignored"])
+    assert not bool(wall_info[f"{direction}_candidate_finite"])
+
+
+def test_energy_absorbing_current_uses_the_same_projected_wall_state():
+    equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0))
+    center = equilibrium + jnp.asarray((0.08, -0.02, 0.03, 0.0, 0.0))
+    wall_info = parallel_characteristic_wall_data(
+        center, center, center, 1.0, 1.0, 4.0, 10.0,
+        backward_wall=True,
+        forward_wall=True,
+        backward_wall_state=jnp.full((5,), jnp.nan),
+        forward_wall_state=jnp.full((5,), jnp.nan),
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    center_np = np.asarray(center)
+    center_current = center_np[0] * (center_np[3] - center_np[4])
+    for direction in ("backward", "forward"):
+        endpoint = np.asarray(wall_info[f"{direction}_endpoint_state"])
+        delta = endpoint - center_np
+        expected = (
+            center_current
+            + (center_np[3] - center_np[4]) * delta[0]
+            + center_np[0] * (delta[3] - delta[4])
+        )
+        np.testing.assert_allclose(
+            wall_info[f"{direction}_wall_characteristic_current"], expected,
+            rtol=2.0e-12, atol=2.0e-12,
+        )
+        np.testing.assert_allclose(
+            wall_info[f"{direction}_incoming_action"], endpoint - center_np,
+            rtol=2.0e-12, atol=2.0e-12,
+        )
+
+
+def test_energy_absorbing_invalid_reference_propagates_nan_and_is_inadmissible():
+    equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0))
+    invalid = equilibrium.at[0].set(jnp.nan)
+    center = equilibrium + jnp.asarray((0.08, -0.02, 0.03, 0.0, 0.0))
+    residual, diagnostics = parallel_target_row_material_residual(
+        center, center, center, 1.0, 1.0, 4.0, 10.0,
+        backward_wall=True,
+        equilibrium=invalid,
+        parallel_characteristic_wall_law="energy-absorbing",
+        div_b=0.0,
+    )
+    assert bool(jnp.any(~jnp.isfinite(residual)))
+    assert not bool(diagnostics["admissible"])
+    wall_info = parallel_characteristic_wall_data(
+        center, center, center, 1.0, 1.0, 4.0, 10.0,
+        backward_wall=True,
+        equilibrium=invalid,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    assert bool(jnp.any(~jnp.isfinite(wall_info["backward_endpoint_state"])))
+    assert bool(wall_info["backward_wall_solve_fallback"])
+    assert not bool(wall_info["backward_wall_thermodynamic_admissible"])
+
+
+def test_energy_absorbing_short_wall_selector_threads_through_backward_euler():
+    equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0))
+    center = equilibrium + jnp.asarray((0.08, -0.02, 0.03, 0.0, 0.0))
+    nan_candidate = jnp.full((5,), jnp.nan)
+    selected, jacobian, info = parallel_short_wall_material_data(
+        center, center, center, 0.01, 0.02, 4.0, 10.0,
+        selection_dt=0.02, cfl_limit=2.785,
+        backward_wall=True, forward_wall=True,
+        backward_wall_state=nan_candidate, forward_wall_state=nan_candidate,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    assert bool(info["selected_backward_wall"])
+    assert bool(info["selected_forward_wall"])
+    assert bool(jnp.all(jnp.isfinite(selected)))
+    assert bool(jnp.all(jnp.isfinite(jacobian)))
+
+    updated, delta, euler_info = parallel_short_wall_backward_euler(
+        center, center, center, 0.01, 0.02, 4.0, 10.0,
+        selection_dt=0.02, solve_dt=0.02, cfl_limit=2.785,
+        backward_wall=True, forward_wall=True,
+        backward_wall_state=nan_candidate, forward_wall_state=nan_candidate,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+    )
+    expected = np.linalg.solve(
+        np.eye(5) - 0.02 * np.asarray(euler_info["selected_jacobian"]),
+        0.02 * np.asarray(selected),
+    )
+    np.testing.assert_allclose(delta, expected, rtol=2.0e-9, atol=2.0e-10)
+    np.testing.assert_allclose(updated, np.asarray(center) + expected)
+    assert bool(euler_info["selected_wall"])
+
+
+def test_energy_absorbing_ignores_nan_wall_traces_but_not_ordinary_endpoints():
+    equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0))
+    center = equilibrium + jnp.asarray((0.08, -0.02, 0.03, 0.0, 0.0))
+    nan_minus = center.at[0].set(jnp.nan)
+    nan_plus = center.at[1].set(jnp.nan)
+    nan_candidate = jnp.full((5,), jnp.nan)
+    residual, info = parallel_target_row_material_residual(
+        center, nan_minus, nan_plus, 1.0, 1.0, 4.0, 10.0,
+        backward_wall=True, forward_wall=True,
+        backward_wall_state=nan_candidate, forward_wall_state=nan_candidate,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+        div_b=0.0,
+    )
+    assert bool(jnp.all(jnp.isfinite(residual)))
+    assert bool(info["backward_candidate_ignored"])
+    assert bool(info["forward_candidate_ignored"])
+    assert not bool(info["backward_candidate_finite"])
+    assert not bool(info["forward_candidate_finite"])
+    for name in (
+        "backward_clipped", "forward_clipped", "positivity_fallback",
+        "backward_candidate_fallback", "forward_candidate_fallback",
+        "fallback",
+    ):
+        assert not bool(info[name])
+    assert bool(info["admissible"])
+
+    ordinary_residual, ordinary_info = parallel_target_row_material_residual(
+        center, nan_minus, center, 1.0, 1.0, 4.0, 10.0,
+        equilibrium=equilibrium,
+        parallel_characteristic_wall_law="energy-absorbing",
+        div_b=0.0,
+    )
+    assert bool(jnp.any(~jnp.isfinite(ordinary_residual)))
+    assert bool(ordinary_info["backward_clipped"])
+    assert bool(ordinary_info["fallback"])
+    assert not bool(ordinary_info["admissible"])
