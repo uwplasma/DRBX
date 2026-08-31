@@ -8101,13 +8101,16 @@ def build_fci_maps_from_callbacks(
             b0_speed = speed(state)
             raw_next = rk4_step(state, h)
             finite_next = np.isfinite(raw_next).all(axis=1)
-            next_state = signed_wrap_points(
-                np.where(finite_next[:, None], raw_next, state)
-            )
+            unwrapped_next = np.where(finite_next[:, None], raw_next, state)
+            next_state = signed_wrap_points(unwrapped_next)
             valid_next = valid(next_state)
             active_full = alive & finite_next & valid_next
             active_exit = alive & finite_next & (~valid_next)
-            hit_state, fraction = boundary_hit(state, next_state, valid_next)
+            # Intersect a physical boundary along the continuous RK chord.
+            # Wrapping a periodic coordinate first can turn a short seam
+            # crossing into a chord across almost the full periodic domain,
+            # corrupting the retained tangential wall-hit coordinates.
+            hit_state, fraction = boundary_hit(state, unwrapped_next, valid_next)
             b1_speed = speed(next_state)
             hit_speed = speed(hit_state)
             lengths += np.where(active_full, 0.5 * abs(h) * (b0_speed + b1_speed), 0.0)

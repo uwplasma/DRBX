@@ -135,3 +135,41 @@ def test_outer_radial_hit_remains_a_physical_boundary_with_endpoint_data() -> No
         rtol=0.0,
         atol=2.0e-7,
     )
+
+
+def test_outer_wall_hit_interpolates_along_unwrapped_periodic_chord() -> None:
+    """A theta-seam crossing must retain the nearby wall-hit coordinate."""
+
+    grid = _circular_shifted_torus_grid()
+    radial = 0.05
+    poloidal = 0.5
+    trace = trace_fci_eta_plane_from_callbacks(
+        grid,
+        _constant_callback(radial=radial, poloidal=poloidal),
+        eta_index=0,
+        direction=1,
+        substeps=1,
+        periodic_axes=(False, True, True),
+        axis_regular_axes=(True, False, False),
+    )
+
+    i = grid.x.n - 1
+    j = grid.y.n - 1
+    eta_to_wall = (
+        float(grid.x.faces[-1]) - float(grid.x.centers[i])
+    ) / radial
+    theta_unwrapped = float(grid.y.centers[j]) + poloidal * eta_to_wall
+    expected_theta = _periodic(theta_unwrapped, 2.0 * np.pi)
+    expected_eta = float(grid.z.centers[0]) + eta_to_wall
+
+    assert theta_unwrapped > 2.0 * np.pi
+    assert bool(trace["boundary"][i, j])
+    np.testing.assert_allclose(
+        float(trace["endpoint_x"][i, j]), 1.0, rtol=0.0, atol=2.0e-7
+    )
+    np.testing.assert_allclose(
+        float(trace["endpoint_y"][i, j]), expected_theta, rtol=0.0, atol=2.0e-7
+    )
+    np.testing.assert_allclose(
+        float(trace["endpoint_z"][i, j]), expected_eta, rtol=0.0, atol=2.0e-7
+    )
