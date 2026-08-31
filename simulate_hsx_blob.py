@@ -2905,9 +2905,14 @@ def build_local_eb_model(
             "'upwind-equilibrium', "
             f"got {curvature_inflow_closure!r}"
         )
-    if poisson_bracket_scheme not in ("direct", "compatible-flux"):
+    if poisson_bracket_scheme not in (
+        "direct",
+        "compatible-flux",
+        "compatible-third-order-upwind",
+    ):
         raise ValueError(
-            "poisson_bracket_scheme must be 'direct' or 'compatible-flux', "
+            "poisson_bracket_scheme must be 'direct', 'compatible-flux', or "
+            "'compatible-third-order-upwind', "
             f"got {poisson_bracket_scheme!r}"
         )
     if ion_temperature_curvature_self_form not in ("product", "flux"):
@@ -6801,8 +6806,11 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
         raise ValueError("production-split requires conservative curvature")
     if args.curvature_rlp_face_scheme != "projected-fine":
         raise ValueError("production-split requires projected-fine owner geometry")
-    if args.poisson_bracket_scheme != "compatible-flux":
-        raise ValueError("production-split requires compatible-flux Poisson brackets")
+    if args.poisson_bracket_scheme not in (
+        "compatible-flux",
+        "compatible-third-order-upwind",
+    ):
+        raise ValueError("production-split requires compatible Poisson brackets")
     if frozenset(args.curvature_equations) != frozenset(
         ("density", "Te", "Ti", "vorticity")
     ):
@@ -7365,12 +7373,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--poisson-bracket-scheme",
-        choices=("direct", "compatible-flux"),
+        choices=(
+            "direct",
+            "compatible-flux",
+            "compatible-third-order-upwind",
+        ),
         default="compatible-flux",
         help=(
             "Poisson-bracket discretization. 'compatible-flux' is the "
             "production antisymmetrized shared-face flux form and includes "
-            "the RHS 1/B factor."
+            "the RHS 1/B factor. 'compatible-third-order-upwind' evaluates "
+            "one compatible characteristic bracket for every equation: it "
+            "keeps the compatible skew core and replaces the physical "
+            "A_phi(q) channel by the complete third-order upwind action, with "
+            "first-order wall/RLP fallbacks and retained D(Uq)-qD(U)."
         ),
     )
     parser.add_argument("--makegrid", type=Path, default=DEFAULT_MAKEGRID)
@@ -7920,8 +7936,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.topology == "toroidal":
         if args.gmres_preconditioner not in ("none", "line-u"):
             parser.error("toroidal RLP supports only --gmres-preconditioner none or line-u")
-        if args.poisson_bracket_scheme != "compatible-flux":
-            parser.error("toroidal RLP requires --poisson-bracket-scheme=compatible-flux")
+        if args.poisson_bracket_scheme not in (
+            "compatible-flux",
+            "compatible-third-order-upwind",
+        ):
+            parser.error("toroidal RLP requires a compatible Poisson-bracket scheme")
         if args.curvature_scheme != "conservative":
             parser.error("toroidal RLP requires --curvature-scheme=conservative")
         if (
@@ -7946,8 +7965,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             parser.error("square corner-edge agglomeration currently requires --time-integrator=rk4")
         if args.gmres_preconditioner != "line-u":
             parser.error("square corner-edge agglomeration currently requires --gmres-preconditioner=line-u")
-        if args.poisson_bracket_scheme != "compatible-flux":
-            parser.error("square corner-edge agglomeration requires --poisson-bracket-scheme=compatible-flux")
+        if args.poisson_bracket_scheme not in (
+            "compatible-flux",
+            "compatible-third-order-upwind",
+        ):
+            parser.error(
+                "square corner-edge agglomeration requires a compatible "
+                "Poisson-bracket scheme"
+            )
         if args.curvature_scheme != "conservative":
             parser.error("square corner-edge agglomeration requires --curvature-scheme=conservative")
     for axis, (cell_count, shard_count) in enumerate(

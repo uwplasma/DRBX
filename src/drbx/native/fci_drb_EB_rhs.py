@@ -1557,10 +1557,14 @@ class LocalFciDrbEBRhs:
     # Audit-only static selector for one radial RLP transition face. ``None``
     # keeps the production SAT active on every transition.
     curvature_rlp_fine_glue_transition_face: int | None = None
-    # Experimental selectable discretization for E x B advection.  The
-    # compatible-flux path returns the already-B-divided bracket and uses
-    # shared conservative face data; ``direct`` preserves the established
-    # reconstructed cell-gradient implementation.
+    # Selectable discretization for E x B advection.  The compatible paths
+    # return the already-B-divided bracket and use shared conservative face
+    # data. ``compatible-third-order-upwind`` keeps the same compatible skew
+    # core for every equation and replaces its physical A_phi(q) channel by
+    # the complete characteristic action A_phi^upwind(q).  It retains
+    # D(Uq)-qD(U), the production third-order bulk stencil, and first-order
+    # wall/RLP fallbacks without a tunable penalty. ``direct`` preserves the
+    # reconstructed cell-gradient path.
     poisson_bracket_scheme: str = "direct"
     # Select the parallel operator family.  This is intentionally a static
     # Python option so JIT compilation cannot silently mix coordinate and FCI
@@ -1638,6 +1642,16 @@ class LocalFciDrbEBRhs:
         )
 
     def __post_init__(self) -> None:
+        if self.poisson_bracket_scheme not in (
+            "direct",
+            "compatible-flux",
+            "compatible-third-order-upwind",
+        ):
+            raise ValueError(
+                "poisson_bracket_scheme must be 'direct', 'compatible-flux', "
+                "or 'compatible-third-order-upwind', got "
+                f"{self.poisson_bracket_scheme!r}"
+            )
         has_cv = self.control_volume_geometry is not None
         if has_cv != (self.control_volume_boundary_bc is not None):
             raise ValueError(
@@ -1670,10 +1684,13 @@ class LocalFciDrbEBRhs:
                 )
             ):
                 raise ValueError("angular RLP requires lower-radial axis regularity")
-            if self.poisson_bracket_scheme != "compatible-flux":
+            if self.poisson_bracket_scheme not in (
+                "compatible-flux",
+                "compatible-third-order-upwind",
+            ):
                 raise ValueError(
                     "projected-owner RLP requires "
-                    "poisson_bracket_scheme='compatible-flux'"
+                    "a compatible Poisson-bracket scheme"
                 )
             if self.curvature_scheme == "direct":
                 raise ValueError(
@@ -2386,6 +2403,7 @@ class LocalFciDrbEBRhs:
         g_field_halo: jnp.ndarray | None = None,
         f_field_closure=None,
         g_field_closure=None,
+        g_positivity_floor: float | None = None,
     ) -> jnp.ndarray:
         """Evaluate the selected Poisson bracket with the RHS ``1/B`` included.
 
@@ -2394,7 +2412,10 @@ class LocalFciDrbEBRhs:
         the already closed field halos.
         """
 
-        if self.poisson_bracket_scheme == "compatible-flux":
+        if self.poisson_bracket_scheme in (
+            "compatible-flux",
+            "compatible-third-order-upwind",
+        ):
             return local_poisson_bracket_compatible_flux_op(
                 f_conservative_stencil,
                 g_conservative_stencil,
@@ -2421,6 +2442,14 @@ class LocalFciDrbEBRhs:
                     if self._uses_compact_face_operators
                     else None
                 ),
+                characteristic_scheme=(
+                    "third-order-upwind"
+                    if self.poisson_bracket_scheme
+                    == "compatible-third-order-upwind"
+                    else "centered"
+                ),
+                g_field_halo=g_field_halo,
+                g_positivity_floor=g_positivity_floor,
             )
         bmag = jnp.maximum(
             jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
@@ -6628,6 +6657,7 @@ class LocalFciDrbEBRhs:
             f_field_halo=state_halo.phi, g_field_halo=state_halo.density,
             f_field_closure=primitive_cv_closures.get("phi"),
             g_field_closure=primitive_cv_closures.get("density"),
+            g_positivity_floor=1.0e-12,
         )
         poisson_Te = self._poisson_bracket_over_B(
             phi_gradient,
@@ -6639,6 +6669,7 @@ class LocalFciDrbEBRhs:
             f_field_halo=state_halo.phi, g_field_halo=state_halo.Te,
             f_field_closure=primitive_cv_closures.get("phi"),
             g_field_closure=primitive_cv_closures.get("Te"),
+            g_positivity_floor=1.0e-12,
         )
         poisson_Ti = self._poisson_bracket_over_B(
             phi_gradient,
@@ -6650,6 +6681,7 @@ class LocalFciDrbEBRhs:
             f_field_halo=state_halo.phi, g_field_halo=state_halo.Ti,
             f_field_closure=primitive_cv_closures.get("phi"),
             g_field_closure=primitive_cv_closures.get("Ti"),
+            g_positivity_floor=1.0e-12,
         )
         poisson_Vi = self._poisson_bracket_over_B(
             phi_gradient,

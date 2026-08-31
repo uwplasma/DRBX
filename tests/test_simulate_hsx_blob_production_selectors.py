@@ -96,6 +96,22 @@ def test_parser_owns_production_and_sat_selectors():
         "equilibrium-exterior",
         "bc-characteristic",
     )
+    poisson_action = next(
+        action
+        for action in driver._build_parser()._actions
+        if action.dest == "poisson_bracket_scheme"
+    )
+    assert "compatible-third-order-upwind" in tuple(poisson_action.choices)
+
+
+def test_production_accepts_characteristic_poisson_bracket():
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--poisson-bracket-scheme",
+        "compatible-third-order-upwind",
+    )
+    driver._validate_flux_framework(args)
 
 
 def test_fresh_production_trajectory_accepts_characteristic_sat():
