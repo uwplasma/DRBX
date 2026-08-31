@@ -2501,6 +2501,202 @@ def _compatible_flux_generator(
     return flux
 
 
+def _axis_face_samples_from_halo(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    axis: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Return the four cell samples surrounding every owned coordinate face.
+
+    Face ``f`` lies between the second and third returned samples.  A two-cell
+    halo therefore supplies the canonical third-order pair on shard and
+    periodic faces without any special casing.  With a one-cell halo the
+    outer samples are duplicated from their adjacent cells; callers then use
+    the corresponding first-order fallback.
+    """
+
+    values = jnp.asarray(field_halo, dtype=jnp.float64)
+    if values.shape != geometry.halo_shape:
+        raise ValueError(
+            "field_halo must match geometry.halo_shape; "
+            f"got {values.shape}, expected {geometry.halo_shape}"
+        )
+    axis = int(axis)
+    if axis not in (0, 1, 2):
+        raise ValueError(f"axis must be 0, 1, or 2, got {axis}")
+    layout = geometry.layout
+    halo = int(layout.halo_width)
+    if halo < 1:
+        raise ValueError("characteristic face reconstruction requires halo_width >= 1")
+    owned_shape = tuple(int(value) for value in geometry.owned_shape)
+
+    def take(offset: int) -> jnp.ndarray:
+        slices = [
+            slice(halo, halo + owned_shape[component])
+            for component in range(3)
+        ]
+        start = halo + int(offset)
+        stop = start + owned_shape[axis] + 1
+        slices[axis] = slice(start, stop)
+        return values[tuple(slices)]
+
+    left_owner = take(-1)
+    right_owner = take(0)
+    if halo >= 2:
+        left_outer = take(-2)
+        right_outer = take(1)
+    else:
+        left_outer = left_owner
+        right_outer = right_owner
+    return left_outer, left_owner, right_owner, right_outer
+
+
+def _boundary_trace_planes(
+    trace: LocalBoundaryFaceTrace3D | None,
+    *,
+    axis: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray] | None:
+    """Return lower/upper physical trace masks and values for one face axis."""
+
+    if trace is None:
+        return None
+    names = ("x", "y", "z")
+    values = jnp.asarray(getattr(trace, f"value_{names[axis]}"), dtype=jnp.float64)
+    masks = jnp.asarray(getattr(trace, f"mask_{names[axis]}"), dtype=bool)
+    if axis == 0:
+        return masks[0], values[0], masks[-1], values[-1]
+    if axis == 1:
+        return masks[:, 0, :], values[:, 0, :], masks[:, -1, :], values[:, -1, :]
+    return masks[:, :, 0], values[:, :, 0], masks[:, :, -1], values[:, :, -1]
+
+
+def _third_order_scalar_face_states_from_halo(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    boundary_trace: LocalBoundaryFaceTrace3D | None,
+    axis_regular_axes: tuple[bool, bool, bool],
+    positivity_floor: float | None,
+) -> tuple[CoordinateFaceValues3D, CoordinateFaceValues3D, CoordinateFaceValues3D]:
+    """Build scalar third-order left/right states and fallback masks.
+
+    The reconstruction matches the production curvature/parallel stencil,
+
+    ``qL=(-q[i-1]+5q[i]+2q[i+1])/6`` and
+    ``qR=(2q[i]+5q[i+1]-q[i+2])/6``.
+
+    Each side independently falls back to its adjacent first-order owner when
+    the reconstruction is non-finite or violates a requested positivity
+    floor.  Physical coordinate boundaries always use the established
+    operator trace and adjacent owner state, exactly as the characteristic
+    curvature/parallel paths fall back at a wall.  The returned mask is one
+    where either side used a fallback.
+    """
+
+    boundary_trace = _validate_local_boundary_face_trace(
+        boundary_trace, geometry.layout
+    )
+    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
+    if len(axis_regular_axes) != 3:
+        raise ValueError("axis_regular_axes must have length 3")
+    if positivity_floor is not None:
+        positivity_floor = float(positivity_floor)
+        if not np.isfinite(positivity_floor) or positivity_floor <= 0.0:
+            raise ValueError("positivity_floor must be finite and positive")
+
+    left_faces = []
+    right_faces = []
+    fallback_faces = []
+    for axis in range(3):
+        qm, q0, q1, qp = _axis_face_samples_from_halo(
+            field_halo, geometry, axis=axis
+        )
+        if int(geometry.layout.halo_width) >= 2:
+            left = (-qm + 5.0 * q0 + 2.0 * q1) / 6.0
+            right = (2.0 * q0 + 5.0 * q1 - qp) / 6.0
+            left_ok = jnp.isfinite(left)
+            right_ok = jnp.isfinite(right)
+            if positivity_floor is not None:
+                left_ok = left_ok & (left > positivity_floor)
+                right_ok = right_ok & (right > positivity_floor)
+        else:
+            left = q0
+            right = q1
+            left_ok = jnp.zeros_like(left, dtype=bool)
+            right_ok = jnp.zeros_like(right, dtype=bool)
+
+        # Match the established characteristic reconstruction contract: a
+        # failed high-order side falls back to its adjacent owner, but a
+        # non-finite owner is not silently repaired.  It must remain visible
+        # to the stage-validity checks.
+        q0_safe = q0
+        q1_safe = q1
+        if positivity_floor is not None:
+            q0_safe = jnp.maximum(q0_safe, positivity_floor)
+            q1_safe = jnp.maximum(q1_safe, positivity_floor)
+        left = jnp.where(left_ok, left, q0_safe)
+        right = jnp.where(right_ok, right, q1_safe)
+        fallback = ~(left_ok & right_ok)
+
+        trace_planes = _boundary_trace_planes(boundary_trace, axis=axis)
+        if trace_planes is not None:
+            lower_mask, lower_value, upper_mask, upper_value = trace_planes
+            if positivity_floor is not None:
+                lower_value = jnp.maximum(lower_value, positivity_floor)
+                upper_value = jnp.maximum(upper_value, positivity_floor)
+            if not (axis == 0 and axis_regular_axes[0]):
+                lower_index = _axis_index_nd(axis, 0, left.ndim)
+                left = left.at[lower_index].set(
+                    jnp.where(lower_mask, lower_value, left[lower_index])
+                )
+                right = right.at[lower_index].set(
+                    jnp.where(lower_mask, q1_safe[lower_index], right[lower_index])
+                )
+                fallback = fallback.at[lower_index].set(
+                    jnp.where(lower_mask, True, fallback[lower_index])
+                )
+            upper_index = _axis_index_nd(axis, -1, left.ndim)
+            left = left.at[upper_index].set(
+                jnp.where(upper_mask, q0_safe[upper_index], left[upper_index])
+            )
+            right = right.at[upper_index].set(
+                jnp.where(upper_mask, upper_value, right[upper_index])
+            )
+            fallback = fallback.at[upper_index].set(
+                jnp.where(upper_mask, True, fallback[upper_index])
+            )
+
+        left_faces.append(left)
+        right_faces.append(right)
+        fallback_faces.append(fallback.astype(jnp.float64))
+
+    return (
+        CoordinateFaceValues3D(*left_faces),
+        CoordinateFaceValues3D(*right_faces),
+        CoordinateFaceValues3D(*fallback_faces),
+    )
+
+
+def _compatible_characteristic_regular_flux(
+    generator_flux: FaceFluxStencil3D,
+    left_argument: CoordinateFaceValues3D,
+    right_argument: CoordinateFaceValues3D,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Return the complete ``U * q_upwind,3`` flux on shared regular faces."""
+
+    fluxes = []
+    for velocity, left, right in zip(
+        (generator_flux.x, generator_flux.y, generator_flux.z),
+        (left_argument.x, left_argument.y, left_argument.z),
+        (right_argument.x, right_argument.y, right_argument.z),
+        strict=True,
+    ):
+        upwind = jnp.where(velocity >= 0.0, left, right)
+        fluxes.append(velocity * upwind)
+    return tuple(fluxes)
+
+
 def local_poisson_bracket_compatible_flux_op(
     f_stencil: ConservativeStencil3D,
     g_stencil: ConservativeStencil3D,
@@ -2515,10 +2711,13 @@ def local_poisson_bracket_compatible_flux_op(
     f_control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
     g_control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    characteristic_scheme: str = "centered",
+    g_field_halo: jnp.ndarray | None = None,
+    g_positivity_floor: float | None = None,
     b_floor: float = 1.0e-30,
     jacobian_floor: float = 1.0e-30,
 ) -> jnp.ndarray:
-    """Prototype compatible-flux Poisson bracket, already divided by ``B``.
+    """Compatible-face Poisson bracket, already divided by ``B``.
 
     Both inputs are conservative scalar stencils.  For each generator ``s``
     this constructs the shared face flux density
@@ -2533,11 +2732,24 @@ def local_poisson_bracket_compatible_flux_op(
     If supplied, ``f_boundary_trace`` and ``g_boundary_trace`` provide the
     operator-specific physical face values for ``f`` and ``g``.  The trace for
     the advected argument is applied inside each action, while topological
-    axis faces remain untouched.  The returned value is
-    ``0.5 * (A_f(g) - A_g(f))``.  This is an experimental operator for
-    axis-regular compatible-flux studies.  It is reachable only through the
-    explicitly selected prototype RHS/driver path; the established direct
-    bracket remains the default.
+    axis faces remain untouched.  The centered selector returns
+    ``0.5 * (A_f(g) - A_g(f))``.  With
+    ``characteristic_scheme='third-order-upwind'`` retains that compatible
+    core while replacing its physical scalar-advection channel by the
+    complete characteristic action:
+
+        ``B_char(f,g) = B_compatible(f,g)``
+        ``              + A_f^upwind(g) - A_f^centered(g)``.
+
+    Its characteristic speed is the physical normal E x B face flux ``U_f``;
+    no dissipation coefficient is tunable.  Equivalently, the numerical face
+    flux is the compatible flux plus the exact characteristic difference
+    between upwind and centered scalar transport.  Regular bulk and
+    shard faces use the same third-order reconstruction as the production
+    curvature/parallel systems.  Physical coordinate faces and compact RLP
+    faces use first-order owner/wall traces.  Thermodynamic callers may supply
+    ``g_positivity_floor`` for the same side-wise admissibility fallback used
+    by those systems.
     """
 
     if not isinstance(geometry, LocalFciGeometry3D):
@@ -2555,6 +2767,33 @@ def local_poisson_bracket_compatible_flux_op(
             raise ValueError(
                 f"{name} must have shape {geometry.owned_shape}, got {stencil.shape}"
             )
+    if characteristic_scheme not in ("centered", "third-order-upwind"):
+        raise ValueError(
+            "characteristic_scheme must be 'centered' or "
+            f"'third-order-upwind', got {characteristic_scheme!r}"
+        )
+    characteristic_upwind = characteristic_scheme == "third-order-upwind"
+    if characteristic_upwind:
+        if g_field_halo is None:
+            raise ValueError(
+                "g_field_halo is required for third-order characteristic "
+                "Poisson-bracket upwinding"
+            )
+        g_field_halo = jnp.asarray(g_field_halo, dtype=jnp.float64)
+        if g_field_halo.shape != geometry.halo_shape:
+            raise ValueError(
+                "g_field_halo must match geometry.halo_shape; "
+                f"got {g_field_halo.shape}, expected {geometry.halo_shape}"
+            )
+        left_g, right_g, _g_reconstruction_fallback = (
+            _third_order_scalar_face_states_from_halo(
+                g_field_halo,
+                geometry,
+                boundary_trace=g_boundary_trace,
+                axis_regular_axes=axis_regular_axes,
+                positivity_floor=g_positivity_floor,
+            )
+        )
 
     supplied_geometries = tuple(
         geometry_value for geometry_value in (
@@ -2621,6 +2860,90 @@ def local_poisson_bracket_compatible_flux_op(
             )
             return weighted, generator_only
 
+        def _compact_characteristic_flux(
+            generator_closure,
+            argument,
+            argument_closure,
+            argument_halo,
+            positivity_floor,
+        ):
+            faces = control_volume_geometry.irregular_faces
+            A = jnp.einsum(
+                "...ab,...b->...a",
+                jnp.asarray(faces.g_cov, dtype=jnp.float64),
+                jnp.asarray(faces.B_contra, dtype=jnp.float64),
+            ) / jnp.maximum(
+                jnp.asarray(faces.Bmag, dtype=jnp.float64), b_floor
+            )[..., None] ** 2
+            grad = jnp.asarray(generator_closure.face_gradient, dtype=jnp.float64)
+            U = jnp.stack(
+                (
+                    A[..., 1] * grad[..., 2] - A[..., 2] * grad[..., 1],
+                    A[..., 2] * grad[..., 0] - A[..., 0] * grad[..., 2],
+                    A[..., 0] * grad[..., 1] - A[..., 1] * grad[..., 0],
+                ),
+                axis=-1,
+            )
+            normal = jnp.sum(
+                jnp.asarray(faces.area_covector_weight, dtype=jnp.float64) * U,
+                axis=-1,
+            )
+            center = jnp.asarray(argument.x.center, dtype=jnp.float64)
+            minus = center[
+                faces.minus_owner_i,
+                faces.minus_owner_j,
+                faces.minus_owner_k,
+            ]
+            plus_local = center[
+                faces.plus_owner_i,
+                faces.plus_owner_j,
+                faces.plus_owner_k,
+            ]
+            plus_remote = argument_halo[
+                faces.remote_halo_i,
+                faces.remote_halo_j,
+                faces.remote_halo_k,
+            ]
+            centered = jnp.asarray(argument_closure.face_value, dtype=jnp.float64)
+            plus = jnp.where(
+                faces.has_plus_owner[:, None, None],
+                plus_local[:, None, None],
+                jnp.where(
+                    faces.has_remote_owner[:, None, None],
+                    plus_remote[:, None, None],
+                    centered,
+                ),
+            )
+            minus = jnp.broadcast_to(minus[:, None, None], centered.shape)
+            if positivity_floor is not None:
+                floor = float(positivity_floor)
+                minus = jnp.maximum(minus, floor)
+                plus = jnp.maximum(plus, floor)
+            upwind = jnp.where(normal >= 0.0, minus, plus)
+            valid = (
+                jnp.asarray(generator_closure.face_gradient_valid, dtype=bool)
+                & jnp.asarray(argument_closure.face_value_valid, dtype=bool)
+                & jnp.asarray(faces.quadrature_active, dtype=bool)
+                & jnp.isfinite(upwind)
+            )
+            weighted = jnp.sum(
+                jnp.where(
+                    ~jnp.asarray(faces.quadrature_active, dtype=bool),
+                    0.0,
+                    jnp.where(valid, normal * upwind, jnp.nan),
+                ),
+                axis=(1, 2),
+            )
+            generator_only = jnp.sum(
+                jnp.where(
+                    ~jnp.asarray(faces.quadrature_active, dtype=bool),
+                    0.0,
+                    jnp.where(valid, normal, jnp.nan),
+                ),
+                axis=(1, 2),
+            )
+            return weighted, generator_only
+
         def _action(generator, argument, generator_closure, argument_closure, argument_trace):
             dense_generator = _compatible_flux_generator(
                 generator, geometry, domain=domain,
@@ -2652,10 +2975,89 @@ def local_poisson_bracket_compatible_flux_op(
             )
             return weighted_div - argument.x.center * generator_div
 
-        result = 0.5 * (
-            _action(f_stencil, g_stencil, f_closure, g_closure, g_boundary_trace)
-            - _action(g_stencil, f_stencil, g_closure, f_closure, f_boundary_trace)
+        def _characteristic_action(
+            generator,
+            argument,
+            generator_closure,
+            argument_closure,
+            left_argument,
+            right_argument,
+            argument_halo,
+            positivity_floor,
+        ):
+            dense_generator = _compatible_flux_generator(
+                generator,
+                geometry,
+                domain=domain,
+                axis_regular_axes=axis_regular_axes,
+                b_floor=b_floor,
+            )
+            regular_weighted = _compatible_characteristic_regular_flux(
+                dense_generator,
+                left_argument,
+                right_argument,
+            )
+            compact_weighted, compact_generator = _compact_characteristic_flux(
+                generator_closure,
+                argument,
+                argument_closure,
+                argument_halo,
+                positivity_floor,
+            )
+            weighted_div = _local_control_volume_integrated_divergence(
+                regular_weighted,
+                compact_weighted,
+                geometry,
+                domain,
+                control_volume_geometry,
+                volume_floor=jacobian_floor,
+            )
+            generator_div = _local_control_volume_integrated_divergence(
+                (dense_generator.x, dense_generator.y, dense_generator.z),
+                compact_generator,
+                geometry,
+                domain,
+                control_volume_geometry,
+                volume_floor=jacobian_floor,
+            )
+            return weighted_div - argument.x.center * generator_div
+
+        centered_f_action = _action(
+            f_stencil,
+            g_stencil,
+            f_closure,
+            g_closure,
+            g_boundary_trace,
         )
+        centered_result = 0.5 * (
+            centered_f_action
+            - _action(
+                g_stencil,
+                f_stencil,
+                g_closure,
+                f_closure,
+                f_boundary_trace,
+            )
+        )
+        if characteristic_upwind:
+            assert g_field_halo is not None
+            characteristic_f_action = _characteristic_action(
+                f_stencil,
+                g_stencil,
+                f_closure,
+                g_closure,
+                left_g,
+                right_g,
+                g_field_halo,
+                g_positivity_floor,
+            )
+            result = (
+                centered_result
+                + characteristic_f_action
+                - centered_f_action
+            )
+        else:
+            result = centered_result
         return _mask_inactive_owned(result, geometry)
 
     axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
@@ -2740,10 +3142,56 @@ def local_poisson_bracket_compatible_flux_op(
         )
         return (weighted_divergence - argument.x.center * generator_divergence) / J
 
-    result = 0.5 * (
-        _action(f_stencil, g_stencil, g_boundary_trace)
+    def _characteristic_action(
+        generator: ConservativeStencil3D,
+        argument: ConservativeStencil3D,
+        left_argument: CoordinateFaceValues3D,
+        right_argument: CoordinateFaceValues3D,
+    ) -> jnp.ndarray:
+        generator_flux = _compatible_flux_generator(
+            generator,
+            geometry,
+            domain=domain,
+            axis_regular_axes=axis_regular_axes,
+            b_floor=b_floor,
+        )
+        weighted_flux = _compatible_characteristic_regular_flux(
+            generator_flux,
+            left_argument,
+            right_argument,
+        )
+        weighted_divergence = _compatible_flux_divergence(
+            FaceFluxStencil3D(*weighted_flux),
+            geometry,
+            jacobian_floor=jacobian_floor,
+        )
+        generator_divergence = _compatible_flux_divergence(
+            generator_flux,
+            geometry,
+            jacobian_floor=jacobian_floor,
+        )
+        J = jnp.maximum(
+            jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64),
+            jacobian_floor,
+        )
+        return (
+            weighted_divergence
+            - argument.x.center * generator_divergence
+        ) / J
+
+    centered_f_action = _action(f_stencil, g_stencil, g_boundary_trace)
+    centered_result = 0.5 * (
+        centered_f_action
         - _action(g_stencil, f_stencil, f_boundary_trace)
     )
+    if characteristic_upwind:
+        result = (
+            centered_result
+            + _characteristic_action(f_stencil, g_stencil, left_g, right_g)
+            - centered_f_action
+        )
+    else:
+        result = centered_result
     return _mask_inactive_owned(result, geometry)
 
 
