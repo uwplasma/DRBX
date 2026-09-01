@@ -99,33 +99,64 @@ def test_shared_builder_threads_production_selectors_explicitly():
     assert "parallel_material_scheme: str | None = None" in run_signature
 
 
-def test_rhs_production_curvature_requires_all_four_equations():
+def test_rhs_production_curvature_allows_equation_ablation():
     context, mesh, local, partition, fields, cell_fields, map_fields, sharded = _mapped_fixture()
 
     def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, cells, maps):
         geometry = assemble_local_fci_geometry(sharded, cells, maps)
         base = _build_rhs(context, local, geometry)
-        return replace(
+        model = replace(
             base,
             curvature_scheme="conservative",
             curvature_face_coefficients=build_local_curvature_face_coefficients(
                 geometry, base.domain
             ),
             curvature_split_scheme="production-path",
-            curvature_equations=("density", "Te", "Ti"),
         )
+        ablated = replace(
+            model,
+            curvature_equations=("density", "Te", "vorticity"),
+        )
+        state = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
+        _, full_terms = model.evaluate_stage(
+            state, phi_owned=phi, return_rhs_term_fields=True
+        )
+        _, ablated_terms = ablated.evaluate_stage(
+            state, phi_owned=phi, return_rhs_term_fields=True
+        )
+        full_curvature = jnp.stack(
+            tuple(
+                full_terms[field_index, RHS_TERM_NAMES[field_index].index("curvature")]
+                for field_index in (0, 1, 2, 5)
+            ),
+            axis=0,
+        )
+        ablated_curvature = jnp.stack(
+            tuple(
+                ablated_terms[field_index, RHS_TERM_NAMES[field_index].index("curvature")]
+                for field_index in (0, 1, 2, 5)
+            ),
+            axis=0,
+        )
+        return full_curvature, ablated_curvature
 
     compiled = jax.jit(
         jax.shard_map(
             kernel,
             mesh=mesh,
             in_specs=(partition,) * 9,
-            out_specs=P(),
+            out_specs=(P(None, "x", "y", "z"),) * 2,
             check_vma=False,
         )
     )
-    with pytest.raises(ValueError, match="requires all four curvature equations"):
-        compiled(*fields, cell_fields, map_fields)
+    full_curvature, ablated_curvature = tuple(
+        np.asarray(value) for value in compiled(*fields, cell_fields, map_fields)
+    )
+    np.testing.assert_array_equal(ablated_curvature[2], 0.0)
+    np.testing.assert_array_equal(
+        ablated_curvature[[0, 1, 3]], full_curvature[[0, 1, 3]]
+    )
+    assert np.max(np.abs(full_curvature[2])) > 0.0
 
 
 def test_production_curvature_centered_dissipation_diagnostics_close_to_rhs():

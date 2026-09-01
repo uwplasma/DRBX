@@ -53,7 +53,9 @@ from test_fci_operators_domain_decomp import (
 )
 
 
-def _zero_physical_halo_geometry():
+def _zero_physical_halo_geometry(
+    *, periodic_axes=(False, False, True)
+):
     layout = HaloLayout3D((3, 4, 5), halo_width=1)
     shape = layout.cell_halo_shape
     domain = LocalDomain3D(
@@ -63,7 +65,7 @@ def _zero_physical_halo_geometry():
             owned_stop=(3, 4, 5),
             shard_index=(0, 0, 0),
             shard_counts=(1, 1, 1),
-            periodic_axes=(False, False, True),
+            periodic_axes=periodic_axes,
             halo_width=1,
         ),
         layout,
@@ -152,6 +154,58 @@ def test_curvature_face_coefficients_close_zero_physical_cell_halos():
 
     constant_residual = div_q
     assert float(jnp.max(jnp.abs(constant_residual))) < 1.0e-13
+
+
+def test_curvature_wall_edges_are_shared_across_periodic_seams():
+    """Physical-wall edge patches must retain tangential periodic topology."""
+
+    jax.config.update("jax_enable_x64", True)
+    geometry, domain = _zero_physical_halo_geometry(
+        periodic_axes=(False, True, True)
+    )
+    h = geometry.layout.halo_width
+    nx, ny, nz = geometry.layout.owned_shape
+    wall_i = h + nx
+    wall_b = geometry.face_bfield.x.B_contra_halo
+    # Local face geometry carries assembled tangential halos.  Populate this
+    # synthetic fixture with the same periodic contract before imposing the
+    # nontrivial wall profile.
+    theta_profile = jnp.pad(
+        jnp.arange(ny, dtype=jnp.float64), (h, h), mode="wrap"
+    )[:, None]
+    eta_profile = jnp.pad(
+        jnp.arange(nz, dtype=jnp.float64), (h, h), mode="wrap"
+    )[None, :]
+    wall_b = wall_b.at[
+        wall_i, :, :, 2
+    ].set(jnp.broadcast_to(theta_profile, (ny + 2 * h, nz + 2 * h)))
+    wall_b = wall_b.at[
+        wall_i, :, :, 1
+    ].set(jnp.broadcast_to(eta_profile, (ny + 2 * h, nz + 2 * h)))
+    geometry.face_bfield.x.B_contra_halo = wall_b
+
+    coefficients = build_local_curvature_face_coefficients(geometry, domain)
+
+    np.testing.assert_allclose(
+        np.asarray(coefficients.y[:, 0, :]),
+        np.asarray(coefficients.y[:, -1, :]),
+        rtol=0.0,
+        atol=1.0e-13,
+    )
+    np.testing.assert_allclose(
+        np.asarray(coefficients.z[:, :, 0]),
+        np.asarray(coefficients.z[:, :, -1]),
+        rtol=0.0,
+        atol=1.0e-13,
+    )
+    assert float(jnp.max(jnp.abs(coefficients.y[-1]))) > 0.1
+    assert float(jnp.max(jnp.abs(coefficients.z[-1]))) > 0.1
+    div_q = (
+        coefficients.x[1:] - coefficients.x[:-1]
+        + coefficients.y[:, 1:] - coefficients.y[:, :-1]
+        + coefficients.z[:, :, 1:] - coefficients.z[:, :, :-1]
+    )
+    assert float(jnp.max(jnp.abs(div_q))) < 1.0e-13
 
 
 def _operator_fixture(shape=(3, 4, 5), halo_width=1):

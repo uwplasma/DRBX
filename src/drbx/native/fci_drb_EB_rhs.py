@@ -168,6 +168,26 @@ RHS_TERM_NAMES = (
 )
 RHS_TERM_SLOT_COUNT = max(len(names) for names in RHS_TERM_NAMES)
 
+
+def _select_characteristic_sat_current_divergence(
+    full: jnp.ndarray,
+    homogeneous: jnp.ndarray,
+    *,
+    affine_lift: str,
+) -> jnp.ndarray:
+    """Assemble the production current divergence for an affine-lift audit."""
+
+    if affine_lift == "enabled":
+        # Preserve the pre-ablation production value bit for bit.  Rebuilding
+        # it as homogeneous + (full - homogeneous) can round differently.
+        return full
+    if affine_lift == "suppressed":
+        return homogeneous
+    raise ValueError(
+        "characteristic_sat_affine_current_lift must be 'enabled' or "
+        f"'suppressed', got {affine_lift!r}"
+    )
+
 ELECTRON_FORCE_TERM_NAMES = (
     "parallel_self_advection",
     "collision",
@@ -1471,6 +1491,24 @@ class LocalFciDrbEBRhs:
     # from the same projected five-field wall state used by the material
     # equations, allowing an identical-state closure-consistency ablation.
     vorticity_current_inflow_trace: str = "operator"
+    # Diagnostic ablation of only the inhomogeneous characteristic-SAT current
+    # lift.  ``suppressed`` retains the homogeneous weighted-adjoint D0/G0
+    # pair and all material/IMEX physics, while removing the wall-current
+    # affine forcing from the vorticity equation.
+    characteristic_sat_affine_current_lift: str = field(
+        default_factory=lambda: os.environ.get(
+            "DRBX_CHARACTERISTIC_SAT_AFFINE_CURRENT_LIFT", "enabled"
+        )
+    )
+    # Diagnostic ablation of the complete explicit current/potential pair.
+    # ``suppressed`` removes both mu*grad_parallel(phi) from Ve and
+    # (B**2/n)*div_parallel(j) from vorticity, preserving the paired structure
+    # rather than disabling only one side of the energy exchange.
+    parallel_current_phi_pair: str = field(
+        default_factory=lambda: os.environ.get(
+            "DRBX_PARALLEL_CURRENT_PHI_PAIR", "enabled"
+        )
+    )
     # Static model configuration: these are Python strings captured by the
     # jitted RHS, rather than array-valued switches.  The shared C(f)
     # evaluations below remain unchanged; this gates their assembled
@@ -1646,10 +1684,12 @@ class LocalFciDrbEBRhs:
             "direct",
             "compatible-flux",
             "compatible-third-order-upwind",
+            "material-scalar-third-order-upwind",
         ):
             raise ValueError(
                 "poisson_bracket_scheme must be 'direct', 'compatible-flux', "
-                "or 'compatible-third-order-upwind', got "
+                "'compatible-third-order-upwind', or "
+                "'material-scalar-third-order-upwind', got "
                 f"{self.poisson_bracket_scheme!r}"
             )
         has_cv = self.control_volume_geometry is not None
@@ -1687,6 +1727,7 @@ class LocalFciDrbEBRhs:
             if self.poisson_bracket_scheme not in (
                 "compatible-flux",
                 "compatible-third-order-upwind",
+                "material-scalar-third-order-upwind",
             ):
                 raise ValueError(
                     "projected-owner RLP requires "
@@ -2316,6 +2357,38 @@ class LocalFciDrbEBRhs:
                 "'parallel-characteristic', got "
                 f"{self.vorticity_current_inflow_trace!r}"
             )
+        if self.characteristic_sat_affine_current_lift not in (
+            "enabled",
+            "suppressed",
+        ):
+            raise ValueError(
+                "characteristic_sat_affine_current_lift must be 'enabled' or "
+                f"'suppressed', got {self.characteristic_sat_affine_current_lift!r}"
+            )
+        if (
+            self.characteristic_sat_affine_current_lift == "suppressed"
+            and self.parallel_boundary_pairing != "characteristic-sat"
+        ):
+            raise ValueError(
+                "suppressed characteristic-SAT affine current lift requires "
+                "parallel_boundary_pairing='characteristic-sat'"
+            )
+        if self.parallel_current_phi_pair not in ("enabled", "suppressed"):
+            raise ValueError(
+                "parallel_current_phi_pair must be 'enabled' or 'suppressed', "
+                f"got {self.parallel_current_phi_pair!r}"
+            )
+        if (
+            self.parallel_current_phi_pair == "suppressed"
+            and (
+                self.parallel_material_scheme != "production-path"
+                or self.parallel_flux_pairing != "support-core"
+            )
+        ):
+            raise ValueError(
+                "suppressed parallel current/phi pair requires the production "
+                "support-core path"
+            )
         if self.ion_temperature_curvature_self_form not in ("product", "flux"):
             raise ValueError(
                 "ion_temperature_curvature_self_form must be 'product' or "
@@ -2346,15 +2419,6 @@ class LocalFciDrbEBRhs:
             raise ValueError(
                 "curvature_equations contains invalid equations: "
                 f"{sorted(invalid_curvature_equations)!r}"
-            )
-        if (
-            self.curvature_split_scheme == "production-path"
-            and frozenset(selected_curvature_equations)
-            != frozenset(valid_curvature_equations)
-        ):
-            raise ValueError(
-                "curvature_split_scheme='production-path' requires all four "
-                "curvature equations"
             )
         if self.curvature_scheme == "conservative":
             if self.curvature_face_coefficients is None:
@@ -2404,6 +2468,7 @@ class LocalFciDrbEBRhs:
         f_field_closure=None,
         g_field_closure=None,
         g_positivity_floor: float | None = None,
+        equation_family: str = "material",
     ) -> jnp.ndarray:
         """Evaluate the selected Poisson bracket with the RHS ``1/B`` included.
 
@@ -2415,6 +2480,7 @@ class LocalFciDrbEBRhs:
         if self.poisson_bracket_scheme in (
             "compatible-flux",
             "compatible-third-order-upwind",
+            "material-scalar-third-order-upwind",
         ):
             return local_poisson_bracket_compatible_flux_op(
                 f_conservative_stencil,
@@ -2443,7 +2509,14 @@ class LocalFciDrbEBRhs:
                     else None
                 ),
                 characteristic_scheme=(
-                    "third-order-upwind"
+                    (
+                        "centered"
+                        if equation_family == "vorticity"
+                        else "scalar-third-order-upwind"
+                    )
+                    if self.poisson_bracket_scheme
+                    == "material-scalar-third-order-upwind"
+                    else "third-order-upwind"
                     if self.poisson_bracket_scheme
                     == "compatible-third-order-upwind"
                     else "centered"
@@ -3156,7 +3229,19 @@ class LocalFciDrbEBRhs:
         # complete production split, including the nonlocal psi remainder.
         result = self.curvature_scale * (material + remainder)
         if not request_split_diagnostics:
-            return tuple(jnp.moveaxis(result, -1, 0))
+            outputs = tuple(jnp.moveaxis(result, -1, 0))
+            if frozenset(self.curvature_equations) == frozenset(
+                ("density", "Te", "Ti", "vorticity")
+            ):
+                return outputs
+            return tuple(
+                value
+                if equation in self.curvature_equations
+                else jnp.zeros_like(value)
+                for equation, value in zip(
+                    ("density", "Te", "Ti", "vorticity"), outputs, strict=True
+                )
+            )
         assert diagnostics is not None
         psi_directional = self._conservative_curvature_components(
             psi_stencil,
@@ -3215,8 +3300,23 @@ class LocalFciDrbEBRhs:
                 diagnostics["directional_residual"] + remainder_directional
             )
         if not return_directional_components:
-            return tuple(jnp.moveaxis(jnp.sum(directional, axis=0), -1, 0))
-        return tuple(jnp.moveaxis(directional, -1, 0))
+            outputs = tuple(
+                jnp.moveaxis(jnp.sum(directional, axis=0), -1, 0)
+            )
+        else:
+            outputs = tuple(jnp.moveaxis(directional, -1, 0))
+        if frozenset(self.curvature_equations) == frozenset(
+            ("density", "Te", "Ti", "vorticity")
+        ):
+            return outputs
+        return tuple(
+            value
+            if equation in self.curvature_equations
+            else jnp.zeros_like(value)
+            for equation, value in zip(
+                ("density", "Te", "Ti", "vorticity"), outputs, strict=True
+            )
+        )
 
     def _curvature_rhs_contributions(
         self,
@@ -5036,6 +5136,13 @@ class LocalFciDrbEBRhs:
                     characteristic_sat_current_divergence
                     - characteristic_sat_homogeneous_current_divergence
                 )
+                characteristic_sat_current_divergence = (
+                    _select_characteristic_sat_current_divergence(
+                        characteristic_sat_current_divergence,
+                        characteristic_sat_homogeneous_current_divergence,
+                        affine_lift=self.characteristic_sat_affine_current_lift,
+                    )
+                )
                 support_flux_values["vorticity_current"] = (
                     characteristic_sat_current_divergence
                 )
@@ -6715,6 +6822,7 @@ class LocalFciDrbEBRhs:
             f_field_halo=state_halo.phi, g_field_halo=state_halo.vorticity,
             f_field_closure=primitive_cv_closures.get("phi"),
             g_field_closure=primitive_cv_closures.get("vorticity"),
+            equation_family="vorticity",
         )
 
         if self.parallel_operator_scheme == "coordinate":
@@ -6791,6 +6899,8 @@ class LocalFciDrbEBRhs:
         Ve_self_advection_term = -Ve_parallel_value * grad_parallel_Ve
         Ve_collision_term = mi_over_me * Ve_nu * current_parallel_value
         Ve_phi_force_term = mi_over_me * grad_parallel_phi
+        if self.parallel_current_phi_pair == "suppressed":
+            Ve_phi_force_term = jnp.zeros_like(Ve_phi_force_term)
         Ve_Ti_force_complete_term = (
             mi_over_me * tau * grad_parallel_Ti
             if production_parallel
@@ -6816,6 +6926,11 @@ class LocalFciDrbEBRhs:
             else Ve_Ti_force_complete_term
         )
         Ve_electrostatic_term = Ve_phi_force_term + Ve_Ti_force_term
+        vorticity_current_term = (
+            (bmag * bmag / density_safe) * vorticity_current_flux_divergence
+        )
+        if self.parallel_current_phi_pair == "suppressed":
+            vorticity_current_term = jnp.zeros_like(vorticity_current_term)
         Ve_pressure_term = -mi_over_me * grad_parallel_Pe / n_face_safe
         Ve_thermal_force_term = -0.71 * mi_over_me * grad_parallel_Te
         curvature_outputs = self._curvature_rhs_contributions(
@@ -6966,7 +7081,7 @@ class LocalFciDrbEBRhs:
         vorticity_rhs = (
             -(poisson_vorticity / rho_star)
             + vorticity_parallel_advection
-            + (bmag * bmag / density_safe) * vorticity_current_flux_divergence
+            + vorticity_current_term
             + curvature_vorticity_contribution
             + vorticity_diff
             + vorticity_parallel_diff
@@ -7112,8 +7227,7 @@ class LocalFciDrbEBRhs:
                 (
                     nonparallel(-(poisson_vorticity / rho_star)),
                     vorticity_parallel_advection,
-                    (bmag * bmag / density_safe)
-                    * vorticity_current_flux_divergence,
+                    vorticity_current_term,
                     nonparallel(curvature_vorticity_contribution),
                     nonparallel(vorticity_diff),
                     vorticity_parallel_diff,
@@ -7206,8 +7320,7 @@ class LocalFciDrbEBRhs:
             )
             vorticity_rhs = (
                 vorticity_parallel_advection
-                + (bmag * bmag / density_safe)
-                * vorticity_current_flux_divergence
+                + vorticity_current_term
                 + vorticity_parallel_diff
             )
             result = self._restrict_fine_state(FciDrbEBState(

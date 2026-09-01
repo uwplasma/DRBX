@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import ast
+import os
 from pathlib import Path
 import sys
 
@@ -12,8 +13,29 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from drbx.geometry import HaloLayout3D, LocalCurvatureFaceCoefficients3D
+from drbx.native.fci_drb_EB_rhs import (
+    _select_characteristic_sat_current_divergence,
+)
+
 
 DRIVER = Path(__file__).resolve().parents[1] / "simulate_hsx_blob.py"
+
+
+@pytest.fixture(autouse=True)
+def _restore_drbx_environment():
+    """Keep runtime-selector exports local to each driver contract test."""
+
+    original = {
+        key: value for key, value in os.environ.items() if key.startswith("DRBX_")
+    }
+    try:
+        yield
+    finally:
+        for key in tuple(os.environ):
+            if key.startswith("DRBX_"):
+                os.environ.pop(key, None)
+        os.environ.update(original)
 
 
 def _driver_module():
@@ -60,6 +82,8 @@ def test_parser_owns_production_and_sat_selectors():
     assert args.parallel_boundary_pairing == "current-phi"
     assert args.parallel_short_leg_treatment == "explicit"
     assert args.parallel_short_leg_selection == "cfl"
+    assert args.characteristic_sat_affine_current_lift == "enabled"
+    assert args.parallel_current_phi_pair == "enabled"
     boundary_action = next(
         action
         for action in driver._build_parser()._actions
@@ -124,6 +148,86 @@ def test_fresh_production_trajectory_accepts_characteristic_sat():
     driver._validate_flux_framework(args)
     driver._configure_runtime_selectors(args)
     assert driver.os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] == "characteristic-sat"
+
+
+def test_characteristic_sat_affine_current_lift_ablation_is_exact_and_exported(
+    monkeypatch,
+):
+    homogeneous = jnp.asarray((1.0, -2.0), dtype=jnp.float64)
+    affine = jnp.asarray((0.25, 3.0), dtype=jnp.float64)
+    np.testing.assert_array_equal(
+        _select_characteristic_sat_current_divergence(
+            homogeneous + affine, homogeneous, affine_lift="enabled"
+        ),
+        homogeneous + affine,
+    )
+    np.testing.assert_array_equal(
+        _select_characteristic_sat_current_divergence(
+            homogeneous + affine, homogeneous, affine_lift="suppressed"
+        ),
+        homogeneous,
+    )
+
+    driver = _driver_module()
+    monkeypatch.delenv(
+        "DRBX_CHARACTERISTIC_SAT_AFFINE_CURRENT_LIFT", raising=False
+    )
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--characteristic-sat-affine-current-lift",
+        "suppressed",
+    )
+    driver._validate_flux_framework(args)
+    driver._configure_runtime_selectors(args)
+    assert driver.os.environ[
+        "DRBX_CHARACTERISTIC_SAT_AFFINE_CURRENT_LIFT"
+    ] == "suppressed"
+
+
+def test_characteristic_sat_affine_current_lift_rejects_non_sat_path():
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--characteristic-sat-affine-current-lift",
+        "suppressed",
+    )
+    with pytest.raises(ValueError, match="characteristic-sat"):
+        driver._validate_flux_framework(args)
+
+
+def test_parallel_current_phi_pair_suppression_is_exported_and_paired(
+    monkeypatch,
+):
+    driver = _driver_module()
+    monkeypatch.delenv("DRBX_PARALLEL_CURRENT_PHI_PAIR", raising=False)
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-current-phi-pair",
+        "suppressed",
+    )
+    driver._validate_flux_framework(args)
+    driver._configure_runtime_selectors(args)
+    assert driver.os.environ["DRBX_PARALLEL_CURRENT_PHI_PAIR"] == "suppressed"
+
+    source = (DRIVER.parent / "src/drbx/native/fci_drb_EB_rhs.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'self.parallel_current_phi_pair == "suppressed"' in source
+    assert "Ve_phi_force_term = jnp.zeros_like(Ve_phi_force_term)" in source
+    assert "vorticity_current_term = jnp.zeros_like(vorticity_current_term)" in source
+
+
+def test_parallel_current_phi_pair_suppression_rejects_nonproduction_path():
+    driver = _driver_module()
+    args = driver._build_parser().parse_args(
+        ("--parallel-current-phi-pair", "suppressed")
+    )
+    with pytest.raises(ValueError, match="production support-core"):
+        driver._validate_flux_framework(args)
 
 
 def test_fresh_production_trajectory_rejects_legacy_boundary_pairing():
@@ -392,15 +496,86 @@ def test_frozen_rhs_replay_exposes_eager_no_outer_compile_mode():
     driver = _driver_module()
     parser = driver._build_parser()
     args = parser.parse_args(())
-    assert args.rhs_replay_execution == "compiled"
+    assert args.rhs_replay_execution == "auto"
     action = next(
         action for action in parser._actions
         if action.dest == "rhs_replay_execution"
     )
-    assert tuple(action.choices) == ("compiled", "eager")
+    assert tuple(action.choices) == ("auto", "compiled", "eager")
     source = DRIVER.read_text(encoding="utf-8")
     assert "with jax.disable_jit(rhs_replay_execution == \"eager\")" in source
     assert "else replay_sharded" in source
+
+
+def test_short_work_auto_selects_eager_and_production_batches_compile():
+    driver = _driver_module()
+    assert driver._resolve_execution_mode("auto", work_items=1) == "eager"
+    assert driver._resolve_execution_mode("auto", work_items=20) == "eager"
+    assert driver._resolve_execution_mode("auto", work_items=99) == "eager"
+    assert driver._resolve_execution_mode("auto", work_items=100) == "compiled"
+    assert driver._resolve_execution_mode("auto", work_items=600) == "compiled"
+    assert driver._resolve_execution_mode("eager", work_items=20) == "eager"
+    assert driver._resolve_execution_mode("compiled", work_items=1) == "compiled"
+    with pytest.raises(ValueError, match="positive work_items"):
+        driver._resolve_execution_mode("auto", work_items=0)
+
+
+def test_time_advance_exposes_true_eager_mode_and_auto_default():
+    driver = _driver_module()
+    parser = driver._build_parser()
+    args = parser.parse_args(())
+    assert args.advance_execution == "auto"
+    action = next(
+        action for action in parser._actions if action.dest == "advance_execution"
+    )
+    assert tuple(action.choices) == ("auto", "compiled", "eager")
+    source = DRIVER.read_text(encoding="utf-8")
+    assert "with jax.disable_jit(advance_execution == \"eager\")" in source
+    assert "compiled_advance = sharded_advance" in source
+
+
+def test_eager_advance_keeps_cell_centered_setup_kernels_compiled():
+    source = DRIVER.read_text(encoding="utf-8")
+    assert "curvature_face_setup = jax.jit(" in source
+    assert "reconstruct_phi = jax.jit(" in source
+    assert "jax.device_put(\n            np.asarray(value" in source
+
+
+def test_restart_phi_reuse_flag_is_not_shadowed_by_setup_kernel():
+    tree = ast.parse(DRIVER.read_text(encoding="utf-8"))
+    run_full_eb = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "run_full_eb"
+    )
+    argument_names = {
+        argument.arg
+        for argument in (*run_full_eb.args.args, *run_full_eb.args.kwonlyargs)
+    }
+    nested_function_names = {
+        node.name
+        for node in run_full_eb.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    assert "reconstruct_initial_phi" in argument_names
+    assert "reconstruct_initial_phi" not in nested_function_names
+    assert "reconstruct_initial_phi_kernel" in nested_function_names
+
+
+def test_invariant_curvature_faces_round_trip_through_cell_channels():
+    driver = _driver_module()
+    layout = HaloLayout3D((3, 4, 5), halo_width=2)
+    coefficients = LocalCurvatureFaceCoefficients3D(
+        layout=layout,
+        x=jnp.arange(4 * 4 * 5, dtype=jnp.float64).reshape(4, 4, 5),
+        y=(1000.0 + jnp.arange(3 * 5 * 5, dtype=jnp.float64)).reshape(3, 5, 5),
+        z=(2000.0 + jnp.arange(3 * 4 * 6, dtype=jnp.float64)).reshape(3, 4, 6),
+    )
+    packed = driver._pack_curvature_face_coefficients(coefficients)
+    assert packed.shape == (3, 4, 5, 6)
+    recovered = driver._unpack_curvature_face_coefficients(packed, layout)
+    for actual, expected in zip(recovered.axes, coefficients.axes, strict=True):
+        np.testing.assert_array_equal(actual, expected)
 
 
 def test_run_full_eb_reconstructs_phi_after_short_leg_implicit_step():
